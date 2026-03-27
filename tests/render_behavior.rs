@@ -1,36 +1,32 @@
 use opencat::{
     Composition, FrameCtx, Node, component,
-    nodes::{AlignItems, AbsoluteFill, FlexBox, FlexDirection, JustifyContent, Text},
+    nodes::{AlignItems, AbsoluteFill, JustifyContent, Text},
     render::render_frame_rgb,
-    view::IntoNode,
 };
 use skia_safe::Color;
 
 #[component]
 fn text_scene(ctx: &FrameCtx) -> Node {
-    let label = format!("Frame {}", ctx.frame);
-
     AbsoluteFill::new()
-        .bg(Color::WHITE)
-        .justify_center()
-        .align_center()
-        .child(Text::new(label).font_size(96.0).color(Color::BLACK).into_node())
-        .into_node()
+        .background_color(Color::WHITE)
+        .justify_content(JustifyContent::Center)
+        .align_items(AlignItems::Center)
+        .child(
+            Text::new(format!("Frame {}", ctx.frame))
+                .font_size(96.0)
+                .color(Color::BLACK),
+        )
+        .into()
 }
 
 #[component]
 fn flex_scene(_ctx: &FrameCtx) -> Node {
     AbsoluteFill::new()
-        .bg(Color::WHITE)
-        .child(
-            FlexBox::new()
-                .direction(FlexDirection::Row)
-                .justify_content(JustifyContent::Center)
-                .align_items(AlignItems::Center)
-                .child(Text::new("A").font_size(72.0).color(Color::BLACK).into_node())
-                .into_node(),
-        )
-        .into_node()
+        .background_color(Color::WHITE)
+        .justify_content(JustifyContent::Center)
+        .align_items(AlignItems::Center)
+        .child(Text::new("A").font_size(72.0).color(Color::BLACK))
+        .into()
 }
 
 #[test]

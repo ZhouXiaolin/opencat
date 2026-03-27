@@ -28,6 +28,38 @@ fn flex_scene(_ctx: &FrameCtx) -> Node {
         .into()
 }
 
+#[component]
+fn title(_ctx: &FrameCtx, title: String) -> Node {
+    Text::new(title).text_px(96.0).text_black().into()
+}
+
+#[component]
+fn prop_component_scene(_ctx: &FrameCtx) -> Node {
+    Div::new()
+        .bg_white()
+        .justify_content(JustifyContent::Center)
+        .align_items(AlignItems::Center)
+        .child(title(String::from("Hello Props")))
+        .into()
+}
+
+#[component]
+fn opacity_scene(_ctx: &FrameCtx) -> Node {
+    Div::new()
+        .bg_white()
+        .child(
+            Div::new()
+                .absolute()
+                .left(270.0)
+                .top(130.0)
+                .w(100.0)
+                .h(100.0)
+                .bg_red()
+                .opacity(0.5),
+        )
+        .into()
+}
+
 #[test]
 fn text_scene_should_draw_non_white_pixels() -> anyhow::Result<()> {
     let composition = Composition::new("text_scene")
@@ -88,6 +120,52 @@ fn flex_scene_should_draw_near_center() -> anyhow::Result<()> {
     assert!(
         (content_cy - frame_cy).abs() < h as f32 * 0.35,
         "expected flex content y-center to be near frame center",
+    );
+    Ok(())
+}
+
+#[test]
+fn prop_component_scene_should_render_passed_text() -> anyhow::Result<()> {
+    let composition = Composition::new("prop_component_scene")
+        .size(640, 360)
+        .fps(30)
+        .frames(1)
+        .root(prop_component_scene)
+        .build()?;
+
+    let rgb = render_frame_rgb(&composition, 0)?;
+    let has_non_white = rgb.chunks_exact(3).any(|px| px != [255, 255, 255]);
+
+    assert!(
+        has_non_white,
+        "expected prop-driven component rendering to produce non-white pixels",
+    );
+    Ok(())
+}
+
+#[test]
+fn opacity_scene_should_blend_with_background() -> anyhow::Result<()> {
+    let composition = Composition::new("opacity_scene")
+        .size(640, 360)
+        .fps(30)
+        .frames(1)
+        .root(opacity_scene)
+        .build()?;
+
+    let rgb = render_frame_rgb(&composition, 0)?;
+    let idx = (180usize * 640usize + 320usize) * 3;
+    let pixel = &rgb[idx..idx + 3];
+
+    assert_eq!(pixel[0], 255, "expected red channel to stay fully saturated");
+    assert!(
+        (120..=135).contains(&pixel[1]),
+        "expected green channel to be blended near half opacity, got {}",
+        pixel[1]
+    );
+    assert!(
+        (120..=135).contains(&pixel[2]),
+        "expected blue channel to be blended near half opacity, got {}",
+        pixel[2]
     );
     Ok(())
 }

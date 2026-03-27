@@ -4,8 +4,16 @@ use opencat::{
 };
 
 #[component]
+fn title(_ctx: &FrameCtx, title: String,opacity:f32) -> Node {
+    Text::new(title)
+    .opacity(opacity)
+    .text_px(72.0).into()
+}
+
+#[component]
 fn style_inheritance_demo(_ctx: &FrameCtx) -> Node {
     let current_frame = _ctx.frame;
+    let opacity = (current_frame as f32 / 30.0).min(1.0);
     Div::new()
         .flex_col()
         .justify_center()
@@ -23,7 +31,7 @@ fn style_inheritance_demo(_ctx: &FrameCtx) -> Node {
                 .rounded_full()
                 .bg_green()
         )
-        .child(Text::new(&format!("Frame: {}", current_frame)))
+        .child(title(format!("Frame: {}", current_frame), opacity))
         .child(Text::new("B").text_px(48.0))
         .child(Text::new("C").text_red())
         .into()

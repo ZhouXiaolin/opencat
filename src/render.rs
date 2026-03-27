@@ -21,6 +21,7 @@ use crate::{
     Composition, FrameCtx,
     nodes::{Div, AlignItems, JustifyContent, Position, Text},
     style::ComputedTextStyle,
+    view::ComponentNode,
 };
 
 /// Trait for drawing a node at a given position.
@@ -259,6 +260,7 @@ pub fn render_frame_rgb(composition: &Composition, frame_index: u32) -> Result<V
 
 struct LayoutPayload {
     drawer: Arc<dyn Drawer>,
+    opacity: f32,
 }
 
 // Manual Clone implementation since Arc<dyn Drawer> doesn't auto-derive Clone
@@ -266,6 +268,7 @@ impl Clone for LayoutPayload {
     fn clone(&self) -> Self {
         Self {
             drawer: Arc::clone(&self.drawer),
+            opacity: self.opacity,
         }
     }
 }
@@ -292,6 +295,11 @@ fn build_taffy_subtree(
     frame_ctx: &FrameCtx,
     inherited_style: &ComputedTextStyle,
 ) -> Result<taffy::NodeId> {
+    if let Some(component) = node.as_any().downcast_ref::<ComponentNode>() {
+        let resolved = component.render(frame_ctx);
+        return build_taffy_subtree(taffy, &resolved, frame_ctx, inherited_style);
+    }
+
     if let Some(div) = node.as_any().downcast_ref::<Div>() {
         let next_style = div.resolve_text_style(inherited_style);
         let mut children = Vec::new();
@@ -410,6 +418,7 @@ fn build_taffy_subtree(
             id,
             Some(LayoutPayload {
                 drawer: Arc::new(DivDrawer { div: div.clone() }),
+                opacity: node_style.opacity.unwrap_or(1.0),
             }),
         )?;
         return Ok(id);
@@ -435,6 +444,7 @@ fn build_taffy_subtree(
                     text: Arc::new(text.clone()),
                     computed_style: text.resolve_text_style(inherited_style),
                 }),
+                opacity: node_style.opacity.unwrap_or(1.0),
             }),
         )?;
         return Ok(id);
@@ -466,12 +476,28 @@ fn paint_subtree(
     let rect = Rect::from_xywh(layout.location.x, layout.location.y, layout.size.width, layout.size.height);
 
     if let Some(payload) = taffy.get_node_context(node_id) {
-        payload.drawer.draw(canvas, rect);
-    }
+        if payload.opacity <= 0.0 {
+            return Ok(());
+        }
 
-    let children = taffy.children(node_id)?;
-    for child in children {
-        paint_subtree(taffy, child, canvas)?;
+        let uses_layer = payload.opacity < 1.0;
+        if uses_layer {
+            let alpha = (payload.opacity * 255.0).round() as u32;
+            canvas.save_layer_alpha(rect, alpha);
+        }
+
+        payload.drawer.draw(canvas, rect);
+
+        let children = taffy.children(node_id)?;
+        for child in children {
+            paint_subtree(taffy, child, canvas)?;
+        }
+
+        if uses_layer {
+            canvas.restore();
+        }
+
+        return Ok(());
     }
 
     Ok(())

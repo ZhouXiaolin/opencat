@@ -99,6 +99,7 @@ pub struct NodeStyle {
     pub flex_grow: Option<f32>,
 
     // Visual
+    pub opacity: Option<f32>,
     pub bg_color: Option<ColorToken>,
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
@@ -354,6 +355,11 @@ macro_rules! impl_node_style_api {
             }
 
             // === Visual: Border Radius ===
+            pub fn opacity(mut self, opacity: f32) -> Self {
+                self.style.opacity = Some(opacity.clamp(0.0, 1.0));
+                self
+            }
+
             pub fn rounded(mut self, radius: f32) -> Self {
                 self.style.border_radius = Some(radius);
                 self

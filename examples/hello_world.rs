@@ -1,20 +1,21 @@
 use opencat::{
     Composition, EncodingConfig, FrameCtx, Node, component,
-    nodes::{AbsoluteFill, AlignItems, JustifyContent, Text},
+    nodes::{AbsoluteFill, Text},
 };
-use skia_safe::Color;
 
 #[component]
-fn hello_world(ctx: &FrameCtx) -> Node {
+fn style_inheritance_demo(_ctx: &FrameCtx) -> Node {
+    let current_frame = _ctx.frame;
     AbsoluteFill::new()
-        .justify_content(JustifyContent::Center)
-        .align_items(AlignItems::Center)
-        .background_color(Color::WHITE)
-        .child(
-            Text::new(format!("The current frame is {}", ctx.frame))
-                .font_size(100.0)
-                .color(Color::BLACK),
-        )
+        .flex_col()
+        .justify_evenly()
+        .items_center()
+        .bg_white()
+        .text_black()
+        .text_px(100.0)
+        .child(Text::new(&format!("Frame: {}", current_frame)))
+        .child(Text::new("B").text_px(48.0))
+        .child(Text::new("C").text_red())
         .into()
 }
 
@@ -22,8 +23,8 @@ fn main() -> anyhow::Result<()> {
     let composition = Composition::new("hello_world")
         .size(1280, 720)
         .fps(30)
-        .frames(150)
-        .root(hello_world)
+        .frames(90)
+        .root(style_inheritance_demo)
         .build()?;
 
     let encode_config = EncodingConfig::default();

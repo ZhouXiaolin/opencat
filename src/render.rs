@@ -13,13 +13,13 @@ use ffmpeg_next::{
 use skia_safe::{AlphaType, ColorType, ImageInfo, Rect, image::CachingHint, surfaces};
 use taffy::{
     AvailableSpace, TaffyTree,
-    prelude::{Dimension, JustifyContent as TaffyJustifyContent, Style},
+    prelude::{Dimension, JustifyContent as TaffyJustifyContent, LengthPercentage, Style},
 };
 
 use crate::{
     Composition, FrameCtx,
     nodes::{AbsoluteFill, AlignItems, JustifyContent, Text},
-    view::TextStyle,
+    style::{ColorToken, ComputedTextStyle, FlexDirection},
 };
 
 pub struct EncodingConfig {
@@ -219,22 +219,21 @@ pub fn render_frame_rgb(composition: &Composition, frame_index: u32) -> Result<V
 #[derive(Clone)]
 struct LayoutPayload {
     draw_kind: DrawKind,
-    text_style: TextStyle,
 }
 
 #[derive(Clone)]
 enum DrawKind {
-    AbsoluteFill { background: skia_safe::Color },
+    AbsoluteFill { background: ColorToken },
     Text {
         text: String,
-        color: skia_safe::Color,
+        color: ColorToken,
         font_size: f32,
     },
 }
 
 fn draw_with_taffy(node: &crate::Node, frame_ctx: &FrameCtx, canvas: &skia_safe::Canvas) -> Result<()> {
     let mut taffy: TaffyTree<LayoutPayload> = TaffyTree::new();
-    let root = build_taffy_subtree(&mut taffy, node, frame_ctx, &TextStyle::default())?;
+    let root = build_taffy_subtree(&mut taffy, node, frame_ctx, &ComputedTextStyle::default())?;
 
     taffy.compute_layout(
         root,
@@ -252,24 +251,29 @@ fn build_taffy_subtree(
     taffy: &mut TaffyTree<LayoutPayload>,
     node: &crate::Node,
     frame_ctx: &FrameCtx,
-    inherited_style: &TextStyle,
+    inherited_style: &ComputedTextStyle,
 ) -> Result<taffy::NodeId> {
     if let Some(fill) = node.as_any().downcast_ref::<AbsoluteFill>() {
         let next_style = fill.resolve_text_style(inherited_style);
         let mut children = Vec::new();
-
-        if let Some(child) = fill.child_ref() {
+        for child in fill.children_ref() {
             children.push(build_taffy_subtree(taffy, child, frame_ctx, &next_style)?);
         }
 
+        let node_style = fill.style_ref();
         let style = Style {
             display: taffy::prelude::Display::Flex,
+            flex_direction: map_flex_direction(node_style.flex_direction),
+            justify_content: node_style.justify_content.map(map_justify),
+            align_items: node_style.align_items.map(map_align),
+            gap: taffy::geometry::Size {
+                width: taffy::style::LengthPercentage::Length(node_style.gap.unwrap_or(0.0)),
+                height: taffy::style::LengthPercentage::Length(node_style.gap.unwrap_or(0.0)),
+            },
             size: taffy::geometry::Size {
                 width: Dimension::Percent(1.0),
                 height: Dimension::Percent(1.0),
             },
-            justify_content: Some(map_justify(fill.justify_content_value())),
-            align_items: Some(map_align(fill.align_items_value())),
             ..Default::default()
         };
 
@@ -280,7 +284,6 @@ fn build_taffy_subtree(
                 draw_kind: DrawKind::AbsoluteFill {
                     background: fill.background_color_value(),
                 },
-                text_style: next_style,
             }),
         )?;
         return Ok(id);
@@ -288,7 +291,9 @@ fn build_taffy_subtree(
 
     if let Some(text) = node.as_any().downcast_ref::<Text>() {
         let size = text.measured_size(inherited_style);
+        let node_style = text.style_ref();
         let style = Style {
+            flex_grow: node_style.flex_grow.unwrap_or(0.0),
             size: taffy::geometry::Size {
                 width: Dimension::Length(size.0),
                 height: Dimension::Length(size.1),
@@ -304,13 +309,19 @@ fn build_taffy_subtree(
                     color: text.resolved_color(inherited_style),
                     font_size: text.resolved_font_size(inherited_style),
                 },
-                text_style: *inherited_style,
             }),
         )?;
         return Ok(id);
     }
 
     Err(anyhow!("unknown node type encountered while building layout tree"))
+}
+
+fn map_flex_direction(value: Option<crate::style::FlexDirection>) -> taffy::prelude::FlexDirection {
+    match value {
+        None | Some(crate::style::FlexDirection::Row) => taffy::prelude::FlexDirection::Row,
+        Some(crate::style::FlexDirection::Col) => taffy::prelude::FlexDirection::Column,
+    }
 }
 
 fn paint_subtree(
@@ -325,7 +336,7 @@ fn paint_subtree(
         match payload.draw_kind.clone() {
             DrawKind::AbsoluteFill { background } => {
                 let mut paint = skia_safe::Paint::default();
-                paint.set_color(background);
+                paint.set_color(background.to_skia());
                 paint.set_anti_alias(true);
                 canvas.draw_rect(rect, &paint);
             }
@@ -334,8 +345,7 @@ fn paint_subtree(
                 color,
                 font_size,
             } => {
-                let text_node = Text::new(text).color(color).font_size(font_size);
-                text_node.draw_at(canvas, rect.left, rect.top, &payload.text_style);
+                Text::draw_resolved(canvas, rect.left, rect.top, text, color, font_size);
             }
         }
     }
@@ -352,6 +362,10 @@ fn map_justify(value: JustifyContent) -> TaffyJustifyContent {
     match value {
         JustifyContent::Start => TaffyJustifyContent::FlexStart,
         JustifyContent::Center => TaffyJustifyContent::Center,
+        JustifyContent::End => TaffyJustifyContent::FlexEnd,
+        JustifyContent::Between => TaffyJustifyContent::SpaceBetween,
+        JustifyContent::Around => TaffyJustifyContent::SpaceAround,
+        JustifyContent::Evenly => TaffyJustifyContent::SpaceEvenly,
     }
 }
 
@@ -359,6 +373,8 @@ fn map_align(value: AlignItems) -> taffy::prelude::AlignItems {
     match value {
         AlignItems::Start => taffy::prelude::AlignItems::FlexStart,
         AlignItems::Center => taffy::prelude::AlignItems::Center,
+        AlignItems::End => taffy::prelude::AlignItems::FlexEnd,
+        AlignItems::Stretch => taffy::prelude::AlignItems::Stretch,
     }
 }
 

@@ -1,36 +1,27 @@
 use std::any::Any;
 
-use skia_safe::{Canvas, Color, Font, FontMgr, FontStyle, Paint, Rect};
+use skia_safe::{Canvas, Font, FontMgr, FontStyle, Paint, Rect};
 
-use crate::{FrameCtx, ViewNode, view::TextStyle};
+use crate::{
+    FrameCtx, ViewNode,
+    style::{ColorToken, ComputedTextStyle, NodeStyle, impl_node_style_api, resolve_text_style},
+};
 
 pub struct Text {
     text: String,
-    color: Option<Color>,
-    font_size: Option<f32>,
+    pub(crate) style: NodeStyle,
 }
 
 impl Text {
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            color: None,
-            font_size: None,
+            style: NodeStyle::default(),
         }
     }
 
-    pub fn color(mut self, color: Color) -> Self {
-        self.color = Some(color);
-        self
-    }
-
-    pub fn font_size(mut self, font_size: f32) -> Self {
-        self.font_size = Some(font_size);
-        self
-    }
-
-    fn make_font(&self, text_style: &TextStyle) -> Font {
-        let font_size = self.font_size.unwrap_or(text_style.font_size);
+    fn make_font(&self, computed_style: &ComputedTextStyle) -> Font {
+        let font_size = self.resolve_text_style(computed_style).text_px;
         let font_mgr = FontMgr::new();
         if let Some(typeface) = font_mgr.legacy_make_typeface(None, FontStyle::normal()) {
             Font::new(typeface, font_size)
@@ -45,42 +36,72 @@ impl Text {
         &self.text
     }
 
-    pub fn resolved_color(&self, text_style: &TextStyle) -> Color {
-        self.color.unwrap_or(text_style.color)
+    pub fn style_ref(&self) -> &NodeStyle {
+        &self.style
     }
 
-    pub fn resolved_font_size(&self, text_style: &TextStyle) -> f32 {
-        self.font_size.unwrap_or(text_style.font_size)
+    pub fn resolve_text_style(&self, inherited: &ComputedTextStyle) -> ComputedTextStyle {
+        resolve_text_style(inherited, &self.style)
     }
 
-    pub fn measured_size(&self, text_style: &TextStyle) -> (f32, f32) {
-        let font = self.make_font(text_style);
+    pub fn resolved_color(&self, computed_style: &ComputedTextStyle) -> ColorToken {
+        self.resolve_text_style(computed_style).color
+    }
+
+    pub fn resolved_font_size(&self, computed_style: &ComputedTextStyle) -> f32 {
+        self.resolve_text_style(computed_style).text_px
+    }
+
+    pub fn measured_size(&self, computed_style: &ComputedTextStyle) -> (f32, f32) {
+        let font = self.make_font(computed_style);
         let (width, bounds) = font.measure_str(&self.text, None);
         (width.max(1.0), bounds.height().max(1.0))
     }
 
-    pub fn draw_at(&self, canvas: &Canvas, left: f32, top: f32, text_style: &TextStyle) {
+    pub fn draw_at(&self, canvas: &Canvas, left: f32, top: f32, computed_style: &ComputedTextStyle) {
         let mut paint = Paint::default();
-        paint.set_color(self.resolved_color(text_style));
+        paint.set_color(self.resolved_color(computed_style).to_skia());
         paint.set_anti_alias(true);
 
-        let font = self.make_font(text_style);
+        let font = self.make_font(computed_style);
         let (_, bounds) = font.measure_str(&self.text, None);
         let baseline = top - bounds.top;
         canvas.draw_str(&self.text, (left, baseline), &font, &paint);
     }
+
+    pub(crate) fn draw_resolved(
+        canvas: &Canvas,
+        left: f32,
+        top: f32,
+        text: impl Into<String>,
+        color: ColorToken,
+        font_size: f32,
+    ) {
+        let text_node = Text::new(text);
+        let style = ComputedTextStyle {
+            text_px: font_size,
+            color,
+        };
+        text_node.draw_at(canvas, left, top, &style);
+    }
 }
+
+impl_node_style_api!(Text);
 
 impl ViewNode for Text {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn intrinsic_size(&self, _ctx: &FrameCtx, text_style: &TextStyle) -> Option<(f32, f32)> {
-        Some(self.measured_size(text_style))
+    fn style_ref(&self) -> &NodeStyle {
+        &self.style
     }
 
-    fn draw(&self, _ctx: &FrameCtx, canvas: &Canvas, bounds: Rect, text_style: &TextStyle) {
-        self.draw_at(canvas, bounds.left, bounds.top, text_style);
+    fn intrinsic_size(&self, _ctx: &FrameCtx, computed_style: &ComputedTextStyle) -> Option<(f32, f32)> {
+        Some(self.measured_size(computed_style))
+    }
+
+    fn draw(&self, _ctx: &FrameCtx, canvas: &Canvas, bounds: Rect, computed_style: &ComputedTextStyle) {
+        self.draw_at(canvas, bounds.left, bounds.top, computed_style);
     }
 }

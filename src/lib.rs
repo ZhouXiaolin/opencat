@@ -2,6 +2,7 @@ pub mod composition;
 pub mod frame_ctx;
 pub mod nodes;
 pub mod render;
+pub mod style;
 pub mod view;
 
 pub use composition::Composition;

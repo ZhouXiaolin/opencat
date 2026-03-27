@@ -1,7 +1,7 @@
 use std::{any::Any, ops::Deref, sync::Arc};
 
-use crate::FrameCtx;
-use skia_safe::{Canvas, Color, Rect};
+use crate::{FrameCtx, style::{ComputedTextStyle, NodeStyle}};
+use skia_safe::{Canvas, Rect};
 
 #[derive(Clone)]
 pub struct Node(Arc<dyn ViewNode>);
@@ -32,27 +32,18 @@ impl Deref for Node {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TextStyle {
-    pub font_size: f32,
-    pub color: Color,
-}
-
-impl Default for TextStyle {
-    fn default() -> Self {
-        Self {
-            font_size: 16.0,
-            color: Color::BLACK,
-        }
-    }
-}
-
 pub trait ViewNode: Send + Sync {
     fn as_any(&self) -> &dyn Any;
 
-    fn intrinsic_size(&self, _ctx: &FrameCtx, _text_style: &TextStyle) -> Option<(f32, f32)> {
+    fn style_ref(&self) -> &NodeStyle;
+
+    fn intrinsic_size(
+        &self,
+        _ctx: &FrameCtx,
+        _computed_style: &ComputedTextStyle,
+    ) -> Option<(f32, f32)> {
         None
     }
 
-    fn draw(&self, ctx: &FrameCtx, canvas: &Canvas, bounds: Rect, text_style: &TextStyle);
+    fn draw(&self, ctx: &FrameCtx, canvas: &Canvas, bounds: Rect, computed_style: &ComputedTextStyle);
 }

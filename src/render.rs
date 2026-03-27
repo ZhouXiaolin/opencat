@@ -10,7 +10,10 @@ use ffmpeg_next::{
     software::scaling::{context::Context as ScalingContext, flag::Flags as ScalingFlags},
     util::{format::pixel::Pixel, frame::video::Video, rational::Rational},
 };
-use skia_safe::{AlphaType, Canvas, ColorType, ImageInfo, Rect, image::CachingHint, surfaces};
+use skia_safe::{
+    AlphaType, Canvas, ColorType, ImageInfo, Paint, PaintStyle, RRect, Rect, image::CachingHint,
+    surfaces,
+};
 use taffy::{
     AvailableSpace, TaffyTree,
     prelude::{Dimension, JustifyContent as TaffyJustifyContent, Style},
@@ -19,7 +22,7 @@ use taffy::{
 use crate::{
     Composition, FrameCtx,
     nodes::{AlignItems, Div, JustifyContent, Position, Text},
-    style::ComputedTextStyle,
+    style::{ComputedTextStyle, Transform},
     view::ComponentNode,
 };
 
@@ -59,12 +62,44 @@ struct DivDrawer {
 
 impl Drawer for DivDrawer {
     fn draw(&self, canvas: &Canvas, bounds: Rect) {
-        let mut paint = skia_safe::Paint::default();
+        let bg_color = self.div.style.bg_color;
+        let border_radius = self.div.style.border_radius.unwrap_or(0.0);
+        let border_width = self.div.style.border_width;
+        let border_color = self.div.style.border_color;
+
+        if bg_color.is_none() && border_width.is_none() {
+            return;
+        }
+
+        let mut paint = Paint::default();
         paint.set_anti_alias(true);
 
-        if let Some(color) = self.div.style.bg_color {
-            paint.set_color(color.to_skia());
-            canvas.draw_rect(bounds, &paint);
+        if border_radius > 0.0 {
+            let rrect = RRect::new_rect_xy(bounds, border_radius, border_radius);
+
+            if let Some(color) = bg_color {
+                paint.set_color(color.to_skia());
+                canvas.draw_rrect(rrect, &paint);
+            }
+
+            if let (Some(width), Some(color)) = (border_width, border_color) {
+                paint.set_color(color.to_skia());
+                paint.set_style(PaintStyle::Stroke);
+                paint.set_stroke_width(width);
+                canvas.draw_rrect(rrect, &paint);
+            }
+        } else {
+            if let Some(color) = bg_color {
+                paint.set_color(color.to_skia());
+                canvas.draw_rect(bounds, &paint);
+            }
+
+            if let (Some(width), Some(color)) = (border_width, border_color) {
+                paint.set_color(color.to_skia());
+                paint.set_style(PaintStyle::Stroke);
+                paint.set_stroke_width(width);
+                canvas.draw_rect(bounds, &paint);
+            }
         }
     }
 }
@@ -266,6 +301,7 @@ pub fn render_frame_rgb(composition: &Composition, frame_index: u32) -> Result<V
 struct LayoutPayload {
     drawer: Arc<dyn Drawer>,
     opacity: f32,
+    transforms: Vec<Transform>,
 }
 
 // Manual Clone implementation since Arc<dyn Drawer> doesn't auto-derive Clone
@@ -274,6 +310,7 @@ impl Clone for LayoutPayload {
         Self {
             drawer: Arc::clone(&self.drawer),
             opacity: self.opacity,
+            transforms: self.transforms.clone(),
         }
     }
 }
@@ -294,7 +331,7 @@ fn draw_with_taffy(
         },
     )?;
 
-    paint_subtree(&taffy, root, canvas, 0.0, 0.0)?;
+    paint_subtree(&taffy, root, canvas)?;
     Ok(())
 }
 
@@ -440,6 +477,7 @@ fn build_taffy_subtree(
             Some(LayoutPayload {
                 drawer: Arc::new(DivDrawer { div: div.clone() }),
                 opacity: node_style.opacity.unwrap_or(1.0),
+                transforms: node_style.transforms.clone(),
             }),
         )?;
         return Ok(id);
@@ -466,6 +504,7 @@ fn build_taffy_subtree(
                     computed_style: text.resolve_text_style(inherited_style),
                 }),
                 opacity: node_style.opacity.unwrap_or(1.0),
+                transforms: node_style.transforms.clone(),
             }),
         )?;
         return Ok(id);
@@ -494,21 +533,18 @@ fn paint_subtree(
     taffy: &TaffyTree<LayoutPayload>,
     node_id: taffy::NodeId,
     canvas: &skia_safe::Canvas,
-    parent_x: f32,
-    parent_y: f32,
 ) -> Result<()> {
     let layout = taffy.layout(node_id)?;
-    let rect = Rect::from_xywh(
-        parent_x + layout.location.x,
-        parent_y + layout.location.y,
-        layout.size.width,
-        layout.size.height,
-    );
+    let rect = Rect::from_xywh(0.0, 0.0, layout.size.width, layout.size.height);
 
     if let Some(payload) = taffy.get_node_context(node_id) {
         if payload.opacity <= 0.0 {
             return Ok(());
         }
+
+        canvas.save();
+        canvas.translate((layout.location.x, layout.location.y));
+        apply_transforms(canvas, rect, &payload.transforms);
 
         let uses_layer = payload.opacity < 1.0;
         if uses_layer {
@@ -520,17 +556,75 @@ fn paint_subtree(
 
         let children = taffy.children(node_id)?;
         for child in children {
-            paint_subtree(taffy, child, canvas, rect.left, rect.top)?;
+            paint_subtree(taffy, child, canvas)?;
         }
 
         if uses_layer {
             canvas.restore();
         }
 
+        canvas.restore();
+
         return Ok(());
     }
 
     Ok(())
+}
+
+fn apply_transforms(canvas: &Canvas, bounds: Rect, transforms: &[Transform]) {
+    if transforms.is_empty() {
+        return;
+    }
+
+    let center_x = bounds.width() / 2.0;
+    let center_y = bounds.height() / 2.0;
+
+    for transform in transforms.iter().rev() {
+        match *transform {
+            Transform::TranslateX(x) => {
+                canvas.translate((x, 0.0));
+            }
+            Transform::TranslateY(y) => {
+                canvas.translate((0.0, y));
+            }
+            Transform::Translate(x, y) => {
+                canvas.translate((x, y));
+            }
+            Transform::Scale(value) => {
+                canvas.translate((center_x, center_y));
+                canvas.scale((value, value));
+                canvas.translate((-center_x, -center_y));
+            }
+            Transform::ScaleX(value) => {
+                canvas.translate((center_x, center_y));
+                canvas.scale((value, 1.0));
+                canvas.translate((-center_x, -center_y));
+            }
+            Transform::ScaleY(value) => {
+                canvas.translate((center_x, center_y));
+                canvas.scale((1.0, value));
+                canvas.translate((-center_x, -center_y));
+            }
+            Transform::RotateDeg(deg) => {
+                canvas.rotate(deg, Some((center_x, center_y).into()));
+            }
+            Transform::SkewXDeg(deg) => {
+                canvas.translate((center_x, center_y));
+                canvas.skew((deg.to_radians().tan(), 0.0));
+                canvas.translate((-center_x, -center_y));
+            }
+            Transform::SkewYDeg(deg) => {
+                canvas.translate((center_x, center_y));
+                canvas.skew((0.0, deg.to_radians().tan()));
+                canvas.translate((-center_x, -center_y));
+            }
+            Transform::SkewDeg(x_deg, y_deg) => {
+                canvas.translate((center_x, center_y));
+                canvas.skew((x_deg.to_radians().tan(), y_deg.to_radians().tan()));
+                canvas.translate((-center_x, -center_y));
+            }
+        }
+    }
 }
 
 fn map_justify(value: JustifyContent) -> TaffyJustifyContent {

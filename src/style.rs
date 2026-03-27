@@ -69,8 +69,22 @@ pub enum AlignItems {
     Stretch,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Transform {
+    TranslateX(f32),
+    TranslateY(f32),
+    Translate(f32, f32),
+    Scale(f32),
+    ScaleX(f32),
+    ScaleY(f32),
+    RotateDeg(f32),
+    SkewXDeg(f32),
+    SkewYDeg(f32),
+    SkewDeg(f32, f32),
+}
+
 /// Style context container - carries all possible style info for inheritance
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct NodeStyle {
     // Positioning
     pub position: Option<Position>,
@@ -104,6 +118,7 @@ pub struct NodeStyle {
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    pub transforms: Vec<Transform>,
 
     // Text
     pub text_color: Option<ColorToken>,
@@ -355,6 +370,51 @@ macro_rules! impl_node_style_api {
             pub fn opacity(mut self, opacity: f32) -> Self {
                 self.style.opacity = Some(opacity.clamp(0.0, 1.0));
                 self
+            }
+
+            pub fn transform(mut self, transform: $crate::style::Transform) -> Self {
+                self.style.transforms.push(transform);
+                self
+            }
+
+            pub fn translate_x(self, value: f32) -> Self {
+                self.transform($crate::style::Transform::TranslateX(value))
+            }
+
+            pub fn translate_y(self, value: f32) -> Self {
+                self.transform($crate::style::Transform::TranslateY(value))
+            }
+
+            pub fn translate(self, x: f32, y: f32) -> Self {
+                self.transform($crate::style::Transform::Translate(x, y))
+            }
+
+            pub fn scale(self, value: f32) -> Self {
+                self.transform($crate::style::Transform::Scale(value))
+            }
+
+            pub fn scale_x(self, value: f32) -> Self {
+                self.transform($crate::style::Transform::ScaleX(value))
+            }
+
+            pub fn scale_y(self, value: f32) -> Self {
+                self.transform($crate::style::Transform::ScaleY(value))
+            }
+
+            pub fn rotate_deg(self, value: f32) -> Self {
+                self.transform($crate::style::Transform::RotateDeg(value))
+            }
+
+            pub fn skew_x_deg(self, value: f32) -> Self {
+                self.transform($crate::style::Transform::SkewXDeg(value))
+            }
+
+            pub fn skew_y_deg(self, value: f32) -> Self {
+                self.transform($crate::style::Transform::SkewYDeg(value))
+            }
+
+            pub fn skew_deg(self, x_deg: f32, y_deg: f32) -> Self {
+                self.transform($crate::style::Transform::SkewDeg(x_deg, y_deg))
             }
 
             pub fn rounded(mut self, radius: f32) -> Self {

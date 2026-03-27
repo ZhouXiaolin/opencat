@@ -118,9 +118,60 @@ fn parent_component_calls_child_without_ctx(_ctx: &FrameCtx) -> Node {
         .into()
 }
 
+#[component]
+fn transform_order_scene(_ctx: &FrameCtx) -> Node {
+    Div::new()
+        .bg_white()
+        .child(
+            Div::new()
+                .absolute()
+                .left(120.0)
+                .top(130.0)
+                .w(40.0)
+                .h(40.0)
+                .bg_blue()
+                .translate_x(80.0)
+                .scale(2.0),
+        )
+        .child(
+            Div::new()
+                .absolute()
+                .left(120.0)
+                .top(210.0)
+                .w(40.0)
+                .h(40.0)
+                .bg_pink()
+                .scale(2.0)
+                .translate_x(80.0),
+        )
+        .into()
+}
+
 fn pixel_at(rgb: &[u8], width: usize, x: usize, y: usize) -> [u8; 3] {
     let idx = (y * width + x) * 3;
     [rgb[idx], rgb[idx + 1], rgb[idx + 2]]
+}
+
+fn color_bounds(rgb: &[u8], width: usize, height: usize, color: [u8; 3]) -> Option<[usize; 4]> {
+    let mut min_x = width;
+    let mut min_y = height;
+    let mut max_x = 0usize;
+    let mut max_y = 0usize;
+    let mut found = false;
+
+    for y in 0..height {
+        for x in 0..width {
+            if pixel_at(rgb, width, x, y) == color {
+                found = true;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+
+    found.then_some([min_x, min_y, max_x, max_y])
 }
 
 #[test]
@@ -338,6 +389,37 @@ fn component_can_call_child_component_without_passing_ctx() -> anyhow::Result<()
     assert!(
         has_non_white,
         "expected nested child component to render when called without ctx",
+    );
+
+    Ok(())
+}
+
+#[test]
+fn transform_order_should_change_the_final_position() -> anyhow::Result<()> {
+    let composition = Composition::new("transform_order_scene")
+        .size(640, 360)
+        .fps(30)
+        .frames(1)
+        .root(|_ctx| transform_order_scene())
+        .build()?;
+
+    let rgb = render_frame_rgb(&composition, 0)?;
+    let blue_bounds = color_bounds(&rgb, 640, 360, [59, 130, 246])
+        .expect("expected to find blue pixels for the translated-then-scaled square");
+    let pink_bounds = color_bounds(&rgb, 640, 360, [236, 72, 153])
+        .expect("expected to find pink pixels for the scaled-then-translated square");
+
+    assert!(
+        blue_bounds[1] < pink_bounds[1],
+        "expected the blue square to stay above the pink square",
+    );
+    assert!(
+        blue_bounds[0] > pink_bounds[0],
+        "expected translate().scale() to place the blue square further right than scale().translate(), got blue={blue_bounds:?}, pink={pink_bounds:?}",
+    );
+    assert!(
+        blue_bounds[2] > pink_bounds[2],
+        "expected transform order to change the final right edge, got blue={blue_bounds:?}, pink={pink_bounds:?}",
     );
 
     Ok(())

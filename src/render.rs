@@ -11,8 +11,16 @@ use ffmpeg_next::{
     Dictionary,
 };
 use skia_safe::{AlphaType, ColorType, ImageInfo, Rect, image::CachingHint, surfaces};
+use taffy::{
+    AvailableSpace, TaffyTree,
+    prelude::{Dimension, JustifyContent as TaffyJustifyContent, Style},
+};
 
-use crate::{Composition, FrameCtx};
+use crate::{
+    Composition, FrameCtx,
+    nodes::{AbsoluteFill, AlignItems, JustifyContent, Text},
+    view::TextStyle,
+};
 
 pub struct EncodingConfig {
     pub crf: u8,
@@ -175,13 +183,7 @@ pub fn render_frame_rgb(composition: &Composition, frame_index: u32) -> Result<V
     let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
     let canvas = surface.canvas();
-    let bounds = Rect::from_xywh(
-        0.0,
-        0.0,
-        composition.width as f32,
-        composition.height as f32,
-    );
-    node.draw(&frame_ctx, canvas, bounds);
+    draw_with_taffy(&node, &frame_ctx, canvas)?;
 
     let image = surface.image_snapshot();
     let image_info = ImageInfo::new(
@@ -212,6 +214,152 @@ pub fn render_frame_rgb(composition: &Composition, frame_index: u32) -> Result<V
     }
 
     Ok(rgb)
+}
+
+#[derive(Clone)]
+struct LayoutPayload {
+    draw_kind: DrawKind,
+    text_style: TextStyle,
+}
+
+#[derive(Clone)]
+enum DrawKind {
+    AbsoluteFill { background: skia_safe::Color },
+    Text {
+        text: String,
+        color: skia_safe::Color,
+        font_size: f32,
+    },
+}
+
+fn draw_with_taffy(node: &crate::Node, frame_ctx: &FrameCtx, canvas: &skia_safe::Canvas) -> Result<()> {
+    let mut taffy: TaffyTree<LayoutPayload> = TaffyTree::new();
+    let root = build_taffy_subtree(&mut taffy, node, frame_ctx, &TextStyle::default())?;
+
+    taffy.compute_layout(
+        root,
+        taffy::geometry::Size {
+            width: AvailableSpace::Definite(frame_ctx.width as f32),
+            height: AvailableSpace::Definite(frame_ctx.height as f32),
+        },
+    )?;
+
+    paint_subtree(&taffy, root, canvas)?;
+    Ok(())
+}
+
+fn build_taffy_subtree(
+    taffy: &mut TaffyTree<LayoutPayload>,
+    node: &crate::Node,
+    frame_ctx: &FrameCtx,
+    inherited_style: &TextStyle,
+) -> Result<taffy::NodeId> {
+    if let Some(fill) = node.as_any().downcast_ref::<AbsoluteFill>() {
+        let next_style = fill.resolve_text_style(inherited_style);
+        let mut children = Vec::new();
+
+        if let Some(child) = fill.child_ref() {
+            children.push(build_taffy_subtree(taffy, child, frame_ctx, &next_style)?);
+        }
+
+        let style = Style {
+            display: taffy::prelude::Display::Flex,
+            size: taffy::geometry::Size {
+                width: Dimension::Percent(1.0),
+                height: Dimension::Percent(1.0),
+            },
+            justify_content: Some(map_justify(fill.justify_content_value())),
+            align_items: Some(map_align(fill.align_items_value())),
+            ..Default::default()
+        };
+
+        let id = taffy.new_with_children(style, &children)?;
+        taffy.set_node_context(
+            id,
+            Some(LayoutPayload {
+                draw_kind: DrawKind::AbsoluteFill {
+                    background: fill.background_color_value(),
+                },
+                text_style: next_style,
+            }),
+        )?;
+        return Ok(id);
+    }
+
+    if let Some(text) = node.as_any().downcast_ref::<Text>() {
+        let size = text.measured_size(inherited_style);
+        let style = Style {
+            size: taffy::geometry::Size {
+                width: Dimension::Length(size.0),
+                height: Dimension::Length(size.1),
+            },
+            ..Default::default()
+        };
+        let id = taffy.new_leaf(style)?;
+        taffy.set_node_context(
+            id,
+            Some(LayoutPayload {
+                draw_kind: DrawKind::Text {
+                    text: text.content().to_string(),
+                    color: text.resolved_color(inherited_style),
+                    font_size: text.resolved_font_size(inherited_style),
+                },
+                text_style: *inherited_style,
+            }),
+        )?;
+        return Ok(id);
+    }
+
+    Err(anyhow!("unknown node type encountered while building layout tree"))
+}
+
+fn paint_subtree(
+    taffy: &TaffyTree<LayoutPayload>,
+    node_id: taffy::NodeId,
+    canvas: &skia_safe::Canvas,
+) -> Result<()> {
+    let layout = taffy.layout(node_id)?;
+    let rect = Rect::from_xywh(layout.location.x, layout.location.y, layout.size.width, layout.size.height);
+
+    if let Some(payload) = taffy.get_node_context(node_id) {
+        match payload.draw_kind.clone() {
+            DrawKind::AbsoluteFill { background } => {
+                let mut paint = skia_safe::Paint::default();
+                paint.set_color(background);
+                paint.set_anti_alias(true);
+                canvas.draw_rect(rect, &paint);
+            }
+            DrawKind::Text {
+                text,
+                color,
+                font_size,
+            } => {
+                let text_node = Text::new(text).color(color).font_size(font_size);
+                text_node.draw_at(canvas, rect.left, rect.top, &payload.text_style);
+            }
+        }
+    }
+
+    let children = taffy.children(node_id)?;
+    for child in children {
+        paint_subtree(taffy, child, canvas)?;
+    }
+
+    Ok(())
+}
+
+fn map_justify(value: JustifyContent) -> TaffyJustifyContent {
+    match value {
+        JustifyContent::Start => TaffyJustifyContent::FlexStart,
+        JustifyContent::Center => TaffyJustifyContent::Center,
+    }
+}
+
+fn map_align(value: AlignItems) -> taffy::prelude::AlignItems {
+    match value {
+        AlignItems::Start => taffy::prelude::AlignItems::FlexStart,
+        AlignItems::Center => taffy::prelude::AlignItems::Center,
+    }
 }
 
 fn copy_rgb_to_frame(rgb: &[u8], frame: &mut Video, width: usize, height: usize) {

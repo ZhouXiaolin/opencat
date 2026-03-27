@@ -1,25 +1,21 @@
 use opencat::{
     Composition, EncodingConfig, FrameCtx, Node, component,
-    nodes::{AbsoluteFill, AlignItems, FlexBox, FlexDirection, JustifyContent, Text},
-    view::IntoNode,
+    nodes::{AbsoluteFill, AlignItems, JustifyContent, Text},
 };
 use skia_safe::Color;
 
 #[component]
 fn hello_world(ctx: &FrameCtx) -> Node {
-    let label = format!("The current frame is {}", ctx.frame);
-
     AbsoluteFill::new()
-        .bg(Color::WHITE)
+        .justify_content(JustifyContent::Center)
+        .align_items(AlignItems::Center)
+        .background_color(Color::WHITE)
         .child(
-            FlexBox::new()
-                .direction(FlexDirection::Column)
-                .justify_content(JustifyContent::Center)
-                .align_items(AlignItems::Center)
-                .child(Text::new(label).font_size(84.0).color(Color::BLACK).into_node())
-                .into_node(),
+            Text::new(format!("The current frame is {}", ctx.frame))
+                .font_size(100.0)
+                .color(Color::BLACK),
         )
-        .into_node()
+        .into()
 }
 
 fn main() -> anyhow::Result<()> {

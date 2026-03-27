@@ -467,43 +467,43 @@ macro_rules! impl_node_style_api {
                 self
             }
 
-            pub fn bg_white(mut self) -> Self {
+            pub fn bg_white(self) -> Self {
                 self.bg($crate::style::ColorToken::White)
             }
 
-            pub fn bg_black(mut self) -> Self {
+            pub fn bg_black(self) -> Self {
                 self.bg($crate::style::ColorToken::Black)
             }
 
-            pub fn bg_red(mut self) -> Self {
+            pub fn bg_red(self) -> Self {
                 self.bg($crate::style::ColorToken::Red)
             }
 
-            pub fn bg_green(mut self) -> Self {
+            pub fn bg_green(self) -> Self {
                 self.bg($crate::style::ColorToken::Green)
             }
 
-            pub fn bg_blue(mut self) -> Self {
+            pub fn bg_blue(self) -> Self {
                 self.bg($crate::style::ColorToken::Blue)
             }
 
-            pub fn bg_yellow(mut self) -> Self {
+            pub fn bg_yellow(self) -> Self {
                 self.bg($crate::style::ColorToken::Yellow)
             }
 
-            pub fn bg_orange(mut self) -> Self {
+            pub fn bg_orange(self) -> Self {
                 self.bg($crate::style::ColorToken::Orange)
             }
 
-            pub fn bg_purple(mut self) -> Self {
+            pub fn bg_purple(self) -> Self {
                 self.bg($crate::style::ColorToken::Purple)
             }
 
-            pub fn bg_pink(mut self) -> Self {
+            pub fn bg_pink(self) -> Self {
                 self.bg($crate::style::ColorToken::Pink)
             }
 
-            pub fn bg_gray(mut self) -> Self {
+            pub fn bg_gray(self) -> Self {
                 self.bg($crate::style::ColorToken::Gray)
             }
 
@@ -518,43 +518,43 @@ macro_rules! impl_node_style_api {
                 self
             }
 
-            pub fn text_white(mut self) -> Self {
+            pub fn text_white(self) -> Self {
                 self.text_color($crate::style::ColorToken::White)
             }
 
-            pub fn text_black(mut self) -> Self {
+            pub fn text_black(self) -> Self {
                 self.text_color($crate::style::ColorToken::Black)
             }
 
-            pub fn text_red(mut self) -> Self {
+            pub fn text_red(self) -> Self {
                 self.text_color($crate::style::ColorToken::Red)
             }
 
-            pub fn text_green(mut self) -> Self {
+            pub fn text_green(self) -> Self {
                 self.text_color($crate::style::ColorToken::Green)
             }
 
-            pub fn text_blue(mut self) -> Self {
+            pub fn text_blue(self) -> Self {
                 self.text_color($crate::style::ColorToken::Blue)
             }
 
-            pub fn text_yellow(mut self) -> Self {
+            pub fn text_yellow(self) -> Self {
                 self.text_color($crate::style::ColorToken::Yellow)
             }
 
-            pub fn text_orange(mut self) -> Self {
+            pub fn text_orange(self) -> Self {
                 self.text_color($crate::style::ColorToken::Orange)
             }
 
-            pub fn text_purple(mut self) -> Self {
+            pub fn text_purple(self) -> Self {
                 self.text_color($crate::style::ColorToken::Purple)
             }
 
-            pub fn text_pink(mut self) -> Self {
+            pub fn text_pink(self) -> Self {
                 self.text_color($crate::style::ColorToken::Pink)
             }
 
-            pub fn text_gray(mut self) -> Self {
+            pub fn text_gray(self) -> Self {
                 self.text_color($crate::style::ColorToken::Gray)
             }
         }

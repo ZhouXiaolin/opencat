@@ -27,7 +27,7 @@ fn test(_ctx: &FrameCtx) -> Node {
         .flex_col()
         .justify_center()
         .items_center()
-        .bg_white()
+        .bg_gray()
         .text_black()
         .text_px(100.0)
         .child(

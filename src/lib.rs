@@ -1,9 +1,14 @@
+pub mod backend;
 pub mod composition;
+pub mod display;
+pub mod element;
 pub mod frame_ctx;
+pub mod layout;
 pub mod nodes;
 pub mod render;
 pub mod style;
 pub mod transitions;
+pub mod typography;
 pub mod view;
 
 pub use composition::Composition;

@@ -1,10 +1,6 @@
 use std::{any::Any, ops::Deref, sync::Arc};
 
-use crate::{
-    FrameCtx,
-    style::{ComputedTextStyle, NodeStyle},
-};
-use skia_safe::{Canvas, Rect};
+use crate::{FrameCtx, style::NodeStyle};
 
 #[derive(Clone)]
 pub struct Node(Arc<dyn ViewNode>);
@@ -94,22 +90,6 @@ pub trait ViewNode: Send + Sync {
     fn duration_in_frames(&self, _ctx: &FrameCtx) -> Option<u32> {
         None
     }
-
-    fn intrinsic_size(
-        &self,
-        _ctx: &FrameCtx,
-        _computed_style: &ComputedTextStyle,
-    ) -> Option<(f32, f32)> {
-        None
-    }
-
-    fn draw(
-        &self,
-        ctx: &FrameCtx,
-        canvas: &Canvas,
-        bounds: Rect,
-        computed_style: &ComputedTextStyle,
-    );
 }
 
 impl ViewNode for ComponentNode {
@@ -127,14 +107,5 @@ impl ViewNode for ComponentNode {
         }
 
         self.render(ctx).duration_in_frames(ctx)
-    }
-
-    fn draw(
-        &self,
-        _ctx: &FrameCtx,
-        _canvas: &Canvas,
-        _bounds: Rect,
-        _computed_style: &ComputedTextStyle,
-    ) {
     }
 }

@@ -3,18 +3,17 @@ use opencat::{
     nodes::{AlignItems, AbsoluteFill, JustifyContent, Text},
     render::render_frame_rgb,
 };
-use skia_safe::Color;
 
 #[component]
 fn text_scene(ctx: &FrameCtx) -> Node {
     AbsoluteFill::new()
-        .background_color(Color::WHITE)
+        .bg_white()
         .justify_content(JustifyContent::Center)
         .align_items(AlignItems::Center)
         .child(
             Text::new(format!("Frame {}", ctx.frame))
                 .font_size(96.0)
-                .color(Color::BLACK),
+                .text_black(),
         )
         .into()
 }
@@ -22,10 +21,10 @@ fn text_scene(ctx: &FrameCtx) -> Node {
 #[component]
 fn flex_scene(_ctx: &FrameCtx) -> Node {
     AbsoluteFill::new()
-        .background_color(Color::WHITE)
+        .bg_white()
         .justify_content(JustifyContent::Center)
         .align_items(AlignItems::Center)
-        .child(Text::new("A").font_size(72.0).color(Color::BLACK))
+        .child(Text::new("A").text_px(72.0).text_black())
         .into()
 }
 

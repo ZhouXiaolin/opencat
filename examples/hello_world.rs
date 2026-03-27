@@ -4,10 +4,8 @@ use opencat::{
 };
 
 #[component]
-fn title(_ctx: &FrameCtx, title: String,opacity:f32) -> Node {
-    Text::new(title)
-    .opacity(opacity)
-    .text_px(72.0).into()
+fn title(_ctx: &FrameCtx, title: String, opacity: f32) -> Node {
+    Text::new(title).opacity(opacity).text_px(72.0).into()
 }
 
 #[component]
@@ -29,7 +27,7 @@ fn style_inheritance_demo(_ctx: &FrameCtx) -> Node {
                 .w(100.0)
                 .h(100.0)
                 .rounded_full()
-                .bg_green()
+                .bg_green(),
         )
         .child(title(format!("Frame: {}", current_frame), opacity))
         .child(Text::new("B").text_px(48.0))

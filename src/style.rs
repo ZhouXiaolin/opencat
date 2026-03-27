@@ -25,8 +25,8 @@ impl ColorToken {
             ColorToken::Yellow => Color::from_rgb(0xea, 0xb3, 0x08), // Tailwind yellow-500
             ColorToken::Orange => Color::from_rgb(0xf9, 0x73, 0x16), // Tailwind orange-500
             ColorToken::Purple => Color::from_rgb(0xa8, 0x55, 0xf7), // Tailwind purple-500
-            ColorToken::Pink => Color::from_rgb(0xec, 0x48, 0x99),   // Tailwind pink-500
-            ColorToken::Gray => Color::from_rgb(0x6b, 0x72, 0x80),   // Tailwind gray-500
+            ColorToken::Pink => Color::from_rgb(0xec, 0x48, 0x99),  // Tailwind pink-500
+            ColorToken::Gray => Color::from_rgb(0x6b, 0x72, 0x80),  // Tailwind gray-500
         }
     }
 }
@@ -267,10 +267,7 @@ macro_rules! impl_node_style_api {
             }
 
             // === Layout: Flex Direction ===
-            pub fn flex_direction(
-                mut self,
-                direction: $crate::style::FlexDirection,
-            ) -> Self {
+            pub fn flex_direction(mut self, direction: $crate::style::FlexDirection) -> Self {
                 self.style.flex_direction = Some(direction);
                 self
             }

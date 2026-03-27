@@ -59,7 +59,13 @@ impl Text {
         (width.max(1.0), bounds.height().max(1.0))
     }
 
-    pub fn draw_at(&self, canvas: &Canvas, left: f32, top: f32, computed_style: &ComputedTextStyle) {
+    pub fn draw_at(
+        &self,
+        canvas: &Canvas,
+        left: f32,
+        top: f32,
+        computed_style: &ComputedTextStyle,
+    ) {
         let mut paint = Paint::default();
         paint.set_color(self.resolved_color(computed_style).to_skia());
         paint.set_anti_alias(true);
@@ -82,11 +88,21 @@ impl ViewNode for Text {
         &self.style
     }
 
-    fn intrinsic_size(&self, _ctx: &FrameCtx, computed_style: &ComputedTextStyle) -> Option<(f32, f32)> {
+    fn intrinsic_size(
+        &self,
+        _ctx: &FrameCtx,
+        computed_style: &ComputedTextStyle,
+    ) -> Option<(f32, f32)> {
         Some(self.measured_size(computed_style))
     }
 
-    fn draw(&self, _ctx: &FrameCtx, canvas: &Canvas, bounds: Rect, computed_style: &ComputedTextStyle) {
+    fn draw(
+        &self,
+        _ctx: &FrameCtx,
+        canvas: &Canvas,
+        bounds: Rect,
+        computed_style: &ComputedTextStyle,
+    ) {
         self.draw_at(canvas, bounds.left, bounds.top, computed_style);
     }
 }

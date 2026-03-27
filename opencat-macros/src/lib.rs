@@ -1,4 +1,4 @@
-use darling::{ast::NestedMeta, FromMeta};
+use darling::{FromMeta, ast::NestedMeta};
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{FnArg, ItemFn, Pat, PatType, ReturnType, Type, TypePath, parse_macro_input};
@@ -86,19 +86,17 @@ fn validate_component_signature(input: &ItemFn) -> Result<(), proc_macro2::Token
     }
 
     let ReturnType::Type(_, ret_ty) = &input.sig.output else {
-        return Err(syn::Error::new_spanned(
-            &input.sig,
-            "#[component] function must return Node",
-        )
-        .to_compile_error());
+        return Err(
+            syn::Error::new_spanned(&input.sig, "#[component] function must return Node")
+                .to_compile_error(),
+        );
     };
 
     let Type::Path(TypePath { path, .. }) = ret_ty.as_ref() else {
-        return Err(syn::Error::new_spanned(
-            ret_ty,
-            "#[component] function must return Node",
-        )
-        .to_compile_error());
+        return Err(
+            syn::Error::new_spanned(ret_ty, "#[component] function must return Node")
+                .to_compile_error(),
+        );
     };
 
     let is_node = path
@@ -108,11 +106,10 @@ fn validate_component_signature(input: &ItemFn) -> Result<(), proc_macro2::Token
         .unwrap_or(false);
 
     if !is_node {
-        return Err(syn::Error::new_spanned(
-            path,
-            "#[component] function must return Node",
-        )
-        .to_compile_error());
+        return Err(
+            syn::Error::new_spanned(path, "#[component] function must return Node")
+                .to_compile_error(),
+        );
     }
 
     Ok(())

@@ -20,7 +20,7 @@ pub struct CompositionBuilder {
     width: i32,
     height: i32,
     fps: u32,
-    frames: u32,
+    frames: Option<u32>,
     root: Option<Arc<RootComponent>>,
 }
 
@@ -31,7 +31,7 @@ impl Composition {
             width: 1920,
             height: 1080,
             fps: 30,
-            frames: 150,
+            frames: None,
             root: None,
         }
     }
@@ -54,7 +54,7 @@ impl CompositionBuilder {
     }
 
     pub fn frames(mut self, frames: u32) -> Self {
-        self.frames = frames;
+        self.frames = Some(frames);
         self
     }
 
@@ -71,12 +71,28 @@ impl CompositionBuilder {
             .root
             .ok_or_else(|| anyhow!("composition root is required"))?;
 
+        let frames = if let Some(frames) = self.frames {
+            frames
+        } else {
+            let probe_ctx = FrameCtx {
+                frame: 0,
+                fps: self.fps,
+                width: self.width,
+                height: self.height,
+                frames: 0,
+            };
+
+            root(&probe_ctx)
+                .duration_in_frames(&probe_ctx)
+                .unwrap_or(150)
+        };
+
         Ok(Composition {
             id: self.id,
             width: self.width,
             height: self.height,
             fps: self.fps,
-            frames: self.frames,
+            frames,
             root,
         })
     }

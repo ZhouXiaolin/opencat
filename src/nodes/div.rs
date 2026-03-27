@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use skia_safe::{Canvas, Paint, Rect, RRect};
+use skia_safe::{Canvas, Paint, RRect, Rect};
 
 use crate::{
     FrameCtx, Node, ViewNode,
@@ -65,7 +65,20 @@ impl ViewNode for Div {
         &self.style
     }
 
-    fn draw(&self, _ctx: &FrameCtx, canvas: &Canvas, bounds: Rect, _computed_style: &ComputedTextStyle) {
+    fn duration_in_frames(&self, ctx: &FrameCtx) -> Option<u32> {
+        self.children
+            .iter()
+            .filter_map(|child| child.duration_in_frames(ctx))
+            .max()
+    }
+
+    fn draw(
+        &self,
+        _ctx: &FrameCtx,
+        canvas: &Canvas,
+        bounds: Rect,
+        _computed_style: &ComputedTextStyle,
+    ) {
         let bg_color = self.style.bg_color;
         let border_radius = self.style.border_radius.unwrap_or(0.0);
         let border_width = self.style.border_width;

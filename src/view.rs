@@ -21,6 +21,7 @@ impl Node {
 #[derive(Clone)]
 pub struct ComponentNode {
     render: Arc<dyn Fn(&FrameCtx) -> Node + Send + Sync>,
+    duration_in_frames: Option<Arc<dyn Fn() -> u32 + Send + Sync>>,
     style: NodeStyle,
 }
 
@@ -31,6 +32,19 @@ impl ComponentNode {
     {
         Self {
             render: Arc::new(render),
+            duration_in_frames: None,
+            style: NodeStyle::default(),
+        }
+    }
+
+    pub fn with_duration<F, D>(render: F, duration_in_frames: D) -> Self
+    where
+        F: Fn(&FrameCtx) -> Node + Send + Sync + 'static,
+        D: Fn() -> u32 + Send + Sync + 'static,
+    {
+        Self {
+            render: Arc::new(render),
+            duration_in_frames: Some(Arc::new(duration_in_frames)),
             style: NodeStyle::default(),
         }
     }
@@ -45,6 +59,14 @@ where
     F: Fn(&FrameCtx) -> Node + Send + Sync + 'static,
 {
     Node::new(ComponentNode::new(render))
+}
+
+pub fn component_node_with_duration<F, D>(render: F, duration_in_frames: D) -> Node
+where
+    F: Fn(&FrameCtx) -> Node + Send + Sync + 'static,
+    D: Fn() -> u32 + Send + Sync + 'static,
+{
+    Node::new(ComponentNode::with_duration(render, duration_in_frames))
 }
 
 impl<T> From<T> for Node
@@ -69,6 +91,10 @@ pub trait ViewNode: Send + Sync {
 
     fn style_ref(&self) -> &NodeStyle;
 
+    fn duration_in_frames(&self, _ctx: &FrameCtx) -> Option<u32> {
+        None
+    }
+
     fn intrinsic_size(
         &self,
         _ctx: &FrameCtx,
@@ -77,7 +103,13 @@ pub trait ViewNode: Send + Sync {
         None
     }
 
-    fn draw(&self, ctx: &FrameCtx, canvas: &Canvas, bounds: Rect, computed_style: &ComputedTextStyle);
+    fn draw(
+        &self,
+        ctx: &FrameCtx,
+        canvas: &Canvas,
+        bounds: Rect,
+        computed_style: &ComputedTextStyle,
+    );
 }
 
 impl ViewNode for ComponentNode {
@@ -87,6 +119,14 @@ impl ViewNode for ComponentNode {
 
     fn style_ref(&self) -> &NodeStyle {
         &self.style
+    }
+
+    fn duration_in_frames(&self, ctx: &FrameCtx) -> Option<u32> {
+        if let Some(duration_in_frames) = &self.duration_in_frames {
+            return Some(duration_in_frames());
+        }
+
+        self.render(ctx).duration_in_frames(ctx)
     }
 
     fn draw(

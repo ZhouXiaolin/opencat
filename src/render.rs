@@ -4,12 +4,11 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg_next::{
-    codec,
+    Dictionary, codec,
     codec::packet::Packet,
     format,
     software::scaling::{context::Context as ScalingContext, flag::Flags as ScalingFlags},
     util::{format::pixel::Pixel, frame::video::Video, rational::Rational},
-    Dictionary,
 };
 use skia_safe::{AlphaType, Canvas, ColorType, ImageInfo, Rect, image::CachingHint, surfaces};
 use taffy::{
@@ -19,7 +18,7 @@ use taffy::{
 
 use crate::{
     Composition, FrameCtx,
-    nodes::{Div, AlignItems, JustifyContent, Position, Text},
+    nodes::{AlignItems, Div, JustifyContent, Position, Text},
     style::ComputedTextStyle,
     view::ComponentNode,
 };
@@ -32,7 +31,12 @@ trait Drawer: Send + Sync {
 
 impl Drawer for Text {
     fn draw(&self, canvas: &Canvas, bounds: Rect) {
-        self.draw_at(canvas, bounds.left, bounds.top, &ComputedTextStyle::default());
+        self.draw_at(
+            canvas,
+            bounds.left,
+            bounds.top,
+            &ComputedTextStyle::default(),
+        );
     }
 }
 
@@ -44,7 +48,8 @@ struct TextDrawer {
 
 impl Drawer for TextDrawer {
     fn draw(&self, canvas: &Canvas, bounds: Rect) {
-        self.text.draw_at(canvas, bounds.left, bounds.top, &self.computed_style);
+        self.text
+            .draw_at(canvas, bounds.left, bounds.top, &self.computed_style);
     }
 }
 
@@ -273,7 +278,11 @@ impl Clone for LayoutPayload {
     }
 }
 
-fn draw_with_taffy(node: &crate::Node, frame_ctx: &FrameCtx, canvas: &skia_safe::Canvas) -> Result<()> {
+fn draw_with_taffy(
+    node: &crate::Node,
+    frame_ctx: &FrameCtx,
+    canvas: &skia_safe::Canvas,
+) -> Result<()> {
     let mut taffy: TaffyTree<LayoutPayload> = TaffyTree::new();
     let root = build_taffy_subtree(&mut taffy, node, frame_ctx, &ComputedTextStyle::default())?;
 
@@ -285,7 +294,7 @@ fn draw_with_taffy(node: &crate::Node, frame_ctx: &FrameCtx, canvas: &skia_safe:
         },
     )?;
 
-    paint_subtree(&taffy, root, canvas)?;
+    paint_subtree(&taffy, root, canvas, 0.0, 0.0)?;
     Ok(())
 }
 
@@ -316,14 +325,26 @@ fn build_taffy_subtree(
         let size = if position == Position::Absolute {
             // For absolute positioned elements, use explicit size or auto
             taffy::geometry::Size {
-                width: node_style.width.map(|w| Dimension::Length(w)).unwrap_or(Dimension::Auto),
-                height: node_style.height.map(|h| Dimension::Length(h)).unwrap_or(Dimension::Auto),
+                width: node_style
+                    .width
+                    .map(|w| Dimension::Length(w))
+                    .unwrap_or(Dimension::Auto),
+                height: node_style
+                    .height
+                    .map(|h| Dimension::Length(h))
+                    .unwrap_or(Dimension::Auto),
             }
         } else {
             // For relative (flex container), default to 100% if no explicit size
             taffy::geometry::Size {
-                width: node_style.width.map(|w| Dimension::Length(w)).unwrap_or(Dimension::Percent(1.0)),
-                height: node_style.height.map(|h| Dimension::Length(h)).unwrap_or(Dimension::Percent(1.0)),
+                width: node_style
+                    .width
+                    .map(|w| Dimension::Length(w))
+                    .unwrap_or(Dimension::Percent(1.0)),
+                height: node_style
+                    .height
+                    .map(|h| Dimension::Length(h))
+                    .unwrap_or(Dimension::Percent(1.0)),
             }
         };
 
@@ -450,7 +471,9 @@ fn build_taffy_subtree(
         return Ok(id);
     }
 
-    Err(anyhow!("unknown node type encountered while building layout tree"))
+    Err(anyhow!(
+        "unknown node type encountered while building layout tree"
+    ))
 }
 
 fn map_flex_direction(value: Option<crate::style::FlexDirection>) -> taffy::prelude::FlexDirection {
@@ -471,9 +494,16 @@ fn paint_subtree(
     taffy: &TaffyTree<LayoutPayload>,
     node_id: taffy::NodeId,
     canvas: &skia_safe::Canvas,
+    parent_x: f32,
+    parent_y: f32,
 ) -> Result<()> {
     let layout = taffy.layout(node_id)?;
-    let rect = Rect::from_xywh(layout.location.x, layout.location.y, layout.size.width, layout.size.height);
+    let rect = Rect::from_xywh(
+        parent_x + layout.location.x,
+        parent_y + layout.location.y,
+        layout.size.width,
+        layout.size.height,
+    );
 
     if let Some(payload) = taffy.get_node_context(node_id) {
         if payload.opacity <= 0.0 {
@@ -490,7 +520,7 @@ fn paint_subtree(
 
         let children = taffy.children(node_id)?;
         for child in children {
-            paint_subtree(taffy, child, canvas)?;
+            paint_subtree(taffy, child, canvas, rect.left, rect.top)?;
         }
 
         if uses_layer {

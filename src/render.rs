@@ -19,23 +19,14 @@ use taffy::{
 
 use crate::{
     Composition, FrameCtx,
-    nodes::{AbsoluteFill, AlignItems, JustifyContent, Text},
-    style:: ComputedTextStyle,
+    nodes::{Div, AlignItems, JustifyContent, Position, Text},
+    style::ComputedTextStyle,
 };
 
 /// Trait for drawing a node at a given position.
 /// This allows paint_subtree to delegate drawing to the node itself.
 trait Drawer: Send + Sync {
     fn draw(&self, canvas: &Canvas, bounds: Rect);
-}
-
-impl Drawer for AbsoluteFill {
-    fn draw(&self, canvas: &Canvas, bounds: Rect) {
-        let mut paint = skia_safe::Paint::default();
-        paint.set_color(self.background_color_value().to_skia());
-        paint.set_anti_alias(true);
-        canvas.draw_rect(bounds, &paint);
-    }
 }
 
 impl Drawer for Text {
@@ -53,6 +44,22 @@ struct TextDrawer {
 impl Drawer for TextDrawer {
     fn draw(&self, canvas: &Canvas, bounds: Rect) {
         self.text.draw_at(canvas, bounds.left, bounds.top, &self.computed_style);
+    }
+}
+
+struct DivDrawer {
+    div: Div,
+}
+
+impl Drawer for DivDrawer {
+    fn draw(&self, canvas: &Canvas, bounds: Rect) {
+        let mut paint = skia_safe::Paint::default();
+        paint.set_anti_alias(true);
+
+        if let Some(color) = self.div.style.bg_color {
+            paint.set_color(color.to_skia());
+            canvas.draw_rect(bounds, &paint);
+        }
     }
 }
 
@@ -285,16 +292,108 @@ fn build_taffy_subtree(
     frame_ctx: &FrameCtx,
     inherited_style: &ComputedTextStyle,
 ) -> Result<taffy::NodeId> {
-    if let Some(fill) = node.as_any().downcast_ref::<AbsoluteFill>() {
-        let next_style = fill.resolve_text_style(inherited_style);
+    if let Some(div) = node.as_any().downcast_ref::<Div>() {
+        let next_style = div.resolve_text_style(inherited_style);
         let mut children = Vec::new();
-        for child in fill.children_ref() {
+        for child in div.children_ref() {
             children.push(build_taffy_subtree(taffy, child, frame_ctx, &next_style)?);
         }
 
-        let node_style = fill.style_ref();
+        let node_style = div.style_ref();
+
+        // Determine position mode
+        let position = node_style.position.unwrap_or(Position::Relative);
+
+        // Build size based on position
+        let size = if position == Position::Absolute {
+            // For absolute positioned elements, use explicit size or auto
+            taffy::geometry::Size {
+                width: node_style.width.map(|w| Dimension::Length(w)).unwrap_or(Dimension::Auto),
+                height: node_style.height.map(|h| Dimension::Length(h)).unwrap_or(Dimension::Auto),
+            }
+        } else {
+            // For relative (flex container), default to 100% if no explicit size
+            taffy::geometry::Size {
+                width: node_style.width.map(|w| Dimension::Length(w)).unwrap_or(Dimension::Percent(1.0)),
+                height: node_style.height.map(|h| Dimension::Length(h)).unwrap_or(Dimension::Percent(1.0)),
+            }
+        };
+
+        // Build inset for absolute positioning
+        let inset = taffy::geometry::Rect {
+            left: node_style
+                .inset_left
+                .map(taffy::style::LengthPercentageAuto::Length)
+                .unwrap_or(taffy::style::LengthPercentageAuto::Auto),
+            top: node_style
+                .inset_top
+                .map(taffy::style::LengthPercentageAuto::Length)
+                .unwrap_or(taffy::style::LengthPercentageAuto::Auto),
+            right: node_style
+                .inset_right
+                .map(taffy::style::LengthPercentageAuto::Length)
+                .unwrap_or(taffy::style::LengthPercentageAuto::Auto),
+            bottom: node_style
+                .inset_bottom
+                .map(taffy::style::LengthPercentageAuto::Length)
+                .unwrap_or(taffy::style::LengthPercentageAuto::Auto),
+        };
+
+        // Build padding
+        let padding = taffy::geometry::Rect {
+            left: node_style
+                .padding_x
+                .or(node_style.padding)
+                .map(taffy::style::LengthPercentage::Length)
+                .unwrap_or(taffy::style::LengthPercentage::Length(0.0)),
+            top: node_style
+                .padding_y
+                .or(node_style.padding)
+                .map(taffy::style::LengthPercentage::Length)
+                .unwrap_or(taffy::style::LengthPercentage::Length(0.0)),
+            right: node_style
+                .padding_x
+                .or(node_style.padding)
+                .map(taffy::style::LengthPercentage::Length)
+                .unwrap_or(taffy::style::LengthPercentage::Length(0.0)),
+            bottom: node_style
+                .padding_y
+                .or(node_style.padding)
+                .map(taffy::style::LengthPercentage::Length)
+                .unwrap_or(taffy::style::LengthPercentage::Length(0.0)),
+        };
+
+        // Build margin
+        let margin = taffy::geometry::Rect {
+            left: node_style
+                .margin_x
+                .or(node_style.margin)
+                .map(taffy::style::LengthPercentageAuto::Length)
+                .unwrap_or(taffy::style::LengthPercentageAuto::Length(0.0)),
+            top: node_style
+                .margin_y
+                .or(node_style.margin)
+                .map(taffy::style::LengthPercentageAuto::Length)
+                .unwrap_or(taffy::style::LengthPercentageAuto::Length(0.0)),
+            right: node_style
+                .margin_x
+                .or(node_style.margin)
+                .map(taffy::style::LengthPercentageAuto::Length)
+                .unwrap_or(taffy::style::LengthPercentageAuto::Length(0.0)),
+            bottom: node_style
+                .margin_y
+                .or(node_style.margin)
+                .map(taffy::style::LengthPercentageAuto::Length)
+                .unwrap_or(taffy::style::LengthPercentageAuto::Length(0.0)),
+        };
+
         let style = Style {
             display: taffy::prelude::Display::Flex,
+            position: map_position(position),
+            inset,
+            size,
+            padding,
+            margin,
             flex_direction: map_flex_direction(node_style.flex_direction),
             justify_content: node_style.justify_content.map(map_justify),
             align_items: node_style.align_items.map(map_align),
@@ -302,10 +401,7 @@ fn build_taffy_subtree(
                 width: taffy::style::LengthPercentage::Length(node_style.gap.unwrap_or(0.0)),
                 height: taffy::style::LengthPercentage::Length(node_style.gap.unwrap_or(0.0)),
             },
-            size: taffy::geometry::Size {
-                width: Dimension::Percent(1.0),
-                height: Dimension::Percent(1.0),
-            },
+            flex_grow: node_style.flex_grow.unwrap_or(0.0),
             ..Default::default()
         };
 
@@ -313,7 +409,7 @@ fn build_taffy_subtree(
         taffy.set_node_context(
             id,
             Some(LayoutPayload {
-                drawer: Arc::new(fill.clone()),
+                drawer: Arc::new(DivDrawer { div: div.clone() }),
             }),
         )?;
         return Ok(id);
@@ -322,6 +418,7 @@ fn build_taffy_subtree(
     if let Some(text) = node.as_any().downcast_ref::<Text>() {
         let size = text.measured_size(inherited_style);
         let node_style = text.style_ref();
+
         let style = Style {
             flex_grow: node_style.flex_grow.unwrap_or(0.0),
             size: taffy::geometry::Size {
@@ -350,6 +447,13 @@ fn map_flex_direction(value: Option<crate::style::FlexDirection>) -> taffy::prel
     match value {
         None | Some(crate::style::FlexDirection::Row) => taffy::prelude::FlexDirection::Row,
         Some(crate::style::FlexDirection::Col) => taffy::prelude::FlexDirection::Column,
+    }
+}
+
+fn map_position(value: Position) -> taffy::style::Position {
+    match value {
+        Position::Relative => taffy::style::Position::Relative,
+        Position::Absolute => taffy::style::Position::Absolute,
     }
 }
 

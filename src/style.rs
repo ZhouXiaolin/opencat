@@ -5,6 +5,13 @@ pub enum ColorToken {
     White,
     Black,
     Red,
+    Green,
+    Blue,
+    Yellow,
+    Orange,
+    Purple,
+    Pink,
+    Gray,
 }
 
 impl ColorToken {
@@ -13,8 +20,23 @@ impl ColorToken {
             ColorToken::White => Color::WHITE,
             ColorToken::Black => Color::BLACK,
             ColorToken::Red => Color::RED,
+            ColorToken::Green => Color::from_rgb(0x22, 0xc5, 0x5e), // Tailwind green-500
+            ColorToken::Blue => Color::from_rgb(0x3b, 0x82, 0xf6),  // Tailwind blue-500
+            ColorToken::Yellow => Color::from_rgb(0xea, 0xb3, 0x08), // Tailwind yellow-500
+            ColorToken::Orange => Color::from_rgb(0xf9, 0x73, 0x16), // Tailwind orange-500
+            ColorToken::Purple => Color::from_rgb(0xa8, 0x55, 0xf7), // Tailwind purple-500
+            ColorToken::Pink => Color::from_rgb(0xec, 0x48, 0x99),   // Tailwind pink-500
+            ColorToken::Gray => Color::from_rgb(0x6b, 0x72, 0x80),   // Tailwind gray-500
         }
     }
+}
+
+/// Position mode - Tailwind: relative, absolute
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Position {
+    #[default]
+    Relative,
+    Absolute,
 }
 
 /// Flex direction - Tailwind: flex-row, flex-col
@@ -50,6 +72,25 @@ pub enum AlignItems {
 /// Style context container - carries all possible style info for inheritance
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NodeStyle {
+    // Positioning
+    pub position: Option<Position>,
+    pub inset_left: Option<f32>,
+    pub inset_top: Option<f32>,
+    pub inset_right: Option<f32>,
+    pub inset_bottom: Option<f32>,
+
+    // Size
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+
+    // Spacing
+    pub padding: Option<f32>,
+    pub padding_x: Option<f32>,
+    pub padding_y: Option<f32>,
+    pub margin: Option<f32>,
+    pub margin_x: Option<f32>,
+    pub margin_y: Option<f32>,
+
     // Layout
     pub flex_direction: Option<FlexDirection>,
     pub justify_content: Option<JustifyContent>,
@@ -59,6 +100,11 @@ pub struct NodeStyle {
 
     // Visual
     pub bg_color: Option<ColorToken>,
+    pub border_radius: Option<f32>,
+    pub border_width: Option<f32>,
+    pub border_color: Option<ColorToken>,
+
+    // Text
     pub text_color: Option<ColorToken>,
     pub text_px: Option<f32>,
 }
@@ -88,6 +134,137 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
 macro_rules! impl_node_style_api {
     ($ty:ty) => {
         impl $ty {
+            // === Positioning ===
+            pub fn position(mut self, position: $crate::style::Position) -> Self {
+                self.style.position = Some(position);
+                self
+            }
+
+            pub fn absolute(self) -> Self {
+                self.position($crate::style::Position::Absolute)
+            }
+
+            pub fn relative(self) -> Self {
+                self.position($crate::style::Position::Relative)
+            }
+
+            pub fn left(mut self, value: f32) -> Self {
+                self.style.inset_left = Some(value);
+                self
+            }
+
+            pub fn top(mut self, value: f32) -> Self {
+                self.style.inset_top = Some(value);
+                self
+            }
+
+            pub fn right(mut self, value: f32) -> Self {
+                self.style.inset_right = Some(value);
+                self
+            }
+
+            pub fn bottom(mut self, value: f32) -> Self {
+                self.style.inset_bottom = Some(value);
+                self
+            }
+
+            pub fn inset(mut self, value: f32) -> Self {
+                self.style.inset_left = Some(value);
+                self.style.inset_top = Some(value);
+                self.style.inset_right = Some(value);
+                self.style.inset_bottom = Some(value);
+                self
+            }
+
+            // === Size ===
+            pub fn w(mut self, value: f32) -> Self {
+                self.style.width = Some(value);
+                self
+            }
+
+            pub fn h(mut self, value: f32) -> Self {
+                self.style.height = Some(value);
+                self
+            }
+
+            pub fn size(mut self, width: f32, height: f32) -> Self {
+                self.style.width = Some(width);
+                self.style.height = Some(height);
+                self
+            }
+
+            // === Padding ===
+            pub fn p(mut self, value: f32) -> Self {
+                self.style.padding = Some(value);
+                self
+            }
+
+            pub fn px(mut self, value: f32) -> Self {
+                self.style.padding_x = Some(value);
+                self
+            }
+
+            pub fn py(mut self, value: f32) -> Self {
+                self.style.padding_y = Some(value);
+                self
+            }
+
+            pub fn pt(mut self, value: f32) -> Self {
+                self.style.padding_y = Some(value);
+                self
+            }
+
+            pub fn pb(mut self, value: f32) -> Self {
+                self.style.padding_y = Some(value);
+                self
+            }
+
+            pub fn pl(mut self, value: f32) -> Self {
+                self.style.padding_x = Some(value);
+                self
+            }
+
+            pub fn pr(mut self, value: f32) -> Self {
+                self.style.padding_x = Some(value);
+                self
+            }
+
+            // === Margin ===
+            pub fn m(mut self, value: f32) -> Self {
+                self.style.margin = Some(value);
+                self
+            }
+
+            pub fn mx(mut self, value: f32) -> Self {
+                self.style.margin_x = Some(value);
+                self
+            }
+
+            pub fn my(mut self, value: f32) -> Self {
+                self.style.margin_y = Some(value);
+                self
+            }
+
+            pub fn mt(mut self, value: f32) -> Self {
+                self.style.margin_y = Some(value);
+                self
+            }
+
+            pub fn mb(mut self, value: f32) -> Self {
+                self.style.margin_y = Some(value);
+                self
+            }
+
+            pub fn ml(mut self, value: f32) -> Self {
+                self.style.margin_x = Some(value);
+                self
+            }
+
+            pub fn mr(mut self, value: f32) -> Self {
+                self.style.margin_x = Some(value);
+                self
+            }
+
             // === Layout: Flex Direction ===
             pub fn flex_direction(
                 mut self,
@@ -176,41 +353,146 @@ macro_rules! impl_node_style_api {
                 self.flex_grow(1.0)
             }
 
-            // === Visual: Text ===
+            // === Visual: Border Radius ===
+            pub fn rounded(mut self, radius: f32) -> Self {
+                self.style.border_radius = Some(radius);
+                self
+            }
+
+            pub fn rounded_none(self) -> Self {
+                self.rounded(0.0)
+            }
+
+            pub fn rounded_sm(self) -> Self {
+                self.rounded(4.0)
+            }
+
+            pub fn rounded_md(self) -> Self {
+                self.rounded(8.0)
+            }
+
+            pub fn rounded_lg(self) -> Self {
+                self.rounded(16.0)
+            }
+
+            pub fn rounded_xl(self) -> Self {
+                self.rounded(24.0)
+            }
+
+            pub fn rounded_2xl(self) -> Self {
+                self.rounded(32.0)
+            }
+
+            pub fn rounded_full(self) -> Self {
+                self.rounded(9999.0)
+            }
+
+            // === Visual: Border ===
+            pub fn border(mut self, width: f32) -> Self {
+                self.style.border_width = Some(width);
+                self
+            }
+
+            pub fn border_color(mut self, color: $crate::style::ColorToken) -> Self {
+                self.style.border_color = Some(color);
+                self
+            }
+
+            // === Visual: Background Colors ===
+            pub fn bg(mut self, color: $crate::style::ColorToken) -> Self {
+                self.style.bg_color = Some(color);
+                self
+            }
+
+            pub fn bg_white(mut self) -> Self {
+                self.bg($crate::style::ColorToken::White)
+            }
+
+            pub fn bg_black(mut self) -> Self {
+                self.bg($crate::style::ColorToken::Black)
+            }
+
+            pub fn bg_red(mut self) -> Self {
+                self.bg($crate::style::ColorToken::Red)
+            }
+
+            pub fn bg_green(mut self) -> Self {
+                self.bg($crate::style::ColorToken::Green)
+            }
+
+            pub fn bg_blue(mut self) -> Self {
+                self.bg($crate::style::ColorToken::Blue)
+            }
+
+            pub fn bg_yellow(mut self) -> Self {
+                self.bg($crate::style::ColorToken::Yellow)
+            }
+
+            pub fn bg_orange(mut self) -> Self {
+                self.bg($crate::style::ColorToken::Orange)
+            }
+
+            pub fn bg_purple(mut self) -> Self {
+                self.bg($crate::style::ColorToken::Purple)
+            }
+
+            pub fn bg_pink(mut self) -> Self {
+                self.bg($crate::style::ColorToken::Pink)
+            }
+
+            pub fn bg_gray(mut self) -> Self {
+                self.bg($crate::style::ColorToken::Gray)
+            }
+
+            // === Visual: Text Colors ===
+            pub fn text_color(mut self, color: $crate::style::ColorToken) -> Self {
+                self.style.text_color = Some(color);
+                self
+            }
+
             pub fn text_px(mut self, px: f32) -> Self {
                 self.style.text_px = Some(px);
                 self
             }
 
+            pub fn text_white(mut self) -> Self {
+                self.text_color($crate::style::ColorToken::White)
+            }
+
             pub fn text_black(mut self) -> Self {
-                self.style.text_color = Some($crate::style::ColorToken::Black);
-                self
+                self.text_color($crate::style::ColorToken::Black)
             }
 
             pub fn text_red(mut self) -> Self {
-                self.style.text_color = Some($crate::style::ColorToken::Red);
-                self
+                self.text_color($crate::style::ColorToken::Red)
             }
 
-            pub fn text_white(mut self) -> Self {
-                self.style.text_color = Some($crate::style::ColorToken::White);
-                self
+            pub fn text_green(mut self) -> Self {
+                self.text_color($crate::style::ColorToken::Green)
             }
 
-            // === Visual: Background ===
-            pub fn bg_white(mut self) -> Self {
-                self.style.bg_color = Some($crate::style::ColorToken::White);
-                self
+            pub fn text_blue(mut self) -> Self {
+                self.text_color($crate::style::ColorToken::Blue)
             }
 
-            pub fn bg_black(mut self) -> Self {
-                self.style.bg_color = Some($crate::style::ColorToken::Black);
-                self
+            pub fn text_yellow(mut self) -> Self {
+                self.text_color($crate::style::ColorToken::Yellow)
             }
 
-            pub fn bg_red(mut self) -> Self {
-                self.style.bg_color = Some($crate::style::ColorToken::Red);
-                self
+            pub fn text_orange(mut self) -> Self {
+                self.text_color($crate::style::ColorToken::Orange)
+            }
+
+            pub fn text_purple(mut self) -> Self {
+                self.text_color($crate::style::ColorToken::Purple)
+            }
+
+            pub fn text_pink(mut self) -> Self {
+                self.text_color($crate::style::ColorToken::Pink)
+            }
+
+            pub fn text_gray(mut self) -> Self {
+                self.text_color($crate::style::ColorToken::Gray)
             }
         }
     };

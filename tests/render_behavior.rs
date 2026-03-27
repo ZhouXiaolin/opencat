@@ -1,12 +1,12 @@
 use opencat::{
     Composition, FrameCtx, Node, component,
-    nodes::{AlignItems, AbsoluteFill, JustifyContent, Text},
+    nodes::{AlignItems, Div, JustifyContent, Text},
     render::render_frame_rgb,
 };
 
 #[component]
 fn text_scene(ctx: &FrameCtx) -> Node {
-    AbsoluteFill::new()
+    Div::new()
         .bg_white()
         .justify_content(JustifyContent::Center)
         .align_items(AlignItems::Center)
@@ -20,7 +20,7 @@ fn text_scene(ctx: &FrameCtx) -> Node {
 
 #[component]
 fn flex_scene(_ctx: &FrameCtx) -> Node {
-    AbsoluteFill::new()
+    Div::new()
         .bg_white()
         .justify_content(JustifyContent::Center)
         .align_items(AlignItems::Center)

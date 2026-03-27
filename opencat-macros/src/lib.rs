@@ -23,11 +23,7 @@ pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
         return TokenStream::from(e);
     }
 
-    if input.sig.inputs.len() == 1 {
-        return TokenStream::from(quote! { #input });
-    }
-
-    TokenStream::from(expand_param_component(input))
+    TokenStream::from(expand_component(input))
 }
 
 fn validate_component_signature(input: &ItemFn) -> Result<(), proc_macro2::TokenStream> {
@@ -115,7 +111,7 @@ fn validate_component_signature(input: &ItemFn) -> Result<(), proc_macro2::Token
     Ok(())
 }
 
-fn expand_param_component(input: ItemFn) -> proc_macro2::TokenStream {
+fn expand_component(input: ItemFn) -> proc_macro2::TokenStream {
     let vis = &input.vis;
     let factory_name = &input.sig.ident;
     let impl_name = format_ident!("__opencat_component_impl_{}", factory_name);

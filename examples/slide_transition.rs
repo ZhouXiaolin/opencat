@@ -19,7 +19,6 @@ fn scene_panel(label: &str, is_pink: bool) -> Node {
     panel.into()
 }
 
-
 #[component]
 fn test(_ctx: &FrameCtx) -> Node {
     let current_frame = _ctx.frame;
@@ -49,17 +48,19 @@ fn test(_ctx: &FrameCtx) -> Node {
 #[component]
 fn slide_transition_demo(_ctx: &FrameCtx) -> Node {
     TransitionSeries::new()
-        .sequence(80, test(_ctx))
-        .transition(slide().timing(linear().duration(60)))
-        .sequence(120, scene_panel("B", true))
+        .sequence(40, test())
+        .transition(slide().timing(linear().duration(30)))
+        .sequence(60, scene_panel("B", true))
+        .transition(slide().timing(linear().duration(30)))
+        .sequence(60, scene_panel("A", false))
         .into()
 }
 
 fn main() -> anyhow::Result<()> {
     let composition = Composition::new("slide_transition")
         .size(1280, 720)
-        .fps(60)
-        .root(slide_transition_demo)
+        .fps(30)
+        .root(|_ctx| slide_transition_demo())
         .build()?;
 
     let encode_config = EncodingConfig::default();

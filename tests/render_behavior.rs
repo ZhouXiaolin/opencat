@@ -12,7 +12,7 @@ fn text_scene(ctx: &FrameCtx) -> Node {
         .align_items(AlignItems::Center)
         .child(
             Text::new(format!("Frame {}", ctx.frame))
-                .font_size(96.0)
+                .text_px(96.0)
                 .text_black(),
         )
         .into()

@@ -1,7 +1,7 @@
 use darling::{ast::NestedMeta, FromMeta};
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::{parse_macro_input, FnArg, ItemFn, PatType, ReturnType, Type, TypePath};
+use quote::{format_ident, quote};
+use syn::{FnArg, ItemFn, Pat, PatType, ReturnType, Type, TypePath, parse_macro_input};
 
 #[derive(Debug, Default, FromMeta)]
 struct ComponentArgs {}
@@ -23,14 +23,18 @@ pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
         return TokenStream::from(e);
     }
 
-    TokenStream::from(quote! { #input })
+    if input.sig.inputs.len() == 1 {
+        return TokenStream::from(quote! { #input });
+    }
+
+    TokenStream::from(expand_param_component(input))
 }
 
 fn validate_component_signature(input: &ItemFn) -> Result<(), proc_macro2::TokenStream> {
-    if input.sig.inputs.len() != 1 {
+    if input.sig.inputs.is_empty() {
         return Err(syn::Error::new_spanned(
             &input.sig,
-            "#[component] function must have exactly one parameter: &FrameCtx",
+            "#[component] function must start with &FrameCtx",
         )
         .to_compile_error());
     }
@@ -38,7 +42,7 @@ fn validate_component_signature(input: &ItemFn) -> Result<(), proc_macro2::Token
     let Some(first_arg) = input.sig.inputs.first() else {
         return Err(syn::Error::new_spanned(
             &input.sig,
-            "#[component] function must have exactly one parameter: &FrameCtx",
+            "#[component] function must start with &FrameCtx",
         )
         .to_compile_error());
     };
@@ -112,4 +116,62 @@ fn validate_component_signature(input: &ItemFn) -> Result<(), proc_macro2::Token
     }
 
     Ok(())
+}
+
+fn expand_param_component(input: ItemFn) -> proc_macro2::TokenStream {
+    let vis = &input.vis;
+    let factory_name = &input.sig.ident;
+    let impl_name = format_ident!("__opencat_component_impl_{}", factory_name);
+    let mut impl_fn = input.clone();
+    impl_fn.sig.ident = impl_name.clone();
+
+    let props = input
+        .sig
+        .inputs
+        .iter()
+        .skip(1)
+        .map(extract_prop)
+        .collect::<Result<Vec<_>, _>>();
+
+    let props = match props {
+        Ok(props) => props,
+        Err(err) => return err.to_compile_error(),
+    };
+
+    let prop_bindings = props.iter().map(|(ident, ty)| quote! { #ident: #ty });
+    let prop_idents = props.iter().map(|(ident, _)| ident);
+    let cloned_props = prop_idents
+        .clone()
+        .map(|ident| quote! { ::core::clone::Clone::clone(&#ident) });
+
+    quote! {
+        #impl_fn
+
+        #vis fn #factory_name(#(#prop_bindings),*) -> ::opencat::Node {
+            ::opencat::component_node(move |__opencat_ctx| {
+                #impl_name(
+                    __opencat_ctx,
+                    #(#cloned_props),*
+                )
+            })
+        }
+    }
+}
+
+fn extract_prop(arg: &FnArg) -> Result<(syn::Ident, Type), syn::Error> {
+    let FnArg::Typed(PatType { pat, ty, .. }) = arg else {
+        return Err(syn::Error::new_spanned(
+            arg,
+            "#[component] does not support methods with self receiver",
+        ));
+    };
+
+    let Pat::Ident(ident) = pat.as_ref() else {
+        return Err(syn::Error::new_spanned(
+            pat,
+            "#[component] props must be simple named parameters",
+        ));
+    };
+
+    Ok((ident.ident.clone(), (*ty.clone())))
 }

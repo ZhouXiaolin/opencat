@@ -1,0 +1,13 @@
+[package]
+name = "opencat"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = ["opencat-macros"]
+
+[dependencies]
+anyhow = "1.0"
+ffmpeg-next = "8.1.0"
+skia-safe = "0.93.1"
+opencat-macros = { path = "opencat-macros" }

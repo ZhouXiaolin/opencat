@@ -103,6 +103,21 @@ fn transition_series_scene(_ctx: &FrameCtx) -> Node {
         .into()
 }
 
+#[component]
+fn nested_child_component(_ctx: &FrameCtx) -> Node {
+    Text::new("Nested").text_px(72.0).text_black().into()
+}
+
+#[component]
+fn parent_component_calls_child_without_ctx(_ctx: &FrameCtx) -> Node {
+    Div::new()
+        .bg_white()
+        .justify_center()
+        .items_center()
+        .child(nested_child_component())
+        .into()
+}
+
 fn pixel_at(rgb: &[u8], width: usize, x: usize, y: usize) -> [u8; 3] {
     let idx = (y * width + x) * 3;
     [rgb[idx], rgb[idx + 1], rgb[idx + 2]]
@@ -114,7 +129,7 @@ fn text_scene_should_draw_non_white_pixels() -> anyhow::Result<()> {
         .size(640, 360)
         .fps(30)
         .frames(1)
-        .root(text_scene)
+        .root(|_ctx| text_scene())
         .build()?;
 
     let rgb = render_frame_rgb(&composition, 0)?;
@@ -133,7 +148,7 @@ fn flex_scene_should_draw_near_center() -> anyhow::Result<()> {
         .size(640, 360)
         .fps(30)
         .frames(1)
-        .root(flex_scene)
+        .root(|_ctx| flex_scene())
         .build()?;
 
     let rgb = render_frame_rgb(&composition, 0)?;
@@ -181,7 +196,7 @@ fn prop_component_scene_should_render_passed_text() -> anyhow::Result<()> {
         .size(640, 360)
         .fps(30)
         .frames(1)
-        .root(prop_component_scene)
+        .root(|_ctx| prop_component_scene())
         .build()?;
 
     let rgb = render_frame_rgb(&composition, 0)?;
@@ -200,7 +215,7 @@ fn opacity_scene_should_blend_with_background() -> anyhow::Result<()> {
         .size(640, 360)
         .fps(30)
         .frames(1)
-        .root(opacity_scene)
+        .root(|_ctx| opacity_scene())
         .build()?;
 
     let rgb = render_frame_rgb(&composition, 0)?;
@@ -230,7 +245,7 @@ fn nested_children_should_respect_absolute_parent_offset() -> anyhow::Result<()>
         .size(640, 360)
         .fps(30)
         .frames(1)
-        .root(nested_absolute_offset_scene)
+        .root(|_ctx| nested_absolute_offset_scene())
         .build()?;
 
     let rgb = render_frame_rgb(&composition, 0)?;
@@ -260,7 +275,7 @@ fn transition_series_should_render_first_transition_and_last_segments() -> anyho
         .size(640, 360)
         .fps(30)
         .frames(130)
-        .root(transition_series_scene)
+        .root(|_ctx| transition_series_scene())
         .build()?;
 
     let frame_0 = render_frame_rgb(&composition, 0)?;
@@ -297,12 +312,32 @@ fn composition_should_infer_frames_from_transition_series_root() -> anyhow::Resu
     let composition = Composition::new("transition_series_scene")
         .size(640, 360)
         .fps(30)
-        .root(transition_series_scene)
+        .root(|_ctx| transition_series_scene())
         .build()?;
 
     assert_eq!(
         composition.frames, 130,
         "expected composition to infer total frames from the transition series root",
+    );
+
+    Ok(())
+}
+
+#[test]
+fn component_can_call_child_component_without_passing_ctx() -> anyhow::Result<()> {
+    let composition = Composition::new("parent_component_calls_child_without_ctx")
+        .size(640, 360)
+        .fps(30)
+        .frames(1)
+        .root(|_ctx| parent_component_calls_child_without_ctx())
+        .build()?;
+
+    let rgb = render_frame_rgb(&composition, 0)?;
+    let has_non_white = rgb.chunks_exact(3).any(|px| px != [255, 255, 255]);
+
+    assert!(
+        has_non_white,
+        "expected nested child component to render when called without ctx",
     );
 
     Ok(())

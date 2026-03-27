@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
         .size(1280, 720)
         .fps(30)
         .frames(90)
-        .root(style_inheritance_demo)
+        .root(|_ctx| style_inheritance_demo())
         .build()?;
 
     let encode_config = EncodingConfig::default();

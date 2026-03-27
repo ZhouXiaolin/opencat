@@ -7,6 +7,7 @@ use crate::{
     style::{ColorToken, ComputedTextStyle, NodeStyle, impl_node_style_api, resolve_text_style},
 };
 
+#[derive(Clone)]
 pub struct Text {
     text: String,
     pub(crate) style: NodeStyle,
@@ -67,22 +68,6 @@ impl Text {
         let (_, bounds) = font.measure_str(&self.text, None);
         let baseline = top - bounds.top;
         canvas.draw_str(&self.text, (left, baseline), &font, &paint);
-    }
-
-    pub(crate) fn draw_resolved(
-        canvas: &Canvas,
-        left: f32,
-        top: f32,
-        text: impl Into<String>,
-        color: ColorToken,
-        font_size: f32,
-    ) {
-        let text_node = Text::new(text);
-        let style = ComputedTextStyle {
-            text_px: font_size,
-            color,
-        };
-        text_node.draw_at(canvas, left, top, &style);
     }
 }
 

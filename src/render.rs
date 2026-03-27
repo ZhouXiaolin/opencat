@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
@@ -10,17 +11,50 @@ use ffmpeg_next::{
     util::{format::pixel::Pixel, frame::video::Video, rational::Rational},
     Dictionary,
 };
-use skia_safe::{AlphaType, ColorType, ImageInfo, Rect, image::CachingHint, surfaces};
+use skia_safe::{AlphaType, Canvas, ColorType, ImageInfo, Rect, image::CachingHint, surfaces};
 use taffy::{
     AvailableSpace, TaffyTree,
-    prelude::{Dimension, JustifyContent as TaffyJustifyContent, LengthPercentage, Style},
+    prelude::{Dimension, JustifyContent as TaffyJustifyContent, Style},
 };
 
 use crate::{
     Composition, FrameCtx,
     nodes::{AbsoluteFill, AlignItems, JustifyContent, Text},
-    style::{ColorToken, ComputedTextStyle, FlexDirection},
+    style:: ComputedTextStyle,
 };
+
+/// Trait for drawing a node at a given position.
+/// This allows paint_subtree to delegate drawing to the node itself.
+trait Drawer: Send + Sync {
+    fn draw(&self, canvas: &Canvas, bounds: Rect);
+}
+
+impl Drawer for AbsoluteFill {
+    fn draw(&self, canvas: &Canvas, bounds: Rect) {
+        let mut paint = skia_safe::Paint::default();
+        paint.set_color(self.background_color_value().to_skia());
+        paint.set_anti_alias(true);
+        canvas.draw_rect(bounds, &paint);
+    }
+}
+
+impl Drawer for Text {
+    fn draw(&self, canvas: &Canvas, bounds: Rect) {
+        self.draw_at(canvas, bounds.left, bounds.top, &ComputedTextStyle::default());
+    }
+}
+
+/// A Drawer that holds resolved text style for proper text rendering.
+struct TextDrawer {
+    text: Arc<Text>,
+    computed_style: ComputedTextStyle,
+}
+
+impl Drawer for TextDrawer {
+    fn draw(&self, canvas: &Canvas, bounds: Rect) {
+        self.text.draw_at(canvas, bounds.left, bounds.top, &self.computed_style);
+    }
+}
 
 pub struct EncodingConfig {
     pub crf: u8,
@@ -216,19 +250,17 @@ pub fn render_frame_rgb(composition: &Composition, frame_index: u32) -> Result<V
     Ok(rgb)
 }
 
-#[derive(Clone)]
 struct LayoutPayload {
-    draw_kind: DrawKind,
+    drawer: Arc<dyn Drawer>,
 }
 
-#[derive(Clone)]
-enum DrawKind {
-    AbsoluteFill { background: ColorToken },
-    Text {
-        text: String,
-        color: ColorToken,
-        font_size: f32,
-    },
+// Manual Clone implementation since Arc<dyn Drawer> doesn't auto-derive Clone
+impl Clone for LayoutPayload {
+    fn clone(&self) -> Self {
+        Self {
+            drawer: Arc::clone(&self.drawer),
+        }
+    }
 }
 
 fn draw_with_taffy(node: &crate::Node, frame_ctx: &FrameCtx, canvas: &skia_safe::Canvas) -> Result<()> {
@@ -281,9 +313,7 @@ fn build_taffy_subtree(
         taffy.set_node_context(
             id,
             Some(LayoutPayload {
-                draw_kind: DrawKind::AbsoluteFill {
-                    background: fill.background_color_value(),
-                },
+                drawer: Arc::new(fill.clone()),
             }),
         )?;
         return Ok(id);
@@ -304,11 +334,10 @@ fn build_taffy_subtree(
         taffy.set_node_context(
             id,
             Some(LayoutPayload {
-                draw_kind: DrawKind::Text {
-                    text: text.content().to_string(),
-                    color: text.resolved_color(inherited_style),
-                    font_size: text.resolved_font_size(inherited_style),
-                },
+                drawer: Arc::new(TextDrawer {
+                    text: Arc::new(text.clone()),
+                    computed_style: text.resolve_text_style(inherited_style),
+                }),
             }),
         )?;
         return Ok(id);
@@ -333,21 +362,7 @@ fn paint_subtree(
     let rect = Rect::from_xywh(layout.location.x, layout.location.y, layout.size.width, layout.size.height);
 
     if let Some(payload) = taffy.get_node_context(node_id) {
-        match payload.draw_kind.clone() {
-            DrawKind::AbsoluteFill { background } => {
-                let mut paint = skia_safe::Paint::default();
-                paint.set_color(background.to_skia());
-                paint.set_anti_alias(true);
-                canvas.draw_rect(rect, &paint);
-            }
-            DrawKind::Text {
-                text,
-                color,
-                font_size,
-            } => {
-                Text::draw_resolved(canvas, rect.left, rect.top, text, color, font_size);
-            }
-        }
+        payload.drawer.draw(canvas, rect);
     }
 
     let children = taffy.children(node_id)?;

@@ -11,16 +11,19 @@ use crate::{
     },
     layout::tree::LayoutRect,
     style::{ObjectFit, Transform},
+    transitions::TransitionKind,
     typography,
 };
 
 pub struct SkiaBackend<'a> {
     canvas: &'a Canvas,
+    width: i32,
+    height: i32,
 }
 
 impl<'a> SkiaBackend<'a> {
-    pub fn new(canvas: &'a Canvas) -> Self {
-        Self { canvas }
+    pub fn new(canvas: &'a Canvas, width: i32, height: i32) -> Self {
+        Self { canvas, width, height }
     }
 
     pub fn execute(&mut self, list: &DisplayList) -> Result<()> {
@@ -50,10 +53,33 @@ impl<'a> SkiaBackend<'a> {
                 draw_item(self.canvas, item);
             }
             DisplayCommand::Transition { transition } => {
-                // Stub: just execute the from list. Tasks 4-5 will implement
-                // picture-based slide and light leak rendering.
-                for cmd in &transition.from.commands {
-                    self.execute_command(cmd);
+                match transition.kind {
+                    TransitionKind::Slide => {
+                        let progress = transition.progress;
+                        let w = self.width as f32;
+
+                        // Draw `to` scene (incoming) sliding in from left.
+                        self.canvas.save();
+                        self.canvas.translate(((progress - 1.0) * w, 0.0));
+                        for cmd in &transition.to.commands {
+                            self.execute_command(cmd);
+                        }
+                        self.canvas.restore();
+
+                        // Draw `from` scene (outgoing) sliding out to right.
+                        self.canvas.save();
+                        self.canvas.translate((progress * w, 0.0));
+                        for cmd in &transition.from.commands {
+                            self.execute_command(cmd);
+                        }
+                        self.canvas.restore();
+                    }
+                    TransitionKind::LightLeak(_) => {
+                        // Stub: Task 5 will implement shader-based light leak.
+                        for cmd in &transition.from.commands {
+                            self.execute_command(cmd);
+                        }
+                    }
                 }
             }
         }

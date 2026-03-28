@@ -1,13 +1,16 @@
 use anyhow::Result;
-use skia_safe::{Canvas, Paint, PaintStyle, RRect, Rect};
+use skia_safe::{
+    AlphaType, Canvas, ColorType, ImageInfo, Paint, PaintStyle, RRect, Rect,
+    canvas::SrcRectConstraint,
+};
 
 use crate::{
     display::list::{
-        DisplayCommand, DisplayItem, DisplayList, DisplayTransform, RectDisplayItem,
-        TextDisplayItem,
+        BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayList, DisplayTransform,
+        RectDisplayItem, TextDisplayItem,
     },
     layout::tree::LayoutRect,
-    style::Transform,
+    style::{ObjectFit, Transform},
     typography,
 };
 
@@ -54,6 +57,7 @@ fn draw_item(canvas: &Canvas, item: &DisplayItem) {
     match item {
         DisplayItem::Rect(rect) => draw_rect(canvas, rect),
         DisplayItem::Text(text) => draw_text(canvas, text),
+        DisplayItem::Bitmap(bitmap) => draw_bitmap(canvas, bitmap),
     }
 }
 
@@ -104,6 +108,39 @@ fn draw_text(canvas: &Canvas, text: &TextDisplayItem) {
         text.bounds.y,
         &text.style,
     );
+}
+
+fn draw_bitmap(canvas: &Canvas, bitmap: &BitmapDisplayItem) {
+    let info = ImageInfo::new(
+        (bitmap.width as i32, bitmap.height as i32),
+        ColorType::RGBA8888,
+        AlphaType::Opaque,
+        None,
+    );
+
+    let row_bytes = bitmap.width as usize * 4;
+    let data = skia_safe::Data::new_copy(&bitmap.data);
+
+    let image = skia_safe::images::raster_from_data(&info, data, row_bytes)
+        .expect("failed to create image from bitmap data");
+
+    let dst = layout_rect_to_skia(bitmap.bounds);
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+
+    match bitmap.object_fit {
+        ObjectFit::Fill => {
+            canvas.draw_image_rect(image, None, dst, &paint);
+        }
+        ObjectFit::Contain => {
+            let fitted = fitted_rect(bitmap.width as f32, bitmap.height as f32, dst, false);
+            canvas.draw_image_rect(image, None, fitted, &paint);
+        }
+        ObjectFit::Cover => {
+            let src = cover_src_rect(bitmap.width as f32, bitmap.height as f32, dst);
+            canvas.draw_image_rect(image, Some((&src, SrcRectConstraint::Strict)), dst, &paint);
+        }
+    }
 }
 
 fn apply_transform(canvas: &Canvas, transform: &DisplayTransform) {
@@ -166,4 +203,39 @@ fn apply_transform(canvas: &Canvas, transform: &DisplayTransform) {
 
 fn layout_rect_to_skia(rect: LayoutRect) -> Rect {
     Rect::from_xywh(rect.x, rect.y, rect.width, rect.height)
+}
+
+fn fitted_rect(src_width: f32, src_height: f32, dst: Rect, cover: bool) -> Rect {
+    let src_aspect = src_width / src_height;
+    let dst_aspect = dst.width() / dst.height();
+
+    let scale = if cover {
+        if src_aspect > dst_aspect {
+            dst.height() / src_height
+        } else {
+            dst.width() / src_width
+        }
+    } else if src_aspect > dst_aspect {
+        dst.width() / src_width
+    } else {
+        dst.height() / src_height
+    };
+
+    let width = src_width * scale;
+    let height = src_height * scale;
+    let x = dst.left + (dst.width() - width) / 2.0;
+    let y = dst.top + (dst.height() - height) / 2.0;
+
+    Rect::from_xywh(x, y, width, height)
+}
+
+fn cover_src_rect(src_width: f32, src_height: f32, dst: Rect) -> Rect {
+    let fitted = fitted_rect(src_width, src_height, dst, true);
+    let scale = fitted.width() / src_width;
+    let visible_width = dst.width() / scale;
+    let visible_height = dst.height() / scale;
+    let x = (src_width - visible_width) / 2.0;
+    let y = (src_height - visible_height) / 2.0;
+
+    Rect::from_xywh(x, y, visible_width, visible_height)
 }

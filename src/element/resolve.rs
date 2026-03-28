@@ -2,9 +2,10 @@ use crate::{
     FrameCtx, Node,
     element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle},
-        tree::{ElementDiv, ElementId, ElementKind, ElementNode, ElementText},
+        tree::{ElementBitmap, ElementDiv, ElementId, ElementKind, ElementNode, ElementText},
     },
-    nodes::{Div, Text},
+    media::MediaContext,
+    nodes::{Div, Image, Text, Video},
     style::{ComputedTextStyle, NodeStyle, resolve_text_style},
     view::ComponentNode,
 };
@@ -28,7 +29,7 @@ struct ResolveContext<'a> {
     inherited_text: &'a ComputedTextStyle,
 }
 
-pub fn resolve_ui_tree(node: &Node, frame_ctx: &FrameCtx) -> ElementNode {
+pub fn resolve_ui_tree(node: &Node, frame_ctx: &FrameCtx, media: &mut MediaContext) -> ElementNode {
     let mut ids = ElementIdAllocator::default();
     let inherited_text = ComputedTextStyle::default();
     let mut cx = ResolveContext {
@@ -36,16 +37,24 @@ pub fn resolve_ui_tree(node: &Node, frame_ctx: &FrameCtx) -> ElementNode {
         ids: &mut ids,
         inherited_text: &inherited_text,
     };
-    resolve_node(node, &mut cx)
+    resolve_node(node, &mut cx, media)
 }
 
-fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> ElementNode {
+fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>, media: &mut MediaContext) -> ElementNode {
     if let Some(component) = node.as_any().downcast_ref::<ComponentNode>() {
-        return resolve_component(component, cx);
+        return resolve_component(component, cx, media);
+    }
+
+    if let Some(video) = node.as_any().downcast_ref::<Video>() {
+        return resolve_video(video, cx, media);
+    }
+
+    if let Some(image) = node.as_any().downcast_ref::<Image>() {
+        return resolve_image(image, cx, media);
     }
 
     if let Some(div) = node.as_any().downcast_ref::<Div>() {
-        return resolve_div(div, cx);
+        return resolve_div(div, cx, media);
     }
 
     if let Some(text) = node.as_any().downcast_ref::<Text>() {
@@ -55,12 +64,16 @@ fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> ElementNode {
     panic!("unknown node type encountered while resolving UI tree");
 }
 
-fn resolve_component(component: &ComponentNode, cx: &mut ResolveContext<'_>) -> ElementNode {
+fn resolve_component(
+    component: &ComponentNode,
+    cx: &mut ResolveContext<'_>,
+    media: &mut MediaContext,
+) -> ElementNode {
     let resolved = component.render(cx.frame_ctx);
-    resolve_node(&resolved, cx)
+    resolve_node(&resolved, cx, media)
 }
 
-fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> ElementNode {
+fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>, media: &mut MediaContext) -> ElementNode {
     let computed = compute_style(div.style_ref(), cx.inherited_text);
     let mut children = Vec::new();
     for child in div.children_ref() {
@@ -69,7 +82,7 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> ElementNode {
             ids: cx.ids,
             inherited_text: &computed.text,
         };
-        children.push(resolve_node(child, &mut child_cx));
+        children.push(resolve_node(child, &mut child_cx, media));
     }
 
     ElementNode {
@@ -88,6 +101,53 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> ElementNode {
         kind: ElementKind::Text(ElementText {
             text: text.content().to_string(),
             text_style: computed.text,
+        }),
+        style: computed,
+        children: Vec::new(),
+    }
+}
+
+fn resolve_video(
+    video: &Video,
+    cx: &mut ResolveContext<'_>,
+    media: &mut MediaContext,
+) -> ElementNode {
+    let computed = compute_style(video.style_ref(), cx.inherited_text);
+
+    let target_time = cx.frame_ctx.frame as f64 / cx.frame_ctx.fps as f64;
+    let (data, width, height) = media
+        .get_bitmap(video.source(), target_time)
+        .expect("failed to decode video frame");
+
+    ElementNode {
+        id: cx.ids.alloc(),
+        kind: ElementKind::Bitmap(ElementBitmap {
+            data,
+            width,
+            height,
+        }),
+        style: computed,
+        children: Vec::new(),
+    }
+}
+
+fn resolve_image(
+    image: &Image,
+    cx: &mut ResolveContext<'_>,
+    media: &mut MediaContext,
+) -> ElementNode {
+    let computed = compute_style(image.style_ref(), cx.inherited_text);
+
+    let (data, width, height) = media
+        .get_bitmap(image.source(), 0.0)
+        .expect("failed to load image");
+
+    ElementNode {
+        id: cx.ids.alloc(),
+        kind: ElementKind::Bitmap(ElementBitmap {
+            data,
+            width,
+            height,
         }),
         style: computed,
         children: Vec::new(),
@@ -121,6 +181,7 @@ fn compute_style(style: &NodeStyle, inherited_text: &ComputedTextStyle) -> Compu
             border_radius: style.border_radius.unwrap_or(0.0),
             border_width: style.border_width,
             border_color: style.border_color,
+            object_fit: style.object_fit.unwrap_or_default(),
             transforms: style.transforms.clone(),
         },
         text,

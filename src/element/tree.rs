@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::style::ComputedTextStyle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -15,6 +17,7 @@ pub struct ElementNode {
 pub enum ElementKind {
     Div(ElementDiv),
     Text(ElementText),
+    Bitmap(ElementBitmap),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -24,6 +27,13 @@ pub struct ElementDiv;
 pub struct ElementText {
     pub text: String,
     pub text_style: ComputedTextStyle,
+}
+
+#[derive(Clone, Debug)]
+pub struct ElementBitmap {
+    pub data: Arc<Vec<u8>>,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl ElementNode {}

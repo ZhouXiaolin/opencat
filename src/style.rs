@@ -69,6 +69,14 @@ pub enum AlignItems {
     Stretch,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ObjectFit {
+    #[default]
+    Contain,
+    Cover,
+    Fill,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Transform {
     TranslateX(f32),
@@ -118,6 +126,7 @@ pub struct NodeStyle {
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    pub object_fit: Option<ObjectFit>,
     pub transforms: Vec<Transform>,
 
     // Text
@@ -370,6 +379,23 @@ macro_rules! impl_node_style_api {
             pub fn opacity(mut self, opacity: f32) -> Self {
                 self.style.opacity = Some(opacity.clamp(0.0, 1.0));
                 self
+            }
+
+            pub fn object_fit(mut self, fit: $crate::style::ObjectFit) -> Self {
+                self.style.object_fit = Some(fit);
+                self
+            }
+
+            pub fn contain(self) -> Self {
+                self.object_fit($crate::style::ObjectFit::Contain)
+            }
+
+            pub fn cover(self) -> Self {
+                self.object_fit($crate::style::ObjectFit::Cover)
+            }
+
+            pub fn fill(self) -> Self {
+                self.object_fit($crate::style::ObjectFit::Fill)
             }
 
             pub fn transform(mut self, transform: $crate::style::Transform) -> Self {

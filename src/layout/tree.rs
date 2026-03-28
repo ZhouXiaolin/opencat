@@ -1,4 +1,9 @@
-use crate::{element::style::ComputedVisualStyle, style::ComputedTextStyle};
+use std::sync::Arc;
+
+use crate::{
+    element::style::ComputedVisualStyle,
+    style::{ComputedTextStyle, ObjectFit},
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct LayoutRect {
@@ -30,10 +35,19 @@ pub struct LayoutPaint {
 pub enum LayoutPaintKind {
     Div,
     Text(LayoutTextPaint),
+    Bitmap(LayoutBitmapPaint),
 }
 
 #[derive(Clone, Debug)]
 pub struct LayoutTextPaint {
     pub text: String,
     pub style: ComputedTextStyle,
+}
+
+#[derive(Clone, Debug)]
+pub struct LayoutBitmapPaint {
+    pub data: Arc<Vec<u8>>,
+    pub width: u32,
+    pub height: u32,
+    pub object_fit: ObjectFit,
 }

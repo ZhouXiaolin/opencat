@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use crate::{
     layout::tree::LayoutRect,
-    style::{ColorToken, ComputedTextStyle},
+    style::{ColorToken, ComputedTextStyle, ObjectFit},
 };
 
 #[derive(Clone, Debug, Default)]
@@ -41,6 +43,7 @@ pub struct DisplayTransform {
 pub enum DisplayItem {
     Rect(RectDisplayItem),
     Text(TextDisplayItem),
+    Bitmap(BitmapDisplayItem),
 }
 
 #[derive(Clone, Debug)]
@@ -54,6 +57,15 @@ pub struct TextDisplayItem {
     pub bounds: LayoutRect,
     pub text: String,
     pub style: ComputedTextStyle,
+}
+
+#[derive(Clone, Debug)]
+pub struct BitmapDisplayItem {
+    pub bounds: LayoutRect,
+    pub data: Arc<Vec<u8>>,
+    pub width: u32,
+    pub height: u32,
+    pub object_fit: ObjectFit,
 }
 
 #[derive(Clone, Debug)]

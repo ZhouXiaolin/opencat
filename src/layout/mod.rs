@@ -10,7 +10,8 @@ use crate::{
     FrameCtx,
     element::tree::{ElementKind, ElementNode},
     layout::tree::{
-        LayoutNode, LayoutPaint, LayoutPaintKind, LayoutRect, LayoutTextPaint, LayoutTree,
+        LayoutBitmapPaint, LayoutNode, LayoutPaint, LayoutPaintKind, LayoutRect, LayoutTextPaint,
+        LayoutTree,
     },
     nodes::{AlignItems, JustifyContent, Position},
     typography,
@@ -121,6 +122,19 @@ fn build_taffy_subtree(taffy: &mut TaffyTree<()>, element: &ElementNode) -> Resu
                 ..Default::default()
             }
         }
+        ElementKind::Bitmap(bitmap) => Style {
+            size: taffy::geometry::Size {
+                width: layout
+                    .width
+                    .map(Dimension::Length)
+                    .unwrap_or(Dimension::Length(bitmap.width as f32)),
+                height: layout
+                    .height
+                    .map(Dimension::Length)
+                    .unwrap_or(Dimension::Length(bitmap.height as f32)),
+            },
+            ..Default::default()
+        },
     };
 
     let id = if children.is_empty() {
@@ -158,6 +172,12 @@ fn build_layout_tree(
                 ElementKind::Text(text) => LayoutPaintKind::Text(LayoutTextPaint {
                     text: text.text.clone(),
                     style: text.text_style,
+                }),
+                ElementKind::Bitmap(bitmap) => LayoutPaintKind::Bitmap(LayoutBitmapPaint {
+                    data: bitmap.data.clone(),
+                    width: bitmap.width,
+                    height: bitmap.height,
+                    object_fit: element.style.visual.object_fit,
                 }),
             },
         },

@@ -2,8 +2,8 @@ use anyhow::Result;
 
 use crate::{
     display::list::{
-        DisplayCommand, DisplayItem, DisplayLayer, DisplayList, DisplayTransform, RectDisplayItem,
-        RectPaintStyle, TextDisplayItem,
+        BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayLayer, DisplayList,
+        DisplayTransform, RectDisplayItem, RectPaintStyle, TextDisplayItem,
     },
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
 };
@@ -80,5 +80,72 @@ fn push_paint_commands(layout: &LayoutNode, rect: LayoutRect, list: &mut Display
                 style: text.style,
             }),
         }),
+        LayoutPaintKind::Bitmap(bitmap) => list.push(DisplayCommand::Draw {
+            item: DisplayItem::Bitmap(BitmapDisplayItem {
+                bounds: rect,
+                data: bitmap.data.clone(),
+                width: bitmap.width,
+                height: bitmap.height,
+                object_fit: bitmap.object_fit,
+            }),
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_display_list;
+    use crate::{
+        display::list::DisplayItem,
+        layout::tree::{
+            LayoutBitmapPaint, LayoutNode, LayoutPaint, LayoutPaintKind, LayoutRect, LayoutTree,
+        },
+        style::{ObjectFit, Transform},
+    };
+
+    #[test]
+    fn bitmap_display_item_preserves_object_fit() {
+        let layout_tree = LayoutTree {
+            root: LayoutNode {
+                rect: LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 320.0,
+                    height: 180.0,
+                },
+                paint: LayoutPaint {
+                    visual: crate::element::style::ComputedVisualStyle {
+                        opacity: 1.0,
+                        background: None,
+                        border_radius: 0.0,
+                        border_width: None,
+                        border_color: None,
+                        object_fit: ObjectFit::Contain,
+                        transforms: Vec::<Transform>::new(),
+                    },
+                    kind: LayoutPaintKind::Bitmap(LayoutBitmapPaint {
+                        data: std::sync::Arc::new(vec![255; 4 * 2 * 2]),
+                        width: 2,
+                        height: 2,
+                        object_fit: ObjectFit::Cover,
+                    }),
+                },
+                children: Vec::new(),
+            },
+        };
+
+        let list = build_display_list(&layout_tree).expect("display list should build");
+        let bitmap = list
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                crate::display::list::DisplayCommand::Draw {
+                    item: DisplayItem::Bitmap(bitmap),
+                } => Some(bitmap),
+                _ => None,
+            })
+            .expect("bitmap draw item should exist");
+
+        assert_eq!(bitmap.object_fit, ObjectFit::Cover);
     }
 }

@@ -4,6 +4,7 @@ pub mod display;
 pub mod element;
 pub mod frame_ctx;
 pub mod layout;
+pub mod media;
 pub mod nodes;
 pub mod render;
 pub mod style;

@@ -12,7 +12,7 @@ use std::path::Path;
 
 use crate::{
     Composition, FrameCtx, backend::skia::SkiaBackend, display::build::build_display_list,
-    element::resolve::resolve_ui_tree, layout::compute_layout,
+    element::resolve::resolve_ui_tree, layout::compute_layout, media::MediaContext,
 };
 
 pub struct EncodingConfig {
@@ -53,6 +53,8 @@ fn render_to_mp4_impl(
     config: &EncodingConfig,
 ) -> Result<()> {
     ffmpeg::init()?;
+
+    let mut media_ctx = MediaContext::new();
 
     let output_path = output_path.as_ref();
     let mut output = format::output(output_path).with_context(|| {
@@ -115,7 +117,7 @@ fn render_to_mp4_impl(
     )?;
 
     for frame_index in 0..composition.frames {
-        let rgb = render_frame_rgb(composition, frame_index)?;
+        let rgb = render_frame_rgb(composition, frame_index, &mut media_ctx)?;
 
         let mut rgb_frame = Video::new(
             Pixel::RGB24,
@@ -162,7 +164,11 @@ fn render_to_mp4_impl(
     Ok(())
 }
 
-pub fn render_frame_rgb(composition: &Composition, frame_index: u32) -> Result<Vec<u8>> {
+pub fn render_frame_rgb(
+    composition: &Composition,
+    frame_index: u32,
+    media_ctx: &mut MediaContext,
+) -> Result<Vec<u8>> {
     let frame_ctx = FrameCtx {
         frame: frame_index,
         fps: composition.fps,
@@ -172,7 +178,7 @@ pub fn render_frame_rgb(composition: &Composition, frame_index: u32) -> Result<V
     };
 
     let node = composition.root_node(&frame_ctx);
-    let element_root = resolve_ui_tree(&node, &frame_ctx);
+    let element_root = resolve_ui_tree(&node, &frame_ctx, media_ctx);
     let layout_tree = compute_layout(&element_root, &frame_ctx)?;
 
     let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))

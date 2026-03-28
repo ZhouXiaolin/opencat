@@ -14,16 +14,6 @@ pub struct Div {
 }
 
 impl Div {
-    pub fn new() -> Self {
-        Self {
-            style: NodeStyle {
-                bg_color: Some(ColorToken::White),
-                ..Default::default()
-            },
-            children: Vec::new(),
-        }
-    }
-
     pub fn child<T: Into<Node>>(mut self, child: T) -> Self {
         self.children.push(child.into());
         self
@@ -38,9 +28,19 @@ impl Div {
     }
 }
 
+pub fn div() -> Div {
+    Div {
+        style: NodeStyle {
+            bg_color: Some(ColorToken::White),
+            ..Default::default()
+        },
+        children: Vec::new(),
+    }
+}
+
 impl Default for Div {
     fn default() -> Self {
-        Self::new()
+        div()
     }
 }
 

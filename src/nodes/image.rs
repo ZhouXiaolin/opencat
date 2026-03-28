@@ -13,19 +13,19 @@ pub struct Image {
 }
 
 impl Image {
-    pub fn new(path: impl AsRef<Path>) -> Self {
-        Self {
-            source: path.as_ref().to_path_buf(),
-            style: NodeStyle::default(),
-        }
-    }
-
     pub fn source(&self) -> &Path {
         &self.source
     }
 
     pub fn style_ref(&self) -> &NodeStyle {
         &self.style
+    }
+}
+
+pub fn image(path: impl AsRef<Path>) -> Image {
+    Image {
+        source: path.as_ref().to_path_buf(),
+        style: NodeStyle::default(),
     }
 }
 

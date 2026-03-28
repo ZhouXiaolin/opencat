@@ -1,14 +1,14 @@
 use opencat::{
     Composition, EncodingConfig, FrameCtx, Node, component,
-    nodes::{Div, Text},
-    transitions::{TransitionSeries, linear, slide},
+    nodes::{div, text},
+    transitions::{linear, slide, transition_series},
 };
 
 fn scene_panel(label: &str, is_pink: bool) -> Node {
-    let mut panel = Div::new()
+    let mut panel = div()
         .justify_center()
         .items_center()
-        .child(Text::new(label).text_px(180.0).text_white());
+        .child(text(label).text_px(180.0).text_white());
 
     panel = if is_pink {
         panel.bg_pink()
@@ -23,7 +23,7 @@ fn scene_panel(label: &str, is_pink: bool) -> Node {
 fn test(_ctx: &FrameCtx) -> Node {
     let current_frame = _ctx.frame;
     let opacity = (current_frame as f32 / 60.0).min(1.0);
-    Div::new()
+    div()
         .flex_col()
         .justify_center()
         .items_center()
@@ -31,7 +31,7 @@ fn test(_ctx: &FrameCtx) -> Node {
         .text_black()
         .text_px(100.0)
         .child(
-            Div::new()
+            div()
                 .absolute()
                 .left(100.0)
                 .top(100.0)
@@ -40,14 +40,14 @@ fn test(_ctx: &FrameCtx) -> Node {
                 .rounded_full()
                 .bg_green(),
         )
-        .child(Text::new("B").text_px(48.0).opacity(opacity))
-        .child(Text::new("C").text_red())
+        .child(text("B").text_px(48.0).opacity(opacity))
+        .child(text("C").text_red())
         .into()
 }
 
 #[component]
 fn slide_transition_demo(_ctx: &FrameCtx) -> Node {
-    TransitionSeries::new()
+    transition_series()
         .sequence(40, test())
         .transition(slide().timing(linear().duration(30)))
         .sequence(60, scene_panel("B", true))

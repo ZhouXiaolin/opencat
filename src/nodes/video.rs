@@ -13,19 +13,19 @@ pub struct Video {
 }
 
 impl Video {
-    pub fn new(path: impl AsRef<Path>) -> Self {
-        Self {
-            source: path.as_ref().to_path_buf(),
-            style: NodeStyle::default(),
-        }
-    }
-
     pub fn source(&self) -> &Path {
         &self.source
     }
 
     pub fn style_ref(&self) -> &NodeStyle {
         &self.style
+    }
+}
+
+pub fn video(path: impl AsRef<Path>) -> Video {
+    Video {
+        source: path.as_ref().to_path_buf(),
+        style: NodeStyle::default(),
     }
 }
 

@@ -14,7 +14,8 @@ pub mod view;
 
 pub use composition::Composition;
 pub use frame_ctx::FrameCtx;
+pub use nodes::{div, image, text, video};
 pub use opencat_macros::component;
 pub use render::EncodingConfig;
-pub use transitions::{TransitionSeries, linear, slide};
+pub use transitions::{TransitionSeries, linear, slide, transition_series};
 pub use view::{Node, ViewNode, component_node, component_node_with_duration};

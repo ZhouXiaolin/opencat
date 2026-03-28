@@ -1,9 +1,9 @@
 use opencat::{
     Composition, FrameCtx, Node, component,
     media::MediaContext,
-    nodes::{AlignItems, Div, JustifyContent, Text},
+    nodes::{AlignItems, JustifyContent, div, text},
     render::render_frame_rgb,
-    transitions::{TransitionSeries, linear, slide},
+    transitions::{linear, slide, transition_series},
 };
 
 fn render_frame(composition: &Composition, frame_index: u32) -> anyhow::Result<Vec<u8>> {
@@ -13,12 +13,12 @@ fn render_frame(composition: &Composition, frame_index: u32) -> anyhow::Result<V
 
 #[component]
 fn text_scene(ctx: &FrameCtx) -> Node {
-    Div::new()
+    div()
         .bg_white()
         .justify_content(JustifyContent::Center)
         .align_items(AlignItems::Center)
         .child(
-            Text::new(format!("Frame {}", ctx.frame))
+            text(format!("Frame {}", ctx.frame))
                 .text_px(96.0)
                 .text_black(),
         )
@@ -27,22 +27,22 @@ fn text_scene(ctx: &FrameCtx) -> Node {
 
 #[component]
 fn flex_scene(_ctx: &FrameCtx) -> Node {
-    Div::new()
+    div()
         .bg_white()
         .justify_content(JustifyContent::Center)
         .align_items(AlignItems::Center)
-        .child(Text::new("A").text_px(72.0).text_black())
+        .child(text("A").text_px(72.0).text_black())
         .into()
 }
 
 #[component]
 fn title(_ctx: &FrameCtx, title: String) -> Node {
-    Text::new(title).text_px(96.0).text_black().into()
+    text(title).text_px(96.0).text_black().into()
 }
 
 #[component]
 fn prop_component_scene(_ctx: &FrameCtx) -> Node {
-    Div::new()
+    div()
         .bg_white()
         .justify_content(JustifyContent::Center)
         .align_items(AlignItems::Center)
@@ -52,10 +52,10 @@ fn prop_component_scene(_ctx: &FrameCtx) -> Node {
 
 #[component]
 fn opacity_scene(_ctx: &FrameCtx) -> Node {
-    Div::new()
+    div()
         .bg_white()
         .child(
-            Div::new()
+            div()
                 .absolute()
                 .left(270.0)
                 .top(130.0)
@@ -69,26 +69,26 @@ fn opacity_scene(_ctx: &FrameCtx) -> Node {
 
 #[component]
 fn nested_absolute_offset_scene(_ctx: &FrameCtx) -> Node {
-    Div::new()
+    div()
         .bg_white()
         .child(
-            Div::new()
+            div()
                 .absolute()
                 .left(320.0)
                 .top(0.0)
                 .w(320.0)
                 .h(360.0)
                 .bg_red()
-                .child(Div::new().bg_blue()),
+                .child(div().bg_blue()),
         )
         .into()
 }
 
 fn color_scene(label: &str, is_pink: bool) -> Node {
-    let base = Div::new()
+    let base = div()
         .justify_center()
         .items_center()
-        .child(Text::new(label).text_px(120.0).text_white());
+        .child(text(label).text_px(120.0).text_white());
 
     if is_pink {
         base.bg_pink().into()
@@ -102,7 +102,7 @@ fn transition_series_scene(_ctx: &FrameCtx) -> Node {
     let scene_a = color_scene("A", false);
     let scene_b = color_scene("B", true);
 
-    TransitionSeries::new()
+    transition_series()
         .sequence(40, scene_a)
         .transition(slide().timing(linear().duration(30)))
         .sequence(60, scene_b)
@@ -111,12 +111,12 @@ fn transition_series_scene(_ctx: &FrameCtx) -> Node {
 
 #[component]
 fn nested_child_component(_ctx: &FrameCtx) -> Node {
-    Text::new("Nested").text_px(72.0).text_black().into()
+    text("Nested").text_px(72.0).text_black().into()
 }
 
 #[component]
 fn parent_component_calls_child_without_ctx(_ctx: &FrameCtx) -> Node {
-    Div::new()
+    div()
         .bg_white()
         .justify_center()
         .items_center()
@@ -126,10 +126,10 @@ fn parent_component_calls_child_without_ctx(_ctx: &FrameCtx) -> Node {
 
 #[component]
 fn transform_order_scene(_ctx: &FrameCtx) -> Node {
-    Div::new()
+    div()
         .bg_white()
         .child(
-            Div::new()
+            div()
                 .absolute()
                 .left(120.0)
                 .top(130.0)
@@ -140,7 +140,7 @@ fn transform_order_scene(_ctx: &FrameCtx) -> Node {
                 .scale(2.0),
         )
         .child(
-            Div::new()
+            div()
                 .absolute()
                 .left(120.0)
                 .top(210.0)

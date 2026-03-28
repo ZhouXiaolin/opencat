@@ -1,6 +1,6 @@
 use opencat::{
     Composition, EncodingConfig, FrameCtx, Node, component,
-    nodes::{Div, Text},
+    nodes::{div, text},
 };
 
 #[component]
@@ -14,7 +14,7 @@ fn hello_world_demo(_ctx: &FrameCtx) -> Node {
     let pink_translate = 140.0 + (current_frame / 45.0).min(1.0) * 40.0;
     let pink_scale = 1.0 + (current_frame / 35.0).min(1.0) * 0.35;
     let label_offset = ((current_frame - 10.0) / 25.0).clamp(0.0, 1.0) * 36.0;
-    Div::new()
+    div()
         .flex_col()
         .justify_center()
         .items_center()
@@ -23,7 +23,7 @@ fn hello_world_demo(_ctx: &FrameCtx) -> Node {
         .text_black()
         .text_px(72.0)
         .child(
-            Div::new()
+            div()
                 .absolute()
                 .left(160.0)
                 .top(120.0)
@@ -35,7 +35,7 @@ fn hello_world_demo(_ctx: &FrameCtx) -> Node {
                 .scale(blue_scale),
         )
         .child(
-            Div::new()
+            div()
                 .absolute()
                 .left(160.0)
                 .top(290.0)
@@ -47,7 +47,7 @@ fn hello_world_demo(_ctx: &FrameCtx) -> Node {
                 .translate_x(pink_translate),
         )
         .child(
-            Text::new("Ordered transforms")
+            text("Ordered transforms")
                 .text_px(72.0)
                 .text_black()
                 .opacity(opacity)
@@ -55,13 +55,13 @@ fn hello_world_demo(_ctx: &FrameCtx) -> Node {
                 .scale(1.0 + opacity * 0.05),
         )
         .child(
-            Text::new("Blue: translate_x().scale()")
+            text("Blue: translate_x().scale()")
                 .text_px(34.0)
                 .translate_x(-label_offset)
                 .opacity((current_frame / 24.0).min(1.0)),
         )
         .child(
-            Text::new("Pink: scale().translate_x()")
+            text("Pink: scale().translate_x()")
                 .text_px(34.0)
                 .text_pink()
                 .translate_x(label_offset)

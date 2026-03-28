@@ -13,13 +13,6 @@ pub struct Text {
 }
 
 impl Text {
-    pub fn new(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            style: NodeStyle::default(),
-        }
-    }
-
     pub fn content(&self) -> &str {
         &self.text
     }
@@ -40,6 +33,13 @@ impl Text {
         computed_style: &ComputedTextStyle,
     ) {
         typography::draw_text(canvas, &self.text, left, top, computed_style);
+    }
+}
+
+pub fn text(content: impl Into<String>) -> Text {
+    Text {
+        text: content.into(),
+        style: NodeStyle::default(),
     }
 }
 

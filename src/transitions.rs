@@ -1,4 +1,4 @@
-use crate::{FrameCtx, Node, component_node_with_duration, nodes::Div};
+use crate::{FrameCtx, Node, component_node_with_duration, nodes::div};
 
 #[derive(Clone)]
 pub struct TransitionSeries {
@@ -34,10 +34,6 @@ pub struct SlideBuilder;
 pub struct LinearTimingBuilder;
 
 impl TransitionSeries {
-    pub fn new() -> Self {
-        Self { items: Vec::new() }
-    }
-
     pub fn sequence(mut self, duration_in_frames: u32, node: Node) -> Self {
         self.items.push(TransitionSeriesItem::Sequence {
             duration_in_frames,
@@ -66,7 +62,7 @@ impl TransitionSeries {
 
     fn render(&self, ctx: &FrameCtx) -> Node {
         if self.items.is_empty() {
-            return Div::new().into();
+            return div().into();
         }
 
         let mut cursor = 0;
@@ -123,8 +119,7 @@ impl TransitionSeries {
             }
         }
 
-        self.last_sequence_node()
-            .unwrap_or_else(|| Div::new().into())
+        self.last_sequence_node().unwrap_or_else(|| div().into())
     }
 
     fn last_sequence_node(&self) -> Option<Node> {
@@ -137,7 +132,7 @@ impl TransitionSeries {
 
 impl Default for TransitionSeries {
     fn default() -> Self {
-        Self::new()
+        transition_series()
     }
 }
 
@@ -176,9 +171,9 @@ impl Presentation {
                 let from_x = progress * width;
                 let to_x = (progress - 1.0) * width;
 
-                Div::new()
+                div()
                     .child(
-                        Div::new()
+                        div()
                             .absolute()
                             .left(to_x)
                             .top(0.0)
@@ -187,7 +182,7 @@ impl Presentation {
                             .child(to),
                     )
                     .child(
-                        Div::new()
+                        div()
                             .absolute()
                             .left(from_x)
                             .top(0.0)
@@ -222,4 +217,8 @@ pub fn slide() -> SlideBuilder {
 
 pub fn linear() -> LinearTimingBuilder {
     LinearTimingBuilder
+}
+
+pub fn transition_series() -> TransitionSeries {
+    TransitionSeries { items: Vec::new() }
 }

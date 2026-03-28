@@ -1,16 +1,17 @@
 use opencat::{
     Composition, EncodingConfig, FrameCtx, Node, component,
-    nodes::{Div, Video},
+    nodes::{div, image, video},
 };
 
 #[component]
 fn video_demo(_ctx: &FrameCtx) -> Node {
-    Div::new()
+    div()
         .flex_col()
         .justify_center()
         .items_center()
         .bg_black()
-        .child(Video::new("/Users/solaren/Resources/mp4/2.mp4").rounded_full())
+        .child(video("/Users/solaren/Resources/mp4/2.mp4").rounded_full())
+        .child(image("/Users/solaren/Resources/png/3.png"))
         .into()
 }
 

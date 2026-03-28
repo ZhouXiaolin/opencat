@@ -158,6 +158,13 @@ fn pixel_at(rgb: &[u8], width: usize, x: usize, y: usize) -> [u8; 3] {
     [rgb[idx], rgb[idx + 1], rgb[idx + 2]]
 }
 
+fn color_distance(a: [u8; 3], b: [u8; 3]) -> u32 {
+    let dr = a[0] as i32 - b[0] as i32;
+    let dg = a[1] as i32 - b[1] as i32;
+    let db = a[2] as i32 - b[2] as i32;
+    (dr * dr + dg * dg + db * db) as u32
+}
+
 fn color_bounds(rgb: &[u8], width: usize, height: usize, color: [u8; 3]) -> Option<[usize; 4]> {
     let mut min_x = width;
     let mut min_y = height;
@@ -399,14 +406,16 @@ fn slide_transition_should_still_show_expected_halves_midway() -> anyhow::Result
     // At 50 % progress the incoming scene B (pink) should occupy the left half.
     let left = pixel_at(&rgb, 640, 160, 180);
     assert_eq!(
-        left, [236, 72, 153],
+        left,
+        [236, 72, 153],
         "expected left half to show scene B (pink) at midway of slide transition",
     );
 
     // The outgoing scene A (blue) should still be visible on the right half.
     let right = pixel_at(&rgb, 640, 480, 180);
     assert_eq!(
-        right, [59, 130, 246],
+        right,
+        [59, 130, 246],
         "expected right half to show scene A (blue) at midway of slide transition",
     );
 
@@ -433,8 +442,15 @@ fn light_leak_transition_should_render_non_uniform_transition_pixels() -> anyhow
         })
         .build()?;
 
-    // Frame 35 is 15 frames into the 30-frame light leak transition (progress = 0.5).
+    // Frame 10 is still scene A. Frame 35 is 15 frames into the 30-frame
+    // light leak transition (progress = 0.5).
+    let rgb_scene_a = render_frame(&composition, 10)?;
     let rgb = render_frame(&composition, 35)?;
+
+    assert_ne!(
+        rgb, rgb_scene_a,
+        "expected the midway light leak frame to differ from the static scene A frame"
+    );
 
     // A light leak produces non-uniform, organic pixel blending rather than a single
     // flat colour. Assert that at least three distinct colours appear in the frame.
@@ -451,6 +467,41 @@ fn light_leak_transition_should_render_non_uniform_transition_pixels() -> anyhow
         "expected light leak transition to produce at least 3 distinct pixel colours at midway, \
          but found only {:?}",
         unique_colors,
+    );
+
+    Ok(())
+}
+
+#[test]
+fn light_leak_transition_should_be_closer_to_target_scene_near_the_end() -> anyhow::Result<()> {
+    use opencat::transitions::light_leak;
+
+    let scene_a = color_scene("A", false);
+    let scene_b = color_scene("B", true);
+
+    let composition = Composition::new("light_leak_direction_test")
+        .size(640, 360)
+        .fps(30)
+        .frames(100)
+        .root(move |_ctx| {
+            transition_series()
+                .sequence(20, scene_b.clone())
+                .transition(light_leak().timing(linear().duration(30)))
+                .sequence(50, scene_a.clone())
+                .into()
+        })
+        .build()?;
+
+    let rgb = render_frame(&composition, 49)?;
+    let px = pixel_at(&rgb, 640, 40, 40);
+
+    let distance_to_target = color_distance(px, [59, 130, 246]);
+    let distance_to_source = color_distance(px, [236, 72, 153]);
+
+    assert!(
+        distance_to_target < distance_to_source,
+        "expected a late light leak frame to be closer to the target scene than the source scene, but pixel {:?} was not",
+        px,
     );
 
     Ok(())

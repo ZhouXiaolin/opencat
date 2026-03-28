@@ -1,9 +1,15 @@
 use opencat::{
     Composition, FrameCtx, Node, component,
+    media::MediaContext,
     nodes::{AlignItems, Div, JustifyContent, Text},
     render::render_frame_rgb,
     transitions::{TransitionSeries, linear, slide},
 };
+
+fn render_frame(composition: &Composition, frame_index: u32) -> anyhow::Result<Vec<u8>> {
+    let mut media_ctx = MediaContext::new();
+    render_frame_rgb(composition, frame_index, &mut media_ctx)
+}
 
 #[component]
 fn text_scene(ctx: &FrameCtx) -> Node {
@@ -183,7 +189,7 @@ fn text_scene_should_draw_non_white_pixels() -> anyhow::Result<()> {
         .root(|_ctx| text_scene())
         .build()?;
 
-    let rgb = render_frame_rgb(&composition, 0)?;
+    let rgb = render_frame(&composition, 0)?;
     let has_non_white = rgb.chunks_exact(3).any(|px| px != [255, 255, 255]);
 
     assert!(
@@ -202,7 +208,7 @@ fn flex_scene_should_draw_near_center() -> anyhow::Result<()> {
         .root(|_ctx| flex_scene())
         .build()?;
 
-    let rgb = render_frame_rgb(&composition, 0)?;
+    let rgb = render_frame(&composition, 0)?;
     let (w, h) = (640usize, 360usize);
     let mut min_x = w;
     let mut min_y = h;
@@ -250,7 +256,7 @@ fn prop_component_scene_should_render_passed_text() -> anyhow::Result<()> {
         .root(|_ctx| prop_component_scene())
         .build()?;
 
-    let rgb = render_frame_rgb(&composition, 0)?;
+    let rgb = render_frame(&composition, 0)?;
     let has_non_white = rgb.chunks_exact(3).any(|px| px != [255, 255, 255]);
 
     assert!(
@@ -269,7 +275,7 @@ fn opacity_scene_should_blend_with_background() -> anyhow::Result<()> {
         .root(|_ctx| opacity_scene())
         .build()?;
 
-    let rgb = render_frame_rgb(&composition, 0)?;
+    let rgb = render_frame(&composition, 0)?;
     let idx = (180usize * 640usize + 320usize) * 3;
     let pixel = &rgb[idx..idx + 3];
 
@@ -299,7 +305,7 @@ fn nested_children_should_respect_absolute_parent_offset() -> anyhow::Result<()>
         .root(|_ctx| nested_absolute_offset_scene())
         .build()?;
 
-    let rgb = render_frame_rgb(&composition, 0)?;
+    let rgb = render_frame(&composition, 0)?;
 
     let left_idx = (180usize * 640usize + 160usize) * 3;
     let left_pixel = &rgb[left_idx..left_idx + 3];
@@ -329,14 +335,14 @@ fn transition_series_should_render_first_transition_and_last_segments() -> anyho
         .root(|_ctx| transition_series_scene())
         .build()?;
 
-    let frame_0 = render_frame_rgb(&composition, 0)?;
+    let frame_0 = render_frame(&composition, 0)?;
     assert_eq!(
         pixel_at(&frame_0, 640, 80, 180),
         [59, 130, 246],
         "expected the first segment to show scene A",
     );
 
-    let transition_frame = render_frame_rgb(&composition, 55)?;
+    let transition_frame = render_frame(&composition, 55)?;
     assert_eq!(
         pixel_at(&transition_frame, 640, 160, 180),
         [236, 72, 153],
@@ -348,7 +354,7 @@ fn transition_series_should_render_first_transition_and_last_segments() -> anyho
         "expected the right half to show scene A during the transition",
     );
 
-    let final_frame = render_frame_rgb(&composition, 100)?;
+    let final_frame = render_frame(&composition, 100)?;
     assert_eq!(
         pixel_at(&final_frame, 640, 80, 180),
         [236, 72, 153],
@@ -383,7 +389,7 @@ fn component_can_call_child_component_without_passing_ctx() -> anyhow::Result<()
         .root(|_ctx| parent_component_calls_child_without_ctx())
         .build()?;
 
-    let rgb = render_frame_rgb(&composition, 0)?;
+    let rgb = render_frame(&composition, 0)?;
     let has_non_white = rgb.chunks_exact(3).any(|px| px != [255, 255, 255]);
 
     assert!(
@@ -403,7 +409,7 @@ fn transform_order_should_change_the_final_position() -> anyhow::Result<()> {
         .root(|_ctx| transform_order_scene())
         .build()?;
 
-    let rgb = render_frame_rgb(&composition, 0)?;
+    let rgb = render_frame(&composition, 0)?;
     let blue_bounds = color_bounds(&rgb, 640, 360, [59, 130, 246])
         .expect("expected to find blue pixels for the translated-then-scaled square");
     let pink_bounds = color_bounds(&rgb, 640, 360, [236, 72, 153])

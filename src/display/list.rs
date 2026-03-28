@@ -21,10 +21,18 @@ impl DisplayList {
 pub enum DisplayCommand {
     Save,
     Restore,
-    SaveLayer { layer: DisplayLayer },
-    ApplyTransform { transform: DisplayTransform },
-    Draw { item: DisplayItem },
-    Transition { transition: DisplayTransitionCommand },
+    SaveLayer {
+        layer: DisplayLayer,
+    },
+    ApplyTransform {
+        transform: DisplayTransform,
+    },
+    Draw {
+        item: DisplayItem,
+    },
+    Transition {
+        transition: DisplayTransitionCommand,
+    },
 }
 
 #[derive(Clone, Debug)]

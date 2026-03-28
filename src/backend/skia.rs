@@ -5,13 +5,13 @@ use skia_safe::{
 };
 
 use crate::{
+    backend::skia_transition,
     display::list::{
         BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayList, DisplayTransform,
         RectDisplayItem, TextDisplayItem,
     },
     layout::tree::LayoutRect,
     style::{ObjectFit, Transform},
-    transitions::TransitionKind,
     typography,
 };
 
@@ -23,17 +23,21 @@ pub struct SkiaBackend<'a> {
 
 impl<'a> SkiaBackend<'a> {
     pub fn new(canvas: &'a Canvas, width: i32, height: i32) -> Self {
-        Self { canvas, width, height }
+        Self {
+            canvas,
+            width,
+            height,
+        }
     }
 
     pub fn execute(&mut self, list: &DisplayList) -> Result<()> {
         for command in &list.commands {
-            self.execute_command(command);
+            self.execute_command(command)?;
         }
         Ok(())
     }
 
-    fn execute_command(&mut self, command: &DisplayCommand) {
+    fn execute_command(&mut self, command: &DisplayCommand) -> Result<()> {
         match command {
             DisplayCommand::Save => {
                 self.canvas.save();
@@ -53,36 +57,10 @@ impl<'a> SkiaBackend<'a> {
                 draw_item(self.canvas, item);
             }
             DisplayCommand::Transition { transition } => {
-                match transition.kind {
-                    TransitionKind::Slide => {
-                        let progress = transition.progress;
-                        let w = self.width as f32;
-
-                        // Draw `to` scene (incoming) sliding in from left.
-                        self.canvas.save();
-                        self.canvas.translate(((progress - 1.0) * w, 0.0));
-                        for cmd in &transition.to.commands {
-                            self.execute_command(cmd);
-                        }
-                        self.canvas.restore();
-
-                        // Draw `from` scene (outgoing) sliding out to right.
-                        self.canvas.save();
-                        self.canvas.translate((progress * w, 0.0));
-                        for cmd in &transition.from.commands {
-                            self.execute_command(cmd);
-                        }
-                        self.canvas.restore();
-                    }
-                    TransitionKind::LightLeak(_) => {
-                        // Stub: Task 5 will implement shader-based light leak.
-                        for cmd in &transition.from.commands {
-                            self.execute_command(cmd);
-                        }
-                    }
-                }
+                skia_transition::draw_transition(self.canvas, transition, self.width, self.height)?;
             }
         }
+        Ok(())
     }
 }
 

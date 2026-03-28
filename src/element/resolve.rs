@@ -64,7 +64,10 @@ fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>, media: &mut MediaConte
         return resolve_text(text, cx);
     }
 
-    if let Some(transition) = node.as_any().downcast_ref::<crate::transitions::TransitionNode>() {
+    if let Some(transition) = node
+        .as_any()
+        .downcast_ref::<crate::transitions::TransitionNode>()
+    {
         return resolve_transition(transition, cx, media);
     }
 

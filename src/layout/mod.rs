@@ -163,7 +163,12 @@ fn build_layout_tree(
     let taffy_children = taffy.children(node_id)?;
 
     for (element_child, taffy_child) in element.children.iter().zip(taffy_children.into_iter()) {
-        children.push(build_layout_tree(element_child, taffy, taffy_child, frame_ctx)?);
+        children.push(build_layout_tree(
+            element_child,
+            taffy,
+            taffy_child,
+            frame_ctx,
+        )?);
     }
 
     Ok(LayoutNode {

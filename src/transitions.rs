@@ -20,6 +20,21 @@ pub struct Transition {
 #[derive(Clone, Copy)]
 enum Presentation {
     Slide,
+    LightLeak(LightLeakTransition),
+}
+
+#[derive(Clone, Copy)]
+pub struct LightLeakTransition {
+    pub seed: f32,
+    pub retract_seed: f32,
+    pub hue_shift: f32,
+}
+
+#[derive(Clone, Copy)]
+pub struct LightLeakBuilder {
+    seed: f32,
+    retract_seed: f32,
+    hue_shift: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -192,6 +207,12 @@ impl Presentation {
                     )
                     .into()
             }
+            Presentation::LightLeak(_params) => {
+                // Stub: render a simple div. Actual picture-based rendering
+                // will be implemented in Tasks 3-5.
+                let _ = (ctx, from, to, progress);
+                div().into()
+            }
         }
     }
 }
@@ -205,6 +226,34 @@ impl SlideBuilder {
     }
 }
 
+impl LightLeakBuilder {
+    pub fn seed(mut self, seed: f32) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    pub fn retract_seed(mut self, retract_seed: f32) -> Self {
+        self.retract_seed = retract_seed;
+        self
+    }
+
+    pub fn hue_shift(mut self, hue_shift: f32) -> Self {
+        self.hue_shift = hue_shift;
+        self
+    }
+
+    pub fn timing(self, timing: Timing) -> Transition {
+        Transition {
+            presentation: Presentation::LightLeak(LightLeakTransition {
+                seed: self.seed,
+                retract_seed: self.retract_seed,
+                hue_shift: self.hue_shift,
+            }),
+            timing,
+        }
+    }
+}
+
 impl LinearTimingBuilder {
     pub fn duration(self, duration_in_frames: u32) -> Timing {
         Timing::Linear { duration_in_frames }
@@ -213,6 +262,14 @@ impl LinearTimingBuilder {
 
 pub fn slide() -> SlideBuilder {
     SlideBuilder
+}
+
+pub fn light_leak() -> LightLeakBuilder {
+    LightLeakBuilder {
+        seed: 0.0,
+        retract_seed: 1.0,
+        hue_shift: 0.0,
+    }
 }
 
 pub fn linear() -> LinearTimingBuilder {

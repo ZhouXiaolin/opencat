@@ -413,11 +413,6 @@ fn slide_transition_should_still_show_expected_halves_midway() -> anyhow::Result
     Ok(())
 }
 
-// NOTE: This test requires the `light_leak()` transition builder from Task 2.
-// `cfg(any())` is always false so the function is excluded from compilation.
-// Remove the `#[cfg(any())` line once `light_leak` is exported from
-// `opencat::transitions`.
-#[cfg(any())]
 #[test]
 fn light_leak_transition_should_render_non_uniform_transition_pixels() -> anyhow::Result<()> {
     use opencat::transitions::light_leak;

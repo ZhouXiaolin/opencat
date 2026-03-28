@@ -1,5 +1,7 @@
 use opencat::{
-    Composition, EncodingConfig, FrameCtx, Node, component, light_leak, nodes::{div, text}, transitions::{linear, slide, transition_series}
+    Composition, EncodingConfig, FrameCtx, Node, component, light_leak,
+    nodes::{div, text},
+    transitions::{linear, slide, transition_series},
 };
 
 fn scene_panel(label: &str, is_pink: bool) -> Node {

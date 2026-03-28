@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use crate::{FrameCtx, Node, component_node_with_duration, nodes::div};
 
 #[derive(Clone, Copy, Debug)]
@@ -8,6 +6,7 @@ pub enum TransitionKind {
     LightLeak(LightLeakTransition),
 }
 
+#[derive(Clone)]
 pub struct TransitionNode {
     from: Node,
     to: Node,
@@ -38,14 +37,8 @@ impl TransitionNode {
     pub fn params(&self) -> (f32, TransitionKind) {
         (self.progress, self.kind)
     }
-}
 
-impl super::view::ViewNode for TransitionNode {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn style_ref(&self) -> &crate::style::NodeStyle {
+    pub fn style_ref(&self) -> &crate::style::NodeStyle {
         &self.style
     }
 }

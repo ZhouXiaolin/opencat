@@ -10,7 +10,8 @@ use crate::{
     media::MediaContext,
     nodes::{Div, Image, Text, Video},
     style::{ComputedTextStyle, NodeStyle, resolve_text_style},
-    view::{ComponentNode, ViewNode},
+    transitions::TransitionNode,
+    view::{ComponentNode, NodeKind},
 };
 
 #[derive(Default)]
@@ -44,34 +45,14 @@ pub fn resolve_ui_tree(node: &Node, frame_ctx: &FrameCtx, media: &mut MediaConte
 }
 
 fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>, media: &mut MediaContext) -> ElementNode {
-    if let Some(component) = node.as_any().downcast_ref::<ComponentNode>() {
-        return resolve_component(component, cx, media);
+    match node.kind() {
+        NodeKind::Component(component) => resolve_component(component, cx, media),
+        NodeKind::Video(video) => resolve_video(video, cx, media),
+        NodeKind::Image(image) => resolve_image(image, cx, media),
+        NodeKind::Div(div) => resolve_div(div, cx, media),
+        NodeKind::Text(text) => resolve_text(text, cx),
+        NodeKind::Transition(transition) => resolve_transition(transition, cx, media),
     }
-
-    if let Some(video) = node.as_any().downcast_ref::<Video>() {
-        return resolve_video(video, cx, media);
-    }
-
-    if let Some(image) = node.as_any().downcast_ref::<Image>() {
-        return resolve_image(image, cx, media);
-    }
-
-    if let Some(div) = node.as_any().downcast_ref::<Div>() {
-        return resolve_div(div, cx, media);
-    }
-
-    if let Some(text) = node.as_any().downcast_ref::<Text>() {
-        return resolve_text(text, cx);
-    }
-
-    if let Some(transition) = node
-        .as_any()
-        .downcast_ref::<crate::transitions::TransitionNode>()
-    {
-        return resolve_transition(transition, cx, media);
-    }
-
-    panic!("unknown node type encountered while resolving UI tree");
 }
 
 fn resolve_component(
@@ -165,7 +146,7 @@ fn resolve_image(
 }
 
 fn resolve_transition(
-    transition: &crate::transitions::TransitionNode,
+    transition: &TransitionNode,
     cx: &mut ResolveContext<'_>,
     media: &mut MediaContext,
 ) -> ElementNode {

@@ -1,7 +1,4 @@
-use std::any::Any;
-
 use crate::{
-    ViewNode,
     style::{ComputedTextStyle, NodeStyle, impl_node_style_api},
     typography,
 };
@@ -44,13 +41,3 @@ pub fn text(content: impl Into<String>) -> Text {
 }
 
 impl_node_style_api!(Text);
-
-impl ViewNode for Text {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn style_ref(&self) -> &NodeStyle {
-        &self.style
-    }
-}

@@ -1,16 +1,64 @@
-use std::{any::Any, ops::Deref, sync::Arc};
+use std::sync::Arc;
 
-use crate::{FrameCtx, style::NodeStyle};
+use crate::{
+    FrameCtx,
+    nodes::{Div, Image, Text, Video},
+    style::NodeStyle,
+    transitions::TransitionNode,
+};
 
 #[derive(Clone)]
-pub struct Node(Arc<dyn ViewNode>);
+pub struct Node(Arc<NodeKind>);
 
 impl Node {
     pub fn new<T>(node: T) -> Self
     where
-        T: ViewNode + 'static,
+        T: Into<NodeKind>,
     {
-        Self(Arc::new(node))
+        Self(Arc::new(node.into()))
+    }
+
+    pub fn kind(&self) -> &NodeKind {
+        self.0.as_ref()
+    }
+
+    pub fn style_ref(&self) -> &NodeStyle {
+        self.kind().style_ref()
+    }
+
+    pub fn duration_in_frames(&self, ctx: &FrameCtx) -> Option<u32> {
+        self.kind().duration_in_frames(ctx)
+    }
+}
+
+#[derive(Clone)]
+pub enum NodeKind {
+    Component(ComponentNode),
+    Div(Div),
+    Text(Text),
+    Image(Image),
+    Video(Video),
+    Transition(TransitionNode),
+}
+
+impl NodeKind {
+    pub fn style_ref(&self) -> &NodeStyle {
+        match self {
+            Self::Component(node) => node.style_ref(),
+            Self::Div(node) => node.style_ref(),
+            Self::Text(node) => node.style_ref(),
+            Self::Image(node) => node.style_ref(),
+            Self::Video(node) => node.style_ref(),
+            Self::Transition(node) => node.style_ref(),
+        }
+    }
+
+    pub fn duration_in_frames(&self, ctx: &FrameCtx) -> Option<u32> {
+        match self {
+            Self::Component(node) => node.duration_in_frames(ctx),
+            Self::Div(node) => node.duration_in_frames(ctx),
+            Self::Text(_) | Self::Image(_) | Self::Video(_) | Self::Transition(_) => None,
+        }
     }
 }
 
@@ -48,6 +96,18 @@ impl ComponentNode {
     pub fn render(&self, ctx: &FrameCtx) -> Node {
         (self.render)(ctx)
     }
+
+    pub fn style_ref(&self) -> &NodeStyle {
+        &self.style
+    }
+
+    pub fn duration_in_frames(&self, ctx: &FrameCtx) -> Option<u32> {
+        if let Some(duration_in_frames) = &self.duration_in_frames {
+            return Some(duration_in_frames());
+        }
+
+        self.render(ctx).duration_in_frames(ctx)
+    }
 }
 
 pub fn component_node<F>(render: F) -> Node
@@ -65,47 +125,47 @@ where
     Node::new(ComponentNode::with_duration(render, duration_in_frames))
 }
 
+impl From<ComponentNode> for NodeKind {
+    fn from(value: ComponentNode) -> Self {
+        Self::Component(value)
+    }
+}
+
+impl From<Div> for NodeKind {
+    fn from(value: Div) -> Self {
+        Self::Div(value)
+    }
+}
+
+impl From<Text> for NodeKind {
+    fn from(value: Text) -> Self {
+        Self::Text(value)
+    }
+}
+
+impl From<Image> for NodeKind {
+    fn from(value: Image) -> Self {
+        Self::Image(value)
+    }
+}
+
+impl From<Video> for NodeKind {
+    fn from(value: Video) -> Self {
+        Self::Video(value)
+    }
+}
+
+impl From<TransitionNode> for NodeKind {
+    fn from(value: TransitionNode) -> Self {
+        Self::Transition(value)
+    }
+}
+
 impl<T> From<T> for Node
 where
-    T: ViewNode + 'static,
+    T: Into<NodeKind>,
 {
     fn from(value: T) -> Self {
         Self::new(value)
-    }
-}
-
-impl Deref for Node {
-    type Target = dyn ViewNode;
-
-    fn deref(&self) -> &Self::Target {
-        self.0.as_ref()
-    }
-}
-
-pub trait ViewNode: Send + Sync {
-    fn as_any(&self) -> &dyn Any;
-
-    fn style_ref(&self) -> &NodeStyle;
-
-    fn duration_in_frames(&self, _ctx: &FrameCtx) -> Option<u32> {
-        None
-    }
-}
-
-impl ViewNode for ComponentNode {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn style_ref(&self) -> &NodeStyle {
-        &self.style
-    }
-
-    fn duration_in_frames(&self, ctx: &FrameCtx) -> Option<u32> {
-        if let Some(duration_in_frames) = &self.duration_in_frames {
-            return Some(duration_in_frames());
-        }
-
-        self.render(ctx).duration_in_frames(ctx)
     }
 }

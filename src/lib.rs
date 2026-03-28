@@ -20,4 +20,4 @@ pub use render::EncodingConfig;
 pub use transitions::{
     TransitionKind, TransitionSeries, light_leak, linear, slide, transition_series,
 };
-pub use view::{Node, ViewNode, component_node, component_node_with_duration};
+pub use view::{Node, NodeKind, component_node, component_node_with_duration};

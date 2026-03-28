@@ -1,7 +1,5 @@
-use std::any::Any;
-
 use crate::{
-    FrameCtx, Node, ViewNode,
+    FrameCtx, Node,
     style::{ColorToken, NodeStyle, impl_node_style_api},
 };
 
@@ -26,6 +24,13 @@ impl Div {
     pub fn style_ref(&self) -> &NodeStyle {
         &self.style
     }
+
+    pub fn duration_in_frames(&self, ctx: &FrameCtx) -> Option<u32> {
+        self.children
+            .iter()
+            .filter_map(|child| child.duration_in_frames(ctx))
+            .max()
+    }
 }
 
 pub fn div() -> Div {
@@ -45,20 +50,3 @@ impl Default for Div {
 }
 
 impl_node_style_api!(Div);
-
-impl ViewNode for Div {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn style_ref(&self) -> &NodeStyle {
-        &self.style
-    }
-
-    fn duration_in_frames(&self, ctx: &FrameCtx) -> Option<u32> {
-        self.children
-            .iter()
-            .filter_map(|child| child.duration_in_frames(ctx))
-            .max()
-    }
-}

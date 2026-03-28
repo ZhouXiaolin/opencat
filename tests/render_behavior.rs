@@ -1,5 +1,5 @@
 use opencat::{
-    Composition, FrameCtx, Node, component,
+    Composition, FrameCtx, Node, NodeKind, component,
     media::MediaContext,
     nodes::{AlignItems, JustifyContent, div, text},
     render::render_frame_rgb,
@@ -185,6 +185,17 @@ fn color_bounds(rgb: &[u8], width: usize, height: usize, color: [u8; 3]) -> Opti
     }
 
     found.then_some([min_x, min_y, max_x, max_y])
+}
+
+#[test]
+fn node_kind_should_expose_concrete_variant() {
+    let node = text("Hello enum");
+
+    let node = Node::from(node);
+    match node.kind() {
+        NodeKind::Text(text) => assert_eq!(text.content(), "Hello enum"),
+        _ => panic!("expected text node"),
+    }
 }
 
 #[test]

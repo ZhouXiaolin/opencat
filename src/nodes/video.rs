@@ -1,10 +1,6 @@
-use std::any::Any;
 use std::path::{Path, PathBuf};
 
-use crate::{
-    ViewNode,
-    style::{NodeStyle, impl_node_style_api},
-};
+use crate::style::{NodeStyle, impl_node_style_api};
 
 #[derive(Clone)]
 pub struct Video {
@@ -30,13 +26,3 @@ pub fn video(path: impl AsRef<Path>) -> Video {
 }
 
 impl_node_style_api!(Video);
-
-impl ViewNode for Video {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn style_ref(&self) -> &NodeStyle {
-        &self.style
-    }
-}

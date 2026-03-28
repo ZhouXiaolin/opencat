@@ -49,6 +49,13 @@ impl<'a> SkiaBackend<'a> {
             DisplayCommand::Draw { item } => {
                 draw_item(self.canvas, item);
             }
+            DisplayCommand::Transition { transition } => {
+                // Stub: just execute the from list. Tasks 4-5 will implement
+                // picture-based slide and light leak rendering.
+                for cmd in &transition.from.commands {
+                    self.execute_command(cmd);
+                }
+            }
         }
     }
 }

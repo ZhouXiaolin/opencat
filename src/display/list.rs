@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::{
     layout::tree::LayoutRect,
     style::{ColorToken, ComputedTextStyle, ObjectFit},
+    transitions::TransitionKind,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -23,6 +24,15 @@ pub enum DisplayCommand {
     SaveLayer { layer: DisplayLayer },
     ApplyTransform { transform: DisplayTransform },
     Draw { item: DisplayItem },
+    Transition { transition: DisplayTransitionCommand },
+}
+
+#[derive(Clone, Debug)]
+pub struct DisplayTransitionCommand {
+    pub from: DisplayList,
+    pub to: DisplayList,
+    pub progress: f32,
+    pub kind: TransitionKind,
 }
 
 #[derive(Clone, Debug)]

@@ -1,4 +1,54 @@
+use std::any::Any;
+
 use crate::{FrameCtx, Node, component_node_with_duration, nodes::div};
+
+#[derive(Clone, Copy, Debug)]
+pub enum TransitionKind {
+    Slide,
+    LightLeak(LightLeakTransition),
+}
+
+pub struct TransitionNode {
+    from: Node,
+    to: Node,
+    progress: f32,
+    kind: TransitionKind,
+    style: crate::style::NodeStyle,
+}
+
+impl TransitionNode {
+    pub fn new(from: Node, to: Node, progress: f32, kind: TransitionKind) -> Self {
+        Self {
+            from,
+            to,
+            progress,
+            kind,
+            style: crate::style::NodeStyle::default(),
+        }
+    }
+
+    pub fn from_node(&self) -> &Node {
+        &self.from
+    }
+
+    pub fn to_node(&self) -> &Node {
+        &self.to
+    }
+
+    pub fn params(&self) -> (f32, TransitionKind) {
+        (self.progress, self.kind)
+    }
+}
+
+impl super::view::ViewNode for TransitionNode {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn style_ref(&self) -> &crate::style::NodeStyle {
+        &self.style
+    }
+}
 
 #[derive(Clone)]
 pub struct TransitionSeries {
@@ -23,7 +73,7 @@ enum Presentation {
     LightLeak(LightLeakTransition),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct LightLeakTransition {
     pub seed: f32,
     pub retract_seed: f32,
@@ -179,41 +229,12 @@ impl Transition {
 }
 
 impl Presentation {
-    fn render(self, ctx: &FrameCtx, from: Node, to: Node, progress: f32) -> Node {
-        match self {
-            Presentation::Slide => {
-                let width = ctx.width as f32;
-                let from_x = progress * width;
-                let to_x = (progress - 1.0) * width;
-
-                div()
-                    .child(
-                        div()
-                            .absolute()
-                            .left(to_x)
-                            .top(0.0)
-                            .w(width)
-                            .h(ctx.height as f32)
-                            .child(to),
-                    )
-                    .child(
-                        div()
-                            .absolute()
-                            .left(from_x)
-                            .top(0.0)
-                            .w(width)
-                            .h(ctx.height as f32)
-                            .child(from),
-                    )
-                    .into()
-            }
-            Presentation::LightLeak(_params) => {
-                // Stub: render a simple div. Actual picture-based rendering
-                // will be implemented in Tasks 3-5.
-                let _ = (ctx, from, to, progress);
-                div().into()
-            }
-        }
+    fn render(self, _ctx: &FrameCtx, from: Node, to: Node, progress: f32) -> Node {
+        let kind = match self {
+            Presentation::Slide => TransitionKind::Slide,
+            Presentation::LightLeak(params) => TransitionKind::LightLeak(params),
+        };
+        TransitionNode::new(from, to, progress, kind).into()
     }
 }
 

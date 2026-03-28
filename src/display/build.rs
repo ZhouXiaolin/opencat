@@ -3,7 +3,8 @@ use anyhow::Result;
 use crate::{
     display::list::{
         BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayLayer, DisplayList,
-        DisplayTransform, RectDisplayItem, RectPaintStyle, TextDisplayItem,
+        DisplayTransform, DisplayTransitionCommand, RectDisplayItem, RectPaintStyle,
+        TextDisplayItem,
     },
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
 };
@@ -46,7 +47,7 @@ fn build_layout_node_display_list(layout: &LayoutNode, list: &mut DisplayList) -
         });
     }
 
-    push_paint_commands(layout, rect, list);
+    push_paint_commands(layout, rect, list)?;
 
     for child in &layout.children {
         build_layout_node_display_list(child, list)?;
@@ -60,7 +61,11 @@ fn build_layout_node_display_list(layout: &LayoutNode, list: &mut DisplayList) -
     Ok(())
 }
 
-fn push_paint_commands(layout: &LayoutNode, rect: LayoutRect, list: &mut DisplayList) {
+fn push_paint_commands(
+    layout: &LayoutNode,
+    rect: LayoutRect,
+    list: &mut DisplayList,
+) -> Result<()> {
     match &layout.paint.kind {
         LayoutPaintKind::Div => list.push(DisplayCommand::Draw {
             item: DisplayItem::Rect(RectDisplayItem {
@@ -89,7 +94,24 @@ fn push_paint_commands(layout: &LayoutNode, rect: LayoutRect, list: &mut Display
                 object_fit: bitmap.object_fit,
             }),
         }),
+        LayoutPaintKind::Transition(t) => {
+            let mut from_list = DisplayList::default();
+            build_layout_node_display_list(&t.from, &mut from_list)?;
+
+            let mut to_list = DisplayList::default();
+            build_layout_node_display_list(&t.to, &mut to_list)?;
+
+            list.push(DisplayCommand::Transition {
+                transition: DisplayTransitionCommand {
+                    from: from_list,
+                    to: to_list,
+                    progress: t.progress,
+                    kind: t.kind,
+                },
+            });
+        }
     }
+    Ok(())
 }
 
 #[cfg(test)]

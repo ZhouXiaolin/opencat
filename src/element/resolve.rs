@@ -2,12 +2,15 @@ use crate::{
     FrameCtx, Node,
     element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle},
-        tree::{ElementBitmap, ElementDiv, ElementId, ElementKind, ElementNode, ElementText},
+        tree::{
+            ElementBitmap, ElementDiv, ElementId, ElementKind, ElementNode, ElementText,
+            TransitionElement,
+        },
     },
     media::MediaContext,
     nodes::{Div, Image, Text, Video},
     style::{ComputedTextStyle, NodeStyle, resolve_text_style},
-    view::ComponentNode,
+    view::{ComponentNode, ViewNode},
 };
 
 #[derive(Default)]
@@ -59,6 +62,10 @@ fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>, media: &mut MediaConte
 
     if let Some(text) = node.as_any().downcast_ref::<Text>() {
         return resolve_text(text, cx);
+    }
+
+    if let Some(transition) = node.as_any().downcast_ref::<crate::transitions::TransitionNode>() {
+        return resolve_transition(transition, cx, media);
     }
 
     panic!("unknown node type encountered while resolving UI tree");
@@ -148,6 +155,29 @@ fn resolve_image(
             data,
             width,
             height,
+        }),
+        style: computed,
+        children: Vec::new(),
+    }
+}
+
+fn resolve_transition(
+    transition: &crate::transitions::TransitionNode,
+    cx: &mut ResolveContext<'_>,
+    media: &mut MediaContext,
+) -> ElementNode {
+    let from = Box::new(resolve_node(transition.from_node(), cx, media));
+    let to = Box::new(resolve_node(transition.to_node(), cx, media));
+    let (progress, kind) = transition.params();
+    let computed = compute_style(transition.style_ref(), cx.inherited_text);
+
+    ElementNode {
+        id: cx.ids.alloc(),
+        kind: ElementKind::Transition(TransitionElement {
+            from,
+            to,
+            progress,
+            kind,
         }),
         style: computed,
         children: Vec::new(),

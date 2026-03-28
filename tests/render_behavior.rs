@@ -477,6 +477,43 @@ fn component_can_call_child_component_without_passing_ctx() -> anyhow::Result<()
 }
 
 #[test]
+fn transition_frames_should_compile_to_transition_display_commands() -> anyhow::Result<()> {
+    use opencat::display::build::build_display_list;
+    use opencat::display::list::DisplayCommand;
+    use opencat::element::resolve::resolve_ui_tree;
+    use opencat::layout::compute_layout;
+    use opencat::transitions::{TransitionKind, TransitionNode};
+
+    let from = color_scene("A", false);
+    let to = color_scene("B", true);
+    let transition = Node::from(TransitionNode::new(from, to, 0.5, TransitionKind::Slide));
+
+    let mut media_ctx = MediaContext::new();
+    let frame_ctx = FrameCtx {
+        frame: 0,
+        fps: 30,
+        width: 640,
+        height: 360,
+        frames: 1,
+    };
+
+    let element = resolve_ui_tree(&transition, &frame_ctx, &mut media_ctx);
+    let layout = compute_layout(&element, &frame_ctx)?;
+    let display_list = build_display_list(&layout)?;
+
+    let has_transition = display_list
+        .commands
+        .iter()
+        .any(|cmd| matches!(cmd, DisplayCommand::Transition { .. }));
+    assert!(
+        has_transition,
+        "expected display list to contain a Transition command"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn transform_order_should_change_the_final_position() -> anyhow::Result<()> {
     let composition = Composition::new("transform_order_scene")
         .size(640, 360)

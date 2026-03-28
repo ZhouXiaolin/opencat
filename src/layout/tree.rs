@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::{
     element::style::ComputedVisualStyle,
     style::{ComputedTextStyle, ObjectFit},
+    transitions::TransitionKind,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -36,6 +37,7 @@ pub enum LayoutPaintKind {
     Div,
     Text(LayoutTextPaint),
     Bitmap(LayoutBitmapPaint),
+    Transition(LayoutTransitionPaint),
 }
 
 #[derive(Clone, Debug)]
@@ -50,4 +52,12 @@ pub struct LayoutBitmapPaint {
     pub width: u32,
     pub height: u32,
     pub object_fit: ObjectFit,
+}
+
+#[derive(Clone, Debug)]
+pub struct LayoutTransitionPaint {
+    pub from: Box<LayoutNode>,
+    pub to: Box<LayoutNode>,
+    pub progress: f32,
+    pub kind: TransitionKind,
 }

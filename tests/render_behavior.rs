@@ -381,6 +381,87 @@ fn composition_should_infer_frames_from_transition_series_root() -> anyhow::Resu
 }
 
 #[test]
+fn slide_transition_should_still_show_expected_halves_midway() -> anyhow::Result<()> {
+    // Build the same transition series used by the existing integration test but
+    // focus exclusively on the midway frame to guard against regressions when the
+    // slide presentation is refactored from a layout trick to picture-based rendering.
+    let composition = Composition::new("slide_midway_test")
+        .size(640, 360)
+        .fps(30)
+        .frames(130)
+        .root(|_ctx| transition_series_scene())
+        .build()?;
+
+    // Timeline: sequence(A, 40) | slide(30) | sequence(B, 60)
+    // Frame 55 is 15 frames into the 30-frame slide transition (progress = 0.5).
+    let rgb = render_frame(&composition, 55)?;
+
+    // At 50 % progress the incoming scene B (pink) should occupy the left half.
+    let left = pixel_at(&rgb, 640, 160, 180);
+    assert_eq!(
+        left, [236, 72, 153],
+        "expected left half to show scene B (pink) at midway of slide transition",
+    );
+
+    // The outgoing scene A (blue) should still be visible on the right half.
+    let right = pixel_at(&rgb, 640, 480, 180);
+    assert_eq!(
+        right, [59, 130, 246],
+        "expected right half to show scene A (blue) at midway of slide transition",
+    );
+
+    Ok(())
+}
+
+// NOTE: This test requires the `light_leak()` transition builder from Task 2.
+// `cfg(any())` is always false so the function is excluded from compilation.
+// Remove the `#[cfg(any())` line once `light_leak` is exported from
+// `opencat::transitions`.
+#[cfg(any())]
+#[test]
+fn light_leak_transition_should_render_non_uniform_transition_pixels() -> anyhow::Result<()> {
+    use opencat::transitions::light_leak;
+
+    let scene_a = color_scene("A", false);
+    let scene_b = color_scene("B", true);
+
+    let composition = Composition::new("light_leak_test")
+        .size(640, 360)
+        .fps(30)
+        .frames(100)
+        .root(move |_ctx| {
+            transition_series()
+                .sequence(20, scene_a.clone())
+                .transition(light_leak().timing(linear().duration(30)))
+                .sequence(50, scene_b.clone())
+                .into()
+        })
+        .build()?;
+
+    // Frame 35 is 15 frames into the 30-frame light leak transition (progress = 0.5).
+    let rgb = render_frame(&composition, 35)?;
+
+    // A light leak produces non-uniform, organic pixel blending rather than a single
+    // flat colour. Assert that at least three distinct colours appear in the frame.
+    let mut unique_colors = std::collections::HashSet::new();
+    for px in rgb.chunks_exact(3) {
+        unique_colors.insert([px[0], px[1], px[2]]);
+        if unique_colors.len() >= 3 {
+            break;
+        }
+    }
+
+    assert!(
+        unique_colors.len() >= 3,
+        "expected light leak transition to produce at least 3 distinct pixel colours at midway, \
+         but found only {:?}",
+        unique_colors,
+    );
+
+    Ok(())
+}
+
+#[test]
 fn component_can_call_child_component_without_passing_ctx() -> anyhow::Result<()> {
     let composition = Composition::new("parent_component_calls_child_without_ctx")
         .size(640, 360)

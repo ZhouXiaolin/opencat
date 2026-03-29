@@ -184,7 +184,7 @@ pub fn render_frame_rgb(
     let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
     let canvas = surface.canvas();
-    let display_list = build_display_list(&layout_tree)?;
+    let display_list = build_display_list(&layout_tree, &frame_ctx)?;
     let mut backend = SkiaBackend::new(canvas, composition.width as i32, composition.height as i32);
     backend.execute(&display_list)?;
 

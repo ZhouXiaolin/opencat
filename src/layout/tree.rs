@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     element::style::ComputedVisualStyle,
+    element::tree::ElementNode,
     style::{ComputedTextStyle, ObjectFit},
     transitions::TransitionKind,
 };
@@ -56,8 +57,8 @@ pub struct LayoutBitmapPaint {
 
 #[derive(Clone, Debug)]
 pub struct LayoutTransitionPaint {
-    pub from: Box<LayoutNode>,
-    pub to: Box<LayoutNode>,
+    pub from: Box<ElementNode>,
+    pub to: Box<ElementNode>,
     pub progress: f32,
     pub kind: TransitionKind,
 }

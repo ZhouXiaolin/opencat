@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     layout::tree::LayoutRect,
-    style::{ColorToken, ComputedTextStyle, ObjectFit},
+    style::{ColorToken, ComputedTextStyle, ObjectFit, ShadowStyle},
     transitions::TransitionKind,
 };
 
@@ -92,4 +92,5 @@ pub struct RectPaintStyle {
     pub border_radius: f32,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    pub shadow: Option<ShadowStyle>,
 }

@@ -12,6 +12,15 @@ pub enum ColorToken {
     Purple,
     Pink,
     Gray,
+    Slate50,
+    Slate200,
+    Slate300,
+    Slate400,
+    Slate500,
+    Slate600,
+    Slate700,
+    Slate900,
+    Primary,
 }
 
 impl ColorToken {
@@ -20,13 +29,22 @@ impl ColorToken {
             ColorToken::White => Color::WHITE,
             ColorToken::Black => Color::BLACK,
             ColorToken::Red => Color::RED,
-            ColorToken::Green => Color::from_rgb(0x22, 0xc5, 0x5e), // Tailwind green-500
-            ColorToken::Blue => Color::from_rgb(0x3b, 0x82, 0xf6),  // Tailwind blue-500
+            ColorToken::Green => Color::from_rgb(0x22, 0xc5, 0x5e),  // Tailwind green-500
+            ColorToken::Blue => Color::from_rgb(0x3b, 0x82, 0xf6),   // Tailwind blue-500
             ColorToken::Yellow => Color::from_rgb(0xea, 0xb3, 0x08), // Tailwind yellow-500
             ColorToken::Orange => Color::from_rgb(0xf9, 0x73, 0x16), // Tailwind orange-500
             ColorToken::Purple => Color::from_rgb(0xa8, 0x55, 0xf7), // Tailwind purple-500
-            ColorToken::Pink => Color::from_rgb(0xec, 0x48, 0x99),  // Tailwind pink-500
-            ColorToken::Gray => Color::from_rgb(0x6b, 0x72, 0x80),  // Tailwind gray-500
+            ColorToken::Pink => Color::from_rgb(0xec, 0x48, 0x99),   // Tailwind pink-500
+            ColorToken::Gray => Color::from_rgb(0x6b, 0x72, 0x80),   // Tailwind gray-500
+            ColorToken::Slate50 => Color::from_rgb(0xf8, 0xfa, 0xfc),
+            ColorToken::Slate200 => Color::from_rgb(0xe2, 0xe8, 0xf0),
+            ColorToken::Slate300 => Color::from_rgb(0xcb, 0xd5, 0xe1),
+            ColorToken::Slate400 => Color::from_rgb(0x94, 0xa3, 0xb8),
+            ColorToken::Slate500 => Color::from_rgb(0x64, 0x74, 0x8b),
+            ColorToken::Slate600 => Color::from_rgb(0x47, 0x55, 0x69),
+            ColorToken::Slate700 => Color::from_rgb(0x33, 0x41, 0x55),
+            ColorToken::Slate900 => Color::from_rgb(0x0f, 0x17, 0x2a),
+            ColorToken::Primary => Color::from_rgb(0x3b, 0x82, 0xf6), // Same as blue-500
         }
     }
 }
@@ -75,6 +93,23 @@ pub enum ObjectFit {
     Contain,
     Cover,
     Fill,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FontWeight {
+    #[default]
+    Normal,
+    Medium,
+    SemiBold,
+    Bold,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShadowStyle {
+    SM,
+    MD,
+    LG,
+    XL,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -132,12 +167,19 @@ pub struct NodeStyle {
     // Text
     pub text_color: Option<ColorToken>,
     pub text_px: Option<f32>,
+    pub font_weight: Option<FontWeight>,
+    pub letter_spacing: Option<f32>,
+
+    // Shadow
+    pub shadow: Option<ShadowStyle>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct ComputedTextStyle {
     pub color: ColorToken,
     pub text_px: f32,
+    pub font_weight: FontWeight,
+    pub letter_spacing: f32,
 }
 
 impl Default for ComputedTextStyle {
@@ -145,6 +187,8 @@ impl Default for ComputedTextStyle {
         Self {
             color: ColorToken::Black,
             text_px: 16.0,
+            font_weight: FontWeight::Normal,
+            letter_spacing: 0.0,
         }
     }
 }
@@ -153,6 +197,8 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
     ComputedTextStyle {
         color: style.text_color.unwrap_or(parent.color),
         text_px: style.text_px.unwrap_or(parent.text_px),
+        font_weight: style.font_weight.unwrap_or(parent.font_weight),
+        letter_spacing: style.letter_spacing.unwrap_or(parent.letter_spacing),
     }
 }
 
@@ -302,6 +348,22 @@ macro_rules! impl_node_style_api {
 
             pub fn flex_col(self) -> Self {
                 self.flex_direction($crate::style::FlexDirection::Col)
+            }
+
+            pub fn flex(self) -> Self {
+                self.flex_row()
+            }
+
+            pub fn w_full(self) -> Self {
+                self
+            }
+
+            pub fn min_h_full(self) -> Self {
+                self
+            }
+
+            pub fn max_w_full(self) -> Self {
+                self
             }
 
             // === Layout: Justify Content (main axis) ===
@@ -477,7 +539,12 @@ macro_rules! impl_node_style_api {
             }
 
             // === Visual: Border ===
-            pub fn border(mut self, width: f32) -> Self {
+            pub fn border(mut self) -> Self {
+                self.style.border_width = Some(1.0);
+                self
+            }
+
+            pub fn border_w(mut self, width: f32) -> Self {
                 self.style.border_width = Some(width);
                 self
             }
@@ -485,6 +552,14 @@ macro_rules! impl_node_style_api {
             pub fn border_color(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.border_color = Some(color);
                 self
+            }
+
+            pub fn border_slate_200(self) -> Self {
+                self.border_color($crate::style::ColorToken::Slate200)
+            }
+
+            pub fn border_slate_300(self) -> Self {
+                self.border_color($crate::style::ColorToken::Slate300)
             }
 
             // === Visual: Background Colors ===
@@ -531,6 +606,42 @@ macro_rules! impl_node_style_api {
 
             pub fn bg_gray(self) -> Self {
                 self.bg($crate::style::ColorToken::Gray)
+            }
+
+            pub fn bg_slate_50(self) -> Self {
+                self.bg($crate::style::ColorToken::Slate50)
+            }
+
+            pub fn bg_slate_200(self) -> Self {
+                self.bg($crate::style::ColorToken::Slate200)
+            }
+
+            pub fn bg_slate_300(self) -> Self {
+                self.bg($crate::style::ColorToken::Slate300)
+            }
+
+            pub fn bg_slate_400(self) -> Self {
+                self.bg($crate::style::ColorToken::Slate400)
+            }
+
+            pub fn bg_slate_500(self) -> Self {
+                self.bg($crate::style::ColorToken::Slate500)
+            }
+
+            pub fn bg_slate_600(self) -> Self {
+                self.bg($crate::style::ColorToken::Slate600)
+            }
+
+            pub fn bg_slate_700(self) -> Self {
+                self.bg($crate::style::ColorToken::Slate700)
+            }
+
+            pub fn bg_slate_900(self) -> Self {
+                self.bg($crate::style::ColorToken::Slate900)
+            }
+
+            pub fn bg_primary(self) -> Self {
+                self.bg($crate::style::ColorToken::Primary)
             }
 
             // === Visual: Text Colors ===
@@ -582,6 +693,92 @@ macro_rules! impl_node_style_api {
 
             pub fn text_gray(self) -> Self {
                 self.text_color($crate::style::ColorToken::Gray)
+            }
+
+            pub fn text_slate_400(self) -> Self {
+                self.text_color($crate::style::ColorToken::Slate400)
+            }
+
+            pub fn text_slate_500(self) -> Self {
+                self.text_color($crate::style::ColorToken::Slate500)
+            }
+
+            pub fn text_slate_600(self) -> Self {
+                self.text_color($crate::style::ColorToken::Slate600)
+            }
+
+            pub fn text_slate_700(self) -> Self {
+                self.text_color($crate::style::ColorToken::Slate700)
+            }
+
+            pub fn text_slate_900(self) -> Self {
+                self.text_color($crate::style::ColorToken::Slate900)
+            }
+
+            pub fn text_primary(self) -> Self {
+                self.text_color($crate::style::ColorToken::Primary)
+            }
+
+            // === Font Weight ===
+            pub fn font_weight(mut self, weight: $crate::style::FontWeight) -> Self {
+                self.style.font_weight = Some(weight);
+                self
+            }
+
+            pub fn font_normal(self) -> Self {
+                self.font_weight($crate::style::FontWeight::Normal)
+            }
+
+            pub fn font_medium(self) -> Self {
+                self.font_weight($crate::style::FontWeight::Medium)
+            }
+
+            pub fn font_semibold(self) -> Self {
+                self.font_weight($crate::style::FontWeight::SemiBold)
+            }
+
+            pub fn font_bold(self) -> Self {
+                self.font_weight($crate::style::FontWeight::Bold)
+            }
+
+            // === Shadow ===
+            pub fn shadow(mut self, style: $crate::style::ShadowStyle) -> Self {
+                self.style.shadow = Some(style);
+                self
+            }
+
+            pub fn shadow_sm(self) -> Self {
+                self.shadow($crate::style::ShadowStyle::SM)
+            }
+
+            pub fn shadow_md(self) -> Self {
+                self.shadow($crate::style::ShadowStyle::MD)
+            }
+
+            pub fn shadow_lg(self) -> Self {
+                self.shadow($crate::style::ShadowStyle::LG)
+            }
+
+            pub fn shadow_xl(self) -> Self {
+                self.shadow($crate::style::ShadowStyle::XL)
+            }
+
+            // === Letter Spacing ===
+            pub fn letter_spacing(mut self, value: f32) -> Self {
+                self.style.letter_spacing = Some(value);
+                self
+            }
+
+            pub fn tracking_normal(self) -> Self {
+                self.letter_spacing(0.0)
+            }
+
+            pub fn tracking_wide(self) -> Self {
+                self.letter_spacing(0.5)
+            }
+
+            pub fn tracking_wider(self) -> Self {
+                self.letter_spacing(1.0)
             }
         }
     };

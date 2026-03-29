@@ -11,7 +11,7 @@ use crate::{
         RectDisplayItem, TextDisplayItem,
     },
     layout::tree::LayoutRect,
-    style::{ObjectFit, Transform},
+    style::{ObjectFit, ShadowStyle, Transform},
     typography,
 };
 
@@ -74,11 +74,17 @@ fn draw_item(canvas: &Canvas, item: &DisplayItem) {
 
 fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
     let style = &rect.paint;
-    if style.background.is_none() && style.border_width.is_none() {
+    if style.background.is_none() && style.border_width.is_none() && style.shadow.is_none() {
         return;
     }
 
     let rect = layout_rect_to_skia(rect.bounds);
+
+    // Draw shadow first (behind the rect)
+    if let Some(shadow) = style.shadow {
+        draw_shadow(canvas, rect, style.border_radius, shadow);
+    }
+
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
 
@@ -108,6 +114,37 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
             paint.set_stroke_width(width);
             canvas.draw_rect(rect, &paint);
         }
+    }
+}
+
+fn draw_shadow(canvas: &Canvas, rect: Rect, radius: f32, shadow: ShadowStyle) {
+    let (blur, offset_y) = match shadow {
+        ShadowStyle::SM => (2.0, 1.0),
+        ShadowStyle::MD => (4.0, 3.0),
+        ShadowStyle::LG => (10.0, 6.0),
+        ShadowStyle::XL => (20.0, 10.0),
+    };
+
+    let mut paint = Paint::default();
+    paint.set_color(skia_safe::Color::from_argb(30, 0, 0, 0));
+    paint.set_anti_alias(true);
+
+    let shadow_rect = Rect::from_xywh(
+        rect.left() - blur / 2.0,
+        rect.top() + offset_y - blur / 2.0,
+        rect.width() + blur,
+        rect.height() + blur,
+    );
+
+    if radius > 0.0 {
+        let rrect = RRect::new_rect_xy(
+            shadow_rect,
+            radius + blur / 2.0,
+            radius + blur / 2.0,
+        );
+        canvas.draw_rrect(rrect, &paint);
+    } else {
+        canvas.draw_rect(shadow_rect, &paint);
     }
 }
 

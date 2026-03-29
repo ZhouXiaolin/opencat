@@ -1,10 +1,19 @@
-use skia_safe::{Canvas, Font, FontMgr, FontStyle, Paint};
+use skia_safe::{Canvas, Font, FontMgr, FontStyle, Paint, font_style::{Weight, Width, Slant}};
 
-use crate::style::ComputedTextStyle;
+use crate::style::{ComputedTextStyle, FontWeight};
 
 fn make_font(style: &ComputedTextStyle) -> Font {
+    let weight = match style.font_weight {
+        FontWeight::Normal => 400,
+        FontWeight::Medium => 500,
+        FontWeight::SemiBold => 600,
+        FontWeight::Bold => 700,
+    };
     let font_mgr = FontMgr::new();
-    if let Some(typeface) = font_mgr.legacy_make_typeface(None, FontStyle::normal()) {
+    let font_style = FontStyle::new(Weight::from(weight), Width::NORMAL, Slant::Upright);
+    if let Some(typeface) = font_mgr.legacy_make_typeface(None, font_style) {
+        Font::new(typeface, style.text_px)
+    } else if let Some(typeface) = font_mgr.legacy_make_typeface(None, FontStyle::normal()) {
         Font::new(typeface, style.text_px)
     } else {
         let mut font = Font::default();

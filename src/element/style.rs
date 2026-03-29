@@ -1,6 +1,6 @@
 use crate::style::{
     AlignItems, ColorToken, ComputedTextStyle, FlexDirection, JustifyContent, ObjectFit, Position,
-    Transform,
+    ShadowStyle, Transform,
 };
 
 #[derive(Clone, Debug)]
@@ -39,4 +39,5 @@ pub struct ComputedVisualStyle {
     pub border_color: Option<ColorToken>,
     pub object_fit: ObjectFit,
     pub transforms: Vec<Transform>,
+    pub shadow: Option<ShadowStyle>,
 }

@@ -197,6 +197,7 @@ fn compute_style(style: &NodeStyle, inherited_text: &ComputedTextStyle) -> Compu
             border_color: style.border_color,
             object_fit: style.object_fit.unwrap_or_default(),
             transforms: style.transforms.clone(),
+            shadow: style.shadow,
         },
         text,
     }

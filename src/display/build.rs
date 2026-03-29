@@ -82,6 +82,7 @@ fn push_paint_commands(
                     border_radius: layout.paint.visual.border_radius,
                     border_width: layout.paint.visual.border_width,
                     border_color: layout.paint.visual.border_color,
+                    shadow: layout.paint.visual.shadow,
                 },
             }),
         }),
@@ -153,6 +154,7 @@ mod tests {
                         border_color: None,
                         object_fit: ObjectFit::Contain,
                         transforms: Vec::<Transform>::new(),
+                        shadow: None,
                     },
                     kind: LayoutPaintKind::Bitmap(LayoutBitmapPaint {
                         data: std::sync::Arc::new(vec![255; 4 * 2 * 2]),

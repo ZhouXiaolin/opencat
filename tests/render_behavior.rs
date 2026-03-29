@@ -561,7 +561,7 @@ fn transition_frames_should_compile_to_transition_display_commands() -> anyhow::
 
     let element = resolve_ui_tree(&transition, &frame_ctx, &mut media_ctx);
     let layout = compute_layout(&element, &frame_ctx)?;
-    let display_list = build_display_list(&layout)?;
+    let display_list = build_display_list(&layout, &frame_ctx)?;
 
     let has_transition = display_list
         .commands

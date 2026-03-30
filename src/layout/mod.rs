@@ -45,23 +45,23 @@ fn build_taffy_subtree(taffy: &mut TaffyTree<()>, element: &ElementNode) -> Resu
         taffy::geometry::Size {
             width: layout
                 .width
-                .map(Dimension::Length)
-                .unwrap_or(Dimension::Auto),
+                .map(Dimension::length)
+                .unwrap_or(Dimension::auto()),
             height: layout
                 .height
-                .map(Dimension::Length)
-                .unwrap_or(Dimension::Auto),
+                .map(Dimension::length)
+                .unwrap_or(Dimension::auto()),
         }
     } else {
         taffy::geometry::Size {
             width: layout
                 .width
-                .map(Dimension::Length)
-                .unwrap_or(Dimension::Percent(1.0)),
+                .map(Dimension::length)
+                .unwrap_or(Dimension::percent(1.0)),
             height: layout
                 .height
-                .map(Dimension::Length)
-                .unwrap_or(Dimension::Percent(1.0)),
+                .map(Dimension::length)
+                .unwrap_or(Dimension::percent(1.0)),
         }
     };
 
@@ -72,40 +72,40 @@ fn build_taffy_subtree(taffy: &mut TaffyTree<()>, element: &ElementNode) -> Resu
             inset: taffy::geometry::Rect {
                 left: layout
                     .inset_left
-                    .map(taffy::style::LengthPercentageAuto::Length)
-                    .unwrap_or(taffy::style::LengthPercentageAuto::Auto),
+                    .map(taffy::style::LengthPercentageAuto::length)
+                    .unwrap_or(taffy::style::LengthPercentageAuto::auto()),
                 top: layout
                     .inset_top
-                    .map(taffy::style::LengthPercentageAuto::Length)
-                    .unwrap_or(taffy::style::LengthPercentageAuto::Auto),
+                    .map(taffy::style::LengthPercentageAuto::length)
+                    .unwrap_or(taffy::style::LengthPercentageAuto::auto()),
                 right: layout
                     .inset_right
-                    .map(taffy::style::LengthPercentageAuto::Length)
-                    .unwrap_or(taffy::style::LengthPercentageAuto::Auto),
+                    .map(taffy::style::LengthPercentageAuto::length)
+                    .unwrap_or(taffy::style::LengthPercentageAuto::auto()),
                 bottom: layout
                     .inset_bottom
-                    .map(taffy::style::LengthPercentageAuto::Length)
-                    .unwrap_or(taffy::style::LengthPercentageAuto::Auto),
+                    .map(taffy::style::LengthPercentageAuto::length)
+                    .unwrap_or(taffy::style::LengthPercentageAuto::auto()),
             },
             size,
             padding: taffy::geometry::Rect {
-                left: taffy::style::LengthPercentage::Length(layout.padding_x),
-                top: taffy::style::LengthPercentage::Length(layout.padding_y),
-                right: taffy::style::LengthPercentage::Length(layout.padding_x),
-                bottom: taffy::style::LengthPercentage::Length(layout.padding_y),
+                left: taffy::style::LengthPercentage::length(layout.padding_x),
+                top: taffy::style::LengthPercentage::length(layout.padding_y),
+                right: taffy::style::LengthPercentage::length(layout.padding_x),
+                bottom: taffy::style::LengthPercentage::length(layout.padding_y),
             },
             margin: taffy::geometry::Rect {
-                left: taffy::style::LengthPercentageAuto::Length(layout.margin_x),
-                top: taffy::style::LengthPercentageAuto::Length(layout.margin_y),
-                right: taffy::style::LengthPercentageAuto::Length(layout.margin_x),
-                bottom: taffy::style::LengthPercentageAuto::Length(layout.margin_y),
+                left: taffy::style::LengthPercentageAuto::length(layout.margin_x),
+                top: taffy::style::LengthPercentageAuto::length(layout.margin_y),
+                right: taffy::style::LengthPercentageAuto::length(layout.margin_x),
+                bottom: taffy::style::LengthPercentageAuto::length(layout.margin_y),
             },
             flex_direction: map_flex_direction(Some(layout.flex_direction)),
             justify_content: Some(map_justify(layout.justify_content)),
             align_items: Some(map_align(layout.align_items)),
             gap: taffy::geometry::Size {
-                width: taffy::style::LengthPercentage::Length(layout.gap),
-                height: taffy::style::LengthPercentage::Length(layout.gap),
+                width: taffy::style::LengthPercentage::length(layout.gap),
+                height: taffy::style::LengthPercentage::length(layout.gap),
             },
             flex_grow: layout.flex_grow,
             ..Default::default()
@@ -115,8 +115,8 @@ fn build_taffy_subtree(taffy: &mut TaffyTree<()>, element: &ElementNode) -> Resu
             Style {
                 flex_grow: layout.flex_grow,
                 size: taffy::geometry::Size {
-                    width: Dimension::Length(measured.0),
-                    height: Dimension::Length(measured.1),
+                    width: Dimension::length(measured.0),
+                    height: Dimension::length(measured.1),
                 },
                 ..Default::default()
             }
@@ -125,19 +125,19 @@ fn build_taffy_subtree(taffy: &mut TaffyTree<()>, element: &ElementNode) -> Resu
             size: taffy::geometry::Size {
                 width: layout
                     .width
-                    .map(Dimension::Length)
-                    .unwrap_or(Dimension::Length(bitmap.width as f32)),
+                    .map(Dimension::length)
+                    .unwrap_or(Dimension::length(bitmap.width as f32)),
                 height: layout
                     .height
-                    .map(Dimension::Length)
-                    .unwrap_or(Dimension::Length(bitmap.height as f32)),
+                    .map(Dimension::length)
+                    .unwrap_or(Dimension::length(bitmap.height as f32)),
             },
             ..Default::default()
         },
         ElementKind::Transition(_) => Style {
             size: taffy::geometry::Size {
-                width: Dimension::Percent(1.0),
-                height: Dimension::Percent(1.0),
+                width: Dimension::percent(1.0),
+                height: Dimension::percent(1.0),
             },
             ..Default::default()
         },

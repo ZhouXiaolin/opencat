@@ -7,7 +7,6 @@ use crate::{
         TextDisplayItem,
     },
     frame_ctx::FrameCtx,
-    layout::compute_layout,
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
 };
 
@@ -103,13 +102,11 @@ fn push_paint_commands(
             }),
         }),
         LayoutPaintKind::Transition(t) => {
-            let from_tree = compute_layout(&t.from, frame_ctx)?;
             let mut from_list = DisplayList::default();
-            build_layout_node_display_list(&from_tree.root, frame_ctx, &mut from_list)?;
+            build_layout_node_display_list(&t.from, frame_ctx, &mut from_list)?;
 
-            let to_tree = compute_layout(&t.to, frame_ctx)?;
             let mut to_list = DisplayList::default();
-            build_layout_node_display_list(&to_tree.root, frame_ctx, &mut to_list)?;
+            build_layout_node_display_list(&t.to, frame_ctx, &mut to_list)?;
 
             list.push(DisplayCommand::Transition {
                 transition: DisplayTransitionCommand {

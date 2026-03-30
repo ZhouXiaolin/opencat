@@ -3,14 +3,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use ffmpeg_next as ffmpeg;
 use ffmpeg_next::{
     format,
     software::scaling::{context::Context as ScalingContext, flag::Flags as ScalingFlags},
     util::format::pixel::Pixel,
 };
-use skia_safe::{AlphaType, ColorType, Data, Image, ImageInfo, image::CachingHint};
+use skia_safe::{image::CachingHint, AlphaType, ColorType, Data, Image, ImageInfo};
 
 pub struct VideoInfo {
     pub width: u32,

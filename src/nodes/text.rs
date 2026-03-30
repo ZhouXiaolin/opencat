@@ -1,5 +1,5 @@
 use crate::{
-    style::{ComputedTextStyle, NodeStyle, impl_node_style_api},
+    style::{impl_node_style_api, ComputedTextStyle, NodeStyle},
     typography,
 };
 

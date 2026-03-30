@@ -1,7 +1,7 @@
 use anyhow::Result;
 use skia_safe::{
-    AlphaType, Canvas, ColorType, ImageInfo, Paint, PaintStyle, RRect, Rect,
-    canvas::SrcRectConstraint,
+    canvas::SrcRectConstraint, AlphaType, Canvas, ColorType, ImageInfo, Paint, PaintStyle, RRect,
+    Rect,
 };
 
 use crate::{
@@ -137,11 +137,7 @@ fn draw_shadow(canvas: &Canvas, rect: Rect, radius: f32, shadow: ShadowStyle) {
     );
 
     if radius > 0.0 {
-        let rrect = RRect::new_rect_xy(
-            shadow_rect,
-            radius + blur / 2.0,
-            radius + blur / 2.0,
-        );
+        let rrect = RRect::new_rect_xy(shadow_rect, radius + blur / 2.0, radius + blur / 2.0);
         canvas.draw_rrect(rrect, &paint);
     } else {
         canvas.draw_rect(shadow_rect, &paint);

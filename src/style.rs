@@ -29,13 +29,13 @@ impl ColorToken {
             ColorToken::White => Color::WHITE,
             ColorToken::Black => Color::BLACK,
             ColorToken::Red => Color::RED,
-            ColorToken::Green => Color::from_rgb(0x22, 0xc5, 0x5e),  // Tailwind green-500
-            ColorToken::Blue => Color::from_rgb(0x3b, 0x82, 0xf6),   // Tailwind blue-500
+            ColorToken::Green => Color::from_rgb(0x22, 0xc5, 0x5e), // Tailwind green-500
+            ColorToken::Blue => Color::from_rgb(0x3b, 0x82, 0xf6),  // Tailwind blue-500
             ColorToken::Yellow => Color::from_rgb(0xea, 0xb3, 0x08), // Tailwind yellow-500
             ColorToken::Orange => Color::from_rgb(0xf9, 0x73, 0x16), // Tailwind orange-500
             ColorToken::Purple => Color::from_rgb(0xa8, 0x55, 0xf7), // Tailwind purple-500
-            ColorToken::Pink => Color::from_rgb(0xec, 0x48, 0x99),   // Tailwind pink-500
-            ColorToken::Gray => Color::from_rgb(0x6b, 0x72, 0x80),   // Tailwind gray-500
+            ColorToken::Pink => Color::from_rgb(0xec, 0x48, 0x99),  // Tailwind pink-500
+            ColorToken::Gray => Color::from_rgb(0x6b, 0x72, 0x80),  // Tailwind gray-500
             ColorToken::Slate50 => Color::from_rgb(0xf8, 0xfa, 0xfc),
             ColorToken::Slate200 => Color::from_rgb(0xe2, 0xe8, 0xf0),
             ColorToken::Slate300 => Color::from_rgb(0xcb, 0xd5, 0xe1),

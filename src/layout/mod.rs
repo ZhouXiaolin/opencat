@@ -2,19 +2,18 @@ pub mod tree;
 
 use anyhow::Result;
 use taffy::{
-    AvailableSpace, TaffyTree,
     prelude::{Dimension, JustifyContent as TaffyJustifyContent, Style},
+    AvailableSpace, TaffyTree,
 };
 
 use crate::{
-    FrameCtx,
     element::tree::{ElementKind, ElementNode},
     layout::tree::{
         LayoutBitmapPaint, LayoutNode, LayoutPaint, LayoutPaintKind, LayoutRect, LayoutTextPaint,
         LayoutTransitionPaint, LayoutTree,
     },
     nodes::{AlignItems, JustifyContent, Position},
-    typography,
+    typography, FrameCtx,
 };
 
 pub fn compute_layout(root: &ElementNode, frame_ctx: &FrameCtx) -> Result<LayoutTree> {
@@ -163,7 +162,12 @@ fn build_layout_tree(
     let taffy_children = taffy.children(node_id)?;
 
     for (element_child, taffy_child) in element.children.iter().zip(taffy_children.into_iter()) {
-        children.push(build_layout_tree(element_child, taffy, taffy_child, frame_ctx)?);
+        children.push(build_layout_tree(
+            element_child,
+            taffy,
+            taffy_child,
+            frame_ctx,
+        )?);
     }
 
     Ok(LayoutNode {

@@ -23,9 +23,9 @@ fn main() -> anyhow::Result<()> {
         .root(|_ctx| video_demo())
         .build()?;
 
-    let encode_config = EncodingConfig::default();
+    let encode_config = EncodingConfig::mp4();
     std::fs::create_dir_all("out")?;
-    composition.render_to_mp4("out/video_playback.mp4", &encode_config)?;
+    composition.render("out/video_playback.mp4", &encode_config)?;
     println!("Rendered out/video_playback.mp4");
 
     Ok(())

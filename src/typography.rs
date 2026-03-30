@@ -1,4 +1,7 @@
-use skia_safe::{Canvas, Font, FontMgr, FontStyle, Paint, font_style::{Weight, Width, Slant}};
+use skia_safe::{
+    font_style::{Slant, Weight, Width},
+    Canvas, Font, FontMgr, FontStyle, Paint,
+};
 
 use crate::style::{ComputedTextStyle, FontWeight};
 

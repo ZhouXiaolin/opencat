@@ -1,26 +1,35 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use ffmpeg_next as ffmpeg;
 use ffmpeg_next::{
-    Dictionary, codec,
+    codec,
     codec::packet::Packet,
     format,
     software::scaling::{context::Context as ScalingContext, flag::Flags as ScalingFlags},
     util::{format::pixel::Pixel, frame::video::Video, rational::Rational},
+    Dictionary,
 };
-use skia_safe::{AlphaType, ColorType, ImageInfo, image::CachingHint, surfaces};
+use skia_safe::{
+    image::CachingHint, surfaces, AlphaType, ColorType, EncodedImageFormat, ImageInfo,
+};
 use std::path::Path;
 
 use crate::{
-    Composition, FrameCtx, backend::skia::SkiaBackend, display::build::build_display_list,
-    element::resolve::resolve_ui_tree, layout::compute_layout, media::MediaContext,
+    backend::skia::SkiaBackend, display::build::build_display_list,
+    element::resolve::resolve_ui_tree, layout::compute_layout, media::MediaContext, Composition,
+    FrameCtx,
 };
 
-pub struct EncodingConfig {
+pub enum OutputFormat {
+    Mp4(Mp4Config),
+    Png,
+}
+
+pub struct Mp4Config {
     pub crf: u8,
     pub preset: String,
 }
 
-impl Default for EncodingConfig {
+impl Default for Mp4Config {
     fn default() -> Self {
         Self {
             crf: 18,
@@ -29,28 +38,54 @@ impl Default for EncodingConfig {
     }
 }
 
-impl Composition {
-    pub fn render_to_mp4(
-        &self,
-        output_path: impl AsRef<Path>,
-        config: &EncodingConfig,
-    ) -> Result<()> {
-        render_to_mp4_impl(self, output_path, config)
+pub struct EncodingConfig {
+    pub format: OutputFormat,
+}
+
+impl EncodingConfig {
+    pub fn mp4() -> Self {
+        Self {
+            format: OutputFormat::Mp4(Mp4Config::default()),
+        }
+    }
+
+    pub fn mp4_with(config: Mp4Config) -> Self {
+        Self {
+            format: OutputFormat::Mp4(config),
+        }
+    }
+
+    pub fn png() -> Self {
+        Self {
+            format: OutputFormat::Png,
+        }
     }
 }
 
-pub fn render_to_mp4(
-    composition: &Composition,
-    output_path: impl AsRef<Path>,
-    config: &EncodingConfig,
-) -> Result<()> {
-    render_to_mp4_impl(composition, output_path, config)
+impl Composition {
+    pub fn render(&self, output_path: impl AsRef<Path>, config: &EncodingConfig) -> Result<()> {
+        match &config.format {
+            OutputFormat::Mp4(mp4_config) => render_mp4(self, output_path, mp4_config),
+            OutputFormat::Png => render_png(self, output_path),
+        }
+    }
 }
 
-fn render_to_mp4_impl(
+fn render_png(composition: &Composition, output_path: impl AsRef<Path>) -> Result<()> {
+    let mut media_ctx = MediaContext::new();
+    let mut surface = render_frame_surface(composition, 0, &mut media_ctx)?;
+    let image = surface.image_snapshot();
+    let data = image
+        .encode(None, EncodedImageFormat::PNG, 100)
+        .ok_or_else(|| anyhow!("failed to encode PNG"))?;
+    std::fs::write(output_path, &*data)?;
+    Ok(())
+}
+
+fn render_mp4(
     composition: &Composition,
     output_path: impl AsRef<Path>,
-    config: &EncodingConfig,
+    config: &Mp4Config,
 ) -> Result<()> {
     ffmpeg::init()?;
 
@@ -164,11 +199,11 @@ fn render_to_mp4_impl(
     Ok(())
 }
 
-pub fn render_frame_rgb(
+fn render_frame_surface(
     composition: &Composition,
     frame_index: u32,
     media_ctx: &mut MediaContext,
-) -> Result<Vec<u8>> {
+) -> Result<skia_safe::Surface> {
     let frame_ctx = FrameCtx {
         frame: frame_index,
         fps: composition.fps,
@@ -188,6 +223,15 @@ pub fn render_frame_rgb(
     let mut backend = SkiaBackend::new(canvas, composition.width as i32, composition.height as i32);
     backend.execute(&display_list)?;
 
+    Ok(surface)
+}
+
+fn render_frame_rgb(
+    composition: &Composition,
+    frame_index: u32,
+    media_ctx: &mut MediaContext,
+) -> Result<Vec<u8>> {
+    let mut surface = render_frame_surface(composition, frame_index, media_ctx)?;
     let image = surface.image_snapshot();
     let image_info = ImageInfo::new(
         (composition.width, composition.height),

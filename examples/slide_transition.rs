@@ -63,9 +63,9 @@ fn main() -> anyhow::Result<()> {
         .root(|_ctx| slide_transition_demo())
         .build()?;
 
-    let encode_config = EncodingConfig::default();
+    let encode_config = EncodingConfig::mp4();
     std::fs::create_dir_all("out")?;
-    composition.render_to_mp4("out/slide_transition.mp4", &encode_config)?;
+    composition.render("out/slide_transition.mp4", &encode_config)?;
     println!("Rendered out/slide_transition.mp4");
 
     Ok(())

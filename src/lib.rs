@@ -1,3 +1,4 @@
+pub mod assets;
 pub mod backend;
 pub mod composition;
 pub mod display;

@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
 use crate::{
+    assets::AssetId,
     layout::tree::LayoutRect,
     style::{ColorToken, ComputedTextStyle, ObjectFit, ShadowStyle},
     transitions::TransitionKind,
@@ -80,7 +79,7 @@ pub struct TextDisplayItem {
 #[derive(Clone, Debug)]
 pub struct BitmapDisplayItem {
     pub bounds: LayoutRect,
-    pub data: Arc<Vec<u8>>,
+    pub asset_id: AssetId,
     pub width: u32,
     pub height: u32,
     pub object_fit: ObjectFit,

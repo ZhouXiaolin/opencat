@@ -1,4 +1,5 @@
 use crate::{
+    assets::AssetsMap,
     element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle},
         tree::{
@@ -31,15 +32,22 @@ struct ResolveContext<'a> {
     frame_ctx: &'a FrameCtx,
     ids: &'a mut ElementIdAllocator,
     inherited_text: &'a ComputedTextStyle,
+    assets: &'a mut AssetsMap,
 }
 
-pub fn resolve_ui_tree(node: &Node, frame_ctx: &FrameCtx, media: &mut MediaContext) -> ElementNode {
+pub fn resolve_ui_tree(
+    node: &Node,
+    frame_ctx: &FrameCtx,
+    media: &mut MediaContext,
+    assets: &mut AssetsMap,
+) -> ElementNode {
     let mut ids = ElementIdAllocator::default();
     let inherited_text = ComputedTextStyle::default();
     let mut cx = ResolveContext {
         frame_ctx,
         ids: &mut ids,
         inherited_text: &inherited_text,
+        assets,
     };
     resolve_node(node, &mut cx, media)
 }
@@ -72,6 +80,7 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>, media: &mut MediaContext)
             frame_ctx: cx.frame_ctx,
             ids: cx.ids,
             inherited_text: &computed.text,
+            assets: cx.assets,
         };
         children.push(resolve_node(child, &mut child_cx, media));
     }
@@ -105,17 +114,23 @@ fn resolve_video(
 ) -> ElementNode {
     let computed = compute_style(video.style_ref(), cx.inherited_text);
 
-    let target_time = cx.frame_ctx.frame as f64 / cx.frame_ctx.fps as f64;
-    let (data, width, height) = media
-        .get_bitmap(video.source(), target_time)
-        .expect("failed to decode video frame");
+    let info = media
+        .video_info(video.source())
+        .unwrap_or_else(|_| crate::media::VideoInfo {
+            width: 0,
+            height: 0,
+        });
+
+    let asset_id = cx
+        .assets
+        .register_dimensions(video.source(), info.width, info.height);
 
     ElementNode {
         id: cx.ids.alloc(),
         kind: ElementKind::Bitmap(ElementBitmap {
-            data,
-            width,
-            height,
+            asset_id,
+            width: info.width,
+            height: info.height,
         }),
         style: computed,
         children: Vec::new(),
@@ -125,18 +140,17 @@ fn resolve_video(
 fn resolve_image(
     image: &Image,
     cx: &mut ResolveContext<'_>,
-    media: &mut MediaContext,
+    _media: &mut MediaContext,
 ) -> ElementNode {
     let computed = compute_style(image.style_ref(), cx.inherited_text);
 
-    let (data, width, height) = media
-        .get_bitmap(image.source(), 0.0)
-        .expect("failed to load image");
+    let asset_id = cx.assets.register(image.source());
+    let (width, height) = cx.assets.dimensions(&asset_id);
 
     ElementNode {
         id: cx.ids.alloc(),
         kind: ElementKind::Bitmap(ElementBitmap {
-            data,
+            asset_id,
             width,
             height,
         }),

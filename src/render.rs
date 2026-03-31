@@ -14,7 +14,7 @@ use skia_safe::{
 use std::path::Path;
 
 use crate::{
-    backend::skia::SkiaBackend, display::build::build_display_list,
+    assets::AssetsMap, backend::skia::SkiaBackend, display::build::build_display_list,
     element::resolve::resolve_ui_tree, layout::compute_layout, media::MediaContext, Composition,
     FrameCtx,
 };
@@ -73,7 +73,8 @@ impl Composition {
 
 fn render_png(composition: &Composition, output_path: impl AsRef<Path>) -> Result<()> {
     let mut media_ctx = MediaContext::new();
-    let mut surface = render_frame_surface(composition, 0, &mut media_ctx)?;
+    let mut assets = AssetsMap::new();
+    let mut surface = render_frame_surface(composition, 0, &mut media_ctx, &mut assets)?;
     let image = surface.image_snapshot();
     let data = image
         .encode(None, EncodedImageFormat::PNG, 100)
@@ -90,6 +91,7 @@ fn render_mp4(
     ffmpeg::init()?;
 
     let mut media_ctx = MediaContext::new();
+    let mut assets = AssetsMap::new();
 
     let output_path = output_path.as_ref();
     let mut output = format::output(output_path).with_context(|| {
@@ -152,7 +154,7 @@ fn render_mp4(
     )?;
 
     for frame_index in 0..composition.frames {
-        let rgb = render_frame_rgb(composition, frame_index, &mut media_ctx)?;
+        let rgb = render_frame_rgb(composition, frame_index, &mut media_ctx, &mut assets)?;
 
         let mut rgb_frame = Video::new(
             Pixel::RGB24,
@@ -203,6 +205,7 @@ fn render_frame_surface(
     composition: &Composition,
     frame_index: u32,
     media_ctx: &mut MediaContext,
+    assets: &mut AssetsMap,
 ) -> Result<skia_safe::Surface> {
     let frame_ctx = FrameCtx {
         frame: frame_index,
@@ -213,25 +216,33 @@ fn render_frame_surface(
     };
 
     let node = composition.root_node(&frame_ctx);
-    let element_root = resolve_ui_tree(&node, &frame_ctx, media_ctx);
+    let element_root = resolve_ui_tree(&node, &frame_ctx, media_ctx, assets);
     let layout_tree = compute_layout(&element_root, &frame_ctx)?;
 
     let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
     let canvas = surface.canvas();
     let display_list = build_display_list(&layout_tree, &frame_ctx)?;
-    let mut backend = SkiaBackend::new(canvas, composition.width as i32, composition.height as i32);
+    let mut backend = SkiaBackend::new(
+        canvas,
+        composition.width as i32,
+        composition.height as i32,
+        assets,
+        Some(media_ctx),
+        &frame_ctx,
+    );
     backend.execute(&display_list)?;
 
     Ok(surface)
 }
 
-fn render_frame_rgb(
+pub fn render_frame_rgb(
     composition: &Composition,
     frame_index: u32,
     media_ctx: &mut MediaContext,
+    assets: &mut AssetsMap,
 ) -> Result<Vec<u8>> {
-    let mut surface = render_frame_surface(composition, frame_index, media_ctx)?;
+    let mut surface = render_frame_surface(composition, frame_index, media_ctx, assets)?;
     let image = surface.image_snapshot();
     let image_info = ImageInfo::new(
         (composition.width, composition.height),

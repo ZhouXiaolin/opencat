@@ -1,32 +1,76 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use anyhow::Result;
 use skia_safe::{
-    canvas::SrcRectConstraint, AlphaType, Canvas, ColorType, ImageInfo, Paint, PaintStyle, RRect,
-    Rect,
+    canvas::SrcRectConstraint, images, Canvas, Data, Image as SkiaImage, ImageInfo, Paint,
+    PaintStyle, RRect, Rect,
 };
 
 use crate::{
+    assets::AssetsMap,
     backend::skia_transition,
     display::list::{
         BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayList, DisplayTransform,
         RectDisplayItem, TextDisplayItem,
     },
+    frame_ctx::FrameCtx,
     layout::tree::LayoutRect,
+    media::MediaContext,
     style::{ObjectFit, ShadowStyle, Transform},
     typography,
 };
+
+type ImageCache = Rc<RefCell<HashMap<String, Option<SkiaImage>>>>;
 
 pub struct SkiaBackend<'a> {
     canvas: &'a Canvas,
     width: i32,
     height: i32,
+    assets: &'a AssetsMap,
+    media_ctx: Option<&'a mut MediaContext>,
+    frame_ctx: &'a FrameCtx,
+    image_cache: ImageCache,
 }
 
 impl<'a> SkiaBackend<'a> {
-    pub fn new(canvas: &'a Canvas, width: i32, height: i32) -> Self {
+    pub fn new(
+        canvas: &'a Canvas,
+        width: i32,
+        height: i32,
+        assets: &'a AssetsMap,
+        media_ctx: Option<&'a mut MediaContext>,
+        frame_ctx: &'a FrameCtx,
+    ) -> Self {
         Self {
             canvas,
             width,
             height,
+            assets,
+            media_ctx,
+            frame_ctx,
+            image_cache: Rc::new(RefCell::new(HashMap::new())),
+        }
+    }
+
+    pub fn new_with_cache(
+        canvas: &'a Canvas,
+        width: i32,
+        height: i32,
+        assets: &'a AssetsMap,
+        image_cache: ImageCache,
+        media_ctx: Option<&'a mut MediaContext>,
+        frame_ctx: &'a FrameCtx,
+    ) -> Self {
+        Self {
+            canvas,
+            width,
+            height,
+            assets,
+            image_cache,
+            media_ctx,
+            frame_ctx,
         }
     }
 
@@ -54,22 +98,47 @@ impl<'a> SkiaBackend<'a> {
                 apply_transform(self.canvas, transform);
             }
             DisplayCommand::Draw { item } => {
-                draw_item(self.canvas, item);
+                draw_item(
+                    self.canvas,
+                    item,
+                    &self.assets,
+                    &self.image_cache,
+                    &mut self.media_ctx,
+                    self.frame_ctx,
+                )?;
             }
             DisplayCommand::Transition { transition } => {
-                skia_transition::draw_transition(self.canvas, transition, self.width, self.height)?;
+                skia_transition::draw_transition(
+                    self.canvas,
+                    transition,
+                    self.width,
+                    self.height,
+                    self.assets,
+                    &mut self.media_ctx,
+                    self.frame_ctx,
+                )?;
             }
         }
         Ok(())
     }
 }
 
-fn draw_item(canvas: &Canvas, item: &DisplayItem) {
+fn draw_item(
+    canvas: &Canvas,
+    item: &DisplayItem,
+    assets: &AssetsMap,
+    image_cache: &RefCell<HashMap<String, Option<SkiaImage>>>,
+    media_ctx: &mut Option<&mut MediaContext>,
+    frame_ctx: &FrameCtx,
+) -> Result<()> {
     match item {
         DisplayItem::Rect(rect) => draw_rect(canvas, rect),
         DisplayItem::Text(text) => draw_text(canvas, text),
-        DisplayItem::Bitmap(bitmap) => draw_bitmap(canvas, bitmap),
+        DisplayItem::Bitmap(bitmap) => {
+            draw_bitmap(canvas, bitmap, assets, image_cache, media_ctx, frame_ctx)?;
+        }
     }
+    Ok(())
 }
 
 fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
@@ -154,37 +223,82 @@ fn draw_text(canvas: &Canvas, text: &TextDisplayItem) {
     );
 }
 
-fn draw_bitmap(canvas: &Canvas, bitmap: &BitmapDisplayItem) {
-    let info = ImageInfo::new(
-        (bitmap.width as i32, bitmap.height as i32),
-        ColorType::RGBA8888,
-        AlphaType::Opaque,
-        None,
-    );
+fn draw_bitmap(
+    canvas: &Canvas,
+    bitmap: &BitmapDisplayItem,
+    assets: &AssetsMap,
+    image_cache: &RefCell<HashMap<String, Option<SkiaImage>>>,
+    media_ctx: &mut Option<&mut MediaContext>,
+    frame_ctx: &FrameCtx,
+) -> Result<()> {
+    let path = assets.path(&bitmap.asset_id);
+    let is_video = path
+        .and_then(|p| p.extension())
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            matches!(
+                e.to_ascii_lowercase().as_str(),
+                "mp4" | "mov" | "m4v" | "webm" | "mkv" | "avi"
+            )
+        })
+        .unwrap_or(false);
 
-    let row_bytes = bitmap.width as usize * 4;
-    let data = skia_safe::Data::new_copy(&bitmap.data);
+    let image = if is_video {
+        let Some(media) = media_ctx.as_mut() else {
+            return Ok(());
+        };
+        let target_time = frame_ctx.frame as f64 / frame_ctx.fps as f64;
+        let Some(path) = path else { return Ok(()) };
+        let (data, _width, _height) = match media.get_bitmap(path, target_time) {
+            Ok(result) => result,
+            Err(_) => return Ok(()),
+        };
+        let info = ImageInfo::new(
+            (_width as i32, _height as i32),
+            skia_safe::ColorType::RGBA8888,
+            skia_safe::AlphaType::Unpremul,
+            None,
+        );
+        images::raster_from_data(&info, Data::new_copy(&data), _width as usize * 4)
+    } else {
+        let key = bitmap.asset_id.0.clone();
+        let mut cache = image_cache.borrow_mut();
+        if let Some(Some(img)) = cache.get(&key) {
+            Some(img.clone())
+        } else {
+            let img = assets.path(&bitmap.asset_id).and_then(|p| {
+                let encoded = std::fs::read(p).ok()?;
+                let data = skia_safe::Data::new_copy(&encoded);
+                skia_safe::Image::from_encoded(data)
+            });
+            cache.insert(key, img.clone());
+            img
+        }
+    };
 
-    let image = skia_safe::images::raster_from_data(&info, data, row_bytes)
-        .expect("failed to create image from bitmap data");
+    let Some(image) = image else { return Ok(()) };
 
     let dst = layout_rect_to_skia(bitmap.bounds);
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
+
+    let src_width = bitmap.width as f32;
+    let src_height = bitmap.height as f32;
 
     match bitmap.object_fit {
         ObjectFit::Fill => {
             canvas.draw_image_rect(image, None, dst, &paint);
         }
         ObjectFit::Contain => {
-            let fitted = fitted_rect(bitmap.width as f32, bitmap.height as f32, dst, false);
+            let fitted = fitted_rect(src_width, src_height, dst, false);
             canvas.draw_image_rect(image, None, fitted, &paint);
         }
         ObjectFit::Cover => {
-            let src = cover_src_rect(bitmap.width as f32, bitmap.height as f32, dst);
+            let src = cover_src_rect(src_width, src_height, dst);
             canvas.draw_image_rect(image, Some((&src, SrcRectConstraint::Strict)), dst, &paint);
         }
     }
+    Ok(())
 }
 
 fn apply_transform(canvas: &Canvas, transform: &DisplayTransform) {

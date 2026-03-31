@@ -95,7 +95,7 @@ fn push_paint_commands(
         LayoutPaintKind::Bitmap(bitmap) => list.push(DisplayCommand::Draw {
             item: DisplayItem::Bitmap(BitmapDisplayItem {
                 bounds: rect,
-                data: bitmap.data.clone(),
+                asset_id: bitmap.asset_id.clone(),
                 width: bitmap.width,
                 height: bitmap.height,
                 object_fit: bitmap.object_fit,
@@ -125,6 +125,7 @@ fn push_paint_commands(
 mod tests {
     use super::build_display_list;
     use crate::{
+        assets::AssetId,
         display::list::DisplayItem,
         layout::tree::{
             LayoutBitmapPaint, LayoutNode, LayoutPaint, LayoutPaintKind, LayoutRect, LayoutTree,
@@ -154,7 +155,7 @@ mod tests {
                         shadow: None,
                     },
                     kind: LayoutPaintKind::Bitmap(LayoutBitmapPaint {
-                        data: std::sync::Arc::new(vec![255; 4 * 2 * 2]),
+                        asset_id: AssetId("test://fake".to_string()),
                         width: 2,
                         height: 2,
                         object_fit: ObjectFit::Cover,

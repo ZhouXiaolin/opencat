@@ -186,7 +186,7 @@ fn build_layout_tree(
                     style: text.text_style,
                 }),
                 ElementKind::Bitmap(bitmap) => LayoutPaintKind::Bitmap(LayoutBitmapPaint {
-                    data: bitmap.data.clone(),
+                    asset_id: bitmap.asset_id.clone(),
                     width: bitmap.width,
                     height: bitmap.height,
                     object_fit: element.style.visual.object_fit,

@@ -1,5 +1,4 @@
-use std::sync::Arc;
-
+use crate::assets::AssetId;
 use crate::style::ComputedTextStyle;
 use crate::transitions::TransitionKind;
 
@@ -33,7 +32,7 @@ pub struct ElementText {
 
 #[derive(Clone, Debug)]
 pub struct ElementBitmap {
-    pub data: Arc<Vec<u8>>,
+    pub asset_id: AssetId,
     pub width: u32,
     pub height: u32,
 }

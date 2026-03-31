@@ -1,6 +1,7 @@
 use opencat::{
-    Composition, EncodingConfig, FrameCtx, Node, component,
+    component,
     nodes::{div, text},
+    Composition, EncodingConfig, FrameCtx, Node,
 };
 
 #[component]
@@ -234,9 +235,9 @@ fn main() -> anyhow::Result<()> {
         .root(|_ctx| login_screen_demo())
         .build()?;
 
-    let encode_config = EncodingConfig::default();
+    let encode_config = EncodingConfig::mp4();
     std::fs::create_dir_all("out")?;
-    composition.render_to_mp4("out/hello_world.mp4", &encode_config)?;
+    composition.render("out/hello_world.mp4", &encode_config)?;
     println!("Rendered out/hello_world.mp4");
 
     Ok(())

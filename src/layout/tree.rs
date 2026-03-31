@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
 use crate::{
+    assets::AssetId,
     element::style::ComputedVisualStyle,
     style::{ComputedTextStyle, ObjectFit},
     transitions::TransitionKind,
@@ -48,7 +47,7 @@ pub struct LayoutTextPaint {
 
 #[derive(Clone, Debug)]
 pub struct LayoutBitmapPaint {
-    pub data: Arc<Vec<u8>>,
+    pub asset_id: AssetId,
     pub width: u32,
     pub height: u32,
     pub object_fit: ObjectFit,

@@ -5,8 +5,11 @@ use skia_safe::{
 };
 
 use crate::{
+    assets::AssetsMap,
     backend::skia::SkiaBackend,
     display::list::{DisplayList, DisplayTransitionCommand},
+    frame_ctx::FrameCtx,
+    media::MediaContext,
     transitions::{LightLeakTransition, TransitionKind},
 };
 
@@ -126,28 +129,43 @@ impl LightLeakUniforms {
     }
 }
 
-pub fn draw_transition(
+pub fn draw_transition<'a>(
     canvas: &Canvas,
     transition: &DisplayTransitionCommand,
     width: i32,
     height: i32,
+    assets: &'a AssetsMap,
+    media_ctx: &mut Option<&'a mut MediaContext>,
+    frame_ctx: &'a FrameCtx,
 ) -> Result<()> {
     match transition.kind {
-        TransitionKind::Slide => draw_slide_transition(canvas, transition, width, height),
-        TransitionKind::LightLeak(params) => {
-            draw_light_leak_transition(canvas, transition, params, width, height)
-        }
+        TransitionKind::Slide => draw_slide_transition(
+            canvas, transition, width, height, assets, media_ctx, frame_ctx,
+        ),
+        TransitionKind::LightLeak(params) => draw_light_leak_transition(
+            canvas, transition, params, width, height, assets, media_ctx, frame_ctx,
+        ),
     }
 }
 
-fn draw_slide_transition(
+fn draw_slide_transition<'a>(
     canvas: &Canvas,
     transition: &DisplayTransitionCommand,
     width: i32,
     height: i32,
+    assets: &'a AssetsMap,
+    media_ctx: &mut Option<&'a mut MediaContext>,
+    frame_ctx: &'a FrameCtx,
 ) -> Result<()> {
-    let from_picture = record_picture(&transition.from, width, height)?;
-    let to_picture = record_picture(&transition.to, width, height)?;
+    let from_picture = record_picture(
+        &transition.from,
+        width,
+        height,
+        assets,
+        media_ctx,
+        frame_ctx,
+    )?;
+    let to_picture = record_picture(&transition.to, width, height, assets, media_ctx, frame_ctx)?;
     let progress = transition.progress.clamp(0.0, 1.0);
     let width_f = width as f32;
 
@@ -164,25 +182,37 @@ fn draw_slide_transition(
     Ok(())
 }
 
-fn draw_light_leak_transition(
+fn draw_light_leak_transition<'a>(
     canvas: &Canvas,
     transition: &DisplayTransitionCommand,
     params: LightLeakTransition,
     width: i32,
     height: i32,
+    assets: &'a AssetsMap,
+    media_ctx: &mut Option<&'a mut MediaContext>,
+    frame_ctx: &'a FrameCtx,
 ) -> Result<()> {
-    let from_shader = record_picture(&transition.from, width, height)?.to_shader(
+    let from_shader = record_picture(
+        &transition.from,
+        width,
+        height,
+        assets,
+        media_ctx,
+        frame_ctx,
+    )?
+    .to_shader(
         None,
         FilterMode::Linear,
         Option::<&Matrix>::None,
         Option::<&Rect>::None,
     );
-    let to_shader = record_picture(&transition.to, width, height)?.to_shader(
-        None,
-        FilterMode::Linear,
-        Option::<&Matrix>::None,
-        Option::<&Rect>::None,
-    );
+    let to_shader = record_picture(&transition.to, width, height, assets, media_ctx, frame_ctx)?
+        .to_shader(
+            None,
+            FilterMode::Linear,
+            Option::<&Matrix>::None,
+            Option::<&Rect>::None,
+        );
 
     let effect = RuntimeEffect::make_for_shader(LIGHT_LEAK_SKSL, None)
         .map_err(|err| anyhow!("failed to compile light leak SKSL: {err}"))?;
@@ -199,11 +229,18 @@ fn draw_light_leak_transition(
     Ok(())
 }
 
-fn record_picture(list: &DisplayList, width: i32, height: i32) -> Result<Picture> {
+fn record_picture<'a>(
+    list: &DisplayList,
+    width: i32,
+    height: i32,
+    assets: &'a AssetsMap,
+    _media_ctx: &mut Option<&'a mut MediaContext>,
+    frame_ctx: &'a FrameCtx,
+) -> Result<Picture> {
     let bounds = Rect::from_xywh(0.0, 0.0, width as f32, height as f32);
     let mut recorder = PictureRecorder::new();
     let recording_canvas = recorder.begin_recording(bounds, false);
-    let mut backend = SkiaBackend::new(recording_canvas, width, height);
+    let mut backend = SkiaBackend::new(recording_canvas, width, height, assets, None, frame_ctx);
     backend.execute(list)?;
     recorder
         .finish_recording_as_picture(None)

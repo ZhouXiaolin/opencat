@@ -1,14 +1,17 @@
 use opencat::{
-    Composition, FrameCtx, Node, NodeKind, component,
+    assets::AssetsMap,
+    component,
     media::MediaContext,
-    nodes::{AlignItems, JustifyContent, div, text},
+    nodes::{div, text, AlignItems, JustifyContent},
     render::render_frame_rgb,
     transitions::{linear, slide, transition_series},
+    Composition, FrameCtx, Node, NodeKind,
 };
 
 fn render_frame(composition: &Composition, frame_index: u32) -> anyhow::Result<Vec<u8>> {
     let mut media_ctx = MediaContext::new();
-    render_frame_rgb(composition, frame_index, &mut media_ctx)
+    let mut assets = AssetsMap::new();
+    render_frame_rgb(composition, frame_index, &mut media_ctx, &mut assets)
 }
 
 #[component]
@@ -551,6 +554,7 @@ fn transition_frames_should_compile_to_transition_display_commands() -> anyhow::
     let transition = Node::from(TransitionNode::new(from, to, 0.5, TransitionKind::Slide));
 
     let mut media_ctx = MediaContext::new();
+    let mut assets = AssetsMap::new();
     let frame_ctx = FrameCtx {
         frame: 0,
         fps: 30,
@@ -559,7 +563,7 @@ fn transition_frames_should_compile_to_transition_display_commands() -> anyhow::
         frames: 1,
     };
 
-    let element = resolve_ui_tree(&transition, &frame_ctx, &mut media_ctx);
+    let element = resolve_ui_tree(&transition, &frame_ctx, &mut media_ctx, &mut assets);
     let layout = compute_layout(&element, &frame_ctx)?;
     let display_list = build_display_list(&layout, &frame_ctx)?;
 

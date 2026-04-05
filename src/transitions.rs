@@ -5,8 +5,32 @@ use crate::{
 
 #[derive(Clone, Copy, Debug)]
 pub enum TransitionKind {
-    Slide,
+    Slide(SlideDirection),
     LightLeak(LightLeakTransition),
+    Fade,
+    Wipe(WipeDirection),
+    ClockWipe,
+    Iris,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum SlideDirection {
+    FromLeft,
+    FromRight,
+    FromTop,
+    FromBottom,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum WipeDirection {
+    FromLeft,
+    FromTopLeft,
+    FromTop,
+    FromTopRight,
+    FromRight,
+    FromBottomRight,
+    FromBottom,
+    FromBottomLeft,
 }
 
 #[derive(Clone)]
@@ -28,8 +52,12 @@ pub struct Transition {
 
 #[derive(Clone, Copy)]
 enum Presentation {
-    Slide,
+    Slide(SlideDirection),
     LightLeak(LightLeakTransition),
+    Fade,
+    Wipe(WipeDirection),
+    ClockWipe,
+    Iris,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -71,10 +99,31 @@ impl Default for SpringConfig {
 }
 
 #[derive(Clone, Copy)]
-pub struct SlideBuilder;
+pub struct SlideBuilder {
+    direction: SlideDirection,
+}
+
+#[derive(Clone, Copy)]
+pub struct FadeBuilder;
+
+#[derive(Clone, Copy)]
+pub struct WipeBuilder {
+    direction: WipeDirection,
+}
+
+#[derive(Clone, Copy)]
+pub struct ClockWipeBuilder;
+
+#[derive(Clone, Copy)]
+pub struct IrisBuilder;
 
 #[derive(Clone, Copy)]
 pub struct LinearTimingBuilder;
+
+#[derive(Clone, Copy)]
+pub struct SpringTimingBuilder {
+    config: SpringConfig,
+}
 
 impl TransitionSeries {
     pub fn sequence(mut self, duration_in_frames: u32, node: Node) -> Self {
@@ -173,16 +222,114 @@ impl Transition {
 
     fn kind(&self) -> TransitionKind {
         match self.presentation {
-            Presentation::Slide => TransitionKind::Slide,
+            Presentation::Slide(dir) => TransitionKind::Slide(dir),
             Presentation::LightLeak(params) => TransitionKind::LightLeak(params),
+            Presentation::Fade => TransitionKind::Fade,
+            Presentation::Wipe(dir) => TransitionKind::Wipe(dir),
+            Presentation::ClockWipe => TransitionKind::ClockWipe,
+            Presentation::Iris => TransitionKind::Iris,
         }
     }
 }
 
 impl SlideBuilder {
+    pub fn from_left(self) -> Self {
+        self.direction(SlideDirection::FromLeft)
+    }
+
+    pub fn from_right(self) -> Self {
+        self.direction(SlideDirection::FromRight)
+    }
+
+    pub fn from_top(self) -> Self {
+        self.direction(SlideDirection::FromTop)
+    }
+
+    pub fn from_bottom(self) -> Self {
+        self.direction(SlideDirection::FromBottom)
+    }
+
+    fn direction(mut self, direction: SlideDirection) -> Self {
+        self.direction = direction;
+        self
+    }
+
     pub fn timing(self, timing: Timing) -> Transition {
         Transition {
-            presentation: Presentation::Slide,
+            presentation: Presentation::Slide(self.direction),
+            timing,
+        }
+    }
+}
+
+impl FadeBuilder {
+    pub fn timing(self, timing: Timing) -> Transition {
+        Transition {
+            presentation: Presentation::Fade,
+            timing,
+        }
+    }
+}
+
+impl WipeBuilder {
+    pub fn from_left(self) -> Self {
+        self.direction(WipeDirection::FromLeft)
+    }
+
+    pub fn from_right(self) -> Self {
+        self.direction(WipeDirection::FromRight)
+    }
+
+    pub fn from_top(self) -> Self {
+        self.direction(WipeDirection::FromTop)
+    }
+
+    pub fn from_bottom(self) -> Self {
+        self.direction(WipeDirection::FromBottom)
+    }
+
+    pub fn from_top_left(self) -> Self {
+        self.direction(WipeDirection::FromTopLeft)
+    }
+
+    pub fn from_top_right(self) -> Self {
+        self.direction(WipeDirection::FromTopRight)
+    }
+
+    pub fn from_bottom_left(self) -> Self {
+        self.direction(WipeDirection::FromBottomLeft)
+    }
+
+    pub fn from_bottom_right(self) -> Self {
+        self.direction(WipeDirection::FromBottomRight)
+    }
+
+    fn direction(mut self, direction: WipeDirection) -> Self {
+        self.direction = direction;
+        self
+    }
+
+    pub fn timing(self, timing: Timing) -> Transition {
+        Transition {
+            presentation: Presentation::Wipe(self.direction),
+            timing,
+        }
+    }
+}
+
+impl ClockWipeBuilder {
+    pub fn timing(self, timing: Timing) -> Transition {
+        Transition {
+            presentation: Presentation::ClockWipe,
+            timing,
+        }
+    }
+}
+
+impl IrisBuilder {
+    pub fn timing(self, timing: Timing) -> Transition {
+        Transition {
+            presentation: Presentation::Iris,
             timing,
         }
     }
@@ -216,11 +363,6 @@ impl LinearTimingBuilder {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct SpringTimingBuilder {
-    config: SpringConfig,
-}
-
 impl SpringTimingBuilder {
     pub fn damping(mut self, damping: f32) -> Self {
         self.config.damping = damping;
@@ -246,7 +388,27 @@ impl SpringTimingBuilder {
 }
 
 pub fn slide() -> SlideBuilder {
-    SlideBuilder
+    SlideBuilder {
+        direction: SlideDirection::FromLeft,
+    }
+}
+
+pub fn fade() -> FadeBuilder {
+    FadeBuilder
+}
+
+pub fn wipe() -> WipeBuilder {
+    WipeBuilder {
+        direction: WipeDirection::FromLeft,
+    }
+}
+
+pub fn clock_wipe() -> ClockWipeBuilder {
+    ClockWipeBuilder
+}
+
+pub fn iris() -> IrisBuilder {
+    IrisBuilder
 }
 
 pub fn light_leak() -> LightLeakBuilder {

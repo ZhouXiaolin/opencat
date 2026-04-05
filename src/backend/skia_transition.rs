@@ -2,11 +2,11 @@ use std::{cell::RefCell, thread_local};
 
 use anyhow::{Result, anyhow};
 use skia_safe::{
-    AlphaType, Canvas, ColorType, Data, FilterMode, ImageInfo, Matrix, Paint, Picture, Rect,
-    RuntimeEffect, TileMode, runtime_effect::ChildPtr, surfaces,
+    AlphaType, Canvas, ColorType, Data, FilterMode, ImageInfo, Matrix, Paint, PathBuilder,
+    Picture, RRect, Rect, RuntimeEffect, TileMode, runtime_effect::ChildPtr, surfaces,
 };
 
-use crate::transitions::{LightLeakTransition, TransitionKind};
+use crate::transitions::{LightLeakTransition, SlideDirection, TransitionKind, WipeDirection};
 
 const LIGHT_LEAK_MASK_SCALE: f32 = 0.25;
 
@@ -79,7 +79,7 @@ half4 main(float2 coord) {
         cosA + (1.0 - cosA) / 3.0
     );
     col = clamp(hueRot * col, 0.0, 1.0);
-    
+
     return half4(col.x, col.y, col.z, alpha);
 }
 "#;
@@ -140,7 +140,7 @@ impl LightLeakMaskUniforms {
 }
 
 impl LightLeakCompositeUniforms {
-    fn new(progress: f32, params: LightLeakTransition) -> Self {
+    fn new(progress: f32) -> Self {
         Self {
             progress: progress.clamp(0.0, 1.0),
         }
@@ -157,10 +157,20 @@ pub fn draw_transition(
     height: i32,
 ) -> Result<()> {
     match kind {
-        TransitionKind::Slide => draw_slide_transition(canvas, from, to, progress, width),
+        TransitionKind::Slide(direction) => {
+            draw_slide_transition(canvas, from, to, progress, direction, width, height)
+        }
         TransitionKind::LightLeak(params) => {
             draw_light_leak_transition(canvas, from, to, progress, params, width, height)
         }
+        TransitionKind::Fade => draw_fade_transition(canvas, from, to, progress),
+        TransitionKind::Wipe(direction) => {
+            draw_wipe_transition(canvas, from, to, progress, direction, width, height)
+        }
+        TransitionKind::ClockWipe => {
+            draw_clock_wipe_transition(canvas, from, to, progress, width, height)
+        }
+        TransitionKind::Iris => draw_iris_transition(canvas, from, to, progress, width, height),
     }
 }
 
@@ -169,19 +179,188 @@ fn draw_slide_transition(
     from: &Picture,
     to: &Picture,
     progress: f32,
+    direction: SlideDirection,
     width: i32,
+    height: i32,
 ) -> Result<()> {
     let progress = progress.clamp(0.0, 1.0);
-    let width_f = width as f32;
+    let w = width as f32;
+    let h = height as f32;
+
+    let to_offset = match direction {
+        SlideDirection::FromLeft => (w * (progress - 1.0), 0.0),
+        SlideDirection::FromRight => (-w * progress, 0.0),
+        SlideDirection::FromTop => (0.0, h * (progress - 1.0)),
+        SlideDirection::FromBottom => (0.0, -h * progress),
+    };
+
+    let from_offset = match direction {
+        SlideDirection::FromLeft => (w * progress, 0.0),
+        SlideDirection::FromRight => (w * (1.0 - progress), 0.0),
+        SlideDirection::FromTop => (0.0, h * progress),
+        SlideDirection::FromBottom => (0.0, h * (1.0 - progress)),
+    };
 
     canvas.save();
-    canvas.translate(((progress - 1.0) * width_f, 0.0));
+    canvas.translate(to_offset);
     canvas.draw_picture(to, None, None);
     canvas.restore();
 
     canvas.save();
-    canvas.translate((progress * width_f, 0.0));
+    canvas.translate(from_offset);
     canvas.draw_picture(from, None, None);
+    canvas.restore();
+
+    Ok(())
+}
+
+fn draw_fade_transition(
+    canvas: &Canvas,
+    from: &Picture,
+    to: &Picture,
+    progress: f32,
+) -> Result<()> {
+    let progress = progress.clamp(0.0, 1.0);
+
+    let mut from_paint = Paint::default();
+    from_paint.set_alpha(((1.0 - progress) * 255.0).round() as u8);
+    canvas.draw_picture(from, None, Some(&from_paint));
+
+    let mut to_paint = Paint::default();
+    to_paint.set_alpha((progress * 255.0).round() as u8);
+    canvas.draw_picture(to, None, Some(&to_paint));
+
+    Ok(())
+}
+
+fn draw_wipe_transition(
+    canvas: &Canvas,
+    from: &Picture,
+    to: &Picture,
+    progress: f32,
+    direction: WipeDirection,
+    width: i32,
+    height: i32,
+) -> Result<()> {
+    let progress = progress.clamp(0.0, 1.0);
+    let w = width as f32;
+    let h = height as f32;
+
+    canvas.draw_picture(from, None, None);
+
+    let clip_rect = match direction {
+        WipeDirection::FromLeft => Rect::from_point_and_size((0.0, 0.0), (w * progress, h)),
+        WipeDirection::FromRight => {
+            Rect::from_point_and_size((w * (1.0 - progress), 0.0), (w * progress, h))
+        }
+        WipeDirection::FromTop => Rect::from_point_and_size((0.0, 0.0), (w, h * progress)),
+        WipeDirection::FromBottom => {
+            Rect::from_point_and_size((0.0, h * (1.0 - progress)), (w, h * progress))
+        }
+        WipeDirection::FromTopLeft => {
+            Rect::from_point_and_size((0.0, 0.0), (w * progress, h * progress))
+        }
+        WipeDirection::FromTopRight => {
+            Rect::from_point_and_size((w * (1.0 - progress), 0.0), (w * progress, h * progress))
+        }
+        WipeDirection::FromBottomLeft => {
+            Rect::from_point_and_size((0.0, h * (1.0 - progress)), (w * progress, h * progress))
+        }
+        WipeDirection::FromBottomRight => Rect::from_point_and_size(
+            (w * (1.0 - progress), h * (1.0 - progress)),
+            (w * progress, h * progress),
+        ),
+    };
+
+    canvas.save();
+    canvas.clip_rect(clip_rect, None, Some(true));
+    canvas.draw_picture(to, None, None);
+    canvas.restore();
+
+    Ok(())
+}
+
+fn draw_clock_wipe_transition(
+    canvas: &Canvas,
+    from: &Picture,
+    to: &Picture,
+    progress: f32,
+    width: i32,
+    height: i32,
+) -> Result<()> {
+    let progress = progress.clamp(0.0, 1.0);
+
+    canvas.draw_picture(from, None, None);
+
+    if progress <= 0.0 {
+        return Ok(());
+    }
+
+    let w = width as f32;
+    let h = height as f32;
+    let cx = w / 2.0;
+    let cy = h / 2.0;
+    let radius = (cx * cx + cy * cy).sqrt();
+
+    let start_angle_deg: f32 = -90.0;
+    let sweep_angle_deg: f32 = progress * 360.0;
+
+    let mut builder = PathBuilder::new();
+    builder.move_to((cx, cy));
+
+    let start_rad = start_angle_deg.to_radians();
+    builder.line_to((
+        cx + radius * start_rad.cos(),
+        cy + radius * start_rad.sin(),
+    ));
+
+    let arc_rect = Rect::from_point_and_size(
+        (cx - radius, cy - radius),
+        (radius * 2.0, radius * 2.0),
+    );
+    builder.arc_to(arc_rect, start_angle_deg, sweep_angle_deg, false);
+    builder.close();
+
+    let path = builder.detach();
+
+    canvas.save();
+    canvas.clip_path(&path, None, Some(true));
+    canvas.draw_picture(to, None, None);
+    canvas.restore();
+
+    Ok(())
+}
+
+fn draw_iris_transition(
+    canvas: &Canvas,
+    from: &Picture,
+    to: &Picture,
+    progress: f32,
+    width: i32,
+    height: i32,
+) -> Result<()> {
+    let progress = progress.clamp(0.0, 1.0);
+
+    canvas.draw_picture(from, None, None);
+
+    if progress <= 0.0 {
+        return Ok(());
+    }
+
+    let w = width as f32;
+    let h = height as f32;
+    let cx = w / 2.0;
+    let cy = h / 2.0;
+    let max_radius = (cx * cx + cy * cy).sqrt();
+    let radius = progress * max_radius;
+
+    let oval_rect =
+        Rect::from_point_and_size((cx - radius, cy - radius), (radius * 2.0, radius * 2.0));
+    let oval = RRect::new_oval(oval_rect);
+
+    canvas.save();
+    canvas.clip_rrect(&oval, None, Some(true));
+    canvas.draw_picture(to, None, None);
     canvas.restore();
 
     Ok(())
@@ -224,7 +403,7 @@ fn draw_light_leak_transition(
         )
         .ok_or_else(|| anyhow!("failed to create light leak mask shader"))?;
 
-    let uniforms = LightLeakCompositeUniforms::new(progress, params);
+    let uniforms = LightLeakCompositeUniforms::new(progress);
     let children = [
         ChildPtr::from(from_shader),
         ChildPtr::from(to_shader),

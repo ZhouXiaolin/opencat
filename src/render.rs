@@ -294,7 +294,7 @@ fn render_frame_surface(
             let transition_ms = transition_started.elapsed().as_secs_f64() * 1000.0;
             frame_profile.transition_ms = transition_ms;
             match kind {
-                crate::transitions::TransitionKind::Slide => {
+                crate::transitions::TransitionKind::Slide(_) => {
                     frame_profile.slide_transition_ms = transition_ms;
                     frame_profile.slide_transition_frames = 1;
                 }
@@ -302,6 +302,7 @@ fn render_frame_surface(
                     frame_profile.light_leak_transition_ms = transition_ms;
                     frame_profile.light_leak_transition_frames = 1;
                 }
+                _ => {}
             }
         }
     }

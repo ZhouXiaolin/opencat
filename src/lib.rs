@@ -7,6 +7,7 @@ pub mod frame_ctx;
 pub mod layout;
 pub mod media;
 pub mod nodes;
+pub mod parser;
 pub mod render;
 pub mod script;
 pub mod style;
@@ -17,9 +18,10 @@ pub mod view;
 pub use composition::Composition;
 pub use frame_ctx::FrameCtx;
 pub use nodes::{div, image, text, video};
+pub use parser::{ParsedComposition, parse};
 pub use render::{EncodingConfig, Mp4Config, OutputFormat};
 pub use script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use transitions::{
-    light_leak, linear, slide, transition_series, TransitionKind, TransitionSeries,
+    TransitionKind, TransitionSeries, light_leak, linear, slide, transition_series,
 };
-pub use view::{component_node, component_node_with_duration, Node, NodeKind};
+pub use view::{Node, NodeKind, component_node, component_node_with_duration};

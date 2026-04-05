@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
-use crate::{script::ScriptDriver, FrameCtx, Node};
+use crate::{FrameCtx, Node, script::ScriptDriver};
 
 type RootComponent = dyn Fn(&FrameCtx) -> Node + Send + Sync;
 

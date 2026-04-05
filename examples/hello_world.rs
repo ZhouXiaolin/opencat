@@ -1,6 +1,6 @@
 use opencat::{
-    nodes::{div, text},
     Composition, EncodingConfig, FrameCtx, Node, ScriptDriver,
+    nodes::{div, text},
 };
 
 fn hello_world_demo(_ctx: &FrameCtx) -> Node {

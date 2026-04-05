@@ -1,22 +1,21 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg_next::{
-    codec,
+    Dictionary, codec,
     codec::packet::Packet,
     format,
     software::scaling::{context::Context as ScalingContext, flag::Flags as ScalingFlags},
     util::{format::pixel::Pixel, frame::video::Video, rational::Rational},
-    Dictionary,
 };
 use skia_safe::{
-    image::CachingHint, surfaces, AlphaType, ColorType, EncodedImageFormat, ImageInfo,
+    AlphaType, ColorType, EncodedImageFormat, ImageInfo, image::CachingHint, surfaces,
 };
 use std::path::Path;
 
 use crate::{
-    assets::AssetsMap, backend::skia::SkiaBackend, display::build::build_display_list,
-    element::resolve::resolve_ui_tree, layout::compute_layout, media::MediaContext, Composition,
-    FrameCtx,
+    Composition, FrameCtx, assets::AssetsMap, backend::skia::SkiaBackend,
+    display::build::build_display_list, element::resolve::resolve_ui_tree, layout::compute_layout,
+    media::MediaContext,
 };
 
 pub enum OutputFormat {

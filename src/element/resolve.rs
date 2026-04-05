@@ -1,4 +1,5 @@
 use crate::{
+    FrameCtx, Node,
     assets::AssetsMap,
     element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle},
@@ -10,10 +11,9 @@ use crate::{
     media::MediaContext,
     nodes::{Div, Image, Text, Video},
     script::StyleMutations,
-    style::{resolve_text_style, ComputedTextStyle, NodeStyle},
+    style::{ComputedTextStyle, NodeStyle, resolve_text_style},
     transitions::TransitionNode,
     view::{ComponentNode, NodeKind},
-    FrameCtx, Node,
 };
 
 #[derive(Default)]
@@ -223,6 +223,8 @@ fn compute_style(style: &NodeStyle, inherited_text: &ComputedTextStyle) -> Compu
             inset_bottom: style.inset_bottom,
             width: style.width,
             height: style.height,
+            width_full: style.width_full,
+            height_full: style.height_full,
             padding_x: style.padding_x.or(style.padding).unwrap_or(0.0),
             padding_y: style.padding_y.or(style.padding).unwrap_or(0.0),
             margin_x: style.margin_x.or(style.margin).unwrap_or(0.0),

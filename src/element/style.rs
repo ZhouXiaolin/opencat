@@ -20,6 +20,8 @@ pub struct ComputedLayoutStyle {
     pub inset_bottom: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
+    pub width_full: bool,
+    pub height_full: bool,
     pub padding_x: f32,
     pub padding_y: f32,
     pub margin_x: f32,

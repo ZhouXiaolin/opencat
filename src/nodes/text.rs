@@ -1,5 +1,5 @@
 use crate::{
-    style::{impl_node_style_api, ComputedTextStyle, NodeStyle},
+    style::{ComputedTextStyle, NodeStyle, impl_node_style_api},
     typography,
 };
 
@@ -27,9 +27,10 @@ impl Text {
         canvas: &skia_safe::Canvas,
         left: f32,
         top: f32,
+        width: f32,
         computed_style: &ComputedTextStyle,
     ) {
-        typography::draw_text(canvas, &self.text, left, top, computed_style);
+        typography::draw_text(canvas, &self.text, left, top, width, computed_style);
     }
 }
 

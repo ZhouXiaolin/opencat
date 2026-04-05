@@ -7,6 +7,8 @@ pub enum ColorToken {
     Red,
     Green,
     Blue,
+    Teal400,
+    Teal500,
     Yellow,
     Orange,
     Purple,
@@ -19,6 +21,7 @@ pub enum ColorToken {
     Slate500,
     Slate600,
     Slate700,
+    Slate800,
     Slate900,
     Primary,
 }
@@ -31,11 +34,13 @@ impl ColorToken {
             ColorToken::Red => Color::RED,
             ColorToken::Green => Color::from_rgb(0x22, 0xc5, 0x5e), // Tailwind green-500
             ColorToken::Blue => Color::from_rgb(0x3b, 0x82, 0xf6),  // Tailwind blue-500
+            ColorToken::Teal400 => Color::from_rgb(0x2d, 0xd4, 0xbf),
+            ColorToken::Teal500 => Color::from_rgb(0x14, 0xb8, 0xa6),
             ColorToken::Yellow => Color::from_rgb(0xea, 0xb3, 0x08), // Tailwind yellow-500
             ColorToken::Orange => Color::from_rgb(0xf9, 0x73, 0x16), // Tailwind orange-500
             ColorToken::Purple => Color::from_rgb(0xa8, 0x55, 0xf7), // Tailwind purple-500
-            ColorToken::Pink => Color::from_rgb(0xec, 0x48, 0x99),  // Tailwind pink-500
-            ColorToken::Gray => Color::from_rgb(0x6b, 0x72, 0x80),  // Tailwind gray-500
+            ColorToken::Pink => Color::from_rgb(0xec, 0x48, 0x99),   // Tailwind pink-500
+            ColorToken::Gray => Color::from_rgb(0x6b, 0x72, 0x80),   // Tailwind gray-500
             ColorToken::Slate50 => Color::from_rgb(0xf8, 0xfa, 0xfc),
             ColorToken::Slate200 => Color::from_rgb(0xe2, 0xe8, 0xf0),
             ColorToken::Slate300 => Color::from_rgb(0xcb, 0xd5, 0xe1),
@@ -43,6 +48,7 @@ impl ColorToken {
             ColorToken::Slate500 => Color::from_rgb(0x64, 0x74, 0x8b),
             ColorToken::Slate600 => Color::from_rgb(0x47, 0x55, 0x69),
             ColorToken::Slate700 => Color::from_rgb(0x33, 0x41, 0x55),
+            ColorToken::Slate800 => Color::from_rgb(0x1e, 0x29, 0x3b),
             ColorToken::Slate900 => Color::from_rgb(0x0f, 0x17, 0x2a),
             ColorToken::Primary => Color::from_rgb(0x3b, 0x82, 0xf6), // Same as blue-500
         }
@@ -85,6 +91,14 @@ pub enum AlignItems {
     Center,
     End,
     Stretch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -139,6 +153,8 @@ pub struct NodeStyle {
     // Size
     pub width: Option<f32>,
     pub height: Option<f32>,
+    pub width_full: bool,
+    pub height_full: bool,
 
     // Spacing
     pub padding: Option<f32>,
@@ -169,6 +185,8 @@ pub struct NodeStyle {
     pub text_px: Option<f32>,
     pub font_weight: Option<FontWeight>,
     pub letter_spacing: Option<f32>,
+    pub text_align: Option<TextAlign>,
+    pub line_height: Option<f32>,
 
     // Shadow
     pub shadow: Option<ShadowStyle>,
@@ -183,6 +201,8 @@ pub struct ComputedTextStyle {
     pub text_px: f32,
     pub font_weight: FontWeight,
     pub letter_spacing: f32,
+    pub text_align: TextAlign,
+    pub line_height: f32,
 }
 
 impl Default for ComputedTextStyle {
@@ -192,6 +212,8 @@ impl Default for ComputedTextStyle {
             text_px: 16.0,
             font_weight: FontWeight::Normal,
             letter_spacing: 0.0,
+            text_align: TextAlign::Left,
+            line_height: 1.5,
         }
     }
 }
@@ -202,6 +224,8 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
         text_px: style.text_px.unwrap_or(parent.text_px),
         font_weight: style.font_weight.unwrap_or(parent.font_weight),
         letter_spacing: style.letter_spacing.unwrap_or(parent.letter_spacing),
+        text_align: style.text_align.unwrap_or(parent.text_align),
+        line_height: style.line_height.unwrap_or(parent.line_height),
     }
 }
 
@@ -253,17 +277,21 @@ macro_rules! impl_node_style_api {
             // === Size ===
             pub fn w(mut self, value: f32) -> Self {
                 self.style.width = Some(value);
+                self.style.width_full = false;
                 self
             }
 
             pub fn h(mut self, value: f32) -> Self {
                 self.style.height = Some(value);
+                self.style.height_full = false;
                 self
             }
 
             pub fn size(mut self, width: f32, height: f32) -> Self {
                 self.style.width = Some(width);
                 self.style.height = Some(height);
+                self.style.width_full = false;
+                self.style.height_full = false;
                 self
             }
 
@@ -357,16 +385,24 @@ macro_rules! impl_node_style_api {
                 self.flex_row()
             }
 
-            pub fn w_full(self) -> Self {
+            pub fn w_full(mut self) -> Self {
+                self.style.width = None;
+                self.style.width_full = true;
+                self
+            }
+
+            pub fn h_full(mut self) -> Self {
+                self.style.height = None;
+                self.style.height_full = true;
                 self
             }
 
             pub fn min_h_full(self) -> Self {
-                self
+                self.h_full()
             }
 
             pub fn max_w_full(self) -> Self {
-                self
+                self.w_full()
             }
 
             // === Layout: Justify Content (main axis) ===
@@ -565,6 +601,10 @@ macro_rules! impl_node_style_api {
                 self.border_color($crate::style::ColorToken::Slate300)
             }
 
+            pub fn border_slate_700(self) -> Self {
+                self.border_color($crate::style::ColorToken::Slate700)
+            }
+
             // === Visual: Background Colors ===
             pub fn bg(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.bg_color = Some(color);
@@ -593,6 +633,14 @@ macro_rules! impl_node_style_api {
 
             pub fn bg_yellow(self) -> Self {
                 self.bg($crate::style::ColorToken::Yellow)
+            }
+
+            pub fn bg_teal_400(self) -> Self {
+                self.bg($crate::style::ColorToken::Teal400)
+            }
+
+            pub fn bg_teal_500(self) -> Self {
+                self.bg($crate::style::ColorToken::Teal500)
             }
 
             pub fn bg_orange(self) -> Self {
@@ -639,6 +687,10 @@ macro_rules! impl_node_style_api {
                 self.bg($crate::style::ColorToken::Slate700)
             }
 
+            pub fn bg_slate_800(self) -> Self {
+                self.bg($crate::style::ColorToken::Slate800)
+            }
+
             pub fn bg_slate_900(self) -> Self {
                 self.bg($crate::style::ColorToken::Slate900)
             }
@@ -682,6 +734,14 @@ macro_rules! impl_node_style_api {
                 self.text_color($crate::style::ColorToken::Yellow)
             }
 
+            pub fn text_teal_400(self) -> Self {
+                self.text_color($crate::style::ColorToken::Teal400)
+            }
+
+            pub fn text_teal_500(self) -> Self {
+                self.text_color($crate::style::ColorToken::Teal500)
+            }
+
             pub fn text_orange(self) -> Self {
                 self.text_color($crate::style::ColorToken::Orange)
             }
@@ -712,6 +772,10 @@ macro_rules! impl_node_style_api {
 
             pub fn text_slate_700(self) -> Self {
                 self.text_color($crate::style::ColorToken::Slate700)
+            }
+
+            pub fn text_slate_800(self) -> Self {
+                self.text_color($crate::style::ColorToken::Slate800)
             }
 
             pub fn text_slate_900(self) -> Self {
@@ -782,6 +846,35 @@ macro_rules! impl_node_style_api {
 
             pub fn tracking_wider(self) -> Self {
                 self.letter_spacing(1.0)
+            }
+
+            // === Text Alignment ===
+            pub fn text_align(mut self, align: $crate::style::TextAlign) -> Self {
+                self.style.text_align = Some(align);
+                self
+            }
+
+            pub fn text_left(self) -> Self {
+                self.text_align($crate::style::TextAlign::Left)
+            }
+
+            pub fn text_center(self) -> Self {
+                self.text_align($crate::style::TextAlign::Center)
+            }
+
+            pub fn text_right(self) -> Self {
+                self.text_align($crate::style::TextAlign::Right)
+            }
+
+            // === Line Height ===
+            pub fn line_height(mut self, value: f32) -> Self {
+                self.style.line_height = Some(value);
+                self
+            }
+
+            pub fn leading(mut self, value: f32) -> Self {
+                self.style.line_height = Some(value);
+                self
             }
 
             // === Data Attributes (for JS animation targeting) ===

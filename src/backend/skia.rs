@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use anyhow::Result;
 use skia_safe::{
-    canvas::SrcRectConstraint, images, Canvas, Data, Image as SkiaImage, ImageInfo, Paint,
-    PaintStyle, RRect, Rect,
+    Canvas, Data, Image as SkiaImage, ImageInfo, Paint, PaintStyle, RRect, Rect,
+    canvas::SrcRectConstraint, images,
 };
 
 use crate::{
@@ -219,6 +219,7 @@ fn draw_text(canvas: &Canvas, text: &TextDisplayItem) {
         &text.text,
         text.bounds.x,
         text.bounds.y,
+        text.bounds.width,
         &text.style,
     );
 }

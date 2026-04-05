@@ -5,7 +5,7 @@ use rquickjs::{Context, Function, Runtime};
 
 use crate::style::{
     AlignItems, ColorToken, FlexDirection, FontWeight, JustifyContent, ObjectFit, Position,
-    ShadowStyle, Transform,
+    ShadowStyle, TextAlign, Transform,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -39,6 +39,8 @@ pub struct NodeStyleMutations {
     pub text_px: Option<f32>,
     pub font_weight: Option<FontWeight>,
     pub letter_spacing: Option<f32>,
+    pub text_align: Option<TextAlign>,
+    pub line_height: Option<f32>,
     pub shadow: Option<ShadowStyle>,
 }
 
@@ -61,9 +63,11 @@ impl NodeStyleMutations {
         }
         if let Some(v) = self.width {
             style.width = Some(v);
+            style.width_full = false;
         }
         if let Some(v) = self.height {
             style.height = Some(v);
+            style.height_full = false;
         }
         if let Some(v) = self.padding {
             style.padding = Some(v);
@@ -131,6 +135,12 @@ impl NodeStyleMutations {
         if let Some(v) = self.letter_spacing {
             style.letter_spacing = Some(v);
         }
+        if let Some(v) = self.text_align {
+            style.text_align = Some(v);
+        }
+        if let Some(v) = self.line_height {
+            style.line_height = Some(v);
+        }
         if let Some(v) = self.shadow {
             style.shadow = Some(v);
         }
@@ -173,6 +183,8 @@ fn color_from_name(name: &str) -> Option<ColorToken> {
         "red" => Some(ColorToken::Red),
         "green" => Some(ColorToken::Green),
         "blue" => Some(ColorToken::Blue),
+        "teal400" => Some(ColorToken::Teal400),
+        "teal500" => Some(ColorToken::Teal500),
         "yellow" => Some(ColorToken::Yellow),
         "orange" => Some(ColorToken::Orange),
         "purple" => Some(ColorToken::Purple),
@@ -185,6 +197,7 @@ fn color_from_name(name: &str) -> Option<ColorToken> {
         "slate500" => Some(ColorToken::Slate500),
         "slate600" => Some(ColorToken::Slate600),
         "slate700" => Some(ColorToken::Slate700),
+        "slate800" => Some(ColorToken::Slate800),
         "slate900" => Some(ColorToken::Slate900),
         "primary" => Some(ColorToken::Primary),
         _ => None,
@@ -258,6 +271,15 @@ fn shadow_from_name(name: &str) -> Option<ShadowStyle> {
     }
 }
 
+fn text_align_from_name(name: &str) -> Option<TextAlign> {
+    match name {
+        "left" => Some(TextAlign::Left),
+        "center" => Some(TextAlign::Center),
+        "right" => Some(TextAlign::Right),
+        _ => None,
+    }
+}
+
 pub struct ScriptDriver {
     source: String,
 }
@@ -302,6 +324,8 @@ const PROXY_RUNTIME: &str = r#"
             case 'textSize': __record_text_size(id, value); break;
             case 'fontWeight': __record_font_weight(id, String(value)); break;
             case 'letterSpacing': __record_letter_spacing(id, value); break;
+            case 'textAlign': __record_text_align(id, String(value)); break;
+            case 'lineHeight': __record_line_height(id, value); break;
             case 'shadow': __record_shadow(id, String(value)); break;
         }
     }
@@ -710,6 +734,26 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
+                "__record_text_align",
+                Function::new(ctx.clone(), move |id: String, v: String| {
+                    if let Some(align) = text_align_from_name(&v) {
+                        let mut map = s.lock().unwrap();
+                        map.entry(id).or_default().text_align = Some(align);
+                    }
+                })?,
+            )?;
+
+            let s = store.clone();
+            globals.set(
+                "__record_line_height",
+                Function::new(ctx.clone(), move |id: String, v: f32| {
+                    let mut map = s.lock().unwrap();
+                    map.entry(id).or_default().line_height = Some(v);
+                })?,
+            )?;
+
+            let s = store.clone();
+            globals.set(
                 "__record_shadow",
                 Function::new(ctx.clone(), move |id: String, v: String| {
                     if let Some(sh) = shadow_from_name(&v) {
@@ -734,5 +778,29 @@ impl ScriptDriver {
         Ok(StyleMutations {
             mutations: mutations.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ScriptDriver;
+    use crate::style::TextAlign;
+
+    #[test]
+    fn script_driver_records_text_alignment_and_line_height() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            const title = ctx.getNode("title");
+            title.textAlign = "center";
+            title.lineHeight = 1.8;
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(0, 1).expect("script should run");
+        let title = mutations.get("title").expect("title mutation should exist");
+
+        assert_eq!(title.text_align, Some(TextAlign::Center));
+        assert_eq!(title.line_height, Some(1.8));
     }
 }

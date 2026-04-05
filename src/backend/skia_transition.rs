@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use skia_safe::{
-    runtime_effect::ChildPtr, Canvas, Data, FilterMode, Matrix, Paint, Picture, PictureRecorder,
-    Rect, RuntimeEffect,
+    Canvas, Data, FilterMode, Matrix, Paint, Picture, PictureRecorder, Rect, RuntimeEffect,
+    runtime_effect::ChildPtr,
 };
 
 use crate::{

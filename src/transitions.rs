@@ -1,4 +1,4 @@
-use crate::{component_node_with_duration, nodes::div, FrameCtx, Node};
+use crate::{FrameCtx, Node, component_node_with_duration, nodes::div};
 
 #[derive(Clone, Copy, Debug)]
 pub enum TransitionKind {

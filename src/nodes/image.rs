@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::style::{impl_node_style_api, NodeStyle};
+use crate::style::{NodeStyle, impl_node_style_api};
 
 #[derive(Clone)]
 pub struct Image {

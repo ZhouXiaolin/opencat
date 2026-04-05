@@ -4,7 +4,7 @@ mod text;
 mod video;
 
 pub use crate::style::{AlignItems, JustifyContent, Position};
-pub use div::{div, Div};
-pub use image::{image, Image};
-pub use text::{text, Text};
-pub use video::{video, Video};
+pub use div::{Div, div};
+pub use image::{Image, image};
+pub use text::{Text, text};
+pub use video::{Video, video};

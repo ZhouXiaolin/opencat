@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::{
     FrameCtx,
     nodes::{Div, Image, Text, Video},
+    script::ScriptDriver,
     style::NodeStyle,
     timeline::TimelineNode,
 };
@@ -28,6 +29,17 @@ impl Node {
 
     pub fn duration_in_frames(&self, ctx: &FrameCtx) -> Option<u32> {
         self.kind().duration_in_frames(ctx)
+    }
+
+    pub fn script_driver(self, driver: ScriptDriver) -> Self {
+        let mut kind = self.kind().clone();
+        kind.style_mut().script_driver = Some(std::sync::Arc::new(driver));
+        Self(Arc::new(kind))
+    }
+
+    pub fn script_source(self, source: &str) -> anyhow::Result<Self> {
+        let driver = ScriptDriver::from_source(source)?;
+        Ok(self.script_driver(driver))
     }
 }
 
@@ -59,6 +71,17 @@ impl NodeKind {
             Self::Div(node) => node.duration_in_frames(ctx),
             Self::Timeline(node) => Some(node.duration_in_frames()),
             Self::Text(_) | Self::Image(_) | Self::Video(_) => None,
+        }
+    }
+
+    pub(crate) fn style_mut(&mut self) -> &mut NodeStyle {
+        match self {
+            Self::Component(node) => &mut node.style,
+            Self::Div(node) => &mut node.style,
+            Self::Text(node) => &mut node.style,
+            Self::Image(node) => &mut node.style,
+            Self::Video(node) => &mut node.style,
+            Self::Timeline(node) => &mut node.style,
         }
     }
 }

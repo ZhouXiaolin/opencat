@@ -253,7 +253,14 @@ impl<'a> SkiaBackend<'a> {
             self.frame_ctx,
             self.profile.as_deref_mut(),
         );
-        backend.draw_layout_subtree_contents(layout)?;
+        let local_bounds = LayoutRect {
+            x: 0.0,
+            y: 0.0,
+            width: layout.rect.width,
+            height: layout.rect.height,
+        };
+        backend.draw_layout_node_paint(layout, local_bounds)?;
+        backend.draw_layout_children(&layout.children)?;
         let picture = recorder
             .finish_recording_as_picture(None)
             .ok_or_else(|| anyhow!("failed to record subtree picture"))?;

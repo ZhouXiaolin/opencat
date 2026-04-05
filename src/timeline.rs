@@ -10,7 +10,7 @@ use crate::{
 pub struct TimelineNode {
     segments: Vec<TimelineSegment>,
     duration_in_frames: u32,
-    style: NodeStyle,
+    pub(crate) style: NodeStyle,
 }
 
 impl TimelineNode {

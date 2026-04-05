@@ -1,4 +1,8 @@
+use std::sync::Arc;
+
 use skia_safe::Color;
+
+use crate::script::ScriptDriver;
 
 include!(concat!(env!("OUT_DIR"), "/tailwind_color_items.rs"));
 
@@ -140,6 +144,9 @@ pub struct NodeStyle {
 
     // Identity (for JS animation targeting and stable scene updates)
     pub id: String,
+
+    // Node-local animation script scoped to this subtree.
+    pub script_driver: Option<Arc<ScriptDriver>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -661,13 +668,26 @@ macro_rules! impl_node_style_api {
                 self.style.id = id.to_string();
                 self
             }
+
+            pub fn script_driver(mut self, driver: $crate::script::ScriptDriver) -> Self {
+                self.style.script_driver = Some(std::sync::Arc::new(driver));
+                self
+            }
+
+            pub fn script_source(self, source: &str) -> anyhow::Result<Self> {
+                let driver = $crate::script::ScriptDriver::from_source(source)?;
+                Ok(self.script_driver(driver))
+            }
         }
     };
 }
 
 pub(crate) use impl_node_style_api;
 
-include!(concat!(env!("OUT_DIR"), "/tailwind_color_inherent_impls.rs"));
+include!(concat!(
+    env!("OUT_DIR"),
+    "/tailwind_color_inherent_impls.rs"
+));
 
 #[cfg(test)]
 mod tests {
@@ -687,7 +707,10 @@ mod tests {
 
     #[test]
     fn generated_tailwind_palette_keeps_family_aliases_and_script_names() {
-        assert_eq!(color_token_from_class_suffix("blue"), Some(ColorToken::Blue));
+        assert_eq!(
+            color_token_from_class_suffix("blue"),
+            Some(ColorToken::Blue)
+        );
         assert_eq!(
             color_token_from_script_name("blue500"),
             Some(ColorToken::Blue500)
@@ -696,6 +719,9 @@ mod tests {
             color_token_from_script_name("slate_700"),
             Some(ColorToken::Slate700)
         );
-        assert_eq!(color_token_from_script_name("primary"), Some(ColorToken::Primary));
+        assert_eq!(
+            color_token_from_script_name("primary"),
+            Some(ColorToken::Primary)
+        );
     }
 }

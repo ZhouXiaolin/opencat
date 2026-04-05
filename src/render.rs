@@ -17,13 +17,13 @@ use crate::{
     },
     cache_policy::{display_list_contains_video, scene_cache_scope},
     display::{build::build_display_list, list::DisplayList},
-    element::resolve::resolve_ui_tree,
+    element::resolve::resolve_ui_tree_with_script_cache,
     layout::LayoutSession,
     media::MediaContext,
+    nodes::ImageSource,
     profile::{BackendProfile, FrameProfile, RenderProfiler, SceneBuildStats},
     render_cache::{RenderCacheState, SceneSlot},
-    nodes::ImageSource,
-    script::{ScriptRunner, StyleMutations},
+    script::{ScriptRuntimeCache, StyleMutations},
     timeline::{FrameState, frame_state_for_root},
     view::NodeKind,
 };
@@ -43,8 +43,7 @@ pub struct RenderSession {
     media_ctx: MediaContext,
     assets: AssetsMap,
     caches: RenderCacheState,
-    script_runner: Option<ScriptRunner>,
-    script_driver_ptr: Option<usize>,
+    script_runtime: ScriptRuntimeCache,
     scene_layout: LayoutSession,
     transition_from_layout: LayoutSession,
     transition_to_layout: LayoutSession,
@@ -78,8 +77,7 @@ impl RenderSession {
             media_ctx: MediaContext::new(),
             assets: AssetsMap::new(),
             caches: RenderCacheState::new(),
-            script_runner: None,
-            script_driver_ptr: None,
+            script_runtime: ScriptRuntimeCache::default(),
             scene_layout: LayoutSession::new(),
             transition_from_layout: LayoutSession::new(),
             transition_to_layout: LayoutSession::new(),
@@ -153,25 +151,8 @@ fn render_frame_surface(
         frames: composition.frames,
     };
 
-    let driver_ptr = composition
-        .script_driver
-        .as_ref()
-        .map(|driver| Arc::as_ptr(driver) as usize);
-    if session.script_driver_ptr != driver_ptr {
-        session.script_runner = composition
-            .script_driver
-            .as_ref()
-            .map(|driver| driver.create_runner())
-            .transpose()?;
-        session.script_driver_ptr = driver_ptr;
-    }
-
     let script_started = Instant::now();
-    let mutations = session
-        .script_runner
-        .as_mut()
-        .map(|runner| runner.run(frame_index, composition.frames))
-        .transpose()?;
+    let mutations: Option<StyleMutations> = None;
     frame_profile.script_ms = script_started.elapsed().as_secs_f64() * 1000.0;
 
     let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
@@ -453,12 +434,13 @@ fn build_scene_display_list_with_slot(
     let mut stats = SceneBuildStats::default();
 
     let resolve_started = Instant::now();
-    let element_root = resolve_ui_tree(
+    let element_root = resolve_ui_tree_with_script_cache(
         scene,
         frame_ctx,
         &mut session.media_ctx,
         &mut session.assets,
         mutations,
+        &mut session.script_runtime,
     )?;
     stats.resolve_ms = resolve_started.elapsed().as_secs_f64() * 1000.0;
 
@@ -565,4 +547,65 @@ fn picture_for_slot(
         )?
     };
     Ok(Some(picture))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RenderSession, render_frame_rgba};
+    use crate::{Composition, EncodingConfig, FrameCtx, nodes::div};
+
+    fn pixel_rgba(frame: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
+        let index = (y * width + x) * 4;
+        [
+            frame[index],
+            frame[index + 1],
+            frame[index + 2],
+            frame[index + 3],
+        ]
+    }
+
+    #[test]
+    fn subtree_cache_does_not_apply_node_opacity_twice() {
+        let scene = div()
+            .id("root")
+            .w_full()
+            .h_full()
+            .bg_black()
+            .script_source(r#"ctx.getNode("box").opacity(ctx.frame === 0 ? 1 : 0.5);"#)
+            .expect("script should compile")
+            .child(
+                div()
+                    .id("box")
+                    .absolute()
+                    .left(0.0)
+                    .top(0.0)
+                    .w(10.0)
+                    .h(10.0)
+                    .bg_white(),
+            );
+
+        let composition = Composition::new("opacity_cache")
+            .size(20, 20)
+            .fps(30)
+            .frames(2)
+            .root(move |_ctx: &FrameCtx| scene.clone().into())
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let first =
+            render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
+        let second =
+            render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
+
+        let first_pixel = pixel_rgba(&first, 20, 5, 5);
+        let second_pixel = pixel_rgba(&second, 20, 5, 5);
+
+        assert!(first_pixel[0] >= 250, "frame 0 should stay fully white");
+        assert!(
+            (120..=136).contains(&second_pixel[0]),
+            "frame 1 should be roughly 50% white, got {:?}",
+            second_pixel
+        );
+    }
 }

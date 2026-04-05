@@ -9,13 +9,13 @@ fn main() -> anyhow::Result<()> {
     let root = parsed.root;
     let script = parsed.script.unwrap_or_default();
     let driver = ScriptDriver::from_source(&script)?;
+    let root = root.script_driver(driver);
 
     let composition = Composition::new("parsed")
         .size(parsed.width, parsed.height)
         .fps(parsed.fps as u32)
         .frames(1)
         .root(move |_ctx| root.clone())
-        .script_driver(driver)
         .build()?;
 
     let encode_config = EncodingConfig::png();

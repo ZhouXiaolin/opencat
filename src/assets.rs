@@ -155,7 +155,14 @@ impl AssetsMap {
         ))?;
 
         for (id, path, width, height) in prepared {
-            self.entries.insert(id, AssetEntry { path, width, height });
+            self.entries.insert(
+                id,
+                AssetEntry {
+                    path,
+                    width,
+                    height,
+                },
+            );
         }
 
         Ok(())
@@ -267,7 +274,9 @@ async fn prepare_remote_asset(
             .with_context(|| format!("image download failed for {resolved_url}"))?
             .bytes()
             .await
-            .with_context(|| format!("failed to read downloaded image bytes from {resolved_url}"))?;
+            .with_context(|| {
+                format!("failed to read downloaded image bytes from {resolved_url}")
+            })?;
 
         tokio::fs::write(&path, &bytes)
             .await

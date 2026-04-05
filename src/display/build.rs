@@ -2,8 +2,8 @@ use anyhow::Result;
 
 use crate::{
     display::list::{
-        BitmapDisplayItem, BitmapPaintStyle, DisplayCommand, DisplayItem, DisplayLayer, DisplayList,
-        DisplayTransform, RectDisplayItem, RectPaintStyle, TextDisplayItem,
+        BitmapDisplayItem, BitmapPaintStyle, DisplayCommand, DisplayItem, DisplayLayer,
+        DisplayList, DisplayTransform, RectDisplayItem, RectPaintStyle, TextDisplayItem,
     },
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
 };

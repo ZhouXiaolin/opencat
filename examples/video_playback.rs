@@ -131,9 +131,9 @@ fn scene_one(ctx: &FrameCtx) -> Node {
                         .scale(1.0 + pulse(ctx.frame, ctx.fps, 0.35) * 0.04),
                 )
                 .child(
-            image()
-                .query("cat")
-                .id("scene-one-badge")
+                    image()
+                        .query("cat")
+                        .id("scene-one-badge")
                         .absolute()
                         .right(20.0)
                         .top(20.0)

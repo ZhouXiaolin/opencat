@@ -170,6 +170,11 @@ impl StyleMutations {
 
 type MutationStore = Arc<Mutex<HashMap<String, NodeStyleMutations>>>;
 
+#[derive(Default)]
+pub(crate) struct ScriptRuntimeCache {
+    runners: HashMap<u64, ScriptRunner>,
+}
+
 fn color_from_name(name: &str) -> Option<ColorToken> {
     color_token_from_script_name(name)
 }
@@ -250,6 +255,7 @@ fn text_align_from_name(name: &str) -> Option<TextAlign> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ScriptDriver {
     source: String,
 }
@@ -352,8 +358,34 @@ impl ScriptDriver {
         ScriptRunner::new(&self.source)
     }
 
+    pub(crate) fn cache_key(&self) -> u64 {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        self.source.hash(&mut hasher);
+        hasher.finish()
+    }
+
     pub fn run(&self, frame: u32, total_frames: u32) -> anyhow::Result<StyleMutations> {
         let mut runner = self.create_runner()?;
+        runner.run(frame, total_frames)
+    }
+}
+
+impl ScriptRuntimeCache {
+    pub(crate) fn run(
+        &mut self,
+        driver: &ScriptDriver,
+        frame: u32,
+        total_frames: u32,
+    ) -> anyhow::Result<StyleMutations> {
+        let key = driver.cache_key();
+        let runner = match self.runners.entry(key) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(driver.create_runner()?)
+            }
+        };
         runner.run(frame, total_frames)
     }
 }

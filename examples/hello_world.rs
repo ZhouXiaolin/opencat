@@ -272,8 +272,7 @@ fn main() -> anyhow::Result<()> {
         .size(1280, 720)
         .fps(30)
         .frames(90)
-        .root(|_ctx| hello_world_demo(_ctx))
-        .script_driver(driver)
+        .root(move |_ctx| hello_world_demo(_ctx).script_driver(driver.clone()))
         .build()?;
 
     let encode_config = EncodingConfig::mp4();

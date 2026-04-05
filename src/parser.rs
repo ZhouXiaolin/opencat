@@ -987,7 +987,10 @@ mod tests {
     fn parser_maps_hex_colors() {
         let style = parse_class_name("bg-[#fff8f0] text-[#e85d04] border-[#5c4033]");
 
-        assert_eq!(style.bg_color, Some(ColorToken::Custom(0xff, 0xf8, 0xf0, 0xff)));
+        assert_eq!(
+            style.bg_color,
+            Some(ColorToken::Custom(0xff, 0xf8, 0xf0, 0xff))
+        );
         assert_eq!(
             style.text_color,
             Some(ColorToken::Custom(0xe8, 0x5d, 0x04, 0xff))

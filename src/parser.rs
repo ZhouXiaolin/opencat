@@ -139,7 +139,7 @@ fn build_node(
     children_map: &HashMap<u64, Vec<&ParsedElement>>,
 ) -> anyhow::Result<Node> {
     let mut style = el.style.clone();
-    style.data_id = Some(el.id.to_string());
+    style.id = el.id.to_string();
 
     if el.text.is_some() {
         let mut text_node = text(el.text.as_ref().unwrap());

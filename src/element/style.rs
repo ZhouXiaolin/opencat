@@ -8,7 +8,7 @@ pub struct ComputedStyle {
     pub layout: ComputedLayoutStyle,
     pub visual: ComputedVisualStyle,
     pub text: ComputedTextStyle,
-    pub data_id: Option<String>,
+    pub id: String,
 }
 
 #[derive(Clone, Debug)]

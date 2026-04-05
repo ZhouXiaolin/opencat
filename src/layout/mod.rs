@@ -317,7 +317,7 @@ fn node_identity(element: &ElementNode, sibling_index: usize) -> u64 {
     let mut hasher = DefaultHasher::new();
     cached_node_kind(element).hash(&mut hasher);
     sibling_index.hash(&mut hasher);
-    element.style.data_id.hash(&mut hasher);
+    element.style.id.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -594,7 +594,7 @@ fn layout_paint_for_element(element: &ElementNode) -> LayoutPaint {
                 object_fit: element.style.visual.object_fit,
             }),
         },
-        data_id: element.style.data_id.clone(),
+        id: element.style.id.clone(),
     }
 }
 
@@ -725,18 +725,17 @@ mod tests {
         let mut assets = AssetsMap::new();
         let mut session = LayoutSession::new();
 
-        let first = div()
-            .data_id("root")
-            .child(text("A").data_id("label"))
-            .into();
+        let first = div().id("root").child(text("A").id("label")).into();
         let second = div()
-            .data_id("root")
+            .id("root")
             .opacity(0.4)
-            .child(text("A").data_id("label").text_red())
+            .child(text("A").id("label").text_red())
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None);
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None);
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+            .expect("first tree should resolve");
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+            .expect("second tree should resolve");
 
         let (_, first_stats) = session
             .compute_layout(&first_resolved, &frame_ctx)
@@ -769,17 +768,16 @@ mod tests {
         let mut assets = AssetsMap::new();
         let mut session = LayoutSession::new();
 
-        let first = div()
-            .data_id("root")
-            .child(text("A").data_id("label"))
-            .into();
+        let first = div().id("root").child(text("A").id("label")).into();
         let second = div()
-            .data_id("root")
-            .child(text("A").data_id("label").text_px(48.0))
+            .id("root")
+            .child(text("A").id("label").text_px(48.0))
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None);
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None);
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+            .expect("first tree should resolve");
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+            .expect("second tree should resolve");
 
         session
             .compute_layout(&first_resolved, &frame_ctx)
@@ -804,18 +802,17 @@ mod tests {
         let mut assets = AssetsMap::new();
         let mut session = LayoutSession::new();
 
-        let first = div()
-            .data_id("root")
-            .child(text("A").data_id("label"))
-            .into();
+        let first = div().id("root").child(text("A").id("label")).into();
         let second = div()
-            .data_id("root")
+            .id("root")
             .opacity(0.5)
-            .child(text("A").data_id("label"))
+            .child(text("A").id("label"))
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None);
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None);
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+            .expect("first tree should resolve");
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+            .expect("second tree should resolve");
 
         session
             .compute_layout(&first_resolved, &frame_ctx)
@@ -842,18 +839,17 @@ mod tests {
         let mut assets = AssetsMap::new();
         let mut session = LayoutSession::new();
 
-        let first = div()
-            .data_id("root")
-            .child(text("A").data_id("label"))
-            .into();
+        let first = div().id("root").child(text("A").id("label")).into();
         let second = div()
-            .data_id("root")
+            .id("root")
             .rotate_deg(12.0)
-            .child(text("A").data_id("label"))
+            .child(text("A").id("label"))
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None);
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None);
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+            .expect("first tree should resolve");
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+            .expect("second tree should resolve");
 
         session
             .compute_layout(&first_resolved, &frame_ctx)

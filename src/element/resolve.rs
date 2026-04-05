@@ -1,3 +1,5 @@
+use anyhow::{Result, ensure};
+
 use crate::{
     FrameCtx, Node,
     assets::AssetsMap,
@@ -39,7 +41,7 @@ pub fn resolve_ui_tree(
     media: &mut MediaContext,
     assets: &mut AssetsMap,
     mutations: Option<&StyleMutations>,
-) -> ElementNode {
+) -> Result<ElementNode> {
     let mut ids = ElementIdAllocator::default();
     let inherited_text = ComputedTextStyle::default();
     let mut cx = ResolveContext {
@@ -52,7 +54,11 @@ pub fn resolve_ui_tree(
     resolve_node(node, &mut cx, media)
 }
 
-fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>, media: &mut MediaContext) -> ElementNode {
+fn resolve_node(
+    node: &Node,
+    cx: &mut ResolveContext<'_>,
+    media: &mut MediaContext,
+) -> Result<ElementNode> {
     match node.kind() {
         NodeKind::Component(component) => resolve_component(component, cx, media),
         NodeKind::Video(video) => resolve_video(video, cx, media),
@@ -69,16 +75,24 @@ fn resolve_component(
     component: &ComponentNode,
     cx: &mut ResolveContext<'_>,
     media: &mut MediaContext,
-) -> ElementNode {
+) -> Result<ElementNode> {
     let resolved = component.render(cx.frame_ctx);
     resolve_node(&resolved, cx, media)
 }
 
-fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>, media: &mut MediaContext) -> ElementNode {
+fn resolve_div(
+    div: &Div,
+    cx: &mut ResolveContext<'_>,
+    media: &mut MediaContext,
+) -> Result<ElementNode> {
     let mut style = div.style_ref().clone();
-    let data_id = style.data_id.clone();
+    ensure!(
+        !style.id.is_empty(),
+        "node id is required for div nodes before rendering"
+    );
     if let Some(mutations) = cx.mutations {
-        mutations.apply_to_node(&mut style, &data_id);
+        let id = style.id.clone();
+        mutations.apply_to_node(&mut style, &id);
     }
     let computed = compute_style(&style, cx.inherited_text);
     let mut children = Vec::new();
@@ -90,26 +104,30 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>, media: &mut MediaContext)
             assets: cx.assets,
             mutations: cx.mutations,
         };
-        children.push(resolve_node(child, &mut child_cx, media));
+        children.push(resolve_node(child, &mut child_cx, media)?);
     }
 
-    ElementNode {
+    Ok(ElementNode {
         id: cx.ids.alloc(),
         kind: ElementKind::Div(ElementDiv),
         style: computed,
         children,
-    }
+    })
 }
 
-fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> ElementNode {
+fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let mut style = text.style_ref().clone();
-    let data_id = style.data_id.clone();
+    ensure!(
+        !style.id.is_empty(),
+        "node id is required for text nodes before rendering"
+    );
     if let Some(mutations) = cx.mutations {
-        mutations.apply_to_node(&mut style, &data_id);
+        let id = style.id.clone();
+        mutations.apply_to_node(&mut style, &id);
     }
     let computed = compute_style(&style, cx.inherited_text);
 
-    ElementNode {
+    Ok(ElementNode {
         id: cx.ids.alloc(),
         kind: ElementKind::Text(ElementText {
             text: text.content().to_string(),
@@ -117,18 +135,22 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> ElementNode {
         }),
         style: computed,
         children: Vec::new(),
-    }
+    })
 }
 
 fn resolve_video(
     video: &Video,
     cx: &mut ResolveContext<'_>,
     media: &mut MediaContext,
-) -> ElementNode {
+) -> Result<ElementNode> {
     let mut style = video.style_ref().clone();
-    let data_id = style.data_id.clone();
+    ensure!(
+        !style.id.is_empty(),
+        "node id is required for video nodes before rendering"
+    );
     if let Some(mutations) = cx.mutations {
-        mutations.apply_to_node(&mut style, &data_id);
+        let id = style.id.clone();
+        mutations.apply_to_node(&mut style, &id);
     }
     let computed = compute_style(&style, cx.inherited_text);
 
@@ -143,7 +165,7 @@ fn resolve_video(
         .assets
         .register_dimensions(video.source(), info.width, info.height);
 
-    ElementNode {
+    Ok(ElementNode {
         id: cx.ids.alloc(),
         kind: ElementKind::Bitmap(ElementBitmap {
             asset_id,
@@ -152,25 +174,29 @@ fn resolve_video(
         }),
         style: computed,
         children: Vec::new(),
-    }
+    })
 }
 
 fn resolve_image(
     image: &Image,
     cx: &mut ResolveContext<'_>,
     _media: &mut MediaContext,
-) -> ElementNode {
+) -> Result<ElementNode> {
     let mut style = image.style_ref().clone();
-    let data_id = style.data_id.clone();
+    ensure!(
+        !style.id.is_empty(),
+        "node id is required for image nodes before rendering"
+    );
     if let Some(mutations) = cx.mutations {
-        mutations.apply_to_node(&mut style, &data_id);
+        let id = style.id.clone();
+        mutations.apply_to_node(&mut style, &id);
     }
     let computed = compute_style(&style, cx.inherited_text);
 
-    let asset_id = cx.assets.register(image.source());
+    let asset_id = cx.assets.register_image_source(image.source())?;
     let (width, height) = cx.assets.dimensions(&asset_id);
 
-    ElementNode {
+    Ok(ElementNode {
         id: cx.ids.alloc(),
         kind: ElementKind::Bitmap(ElementBitmap {
             asset_id,
@@ -179,7 +205,7 @@ fn resolve_image(
         }),
         style: computed,
         children: Vec::new(),
-    }
+    })
 }
 
 fn compute_style(style: &NodeStyle, inherited_text: &ComputedTextStyle) -> ComputedStyle {
@@ -216,6 +242,30 @@ fn compute_style(style: &NodeStyle, inherited_text: &ComputedTextStyle) -> Compu
             shadow: style.shadow,
         },
         text,
-        data_id: style.data_id.clone(),
+        id: style.id.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_ui_tree;
+    use crate::{FrameCtx, assets::AssetsMap, media::MediaContext, nodes::div};
+
+    #[test]
+    fn resolve_ui_tree_requires_explicit_node_id() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let err = resolve_ui_tree(&div().into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect_err("nodes without ids should fail during resolution");
+
+        assert!(err.to_string().contains("node id is required"));
     }
 }

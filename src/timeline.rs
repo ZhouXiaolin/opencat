@@ -77,7 +77,7 @@ pub(crate) fn frame_state_for_root(root: &Node, ctx: &FrameCtx) -> FrameState {
 fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameState {
     if timeline.segments().is_empty() {
         return FrameState::Scene {
-            scene: div().into(),
+            scene: div().id("__empty_timeline_scene").into(),
         };
     }
 
@@ -128,7 +128,7 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
         },
         Some(TimelineSegment::Transition { to, .. }) => FrameState::Scene { scene: to.clone() },
         None => FrameState::Scene {
-            scene: div().into(),
+            scene: div().id("__empty_timeline_scene").into(),
         },
     }
 }

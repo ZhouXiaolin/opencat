@@ -161,15 +161,9 @@ impl StyleMutations {
         self.mutations.is_empty()
     }
 
-    pub fn apply_to_node(
-        &self,
-        node_style: &mut crate::style::NodeStyle,
-        data_id: &Option<String>,
-    ) {
-        if let Some(id) = data_id {
-            if let Some(mutation) = self.mutations.get(id) {
-                mutation.apply_to(node_style);
-            }
+    pub fn apply_to_node(&self, node_style: &mut crate::style::NodeStyle, id: &str) {
+        if let Some(mutation) = self.mutations.get(id) {
+            mutation.apply_to(node_style);
         }
     }
 }

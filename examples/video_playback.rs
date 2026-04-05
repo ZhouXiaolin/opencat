@@ -32,6 +32,7 @@ fn scene_one(ctx: &FrameCtx) -> Node {
     let title_y = swing(ctx.frame, ctx.fps, 0.5) * 10.0;
 
     div()
+        .id("scene-one-root")
         .flex_row()
         .items_center()
         .justify_between()
@@ -42,12 +43,14 @@ fn scene_one(ctx: &FrameCtx) -> Node {
         .py(48.0)
         .child(
             div()
+                .id("scene-one-copy")
                 .flex_col()
                 .justify_center()
                 .w(500.0)
                 .gap(18.0)
                 .child(
                     text("OpenCat Evaluation Demo")
+                        .id("scene-one-title")
                         .text_px(64.0)
                         .font_bold()
                         .text_white()
@@ -55,6 +58,7 @@ fn scene_one(ctx: &FrameCtx) -> Node {
                 )
                 .child(
                     text(hero_copy(ctx.frame))
+                        .id("scene-one-headline")
                         .text_px(26.0)
                         .text_white()
                         .opacity(0.92),
@@ -63,37 +67,62 @@ fn scene_one(ctx: &FrameCtx) -> Node {
                     text(
                         "Scene 1: video playback, image overlay, live text and chained transforms.",
                     )
+                    .id("scene-one-description")
                     .text_px(18.0)
                     .text_slate_400()
                     .leading(1.4),
                 )
                 .child(
                     div()
+                        .id("scene-one-tags")
                         .flex_row()
                         .items_center()
                         .gap(12.0)
                         .pt(10.0)
                         .child(
                             div()
+                                .id("scene-one-tag-dot")
                                 .w(14.0)
                                 .h(14.0)
                                 .rounded_full()
                                 .bg_teal_400()
                                 .scale(0.9 + pulse(ctx.frame, ctx.fps, 1.2) * 0.35),
                         )
-                        .child(text("text").text_px(18.0).text_teal_400())
-                        .child(text("image").text_px(18.0).text_yellow())
-                        .child(text("video").text_px(18.0).text_pink())
-                        .child(text("transform").text_px(18.0).text_white()),
+                        .child(
+                            text("text")
+                                .id("scene-one-tag-text")
+                                .text_px(18.0)
+                                .text_teal_400(),
+                        )
+                        .child(
+                            text("image")
+                                .id("scene-one-tag-image")
+                                .text_px(18.0)
+                                .text_yellow(),
+                        )
+                        .child(
+                            text("video")
+                                .id("scene-one-tag-video")
+                                .text_px(18.0)
+                                .text_pink(),
+                        )
+                        .child(
+                            text("transform")
+                                .id("scene-one-tag-transform")
+                                .text_px(18.0)
+                                .text_white(),
+                        ),
                 ),
         )
         .child(
             div()
+                .id("scene-one-stage")
                 .relative()
                 .w(640.0)
                 .h(580.0)
                 .child(
                     video(VIDEO_PATH)
+                        .id("scene-one-video")
                         .w(640.0)
                         .h(580.0)
                         .cover()
@@ -102,7 +131,9 @@ fn scene_one(ctx: &FrameCtx) -> Node {
                         .scale(1.0 + pulse(ctx.frame, ctx.fps, 0.35) * 0.04),
                 )
                 .child(
-                    image(IMAGE_PATH)
+            image()
+                .path(IMAGE_PATH)
+                .id("scene-one-badge")
                         .absolute()
                         .right(20.0)
                         .top(20.0)
@@ -118,6 +149,7 @@ fn scene_one(ctx: &FrameCtx) -> Node {
                 )
                 .child(
                     div()
+                        .id("scene-one-caption-box")
                         .absolute()
                         .left(24.0)
                         .bottom(24.0)
@@ -128,6 +160,7 @@ fn scene_one(ctx: &FrameCtx) -> Node {
                         .opacity(0.85)
                         .child(
                             text("Video is decoded live while overlays keep animating.")
+                                .id("scene-one-caption")
                                 .text_px(18.0)
                                 .text_white(),
                         ),
@@ -146,12 +179,15 @@ fn scene_two(ctx: &FrameCtx) -> Node {
     };
 
     div()
+        .id("scene-two-root")
         .relative()
         .w_full()
         .h_full()
         .bg_slate_50()
         .child(
-            image(IMAGE_PATH)
+            image()
+                .path(IMAGE_PATH)
+                .id("scene-two-background")
                 .absolute()
                 .left(0.0)
                 .top(0.0)
@@ -163,6 +199,7 @@ fn scene_two(ctx: &FrameCtx) -> Node {
         )
         .child(
             div()
+                .id("scene-two-card")
                 .absolute()
                 .left(80.0)
                 .top(72.0)
@@ -176,9 +213,10 @@ fn scene_two(ctx: &FrameCtx) -> Node {
                 .translate_x(drift * 22.0)
                 .rotate_deg(card_rotate)
                 .scale(0.98 + pulse(ctx.frame, ctx.fps, 0.4) * 0.04)
-                .child(text(headline).text_px(52.0).font_bold().text_slate_900())
+                .child(text(headline).id("scene-two-headline").text_px(52.0).font_bold().text_slate_900())
                 .child(
                     text("Scene 2 adds a floating card, rotating image plane, and a smaller live video inset.")
+                        .id("scene-two-description")
                         .text_px(22.0)
                         .text_slate_600()
                         .pt(14.0)
@@ -186,9 +224,11 @@ fn scene_two(ctx: &FrameCtx) -> Node {
                 )
                 .child(
                     div()
+                        .id("scene-two-footnote-box")
                         .pt(22.0)
                         .child(
                             text("Every frame rebuilds the declarative tree, but the runtime now reuses much more work underneath.")
+                                .id("scene-two-footnote")
                                 .text_px(18.0)
                                 .text_slate_500()
                                 .leading(1.5),
@@ -197,6 +237,7 @@ fn scene_two(ctx: &FrameCtx) -> Node {
         )
         .child(
             video(VIDEO_PATH)
+                .id("scene-two-video")
                 .absolute()
                 .right(86.0)
                 .top(96.0)
@@ -211,6 +252,7 @@ fn scene_two(ctx: &FrameCtx) -> Node {
         )
         .child(
             text("text changes + transform + image + video")
+                .id("scene-two-summary")
                 .absolute()
                 .right(100.0)
                 .bottom(78.0)
@@ -233,6 +275,7 @@ fn scene_three(ctx: &FrameCtx) -> Node {
     };
 
     div()
+        .id("scene-three-root")
         .w_full()
         .h_full()
         .bg_black()
@@ -240,18 +283,21 @@ fn scene_three(ctx: &FrameCtx) -> Node {
         .py(48.0)
         .child(
             div()
+                .id("scene-three-header")
                 .flex_row()
                 .justify_between()
                 .items_center()
                 .w_full()
                 .child(
                     div()
+                        .id("scene-three-copy")
                         .flex_col()
                         .gap(10.0)
-                        .child(text("Scene 3").text_px(18.0).tracking_wider().text_teal_400())
-                        .child(text(summary).text_px(58.0).font_bold().text_white())
+                        .child(text("Scene 3").id("scene-three-kicker").text_px(18.0).tracking_wider().text_teal_400())
+                        .child(text(summary).id("scene-three-title").text_px(58.0).font_bold().text_white())
                         .child(
                             text("Use this scene to inspect text quality, video composition, image reuse and transform stability after the transitions.")
+                                .id("scene-three-description")
                                 .text_px(20.0)
                                 .text_slate_400()
                                 .leading(1.45),
@@ -259,6 +305,7 @@ fn scene_three(ctx: &FrameCtx) -> Node {
                 )
                 .child(
                     div()
+                        .id("scene-three-orb")
                         .w(180.0)
                         .h(180.0)
                         .rounded_full()
@@ -271,6 +318,7 @@ fn scene_three(ctx: &FrameCtx) -> Node {
         )
         .child(
             div()
+                .id("scene-three-content")
                 .flex_row()
                 .justify_between()
                 .items_center()
@@ -278,7 +326,9 @@ fn scene_three(ctx: &FrameCtx) -> Node {
                 .pt(32.0)
                 .gap(24.0)
                 .child(
-                    image(IMAGE_PATH)
+                    image()
+                        .path(IMAGE_PATH)
+                        .id("scene-three-image")
                         .w(360.0)
                         .h(360.0)
                         .cover()
@@ -290,6 +340,7 @@ fn scene_three(ctx: &FrameCtx) -> Node {
                 )
                 .child(
                     video(VIDEO_PATH)
+                        .id("scene-three-video")
                         .w(500.0)
                         .h(360.0)
                         .cover()
@@ -298,19 +349,21 @@ fn scene_three(ctx: &FrameCtx) -> Node {
                 )
                 .child(
                     div()
+                        .id("scene-three-metrics")
                         .flex_col()
                         .w(280.0)
                         .gap(18.0)
-                        .child(metric_card("Transitions", "slide + light leak"))
-                        .child(metric_card("Dynamic text", hero_copy(ctx.frame)))
-                        .child(metric_card("Transforms", "translate -> rotate -> scale")),
+                        .child(metric_card("metric-transitions", "Transitions", "slide + light leak"))
+                        .child(metric_card("metric-dynamic-text", "Dynamic text", hero_copy(ctx.frame)))
+                        .child(metric_card("metric-transforms", "Transforms", "translate -> rotate -> scale")),
                 ),
         )
         .into()
 }
 
-fn metric_card(label: &str, value: &str) -> Node {
+fn metric_card(id: &str, label: &str, value: &str) -> Node {
     div()
+        .id(id)
         .flex_col()
         .gap(8.0)
         .p(18.0)
@@ -318,8 +371,19 @@ fn metric_card(label: &str, value: &str) -> Node {
         .bg_slate_900()
         .border()
         .border_slate_700()
-        .child(text(label).text_px(15.0).text_slate_400())
-        .child(text(value).text_px(22.0).font_semibold().text_white())
+        .child(
+            text(label)
+                .id(&format!("{id}-label"))
+                .text_px(15.0)
+                .text_slate_400(),
+        )
+        .child(
+            text(value)
+                .id(&format!("{id}-value"))
+                .text_px(22.0)
+                .font_semibold()
+                .text_white(),
+        )
         .into()
 }
 

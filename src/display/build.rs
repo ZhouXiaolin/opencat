@@ -138,7 +138,7 @@ mod tests {
                         height: 2,
                         object_fit: ObjectFit::Cover,
                     }),
-                    data_id: None,
+                    id: "test://fake".to_string(),
                 },
                 children: Vec::new(),
             },

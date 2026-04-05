@@ -394,7 +394,7 @@ fn build_scene_display_list_with_slot(
         &mut session.media_ctx,
         &mut session.assets,
         mutations,
-    );
+    )?;
     stats.resolve_ms = resolve_started.elapsed().as_secs_f64() * 1000.0;
 
     let layout_started = Instant::now();

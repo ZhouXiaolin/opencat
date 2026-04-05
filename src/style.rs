@@ -191,8 +191,8 @@ pub struct NodeStyle {
     // Shadow
     pub shadow: Option<ShadowStyle>,
 
-    // Identity (for JS animation targeting)
-    pub data_id: Option<String>,
+    // Identity (for JS animation targeting and stable scene updates)
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -877,9 +877,9 @@ macro_rules! impl_node_style_api {
                 self
             }
 
-            // === Data Attributes (for JS animation targeting) ===
-            pub fn data_id(mut self, id: &str) -> Self {
-                self.style.data_id = Some(id.to_string());
+            // === Identity ===
+            pub fn id(mut self, id: &str) -> Self {
+                self.style.id = id.to_string();
                 self
             }
         }

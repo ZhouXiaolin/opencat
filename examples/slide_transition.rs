@@ -6,9 +6,23 @@ use opencat::{
 
 fn scene_panel(label: &str, is_pink: bool) -> Node {
     let mut panel = div()
+        .id(if is_pink {
+            "scene-panel-pink"
+        } else {
+            "scene-panel-blue"
+        })
         .justify_center()
         .items_center()
-        .child(text(label).text_px(180.0).text_white());
+        .child(
+            text(label)
+                .id(if is_pink {
+                    "scene-panel-pink-label"
+                } else {
+                    "scene-panel-blue-label"
+                })
+                .text_px(180.0)
+                .text_white(),
+        );
 
     panel = if is_pink {
         panel.bg_pink()
@@ -23,6 +37,7 @@ fn test(_ctx: &FrameCtx) -> Node {
     let current_frame = _ctx.frame;
     let opacity = (current_frame as f32 / 60.0).min(1.0);
     div()
+        .id("slide-transition-test-root")
         .flex_col()
         .justify_center()
         .items_center()
@@ -31,6 +46,7 @@ fn test(_ctx: &FrameCtx) -> Node {
         .text_px(100.0)
         .child(
             div()
+                .id("slide-transition-test-badge")
                 .absolute()
                 .left(100.0)
                 .top(100.0)
@@ -39,8 +55,13 @@ fn test(_ctx: &FrameCtx) -> Node {
                 .rounded_full()
                 .bg_green(),
         )
-        .child(text("B").text_px(48.0).opacity(opacity))
-        .child(text("C").text_red())
+        .child(
+            text("B")
+                .id("slide-transition-test-b")
+                .text_px(48.0)
+                .opacity(opacity),
+        )
+        .child(text("C").id("slide-transition-test-c").text_red())
         .into()
 }
 

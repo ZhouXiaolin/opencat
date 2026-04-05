@@ -18,7 +18,7 @@ use crate::{
     backend::{
         skia::{
             BackendProfile, SkiaBackend, display_list_uses_video, new_image_cache,
-            record_display_list_picture,
+            new_text_picture_cache, record_display_list_picture,
         },
         skia_transition,
     },
@@ -58,6 +58,7 @@ pub struct RenderSession {
     media_ctx: MediaContext,
     assets: AssetsMap,
     image_cache: crate::backend::skia::ImageCache,
+    text_picture_cache: crate::backend::skia::TextPictureCache,
     script_runner: Option<ScriptRunner>,
     script_driver_ptr: Option<usize>,
     scene_layout: LayoutSession,
@@ -99,6 +100,10 @@ struct FrameProfile {
     display_ms: f64,
     backend_ms: f64,
     transition_ms: f64,
+    slide_transition_ms: f64,
+    light_leak_transition_ms: f64,
+    slide_transition_frames: usize,
+    light_leak_transition_frames: usize,
     reused_nodes: usize,
     layout_dirty_nodes: usize,
     paint_only_nodes: usize,
@@ -137,6 +142,7 @@ impl RenderSession {
             media_ctx: MediaContext::new(),
             assets: AssetsMap::new(),
             image_cache: new_image_cache(),
+            text_picture_cache: new_text_picture_cache(),
             script_runner: None,
             script_driver_ptr: None,
             scene_layout: LayoutSession::new(),
@@ -393,6 +399,7 @@ fn render_frame_surface(
                     composition.height,
                     &session.assets,
                     session.image_cache.clone(),
+                    session.text_picture_cache.clone(),
                     Some(&mut session.media_ctx),
                     &frame_ctx,
                     Some(&mut backend_profile),
@@ -465,7 +472,18 @@ fn render_frame_surface(
                 composition.width,
                 composition.height,
             )?;
-            frame_profile.transition_ms = transition_started.elapsed().as_secs_f64() * 1000.0;
+            let transition_ms = transition_started.elapsed().as_secs_f64() * 1000.0;
+            frame_profile.transition_ms = transition_ms;
+            match kind {
+                crate::transitions::TransitionKind::Slide => {
+                    frame_profile.slide_transition_ms = transition_ms;
+                    frame_profile.slide_transition_frames = 1;
+                }
+                crate::transitions::TransitionKind::LightLeak(_) => {
+                    frame_profile.light_leak_transition_ms = transition_ms;
+                    frame_profile.light_leak_transition_frames = 1;
+                }
+            }
         }
     }
 
@@ -580,6 +598,7 @@ fn picture_for_slot(
             height,
             &session.assets,
             session.image_cache.clone(),
+            session.text_picture_cache.clone(),
             Some(&mut session.media_ctx),
             frame_ctx,
             Some(backend_profile),
@@ -599,6 +618,7 @@ fn picture_for_slot(
             height,
             &session.assets,
             session.image_cache.clone(),
+            session.text_picture_cache.clone(),
             Some(&mut session.media_ctx),
             frame_ctx,
             Some(backend_profile),
@@ -619,6 +639,7 @@ fn picture_for_slot(
         height,
         &session.assets,
         session.image_cache.clone(),
+        session.text_picture_cache.clone(),
         Some(&mut session.media_ctx),
         frame_ctx,
         Some(backend_profile),
@@ -662,6 +683,8 @@ impl FrameProfile {
     fn merge_backend_profile(&mut self, profile: &BackendProfile) {
         self.backend.rect_draw_ms += profile.rect_draw_ms;
         self.backend.text_draw_ms += profile.text_draw_ms;
+        self.backend.text_picture_record_ms += profile.text_picture_record_ms;
+        self.backend.text_picture_draw_ms += profile.text_picture_draw_ms;
         self.backend.bitmap_draw_ms += profile.bitmap_draw_ms;
         self.backend.image_decode_ms += profile.image_decode_ms;
         self.backend.video_decode_ms += profile.video_decode_ms;
@@ -669,6 +692,8 @@ impl FrameProfile {
         self.backend.picture_draw_ms += profile.picture_draw_ms;
         self.backend.picture_cache_hits += profile.picture_cache_hits;
         self.backend.picture_cache_misses += profile.picture_cache_misses;
+        self.backend.text_cache_hits += profile.text_cache_hits;
+        self.backend.text_cache_misses += profile.text_cache_misses;
         self.backend.image_cache_hits += profile.image_cache_hits;
         self.backend.image_cache_misses += profile.image_cache_misses;
         self.backend.video_frame_decodes += profile.video_frame_decodes;
@@ -710,6 +735,27 @@ impl RenderProfiler {
             percentile_95(&self.frames, |frame| frame.transition_ms),
         );
         eprintln!(
+            "  transition avg ms/active-frame: slide {:.2} ({} frames), light_leak {:.2} ({} frames)",
+            average_when_counted(
+                &self.frames,
+                |frame| frame.slide_transition_ms,
+                |frame| frame.slide_transition_frames,
+            ),
+            self.frames
+                .iter()
+                .map(|frame| frame.slide_transition_frames)
+                .sum::<usize>(),
+            average_when_counted(
+                &self.frames,
+                |frame| frame.light_leak_transition_ms,
+                |frame| frame.light_leak_transition_frames,
+            ),
+            self.frames
+                .iter()
+                .map(|frame| frame.light_leak_transition_frames)
+                .sum::<usize>(),
+        );
+        eprintln!(
             "  avg nodes/frame: reused {:.1}, layout_dirty {:.1}, paint_only {:.1}, structure_rebuilds {:.2}",
             average_usize(&self.frames, |frame| frame.reused_nodes),
             average_usize(&self.frames, |frame| frame.layout_dirty_nodes),
@@ -717,9 +763,11 @@ impl RenderProfiler {
             average_usize(&self.frames, |frame| frame.structure_rebuilds),
         );
         eprintln!(
-            "  backend avg ms/frame: rect {:.2}, text {:.2}, bitmap {:.2}, image_decode {:.2}, video_decode {:.2}, picture_record {:.2}, picture_draw {:.2}",
+            "  backend avg ms/frame: rect {:.2}, text {:.2}, text_record {:.2}, text_pic_draw {:.2}, bitmap {:.2}, image_decode {:.2}, video_decode {:.2}, picture_record {:.2}, picture_draw {:.2}",
             average(&self.frames, |frame| frame.backend.rect_draw_ms),
             average(&self.frames, |frame| frame.backend.text_draw_ms),
+            average(&self.frames, |frame| frame.backend.text_picture_record_ms),
+            average(&self.frames, |frame| frame.backend.text_picture_draw_ms),
             average(&self.frames, |frame| frame.backend.bitmap_draw_ms),
             average(&self.frames, |frame| frame.backend.image_decode_ms),
             average(&self.frames, |frame| frame.backend.video_decode_ms),
@@ -727,11 +775,13 @@ impl RenderProfiler {
             average(&self.frames, |frame| frame.backend.picture_draw_ms),
         );
         eprintln!(
-            "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, save_layer {:.1}, pic_hit {:.2}, pic_miss {:.2}, img_hit {:.2}, img_miss {:.2}, video_decode {:.2}",
+            "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, save_layer {:.1}, text_hit {:.2}, text_miss {:.2}, pic_hit {:.2}, pic_miss {:.2}, img_hit {:.2}, img_miss {:.2}, video_decode {:.2}",
             average_usize(&self.frames, |frame| frame.backend.draw_rect_count),
             average_usize(&self.frames, |frame| frame.backend.draw_text_count),
             average_usize(&self.frames, |frame| frame.backend.draw_bitmap_count),
             average_usize(&self.frames, |frame| frame.backend.save_layer_count),
+            average_usize(&self.frames, |frame| frame.backend.text_cache_hits),
+            average_usize(&self.frames, |frame| frame.backend.text_cache_misses),
             average_usize(&self.frames, |frame| frame.backend.picture_cache_hits),
             average_usize(&self.frames, |frame| frame.backend.picture_cache_misses),
             average_usize(&self.frames, |frame| frame.backend.image_cache_hits),
@@ -756,6 +806,18 @@ fn percentile_95(frames: &[FrameProfile], map: impl Fn(&FrameProfile) -> f64) ->
         .saturating_sub(1)
         .min(values.len() - 1);
     values[index]
+}
+
+fn average_when_counted(
+    frames: &[FrameProfile],
+    value: impl Fn(&FrameProfile) -> f64,
+    count: impl Fn(&FrameProfile) -> usize,
+) -> f64 {
+    let total_count = frames.iter().map(count).sum::<usize>();
+    if total_count == 0 {
+        return 0.0;
+    }
+    frames.iter().map(value).sum::<f64>() / total_count as f64
 }
 
 fn write_encoded_packets(

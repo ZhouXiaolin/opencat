@@ -1,4 +1,11 @@
-use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc, time::Instant};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+    path::Path,
+    rc::Rc,
+    time::Instant,
+};
 
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
@@ -20,11 +27,14 @@ use crate::{
 };
 
 pub(crate) type ImageCache = Rc<RefCell<HashMap<String, Option<SkiaImage>>>>;
+pub(crate) type TextPictureCache = Rc<RefCell<HashMap<u64, Picture>>>;
 
 #[derive(Clone, Debug, Default)]
 pub struct BackendProfile {
     pub rect_draw_ms: f64,
     pub text_draw_ms: f64,
+    pub text_picture_record_ms: f64,
+    pub text_picture_draw_ms: f64,
     pub bitmap_draw_ms: f64,
     pub image_decode_ms: f64,
     pub video_decode_ms: f64,
@@ -32,6 +42,8 @@ pub struct BackendProfile {
     pub picture_draw_ms: f64,
     pub picture_cache_hits: usize,
     pub picture_cache_misses: usize,
+    pub text_cache_hits: usize,
+    pub text_cache_misses: usize,
     pub image_cache_hits: usize,
     pub image_cache_misses: usize,
     pub video_frame_decodes: usize,
@@ -50,12 +62,20 @@ struct BitmapDrawStats {
     video_frame_decodes: usize,
 }
 
+struct TextDrawStats {
+    picture_record_ms: f64,
+    picture_draw_ms: f64,
+    cache_hits: usize,
+    cache_misses: usize,
+}
+
 pub struct SkiaBackend<'a> {
     canvas: &'a Canvas,
     assets: &'a AssetsMap,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     image_cache: ImageCache,
+    text_picture_cache: TextPictureCache,
     profile: Option<&'a mut BackendProfile>,
 }
 
@@ -74,6 +94,7 @@ impl<'a> SkiaBackend<'a> {
             media_ctx,
             frame_ctx,
             image_cache: Rc::new(RefCell::new(HashMap::new())),
+            text_picture_cache: Rc::new(RefCell::new(HashMap::new())),
             profile: None,
         }
     }
@@ -84,6 +105,7 @@ impl<'a> SkiaBackend<'a> {
         _height: i32,
         assets: &'a AssetsMap,
         image_cache: ImageCache,
+        text_picture_cache: TextPictureCache,
         media_ctx: Option<&'a mut MediaContext>,
         frame_ctx: &'a FrameCtx,
     ) -> Self {
@@ -91,6 +113,7 @@ impl<'a> SkiaBackend<'a> {
             canvas,
             assets,
             image_cache,
+            text_picture_cache,
             media_ctx,
             frame_ctx,
             profile: None,
@@ -103,6 +126,7 @@ impl<'a> SkiaBackend<'a> {
         _height: i32,
         assets: &'a AssetsMap,
         image_cache: ImageCache,
+        text_picture_cache: TextPictureCache,
         media_ctx: Option<&'a mut MediaContext>,
         frame_ctx: &'a FrameCtx,
         profile: Option<&'a mut BackendProfile>,
@@ -111,6 +135,7 @@ impl<'a> SkiaBackend<'a> {
             canvas,
             assets,
             image_cache,
+            text_picture_cache,
             media_ctx,
             frame_ctx,
             profile,
@@ -154,10 +179,14 @@ impl<'a> SkiaBackend<'a> {
                 }
                 DisplayItem::Text(text) => {
                     let started = Instant::now();
-                    draw_text(self.canvas, text);
+                    let stats = draw_text(self.canvas, text, &self.text_picture_cache)?;
                     if let Some(profile) = self.profile.as_deref_mut() {
                         profile.draw_text_count += 1;
                         profile.text_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
+                        profile.text_picture_record_ms += stats.picture_record_ms;
+                        profile.text_picture_draw_ms += stats.picture_draw_ms;
+                        profile.text_cache_hits += stats.cache_hits;
+                        profile.text_cache_misses += stats.cache_misses;
                     }
                 }
                 DisplayItem::Bitmap(bitmap) => {
@@ -191,6 +220,7 @@ pub(crate) fn record_display_list_picture<'a>(
     height: i32,
     assets: &'a AssetsMap,
     image_cache: ImageCache,
+    text_picture_cache: TextPictureCache,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     mut profile: Option<&'a mut BackendProfile>,
@@ -205,6 +235,7 @@ pub(crate) fn record_display_list_picture<'a>(
         height,
         assets,
         image_cache,
+        text_picture_cache,
         media_ctx,
         frame_ctx,
         profile.as_deref_mut(),
@@ -302,16 +333,83 @@ fn draw_shadow(canvas: &Canvas, rect: Rect, radius: f32, shadow: ShadowStyle) {
     }
 }
 
-fn draw_text(canvas: &Canvas, text: &TextDisplayItem) {
+fn draw_text(
+    canvas: &Canvas,
+    text: &TextDisplayItem,
+    text_picture_cache: &RefCell<HashMap<u64, Picture>>,
+) -> Result<TextDrawStats> {
+    let cache_key = text_picture_cache_key(text);
+    if let Some(picture) = text_picture_cache.borrow().get(&cache_key).cloned() {
+        let draw_started = Instant::now();
+        canvas.save();
+        canvas.translate((text.bounds.x, text.bounds.y));
+        canvas.draw_picture(&picture, None, None);
+        canvas.restore();
+        Ok(TextDrawStats {
+            picture_record_ms: 0.0,
+            picture_draw_ms: draw_started.elapsed().as_secs_f64() * 1000.0,
+            cache_hits: 1,
+            cache_misses: 0,
+        })
+    } else {
+        let record_started = Instant::now();
+        let picture = record_text_picture(text)?;
+        let picture_record_ms = record_started.elapsed().as_secs_f64() * 1000.0;
+        text_picture_cache
+            .borrow_mut()
+            .insert(cache_key, picture.clone());
+
+        let draw_started = Instant::now();
+        canvas.save();
+        canvas.translate((text.bounds.x, text.bounds.y));
+        canvas.draw_picture(&picture, None, None);
+        canvas.restore();
+        Ok(TextDrawStats {
+            picture_record_ms,
+            picture_draw_ms: draw_started.elapsed().as_secs_f64() * 1000.0,
+            cache_hits: 0,
+            cache_misses: 1,
+        })
+    }
+}
+
+fn record_text_picture(text: &TextDisplayItem) -> Result<Picture> {
+    let width = text.bounds.width.max(1.0);
+    let height = text.bounds.height.max(1.0);
+    let bounds = Rect::from_xywh(0.0, 0.0, width, height);
+    let mut recorder = PictureRecorder::new();
+    let recording_canvas = recorder.begin_recording(bounds, false);
     typography::draw_text(
-        canvas,
+        recording_canvas,
         &text.text,
-        text.bounds.x,
-        text.bounds.y,
+        0.0,
+        0.0,
         text.bounds.width,
         text.allow_wrap,
         &text.style,
     );
+    recorder
+        .finish_recording_as_picture(None)
+        .ok_or_else(|| anyhow!("failed to record text picture"))
+}
+
+fn text_picture_cache_key(text: &TextDisplayItem) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    text.text.hash(&mut hasher);
+    hash_text_style(&text.style, &mut hasher);
+    text.allow_wrap.hash(&mut hasher);
+    text.bounds.width.to_bits().hash(&mut hasher);
+    text.bounds.height.to_bits().hash(&mut hasher);
+    hasher.finish()
+}
+
+fn hash_text_style(style: &crate::style::ComputedTextStyle, hasher: &mut DefaultHasher) {
+    style.color.hash(hasher);
+    style.font_weight.hash(hasher);
+    style.text_align.hash(hasher);
+    style.text_px.to_bits().hash(hasher);
+    style.letter_spacing.to_bits().hash(hasher);
+    style.line_height.to_bits().hash(hasher);
 }
 
 fn draw_bitmap(
@@ -515,5 +613,9 @@ pub(crate) fn is_video_path(path: &Path) -> bool {
 }
 
 pub(crate) fn new_image_cache() -> ImageCache {
+    Rc::new(RefCell::new(HashMap::new()))
+}
+
+pub(crate) fn new_text_picture_cache() -> TextPictureCache {
     Rc::new(RefCell::new(HashMap::new()))
 }

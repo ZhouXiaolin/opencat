@@ -8,7 +8,6 @@ use skia_safe::{
 
 use crate::{
     assets::AssetsMap,
-    backend::skia_transition,
     display::list::{
         BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayList, DisplayTransform,
         RectDisplayItem, TextDisplayItem,
@@ -24,8 +23,6 @@ pub(crate) type ImageCache = Rc<RefCell<HashMap<String, Option<SkiaImage>>>>;
 
 pub struct SkiaBackend<'a> {
     canvas: &'a Canvas,
-    width: i32,
-    height: i32,
     assets: &'a AssetsMap,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
@@ -35,16 +32,14 @@ pub struct SkiaBackend<'a> {
 impl<'a> SkiaBackend<'a> {
     pub fn new(
         canvas: &'a Canvas,
-        width: i32,
-        height: i32,
+        _width: i32,
+        _height: i32,
         assets: &'a AssetsMap,
         media_ctx: Option<&'a mut MediaContext>,
         frame_ctx: &'a FrameCtx,
     ) -> Self {
         Self {
             canvas,
-            width,
-            height,
             assets,
             media_ctx,
             frame_ctx,
@@ -54,8 +49,8 @@ impl<'a> SkiaBackend<'a> {
 
     pub fn new_with_cache(
         canvas: &'a Canvas,
-        width: i32,
-        height: i32,
+        _width: i32,
+        _height: i32,
         assets: &'a AssetsMap,
         image_cache: ImageCache,
         media_ctx: Option<&'a mut MediaContext>,
@@ -63,8 +58,6 @@ impl<'a> SkiaBackend<'a> {
     ) -> Self {
         Self {
             canvas,
-            width,
-            height,
             assets,
             image_cache,
             media_ctx,
@@ -101,18 +94,6 @@ impl<'a> SkiaBackend<'a> {
                     item,
                     &self.assets,
                     &self.image_cache,
-                    &mut self.media_ctx,
-                    self.frame_ctx,
-                )?;
-            }
-            DisplayCommand::Transition { transition } => {
-                skia_transition::draw_transition(
-                    self.canvas,
-                    transition,
-                    self.width,
-                    self.height,
-                    self.assets,
-                    self.image_cache.clone(),
                     &mut self.media_ctx,
                     self.frame_ctx,
                 )?;

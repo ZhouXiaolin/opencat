@@ -1,46 +1,12 @@
-use crate::{FrameCtx, Node, component_node_with_duration, nodes::div};
+use crate::{
+    Node,
+    timeline::{TimelineNode, TimelineSegment},
+};
 
 #[derive(Clone, Copy, Debug)]
 pub enum TransitionKind {
     Slide,
     LightLeak(LightLeakTransition),
-}
-
-#[derive(Clone)]
-pub struct TransitionNode {
-    from: Node,
-    to: Node,
-    progress: f32,
-    kind: TransitionKind,
-    style: crate::style::NodeStyle,
-}
-
-impl TransitionNode {
-    pub fn new(from: Node, to: Node, progress: f32, kind: TransitionKind) -> Self {
-        Self {
-            from,
-            to,
-            progress,
-            kind,
-            style: crate::style::NodeStyle::default(),
-        }
-    }
-
-    pub fn from_node(&self) -> &Node {
-        &self.from
-    }
-
-    pub fn to_node(&self) -> &Node {
-        &self.to
-    }
-
-    pub fn params(&self) -> (f32, TransitionKind) {
-        (self.progress, self.kind)
-    }
-
-    pub fn style_ref(&self) -> &crate::style::NodeStyle {
-        &self.style
-    }
 }
 
 #[derive(Clone)]
@@ -118,73 +84,48 @@ impl TransitionSeries {
             .sum()
     }
 
-    fn render(&self, ctx: &FrameCtx) -> Node {
-        if self.items.is_empty() {
-            return div().into();
-        }
-
+    fn into_timeline(self) -> TimelineNode {
+        let duration_in_frames = self.duration_in_frames();
+        let items = self.items;
+        let mut segments = Vec::new();
         let mut cursor = 0;
-        let mut index = 0;
 
-        while index < self.items.len() {
-            let Some(current_item) = self.items.get(index) else {
-                break;
+        for index in 0..items.len() {
+            let TransitionSeriesItem::Sequence {
+                duration_in_frames,
+                node,
+            } = &items[index]
+            else {
+                continue;
             };
 
-            match current_item {
-                TransitionSeriesItem::Sequence {
-                    duration_in_frames,
-                    node,
-                } => {
-                    let segment_end = cursor + duration_in_frames;
-                    if ctx.frame < segment_end {
-                        return node.clone();
-                    }
-                    cursor = segment_end;
+            segments.push(TimelineSegment::Scene {
+                start_frame: cursor,
+                duration_in_frames: *duration_in_frames,
+                scene: node.clone(),
+            });
+            cursor += *duration_in_frames;
 
-                    let Some(TransitionSeriesItem::Transition(transition)) =
-                        self.items.get(index + 1)
-                    else {
-                        index += 1;
-                        continue;
-                    };
-
-                    let Some(TransitionSeriesItem::Sequence {
-                        node: next_node, ..
-                    }) = self.items.get(index + 2)
-                    else {
-                        return node.clone();
-                    };
-
-                    let transition_end = cursor + transition.duration_in_frames();
-                    if ctx.frame < transition_end {
-                        let local_frame = ctx.frame - cursor;
-                        let progress = transition.progress(local_frame);
-                        return transition.presentation.render(
-                            ctx,
-                            node.clone(),
-                            next_node.clone(),
-                            progress,
-                        );
-                    }
-
-                    cursor = transition_end;
-                    index += 2;
-                }
-                TransitionSeriesItem::Transition(_) => {
-                    index += 1;
-                }
+            if let (
+                Some(TransitionSeriesItem::Transition(transition)),
+                Some(TransitionSeriesItem::Sequence {
+                    node: next_node, ..
+                }),
+            ) = (items.get(index + 1), items.get(index + 2))
+            {
+                let transition_duration = transition.duration_in_frames();
+                segments.push(TimelineSegment::Transition {
+                    start_frame: cursor,
+                    duration_in_frames: transition_duration,
+                    from: node.clone(),
+                    to: next_node.clone(),
+                    kind: transition.kind(),
+                });
+                cursor += transition_duration;
             }
         }
 
-        self.last_sequence_node().unwrap_or_else(|| div().into())
-    }
-
-    fn last_sequence_node(&self) -> Option<Node> {
-        self.items.iter().rev().find_map(|item| match item {
-            TransitionSeriesItem::Sequence { node, .. } => Some(node.clone()),
-            TransitionSeriesItem::Transition(_) => None,
-        })
+        TimelineNode::new(segments, duration_in_frames)
     }
 }
 
@@ -196,8 +137,7 @@ impl Default for TransitionSeries {
 
 impl From<TransitionSeries> for Node {
     fn from(series: TransitionSeries) -> Self {
-        let duration_in_frames = series.duration_in_frames();
-        component_node_with_duration(move |ctx| series.render(ctx), move || duration_in_frames)
+        Node::from(series.into_timeline())
     }
 }
 
@@ -208,26 +148,11 @@ impl Transition {
         }
     }
 
-    fn progress(&self, frame: u32) -> f32 {
-        match self.timing {
-            Timing::Linear { duration_in_frames } => {
-                if duration_in_frames == 0 {
-                    return 1.0;
-                }
-
-                (frame as f32 / duration_in_frames as f32).clamp(0.0, 1.0)
-            }
-        }
-    }
-}
-
-impl Presentation {
-    fn render(self, _ctx: &FrameCtx, from: Node, to: Node, progress: f32) -> Node {
-        let kind = match self {
+    fn kind(&self) -> TransitionKind {
+        match self.presentation {
             Presentation::Slide => TransitionKind::Slide,
             Presentation::LightLeak(params) => TransitionKind::LightLeak(params),
-        };
-        TransitionNode::new(from, to, progress, kind).into()
+        }
     }
 }
 

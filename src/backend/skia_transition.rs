@@ -7,7 +7,7 @@ use skia_safe::{
 use crate::{
     assets::AssetsMap,
     backend::skia::{ImageCache, SkiaBackend},
-    display::list::{DisplayList, DisplayTransitionCommand},
+    display::list::DisplayList,
     frame_ctx::FrameCtx,
     media::MediaContext,
     transitions::{LightLeakTransition, TransitionKind},
@@ -131,7 +131,10 @@ impl LightLeakUniforms {
 
 pub fn draw_transition<'a>(
     canvas: &Canvas,
-    transition: &DisplayTransitionCommand,
+    from: &DisplayList,
+    to: &DisplayList,
+    progress: f32,
+    kind: TransitionKind,
     width: i32,
     height: i32,
     assets: &'a AssetsMap,
@@ -139,10 +142,12 @@ pub fn draw_transition<'a>(
     media_ctx: &mut Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
 ) -> Result<()> {
-    match transition.kind {
+    match kind {
         TransitionKind::Slide => draw_slide_transition(
             canvas,
-            transition,
+            from,
+            to,
+            progress,
             width,
             height,
             assets,
@@ -152,7 +157,9 @@ pub fn draw_transition<'a>(
         ),
         TransitionKind::LightLeak(params) => draw_light_leak_transition(
             canvas,
-            transition,
+            from,
+            to,
+            progress,
             params,
             width,
             height,
@@ -166,7 +173,9 @@ pub fn draw_transition<'a>(
 
 fn draw_slide_transition<'a>(
     canvas: &Canvas,
-    transition: &DisplayTransitionCommand,
+    from: &DisplayList,
+    to: &DisplayList,
+    progress: f32,
     width: i32,
     height: i32,
     assets: &'a AssetsMap,
@@ -175,7 +184,7 @@ fn draw_slide_transition<'a>(
     frame_ctx: &'a FrameCtx,
 ) -> Result<()> {
     let from_picture = record_picture(
-        &transition.from,
+        from,
         width,
         height,
         assets,
@@ -183,16 +192,8 @@ fn draw_slide_transition<'a>(
         media_ctx,
         frame_ctx,
     )?;
-    let to_picture = record_picture(
-        &transition.to,
-        width,
-        height,
-        assets,
-        image_cache,
-        media_ctx,
-        frame_ctx,
-    )?;
-    let progress = transition.progress.clamp(0.0, 1.0);
+    let to_picture = record_picture(to, width, height, assets, image_cache, media_ctx, frame_ctx)?;
+    let progress = progress.clamp(0.0, 1.0);
     let width_f = width as f32;
 
     canvas.save();
@@ -210,7 +211,9 @@ fn draw_slide_transition<'a>(
 
 fn draw_light_leak_transition<'a>(
     canvas: &Canvas,
-    transition: &DisplayTransitionCommand,
+    from: &DisplayList,
+    to: &DisplayList,
+    progress: f32,
     params: LightLeakTransition,
     width: i32,
     height: i32,
@@ -220,7 +223,7 @@ fn draw_light_leak_transition<'a>(
     frame_ctx: &'a FrameCtx,
 ) -> Result<()> {
     let from_shader = record_picture(
-        &transition.from,
+        from,
         width,
         height,
         assets,
@@ -234,26 +237,18 @@ fn draw_light_leak_transition<'a>(
         Option::<&Matrix>::None,
         Option::<&Rect>::None,
     );
-    let to_shader = record_picture(
-        &transition.to,
-        width,
-        height,
-        assets,
-        image_cache,
-        media_ctx,
-        frame_ctx,
-    )?
-    .to_shader(
-        None,
-        FilterMode::Linear,
-        Option::<&Matrix>::None,
-        Option::<&Rect>::None,
-    );
+    let to_shader = record_picture(to, width, height, assets, image_cache, media_ctx, frame_ctx)?
+        .to_shader(
+            None,
+            FilterMode::Linear,
+            Option::<&Matrix>::None,
+            Option::<&Rect>::None,
+        );
 
     let effect = RuntimeEffect::make_for_shader(LIGHT_LEAK_SKSL, None)
         .map_err(|err| anyhow!("failed to compile light leak SKSL: {err}"))?;
 
-    let uniforms = LightLeakUniforms::new(transition.progress, params, width, height);
+    let uniforms = LightLeakUniforms::new(progress, params, width, height);
     let children = [ChildPtr::from(from_shader), ChildPtr::from(to_shader)];
     let shader = effect
         .make_shader(uniform_data(&uniforms), &children, Option::<&Matrix>::None)

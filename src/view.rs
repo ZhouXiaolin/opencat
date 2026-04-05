@@ -4,7 +4,7 @@ use crate::{
     FrameCtx,
     nodes::{Div, Image, Text, Video},
     style::NodeStyle,
-    transitions::TransitionNode,
+    timeline::TimelineNode,
 };
 
 #[derive(Clone)]
@@ -38,7 +38,7 @@ pub enum NodeKind {
     Text(Text),
     Image(Image),
     Video(Video),
-    Transition(TransitionNode),
+    Timeline(TimelineNode),
 }
 
 impl NodeKind {
@@ -49,7 +49,7 @@ impl NodeKind {
             Self::Text(node) => node.style_ref(),
             Self::Image(node) => node.style_ref(),
             Self::Video(node) => node.style_ref(),
-            Self::Transition(node) => node.style_ref(),
+            Self::Timeline(node) => node.style_ref(),
         }
     }
 
@@ -57,7 +57,8 @@ impl NodeKind {
         match self {
             Self::Component(node) => node.duration_in_frames(ctx),
             Self::Div(node) => node.duration_in_frames(ctx),
-            Self::Text(_) | Self::Image(_) | Self::Video(_) | Self::Transition(_) => None,
+            Self::Timeline(node) => Some(node.duration_in_frames()),
+            Self::Text(_) | Self::Image(_) | Self::Video(_) => None,
         }
     }
 }
@@ -155,9 +156,9 @@ impl From<Video> for NodeKind {
     }
 }
 
-impl From<TransitionNode> for NodeKind {
-    fn from(value: TransitionNode) -> Self {
-        Self::Transition(value)
+impl From<TimelineNode> for NodeKind {
+    fn from(value: TimelineNode) -> Self {
+        Self::Timeline(value)
     }
 }
 

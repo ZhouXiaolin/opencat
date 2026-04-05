@@ -14,7 +14,7 @@ use crate::{
     },
     layout::tree::{
         LayoutBitmapPaint, LayoutNode, LayoutPaint, LayoutPaintKind, LayoutRect, LayoutTextPaint,
-        LayoutTransitionPaint, LayoutTree,
+        LayoutTree,
     },
     nodes::{AlignItems, JustifyContent, Position},
     style::ComputedTextStyle,
@@ -44,7 +44,7 @@ pub fn compute_layout(root: &ElementNode, frame_ctx: &FrameCtx) -> Result<Layout
     )?;
 
     Ok(LayoutTree {
-        root: build_layout_tree(root, &taffy, root_id, frame_ctx)?,
+        root: build_layout_tree(root, &taffy, root_id)?,
     })
 }
 
@@ -145,13 +145,6 @@ fn build_taffy_subtree(
             },
             ..base_style(layout)
         },
-        ElementKind::Transition(_) => Style {
-            size: taffy::geometry::Size {
-                width: Dimension::percent(1.0),
-                height: Dimension::percent(1.0),
-            },
-            ..base_style(layout)
-        },
     };
 
     let id = match &element.kind {
@@ -173,19 +166,13 @@ fn build_layout_tree(
     element: &ElementNode,
     taffy: &TaffyTree<TextMeasureContext>,
     node_id: taffy::NodeId,
-    frame_ctx: &FrameCtx,
 ) -> Result<LayoutNode> {
     let layout = taffy.layout(node_id)?;
     let mut children = Vec::new();
     let taffy_children = taffy.children(node_id)?;
 
     for (element_child, taffy_child) in element.children.iter().zip(taffy_children.into_iter()) {
-        children.push(build_layout_tree(
-            element_child,
-            taffy,
-            taffy_child,
-            frame_ctx,
-        )?);
+        children.push(build_layout_tree(element_child, taffy, taffy_child)?);
     }
 
     Ok(LayoutNode {
@@ -211,16 +198,6 @@ fn build_layout_tree(
                     height: bitmap.height,
                     object_fit: element.style.visual.object_fit,
                 }),
-                ElementKind::Transition(t) => {
-                    let from_tree = compute_layout(&t.from, frame_ctx)?;
-                    let to_tree = compute_layout(&t.to, frame_ctx)?;
-                    LayoutPaintKind::Transition(LayoutTransitionPaint {
-                        from: Box::new(from_tree.root),
-                        to: Box::new(to_tree.root),
-                        progress: t.progress,
-                        kind: t.kind,
-                    })
-                }
             },
             data_id: element.style.data_id.clone(),
         },

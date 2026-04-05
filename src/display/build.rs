@@ -3,24 +3,18 @@ use anyhow::Result;
 use crate::{
     display::list::{
         BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayLayer, DisplayList,
-        DisplayTransform, DisplayTransitionCommand, RectDisplayItem, RectPaintStyle,
-        TextDisplayItem,
+        DisplayTransform, RectDisplayItem, RectPaintStyle, TextDisplayItem,
     },
-    frame_ctx::FrameCtx,
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
 };
 
-pub fn build_display_list(layout_tree: &LayoutTree, frame_ctx: &FrameCtx) -> Result<DisplayList> {
+pub fn build_display_list(layout_tree: &LayoutTree) -> Result<DisplayList> {
     let mut list = DisplayList::default();
-    build_layout_node_display_list(&layout_tree.root, frame_ctx, &mut list)?;
+    build_layout_node_display_list(&layout_tree.root, &mut list)?;
     Ok(list)
 }
 
-fn build_layout_node_display_list(
-    layout: &LayoutNode,
-    frame_ctx: &FrameCtx,
-    list: &mut DisplayList,
-) -> Result<()> {
+fn build_layout_node_display_list(layout: &LayoutNode, list: &mut DisplayList) -> Result<()> {
     if layout.paint.visual.opacity <= 0.0 {
         return Ok(());
     }
@@ -52,10 +46,10 @@ fn build_layout_node_display_list(
         });
     }
 
-    push_paint_commands(layout, rect, frame_ctx, list)?;
+    push_paint_commands(layout, rect, list)?;
 
     for child in &layout.children {
-        build_layout_node_display_list(child, frame_ctx, list)?;
+        build_layout_node_display_list(child, list)?;
     }
 
     if uses_layer {
@@ -69,7 +63,6 @@ fn build_layout_node_display_list(
 fn push_paint_commands(
     layout: &LayoutNode,
     rect: LayoutRect,
-    frame_ctx: &FrameCtx,
     list: &mut DisplayList,
 ) -> Result<()> {
     match &layout.paint.kind {
@@ -102,22 +95,6 @@ fn push_paint_commands(
                 object_fit: bitmap.object_fit,
             }),
         }),
-        LayoutPaintKind::Transition(t) => {
-            let mut from_list = DisplayList::default();
-            build_layout_node_display_list(&t.from, frame_ctx, &mut from_list)?;
-
-            let mut to_list = DisplayList::default();
-            build_layout_node_display_list(&t.to, frame_ctx, &mut to_list)?;
-
-            list.push(DisplayCommand::Transition {
-                transition: DisplayTransitionCommand {
-                    from: from_list,
-                    to: to_list,
-                    progress: t.progress,
-                    kind: t.kind,
-                },
-            });
-        }
     }
     Ok(())
 }
@@ -167,14 +144,7 @@ mod tests {
             },
         };
 
-        let frame_ctx = crate::FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 1,
-        };
-        let list = build_display_list(&layout_tree, &frame_ctx).expect("display list should build");
+        let list = build_display_list(&layout_tree).expect("display list should build");
         let bitmap = list
             .commands
             .iter()

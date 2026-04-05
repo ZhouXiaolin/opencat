@@ -13,14 +13,18 @@ use skia_safe::{
 use std::path::Path;
 
 use crate::{
-    Composition, FrameCtx,
+    Composition, FrameCtx, Node,
     assets::AssetsMap,
-    backend::skia::{SkiaBackend, new_image_cache},
+    backend::{
+        skia::{SkiaBackend, new_image_cache},
+        skia_transition,
+    },
     display::build::build_display_list,
     element::resolve::resolve_ui_tree,
     layout::compute_layout,
     media::MediaContext,
-    script::ScriptRunner,
+    script::{ScriptRunner, StyleMutations},
+    timeline::{FrameState, frame_state_for_root},
 };
 use std::sync::Arc;
 
@@ -256,30 +260,52 @@ fn render_frame_surface(
         .map(|runner| runner.run(frame_index, composition.frames))
         .transpose()?;
 
-    let node = composition.root_node(&frame_ctx);
-    let element_root = resolve_ui_tree(
-        &node,
-        &frame_ctx,
-        &mut session.media_ctx,
-        &mut session.assets,
-        mutations.as_ref(),
-    );
-    let layout_tree = compute_layout(&element_root, &frame_ctx)?;
-
     let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
     let canvas = surface.canvas();
-    let display_list = build_display_list(&layout_tree, &frame_ctx)?;
-    let mut backend = SkiaBackend::new_with_cache(
-        canvas,
-        composition.width as i32,
-        composition.height as i32,
-        &session.assets,
-        session.image_cache.clone(),
-        Some(&mut session.media_ctx),
-        &frame_ctx,
-    );
-    backend.execute(&display_list)?;
+    let root = composition.root_node(&frame_ctx);
+
+    match frame_state_for_root(&root, &frame_ctx) {
+        FrameState::Scene { scene } => {
+            let display_list =
+                build_scene_display_list(&scene, &frame_ctx, session, mutations.as_ref())?;
+            let mut backend = SkiaBackend::new_with_cache(
+                canvas,
+                composition.width,
+                composition.height,
+                &session.assets,
+                session.image_cache.clone(),
+                Some(&mut session.media_ctx),
+                &frame_ctx,
+            );
+            backend.execute(&display_list)?;
+        }
+        FrameState::Transition {
+            from,
+            to,
+            progress,
+            kind,
+        } => {
+            let from_display =
+                build_scene_display_list(&from, &frame_ctx, session, mutations.as_ref())?;
+            let to_display =
+                build_scene_display_list(&to, &frame_ctx, session, mutations.as_ref())?;
+            let mut media_ctx = Some(&mut session.media_ctx);
+            skia_transition::draw_transition(
+                canvas,
+                &from_display,
+                &to_display,
+                progress,
+                kind,
+                composition.width,
+                composition.height,
+                &session.assets,
+                session.image_cache.clone(),
+                &mut media_ctx,
+                &frame_ctx,
+            )?;
+        }
+    }
 
     Ok(surface)
 }
@@ -325,6 +351,23 @@ impl Default for RenderSession {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn build_scene_display_list(
+    scene: &Node,
+    frame_ctx: &FrameCtx,
+    session: &mut RenderSession,
+    mutations: Option<&StyleMutations>,
+) -> Result<crate::display::list::DisplayList> {
+    let element_root = resolve_ui_tree(
+        scene,
+        frame_ctx,
+        &mut session.media_ctx,
+        &mut session.assets,
+        mutations,
+    );
+    let layout_tree = compute_layout(&element_root, frame_ctx)?;
+    build_display_list(&layout_tree)
 }
 
 fn copy_rgb_to_frame(rgb: &[u8], frame: &mut Video, width: usize, height: usize) {

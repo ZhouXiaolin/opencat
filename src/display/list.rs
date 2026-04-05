@@ -2,7 +2,6 @@ use crate::{
     assets::AssetId,
     layout::tree::LayoutRect,
     style::{ColorToken, ComputedTextStyle, ObjectFit, ShadowStyle},
-    transitions::TransitionKind,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -20,26 +19,9 @@ impl DisplayList {
 pub enum DisplayCommand {
     Save,
     Restore,
-    SaveLayer {
-        layer: DisplayLayer,
-    },
-    ApplyTransform {
-        transform: DisplayTransform,
-    },
-    Draw {
-        item: DisplayItem,
-    },
-    Transition {
-        transition: DisplayTransitionCommand,
-    },
-}
-
-#[derive(Clone, Debug)]
-pub struct DisplayTransitionCommand {
-    pub from: DisplayList,
-    pub to: DisplayList,
-    pub progress: f32,
-    pub kind: TransitionKind,
+    SaveLayer { layer: DisplayLayer },
+    ApplyTransform { transform: DisplayTransform },
+    Draw { item: DisplayItem },
 }
 
 #[derive(Clone, Debug)]

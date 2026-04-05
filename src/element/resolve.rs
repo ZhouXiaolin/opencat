@@ -3,16 +3,12 @@ use crate::{
     assets::AssetsMap,
     element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle},
-        tree::{
-            ElementBitmap, ElementDiv, ElementId, ElementKind, ElementNode, ElementText,
-            TransitionElement,
-        },
+        tree::{ElementBitmap, ElementDiv, ElementId, ElementKind, ElementNode, ElementText},
     },
     media::MediaContext,
     nodes::{Div, Image, Text, Video},
     script::StyleMutations,
     style::{ComputedTextStyle, NodeStyle, resolve_text_style},
-    transitions::TransitionNode,
     view::{ComponentNode, NodeKind},
 };
 
@@ -63,7 +59,9 @@ fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>, media: &mut MediaConte
         NodeKind::Image(image) => resolve_image(image, cx, media),
         NodeKind::Div(div) => resolve_div(div, cx, media),
         NodeKind::Text(text) => resolve_text(text, cx),
-        NodeKind::Transition(transition) => resolve_transition(transition, cx, media),
+        NodeKind::Timeline(_) => {
+            unreachable!("timeline nodes must be resolved before UI tree construction")
+        }
     }
 }
 
@@ -178,34 +176,6 @@ fn resolve_image(
             asset_id,
             width,
             height,
-        }),
-        style: computed,
-        children: Vec::new(),
-    }
-}
-
-fn resolve_transition(
-    transition: &TransitionNode,
-    cx: &mut ResolveContext<'_>,
-    media: &mut MediaContext,
-) -> ElementNode {
-    let mut style = transition.style_ref().clone();
-    let data_id = style.data_id.clone();
-    if let Some(mutations) = cx.mutations {
-        mutations.apply_to_node(&mut style, &data_id);
-    }
-    let from = Box::new(resolve_node(transition.from_node(), cx, media));
-    let to = Box::new(resolve_node(transition.to_node(), cx, media));
-    let (progress, kind) = transition.params();
-    let computed = compute_style(&style, cx.inherited_text);
-
-    ElementNode {
-        id: cx.ids.alloc(),
-        kind: ElementKind::Transition(TransitionElement {
-            from,
-            to,
-            progress,
-            kind,
         }),
         style: computed,
         children: Vec::new(),

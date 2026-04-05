@@ -11,6 +11,7 @@ pub mod parser;
 pub mod render;
 pub mod script;
 pub mod style;
+mod timeline;
 pub mod transitions;
 pub mod typography;
 pub mod view;

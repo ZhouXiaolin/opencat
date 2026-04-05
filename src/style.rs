@@ -1,6 +1,6 @@
 use skia_safe::Color;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColorToken {
     White,
     Black,
@@ -56,7 +56,7 @@ impl ColorToken {
 }
 
 /// Position mode - Tailwind: relative, absolute
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum Position {
     #[default]
     Relative,
@@ -64,7 +64,7 @@ pub enum Position {
 }
 
 /// Flex direction - Tailwind: flex-row, flex-col
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum FlexDirection {
     #[default]
     Row,
@@ -72,7 +72,7 @@ pub enum FlexDirection {
 }
 
 /// Main axis alignment - Tailwind: justify-*
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum JustifyContent {
     #[default]
     Start,
@@ -84,7 +84,7 @@ pub enum JustifyContent {
 }
 
 /// Cross axis alignment - Tailwind: items-*
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum AlignItems {
     #[default]
     Start,
@@ -93,7 +93,7 @@ pub enum AlignItems {
     Stretch,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum TextAlign {
     #[default]
     Left,
@@ -101,7 +101,7 @@ pub enum TextAlign {
     Right,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum ObjectFit {
     #[default]
     Contain,
@@ -109,7 +109,7 @@ pub enum ObjectFit {
     Fill,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum FontWeight {
     #[default]
     Normal,
@@ -118,7 +118,7 @@ pub enum FontWeight {
     Bold,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ShadowStyle {
     SM,
     MD,

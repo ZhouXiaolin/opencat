@@ -1,5 +1,8 @@
 pub mod tree;
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use anyhow::Result;
 use taffy::{
     AvailableSpace, TaffyTree,
@@ -28,24 +31,105 @@ struct TextMeasureContext {
     allow_wrap: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LayoutPassStats {
+    pub structure_rebuild: bool,
+    pub reused_nodes: usize,
+    pub layout_dirty_nodes: usize,
+    pub paint_only_nodes: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum CachedNodeKind {
+    Div,
+    Text,
+    Bitmap,
+}
+
+struct CachedLayoutNode {
+    identity: u64,
+    kind: CachedNodeKind,
+    taffy_node: taffy::NodeId,
+    layout_hash: u64,
+    paint_hash: u64,
+    children: Vec<CachedLayoutNode>,
+}
+
+pub struct LayoutSession {
+    taffy: TaffyTree<TextMeasureContext>,
+    root: Option<CachedLayoutNode>,
+}
+
+impl LayoutSession {
+    pub fn new() -> Self {
+        Self {
+            taffy: TaffyTree::new(),
+            root: None,
+        }
+    }
+
+    pub fn compute_layout(
+        &mut self,
+        root: &ElementNode,
+        frame_ctx: &FrameCtx,
+    ) -> Result<(LayoutTree, LayoutPassStats)> {
+        let mut stats = LayoutPassStats::default();
+
+        let root_id = if self
+            .root
+            .as_ref()
+            .is_some_and(|cached| same_structure(cached, root, 0))
+        {
+            let cached = self.root.as_mut().expect("root checked above");
+            update_cached_subtree(root, cached, 0, &mut self.taffy, &mut stats)?;
+            cached.taffy_node
+        } else {
+            self.rebuild(root, &mut stats)?
+        };
+
+        self.taffy.compute_layout_with_measure(
+            root_id,
+            taffy::geometry::Size {
+                width: AvailableSpace::Definite(frame_ctx.width as f32),
+                height: AvailableSpace::Definite(frame_ctx.height as f32),
+            },
+            |known_dimensions, available_space, _node_id, node_context, _style| {
+                measure_node(known_dimensions, available_space, node_context)
+            },
+        )?;
+
+        Ok((
+            LayoutTree {
+                root: build_layout_tree(root, &self.taffy, root_id)?,
+            },
+            stats,
+        ))
+    }
+
+    fn rebuild(
+        &mut self,
+        root: &ElementNode,
+        stats: &mut LayoutPassStats,
+    ) -> Result<taffy::NodeId> {
+        self.taffy = TaffyTree::new();
+        let (root_id, cache_root) = build_taffy_subtree(&mut self.taffy, root, 0)?;
+        stats.structure_rebuild = true;
+        stats.layout_dirty_nodes = count_nodes(root);
+        self.root = Some(cache_root);
+        Ok(root_id)
+    }
+}
+
+impl Default for LayoutSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub fn compute_layout(root: &ElementNode, frame_ctx: &FrameCtx) -> Result<LayoutTree> {
-    let mut taffy: TaffyTree<TextMeasureContext> = TaffyTree::new();
-    let root_id = build_taffy_subtree(&mut taffy, root)?;
-
-    taffy.compute_layout_with_measure(
-        root_id,
-        taffy::geometry::Size {
-            width: AvailableSpace::Definite(frame_ctx.width as f32),
-            height: AvailableSpace::Definite(frame_ctx.height as f32),
-        },
-        |known_dimensions, available_space, _node_id, node_context, _style| {
-            measure_node(known_dimensions, available_space, node_context)
-        },
-    )?;
-
-    Ok(LayoutTree {
-        root: build_layout_tree(root, &taffy, root_id)?,
-    })
+    let mut session = LayoutSession::new();
+    let (layout_tree, _) = session.compute_layout(root, frame_ctx)?;
+    Ok(layout_tree)
 }
 
 fn measure_node(
@@ -80,14 +164,273 @@ fn measure_node(
 fn build_taffy_subtree(
     taffy: &mut TaffyTree<TextMeasureContext>,
     element: &ElementNode,
-) -> Result<taffy::NodeId> {
+    sibling_index: usize,
+) -> Result<(taffy::NodeId, CachedLayoutNode)> {
     let mut children = Vec::new();
-    for child in &element.children {
-        children.push(build_taffy_subtree(taffy, child)?);
+    let mut child_ids = Vec::new();
+
+    for (index, child) in element.children.iter().enumerate() {
+        let (child_id, child_cache) = build_taffy_subtree(taffy, child, index)?;
+        child_ids.push(child_id);
+        children.push(child_cache);
     }
 
+    let style = taffy_style_for_element(element);
+    let id = match text_measure_context_for_element(element) {
+        Some(ctx) => taffy.new_leaf_with_context(style, ctx)?,
+        None if child_ids.is_empty() => taffy.new_leaf(style)?,
+        None => taffy.new_with_children(style, &child_ids)?,
+    };
+
+    Ok((
+        id,
+        CachedLayoutNode {
+            identity: node_identity(element, sibling_index),
+            kind: cached_node_kind(element),
+            taffy_node: id,
+            layout_hash: layout_affect_hash(element),
+            paint_hash: paint_affect_hash(element),
+            children,
+        },
+    ))
+}
+
+fn update_cached_subtree(
+    element: &ElementNode,
+    cached: &mut CachedLayoutNode,
+    sibling_index: usize,
+    taffy: &mut TaffyTree<TextMeasureContext>,
+    stats: &mut LayoutPassStats,
+) -> Result<()> {
+    cached.identity = node_identity(element, sibling_index);
+
+    let next_layout_hash = layout_affect_hash(element);
+    let next_paint_hash = paint_affect_hash(element);
+
+    if cached.layout_hash != next_layout_hash {
+        taffy.set_style(cached.taffy_node, taffy_style_for_element(element))?;
+        taffy.set_node_context(cached.taffy_node, text_measure_context_for_element(element))?;
+        cached.layout_hash = next_layout_hash;
+        cached.paint_hash = next_paint_hash;
+        stats.layout_dirty_nodes += 1;
+    } else if cached.paint_hash != next_paint_hash {
+        cached.paint_hash = next_paint_hash;
+        stats.paint_only_nodes += 1;
+    } else {
+        stats.reused_nodes += 1;
+    }
+
+    for (index, (child, cached_child)) in element
+        .children
+        .iter()
+        .zip(cached.children.iter_mut())
+        .enumerate()
+    {
+        update_cached_subtree(child, cached_child, index, taffy, stats)?;
+    }
+
+    Ok(())
+}
+
+fn same_structure(cached: &CachedLayoutNode, element: &ElementNode, sibling_index: usize) -> bool {
+    if cached.identity != node_identity(element, sibling_index) {
+        return false;
+    }
+
+    if cached.kind != cached_node_kind(element) {
+        return false;
+    }
+
+    if cached.children.len() != element.children.len() {
+        return false;
+    }
+
+    cached
+        .children
+        .iter()
+        .zip(element.children.iter())
+        .enumerate()
+        .all(|(index, (cached_child, child))| same_structure(cached_child, child, index))
+}
+
+fn count_nodes(element: &ElementNode) -> usize {
+    1 + element.children.iter().map(count_nodes).sum::<usize>()
+}
+
+fn cached_node_kind(element: &ElementNode) -> CachedNodeKind {
+    match &element.kind {
+        ElementKind::Div(_) => CachedNodeKind::Div,
+        ElementKind::Text(_) => CachedNodeKind::Text,
+        ElementKind::Bitmap(_) => CachedNodeKind::Bitmap,
+    }
+}
+
+fn node_identity(element: &ElementNode, sibling_index: usize) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    cached_node_kind(element).hash(&mut hasher);
+    sibling_index.hash(&mut hasher);
+    element.style.data_id.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn layout_affect_hash(element: &ElementNode) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    hash_layout_style(&element.style.layout, &mut hasher);
+
+    match &element.kind {
+        ElementKind::Div(_) => {}
+        ElementKind::Text(text) => {
+            text.text.hash(&mut hasher);
+            hash_text_layout_style(&text.text_style, &mut hasher);
+        }
+        ElementKind::Bitmap(bitmap) => {
+            bitmap.width.hash(&mut hasher);
+            bitmap.height.hash(&mut hasher);
+        }
+    }
+
+    hasher.finish()
+}
+
+fn paint_affect_hash(element: &ElementNode) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    hash_visual_style(&element.style.visual, &mut hasher);
+
+    match &element.kind {
+        ElementKind::Div(_) => {}
+        ElementKind::Text(text) => {
+            text.text.hash(&mut hasher);
+            hash_text_style(&text.text_style, &mut hasher);
+        }
+        ElementKind::Bitmap(bitmap) => {
+            bitmap.asset_id.hash(&mut hasher);
+            bitmap.width.hash(&mut hasher);
+            bitmap.height.hash(&mut hasher);
+        }
+    }
+
+    hasher.finish()
+}
+
+fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: &mut impl Hasher) {
+    style.position.hash(state);
+    hash_option_f32(style.inset_left, state);
+    hash_option_f32(style.inset_top, state);
+    hash_option_f32(style.inset_right, state);
+    hash_option_f32(style.inset_bottom, state);
+    hash_option_f32(style.width, state);
+    hash_option_f32(style.height, state);
+    style.width_full.hash(state);
+    style.height_full.hash(state);
+    hash_f32(style.padding_x, state);
+    hash_f32(style.padding_y, state);
+    hash_f32(style.margin_x, state);
+    hash_f32(style.margin_y, state);
+    style.flex_direction.hash(state);
+    style.justify_content.hash(state);
+    style.align_items.hash(state);
+    hash_f32(style.gap, state);
+    hash_f32(style.flex_grow, state);
+}
+
+fn hash_visual_style(style: &crate::element::style::ComputedVisualStyle, state: &mut impl Hasher) {
+    hash_f32(style.opacity, state);
+    style.background.hash(state);
+    hash_f32(style.border_radius, state);
+    hash_option_f32(style.border_width, state);
+    style.border_color.hash(state);
+    style.object_fit.hash(state);
+    for transform in &style.transforms {
+        hash_transform(transform, state);
+    }
+    style.shadow.hash(state);
+}
+
+fn hash_text_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
+    style.color.hash(state);
+    hash_f32(style.text_px, state);
+    style.font_weight.hash(state);
+    hash_f32(style.letter_spacing, state);
+    style.text_align.hash(state);
+    hash_f32(style.line_height, state);
+}
+
+fn hash_text_layout_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
+    hash_f32(style.text_px, state);
+    style.font_weight.hash(state);
+    hash_f32(style.letter_spacing, state);
+    hash_f32(style.line_height, state);
+}
+
+fn hash_transform(transform: &crate::style::Transform, state: &mut impl Hasher) {
+    match *transform {
+        crate::style::Transform::TranslateX(x) => {
+            0_u8.hash(state);
+            hash_f32(x, state);
+        }
+        crate::style::Transform::TranslateY(y) => {
+            1_u8.hash(state);
+            hash_f32(y, state);
+        }
+        crate::style::Transform::Translate(x, y) => {
+            2_u8.hash(state);
+            hash_f32(x, state);
+            hash_f32(y, state);
+        }
+        crate::style::Transform::Scale(value) => {
+            3_u8.hash(state);
+            hash_f32(value, state);
+        }
+        crate::style::Transform::ScaleX(value) => {
+            4_u8.hash(state);
+            hash_f32(value, state);
+        }
+        crate::style::Transform::ScaleY(value) => {
+            5_u8.hash(state);
+            hash_f32(value, state);
+        }
+        crate::style::Transform::RotateDeg(value) => {
+            6_u8.hash(state);
+            hash_f32(value, state);
+        }
+        crate::style::Transform::SkewXDeg(value) => {
+            7_u8.hash(state);
+            hash_f32(value, state);
+        }
+        crate::style::Transform::SkewYDeg(value) => {
+            8_u8.hash(state);
+            hash_f32(value, state);
+        }
+        crate::style::Transform::SkewDeg(x, y) => {
+            9_u8.hash(state);
+            hash_f32(x, state);
+            hash_f32(y, state);
+        }
+    }
+}
+
+fn hash_option_f32(value: Option<f32>, state: &mut impl Hasher) {
+    value.map(f32::to_bits).hash(state);
+}
+
+fn hash_f32(value: f32, state: &mut impl Hasher) {
+    value.to_bits().hash(state);
+}
+
+fn text_measure_context_for_element(element: &ElementNode) -> Option<TextMeasureContext> {
+    match &element.kind {
+        ElementKind::Text(text) => Some(TextMeasureContext {
+            text: text.text.clone(),
+            style: text.text_style,
+            allow_wrap: element.style.layout.width.is_some() || element.style.layout.width_full,
+        }),
+        _ => None,
+    }
+}
+
+fn taffy_style_for_element(element: &ElementNode) -> Style {
     let layout = &element.style.layout;
-    let style = match &element.kind {
+    match &element.kind {
         ElementKind::Div(_) => Style {
             display: taffy::prelude::Display::Flex,
             size: match layout.position {
@@ -123,7 +466,7 @@ fn build_taffy_subtree(
             },
             ..base_style(layout)
         },
-        ElementKind::Text(_text) => Style {
+        ElementKind::Text(_) => Style {
             size: taffy::geometry::Size {
                 width: resolve_dimension(layout.width, layout.width_full, Dimension::auto()),
                 height: resolve_dimension(layout.height, layout.height_full, Dimension::auto()),
@@ -145,21 +488,7 @@ fn build_taffy_subtree(
             },
             ..base_style(layout)
         },
-    };
-
-    let id = match &element.kind {
-        ElementKind::Text(text) => taffy.new_leaf_with_context(
-            style,
-            TextMeasureContext {
-                text: text.text.clone(),
-                style: text.text_style,
-                allow_wrap: layout.width.is_some() || layout.width_full,
-            },
-        )?,
-        _ if children.is_empty() => taffy.new_leaf(style)?,
-        _ => taffy.new_with_children(style, &children)?,
-    };
-    Ok(id)
+    }
 }
 
 fn build_layout_tree(
@@ -281,8 +610,15 @@ fn map_align(value: AlignItems) -> taffy::prelude::AlignItems {
 
 #[cfg(test)]
 mod tests {
-    use super::{TextMeasureContext, measure_node};
-    use crate::style::ComputedTextStyle;
+    use super::{LayoutSession, TextMeasureContext, measure_node};
+    use crate::{
+        FrameCtx,
+        assets::AssetsMap,
+        element::resolve::resolve_ui_tree,
+        media::MediaContext,
+        nodes::{div, text},
+        style::ComputedTextStyle,
+    };
     use taffy::{AvailableSpace, geometry::Size};
 
     #[test]
@@ -309,5 +645,79 @@ mod tests {
             measured.width > 80.0,
             "expected auto-width text to ignore narrow available width and remain single-line"
         );
+    }
+
+    #[test]
+    fn layout_session_reuses_layout_for_paint_only_change() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let mut session = LayoutSession::new();
+
+        let first = div()
+            .data_id("root")
+            .child(text("A").data_id("label"))
+            .into();
+        let second = div()
+            .data_id("root")
+            .opacity(0.4)
+            .child(text("A").data_id("label").text_red())
+            .into();
+
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None);
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None);
+
+        let (_, first_stats) = session
+            .compute_layout(&first_resolved, &frame_ctx)
+            .expect("first layout should succeed");
+        let (second_layout, second_stats) = session
+            .compute_layout(&second_resolved, &frame_ctx)
+            .expect("second layout should succeed");
+
+        assert!(first_stats.structure_rebuild);
+        assert_eq!(second_stats.layout_dirty_nodes, 0);
+        assert!(second_stats.paint_only_nodes >= 1);
+        assert_eq!(second_layout.root.rect.width, 320.0);
+    }
+
+    #[test]
+    fn layout_session_marks_text_size_change_as_layout_dirty() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let mut session = LayoutSession::new();
+
+        let first = div()
+            .data_id("root")
+            .child(text("A").data_id("label"))
+            .into();
+        let second = div()
+            .data_id("root")
+            .child(text("A").data_id("label").text_px(48.0))
+            .into();
+
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None);
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None);
+
+        session
+            .compute_layout(&first_resolved, &frame_ctx)
+            .expect("first layout should succeed");
+        let (_, second_stats) = session
+            .compute_layout(&second_resolved, &frame_ctx)
+            .expect("second layout should succeed");
+
+        assert!(second_stats.layout_dirty_nodes >= 1);
     }
 }

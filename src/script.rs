@@ -5,7 +5,7 @@ use rquickjs::{Context, Function, Object, Persistent, Runtime};
 
 use crate::style::{
     AlignItems, ColorToken, FlexDirection, FontWeight, JustifyContent, ObjectFit, Position,
-    ShadowStyle, TextAlign, Transform,
+    ShadowStyle, TextAlign, Transform, color_token_from_script_name,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -171,31 +171,7 @@ impl StyleMutations {
 type MutationStore = Arc<Mutex<HashMap<String, NodeStyleMutations>>>;
 
 fn color_from_name(name: &str) -> Option<ColorToken> {
-    match name {
-        "white" => Some(ColorToken::White),
-        "black" => Some(ColorToken::Black),
-        "red" => Some(ColorToken::Red),
-        "green" => Some(ColorToken::Green),
-        "blue" => Some(ColorToken::Blue),
-        "teal400" => Some(ColorToken::Teal400),
-        "teal500" => Some(ColorToken::Teal500),
-        "yellow" => Some(ColorToken::Yellow),
-        "orange" => Some(ColorToken::Orange),
-        "purple" => Some(ColorToken::Purple),
-        "pink" => Some(ColorToken::Pink),
-        "gray" => Some(ColorToken::Gray),
-        "slate50" => Some(ColorToken::Slate50),
-        "slate200" => Some(ColorToken::Slate200),
-        "slate300" => Some(ColorToken::Slate300),
-        "slate400" => Some(ColorToken::Slate400),
-        "slate500" => Some(ColorToken::Slate500),
-        "slate600" => Some(ColorToken::Slate600),
-        "slate700" => Some(ColorToken::Slate700),
-        "slate800" => Some(ColorToken::Slate800),
-        "slate900" => Some(ColorToken::Slate900),
-        "primary" => Some(ColorToken::Primary),
-        _ => None,
-    }
+    color_token_from_script_name(name)
 }
 
 fn position_from_name(name: &str) -> Option<Position> {

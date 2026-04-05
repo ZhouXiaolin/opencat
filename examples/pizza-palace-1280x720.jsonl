@@ -17,5 +17,5 @@
 {"id": "decoration-1", "parentId": "root", "type": "div", "className": "absolute left-[60px] bottom-[40px] w-[80px] h-[80px] rounded-full bg-[#fae3d3] opacity-60", "text": null}
 {"id": "decoration-2", "parentId": "root", "type": "div", "className": "absolute right-[100px] top-[50px] w-[60px] h-[60px] rounded-full bg-[#fdd8b5] opacity-50", "text": null}
 {"id": "decoration-3", "parentId": "root", "type": "div", "className": "absolute right-[200px] bottom-[80px] w-[40px] h-[40px] rounded-full bg-[#fae3d3] opacity-40", "text": null}
-{"id": "leaf-left", "parentId": "root", "type": "image", "className": "absolute left-[20px] top-[300px] w-[60px] h-[60px] object-contain opacity-80", "text": null, "query": "basil leaf"}
-{"id": "leaf-right", "parentId": "root", "type": "image", "className": "absolute right-[30px] top-[200px] w-[50px] h-[50px] object-contain opacity-80", "text": null, "query": "basil leaf"}
+{"id": "leaf-left", "parentId": "root", "type": "image", "className": "absolute left-[20px] top-[300px] w-[60px] h-[60px] object-cover opacity-80 rounded-full", "text": null, "query": "basil leaf"}
+{"id": "leaf-right", "parentId": "root", "type": "image", "className": "absolute right-[30px] top-[200px] w-[50px] h-[50px] object-cover opacity-80 rounded-full", "text": null, "query": "basil leaf"}

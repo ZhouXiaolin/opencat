@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::nodes::{ImageSource, OpenverseQuery, div, image, text, video};
 use crate::style::{
     AlignItems, ColorToken, FlexDirection, FontWeight, JustifyContent, NodeStyle, ObjectFit,
-    Position, TextAlign,
+    Position, TextAlign, color_token_from_class_suffix,
 };
 use crate::view::Node;
 
@@ -400,48 +400,6 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) {
         // Border
         "border" => style.border_width = Some(1.0),
 
-        // Background colors
-        "bg-white" => style.bg_color = Some(ColorToken::White),
-        "bg-black" => style.bg_color = Some(ColorToken::Black),
-        "bg-red" | "bg-red-500" => style.bg_color = Some(ColorToken::Red),
-        "bg-green" | "bg-green-500" => style.bg_color = Some(ColorToken::Green),
-        "bg-blue" | "bg-blue-500" => style.bg_color = Some(ColorToken::Blue),
-        "bg-yellow" | "bg-yellow-500" => style.bg_color = Some(ColorToken::Yellow),
-        "bg-orange" | "bg-orange-500" => style.bg_color = Some(ColorToken::Orange),
-        "bg-purple" | "bg-purple-500" => style.bg_color = Some(ColorToken::Purple),
-        "bg-pink" | "bg-pink-500" => style.bg_color = Some(ColorToken::Pink),
-        "bg-gray" | "bg-gray-500" => style.bg_color = Some(ColorToken::Gray),
-        "bg-slate-50" => style.bg_color = Some(ColorToken::Slate50),
-        "bg-slate-200" => style.bg_color = Some(ColorToken::Slate200),
-        "bg-slate-300" => style.bg_color = Some(ColorToken::Slate300),
-        "bg-slate-400" => style.bg_color = Some(ColorToken::Slate400),
-        "bg-slate-500" => style.bg_color = Some(ColorToken::Slate500),
-        "bg-slate-600" => style.bg_color = Some(ColorToken::Slate600),
-        "bg-slate-700" => style.bg_color = Some(ColorToken::Slate700),
-        "bg-slate-900" => style.bg_color = Some(ColorToken::Slate900),
-        "bg-primary" => style.bg_color = Some(ColorToken::Primary),
-
-        // Text colors
-        "text-white" => style.text_color = Some(ColorToken::White),
-        "text-black" => style.text_color = Some(ColorToken::Black),
-        "text-red" | "text-red-500" => style.text_color = Some(ColorToken::Red),
-        "text-green" | "text-green-500" => style.text_color = Some(ColorToken::Green),
-        "text-blue" | "text-blue-500" => style.text_color = Some(ColorToken::Blue),
-        "text-yellow" | "text-yellow-500" => style.text_color = Some(ColorToken::Yellow),
-        "text-orange" | "text-orange-500" => style.text_color = Some(ColorToken::Orange),
-        "text-purple" | "text-purple-500" => style.text_color = Some(ColorToken::Purple),
-        "text-pink" | "text-pink-500" => style.text_color = Some(ColorToken::Pink),
-        "text-gray" | "text-gray-500" => style.text_color = Some(ColorToken::Gray),
-        "text-slate-50" => style.text_color = Some(ColorToken::Slate50),
-        "text-slate-200" => style.text_color = Some(ColorToken::Slate200),
-        "text-slate-300" => style.text_color = Some(ColorToken::Slate300),
-        "text-slate-400" => style.text_color = Some(ColorToken::Slate400),
-        "text-slate-500" => style.text_color = Some(ColorToken::Slate500),
-        "text-slate-600" => style.text_color = Some(ColorToken::Slate600),
-        "text-slate-700" => style.text_color = Some(ColorToken::Slate700),
-        "text-slate-900" => style.text_color = Some(ColorToken::Slate900),
-        "text-primary" => style.text_color = Some(ColorToken::Primary),
-
         // Text alignment
         "text-left" => style.text_align = Some(TextAlign::Left),
         "text-center" => style.text_align = Some(TextAlign::Center),
@@ -754,7 +712,7 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
 
     if let Some(value) = class.strip_prefix("border-color-[") {
         if let Some(v) = value.strip_suffix("]") {
-            if let Some(c) = color_from_name(v) {
+            if let Some(c) = color_token_from_class_suffix(v) {
                 style.border_color = Some(c);
                 return;
             }
@@ -794,17 +752,26 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
         }
     }
 
-    if let Some(color) = class.strip_prefix("bg-").and_then(color_from_name) {
+    if let Some(color) = class
+        .strip_prefix("bg-")
+        .and_then(color_token_from_class_suffix)
+    {
         style.bg_color = Some(color);
         return;
     }
 
-    if let Some(color) = class.strip_prefix("text-").and_then(color_from_name) {
+    if let Some(color) = class
+        .strip_prefix("text-")
+        .and_then(color_token_from_class_suffix)
+    {
         style.text_color = Some(color);
         return;
     }
 
-    if let Some(color) = class.strip_prefix("border-").and_then(color_from_name) {
+    if let Some(color) = class
+        .strip_prefix("border-")
+        .and_then(color_token_from_class_suffix)
+    {
         style.border_color = Some(color);
         return;
     }
@@ -927,34 +894,6 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
         if let Ok(n) = class[9..].parse::<f32>() {
             style.letter_spacing = Some(n);
         }
-    }
-}
-
-fn color_from_name(name: &str) -> Option<ColorToken> {
-    match name {
-        "white" => Some(ColorToken::White),
-        "black" => Some(ColorToken::Black),
-        "red" | "red-500" => Some(ColorToken::Red),
-        "green" | "green-500" => Some(ColorToken::Green),
-        "blue" | "blue-400" | "blue-500" => Some(ColorToken::Blue),
-        "teal-400" => Some(ColorToken::Teal400),
-        "teal-500" => Some(ColorToken::Teal500),
-        "yellow" | "yellow-500" => Some(ColorToken::Yellow),
-        "orange" | "orange-500" => Some(ColorToken::Orange),
-        "purple" | "purple-500" => Some(ColorToken::Purple),
-        "pink" | "pink-500" => Some(ColorToken::Pink),
-        "gray" | "gray-500" => Some(ColorToken::Gray),
-        "slate-50" => Some(ColorToken::Slate50),
-        "slate-200" => Some(ColorToken::Slate200),
-        "slate-300" => Some(ColorToken::Slate300),
-        "slate-400" => Some(ColorToken::Slate400),
-        "slate-500" => Some(ColorToken::Slate500),
-        "slate-600" => Some(ColorToken::Slate600),
-        "slate-700" => Some(ColorToken::Slate700),
-        "slate-800" => Some(ColorToken::Slate800),
-        "slate-900" => Some(ColorToken::Slate900),
-        "primary" => Some(ColorToken::Primary),
-        _ => None,
     }
 }
 

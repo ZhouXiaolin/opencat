@@ -1,61 +1,6 @@
 use skia_safe::Color;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ColorToken {
-    White,
-    Black,
-    Red,
-    Green,
-    Blue,
-    Teal400,
-    Teal500,
-    Yellow,
-    Orange,
-    Purple,
-    Pink,
-    Gray,
-    Slate50,
-    Slate200,
-    Slate300,
-    Slate400,
-    Slate500,
-    Slate600,
-    Slate700,
-    Slate800,
-    Slate900,
-    Primary,
-    Custom(u8, u8, u8, u8),
-}
-
-impl ColorToken {
-    pub fn to_skia(self) -> Color {
-        match self {
-            ColorToken::White => Color::WHITE,
-            ColorToken::Black => Color::BLACK,
-            ColorToken::Red => Color::RED,
-            ColorToken::Green => Color::from_rgb(0x22, 0xc5, 0x5e), // Tailwind green-500
-            ColorToken::Blue => Color::from_rgb(0x3b, 0x82, 0xf6),  // Tailwind blue-500
-            ColorToken::Teal400 => Color::from_rgb(0x2d, 0xd4, 0xbf),
-            ColorToken::Teal500 => Color::from_rgb(0x14, 0xb8, 0xa6),
-            ColorToken::Yellow => Color::from_rgb(0xea, 0xb3, 0x08), // Tailwind yellow-500
-            ColorToken::Orange => Color::from_rgb(0xf9, 0x73, 0x16), // Tailwind orange-500
-            ColorToken::Purple => Color::from_rgb(0xa8, 0x55, 0xf7), // Tailwind purple-500
-            ColorToken::Pink => Color::from_rgb(0xec, 0x48, 0x99),   // Tailwind pink-500
-            ColorToken::Gray => Color::from_rgb(0x6b, 0x72, 0x80),   // Tailwind gray-500
-            ColorToken::Slate50 => Color::from_rgb(0xf8, 0xfa, 0xfc),
-            ColorToken::Slate200 => Color::from_rgb(0xe2, 0xe8, 0xf0),
-            ColorToken::Slate300 => Color::from_rgb(0xcb, 0xd5, 0xe1),
-            ColorToken::Slate400 => Color::from_rgb(0x94, 0xa3, 0xb8),
-            ColorToken::Slate500 => Color::from_rgb(0x64, 0x74, 0x8b),
-            ColorToken::Slate600 => Color::from_rgb(0x47, 0x55, 0x69),
-            ColorToken::Slate700 => Color::from_rgb(0x33, 0x41, 0x55),
-            ColorToken::Slate800 => Color::from_rgb(0x1e, 0x29, 0x3b),
-            ColorToken::Slate900 => Color::from_rgb(0x0f, 0x17, 0x2a),
-            ColorToken::Primary => Color::from_rgb(0x3b, 0x82, 0xf6), // Same as blue-500
-            ColorToken::Custom(r, g, b, a) => Color::from_argb(a, r, g, b),
-        }
-    }
-}
+include!(concat!(env!("OUT_DIR"), "/tailwind_color_items.rs"));
 
 /// Position mode - Tailwind: relative, absolute
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
@@ -595,106 +540,10 @@ macro_rules! impl_node_style_api {
                 self
             }
 
-            pub fn border_slate_200(self) -> Self {
-                self.border_color($crate::style::ColorToken::Slate200)
-            }
-
-            pub fn border_slate_300(self) -> Self {
-                self.border_color($crate::style::ColorToken::Slate300)
-            }
-
-            pub fn border_slate_700(self) -> Self {
-                self.border_color($crate::style::ColorToken::Slate700)
-            }
-
             // === Visual: Background Colors ===
             pub fn bg(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.bg_color = Some(color);
                 self
-            }
-
-            pub fn bg_white(self) -> Self {
-                self.bg($crate::style::ColorToken::White)
-            }
-
-            pub fn bg_black(self) -> Self {
-                self.bg($crate::style::ColorToken::Black)
-            }
-
-            pub fn bg_red(self) -> Self {
-                self.bg($crate::style::ColorToken::Red)
-            }
-
-            pub fn bg_green(self) -> Self {
-                self.bg($crate::style::ColorToken::Green)
-            }
-
-            pub fn bg_blue(self) -> Self {
-                self.bg($crate::style::ColorToken::Blue)
-            }
-
-            pub fn bg_yellow(self) -> Self {
-                self.bg($crate::style::ColorToken::Yellow)
-            }
-
-            pub fn bg_teal_400(self) -> Self {
-                self.bg($crate::style::ColorToken::Teal400)
-            }
-
-            pub fn bg_teal_500(self) -> Self {
-                self.bg($crate::style::ColorToken::Teal500)
-            }
-
-            pub fn bg_orange(self) -> Self {
-                self.bg($crate::style::ColorToken::Orange)
-            }
-
-            pub fn bg_purple(self) -> Self {
-                self.bg($crate::style::ColorToken::Purple)
-            }
-
-            pub fn bg_pink(self) -> Self {
-                self.bg($crate::style::ColorToken::Pink)
-            }
-
-            pub fn bg_gray(self) -> Self {
-                self.bg($crate::style::ColorToken::Gray)
-            }
-
-            pub fn bg_slate_50(self) -> Self {
-                self.bg($crate::style::ColorToken::Slate50)
-            }
-
-            pub fn bg_slate_200(self) -> Self {
-                self.bg($crate::style::ColorToken::Slate200)
-            }
-
-            pub fn bg_slate_300(self) -> Self {
-                self.bg($crate::style::ColorToken::Slate300)
-            }
-
-            pub fn bg_slate_400(self) -> Self {
-                self.bg($crate::style::ColorToken::Slate400)
-            }
-
-            pub fn bg_slate_500(self) -> Self {
-                self.bg($crate::style::ColorToken::Slate500)
-            }
-
-            pub fn bg_slate_600(self) -> Self {
-                self.bg($crate::style::ColorToken::Slate600)
-            }
-
-            pub fn bg_slate_700(self) -> Self {
-                self.bg($crate::style::ColorToken::Slate700)
-            }
-
-            pub fn bg_slate_800(self) -> Self {
-                self.bg($crate::style::ColorToken::Slate800)
-            }
-
-            pub fn bg_slate_900(self) -> Self {
-                self.bg($crate::style::ColorToken::Slate900)
             }
 
             pub fn bg_primary(self) -> Self {
@@ -710,78 +559,6 @@ macro_rules! impl_node_style_api {
             pub fn text_px(mut self, px: f32) -> Self {
                 self.style.text_px = Some(px);
                 self
-            }
-
-            pub fn text_white(self) -> Self {
-                self.text_color($crate::style::ColorToken::White)
-            }
-
-            pub fn text_black(self) -> Self {
-                self.text_color($crate::style::ColorToken::Black)
-            }
-
-            pub fn text_red(self) -> Self {
-                self.text_color($crate::style::ColorToken::Red)
-            }
-
-            pub fn text_green(self) -> Self {
-                self.text_color($crate::style::ColorToken::Green)
-            }
-
-            pub fn text_blue(self) -> Self {
-                self.text_color($crate::style::ColorToken::Blue)
-            }
-
-            pub fn text_yellow(self) -> Self {
-                self.text_color($crate::style::ColorToken::Yellow)
-            }
-
-            pub fn text_teal_400(self) -> Self {
-                self.text_color($crate::style::ColorToken::Teal400)
-            }
-
-            pub fn text_teal_500(self) -> Self {
-                self.text_color($crate::style::ColorToken::Teal500)
-            }
-
-            pub fn text_orange(self) -> Self {
-                self.text_color($crate::style::ColorToken::Orange)
-            }
-
-            pub fn text_purple(self) -> Self {
-                self.text_color($crate::style::ColorToken::Purple)
-            }
-
-            pub fn text_pink(self) -> Self {
-                self.text_color($crate::style::ColorToken::Pink)
-            }
-
-            pub fn text_gray(self) -> Self {
-                self.text_color($crate::style::ColorToken::Gray)
-            }
-
-            pub fn text_slate_400(self) -> Self {
-                self.text_color($crate::style::ColorToken::Slate400)
-            }
-
-            pub fn text_slate_500(self) -> Self {
-                self.text_color($crate::style::ColorToken::Slate500)
-            }
-
-            pub fn text_slate_600(self) -> Self {
-                self.text_color($crate::style::ColorToken::Slate600)
-            }
-
-            pub fn text_slate_700(self) -> Self {
-                self.text_color($crate::style::ColorToken::Slate700)
-            }
-
-            pub fn text_slate_800(self) -> Self {
-                self.text_color($crate::style::ColorToken::Slate800)
-            }
-
-            pub fn text_slate_900(self) -> Self {
-                self.text_color($crate::style::ColorToken::Slate900)
             }
 
             pub fn text_primary(self) -> Self {
@@ -889,3 +666,36 @@ macro_rules! impl_node_style_api {
 }
 
 pub(crate) use impl_node_style_api;
+
+include!(concat!(env!("OUT_DIR"), "/tailwind_color_inherent_impls.rs"));
+
+#[cfg(test)]
+mod tests {
+    use super::{ColorToken, color_token_from_class_suffix, color_token_from_script_name};
+
+    #[test]
+    fn generated_tailwind_palette_supports_numbered_classes() {
+        assert_eq!(
+            color_token_from_class_suffix("slate-950"),
+            Some(ColorToken::Slate950)
+        );
+        assert_eq!(
+            color_token_from_class_suffix("emerald-300"),
+            Some(ColorToken::Emerald300)
+        );
+    }
+
+    #[test]
+    fn generated_tailwind_palette_keeps_family_aliases_and_script_names() {
+        assert_eq!(color_token_from_class_suffix("blue"), Some(ColorToken::Blue));
+        assert_eq!(
+            color_token_from_script_name("blue500"),
+            Some(ColorToken::Blue500)
+        );
+        assert_eq!(
+            color_token_from_script_name("slate_700"),
+            Some(ColorToken::Slate700)
+        );
+        assert_eq!(color_token_from_script_name("primary"), Some(ColorToken::Primary));
+    }
+}

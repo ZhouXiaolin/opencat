@@ -1,0 +1,21 @@
+{"type": "composition", "width": 1280, "height": 720, "fps": 30, "frames": 180}
+{"id": "root", "parentId": null, "type": "div", "className": "flex flex-col justify-start items-center w-[1280px] h-[720px] relative", "text": null}
+{"id": "bg", "parentId": "root", "type": "div", "className": "absolute w-[1280px] h-[720px] bg-[#fff8f0]", "text": null}
+{"id": "hero-img", "parentId": "root", "type": "image", "className": "absolute left-[640px] top-[120px] w-[520px] h-[400px] object-cover rounded-xl", "text": null, "query": "pizza margherita"}
+{"id": "brand-box", "parentId": "root", "type": "div", "className": "absolute left-[80px] top-[160px] flex flex-col gap-[24px]", "text": null}
+{"id": "brand-name", "parentId": "brand-box", "type": "text", "className": "text-[56px] font-bold text-[#e85d04]", "text": "PIZZA PALACE"}
+{"id": "tagline", "parentId": "brand-box", "type": "text", "className": "text-[24px] text-[#5c4033]", "text": "Authentic Italian Pizza"}
+{"id": "divider", "parentId": "brand-box", "type": "div", "className": "w-[180px] h-[4px] bg-[#e85d04] rounded-full", "text": null}
+{"id": "features", "parentId": "brand-box", "type": "div", "className": "flex flex-col gap-[16px]", "text": null}
+{"id": "feature-1", "parentId": "features", "type": "text", "className": "text-[18px] text-[#6b5344]", "text": "• Fresh Ingredients"}
+{"id": "feature-2", "parentId": "features", "type": "text", "className": "text-[18px] text-[#6b5344]", "text": "• Wood-Fired Oven"}
+{"id": "feature-3", "parentId": "features", "type": "text", "className": "text-[18px] text-[#6b5344]", "text": "• Hand-Tossed Dough"}
+{"id": "cta-box", "parentId": "root", "type": "div", "className": "absolute left-[80px] top-[400px] flex flex-col gap-[16px]", "text": null}
+{"id": "cta-main", "parentId": "cta-box", "type": "div", "className": "px-[32px] py-[16px] bg-[#e85d04] rounded-lg flex items-center justify-center", "text": null}
+{"id": "cta-text", "parentId": "cta-main", "type": "text", "className": "text-[20px] font-semibold text-white", "text": "Order Now"}
+{"id": "cta-sub", "parentId": "cta-box", "type": "text", "className": "text-[14px] text-[#9c8273]", "text": "Free delivery on orders over $30"}
+{"id": "decoration-1", "parentId": "root", "type": "div", "className": "absolute left-[60px] bottom-[40px] w-[80px] h-[80px] rounded-full bg-[#fae3d3] opacity-60", "text": null}
+{"id": "decoration-2", "parentId": "root", "type": "div", "className": "absolute right-[100px] top-[50px] w-[60px] h-[60px] rounded-full bg-[#fdd8b5] opacity-50", "text": null}
+{"id": "decoration-3", "parentId": "root", "type": "div", "className": "absolute right-[200px] bottom-[80px] w-[40px] h-[40px] rounded-full bg-[#fae3d3] opacity-40", "text": null}
+{"id": "leaf-left", "parentId": "root", "type": "image", "className": "absolute left-[20px] top-[300px] w-[60px] h-[60px] object-contain opacity-80", "text": null, "query": "basil leaf"}
+{"id": "leaf-right", "parentId": "root", "type": "image", "className": "absolute right-[30px] top-[200px] w-[50px] h-[50px] object-contain opacity-80", "text": null, "query": "basil leaf"}

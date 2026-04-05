@@ -160,6 +160,7 @@ mod tests {
                         height: 2,
                         object_fit: ObjectFit::Cover,
                     }),
+                    data_id: None,
                 },
                 children: Vec::new(),
             },

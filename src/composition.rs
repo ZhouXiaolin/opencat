@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 
-use crate::{FrameCtx, Node};
+use crate::{script::ScriptDriver, FrameCtx, Node};
 
 type RootComponent = dyn Fn(&FrameCtx) -> Node + Send + Sync;
 
@@ -13,6 +13,7 @@ pub struct Composition {
     pub fps: u32,
     pub frames: u32,
     pub(crate) root: Arc<RootComponent>,
+    pub(crate) script_driver: Option<Arc<ScriptDriver>>,
 }
 
 pub struct CompositionBuilder {
@@ -22,6 +23,7 @@ pub struct CompositionBuilder {
     fps: u32,
     frames: Option<u32>,
     root: Option<Arc<RootComponent>>,
+    script_driver: Option<Arc<ScriptDriver>>,
 }
 
 impl Composition {
@@ -33,6 +35,7 @@ impl Composition {
             fps: 30,
             frames: None,
             root: None,
+            script_driver: None,
         }
     }
 
@@ -66,6 +69,11 @@ impl CompositionBuilder {
         self
     }
 
+    pub fn script_driver(mut self, driver: ScriptDriver) -> Self {
+        self.script_driver = Some(Arc::new(driver));
+        self
+    }
+
     pub fn build(self) -> Result<Composition> {
         let root = self
             .root
@@ -94,6 +102,7 @@ impl CompositionBuilder {
             fps: self.fps,
             frames,
             root,
+            script_driver: self.script_driver,
         })
     }
 }

@@ -9,6 +9,7 @@ use crate::{
     },
     media::MediaContext,
     nodes::{Div, Image, Text, Video},
+    script::StyleMutations,
     style::{resolve_text_style, ComputedTextStyle, NodeStyle},
     transitions::TransitionNode,
     view::{ComponentNode, NodeKind},
@@ -33,6 +34,7 @@ struct ResolveContext<'a> {
     ids: &'a mut ElementIdAllocator,
     inherited_text: &'a ComputedTextStyle,
     assets: &'a mut AssetsMap,
+    mutations: Option<&'a StyleMutations>,
 }
 
 pub fn resolve_ui_tree(
@@ -40,6 +42,7 @@ pub fn resolve_ui_tree(
     frame_ctx: &FrameCtx,
     media: &mut MediaContext,
     assets: &mut AssetsMap,
+    mutations: Option<&StyleMutations>,
 ) -> ElementNode {
     let mut ids = ElementIdAllocator::default();
     let inherited_text = ComputedTextStyle::default();
@@ -48,6 +51,7 @@ pub fn resolve_ui_tree(
         ids: &mut ids,
         inherited_text: &inherited_text,
         assets,
+        mutations,
     };
     resolve_node(node, &mut cx, media)
 }
@@ -73,7 +77,12 @@ fn resolve_component(
 }
 
 fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>, media: &mut MediaContext) -> ElementNode {
-    let computed = compute_style(div.style_ref(), cx.inherited_text);
+    let mut style = div.style_ref().clone();
+    let data_id = style.data_id.clone();
+    if let Some(mutations) = cx.mutations {
+        mutations.apply_to_node(&mut style, &data_id);
+    }
+    let computed = compute_style(&style, cx.inherited_text);
     let mut children = Vec::new();
     for child in div.children_ref() {
         let mut child_cx = ResolveContext {
@@ -81,6 +90,7 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>, media: &mut MediaContext)
             ids: cx.ids,
             inherited_text: &computed.text,
             assets: cx.assets,
+            mutations: cx.mutations,
         };
         children.push(resolve_node(child, &mut child_cx, media));
     }
@@ -94,7 +104,12 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>, media: &mut MediaContext)
 }
 
 fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> ElementNode {
-    let computed = compute_style(text.style_ref(), cx.inherited_text);
+    let mut style = text.style_ref().clone();
+    let data_id = style.data_id.clone();
+    if let Some(mutations) = cx.mutations {
+        mutations.apply_to_node(&mut style, &data_id);
+    }
+    let computed = compute_style(&style, cx.inherited_text);
 
     ElementNode {
         id: cx.ids.alloc(),
@@ -112,7 +127,12 @@ fn resolve_video(
     cx: &mut ResolveContext<'_>,
     media: &mut MediaContext,
 ) -> ElementNode {
-    let computed = compute_style(video.style_ref(), cx.inherited_text);
+    let mut style = video.style_ref().clone();
+    let data_id = style.data_id.clone();
+    if let Some(mutations) = cx.mutations {
+        mutations.apply_to_node(&mut style, &data_id);
+    }
+    let computed = compute_style(&style, cx.inherited_text);
 
     let info = media
         .video_info(video.source())
@@ -142,7 +162,12 @@ fn resolve_image(
     cx: &mut ResolveContext<'_>,
     _media: &mut MediaContext,
 ) -> ElementNode {
-    let computed = compute_style(image.style_ref(), cx.inherited_text);
+    let mut style = image.style_ref().clone();
+    let data_id = style.data_id.clone();
+    if let Some(mutations) = cx.mutations {
+        mutations.apply_to_node(&mut style, &data_id);
+    }
+    let computed = compute_style(&style, cx.inherited_text);
 
     let asset_id = cx.assets.register(image.source());
     let (width, height) = cx.assets.dimensions(&asset_id);
@@ -164,10 +189,15 @@ fn resolve_transition(
     cx: &mut ResolveContext<'_>,
     media: &mut MediaContext,
 ) -> ElementNode {
+    let mut style = transition.style_ref().clone();
+    let data_id = style.data_id.clone();
+    if let Some(mutations) = cx.mutations {
+        mutations.apply_to_node(&mut style, &data_id);
+    }
     let from = Box::new(resolve_node(transition.from_node(), cx, media));
     let to = Box::new(resolve_node(transition.to_node(), cx, media));
     let (progress, kind) = transition.params();
-    let computed = compute_style(transition.style_ref(), cx.inherited_text);
+    let computed = compute_style(&style, cx.inherited_text);
 
     ElementNode {
         id: cx.ids.alloc(),
@@ -214,5 +244,6 @@ fn compute_style(style: &NodeStyle, inherited_text: &ComputedTextStyle) -> Compu
             shadow: style.shadow,
         },
         text,
+        data_id: style.data_id.clone(),
     }
 }

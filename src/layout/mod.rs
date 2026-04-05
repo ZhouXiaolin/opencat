@@ -202,6 +202,7 @@ fn build_layout_tree(
                     })
                 }
             },
+            data_id: element.style.data_id.clone(),
         },
         children,
     })

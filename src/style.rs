@@ -172,6 +172,9 @@ pub struct NodeStyle {
 
     // Shadow
     pub shadow: Option<ShadowStyle>,
+
+    // Identity (for JS animation targeting)
+    pub data_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -779,6 +782,12 @@ macro_rules! impl_node_style_api {
 
             pub fn tracking_wider(self) -> Self {
                 self.letter_spacing(1.0)
+            }
+
+            // === Data Attributes (for JS animation targeting) ===
+            pub fn data_id(mut self, id: &str) -> Self {
+                self.style.data_id = Some(id.to_string());
+                self
             }
         }
     };

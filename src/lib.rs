@@ -8,6 +8,7 @@ pub mod layout;
 pub mod media;
 pub mod nodes;
 pub mod render;
+pub mod script;
 pub mod style;
 pub mod transitions;
 pub mod typography;
@@ -17,6 +18,7 @@ pub use composition::Composition;
 pub use frame_ctx::FrameCtx;
 pub use nodes::{div, image, text, video};
 pub use render::{EncodingConfig, Mp4Config, OutputFormat};
+pub use script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use transitions::{
     light_leak, linear, slide, transition_series, TransitionKind, TransitionSeries,
 };

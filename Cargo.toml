@@ -13,3 +13,5 @@ skia-safe = "0.93.1"
 taffy = "0.10.0"
 # opencat-macros = { path = "opencat-macros" }
 image = "0.25.10"
+serde_json = "1.0"
+rquickjs = { version = "0.9", features = ["futures"] }

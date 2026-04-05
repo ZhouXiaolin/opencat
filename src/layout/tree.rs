@@ -29,6 +29,7 @@ pub struct LayoutTree {
 pub struct LayoutPaint {
     pub visual: ComputedVisualStyle,
     pub kind: LayoutPaintKind,
+    pub data_id: Option<String>,
 }
 
 #[derive(Clone, Debug)]

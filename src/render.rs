@@ -215,8 +215,14 @@ fn render_frame_surface(
         frames: composition.frames,
     };
 
+    let mutations = if let Some(driver) = &composition.script_driver {
+        Some(driver.run(frame_index, composition.frames)?)
+    } else {
+        None
+    };
+
     let node = composition.root_node(&frame_ctx);
-    let element_root = resolve_ui_tree(&node, &frame_ctx, media_ctx, assets);
+    let element_root = resolve_ui_tree(&node, &frame_ctx, media_ctx, assets, mutations.as_ref());
     let layout_tree = compute_layout(&element_root, &frame_ctx)?;
 
     let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))

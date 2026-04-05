@@ -345,7 +345,8 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     output.push_str("        match self {\n");
     output.push_str(&indent_block(&generate_match_arms(colors), 3));
     output.push_str("            ColorToken::Primary => ColorToken::Blue.to_skia(),\n");
-    output.push_str("            ColorToken::Custom(r, g, b, a) => Color::from_argb(a, r, g, b),\n");
+    output
+        .push_str("            ColorToken::Custom(r, g, b, a) => Color::from_argb(a, r, g, b),\n");
     output.push_str("        }\n");
     output.push_str("    }\n");
     output.push_str("}\n\n");
@@ -389,7 +390,12 @@ fn indent_block(block: &str, level: usize) -> String {
 
 fn generate_inherent_impls(colors: &[GeneratedColor]) -> String {
     let mut output = String::new();
-    for ty in ["crate::nodes::Div", "crate::nodes::Image", "crate::nodes::Text", "crate::nodes::Video"] {
+    for ty in [
+        "crate::nodes::Div",
+        "crate::nodes::Image",
+        "crate::nodes::Text",
+        "crate::nodes::Video",
+    ] {
         let _ = writeln!(output, "impl {ty} {{");
         for color in colors {
             let _ = writeln!(

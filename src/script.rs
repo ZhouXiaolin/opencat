@@ -262,6 +262,66 @@ pub struct ScriptDriver {
     source: String,
 }
 
+const PROXY_RUNTIME: &str = r#"
+(function() {
+    function applyMutation(id, prop, value) {
+        switch (prop) {
+            case 'opacity': __record_opacity(id, value); break;
+            case 'translateX': __record_translate_x(id, value); break;
+            case 'translateY': __record_translate_y(id, value); break;
+            case 'scale': __record_scale(id, value); break;
+            case 'scaleX': __record_scale_x(id, value); break;
+            case 'scaleY': __record_scale_y(id, value); break;
+            case 'rotate': __record_rotate(id, value); break;
+            case 'skewX': __record_skew_x(id, value); break;
+            case 'skewY': __record_skew_y(id, value); break;
+            case 'position': __record_position(id, String(value)); break;
+            case 'left': __record_left(id, value); break;
+            case 'top': __record_top(id, value); break;
+            case 'right': __record_right(id, value); break;
+            case 'bottom': __record_bottom(id, value); break;
+            case 'width': __record_width(id, value); break;
+            case 'height': __record_height(id, value); break;
+            case 'padding': __record_padding(id, value); break;
+            case 'paddingX': __record_padding_x(id, value); break;
+            case 'paddingY': __record_padding_y(id, value); break;
+            case 'margin': __record_margin(id, value); break;
+            case 'marginX': __record_margin_x(id, value); break;
+            case 'marginY': __record_margin_y(id, value); break;
+            case 'flexDirection': __record_flex_direction(id, String(value)); break;
+            case 'justifyContent': __record_justify_content(id, String(value)); break;
+            case 'alignItems': __record_align_items(id, String(value)); break;
+            case 'gap': __record_gap(id, value); break;
+            case 'flexGrow': __record_flex_grow(id, value); break;
+            case 'bg': __record_bg(id, String(value)); break;
+            case 'borderRadius': __record_border_radius(id, value); break;
+            case 'borderWidth': __record_border_width(id, value); break;
+            case 'borderColor': __record_border_color(id, String(value)); break;
+            case 'objectFit': __record_object_fit(id, String(value)); break;
+            case 'textColor': __record_text_color(id, String(value)); break;
+            case 'textSize': __record_text_size(id, value); break;
+            case 'fontWeight': __record_font_weight(id, String(value)); break;
+            case 'letterSpacing': __record_letter_spacing(id, value); break;
+            case 'shadow': __record_shadow(id, String(value)); break;
+        }
+    }
+
+    const nodeCache = {};
+
+    ctx.getNode = function(id) {
+        if (!nodeCache[id]) {
+            nodeCache[id] = new Proxy({}, {
+                set(target, prop, value) {
+                    applyMutation(id, prop, value);
+                    return true;
+                }
+            });
+        }
+        return nodeCache[id];
+    };
+})();
+"#;
+
 impl ScriptDriver {
     pub fn from_source(source: &str) -> anyhow::Result<Self> {
         Ok(Self {
@@ -284,7 +344,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_opacity",
+                "__record_opacity",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().opacity = Some(v);
@@ -293,7 +353,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_translate_x",
+                "__record_translate_x",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id)
@@ -305,7 +365,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_translate_y",
+                "__record_translate_y",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id)
@@ -317,7 +377,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_scale",
+                "__record_scale",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id)
@@ -329,7 +389,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_scale_x",
+                "__record_scale_x",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id)
@@ -341,7 +401,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_scale_y",
+                "__record_scale_y",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id)
@@ -353,7 +413,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_rotate",
+                "__record_rotate",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id)
@@ -365,7 +425,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_skew_x",
+                "__record_skew_x",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id)
@@ -377,7 +437,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_skew_y",
+                "__record_skew_y",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id)
@@ -389,7 +449,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_position",
+                "__record_position",
                 Function::new(ctx.clone(), move |id: String, v: String| {
                     if let Some(pos) = position_from_name(&v) {
                         let mut map = s.lock().unwrap();
@@ -400,7 +460,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_left",
+                "__record_left",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().inset_left = Some(v);
@@ -409,7 +469,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_top",
+                "__record_top",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().inset_top = Some(v);
@@ -418,7 +478,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_right",
+                "__record_right",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().inset_right = Some(v);
@@ -427,7 +487,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_bottom",
+                "__record_bottom",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().inset_bottom = Some(v);
@@ -436,7 +496,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_width",
+                "__record_width",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().width = Some(v);
@@ -445,7 +505,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_height",
+                "__record_height",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().height = Some(v);
@@ -454,7 +514,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_padding",
+                "__record_padding",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().padding = Some(v);
@@ -463,7 +523,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_padding_x",
+                "__record_padding_x",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().padding_x = Some(v);
@@ -472,7 +532,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_padding_y",
+                "__record_padding_y",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().padding_y = Some(v);
@@ -481,7 +541,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_margin",
+                "__record_margin",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().margin = Some(v);
@@ -490,7 +550,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_margin_x",
+                "__record_margin_x",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().margin_x = Some(v);
@@ -499,7 +559,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_margin_y",
+                "__record_margin_y",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().margin_y = Some(v);
@@ -508,7 +568,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_flex_direction",
+                "__record_flex_direction",
                 Function::new(ctx.clone(), move |id: String, v: String| {
                     if let Some(fd) = flex_direction_from_name(&v) {
                         let mut map = s.lock().unwrap();
@@ -519,7 +579,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_justify_content",
+                "__record_justify_content",
                 Function::new(ctx.clone(), move |id: String, v: String| {
                     if let Some(jc) = justify_content_from_name(&v) {
                         let mut map = s.lock().unwrap();
@@ -530,7 +590,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_align_items",
+                "__record_align_items",
                 Function::new(ctx.clone(), move |id: String, v: String| {
                     if let Some(ai) = align_items_from_name(&v) {
                         let mut map = s.lock().unwrap();
@@ -541,7 +601,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_gap",
+                "__record_gap",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().gap = Some(v);
@@ -550,7 +610,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_flex_grow",
+                "__record_flex_grow",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().flex_grow = Some(v);
@@ -559,7 +619,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_bg",
+                "__record_bg",
                 Function::new(ctx.clone(), move |id: String, v: String| {
                     if let Some(c) = color_from_name(&v) {
                         let mut map = s.lock().unwrap();
@@ -570,7 +630,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_border_radius",
+                "__record_border_radius",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().border_radius = Some(v);
@@ -579,7 +639,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_border_width",
+                "__record_border_width",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().border_width = Some(v);
@@ -588,7 +648,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_border_color",
+                "__record_border_color",
                 Function::new(ctx.clone(), move |id: String, v: String| {
                     if let Some(c) = color_from_name(&v) {
                         let mut map = s.lock().unwrap();
@@ -599,7 +659,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_object_fit",
+                "__record_object_fit",
                 Function::new(ctx.clone(), move |id: String, v: String| {
                     if let Some(of) = object_fit_from_name(&v) {
                         let mut map = s.lock().unwrap();
@@ -610,7 +670,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_text_color",
+                "__record_text_color",
                 Function::new(ctx.clone(), move |id: String, v: String| {
                     if let Some(c) = color_from_name(&v) {
                         let mut map = s.lock().unwrap();
@@ -621,7 +681,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_text_size",
+                "__record_text_size",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().text_px = Some(v);
@@ -630,7 +690,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_font_weight",
+                "__record_font_weight",
                 Function::new(ctx.clone(), move |id: String, v: String| {
                     if let Some(fw) = font_weight_from_name(&v) {
                         let mut map = s.lock().unwrap();
@@ -641,7 +701,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_letter_spacing",
+                "__record_letter_spacing",
                 Function::new(ctx.clone(), move |id: String, v: f32| {
                     let mut map = s.lock().unwrap();
                     map.entry(id).or_default().letter_spacing = Some(v);
@@ -650,7 +710,7 @@ impl ScriptDriver {
 
             let s = store.clone();
             globals.set(
-                "set_shadow",
+                "__record_shadow",
                 Function::new(ctx.clone(), move |id: String, v: String| {
                     if let Some(sh) = shadow_from_name(&v) {
                         let mut map = s.lock().unwrap();
@@ -664,6 +724,7 @@ impl ScriptDriver {
             ctx_obj.set("totalFrames", total_frames)?;
             globals.set("ctx", ctx_obj)?;
 
+            ctx.eval::<(), _>(PROXY_RUNTIME)?;
             ctx.eval::<(), _>(self.source.as_str())?;
 
             Ok::<_, anyhow::Error>(())

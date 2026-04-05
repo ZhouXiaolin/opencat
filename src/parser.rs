@@ -790,7 +790,7 @@ mod tests {
         let parsed = parse(
             r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":90}
 {"id":1,"parentId":null,"type":"div","className":"flex","text":null}
-{"type":"script","content":"ctx.getNode('1').opacity = 0.5;"}"#,
+{"type":"script","content":"ctx.getNode('1').opacity(0.5);"}"#,
         )
         .expect("jsonl should parse");
 
@@ -798,7 +798,7 @@ mod tests {
         assert_eq!(parsed.height, 360);
         assert_eq!(
             parsed.script.as_deref(),
-            Some("ctx.getNode('1').opacity = 0.5;")
+            Some("ctx.getNode('1').opacity(0.5);")
         );
     }
 

@@ -1,8 +1,6 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
+use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc};
 
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow};
 use skia_safe::{
     Canvas, Data, Image as SkiaImage, ImageInfo, Paint, PaintStyle, RRect, Rect,
     canvas::SrcRectConstraint, images,
@@ -22,7 +20,7 @@ use crate::{
     typography,
 };
 
-type ImageCache = Rc<RefCell<HashMap<String, Option<SkiaImage>>>>;
+pub(crate) type ImageCache = Rc<RefCell<HashMap<String, Option<SkiaImage>>>>;
 
 pub struct SkiaBackend<'a> {
     canvas: &'a Canvas,
@@ -114,6 +112,7 @@ impl<'a> SkiaBackend<'a> {
                     self.width,
                     self.height,
                     self.assets,
+                    self.image_cache.clone(),
                     &mut self.media_ctx,
                     self.frame_ctx,
                 )?;
@@ -220,6 +219,7 @@ fn draw_text(canvas: &Canvas, text: &TextDisplayItem) {
         text.bounds.x,
         text.bounds.y,
         text.bounds.width,
+        text.allow_wrap,
         &text.style,
     );
 }
@@ -232,52 +232,47 @@ fn draw_bitmap(
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
 ) -> Result<()> {
-    let path = assets.path(&bitmap.asset_id);
-    let is_video = path
-        .and_then(|p| p.extension())
-        .and_then(|e| e.to_str())
-        .map(|e| {
-            matches!(
-                e.to_ascii_lowercase().as_str(),
-                "mp4" | "mov" | "m4v" | "webm" | "mkv" | "avi"
-            )
-        })
-        .unwrap_or(false);
+    let path = assets
+        .path(&bitmap.asset_id)
+        .ok_or_else(|| anyhow!("missing asset path for {}", bitmap.asset_id.0))?;
 
-    let image = if is_video {
-        let Some(media) = media_ctx.as_mut() else {
-            return Ok(());
-        };
+    let image = if is_video_path(path) {
+        let media = media_ctx
+            .as_deref_mut()
+            .ok_or_else(|| anyhow!("video asset requires media context: {}", path.display()))?;
         let target_time = frame_ctx.frame as f64 / frame_ctx.fps as f64;
-        let Some(path) = path else { return Ok(()) };
-        let (data, _width, _height) = match media.get_bitmap(path, target_time) {
-            Ok(result) => result,
-            Err(_) => return Ok(()),
-        };
+        let (data, width, height) = media
+            .get_bitmap(path, target_time)
+            .with_context(|| format!("failed to decode video frame: {}", path.display()))?;
         let info = ImageInfo::new(
-            (_width as i32, _height as i32),
+            (width as i32, height as i32),
             skia_safe::ColorType::RGBA8888,
             skia_safe::AlphaType::Unpremul,
             None,
         );
-        images::raster_from_data(&info, Data::new_copy(&data), _width as usize * 4)
+        images::raster_from_data(&info, Data::new_copy(&data), width as usize * 4).ok_or_else(
+            || {
+                anyhow!(
+                    "failed to create skia image from video frame: {}",
+                    path.display()
+                )
+            },
+        )?
     } else {
         let key = bitmap.asset_id.0.clone();
         let mut cache = image_cache.borrow_mut();
         if let Some(Some(img)) = cache.get(&key) {
-            Some(img.clone())
+            img.clone()
         } else {
-            let img = assets.path(&bitmap.asset_id).and_then(|p| {
-                let encoded = std::fs::read(p).ok()?;
-                let data = skia_safe::Data::new_copy(&encoded);
-                skia_safe::Image::from_encoded(data)
-            });
-            cache.insert(key, img.clone());
-            img
+            let encoded = std::fs::read(path)
+                .with_context(|| format!("failed to read image asset: {}", path.display()))?;
+            let data = skia_safe::Data::new_copy(&encoded);
+            let image = skia_safe::Image::from_encoded(data)
+                .ok_or_else(|| anyhow!("failed to decode image asset: {}", path.display()))?;
+            cache.insert(key, Some(image.clone()));
+            image
         }
     };
-
-    let Some(image) = image else { return Ok(()) };
 
     let dst = layout_rect_to_skia(bitmap.bounds);
     let mut paint = Paint::default();
@@ -397,4 +392,20 @@ fn cover_src_rect(src_width: f32, src_height: f32, dst: Rect) -> Rect {
     let y = (src_height - visible_height) / 2.0;
 
     Rect::from_xywh(x, y, visible_width, visible_height)
+}
+
+fn is_video_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "mp4" | "mov" | "m4v" | "webm" | "mkv" | "avi"
+            )
+        })
+        .unwrap_or(false)
+}
+
+pub(crate) fn new_image_cache() -> ImageCache {
+    Rc::new(RefCell::new(HashMap::new()))
 }

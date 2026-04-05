@@ -30,7 +30,7 @@ impl Text {
         width: f32,
         computed_style: &ComputedTextStyle,
     ) {
-        typography::draw_text(canvas, &self.text, left, top, width, computed_style);
+        typography::draw_text(canvas, &self.text, left, top, width, true, computed_style);
     }
 }
 

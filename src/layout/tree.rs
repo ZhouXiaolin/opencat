@@ -44,6 +44,7 @@ pub enum LayoutPaintKind {
 pub struct LayoutTextPaint {
     pub text: String,
     pub style: ComputedTextStyle,
+    pub allow_wrap: bool,
 }
 
 #[derive(Clone, Debug)]

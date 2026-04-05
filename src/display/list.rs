@@ -74,6 +74,7 @@ pub struct TextDisplayItem {
     pub bounds: LayoutRect,
     pub text: String,
     pub style: ComputedTextStyle,
+    pub allow_wrap: bool,
 }
 
 #[derive(Clone, Debug)]

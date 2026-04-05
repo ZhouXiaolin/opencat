@@ -92,9 +92,11 @@ pub fn draw_text(
     left: f32,
     top: f32,
     width: f32,
+    allow_wrap: bool,
     style: &ComputedTextStyle,
 ) {
-    let paragraph = make_paragraph(text, style, width);
+    let layout_width = if allow_wrap { width } else { f32::INFINITY };
+    let paragraph = make_paragraph(text, style, layout_width);
     paragraph.paint(canvas, (left, top));
 }
 

@@ -90,6 +90,7 @@ fn push_paint_commands(
                 bounds: rect,
                 text: text.text.clone(),
                 style: text.style,
+                allow_wrap: text.allow_wrap,
             }),
         }),
         LayoutPaintKind::Bitmap(bitmap) => list.push(DisplayCommand::Draw {

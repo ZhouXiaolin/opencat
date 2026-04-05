@@ -25,6 +25,7 @@ use crate::{
 struct TextMeasureContext {
     text: String,
     style: ComputedTextStyle,
+    allow_wrap: bool,
 }
 
 pub fn compute_layout(root: &ElementNode, frame_ctx: &FrameCtx) -> Result<LayoutTree> {
@@ -56,13 +57,17 @@ fn measure_node(
         return taffy::geometry::Size::ZERO;
     };
 
-    let max_width = known_dimensions
-        .width
-        .or_else(|| match available_space.width {
-            AvailableSpace::Definite(width) => Some(width),
-            AvailableSpace::MinContent | AvailableSpace::MaxContent => None,
-        })
-        .unwrap_or(f32::INFINITY);
+    let max_width = if text.allow_wrap {
+        known_dimensions
+            .width
+            .or_else(|| match available_space.width {
+                AvailableSpace::Definite(width) => Some(width),
+                AvailableSpace::MinContent | AvailableSpace::MaxContent => None,
+            })
+            .unwrap_or(f32::INFINITY)
+    } else {
+        f32::INFINITY
+    };
 
     let measured = typography::measure_text_in_width(&text.text, &text.style, max_width);
 
@@ -120,7 +125,7 @@ fn build_taffy_subtree(
         },
         ElementKind::Text(_text) => Style {
             size: taffy::geometry::Size {
-                width: resolve_dimension(layout.width, layout.width_full, Dimension::percent(1.0)),
+                width: resolve_dimension(layout.width, layout.width_full, Dimension::auto()),
                 height: resolve_dimension(layout.height, layout.height_full, Dimension::auto()),
             },
             ..base_style(layout)
@@ -155,6 +160,7 @@ fn build_taffy_subtree(
             TextMeasureContext {
                 text: text.text.clone(),
                 style: text.text_style,
+                allow_wrap: layout.width.is_some() || layout.width_full,
             },
         )?,
         _ if children.is_empty() => taffy.new_leaf(style)?,
@@ -196,6 +202,8 @@ fn build_layout_tree(
                 ElementKind::Text(text) => LayoutPaintKind::Text(LayoutTextPaint {
                     text: text.text.clone(),
                     style: text.text_style,
+                    allow_wrap: element.style.layout.width.is_some()
+                        || element.style.layout.width_full,
                 }),
                 ElementKind::Bitmap(bitmap) => LayoutPaintKind::Bitmap(LayoutBitmapPaint {
                     asset_id: bitmap.asset_id.clone(),
@@ -291,5 +299,38 @@ fn map_align(value: AlignItems) -> taffy::prelude::AlignItems {
         AlignItems::Center => taffy::prelude::AlignItems::Center,
         AlignItems::End => taffy::prelude::AlignItems::FlexEnd,
         AlignItems::Stretch => taffy::prelude::AlignItems::Stretch,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TextMeasureContext, measure_node};
+    use crate::style::ComputedTextStyle;
+    use taffy::{AvailableSpace, geometry::Size};
+
+    #[test]
+    fn auto_width_text_stays_single_line() {
+        let mut ctx = TextMeasureContext {
+            text: "Ordered transforms".to_string(),
+            style: ComputedTextStyle::default(),
+            allow_wrap: false,
+        };
+
+        let measured = measure_node(
+            Size {
+                width: None,
+                height: None,
+            },
+            Size {
+                width: AvailableSpace::Definite(80.0),
+                height: AvailableSpace::Definite(40.0),
+            },
+            Some(&mut ctx),
+        );
+
+        assert!(
+            measured.width > 80.0,
+            "expected auto-width text to ignore narrow available width and remain single-line"
+        );
     }
 }

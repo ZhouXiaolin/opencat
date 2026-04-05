@@ -1,6 +1,6 @@
 use opencat::{Composition, EncodingConfig, ScriptDriver, parse};
 
-const INPUT: &str = include_str!("../hangzhou-landmarks.jsonl");
+const INPUT: &str = include_str!("hangzhou_landmarks.jsonl");
 fn main() -> anyhow::Result<()> {
     let parsed = parse(INPUT)?;
 

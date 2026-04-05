@@ -13,10 +13,16 @@ use skia_safe::{
 use std::path::Path;
 
 use crate::{
-    Composition, FrameCtx, assets::AssetsMap, backend::skia::SkiaBackend,
-    display::build::build_display_list, element::resolve::resolve_ui_tree, layout::compute_layout,
+    Composition, FrameCtx,
+    assets::AssetsMap,
+    backend::skia::{SkiaBackend, new_image_cache},
+    display::build::build_display_list,
+    element::resolve::resolve_ui_tree,
+    layout::compute_layout,
     media::MediaContext,
+    script::ScriptRunner,
 };
+use std::sync::Arc;
 
 pub enum OutputFormat {
     Mp4(Mp4Config),
@@ -41,6 +47,14 @@ pub struct EncodingConfig {
     pub format: OutputFormat,
 }
 
+pub struct RenderSession {
+    media_ctx: MediaContext,
+    assets: AssetsMap,
+    image_cache: crate::backend::skia::ImageCache,
+    script_runner: Option<ScriptRunner>,
+    script_driver_ptr: Option<usize>,
+}
+
 impl EncodingConfig {
     pub fn mp4() -> Self {
         Self {
@@ -61,6 +75,18 @@ impl EncodingConfig {
     }
 }
 
+impl RenderSession {
+    pub fn new() -> Self {
+        Self {
+            media_ctx: MediaContext::new(),
+            assets: AssetsMap::new(),
+            image_cache: new_image_cache(),
+            script_runner: None,
+            script_driver_ptr: None,
+        }
+    }
+}
+
 impl Composition {
     pub fn render(&self, output_path: impl AsRef<Path>, config: &EncodingConfig) -> Result<()> {
         match &config.format {
@@ -71,9 +97,8 @@ impl Composition {
 }
 
 fn render_png(composition: &Composition, output_path: impl AsRef<Path>) -> Result<()> {
-    let mut media_ctx = MediaContext::new();
-    let mut assets = AssetsMap::new();
-    let mut surface = render_frame_surface(composition, 0, &mut media_ctx, &mut assets)?;
+    let mut session = RenderSession::new();
+    let mut surface = render_frame_surface(composition, 0, &mut session)?;
     let image = surface.image_snapshot();
     let data = image
         .encode(None, EncodedImageFormat::PNG, 100)
@@ -89,8 +114,7 @@ fn render_mp4(
 ) -> Result<()> {
     ffmpeg::init()?;
 
-    let mut media_ctx = MediaContext::new();
-    let mut assets = AssetsMap::new();
+    let mut session = RenderSession::new();
 
     let output_path = output_path.as_ref();
     let mut output = format::output(output_path).with_context(|| {
@@ -153,7 +177,7 @@ fn render_mp4(
     )?;
 
     for frame_index in 0..composition.frames {
-        let rgb = render_frame_rgb(composition, frame_index, &mut media_ctx, &mut assets)?;
+        let rgb = render_frame_rgb(composition, frame_index, &mut session)?;
 
         let mut rgb_frame = Video::new(
             Pixel::RGB24,
@@ -203,8 +227,7 @@ fn render_mp4(
 fn render_frame_surface(
     composition: &Composition,
     frame_index: u32,
-    media_ctx: &mut MediaContext,
-    assets: &mut AssetsMap,
+    session: &mut RenderSession,
 ) -> Result<skia_safe::Surface> {
     let frame_ctx = FrameCtx {
         frame: frame_index,
@@ -214,26 +237,46 @@ fn render_frame_surface(
         frames: composition.frames,
     };
 
-    let mutations = if let Some(driver) = &composition.script_driver {
-        Some(driver.run(frame_index, composition.frames)?)
-    } else {
-        None
-    };
+    let driver_ptr = composition
+        .script_driver
+        .as_ref()
+        .map(|driver| Arc::as_ptr(driver) as usize);
+    if session.script_driver_ptr != driver_ptr {
+        session.script_runner = composition
+            .script_driver
+            .as_ref()
+            .map(|driver| driver.create_runner())
+            .transpose()?;
+        session.script_driver_ptr = driver_ptr;
+    }
+
+    let mutations = session
+        .script_runner
+        .as_mut()
+        .map(|runner| runner.run(frame_index, composition.frames))
+        .transpose()?;
 
     let node = composition.root_node(&frame_ctx);
-    let element_root = resolve_ui_tree(&node, &frame_ctx, media_ctx, assets, mutations.as_ref());
+    let element_root = resolve_ui_tree(
+        &node,
+        &frame_ctx,
+        &mut session.media_ctx,
+        &mut session.assets,
+        mutations.as_ref(),
+    );
     let layout_tree = compute_layout(&element_root, &frame_ctx)?;
 
     let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
     let canvas = surface.canvas();
     let display_list = build_display_list(&layout_tree, &frame_ctx)?;
-    let mut backend = SkiaBackend::new(
+    let mut backend = SkiaBackend::new_with_cache(
         canvas,
         composition.width as i32,
         composition.height as i32,
-        assets,
-        Some(media_ctx),
+        &session.assets,
+        session.image_cache.clone(),
+        Some(&mut session.media_ctx),
         &frame_ctx,
     );
     backend.execute(&display_list)?;
@@ -244,10 +287,9 @@ fn render_frame_surface(
 pub fn render_frame_rgb(
     composition: &Composition,
     frame_index: u32,
-    media_ctx: &mut MediaContext,
-    assets: &mut AssetsMap,
+    session: &mut RenderSession,
 ) -> Result<Vec<u8>> {
-    let mut surface = render_frame_surface(composition, frame_index, media_ctx, assets)?;
+    let mut surface = render_frame_surface(composition, frame_index, session)?;
     let image = surface.image_snapshot();
     let image_info = ImageInfo::new(
         (composition.width, composition.height),
@@ -277,6 +319,12 @@ pub fn render_frame_rgb(
     }
 
     Ok(rgb)
+}
+
+impl Default for RenderSession {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 fn copy_rgb_to_frame(rgb: &[u8], frame: &mut Video, width: usize, height: usize) {

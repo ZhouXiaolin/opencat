@@ -19,7 +19,7 @@ pub use composition::Composition;
 pub use frame_ctx::FrameCtx;
 pub use nodes::{div, image, text, video};
 pub use parser::{ParsedComposition, parse};
-pub use render::{EncodingConfig, Mp4Config, OutputFormat};
+pub use render::{EncodingConfig, Mp4Config, OutputFormat, RenderSession, render_frame_rgb};
 pub use script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use transitions::{
     TransitionKind, TransitionSeries, light_leak, linear, slide, transition_series,

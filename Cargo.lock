@@ -881,6 +881,7 @@ dependencies = [
  "anyhow",
  "ffmpeg-next",
  "image",
+ "num_cpus",
  "rquickjs",
  "serde",
  "serde_json",

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
+use ffmpeg_next::threading::{Config, Type};
 use ffmpeg_next::{
     format,
     software::scaling::{context::Context as ScalingContext, flag::Flags as ScalingFlags},
@@ -42,7 +43,15 @@ impl VideoDecoder {
         let stream_index = stream.index();
         let time_base = stream.time_base();
 
-        let codec_ctx = ffmpeg::codec::context::Context::from_parameters(stream.parameters())?;
+        let mut codec_ctx = ffmpeg::codec::context::Context::from_parameters(stream.parameters())?;
+
+        let num_cpus = num_cpus::get().clamp(1, 16);
+        if num_cpus > 1 {
+            codec_ctx.set_threading(Config {
+                kind: Type::Frame,
+                count: num_cpus,
+            });
+        }
         let decoder = codec_ctx.decoder().video()?;
 
         let width = decoder.width();

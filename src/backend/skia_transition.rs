@@ -2,8 +2,8 @@ use std::{cell::RefCell, thread_local};
 
 use anyhow::{Result, anyhow};
 use skia_safe::{
-    Canvas, Data, FilterMode, Matrix, Paint, Picture, Rect, RuntimeEffect, TileMode,
-    runtime_effect::ChildPtr, surfaces,
+    AlphaType, Canvas, ColorType, Data, FilterMode, ImageInfo, Matrix, Paint, Picture, Rect,
+    RuntimeEffect, TileMode, runtime_effect::ChildPtr, surfaces,
 };
 
 use crate::transitions::{LightLeakTransition, TransitionKind};
@@ -236,7 +236,13 @@ fn render_light_leak_mask(
     width: i32,
     height: i32,
 ) -> Result<skia_safe::Image> {
-    let mut surface = surfaces::raster_n32_premul((width, height))
+    let info = ImageInfo::new(
+        (width, height),
+        ColorType::RGBA8888,
+        AlphaType::Unpremul,
+        None,
+    );
+    let mut surface = surfaces::raster(&info, None, None)
         .ok_or_else(|| anyhow!("failed to create light leak mask surface"))?;
     let uniforms = LightLeakMaskUniforms::new(progress, params, width, height);
     let shader = light_leak_mask_effect()?

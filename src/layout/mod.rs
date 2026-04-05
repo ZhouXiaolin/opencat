@@ -58,6 +58,8 @@ struct CachedLayoutNode {
 pub struct LayoutSession {
     taffy: TaffyTree<TextMeasureContext>,
     root: Option<CachedLayoutNode>,
+    cached_layout_tree: Option<LayoutTree>,
+    last_layout_size: Option<(i32, i32)>,
 }
 
 impl LayoutSession {
@@ -65,6 +67,8 @@ impl LayoutSession {
         Self {
             taffy: TaffyTree::new(),
             root: None,
+            cached_layout_tree: None,
+            last_layout_size: None,
         }
     }
 
@@ -74,6 +78,7 @@ impl LayoutSession {
         frame_ctx: &FrameCtx,
     ) -> Result<(LayoutTree, LayoutPassStats)> {
         let mut stats = LayoutPassStats::default();
+        let viewport_size = (frame_ctx.width, frame_ctx.height);
 
         let root_id = if self
             .root
@@ -87,21 +92,42 @@ impl LayoutSession {
             self.rebuild(root, &mut stats)?
         };
 
-        self.taffy.compute_layout_with_measure(
-            root_id,
-            taffy::geometry::Size {
-                width: AvailableSpace::Definite(frame_ctx.width as f32),
-                height: AvailableSpace::Definite(frame_ctx.height as f32),
-            },
-            |known_dimensions, available_space, _node_id, node_context, _style| {
-                measure_node(known_dimensions, available_space, node_context)
-            },
-        )?;
+        let layout_must_recompute = stats.structure_rebuild
+            || stats.layout_dirty_nodes > 0
+            || self.cached_layout_tree.is_none()
+            || self.last_layout_size != Some(viewport_size);
+
+        if layout_must_recompute {
+            self.taffy.compute_layout_with_measure(
+                root_id,
+                taffy::geometry::Size {
+                    width: AvailableSpace::Definite(frame_ctx.width as f32),
+                    height: AvailableSpace::Definite(frame_ctx.height as f32),
+                },
+                |known_dimensions, available_space, _node_id, node_context, _style| {
+                    measure_node(known_dimensions, available_space, node_context)
+                },
+            )?;
+
+            let layout_tree = LayoutTree {
+                root: build_layout_tree(root, &self.taffy, root_id)?,
+            };
+            self.cached_layout_tree = Some(layout_tree.clone());
+            self.last_layout_size = Some(viewport_size);
+            return Ok((layout_tree, stats));
+        }
+
+        if stats.paint_only_nodes > 0 {
+            if let Some(layout_tree) = self.cached_layout_tree.as_mut() {
+                sync_layout_paint_subtree(root, &mut layout_tree.root);
+            }
+        }
 
         Ok((
-            LayoutTree {
-                root: build_layout_tree(root, &self.taffy, root_id)?,
-            },
+            self.cached_layout_tree
+                .as_ref()
+                .expect("cached layout tree must exist when layout is clean")
+                .clone(),
             stats,
         ))
     }
@@ -116,6 +142,7 @@ impl LayoutSession {
         stats.structure_rebuild = true;
         stats.layout_dirty_nodes = count_nodes(root);
         self.root = Some(cache_root);
+        self.cached_layout_tree = None;
         Ok(root_id)
     }
 }
@@ -511,27 +538,38 @@ fn build_layout_tree(
             width: layout.size.width,
             height: layout.size.height,
         },
-        paint: LayoutPaint {
-            visual: element.style.visual.clone(),
-            kind: match &element.kind {
-                ElementKind::Div(_) => LayoutPaintKind::Div,
-                ElementKind::Text(text) => LayoutPaintKind::Text(LayoutTextPaint {
-                    text: text.text.clone(),
-                    style: text.text_style,
-                    allow_wrap: element.style.layout.width.is_some()
-                        || element.style.layout.width_full,
-                }),
-                ElementKind::Bitmap(bitmap) => LayoutPaintKind::Bitmap(LayoutBitmapPaint {
-                    asset_id: bitmap.asset_id.clone(),
-                    width: bitmap.width,
-                    height: bitmap.height,
-                    object_fit: element.style.visual.object_fit,
-                }),
-            },
-            data_id: element.style.data_id.clone(),
-        },
+        paint: layout_paint_for_element(element),
         children,
     })
+}
+
+fn sync_layout_paint_subtree(element: &ElementNode, layout: &mut LayoutNode) {
+    layout.paint = layout_paint_for_element(element);
+
+    for (child, layout_child) in element.children.iter().zip(layout.children.iter_mut()) {
+        sync_layout_paint_subtree(child, layout_child);
+    }
+}
+
+fn layout_paint_for_element(element: &ElementNode) -> LayoutPaint {
+    LayoutPaint {
+        visual: element.style.visual.clone(),
+        kind: match &element.kind {
+            ElementKind::Div(_) => LayoutPaintKind::Div,
+            ElementKind::Text(text) => LayoutPaintKind::Text(LayoutTextPaint {
+                text: text.text.clone(),
+                style: text.text_style,
+                allow_wrap: element.style.layout.width.is_some() || element.style.layout.width_full,
+            }),
+            ElementKind::Bitmap(bitmap) => LayoutPaintKind::Bitmap(LayoutBitmapPaint {
+                asset_id: bitmap.asset_id.clone(),
+                width: bitmap.width,
+                height: bitmap.height,
+                object_fit: element.style.visual.object_fit,
+            }),
+        },
+        data_id: element.style.data_id.clone(),
+    }
 }
 
 fn base_style(layout: &ComputedLayoutStyle) -> Style {
@@ -615,6 +653,7 @@ mod tests {
         FrameCtx,
         assets::AssetsMap,
         element::resolve::resolve_ui_tree,
+        layout::tree::LayoutPaintKind,
         media::MediaContext,
         nodes::{div, text},
         style::ComputedTextStyle,
@@ -684,6 +723,10 @@ mod tests {
         assert_eq!(second_stats.layout_dirty_nodes, 0);
         assert!(second_stats.paint_only_nodes >= 1);
         assert_eq!(second_layout.root.rect.width, 320.0);
+        let LayoutPaintKind::Text(text_paint) = &second_layout.root.children[0].paint.kind else {
+            panic!("expected text paint");
+        };
+        assert_eq!(text_paint.style.color, crate::style::ColorToken::Red);
     }
 
     #[test]

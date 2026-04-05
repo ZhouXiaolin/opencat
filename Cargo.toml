@@ -17,3 +17,4 @@ rquickjs = { version = "0.11.0", features = ["futures"] }
 num_cpus = "1.17.0"
 reqwest = { version = "0.13.2", default-features = false, features = ["blocking", "json"] }
 dirs = "6.0.0"
+tokio = { version = "1.48.0", features = ["rt-multi-thread", "fs"] }

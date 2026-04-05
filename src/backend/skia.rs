@@ -422,7 +422,7 @@ pub(crate) fn draw_layout_tree_with_subtree_cache<'a>(
         frame_ctx,
         profile,
     );
-    backend.draw_layout_children(&layout_tree.root.children)
+    backend.draw_layout_subtree(&layout_tree.root)
 }
 
 pub(crate) fn record_layout_tree_picture_with_subtree_cache<'a>(
@@ -453,7 +453,7 @@ pub(crate) fn record_layout_tree_picture_with_subtree_cache<'a>(
         frame_ctx,
         profile.as_deref_mut(),
     );
-    backend.draw_layout_children(&layout_tree.root.children)?;
+    backend.draw_layout_subtree(&layout_tree.root)?;
     let picture = recorder
         .finish_recording_as_picture(None)
         .ok_or_else(|| anyhow!("failed to record layout tree picture"))?;

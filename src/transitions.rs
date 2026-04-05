@@ -35,14 +35,12 @@ enum Presentation {
 #[derive(Clone, Copy, Debug)]
 pub struct LightLeakTransition {
     pub seed: f32,
-    pub retract_seed: f32,
     pub hue_shift: f32,
 }
 
 #[derive(Clone, Copy)]
 pub struct LightLeakBuilder {
     seed: f32,
-    retract_seed: f32,
     hue_shift: f32,
 }
 
@@ -171,11 +169,6 @@ impl LightLeakBuilder {
         self
     }
 
-    pub fn retract_seed(mut self, retract_seed: f32) -> Self {
-        self.retract_seed = retract_seed;
-        self
-    }
-
     pub fn hue_shift(mut self, hue_shift: f32) -> Self {
         self.hue_shift = hue_shift;
         self
@@ -185,7 +178,6 @@ impl LightLeakBuilder {
         Transition {
             presentation: Presentation::LightLeak(LightLeakTransition {
                 seed: self.seed,
-                retract_seed: self.retract_seed,
                 hue_shift: self.hue_shift,
             }),
             timing,
@@ -206,7 +198,6 @@ pub fn slide() -> SlideBuilder {
 pub fn light_leak() -> LightLeakBuilder {
     LightLeakBuilder {
         seed: 0.0,
-        retract_seed: 1.0,
         hue_shift: 0.0,
     }
 }

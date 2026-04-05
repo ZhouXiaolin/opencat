@@ -14,7 +14,6 @@ const LIGHT_LEAK_MASK_SKSL: &str = r#"
 uniform float evolveProgress;
 uniform float retractProgress;
 uniform float seed;
-uniform float retractSeed;
 uniform float2 resolution;
 
 const float PI = 3.14159265;
@@ -52,17 +51,13 @@ half4 main(float2 coord) {
 
     float2 maxUv = float2(refScale, refScale * resolution.y / resolution.x);
     float2 retractUv = maxUv - uv;
-    float3 patB = computePattern(retractUv, retractSeed, retractProgress * PI);
+    float3 patB = computePattern(retractUv, seed + 42.0, retractProgress * PI);
     float threshB = 1.0 - retractProgress;
     float eraseAlpha = smoothstep(threshB, threshB + 0.3, patB.z);
 
     float leakAlpha = clamp(revealAlpha * (1.0 - eraseAlpha), 0.0, 1.0);
-    float glowAlpha =
-        smoothstep(0.0, 0.2, leakAlpha) *
-        (1.0 - smoothstep(0.65, 1.0, leakAlpha)) *
-        0.85;
 
-    return half4(half(patA.x), half(patA.y), half(revealAlpha), half(glowAlpha));
+    return half4(half(patA.x), half(patA.y), half(leakAlpha), half(1.0));
 }
 "#;
 
@@ -71,6 +66,7 @@ uniform shader fromScene;
 uniform shader toScene;
 uniform shader leakMask;
 
+uniform float progress;
 uniform half3 yellow;
 uniform half3 orange;
 
@@ -79,15 +75,14 @@ half4 main(float2 coord) {
 
     half brightness = mask.r;
     half blend = mask.g;
-    half revealAlpha = mask.b;
-    half glowAlpha = mask.a;
+    half leakAlpha = mask.b;
 
     half4 fromColor = fromScene.eval(coord);
     half4 toColor = toScene.eval(coord);
-    half4 sceneColor = mix(fromColor, toColor, revealAlpha);
+    half4 sceneColor = mix(fromColor, toColor, half(progress));
 
     half3 leakColor = mix(yellow, orange, blend) * (0.6 + 0.6 * brightness);
-    half3 finalColor = mix(sceneColor.rgb, leakColor, glowAlpha);
+    half3 finalColor = mix(sceneColor.rgb, leakColor, leakAlpha);
 
     return half4(finalColor, 1.0);
 }
@@ -104,13 +99,13 @@ struct LightLeakMaskUniforms {
     evolve_progress: f32,
     retract_progress: f32,
     seed: f32,
-    retract_seed: f32,
     resolution: [f32; 2],
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct LightLeakCompositeUniforms {
+    progress: f32,
     yellow: [f32; 3],
     orange: [f32; 3],
 }
@@ -122,15 +117,15 @@ impl LightLeakMaskUniforms {
             evolve_progress: (normalized * 2.0).min(1.0),
             retract_progress: (normalized * 2.0 - 1.0).max(0.0),
             seed: params.seed,
-            retract_seed: params.retract_seed,
             resolution: [width as f32, height as f32],
         }
     }
 }
 
 impl LightLeakCompositeUniforms {
-    fn new(params: LightLeakTransition) -> Self {
+    fn new(progress: f32, params: LightLeakTransition) -> Self {
         Self {
+            progress: progress.clamp(0.0, 1.0),
             yellow: rotate_hue([1.0, 0.85, 0.2], params.hue_shift),
             orange: rotate_hue([1.0, 0.5, 0.05], params.hue_shift),
         }
@@ -214,7 +209,7 @@ fn draw_light_leak_transition(
         )
         .ok_or_else(|| anyhow!("failed to create light leak mask shader"))?;
 
-    let uniforms = LightLeakCompositeUniforms::new(params);
+    let uniforms = LightLeakCompositeUniforms::new(progress, params);
     let children = [
         ChildPtr::from(from_shader),
         ChildPtr::from(to_shader),

@@ -394,9 +394,8 @@ fn evaluation_demo(ctx: &FrameCtx) -> Node {
         .sequence(90, scene_two(ctx))
         .transition(
             light_leak()
-                .seed(0.25)
-                .retract_seed(1.1)
-                .hue_shift(24.0)
+                .seed(3.0)
+                .hue_shift(30.0)
                 .timing(linear().duration(72)),
         )
         .sequence(90, scene_three(ctx))

@@ -1,11 +1,4 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, hash_map::DefaultHasher},
-    hash::{Hash, Hasher},
-    path::Path,
-    rc::Rc,
-    time::Instant,
-};
+use std::{cell::RefCell, collections::HashMap, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
@@ -15,43 +8,21 @@ use skia_safe::{
 
 use crate::{
     assets::AssetsMap,
+    backend::cache::{ImageCache, SubtreePictureCache, TextPictureCache},
+    cache_policy::{
+        BitmapSourceKind, bitmap_source_kind, subtree_picture_cache_key, text_picture_cache_key,
+    },
     display::list::{
         BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayList, DisplayTransform,
         RectDisplayItem, TextDisplayItem,
     },
     frame_ctx::FrameCtx,
-    layout::tree::LayoutRect,
+    layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
     media::MediaContext,
+    profile::BackendProfile,
     style::{ObjectFit, ShadowStyle, Transform},
     typography,
 };
-
-pub(crate) type ImageCache = Rc<RefCell<HashMap<String, Option<SkiaImage>>>>;
-pub(crate) type TextPictureCache = Rc<RefCell<HashMap<u64, Picture>>>;
-
-#[derive(Clone, Debug, Default)]
-pub struct BackendProfile {
-    pub rect_draw_ms: f64,
-    pub text_draw_ms: f64,
-    pub text_picture_record_ms: f64,
-    pub text_picture_draw_ms: f64,
-    pub bitmap_draw_ms: f64,
-    pub image_decode_ms: f64,
-    pub video_decode_ms: f64,
-    pub picture_record_ms: f64,
-    pub picture_draw_ms: f64,
-    pub picture_cache_hits: usize,
-    pub picture_cache_misses: usize,
-    pub text_cache_hits: usize,
-    pub text_cache_misses: usize,
-    pub image_cache_hits: usize,
-    pub image_cache_misses: usize,
-    pub video_frame_decodes: usize,
-    pub draw_rect_count: usize,
-    pub draw_text_count: usize,
-    pub draw_bitmap_count: usize,
-    pub save_layer_count: usize,
-}
 
 struct BitmapDrawStats {
     draw_ms: f64,
@@ -76,50 +47,11 @@ pub struct SkiaBackend<'a> {
     frame_ctx: &'a FrameCtx,
     image_cache: ImageCache,
     text_picture_cache: TextPictureCache,
+    subtree_picture_cache: Option<SubtreePictureCache>,
     profile: Option<&'a mut BackendProfile>,
 }
 
 impl<'a> SkiaBackend<'a> {
-    pub fn new(
-        canvas: &'a Canvas,
-        _width: i32,
-        _height: i32,
-        assets: &'a AssetsMap,
-        media_ctx: Option<&'a mut MediaContext>,
-        frame_ctx: &'a FrameCtx,
-    ) -> Self {
-        Self {
-            canvas,
-            assets,
-            media_ctx,
-            frame_ctx,
-            image_cache: Rc::new(RefCell::new(HashMap::new())),
-            text_picture_cache: Rc::new(RefCell::new(HashMap::new())),
-            profile: None,
-        }
-    }
-
-    pub fn new_with_cache(
-        canvas: &'a Canvas,
-        _width: i32,
-        _height: i32,
-        assets: &'a AssetsMap,
-        image_cache: ImageCache,
-        text_picture_cache: TextPictureCache,
-        media_ctx: Option<&'a mut MediaContext>,
-        frame_ctx: &'a FrameCtx,
-    ) -> Self {
-        Self {
-            canvas,
-            assets,
-            image_cache,
-            text_picture_cache,
-            media_ctx,
-            frame_ctx,
-            profile: None,
-        }
-    }
-
     pub fn new_with_cache_and_profile(
         canvas: &'a Canvas,
         _width: i32,
@@ -127,6 +59,7 @@ impl<'a> SkiaBackend<'a> {
         assets: &'a AssetsMap,
         image_cache: ImageCache,
         text_picture_cache: TextPictureCache,
+        subtree_picture_cache: Option<SubtreePictureCache>,
         media_ctx: Option<&'a mut MediaContext>,
         frame_ctx: &'a FrameCtx,
         profile: Option<&'a mut BackendProfile>,
@@ -136,6 +69,7 @@ impl<'a> SkiaBackend<'a> {
             assets,
             image_cache,
             text_picture_cache,
+            subtree_picture_cache,
             media_ctx,
             frame_ctx,
             profile,
@@ -147,6 +81,220 @@ impl<'a> SkiaBackend<'a> {
             self.execute_command(command)?;
         }
         Ok(())
+    }
+
+    fn draw_layout_children(&mut self, children: &[LayoutNode]) -> Result<()> {
+        for child in children {
+            self.draw_layout_subtree(child)?;
+        }
+        Ok(())
+    }
+
+    fn draw_layout_subtree(&mut self, layout: &LayoutNode) -> Result<()> {
+        if layout.paint.visual.opacity <= 0.0 {
+            return Ok(());
+        }
+
+        self.canvas.save();
+        apply_transform(
+            self.canvas,
+            &DisplayTransform {
+                translation_x: layout.rect.x,
+                translation_y: layout.rect.y,
+                bounds: LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: layout.rect.width,
+                    height: layout.rect.height,
+                },
+                transforms: layout.paint.visual.transforms.clone(),
+            },
+        );
+
+        let subtree_cache = self.subtree_picture_cache.clone();
+        if let Some(cache) = subtree_cache {
+            if let Some(key) = subtree_picture_cache_key(layout, self.assets) {
+                if let Some(picture) = cache.borrow().get(&key).cloned() {
+                    if let Some(profile) = self.profile.as_deref_mut() {
+                        profile.subtree_picture_cache_hits += 1;
+                    }
+                    self.draw_subtree_picture(layout, &picture)?;
+                    self.canvas.restore();
+                    return Ok(());
+                }
+
+                let picture = self.record_cached_subtree_picture(layout)?;
+                cache.borrow_mut().insert(key, picture.clone());
+                if let Some(profile) = self.profile.as_deref_mut() {
+                    profile.subtree_picture_cache_misses += 1;
+                }
+                self.draw_subtree_picture(layout, &picture)?;
+                self.canvas.restore();
+                return Ok(());
+            }
+        }
+
+        self.draw_layout_subtree_contents(layout)?;
+        self.canvas.restore();
+        Ok(())
+    }
+
+    fn draw_layout_subtree_contents(&mut self, layout: &LayoutNode) -> Result<()> {
+        let local_bounds = LayoutRect {
+            x: 0.0,
+            y: 0.0,
+            width: layout.rect.width,
+            height: layout.rect.height,
+        };
+        self.with_layout_opacity(layout, |backend| {
+            backend.draw_layout_node_paint(layout, local_bounds)?;
+            backend.draw_layout_children(&layout.children)
+        })
+    }
+
+    fn draw_layout_node_paint(&mut self, layout: &LayoutNode, bounds: LayoutRect) -> Result<()> {
+        match &layout.paint.kind {
+            LayoutPaintKind::Div => {
+                let started = Instant::now();
+                draw_rect(
+                    self.canvas,
+                    &RectDisplayItem {
+                        bounds,
+                        paint: crate::display::list::RectPaintStyle {
+                            background: layout.paint.visual.background,
+                            border_radius: layout.paint.visual.border_radius,
+                            border_width: layout.paint.visual.border_width,
+                            border_color: layout.paint.visual.border_color,
+                            shadow: layout.paint.visual.shadow,
+                        },
+                    },
+                );
+                if let Some(profile) = self.profile.as_deref_mut() {
+                    profile.draw_rect_count += 1;
+                    profile.rect_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
+                }
+            }
+            LayoutPaintKind::Text(text) => {
+                let started = Instant::now();
+                let stats = draw_text(
+                    self.canvas,
+                    &TextDisplayItem {
+                        bounds,
+                        text: text.text.clone(),
+                        style: text.style,
+                        allow_wrap: text.allow_wrap,
+                    },
+                    &self.text_picture_cache,
+                )?;
+                if let Some(profile) = self.profile.as_deref_mut() {
+                    profile.draw_text_count += 1;
+                    profile.text_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
+                    profile.text_picture_record_ms += stats.picture_record_ms;
+                    profile.text_picture_draw_ms += stats.picture_draw_ms;
+                    profile.text_cache_hits += stats.cache_hits;
+                    profile.text_cache_misses += stats.cache_misses;
+                }
+            }
+            LayoutPaintKind::Bitmap(bitmap) => {
+                let stats = draw_bitmap(
+                    self.canvas,
+                    &BitmapDisplayItem {
+                        bounds,
+                        asset_id: bitmap.asset_id.clone(),
+                        width: bitmap.width,
+                        height: bitmap.height,
+                        object_fit: bitmap.object_fit,
+                    },
+                    self.assets,
+                    &self.image_cache,
+                    &mut self.media_ctx,
+                    self.frame_ctx,
+                )?;
+                if let Some(profile) = self.profile.as_deref_mut() {
+                    profile.draw_bitmap_count += 1;
+                    profile.bitmap_draw_ms += stats.draw_ms;
+                    profile.image_decode_ms += stats.image_decode_ms;
+                    profile.video_decode_ms += stats.video_decode_ms;
+                    profile.image_cache_hits += stats.image_cache_hits;
+                    profile.image_cache_misses += stats.image_cache_misses;
+                    profile.video_frame_decodes += stats.video_frame_decodes;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn record_cached_subtree_picture(&mut self, layout: &LayoutNode) -> Result<Picture> {
+        let started = Instant::now();
+        let bounds = Rect::from_xywh(
+            0.0,
+            0.0,
+            layout.rect.width.max(1.0),
+            layout.rect.height.max(1.0),
+        );
+        let mut recorder = PictureRecorder::new();
+        let recording_canvas = recorder.begin_recording(bounds, false);
+        let mut backend = SkiaBackend::new_with_cache_and_profile(
+            recording_canvas,
+            layout.rect.width as i32,
+            layout.rect.height as i32,
+            self.assets,
+            self.image_cache.clone(),
+            self.text_picture_cache.clone(),
+            self.subtree_picture_cache.clone(),
+            None,
+            self.frame_ctx,
+            self.profile.as_deref_mut(),
+        );
+        backend.draw_layout_subtree_contents(layout)?;
+        let picture = recorder
+            .finish_recording_as_picture(None)
+            .ok_or_else(|| anyhow!("failed to record subtree picture"))?;
+        if let Some(profile) = self.profile.as_deref_mut() {
+            profile.picture_record_ms += started.elapsed().as_secs_f64() * 1000.0;
+        }
+        Ok(picture)
+    }
+
+    fn draw_subtree_picture(&mut self, layout: &LayoutNode, picture: &Picture) -> Result<()> {
+        self.with_layout_opacity(layout, |backend| {
+            let started = Instant::now();
+            backend.canvas.draw_picture(picture, None, None);
+            if let Some(profile) = backend.profile.as_deref_mut() {
+                profile.picture_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
+            }
+            Ok(())
+        })
+    }
+
+    fn with_layout_opacity<T>(
+        &mut self,
+        layout: &LayoutNode,
+        draw: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        let local_bounds = LayoutRect {
+            x: 0.0,
+            y: 0.0,
+            width: layout.rect.width,
+            height: layout.rect.height,
+        };
+        let uses_layer = layout.paint.visual.opacity < 1.0;
+        if uses_layer {
+            if let Some(profile) = self.profile.as_deref_mut() {
+                profile.save_layer_count += 1;
+            }
+            let alpha = (layout.paint.visual.opacity * 255.0).round() as u32;
+            self.canvas
+                .save_layer_alpha(layout_rect_to_skia(local_bounds), alpha);
+        }
+
+        let result = draw(self);
+
+        if uses_layer {
+            self.canvas.restore();
+        }
+
+        result
     }
 
     fn execute_command(&mut self, command: &DisplayCommand) -> Result<()> {
@@ -236,6 +384,7 @@ pub(crate) fn record_display_list_picture<'a>(
         assets,
         image_cache,
         text_picture_cache,
+        None,
         media_ctx,
         frame_ctx,
         profile.as_deref_mut(),
@@ -250,16 +399,68 @@ pub(crate) fn record_display_list_picture<'a>(
     Ok(picture)
 }
 
-pub(crate) fn display_list_uses_video(list: &DisplayList, assets: &AssetsMap) -> bool {
-    list.commands.iter().any(|command| match command {
-        DisplayCommand::Draw {
-            item: DisplayItem::Bitmap(bitmap),
-        } => assets
-            .path(&bitmap.asset_id)
-            .map(is_video_path)
-            .unwrap_or(false),
-        _ => false,
-    })
+pub(crate) fn draw_layout_tree_with_subtree_cache<'a>(
+    layout_tree: &LayoutTree,
+    canvas: &'a Canvas,
+    assets: &'a AssetsMap,
+    image_cache: ImageCache,
+    text_picture_cache: TextPictureCache,
+    subtree_picture_cache: SubtreePictureCache,
+    media_ctx: Option<&'a mut MediaContext>,
+    frame_ctx: &'a FrameCtx,
+    profile: Option<&'a mut BackendProfile>,
+) -> Result<()> {
+    let mut backend = SkiaBackend::new_with_cache_and_profile(
+        canvas,
+        layout_tree.root.rect.width as i32,
+        layout_tree.root.rect.height as i32,
+        assets,
+        image_cache,
+        text_picture_cache,
+        Some(subtree_picture_cache),
+        media_ctx,
+        frame_ctx,
+        profile,
+    );
+    backend.draw_layout_children(&layout_tree.root.children)
+}
+
+pub(crate) fn record_layout_tree_picture_with_subtree_cache<'a>(
+    layout_tree: &LayoutTree,
+    width: i32,
+    height: i32,
+    assets: &'a AssetsMap,
+    image_cache: ImageCache,
+    text_picture_cache: TextPictureCache,
+    subtree_picture_cache: SubtreePictureCache,
+    media_ctx: Option<&'a mut MediaContext>,
+    frame_ctx: &'a FrameCtx,
+    mut profile: Option<&'a mut BackendProfile>,
+) -> Result<Picture> {
+    let started = Instant::now();
+    let bounds = Rect::from_xywh(0.0, 0.0, width as f32, height as f32);
+    let mut recorder = PictureRecorder::new();
+    let recording_canvas = recorder.begin_recording(bounds, false);
+    let mut backend = SkiaBackend::new_with_cache_and_profile(
+        recording_canvas,
+        width,
+        height,
+        assets,
+        image_cache,
+        text_picture_cache,
+        Some(subtree_picture_cache),
+        media_ctx,
+        frame_ctx,
+        profile.as_deref_mut(),
+    );
+    backend.draw_layout_children(&layout_tree.root.children)?;
+    let picture = recorder
+        .finish_recording_as_picture(None)
+        .ok_or_else(|| anyhow!("failed to record layout tree picture"))?;
+    if let Some(profile) = profile {
+        profile.picture_record_ms += started.elapsed().as_secs_f64() * 1000.0;
+    }
+    Ok(picture)
 }
 
 fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
@@ -393,25 +594,6 @@ fn record_text_picture(text: &TextDisplayItem) -> Result<Picture> {
         .ok_or_else(|| anyhow!("failed to record text picture"))
 }
 
-fn text_picture_cache_key(text: &TextDisplayItem) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    text.text.hash(&mut hasher);
-    hash_text_style(&text.style, &mut hasher);
-    text.allow_wrap.hash(&mut hasher);
-    text.bounds.width.to_bits().hash(&mut hasher);
-    text.bounds.height.to_bits().hash(&mut hasher);
-    hasher.finish()
-}
-
-fn hash_text_style(style: &crate::style::ComputedTextStyle, hasher: &mut DefaultHasher) {
-    style.color.hash(hasher);
-    style.font_weight.hash(hasher);
-    style.text_align.hash(hasher);
-    style.text_px.to_bits().hash(hasher);
-    style.letter_spacing.to_bits().hash(hasher);
-    style.line_height.to_bits().hash(hasher);
-}
-
 fn draw_bitmap(
     canvas: &Canvas,
     bitmap: &BitmapDisplayItem,
@@ -433,7 +615,7 @@ fn draw_bitmap(
         video_frame_decodes: 0,
     };
 
-    let image = if is_video_path(path) {
+    let image = if bitmap_source_kind(path) == BitmapSourceKind::Video {
         let media = media_ctx
             .as_deref_mut()
             .ok_or_else(|| anyhow!("video asset requires media context: {}", path.display()))?;
@@ -598,24 +780,4 @@ fn cover_src_rect(src_width: f32, src_height: f32, dst: Rect) -> Rect {
     let y = (src_height - visible_height) / 2.0;
 
     Rect::from_xywh(x, y, visible_width, visible_height)
-}
-
-pub(crate) fn is_video_path(path: &Path) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| {
-            matches!(
-                ext.to_ascii_lowercase().as_str(),
-                "mp4" | "mov" | "m4v" | "webm" | "mkv" | "avi"
-            )
-        })
-        .unwrap_or(false)
-}
-
-pub(crate) fn new_image_cache() -> ImageCache {
-    Rc::new(RefCell::new(HashMap::new()))
-}
-
-pub(crate) fn new_text_picture_cache() -> TextPictureCache {
-    Rc::new(RefCell::new(HashMap::new()))
 }

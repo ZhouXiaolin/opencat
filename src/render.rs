@@ -1,53 +1,36 @@
-use anyhow::{Context, Result, anyhow};
-use ffmpeg_next as ffmpeg;
-use ffmpeg_next::{
-    Dictionary, codec,
-    codec::packet::Packet,
-    format,
-    software::scaling::{context::Context as ScalingContext, flag::Flags as ScalingFlags},
-    util::{format::pixel::Pixel, frame::video::Video, rational::Rational},
-};
+use std::{path::Path, sync::Arc, time::Instant};
+
+use anyhow::{Result, anyhow};
 use skia_safe::{
     AlphaType, ColorType, EncodedImageFormat, ImageInfo, Picture, image::CachingHint, surfaces,
 };
-use std::{path::Path, ptr, time::Instant};
 
 use crate::{
     Composition, FrameCtx, Node,
     assets::AssetsMap,
     backend::{
         skia::{
-            BackendProfile, SkiaBackend, display_list_uses_video, new_image_cache,
-            new_text_picture_cache, record_display_list_picture,
+            SkiaBackend, draw_layout_tree_with_subtree_cache, record_display_list_picture,
+            record_layout_tree_picture_with_subtree_cache,
         },
         skia_transition,
     },
+    cache_policy::{display_list_contains_video, scene_cache_scope},
     display::{build::build_display_list, list::DisplayList},
     element::resolve::resolve_ui_tree,
-    layout::{LayoutPassStats, LayoutSession},
+    layout::LayoutSession,
     media::MediaContext,
+    profile::{BackendProfile, FrameProfile, RenderProfiler, SceneBuildStats},
+    render_cache::{RenderCacheState, SceneSlot},
     script::{ScriptRunner, StyleMutations},
     timeline::{FrameState, frame_state_for_root},
 };
-use std::sync::Arc;
+
+pub use crate::codec::encode::Mp4Config;
 
 pub enum OutputFormat {
     Mp4(Mp4Config),
     Png,
-}
-
-pub struct Mp4Config {
-    pub crf: u8,
-    pub preset: String,
-}
-
-impl Default for Mp4Config {
-    fn default() -> Self {
-        Self {
-            crf: 18,
-            preset: "fast".to_string(),
-        }
-    }
 }
 
 pub struct EncodingConfig {
@@ -57,63 +40,13 @@ pub struct EncodingConfig {
 pub struct RenderSession {
     media_ctx: MediaContext,
     assets: AssetsMap,
-    image_cache: crate::backend::skia::ImageCache,
-    text_picture_cache: crate::backend::skia::TextPictureCache,
+    caches: RenderCacheState,
     script_runner: Option<ScriptRunner>,
     script_driver_ptr: Option<usize>,
     scene_layout: LayoutSession,
     transition_from_layout: LayoutSession,
     transition_to_layout: LayoutSession,
-    scene_picture_cache: PictureSlotCache,
-    transition_from_picture_cache: PictureSlotCache,
-    transition_to_picture_cache: PictureSlotCache,
     profiler: RenderProfiler,
-}
-
-#[derive(Clone, Copy)]
-enum SceneSlot {
-    Scene,
-    TransitionFrom,
-    TransitionTo,
-}
-
-#[derive(Default)]
-struct PictureSlotCache {
-    picture: Option<Picture>,
-}
-
-#[derive(Default)]
-struct SceneBuildStats {
-    resolve_ms: f64,
-    layout_ms: f64,
-    display_ms: f64,
-    layout_pass: LayoutPassStats,
-    contains_video: bool,
-}
-
-#[derive(Default)]
-struct FrameProfile {
-    script_ms: f64,
-    frame_state_ms: f64,
-    resolve_ms: f64,
-    layout_ms: f64,
-    display_ms: f64,
-    backend_ms: f64,
-    transition_ms: f64,
-    slide_transition_ms: f64,
-    light_leak_transition_ms: f64,
-    slide_transition_frames: usize,
-    light_leak_transition_frames: usize,
-    reused_nodes: usize,
-    layout_dirty_nodes: usize,
-    paint_only_nodes: usize,
-    structure_rebuilds: usize,
-    backend: BackendProfile,
-}
-
-#[derive(Default)]
-struct RenderProfiler {
-    frames: Vec<FrameProfile>,
 }
 
 impl EncodingConfig {
@@ -141,16 +74,12 @@ impl RenderSession {
         Self {
             media_ctx: MediaContext::new(),
             assets: AssetsMap::new(),
-            image_cache: new_image_cache(),
-            text_picture_cache: new_text_picture_cache(),
+            caches: RenderCacheState::new(),
             script_runner: None,
             script_driver_ptr: None,
             scene_layout: LayoutSession::new(),
             transition_from_layout: LayoutSession::new(),
             transition_to_layout: LayoutSession::new(),
-            scene_picture_cache: PictureSlotCache::default(),
-            transition_from_picture_cache: PictureSlotCache::default(),
-            transition_to_picture_cache: PictureSlotCache::default(),
             profiler: RenderProfiler::default(),
         }
     }
@@ -160,22 +89,6 @@ impl RenderSession {
             SceneSlot::Scene => &mut self.scene_layout,
             SceneSlot::TransitionFrom => &mut self.transition_from_layout,
             SceneSlot::TransitionTo => &mut self.transition_to_layout,
-        }
-    }
-
-    fn picture_cache(&self, slot: SceneSlot) -> &PictureSlotCache {
-        match slot {
-            SceneSlot::Scene => &self.scene_picture_cache,
-            SceneSlot::TransitionFrom => &self.transition_from_picture_cache,
-            SceneSlot::TransitionTo => &self.transition_to_picture_cache,
-        }
-    }
-
-    fn picture_cache_mut(&mut self, slot: SceneSlot) -> &mut PictureSlotCache {
-        match slot {
-            SceneSlot::Scene => &mut self.scene_picture_cache,
-            SceneSlot::TransitionFrom => &mut self.transition_from_picture_cache,
-            SceneSlot::TransitionTo => &mut self.transition_to_picture_cache,
         }
     }
 }
@@ -206,115 +119,16 @@ fn render_mp4(
     output_path: impl AsRef<Path>,
     config: &Mp4Config,
 ) -> Result<()> {
-    ffmpeg::init()?;
-
     let mut session = RenderSession::new();
-
-    let output_path = output_path.as_ref();
-    let mut output = format::output(output_path).with_context(|| {
-        format!(
-            "failed to create output context for {}",
-            output_path.display()
-        )
-    })?;
-
-    let codec = ffmpeg::encoder::find(codec::Id::H264)
-        .ok_or_else(|| anyhow!("H264 encoder not found in local ffmpeg"))?;
-
-    let nominal_time_base = Rational(1, composition.fps as i32);
-    let stream_time_base = Rational(1, 90_000);
-
-    let mut encoder_ctx = ffmpeg::codec::context::Context::new_with_codec(codec)
-        .encoder()
-        .video()?;
-
-    encoder_ctx.set_width(composition.width as u32);
-    encoder_ctx.set_height(composition.height as u32);
-    encoder_ctx.set_format(Pixel::YUV420P);
-    encoder_ctx.set_time_base(nominal_time_base);
-    encoder_ctx.set_frame_rate(Some(Rational(composition.fps as i32, 1)));
-
-    if output
-        .format()
-        .flags()
-        .contains(format::flag::Flags::GLOBAL_HEADER)
-    {
-        encoder_ctx.set_flags(codec::flag::Flags::GLOBAL_HEADER);
-    }
-
-    let mut encode_options = Dictionary::new();
-    encode_options.set("crf", &config.crf.to_string());
-    encode_options.set("preset", &config.preset);
-    let mut encoder = encoder_ctx.open_as_with(codec, encode_options)?;
-    let packet_time_base = nominal_time_base;
-    let frame_duration = 1_i64;
-
-    let stream_index = {
-        let mut stream = output.add_stream(codec)?;
-        stream.set_time_base(stream_time_base);
-        stream.set_rate(Rational(composition.fps as i32, 1));
-        stream.set_avg_frame_rate(Rational(composition.fps as i32, 1));
-        stream.set_parameters(&encoder);
-        stream.index()
-    };
-
-    output.write_header()?;
-
-    let mut scaler = ScalingContext::get(
-        Pixel::RGBA,
+    crate::codec::encode::encode_rgba_frames(
+        output_path,
         composition.width as u32,
         composition.height as u32,
-        Pixel::YUV420P,
-        composition.width as u32,
-        composition.height as u32,
-        ScalingFlags::BILINEAR,
+        composition.fps,
+        composition.frames,
+        config,
+        |frame_index| render_frame_rgba(composition, frame_index, &mut session),
     )?;
-
-    for frame_index in 0..composition.frames {
-        let rgba = render_frame_rgba(composition, frame_index, &mut session)?;
-
-        let mut rgba_frame = Video::new(
-            Pixel::RGBA,
-            composition.width as u32,
-            composition.height as u32,
-        );
-        write_rgba_to_frame_ptr(
-            &rgba,
-            &mut rgba_frame,
-            composition.width as usize,
-            composition.height as usize,
-        );
-
-        let mut yuv_frame = Video::new(
-            Pixel::YUV420P,
-            composition.width as u32,
-            composition.height as u32,
-        );
-        scaler.run(&rgba_frame, &mut yuv_frame)?;
-        yuv_frame.set_pts(Some(frame_index as i64));
-
-        encoder.send_frame(&yuv_frame)?;
-        write_encoded_packets(
-            &mut encoder,
-            &mut output,
-            stream_index,
-            packet_time_base,
-            stream_time_base,
-            frame_duration,
-        )?;
-    }
-
-    encoder.send_eof()?;
-    write_encoded_packets(
-        &mut encoder,
-        &mut output,
-        stream_index,
-        packet_time_base,
-        stream_time_base,
-        frame_duration,
-    )?;
-
-    output.write_trailer()?;
     session.profiler.print_summary();
     Ok(())
 }
@@ -365,7 +179,7 @@ fn render_frame_surface(
 
     match frame_state {
         FrameState::Scene { scene } => {
-            let (display_list, scene_stats) = build_scene_display_list_with_slot(
+            let (layout_tree, display_list, scene_stats) = build_scene_display_list_with_slot(
                 &scene,
                 &frame_ctx,
                 session,
@@ -373,6 +187,8 @@ fn render_frame_surface(
                 SceneSlot::Scene,
             )?;
             frame_profile.merge_scene_stats(&scene_stats);
+            let cache_scope =
+                scene_cache_scope(&scene_stats.layout_pass, scene_stats.contains_video);
 
             let backend_started = Instant::now();
             let mut backend_profile = BackendProfile::default();
@@ -380,6 +196,7 @@ fn render_frame_surface(
             if let Some(picture) = picture_for_slot(
                 session,
                 SceneSlot::Scene,
+                &layout_tree,
                 &display_list,
                 &scene_stats,
                 composition.width,
@@ -392,14 +209,27 @@ fn render_frame_surface(
                 canvas.draw_picture(&picture, None, None);
                 backend_profile.picture_draw_ms +=
                     picture_draw_started.elapsed().as_secs_f64() * 1000.0;
+            } else if scene_stats.contains_video || cache_scope.prefers_subtree_cache() {
+                draw_layout_tree_with_subtree_cache(
+                    &layout_tree,
+                    canvas,
+                    &session.assets,
+                    session.caches.image_cache(),
+                    session.caches.text_picture_cache(),
+                    session.caches.subtree_picture_cache(),
+                    Some(&mut session.media_ctx),
+                    &frame_ctx,
+                    Some(&mut backend_profile),
+                )?;
             } else {
                 let mut backend = SkiaBackend::new_with_cache_and_profile(
                     canvas,
                     composition.width,
                     composition.height,
                     &session.assets,
-                    session.image_cache.clone(),
-                    session.text_picture_cache.clone(),
+                    session.caches.image_cache(),
+                    session.caches.text_picture_cache(),
+                    None,
                     Some(&mut session.media_ctx),
                     &frame_ctx,
                     Some(&mut backend_profile),
@@ -416,14 +246,14 @@ fn render_frame_surface(
             progress,
             kind,
         } => {
-            let (from_display, from_stats) = build_scene_display_list_with_slot(
+            let (from_layout, from_display, from_stats) = build_scene_display_list_with_slot(
                 &from,
                 &frame_ctx,
                 session,
                 mutations.as_ref(),
                 SceneSlot::TransitionFrom,
             )?;
-            let (to_display, to_stats) = build_scene_display_list_with_slot(
+            let (to_layout, to_display, to_stats) = build_scene_display_list_with_slot(
                 &to,
                 &frame_ctx,
                 session,
@@ -438,6 +268,7 @@ fn render_frame_surface(
             let from_picture = picture_for_slot(
                 session,
                 SceneSlot::TransitionFrom,
+                &from_layout,
                 &from_display,
                 &from_stats,
                 composition.width,
@@ -450,6 +281,7 @@ fn render_frame_surface(
             let to_picture = picture_for_slot(
                 session,
                 SceneSlot::TransitionTo,
+                &to_layout,
                 &to_display,
                 &to_stats,
                 composition.width,
@@ -548,7 +380,11 @@ fn build_scene_display_list_with_slot(
     session: &mut RenderSession,
     mutations: Option<&StyleMutations>,
     slot: SceneSlot,
-) -> Result<(DisplayList, SceneBuildStats)> {
+) -> Result<(
+    crate::layout::tree::LayoutTree,
+    DisplayList,
+    SceneBuildStats,
+)> {
     let mut stats = SceneBuildStats::default();
 
     let resolve_started = Instant::now();
@@ -571,14 +407,15 @@ fn build_scene_display_list_with_slot(
     let display_started = Instant::now();
     let display_list = build_display_list(&layout_tree)?;
     stats.display_ms = display_started.elapsed().as_secs_f64() * 1000.0;
-    stats.contains_video = display_list_uses_video(&display_list, &session.assets);
+    stats.contains_video = display_list_contains_video(&display_list, &session.assets);
 
-    Ok((display_list, stats))
+    Ok((layout_tree, display_list, stats))
 }
 
 fn picture_for_slot(
     session: &mut RenderSession,
     slot: SceneSlot,
+    layout_tree: &crate::layout::tree::LayoutTree,
     display_list: &DisplayList,
     scene_stats: &SceneBuildStats,
     width: i32,
@@ -587,18 +424,21 @@ fn picture_for_slot(
     backend_profile: &mut BackendProfile,
     require_picture: bool,
 ) -> Result<Option<Picture>> {
+    let cache_scope = scene_cache_scope(&scene_stats.layout_pass, scene_stats.contains_video);
+
     if scene_stats.contains_video {
-        session.picture_cache_mut(slot).picture = None;
+        session.caches.store_picture(slot, None);
         if !require_picture {
             return Ok(None);
         }
-        let picture = record_display_list_picture(
-            display_list,
+        let picture = record_layout_tree_picture_with_subtree_cache(
+            layout_tree,
             width,
             height,
             &session.assets,
-            session.image_cache.clone(),
-            session.text_picture_cache.clone(),
+            session.caches.image_cache(),
+            session.caches.text_picture_cache(),
+            session.caches.subtree_picture_cache(),
             Some(&mut session.media_ctx),
             frame_ctx,
             Some(backend_profile),
@@ -606,8 +446,8 @@ fn picture_for_slot(
         return Ok(Some(picture));
     }
 
-    if layout_pass_is_clean(&scene_stats.layout_pass) {
-        if let Some(picture) = session.picture_cache(slot).picture.clone() {
+    if cache_scope.allows_picture_reuse() {
+        if let Some(picture) = session.caches.picture(slot) {
             backend_profile.picture_cache_hits += 1;
             return Ok(Some(picture));
         }
@@ -617,226 +457,47 @@ fn picture_for_slot(
             width,
             height,
             &session.assets,
-            session.image_cache.clone(),
-            session.text_picture_cache.clone(),
+            session.caches.image_cache(),
+            session.caches.text_picture_cache(),
             Some(&mut session.media_ctx),
             frame_ctx,
             Some(backend_profile),
         )?;
         backend_profile.picture_cache_misses += 1;
-        session.picture_cache_mut(slot).picture = Some(picture.clone());
+        session.caches.store_picture(slot, Some(picture.clone()));
         return Ok(Some(picture));
     }
 
-    session.picture_cache_mut(slot).picture = None;
+    session.caches.store_picture(slot, None);
     if !require_picture {
         return Ok(None);
     }
 
-    let picture = record_display_list_picture(
-        display_list,
-        width,
-        height,
-        &session.assets,
-        session.image_cache.clone(),
-        session.text_picture_cache.clone(),
-        Some(&mut session.media_ctx),
-        frame_ctx,
-        Some(backend_profile),
-    )?;
+    let picture = if cache_scope.prefers_subtree_cache() {
+        record_layout_tree_picture_with_subtree_cache(
+            layout_tree,
+            width,
+            height,
+            &session.assets,
+            session.caches.image_cache(),
+            session.caches.text_picture_cache(),
+            session.caches.subtree_picture_cache(),
+            Some(&mut session.media_ctx),
+            frame_ctx,
+            Some(backend_profile),
+        )?
+    } else {
+        record_display_list_picture(
+            display_list,
+            width,
+            height,
+            &session.assets,
+            session.caches.image_cache(),
+            session.caches.text_picture_cache(),
+            Some(&mut session.media_ctx),
+            frame_ctx,
+            Some(backend_profile),
+        )?
+    };
     Ok(Some(picture))
-}
-
-fn layout_pass_is_clean(stats: &LayoutPassStats) -> bool {
-    !stats.structure_rebuild && stats.layout_dirty_nodes == 0 && stats.paint_only_nodes == 0
-}
-
-fn write_rgba_to_frame_ptr(rgba: &[u8], frame: &mut Video, width: usize, height: usize) {
-    let stride = frame.stride(0);
-    let row_len = width * 4;
-    let data_ptr = frame.data_mut(0).as_mut_ptr();
-
-    for y in 0..height {
-        let src_start = y * row_len;
-        let dst_start = y * stride;
-        unsafe {
-            ptr::copy_nonoverlapping(
-                rgba.as_ptr().add(src_start),
-                data_ptr.add(dst_start),
-                row_len,
-            );
-        }
-    }
-}
-
-impl FrameProfile {
-    fn merge_scene_stats(&mut self, stats: &SceneBuildStats) {
-        self.resolve_ms += stats.resolve_ms;
-        self.layout_ms += stats.layout_ms;
-        self.display_ms += stats.display_ms;
-        self.reused_nodes += stats.layout_pass.reused_nodes;
-        self.layout_dirty_nodes += stats.layout_pass.layout_dirty_nodes;
-        self.paint_only_nodes += stats.layout_pass.paint_only_nodes;
-        self.structure_rebuilds += usize::from(stats.layout_pass.structure_rebuild);
-    }
-
-    fn merge_backend_profile(&mut self, profile: &BackendProfile) {
-        self.backend.rect_draw_ms += profile.rect_draw_ms;
-        self.backend.text_draw_ms += profile.text_draw_ms;
-        self.backend.text_picture_record_ms += profile.text_picture_record_ms;
-        self.backend.text_picture_draw_ms += profile.text_picture_draw_ms;
-        self.backend.bitmap_draw_ms += profile.bitmap_draw_ms;
-        self.backend.image_decode_ms += profile.image_decode_ms;
-        self.backend.video_decode_ms += profile.video_decode_ms;
-        self.backend.picture_record_ms += profile.picture_record_ms;
-        self.backend.picture_draw_ms += profile.picture_draw_ms;
-        self.backend.picture_cache_hits += profile.picture_cache_hits;
-        self.backend.picture_cache_misses += profile.picture_cache_misses;
-        self.backend.text_cache_hits += profile.text_cache_hits;
-        self.backend.text_cache_misses += profile.text_cache_misses;
-        self.backend.image_cache_hits += profile.image_cache_hits;
-        self.backend.image_cache_misses += profile.image_cache_misses;
-        self.backend.video_frame_decodes += profile.video_frame_decodes;
-        self.backend.draw_rect_count += profile.draw_rect_count;
-        self.backend.draw_text_count += profile.draw_text_count;
-        self.backend.draw_bitmap_count += profile.draw_bitmap_count;
-        self.backend.save_layer_count += profile.save_layer_count;
-    }
-}
-
-impl RenderProfiler {
-    fn push(&mut self, frame: FrameProfile) {
-        self.frames.push(frame);
-    }
-
-    fn print_summary(&self) {
-        if self.frames.is_empty() {
-            return;
-        }
-
-        eprintln!("Render profile:");
-        eprintln!("  frames: {}", self.frames.len());
-        eprintln!(
-            "  avg ms/frame: script {:.2}, frame_state {:.2}, resolve {:.2}, layout {:.2}, display {:.2}, backend {:.2}, transition {:.2}",
-            average(&self.frames, |frame| frame.script_ms),
-            average(&self.frames, |frame| frame.frame_state_ms),
-            average(&self.frames, |frame| frame.resolve_ms),
-            average(&self.frames, |frame| frame.layout_ms),
-            average(&self.frames, |frame| frame.display_ms),
-            average(&self.frames, |frame| frame.backend_ms),
-            average(&self.frames, |frame| frame.transition_ms),
-        );
-        eprintln!(
-            "  p95 ms/frame: resolve {:.2}, layout {:.2}, display {:.2}, backend {:.2}, transition {:.2}",
-            percentile_95(&self.frames, |frame| frame.resolve_ms),
-            percentile_95(&self.frames, |frame| frame.layout_ms),
-            percentile_95(&self.frames, |frame| frame.display_ms),
-            percentile_95(&self.frames, |frame| frame.backend_ms),
-            percentile_95(&self.frames, |frame| frame.transition_ms),
-        );
-        eprintln!(
-            "  transition avg ms/active-frame: slide {:.2} ({} frames), light_leak {:.2} ({} frames)",
-            average_when_counted(
-                &self.frames,
-                |frame| frame.slide_transition_ms,
-                |frame| frame.slide_transition_frames,
-            ),
-            self.frames
-                .iter()
-                .map(|frame| frame.slide_transition_frames)
-                .sum::<usize>(),
-            average_when_counted(
-                &self.frames,
-                |frame| frame.light_leak_transition_ms,
-                |frame| frame.light_leak_transition_frames,
-            ),
-            self.frames
-                .iter()
-                .map(|frame| frame.light_leak_transition_frames)
-                .sum::<usize>(),
-        );
-        eprintln!(
-            "  avg nodes/frame: reused {:.1}, layout_dirty {:.1}, paint_only {:.1}, structure_rebuilds {:.2}",
-            average_usize(&self.frames, |frame| frame.reused_nodes),
-            average_usize(&self.frames, |frame| frame.layout_dirty_nodes),
-            average_usize(&self.frames, |frame| frame.paint_only_nodes),
-            average_usize(&self.frames, |frame| frame.structure_rebuilds),
-        );
-        eprintln!(
-            "  backend avg ms/frame: rect {:.2}, text {:.2}, text_record {:.2}, text_pic_draw {:.2}, bitmap {:.2}, image_decode {:.2}, video_decode {:.2}, picture_record {:.2}, picture_draw {:.2}",
-            average(&self.frames, |frame| frame.backend.rect_draw_ms),
-            average(&self.frames, |frame| frame.backend.text_draw_ms),
-            average(&self.frames, |frame| frame.backend.text_picture_record_ms),
-            average(&self.frames, |frame| frame.backend.text_picture_draw_ms),
-            average(&self.frames, |frame| frame.backend.bitmap_draw_ms),
-            average(&self.frames, |frame| frame.backend.image_decode_ms),
-            average(&self.frames, |frame| frame.backend.video_decode_ms),
-            average(&self.frames, |frame| frame.backend.picture_record_ms),
-            average(&self.frames, |frame| frame.backend.picture_draw_ms),
-        );
-        eprintln!(
-            "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, save_layer {:.1}, text_hit {:.2}, text_miss {:.2}, pic_hit {:.2}, pic_miss {:.2}, img_hit {:.2}, img_miss {:.2}, video_decode {:.2}",
-            average_usize(&self.frames, |frame| frame.backend.draw_rect_count),
-            average_usize(&self.frames, |frame| frame.backend.draw_text_count),
-            average_usize(&self.frames, |frame| frame.backend.draw_bitmap_count),
-            average_usize(&self.frames, |frame| frame.backend.save_layer_count),
-            average_usize(&self.frames, |frame| frame.backend.text_cache_hits),
-            average_usize(&self.frames, |frame| frame.backend.text_cache_misses),
-            average_usize(&self.frames, |frame| frame.backend.picture_cache_hits),
-            average_usize(&self.frames, |frame| frame.backend.picture_cache_misses),
-            average_usize(&self.frames, |frame| frame.backend.image_cache_hits),
-            average_usize(&self.frames, |frame| frame.backend.image_cache_misses),
-            average_usize(&self.frames, |frame| frame.backend.video_frame_decodes),
-        );
-    }
-}
-
-fn average(frames: &[FrameProfile], map: impl Fn(&FrameProfile) -> f64) -> f64 {
-    frames.iter().map(map).sum::<f64>() / frames.len() as f64
-}
-
-fn average_usize(frames: &[FrameProfile], map: impl Fn(&FrameProfile) -> usize) -> f64 {
-    frames.iter().map(map).sum::<usize>() as f64 / frames.len() as f64
-}
-
-fn percentile_95(frames: &[FrameProfile], map: impl Fn(&FrameProfile) -> f64) -> f64 {
-    let mut values = frames.iter().map(map).collect::<Vec<_>>();
-    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let index = ((values.len() as f64 * 0.95).ceil() as usize)
-        .saturating_sub(1)
-        .min(values.len() - 1);
-    values[index]
-}
-
-fn average_when_counted(
-    frames: &[FrameProfile],
-    value: impl Fn(&FrameProfile) -> f64,
-    count: impl Fn(&FrameProfile) -> usize,
-) -> f64 {
-    let total_count = frames.iter().map(count).sum::<usize>();
-    if total_count == 0 {
-        return 0.0;
-    }
-    frames.iter().map(value).sum::<f64>() / total_count as f64
-}
-
-fn write_encoded_packets(
-    encoder: &mut ffmpeg::codec::encoder::video::Encoder,
-    output: &mut format::context::Output,
-    stream_index: usize,
-    packet_time_base: Rational,
-    stream_time_base: Rational,
-    frame_duration: i64,
-) -> Result<()> {
-    let mut packet = Packet::empty();
-    while encoder.receive_packet(&mut packet).is_ok() {
-        if packet.duration() == 0 {
-            packet.set_duration(frame_duration);
-        }
-        packet.rescale_ts(packet_time_base, stream_time_base);
-        packet.set_stream(stream_index);
-        packet.write_interleaved(output)?;
-    }
-
-    Ok(())
 }

@@ -36,7 +36,14 @@ pub struct LayoutPassStats {
     pub structure_rebuild: bool,
     pub reused_nodes: usize,
     pub layout_dirty_nodes: usize,
-    pub paint_only_nodes: usize,
+    pub raster_dirty_nodes: usize,
+    pub composite_dirty_nodes: usize,
+}
+
+impl LayoutPassStats {
+    pub fn paint_dirty_nodes(&self) -> usize {
+        self.raster_dirty_nodes + self.composite_dirty_nodes
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -51,7 +58,8 @@ struct CachedLayoutNode {
     kind: CachedNodeKind,
     taffy_node: taffy::NodeId,
     layout_hash: u64,
-    paint_hash: u64,
+    raster_hash: u64,
+    composite_hash: u64,
     children: Vec<CachedLayoutNode>,
 }
 
@@ -117,7 +125,7 @@ impl LayoutSession {
             return Ok((layout_tree, stats));
         }
 
-        if stats.paint_only_nodes > 0 {
+        if stats.paint_dirty_nodes() > 0 {
             if let Some(layout_tree) = self.cached_layout_tree.as_mut() {
                 sync_layout_paint_subtree(root, &mut layout_tree.root);
             }
@@ -216,7 +224,8 @@ fn build_taffy_subtree(
             kind: cached_node_kind(element),
             taffy_node: id,
             layout_hash: layout_affect_hash(element),
-            paint_hash: paint_affect_hash(element),
+            raster_hash: raster_affect_hash(element),
+            composite_hash: composite_affect_hash(element),
             children,
         },
     ))
@@ -232,19 +241,31 @@ fn update_cached_subtree(
     cached.identity = node_identity(element, sibling_index);
 
     let next_layout_hash = layout_affect_hash(element);
-    let next_paint_hash = paint_affect_hash(element);
+    let next_raster_hash = raster_affect_hash(element);
+    let next_composite_hash = composite_affect_hash(element);
 
     if cached.layout_hash != next_layout_hash {
         taffy.set_style(cached.taffy_node, taffy_style_for_element(element))?;
         taffy.set_node_context(cached.taffy_node, text_measure_context_for_element(element))?;
         cached.layout_hash = next_layout_hash;
-        cached.paint_hash = next_paint_hash;
+        cached.raster_hash = next_raster_hash;
+        cached.composite_hash = next_composite_hash;
         stats.layout_dirty_nodes += 1;
-    } else if cached.paint_hash != next_paint_hash {
-        cached.paint_hash = next_paint_hash;
-        stats.paint_only_nodes += 1;
     } else {
-        stats.reused_nodes += 1;
+        let raster_changed = cached.raster_hash != next_raster_hash;
+        let composite_changed = cached.composite_hash != next_composite_hash;
+        cached.raster_hash = next_raster_hash;
+        cached.composite_hash = next_composite_hash;
+
+        if raster_changed {
+            stats.raster_dirty_nodes += 1;
+        }
+        if composite_changed {
+            stats.composite_dirty_nodes += 1;
+        }
+        if !raster_changed && !composite_changed {
+            stats.reused_nodes += 1;
+        }
     }
 
     for (index, (child, cached_child)) in element
@@ -319,9 +340,9 @@ fn layout_affect_hash(element: &ElementNode) -> u64 {
     hasher.finish()
 }
 
-fn paint_affect_hash(element: &ElementNode) -> u64 {
+fn raster_affect_hash(element: &ElementNode) -> u64 {
     let mut hasher = DefaultHasher::new();
-    hash_visual_style(&element.style.visual, &mut hasher);
+    hash_raster_style(&element.style.visual, &mut hasher);
 
     match &element.kind {
         ElementKind::Div(_) => {}
@@ -336,6 +357,15 @@ fn paint_affect_hash(element: &ElementNode) -> u64 {
         }
     }
 
+    hasher.finish()
+}
+
+fn composite_affect_hash(element: &ElementNode) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    hash_f32(element.style.visual.opacity, &mut hasher);
+    for transform in &element.style.visual.transforms {
+        hash_transform(transform, &mut hasher);
+    }
     hasher.finish()
 }
 
@@ -360,16 +390,12 @@ fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: 
     hash_f32(style.flex_grow, state);
 }
 
-fn hash_visual_style(style: &crate::element::style::ComputedVisualStyle, state: &mut impl Hasher) {
-    hash_f32(style.opacity, state);
+fn hash_raster_style(style: &crate::element::style::ComputedVisualStyle, state: &mut impl Hasher) {
     style.background.hash(state);
     hash_f32(style.border_radius, state);
     hash_option_f32(style.border_width, state);
     style.border_color.hash(state);
     style.object_fit.hash(state);
-    for transform in &style.transforms {
-        hash_transform(transform, state);
-    }
     style.shadow.hash(state);
 }
 
@@ -721,7 +747,8 @@ mod tests {
 
         assert!(first_stats.structure_rebuild);
         assert_eq!(second_stats.layout_dirty_nodes, 0);
-        assert!(second_stats.paint_only_nodes >= 1);
+        assert!(second_stats.raster_dirty_nodes >= 1);
+        assert!(second_stats.composite_dirty_nodes >= 1);
         assert_eq!(second_layout.root.rect.width, 320.0);
         let LayoutPaintKind::Text(text_paint) = &second_layout.root.children[0].paint.kind else {
             panic!("expected text paint");
@@ -762,5 +789,81 @@ mod tests {
             .expect("second layout should succeed");
 
         assert!(second_stats.layout_dirty_nodes >= 1);
+    }
+
+    #[test]
+    fn layout_session_marks_opacity_change_as_composite_dirty() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let mut session = LayoutSession::new();
+
+        let first = div()
+            .data_id("root")
+            .child(text("A").data_id("label"))
+            .into();
+        let second = div()
+            .data_id("root")
+            .opacity(0.5)
+            .child(text("A").data_id("label"))
+            .into();
+
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None);
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None);
+
+        session
+            .compute_layout(&first_resolved, &frame_ctx)
+            .expect("first layout should succeed");
+        let (_, second_stats) = session
+            .compute_layout(&second_resolved, &frame_ctx)
+            .expect("second layout should succeed");
+
+        assert_eq!(second_stats.layout_dirty_nodes, 0);
+        assert_eq!(second_stats.raster_dirty_nodes, 0);
+        assert!(second_stats.composite_dirty_nodes >= 1);
+    }
+
+    #[test]
+    fn layout_session_marks_transform_change_as_composite_dirty() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let mut session = LayoutSession::new();
+
+        let first = div()
+            .data_id("root")
+            .child(text("A").data_id("label"))
+            .into();
+        let second = div()
+            .data_id("root")
+            .rotate_deg(12.0)
+            .child(text("A").data_id("label"))
+            .into();
+
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None);
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None);
+
+        session
+            .compute_layout(&first_resolved, &frame_ctx)
+            .expect("first layout should succeed");
+        let (_, second_stats) = session
+            .compute_layout(&second_resolved, &frame_ctx)
+            .expect("second layout should succeed");
+
+        assert_eq!(second_stats.layout_dirty_nodes, 0);
+        assert_eq!(second_stats.raster_dirty_nodes, 0);
+        assert!(second_stats.composite_dirty_nodes >= 1);
     }
 }

@@ -1,0 +1,232 @@
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    path::Path,
+};
+
+use crate::{
+    assets::AssetsMap,
+    display::list::{DisplayCommand, DisplayItem, DisplayList, TextDisplayItem},
+    element::style::ComputedVisualStyle,
+    layout::{
+        LayoutPassStats,
+        tree::{LayoutNode, LayoutPaintKind},
+    },
+    style::{ComputedTextStyle, Transform},
+};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BitmapSourceKind {
+    StaticImage,
+    Video,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CacheInvalidationScope {
+    Clean,
+    Raster,
+    Composite,
+    Layout,
+    Structure,
+    TimeVariant,
+}
+
+impl CacheInvalidationScope {
+    pub(crate) fn allows_picture_reuse(self) -> bool {
+        matches!(self, Self::Clean)
+    }
+
+    pub(crate) fn prefers_subtree_cache(self) -> bool {
+        matches!(self, Self::Composite)
+    }
+}
+
+pub(crate) fn bitmap_source_kind(path: &Path) -> BitmapSourceKind {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("mp4" | "mov" | "m4v" | "webm" | "mkv" | "avi") => BitmapSourceKind::Video,
+        _ => BitmapSourceKind::StaticImage,
+    }
+}
+
+pub(crate) fn display_list_contains_video(list: &DisplayList, assets: &AssetsMap) -> bool {
+    list.commands.iter().any(|command| match command {
+        DisplayCommand::Draw {
+            item: DisplayItem::Bitmap(bitmap),
+        } => assets
+            .path(&bitmap.asset_id)
+            .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
+            .unwrap_or(false),
+        _ => false,
+    })
+}
+
+pub(crate) fn scene_cache_scope(
+    layout_pass: &LayoutPassStats,
+    contains_video: bool,
+) -> CacheInvalidationScope {
+    if contains_video {
+        CacheInvalidationScope::TimeVariant
+    } else if layout_pass.structure_rebuild {
+        CacheInvalidationScope::Structure
+    } else if layout_pass.layout_dirty_nodes > 0 {
+        CacheInvalidationScope::Layout
+    } else if layout_pass.raster_dirty_nodes > 0 {
+        CacheInvalidationScope::Raster
+    } else if layout_pass.composite_dirty_nodes > 0 {
+        CacheInvalidationScope::Composite
+    } else {
+        CacheInvalidationScope::Clean
+    }
+}
+
+pub(crate) fn text_picture_cache_key(text: &TextDisplayItem) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    text.text.hash(&mut hasher);
+    hash_text_style(&text.style, &mut hasher);
+    text.allow_wrap.hash(&mut hasher);
+    text.bounds.width.to_bits().hash(&mut hasher);
+    text.bounds.height.to_bits().hash(&mut hasher);
+    hasher.finish()
+}
+
+pub(crate) fn subtree_picture_cache_key(layout: &LayoutNode, assets: &AssetsMap) -> Option<u64> {
+    subtree_picture_cache_key_inner(layout, assets)
+}
+
+fn subtree_picture_cache_key_inner(layout: &LayoutNode, assets: &AssetsMap) -> Option<u64> {
+    if layout_node_uses_video(layout, assets) {
+        return None;
+    }
+
+    let mut hasher = DefaultHasher::new();
+    hash_f32(layout.rect.width, &mut hasher);
+    hash_f32(layout.rect.height, &mut hasher);
+    hash_raster_style(&layout.paint.visual, &mut hasher);
+    hash_layout_paint_kind(&layout.paint.kind, &mut hasher);
+    layout.children.len().hash(&mut hasher);
+
+    for child in &layout.children {
+        hash_f32(child.rect.x, &mut hasher);
+        hash_f32(child.rect.y, &mut hasher);
+        hash_composite_style(&child.paint.visual, &mut hasher);
+        let child_key = subtree_picture_cache_key_inner(child, assets)?;
+        child_key.hash(&mut hasher);
+    }
+
+    Some(hasher.finish())
+}
+
+fn layout_node_uses_video(layout: &LayoutNode, assets: &AssetsMap) -> bool {
+    matches!(&layout.paint.kind, LayoutPaintKind::Bitmap(bitmap)
+        if assets
+            .path(&bitmap.asset_id)
+            .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
+            .unwrap_or(false))
+        || layout
+            .children
+            .iter()
+            .any(|child| layout_node_uses_video(child, assets))
+}
+
+fn hash_layout_paint_kind(kind: &LayoutPaintKind, state: &mut impl Hasher) {
+    match kind {
+        LayoutPaintKind::Div => {
+            0_u8.hash(state);
+        }
+        LayoutPaintKind::Text(text) => {
+            1_u8.hash(state);
+            text.text.hash(state);
+            hash_text_style(&text.style, state);
+            text.allow_wrap.hash(state);
+        }
+        LayoutPaintKind::Bitmap(bitmap) => {
+            2_u8.hash(state);
+            bitmap.asset_id.hash(state);
+            bitmap.width.hash(state);
+            bitmap.height.hash(state);
+            bitmap.object_fit.hash(state);
+        }
+    }
+}
+
+fn hash_raster_style(style: &ComputedVisualStyle, state: &mut impl Hasher) {
+    style.background.hash(state);
+    hash_f32(style.border_radius, state);
+    style.border_width.map(f32::to_bits).hash(state);
+    style.border_color.hash(state);
+    style.object_fit.hash(state);
+    style.shadow.hash(state);
+}
+
+fn hash_composite_style(style: &ComputedVisualStyle, state: &mut impl Hasher) {
+    hash_f32(style.opacity, state);
+    hash_transforms(&style.transforms, state);
+}
+
+fn hash_text_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
+    style.color.hash(state);
+    style.font_weight.hash(state);
+    style.text_align.hash(state);
+    hash_f32(style.text_px, state);
+    hash_f32(style.letter_spacing, state);
+    hash_f32(style.line_height, state);
+}
+
+fn hash_transforms(transforms: &[Transform], state: &mut impl Hasher) {
+    transforms.len().hash(state);
+    for transform in transforms {
+        match *transform {
+            Transform::TranslateX(x) => {
+                0_u8.hash(state);
+                hash_f32(x, state);
+            }
+            Transform::TranslateY(y) => {
+                1_u8.hash(state);
+                hash_f32(y, state);
+            }
+            Transform::Translate(x, y) => {
+                2_u8.hash(state);
+                hash_f32(x, state);
+                hash_f32(y, state);
+            }
+            Transform::Scale(value) => {
+                3_u8.hash(state);
+                hash_f32(value, state);
+            }
+            Transform::ScaleX(value) => {
+                4_u8.hash(state);
+                hash_f32(value, state);
+            }
+            Transform::ScaleY(value) => {
+                5_u8.hash(state);
+                hash_f32(value, state);
+            }
+            Transform::RotateDeg(value) => {
+                6_u8.hash(state);
+                hash_f32(value, state);
+            }
+            Transform::SkewXDeg(value) => {
+                7_u8.hash(state);
+                hash_f32(value, state);
+            }
+            Transform::SkewYDeg(value) => {
+                8_u8.hash(state);
+                hash_f32(value, state);
+            }
+            Transform::SkewDeg(x, y) => {
+                9_u8.hash(state);
+                hash_f32(x, state);
+                hash_f32(y, state);
+            }
+        }
+    }
+}
+
+fn hash_f32(value: f32, state: &mut impl Hasher) {
+    value.to_bits().hash(state);
+}

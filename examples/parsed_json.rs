@@ -1,8 +1,14 @@
 use opencat::{Composition, EncodingConfig, ScriptDriver, parse};
 
-const INPUT: &str = include_str!("hangzhou_landmarks.jsonl");
+const INPUT: &str = include_str!("pizza-palace-1280x720.jsonl");
 fn main() -> anyhow::Result<()> {
-    let parsed = parse(INPUT)?;
+    let input = if let Some(path) = std::env::args().nth(1) {
+        std::fs::read_to_string(path)?
+    } else {
+        INPUT.to_string()
+    };
+
+    let parsed = parse(&input)?;
 
     println!("Parsed composition: {}x{}", parsed.width, parsed.height);
 
@@ -18,10 +24,10 @@ fn main() -> anyhow::Result<()> {
         .script_driver(driver)
         .build()?;
 
-    let encode_config = EncodingConfig::mp4();
+    let encode_config = EncodingConfig::png();
     std::fs::create_dir_all("out")?;
-    composition.render("out/parsed.mp4", &encode_config)?;
-    println!("Rendered out/parsed.mp4");
+    composition.render("out/parsed.png", &encode_config)?;
+    println!("Rendered out/parsed.png");
 
     Ok(())
 }

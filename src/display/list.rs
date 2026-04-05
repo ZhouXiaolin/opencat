@@ -66,10 +66,20 @@ pub struct BitmapDisplayItem {
     pub width: u32,
     pub height: u32,
     pub object_fit: ObjectFit,
+    pub paint: BitmapPaintStyle,
 }
 
 #[derive(Clone, Debug)]
 pub struct RectPaintStyle {
+    pub background: Option<ColorToken>,
+    pub border_radius: f32,
+    pub border_width: Option<f32>,
+    pub border_color: Option<ColorToken>,
+    pub shadow: Option<ShadowStyle>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BitmapPaintStyle {
     pub background: Option<ColorToken>,
     pub border_radius: f32,
     pub border_width: Option<f32>,

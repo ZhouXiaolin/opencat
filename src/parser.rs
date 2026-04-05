@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use serde::Deserialize;
 
-use crate::nodes::{div, text};
+use crate::nodes::{ImageSource, OpenverseQuery, div, image, text, video};
 use crate::style::{
     AlignItems, ColorToken, FlexDirection, FontWeight, JustifyContent, NodeStyle, ObjectFit,
     Position, TextAlign,
@@ -21,23 +22,63 @@ enum JsonLine {
     },
     #[serde(rename = "script")]
     Script { content: String },
-    #[serde(untagged)]
-    Element {
-        id: Option<u64>,
+    #[serde(rename = "div")]
+    Div {
+        id: String,
         #[serde(rename = "parentId")]
-        parent_id: Option<u64>,
+        parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
-        text: Option<String>,
+    },
+    #[serde(rename = "text")]
+    Text {
+        id: String,
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        #[serde(rename = "className")]
+        class_name: Option<String>,
+        text: String,
+    },
+    #[serde(rename = "image")]
+    Image {
+        id: String,
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        #[serde(rename = "className")]
+        class_name: Option<String>,
+        path: Option<String>,
+        url: Option<String>,
+        query: Option<String>,
+        #[serde(rename = "queryCount")]
+        query_count: Option<usize>,
+        #[serde(rename = "aspectRatio")]
+        aspect_ratio: Option<String>,
+    },
+    #[serde(rename = "video")]
+    Video {
+        id: String,
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        #[serde(rename = "className")]
+        class_name: Option<String>,
+        path: String,
     },
 }
 
 #[derive(Debug, Clone)]
+enum ParsedElementKind {
+    Div,
+    Text { content: String },
+    Image { source: ImageSource },
+    Video { path: PathBuf },
+}
+
+#[derive(Debug, Clone)]
 struct ParsedElement {
-    id: u64,
-    parent_id: Option<u64>,
+    id: String,
+    parent_id: Option<String>,
     style: NodeStyle,
-    text: Option<String>,
+    kind: ParsedElementKind,
 }
 
 pub struct ParsedComposition {
@@ -79,21 +120,67 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
             JsonLine::Script { content } => {
                 script = Some(content);
             }
-            JsonLine::Element {
+            JsonLine::Div {
+                id,
+                parent_id,
+                class_name,
+            } => {
+                let style = parse_class_name(class_name.as_deref().unwrap_or(""));
+                elements.push(ParsedElement {
+                    id,
+                    parent_id,
+                    style,
+                    kind: ParsedElementKind::Div,
+                });
+            }
+            JsonLine::Text {
                 id,
                 parent_id,
                 class_name,
                 text,
             } => {
-                if let Some(id) = id {
-                    let style = parse_class_name(class_name.as_deref().unwrap_or(""));
-                    elements.push(ParsedElement {
-                        id,
-                        parent_id,
-                        style,
-                        text,
-                    });
-                }
+                let style = parse_class_name(class_name.as_deref().unwrap_or(""));
+                elements.push(ParsedElement {
+                    id,
+                    parent_id,
+                    style,
+                    kind: ParsedElementKind::Text { content: text },
+                });
+            }
+            JsonLine::Image {
+                id,
+                parent_id,
+                class_name,
+                path,
+                url,
+                query,
+                query_count,
+                aspect_ratio,
+            } => {
+                let style = parse_class_name(class_name.as_deref().unwrap_or(""));
+                let source = parse_image_source(path, url, query, query_count, aspect_ratio)?;
+                elements.push(ParsedElement {
+                    id,
+                    parent_id,
+                    style,
+                    kind: ParsedElementKind::Image { source },
+                });
+            }
+            JsonLine::Video {
+                id,
+                parent_id,
+                class_name,
+                path,
+            } => {
+                let style = parse_class_name(class_name.as_deref().unwrap_or(""));
+                elements.push(ParsedElement {
+                    id,
+                    parent_id,
+                    style,
+                    kind: ParsedElementKind::Video {
+                        path: PathBuf::from(path),
+                    },
+                });
             }
         }
     }
@@ -110,8 +197,57 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     })
 }
 
+fn parse_image_source(
+    path: Option<String>,
+    url: Option<String>,
+    query: Option<String>,
+    query_count: Option<usize>,
+    aspect_ratio: Option<String>,
+) -> anyhow::Result<ImageSource> {
+    let sources = [
+        path.as_ref().map(|_| "path"),
+        url.as_ref().map(|_| "url"),
+        query.as_ref().map(|_| "query"),
+    ]
+    .into_iter()
+    .flatten()
+    .count();
+
+    if sources == 0 {
+        return Err(anyhow::anyhow!(
+            "image node requires one of: path, url, query"
+        ));
+    }
+
+    if sources > 1 {
+        return Err(anyhow::anyhow!(
+            "image node accepts only one source: path, url, or query"
+        ));
+    }
+
+    if let Some(path) = path {
+        return Ok(ImageSource::Path(PathBuf::from(path)));
+    }
+
+    if let Some(url) = url {
+        return Ok(ImageSource::Url(url));
+    }
+
+    let Some(query) = query else {
+        return Err(anyhow::anyhow!(
+            "image node requires one of: path, url, query"
+        ));
+    };
+
+    Ok(ImageSource::Query(OpenverseQuery {
+        query,
+        count: query_count.unwrap_or(1).max(1),
+        aspect_ratio,
+    }))
+}
+
 fn build_tree(elements: &[ParsedElement]) -> anyhow::Result<Node> {
-    let mut children_map: HashMap<u64, Vec<&ParsedElement>> = HashMap::new();
+    let mut children_map: HashMap<&str, Vec<&ParsedElement>> = HashMap::new();
     let mut root_element = None;
 
     for el in elements {
@@ -122,7 +258,7 @@ fn build_tree(elements: &[ParsedElement]) -> anyhow::Result<Node> {
             root_element = Some(el);
         } else {
             children_map
-                .entry(el.parent_id.unwrap())
+                .entry(el.parent_id.as_deref().unwrap())
                 .or_default()
                 .push(el);
         }
@@ -136,28 +272,58 @@ fn build_tree(elements: &[ParsedElement]) -> anyhow::Result<Node> {
 
 fn build_node(
     el: &ParsedElement,
-    children_map: &HashMap<u64, Vec<&ParsedElement>>,
+    children_map: &HashMap<&str, Vec<&ParsedElement>>,
 ) -> anyhow::Result<Node> {
     let mut style = el.style.clone();
-    style.id = el.id.to_string();
+    style.id = el.id.clone();
 
-    if el.text.is_some() {
-        let mut text_node = text(el.text.as_ref().unwrap());
-        text_node.style = style;
-        return Ok(Node::new(text_node));
-    }
+    match &el.kind {
+        ParsedElementKind::Div => {
+            let mut div_node = div();
+            div_node.style = style;
 
-    let mut div_node = div();
-    div_node.style = style;
+            if let Some(children) = children_map.get(el.id.as_str()) {
+                for child in children {
+                    let child_node = build_node(child, children_map)?;
+                    div_node = div_node.child(child_node);
+                }
+            }
 
-    if let Some(children) = children_map.get(&el.id) {
-        for child in children {
-            let child_node = build_node(child, children_map)?;
-            div_node = div_node.child(child_node);
+            Ok(Node::new(div_node))
+        }
+        ParsedElementKind::Text { content } => {
+            let mut text_node = text(content);
+            text_node.style = style;
+            Ok(Node::new(text_node))
+        }
+        ParsedElementKind::Image { source } => {
+            let mut image_node = image();
+            image_node = match source {
+                ImageSource::Unset => {
+                    return Err(anyhow::anyhow!(
+                        "image node requires one of: path, url, query"
+                    ));
+                }
+                ImageSource::Path(path) => image_node.path(path),
+                ImageSource::Url(url) => image_node.url(url.clone()),
+                ImageSource::Query(query) => {
+                    let mut image_node = image_node.query(query.query.clone());
+                    image_node = image_node.query_count(query.count);
+                    if let Some(aspect_ratio) = &query.aspect_ratio {
+                        image_node = image_node.aspect_ratio(aspect_ratio.clone());
+                    }
+                    image_node
+                }
+            };
+            image_node.style = style;
+            Ok(Node::new(image_node))
+        }
+        ParsedElementKind::Video { path } => {
+            let mut video_node = video(path);
+            video_node.style = style;
+            Ok(Node::new(video_node))
         }
     }
-
-    Ok(Node::new(div_node))
 }
 
 fn parse_class_name(class_name: &str) -> NodeStyle {
@@ -306,6 +472,33 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) {
 }
 
 fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
+    if let Some(value) = class.strip_prefix("bg-[") {
+        if let Some(v) = value.strip_suffix(']') {
+            if let Some(color) = color_from_hex(v) {
+                style.bg_color = Some(color);
+                return;
+            }
+        }
+    }
+
+    if let Some(value) = class.strip_prefix("text-[") {
+        if let Some(v) = value.strip_suffix(']') {
+            if let Some(color) = color_from_hex(v) {
+                style.text_color = Some(color);
+                return;
+            }
+        }
+    }
+
+    if let Some(value) = class.strip_prefix("border-[") {
+        if let Some(v) = value.strip_suffix(']') {
+            if let Some(color) = color_from_hex(v) {
+                style.border_color = Some(color);
+                return;
+            }
+        }
+    }
+
     if let Some(value) = class.strip_prefix("gap-[") {
         if let Some(v) = value.strip_suffix("px]") {
             if let Ok(n) = v.parse::<f32>() {
@@ -765,6 +958,43 @@ fn color_from_name(name: &str) -> Option<ColorToken> {
     }
 }
 
+fn color_from_hex(value: &str) -> Option<ColorToken> {
+    let hex = value.strip_prefix('#')?;
+    let (r, g, b, a) = match hex.len() {
+        3 => {
+            let r = parse_hex_nibble(hex.as_bytes()[0])?;
+            let g = parse_hex_nibble(hex.as_bytes()[1])?;
+            let b = parse_hex_nibble(hex.as_bytes()[2])?;
+            (r * 17, g * 17, b * 17, 255)
+        }
+        6 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            (r, g, b, 255)
+        }
+        8 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            let a = u8::from_str_radix(&hex[6..8], 16).ok()?;
+            (r, g, b, a)
+        }
+        _ => return None,
+    };
+
+    Some(ColorToken::Custom(r, g, b, a))
+}
+
+fn parse_hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{parse, parse_class_name};
@@ -789,8 +1019,8 @@ mod tests {
     fn parser_keeps_script_line() {
         let parsed = parse(
             r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":90}
-{"id":1,"parentId":null,"type":"div","className":"flex","text":null}
-{"type":"script","content":"ctx.getNode('1').opacity(0.5);"}"#,
+{"id":"root","parentId":null,"type":"div","className":"flex","text":null}
+{"type":"script","content":"ctx.getNode('root').opacity(0.5);"}"#,
         )
         .expect("jsonl should parse");
 
@@ -798,19 +1028,44 @@ mod tests {
         assert_eq!(parsed.height, 360);
         assert_eq!(
             parsed.script.as_deref(),
-            Some("ctx.getNode('1').opacity(0.5);")
+            Some("ctx.getNode('root').opacity(0.5);")
         );
     }
 
     #[test]
     fn parser_rejects_multiple_roots() {
         let err = parse(
-            r#"{"id":1,"parentId":null,"type":"div","className":"","text":null}
-{"id":2,"parentId":null,"type":"div","className":"","text":null}"#,
+            r#"{"id":"root-a","parentId":null,"type":"div","className":"","text":null}
+{"id":"root-b","parentId":null,"type":"div","className":"","text":null}"#,
         )
         .err()
         .expect("multiple roots should fail");
 
         assert!(err.to_string().contains("multiple root"));
+    }
+
+    #[test]
+    fn parser_maps_hex_colors() {
+        let style = parse_class_name("bg-[#fff8f0] text-[#e85d04] border-[#5c4033]");
+
+        assert_eq!(style.bg_color, Some(ColorToken::Custom(0xff, 0xf8, 0xf0, 0xff)));
+        assert_eq!(
+            style.text_color,
+            Some(ColorToken::Custom(0xe8, 0x5d, 0x04, 0xff))
+        );
+        assert_eq!(
+            style.border_color,
+            Some(ColorToken::Custom(0x5c, 0x40, 0x33, 0xff))
+        );
+    }
+
+    #[test]
+    fn parser_accepts_image_query_nodes() {
+        parse(
+            r#"{"type":"composition","width":1280,"height":720,"fps":30,"frames":90}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full","text":null}
+{"id":"hero","parentId":"root","type":"image","className":"w-[320px] h-[240px] object-cover","query":"pizza margherita"}"#,
+        )
+        .expect("jsonl with image query should parse");
     }
 }

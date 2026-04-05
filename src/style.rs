@@ -24,6 +24,7 @@ pub enum ColorToken {
     Slate800,
     Slate900,
     Primary,
+    Custom(u8, u8, u8, u8),
 }
 
 impl ColorToken {
@@ -51,6 +52,7 @@ impl ColorToken {
             ColorToken::Slate800 => Color::from_rgb(0x1e, 0x29, 0x3b),
             ColorToken::Slate900 => Color::from_rgb(0x0f, 0x17, 0x2a),
             ColorToken::Primary => Color::from_rgb(0x3b, 0x82, 0xf6), // Same as blue-500
+            ColorToken::Custom(r, g, b, a) => Color::from_argb(a, r, g, b),
         }
     }
 }

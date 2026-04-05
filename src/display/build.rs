@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::{
     display::list::{
-        BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayLayer, DisplayList,
+        BitmapDisplayItem, BitmapPaintStyle, DisplayCommand, DisplayItem, DisplayLayer, DisplayList,
         DisplayTransform, RectDisplayItem, RectPaintStyle, TextDisplayItem,
     },
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
@@ -93,6 +93,13 @@ fn push_paint_commands(
                 width: bitmap.width,
                 height: bitmap.height,
                 object_fit: bitmap.object_fit,
+                paint: BitmapPaintStyle {
+                    background: layout.paint.visual.background,
+                    border_radius: layout.paint.visual.border_radius,
+                    border_width: layout.paint.visual.border_width,
+                    border_color: layout.paint.visual.border_color,
+                    shadow: layout.paint.visual.shadow,
+                },
             }),
         }),
     }
@@ -157,5 +164,6 @@ mod tests {
             .expect("bitmap draw item should exist");
 
         assert_eq!(bitmap.object_fit, ObjectFit::Cover);
+        assert_eq!(bitmap.paint.border_radius, 0.0);
     }
 }

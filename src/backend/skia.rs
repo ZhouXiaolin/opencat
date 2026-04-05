@@ -2,8 +2,8 @@ use std::{cell::RefCell, collections::HashMap, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
-    Canvas, Data, Image as SkiaImage, ImageInfo, Paint, PaintStyle, Picture, PictureRecorder,
-    RRect, Rect, canvas::SrcRectConstraint, images,
+    Canvas, ClipOp, Data, Image as SkiaImage, ImageInfo, Paint, PaintStyle, Picture,
+    PictureRecorder, RRect, Rect, canvas::SrcRectConstraint, images,
 };
 
 use crate::{
@@ -13,8 +13,8 @@ use crate::{
         BitmapSourceKind, bitmap_source_kind, subtree_picture_cache_key, text_picture_cache_key,
     },
     display::list::{
-        BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayList, DisplayTransform,
-        RectDisplayItem, TextDisplayItem,
+        BitmapDisplayItem, BitmapPaintStyle, DisplayCommand, DisplayItem, DisplayList,
+        DisplayTransform, RectDisplayItem, TextDisplayItem,
     },
     frame_ctx::FrameCtx,
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
@@ -204,6 +204,13 @@ impl<'a> SkiaBackend<'a> {
                         width: bitmap.width,
                         height: bitmap.height,
                         object_fit: bitmap.object_fit,
+                        paint: BitmapPaintStyle {
+                            background: layout.paint.visual.background,
+                            border_radius: layout.paint.visual.border_radius,
+                            border_width: layout.paint.visual.border_width,
+                            border_color: layout.paint.visual.border_color,
+                            shadow: layout.paint.visual.shadow,
+                        },
                     },
                     self.assets,
                     &self.image_cache,
@@ -470,16 +477,17 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
     }
 
     let rect = layout_rect_to_skia(rect.bounds);
+    let radius = effective_corner_radius(rect, style.border_radius);
 
     if let Some(shadow) = style.shadow {
-        draw_shadow(canvas, rect, style.border_radius, shadow);
+        draw_shadow(canvas, rect, radius, shadow);
     }
 
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
 
-    if style.border_radius > 0.0 {
-        let rrect = RRect::new_rect_xy(rect, style.border_radius, style.border_radius);
+    if radius > 0.0 {
+        let rrect = RRect::new_rect_xy(rect, radius, radius);
 
         if let Some(color) = style.background {
             paint.set_color(color.to_skia());
@@ -526,8 +534,9 @@ fn draw_shadow(canvas: &Canvas, rect: Rect, radius: f32, shadow: ShadowStyle) {
         rect.height() + blur,
     );
 
+    let radius = effective_corner_radius(shadow_rect, radius + blur / 2.0);
     if radius > 0.0 {
-        let rrect = RRect::new_rect_xy(shadow_rect, radius + blur / 2.0, radius + blur / 2.0);
+        let rrect = RRect::new_rect_xy(shadow_rect, radius, radius);
         canvas.draw_rrect(rrect, &paint);
     } else {
         canvas.draw_rect(shadow_rect, &paint);
@@ -662,11 +671,35 @@ fn draw_bitmap(
 
     let draw_started = Instant::now();
     let dst = layout_rect_to_skia(bitmap.bounds);
+    let radius = effective_corner_radius(dst, bitmap.paint.border_radius);
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
 
     let src_width = bitmap.width as f32;
     let src_height = bitmap.height as f32;
+
+    if let Some(shadow) = bitmap.paint.shadow {
+        draw_shadow(canvas, dst, radius, shadow);
+    }
+
+    if let Some(color) = bitmap.paint.background {
+        let mut background_paint = Paint::default();
+        background_paint.set_anti_alias(true);
+        background_paint.set_color(color.to_skia());
+        if radius > 0.0 {
+            let rrect = RRect::new_rect_xy(dst, radius, radius);
+            canvas.draw_rrect(rrect, &background_paint);
+        } else {
+            canvas.draw_rect(dst, &background_paint);
+        }
+    }
+
+    let needs_clip = radius > 0.0;
+    if needs_clip {
+        let rrect = RRect::new_rect_xy(dst, radius, radius);
+        canvas.save();
+        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
+    }
 
     match bitmap.object_fit {
         ObjectFit::Fill => {
@@ -681,8 +714,36 @@ fn draw_bitmap(
             canvas.draw_image_rect(image, Some((&src, SrcRectConstraint::Strict)), dst, &paint);
         }
     }
+
+    if needs_clip {
+        canvas.restore();
+    }
+
+    if let (Some(width), Some(color)) = (bitmap.paint.border_width, bitmap.paint.border_color) {
+        let mut border_paint = Paint::default();
+        border_paint.set_anti_alias(true);
+        border_paint.set_color(color.to_skia());
+        border_paint.set_style(PaintStyle::Stroke);
+        border_paint.set_stroke_width(width);
+
+        if radius > 0.0 {
+            let rrect = RRect::new_rect_xy(dst, radius, radius);
+            canvas.draw_rrect(rrect, &border_paint);
+        } else {
+            canvas.draw_rect(dst, &border_paint);
+        }
+    }
+
     stats.draw_ms = draw_started.elapsed().as_secs_f64() * 1000.0;
     Ok(stats)
+}
+
+fn effective_corner_radius(rect: Rect, radius: f32) -> f32 {
+    if radius <= 0.0 {
+        return 0.0;
+    }
+
+    radius.min(rect.width() / 2.0).min(rect.height() / 2.0)
 }
 
 fn apply_transform(canvas: &Canvas, transform: &DisplayTransform) {

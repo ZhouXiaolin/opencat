@@ -7,7 +7,6 @@
   const mainText = ctx.getNode("hello-world-title");
   const blueLabel = ctx.getNode("hello-world-blue-caption");
   const pinkLabel = ctx.getNode("hello-world-pink-caption");
-
   const opacity = Math.min(frame / 20, 1);
   const rotation = Math.min(Math.max((frame - 20) * 1.8, 0), 24);
   const blueProgress = Math.min(frame / 50, 1);

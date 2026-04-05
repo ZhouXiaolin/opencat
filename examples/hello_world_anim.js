@@ -2,11 +2,11 @@
   const frame = ctx.frame;
   const totalFrames = ctx.totalFrames;
 
-  const blueBox = ctx.getNode("2");
-  const pinkBox = ctx.getNode("3");
-  const mainText = ctx.getNode("4");
-  const blueLabel = ctx.getNode("5");
-  const pinkLabel = ctx.getNode("6");
+  const blueBox = ctx.getNode("hello-world-blue-box");
+  const pinkBox = ctx.getNode("hello-world-pink-box");
+  const mainText = ctx.getNode("hello-world-title");
+  const blueLabel = ctx.getNode("hello-world-blue-caption");
+  const pinkLabel = ctx.getNode("hello-world-pink-caption");
 
   const opacity = Math.min(frame / 20, 1);
   const rotation = Math.min(Math.max((frame - 20) * 1.8, 0), 24);

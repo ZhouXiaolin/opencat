@@ -1,11 +1,11 @@
 use opencat::{
+    Composition, FrameCtx, Node, NodeKind,
     assets::AssetsMap,
     component,
     media::MediaContext,
-    nodes::{div, text, AlignItems, JustifyContent},
+    nodes::{AlignItems, JustifyContent, div, text},
     render::render_frame_rgb,
     transitions::{linear, slide, transition_series},
-    Composition, FrameCtx, Node, NodeKind,
 };
 
 fn render_frame(composition: &Composition, frame_index: u32) -> anyhow::Result<Vec<u8>> {

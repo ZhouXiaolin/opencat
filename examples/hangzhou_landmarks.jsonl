@@ -1,5 +1,0 @@
-{"type":"composition","width":1280,"height":720,"fps":30,"frames":90}
-{"id":"root","parentId":null,"type":"div","className":"flex flex-col justify-center items-center w-full h-full bg-slate-50 gap-16","text":null}
-{"id":"circle","parentId":"root","type":"div","className":"w-[320px] h-[320px] rounded-full bg-teal-500 shadow-xl","text":null}
-{"id":"title","parentId":"root","type":"text","className":"text-[72px] text-slate-900 font-semibold","text":"Hangzhou"}
-{"type":"script","content":"ctx.getNode('circle').scale(0.8 + (ctx.frame / ctx.totalFrames) * 0.4);"}

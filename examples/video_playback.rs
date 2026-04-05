@@ -1,9 +1,8 @@
 use opencat::{
-    Composition, EncodingConfig, FrameCtx, Node, component,
+    Composition, EncodingConfig, FrameCtx, Node,
     nodes::{div, image, video},
 };
 
-#[component]
 fn video_demo(_ctx: &FrameCtx) -> Node {
     div()
         .flex_col()
@@ -20,7 +19,7 @@ fn main() -> anyhow::Result<()> {
         .size(1280, 720)
         .fps(30)
         .frames(90)
-        .root(|_ctx| video_demo())
+        .root(|_ctx| video_demo(_ctx))
         .build()?;
 
     let encode_config = EncodingConfig::mp4();

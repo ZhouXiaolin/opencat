@@ -1,10 +1,9 @@
 use opencat::{
-    component,
+    // component,
     nodes::{div, text},
     Composition, EncodingConfig, FrameCtx, Node,
 };
 
-#[component]
 fn hello_world_demo(_ctx: &FrameCtx) -> Node {
     let current_frame = _ctx.frame as f32;
     let opacity = (current_frame / 20.0).min(1.0);
@@ -71,7 +70,6 @@ fn hello_world_demo(_ctx: &FrameCtx) -> Node {
         .into()
 }
 
-#[component]
 fn login_screen_demo(_ctx: &FrameCtx) -> Node {
     div()
         .flex_col()
@@ -232,7 +230,7 @@ fn main() -> anyhow::Result<()> {
         .size(1280, 720)
         .fps(30)
         .frames(90)
-        .root(|_ctx| login_screen_demo())
+        .root(|_ctx| login_screen_demo(_ctx))
         .build()?;
 
     let encode_config = EncodingConfig::mp4();

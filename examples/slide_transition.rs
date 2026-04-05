@@ -1,5 +1,5 @@
 use opencat::{
-    Composition, EncodingConfig, FrameCtx, Node, component, light_leak,
+    Composition, EncodingConfig, FrameCtx, Node, light_leak,
     nodes::{div, text},
     transitions::{linear, slide, transition_series},
 };
@@ -19,7 +19,6 @@ fn scene_panel(label: &str, is_pink: bool) -> Node {
     panel.into()
 }
 
-#[component]
 fn test(_ctx: &FrameCtx) -> Node {
     let current_frame = _ctx.frame;
     let opacity = (current_frame as f32 / 60.0).min(1.0);
@@ -45,10 +44,9 @@ fn test(_ctx: &FrameCtx) -> Node {
         .into()
 }
 
-#[component]
 fn slide_transition_demo(_ctx: &FrameCtx) -> Node {
     transition_series()
-        .sequence(40, test())
+        .sequence(40, test(_ctx))
         .transition(slide().timing(linear().duration(30)))
         .sequence(60, scene_panel("B", true))
         .transition(light_leak().timing(linear().duration(120)))
@@ -60,7 +58,7 @@ fn main() -> anyhow::Result<()> {
     let composition = Composition::new("slide_transition")
         .size(1280, 720)
         .fps(30)
-        .root(|_ctx| slide_transition_demo())
+        .root(|_ctx| slide_transition_demo(_ctx))
         .build()?;
 
     let encode_config = EncodingConfig::mp4();

@@ -16,7 +16,6 @@ pub mod view;
 pub use composition::Composition;
 pub use frame_ctx::FrameCtx;
 pub use nodes::{div, image, text, video};
-pub use opencat_macros::component;
 pub use render::{EncodingConfig, Mp4Config, OutputFormat};
 pub use transitions::{
     light_leak, linear, slide, transition_series, TransitionKind, TransitionSeries,

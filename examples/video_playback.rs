@@ -132,7 +132,7 @@ fn scene_one(ctx: &FrameCtx) -> Node {
                 )
                 .child(
             image()
-                .path(IMAGE_PATH)
+                .query("cat")
                 .id("scene-one-badge")
                         .absolute()
                         .right(20.0)

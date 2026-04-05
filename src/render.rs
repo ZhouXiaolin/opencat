@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc, time::Instant};
+use std::{collections::HashSet, path::Path, sync::Arc, time::Instant};
 
 use anyhow::{Result, anyhow};
 use skia_safe::{
@@ -22,8 +22,10 @@ use crate::{
     media::MediaContext,
     profile::{BackendProfile, FrameProfile, RenderProfiler, SceneBuildStats},
     render_cache::{RenderCacheState, SceneSlot},
+    nodes::ImageSource,
     script::{ScriptRunner, StyleMutations},
     timeline::{FrameState, frame_state_for_root},
+    view::NodeKind,
 };
 
 pub use crate::codec::encode::Mp4Config;
@@ -47,6 +49,7 @@ pub struct RenderSession {
     transition_from_layout: LayoutSession,
     transition_to_layout: LayoutSession,
     profiler: RenderProfiler,
+    prepared_root_ptr: Option<usize>,
 }
 
 impl EncodingConfig {
@@ -81,6 +84,7 @@ impl RenderSession {
             transition_from_layout: LayoutSession::new(),
             transition_to_layout: LayoutSession::new(),
             profiler: RenderProfiler::default(),
+            prepared_root_ptr: None,
         }
     }
 
@@ -138,6 +142,8 @@ fn render_frame_surface(
     frame_index: u32,
     session: &mut RenderSession,
 ) -> Result<skia_safe::Surface> {
+    ensure_assets_preloaded(composition, session)?;
+
     let mut frame_profile = FrameProfile::default();
     let frame_ctx = FrameCtx {
         frame: frame_index,
@@ -321,6 +327,65 @@ fn render_frame_surface(
 
     session.profiler.push(frame_profile);
     Ok(surface)
+}
+
+fn ensure_assets_preloaded(composition: &Composition, session: &mut RenderSession) -> Result<()> {
+    let root_ptr = Arc::as_ptr(&composition.root) as *const () as usize;
+    if session.prepared_root_ptr == Some(root_ptr) {
+        return Ok(());
+    }
+
+    let mut sources = HashSet::new();
+    for frame in 0..composition.frames {
+        let frame_ctx = FrameCtx {
+            frame,
+            fps: composition.fps,
+            width: composition.width,
+            height: composition.height,
+            frames: composition.frames,
+        };
+        let root = composition.root_node(&frame_ctx);
+        match frame_state_for_root(&root, &frame_ctx) {
+            FrameState::Scene { scene } => {
+                collect_image_sources(&scene, &frame_ctx, &mut sources);
+            }
+            FrameState::Transition { from, to, .. } => {
+                collect_image_sources(&from, &frame_ctx, &mut sources);
+                collect_image_sources(&to, &frame_ctx, &mut sources);
+            }
+        }
+    }
+
+    session.assets.preload_image_sources(sources)?;
+    session.prepared_root_ptr = Some(root_ptr);
+    Ok(())
+}
+
+fn collect_image_sources(node: &Node, frame_ctx: &FrameCtx, sources: &mut HashSet<ImageSource>) {
+    match node.kind() {
+        NodeKind::Component(component) => {
+            let rendered = component.render(frame_ctx);
+            collect_image_sources(&rendered, frame_ctx, sources);
+        }
+        NodeKind::Div(div) => {
+            for child in div.children_ref() {
+                collect_image_sources(child, frame_ctx, sources);
+            }
+        }
+        NodeKind::Image(image) => {
+            if !matches!(image.source(), ImageSource::Unset) {
+                sources.insert(image.source().clone());
+            }
+        }
+        NodeKind::Timeline(_) => match frame_state_for_root(node, frame_ctx) {
+            FrameState::Scene { scene } => collect_image_sources(&scene, frame_ctx, sources),
+            FrameState::Transition { from, to, .. } => {
+                collect_image_sources(&from, frame_ctx, sources);
+                collect_image_sources(&to, frame_ctx, sources);
+            }
+        },
+        NodeKind::Text(_) | NodeKind::Video(_) => {}
+    }
 }
 
 pub fn render_frame_rgba(

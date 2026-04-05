@@ -2,14 +2,14 @@ use std::path::{Path, PathBuf};
 
 use crate::style::{NodeStyle, impl_node_style_api};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OpenverseQuery {
     pub query: String,
     pub count: usize,
     pub aspect_ratio: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ImageSource {
     Unset,
     Path(PathBuf),

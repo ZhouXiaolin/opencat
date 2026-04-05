@@ -29,6 +29,7 @@ pub use render::{
 };
 pub use script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use transitions::{
-    TransitionKind, TransitionSeries, light_leak, linear, slide, transition_series,
+    SpringConfig, TransitionKind, TransitionSeries, light_leak, linear, slide, spring,
+    transition_series,
 };
 pub use view::{Node, NodeKind, component_node, component_node_with_duration};

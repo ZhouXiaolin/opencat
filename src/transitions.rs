@@ -44,9 +44,30 @@ pub struct LightLeakBuilder {
     hue_shift: f32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Timing {
     Linear { duration_in_frames: u32 },
+    Spring {
+        config: SpringConfig,
+        duration_in_frames: u32,
+    },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SpringConfig {
+    pub damping: f32,
+    pub stiffness: f32,
+    pub mass: f32,
+}
+
+impl Default for SpringConfig {
+    fn default() -> Self {
+        Self {
+            damping: 10.0,
+            stiffness: 100.0,
+            mass: 1.0,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -118,6 +139,7 @@ impl TransitionSeries {
                     from: node.clone(),
                     to: next_node.clone(),
                     kind: transition.kind(),
+                    timing: transition.timing,
                 });
                 cursor += transition_duration;
             }
@@ -143,6 +165,9 @@ impl Transition {
     fn duration_in_frames(&self) -> u32 {
         match self.timing {
             Timing::Linear { duration_in_frames } => duration_in_frames,
+            Timing::Spring {
+                duration_in_frames, ..
+            } => duration_in_frames,
         }
     }
 
@@ -191,6 +216,35 @@ impl LinearTimingBuilder {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct SpringTimingBuilder {
+    config: SpringConfig,
+}
+
+impl SpringTimingBuilder {
+    pub fn damping(mut self, damping: f32) -> Self {
+        self.config.damping = damping;
+        self
+    }
+
+    pub fn stiffness(mut self, stiffness: f32) -> Self {
+        self.config.stiffness = stiffness;
+        self
+    }
+
+    pub fn mass(mut self, mass: f32) -> Self {
+        self.config.mass = mass;
+        self
+    }
+
+    pub fn duration(self, duration_in_frames: u32) -> Timing {
+        Timing::Spring {
+            config: self.config,
+            duration_in_frames,
+        }
+    }
+}
+
 pub fn slide() -> SlideBuilder {
     SlideBuilder
 }
@@ -204,6 +258,12 @@ pub fn light_leak() -> LightLeakBuilder {
 
 pub fn linear() -> LinearTimingBuilder {
     LinearTimingBuilder
+}
+
+pub fn spring() -> SpringTimingBuilder {
+    SpringTimingBuilder {
+        config: SpringConfig::default(),
+    }
 }
 
 pub fn transition_series() -> TransitionSeries {

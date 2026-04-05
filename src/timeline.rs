@@ -2,7 +2,7 @@ use crate::{
     FrameCtx,
     nodes::div,
     style::NodeStyle,
-    transitions::TransitionKind,
+    transitions::{SpringConfig, Timing, TransitionKind},
     view::{Node, NodeKind},
 };
 
@@ -48,6 +48,7 @@ pub(crate) enum TimelineSegment {
         from: Node,
         to: Node,
         kind: TransitionKind,
+        timing: Timing,
     },
 }
 
@@ -106,6 +107,7 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
                 from,
                 to,
                 kind,
+                timing,
             } => {
                 if frame < start_frame.saturating_add(*duration_in_frames) {
                     return FrameState::Transition {
@@ -114,6 +116,7 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
                         progress: transition_progress(
                             frame.saturating_sub(*start_frame),
                             *duration_in_frames,
+                            timing,
                         ),
                         kind: *kind,
                     };
@@ -133,10 +136,53 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
     }
 }
 
-fn transition_progress(frame: u32, duration_in_frames: u32) -> f32 {
+fn transition_progress(frame: u32, duration_in_frames: u32, timing: &Timing) -> f32 {
     if duration_in_frames == 0 {
         return 1.0;
     }
 
-    (frame as f32 / duration_in_frames as f32).clamp(0.0, 1.0)
+    let t = frame as f32 / duration_in_frames as f32;
+
+    match timing {
+        Timing::Linear { .. } => t.clamp(0.0, 1.0),
+        Timing::Spring { config, .. } => spring_value(t, config),
+    }
+}
+
+/// Damped harmonic oscillator: maps normalized time [0, 1] to spring displacement [0, 1].
+fn spring_value(t: f32, config: &SpringConfig) -> f32 {
+    let gamma = config.damping / (2.0 * config.mass);
+    let omega0_sq = config.stiffness / config.mass;
+    let gamma_sq = gamma * gamma;
+
+    // The spring oscillates around 1.0; we use a settling duration of ~4 seconds
+    // at 30fps, scaled by the spring parameters.
+    let t_real = t * settle_time(config);
+    let value = if omega0_sq > gamma_sq {
+        // Underdamped (oscillating)
+        let omega_d = (omega0_sq - gamma_sq).sqrt();
+        1.0 - (-gamma * t_real).exp()
+            * ((omega_d * t_real).cos() + (gamma / omega_d) * (omega_d * t_real).sin())
+    } else if omega0_sq < gamma_sq {
+        // Overdamped
+        let s = (gamma_sq - omega0_sq).sqrt();
+        1.0 - (-gamma * t_real).exp()
+            * ((s * t_real).cosh() + (gamma / s) * (s * t_real).sinh())
+    } else {
+        // Critically damped
+        1.0 - (-gamma * t_real).exp() * (1.0 + gamma * t_real)
+    };
+
+    value.clamp(0.0, 1.0)
+}
+
+/// Time for the spring envelope to decay below a small threshold,
+/// used to normalize the spring curve into a fixed duration.
+fn settle_time(config: &SpringConfig) -> f32 {
+    let gamma = config.damping / (2.0 * config.mass);
+    if gamma <= 0.0 {
+        return 5.0;
+    }
+    let threshold: f32 = 0.001;
+    -threshold.ln() / gamma
 }

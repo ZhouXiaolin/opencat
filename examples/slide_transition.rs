@@ -1,7 +1,5 @@
 use opencat::{
-    Composition, EncodingConfig, FrameCtx, Node, light_leak,
-    nodes::{div, text},
-    transitions::{linear, slide, spring, transition_series},
+    Composition, EncodingConfig, FrameCtx, Node, clock_wipe, iris, light_leak, nodes::{div, text}, transitions::{linear, slide, spring, transition_series}, wipe
 };
 
 fn scene_panel(label: &str, is_pink: bool) -> Node {
@@ -67,10 +65,10 @@ fn test(_ctx: &FrameCtx) -> Node {
 
 fn slide_transition_demo(_ctx: &FrameCtx) -> Node {
     transition_series()
-        .sequence(40, test(_ctx))
-        .transition(slide().timing(spring().damping(12.0).stiffness(100.0).duration(30)))
+        .sequence(60, test(_ctx))
+        .transition(wipe().from_bottom_left().timing(linear().duration(60)))
         .sequence(60, scene_panel("B", true))
-        .transition(light_leak().timing(linear().duration(120)))
+        .transition(clock_wipe().timing(linear().duration(60)))
         .sequence(60, scene_panel("A", false))
         .into()
 }

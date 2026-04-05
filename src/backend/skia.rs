@@ -1,9 +1,9 @@
-use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
-    Canvas, Data, Image as SkiaImage, ImageInfo, Paint, PaintStyle, RRect, Rect,
-    canvas::SrcRectConstraint, images,
+    Canvas, Data, Image as SkiaImage, ImageInfo, Paint, PaintStyle, Picture, PictureRecorder,
+    RRect, Rect, canvas::SrcRectConstraint, images,
 };
 
 use crate::{
@@ -21,12 +21,42 @@ use crate::{
 
 pub(crate) type ImageCache = Rc<RefCell<HashMap<String, Option<SkiaImage>>>>;
 
+#[derive(Clone, Debug, Default)]
+pub struct BackendProfile {
+    pub rect_draw_ms: f64,
+    pub text_draw_ms: f64,
+    pub bitmap_draw_ms: f64,
+    pub image_decode_ms: f64,
+    pub video_decode_ms: f64,
+    pub picture_record_ms: f64,
+    pub picture_draw_ms: f64,
+    pub picture_cache_hits: usize,
+    pub picture_cache_misses: usize,
+    pub image_cache_hits: usize,
+    pub image_cache_misses: usize,
+    pub video_frame_decodes: usize,
+    pub draw_rect_count: usize,
+    pub draw_text_count: usize,
+    pub draw_bitmap_count: usize,
+    pub save_layer_count: usize,
+}
+
+struct BitmapDrawStats {
+    draw_ms: f64,
+    image_decode_ms: f64,
+    video_decode_ms: f64,
+    image_cache_hits: usize,
+    image_cache_misses: usize,
+    video_frame_decodes: usize,
+}
+
 pub struct SkiaBackend<'a> {
     canvas: &'a Canvas,
     assets: &'a AssetsMap,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     image_cache: ImageCache,
+    profile: Option<&'a mut BackendProfile>,
 }
 
 impl<'a> SkiaBackend<'a> {
@@ -44,6 +74,7 @@ impl<'a> SkiaBackend<'a> {
             media_ctx,
             frame_ctx,
             image_cache: Rc::new(RefCell::new(HashMap::new())),
+            profile: None,
         }
     }
 
@@ -62,6 +93,27 @@ impl<'a> SkiaBackend<'a> {
             image_cache,
             media_ctx,
             frame_ctx,
+            profile: None,
+        }
+    }
+
+    pub fn new_with_cache_and_profile(
+        canvas: &'a Canvas,
+        _width: i32,
+        _height: i32,
+        assets: &'a AssetsMap,
+        image_cache: ImageCache,
+        media_ctx: Option<&'a mut MediaContext>,
+        frame_ctx: &'a FrameCtx,
+        profile: Option<&'a mut BackendProfile>,
+    ) -> Self {
+        Self {
+            canvas,
+            assets,
+            image_cache,
+            media_ctx,
+            frame_ctx,
+            profile,
         }
     }
 
@@ -81,6 +133,9 @@ impl<'a> SkiaBackend<'a> {
                 self.canvas.restore();
             }
             DisplayCommand::SaveLayer { layer } => {
+                if let Some(profile) = self.profile.as_deref_mut() {
+                    profile.save_layer_count += 1;
+                }
                 let alpha = (layer.opacity * 255.0).round() as u32;
                 self.canvas
                     .save_layer_alpha(layout_rect_to_skia(layer.bounds), alpha);
@@ -88,37 +143,92 @@ impl<'a> SkiaBackend<'a> {
             DisplayCommand::ApplyTransform { transform } => {
                 apply_transform(self.canvas, transform);
             }
-            DisplayCommand::Draw { item } => {
-                draw_item(
-                    self.canvas,
-                    item,
-                    &self.assets,
-                    &self.image_cache,
-                    &mut self.media_ctx,
-                    self.frame_ctx,
-                )?;
-            }
+            DisplayCommand::Draw { item } => match item {
+                DisplayItem::Rect(rect) => {
+                    let started = Instant::now();
+                    draw_rect(self.canvas, rect);
+                    if let Some(profile) = self.profile.as_deref_mut() {
+                        profile.draw_rect_count += 1;
+                        profile.rect_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
+                    }
+                }
+                DisplayItem::Text(text) => {
+                    let started = Instant::now();
+                    draw_text(self.canvas, text);
+                    if let Some(profile) = self.profile.as_deref_mut() {
+                        profile.draw_text_count += 1;
+                        profile.text_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
+                    }
+                }
+                DisplayItem::Bitmap(bitmap) => {
+                    let stats = draw_bitmap(
+                        self.canvas,
+                        bitmap,
+                        self.assets,
+                        &self.image_cache,
+                        &mut self.media_ctx,
+                        self.frame_ctx,
+                    )?;
+                    if let Some(profile) = self.profile.as_deref_mut() {
+                        profile.draw_bitmap_count += 1;
+                        profile.bitmap_draw_ms += stats.draw_ms;
+                        profile.image_decode_ms += stats.image_decode_ms;
+                        profile.video_decode_ms += stats.video_decode_ms;
+                        profile.image_cache_hits += stats.image_cache_hits;
+                        profile.image_cache_misses += stats.image_cache_misses;
+                        profile.video_frame_decodes += stats.video_frame_decodes;
+                    }
+                }
+            },
         }
         Ok(())
     }
 }
 
-fn draw_item(
-    canvas: &Canvas,
-    item: &DisplayItem,
-    assets: &AssetsMap,
-    image_cache: &RefCell<HashMap<String, Option<SkiaImage>>>,
-    media_ctx: &mut Option<&mut MediaContext>,
-    frame_ctx: &FrameCtx,
-) -> Result<()> {
-    match item {
-        DisplayItem::Rect(rect) => draw_rect(canvas, rect),
-        DisplayItem::Text(text) => draw_text(canvas, text),
-        DisplayItem::Bitmap(bitmap) => {
-            draw_bitmap(canvas, bitmap, assets, image_cache, media_ctx, frame_ctx)?;
-        }
+pub(crate) fn record_display_list_picture<'a>(
+    list: &DisplayList,
+    width: i32,
+    height: i32,
+    assets: &'a AssetsMap,
+    image_cache: ImageCache,
+    media_ctx: Option<&'a mut MediaContext>,
+    frame_ctx: &'a FrameCtx,
+    mut profile: Option<&'a mut BackendProfile>,
+) -> Result<Picture> {
+    let started = Instant::now();
+    let bounds = Rect::from_xywh(0.0, 0.0, width as f32, height as f32);
+    let mut recorder = PictureRecorder::new();
+    let recording_canvas = recorder.begin_recording(bounds, false);
+    let mut backend = SkiaBackend::new_with_cache_and_profile(
+        recording_canvas,
+        width,
+        height,
+        assets,
+        image_cache,
+        media_ctx,
+        frame_ctx,
+        profile.as_deref_mut(),
+    );
+    backend.execute(list)?;
+    let picture = recorder
+        .finish_recording_as_picture(None)
+        .ok_or_else(|| anyhow!("failed to record display list picture"))?;
+    if let Some(profile) = profile {
+        profile.picture_record_ms += started.elapsed().as_secs_f64() * 1000.0;
     }
-    Ok(())
+    Ok(picture)
+}
+
+pub(crate) fn display_list_uses_video(list: &DisplayList, assets: &AssetsMap) -> bool {
+    list.commands.iter().any(|command| match command {
+        DisplayCommand::Draw {
+            item: DisplayItem::Bitmap(bitmap),
+        } => assets
+            .path(&bitmap.asset_id)
+            .map(is_video_path)
+            .unwrap_or(false),
+        _ => false,
+    })
 }
 
 fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
@@ -129,7 +239,6 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
 
     let rect = layout_rect_to_skia(rect.bounds);
 
-    // Draw shadow first (behind the rect)
     if let Some(shadow) = style.shadow {
         draw_shadow(canvas, rect, style.border_radius, shadow);
     }
@@ -212,19 +321,31 @@ fn draw_bitmap(
     image_cache: &RefCell<HashMap<String, Option<SkiaImage>>>,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
-) -> Result<()> {
+) -> Result<BitmapDrawStats> {
     let path = assets
         .path(&bitmap.asset_id)
         .ok_or_else(|| anyhow!("missing asset path for {}", bitmap.asset_id.0))?;
+
+    let mut stats = BitmapDrawStats {
+        draw_ms: 0.0,
+        image_decode_ms: 0.0,
+        video_decode_ms: 0.0,
+        image_cache_hits: 0,
+        image_cache_misses: 0,
+        video_frame_decodes: 0,
+    };
 
     let image = if is_video_path(path) {
         let media = media_ctx
             .as_deref_mut()
             .ok_or_else(|| anyhow!("video asset requires media context: {}", path.display()))?;
         let target_time = frame_ctx.frame as f64 / frame_ctx.fps as f64;
+        let decode_started = Instant::now();
         let (data, width, height) = media
             .get_bitmap(path, target_time)
             .with_context(|| format!("failed to decode video frame: {}", path.display()))?;
+        stats.video_decode_ms = decode_started.elapsed().as_secs_f64() * 1000.0;
+        stats.video_frame_decodes = 1;
         let info = ImageInfo::new(
             (width as i32, height as i32),
             skia_safe::ColorType::RGBA8888,
@@ -243,18 +364,23 @@ fn draw_bitmap(
         let key = bitmap.asset_id.0.clone();
         let mut cache = image_cache.borrow_mut();
         if let Some(Some(img)) = cache.get(&key) {
+            stats.image_cache_hits = 1;
             img.clone()
         } else {
+            let decode_started = Instant::now();
             let encoded = std::fs::read(path)
                 .with_context(|| format!("failed to read image asset: {}", path.display()))?;
             let data = skia_safe::Data::new_copy(&encoded);
             let image = skia_safe::Image::from_encoded(data)
                 .ok_or_else(|| anyhow!("failed to decode image asset: {}", path.display()))?;
+            stats.image_decode_ms = decode_started.elapsed().as_secs_f64() * 1000.0;
+            stats.image_cache_misses = 1;
             cache.insert(key, Some(image.clone()));
             image
         }
     };
 
+    let draw_started = Instant::now();
     let dst = layout_rect_to_skia(bitmap.bounds);
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
@@ -275,7 +401,8 @@ fn draw_bitmap(
             canvas.draw_image_rect(image, Some((&src, SrcRectConstraint::Strict)), dst, &paint);
         }
     }
-    Ok(())
+    stats.draw_ms = draw_started.elapsed().as_secs_f64() * 1000.0;
+    Ok(stats)
 }
 
 fn apply_transform(canvas: &Canvas, transform: &DisplayTransform) {
@@ -375,7 +502,7 @@ fn cover_src_rect(src_width: f32, src_height: f32, dst: Rect) -> Rect {
     Rect::from_xywh(x, y, visible_width, visible_height)
 }
 
-fn is_video_path(path: &Path) -> bool {
+pub(crate) fn is_video_path(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| {

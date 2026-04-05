@@ -1,17 +1,9 @@
 use anyhow::{Result, anyhow};
 use skia_safe::{
-    Canvas, Data, FilterMode, Matrix, Paint, Picture, PictureRecorder, Rect, RuntimeEffect,
-    runtime_effect::ChildPtr,
+    Canvas, Data, FilterMode, Matrix, Paint, Picture, Rect, RuntimeEffect, runtime_effect::ChildPtr,
 };
 
-use crate::{
-    assets::AssetsMap,
-    backend::skia::{ImageCache, SkiaBackend},
-    display::list::DisplayList,
-    frame_ctx::FrameCtx,
-    media::MediaContext,
-    transitions::{LightLeakTransition, TransitionKind},
-};
+use crate::transitions::{LightLeakTransition, TransitionKind};
 
 const LIGHT_LEAK_SKSL: &str = r#"
 uniform shader fromScene;
@@ -129,121 +121,67 @@ impl LightLeakUniforms {
     }
 }
 
-pub fn draw_transition<'a>(
+pub fn draw_transition(
     canvas: &Canvas,
-    from: &DisplayList,
-    to: &DisplayList,
+    from: &Picture,
+    to: &Picture,
     progress: f32,
     kind: TransitionKind,
     width: i32,
     height: i32,
-    assets: &'a AssetsMap,
-    image_cache: ImageCache,
-    media_ctx: &mut Option<&'a mut MediaContext>,
-    frame_ctx: &'a FrameCtx,
 ) -> Result<()> {
     match kind {
-        TransitionKind::Slide => draw_slide_transition(
-            canvas,
-            from,
-            to,
-            progress,
-            width,
-            height,
-            assets,
-            image_cache,
-            media_ctx,
-            frame_ctx,
-        ),
-        TransitionKind::LightLeak(params) => draw_light_leak_transition(
-            canvas,
-            from,
-            to,
-            progress,
-            params,
-            width,
-            height,
-            assets,
-            image_cache,
-            media_ctx,
-            frame_ctx,
-        ),
+        TransitionKind::Slide => draw_slide_transition(canvas, from, to, progress, width),
+        TransitionKind::LightLeak(params) => {
+            draw_light_leak_transition(canvas, from, to, progress, params, width, height)
+        }
     }
 }
 
-fn draw_slide_transition<'a>(
+fn draw_slide_transition(
     canvas: &Canvas,
-    from: &DisplayList,
-    to: &DisplayList,
+    from: &Picture,
+    to: &Picture,
     progress: f32,
     width: i32,
-    height: i32,
-    assets: &'a AssetsMap,
-    image_cache: ImageCache,
-    media_ctx: &mut Option<&'a mut MediaContext>,
-    frame_ctx: &'a FrameCtx,
 ) -> Result<()> {
-    let from_picture = record_picture(
-        from,
-        width,
-        height,
-        assets,
-        image_cache.clone(),
-        media_ctx,
-        frame_ctx,
-    )?;
-    let to_picture = record_picture(to, width, height, assets, image_cache, media_ctx, frame_ctx)?;
     let progress = progress.clamp(0.0, 1.0);
     let width_f = width as f32;
 
     canvas.save();
     canvas.translate(((progress - 1.0) * width_f, 0.0));
-    canvas.draw_picture(&to_picture, None, None);
+    canvas.draw_picture(to, None, None);
     canvas.restore();
 
     canvas.save();
     canvas.translate((progress * width_f, 0.0));
-    canvas.draw_picture(&from_picture, None, None);
+    canvas.draw_picture(from, None, None);
     canvas.restore();
 
     Ok(())
 }
 
-fn draw_light_leak_transition<'a>(
+fn draw_light_leak_transition(
     canvas: &Canvas,
-    from: &DisplayList,
-    to: &DisplayList,
+    from: &Picture,
+    to: &Picture,
     progress: f32,
     params: LightLeakTransition,
     width: i32,
     height: i32,
-    assets: &'a AssetsMap,
-    image_cache: ImageCache,
-    media_ctx: &mut Option<&'a mut MediaContext>,
-    frame_ctx: &'a FrameCtx,
 ) -> Result<()> {
-    let from_shader = record_picture(
-        from,
-        width,
-        height,
-        assets,
-        image_cache.clone(),
-        media_ctx,
-        frame_ctx,
-    )?
-    .to_shader(
+    let from_shader = from.to_shader(
         None,
         FilterMode::Linear,
         Option::<&Matrix>::None,
         Option::<&Rect>::None,
     );
-    let to_shader = record_picture(to, width, height, assets, image_cache, media_ctx, frame_ctx)?
-        .to_shader(
-            None,
-            FilterMode::Linear,
-            Option::<&Matrix>::None,
-            Option::<&Rect>::None,
-        );
+    let to_shader = to.to_shader(
+        None,
+        FilterMode::Linear,
+        Option::<&Matrix>::None,
+        Option::<&Rect>::None,
+    );
 
     let effect = RuntimeEffect::make_for_shader(LIGHT_LEAK_SKSL, None)
         .map_err(|err| anyhow!("failed to compile light leak SKSL: {err}"))?;
@@ -258,33 +196,6 @@ fn draw_light_leak_transition<'a>(
     paint.set_shader(shader);
     canvas.draw_paint(&paint);
     Ok(())
-}
-
-fn record_picture<'a>(
-    list: &DisplayList,
-    width: i32,
-    height: i32,
-    assets: &'a AssetsMap,
-    image_cache: ImageCache,
-    media_ctx: &mut Option<&'a mut MediaContext>,
-    frame_ctx: &'a FrameCtx,
-) -> Result<Picture> {
-    let bounds = Rect::from_xywh(0.0, 0.0, width as f32, height as f32);
-    let mut recorder = PictureRecorder::new();
-    let recording_canvas = recorder.begin_recording(bounds, false);
-    let mut backend = SkiaBackend::new_with_cache(
-        recording_canvas,
-        width,
-        height,
-        assets,
-        image_cache,
-        media_ctx.as_deref_mut(),
-        frame_ctx,
-    );
-    backend.execute(list)?;
-    recorder
-        .finish_recording_as_picture(None)
-        .ok_or_else(|| anyhow!("failed to record transition picture"))
 }
 
 fn uniform_data<T>(value: &T) -> Data {

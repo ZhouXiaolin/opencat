@@ -17,19 +17,24 @@
   const pinkScale = 1 + Math.min(frame / 35, 1) * 0.35;
   const labelOffset = Math.min(Math.max((frame - 10) / 25, 0), 1) * 36;
 
-  blueBox.translateX = blueTranslate;
-  blueBox.scale = blueScale;
+  blueBox
+    .translateX(blueTranslate)
+    .scale(blueScale);
 
-  pinkBox.scale = pinkScale;
-  pinkBox.translateX = pinkTranslate;
+  pinkBox
+    .scale(pinkScale)
+    .translateX(pinkTranslate);
 
-  mainText.opacity = opacity;
-  mainText.rotate = rotation;
-  mainText.scale = 1 + opacity * 0.05;
+  mainText
+    .opacity(opacity)
+    .rotate(rotation)
+    .scale(1 + opacity * 0.05);
 
-  blueLabel.translateX = -labelOffset;
-  blueLabel.opacity = Math.min(frame / 24, 1);
+  blueLabel
+    .translateX(-labelOffset)
+    .opacity(Math.min(frame / 24, 1));
 
-  pinkLabel.translateX = labelOffset;
-  pinkLabel.opacity = Math.min(frame / 28, 1);
+  pinkLabel
+    .translateX(labelOffset)
+    .opacity(Math.min(frame / 28, 1));
 })();

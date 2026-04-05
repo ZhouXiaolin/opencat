@@ -8,12 +8,14 @@ use skia_safe::{
 
 use crate::transitions::{LightLeakTransition, TransitionKind};
 
-const LIGHT_LEAK_MASK_SCALE: f32 = 0.5;
+const LIGHT_LEAK_MASK_SCALE: f32 = 0.25;
 
 const LIGHT_LEAK_MASK_SKSL: &str = r#"
 uniform float evolveProgress;
 uniform float retractProgress;
 uniform float seed;
+uniform float retractSeed;
+uniform float hueShift;
 uniform float2 resolution;
 
 const float PI = 3.14159265;
@@ -55,9 +57,30 @@ half4 main(float2 coord) {
     float threshB = 1.0 - retractProgress;
     float eraseAlpha = smoothstep(threshB, threshB + 0.3, patB.z);
 
-    float leakAlpha = clamp(revealAlpha * (1.0 - eraseAlpha), 0.0, 1.0);
+    float alpha = revealAlpha * (1.0 - eraseAlpha);
 
-    return half4(half(patA.x), half(patA.y), half(leakAlpha), half(1.0));
+    float3 yellow = float3(1.0, 0.85, 0.2);
+    float3 orange = float3(1.0, 0.5, 0.05);
+    float3 col = mix(yellow, orange, patA.y);
+    col *= 0.6 + 0.6 * patA.x;
+
+    float angle = hueShift * PI / 180.0;
+    float cosA = cos(angle);
+    float sinA = sin(angle);
+    mat3 hueRot = mat3(
+        cosA + (1.0 - cosA) / 3.0,
+        (1.0 - cosA) / 3.0 - sinA * 0.57735,
+        (1.0 - cosA) / 3.0 + sinA * 0.57735,
+        (1.0 - cosA) / 3.0 + sinA * 0.57735,
+        cosA + (1.0 - cosA) / 3.0,
+        (1.0 - cosA) / 3.0 - sinA * 0.57735,
+        (1.0 - cosA) / 3.0 - sinA * 0.57735,
+        (1.0 - cosA) / 3.0 + sinA * 0.57735,
+        cosA + (1.0 - cosA) / 3.0
+    );
+    col = clamp(hueRot * col, 0.0, 1.0);
+    
+    return half4(col.x, col.y, col.z, alpha);
 }
 "#;
 
@@ -65,24 +88,16 @@ const LIGHT_LEAK_COMPOSITE_SKSL: &str = r#"
 uniform shader fromScene;
 uniform shader toScene;
 uniform shader leakMask;
-
 uniform float progress;
-uniform half3 yellow;
-uniform half3 orange;
 
 half4 main(float2 coord) {
     half4 mask = leakMask.eval(coord);
-
-    half brightness = mask.r;
-    half blend = mask.g;
-    half leakAlpha = mask.b;
-
     half4 fromColor = fromScene.eval(coord);
     half4 toColor = toScene.eval(coord);
+    half alpha = mask.a;
     half4 sceneColor = mix(fromColor, toColor, half(progress));
-
-    half3 leakColor = mix(yellow, orange, blend) * (0.6 + 0.6 * brightness);
-    half3 finalColor = mix(sceneColor.rgb, leakColor, leakAlpha);
+    half3 leakColor = mask.rgb;
+    half3 finalColor = mix(sceneColor.rgb, leakColor, alpha);
 
     return half4(finalColor, 1.0);
 }
@@ -99,6 +114,8 @@ struct LightLeakMaskUniforms {
     evolve_progress: f32,
     retract_progress: f32,
     seed: f32,
+    retract_seed: f32,
+    hue_shift: f32,
     resolution: [f32; 2],
 }
 
@@ -106,8 +123,6 @@ struct LightLeakMaskUniforms {
 #[derive(Clone, Copy)]
 struct LightLeakCompositeUniforms {
     progress: f32,
-    yellow: [f32; 3],
-    orange: [f32; 3],
 }
 
 impl LightLeakMaskUniforms {
@@ -117,6 +132,8 @@ impl LightLeakMaskUniforms {
             evolve_progress: (normalized * 2.0).min(1.0),
             retract_progress: (normalized * 2.0 - 1.0).max(0.0),
             seed: params.seed,
+            retract_seed: params.seed + 42.0,
+            hue_shift: params.hue_shift,
             resolution: [width as f32, height as f32],
         }
     }
@@ -126,8 +143,6 @@ impl LightLeakCompositeUniforms {
     fn new(progress: f32, params: LightLeakTransition) -> Self {
         Self {
             progress: progress.clamp(0.0, 1.0),
-            yellow: rotate_hue([1.0, 0.85, 0.2], params.hue_shift),
-            orange: rotate_hue([1.0, 0.5, 0.05], params.hue_shift),
         }
     }
 }
@@ -198,8 +213,8 @@ fn draw_light_leak_transition(
     );
 
     let scale_matrix = Matrix::scale((
-        width as f32 / mask_size.0 as f32,
-        height as f32 / mask_size.1 as f32,
+        1.0 / LIGHT_LEAK_MASK_SCALE,
+        1.0 / LIGHT_LEAK_MASK_SCALE,
     ));
     let mask_shader = mask_image
         .to_shader(

@@ -1,0 +1,23 @@
+{
+  "$schema": "../icon.schema.json",
+  "contributors": [
+    "ericfennis",
+    "jguddas"
+  ],
+  "tags": [
+    "machinery",
+    "industrial",
+    "warehouse",
+    "lifting",
+    "storage",
+    "equipment",
+    "heavy-duty",
+    "moving",
+    "vehicle",
+    "transport",
+    "logistics"
+  ],
+  "categories": [
+    "transportation"
+  ]
+}

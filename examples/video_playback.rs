@@ -3,7 +3,7 @@ use std::f32::consts::PI;
 use opencat::{
     Composition, EncodingConfig, FrameCtx, Node, light_leak,
     nodes::{div, image, text, video},
-    transitions::{linear, slide, transition_series},
+    transitions::{linear, slide, timeline},
 };
 
 const VIDEO_PATH: &str = "/Users/solaren/Resources/mp4/2.mp4";
@@ -388,7 +388,7 @@ fn metric_card(id: &str, label: &str, value: &str) -> Node {
 }
 
 fn evaluation_demo(ctx: &FrameCtx) -> Node {
-    transition_series()
+    timeline()
         .sequence(90, scene_one(ctx))
         .transition(slide().timing(linear().duration(24)))
         .sequence(90, scene_two(ctx))

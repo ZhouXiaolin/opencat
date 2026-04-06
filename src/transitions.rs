@@ -34,12 +34,12 @@ pub enum WipeDirection {
 }
 
 #[derive(Clone)]
-pub struct TransitionSeries {
-    items: Vec<TransitionSeriesItem>,
+pub struct Timeline {
+    items: Vec<TimelineItem>,
 }
 
 #[derive(Clone)]
-enum TransitionSeriesItem {
+enum TimelineItem {
     Sequence { duration_in_frames: u32, node: Node },
     Transition(Transition),
 }
@@ -127,9 +127,9 @@ pub struct SpringTimingBuilder {
     config: SpringConfig,
 }
 
-impl TransitionSeries {
+impl Timeline {
     pub fn sequence(mut self, duration_in_frames: u32, node: Node) -> Self {
-        self.items.push(TransitionSeriesItem::Sequence {
+        self.items.push(TimelineItem::Sequence {
             duration_in_frames,
             node,
         });
@@ -137,8 +137,7 @@ impl TransitionSeries {
     }
 
     pub fn transition(mut self, transition: Transition) -> Self {
-        self.items
-            .push(TransitionSeriesItem::Transition(transition));
+        self.items.push(TimelineItem::Transition(transition));
         self
     }
 
@@ -146,10 +145,10 @@ impl TransitionSeries {
         self.items
             .iter()
             .map(|item| match item {
-                TransitionSeriesItem::Sequence {
+                TimelineItem::Sequence {
                     duration_in_frames, ..
                 } => *duration_in_frames,
-                TransitionSeriesItem::Transition(transition) => transition.duration_in_frames(),
+                TimelineItem::Transition(transition) => transition.duration_in_frames(),
             })
             .sum()
     }
@@ -161,7 +160,7 @@ impl TransitionSeries {
         let mut cursor = 0;
 
         for index in 0..items.len() {
-            let TransitionSeriesItem::Sequence {
+            let TimelineItem::Sequence {
                 duration_in_frames,
                 node,
             } = &items[index]
@@ -177,8 +176,8 @@ impl TransitionSeries {
             cursor += *duration_in_frames;
 
             if let (
-                Some(TransitionSeriesItem::Transition(transition)),
-                Some(TransitionSeriesItem::Sequence {
+                Some(TimelineItem::Transition(transition)),
+                Some(TimelineItem::Sequence {
                     node: next_node, ..
                 }),
             ) = (items.get(index + 1), items.get(index + 2))
@@ -200,14 +199,14 @@ impl TransitionSeries {
     }
 }
 
-impl Default for TransitionSeries {
+impl Default for Timeline {
     fn default() -> Self {
-        transition_series()
+        timeline()
     }
 }
 
-impl From<TransitionSeries> for Node {
-    fn from(series: TransitionSeries) -> Self {
+impl From<Timeline> for Node {
+    fn from(series: Timeline) -> Self {
         Node::from(series.into_timeline())
     }
 }
@@ -430,6 +429,6 @@ pub fn spring() -> SpringTimingBuilder {
     }
 }
 
-pub fn transition_series() -> TransitionSeries {
-    TransitionSeries { items: Vec::new() }
+pub fn timeline() -> Timeline {
+    Timeline { items: Vec::new() }
 }

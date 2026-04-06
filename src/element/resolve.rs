@@ -414,7 +414,7 @@ mod tests {
         nodes::{div, lucide, text},
         script::ScriptRuntimeCache,
         timeline::{FrameState, frame_state_for_root},
-        transitions::{linear, slide, transition_series},
+        transitions::{linear, slide, timeline},
     };
 
     #[test]
@@ -605,7 +605,7 @@ mod tests {
             .script_source(r#"ctx.getNode("title").opacity(0.8);"#)
             .expect("script should compile")
             .child(text("To").id("title"));
-        let root = transition_series()
+        let root = timeline()
             .sequence(10, from_scene.into())
             .transition(slide().timing(linear().duration(10)))
             .sequence(10, to_scene.into())

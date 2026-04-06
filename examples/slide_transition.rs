@@ -1,7 +1,7 @@
 use opencat::{
-    Composition, EncodingConfig, FrameCtx, Node, clock_wipe, iris, light_leak,
+    Composition, EncodingConfig, FrameCtx, Node, clock_wipe,
     nodes::{div, text},
-    transitions::{linear, slide, spring, transition_series},
+    transitions::{linear, timeline},
     wipe,
 };
 
@@ -67,7 +67,7 @@ fn test(_ctx: &FrameCtx) -> Node {
 }
 
 fn slide_transition_demo(_ctx: &FrameCtx) -> Node {
-    transition_series()
+    timeline()
         .sequence(60, test(_ctx))
         .transition(wipe().from_bottom_left().timing(linear().duration(60)))
         .sequence(60, scene_panel("B", true))

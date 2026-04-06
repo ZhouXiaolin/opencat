@@ -342,6 +342,7 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     output.push_str("pub enum ColorToken {\n");
     output.push_str(&indent_block(&generate_variants(colors), 1));
     output.push_str("    Primary,\n");
+    output.push_str("    Transparent,\n");
     output.push_str("    Custom(u8, u8, u8, u8),\n");
     output.push_str("}\n\n");
 
@@ -350,6 +351,7 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     output.push_str("        match self {\n");
     output.push_str(&indent_block(&generate_match_arms(colors), 3));
     output.push_str("            ColorToken::Primary => ColorToken::Blue.to_skia(),\n");
+    output.push_str("            ColorToken::Transparent => Color::from_argb(0, 0, 0, 0),\n");
     output
         .push_str("            ColorToken::Custom(r, g, b, a) => Color::from_argb(a, r, g, b),\n");
     output.push_str("        }\n");
@@ -363,6 +365,8 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     );
     output.push_str("    if name == \"primary\" {\n");
     output.push_str("        Some(ColorToken::Primary)\n");
+    output.push_str("    } else if name == \"transparent\" {\n");
+    output.push_str("        Some(ColorToken::Transparent)\n");
     output.push_str("    } else {\n");
     output.push_str("        tailwind_color_from_class_suffix(name)\n");
     output.push_str("    }\n");
@@ -372,6 +376,8 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     );
     output.push_str("    if name == \"primary\" {\n");
     output.push_str("        Some(ColorToken::Primary)\n");
+    output.push_str("    } else if name == \"transparent\" {\n");
+    output.push_str("        Some(ColorToken::Transparent)\n");
     output.push_str("    } else {\n");
     output.push_str("        tailwind_color_from_script_name(name)\n");
     output.push_str("    }\n");

@@ -496,9 +496,18 @@ fn extract_svg_paths(content: &str, file_name: &str) -> Result<Vec<String>, Stri
             if let Some(d) = extract_attr(line, "d") {
                 paths.push(d.to_string());
             } else if line.starts_with("<circle") {
-                let cx: f32 = extract_attr(line, "cx").unwrap_or("0").parse().map_err(|e| format!("lucide {file_name}: invalid cx: {e}"))?;
-                let cy: f32 = extract_attr(line, "cy").unwrap_or("0").parse().map_err(|e| format!("lucide {file_name}: invalid cy: {e}"))?;
-                let r: f32 = extract_attr(line, "r").unwrap_or("0").parse().map_err(|e| format!("lucide {file_name}: invalid r: {e}"))?;
+                let cx: f32 = extract_attr(line, "cx")
+                    .unwrap_or("0")
+                    .parse()
+                    .map_err(|e| format!("lucide {file_name}: invalid cx: {e}"))?;
+                let cy: f32 = extract_attr(line, "cy")
+                    .unwrap_or("0")
+                    .parse()
+                    .map_err(|e| format!("lucide {file_name}: invalid cy: {e}"))?;
+                let r: f32 = extract_attr(line, "r")
+                    .unwrap_or("0")
+                    .parse()
+                    .map_err(|e| format!("lucide {file_name}: invalid r: {e}"))?;
                 paths.push(format!(
                     "M{cx},{cy} m{neg_r},0 a{r},{r} 0 1,0 {d},0 a{r},{r} 0 1,0 {neg_d},0",
                     d = r * 2.0,
@@ -506,17 +515,45 @@ fn extract_svg_paths(content: &str, file_name: &str) -> Result<Vec<String>, Stri
                     neg_r = -r
                 ));
             } else if line.starts_with("<line") {
-                let x1: f32 = extract_attr(line, "x1").unwrap_or("0").parse().map_err(|e| format!("lucide {file_name}: invalid x1: {e}"))?;
-                let y1: f32 = extract_attr(line, "y1").unwrap_or("0").parse().map_err(|e| format!("lucide {file_name}: invalid y1: {e}"))?;
-                let x2: f32 = extract_attr(line, "x2").unwrap_or("0").parse().map_err(|e| format!("lucide {file_name}: invalid x2: {e}"))?;
-                let y2: f32 = extract_attr(line, "y2").unwrap_or("0").parse().map_err(|e| format!("lucide {file_name}: invalid y2: {e}"))?;
+                let x1: f32 = extract_attr(line, "x1")
+                    .unwrap_or("0")
+                    .parse()
+                    .map_err(|e| format!("lucide {file_name}: invalid x1: {e}"))?;
+                let y1: f32 = extract_attr(line, "y1")
+                    .unwrap_or("0")
+                    .parse()
+                    .map_err(|e| format!("lucide {file_name}: invalid y1: {e}"))?;
+                let x2: f32 = extract_attr(line, "x2")
+                    .unwrap_or("0")
+                    .parse()
+                    .map_err(|e| format!("lucide {file_name}: invalid x2: {e}"))?;
+                let y2: f32 = extract_attr(line, "y2")
+                    .unwrap_or("0")
+                    .parse()
+                    .map_err(|e| format!("lucide {file_name}: invalid y2: {e}"))?;
                 paths.push(format!("M{x1},{y1} L{x2},{y2}"));
             } else if line.starts_with("<rect") {
-                let x: f32 = extract_attr(line, "x").unwrap_or("0").parse().map_err(|e| format!("lucide {file_name}: invalid x: {e}"))?;
-                let y: f32 = extract_attr(line, "y").unwrap_or("0").parse().map_err(|e| format!("lucide {file_name}: invalid y: {e}"))?;
-                let w: f32 = extract_attr(line, "width").unwrap_or("0").parse().map_err(|e| format!("lucide {file_name}: invalid width: {e}"))?;
-                let h: f32 = extract_attr(line, "height").unwrap_or("0").parse().map_err(|e| format!("lucide {file_name}: invalid height: {e}"))?;
-                paths.push(format!("M{x},{y} L{x},{y2} L{x2},{y2} L{x2},{y} Z", x2 = x + w, y2 = y + h));
+                let x: f32 = extract_attr(line, "x")
+                    .unwrap_or("0")
+                    .parse()
+                    .map_err(|e| format!("lucide {file_name}: invalid x: {e}"))?;
+                let y: f32 = extract_attr(line, "y")
+                    .unwrap_or("0")
+                    .parse()
+                    .map_err(|e| format!("lucide {file_name}: invalid y: {e}"))?;
+                let w: f32 = extract_attr(line, "width")
+                    .unwrap_or("0")
+                    .parse()
+                    .map_err(|e| format!("lucide {file_name}: invalid width: {e}"))?;
+                let h: f32 = extract_attr(line, "height")
+                    .unwrap_or("0")
+                    .parse()
+                    .map_err(|e| format!("lucide {file_name}: invalid height: {e}"))?;
+                paths.push(format!(
+                    "M{x},{y} L{x},{y2} L{x2},{y2} L{x2},{y} Z",
+                    x2 = x + w,
+                    y2 = y + h
+                ));
             } else if line.starts_with("<polyline") || line.starts_with("<polygon") {
                 let points_str = extract_attr(line, "points").unwrap_or("");
                 let points: Vec<&str> = points_str.split_whitespace().collect();

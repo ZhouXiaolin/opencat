@@ -2,8 +2,9 @@ use std::{cell::RefCell, collections::HashMap, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
-    Canvas, ClipOp, Data, Image as SkiaImage, ImageInfo, Paint, PaintStyle, Picture,
-    PictureRecorder, RRect, Rect, TileMode, canvas::SrcRectConstraint, gradient_shader, images,
+    BlurStyle, Canvas, ClipOp, Data, Image as SkiaImage, ImageInfo, MaskFilter, Paint, PaintStyle,
+    Picture, PictureRecorder, RRect, Rect, TileMode, canvas::SrcRectConstraint, gradient_shader,
+    images,
 };
 
 use crate::{
@@ -179,6 +180,7 @@ impl<'a> SkiaBackend<'a> {
                             border_radius: layout.paint.visual.border_radius,
                             border_width: layout.paint.visual.border_width,
                             border_color: layout.paint.visual.border_color,
+                            blur_sigma: layout.paint.visual.blur_sigma,
                             shadow: layout.paint.visual.shadow,
                         },
                     },
@@ -223,6 +225,7 @@ impl<'a> SkiaBackend<'a> {
                             border_radius: layout.paint.visual.border_radius,
                             border_width: layout.paint.visual.border_width,
                             border_color: layout.paint.visual.border_color,
+                            blur_sigma: layout.paint.visual.blur_sigma,
                             shadow: layout.paint.visual.shadow,
                         },
                     },
@@ -366,6 +369,9 @@ impl<'a> SkiaBackend<'a> {
                 let alpha = (layer.opacity * 255.0).round() as u32;
                 self.canvas
                     .save_layer_alpha(layout_rect_to_skia(layer.bounds), alpha);
+            }
+            DisplayCommand::Clip { clip } => {
+                clip_bounds(self.canvas, clip.bounds, clip.border_radius);
             }
             DisplayCommand::ApplyTransform { transform } => {
                 apply_transform(self.canvas, transform);
@@ -535,6 +541,7 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
 
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
+    apply_blur_effect(&mut paint, style.blur_sigma);
 
     if radius > 0.0 {
         let rrect = RRect::new_rect_xy(rect, radius, radius);
@@ -724,6 +731,7 @@ fn draw_bitmap(
     let radius = effective_corner_radius(dst, bitmap.paint.border_radius);
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
+    apply_blur_effect(&mut paint, bitmap.paint.blur_sigma);
 
     let src_width = bitmap.width as f32;
     let src_height = bitmap.height as f32;
@@ -735,6 +743,7 @@ fn draw_bitmap(
     if let Some(color) = bitmap.paint.background {
         let mut background_paint = Paint::default();
         background_paint.set_anti_alias(true);
+        apply_blur_effect(&mut background_paint, bitmap.paint.blur_sigma);
         apply_background_paint(&mut background_paint, color, dst);
         if radius > 0.0 {
             let rrect = RRect::new_rect_xy(dst, radius, radius);
@@ -772,6 +781,7 @@ fn draw_bitmap(
     if let (Some(width), Some(color)) = (bitmap.paint.border_width, bitmap.paint.border_color) {
         let mut border_paint = Paint::default();
         border_paint.set_anti_alias(true);
+        apply_blur_effect(&mut border_paint, bitmap.paint.blur_sigma);
         border_paint.set_color(color.to_skia());
         border_paint.set_style(PaintStyle::Stroke);
         border_paint.set_stroke_width(width);
@@ -794,6 +804,16 @@ fn effective_corner_radius(rect: Rect, radius: f32) -> f32 {
     }
 
     radius.min(rect.width() / 2.0).min(rect.height() / 2.0)
+}
+
+fn apply_blur_effect(paint: &mut Paint, blur_sigma: Option<f32>) {
+    let Some(sigma) = blur_sigma.filter(|sigma| *sigma > 0.0) else {
+        return;
+    };
+
+    if let Some(mask_filter) = MaskFilter::blur(BlurStyle::Normal, sigma, false) {
+        paint.set_mask_filter(mask_filter);
+    }
 }
 
 fn apply_transform(canvas: &Canvas, transform: &DisplayTransform) {
@@ -961,6 +981,14 @@ fn apply_background_paint(paint: &mut Paint, background: BackgroundFill, bounds:
                 GradientDirection::ToLeft => (
                     (bounds.right(), bounds.center_y()),
                     (bounds.left(), bounds.center_y()),
+                ),
+                GradientDirection::ToBottom => (
+                    (bounds.center_x(), bounds.top()),
+                    (bounds.center_x(), bounds.bottom()),
+                ),
+                GradientDirection::ToTop => (
+                    (bounds.center_x(), bounds.bottom()),
+                    (bounds.center_x(), bounds.top()),
                 ),
                 GradientDirection::ToBottomRight => (
                     (bounds.left(), bounds.top()),

@@ -1,5 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, hash_map::DefaultHasher};
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use serde::Deserialize;
 
@@ -100,6 +102,8 @@ pub struct ParsedComposition {
     pub script: Option<String>,
 }
 
+static UNSUPPORTED_TAILWIND_CLASSES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
 pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     let mut width = 1920;
     let mut height = 1080;
@@ -108,7 +112,7 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     let mut script = None;
     let mut elements: Vec<ParsedElement> = Vec::new();
 
-    for line in input.lines() {
+    for (line_index, line) in input.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -135,7 +139,11 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 parent_id,
                 class_name,
             } => {
-                let style = parse_class_name(class_name.as_deref().unwrap_or(""));
+                let style = parse_class_name_with_context(
+                    class_name.as_deref().unwrap_or(""),
+                    &id,
+                    line_index + 1,
+                );
                 elements.push(ParsedElement {
                     id,
                     parent_id,
@@ -149,7 +157,11 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 class_name,
                 text,
             } => {
-                let style = parse_class_name(class_name.as_deref().unwrap_or(""));
+                let style = parse_class_name_with_context(
+                    class_name.as_deref().unwrap_or(""),
+                    &id,
+                    line_index + 1,
+                );
                 elements.push(ParsedElement {
                     id,
                     parent_id,
@@ -167,7 +179,11 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 query_count,
                 aspect_ratio,
             } => {
-                let style = parse_class_name(class_name.as_deref().unwrap_or(""));
+                let style = parse_class_name_with_context(
+                    class_name.as_deref().unwrap_or(""),
+                    &id,
+                    line_index + 1,
+                );
                 let source = parse_image_source(path, url, query, query_count, aspect_ratio)?;
                 elements.push(ParsedElement {
                     id,
@@ -182,7 +198,11 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 class_name,
                 path,
             } => {
-                let style = parse_class_name(class_name.as_deref().unwrap_or(""));
+                let style = parse_class_name_with_context(
+                    class_name.as_deref().unwrap_or(""),
+                    &id,
+                    line_index + 1,
+                );
                 elements.push(ParsedElement {
                     id,
                     parent_id,
@@ -198,7 +218,11 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 class_name,
                 icon,
             } => {
-                let style = parse_class_name(class_name.as_deref().unwrap_or(""));
+                let style = parse_class_name_with_context(
+                    class_name.as_deref().unwrap_or(""),
+                    &id,
+                    line_index + 1,
+                );
                 elements.push(ParsedElement {
                     id,
                     parent_id,
@@ -356,6 +380,14 @@ fn build_node(
 }
 
 fn parse_class_name(class_name: &str) -> NodeStyle {
+    parse_class_name_impl(class_name, None)
+}
+
+fn parse_class_name_with_context(class_name: &str, node_id: &str, line_number: usize) -> NodeStyle {
+    parse_class_name_impl(class_name, Some((node_id, line_number)))
+}
+
+fn parse_class_name_impl(class_name: &str, context: Option<(&str, usize)>) -> NodeStyle {
     let mut style = NodeStyle {
         auto_size: true,
         ..Default::default()
@@ -368,13 +400,86 @@ fn parse_class_name(class_name: &str) -> NodeStyle {
     let classes: Vec<&str> = class_name.split_whitespace().collect();
 
     for class in &classes {
-        parse_single_class(class, &mut style);
+        if !parse_single_class(class, &mut style) {
+            if let Some((node_id, line_number)) = context {
+                report_unsupported_tailwind_class(class, node_id, line_number);
+            }
+        }
     }
 
     style
 }
 
-fn parse_single_class(class: &str, style: &mut NodeStyle) {
+fn report_unsupported_tailwind_class(class: &str, node_id: &str, line_number: usize) {
+    let warnings = UNSUPPORTED_TAILWIND_CLASSES.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut warnings = warnings
+        .lock()
+        .expect("unsupported tailwind warning set should not be poisoned");
+
+    if warnings.insert(class.to_string()) {
+        eprintln!(
+            "Unsupported Tailwind class `{class}` on node `{node_id}` at JSONL line {line_number}; ignoring it."
+        );
+    }
+}
+
+fn parser_style_fingerprint(style: &NodeStyle) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    style.position.hash(&mut hasher);
+    style.inset_left.map(f32::to_bits).hash(&mut hasher);
+    style.inset_top.map(f32::to_bits).hash(&mut hasher);
+    style.inset_right.map(f32::to_bits).hash(&mut hasher);
+    style.inset_bottom.map(f32::to_bits).hash(&mut hasher);
+    style.width.map(f32::to_bits).hash(&mut hasher);
+    style.height.map(f32::to_bits).hash(&mut hasher);
+    style.width_full.hash(&mut hasher);
+    style.height_full.hash(&mut hasher);
+    style.padding.map(f32::to_bits).hash(&mut hasher);
+    style.padding_x.map(f32::to_bits).hash(&mut hasher);
+    style.padding_y.map(f32::to_bits).hash(&mut hasher);
+    style.padding_top.map(f32::to_bits).hash(&mut hasher);
+    style.padding_right.map(f32::to_bits).hash(&mut hasher);
+    style.padding_bottom.map(f32::to_bits).hash(&mut hasher);
+    style.padding_left.map(f32::to_bits).hash(&mut hasher);
+    style.margin.map(f32::to_bits).hash(&mut hasher);
+    style.margin_x.map(f32::to_bits).hash(&mut hasher);
+    style.margin_y.map(f32::to_bits).hash(&mut hasher);
+    style.margin_top.map(f32::to_bits).hash(&mut hasher);
+    style.margin_right.map(f32::to_bits).hash(&mut hasher);
+    style.margin_bottom.map(f32::to_bits).hash(&mut hasher);
+    style.margin_left.map(f32::to_bits).hash(&mut hasher);
+    style.flex_direction.hash(&mut hasher);
+    style.justify_content.hash(&mut hasher);
+    style.align_items.hash(&mut hasher);
+    style.is_flex.hash(&mut hasher);
+    style.auto_size.hash(&mut hasher);
+    style.gap.map(f32::to_bits).hash(&mut hasher);
+    style.flex_grow.map(f32::to_bits).hash(&mut hasher);
+    style.flex_shrink.map(f32::to_bits).hash(&mut hasher);
+    style.z_index.hash(&mut hasher);
+    style.opacity.map(f32::to_bits).hash(&mut hasher);
+    style.bg_color.hash(&mut hasher);
+    style.bg_gradient_from.hash(&mut hasher);
+    style.bg_gradient_via.hash(&mut hasher);
+    style.bg_gradient_to.hash(&mut hasher);
+    style.bg_gradient_direction.hash(&mut hasher);
+    style.border_radius.map(f32::to_bits).hash(&mut hasher);
+    style.border_width.map(f32::to_bits).hash(&mut hasher);
+    style.border_color.hash(&mut hasher);
+    style.blur_sigma.map(f32::to_bits).hash(&mut hasher);
+    style.object_fit.hash(&mut hasher);
+    style.overflow_hidden.hash(&mut hasher);
+    style.text_color.hash(&mut hasher);
+    style.text_px.map(f32::to_bits).hash(&mut hasher);
+    style.font_weight.hash(&mut hasher);
+    style.letter_spacing.map(f32::to_bits).hash(&mut hasher);
+    style.text_align.hash(&mut hasher);
+    style.line_height.map(f32::to_bits).hash(&mut hasher);
+    style.shadow.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn parse_single_class(class: &str, style: &mut NodeStyle) -> bool {
     match class {
         // Position
         "relative" => style.position = Some(Position::Relative),
@@ -439,6 +544,7 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) {
         // Border
         "border" => style.border_width = Some(1.0),
         "overflow-hidden" => style.overflow_hidden = true,
+        "pointer-events-none" => {}
         "inset-0" => {
             style.inset_left = Some(0.0);
             style.inset_top = Some(0.0);
@@ -447,8 +553,11 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) {
         }
         "bg-gradient-to-r" => style.bg_gradient_direction = Some(GradientDirection::ToRight),
         "bg-gradient-to-l" => style.bg_gradient_direction = Some(GradientDirection::ToLeft),
+        "bg-gradient-to-b" => style.bg_gradient_direction = Some(GradientDirection::ToBottom),
+        "bg-gradient-to-t" => style.bg_gradient_direction = Some(GradientDirection::ToTop),
         "bg-gradient-to-br" => style.bg_gradient_direction = Some(GradientDirection::ToBottomRight),
         "shrink-0" | "flex-shrink-0" => style.flex_shrink = Some(0.0),
+        "flex-1" => style.flex_grow = Some(1.0),
 
         // Text alignment
         "text-left" => style.text_align = Some(TextAlign::Left),
@@ -477,9 +586,22 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) {
         "tracking-normal" => style.letter_spacing = Some(0.0),
         "tracking-wide" => style.letter_spacing = Some(0.5),
         "tracking-wider" => style.letter_spacing = Some(1.0),
+        "blur-none" => style.blur_sigma = Some(0.0),
+        "blur-sm" => style.blur_sigma = Some(4.0),
+        "blur" | "blur-md" => style.blur_sigma = Some(8.0),
+        "blur-lg" => style.blur_sigma = Some(16.0),
+        "blur-xl" => style.blur_sigma = Some(24.0),
+        "blur-2xl" => style.blur_sigma = Some(40.0),
+        "blur-3xl" => style.blur_sigma = Some(64.0),
 
-        _ => parse_arbitrary_class(class, style),
+        _ => {
+            let before = parser_style_fingerprint(style);
+            parse_arbitrary_class(class, style);
+            return parser_style_fingerprint(style) != before;
+        }
     }
+
+    true
 }
 
 fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
@@ -785,8 +907,23 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
 
     if let Some(value) = class.strip_prefix("border-color-[") {
         if let Some(v) = value.strip_suffix("]") {
-            if let Some(c) = color_token_from_class_suffix(v) {
+            if let Some(c) = parse_color_token_with_opacity(v) {
                 style.border_color = Some(c);
+                return;
+            }
+        }
+    }
+
+    if let Some(value) = class.strip_prefix("blur-[") {
+        if let Some(v) = value.strip_suffix("px]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.blur_sigma = Some(n);
+                return;
+            }
+        }
+        if let Some(v) = value.strip_suffix(']') {
+            if let Ok(n) = v.parse::<f32>() {
+                style.blur_sigma = Some(n);
                 return;
             }
         }
@@ -947,7 +1084,7 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
 
     if let Some(color) = class
         .strip_prefix("bg-")
-        .and_then(color_token_from_class_suffix)
+        .and_then(parse_color_token_with_opacity)
     {
         style.bg_color = Some(color);
         return;
@@ -955,7 +1092,7 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
 
     if let Some(color) = class
         .strip_prefix("text-")
-        .and_then(color_token_from_class_suffix)
+        .and_then(parse_color_token_with_opacity)
     {
         style.text_color = Some(color);
         return;
@@ -963,7 +1100,7 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
 
     if let Some(color) = class
         .strip_prefix("border-")
-        .and_then(color_token_from_class_suffix)
+        .and_then(parse_color_token_with_opacity)
     {
         style.border_color = Some(color);
         return;
@@ -971,7 +1108,7 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
 
     if let Some(color) = class
         .strip_prefix("from-")
-        .and_then(color_token_from_class_suffix)
+        .and_then(parse_color_token_with_opacity)
     {
         style.bg_gradient_from = Some(color);
         return;
@@ -979,7 +1116,7 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
 
     if let Some(color) = class
         .strip_prefix("via-")
-        .and_then(color_token_from_class_suffix)
+        .and_then(parse_color_token_with_opacity)
     {
         style.bg_gradient_via = Some(color);
         return;
@@ -987,7 +1124,7 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
 
     if let Some(color) = class
         .strip_prefix("to-")
-        .and_then(color_token_from_class_suffix)
+        .and_then(parse_color_token_with_opacity)
     {
         style.bg_gradient_to = Some(color);
         return;
@@ -1176,6 +1313,25 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
     }
 }
 
+fn parse_color_token_with_opacity(value: &str) -> Option<ColorToken> {
+    let (base, opacity_suffix) = match value.rsplit_once('/') {
+        Some((base, opacity_suffix)) => (base, Some(opacity_suffix)),
+        None => (value, None),
+    };
+
+    let color = color_token_from_class_suffix(base)?;
+    let Some(opacity_suffix) = opacity_suffix else {
+        return Some(color);
+    };
+
+    let opacity_percent = opacity_suffix.parse::<f32>().ok()?;
+    let opacity = (opacity_percent / 100.0).clamp(0.0, 1.0);
+    let color = color.to_skia();
+    let alpha = ((color.a() as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+
+    Some(ColorToken::Custom(color.r(), color.g(), color.b(), alpha))
+}
+
 fn parse_signed_bracket_f32(
     class: &str,
     positive_prefix: &str,
@@ -1350,6 +1506,37 @@ mod tests {
         assert_eq!(style.z_index, Some(10));
         assert_eq!(style.flex_shrink, Some(0.0));
         assert_eq!(style.letter_spacing, Some(1.0));
+    }
+
+    #[test]
+    fn parser_maps_tailwind_alpha_blur_and_additional_gradients() {
+        let style = parse_class_name(
+            "flex-1 bg-gradient-to-b from-amber-100/30 via-transparent to-rose-100/20 blur-xl pointer-events-none",
+        );
+
+        assert_eq!(style.flex_grow, Some(1.0));
+        assert_eq!(
+            style.bg_gradient_direction,
+            Some(GradientDirection::ToBottom)
+        );
+        assert_eq!(style.bg_gradient_via, Some(ColorToken::Transparent));
+        assert_eq!(style.blur_sigma, Some(24.0));
+        assert_eq!(
+            style.bg_gradient_from.expect("from color").to_skia().a(),
+            77
+        );
+        assert_eq!(style.bg_gradient_to.expect("to color").to_skia().a(), 51);
+
+        let overlay = parse_class_name("bg-gradient-to-t from-rose-900/10 to-amber-100/15");
+        assert_eq!(
+            overlay.bg_gradient_direction,
+            Some(GradientDirection::ToTop)
+        );
+        assert_eq!(
+            overlay.bg_gradient_from.expect("from color").to_skia().a(),
+            26
+        );
+        assert_eq!(overlay.bg_gradient_to.expect("to color").to_skia().a(), 38);
     }
 
     #[test]

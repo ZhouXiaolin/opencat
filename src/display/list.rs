@@ -20,6 +20,7 @@ pub enum DisplayCommand {
     Save,
     Restore,
     SaveLayer { layer: DisplayLayer },
+    Clip { clip: DisplayClip },
     ApplyTransform { transform: DisplayTransform },
     Draw { item: DisplayItem },
 }
@@ -28,6 +29,12 @@ pub enum DisplayCommand {
 pub struct DisplayLayer {
     pub bounds: LayoutRect,
     pub opacity: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct DisplayClip {
+    pub bounds: LayoutRect,
+    pub border_radius: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -76,6 +83,7 @@ pub struct RectPaintStyle {
     pub border_radius: f32,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    pub blur_sigma: Option<f32>,
     pub shadow: Option<ShadowStyle>,
 }
 
@@ -85,6 +93,7 @@ pub struct BitmapPaintStyle {
     pub border_radius: f32,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    pub blur_sigma: Option<f32>,
     pub shadow: Option<ShadowStyle>,
 }
 

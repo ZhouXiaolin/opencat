@@ -2,9 +2,9 @@ use anyhow::Result;
 
 use crate::{
     display::list::{
-        BitmapDisplayItem, BitmapPaintStyle, DisplayCommand, DisplayItem, DisplayLayer,
-        DisplayList, DisplayTransform, LucideDisplayItem, LucidePaintStyle, RectDisplayItem,
-        RectPaintStyle, TextDisplayItem,
+        BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayCommand, DisplayItem,
+        DisplayLayer, DisplayList, DisplayTransform, LucideDisplayItem, LucidePaintStyle,
+        RectDisplayItem, RectPaintStyle, TextDisplayItem,
     },
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
 };
@@ -55,8 +55,22 @@ fn build_layout_node_display_list(layout: &LayoutNode, list: &mut DisplayList) -
 
     push_paint_commands(layout, rect, list)?;
 
+    if layout.paint.visual.clip_contents {
+        list.push(DisplayCommand::Save);
+        list.push(DisplayCommand::Clip {
+            clip: DisplayClip {
+                bounds: rect,
+                border_radius: layout.paint.visual.border_radius,
+            },
+        });
+    }
+
     for child in sorted_children_by_z_index(&layout.children) {
         build_layout_node_display_list(child, list)?;
+    }
+
+    if layout.paint.visual.clip_contents {
+        list.push(DisplayCommand::Restore);
     }
 
     if uses_layer {
@@ -81,6 +95,7 @@ fn push_paint_commands(
                     border_radius: layout.paint.visual.border_radius,
                     border_width: layout.paint.visual.border_width,
                     border_color: layout.paint.visual.border_color,
+                    blur_sigma: layout.paint.visual.blur_sigma,
                     shadow: layout.paint.visual.shadow,
                 },
             }),
@@ -105,6 +120,7 @@ fn push_paint_commands(
                     border_radius: layout.paint.visual.border_radius,
                     border_width: layout.paint.visual.border_width,
                     border_color: layout.paint.visual.border_color,
+                    blur_sigma: layout.paint.visual.blur_sigma,
                     shadow: layout.paint.visual.shadow,
                 },
             }),
@@ -130,7 +146,7 @@ mod tests {
     use super::build_display_list;
     use crate::{
         assets::AssetId,
-        display::list::DisplayItem,
+        display::list::{DisplayCommand, DisplayItem},
         layout::tree::{
             LayoutBitmapPaint, LayoutNode, LayoutPaint, LayoutPaintKind, LayoutRect, LayoutTree,
         },
@@ -154,6 +170,7 @@ mod tests {
                         border_radius: 0.0,
                         border_width: None,
                         border_color: None,
+                        blur_sigma: None,
                         object_fit: ObjectFit::Contain,
                         clip_contents: false,
                         transforms: Vec::<Transform>::new(),
@@ -206,6 +223,7 @@ mod tests {
                         border_radius: 0.0,
                         border_width: None,
                         border_color: None,
+                        blur_sigma: None,
                         object_fit: ObjectFit::Contain,
                         clip_contents: false,
                         transforms: Vec::<Transform>::new(),
@@ -230,6 +248,7 @@ mod tests {
                                 border_radius: 0.0,
                                 border_width: None,
                                 border_color: None,
+                                blur_sigma: None,
                                 object_fit: ObjectFit::Contain,
                                 clip_contents: false,
                                 transforms: Vec::<Transform>::new(),
@@ -259,6 +278,7 @@ mod tests {
                                 border_radius: 0.0,
                                 border_width: None,
                                 border_color: None,
+                                blur_sigma: None,
                                 object_fit: ObjectFit::Contain,
                                 clip_contents: false,
                                 transforms: Vec::<Transform>::new(),
@@ -291,5 +311,74 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(texts, vec!["back", "front"]);
+    }
+
+    #[test]
+    fn display_list_emits_clip_commands_for_overflow_hidden_nodes() {
+        let layout_tree = LayoutTree {
+            root: LayoutNode {
+                rect: LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 40.0,
+                    height: 40.0,
+                },
+                paint: LayoutPaint {
+                    visual: crate::element::style::ComputedVisualStyle {
+                        opacity: 1.0,
+                        background: None,
+                        border_radius: 12.0,
+                        border_width: None,
+                        border_color: None,
+                        blur_sigma: None,
+                        object_fit: ObjectFit::Contain,
+                        clip_contents: true,
+                        transforms: Vec::<Transform>::new(),
+                        shadow: None,
+                    },
+                    kind: LayoutPaintKind::Div,
+                    id: "root".to_string(),
+                    z_index: 0,
+                },
+                children: vec![LayoutNode {
+                    rect: LayoutRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 40.0,
+                        height: 40.0,
+                    },
+                    paint: LayoutPaint {
+                        visual: crate::element::style::ComputedVisualStyle {
+                            opacity: 1.0,
+                            background: None,
+                            border_radius: 0.0,
+                            border_width: None,
+                            border_color: None,
+                            blur_sigma: None,
+                            object_fit: ObjectFit::Contain,
+                            clip_contents: false,
+                            transforms: Vec::<Transform>::new(),
+                            shadow: None,
+                        },
+                        kind: LayoutPaintKind::Div,
+                        id: "child".to_string(),
+                        z_index: 0,
+                    },
+                    children: Vec::new(),
+                }],
+            },
+        };
+
+        let list = build_display_list(&layout_tree).expect("display list should build");
+        let clip = list.commands.iter().find_map(|command| match command {
+            DisplayCommand::Clip { clip } => Some(clip),
+            _ => None,
+        });
+
+        assert!(
+            clip.is_some(),
+            "overflow-hidden nodes should emit clip commands"
+        );
+        assert_eq!(clip.expect("clip command should exist").border_radius, 12.0);
     }
 }

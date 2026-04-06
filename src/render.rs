@@ -597,7 +597,7 @@ fn picture_for_slot(
 #[cfg(test)]
 mod tests {
     use super::{RenderSession, pad_rgba_frame, render_frame_rgba};
-    use crate::{Composition, EncodingConfig, FrameCtx, nodes::div};
+    use crate::{Composition, FrameCtx, nodes::div, style::ColorToken};
 
     fn pixel_rgba(frame: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
         let index = (y * width + x) * 4;
@@ -651,6 +651,70 @@ mod tests {
             (120..=136).contains(&second_pixel[0]),
             "frame 1 should be roughly 50% white, got {:?}",
             second_pixel
+        );
+    }
+
+    #[test]
+    fn display_list_and_subtree_cache_both_preserve_overflow_clipping() {
+        let scene = div()
+            .id("root")
+            .w_full()
+            .h_full()
+            .bg(ColorToken::Black)
+            .script_source(r#"ctx.getNode("mover").translateY(ctx.frame);"#)
+            .expect("script should compile")
+            .child(
+                div()
+                    .id("card")
+                    .absolute()
+                    .left(4.0)
+                    .top(4.0)
+                    .w(12.0)
+                    .h(12.0)
+                    .rounded(6.0)
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .id("card-fill")
+                            .w_full()
+                            .h_full()
+                            .bg(ColorToken::White),
+                    ),
+            )
+            .child(
+                div()
+                    .id("mover")
+                    .absolute()
+                    .left(0.0)
+                    .top(0.0)
+                    .w(2.0)
+                    .h(2.0)
+                    .bg(ColorToken::Red500),
+            );
+
+        let composition = Composition::new("clip_consistency")
+            .size(24, 24)
+            .fps(30)
+            .frames(2)
+            .root(move |_ctx: &FrameCtx| scene.clone().into())
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let first =
+            render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
+        let second =
+            render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
+
+        assert_eq!(
+            pixel_rgba(&first, 24, 4, 4),
+            [0, 0, 0, 255],
+            "frame 0 should keep the clipped corner transparent to the black background"
+        );
+        assert_eq!(
+            pixel_rgba(&second, 24, 4, 4),
+            [0, 0, 0, 255],
+            "frame 1 should match frame 0 after subtree caching kicks in"
         );
     }
 

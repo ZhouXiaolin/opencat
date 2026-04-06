@@ -69,6 +69,7 @@ pub struct ComputedVisualStyle {
     pub border_radius: f32,
     pub border_width: Option<f32>,
     pub border_color: Option<crate::style::ColorToken>,
+    pub blur_sigma: Option<f32>,
     pub object_fit: ObjectFit,
     pub clip_contents: bool,
     pub transforms: Vec<Transform>,

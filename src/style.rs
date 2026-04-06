@@ -81,6 +81,8 @@ pub enum ShadowStyle {
 pub enum GradientDirection {
     ToRight,
     ToLeft,
+    ToBottom,
+    ToTop,
     ToBottomRight,
 }
 
@@ -162,6 +164,7 @@ pub struct NodeStyle {
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    pub blur_sigma: Option<f32>,
     pub object_fit: Option<ObjectFit>,
     pub overflow_hidden: bool,
     pub transforms: Vec<Transform>,

@@ -410,6 +410,7 @@ fn hash_raster_style(style: &crate::element::style::ComputedVisualStyle, state: 
     hash_f32(style.border_radius, state);
     hash_option_f32(style.border_width, state);
     style.border_color.hash(state);
+    hash_option_f32(style.blur_sigma, state);
     style.object_fit.hash(state);
     style.clip_contents.hash(state);
     style.shadow.hash(state);

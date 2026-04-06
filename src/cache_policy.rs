@@ -164,6 +164,7 @@ fn hash_raster_style(style: &ComputedVisualStyle, state: &mut impl Hasher) {
     hash_f32(style.border_radius, state);
     style.border_width.map(f32::to_bits).hash(state);
     style.border_color.hash(state);
+    style.blur_sigma.map(f32::to_bits).hash(state);
     style.object_fit.hash(state);
     style.shadow.hash(state);
 }

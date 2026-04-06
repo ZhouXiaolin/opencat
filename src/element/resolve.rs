@@ -458,6 +458,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             border_radius: style.border_radius.unwrap_or(0.0),
             border_width: style.border_width,
             border_color: style.border_color,
+            blur_sigma: style.blur_sigma,
             object_fit: style.object_fit.unwrap_or_default(),
             clip_contents: style.overflow_hidden,
             transforms: style.transforms.clone(),

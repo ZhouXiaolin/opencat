@@ -5,10 +5,10 @@ use crate::{
     assets::AssetsMap,
     element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle},
-        tree::{ElementBitmap, ElementDiv, ElementId, ElementKind, ElementNode, ElementText},
+        tree::{ElementBitmap, ElementDiv, ElementId, ElementKind, ElementLucide, ElementNode, ElementText},
     },
     media::MediaContext,
-    nodes::{Div, Image, Text, Video},
+    nodes::{Div, Image, Lucide, Text, Video},
     script::{ScriptRuntimeCache, StyleMutations},
     style::{ComputedTextStyle, NodeStyle, resolve_text_style},
     view::{ComponentNode, NodeKind},
@@ -90,6 +90,7 @@ fn resolve_node(
         NodeKind::Image(image) => resolve_image(image, cx, media),
         NodeKind::Div(div) => resolve_div(div, cx, media),
         NodeKind::Text(text) => resolve_text(text, cx),
+        NodeKind::Lucide(lucide) => resolve_lucide(lucide, cx),
         NodeKind::Timeline(_) => {
             unreachable!("timeline nodes must be resolved before UI tree construction")
         }
@@ -244,6 +245,32 @@ fn resolve_image(
                 asset_id,
                 width,
                 height,
+            }),
+            style: computed,
+            children: Vec::new(),
+        })
+    })();
+    if pushed {
+        cx.mutation_stack.pop();
+    }
+    result
+}
+
+fn resolve_lucide(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
+    let pushed = push_script_scope(lucide.style_ref(), cx)?;
+    let result = (|| {
+        let mut style = lucide.style_ref().clone();
+        ensure!(
+            !style.id.is_empty(),
+            "node id is required for lucide nodes before rendering"
+        );
+        apply_mutation_stack(&mut style, cx.mutation_stack);
+        let computed = compute_style(&style, cx.inherited_text);
+
+        Ok(ElementNode {
+            id: cx.ids.alloc(),
+            kind: ElementKind::Lucide(ElementLucide {
+                icon: lucide.icon().to_string(),
             }),
             style: computed,
             children: Vec::new(),

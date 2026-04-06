@@ -1,0 +1,22 @@
+{
+  "$schema": "../icon.schema.json",
+  "contributors": [
+    "it-is-not",
+    "ericfennis",
+    "karsa-mistmere"
+  ],
+  "tags": [
+    "bill",
+    "voucher",
+    "slip",
+    "check",
+    "counterfoil",
+    "currency",
+    "jpy",
+    "¥"
+  ],
+  "categories": [
+    "finance",
+    "travel"
+  ]
+}

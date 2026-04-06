@@ -16,8 +16,8 @@ use crate::{
         tree::{ElementKind, ElementNode},
     },
     layout::tree::{
-        LayoutBitmapPaint, LayoutNode, LayoutPaint, LayoutPaintKind, LayoutRect, LayoutTextPaint,
-        LayoutTree,
+        LayoutBitmapPaint, LayoutLucidePaint, LayoutNode, LayoutPaint, LayoutPaintKind, LayoutRect,
+        LayoutTextPaint, LayoutTree,
     },
     nodes::{AlignItems, JustifyContent, Position},
     style::ComputedTextStyle,
@@ -51,6 +51,7 @@ enum CachedNodeKind {
     Div,
     Text,
     Bitmap,
+    Lucide,
 }
 
 struct CachedLayoutNode {
@@ -310,6 +311,7 @@ fn cached_node_kind(element: &ElementNode) -> CachedNodeKind {
         ElementKind::Div(_) => CachedNodeKind::Div,
         ElementKind::Text(_) => CachedNodeKind::Text,
         ElementKind::Bitmap(_) => CachedNodeKind::Bitmap,
+        ElementKind::Lucide(_) => CachedNodeKind::Lucide,
     }
 }
 
@@ -335,6 +337,9 @@ fn layout_affect_hash(element: &ElementNode) -> u64 {
             bitmap.width.hash(&mut hasher);
             bitmap.height.hash(&mut hasher);
         }
+        ElementKind::Lucide(lucide) => {
+            lucide.icon.hash(&mut hasher);
+        }
     }
 
     hasher.finish()
@@ -354,6 +359,9 @@ fn raster_affect_hash(element: &ElementNode) -> u64 {
             bitmap.asset_id.hash(&mut hasher);
             bitmap.width.hash(&mut hasher);
             bitmap.height.hash(&mut hasher);
+        }
+        ElementKind::Lucide(lucide) => {
+            lucide.icon.hash(&mut hasher);
         }
     }
 
@@ -541,6 +549,21 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             },
             ..base_style(layout)
         },
+        ElementKind::Lucide(_) => Style {
+            size: taffy::geometry::Size {
+                width: resolve_dimension(
+                    layout.width,
+                    layout.width_full,
+                    Dimension::length(24.0),
+                ),
+                height: resolve_dimension(
+                    layout.height,
+                    layout.height_full,
+                    Dimension::length(24.0),
+                ),
+            },
+            ..base_style(layout)
+        },
     }
 }
 
@@ -592,6 +615,9 @@ fn layout_paint_for_element(element: &ElementNode) -> LayoutPaint {
                 width: bitmap.width,
                 height: bitmap.height,
                 object_fit: element.style.visual.object_fit,
+            }),
+            ElementKind::Lucide(lucide) => LayoutPaintKind::Lucide(LayoutLucidePaint {
+                icon: lucide.icon.clone(),
             }),
         },
         id: element.style.id.clone(),

@@ -43,6 +43,7 @@ pub enum DisplayItem {
     Rect(RectDisplayItem),
     Text(TextDisplayItem),
     Bitmap(BitmapDisplayItem),
+    Lucide(LucideDisplayItem),
 }
 
 #[derive(Clone, Debug)]
@@ -85,4 +86,10 @@ pub struct BitmapPaintStyle {
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
     pub shadow: Option<ShadowStyle>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LucideDisplayItem {
+    pub bounds: LayoutRect,
+    pub icon: String,
 }

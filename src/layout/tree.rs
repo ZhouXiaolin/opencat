@@ -36,6 +36,7 @@ pub enum LayoutPaintKind {
     Div,
     Text(LayoutTextPaint),
     Bitmap(LayoutBitmapPaint),
+    Lucide(LayoutLucidePaint),
 }
 
 #[derive(Clone, Debug)]
@@ -51,4 +52,9 @@ pub struct LayoutBitmapPaint {
     pub width: u32,
     pub height: u32,
     pub object_fit: ObjectFit,
+}
+
+#[derive(Clone, Debug)]
+pub struct LayoutLucidePaint {
+    pub icon: String,
 }

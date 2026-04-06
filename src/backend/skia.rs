@@ -14,7 +14,7 @@ use crate::{
     },
     display::list::{
         BitmapDisplayItem, BitmapPaintStyle, DisplayCommand, DisplayItem, DisplayList,
-        DisplayTransform, RectDisplayItem, TextDisplayItem,
+        DisplayTransform, LucideDisplayItem, RectDisplayItem, TextDisplayItem,
     },
     frame_ctx::FrameCtx,
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
@@ -227,6 +227,16 @@ impl<'a> SkiaBackend<'a> {
                     profile.video_frame_decodes += stats.video_frame_decodes;
                 }
             }
+            LayoutPaintKind::Lucide(lucide) => {
+                draw_lucide(
+                    self.canvas,
+                    &LucideDisplayItem {
+                        bounds,
+                        icon: lucide.icon.clone(),
+                    },
+                    layout.paint.visual.background,
+                );
+            }
         }
         Ok(())
     }
@@ -369,6 +379,9 @@ impl<'a> SkiaBackend<'a> {
                         profile.image_cache_misses += stats.image_cache_misses;
                         profile.video_frame_decodes += stats.video_frame_decodes;
                     }
+                }
+                DisplayItem::Lucide(lucide) => {
+                    draw_lucide(self.canvas, lucide, None);
                 }
             },
         }
@@ -837,6 +850,47 @@ fn fitted_rect(src_width: f32, src_height: f32, dst: Rect, cover: bool) -> Rect 
     let y = dst.top + (dst.height() - height) / 2.0;
 
     Rect::from_xywh(x, y, width, height)
+}
+
+fn draw_lucide(
+    canvas: &Canvas,
+    item: &LucideDisplayItem,
+    bg_color: Option<crate::style::ColorToken>,
+) {
+    let Some(paths) = crate::lucide_icons::lucide_icon_paths(&item.icon) else {
+        return;
+    };
+
+    let dst = layout_rect_to_skia(item.bounds);
+    let scale_x = dst.width() / 24.0;
+    let scale_y = dst.height() / 24.0;
+
+    if let Some(color) = bg_color {
+        let mut bg_paint = Paint::default();
+        bg_paint.set_anti_alias(true);
+        bg_paint.set_color(color.to_skia());
+        canvas.draw_rect(dst, &bg_paint);
+    }
+
+    let mut stroke_paint = Paint::default();
+    stroke_paint.set_anti_alias(true);
+    stroke_paint.set_color(skia_safe::Color::WHITE);
+    stroke_paint.set_style(PaintStyle::Stroke);
+    stroke_paint.set_stroke_width(2.0);
+    stroke_paint.set_stroke_cap(skia_safe::paint::Cap::Round);
+    stroke_paint.set_stroke_join(skia_safe::paint::Join::Round);
+
+    canvas.save();
+    canvas.translate((dst.left(), dst.top()));
+    canvas.scale((scale_x, scale_y));
+
+    for path_data in paths {
+        if let Some(path) = skia_safe::Path::from_svg(path_data) {
+            canvas.draw_path(&path, &stroke_paint);
+        }
+    }
+
+    canvas.restore();
 }
 
 fn cover_src_rect(src_width: f32, src_height: f32, dst: Rect) -> Rect {

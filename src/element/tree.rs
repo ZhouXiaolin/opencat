@@ -17,6 +17,7 @@ pub enum ElementKind {
     Div(ElementDiv),
     Text(ElementText),
     Bitmap(ElementBitmap),
+    Lucide(ElementLucide),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -33,6 +34,11 @@ pub struct ElementBitmap {
     pub asset_id: AssetId,
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct ElementLucide {
+    pub icon: String,
 }
 
 impl ElementNode {}

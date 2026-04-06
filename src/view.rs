@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     FrameCtx,
-    nodes::{Div, Image, Text, Video},
+    nodes::{Div, Image, Lucide, Text, Video},
     script::ScriptDriver,
     style::NodeStyle,
     timeline::TimelineNode,
@@ -49,6 +49,7 @@ pub enum NodeKind {
     Div(Div),
     Text(Text),
     Image(Image),
+    Lucide(Lucide),
     Video(Video),
     Timeline(TimelineNode),
 }
@@ -60,6 +61,7 @@ impl NodeKind {
             Self::Div(node) => node.style_ref(),
             Self::Text(node) => node.style_ref(),
             Self::Image(node) => node.style_ref(),
+            Self::Lucide(node) => node.style_ref(),
             Self::Video(node) => node.style_ref(),
             Self::Timeline(node) => node.style_ref(),
         }
@@ -70,7 +72,7 @@ impl NodeKind {
             Self::Component(node) => node.duration_in_frames(ctx),
             Self::Div(node) => node.duration_in_frames(ctx),
             Self::Timeline(node) => Some(node.duration_in_frames()),
-            Self::Text(_) | Self::Image(_) | Self::Video(_) => None,
+            Self::Text(_) | Self::Image(_) | Self::Lucide(_) | Self::Video(_) => None,
         }
     }
 
@@ -80,6 +82,7 @@ impl NodeKind {
             Self::Div(node) => &mut node.style,
             Self::Text(node) => &mut node.style,
             Self::Image(node) => &mut node.style,
+            Self::Lucide(node) => &mut node.style,
             Self::Video(node) => &mut node.style,
             Self::Timeline(node) => &mut node.style,
         }
@@ -170,6 +173,12 @@ impl From<Text> for NodeKind {
 impl From<Image> for NodeKind {
     fn from(value: Image) -> Self {
         Self::Image(value)
+    }
+}
+
+impl From<Lucide> for NodeKind {
+    fn from(value: Lucide) -> Self {
+        Self::Lucide(value)
     }
 }
 

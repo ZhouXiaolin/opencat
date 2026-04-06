@@ -1,0 +1,20 @@
+{
+  "$schema": "../icon.schema.json",
+  "contributors": [
+    "colebemis",
+    "csandman",
+    "ericfennis",
+    "jguddas",
+    "karsa-mistmere"
+  ],
+  "tags": [
+    "present",
+    "box",
+    "birthday",
+    "party"
+  ],
+  "categories": [
+    "gaming",
+    "account"
+  ]
+}

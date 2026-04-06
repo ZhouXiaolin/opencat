@@ -151,6 +151,10 @@ fn hash_layout_paint_kind(kind: &LayoutPaintKind, state: &mut impl Hasher) {
             bitmap.height.hash(state);
             bitmap.object_fit.hash(state);
         }
+        LayoutPaintKind::Lucide(lucide) => {
+            3_u8.hash(state);
+            lucide.icon.hash(state);
+        }
     }
 }
 

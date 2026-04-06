@@ -366,7 +366,7 @@ fn collect_image_sources(node: &Node, frame_ctx: &FrameCtx, sources: &mut HashSe
                 collect_image_sources(&to, frame_ctx, sources);
             }
         },
-        NodeKind::Text(_) | NodeKind::Video(_) => {}
+        NodeKind::Text(_) | NodeKind::Video(_) | NodeKind::Lucide(_) => {}
     }
 }
 

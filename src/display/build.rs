@@ -3,7 +3,8 @@ use anyhow::Result;
 use crate::{
     display::list::{
         BitmapDisplayItem, BitmapPaintStyle, DisplayCommand, DisplayItem, DisplayLayer,
-        DisplayList, DisplayTransform, RectDisplayItem, RectPaintStyle, TextDisplayItem,
+        DisplayList, DisplayTransform, LucideDisplayItem, RectDisplayItem, RectPaintStyle,
+        TextDisplayItem,
     },
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
 };
@@ -100,6 +101,12 @@ fn push_paint_commands(
                     border_color: layout.paint.visual.border_color,
                     shadow: layout.paint.visual.shadow,
                 },
+            }),
+        }),
+        LayoutPaintKind::Lucide(lucide) => list.push(DisplayCommand::Draw {
+            item: DisplayItem::Lucide(LucideDisplayItem {
+                bounds: rect,
+                icon: lucide.icon.clone(),
             }),
         }),
     }

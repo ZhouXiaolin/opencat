@@ -3,8 +3,8 @@ use anyhow::Result;
 use crate::{
     display::list::{
         BitmapDisplayItem, BitmapPaintStyle, DisplayCommand, DisplayItem, DisplayLayer,
-        DisplayList, DisplayTransform, LucideDisplayItem, RectDisplayItem, RectPaintStyle,
-        TextDisplayItem,
+        DisplayList, DisplayTransform, LucideDisplayItem, LucidePaintStyle, RectDisplayItem,
+        RectPaintStyle, TextDisplayItem,
     },
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
 };
@@ -107,9 +107,12 @@ fn push_paint_commands(
             item: DisplayItem::Lucide(LucideDisplayItem {
                 bounds: rect,
                 icon: lucide.icon.clone(),
-                stroke_color: lucide.stroke_color,
-                stroke_width: lucide.stroke_width,
-                fill_color: lucide.fill_color,
+                paint: LucidePaintStyle {
+                    foreground: lucide.foreground,
+                    background: layout.paint.visual.background,
+                    border_width: layout.paint.visual.border_width,
+                    border_color: layout.paint.visual.border_color,
+                },
             }),
         }),
     }
@@ -145,9 +148,6 @@ mod tests {
                         border_radius: 0.0,
                         border_width: None,
                         border_color: None,
-                        stroke_width: None,
-                        stroke_color: None,
-                        fill_color: None,
                         object_fit: ObjectFit::Contain,
                         transforms: Vec::<Transform>::new(),
                         shadow: None,

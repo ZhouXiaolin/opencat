@@ -233,11 +233,13 @@ impl<'a> SkiaBackend<'a> {
                     &LucideDisplayItem {
                         bounds,
                         icon: lucide.icon.clone(),
-                        stroke_color: lucide.stroke_color,
-                        stroke_width: lucide.stroke_width,
-                        fill_color: lucide.fill_color,
+                        paint: crate::display::list::LucidePaintStyle {
+                            foreground: lucide.foreground,
+                            background: layout.paint.visual.background,
+                            border_width: layout.paint.visual.border_width,
+                            border_color: layout.paint.visual.border_color,
+                        },
                     },
-                    layout.paint.visual.background,
                 );
             }
         }
@@ -384,7 +386,7 @@ impl<'a> SkiaBackend<'a> {
                     }
                 }
                 DisplayItem::Lucide(lucide) => {
-                    draw_lucide(self.canvas, lucide, None);
+                    draw_lucide(self.canvas, lucide);
                 }
             },
         }
@@ -855,27 +857,22 @@ fn fitted_rect(src_width: f32, src_height: f32, dst: Rect, cover: bool) -> Rect 
     Rect::from_xywh(x, y, width, height)
 }
 
-fn draw_lucide(
-    canvas: &Canvas,
-    item: &LucideDisplayItem,
-    bg_color: Option<crate::style::ColorToken>,
-) {
+fn draw_lucide(canvas: &Canvas, item: &LucideDisplayItem) {
     let Some(paths) = crate::lucide_icons::lucide_icon_paths(&item.icon) else {
         return;
     };
 
     let dst = layout_rect_to_skia(item.bounds);
-    let scale_x = dst.width() / 24.0;
-    let scale_y = dst.height() / 24.0;
-
-    if let Some(color) = bg_color {
-        let mut bg_paint = Paint::default();
-        bg_paint.set_anti_alias(true);
-        bg_paint.set_color(color.to_skia());
-        canvas.draw_rect(dst, &bg_paint);
+    let scale = (dst.width() / 24.0).min(dst.height() / 24.0);
+    if scale <= 0.0 {
+        return;
     }
+    let draw_width = 24.0 * scale;
+    let draw_height = 24.0 * scale;
+    let offset_x = (dst.width() - draw_width) / 2.0;
+    let offset_y = (dst.height() - draw_height) / 2.0;
 
-    let fill_paint = item.fill_color.map(|color| {
+    let fill_paint = item.paint.background.map(|color| {
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         paint.set_color(color.to_skia());
@@ -883,20 +880,27 @@ fn draw_lucide(
         paint
     });
 
-    let stroke_paint = (item.stroke_width > 0.0).then(|| {
+    let stroke_width = match item.paint.border_width {
+        Some(width) if width > 0.0 => Some(width),
+        Some(_) => None,
+        None => Some(2.0),
+    };
+    let stroke_color = item.paint.border_color.unwrap_or(item.paint.foreground);
+
+    let stroke_paint = stroke_width.map(|width| {
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
-        paint.set_color(item.stroke_color.to_skia());
+        paint.set_color(stroke_color.to_skia());
         paint.set_style(PaintStyle::Stroke);
-        paint.set_stroke_width(item.stroke_width);
+        paint.set_stroke_width(width / scale);
         paint.set_stroke_cap(skia_safe::paint::Cap::Round);
         paint.set_stroke_join(skia_safe::paint::Join::Round);
         paint
     });
 
     canvas.save();
-    canvas.translate((dst.left(), dst.top()));
-    canvas.scale((scale_x, scale_y));
+    canvas.translate((dst.left() + offset_x, dst.top() + offset_y));
+    canvas.scale((scale, scale));
 
     for path_data in paths {
         if let Some(path) = skia_safe::Path::from_svg(path_data) {

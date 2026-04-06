@@ -11,6 +11,20 @@ pub struct ComputedStyle {
     pub id: String,
 }
 
+/// Only properties in this struct are allowed to flow from parent to child.
+/// Everything else remains local to the node that declared it, or applies to the
+/// rendered subtree at paint time.
+#[derive(Clone, Debug, Default)]
+pub struct InheritedStyle {
+    pub text: ComputedTextStyle,
+}
+
+impl InheritedStyle {
+    pub fn for_child(style: &ComputedStyle) -> Self {
+        Self { text: style.text }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ComputedLayoutStyle {
     pub position: Position,
@@ -40,9 +54,6 @@ pub struct ComputedVisualStyle {
     pub border_radius: f32,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
-    pub stroke_width: Option<f32>,
-    pub stroke_color: Option<ColorToken>,
-    pub fill_color: Option<ColorToken>,
     pub object_fit: ObjectFit,
     pub transforms: Vec<Transform>,
     pub shadow: Option<ShadowStyle>,

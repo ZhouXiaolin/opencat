@@ -154,9 +154,7 @@ fn hash_layout_paint_kind(kind: &LayoutPaintKind, state: &mut impl Hasher) {
         LayoutPaintKind::Lucide(lucide) => {
             3_u8.hash(state);
             lucide.icon.hash(state);
-            lucide.stroke_color.hash(state);
-            lucide.stroke_width.to_bits().hash(state);
-            lucide.fill_color.hash(state);
+            lucide.foreground.hash(state);
         }
     }
 }
@@ -166,9 +164,6 @@ fn hash_raster_style(style: &ComputedVisualStyle, state: &mut impl Hasher) {
     hash_f32(style.border_radius, state);
     style.border_width.map(f32::to_bits).hash(state);
     style.border_color.hash(state);
-    style.stroke_width.map(f32::to_bits).hash(state);
-    style.stroke_color.hash(state);
-    style.fill_color.hash(state);
     style.object_fit.hash(state);
     style.shadow.hash(state);
 }

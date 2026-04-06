@@ -57,7 +57,5 @@ pub struct LayoutBitmapPaint {
 #[derive(Clone, Debug)]
 pub struct LayoutLucidePaint {
     pub icon: String,
-    pub stroke_color: ColorToken,
-    pub stroke_width: f32,
-    pub fill_color: Option<ColorToken>,
+    pub foreground: ColorToken,
 }

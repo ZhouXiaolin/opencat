@@ -362,7 +362,7 @@ fn raster_affect_hash(element: &ElementNode) -> u64 {
         }
         ElementKind::Lucide(lucide) => {
             lucide.icon.hash(&mut hasher);
-            hash_text_style(&element.style.text, &mut hasher);
+            element.style.text.color.hash(&mut hasher);
         }
     }
 
@@ -404,9 +404,6 @@ fn hash_raster_style(style: &crate::element::style::ComputedVisualStyle, state: 
     hash_f32(style.border_radius, state);
     hash_option_f32(style.border_width, state);
     style.border_color.hash(state);
-    hash_option_f32(style.stroke_width, state);
-    style.stroke_color.hash(state);
-    style.fill_color.hash(state);
     style.object_fit.hash(state);
     style.shadow.hash(state);
 }
@@ -618,13 +615,7 @@ fn layout_paint_for_element(element: &ElementNode) -> LayoutPaint {
             }),
             ElementKind::Lucide(lucide) => LayoutPaintKind::Lucide(LayoutLucidePaint {
                 icon: lucide.icon.clone(),
-                stroke_color: element
-                    .style
-                    .visual
-                    .stroke_color
-                    .unwrap_or(element.style.text.color),
-                stroke_width: element.style.visual.stroke_width.unwrap_or(2.0),
-                fill_color: element.style.visual.fill_color,
+                foreground: element.style.text.color,
             }),
         },
         id: element.style.id.clone(),
@@ -919,8 +910,7 @@ mod tests {
         let LayoutPaintKind::Lucide(lucide) = &layout.root.children[0].paint.kind else {
             panic!("expected lucide paint");
         };
-        assert_eq!(lucide.stroke_color, crate::style::ColorToken::Blue);
-        assert_eq!(lucide.stroke_width, 2.0);
+        assert_eq!(lucide.foreground, crate::style::ColorToken::Blue);
     }
 
     #[test]
@@ -977,9 +967,9 @@ mod tests {
             lucide("play")
                 .id("icon")
                 .size(24.0, 24.0)
-                .stroke_color(crate::style::ColorToken::Blue)
-                .stroke_width(3.5)
-                .fill_color(crate::style::ColorToken::Sky200),
+                .border_color(crate::style::ColorToken::Blue)
+                .border_w(3.5)
+                .bg(crate::style::ColorToken::Sky200),
         );
 
         let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
@@ -989,8 +979,15 @@ mod tests {
         let LayoutPaintKind::Lucide(lucide) = &layout.root.children[0].paint.kind else {
             panic!("expected lucide paint");
         };
-        assert_eq!(lucide.stroke_color, crate::style::ColorToken::Blue);
-        assert_eq!(lucide.stroke_width, 3.5);
-        assert_eq!(lucide.fill_color, Some(crate::style::ColorToken::Sky200));
+        assert_eq!(lucide.foreground, crate::style::ColorToken::Black);
+        assert_eq!(
+            layout.root.children[0].paint.visual.border_color,
+            Some(crate::style::ColorToken::Blue)
+        );
+        assert_eq!(layout.root.children[0].paint.visual.border_width, Some(3.5));
+        assert_eq!(
+            layout.root.children[0].paint.visual.background,
+            Some(crate::style::ColorToken::Sky200)
+        );
     }
 }

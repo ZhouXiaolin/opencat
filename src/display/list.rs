@@ -89,10 +89,16 @@ pub struct BitmapPaintStyle {
 }
 
 #[derive(Clone, Debug)]
+pub struct LucidePaintStyle {
+    pub foreground: ColorToken,
+    pub background: Option<ColorToken>,
+    pub border_width: Option<f32>,
+    pub border_color: Option<ColorToken>,
+}
+
+#[derive(Clone, Debug)]
 pub struct LucideDisplayItem {
     pub bounds: LayoutRect,
     pub icon: String,
-    pub stroke_color: ColorToken,
-    pub stroke_width: f32,
-    pub fill_color: Option<ColorToken>,
+    pub paint: LucidePaintStyle,
 }

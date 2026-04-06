@@ -79,42 +79,42 @@ fn hello_world_demo(_ctx: &FrameCtx) -> Node {
     let play = icon_card(
         "card-play",
         "Play",
-        "stroke_color(Blue), stroke_width(3.0), fill_color(Sky200)",
+        "bg(Sky200) fills the icon, border_w(3.0) sets stroke width, text_color(Blue) provides the default icon color",
         ColorToken::Blue50,
         lucide("play")
             .id("icon-play")
             .size(72.0, 72.0)
-            .stroke_color(ColorToken::Blue)
-            .stroke_width(3.0)
-            .fill_color(ColorToken::Sky200)
+            .text_color(ColorToken::Blue)
+            .border_w(3.0)
+            .bg(ColorToken::Sky200)
             .into(),
     );
 
     let heart = icon_card(
         "card-heart",
         "Heart",
-        "text_color(Rose500) as stroke fallback, fill_color(Rose100)",
+        "bg(Rose100) fills the shape, border_w(2.0) keeps the default stroke behavior, text_color(Rose500) sets the icon color",
         ColorToken::Rose50,
         lucide("heart")
             .id("icon-heart")
             .size(72.0, 72.0)
             .text_color(ColorToken::Rose500)
-            .stroke_width(2.0)
-            .fill_color(ColorToken::Rose100)
+            .border_w(2.0)
+            .bg(ColorToken::Rose100)
             .into(),
     );
 
     let star = icon_card(
         "card-star",
         "Star",
-        "thin stroke, warm fill, plus rotate_deg(-8) and opacity(0.9)",
+        "bg(Amber100) for fill, border_color(Amber600) plus border_w(1.5), then rotate_deg(-8) and opacity(0.9)",
         ColorToken::Amber50,
         lucide("star")
             .id("icon-star")
             .size(76.0, 76.0)
-            .stroke_color(ColorToken::Amber600)
-            .stroke_width(1.5)
-            .fill_color(ColorToken::Amber100)
+            .border_color(ColorToken::Amber600)
+            .border_w(1.5)
+            .bg(ColorToken::Amber100)
             .rotate_deg(-8.0)
             .opacity(0.9)
             .into(),
@@ -123,42 +123,41 @@ fn hello_world_demo(_ctx: &FrameCtx) -> Node {
     let badge = icon_card(
         "card-badge",
         "Badge Check",
-        "bg(Slate900) behind the icon, white stroke, emerald fill",
+        "The dark surface comes from the wrapper card; inside the icon, bg(Emerald400) fills and text_color(White) drives the mark color",
         ColorToken::Slate100,
         lucide("badge-check")
             .id("icon-badge")
             .size(72.0, 72.0)
-            .bg(ColorToken::Slate900)
-            .stroke_color(ColorToken::White)
-            .stroke_width(2.5)
-            .fill_color(ColorToken::Emerald400)
+            .text_color(ColorToken::White)
+            .border_w(2.5)
+            .bg(ColorToken::Emerald400)
             .into(),
     );
 
     let bell = icon_card(
         "card-bell",
         "Bell",
-        "outline only: no fill_color, just stroke_color(Slate700) and stroke_width(4.0)",
+        "Outline only: no icon bg, border_color(Slate700), border_w(4.0)",
         ColorToken::Amber50,
         lucide("bell")
             .id("icon-bell")
             .size(68.0, 68.0)
-            .stroke_color(ColorToken::Slate700)
-            .stroke_width(4.0)
+            .border_color(ColorToken::Slate700)
+            .border_w(4.0)
             .into(),
     );
 
     let shield = icon_card(
         "card-shield",
         "Shield Check",
-        "stroke_color(Teal600), fill_color(Teal100), translate_y(-2)",
+        "border_color(Teal600), bg(Teal100), border_w(2.0), translate_y(-2)",
         ColorToken::Teal50,
         lucide("shield-check")
             .id("icon-shield")
             .size(72.0, 72.0)
-            .stroke_color(ColorToken::Teal600)
-            .stroke_width(2.0)
-            .fill_color(ColorToken::Teal100)
+            .border_color(ColorToken::Teal600)
+            .border_w(2.0)
+            .bg(ColorToken::Teal100)
             .translate_y(-2.0)
             .into(),
     );

@@ -1002,6 +1002,16 @@ mod tests {
     }
 
     #[test]
+    fn parser_maps_common_icon_styling_classes() {
+        let style = parse_class_name("bg-emerald-400 text-white border-[3] border-blue");
+
+        assert_eq!(style.bg_color, Some(ColorToken::Emerald400));
+        assert_eq!(style.text_color, Some(ColorToken::White));
+        assert_eq!(style.border_width, Some(3.0));
+        assert_eq!(style.border_color, Some(ColorToken::Blue));
+    }
+
+    #[test]
     fn parser_accepts_image_query_nodes() {
         parse(
             r#"{"type":"composition","width":1280,"height":720,"fps":30,"frames":90}

@@ -4,7 +4,7 @@ use crate::{
     FrameCtx, Node,
     assets::AssetsMap,
     element::{
-        style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle},
+        style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
             ElementBitmap, ElementDiv, ElementId, ElementKind, ElementLucide, ElementNode,
             ElementText,
@@ -13,7 +13,7 @@ use crate::{
     media::MediaContext,
     nodes::{Div, Image, Lucide, Text, Video},
     script::{ScriptRuntimeCache, StyleMutations},
-    style::{ComputedTextStyle, NodeStyle, resolve_text_style},
+    style::{NodeStyle, resolve_text_style},
     view::{ComponentNode, NodeKind},
 };
 
@@ -33,7 +33,7 @@ impl ElementIdAllocator {
 struct ResolveContext<'a> {
     frame_ctx: &'a FrameCtx,
     ids: &'a mut ElementIdAllocator,
-    inherited_text: &'a ComputedTextStyle,
+    inherited_style: &'a InheritedStyle,
     assets: &'a mut AssetsMap,
     script_runtime: &'a mut ScriptRuntimeCache,
     mutation_stack: &'a mut Vec<StyleMutations>,
@@ -66,7 +66,7 @@ pub(crate) fn resolve_ui_tree_with_script_cache(
     script_runtime: &mut ScriptRuntimeCache,
 ) -> Result<ElementNode> {
     let mut ids = ElementIdAllocator::default();
-    let inherited_text = ComputedTextStyle::default();
+    let inherited_style = InheritedStyle::default();
     let mut mutation_stack = Vec::new();
     if let Some(mutations) = mutations.filter(|mutations| !mutations.is_empty()) {
         mutation_stack.push(mutations.clone());
@@ -74,7 +74,7 @@ pub(crate) fn resolve_ui_tree_with_script_cache(
     let mut cx = ResolveContext {
         frame_ctx,
         ids: &mut ids,
-        inherited_text: &inherited_text,
+        inherited_style: &inherited_style,
         assets,
         script_runtime,
         mutation_stack: &mut mutation_stack,
@@ -127,13 +127,14 @@ fn resolve_div(
             "node id is required for div nodes before rendering"
         );
         apply_mutation_stack(&mut style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_text);
+        let computed = compute_style(&style, cx.inherited_style);
+        let inherited_style = InheritedStyle::for_child(&computed);
         let mut children = Vec::new();
         for child in div.children_ref() {
             let mut child_cx = ResolveContext {
                 frame_ctx: cx.frame_ctx,
                 ids: &mut *cx.ids,
-                inherited_text: &computed.text,
+                inherited_style: &inherited_style,
                 assets: &mut *cx.assets,
                 script_runtime: &mut *cx.script_runtime,
                 mutation_stack: &mut *cx.mutation_stack,
@@ -163,7 +164,7 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
             "node id is required for text nodes before rendering"
         );
         apply_mutation_stack(&mut style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_text);
+        let computed = compute_style(&style, cx.inherited_style);
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -194,7 +195,7 @@ fn resolve_video(
             "node id is required for video nodes before rendering"
         );
         apply_mutation_stack(&mut style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_text);
+        let computed = compute_style(&style, cx.inherited_style);
 
         let info = media
             .video_info(video.source())
@@ -237,7 +238,7 @@ fn resolve_image(
             "node id is required for image nodes before rendering"
         );
         apply_mutation_stack(&mut style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_text);
+        let computed = compute_style(&style, cx.inherited_style);
 
         let asset_id = cx.assets.register_image_source(image.source())?;
         let (width, height) = cx.assets.dimensions(&asset_id);
@@ -268,7 +269,8 @@ fn resolve_lucide(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<Elemen
             "node id is required for lucide nodes before rendering"
         );
         apply_mutation_stack(&mut style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_text);
+        ensure_valid_lucide_icon(lucide.icon())?;
+        let computed = compute_style(&style, cx.inherited_style);
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -283,6 +285,62 @@ fn resolve_lucide(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<Elemen
         cx.mutation_stack.pop();
     }
     result
+}
+
+fn ensure_valid_lucide_icon(name: &str) -> Result<()> {
+    if crate::lucide_icons::lucide_icon_paths(name).is_some() {
+        return Ok(());
+    }
+
+    let suggestions = suggested_lucide_icons(name);
+    let detail = if suggestions.is_empty() {
+        "no similar icons found".to_string()
+    } else {
+        format!("did you mean {}?", suggestions.join(", "))
+    };
+
+    anyhow::bail!("unknown lucide icon `{name}`: {detail}")
+}
+
+fn suggested_lucide_icons(name: &str) -> Vec<&'static str> {
+    let mut scored: Vec<(usize, &'static str)> = crate::lucide_icons::lucide_icon_names()
+        .iter()
+        .map(|candidate| (levenshtein_distance(name, candidate), *candidate))
+        .collect();
+    scored.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(right.1)));
+    scored
+        .into_iter()
+        .take(5)
+        .map(|(_, candidate)| candidate)
+        .collect()
+}
+
+fn levenshtein_distance(left: &str, right: &str) -> usize {
+    let left_chars: Vec<char> = left.chars().collect();
+    let right_chars: Vec<char> = right.chars().collect();
+
+    if left_chars.is_empty() {
+        return right_chars.len();
+    }
+    if right_chars.is_empty() {
+        return left_chars.len();
+    }
+
+    let mut prev: Vec<usize> = (0..=right_chars.len()).collect();
+    let mut curr = vec![0; right_chars.len() + 1];
+
+    for (left_index, left_char) in left_chars.iter().enumerate() {
+        curr[0] = left_index + 1;
+        for (right_index, right_char) in right_chars.iter().enumerate() {
+            let cost = usize::from(left_char != right_char);
+            curr[right_index + 1] = (curr[right_index] + 1)
+                .min(prev[right_index + 1] + 1)
+                .min(prev[right_index] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+
+    prev[right_chars.len()]
 }
 
 fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<bool> {
@@ -308,8 +366,8 @@ fn apply_mutation_stack(style: &mut NodeStyle, stack: &[StyleMutations]) {
     }
 }
 
-fn compute_style(style: &NodeStyle, inherited_text: &ComputedTextStyle) -> ComputedStyle {
-    let text = resolve_text_style(inherited_text, style);
+fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> ComputedStyle {
+    let text = resolve_text_style(&inherited_style.text, style);
     ComputedStyle {
         layout: ComputedLayoutStyle {
             position: style.position.unwrap_or_default(),
@@ -337,9 +395,6 @@ fn compute_style(style: &NodeStyle, inherited_text: &ComputedTextStyle) -> Compu
             border_radius: style.border_radius.unwrap_or(0.0),
             border_width: style.border_width,
             border_color: style.border_color,
-            stroke_width: style.stroke_width,
-            stroke_color: style.stroke_color,
-            fill_color: style.fill_color,
             object_fit: style.object_fit.unwrap_or_default(),
             transforms: style.transforms.clone(),
             shadow: style.shadow,
@@ -356,7 +411,7 @@ mod tests {
         FrameCtx,
         assets::AssetsMap,
         media::MediaContext,
-        nodes::{div, text},
+        nodes::{div, lucide, text},
         script::ScriptRuntimeCache,
         timeline::{FrameState, frame_state_for_root},
         transitions::{linear, slide, transition_series},
@@ -408,6 +463,123 @@ mod tests {
 
         assert_eq!(resolved.children[0].children[0].style.visual.opacity, 0.25);
         assert_eq!(resolved.children[1].children[0].style.visual.opacity, 1.0);
+    }
+
+    #[test]
+    fn only_text_defaults_inherit_to_children() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let root = div()
+            .id("root")
+            .text_blue()
+            .font_bold()
+            .line_height(1.8)
+            .child(text("A").id("label"))
+            .child(lucide("play").id("icon").size(24.0, 24.0));
+
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+
+        assert_eq!(
+            resolved.children[0].style.text.color,
+            crate::style::ColorToken::Blue
+        );
+        assert_eq!(
+            resolved.children[0].style.text.font_weight,
+            crate::style::FontWeight::Bold
+        );
+        assert_eq!(resolved.children[0].style.text.line_height, 1.8);
+        assert_eq!(
+            resolved.children[1].style.text.color,
+            crate::style::ColorToken::Blue
+        );
+    }
+
+    #[test]
+    fn visual_box_styles_do_not_inherit_to_children() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let root = div()
+            .id("root")
+            .bg_red()
+            .border_w(3.0)
+            .border_blue()
+            .child(text("A").id("label"))
+            .child(lucide("play").id("icon").size(24.0, 24.0));
+
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+
+        assert_eq!(resolved.children[0].style.visual.background, None);
+        assert_eq!(resolved.children[0].style.visual.border_width, None);
+        assert_eq!(resolved.children[1].style.visual.background, None);
+        assert_eq!(resolved.children[1].style.visual.border_color, None);
+    }
+
+    #[test]
+    fn subtree_effects_stay_local_to_the_parent_node() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let root = div()
+            .id("root")
+            .opacity(0.4)
+            .rotate_deg(12.0)
+            .child(text("A").id("label"));
+
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+
+        assert_eq!(resolved.style.visual.opacity, 0.4);
+        assert_eq!(resolved.children[0].style.visual.opacity, 1.0);
+        assert!(resolved.children[0].style.visual.transforms.is_empty());
+    }
+
+    #[test]
+    fn resolve_ui_tree_rejects_unknown_lucide_icons() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let root = div()
+            .id("root")
+            .child(lucide("pla").id("icon").size(24.0, 24.0));
+
+        let err = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect_err("unknown icon should fail during resolution");
+
+        let message = err.to_string();
+        assert!(message.contains("unknown lucide icon `pla`"));
+        assert!(message.contains("play"));
     }
 
     #[test]

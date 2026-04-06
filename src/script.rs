@@ -33,9 +33,6 @@ pub struct NodeStyleMutations {
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
-    pub stroke_width: Option<f32>,
-    pub stroke_color: Option<ColorToken>,
-    pub fill_color: Option<ColorToken>,
     pub object_fit: Option<ObjectFit>,
     pub transforms: Vec<Transform>,
     pub text_color: Option<ColorToken>,
@@ -119,15 +116,6 @@ impl NodeStyleMutations {
         }
         if let Some(v) = self.border_color {
             style.border_color = Some(v);
-        }
-        if let Some(v) = self.stroke_width {
-            style.stroke_width = Some(v.max(0.0));
-        }
-        if let Some(v) = self.stroke_color {
-            style.stroke_color = Some(v);
-        }
-        if let Some(v) = self.fill_color {
-            style.fill_color = Some(v);
         }
         if let Some(v) = self.object_fit {
             style.object_fit = Some(v);
@@ -802,7 +790,7 @@ fn install_runtime_bindings<'js>(
         "__record_stroke_width",
         Function::new(ctx.clone(), move |id: String, v: f32| {
             let mut map = s.lock().unwrap();
-            map.entry(id).or_default().stroke_width = Some(v.max(0.0));
+            map.entry(id).or_default().border_width = Some(v.max(0.0));
         })?,
     )?;
 
@@ -812,7 +800,7 @@ fn install_runtime_bindings<'js>(
         Function::new(ctx.clone(), move |id: String, v: String| {
             if let Some(c) = color_from_name(&v) {
                 let mut map = s.lock().unwrap();
-                map.entry(id).or_default().stroke_color = Some(c);
+                map.entry(id).or_default().border_color = Some(c);
             }
         })?,
     )?;
@@ -823,7 +811,7 @@ fn install_runtime_bindings<'js>(
         Function::new(ctx.clone(), move |id: String, v: String| {
             if let Some(c) = color_from_name(&v) {
                 let mut map = s.lock().unwrap();
-                map.entry(id).or_default().fill_color = Some(c);
+                map.entry(id).or_default().bg_color = Some(c);
             }
         })?,
     )?;
@@ -981,8 +969,8 @@ mod tests {
         let mutations = driver.run(0, 1).expect("script should run");
         let icon = mutations.get("icon").expect("icon mutation should exist");
 
-        assert_eq!(icon.stroke_color, Some(ColorToken::Blue));
-        assert_eq!(icon.stroke_width, Some(3.0));
-        assert_eq!(icon.fill_color, Some(ColorToken::Sky200));
+        assert_eq!(icon.border_color, Some(ColorToken::Blue));
+        assert_eq!(icon.border_width, Some(3.0));
+        assert_eq!(icon.bg_color, Some(ColorToken::Sky200));
     }
 }

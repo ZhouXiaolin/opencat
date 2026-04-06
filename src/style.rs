@@ -80,6 +80,8 @@ pub enum ShadowStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GradientDirection {
     ToRight,
+    ToLeft,
+    ToBottomRight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -88,6 +90,7 @@ pub enum BackgroundFill {
     LinearGradient {
         direction: GradientDirection,
         from: ColorToken,
+        via: Option<ColorToken>,
         to: ColorToken,
     },
 }
@@ -142,13 +145,18 @@ pub struct NodeStyle {
     pub flex_direction: Option<FlexDirection>,
     pub justify_content: Option<JustifyContent>,
     pub align_items: Option<AlignItems>,
+    pub is_flex: bool,
+    pub auto_size: bool,
     pub gap: Option<f32>,
     pub flex_grow: Option<f32>,
+    pub flex_shrink: Option<f32>,
+    pub z_index: Option<i32>,
 
     // Visual
     pub opacity: Option<f32>,
     pub bg_color: Option<ColorToken>,
     pub bg_gradient_from: Option<ColorToken>,
+    pub bg_gradient_via: Option<ColorToken>,
     pub bg_gradient_to: Option<ColorToken>,
     pub bg_gradient_direction: Option<GradientDirection>,
     pub border_radius: Option<f32>,
@@ -350,6 +358,7 @@ macro_rules! impl_node_style_api {
 
             // === Layout: Flex Direction ===
             pub fn flex_direction(mut self, direction: $crate::style::FlexDirection) -> Self {
+                self.style.is_flex = true;
                 self.style.flex_direction = Some(direction);
                 self
             }
@@ -587,6 +596,7 @@ macro_rules! impl_node_style_api {
             pub fn fill_color(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.bg_color = Some(color);
                 self.style.bg_gradient_from = None;
+                self.style.bg_gradient_via = None;
                 self.style.bg_gradient_to = None;
                 self.style.bg_gradient_direction = None;
                 self
@@ -596,6 +606,7 @@ macro_rules! impl_node_style_api {
             pub fn bg(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.bg_color = Some(color);
                 self.style.bg_gradient_from = None;
+                self.style.bg_gradient_via = None;
                 self.style.bg_gradient_to = None;
                 self.style.bg_gradient_direction = None;
                 self
@@ -775,6 +786,14 @@ mod tests {
         assert_eq!(
             color_token_from_script_name("primary"),
             Some(ColorToken::Primary)
+        );
+        assert_eq!(
+            color_token_from_class_suffix("transparent"),
+            Some(ColorToken::Transparent)
+        );
+        assert_eq!(
+            color_token_from_script_name("transparent"),
+            Some(ColorToken::Transparent)
         );
     }
 }

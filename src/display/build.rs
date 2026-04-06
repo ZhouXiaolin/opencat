@@ -15,6 +15,12 @@ pub fn build_display_list(layout_tree: &LayoutTree) -> Result<DisplayList> {
     Ok(list)
 }
 
+fn sorted_children_by_z_index(children: &[LayoutNode]) -> Vec<&LayoutNode> {
+    let mut sorted = children.iter().collect::<Vec<_>>();
+    sorted.sort_by_key(|child| child.paint.z_index);
+    sorted
+}
+
 fn build_layout_node_display_list(layout: &LayoutNode, list: &mut DisplayList) -> Result<()> {
     if layout.paint.visual.opacity <= 0.0 {
         return Ok(());
@@ -49,7 +55,7 @@ fn build_layout_node_display_list(layout: &LayoutNode, list: &mut DisplayList) -
 
     push_paint_commands(layout, rect, list)?;
 
-    for child in &layout.children {
+    for child in sorted_children_by_z_index(&layout.children) {
         build_layout_node_display_list(child, list)?;
     }
 
@@ -160,6 +166,7 @@ mod tests {
                         object_fit: ObjectFit::Cover,
                     }),
                     id: "test://fake".to_string(),
+                    z_index: 0,
                 },
                 children: Vec::new(),
             },
@@ -179,5 +186,110 @@ mod tests {
 
         assert_eq!(bitmap.object_fit, ObjectFit::Cover);
         assert_eq!(bitmap.paint.border_radius, 0.0);
+    }
+
+    #[test]
+    fn display_list_sorts_children_by_z_index_for_painting() {
+        let text_style = crate::style::ComputedTextStyle::default();
+        let layout_tree = LayoutTree {
+            root: LayoutNode {
+                rect: LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 320.0,
+                    height: 180.0,
+                },
+                paint: LayoutPaint {
+                    visual: crate::element::style::ComputedVisualStyle {
+                        opacity: 1.0,
+                        background: None,
+                        border_radius: 0.0,
+                        border_width: None,
+                        border_color: None,
+                        object_fit: ObjectFit::Contain,
+                        clip_contents: false,
+                        transforms: Vec::<Transform>::new(),
+                        shadow: None,
+                    },
+                    kind: LayoutPaintKind::Div,
+                    id: "root".to_string(),
+                    z_index: 0,
+                },
+                children: vec![
+                    LayoutNode {
+                        rect: LayoutRect {
+                            x: 0.0,
+                            y: 0.0,
+                            width: 50.0,
+                            height: 20.0,
+                        },
+                        paint: LayoutPaint {
+                            visual: crate::element::style::ComputedVisualStyle {
+                                opacity: 1.0,
+                                background: None,
+                                border_radius: 0.0,
+                                border_width: None,
+                                border_color: None,
+                                object_fit: ObjectFit::Contain,
+                                clip_contents: false,
+                                transforms: Vec::<Transform>::new(),
+                                shadow: None,
+                            },
+                            kind: LayoutPaintKind::Text(crate::layout::tree::LayoutTextPaint {
+                                text: "front".to_string(),
+                                style: text_style,
+                                allow_wrap: false,
+                            }),
+                            id: "front".to_string(),
+                            z_index: 10,
+                        },
+                        children: Vec::new(),
+                    },
+                    LayoutNode {
+                        rect: LayoutRect {
+                            x: 0.0,
+                            y: 0.0,
+                            width: 50.0,
+                            height: 20.0,
+                        },
+                        paint: LayoutPaint {
+                            visual: crate::element::style::ComputedVisualStyle {
+                                opacity: 1.0,
+                                background: None,
+                                border_radius: 0.0,
+                                border_width: None,
+                                border_color: None,
+                                object_fit: ObjectFit::Contain,
+                                clip_contents: false,
+                                transforms: Vec::<Transform>::new(),
+                                shadow: None,
+                            },
+                            kind: LayoutPaintKind::Text(crate::layout::tree::LayoutTextPaint {
+                                text: "back".to_string(),
+                                style: text_style,
+                                allow_wrap: false,
+                            }),
+                            id: "back".to_string(),
+                            z_index: 0,
+                        },
+                        children: Vec::new(),
+                    },
+                ],
+            },
+        };
+
+        let list = build_display_list(&layout_tree).expect("display list should build");
+        let texts = list
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                crate::display::list::DisplayCommand::Draw {
+                    item: DisplayItem::Text(text),
+                } => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(texts, vec!["back", "front"]);
     }
 }

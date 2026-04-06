@@ -356,7 +356,10 @@ fn build_node(
 }
 
 fn parse_class_name(class_name: &str) -> NodeStyle {
-    let mut style = NodeStyle::default();
+    let mut style = NodeStyle {
+        auto_size: true,
+        ..Default::default()
+    };
 
     if class_name.is_empty() {
         return style;
@@ -379,12 +382,19 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) {
 
         // Flex layout
         "flex" => {
+            style.is_flex = true;
             if style.flex_direction.is_none() {
                 style.flex_direction = Some(FlexDirection::Row);
             }
         }
-        "flex-row" => style.flex_direction = Some(FlexDirection::Row),
-        "flex-col" | "flex-column" => style.flex_direction = Some(FlexDirection::Col),
+        "flex-row" => {
+            style.is_flex = true;
+            style.flex_direction = Some(FlexDirection::Row);
+        }
+        "flex-col" | "flex-column" => {
+            style.is_flex = true;
+            style.flex_direction = Some(FlexDirection::Col);
+        }
 
         // Justify content
         "justify-start" => style.justify_content = Some(JustifyContent::Start),
@@ -429,7 +439,16 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) {
         // Border
         "border" => style.border_width = Some(1.0),
         "overflow-hidden" => style.overflow_hidden = true,
+        "inset-0" => {
+            style.inset_left = Some(0.0);
+            style.inset_top = Some(0.0);
+            style.inset_right = Some(0.0);
+            style.inset_bottom = Some(0.0);
+        }
         "bg-gradient-to-r" => style.bg_gradient_direction = Some(GradientDirection::ToRight),
+        "bg-gradient-to-l" => style.bg_gradient_direction = Some(GradientDirection::ToLeft),
+        "bg-gradient-to-br" => style.bg_gradient_direction = Some(GradientDirection::ToBottomRight),
+        "shrink-0" | "flex-shrink-0" => style.flex_shrink = Some(0.0),
 
         // Text alignment
         "text-left" => style.text_align = Some(TextAlign::Left),
@@ -455,12 +474,35 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) {
         "leading-normal" => style.line_height = Some(1.5),
         "leading-relaxed" => style.line_height = Some(1.625),
         "leading-loose" => style.line_height = Some(2.0),
+        "tracking-normal" => style.letter_spacing = Some(0.0),
+        "tracking-wide" => style.letter_spacing = Some(0.5),
+        "tracking-wider" => style.letter_spacing = Some(1.0),
 
         _ => parse_arbitrary_class(class, style),
     }
 }
 
 fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
+    if let Some(n) = parse_signed_bracket_f32(class, "left-[", "-left-[") {
+        style.inset_left = Some(n);
+        return;
+    }
+
+    if let Some(n) = parse_signed_bracket_f32(class, "top-[", "-top-[") {
+        style.inset_top = Some(n);
+        return;
+    }
+
+    if let Some(n) = parse_signed_bracket_f32(class, "right-[", "-right-[") {
+        style.inset_right = Some(n);
+        return;
+    }
+
+    if let Some(n) = parse_signed_bracket_f32(class, "bottom-[", "-bottom-[") {
+        style.inset_bottom = Some(n);
+        return;
+    }
+
     if let Some(value) = class.strip_prefix("bg-[") {
         if let Some(v) = value.strip_suffix(']') {
             if let Some(color) = color_from_hex(v) {
@@ -936,6 +978,14 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
     }
 
     if let Some(color) = class
+        .strip_prefix("via-")
+        .and_then(color_token_from_class_suffix)
+    {
+        style.bg_gradient_via = Some(color);
+        return;
+    }
+
+    if let Some(color) = class
         .strip_prefix("to-")
         .and_then(color_token_from_class_suffix)
     {
@@ -1105,11 +1155,47 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
         }
     }
 
+    if let Some(value) = class.strip_prefix("z-[") {
+        if let Some(v) = value.strip_suffix(']') {
+            if let Ok(n) = v.parse::<i32>() {
+                style.z_index = Some(n);
+            }
+        }
+    }
+
+    if class.starts_with("z-") {
+        if let Ok(n) = class[2..].parse::<i32>() {
+            style.z_index = Some(n);
+        }
+    }
+
     if class.starts_with("tracking-") {
         if let Ok(n) = class[9..].parse::<f32>() {
             style.letter_spacing = Some(n);
         }
     }
+}
+
+fn parse_signed_bracket_f32(
+    class: &str,
+    positive_prefix: &str,
+    negative_prefix: &str,
+) -> Option<f32> {
+    if let Some(value) = class.strip_prefix(positive_prefix) {
+        return parse_bracket_f32(value);
+    }
+
+    class
+        .strip_prefix(negative_prefix)
+        .and_then(parse_bracket_f32)
+        .map(|value| -value)
+}
+
+fn parse_bracket_f32(value: &str) -> Option<f32> {
+    value
+        .strip_suffix("px]")
+        .or_else(|| value.strip_suffix(']'))
+        .and_then(|value| value.parse::<f32>().ok())
 }
 
 fn color_from_hex(value: &str) -> Option<ColorToken> {
@@ -1242,6 +1328,28 @@ mod tests {
         assert_eq!(style.margin_top, Some(4.0));
         assert_eq!(style.margin_bottom, Some(16.0));
         assert_eq!(style.padding_bottom, Some(20.0));
+    }
+
+    #[test]
+    fn parser_maps_extended_gradient_and_layering_classes() {
+        let style = parse_class_name(
+            "bg-gradient-to-br from-transparent via-pink-500 to-violet-400 inset-0 -top-[80px] -left-[24px] z-10 flex-shrink-0 tracking-wider",
+        );
+
+        assert_eq!(
+            style.bg_gradient_direction,
+            Some(GradientDirection::ToBottomRight)
+        );
+        assert_eq!(style.bg_gradient_from, Some(ColorToken::Transparent));
+        assert_eq!(style.bg_gradient_via, Some(ColorToken::Pink500));
+        assert_eq!(style.bg_gradient_to, Some(ColorToken::Violet400));
+        assert_eq!(style.inset_right, Some(0.0));
+        assert_eq!(style.inset_bottom, Some(0.0));
+        assert_eq!(style.inset_top, Some(-80.0));
+        assert_eq!(style.inset_left, Some(-24.0));
+        assert_eq!(style.z_index, Some(10));
+        assert_eq!(style.flex_shrink, Some(0.0));
+        assert_eq!(style.letter_spacing, Some(1.0));
     }
 
     #[test]

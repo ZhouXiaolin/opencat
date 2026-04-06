@@ -84,7 +84,9 @@ impl<'a> SkiaBackend<'a> {
     }
 
     fn draw_layout_children(&mut self, children: &[LayoutNode]) -> Result<()> {
-        for child in children {
+        let mut sorted = children.iter().collect::<Vec<_>>();
+        sorted.sort_by_key(|child| child.paint.z_index);
+        for child in sorted {
             self.draw_layout_subtree(child)?;
         }
         Ok(())
@@ -937,6 +939,7 @@ fn apply_background_paint(paint: &mut Paint, background: BackgroundFill, bounds:
         BackgroundFill::LinearGradient {
             direction,
             from,
+            via,
             to,
         } => {
             let points = match direction {
@@ -944,12 +947,24 @@ fn apply_background_paint(paint: &mut Paint, background: BackgroundFill, bounds:
                     (bounds.left(), bounds.center_y()),
                     (bounds.right(), bounds.center_y()),
                 ),
+                GradientDirection::ToLeft => (
+                    (bounds.right(), bounds.center_y()),
+                    (bounds.left(), bounds.center_y()),
+                ),
+                GradientDirection::ToBottomRight => (
+                    (bounds.left(), bounds.top()),
+                    (bounds.right(), bounds.bottom()),
+                ),
             };
-            let colors = [from.to_skia(), to.to_skia()];
+            let colors = match via {
+                Some(via) => vec![from.to_skia(), via.to_skia(), to.to_skia()],
+                None => vec![from.to_skia(), to.to_skia()],
+            };
+            let positions = via.map(|_| [0.0, 0.5, 1.0]);
             if let Some(shader) = gradient_shader::linear(
                 points,
                 colors.as_slice(),
-                None,
+                positions.as_ref().map(|positions| positions.as_slice()),
                 TileMode::Clamp,
                 None,
                 None,

@@ -37,6 +37,7 @@ pub fn div() -> Div {
     Div {
         style: NodeStyle {
             bg_color: Some(ColorToken::White),
+            is_flex: true,
             ..Default::default()
         },
         children: Vec::new(),

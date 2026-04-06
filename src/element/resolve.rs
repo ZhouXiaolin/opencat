@@ -428,11 +428,15 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
                 .or(style.margin_x)
                 .or(style.margin)
                 .unwrap_or(0.0),
+            is_flex: style.is_flex,
+            auto_size: style.auto_size,
             flex_direction: style.flex_direction.unwrap_or_default(),
             justify_content: style.justify_content.unwrap_or_default(),
             align_items: style.align_items.unwrap_or_default(),
             gap: style.gap.unwrap_or(0.0),
             flex_grow: style.flex_grow.unwrap_or(0.0),
+            flex_shrink: style.flex_shrink,
+            z_index: style.z_index.unwrap_or(0),
         },
         visual: ComputedVisualStyle {
             opacity: style.opacity.unwrap_or(1.0),
@@ -444,6 +448,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
                     |((direction, from), to)| crate::style::BackgroundFill::LinearGradient {
                         direction,
                         from,
+                        via: style.bg_gradient_via,
                         to,
                     },
                 )

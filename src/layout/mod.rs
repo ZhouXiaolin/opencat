@@ -401,6 +401,8 @@ fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: 
     style.align_items.hash(state);
     hash_f32(style.gap, state);
     hash_f32(style.flex_grow, state);
+    hash_option_f32(style.flex_shrink, state);
+    style.z_index.hash(state);
 }
 
 fn hash_raster_style(style: &crate::element::style::ComputedVisualStyle, state: &mut impl Hasher) {
@@ -499,7 +501,11 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
     let layout = &element.style.layout;
     match &element.kind {
         ElementKind::Div(_) => Style {
-            display: taffy::prelude::Display::Flex,
+            display: if layout.is_flex {
+                taffy::prelude::Display::Flex
+            } else {
+                taffy::prelude::Display::Block
+            },
             size: match layout.position {
                 Position::Absolute => taffy::geometry::Size {
                     width: resolve_dimension(layout.width, layout.width_full, Dimension::auto()),
@@ -509,12 +515,20 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     width: resolve_dimension(
                         layout.width,
                         layout.width_full,
-                        Dimension::percent(1.0),
+                        if layout.auto_size {
+                            Dimension::auto()
+                        } else {
+                            Dimension::percent(1.0)
+                        },
                     ),
                     height: resolve_dimension(
                         layout.height,
                         layout.height_full,
-                        Dimension::percent(1.0),
+                        if layout.auto_size {
+                            Dimension::auto()
+                        } else {
+                            Dimension::percent(1.0)
+                        },
                     ),
                 },
             },
@@ -624,11 +638,12 @@ fn layout_paint_for_element(element: &ElementNode) -> LayoutPaint {
             }),
         },
         id: element.style.id.clone(),
+        z_index: element.style.layout.z_index,
     }
 }
 
 fn base_style(layout: &ComputedLayoutStyle) -> Style {
-    Style {
+    let mut style = Style {
         position: map_position(layout.position),
         inset: taffy::geometry::Rect {
             left: layout
@@ -656,7 +671,11 @@ fn base_style(layout: &ComputedLayoutStyle) -> Style {
         },
         flex_grow: layout.flex_grow,
         ..Default::default()
+    };
+    if let Some(flex_shrink) = layout.flex_shrink {
+        style.flex_shrink = flex_shrink;
     }
+    style
 }
 
 fn resolve_dimension(value: Option<f32>, full: bool, fallback: Dimension) -> Dimension {
@@ -711,6 +730,7 @@ mod tests {
         layout::tree::LayoutPaintKind,
         media::MediaContext,
         nodes::{div, lucide, text},
+        parser::parse,
         style::ComputedTextStyle,
     };
     use taffy::{AvailableSpace, geometry::Size};
@@ -995,6 +1015,43 @@ mod tests {
             Some(crate::style::BackgroundFill::Solid(
                 crate::style::ColorToken::Sky200,
             ))
+        );
+    }
+
+    #[test]
+    fn parsed_div_without_flex_class_uses_block_layout_flow() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let parsed = parse(
+            r#"{"type":"composition","width":320,"height":180,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"header","parentId":"root","type":"div","className":"pt-[20px] pb-[20px]"}
+{"id":"header-text","parentId":"header","type":"text","className":"text-[24px]","text":"Header"}
+{"id":"content","parentId":"root","type":"div","className":"pt-[10px] pb-[10px]"}
+{"id":"content-text","parentId":"content","type":"text","className":"text-[18px]","text":"Content"}"#,
+        )
+        .expect("jsonl should parse");
+
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
+
+        assert!(
+            layout.root.children[1].rect.y
+                >= layout.root.children[0].rect.y + layout.root.children[0].rect.height,
+            "expected block flow to stack siblings vertically"
+        );
+        assert!(
+            layout.root.children[0].rect.height < frame_ctx.height as f32,
+            "expected auto-height block container instead of full-height expansion"
         );
     }
 }

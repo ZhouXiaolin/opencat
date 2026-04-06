@@ -29,6 +29,7 @@ pub struct LayoutPaint {
     pub visual: ComputedVisualStyle,
     pub kind: LayoutPaintKind,
     pub id: String,
+    pub z_index: i32,
 }
 
 #[derive(Clone, Debug)]

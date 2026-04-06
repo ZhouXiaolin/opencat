@@ -44,11 +44,15 @@ pub struct ComputedLayoutStyle {
     pub margin_right: f32,
     pub margin_bottom: f32,
     pub margin_left: f32,
+    pub is_flex: bool,
+    pub auto_size: bool,
     pub flex_direction: FlexDirection,
     pub justify_content: JustifyContent,
     pub align_items: AlignItems,
     pub gap: f32,
     pub flex_grow: f32,
+    pub flex_shrink: Option<f32>,
+    pub z_index: i32,
 }
 
 #[derive(Clone, Debug)]

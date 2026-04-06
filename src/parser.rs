@@ -6,9 +6,13 @@ use std::sync::{Mutex, OnceLock};
 use serde::Deserialize;
 
 use crate::nodes::{ImageSource, OpenverseQuery, div, image, lucide, text, video};
+use crate::script::ScriptDriver;
 use crate::style::{
     AlignItems, ColorToken, FlexDirection, FontWeight, GradientDirection, JustifyContent,
     NodeStyle, ObjectFit, Position, TextAlign, color_token_from_class_suffix,
+};
+use crate::transitions::{
+    Timing, Transition, clock_wipe, fade, iris, light_leak, linear, slide, spring, timeline, wipe,
 };
 use crate::view::Node;
 
@@ -23,7 +27,11 @@ enum JsonLine {
         frames: i32,
     },
     #[serde(rename = "script")]
-    Script { content: String },
+    Script {
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        content: String,
+    },
     #[serde(rename = "div")]
     Div {
         id: String,
@@ -31,6 +39,7 @@ enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
+        duration: Option<u32>,
     },
     #[serde(rename = "text")]
     Text {
@@ -40,6 +49,7 @@ enum JsonLine {
         #[serde(rename = "className")]
         class_name: Option<String>,
         text: String,
+        duration: Option<u32>,
     },
     #[serde(rename = "image")]
     Image {
@@ -55,6 +65,7 @@ enum JsonLine {
         query_count: Option<usize>,
         #[serde(rename = "aspectRatio")]
         aspect_ratio: Option<String>,
+        duration: Option<u32>,
     },
     #[serde(rename = "video")]
     Video {
@@ -64,6 +75,7 @@ enum JsonLine {
         #[serde(rename = "className")]
         class_name: Option<String>,
         path: String,
+        duration: Option<u32>,
     },
     #[serde(rename = "icon")]
     Icon {
@@ -73,6 +85,22 @@ enum JsonLine {
         #[serde(rename = "className")]
         class_name: Option<String>,
         icon: String,
+        duration: Option<u32>,
+    },
+    #[serde(rename = "transition")]
+    Transition {
+        from: String,
+        to: String,
+        effect: String,
+        duration: u32,
+        direction: Option<String>,
+        timing: Option<String>,
+        damping: Option<f32>,
+        stiffness: Option<f32>,
+        mass: Option<f32>,
+        seed: Option<f32>,
+        #[serde(rename = "hueShift")]
+        hue_shift: Option<f32>,
     },
 }
 
@@ -89,8 +117,30 @@ enum ParsedElementKind {
 struct ParsedElement {
     id: String,
     parent_id: Option<String>,
+    duration: Option<u32>,
     style: NodeStyle,
     kind: ParsedElementKind,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedTransition {
+    from: String,
+    to: String,
+    effect: String,
+    duration: u32,
+    direction: Option<String>,
+    timing: Option<String>,
+    damping: Option<f32>,
+    stiffness: Option<f32>,
+    mass: Option<f32>,
+    seed: Option<f32>,
+    hue_shift: Option<f32>,
+}
+
+#[derive(Debug, Clone)]
+enum TimelineEntry {
+    SequenceRoot { id: String },
+    Transition(ParsedTransition),
 }
 
 pub struct ParsedComposition {
@@ -109,8 +159,10 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     let mut height = 1080;
     let mut fps = 30;
     let mut frames = 90;
-    let mut script = None;
+    let mut global_scripts = Vec::new();
+    let mut scripts_by_parent: HashMap<String, Vec<String>> = HashMap::new();
     let mut elements: Vec<ParsedElement> = Vec::new();
+    let mut timeline_entries = Vec::new();
 
     for (line_index, line) in input.lines().enumerate() {
         let line = line.trim();
@@ -131,22 +183,34 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 fps = f;
                 frames = fs;
             }
-            JsonLine::Script { content } => {
-                script = Some(content);
+            JsonLine::Script { parent_id, content } => {
+                if let Some(parent_id) = parent_id {
+                    scripts_by_parent
+                        .entry(parent_id)
+                        .or_default()
+                        .push(content);
+                } else {
+                    global_scripts.push(content);
+                }
             }
             JsonLine::Div {
                 id,
                 parent_id,
                 class_name,
+                duration,
             } => {
                 let style = parse_class_name_with_context(
                     class_name.as_deref().unwrap_or(""),
                     &id,
                     line_index + 1,
                 );
+                if parent_id.is_none() {
+                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
+                }
                 elements.push(ParsedElement {
                     id,
                     parent_id,
+                    duration,
                     style,
                     kind: ParsedElementKind::Div,
                 });
@@ -156,15 +220,20 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 parent_id,
                 class_name,
                 text,
+                duration,
             } => {
                 let style = parse_class_name_with_context(
                     class_name.as_deref().unwrap_or(""),
                     &id,
                     line_index + 1,
                 );
+                if parent_id.is_none() {
+                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
+                }
                 elements.push(ParsedElement {
                     id,
                     parent_id,
+                    duration,
                     style,
                     kind: ParsedElementKind::Text { content: text },
                 });
@@ -178,6 +247,7 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 query,
                 query_count,
                 aspect_ratio,
+                duration,
             } => {
                 let style = parse_class_name_with_context(
                     class_name.as_deref().unwrap_or(""),
@@ -185,9 +255,13 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                     line_index + 1,
                 );
                 let source = parse_image_source(path, url, query, query_count, aspect_ratio)?;
+                if parent_id.is_none() {
+                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
+                }
                 elements.push(ParsedElement {
                     id,
                     parent_id,
+                    duration,
                     style,
                     kind: ParsedElementKind::Image { source },
                 });
@@ -197,15 +271,20 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 parent_id,
                 class_name,
                 path,
+                duration,
             } => {
                 let style = parse_class_name_with_context(
                     class_name.as_deref().unwrap_or(""),
                     &id,
                     line_index + 1,
                 );
+                if parent_id.is_none() {
+                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
+                }
                 elements.push(ParsedElement {
                     id,
                     parent_id,
+                    duration,
                     style,
                     kind: ParsedElementKind::Video {
                         path: PathBuf::from(path),
@@ -217,23 +296,61 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 parent_id,
                 class_name,
                 icon,
+                duration,
             } => {
                 let style = parse_class_name_with_context(
                     class_name.as_deref().unwrap_or(""),
                     &id,
                     line_index + 1,
                 );
+                if parent_id.is_none() {
+                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
+                }
                 elements.push(ParsedElement {
                     id,
                     parent_id,
+                    duration,
                     style,
                     kind: ParsedElementKind::Icon { name: icon },
                 });
             }
+            JsonLine::Transition {
+                from,
+                to,
+                effect,
+                duration,
+                direction,
+                timing,
+                damping,
+                stiffness,
+                mass,
+                seed,
+                hue_shift,
+            } => timeline_entries.push(TimelineEntry::Transition(ParsedTransition {
+                from,
+                to,
+                effect,
+                duration,
+                direction,
+                timing,
+                damping,
+                stiffness,
+                mass,
+                seed,
+                hue_shift,
+            })),
         }
     }
 
-    let root = build_tree(&elements)?;
+    let has_timeline = timeline_entries
+        .iter()
+        .any(|entry| matches!(entry, TimelineEntry::Transition(_)))
+        || elements.iter().filter(|el| el.parent_id.is_none()).count() > 1;
+    let (root, frames) = if has_timeline {
+        build_timeline(&elements, &scripts_by_parent, &timeline_entries)?
+    } else {
+        (build_tree(&elements, &scripts_by_parent)?, frames)
+    };
 
     Ok(ParsedComposition {
         width,
@@ -241,7 +358,7 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
         fps,
         frames,
         root,
-        script,
+        script: join_scripts(global_scripts),
     })
 }
 
@@ -294,36 +411,128 @@ fn parse_image_source(
     }))
 }
 
-fn build_tree(elements: &[ParsedElement]) -> anyhow::Result<Node> {
+fn join_scripts(scripts: Vec<String>) -> Option<String> {
+    if scripts.is_empty() {
+        None
+    } else {
+        Some(scripts.join("\n"))
+    }
+}
+
+fn index_elements<'a>(
+    elements: &'a [ParsedElement],
+) -> (
+    HashMap<&'a str, Vec<&'a ParsedElement>>,
+    Vec<&'a ParsedElement>,
+) {
     let mut children_map: HashMap<&str, Vec<&ParsedElement>> = HashMap::new();
-    let mut root_element = None;
+    let mut roots = Vec::new();
 
     for el in elements {
-        if el.parent_id.is_none() {
-            if root_element.is_some() {
-                return Err(anyhow::anyhow!("multiple root elements found"));
-            }
-            root_element = Some(el);
+        if let Some(parent_id) = el.parent_id.as_deref() {
+            children_map.entry(parent_id).or_default().push(el);
         } else {
-            children_map
-                .entry(el.parent_id.as_deref().unwrap())
-                .or_default()
-                .push(el);
+            roots.push(el);
         }
     }
 
-    let root = root_element.ok_or_else(|| anyhow::anyhow!("no root element found"))?;
-    let root_node = build_node(root, &children_map)?;
+    (children_map, roots)
+}
 
-    Ok(root_node)
+fn build_tree(
+    elements: &[ParsedElement],
+    scripts_by_parent: &HashMap<String, Vec<String>>,
+) -> anyhow::Result<Node> {
+    let (children_map, roots) = index_elements(elements);
+    if roots.len() > 1 {
+        return Err(anyhow::anyhow!("multiple root elements found"));
+    }
+
+    let root = roots
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no root element found"))?;
+    build_node(root, &children_map, scripts_by_parent)
+}
+
+fn build_timeline(
+    elements: &[ParsedElement],
+    scripts_by_parent: &HashMap<String, Vec<String>>,
+    entries: &[TimelineEntry],
+) -> anyhow::Result<(Node, i32)> {
+    let (children_map, roots) = index_elements(elements);
+    let roots_by_id = roots
+        .into_iter()
+        .map(|root| (root.id.as_str(), root))
+        .collect::<HashMap<_, _>>();
+
+    let mut timeline_builder = timeline();
+    let mut frames = 0_i32;
+
+    for (index, entry) in entries.iter().enumerate() {
+        match entry {
+            TimelineEntry::SequenceRoot { id } => {
+                let root = roots_by_id
+                    .get(id.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("sequence root `{id}` was not found"))?;
+                let duration = root.duration.ok_or_else(|| {
+                    anyhow::anyhow!("timeline sequence `{id}` is missing a duration")
+                })?;
+                let node = build_node(root, &children_map, scripts_by_parent)?;
+                timeline_builder = timeline_builder.sequence(duration, node);
+                frames += duration as i32;
+            }
+            TimelineEntry::Transition(transition) => {
+                let Some(TimelineEntry::SequenceRoot { id: previous_id }) =
+                    index.checked_sub(1).and_then(|idx| entries.get(idx))
+                else {
+                    return Err(anyhow::anyhow!(
+                        "transition from `{}` to `{}` must appear between two sequences",
+                        transition.from,
+                        transition.to
+                    ));
+                };
+                let Some(TimelineEntry::SequenceRoot { id: next_id }) = entries.get(index + 1)
+                else {
+                    return Err(anyhow::anyhow!(
+                        "transition from `{}` to `{}` must appear between two sequences",
+                        transition.from,
+                        transition.to
+                    ));
+                };
+
+                if previous_id != &transition.from || next_id != &transition.to {
+                    return Err(anyhow::anyhow!(
+                        "transition declares `{}` -> `{}`, but neighboring sequences are `{}` -> `{}`",
+                        transition.from,
+                        transition.to,
+                        previous_id,
+                        next_id
+                    ));
+                }
+
+                timeline_builder = timeline_builder.transition(build_transition(transition)?);
+                frames += transition.duration as i32;
+            }
+        }
+    }
+
+    Ok((timeline_builder.into(), frames))
 }
 
 fn build_node(
     el: &ParsedElement,
     children_map: &HashMap<&str, Vec<&ParsedElement>>,
+    scripts_by_parent: &HashMap<String, Vec<String>>,
 ) -> anyhow::Result<Node> {
     let mut style = el.style.clone();
     style.id = el.id.clone();
+    if let Some(script) = scripts_by_parent
+        .get(el.id.as_str())
+        .and_then(|scripts| join_scripts(scripts.clone()))
+    {
+        style.script_driver = Some(std::sync::Arc::new(ScriptDriver::from_source(&script)?));
+    }
 
     match &el.kind {
         ParsedElementKind::Div => {
@@ -332,7 +541,7 @@ fn build_node(
 
             if let Some(children) = children_map.get(el.id.as_str()) {
                 for child in children {
-                    let child_node = build_node(child, children_map)?;
+                    let child_node = build_node(child, children_map, scripts_by_parent)?;
                     div_node = div_node.child(child_node);
                 }
             }
@@ -379,6 +588,102 @@ fn build_node(
     }
 }
 
+fn build_transition(transition: &ParsedTransition) -> anyhow::Result<Transition> {
+    let timing = parse_transition_timing(transition)?;
+    let effect = normalize_transition_name(&transition.effect);
+
+    match effect.as_str() {
+        "fade" => Ok(fade().timing(timing)),
+        "clock_wipe" => Ok(clock_wipe().timing(timing)),
+        "iris" => Ok(iris().timing(timing)),
+        "slide" => match transition
+            .direction
+            .as_deref()
+            .map(normalize_transition_name)
+            .as_deref()
+        {
+            None | Some("from_left") => Ok(slide().from_left().timing(timing)),
+            Some("from_right") => Ok(slide().from_right().timing(timing)),
+            Some("from_top") => Ok(slide().from_top().timing(timing)),
+            Some("from_bottom") => Ok(slide().from_bottom().timing(timing)),
+            Some(direction) => Err(anyhow::anyhow!("unsupported slide direction `{direction}`")),
+        },
+        "wipe" => match transition
+            .direction
+            .as_deref()
+            .map(normalize_transition_name)
+            .as_deref()
+        {
+            None | Some("from_left") => Ok(wipe().from_left().timing(timing)),
+            Some("from_right") => Ok(wipe().from_right().timing(timing)),
+            Some("from_top") => Ok(wipe().from_top().timing(timing)),
+            Some("from_bottom") => Ok(wipe().from_bottom().timing(timing)),
+            Some("from_top_left") => Ok(wipe().from_top_left().timing(timing)),
+            Some("from_top_right") => Ok(wipe().from_top_right().timing(timing)),
+            Some("from_bottom_left") => Ok(wipe().from_bottom_left().timing(timing)),
+            Some("from_bottom_right") => Ok(wipe().from_bottom_right().timing(timing)),
+            Some(direction) => Err(anyhow::anyhow!("unsupported wipe direction `{direction}`")),
+        },
+        "light_leak" => {
+            let mut builder = light_leak();
+            if let Some(seed) = transition.seed {
+                builder = builder.seed(seed);
+            }
+            if let Some(hue_shift) = transition.hue_shift {
+                builder = builder.hue_shift(hue_shift);
+            }
+            Ok(builder.timing(timing))
+        }
+        _ => Err(anyhow::anyhow!(
+            "unsupported transition effect `{}`",
+            transition.effect
+        )),
+    }
+}
+
+fn parse_transition_timing(transition: &ParsedTransition) -> anyhow::Result<Timing> {
+    let timing = transition
+        .timing
+        .as_deref()
+        .map(normalize_transition_name)
+        .unwrap_or_else(|| {
+            if transition.damping.is_some()
+                || transition.stiffness.is_some()
+                || transition.mass.is_some()
+            {
+                "spring".to_string()
+            } else {
+                "linear".to_string()
+            }
+        });
+
+    match timing.as_str() {
+        "linear" => Ok(linear().duration(transition.duration)),
+        "spring" => {
+            let mut builder = spring();
+            if let Some(damping) = transition.damping {
+                builder = builder.damping(damping);
+            }
+            if let Some(stiffness) = transition.stiffness {
+                builder = builder.stiffness(stiffness);
+            }
+            if let Some(mass) = transition.mass {
+                builder = builder.mass(mass);
+            }
+            Ok(builder.duration(transition.duration))
+        }
+        _ => Err(anyhow::anyhow!(
+            "unsupported transition timing `{}`",
+            transition.timing.as_deref().unwrap_or("unknown")
+        )),
+    }
+}
+
+fn normalize_transition_name(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace(['-', ' '], "_")
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 fn parse_class_name(class_name: &str) -> NodeStyle {
     parse_class_name_impl(class_name, None)
 }
@@ -1130,21 +1435,21 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
         return;
     }
 
-    if class.starts_with("gap-") {
-        if let Ok(n) = class[4..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("gap-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.gap = Some(n);
         }
     }
 
-    if class.starts_with("w-") {
-        if let Ok(n) = class[2..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("w-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.width = Some(n);
             style.width_full = false;
         }
     }
 
-    if class.starts_with("h-") {
-        if let Ok(n) = class[2..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("h-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.height = Some(n);
             style.height_full = false;
         }
@@ -1152,115 +1457,115 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
 
     if class.starts_with("text-") && !class.starts_with("text-[") {
         let after = &class[5..];
-        if let Ok(n) = after.parse::<f32>() {
+        if let Some(n) = parse_tailwind_text_size(after) {
             style.text_px = Some(n);
         }
     }
 
-    if class.starts_with("left-") {
-        if let Ok(n) = class[5..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("left-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.inset_left = Some(n);
         }
     }
 
-    if class.starts_with("top-") {
-        if let Ok(n) = class[4..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("top-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.inset_top = Some(n);
         }
     }
 
-    if class.starts_with("right-") {
-        if let Ok(n) = class[6..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("right-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.inset_right = Some(n);
         }
     }
 
-    if class.starts_with("bottom-") {
-        if let Ok(n) = class[7..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("bottom-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.inset_bottom = Some(n);
         }
     }
 
-    if class.starts_with("p-") {
-        if let Ok(n) = class[2..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("p-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.padding = Some(n);
         }
     }
 
-    if class.starts_with("px-") {
-        if let Ok(n) = class[3..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("px-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.padding_x = Some(n);
         }
     }
 
-    if class.starts_with("py-") {
-        if let Ok(n) = class[3..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("py-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.padding_y = Some(n);
         }
     }
 
-    if class.starts_with("pt-") {
-        if let Ok(n) = class[3..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("pt-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.padding_top = Some(n);
         }
     }
 
-    if class.starts_with("pr-") {
-        if let Ok(n) = class[3..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("pr-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.padding_right = Some(n);
         }
     }
 
-    if class.starts_with("pb-") {
-        if let Ok(n) = class[3..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("pb-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.padding_bottom = Some(n);
         }
     }
 
-    if class.starts_with("pl-") {
-        if let Ok(n) = class[3..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("pl-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.padding_left = Some(n);
         }
     }
 
-    if class.starts_with("m-") {
-        if let Ok(n) = class[2..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("m-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.margin = Some(n);
         }
     }
 
-    if class.starts_with("mx-") {
-        if let Ok(n) = class[3..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("mx-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.margin_x = Some(n);
         }
     }
 
-    if class.starts_with("my-") {
-        if let Ok(n) = class[3..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("my-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.margin_y = Some(n);
         }
     }
 
-    if class.starts_with("mt-") {
-        if let Ok(n) = class[3..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("mt-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.margin_top = Some(n);
         }
     }
 
-    if class.starts_with("mr-") {
-        if let Ok(n) = class[3..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("mr-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.margin_right = Some(n);
         }
     }
 
-    if class.starts_with("mb-") {
-        if let Ok(n) = class[3..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("mb-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.margin_bottom = Some(n);
         }
     }
 
-    if class.starts_with("ml-") {
-        if let Ok(n) = class[3..].parse::<f32>() {
+    if let Some(value) = class.strip_prefix("ml-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
             style.margin_left = Some(n);
         }
     }
@@ -1354,6 +1659,33 @@ fn parse_bracket_f32(value: &str) -> Option<f32> {
         .and_then(|value| value.parse::<f32>().ok())
 }
 
+fn parse_tailwind_spacing_token(value: &str) -> Option<f32> {
+    if value == "px" {
+        return Some(1.0);
+    }
+
+    value.parse::<f32>().ok().map(|value| value * 4.0)
+}
+
+fn parse_tailwind_text_size(value: &str) -> Option<f32> {
+    match value {
+        "xs" => Some(12.0),
+        "sm" => Some(14.0),
+        "base" => Some(16.0),
+        "lg" => Some(18.0),
+        "xl" => Some(20.0),
+        "2xl" => Some(24.0),
+        "3xl" => Some(30.0),
+        "4xl" => Some(36.0),
+        "5xl" => Some(48.0),
+        "6xl" => Some(60.0),
+        "7xl" => Some(72.0),
+        "8xl" => Some(96.0),
+        "9xl" => Some(128.0),
+        _ => value.parse::<f32>().ok(),
+    }
+}
+
 fn color_from_hex(value: &str) -> Option<ColorToken> {
     let hex = value.strip_prefix('#')?;
     let (r, g, b, a) = match hex.len() {
@@ -1394,7 +1726,13 @@ fn parse_hex_nibble(byte: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::{parse, parse_class_name};
-    use crate::style::{ColorToken, GradientDirection, TextAlign};
+    use crate::{
+        FrameCtx,
+        style::{ColorToken, GradientDirection, TextAlign},
+        timeline::FrameState,
+        timeline::frame_state_for_root,
+        view::NodeKind,
+    };
 
     #[test]
     fn parser_maps_full_size_alignment_and_tailwind_colors() {
@@ -1429,15 +1767,70 @@ mod tests {
     }
 
     #[test]
-    fn parser_rejects_multiple_roots() {
+    fn parser_builds_timeline_from_root_sequences_and_transitions() {
+        let parsed = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
+{"id":"root-a","parentId":null,"type":"div","className":"","duration":10}
+{"type":"script","parentId":"root-a","content":"ctx.getNode('root-a').opacity(0.6);"}
+{"type":"transition","from":"root-a","to":"root-b","effect":"fade","duration":5}
+{"id":"root-b","parentId":null,"type":"div","className":"","duration":10}"#,
+        )
+        .expect("timeline jsonl should parse");
+
+        assert_eq!(parsed.frames, 25);
+        assert!(matches!(parsed.root.kind(), NodeKind::Timeline(_)));
+
+        let scene_frame = FrameCtx {
+            frame: 0,
+            fps: parsed.fps as u32,
+            width: parsed.width,
+            height: parsed.height,
+            frames: parsed.frames as u32,
+        };
+        let transition_frame = FrameCtx {
+            frame: 12,
+            ..scene_frame
+        };
+        let final_scene_frame = FrameCtx {
+            frame: 20,
+            ..scene_frame
+        };
+
+        match frame_state_for_root(&parsed.root, &scene_frame) {
+            FrameState::Scene { scene } => {
+                assert_eq!(scene.style_ref().id, "root-a");
+                assert!(scene.style_ref().script_driver.is_some());
+            }
+            _ => panic!("frame 0 should resolve to the first sequence"),
+        }
+
+        match frame_state_for_root(&parsed.root, &transition_frame) {
+            FrameState::Transition { from, to, .. } => {
+                assert_eq!(from.style_ref().id, "root-a");
+                assert_eq!(to.style_ref().id, "root-b");
+            }
+            _ => panic!("frame 12 should resolve to the transition"),
+        }
+
+        match frame_state_for_root(&parsed.root, &final_scene_frame) {
+            FrameState::Scene { scene } => {
+                assert_eq!(scene.style_ref().id, "root-b");
+            }
+            _ => panic!("frame 20 should resolve to the final sequence"),
+        }
+    }
+
+    #[test]
+    fn parser_requires_sequence_duration_when_building_timeline() {
         let err = parse(
-            r#"{"id":"root-a","parentId":null,"type":"div","className":"","text":null}
-{"id":"root-b","parentId":null,"type":"div","className":"","text":null}"#,
+            r#"{"id":"root-a","parentId":null,"type":"div","className":""}
+{"type":"transition","from":"root-a","to":"root-b","effect":"fade","duration":5}
+{"id":"root-b","parentId":null,"type":"div","className":"","duration":10}"#,
         )
         .err()
-        .expect("multiple roots should fail");
+        .expect("timeline without durations should fail");
 
-        assert!(err.to_string().contains("multiple root"));
+        assert!(err.to_string().contains("missing a duration"));
     }
 
     #[test]
@@ -1484,6 +1877,20 @@ mod tests {
         assert_eq!(style.margin_top, Some(4.0));
         assert_eq!(style.margin_bottom, Some(16.0));
         assert_eq!(style.padding_bottom, Some(20.0));
+    }
+
+    #[test]
+    fn parser_maps_tailwind_spacing_scale_and_text_sizes() {
+        let style = parse_class_name("w-20 h-28 left-8 top-4 px-6 py-2 gap-3.5 text-3xl");
+
+        assert_eq!(style.width, Some(80.0));
+        assert_eq!(style.height, Some(112.0));
+        assert_eq!(style.inset_left, Some(32.0));
+        assert_eq!(style.inset_top, Some(16.0));
+        assert_eq!(style.padding_x, Some(24.0));
+        assert_eq!(style.padding_y, Some(8.0));
+        assert_eq!(style.gap, Some(14.0));
+        assert_eq!(style.text_px, Some(30.0));
     }
 
     #[test]

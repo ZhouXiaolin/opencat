@@ -37,10 +37,10 @@ pub enum JustifyContent {
 /// Cross axis alignment - Tailwind: items-*
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum AlignItems {
-    #[default]
     Start,
     Center,
     End,
+    #[default]
     Stretch,
 }
 
@@ -192,6 +192,7 @@ pub struct ComputedTextStyle {
     pub letter_spacing: f32,
     pub text_align: TextAlign,
     pub line_height: f32,
+    pub wrap_text: bool,
 }
 
 impl Default for ComputedTextStyle {
@@ -203,6 +204,7 @@ impl Default for ComputedTextStyle {
             letter_spacing: 0.0,
             text_align: TextAlign::Left,
             line_height: 1.5,
+            wrap_text: false,
         }
     }
 }
@@ -215,6 +217,7 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
         letter_spacing: style.letter_spacing.unwrap_or(parent.letter_spacing),
         text_align: style.text_align.unwrap_or(parent.text_align),
         line_height: style.line_height.unwrap_or(parent.line_height),
+        wrap_text: parent.wrap_text,
     }
 }
 

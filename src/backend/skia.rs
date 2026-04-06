@@ -289,7 +289,18 @@ impl<'a> SkiaBackend<'a> {
             height: layout.rect.height,
         };
         backend.draw_layout_node_paint(layout, local_bounds)?;
-        backend.draw_layout_children(&layout.children)?;
+        if layout.paint.visual.clip_contents {
+            backend.canvas.save();
+            clip_bounds(
+                backend.canvas,
+                local_bounds,
+                layout.paint.visual.border_radius,
+            );
+            backend.draw_layout_children(&layout.children)?;
+            backend.canvas.restore();
+        } else {
+            backend.draw_layout_children(&layout.children)?;
+        }
         let picture = recorder
             .finish_recording_as_picture(None)
             .ok_or_else(|| anyhow!("failed to record subtree picture"))?;

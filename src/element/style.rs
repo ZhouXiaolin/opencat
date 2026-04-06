@@ -21,7 +21,14 @@ pub struct InheritedStyle {
 
 impl InheritedStyle {
     pub fn for_child(style: &ComputedStyle) -> Self {
-        Self { text: style.text }
+        let mut text = style.text;
+        let parent_has_inline_constraint =
+            style.layout.width.is_some() || style.layout.width_full || style.text.wrap_text;
+        let parent_stacks_text_vertically = !style.layout.is_flex
+            || (style.layout.flex_direction == FlexDirection::Col
+                && style.layout.align_items == AlignItems::Stretch);
+        text.wrap_text = parent_has_inline_constraint && parent_stacks_text_vertically;
+        Self { text }
     }
 }
 

@@ -422,6 +422,7 @@ fn hash_text_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
     hash_f32(style.letter_spacing, state);
     style.text_align.hash(state);
     hash_f32(style.line_height, state);
+    style.wrap_text.hash(state);
 }
 
 fn hash_text_layout_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
@@ -429,6 +430,7 @@ fn hash_text_layout_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
     style.font_weight.hash(state);
     hash_f32(style.letter_spacing, state);
     hash_f32(style.line_height, state);
+    style.wrap_text.hash(state);
 }
 
 fn hash_transform(transform: &crate::style::Transform, state: &mut impl Hasher) {
@@ -491,7 +493,9 @@ fn text_measure_context_for_element(element: &ElementNode) -> Option<TextMeasure
         ElementKind::Text(text) => Some(TextMeasureContext {
             text: text.text.clone(),
             style: text.text_style,
-            allow_wrap: element.style.layout.width.is_some() || element.style.layout.width_full,
+            allow_wrap: element.style.text.wrap_text
+                || element.style.layout.width.is_some()
+                || element.style.layout.width_full,
         }),
         _ => None,
     }
@@ -624,7 +628,9 @@ fn layout_paint_for_element(element: &ElementNode) -> LayoutPaint {
             ElementKind::Text(text) => LayoutPaintKind::Text(LayoutTextPaint {
                 text: text.text.clone(),
                 style: text.text_style,
-                allow_wrap: element.style.layout.width.is_some() || element.style.layout.width_full,
+                allow_wrap: element.style.text.wrap_text
+                    || element.style.layout.width.is_some()
+                    || element.style.layout.width_full,
             }),
             ElementKind::Bitmap(bitmap) => LayoutPaintKind::Bitmap(LayoutBitmapPaint {
                 asset_id: bitmap.asset_id.clone(),
@@ -727,13 +733,23 @@ mod tests {
         FrameCtx,
         assets::AssetsMap,
         element::resolve::resolve_ui_tree,
-        layout::tree::LayoutPaintKind,
+        layout::tree::{LayoutNode, LayoutPaintKind},
         media::MediaContext,
         nodes::{div, lucide, text},
         parser::parse,
         style::ComputedTextStyle,
     };
     use taffy::{AvailableSpace, geometry::Size};
+
+    fn find_node_by_id<'a>(node: &'a LayoutNode, id: &str) -> Option<&'a LayoutNode> {
+        if node.paint.id == id {
+            return Some(node);
+        }
+
+        node.children
+            .iter()
+            .find_map(|child| find_node_by_id(child, id))
+    }
 
     #[test]
     fn auto_width_text_stays_single_line() {
@@ -1052,6 +1068,260 @@ mod tests {
         assert!(
             layout.root.children[0].rect.height < frame_ctx.height as f32,
             "expected auto-height block container instead of full-height expansion"
+        );
+    }
+
+    #[test]
+    fn parsed_text_wraps_within_parent_card_width() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 220,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let parsed = parse(
+            r#"{"type":"composition","width":220,"height":180,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"card","parentId":"root","type":"div","className":"w-[160px] px-[8px] py-[8px]"}
+{"id":"body","parentId":"card","type":"text","className":"text-[16px]","text":"从微小的原子到浩瀚的宇宙，科学无处不在。保持好奇心，勇敢提问。"}"#,
+        )
+        .expect("jsonl should parse");
+
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
+        let text_node = &layout.root.children[0].children[0];
+
+        assert!(
+            text_node.rect.height > 16.0 * 1.5,
+            "expected parsed text to wrap into multiple lines within card width"
+        );
+        assert!(
+            text_node.rect.width <= 160.0,
+            "expected wrapped text width to stay within the card"
+        );
+    }
+
+    #[test]
+    fn auto_sized_flex_column_labels_stay_single_line() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 390,
+            height: 160,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let parsed = parse(
+            r#"{"type":"composition","width":390,"height":160,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"flex flex-row justify-between w-full px-[20px] py-[16px]"}
+{"id":"cat-pizza","parentId":"root","type":"div","className":"flex flex-col items-center gap-[8px]"}
+{"id":"cat-pizza-icon","parentId":"cat-pizza","type":"div","className":"w-[56px] h-[56px]"}
+{"id":"cat-pizza-text","parentId":"cat-pizza","type":"text","className":"text-[12px] font-medium","text":"Pizza"}
+{"id":"cat-burger","parentId":"root","type":"div","className":"flex flex-col items-center gap-[8px]"}
+{"id":"cat-burger-icon","parentId":"cat-burger","type":"div","className":"w-[56px] h-[56px]"}
+{"id":"cat-burger-text","parentId":"cat-burger","type":"text","className":"text-[12px] font-medium","text":"Burger"}
+{"id":"cat-sushi","parentId":"root","type":"div","className":"flex flex-col items-center gap-[8px]"}
+{"id":"cat-sushi-icon","parentId":"cat-sushi","type":"div","className":"w-[56px] h-[56px]"}
+{"id":"cat-sushi-text","parentId":"cat-sushi","type":"text","className":"text-[12px] font-medium","text":"Sushi"}
+{"id":"cat-salad","parentId":"root","type":"div","className":"flex flex-col items-center gap-[8px]"}
+{"id":"cat-salad-icon","parentId":"cat-salad","type":"div","className":"w-[56px] h-[56px]"}
+{"id":"cat-salad-text","parentId":"cat-salad","type":"text","className":"text-[12px] font-medium","text":"Salad"}"#,
+        )
+        .expect("jsonl should parse");
+
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
+
+        for id in ["cat-burger-text", "cat-sushi-text", "cat-salad-text"] {
+            let node = find_node_by_id(&layout.root, id).expect("expected text node");
+            let LayoutPaintKind::Text(text_paint) = &node.paint.kind else {
+                panic!("expected text paint");
+            };
+            assert!(
+                node.rect.height <= text_paint.style.text_px * text_paint.style.line_height + 0.5,
+                "expected {id} to stay on one line"
+            );
+        }
+    }
+
+    #[test]
+    fn auto_sized_flex_column_text_prefers_single_line_before_wrapping() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 390,
+            height: 160,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let parsed = parse(
+            r#"{"type":"composition","width":390,"height":160,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"promo-banner","parentId":"root","type":"div","className":"flex flex-row items-center w-[350px] px-[20px] py-[16px]"}
+{"id":"promo-text","parentId":"promo-banner","type":"div","className":"flex flex-col gap-[4px]"}
+{"id":"promo-title","parentId":"promo-text","type":"text","className":"text-[18px] font-bold","text":"50% OFF"}
+{"id":"promo-desc","parentId":"promo-text","type":"text","className":"text-[13px]","text":"First order discount"}"#,
+        )
+        .expect("jsonl should parse");
+
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
+        let node = find_node_by_id(&layout.root, "promo-desc").expect("expected promo text node");
+        let LayoutPaintKind::Text(text_paint) = &node.paint.kind else {
+            panic!("expected text paint");
+        };
+
+        assert!(
+            node.rect.height <= text_paint.style.text_px * text_paint.style.line_height + 0.5,
+            "expected promo copy to remain on one line while its column is auto-sized"
+        );
+    }
+
+    #[test]
+    fn fixed_width_flex_column_text_wraps() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 390,
+            height: 160,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let parsed = parse(
+            r#"{"type":"composition","width":390,"height":160,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"promo-text","parentId":"root","type":"div","className":"flex flex-col w-[80px] gap-[4px]"}
+{"id":"promo-title","parentId":"promo-text","type":"text","className":"text-[18px] font-bold","text":"50% OFF"}
+{"id":"promo-desc","parentId":"promo-text","type":"text","className":"text-[13px]","text":"First order discount"}"#,
+        )
+        .expect("jsonl should parse");
+
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
+        let node = find_node_by_id(&layout.root, "promo-desc").expect("expected promo text node");
+        let LayoutPaintKind::Text(text_paint) = &node.paint.kind else {
+            panic!("expected text paint");
+        };
+
+        assert!(
+            node.rect.height > text_paint.style.text_px * text_paint.style.line_height,
+            "expected promo copy to wrap when the flex column has a fixed width"
+        );
+    }
+
+    #[test]
+    fn stretched_flex_column_in_fixed_width_card_wraps_text() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 520,
+            height: 220,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let parsed = parse(
+            r#"{"type":"composition","width":520,"height":220,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"card","parentId":"root","type":"div","className":"flex flex-col w-[440px] border-2 border-blue-200"}
+{"id":"card-body","parentId":"card","type":"div","className":"flex flex-col gap-[16px] p-[20px]"}
+{"id":"card-text","parentId":"card-body","type":"text","className":"text-[15px] text-slate-600 leading-relaxed","text":"从微小的原子到浩瀚的宇宙，科学无处不在。保持好奇心，勇敢提问，每一次实验都是新的发现！"}"#,
+        )
+        .expect("jsonl should parse");
+
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
+        let node = find_node_by_id(&layout.root, "card-text").expect("expected card text node");
+        let LayoutPaintKind::Text(text_paint) = &node.paint.kind else {
+            panic!("expected text paint");
+        };
+
+        assert!(
+            node.rect.height > text_paint.style.text_px * text_paint.style.line_height,
+            "expected card copy to wrap within a stretched flex-column body"
+        );
+        assert!(
+            node.rect.width <= 440.0 - 40.0,
+            "expected wrapped card copy to stay within the card body width"
+        );
+    }
+
+    #[test]
+    fn fixed_width_flex_row_text_stays_single_line() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 390,
+            height: 120,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let parsed = parse(
+            r#"{"type":"composition","width":390,"height":120,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"status-bar","parentId":"root","type":"div","className":"flex flex-row justify-between items-center w-full h-[44px] px-[24px]"}
+{"id":"status-time","parentId":"status-bar","type":"text","className":"text-[15px] font-semibold","text":"9:41"}"#,
+        )
+        .expect("jsonl should parse");
+
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
+        let node = find_node_by_id(&layout.root, "status-time").expect("expected status text node");
+        let LayoutPaintKind::Text(text_paint) = &node.paint.kind else {
+            panic!("expected text paint");
+        };
+
+        assert!(
+            node.rect.height <= text_paint.style.text_px * text_paint.style.line_height + 0.5,
+            "expected status-bar text to remain single-line inside a fixed-width flex row"
+        );
+    }
+
+    #[test]
+    fn flex_column_children_stretch_by_default() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let root = div()
+            .id("root")
+            .size(320.0, 180.0)
+            .flex_col()
+            .child(div().id("header").h(40.0))
+            .into();
+
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
+
+        assert_eq!(
+            layout.root.children[0].rect.width, 320.0,
+            "expected flex column child to stretch across the container width by default"
         );
     }
 }

@@ -1,0 +1,17 @@
+{
+  "$schema": "../icon.schema.json",
+  "contributors": [
+    "danielbayley"
+  ],
+  "tags": [
+    "direction",
+    "south",
+    "waypoint",
+    "location",
+    "step",
+    "into"
+  ],
+  "categories": [
+    "arrows"
+  ]
+}

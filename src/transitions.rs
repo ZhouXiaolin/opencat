@@ -74,7 +74,9 @@ pub struct LightLeakBuilder {
 
 #[derive(Clone, Copy, Debug)]
 pub enum Timing {
-    Linear { duration_in_frames: u32 },
+    Linear {
+        duration_in_frames: u32,
+    },
     Spring {
         config: SpringConfig,
         duration_in_frames: u32,

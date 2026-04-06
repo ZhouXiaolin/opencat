@@ -166,8 +166,7 @@ fn spring_value(t: f32, config: &SpringConfig) -> f32 {
     } else if omega0_sq < gamma_sq {
         // Overdamped
         let s = (gamma_sq - omega0_sq).sqrt();
-        1.0 - (-gamma * t_real).exp()
-            * ((s * t_real).cosh() + (gamma / s) * (s * t_real).sinh())
+        1.0 - (-gamma * t_real).exp() * ((s * t_real).cosh() + (gamma / s) * (s * t_real).sinh())
     } else {
         // Critically damped
         1.0 - (-gamma * t_real).exp() * (1.0 + gamma * t_real)

@@ -1,284 +1,230 @@
 use opencat::{
-    Composition, EncodingConfig, FrameCtx, Node, ScriptDriver,
+    Composition, EncodingConfig, FrameCtx, Node, lucide,
     nodes::{div, text},
+    style::ColorToken,
 };
 
-fn hello_world_demo(_ctx: &FrameCtx) -> Node {
+fn icon_card(id: &str, title: &str, detail: &str, surface: ColorToken, icon: Node) -> Node {
     div()
-        .id("hello-world-root")
-        .flex_col()
-        .justify_center()
-        .items_center()
-        .gap(28.0)
-        .bg_white()
-        .text_black()
-        .text_px(72.0)
-        .child(
-            div()
-                .id("hello-world-blue-box")
-                .absolute()
-                .left(160.0)
-                .top(120.0)
-                .w(120.0)
-                .h(120.0)
-                .rounded_xl()
-                .bg_blue(),
-        )
-        .child(
-            div()
-                .id("hello-world-pink-box")
-                .absolute()
-                .left(160.0)
-                .top(290.0)
-                .w(120.0)
-                .h(120.0)
-                .rounded_xl()
-                .bg_pink(),
-        )
-        .child(
-            text("Ordered transforms")
-                .id("hello-world-title")
-                .text_px(72.0)
-                .text_black(),
-        )
-        .child(
-            text("Blue: translate_x().scale()")
-                .id("hello-world-blue-caption")
-                .text_px(34.0),
-        )
-        .child(
-            text("Pink: scale().translate_x()")
-                .id("hello-world-pink-caption")
-                .text_px(34.0)
-                .text_pink(),
-        )
-        .into()
-}
-
-fn login_screen_demo(_ctx: &FrameCtx) -> Node {
-    div()
-        .id("login-root")
-        .flex_col()
-        .items_center()
-        .justify_center()
-        .min_h_full()
-        .w_full()
-        .gap(0.0)
-        .bg_slate_50()
+        .id(id)
+        .w(360.0)
+        .h(220.0)
         .p(24.0)
+        .rounded_2xl()
+        .bg_white()
+        .border()
+        .border_slate_200()
+        .shadow_sm()
+        .flex_col()
+        .justify_between()
         .child(
             div()
-                .id("login-card")
-                .flex_col()
-                .w(400.0)
-                .max_w_full()
-                .gap(28.0)
-                .p(40.0)
-                .rounded_2xl()
-                .bg_white()
-                .shadow_lg()
-                .border()
-                .border_slate_200()
+                .id(&format!("{id}-header"))
+                .flex_row()
+                .items_center()
+                .justify_between()
                 .child(
-                    div()
-                        .id("login-brand")
-                        .flex_col()
-                        .items_center()
-                        .gap(12.0)
-                        .child(
-                            div()
-                                .id("login-brand-badge")
-                                .w(56.0)
-                                .h(56.0)
-                                .rounded_2xl()
-                                .bg_primary()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(text("◆").id("login-brand-icon").text_white().text_px(28.0)),
-                        )
-                        .child(
-                            text("Acme")
-                                .id("login-brand-title")
-                                .text_px(22.0)
-                                .font_semibold()
-                                .text_slate_900(),
-                        )
-                        .child(
-                            text("Sign in to continue")
-                                .id("login-brand-subtitle")
-                                .text_px(15.0)
-                                .text_slate_500(),
-                        ),
+                    text(title)
+                        .id(&format!("{id}-title"))
+                        .text_px(22.0)
+                        .font_semibold()
+                        .text_slate_900(),
                 )
                 .child(
-                    div()
-                        .id("login-form")
-                        .flex_col()
-                        .gap(20.0)
-                        .child(
-                            div()
-                                .id("login-email-group")
-                                .flex_col()
-                                .gap(8.0)
-                                .child(
-                                    text("Email")
-                                        .id("login-email-label")
-                                        .text_px(13.0)
-                                        .font_medium()
-                                        .text_slate_700(),
-                                )
-                                .child(
-                                    div()
-                                        .id("login-email-input")
-                                        .w_full()
-                                        .h(48.0)
-                                        .px(14.0)
-                                        .flex()
-                                        .items_center()
-                                        .rounded_lg()
-                                        .border()
-                                        .border_slate_200()
-                                        .bg_slate_50()
-                                        .child(
-                                            text("you@company.com")
-                                                .id("login-email-placeholder")
-                                                .text_px(15.0)
-                                                .text_slate_400(),
-                                        ),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .id("login-password-group")
-                                .flex_col()
-                                .gap(8.0)
-                                .child(
-                                    text("Password")
-                                        .id("login-password-label")
-                                        .text_px(13.0)
-                                        .font_medium()
-                                        .text_slate_700(),
-                                )
-                                .child(
-                                    div()
-                                        .id("login-password-input")
-                                        .w_full()
-                                        .h(48.0)
-                                        .px(14.0)
-                                        .flex()
-                                        .items_center()
-                                        .rounded_lg()
-                                        .border()
-                                        .border_slate_200()
-                                        .bg_slate_50()
-                                        .child(
-                                            text("••••••••")
-                                                .id("login-password-placeholder")
-                                                .text_px(15.0)
-                                                .text_slate_400()
-                                                .tracking_wider(),
-                                        ),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .id("login-actions")
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .w_full()
-                                .child(
-                                    div()
-                                        .id("login-remember")
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(8.0)
-                                        .child(
-                                            div()
-                                                .id("login-remember-checkbox")
-                                                .w(18.0)
-                                                .h(18.0)
-                                                .rounded_md()
-                                                .border()
-                                                .border_slate_300()
-                                                .bg_white(),
-                                        )
-                                        .child(
-                                            text("Remember me")
-                                                .id("login-remember-label")
-                                                .text_px(13.0)
-                                                .text_slate_600(),
-                                        ),
-                                )
-                                .child(
-                                    text("Forgot password?")
-                                        .id("login-forgot-password")
-                                        .text_px(13.0)
-                                        .text_primary()
-                                        .font_medium(),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .id("login-submit")
-                                .w_full()
-                                .h(52.0)
-                                .rounded_xl()
-                                .bg_primary()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .shadow_md()
-                                .child(
-                                    text("Log in")
-                                        .id("login-submit-label")
-                                        .text_px(16.0)
-                                        .font_semibold()
-                                        .text_white(),
-                                ),
-                        ),
-                )
+                    text("lucide")
+                        .id(&format!("{id}-tag"))
+                        .text_px(12.0)
+                        .font_medium()
+                        .text_slate_500(),
+                ),
+        )
+        .child(
+            div()
+                .id(&format!("{id}-body"))
+                .flex_row()
+                .items_center()
+                .gap(20.0)
                 .child(
                     div()
-                        .id("login-footer")
-                        .flex_row()
+                        .id(&format!("{id}-surface"))
+                        .w(112.0)
+                        .h(112.0)
+                        .rounded_2xl()
+                        .bg(surface)
+                        .flex()
                         .items_center()
                         .justify_center()
-                        .gap(6.0)
-                        .pt(4.0)
+                        .child(icon),
+                )
+                .child(
+                    div()
+                        .id(&format!("{id}-copy"))
+                        .w(180.0)
+                        .flex_col()
+                        .gap(10.0)
                         .child(
-                            text("Don't have an account?")
-                                .id("login-footer-copy")
+                            text(detail)
+                                .id(&format!("{id}-detail"))
+                                .w_full()
                                 .text_px(14.0)
-                                .text_slate_500(),
-                        )
-                        .child(
-                            text("Sign up")
-                                .id("login-footer-link")
-                                .text_px(14.0)
-                                .font_semibold()
-                                .text_primary(),
+                                .line_height(1.45)
+                                .text_slate_600(),
                         ),
                 ),
         )
         .into()
 }
 
-fn main() -> anyhow::Result<()> {
-    let driver = ScriptDriver::from_file("examples/hello_world_anim.js")?;
+fn hello_world_demo(_ctx: &FrameCtx) -> Node {
+    let play = icon_card(
+        "card-play",
+        "Play",
+        "stroke_color(Blue), stroke_width(3.0), fill_color(Sky200)",
+        ColorToken::Blue50,
+        lucide("play")
+            .id("icon-play")
+            .size(72.0, 72.0)
+            .stroke_color(ColorToken::Blue)
+            .stroke_width(3.0)
+            .fill_color(ColorToken::Sky200)
+            .into(),
+    );
 
+    let heart = icon_card(
+        "card-heart",
+        "Heart",
+        "text_color(Rose500) as stroke fallback, fill_color(Rose100)",
+        ColorToken::Rose50,
+        lucide("heart")
+            .id("icon-heart")
+            .size(72.0, 72.0)
+            .text_color(ColorToken::Rose500)
+            .stroke_width(2.0)
+            .fill_color(ColorToken::Rose100)
+            .into(),
+    );
+
+    let star = icon_card(
+        "card-star",
+        "Star",
+        "thin stroke, warm fill, plus rotate_deg(-8) and opacity(0.9)",
+        ColorToken::Amber50,
+        lucide("star")
+            .id("icon-star")
+            .size(76.0, 76.0)
+            .stroke_color(ColorToken::Amber600)
+            .stroke_width(1.5)
+            .fill_color(ColorToken::Amber100)
+            .rotate_deg(-8.0)
+            .opacity(0.9)
+            .into(),
+    );
+
+    let badge = icon_card(
+        "card-badge",
+        "Badge Check",
+        "bg(Slate900) behind the icon, white stroke, emerald fill",
+        ColorToken::Slate100,
+        lucide("badge-check")
+            .id("icon-badge")
+            .size(72.0, 72.0)
+            .bg(ColorToken::Slate900)
+            .stroke_color(ColorToken::White)
+            .stroke_width(2.5)
+            .fill_color(ColorToken::Emerald400)
+            .into(),
+    );
+
+    let bell = icon_card(
+        "card-bell",
+        "Bell",
+        "outline only: no fill_color, just stroke_color(Slate700) and stroke_width(4.0)",
+        ColorToken::Amber50,
+        lucide("bell")
+            .id("icon-bell")
+            .size(68.0, 68.0)
+            .stroke_color(ColorToken::Slate700)
+            .stroke_width(4.0)
+            .into(),
+    );
+
+    let shield = icon_card(
+        "card-shield",
+        "Shield Check",
+        "stroke_color(Teal600), fill_color(Teal100), translate_y(-2)",
+        ColorToken::Teal50,
+        lucide("shield-check")
+            .id("icon-shield")
+            .size(72.0, 72.0)
+            .stroke_color(ColorToken::Teal600)
+            .stroke_width(2.0)
+            .fill_color(ColorToken::Teal100)
+            .translate_y(-2.0)
+            .into(),
+    );
+
+    div()
+        .id("hello-world-root")
+        .w_full()
+        .h_full()
+        .bg_slate_50()
+        .p(40.0)
+        .flex_col()
+        .gap(24.0)
+        .child(
+            div()
+                .id("showcase-copy")
+                .flex_col()
+                .gap(10.0)
+                .child(
+                    text("Lucide Showcase")
+                        .id("showcase-title")
+                        .text_px(40.0)
+                        .font_bold()
+                        .text_slate_900(),
+                )
+                .child(
+                    text("Each card uses a different icon setup so fill, stroke, stroke width, icon background, opacity, and transforms are easy to compare.")
+                        .id("showcase-subtitle")
+                        .w_full()
+                        .text_px(18.0)
+                        .line_height(1.5)
+                        .text_slate_600(),
+                ),
+        )
+        .child(
+            div()
+                .id("showcase-row-top")
+                .flex_row()
+                .gap(24.0)
+                .child(play)
+                .child(heart)
+                .child(star),
+        )
+        .child(
+            div()
+                .id("showcase-row-bottom")
+                .flex_row()
+                .gap(24.0)
+                .child(badge)
+                .child(bell)
+                .child(shield),
+        )
+        .into()
+}
+
+fn main() -> anyhow::Result<()> {
     let composition = Composition::new("hello_world")
         .size(1280, 720)
         .fps(30)
-        .frames(90)
-        .root(move |_ctx| hello_world_demo(_ctx).script_driver(driver.clone()))
+        .frames(1)
+        .root(hello_world_demo)
         .build()?;
 
-    let encode_config = EncodingConfig::mp4();
+    let encode_config = EncodingConfig::png();
     std::fs::create_dir_all("out")?;
-    composition.render("out/hello_world.mp4", &encode_config)?;
-    println!("Rendered out/hello_world.mp4");
+    composition.render("out/hello_world.png", &encode_config)?;
+    println!("Rendered out/hello_world.png");
 
     Ok(())
 }

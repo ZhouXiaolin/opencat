@@ -5,7 +5,10 @@ use crate::{
     assets::AssetsMap,
     element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle},
-        tree::{ElementBitmap, ElementDiv, ElementId, ElementKind, ElementLucide, ElementNode, ElementText},
+        tree::{
+            ElementBitmap, ElementDiv, ElementId, ElementKind, ElementLucide, ElementNode,
+            ElementText,
+        },
     },
     media::MediaContext,
     nodes::{Div, Image, Lucide, Text, Video},
@@ -334,6 +337,9 @@ fn compute_style(style: &NodeStyle, inherited_text: &ComputedTextStyle) -> Compu
             border_radius: style.border_radius.unwrap_or(0.0),
             border_width: style.border_width,
             border_color: style.border_color,
+            stroke_width: style.stroke_width,
+            stroke_color: style.stroke_color,
+            fill_color: style.fill_color,
             object_fit: style.object_fit.unwrap_or_default(),
             transforms: style.transforms.clone(),
             shadow: style.shadow,

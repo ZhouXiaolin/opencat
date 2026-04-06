@@ -30,8 +30,8 @@ pub use render::{
 };
 pub use script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use transitions::{
-    FadeBuilder, IrisBuilder, SlideDirection, SpringConfig, TransitionKind, TransitionSeries,
-    WipeDirection, clock_wipe, fade, iris, light_leak, linear, slide, spring, transition_series,
-    wipe, SlideBuilder, WipeBuilder, ClockWipeBuilder,
+    ClockWipeBuilder, FadeBuilder, IrisBuilder, SlideBuilder, SlideDirection, SpringConfig,
+    TransitionKind, TransitionSeries, WipeBuilder, WipeDirection, clock_wipe, fade, iris,
+    light_leak, linear, slide, spring, transition_series, wipe,
 };
 pub use view::{Node, NodeKind, component_node, component_node_with_duration};

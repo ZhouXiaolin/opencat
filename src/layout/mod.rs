@@ -362,6 +362,7 @@ fn raster_affect_hash(element: &ElementNode) -> u64 {
         }
         ElementKind::Lucide(lucide) => {
             lucide.icon.hash(&mut hasher);
+            hash_text_style(&element.style.text, &mut hasher);
         }
     }
 
@@ -403,6 +404,9 @@ fn hash_raster_style(style: &crate::element::style::ComputedVisualStyle, state: 
     hash_f32(style.border_radius, state);
     hash_option_f32(style.border_width, state);
     style.border_color.hash(state);
+    hash_option_f32(style.stroke_width, state);
+    style.stroke_color.hash(state);
+    style.fill_color.hash(state);
     style.object_fit.hash(state);
     style.shadow.hash(state);
 }
@@ -551,11 +555,7 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
         },
         ElementKind::Lucide(_) => Style {
             size: taffy::geometry::Size {
-                width: resolve_dimension(
-                    layout.width,
-                    layout.width_full,
-                    Dimension::length(24.0),
-                ),
+                width: resolve_dimension(layout.width, layout.width_full, Dimension::length(24.0)),
                 height: resolve_dimension(
                     layout.height,
                     layout.height_full,
@@ -618,6 +618,13 @@ fn layout_paint_for_element(element: &ElementNode) -> LayoutPaint {
             }),
             ElementKind::Lucide(lucide) => LayoutPaintKind::Lucide(LayoutLucidePaint {
                 icon: lucide.icon.clone(),
+                stroke_color: element
+                    .style
+                    .visual
+                    .stroke_color
+                    .unwrap_or(element.style.text.color),
+                stroke_width: element.style.visual.stroke_width.unwrap_or(2.0),
+                fill_color: element.style.visual.fill_color,
             }),
         },
         id: element.style.id.clone(),
@@ -707,7 +714,7 @@ mod tests {
         element::resolve::resolve_ui_tree,
         layout::tree::LayoutPaintKind,
         media::MediaContext,
-        nodes::{div, text},
+        nodes::{div, lucide, text},
         style::ComputedTextStyle,
     };
     use taffy::{AvailableSpace, geometry::Size};
@@ -887,5 +894,103 @@ mod tests {
         assert_eq!(second_stats.layout_dirty_nodes, 0);
         assert_eq!(second_stats.raster_dirty_nodes, 0);
         assert!(second_stats.composite_dirty_nodes >= 1);
+    }
+
+    #[test]
+    fn lucide_uses_text_color_for_stroke() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let root = div()
+            .id("root")
+            .child(lucide("play").id("icon").size(24.0, 24.0).text_blue());
+
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
+
+        let LayoutPaintKind::Lucide(lucide) = &layout.root.children[0].paint.kind else {
+            panic!("expected lucide paint");
+        };
+        assert_eq!(lucide.stroke_color, crate::style::ColorToken::Blue);
+        assert_eq!(lucide.stroke_width, 2.0);
+    }
+
+    #[test]
+    fn layout_session_marks_lucide_color_change_as_raster_dirty() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let mut session = LayoutSession::new();
+
+        let first = div()
+            .id("root")
+            .child(lucide("play").id("icon").size(24.0, 24.0).text_blue())
+            .into();
+        let second = div()
+            .id("root")
+            .child(lucide("play").id("icon").size(24.0, 24.0).text_pink())
+            .into();
+
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+            .expect("first tree should resolve");
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+            .expect("second tree should resolve");
+
+        session
+            .compute_layout(&first_resolved, &frame_ctx)
+            .expect("first layout should succeed");
+        let (_, second_stats) = session
+            .compute_layout(&second_resolved, &frame_ctx)
+            .expect("second layout should succeed");
+
+        assert_eq!(second_stats.layout_dirty_nodes, 0);
+        assert!(second_stats.raster_dirty_nodes >= 1);
+    }
+
+    #[test]
+    fn lucide_respects_explicit_fill_and_stroke_settings() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let root = div().id("root").child(
+            lucide("play")
+                .id("icon")
+                .size(24.0, 24.0)
+                .stroke_color(crate::style::ColorToken::Blue)
+                .stroke_width(3.5)
+                .fill_color(crate::style::ColorToken::Sky200),
+        );
+
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
+
+        let LayoutPaintKind::Lucide(lucide) = &layout.root.children[0].paint.kind else {
+            panic!("expected lucide paint");
+        };
+        assert_eq!(lucide.stroke_color, crate::style::ColorToken::Blue);
+        assert_eq!(lucide.stroke_width, 3.5);
+        assert_eq!(lucide.fill_color, Some(crate::style::ColorToken::Sky200));
     }
 }

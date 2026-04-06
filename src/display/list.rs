@@ -92,4 +92,7 @@ pub struct BitmapPaintStyle {
 pub struct LucideDisplayItem {
     pub bounds: LayoutRect,
     pub icon: String,
+    pub stroke_color: ColorToken,
+    pub stroke_width: f32,
+    pub fill_color: Option<ColorToken>,
 }

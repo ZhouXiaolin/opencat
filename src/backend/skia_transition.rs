@@ -2,8 +2,8 @@ use std::{cell::RefCell, thread_local};
 
 use anyhow::{Result, anyhow};
 use skia_safe::{
-    AlphaType, Canvas, ColorType, Data, FilterMode, ImageInfo, Matrix, Paint, PathBuilder,
-    Picture, RRect, Rect, RuntimeEffect, TileMode, runtime_effect::ChildPtr, surfaces,
+    AlphaType, Canvas, ColorType, Data, FilterMode, ImageInfo, Matrix, Paint, PathBuilder, Picture,
+    RRect, Rect, RuntimeEffect, TileMode, runtime_effect::ChildPtr, surfaces,
 };
 
 use crate::transitions::{LightLeakTransition, SlideDirection, TransitionKind, WipeDirection};
@@ -309,15 +309,10 @@ fn draw_clock_wipe_transition(
     builder.move_to((cx, cy));
 
     let start_rad = start_angle_deg.to_radians();
-    builder.line_to((
-        cx + radius * start_rad.cos(),
-        cy + radius * start_rad.sin(),
-    ));
+    builder.line_to((cx + radius * start_rad.cos(), cy + radius * start_rad.sin()));
 
-    let arc_rect = Rect::from_point_and_size(
-        (cx - radius, cy - radius),
-        (radius * 2.0, radius * 2.0),
-    );
+    let arc_rect =
+        Rect::from_point_and_size((cx - radius, cy - radius), (radius * 2.0, radius * 2.0));
     builder.arc_to(arc_rect, start_angle_deg, sweep_angle_deg, false);
     builder.close();
 
@@ -391,10 +386,7 @@ fn draw_light_leak_transition(
         Option::<&Rect>::None,
     );
 
-    let scale_matrix = Matrix::scale((
-        1.0 / LIGHT_LEAK_MASK_SCALE,
-        1.0 / LIGHT_LEAK_MASK_SCALE,
-    ));
+    let scale_matrix = Matrix::scale((1.0 / LIGHT_LEAK_MASK_SCALE, 1.0 / LIGHT_LEAK_MASK_SCALE));
     let mask_shader = mask_image
         .to_shader(
             Some((TileMode::Clamp, TileMode::Clamp)),

@@ -128,6 +128,9 @@ pub struct NodeStyle {
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    pub stroke_width: Option<f32>,
+    pub stroke_color: Option<ColorToken>,
+    pub fill_color: Option<ColorToken>,
     pub object_fit: Option<ObjectFit>,
     pub transforms: Vec<Transform>,
 
@@ -544,6 +547,21 @@ macro_rules! impl_node_style_api {
 
             pub fn border_color(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.border_color = Some(color);
+                self
+            }
+
+            pub fn stroke_width(mut self, width: f32) -> Self {
+                self.style.stroke_width = Some(width.max(0.0));
+                self
+            }
+
+            pub fn stroke_color(mut self, color: $crate::style::ColorToken) -> Self {
+                self.style.stroke_color = Some(color);
+                self
+            }
+
+            pub fn fill_color(mut self, color: $crate::style::ColorToken) -> Self {
+                self.style.fill_color = Some(color);
                 self
             }
 

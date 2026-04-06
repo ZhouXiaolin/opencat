@@ -107,6 +107,9 @@ fn push_paint_commands(
             item: DisplayItem::Lucide(LucideDisplayItem {
                 bounds: rect,
                 icon: lucide.icon.clone(),
+                stroke_color: lucide.stroke_color,
+                stroke_width: lucide.stroke_width,
+                fill_color: lucide.fill_color,
             }),
         }),
     }
@@ -142,6 +145,9 @@ mod tests {
                         border_radius: 0.0,
                         border_width: None,
                         border_color: None,
+                        stroke_width: None,
+                        stroke_color: None,
+                        fill_color: None,
                         object_fit: ObjectFit::Contain,
                         transforms: Vec::<Transform>::new(),
                         shadow: None,

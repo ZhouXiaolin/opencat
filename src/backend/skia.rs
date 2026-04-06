@@ -233,6 +233,9 @@ impl<'a> SkiaBackend<'a> {
                     &LucideDisplayItem {
                         bounds,
                         icon: lucide.icon.clone(),
+                        stroke_color: lucide.stroke_color,
+                        stroke_width: lucide.stroke_width,
+                        fill_color: lucide.fill_color,
                     },
                     layout.paint.visual.background,
                 );
@@ -872,13 +875,24 @@ fn draw_lucide(
         canvas.draw_rect(dst, &bg_paint);
     }
 
-    let mut stroke_paint = Paint::default();
-    stroke_paint.set_anti_alias(true);
-    stroke_paint.set_color(skia_safe::Color::WHITE);
-    stroke_paint.set_style(PaintStyle::Stroke);
-    stroke_paint.set_stroke_width(2.0);
-    stroke_paint.set_stroke_cap(skia_safe::paint::Cap::Round);
-    stroke_paint.set_stroke_join(skia_safe::paint::Join::Round);
+    let fill_paint = item.fill_color.map(|color| {
+        let mut paint = Paint::default();
+        paint.set_anti_alias(true);
+        paint.set_color(color.to_skia());
+        paint.set_style(PaintStyle::Fill);
+        paint
+    });
+
+    let stroke_paint = (item.stroke_width > 0.0).then(|| {
+        let mut paint = Paint::default();
+        paint.set_anti_alias(true);
+        paint.set_color(item.stroke_color.to_skia());
+        paint.set_style(PaintStyle::Stroke);
+        paint.set_stroke_width(item.stroke_width);
+        paint.set_stroke_cap(skia_safe::paint::Cap::Round);
+        paint.set_stroke_join(skia_safe::paint::Join::Round);
+        paint
+    });
 
     canvas.save();
     canvas.translate((dst.left(), dst.top()));
@@ -886,7 +900,12 @@ fn draw_lucide(
 
     for path_data in paths {
         if let Some(path) = skia_safe::Path::from_svg(path_data) {
-            canvas.draw_path(&path, &stroke_paint);
+            if let Some(fill_paint) = fill_paint.as_ref() {
+                canvas.draw_path(&path, fill_paint);
+            }
+            if let Some(stroke_paint) = stroke_paint.as_ref() {
+                canvas.draw_path(&path, stroke_paint);
+            }
         }
     }
 

@@ -33,6 +33,9 @@ pub struct NodeStyleMutations {
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    pub stroke_width: Option<f32>,
+    pub stroke_color: Option<ColorToken>,
+    pub fill_color: Option<ColorToken>,
     pub object_fit: Option<ObjectFit>,
     pub transforms: Vec<Transform>,
     pub text_color: Option<ColorToken>,
@@ -116,6 +119,15 @@ impl NodeStyleMutations {
         }
         if let Some(v) = self.border_color {
             style.border_color = Some(v);
+        }
+        if let Some(v) = self.stroke_width {
+            style.stroke_width = Some(v.max(0.0));
+        }
+        if let Some(v) = self.stroke_color {
+            style.stroke_color = Some(v);
+        }
+        if let Some(v) = self.fill_color {
+            style.fill_color = Some(v);
         }
         if let Some(v) = self.object_fit {
             style.object_fit = Some(v);
@@ -305,6 +317,9 @@ const PROXY_RUNTIME: &str = r#"
             case 'borderRadius': __record_border_radius(id, args[0]); break;
             case 'borderWidth': __record_border_width(id, args[0]); break;
             case 'borderColor': __record_border_color(id, String(args[0])); break;
+            case 'strokeWidth': __record_stroke_width(id, args[0]); break;
+            case 'strokeColor': __record_stroke_color(id, String(args[0])); break;
+            case 'fillColor': __record_fill_color(id, String(args[0])); break;
             case 'objectFit': __record_object_fit(id, String(args[0])); break;
             case 'textColor': __record_text_color(id, String(args[0])); break;
             case 'textSize': __record_text_size(id, args[0]); break;
@@ -784,6 +799,37 @@ fn install_runtime_bindings<'js>(
 
     let s = store.clone();
     globals.set(
+        "__record_stroke_width",
+        Function::new(ctx.clone(), move |id: String, v: f32| {
+            let mut map = s.lock().unwrap();
+            map.entry(id).or_default().stroke_width = Some(v.max(0.0));
+        })?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
+        "__record_stroke_color",
+        Function::new(ctx.clone(), move |id: String, v: String| {
+            if let Some(c) = color_from_name(&v) {
+                let mut map = s.lock().unwrap();
+                map.entry(id).or_default().stroke_color = Some(c);
+            }
+        })?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
+        "__record_fill_color",
+        Function::new(ctx.clone(), move |id: String, v: String| {
+            if let Some(c) = color_from_name(&v) {
+                let mut map = s.lock().unwrap();
+                map.entry(id).or_default().fill_color = Some(c);
+            }
+        })?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
         "__record_object_fit",
         Function::new(ctx.clone(), move |id: String, v: String| {
             if let Some(of) = object_fit_from_name(&v) {
@@ -876,7 +922,7 @@ fn install_runtime_bindings<'js>(
 #[cfg(test)]
 mod tests {
     use super::ScriptDriver;
-    use crate::style::{TextAlign, Transform};
+    use crate::style::{ColorToken, TextAlign, Transform};
 
     #[test]
     fn script_driver_records_text_alignment_and_line_height() {
@@ -918,5 +964,25 @@ mod tests {
                 Transform::Scale(1.2),
             ]
         );
+    }
+
+    #[test]
+    fn script_driver_records_lucide_fill_and_stroke() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.getNode("icon")
+                .strokeColor("blue")
+                .strokeWidth(3)
+                .fillColor("sky200");
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(0, 1).expect("script should run");
+        let icon = mutations.get("icon").expect("icon mutation should exist");
+
+        assert_eq!(icon.stroke_color, Some(ColorToken::Blue));
+        assert_eq!(icon.stroke_width, Some(3.0));
+        assert_eq!(icon.fill_color, Some(ColorToken::Sky200));
     }
 }

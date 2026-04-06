@@ -292,6 +292,8 @@ fn normalize_lucide_icon_name(name: &str) -> &str {
     match name {
         // Lucide keeps `home` as deprecated metadata alias for the current `house` icon.
         "home" => "house",
+        // Travel mock data often uses the more literal suitcase label.
+        "suitcase" => "briefcase",
         _ => name,
     }
 }
@@ -668,6 +670,31 @@ mod tests {
             panic!("child should resolve to lucide element");
         };
         assert_eq!(icon.icon, "house");
+    }
+
+    #[test]
+    fn resolve_ui_tree_accepts_suitcase_lucide_alias() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let root = div()
+            .id("root")
+            .child(lucide("suitcase").id("icon").size(24.0, 24.0));
+
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect("deprecated alias should resolve");
+
+        let ElementKind::Lucide(icon) = &resolved.children[0].kind else {
+            panic!("child should resolve to lucide element");
+        };
+        assert_eq!(icon.icon, "briefcase");
     }
 
     #[test]

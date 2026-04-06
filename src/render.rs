@@ -122,17 +122,61 @@ fn render_mp4(
     config: &Mp4Config,
 ) -> Result<()> {
     let mut session = RenderSession::new();
+    let source_width = composition.width as u32;
+    let source_height = composition.height as u32;
+    let encoded_width = source_width + source_width % 2;
+    let encoded_height = source_height + source_height % 2;
     crate::codec::encode::encode_rgba_frames(
         output_path,
-        composition.width as u32,
-        composition.height as u32,
+        encoded_width,
+        encoded_height,
         composition.fps,
         composition.frames,
         config,
-        |frame_index| render_frame_rgba(composition, frame_index, &mut session),
+        |frame_index| {
+            let rgba = render_frame_rgba(composition, frame_index, &mut session)?;
+            Ok(pad_rgba_frame(
+                &rgba,
+                source_width,
+                source_height,
+                encoded_width,
+                encoded_height,
+            ))
+        },
     )?;
     session.profiler.print_summary();
     Ok(())
+}
+
+fn pad_rgba_frame(
+    rgba: &[u8],
+    source_width: u32,
+    source_height: u32,
+    target_width: u32,
+    target_height: u32,
+) -> Vec<u8> {
+    if source_width == target_width && source_height == target_height {
+        return rgba.to_vec();
+    }
+
+    let source_width = source_width as usize;
+    let source_height = source_height as usize;
+    let target_width = target_width as usize;
+    let target_height = target_height as usize;
+    let mut padded = vec![0_u8; target_width * target_height * 4];
+
+    for y in 0..target_height {
+        let source_y = y.min(source_height.saturating_sub(1));
+        for x in 0..target_width {
+            let source_x = x.min(source_width.saturating_sub(1));
+            let source_index = (source_y * source_width + source_x) * 4;
+            let target_index = (y * target_width + x) * 4;
+            padded[target_index..target_index + 4]
+                .copy_from_slice(&rgba[source_index..source_index + 4]);
+        }
+    }
+
+    padded
 }
 
 fn render_frame_surface(
@@ -552,7 +596,7 @@ fn picture_for_slot(
 
 #[cfg(test)]
 mod tests {
-    use super::{RenderSession, render_frame_rgba};
+    use super::{RenderSession, pad_rgba_frame, render_frame_rgba};
     use crate::{Composition, EncodingConfig, FrameCtx, nodes::div};
 
     fn pixel_rgba(frame: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
@@ -608,5 +652,21 @@ mod tests {
             "frame 1 should be roughly 50% white, got {:?}",
             second_pixel
         );
+    }
+
+    #[test]
+    fn pad_rgba_frame_extends_edge_pixels_for_even_dimensions() {
+        let rgba = vec![
+            1, 0, 0, 255, 2, 0, 0, 255, 3, 0, 0, 255, 4, 0, 0, 255, 5, 0, 0, 255, 6, 0, 0, 255, 7,
+            0, 0, 255, 8, 0, 0, 255, 9, 0, 0, 255,
+        ];
+
+        let padded = pad_rgba_frame(&rgba, 3, 3, 4, 4);
+
+        assert_eq!(pixel_rgba(&padded, 4, 0, 0), [1, 0, 0, 255]);
+        assert_eq!(pixel_rgba(&padded, 4, 2, 2), [9, 0, 0, 255]);
+        assert_eq!(pixel_rgba(&padded, 4, 3, 0), [3, 0, 0, 255]);
+        assert_eq!(pixel_rgba(&padded, 4, 0, 3), [7, 0, 0, 255]);
+        assert_eq!(pixel_rgba(&padded, 4, 3, 3), [9, 0, 0, 255]);
     }
 }

@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::HashMap, time::Instant};
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
     Canvas, ClipOp, Data, Image as SkiaImage, ImageInfo, Paint, PaintStyle, Picture,
-    PictureRecorder, RRect, Rect, canvas::SrcRectConstraint, images,
+    PictureRecorder, RRect, Rect, TileMode, canvas::SrcRectConstraint, gradient_shader, images,
 };
 
 use crate::{
@@ -20,7 +20,7 @@ use crate::{
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
     media::MediaContext,
     profile::BackendProfile,
-    style::{ObjectFit, ShadowStyle, Transform},
+    style::{BackgroundFill, GradientDirection, ObjectFit, ShadowStyle, Transform},
     typography,
 };
 
@@ -148,7 +148,19 @@ impl<'a> SkiaBackend<'a> {
         };
         self.with_layout_opacity(layout, |backend| {
             backend.draw_layout_node_paint(layout, local_bounds)?;
-            backend.draw_layout_children(&layout.children)
+            if layout.paint.visual.clip_contents {
+                backend.canvas.save();
+                clip_bounds(
+                    backend.canvas,
+                    local_bounds,
+                    layout.paint.visual.border_radius,
+                );
+                backend.draw_layout_children(&layout.children)?;
+                backend.canvas.restore();
+                Ok(())
+            } else {
+                backend.draw_layout_children(&layout.children)
+            }
         })
     }
 
@@ -514,8 +526,8 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
     if radius > 0.0 {
         let rrect = RRect::new_rect_xy(rect, radius, radius);
 
-        if let Some(color) = style.background {
-            paint.set_color(color.to_skia());
+        if let Some(background) = style.background {
+            apply_background_paint(&mut paint, background, rect);
             canvas.draw_rrect(rrect, &paint);
         }
 
@@ -526,8 +538,8 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
             canvas.draw_rrect(rrect, &paint);
         }
     } else {
-        if let Some(color) = style.background {
-            paint.set_color(color.to_skia());
+        if let Some(background) = style.background {
+            apply_background_paint(&mut paint, background, rect);
             canvas.draw_rect(rect, &paint);
         }
 
@@ -710,7 +722,7 @@ fn draw_bitmap(
     if let Some(color) = bitmap.paint.background {
         let mut background_paint = Paint::default();
         background_paint.set_anti_alias(true);
-        background_paint.set_color(color.to_skia());
+        apply_background_paint(&mut background_paint, color, dst);
         if radius > 0.0 {
             let rrect = RRect::new_rect_xy(dst, radius, radius);
             canvas.draw_rrect(rrect, &background_paint);
@@ -875,7 +887,7 @@ fn draw_lucide(canvas: &Canvas, item: &LucideDisplayItem) {
     let fill_paint = item.paint.background.map(|color| {
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
-        paint.set_color(color.to_skia());
+        apply_background_paint(&mut paint, color, dst);
         paint.set_style(PaintStyle::Fill);
         paint
     });
@@ -914,6 +926,52 @@ fn draw_lucide(canvas: &Canvas, item: &LucideDisplayItem) {
     }
 
     canvas.restore();
+}
+
+fn apply_background_paint(paint: &mut Paint, background: BackgroundFill, bounds: Rect) {
+    match background {
+        BackgroundFill::Solid(color) => {
+            paint.set_shader(None);
+            paint.set_color(color.to_skia());
+        }
+        BackgroundFill::LinearGradient {
+            direction,
+            from,
+            to,
+        } => {
+            let points = match direction {
+                GradientDirection::ToRight => (
+                    (bounds.left(), bounds.center_y()),
+                    (bounds.right(), bounds.center_y()),
+                ),
+            };
+            let colors = [from.to_skia(), to.to_skia()];
+            if let Some(shader) = gradient_shader::linear(
+                points,
+                colors.as_slice(),
+                None,
+                TileMode::Clamp,
+                None,
+                None,
+            ) {
+                paint.set_shader(shader);
+            } else {
+                paint.set_shader(None);
+                paint.set_color(from.to_skia());
+            }
+        }
+    }
+}
+
+fn clip_bounds(canvas: &Canvas, bounds: LayoutRect, border_radius: f32) {
+    let rect = layout_rect_to_skia(bounds);
+    let radius = effective_corner_radius(rect, border_radius);
+    if radius > 0.0 {
+        let rrect = RRect::new_rect_xy(rect, radius, radius);
+        canvas.clip_rrect(rrect, ClipOp::Intersect, true);
+    } else {
+        canvas.clip_rect(rect, ClipOp::Intersect, true);
+    }
 }
 
 fn cover_src_rect(src_width: f32, src_height: f32, dst: Rect) -> Rect {

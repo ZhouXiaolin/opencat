@@ -269,13 +269,14 @@ fn resolve_lucide(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<Elemen
             "node id is required for lucide nodes before rendering"
         );
         apply_mutation_stack(&mut style, cx.mutation_stack);
-        ensure_valid_lucide_icon(lucide.icon())?;
+        let icon = normalize_lucide_icon_name(lucide.icon());
+        ensure_valid_lucide_icon(icon)?;
         let computed = compute_style(&style, cx.inherited_style);
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Lucide(ElementLucide {
-                icon: lucide.icon().to_string(),
+                icon: icon.to_string(),
             }),
             style: computed,
             children: Vec::new(),
@@ -285,6 +286,14 @@ fn resolve_lucide(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<Elemen
         cx.mutation_stack.pop();
     }
     result
+}
+
+fn normalize_lucide_icon_name(name: &str) -> &str {
+    match name {
+        // Lucide keeps `home` as deprecated metadata alias for the current `house` icon.
+        "home" => "house",
+        _ => name,
+    }
 }
 
 fn ensure_valid_lucide_icon(name: &str) -> Result<()> {
@@ -379,10 +388,46 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             height: style.height,
             width_full: style.width_full,
             height_full: style.height_full,
-            padding_x: style.padding_x.or(style.padding).unwrap_or(0.0),
-            padding_y: style.padding_y.or(style.padding).unwrap_or(0.0),
-            margin_x: style.margin_x.or(style.margin).unwrap_or(0.0),
-            margin_y: style.margin_y.or(style.margin).unwrap_or(0.0),
+            padding_top: style
+                .padding_top
+                .or(style.padding_y)
+                .or(style.padding)
+                .unwrap_or(0.0),
+            padding_right: style
+                .padding_right
+                .or(style.padding_x)
+                .or(style.padding)
+                .unwrap_or(0.0),
+            padding_bottom: style
+                .padding_bottom
+                .or(style.padding_y)
+                .or(style.padding)
+                .unwrap_or(0.0),
+            padding_left: style
+                .padding_left
+                .or(style.padding_x)
+                .or(style.padding)
+                .unwrap_or(0.0),
+            margin_top: style
+                .margin_top
+                .or(style.margin_y)
+                .or(style.margin)
+                .unwrap_or(0.0),
+            margin_right: style
+                .margin_right
+                .or(style.margin_x)
+                .or(style.margin)
+                .unwrap_or(0.0),
+            margin_bottom: style
+                .margin_bottom
+                .or(style.margin_y)
+                .or(style.margin)
+                .unwrap_or(0.0),
+            margin_left: style
+                .margin_left
+                .or(style.margin_x)
+                .or(style.margin)
+                .unwrap_or(0.0),
             flex_direction: style.flex_direction.unwrap_or_default(),
             justify_content: style.justify_content.unwrap_or_default(),
             align_items: style.align_items.unwrap_or_default(),
@@ -391,11 +436,23 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
         },
         visual: ComputedVisualStyle {
             opacity: style.opacity.unwrap_or(1.0),
-            background: style.bg_color,
+            background: style
+                .bg_gradient_direction
+                .zip(style.bg_gradient_from)
+                .zip(style.bg_gradient_to)
+                .map(
+                    |((direction, from), to)| crate::style::BackgroundFill::LinearGradient {
+                        direction,
+                        from,
+                        to,
+                    },
+                )
+                .or_else(|| style.bg_color.map(crate::style::BackgroundFill::Solid)),
             border_radius: style.border_radius.unwrap_or(0.0),
             border_width: style.border_width,
             border_color: style.border_color,
             object_fit: style.object_fit.unwrap_or_default(),
+            clip_contents: style.overflow_hidden,
             transforms: style.transforms.clone(),
             shadow: style.shadow,
         },
@@ -410,6 +467,7 @@ mod tests {
     use crate::{
         FrameCtx,
         assets::AssetsMap,
+        element::tree::ElementKind,
         media::MediaContext,
         nodes::{div, lucide, text},
         script::ScriptRuntimeCache,
@@ -580,6 +638,31 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("unknown lucide icon `pla`"));
         assert!(message.contains("play"));
+    }
+
+    #[test]
+    fn resolve_ui_tree_accepts_home_lucide_alias() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let root = div()
+            .id("root")
+            .child(lucide("home").id("icon").size(24.0, 24.0));
+
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect("deprecated alias should resolve");
+
+        let ElementKind::Lucide(icon) = &resolved.children[0].kind else {
+            panic!("child should resolve to lucide element");
+        };
+        assert_eq!(icon.icon, "house");
     }
 
     #[test]

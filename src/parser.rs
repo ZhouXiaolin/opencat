@@ -3,10 +3,10 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
-use crate::nodes::{ImageSource, OpenverseQuery, div, image, text, video};
+use crate::nodes::{ImageSource, OpenverseQuery, div, image, lucide, text, video};
 use crate::style::{
-    AlignItems, ColorToken, FlexDirection, FontWeight, JustifyContent, NodeStyle, ObjectFit,
-    Position, TextAlign, color_token_from_class_suffix,
+    AlignItems, ColorToken, FlexDirection, FontWeight, GradientDirection, JustifyContent,
+    NodeStyle, ObjectFit, Position, TextAlign, color_token_from_class_suffix,
 };
 use crate::view::Node;
 
@@ -63,6 +63,15 @@ enum JsonLine {
         class_name: Option<String>,
         path: String,
     },
+    #[serde(rename = "icon")]
+    Icon {
+        id: String,
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        #[serde(rename = "className")]
+        class_name: Option<String>,
+        icon: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +79,7 @@ enum ParsedElementKind {
     Div,
     Text { content: String },
     Image { source: ImageSource },
+    Icon { name: String },
     Video { path: PathBuf },
 }
 
@@ -180,6 +190,20 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                     kind: ParsedElementKind::Video {
                         path: PathBuf::from(path),
                     },
+                });
+            }
+            JsonLine::Icon {
+                id,
+                parent_id,
+                class_name,
+                icon,
+            } => {
+                let style = parse_class_name(class_name.as_deref().unwrap_or(""));
+                elements.push(ParsedElement {
+                    id,
+                    parent_id,
+                    style,
+                    kind: ParsedElementKind::Icon { name: icon },
                 });
             }
         }
@@ -318,6 +342,11 @@ fn build_node(
             image_node.style = style;
             Ok(Node::new(image_node))
         }
+        ParsedElementKind::Icon { name } => {
+            let mut icon_node = lucide(name.clone());
+            icon_node.style = style;
+            Ok(Node::new(icon_node))
+        }
         ParsedElementKind::Video { path } => {
             let mut video_node = video(path);
             video_node.style = style;
@@ -399,6 +428,8 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) {
 
         // Border
         "border" => style.border_width = Some(1.0),
+        "overflow-hidden" => style.overflow_hidden = true,
+        "bg-gradient-to-r" => style.bg_gradient_direction = Some(GradientDirection::ToRight),
 
         // Text alignment
         "text-left" => style.text_align = Some(TextAlign::Left),
@@ -752,6 +783,126 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
         }
     }
 
+    if let Some(value) = class.strip_prefix("pt-[") {
+        if let Some(v) = value.strip_suffix("px]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.padding_top = Some(n);
+                return;
+            }
+        }
+        if let Some(v) = value.strip_suffix("]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.padding_top = Some(n);
+                return;
+            }
+        }
+    }
+
+    if let Some(value) = class.strip_prefix("pr-[") {
+        if let Some(v) = value.strip_suffix("px]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.padding_right = Some(n);
+                return;
+            }
+        }
+        if let Some(v) = value.strip_suffix("]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.padding_right = Some(n);
+                return;
+            }
+        }
+    }
+
+    if let Some(value) = class.strip_prefix("pb-[") {
+        if let Some(v) = value.strip_suffix("px]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.padding_bottom = Some(n);
+                return;
+            }
+        }
+        if let Some(v) = value.strip_suffix("]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.padding_bottom = Some(n);
+                return;
+            }
+        }
+    }
+
+    if let Some(value) = class.strip_prefix("pl-[") {
+        if let Some(v) = value.strip_suffix("px]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.padding_left = Some(n);
+                return;
+            }
+        }
+        if let Some(v) = value.strip_suffix("]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.padding_left = Some(n);
+                return;
+            }
+        }
+    }
+
+    if let Some(value) = class.strip_prefix("mt-[") {
+        if let Some(v) = value.strip_suffix("px]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.margin_top = Some(n);
+                return;
+            }
+        }
+        if let Some(v) = value.strip_suffix("]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.margin_top = Some(n);
+                return;
+            }
+        }
+    }
+
+    if let Some(value) = class.strip_prefix("mr-[") {
+        if let Some(v) = value.strip_suffix("px]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.margin_right = Some(n);
+                return;
+            }
+        }
+        if let Some(v) = value.strip_suffix("]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.margin_right = Some(n);
+                return;
+            }
+        }
+    }
+
+    if let Some(value) = class.strip_prefix("mb-[") {
+        if let Some(v) = value.strip_suffix("px]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.margin_bottom = Some(n);
+                return;
+            }
+        }
+        if let Some(v) = value.strip_suffix("]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.margin_bottom = Some(n);
+                return;
+            }
+        }
+    }
+
+    if let Some(value) = class.strip_prefix("ml-[") {
+        if let Some(v) = value.strip_suffix("px]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.margin_left = Some(n);
+                return;
+            }
+        }
+        if let Some(v) = value.strip_suffix("]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.margin_left = Some(n);
+                return;
+            }
+        }
+    }
+
     if let Some(color) = class
         .strip_prefix("bg-")
         .and_then(color_token_from_class_suffix)
@@ -773,6 +924,22 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
         .and_then(color_token_from_class_suffix)
     {
         style.border_color = Some(color);
+        return;
+    }
+
+    if let Some(color) = class
+        .strip_prefix("from-")
+        .and_then(color_token_from_class_suffix)
+    {
+        style.bg_gradient_from = Some(color);
+        return;
+    }
+
+    if let Some(color) = class
+        .strip_prefix("to-")
+        .and_then(color_token_from_class_suffix)
+    {
+        style.bg_gradient_to = Some(color);
         return;
     }
 
@@ -845,6 +1012,30 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
         }
     }
 
+    if class.starts_with("pt-") {
+        if let Ok(n) = class[3..].parse::<f32>() {
+            style.padding_top = Some(n);
+        }
+    }
+
+    if class.starts_with("pr-") {
+        if let Ok(n) = class[3..].parse::<f32>() {
+            style.padding_right = Some(n);
+        }
+    }
+
+    if class.starts_with("pb-") {
+        if let Ok(n) = class[3..].parse::<f32>() {
+            style.padding_bottom = Some(n);
+        }
+    }
+
+    if class.starts_with("pl-") {
+        if let Ok(n) = class[3..].parse::<f32>() {
+            style.padding_left = Some(n);
+        }
+    }
+
     if class.starts_with("m-") {
         if let Ok(n) = class[2..].parse::<f32>() {
             style.margin = Some(n);
@@ -860,6 +1051,30 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
     if class.starts_with("my-") {
         if let Ok(n) = class[3..].parse::<f32>() {
             style.margin_y = Some(n);
+        }
+    }
+
+    if class.starts_with("mt-") {
+        if let Ok(n) = class[3..].parse::<f32>() {
+            style.margin_top = Some(n);
+        }
+    }
+
+    if class.starts_with("mr-") {
+        if let Ok(n) = class[3..].parse::<f32>() {
+            style.margin_right = Some(n);
+        }
+    }
+
+    if class.starts_with("mb-") {
+        if let Ok(n) = class[3..].parse::<f32>() {
+            style.margin_bottom = Some(n);
+        }
+    }
+
+    if class.starts_with("ml-") {
+        if let Ok(n) = class[3..].parse::<f32>() {
+            style.margin_left = Some(n);
         }
     }
 
@@ -937,7 +1152,7 @@ fn parse_hex_nibble(byte: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::{parse, parse_class_name};
-    use crate::style::{ColorToken, TextAlign};
+    use crate::style::{ColorToken, GradientDirection, TextAlign};
 
     #[test]
     fn parser_maps_full_size_alignment_and_tailwind_colors() {
@@ -1012,6 +1227,24 @@ mod tests {
     }
 
     #[test]
+    fn parser_maps_gradient_overflow_and_directional_spacing_classes() {
+        let style = parse_class_name(
+            "bg-gradient-to-r from-orange-500 to-amber-500 overflow-hidden mt-[4px] mb-[16px] pb-[20px]",
+        );
+
+        assert_eq!(
+            style.bg_gradient_direction,
+            Some(GradientDirection::ToRight)
+        );
+        assert_eq!(style.bg_gradient_from, Some(ColorToken::Orange500));
+        assert_eq!(style.bg_gradient_to, Some(ColorToken::Amber500));
+        assert!(style.overflow_hidden);
+        assert_eq!(style.margin_top, Some(4.0));
+        assert_eq!(style.margin_bottom, Some(16.0));
+        assert_eq!(style.padding_bottom, Some(20.0));
+    }
+
+    #[test]
     fn parser_accepts_image_query_nodes() {
         parse(
             r#"{"type":"composition","width":1280,"height":720,"fps":30,"frames":90}
@@ -1019,5 +1252,15 @@ mod tests {
 {"id":"hero","parentId":"root","type":"image","className":"w-[320px] h-[240px] object-cover","query":"pizza margherita"}"#,
         )
         .expect("jsonl with image query should parse");
+    }
+
+    #[test]
+    fn parser_accepts_lucide_icon_nodes() {
+        parse(
+            r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"search-icon","parentId":"root","type":"icon","className":"w-[20px] h-[20px] text-slate-400","icon":"search"}"#,
+        )
+        .expect("jsonl with lucide icon should parse");
     }
 }

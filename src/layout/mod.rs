@@ -388,10 +388,14 @@ fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: 
     hash_option_f32(style.height, state);
     style.width_full.hash(state);
     style.height_full.hash(state);
-    hash_f32(style.padding_x, state);
-    hash_f32(style.padding_y, state);
-    hash_f32(style.margin_x, state);
-    hash_f32(style.margin_y, state);
+    hash_f32(style.padding_top, state);
+    hash_f32(style.padding_right, state);
+    hash_f32(style.padding_bottom, state);
+    hash_f32(style.padding_left, state);
+    hash_f32(style.margin_top, state);
+    hash_f32(style.margin_right, state);
+    hash_f32(style.margin_bottom, state);
+    hash_f32(style.margin_left, state);
     style.flex_direction.hash(state);
     style.justify_content.hash(state);
     style.align_items.hash(state);
@@ -405,6 +409,7 @@ fn hash_raster_style(style: &crate::element::style::ComputedVisualStyle, state: 
     hash_option_f32(style.border_width, state);
     style.border_color.hash(state);
     style.object_fit.hash(state);
+    style.clip_contents.hash(state);
     style.shadow.hash(state);
 }
 
@@ -514,10 +519,10 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                 },
             },
             padding: taffy::geometry::Rect {
-                left: taffy::style::LengthPercentage::length(layout.padding_x),
-                top: taffy::style::LengthPercentage::length(layout.padding_y),
-                right: taffy::style::LengthPercentage::length(layout.padding_x),
-                bottom: taffy::style::LengthPercentage::length(layout.padding_y),
+                left: taffy::style::LengthPercentage::length(layout.padding_left),
+                top: taffy::style::LengthPercentage::length(layout.padding_top),
+                right: taffy::style::LengthPercentage::length(layout.padding_right),
+                bottom: taffy::style::LengthPercentage::length(layout.padding_bottom),
             },
             flex_direction: map_flex_direction(Some(layout.flex_direction)),
             justify_content: Some(map_justify(layout.justify_content)),
@@ -644,10 +649,10 @@ fn base_style(layout: &ComputedLayoutStyle) -> Style {
                 .unwrap_or(taffy::style::LengthPercentageAuto::auto()),
         },
         margin: taffy::geometry::Rect {
-            left: taffy::style::LengthPercentageAuto::length(layout.margin_x),
-            top: taffy::style::LengthPercentageAuto::length(layout.margin_y),
-            right: taffy::style::LengthPercentageAuto::length(layout.margin_x),
-            bottom: taffy::style::LengthPercentageAuto::length(layout.margin_y),
+            left: taffy::style::LengthPercentageAuto::length(layout.margin_left),
+            top: taffy::style::LengthPercentageAuto::length(layout.margin_top),
+            right: taffy::style::LengthPercentageAuto::length(layout.margin_right),
+            bottom: taffy::style::LengthPercentageAuto::length(layout.margin_bottom),
         },
         flex_grow: layout.flex_grow,
         ..Default::default()
@@ -987,7 +992,9 @@ mod tests {
         assert_eq!(layout.root.children[0].paint.visual.border_width, Some(3.5));
         assert_eq!(
             layout.root.children[0].paint.visual.background,
-            Some(crate::style::ColorToken::Sky200)
+            Some(crate::style::BackgroundFill::Solid(
+                crate::style::ColorToken::Sky200,
+            ))
         );
     }
 }

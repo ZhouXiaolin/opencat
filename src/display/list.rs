@@ -1,7 +1,7 @@
 use crate::{
     assets::AssetId,
     layout::tree::LayoutRect,
-    style::{ColorToken, ComputedTextStyle, ObjectFit, ShadowStyle},
+    style::{BackgroundFill, ColorToken, ComputedTextStyle, ObjectFit, ShadowStyle},
 };
 
 #[derive(Clone, Debug, Default)]
@@ -72,7 +72,7 @@ pub struct BitmapDisplayItem {
 
 #[derive(Clone, Debug)]
 pub struct RectPaintStyle {
-    pub background: Option<ColorToken>,
+    pub background: Option<BackgroundFill>,
     pub border_radius: f32,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
@@ -81,7 +81,7 @@ pub struct RectPaintStyle {
 
 #[derive(Clone, Debug)]
 pub struct BitmapPaintStyle {
-    pub background: Option<ColorToken>,
+    pub background: Option<BackgroundFill>,
     pub border_radius: f32,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
@@ -91,7 +91,7 @@ pub struct BitmapPaintStyle {
 #[derive(Clone, Debug)]
 pub struct LucidePaintStyle {
     pub foreground: ColorToken,
-    pub background: Option<ColorToken>,
+    pub background: Option<BackgroundFill>,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
 }

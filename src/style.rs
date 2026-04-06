@@ -77,6 +77,21 @@ pub enum ShadowStyle {
     XL,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GradientDirection {
+    ToRight,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BackgroundFill {
+    Solid(ColorToken),
+    LinearGradient {
+        direction: GradientDirection,
+        from: ColorToken,
+        to: ColorToken,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Transform {
     TranslateX(f32),
@@ -111,9 +126,17 @@ pub struct NodeStyle {
     pub padding: Option<f32>,
     pub padding_x: Option<f32>,
     pub padding_y: Option<f32>,
+    pub padding_top: Option<f32>,
+    pub padding_right: Option<f32>,
+    pub padding_bottom: Option<f32>,
+    pub padding_left: Option<f32>,
     pub margin: Option<f32>,
     pub margin_x: Option<f32>,
     pub margin_y: Option<f32>,
+    pub margin_top: Option<f32>,
+    pub margin_right: Option<f32>,
+    pub margin_bottom: Option<f32>,
+    pub margin_left: Option<f32>,
 
     // Layout
     pub flex_direction: Option<FlexDirection>,
@@ -125,10 +148,14 @@ pub struct NodeStyle {
     // Visual
     pub opacity: Option<f32>,
     pub bg_color: Option<ColorToken>,
+    pub bg_gradient_from: Option<ColorToken>,
+    pub bg_gradient_to: Option<ColorToken>,
+    pub bg_gradient_direction: Option<GradientDirection>,
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
     pub object_fit: Option<ObjectFit>,
+    pub overflow_hidden: bool,
     pub transforms: Vec<Transform>,
 
     // Text
@@ -266,22 +293,22 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn pt(mut self, value: f32) -> Self {
-                self.style.padding_y = Some(value);
+                self.style.padding_top = Some(value);
                 self
             }
 
             pub fn pb(mut self, value: f32) -> Self {
-                self.style.padding_y = Some(value);
+                self.style.padding_bottom = Some(value);
                 self
             }
 
             pub fn pl(mut self, value: f32) -> Self {
-                self.style.padding_x = Some(value);
+                self.style.padding_left = Some(value);
                 self
             }
 
             pub fn pr(mut self, value: f32) -> Self {
-                self.style.padding_x = Some(value);
+                self.style.padding_right = Some(value);
                 self
             }
 
@@ -302,22 +329,22 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn mt(mut self, value: f32) -> Self {
-                self.style.margin_y = Some(value);
+                self.style.margin_top = Some(value);
                 self
             }
 
             pub fn mb(mut self, value: f32) -> Self {
-                self.style.margin_y = Some(value);
+                self.style.margin_bottom = Some(value);
                 self
             }
 
             pub fn ml(mut self, value: f32) -> Self {
-                self.style.margin_x = Some(value);
+                self.style.margin_left = Some(value);
                 self
             }
 
             pub fn mr(mut self, value: f32) -> Self {
-                self.style.margin_x = Some(value);
+                self.style.margin_right = Some(value);
                 self
             }
 
@@ -559,17 +586,28 @@ macro_rules! impl_node_style_api {
 
             pub fn fill_color(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.bg_color = Some(color);
+                self.style.bg_gradient_from = None;
+                self.style.bg_gradient_to = None;
+                self.style.bg_gradient_direction = None;
                 self
             }
 
             // === Visual: Background Colors ===
             pub fn bg(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.bg_color = Some(color);
+                self.style.bg_gradient_from = None;
+                self.style.bg_gradient_to = None;
+                self.style.bg_gradient_direction = None;
                 self
             }
 
             pub fn bg_primary(self) -> Self {
                 self.bg($crate::style::ColorToken::Primary)
+            }
+
+            pub fn overflow_hidden(mut self) -> Self {
+                self.style.overflow_hidden = true;
+                self
             }
 
             // === Visual: Text Colors ===

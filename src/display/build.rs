@@ -149,6 +149,7 @@ mod tests {
                         border_width: None,
                         border_color: None,
                         object_fit: ObjectFit::Contain,
+                        clip_contents: false,
                         transforms: Vec::<Transform>::new(),
                         shadow: None,
                     },

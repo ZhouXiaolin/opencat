@@ -1,6 +1,6 @@
 use crate::style::{
-    AlignItems, ColorToken, ComputedTextStyle, FlexDirection, JustifyContent, ObjectFit, Position,
-    ShadowStyle, Transform,
+    AlignItems, BackgroundFill, ComputedTextStyle, FlexDirection, JustifyContent, ObjectFit,
+    Position, ShadowStyle, Transform,
 };
 
 #[derive(Clone, Debug)]
@@ -36,10 +36,14 @@ pub struct ComputedLayoutStyle {
     pub height: Option<f32>,
     pub width_full: bool,
     pub height_full: bool,
-    pub padding_x: f32,
-    pub padding_y: f32,
-    pub margin_x: f32,
-    pub margin_y: f32,
+    pub padding_top: f32,
+    pub padding_right: f32,
+    pub padding_bottom: f32,
+    pub padding_left: f32,
+    pub margin_top: f32,
+    pub margin_right: f32,
+    pub margin_bottom: f32,
+    pub margin_left: f32,
     pub flex_direction: FlexDirection,
     pub justify_content: JustifyContent,
     pub align_items: AlignItems,
@@ -50,11 +54,12 @@ pub struct ComputedLayoutStyle {
 #[derive(Clone, Debug)]
 pub struct ComputedVisualStyle {
     pub opacity: f32,
-    pub background: Option<ColorToken>,
+    pub background: Option<BackgroundFill>,
     pub border_radius: f32,
     pub border_width: Option<f32>,
-    pub border_color: Option<ColorToken>,
+    pub border_color: Option<crate::style::ColorToken>,
     pub object_fit: ObjectFit,
+    pub clip_contents: bool,
     pub transforms: Vec<Transform>,
     pub shadow: Option<ShadowStyle>,
 }

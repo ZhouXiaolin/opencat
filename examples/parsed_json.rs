@@ -24,10 +24,10 @@ fn main() -> anyhow::Result<()> {
         .root(move |_ctx| root.clone())
         .build()?;
 
-    let encode_config = EncodingConfig::png();
+    let encode_config = EncodingConfig::mp4();
     std::fs::create_dir_all("out")?;
-    composition.render("out/parsed.png", &encode_config)?;
-    println!("Rendered out/parsed.png");
+    composition.render("out/parsed.mp4", &encode_config)?;
+    println!("Rendered out/parsed.mp4");
 
     Ok(())
 }

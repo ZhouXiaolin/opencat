@@ -1,9 +1,4 @@
-use skia_safe::Picture;
-
-use crate::backend::cache::{
-    ImageCache, SubtreePictureCache, TextPictureCache, new_image_cache, new_subtree_picture_cache,
-    new_text_picture_cache,
-};
+use crate::scene_snapshot::SceneSnapshot;
 
 #[derive(Clone, Copy)]
 pub(crate) enum SceneSlot {
@@ -14,60 +9,42 @@ pub(crate) enum SceneSlot {
 
 #[derive(Default)]
 struct PictureSlotCache {
-    picture: Option<Picture>,
+    source: Option<SceneSnapshot>,
 }
 
-pub(crate) struct RenderCacheState {
-    image_cache: ImageCache,
-    text_picture_cache: TextPictureCache,
-    subtree_picture_cache: SubtreePictureCache,
+pub(crate) struct SceneSnapshotCache {
     scene_picture_cache: PictureSlotCache,
     transition_from_picture_cache: PictureSlotCache,
     transition_to_picture_cache: PictureSlotCache,
 }
 
-impl RenderCacheState {
+impl SceneSnapshotCache {
     pub(crate) fn new() -> Self {
         Self {
-            image_cache: new_image_cache(),
-            text_picture_cache: new_text_picture_cache(),
-            subtree_picture_cache: new_subtree_picture_cache(),
             scene_picture_cache: PictureSlotCache::default(),
             transition_from_picture_cache: PictureSlotCache::default(),
             transition_to_picture_cache: PictureSlotCache::default(),
         }
     }
 
-    pub(crate) fn image_cache(&self) -> ImageCache {
-        self.image_cache.clone()
-    }
-
-    pub(crate) fn text_picture_cache(&self) -> TextPictureCache {
-        self.text_picture_cache.clone()
-    }
-
-    pub(crate) fn subtree_picture_cache(&self) -> SubtreePictureCache {
-        self.subtree_picture_cache.clone()
-    }
-
-    pub(crate) fn picture(&self, slot: SceneSlot) -> Option<Picture> {
+    pub(crate) fn scene_snapshot(&self, slot: SceneSlot) -> Option<SceneSnapshot> {
         match slot {
-            SceneSlot::Scene => self.scene_picture_cache.picture.clone(),
-            SceneSlot::TransitionFrom => self.transition_from_picture_cache.picture.clone(),
-            SceneSlot::TransitionTo => self.transition_to_picture_cache.picture.clone(),
+            SceneSlot::Scene => self.scene_picture_cache.source.clone(),
+            SceneSlot::TransitionFrom => self.transition_from_picture_cache.source.clone(),
+            SceneSlot::TransitionTo => self.transition_to_picture_cache.source.clone(),
         }
     }
 
-    pub(crate) fn store_picture(&mut self, slot: SceneSlot, picture: Option<Picture>) {
+    pub(crate) fn store_scene_snapshot(&mut self, slot: SceneSlot, source: Option<SceneSnapshot>) {
         match slot {
-            SceneSlot::Scene => self.scene_picture_cache.picture = picture,
-            SceneSlot::TransitionFrom => self.transition_from_picture_cache.picture = picture,
-            SceneSlot::TransitionTo => self.transition_to_picture_cache.picture = picture,
+            SceneSlot::Scene => self.scene_picture_cache.source = source,
+            SceneSlot::TransitionFrom => self.transition_from_picture_cache.source = source,
+            SceneSlot::TransitionTo => self.transition_to_picture_cache.source = source,
         }
     }
 }
 
-impl Default for RenderCacheState {
+impl Default for SceneSnapshotCache {
     fn default() -> Self {
         Self::new()
     }

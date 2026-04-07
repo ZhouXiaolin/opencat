@@ -21,6 +21,7 @@ use crate::{
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
     media::MediaContext,
     profile::BackendProfile,
+    scene_snapshot::SceneSnapshot,
     script::{CanvasCommand, ScriptColor, ScriptLineCap, ScriptLineJoin},
     style::{BackgroundFill, GradientDirection, ObjectFit, ShadowStyle, Transform},
     typography,
@@ -492,7 +493,7 @@ impl<'a> SkiaBackend<'a> {
     }
 }
 
-pub(crate) fn record_display_list_picture<'a>(
+pub(crate) fn record_display_list_composite_source<'a>(
     list: &DisplayList,
     width: i32,
     height: i32,
@@ -502,7 +503,7 @@ pub(crate) fn record_display_list_picture<'a>(
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     mut profile: Option<&'a mut BackendProfile>,
-) -> Result<Picture> {
+) -> Result<SceneSnapshot> {
     let started = Instant::now();
     let bounds = Rect::from_xywh(0.0, 0.0, width as f32, height as f32);
     let mut recorder = PictureRecorder::new();
@@ -526,7 +527,7 @@ pub(crate) fn record_display_list_picture<'a>(
     if let Some(profile) = profile {
         profile.picture_record_ms += started.elapsed().as_secs_f64() * 1000.0;
     }
-    Ok(picture)
+    Ok(SceneSnapshot::new(picture))
 }
 
 pub(crate) fn draw_layout_tree_with_subtree_cache<'a>(
@@ -555,7 +556,7 @@ pub(crate) fn draw_layout_tree_with_subtree_cache<'a>(
     backend.draw_layout_subtree(&layout_tree.root)
 }
 
-pub(crate) fn record_layout_tree_picture_with_subtree_cache<'a>(
+pub(crate) fn record_layout_tree_composite_source_with_subtree_cache<'a>(
     layout_tree: &LayoutTree,
     width: i32,
     height: i32,
@@ -566,7 +567,7 @@ pub(crate) fn record_layout_tree_picture_with_subtree_cache<'a>(
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     mut profile: Option<&'a mut BackendProfile>,
-) -> Result<Picture> {
+) -> Result<SceneSnapshot> {
     let started = Instant::now();
     let bounds = Rect::from_xywh(0.0, 0.0, width as f32, height as f32);
     let mut recorder = PictureRecorder::new();
@@ -590,7 +591,7 @@ pub(crate) fn record_layout_tree_picture_with_subtree_cache<'a>(
     if let Some(profile) = profile {
         profile.picture_record_ms += started.elapsed().as_secs_f64() * 1000.0;
     }
-    Ok(picture)
+    Ok(SceneSnapshot::new(picture))
 }
 
 fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {

@@ -14,6 +14,7 @@ pub mod parser;
 mod profile;
 pub mod render;
 mod render_cache;
+mod scene_snapshot;
 pub mod script;
 pub mod style;
 mod timeline;

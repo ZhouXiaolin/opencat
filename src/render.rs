@@ -2,16 +2,17 @@ use std::{collections::HashSet, path::Path, sync::Arc, time::Instant};
 
 use anyhow::{Result, anyhow};
 use skia_safe::{
-    AlphaType, ColorType, EncodedImageFormat, ImageInfo, Picture, image::CachingHint, surfaces,
+    AlphaType, ColorType, EncodedImageFormat, ImageInfo, image::CachingHint, surfaces,
 };
 
 use crate::{
     Composition, FrameCtx, Node,
     assets::AssetsMap,
     backend::{
+        resource_cache::BackendResourceCache,
         skia::{
-            SkiaBackend, draw_layout_tree_with_subtree_cache, record_display_list_picture,
-            record_layout_tree_picture_with_subtree_cache,
+            SkiaBackend, draw_layout_tree_with_subtree_cache, record_display_list_composite_source,
+            record_layout_tree_composite_source_with_subtree_cache,
         },
         skia_transition,
     },
@@ -22,7 +23,8 @@ use crate::{
     media::MediaContext,
     nodes::ImageSource,
     profile::{BackendProfile, FrameProfile, RenderProfiler, SceneBuildStats},
-    render_cache::{RenderCacheState, SceneSlot},
+    render_cache::{SceneSlot, SceneSnapshotCache},
+    scene_snapshot::{SceneSnapshot, SceneSnapshotPlan, SceneSnapshotStrategy},
     script::{ScriptRuntimeCache, StyleMutations},
     timeline::{FrameState, frame_state_for_root},
     view::NodeKind,
@@ -42,7 +44,8 @@ pub struct EncodingConfig {
 pub struct RenderSession {
     media_ctx: MediaContext,
     assets: AssetsMap,
-    caches: RenderCacheState,
+    scene_snapshots: SceneSnapshotCache,
+    backend_resources: BackendResourceCache,
     script_runtime: ScriptRuntimeCache,
     scene_layout: LayoutSession,
     transition_from_layout: LayoutSession,
@@ -76,7 +79,8 @@ impl RenderSession {
         Self {
             media_ctx: MediaContext::new(),
             assets: AssetsMap::new(),
-            caches: RenderCacheState::new(),
+            scene_snapshots: SceneSnapshotCache::new(),
+            backend_resources: BackendResourceCache::new(),
             script_runtime: ScriptRuntimeCache::default(),
             scene_layout: LayoutSession::new(),
             transition_from_layout: LayoutSession::new(),
@@ -224,11 +228,13 @@ fn render_frame_surface(
             frame_profile.merge_scene_stats(&scene_stats);
             let cache_scope =
                 scene_cache_scope(&scene_stats.layout_pass, scene_stats.contains_video);
+            let snapshot_plan =
+                SceneSnapshotPlan::from_scene(cache_scope, scene_stats.contains_video);
 
             let backend_started = Instant::now();
             let mut backend_profile = BackendProfile::default();
 
-            if let Some(picture) = picture_for_slot(
+            if let Some(snapshot) = scene_snapshot_for_slot(
                 session,
                 SceneSlot::Scene,
                 &layout_tree,
@@ -238,20 +244,18 @@ fn render_frame_surface(
                 composition.height,
                 &frame_ctx,
                 &mut backend_profile,
+                snapshot_plan,
                 false,
             )? {
-                let picture_draw_started = Instant::now();
-                canvas.draw_picture(&picture, None, None);
-                backend_profile.picture_draw_ms +=
-                    picture_draw_started.elapsed().as_secs_f64() * 1000.0;
-            } else if scene_stats.contains_video || cache_scope.prefers_subtree_cache() {
+                snapshot.draw(canvas, Some(&mut backend_profile))?;
+            } else if snapshot_plan.strategy == SceneSnapshotStrategy::LayoutTreeWithSubtreeCache {
                 draw_layout_tree_with_subtree_cache(
                     &layout_tree,
                     canvas,
                     &session.assets,
-                    session.caches.image_cache(),
-                    session.caches.text_picture_cache(),
-                    session.caches.subtree_picture_cache(),
+                    session.backend_resources.image_cache(),
+                    session.backend_resources.text_picture_cache(),
+                    session.backend_resources.subtree_picture_cache(),
                     Some(&mut session.media_ctx),
                     &frame_ctx,
                     Some(&mut backend_profile),
@@ -262,8 +266,8 @@ fn render_frame_surface(
                     composition.width,
                     composition.height,
                     &session.assets,
-                    session.caches.image_cache(),
-                    session.caches.text_picture_cache(),
+                    session.backend_resources.image_cache(),
+                    session.backend_resources.text_picture_cache(),
                     None,
                     Some(&mut session.media_ctx),
                     &frame_ctx,
@@ -297,10 +301,18 @@ fn render_frame_surface(
             )?;
             frame_profile.merge_scene_stats(&from_stats);
             frame_profile.merge_scene_stats(&to_stats);
+            let from_plan = SceneSnapshotPlan::from_scene(
+                scene_cache_scope(&from_stats.layout_pass, from_stats.contains_video),
+                from_stats.contains_video,
+            );
+            let to_plan = SceneSnapshotPlan::from_scene(
+                scene_cache_scope(&to_stats.layout_pass, to_stats.contains_video),
+                to_stats.contains_video,
+            );
 
             let backend_started = Instant::now();
             let mut backend_profile = BackendProfile::default();
-            let from_picture = picture_for_slot(
+            let from_snapshot = scene_snapshot_for_slot(
                 session,
                 SceneSlot::TransitionFrom,
                 &from_layout,
@@ -310,10 +322,11 @@ fn render_frame_surface(
                 composition.height,
                 &frame_ctx,
                 &mut backend_profile,
+                from_plan,
                 true,
             )?
-            .expect("transition source picture should exist");
-            let to_picture = picture_for_slot(
+            .expect("transition source scene snapshot should exist");
+            let to_snapshot = scene_snapshot_for_slot(
                 session,
                 SceneSlot::TransitionTo,
                 &to_layout,
@@ -323,24 +336,26 @@ fn render_frame_surface(
                 composition.height,
                 &frame_ctx,
                 &mut backend_profile,
+                to_plan,
                 true,
             )?
-            .expect("transition target picture should exist");
+            .expect("transition target scene snapshot should exist");
             frame_profile.backend_ms = backend_started.elapsed().as_secs_f64() * 1000.0;
-            frame_profile.merge_backend_profile(&backend_profile);
 
             let transition_started = Instant::now();
             skia_transition::draw_transition(
                 canvas,
-                &from_picture,
-                &to_picture,
+                &from_snapshot,
+                &to_snapshot,
                 progress,
                 kind,
                 composition.width,
                 composition.height,
+                Some(&mut backend_profile),
             )?;
             let transition_ms = transition_started.elapsed().as_secs_f64() * 1000.0;
             frame_profile.transition_ms = transition_ms;
+            frame_profile.merge_backend_profile(&backend_profile);
             match kind {
                 crate::transitions::TransitionKind::Slide(_) => {
                     frame_profile.slide_transition_ms = transition_ms;
@@ -515,94 +530,95 @@ fn build_scene_display_list_with_slot(
     Ok((layout_tree, display_list, stats))
 }
 
-fn picture_for_slot(
+fn scene_snapshot_for_slot(
     session: &mut RenderSession,
     slot: SceneSlot,
     layout_tree: &crate::layout::tree::LayoutTree,
     display_list: &DisplayList,
-    scene_stats: &SceneBuildStats,
+    _scene_stats: &SceneBuildStats,
     width: i32,
     height: i32,
     frame_ctx: &FrameCtx,
     backend_profile: &mut BackendProfile,
-    require_picture: bool,
-) -> Result<Option<Picture>> {
-    let cache_scope = scene_cache_scope(&scene_stats.layout_pass, scene_stats.contains_video);
-
-    if scene_stats.contains_video {
-        session.caches.store_picture(slot, None);
-        if !require_picture {
+    plan: SceneSnapshotPlan,
+    require_scene_snapshot: bool,
+) -> Result<Option<SceneSnapshot>> {
+    if plan.contains_video {
+        session.scene_snapshots.store_scene_snapshot(slot, None);
+        if !require_scene_snapshot {
             return Ok(None);
         }
-        let picture = record_layout_tree_picture_with_subtree_cache(
+        let snapshot = record_layout_tree_composite_source_with_subtree_cache(
             layout_tree,
             width,
             height,
             &session.assets,
-            session.caches.image_cache(),
-            session.caches.text_picture_cache(),
-            session.caches.subtree_picture_cache(),
+            session.backend_resources.image_cache(),
+            session.backend_resources.text_picture_cache(),
+            session.backend_resources.subtree_picture_cache(),
             Some(&mut session.media_ctx),
             frame_ctx,
             Some(backend_profile),
         )?;
-        return Ok(Some(picture));
+        return Ok(Some(snapshot));
     }
 
-    if cache_scope.allows_picture_reuse() {
-        if let Some(picture) = session.caches.picture(slot) {
+    if plan.allows_cache_reuse() {
+        if let Some(snapshot) = session.scene_snapshots.scene_snapshot(slot) {
             backend_profile.picture_cache_hits += 1;
-            return Ok(Some(picture));
+            return Ok(Some(snapshot));
         }
 
-        let picture = record_display_list_picture(
+        let snapshot = record_display_list_composite_source(
             display_list,
             width,
             height,
             &session.assets,
-            session.caches.image_cache(),
-            session.caches.text_picture_cache(),
+            session.backend_resources.image_cache(),
+            session.backend_resources.text_picture_cache(),
             Some(&mut session.media_ctx),
             frame_ctx,
             Some(backend_profile),
         )?;
         backend_profile.picture_cache_misses += 1;
-        session.caches.store_picture(slot, Some(picture.clone()));
-        return Ok(Some(picture));
+        session
+            .scene_snapshots
+            .store_scene_snapshot(slot, Some(snapshot.clone()));
+        return Ok(Some(snapshot));
     }
 
-    session.caches.store_picture(slot, None);
-    if !require_picture {
+    session.scene_snapshots.store_scene_snapshot(slot, None);
+    if !require_scene_snapshot {
         return Ok(None);
     }
 
-    let picture = if cache_scope.prefers_subtree_cache() {
-        record_layout_tree_picture_with_subtree_cache(
+    let snapshot = if plan.strategy == SceneSnapshotStrategy::LayoutTreeWithSubtreeCache {
+        record_layout_tree_composite_source_with_subtree_cache(
             layout_tree,
             width,
             height,
             &session.assets,
-            session.caches.image_cache(),
-            session.caches.text_picture_cache(),
-            session.caches.subtree_picture_cache(),
+            session.backend_resources.image_cache(),
+            session.backend_resources.text_picture_cache(),
+            session.backend_resources.subtree_picture_cache(),
             Some(&mut session.media_ctx),
             frame_ctx,
             Some(backend_profile),
         )?
     } else {
-        record_display_list_picture(
+        record_display_list_composite_source(
             display_list,
             width,
             height,
             &session.assets,
-            session.caches.image_cache(),
-            session.caches.text_picture_cache(),
+            session.backend_resources.image_cache(),
+            session.backend_resources.text_picture_cache(),
             Some(&mut session.media_ctx),
             frame_ctx,
             Some(backend_profile),
         )?
     };
-    Ok(Some(picture))
+    Ok(Some(snapshot))
 }
 
 #[cfg(test)]

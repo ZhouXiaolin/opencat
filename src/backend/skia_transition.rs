@@ -1,4 +1,4 @@
-use std::{cell::RefCell, thread_local};
+use std::{cell::RefCell, thread_local, time::Instant};
 
 use anyhow::{Result, anyhow};
 use skia_safe::{
@@ -6,7 +6,10 @@ use skia_safe::{
     RRect, Rect, RuntimeEffect, TileMode, runtime_effect::ChildPtr, surfaces,
 };
 
-use crate::transitions::{LightLeakTransition, SlideDirection, TransitionKind, WipeDirection};
+use crate::{
+    scene_snapshot::SceneSnapshot,
+    transitions::{LightLeakTransition, SlideDirection, TransitionKind, WipeDirection},
+};
 
 const LIGHT_LEAK_MASK_SKSL: &str = r#"
 uniform float evolveProgress;
@@ -147,20 +150,30 @@ impl LightLeakCompositeUniforms {
 
 pub fn draw_transition(
     canvas: &Canvas,
-    from: &Picture,
-    to: &Picture,
+    from: &SceneSnapshot,
+    to: &SceneSnapshot,
     progress: f32,
     kind: TransitionKind,
     width: i32,
     height: i32,
+    mut profile: Option<&mut crate::profile::BackendProfile>,
 ) -> Result<()> {
+    let from = from.picture()?;
+    let to = to.picture()?;
     match kind {
         TransitionKind::Slide(direction) => {
             draw_slide_transition(canvas, from, to, progress, direction, width, height)
         }
-        TransitionKind::LightLeak(params) => {
-            draw_light_leak_transition(canvas, from, to, progress, params, width, height)
-        }
+        TransitionKind::LightLeak(params) => draw_light_leak_transition(
+            canvas,
+            from,
+            to,
+            progress,
+            params,
+            width,
+            height,
+            profile.as_deref_mut(),
+        ),
         TransitionKind::Fade => draw_fade_transition(canvas, from, to, progress),
         TransitionKind::Wipe(direction) => {
             draw_wipe_transition(canvas, from, to, progress, direction, width, height)
@@ -367,10 +380,15 @@ fn draw_light_leak_transition(
     params: LightLeakTransition,
     width: i32,
     height: i32,
+    mut profile: Option<&mut crate::profile::BackendProfile>,
 ) -> Result<()> {
     let mask_scale = params.mask_scale.clamp(0.03125, 1.0);
     let mask_size = scaled_mask_size(width, height, mask_scale);
+    let mask_started = Instant::now();
     let mask_image = render_light_leak_mask(progress, params, mask_size.0, mask_size.1)?;
+    if let Some(profile) = profile.as_deref_mut() {
+        profile.light_leak_mask_ms += mask_started.elapsed().as_secs_f64() * 1000.0;
+    }
 
     let from_shader = from.to_shader(
         None,
@@ -404,9 +422,13 @@ fn draw_light_leak_transition(
         .make_shader(uniform_data(&uniforms), &children, Option::<&Matrix>::None)
         .ok_or_else(|| anyhow!("failed to create light leak composite shader"))?;
 
+    let composite_started = Instant::now();
     let mut paint = Paint::default();
     paint.set_shader(shader);
     canvas.draw_paint(&paint);
+    if let Some(profile) = profile.as_deref_mut() {
+        profile.light_leak_composite_ms += composite_started.elapsed().as_secs_f64() * 1000.0;
+    }
     Ok(())
 }
 

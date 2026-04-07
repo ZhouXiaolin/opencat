@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     FrameCtx,
-    nodes::{Canvas, Div, Image, Lucide, Text, Video},
+    nodes::{Audio, Canvas, Div, Image, Lucide, Text, Video},
     script::ScriptDriver,
     style::NodeStyle,
     timeline::TimelineNode,
@@ -50,6 +50,7 @@ pub enum NodeKind {
     Canvas(Canvas),
     Text(Text),
     Image(Image),
+    Audio(Audio),
     Lucide(Lucide),
     Video(Video),
     Timeline(TimelineNode),
@@ -63,6 +64,7 @@ impl NodeKind {
             Self::Canvas(node) => node.style_ref(),
             Self::Text(node) => node.style_ref(),
             Self::Image(node) => node.style_ref(),
+            Self::Audio(node) => node.style_ref(),
             Self::Lucide(node) => node.style_ref(),
             Self::Video(node) => node.style_ref(),
             Self::Timeline(node) => node.style_ref(),
@@ -74,9 +76,12 @@ impl NodeKind {
             Self::Component(node) => node.duration_in_frames(ctx),
             Self::Div(node) => node.duration_in_frames(ctx),
             Self::Timeline(node) => Some(node.duration_in_frames()),
-            Self::Text(_) | Self::Canvas(_) | Self::Image(_) | Self::Lucide(_) | Self::Video(_) => {
-                None
-            }
+            Self::Text(_)
+            | Self::Canvas(_)
+            | Self::Image(_)
+            | Self::Audio(_)
+            | Self::Lucide(_)
+            | Self::Video(_) => None,
         }
     }
 
@@ -87,6 +92,7 @@ impl NodeKind {
             Self::Canvas(node) => &mut node.style,
             Self::Text(node) => &mut node.style,
             Self::Image(node) => &mut node.style,
+            Self::Audio(node) => &mut node.style,
             Self::Lucide(node) => &mut node.style,
             Self::Video(node) => &mut node.style,
             Self::Timeline(node) => &mut node.style,
@@ -184,6 +190,12 @@ impl From<Text> for NodeKind {
 impl From<Image> for NodeKind {
     fn from(value: Image) -> Self {
         Self::Image(value)
+    }
+}
+
+impl From<Audio> for NodeKind {
+    fn from(value: Audio) -> Self {
+        Self::Audio(value)
     }
 }
 

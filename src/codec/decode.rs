@@ -6,14 +6,45 @@ use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg_next::threading::{Config, Type};
 use ffmpeg_next::{
-    format,
-    software::scaling::{context::Context as ScalingContext, flag::Flags as ScalingFlags},
-    util::format::pixel::Pixel,
+    ChannelLayout, codec, format, frame,
+    software::{
+        resampling::context::Context as ResamplingContext,
+        scaling::{context::Context as ScalingContext, flag::Flags as ScalingFlags},
+    },
+    util::format::{
+        pixel::Pixel,
+        sample::{Sample, Type as SampleType},
+    },
 };
 
 pub struct VideoInfo {
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct AudioTrack {
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub samples: Vec<f32>,
+}
+
+impl AudioTrack {
+    pub fn new(sample_rate: u32, channels: u16, samples: Vec<f32>) -> Self {
+        Self {
+            sample_rate,
+            channels,
+            samples,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.samples.is_empty()
+    }
+
+    pub fn sample_frames(&self) -> usize {
+        self.samples.len() / self.channels as usize
+    }
 }
 
 struct VideoDecoder {
@@ -31,6 +62,8 @@ struct VideoDecoder {
 
 impl VideoDecoder {
     fn open(path: &Path) -> Result<Self> {
+        ffmpeg::init()?;
+
         let input = format::input(path)
             .with_context(|| format!("failed to open video: {}", path.display()))?;
 
@@ -194,6 +227,99 @@ impl VideoDecodeCache {
 impl Default for VideoDecodeCache {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub fn decode_audio_to_f32_stereo(path: &Path, target_rate: u32) -> Result<AudioTrack> {
+    ffmpeg::init()?;
+
+    let mut input = format::input(path)
+        .with_context(|| format!("failed to open audio source: {}", path.display()))?;
+    let stream = input
+        .streams()
+        .best(ffmpeg::media::Type::Audio)
+        .ok_or_else(|| anyhow!("no audio stream in {}", path.display()))?;
+    let stream_index = stream.index();
+
+    let mut codec_ctx = codec::context::Context::from_parameters(stream.parameters())?;
+    let num_cpus = num_cpus::get().clamp(1, 16);
+    if num_cpus > 1 {
+        codec_ctx.set_threading(Config {
+            kind: Type::Frame,
+            count: num_cpus,
+        });
+    }
+    let mut decoder = codec_ctx.decoder().audio()?;
+
+    let src_layout = if decoder.channel_layout().is_empty() {
+        ChannelLayout::default(decoder.channels() as i32)
+    } else {
+        decoder.channel_layout()
+    };
+    let mut resampler = ResamplingContext::get(
+        decoder.format(),
+        src_layout,
+        decoder.rate(),
+        Sample::F32(SampleType::Packed),
+        ChannelLayout::STEREO,
+        target_rate,
+    )?;
+
+    let mut samples = Vec::new();
+    for (packet_stream, packet) in input.packets() {
+        if packet_stream.index() != stream_index {
+            continue;
+        }
+
+        decoder.send_packet(&packet)?;
+        drain_audio_frames(&mut decoder, &mut resampler, &mut samples)?;
+    }
+
+    decoder.send_eof()?;
+    drain_audio_frames(&mut decoder, &mut resampler, &mut samples)?;
+
+    loop {
+        let mut converted = frame::Audio::empty();
+        match resampler.flush(&mut converted) {
+            Ok(Some(_)) => append_packed_stereo_samples(&converted, &mut samples),
+            Ok(None) => break,
+            Err(ffmpeg::Error::OutputChanged) => break,
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    Ok(AudioTrack::new(target_rate, 2, samples))
+}
+
+fn drain_audio_frames(
+    decoder: &mut ffmpeg::decoder::Audio,
+    resampler: &mut ResamplingContext,
+    output: &mut Vec<f32>,
+) -> Result<()> {
+    let mut decoded = frame::Audio::empty();
+    while decoder.receive_frame(&mut decoded).is_ok() {
+        let mut converted = frame::Audio::empty();
+        resampler.run(&decoded, &mut converted)?;
+        append_packed_stereo_samples(&converted, output);
+    }
+    Ok(())
+}
+
+fn append_packed_stereo_samples(frame: &frame::Audio, output: &mut Vec<f32>) {
+    if frame.samples() == 0 {
+        return;
+    }
+
+    match frame.format() {
+        Sample::F32(SampleType::Packed) => {
+            for &(left, right) in frame.plane::<(f32, f32)>(0) {
+                output.push(left);
+                output.push(right);
+            }
+        }
+        other => {
+            panic!("expected packed f32 stereo audio, got {:?}", other);
+        }
     }
 }
 

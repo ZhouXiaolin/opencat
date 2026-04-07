@@ -2,12 +2,13 @@ use std::f32::consts::PI;
 
 use opencat::{
     Composition, EncodingConfig, FrameCtx, Node, light_leak,
-    nodes::{canvas, div, image, text, video},
+    nodes::{audio, canvas, div, image, text, video},
     transitions::{linear, slide, timeline},
 };
 
 const VIDEO_PATH: &str = "/Users/solaren/Resources/mp4/2.mp4";
 const IMAGE_PATH: &str = "/Users/solaren/Resources/png/3.png";
+const AUDIO_PATH: &str = "/Users/solaren/Resources/mp3/mixkit-hip-hop-02-738.mp3";
 const STAGE_CANVAS_SCRIPT: &str = r##"
 const CK = ctx.CanvasKit;
 const canvas = ctx.getCanvas();
@@ -95,6 +96,7 @@ fn scene_one(ctx: &FrameCtx) -> Node {
         .bg_slate_900()
         .px(56.0)
         .py(48.0)
+        .child(audio().path(AUDIO_PATH).id("scene-one-audio"))
         .child(
             div()
                 .id("scene-one-copy")
@@ -252,6 +254,7 @@ fn scene_two(ctx: &FrameCtx) -> Node {
         .w_full()
         .h_full()
         .bg_slate_50()
+        .child(audio().path(AUDIO_PATH).id("scene-two-audio"))
         .child(
             image()
                 .path(IMAGE_PATH)
@@ -349,6 +352,7 @@ fn scene_three(ctx: &FrameCtx) -> Node {
         .bg_black()
         .px(52.0)
         .py(48.0)
+        .child(audio().path(AUDIO_PATH).id("scene-three-audio"))
         .child(
             div()
                 .id("scene-three-header")

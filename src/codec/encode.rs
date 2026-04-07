@@ -3,12 +3,24 @@ use std::{path::Path, ptr};
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg_next::{
-    Dictionary, codec,
+    ChannelLayout, Dictionary, codec,
     codec::packet::Packet,
     format,
-    software::scaling::{context::Context as ScalingContext, flag::Flags as ScalingFlags},
-    util::{format::pixel::Pixel, frame::video::Video, rational::Rational},
+    software::{
+        resampling::context::Context as ResamplingContext,
+        scaling::{context::Context as ScalingContext, flag::Flags as ScalingFlags},
+    },
+    util::{
+        format::{
+            pixel::Pixel,
+            sample::{Sample, Type as SampleType},
+        },
+        frame::{audio::Audio as AudioFrame, video::Video},
+        rational::Rational,
+    },
 };
+
+use crate::codec::decode::AudioTrack;
 
 pub struct Mp4Config {
     pub crf: u8,
@@ -31,6 +43,7 @@ pub fn encode_rgba_frames(
     fps: u32,
     frame_count: u32,
     config: &Mp4Config,
+    audio_track: Option<&AudioTrack>,
     mut frame_provider: impl FnMut(u32) -> Result<Vec<u8>>,
 ) -> Result<()> {
     ffmpeg::init()?;
@@ -43,43 +56,53 @@ pub fn encode_rgba_frames(
         )
     })?;
 
-    let codec = ffmpeg::encoder::find(codec::Id::H264)
+    let video_codec = ffmpeg::encoder::find(codec::Id::H264)
         .ok_or_else(|| anyhow!("H264 encoder not found in local ffmpeg"))?;
 
     let nominal_time_base = Rational(1, fps as i32);
     let stream_time_base = Rational(1, 90_000);
 
-    let mut encoder_ctx = ffmpeg::codec::context::Context::new_with_codec(codec)
+    let mut video_encoder_ctx = ffmpeg::codec::context::Context::new_with_codec(video_codec)
         .encoder()
         .video()?;
-    encoder_ctx.set_width(width);
-    encoder_ctx.set_height(height);
-    encoder_ctx.set_format(Pixel::YUV420P);
-    encoder_ctx.set_time_base(nominal_time_base);
-    encoder_ctx.set_frame_rate(Some(Rational(fps as i32, 1)));
+    video_encoder_ctx.set_width(width);
+    video_encoder_ctx.set_height(height);
+    video_encoder_ctx.set_format(Pixel::YUV420P);
+    video_encoder_ctx.set_time_base(nominal_time_base);
+    video_encoder_ctx.set_frame_rate(Some(Rational(fps as i32, 1)));
 
     if output
         .format()
         .flags()
         .contains(format::flag::Flags::GLOBAL_HEADER)
     {
-        encoder_ctx.set_flags(codec::flag::Flags::GLOBAL_HEADER);
+        video_encoder_ctx.set_flags(codec::flag::Flags::GLOBAL_HEADER);
     }
 
     let mut encode_options = Dictionary::new();
     encode_options.set("crf", &config.crf.to_string());
     encode_options.set("preset", &config.preset);
-    let mut encoder = encoder_ctx.open_as_with(codec, encode_options)?;
-    let packet_time_base = nominal_time_base;
-    let frame_duration = 1_i64;
+    let mut video_encoder = video_encoder_ctx.open_as_with(video_codec, encode_options)?;
+    let video_packet_time_base = nominal_time_base;
+    let video_frame_duration = 1_i64;
 
-    let stream_index = {
-        let mut stream = output.add_stream(codec)?;
+    let video_stream_index = {
+        let mut stream = output.add_stream(video_codec)?;
         stream.set_time_base(stream_time_base);
         stream.set_rate(Rational(fps as i32, 1));
         stream.set_avg_frame_rate(Rational(fps as i32, 1));
-        stream.set_parameters(&encoder);
+        stream.set_parameters(&video_encoder);
         stream.index()
+    };
+
+    let audio_context = if let Some(track) = audio_track.filter(|track| !track.is_empty()) {
+        Some(create_audio_output_context(
+            &mut output,
+            output_path,
+            track,
+        )?)
+    } else {
+        None
     };
 
     output.write_header()?;
@@ -104,28 +127,184 @@ pub fn encode_rgba_frames(
         scaler.run(&rgba_frame, &mut yuv_frame)?;
         yuv_frame.set_pts(Some(frame_index as i64));
 
-        encoder.send_frame(&yuv_frame)?;
-        write_encoded_packets(
-            &mut encoder,
+        video_encoder.send_frame(&yuv_frame)?;
+        write_video_packets(
+            &mut video_encoder,
             &mut output,
-            stream_index,
-            packet_time_base,
+            video_stream_index,
+            video_packet_time_base,
             stream_time_base,
-            frame_duration,
+            video_frame_duration,
         )?;
     }
 
-    encoder.send_eof()?;
-    write_encoded_packets(
-        &mut encoder,
+    video_encoder.send_eof()?;
+    write_video_packets(
+        &mut video_encoder,
         &mut output,
-        stream_index,
-        packet_time_base,
+        video_stream_index,
+        video_packet_time_base,
         stream_time_base,
-        frame_duration,
+        video_frame_duration,
     )?;
 
+    if let Some(audio_context) = audio_context {
+        write_audio_track(audio_context, &mut output)?;
+    }
+
     output.write_trailer()?;
+    Ok(())
+}
+
+struct AudioOutputContext<'a> {
+    track: &'a AudioTrack,
+    encoder: ffmpeg::codec::encoder::audio::Encoder,
+    resampler: ResamplingContext,
+    stream_index: usize,
+    packet_time_base: Rational,
+    stream_time_base: Rational,
+    frame_size: usize,
+    variable_frame_size: bool,
+}
+
+fn create_audio_output_context<'a>(
+    output: &mut format::context::Output,
+    output_path: &Path,
+    track: &'a AudioTrack,
+) -> Result<AudioOutputContext<'a>> {
+    let audio_codec = ffmpeg::encoder::find(
+        output
+            .format()
+            .codec(output_path, ffmpeg::media::Type::Audio),
+    )
+    .or_else(|| ffmpeg::encoder::find(codec::Id::AAC))
+    .ok_or_else(|| anyhow!("AAC encoder not found in local ffmpeg"))?
+    .audio()?;
+
+    let global_header = output
+        .format()
+        .flags()
+        .contains(format::flag::Flags::GLOBAL_HEADER);
+
+    let mut stream = output.add_stream(audio_codec)?;
+    let context = ffmpeg::codec::context::Context::from_parameters(stream.parameters())?;
+    let mut audio_encoder = context.encoder().audio()?;
+
+    let encoder_format = audio_codec
+        .formats()
+        .and_then(|mut formats| formats.next())
+        .unwrap_or(Sample::F32(SampleType::Planar));
+    let channel_layout = audio_codec
+        .channel_layouts()
+        .map(|layouts| layouts.best(track.channels as i32))
+        .unwrap_or(ChannelLayout::STEREO);
+
+    if global_header {
+        audio_encoder.set_flags(codec::flag::Flags::GLOBAL_HEADER);
+    }
+
+    audio_encoder.set_rate(track.sample_rate as i32);
+    audio_encoder.set_channel_layout(channel_layout);
+    audio_encoder.set_format(encoder_format);
+    audio_encoder.set_bit_rate(192_000);
+    audio_encoder.set_time_base((1, track.sample_rate as i32));
+
+    let encoder = audio_encoder.open_as(audio_codec)?;
+    stream.set_time_base((1, track.sample_rate as i32));
+    stream.set_parameters(&encoder);
+
+    let variable_frame_size = encoder.codec().is_some_and(|codec| {
+        codec
+            .capabilities()
+            .contains(ffmpeg::codec::capabilities::Capabilities::VARIABLE_FRAME_SIZE)
+    });
+    let frame_size = encoder.frame_size().max(1024) as usize;
+    let resampler = ResamplingContext::get(
+        Sample::F32(SampleType::Packed),
+        ChannelLayout::STEREO,
+        track.sample_rate,
+        encoder.format(),
+        encoder.channel_layout(),
+        encoder.rate(),
+    )?;
+
+    Ok(AudioOutputContext {
+        track,
+        encoder,
+        resampler,
+        stream_index: stream.index(),
+        packet_time_base: Rational(1, track.sample_rate as i32),
+        stream_time_base: stream.time_base(),
+        frame_size,
+        variable_frame_size,
+    })
+}
+
+fn write_audio_track(
+    mut audio: AudioOutputContext<'_>,
+    output: &mut format::context::Output,
+) -> Result<()> {
+    let total_frames = audio.track.sample_frames();
+    let chunk_size = if audio.variable_frame_size {
+        audio.frame_size.max(1024)
+    } else {
+        audio.frame_size.max(1)
+    };
+    let mut next_pts = 0_i64;
+    let mut sample_cursor = 0_usize;
+
+    while sample_cursor < total_frames {
+        let remaining = total_frames - sample_cursor;
+        let chunk_frames = remaining.min(chunk_size);
+        let padded_frames = if audio.variable_frame_size {
+            chunk_frames
+        } else {
+            chunk_size
+        };
+
+        let mut input = AudioFrame::new(
+            Sample::F32(SampleType::Packed),
+            padded_frames,
+            ChannelLayout::STEREO,
+        );
+        input.set_rate(audio.track.sample_rate);
+        input.set_pts(Some(next_pts));
+
+        {
+            let plane = input.plane_mut::<(f32, f32)>(0);
+            for sample in plane.iter_mut() {
+                *sample = (0.0, 0.0);
+            }
+            for (idx, sample) in plane.iter_mut().take(chunk_frames).enumerate() {
+                let src = (sample_cursor + idx) * 2;
+                *sample = (audio.track.samples[src], audio.track.samples[src + 1]);
+            }
+        }
+
+        let mut converted = AudioFrame::empty();
+        audio.resampler.run(&input, &mut converted)?;
+        converted.set_pts(Some(next_pts));
+        audio.encoder.send_frame(&converted)?;
+        write_audio_packets(
+            &mut audio.encoder,
+            output,
+            audio.stream_index,
+            audio.packet_time_base,
+            audio.stream_time_base,
+        )?;
+
+        sample_cursor += chunk_frames;
+        next_pts += chunk_frames as i64;
+    }
+
+    audio.encoder.send_eof()?;
+    write_audio_packets(
+        &mut audio.encoder,
+        output,
+        audio.stream_index,
+        audio.packet_time_base,
+        audio.stream_time_base,
+    )?;
     Ok(())
 }
 
@@ -147,7 +326,7 @@ fn write_rgba_to_frame_ptr(rgba: &[u8], frame: &mut Video, width: usize, height:
     }
 }
 
-fn write_encoded_packets(
+fn write_video_packets(
     encoder: &mut ffmpeg::codec::encoder::video::Encoder,
     output: &mut format::context::Output,
     stream_index: usize,
@@ -160,6 +339,23 @@ fn write_encoded_packets(
         if packet.duration() == 0 {
             packet.set_duration(frame_duration);
         }
+        packet.rescale_ts(packet_time_base, stream_time_base);
+        packet.set_stream(stream_index);
+        packet.write_interleaved(output)?;
+    }
+
+    Ok(())
+}
+
+fn write_audio_packets(
+    encoder: &mut ffmpeg::codec::encoder::audio::Encoder,
+    output: &mut format::context::Output,
+    stream_index: usize,
+    packet_time_base: Rational,
+    stream_time_base: Rational,
+) -> Result<()> {
+    let mut packet = Packet::empty();
+    while encoder.receive_packet(&mut packet).is_ok() {
         packet.rescale_ts(packet_time_base, stream_time_base);
         packet.set_stream(stream_index);
         packet.write_interleaved(output)?;

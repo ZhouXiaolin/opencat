@@ -25,8 +25,8 @@ pub mod view;
 pub use composition::Composition;
 pub use frame_ctx::FrameCtx;
 pub use nodes::{
-    Canvas, CanvasAsset, Image, ImageSource, OpenverseQuery, canvas, div, image, lucide, text,
-    video,
+    Audio, AudioSource, Canvas, CanvasAsset, Image, ImageSource, OpenverseQuery, audio, canvas,
+    div, image, lucide, text, video,
 };
 pub use parser::{ParsedComposition, parse};
 pub use render::{

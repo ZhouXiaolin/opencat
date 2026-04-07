@@ -12,7 +12,7 @@ use serde::Deserialize;
 use tokio::runtime::Builder;
 use tokio::task::JoinSet;
 
-use crate::nodes::{ImageSource, OpenverseQuery};
+use crate::nodes::{AudioSource, ImageSource, OpenverseQuery};
 
 const OPENVERSE_IMAGES_ENDPOINT: &str = "https://api.openverse.org/v1/images/";
 const OPENVERSE_TOKEN_ENDPOINT: &str = "https://api.openverse.org/v1/auth_tokens/token/";
@@ -39,6 +39,12 @@ struct AssetEntry {
 struct RemoteAssetRequest {
     id: AssetId,
     source: RemoteImageSource,
+}
+
+#[derive(Clone)]
+struct RemoteAudioRequest {
+    id: AssetId,
+    url: String,
 }
 
 #[derive(Clone)]
@@ -168,6 +174,64 @@ impl AssetsMap {
         Ok(())
     }
 
+    pub fn preload_audio_sources<I>(&mut self, sources: I) -> Result<()>
+    where
+        I: IntoIterator<Item = AudioSource>,
+    {
+        let mut remote_requests = Vec::new();
+
+        for source in sources {
+            match source {
+                AudioSource::Unset => {
+                    return Err(anyhow!("audio source is required before rendering"));
+                }
+                AudioSource::Path(path) => {
+                    self.register_audio_path(&path);
+                }
+                AudioSource::Url(url) => {
+                    let id = asset_id_for_audio_url(&url);
+                    if !self.entries.contains_key(&id) {
+                        remote_requests.push(RemoteAudioRequest { id, url });
+                    }
+                }
+            }
+        }
+
+        if remote_requests.is_empty() {
+            return Ok(());
+        }
+
+        fs::create_dir_all(&self.cache_dir).with_context(|| {
+            format!(
+                "failed to create asset cache dir {}",
+                self.cache_dir.display()
+            )
+        })?;
+
+        let runtime = Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .context("failed to build tokio runtime for audio preloading")?;
+
+        let prepared = runtime.block_on(preload_remote_audio_requests(
+            self.cache_dir.clone(),
+            remote_requests,
+        ))?;
+
+        for (id, path) in prepared {
+            self.entries.insert(
+                id,
+                AssetEntry {
+                    path,
+                    width: 0,
+                    height: 0,
+                },
+            );
+        }
+
+        Ok(())
+    }
+
     pub fn register_image_source(&mut self, source: &ImageSource) -> Result<AssetId> {
         match source {
             ImageSource::Unset => Err(anyhow!("image source is required before rendering")),
@@ -185,6 +249,19 @@ impl AssetsMap {
                         "Openverse query {:?} was not preloaded before rendering",
                         query.query
                     )
+                })
+            }
+        }
+    }
+
+    pub fn register_audio_source(&mut self, source: &AudioSource) -> Result<AssetId> {
+        match source {
+            AudioSource::Unset => Err(anyhow!("audio source is required before rendering")),
+            AudioSource::Path(path) => Ok(self.register_audio_path(path)),
+            AudioSource::Url(url) => {
+                let id = asset_id_for_audio_url(url);
+                self.entries.get(&id).map(|_| id).ok_or_else(|| {
+                    anyhow!("remote audio source {url} was not preloaded before rendering")
                 })
             }
         }
@@ -237,6 +314,23 @@ impl AssetsMap {
     pub fn path(&self, id: &AssetId) -> Option<&Path> {
         self.entries.get(id).map(|e| e.path.as_path())
     }
+
+    fn register_audio_path(&mut self, path: &Path) -> AssetId {
+        let id = asset_id_for_audio_path(path);
+        if self.entries.contains_key(&id) {
+            return id;
+        }
+
+        self.entries.insert(
+            id.clone(),
+            AssetEntry {
+                path: path.to_path_buf(),
+                width: 0,
+                height: 0,
+            },
+        );
+        id
+    }
 }
 
 async fn preload_remote_requests(
@@ -275,7 +369,7 @@ async fn prepare_remote_asset(
     openverse_token: Option<String>,
     request: RemoteAssetRequest,
 ) -> Result<(AssetId, PathBuf, u32, u32)> {
-    let path = cache_file_path(&cache_dir, &request.id);
+    let path = cache_file_path(&cache_dir, &request.id, "img");
 
     if !path.exists() {
         let resolved_url = match &request.source {
@@ -305,6 +399,63 @@ async fn prepare_remote_asset(
 
     let (width, height) = read_image_dimensions(&path);
     Ok((request.id, path, width, height))
+}
+
+async fn preload_remote_audio_requests(
+    cache_dir: PathBuf,
+    requests: Vec<RemoteAudioRequest>,
+) -> Result<Vec<(AssetId, PathBuf)>> {
+    let client = reqwest::Client::builder()
+        .user_agent(HTTP_USER_AGENT)
+        .timeout(Duration::from_secs(20))
+        .build()
+        .context("failed to build async http client")?;
+
+    let mut tasks = JoinSet::new();
+    for request in requests {
+        let client = client.clone();
+        let cache_dir = cache_dir.clone();
+        tasks.spawn(async move { prepare_remote_audio_asset(client, cache_dir, request).await });
+    }
+
+    let mut prepared = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        prepared.push(
+            result
+                .context("audio preload task failed to join")?
+                .context("audio preload task failed")?,
+        );
+    }
+    Ok(prepared)
+}
+
+async fn prepare_remote_audio_asset(
+    client: reqwest::Client,
+    cache_dir: PathBuf,
+    request: RemoteAudioRequest,
+) -> Result<(AssetId, PathBuf)> {
+    let path = cache_file_path(&cache_dir, &request.id, "audio");
+
+    if !path.exists() {
+        let bytes = client
+            .get(&request.url)
+            .send()
+            .await
+            .with_context(|| format!("failed to download audio asset from {}", request.url))?
+            .error_for_status()
+            .with_context(|| format!("audio download failed for {}", request.url))?
+            .bytes()
+            .await
+            .with_context(|| {
+                format!("failed to read downloaded audio bytes from {}", request.url)
+            })?;
+
+        tokio::fs::write(&path, &bytes)
+            .await
+            .with_context(|| format!("failed to write cached audio {}", path.display()))?;
+    }
+
+    Ok((request.id, path))
 }
 
 async fn search_openverse_image(
@@ -397,6 +548,14 @@ fn asset_id_for_url(url: &str) -> AssetId {
     AssetId(format!("url:{url}"))
 }
 
+fn asset_id_for_audio_path(path: &Path) -> AssetId {
+    AssetId(format!("audio:path:{}", path.to_string_lossy()))
+}
+
+fn asset_id_for_audio_url(url: &str) -> AssetId {
+    AssetId(format!("audio:url:{url}"))
+}
+
 fn asset_id_for_query(query: &OpenverseQuery) -> AssetId {
     AssetId(format!(
         "openverse:q={};count={};aspect_ratio={}",
@@ -406,8 +565,8 @@ fn asset_id_for_query(query: &OpenverseQuery) -> AssetId {
     ))
 }
 
-fn cache_file_path(cache_dir: &Path, id: &AssetId) -> PathBuf {
-    cache_dir.join(format!("{:016x}.img", stable_hash(&id.0)))
+fn cache_file_path(cache_dir: &Path, id: &AssetId, extension: &str) -> PathBuf {
+    cache_dir.join(format!("{:016x}.{extension}", stable_hash(&id.0)))
 }
 
 fn read_image_dimensions(path: &Path) -> (u32, u32) {

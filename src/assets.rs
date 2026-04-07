@@ -207,6 +207,26 @@ impl AssetsMap {
         id
     }
 
+    pub fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()> {
+        if self.entries.contains_key(&alias) {
+            return Ok(());
+        }
+
+        let entry = self
+            .entries
+            .get(target)
+            .ok_or_else(|| anyhow!("cannot alias missing asset {}", target.0))?;
+        self.entries.insert(
+            alias,
+            AssetEntry {
+                path: entry.path.clone(),
+                width: entry.width,
+                height: entry.height,
+            },
+        );
+        Ok(())
+    }
+
     pub fn dimensions(&self, id: &AssetId) -> (u32, u32) {
         self.entries
             .get(id)

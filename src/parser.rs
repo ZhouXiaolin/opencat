@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock};
 
 use serde::Deserialize;
 
-use crate::nodes::{ImageSource, OpenverseQuery, div, image, lucide, text, video};
+use crate::nodes::{ImageSource, OpenverseQuery, canvas, div, image, lucide, text, video};
 use crate::script::ScriptDriver;
 use crate::style::{
     AlignItems, ColorToken, FlexDirection, FontWeight, GradientDirection, JustifyContent,
@@ -49,6 +49,15 @@ enum JsonLine {
         #[serde(rename = "className")]
         class_name: Option<String>,
         text: String,
+        duration: Option<u32>,
+    },
+    #[serde(rename = "canvas")]
+    Canvas {
+        id: String,
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        #[serde(rename = "className")]
+        class_name: Option<String>,
         duration: Option<u32>,
     },
     #[serde(rename = "image")]
@@ -108,6 +117,7 @@ enum JsonLine {
 enum ParsedElementKind {
     Div,
     Text { content: String },
+    Canvas,
     Image { source: ImageSource },
     Icon { name: String },
     Video { path: PathBuf },
@@ -236,6 +246,28 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                     duration,
                     style,
                     kind: ParsedElementKind::Text { content: text },
+                });
+            }
+            JsonLine::Canvas {
+                id,
+                parent_id,
+                class_name,
+                duration,
+            } => {
+                let style = parse_class_name_with_context(
+                    class_name.as_deref().unwrap_or(""),
+                    &id,
+                    line_index + 1,
+                );
+                if parent_id.is_none() {
+                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
+                }
+                elements.push(ParsedElement {
+                    id,
+                    parent_id,
+                    duration,
+                    style,
+                    kind: ParsedElementKind::Canvas,
                 });
             }
             JsonLine::Image {
@@ -552,6 +584,20 @@ fn build_node(
             let mut text_node = text(content);
             text_node.style = style;
             Ok(Node::new(text_node))
+        }
+        ParsedElementKind::Canvas => {
+            if children_map
+                .get(el.id.as_str())
+                .is_some_and(|children| !children.is_empty())
+            {
+                return Err(anyhow::anyhow!(
+                    "canvas node `{}` cannot have child nodes",
+                    el.id
+                ));
+            }
+            let mut canvas_node = canvas();
+            canvas_node.style = style;
+            Ok(Node::new(canvas_node))
         }
         ParsedElementKind::Image { source } => {
             let mut image_node = image();

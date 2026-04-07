@@ -2,16 +2,16 @@ use anyhow::{Result, ensure};
 
 use crate::{
     FrameCtx, Node,
-    assets::AssetsMap,
+    assets::{AssetId, AssetsMap},
     element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
-            ElementBitmap, ElementDiv, ElementId, ElementKind, ElementLucide, ElementNode,
-            ElementText,
+            ElementBitmap, ElementCanvas, ElementDiv, ElementId, ElementKind, ElementLucide,
+            ElementNode, ElementText,
         },
     },
     media::MediaContext,
-    nodes::{Div, Image, Lucide, Text, Video},
+    nodes::{Canvas, Div, Image, Lucide, Text, Video},
     script::{ScriptRuntimeCache, StyleMutations},
     style::{NodeStyle, resolve_text_style},
     view::{ComponentNode, NodeKind},
@@ -92,6 +92,7 @@ fn resolve_node(
         NodeKind::Video(video) => resolve_video(video, cx, media),
         NodeKind::Image(image) => resolve_image(image, cx, media),
         NodeKind::Div(div) => resolve_div(div, cx, media),
+        NodeKind::Canvas(canvas) => resolve_canvas(canvas, cx),
         NodeKind::Text(text) => resolve_text(text, cx),
         NodeKind::Lucide(lucide) => resolve_lucide(lucide, cx),
         NodeKind::Timeline(_) => {
@@ -172,6 +173,38 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
                 text: text.content().to_string(),
                 text_style: computed.text,
             }),
+            style: computed,
+            children: Vec::new(),
+        })
+    })();
+    if pushed {
+        cx.mutation_stack.pop();
+    }
+    result
+}
+
+fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
+    let pushed = push_script_scope(canvas.style_ref(), cx)?;
+    let result = (|| {
+        let mut style = canvas.style_ref().clone();
+        ensure!(
+            !style.id.is_empty(),
+            "node id is required for canvas nodes before rendering"
+        );
+        apply_mutation_stack(&mut style, cx.mutation_stack);
+        let computed = compute_style(&style, cx.inherited_style);
+
+        for asset in canvas.assets_ref() {
+            let target = cx.assets.register_image_source(&asset.source)?;
+            cx.assets.alias(AssetId(asset.asset_id.clone()), &target)?;
+        }
+
+        let mut commands = Vec::new();
+        apply_canvas_mutation_stack(&mut commands, cx.mutation_stack, &style.id);
+
+        Ok(ElementNode {
+            id: cx.ids.alloc(),
+            kind: ElementKind::Canvas(ElementCanvas { commands }),
             style: computed,
             children: Vec::new(),
         })
@@ -361,7 +394,12 @@ fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<b
 
     let mutations = cx
         .script_runtime
-        .run(driver, cx.frame_ctx.frame, cx.frame_ctx.frames)?;
+        .run(
+            driver,
+            cx.frame_ctx.frame,
+            cx.frame_ctx.frames,
+            (!style.id.is_empty()).then_some(style.id.as_str()),
+        )?;
     if mutations.is_empty() {
         return Ok(false);
     }
@@ -374,6 +412,12 @@ fn apply_mutation_stack(style: &mut NodeStyle, stack: &[StyleMutations]) {
     let id = style.id.clone();
     for mutations in stack {
         mutations.apply_to_node(style, &id);
+    }
+}
+
+fn apply_canvas_mutation_stack(commands: &mut Vec<crate::script::CanvasCommand>, stack: &[StyleMutations], id: &str) {
+    for mutations in stack {
+        mutations.apply_to_canvas(commands, id);
     }
 }
 

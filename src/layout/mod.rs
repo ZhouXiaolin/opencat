@@ -16,8 +16,8 @@ use crate::{
         tree::{ElementKind, ElementNode},
     },
     layout::tree::{
-        LayoutBitmapPaint, LayoutLucidePaint, LayoutNode, LayoutPaint, LayoutPaintKind, LayoutRect,
-        LayoutTextPaint, LayoutTree,
+        LayoutBitmapPaint, LayoutCanvasPaint, LayoutLucidePaint, LayoutNode, LayoutPaint,
+        LayoutPaintKind, LayoutRect, LayoutTextPaint, LayoutTree,
     },
     nodes::{AlignItems, JustifyContent, Position},
     style::ComputedTextStyle,
@@ -51,6 +51,7 @@ enum CachedNodeKind {
     Div,
     Text,
     Bitmap,
+    Canvas,
     Lucide,
 }
 
@@ -311,6 +312,7 @@ fn cached_node_kind(element: &ElementNode) -> CachedNodeKind {
         ElementKind::Div(_) => CachedNodeKind::Div,
         ElementKind::Text(_) => CachedNodeKind::Text,
         ElementKind::Bitmap(_) => CachedNodeKind::Bitmap,
+        ElementKind::Canvas(_) => CachedNodeKind::Canvas,
         ElementKind::Lucide(_) => CachedNodeKind::Lucide,
     }
 }
@@ -337,6 +339,7 @@ fn layout_affect_hash(element: &ElementNode) -> u64 {
             bitmap.width.hash(&mut hasher);
             bitmap.height.hash(&mut hasher);
         }
+        ElementKind::Canvas(_) => {}
         ElementKind::Lucide(lucide) => {
             lucide.icon.hash(&mut hasher);
         }
@@ -359,6 +362,12 @@ fn raster_affect_hash(element: &ElementNode) -> u64 {
             bitmap.asset_id.hash(&mut hasher);
             bitmap.width.hash(&mut hasher);
             bitmap.height.hash(&mut hasher);
+        }
+        ElementKind::Canvas(canvas) => {
+            canvas.commands.len().hash(&mut hasher);
+            for command in &canvas.commands {
+                hash_canvas_command(command, &mut hasher);
+            }
         }
         ElementKind::Lucide(lucide) => {
             lucide.icon.hash(&mut hasher);
@@ -574,6 +583,36 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             },
             ..base_style(layout)
         },
+        ElementKind::Canvas(_) => Style {
+            display: taffy::prelude::Display::Block,
+            size: match layout.position {
+                Position::Absolute => taffy::geometry::Size {
+                    width: resolve_dimension(layout.width, layout.width_full, Dimension::auto()),
+                    height: resolve_dimension(layout.height, layout.height_full, Dimension::auto()),
+                },
+                Position::Relative => taffy::geometry::Size {
+                    width: resolve_dimension(
+                        layout.width,
+                        layout.width_full,
+                        if layout.auto_size {
+                            Dimension::auto()
+                        } else {
+                            Dimension::percent(1.0)
+                        },
+                    ),
+                    height: resolve_dimension(
+                        layout.height,
+                        layout.height_full,
+                        if layout.auto_size {
+                            Dimension::auto()
+                        } else {
+                            Dimension::percent(1.0)
+                        },
+                    ),
+                },
+            },
+            ..base_style(layout)
+        },
         ElementKind::Lucide(_) => Style {
             size: taffy::geometry::Size {
                 width: resolve_dimension(layout.width, layout.width_full, Dimension::length(24.0)),
@@ -639,6 +678,9 @@ fn layout_paint_for_element(element: &ElementNode) -> LayoutPaint {
                 height: bitmap.height,
                 object_fit: element.style.visual.object_fit,
             }),
+            ElementKind::Canvas(canvas) => LayoutPaintKind::Canvas(LayoutCanvasPaint {
+                commands: canvas.commands.clone(),
+            }),
             ElementKind::Lucide(lucide) => LayoutPaintKind::Lucide(LayoutLucidePaint {
                 icon: lucide.icon.clone(),
                 foreground: element.style.text.color,
@@ -683,6 +725,209 @@ fn base_style(layout: &ComputedLayoutStyle) -> Style {
         style.flex_shrink = flex_shrink;
     }
     style
+}
+
+fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl Hasher) {
+    match command {
+        crate::script::CanvasCommand::Save => {
+            0_u8.hash(state);
+        }
+        crate::script::CanvasCommand::Restore => {
+            1_u8.hash(state);
+        }
+        crate::script::CanvasCommand::SetFillStyle { color } => {
+            2_u8.hash(state);
+            color.hash(state);
+        }
+        crate::script::CanvasCommand::SetStrokeStyle { color } => {
+            3_u8.hash(state);
+            color.hash(state);
+        }
+        crate::script::CanvasCommand::SetLineWidth { width } => {
+            4_u8.hash(state);
+            hash_f32(*width, state);
+        }
+        crate::script::CanvasCommand::SetLineCap { cap } => {
+            5_u8.hash(state);
+            cap.hash(state);
+        }
+        crate::script::CanvasCommand::SetLineJoin { join } => {
+            6_u8.hash(state);
+            join.hash(state);
+        }
+        crate::script::CanvasCommand::SetGlobalAlpha { alpha } => {
+            7_u8.hash(state);
+            hash_f32(*alpha, state);
+        }
+        crate::script::CanvasCommand::Translate { x, y } => {
+            8_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+        }
+        crate::script::CanvasCommand::Scale { x, y } => {
+            9_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+        }
+        crate::script::CanvasCommand::Rotate { degrees } => {
+            10_u8.hash(state);
+            hash_f32(*degrees, state);
+        }
+        crate::script::CanvasCommand::ClipRect {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            11_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+        }
+        crate::script::CanvasCommand::Clear { color } => {
+            12_u8.hash(state);
+            color.hash(state);
+        }
+        crate::script::CanvasCommand::FillRect {
+            x,
+            y,
+            width,
+            height,
+            color,
+        } => {
+            13_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            color.hash(state);
+        }
+        crate::script::CanvasCommand::FillRRect {
+            x,
+            y,
+            width,
+            height,
+            radius,
+        } => {
+            14_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            hash_f32(*radius, state);
+        }
+        crate::script::CanvasCommand::StrokeRect {
+            x,
+            y,
+            width,
+            height,
+            color,
+            stroke_width,
+        } => {
+            15_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            color.hash(state);
+            hash_f32(*stroke_width, state);
+        }
+        crate::script::CanvasCommand::StrokeRRect {
+            x,
+            y,
+            width,
+            height,
+            radius,
+        } => {
+            16_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            hash_f32(*radius, state);
+        }
+        crate::script::CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
+            17_u8.hash(state);
+            hash_f32(*x0, state);
+            hash_f32(*y0, state);
+            hash_f32(*x1, state);
+            hash_f32(*y1, state);
+        }
+        crate::script::CanvasCommand::FillCircle { cx, cy, radius } => {
+            18_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*radius, state);
+        }
+        crate::script::CanvasCommand::StrokeCircle { cx, cy, radius } => {
+            19_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*radius, state);
+        }
+        crate::script::CanvasCommand::BeginPath => {
+            20_u8.hash(state);
+        }
+        crate::script::CanvasCommand::MoveTo { x, y } => {
+            21_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+        }
+        crate::script::CanvasCommand::LineTo { x, y } => {
+            22_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+        }
+        crate::script::CanvasCommand::QuadTo { cx, cy, x, y } => {
+            23_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+        }
+        crate::script::CanvasCommand::CubicTo {
+            c1x,
+            c1y,
+            c2x,
+            c2y,
+            x,
+            y,
+        } => {
+            24_u8.hash(state);
+            hash_f32(*c1x, state);
+            hash_f32(*c1y, state);
+            hash_f32(*c2x, state);
+            hash_f32(*c2y, state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+        }
+        crate::script::CanvasCommand::ClosePath => {
+            25_u8.hash(state);
+        }
+        crate::script::CanvasCommand::FillPath => {
+            26_u8.hash(state);
+        }
+        crate::script::CanvasCommand::StrokePath => {
+            27_u8.hash(state);
+        }
+        crate::script::CanvasCommand::DrawImage {
+            asset_id,
+            x,
+            y,
+            width,
+            height,
+            object_fit,
+        } => {
+            28_u8.hash(state);
+            asset_id.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            object_fit.hash(state);
+        }
+    }
 }
 
 fn resolve_dimension(value: Option<f32>, full: bool, fallback: Dimension) -> Dimension {

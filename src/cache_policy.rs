@@ -61,6 +61,15 @@ pub(crate) fn display_list_contains_video(list: &DisplayList, assets: &AssetsMap
             .path(&bitmap.asset_id)
             .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
             .unwrap_or(false),
+        DisplayCommand::Draw {
+            item: DisplayItem::Canvas(canvas),
+        } => canvas.commands.iter().any(|command| {
+            matches!(command, crate::script::CanvasCommand::DrawImage { asset_id, .. }
+                if assets
+                    .path(&crate::assets::AssetId(asset_id.clone()))
+                    .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
+                    .unwrap_or(false))
+        }),
         _ => false,
     })
 }
@@ -127,6 +136,14 @@ fn layout_node_uses_video(layout: &LayoutNode, assets: &AssetsMap) -> bool {
             .path(&bitmap.asset_id)
             .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
             .unwrap_or(false))
+        || matches!(&layout.paint.kind, LayoutPaintKind::Canvas(canvas)
+            if canvas.commands.iter().any(|command| {
+                matches!(command, crate::script::CanvasCommand::DrawImage { asset_id, .. }
+                    if assets
+                        .path(&crate::assets::AssetId(asset_id.clone()))
+                        .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
+                        .unwrap_or(false))
+            }))
         || layout
             .children
             .iter()
@@ -151,8 +168,15 @@ fn hash_layout_paint_kind(kind: &LayoutPaintKind, state: &mut impl Hasher) {
             bitmap.height.hash(state);
             bitmap.object_fit.hash(state);
         }
-        LayoutPaintKind::Lucide(lucide) => {
+        LayoutPaintKind::Canvas(canvas) => {
             3_u8.hash(state);
+            canvas.commands.len().hash(state);
+            for command in &canvas.commands {
+                hash_canvas_command(command, state);
+            }
+        }
+        LayoutPaintKind::Lucide(lucide) => {
+            4_u8.hash(state);
             lucide.icon.hash(state);
             lucide.foreground.hash(state);
         }
@@ -235,4 +259,207 @@ fn hash_transforms(transforms: &[Transform], state: &mut impl Hasher) {
 
 fn hash_f32(value: f32, state: &mut impl Hasher) {
     value.to_bits().hash(state);
+}
+
+fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl Hasher) {
+    match command {
+        crate::script::CanvasCommand::Save => {
+            0_u8.hash(state);
+        }
+        crate::script::CanvasCommand::Restore => {
+            1_u8.hash(state);
+        }
+        crate::script::CanvasCommand::SetFillStyle { color } => {
+            2_u8.hash(state);
+            color.hash(state);
+        }
+        crate::script::CanvasCommand::SetStrokeStyle { color } => {
+            3_u8.hash(state);
+            color.hash(state);
+        }
+        crate::script::CanvasCommand::SetLineWidth { width } => {
+            4_u8.hash(state);
+            hash_f32(*width, state);
+        }
+        crate::script::CanvasCommand::SetLineCap { cap } => {
+            5_u8.hash(state);
+            cap.hash(state);
+        }
+        crate::script::CanvasCommand::SetLineJoin { join } => {
+            6_u8.hash(state);
+            join.hash(state);
+        }
+        crate::script::CanvasCommand::SetGlobalAlpha { alpha } => {
+            7_u8.hash(state);
+            hash_f32(*alpha, state);
+        }
+        crate::script::CanvasCommand::Translate { x, y } => {
+            8_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+        }
+        crate::script::CanvasCommand::Scale { x, y } => {
+            9_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+        }
+        crate::script::CanvasCommand::Rotate { degrees } => {
+            10_u8.hash(state);
+            hash_f32(*degrees, state);
+        }
+        crate::script::CanvasCommand::ClipRect {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            11_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+        }
+        crate::script::CanvasCommand::Clear { color } => {
+            12_u8.hash(state);
+            color.hash(state);
+        }
+        crate::script::CanvasCommand::FillRect {
+            x,
+            y,
+            width,
+            height,
+            color,
+        } => {
+            13_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            color.hash(state);
+        }
+        crate::script::CanvasCommand::FillRRect {
+            x,
+            y,
+            width,
+            height,
+            radius,
+        } => {
+            14_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            hash_f32(*radius, state);
+        }
+        crate::script::CanvasCommand::StrokeRect {
+            x,
+            y,
+            width,
+            height,
+            color,
+            stroke_width,
+        } => {
+            15_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            color.hash(state);
+            hash_f32(*stroke_width, state);
+        }
+        crate::script::CanvasCommand::StrokeRRect {
+            x,
+            y,
+            width,
+            height,
+            radius,
+        } => {
+            16_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            hash_f32(*radius, state);
+        }
+        crate::script::CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
+            17_u8.hash(state);
+            hash_f32(*x0, state);
+            hash_f32(*y0, state);
+            hash_f32(*x1, state);
+            hash_f32(*y1, state);
+        }
+        crate::script::CanvasCommand::FillCircle { cx, cy, radius } => {
+            18_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*radius, state);
+        }
+        crate::script::CanvasCommand::StrokeCircle { cx, cy, radius } => {
+            19_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*radius, state);
+        }
+        crate::script::CanvasCommand::BeginPath => {
+            20_u8.hash(state);
+        }
+        crate::script::CanvasCommand::MoveTo { x, y } => {
+            21_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+        }
+        crate::script::CanvasCommand::LineTo { x, y } => {
+            22_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+        }
+        crate::script::CanvasCommand::QuadTo { cx, cy, x, y } => {
+            23_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+        }
+        crate::script::CanvasCommand::CubicTo {
+            c1x,
+            c1y,
+            c2x,
+            c2y,
+            x,
+            y,
+        } => {
+            24_u8.hash(state);
+            hash_f32(*c1x, state);
+            hash_f32(*c1y, state);
+            hash_f32(*c2x, state);
+            hash_f32(*c2y, state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+        }
+        crate::script::CanvasCommand::ClosePath => {
+            25_u8.hash(state);
+        }
+        crate::script::CanvasCommand::FillPath => {
+            26_u8.hash(state);
+        }
+        crate::script::CanvasCommand::StrokePath => {
+            27_u8.hash(state);
+        }
+        crate::script::CanvasCommand::DrawImage {
+            asset_id,
+            x,
+            y,
+            width,
+            height,
+            object_fit,
+        } => {
+            28_u8.hash(state);
+            asset_id.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            object_fit.hash(state);
+        }
+    }
 }

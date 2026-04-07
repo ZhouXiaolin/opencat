@@ -1,6 +1,7 @@
 use crate::{
     assets::AssetId,
     element::style::ComputedVisualStyle,
+    script::CanvasCommand,
     style::{ColorToken, ComputedTextStyle, ObjectFit},
 };
 
@@ -37,6 +38,7 @@ pub enum LayoutPaintKind {
     Div,
     Text(LayoutTextPaint),
     Bitmap(LayoutBitmapPaint),
+    Canvas(LayoutCanvasPaint),
     Lucide(LayoutLucidePaint),
 }
 
@@ -53,6 +55,11 @@ pub struct LayoutBitmapPaint {
     pub width: u32,
     pub height: u32,
     pub object_fit: ObjectFit,
+}
+
+#[derive(Clone, Debug)]
+pub struct LayoutCanvasPaint {
+    pub commands: Vec<CanvasCommand>,
 }
 
 #[derive(Clone, Debug)]

@@ -398,6 +398,13 @@ fn collect_image_sources(node: &Node, frame_ctx: &FrameCtx, sources: &mut HashSe
                 collect_image_sources(child, frame_ctx, sources);
             }
         }
+        NodeKind::Canvas(canvas) => {
+            for asset in canvas.assets_ref() {
+                if !matches!(asset.source, ImageSource::Unset) {
+                    sources.insert(asset.source.clone());
+                }
+            }
+        }
         NodeKind::Image(image) => {
             if !matches!(image.source(), ImageSource::Unset) {
                 sources.insert(image.source().clone());
@@ -597,7 +604,14 @@ fn picture_for_slot(
 #[cfg(test)]
 mod tests {
     use super::{RenderSession, pad_rgba_frame, render_frame_rgba};
-    use crate::{Composition, FrameCtx, nodes::div, style::ColorToken};
+    use crate::{Composition, FrameCtx, nodes::{canvas, div}, style::ColorToken};
+
+    fn write_test_png(path: &std::path::Path) {
+        let mut image = image::RgbaImage::new(2, 1);
+        image.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        image.put_pixel(1, 0, image::Rgba([0, 255, 0, 255]));
+        image.save(path).expect("test image should save");
+    }
 
     fn pixel_rgba(frame: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
         let index = (y * width + x) * 4;
@@ -716,6 +730,39 @@ mod tests {
             [0, 0, 0, 255],
             "frame 1 should match frame 0 after subtree caching kicks in"
         );
+    }
+
+    #[test]
+    fn canvas_node_draw_image_uses_asset_alias_in_backend() {
+        let image_path = std::env::temp_dir().join(format!(
+            "opencat-canvas-test-{}.png",
+            std::process::id()
+        ));
+        write_test_png(&image_path);
+
+        let scene = canvas()
+            .id("canvas")
+            .size(2.0, 1.0)
+            .asset_path("hero", &image_path)
+            .script_source(r#"ctx.getCanvas().drawImage("hero", 0, 0, 2, 1, "fill");"#)
+            .expect("script should compile");
+
+        let composition = Composition::new("canvas_asset_alias")
+            .size(2, 1)
+            .fps(30)
+            .frames(1)
+            .root(move |_ctx: &FrameCtx| scene.clone().into())
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let frame =
+            render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+
+        let _ = std::fs::remove_file(&image_path);
+
+        assert_eq!(pixel_rgba(&frame, 2, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel_rgba(&frame, 2, 1, 0), [0, 255, 0, 255]);
     }
 
     #[test]

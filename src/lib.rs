@@ -23,7 +23,7 @@ pub mod view;
 
 pub use composition::Composition;
 pub use frame_ctx::FrameCtx;
-pub use nodes::{Image, ImageSource, OpenverseQuery, div, image, lucide, text, video};
+pub use nodes::{Canvas, CanvasAsset, Image, ImageSource, OpenverseQuery, canvas, div, image, lucide, text, video};
 pub use parser::{ParsedComposition, parse};
 pub use render::{
     EncodingConfig, Mp4Config, OutputFormat, RenderSession, render_frame_rgb, render_frame_rgba,

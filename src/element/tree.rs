@@ -1,4 +1,5 @@
 use crate::assets::AssetId;
+use crate::script::CanvasCommand;
 use crate::style::ComputedTextStyle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -17,6 +18,7 @@ pub enum ElementKind {
     Div(ElementDiv),
     Text(ElementText),
     Bitmap(ElementBitmap),
+    Canvas(ElementCanvas),
     Lucide(ElementLucide),
 }
 
@@ -34,6 +36,11 @@ pub struct ElementBitmap {
     pub asset_id: AssetId,
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct ElementCanvas {
+    pub commands: Vec<CanvasCommand>,
 }
 
 #[derive(Clone, Debug)]

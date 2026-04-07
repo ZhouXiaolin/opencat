@@ -3,8 +3,8 @@ use std::{cell::RefCell, collections::HashMap, time::Instant};
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
     BlurStyle, Canvas, ClipOp, Data, Image as SkiaImage, ImageInfo, MaskFilter, Paint, PaintStyle,
-    Picture, PictureRecorder, RRect, Rect, TileMode, canvas::SrcRectConstraint, gradient_shader,
-    images,
+    PathBuilder, Picture, PictureRecorder, RRect, Rect, TileMode, canvas::SrcRectConstraint,
+    gradient_shader, images,
 };
 
 use crate::{
@@ -14,13 +14,14 @@ use crate::{
         BitmapSourceKind, bitmap_source_kind, subtree_picture_cache_key, text_picture_cache_key,
     },
     display::list::{
-        BitmapDisplayItem, BitmapPaintStyle, DisplayCommand, DisplayItem, DisplayList,
-        DisplayTransform, LucideDisplayItem, RectDisplayItem, TextDisplayItem,
+        BitmapDisplayItem, BitmapPaintStyle, CanvasDisplayItem, DisplayCommand, DisplayItem,
+        DisplayList, DisplayTransform, LucideDisplayItem, RectDisplayItem, TextDisplayItem,
     },
     frame_ctx::FrameCtx,
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
     media::MediaContext,
     profile::BackendProfile,
+    script::{CanvasCommand, ScriptColor, ScriptLineCap, ScriptLineJoin},
     style::{BackgroundFill, GradientDirection, ObjectFit, ShadowStyle, Transform},
     typography,
 };
@@ -39,6 +40,39 @@ struct TextDrawStats {
     picture_draw_ms: f64,
     cache_hits: usize,
     cache_misses: usize,
+}
+
+#[derive(Clone, Copy)]
+struct CanvasPaintState {
+    fill_color: ScriptColor,
+    stroke_color: ScriptColor,
+    line_width: f32,
+    line_cap: ScriptLineCap,
+    line_join: ScriptLineJoin,
+    global_alpha: f32,
+}
+
+impl Default for CanvasPaintState {
+    fn default() -> Self {
+        Self {
+            fill_color: ScriptColor {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            stroke_color: ScriptColor {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            line_width: 1.0,
+            line_cap: ScriptLineCap::Butt,
+            line_join: ScriptLineJoin::Miter,
+            global_alpha: 1.0,
+        }
+    }
 }
 
 pub struct SkiaBackend<'a> {
@@ -244,6 +278,24 @@ impl<'a> SkiaBackend<'a> {
                     profile.video_frame_decodes += stats.video_frame_decodes;
                 }
             }
+            LayoutPaintKind::Canvas(canvas) => {
+                let started = Instant::now();
+                draw_canvas_item(
+                    self.canvas,
+                    &CanvasDisplayItem {
+                        bounds,
+                        commands: canvas.commands.clone(),
+                    },
+                    self.assets,
+                    &self.image_cache,
+                    &mut self.media_ctx,
+                    self.frame_ctx,
+                )?;
+                if let Some(profile) = self.profile.as_deref_mut() {
+                    profile.draw_bitmap_count += 1;
+                    profile.bitmap_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
+                }
+            }
             LayoutPaintKind::Lucide(lucide) => {
                 draw_lucide(
                     self.canvas,
@@ -414,6 +466,21 @@ impl<'a> SkiaBackend<'a> {
                         profile.image_cache_hits += stats.image_cache_hits;
                         profile.image_cache_misses += stats.image_cache_misses;
                         profile.video_frame_decodes += stats.video_frame_decodes;
+                    }
+                }
+                DisplayItem::Canvas(canvas_item) => {
+                    let started = Instant::now();
+                    draw_canvas_item(
+                        self.canvas,
+                        canvas_item,
+                        self.assets,
+                        &self.image_cache,
+                        &mut self.media_ctx,
+                        self.frame_ctx,
+                    )?;
+                    if let Some(profile) = self.profile.as_deref_mut() {
+                        profile.draw_bitmap_count += 1;
+                        profile.bitmap_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
                     }
                 }
                 DisplayItem::Lucide(lucide) => {
@@ -796,6 +863,296 @@ fn draw_bitmap(
 
     stats.draw_ms = draw_started.elapsed().as_secs_f64() * 1000.0;
     Ok(stats)
+}
+
+fn draw_canvas_item(
+    canvas: &Canvas,
+    item: &CanvasDisplayItem,
+    assets: &AssetsMap,
+    image_cache: &RefCell<HashMap<String, Option<SkiaImage>>>,
+    media_ctx: &mut Option<&mut MediaContext>,
+    frame_ctx: &FrameCtx,
+) -> Result<()> {
+    let mut state = CanvasPaintState::default();
+    let mut path = PathBuilder::new();
+
+    canvas.save();
+    canvas.clip_rect(layout_rect_to_skia(item.bounds), ClipOp::Intersect, true);
+
+    for command in &item.commands {
+        match command {
+            CanvasCommand::Save => {
+                canvas.save();
+            }
+            CanvasCommand::Restore => {
+                canvas.restore();
+            }
+            CanvasCommand::SetFillStyle { color } => {
+                state.fill_color = *color;
+            }
+            CanvasCommand::SetStrokeStyle { color } => {
+                state.stroke_color = *color;
+            }
+            CanvasCommand::SetLineWidth { width } => {
+                state.line_width = *width;
+            }
+            CanvasCommand::SetLineCap { cap } => {
+                state.line_cap = *cap;
+            }
+            CanvasCommand::SetLineJoin { join } => {
+                state.line_join = *join;
+            }
+            CanvasCommand::SetGlobalAlpha { alpha } => {
+                state.global_alpha = *alpha;
+            }
+            CanvasCommand::Translate { x, y } => {
+                canvas.translate((*x, *y));
+            }
+            CanvasCommand::Scale { x, y } => {
+                canvas.scale((*x, *y));
+            }
+            CanvasCommand::Rotate { degrees } => {
+                canvas.rotate(*degrees, None);
+            }
+            CanvasCommand::ClipRect {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                canvas.clip_rect(Rect::from_xywh(*x, *y, *width, *height), ClipOp::Intersect, true);
+            }
+            CanvasCommand::Clear { color } => {
+                match color {
+                    Some(color) => {
+                        canvas.clear(apply_script_alpha(*color, state.global_alpha));
+                    }
+                    None => {
+                        canvas.clear(skia_safe::Color::TRANSPARENT);
+                    }
+                }
+            }
+            CanvasCommand::FillRect {
+                x,
+                y,
+                width,
+                height,
+                color,
+            } => {
+                let mut paint = fill_paint_for_canvas_state(state);
+                paint.set_color(apply_script_alpha(*color, state.global_alpha));
+                canvas.draw_rect(Rect::from_xywh(*x, *y, *width, *height), &paint);
+            }
+            CanvasCommand::FillRRect {
+                x,
+                y,
+                width,
+                height,
+                radius,
+            } => {
+                let paint = fill_paint_for_canvas_state(state);
+                let rect = Rect::from_xywh(*x, *y, *width, *height);
+                let rrect = RRect::new_rect_xy(rect, *radius, *radius);
+                canvas.draw_rrect(rrect, &paint);
+            }
+            CanvasCommand::StrokeRect {
+                x,
+                y,
+                width,
+                height,
+                color,
+                stroke_width,
+            } => {
+                let mut paint = stroke_paint_for_canvas_state(state);
+                paint.set_color(apply_script_alpha(*color, state.global_alpha));
+                paint.set_stroke_width(*stroke_width);
+                canvas.draw_rect(Rect::from_xywh(*x, *y, *width, *height), &paint);
+            }
+            CanvasCommand::StrokeRRect {
+                x,
+                y,
+                width,
+                height,
+                radius,
+            } => {
+                let paint = stroke_paint_for_canvas_state(state);
+                let rect = Rect::from_xywh(*x, *y, *width, *height);
+                let rrect = RRect::new_rect_xy(rect, *radius, *radius);
+                canvas.draw_rrect(rrect, &paint);
+            }
+            CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
+                let paint = stroke_paint_for_canvas_state(state);
+                canvas.draw_line((*x0, *y0), (*x1, *y1), &paint);
+            }
+            CanvasCommand::FillCircle { cx, cy, radius } => {
+                let paint = fill_paint_for_canvas_state(state);
+                canvas.draw_circle((*cx, *cy), *radius, &paint);
+            }
+            CanvasCommand::StrokeCircle { cx, cy, radius } => {
+                let paint = stroke_paint_for_canvas_state(state);
+                canvas.draw_circle((*cx, *cy), *radius, &paint);
+            }
+            CanvasCommand::BeginPath => {
+                path = PathBuilder::new();
+            }
+            CanvasCommand::MoveTo { x, y } => {
+                path.move_to((*x, *y));
+            }
+            CanvasCommand::LineTo { x, y } => {
+                path.line_to((*x, *y));
+            }
+            CanvasCommand::QuadTo { cx, cy, x, y } => {
+                path.quad_to((*cx, *cy), (*x, *y));
+            }
+            CanvasCommand::CubicTo {
+                c1x,
+                c1y,
+                c2x,
+                c2y,
+                x,
+                y,
+            } => {
+                path.cubic_to((*c1x, *c1y), (*c2x, *c2y), (*x, *y));
+            }
+            CanvasCommand::ClosePath => {
+                path.close();
+            }
+            CanvasCommand::FillPath => {
+                let paint = fill_paint_for_canvas_state(state);
+                let path_snapshot = path.snapshot();
+                canvas.draw_path(&path_snapshot, &paint);
+            }
+            CanvasCommand::StrokePath => {
+                let paint = stroke_paint_for_canvas_state(state);
+                let path_snapshot = path.snapshot();
+                canvas.draw_path(&path_snapshot, &paint);
+            }
+            CanvasCommand::DrawImage {
+                asset_id,
+                x,
+                y,
+                width,
+                height,
+                object_fit,
+            } => {
+                let image = load_asset_image(
+                    &crate::assets::AssetId(asset_id.clone()),
+                    assets,
+                    image_cache,
+                    media_ctx,
+                    frame_ctx,
+                )?;
+                let dst = Rect::from_xywh(*x, *y, *width, *height);
+                let src_width = image.width() as f32;
+                let src_height = image.height() as f32;
+                let paint = Paint::default();
+                match object_fit {
+                    ObjectFit::Fill => {
+                        canvas.draw_image_rect(image, None, dst, &paint);
+                    }
+                    ObjectFit::Contain => {
+                        let fitted = fitted_rect(src_width, src_height, dst, false);
+                        canvas.draw_image_rect(image, None, fitted, &paint);
+                    }
+                    ObjectFit::Cover => {
+                        let src = cover_src_rect(src_width, src_height, dst);
+                        canvas.draw_image_rect(
+                            image,
+                            Some((&src, SrcRectConstraint::Strict)),
+                            dst,
+                            &paint,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    canvas.restore();
+    Ok(())
+}
+
+fn apply_script_alpha(color: ScriptColor, global_alpha: f32) -> skia_safe::Color {
+    let alpha = ((color.a as f32) * global_alpha.clamp(0.0, 1.0))
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    skia_safe::Color::from_argb(alpha, color.r, color.g, color.b)
+}
+
+fn fill_paint_for_canvas_state(state: CanvasPaintState) -> Paint {
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint.set_style(PaintStyle::Fill);
+    paint.set_color(apply_script_alpha(state.fill_color, state.global_alpha));
+    paint
+}
+
+fn stroke_paint_for_canvas_state(state: CanvasPaintState) -> Paint {
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint.set_style(PaintStyle::Stroke);
+    paint.set_color(apply_script_alpha(state.stroke_color, state.global_alpha));
+    paint.set_stroke_width(state.line_width.max(0.0));
+    paint.set_stroke_cap(match state.line_cap {
+        ScriptLineCap::Butt => skia_safe::paint::Cap::Butt,
+        ScriptLineCap::Round => skia_safe::paint::Cap::Round,
+        ScriptLineCap::Square => skia_safe::paint::Cap::Square,
+    });
+    paint.set_stroke_join(match state.line_join {
+        ScriptLineJoin::Miter => skia_safe::paint::Join::Miter,
+        ScriptLineJoin::Round => skia_safe::paint::Join::Round,
+        ScriptLineJoin::Bevel => skia_safe::paint::Join::Bevel,
+    });
+    paint
+}
+
+fn load_asset_image(
+    asset_id: &crate::assets::AssetId,
+    assets: &AssetsMap,
+    image_cache: &RefCell<HashMap<String, Option<SkiaImage>>>,
+    media_ctx: &mut Option<&mut MediaContext>,
+    frame_ctx: &FrameCtx,
+) -> Result<SkiaImage> {
+    let path = assets
+        .path(asset_id)
+        .ok_or_else(|| anyhow!("missing asset path for {}", asset_id.0))?;
+
+    if bitmap_source_kind(path) == BitmapSourceKind::Video {
+        let media = media_ctx
+            .as_deref_mut()
+            .ok_or_else(|| anyhow!("video asset requires media context: {}", path.display()))?;
+        let target_time = frame_ctx.frame as f64 / frame_ctx.fps as f64;
+        let (data, width, height) = media
+            .get_bitmap(path, target_time)
+            .with_context(|| format!("failed to decode video frame: {}", path.display()))?;
+        let info = ImageInfo::new(
+            (width as i32, height as i32),
+            skia_safe::ColorType::RGBA8888,
+            skia_safe::AlphaType::Unpremul,
+            None,
+        );
+        return images::raster_from_data(&info, Data::new_copy(&data), width as usize * 4)
+            .ok_or_else(|| {
+                anyhow!(
+                    "failed to create skia image from video frame: {}",
+                    path.display()
+                )
+            });
+    }
+
+    let key = asset_id.0.clone();
+    let mut cache = image_cache.borrow_mut();
+    if let Some(Some(img)) = cache.get(&key) {
+        return Ok(img.clone());
+    }
+
+    let encoded = std::fs::read(path)
+        .with_context(|| format!("failed to read image asset: {}", path.display()))?;
+    let data = skia_safe::Data::new_copy(&encoded);
+    let image = skia_safe::Image::from_encoded(data)
+        .ok_or_else(|| anyhow!("failed to decode image asset: {}", path.display()))?;
+    cache.insert(key, Some(image.clone()));
+    Ok(image)
 }
 
 fn effective_corner_radius(rect: Rect, radius: f32) -> f32 {

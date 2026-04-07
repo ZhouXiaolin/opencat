@@ -2,9 +2,9 @@ use anyhow::Result;
 
 use crate::{
     display::list::{
-        BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayCommand, DisplayItem,
-        DisplayLayer, DisplayList, DisplayTransform, LucideDisplayItem, LucidePaintStyle,
-        RectDisplayItem, RectPaintStyle, TextDisplayItem,
+        BitmapDisplayItem, BitmapPaintStyle, CanvasDisplayItem, DisplayClip, DisplayCommand,
+        DisplayItem, DisplayLayer, DisplayList, DisplayTransform, LucideDisplayItem,
+        LucidePaintStyle, RectDisplayItem, RectPaintStyle, TextDisplayItem,
     },
     layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
 };
@@ -123,6 +123,12 @@ fn push_paint_commands(
                     blur_sigma: layout.paint.visual.blur_sigma,
                     shadow: layout.paint.visual.shadow,
                 },
+            }),
+        }),
+        LayoutPaintKind::Canvas(canvas) => list.push(DisplayCommand::Draw {
+            item: DisplayItem::Canvas(CanvasDisplayItem {
+                bounds: rect,
+                commands: canvas.commands.clone(),
             }),
         }),
         LayoutPaintKind::Lucide(lucide) => list.push(DisplayCommand::Draw {

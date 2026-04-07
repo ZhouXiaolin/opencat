@@ -1,6 +1,7 @@
 use crate::{
     assets::AssetId,
     layout::tree::LayoutRect,
+    script::CanvasCommand,
     style::{BackgroundFill, ColorToken, ComputedTextStyle, ObjectFit, ShadowStyle},
 };
 
@@ -50,6 +51,7 @@ pub enum DisplayItem {
     Rect(RectDisplayItem),
     Text(TextDisplayItem),
     Bitmap(BitmapDisplayItem),
+    Canvas(CanvasDisplayItem),
     Lucide(LucideDisplayItem),
 }
 
@@ -75,6 +77,12 @@ pub struct BitmapDisplayItem {
     pub height: u32,
     pub object_fit: ObjectFit,
     pub paint: BitmapPaintStyle,
+}
+
+#[derive(Clone, Debug)]
+pub struct CanvasDisplayItem {
+    pub bounds: LayoutRect,
+    pub commands: Vec<CanvasCommand>,
 }
 
 #[derive(Clone, Debug)]

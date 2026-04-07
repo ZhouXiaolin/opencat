@@ -13,7 +13,7 @@ use skia_safe::{
     },
 };
 
-use crate::style::{ComputedTextStyle, FontWeight, TextAlign};
+use crate::style::{ComputedTextStyle, FontWeight, TextAlign, TextTransform};
 
 static EMOJI_FONT_DATA: &[u8] = include_bytes!("../assets/NotoColorEmoji.ttf");
 const UNBOUNDED_LAYOUT_WIDTH: f32 = 100_000.0;
@@ -60,6 +60,7 @@ fn shared_font_collection() -> FontCollection {
 }
 
 fn make_paragraph(text: &str, style: &ComputedTextStyle, max_width: f32) -> Paragraph {
+    let text = apply_text_transform(text, style.text_transform);
     let mut text_style = ParagraphTextStyle::new();
     text_style.set_color(style.color.to_skia());
     text_style.set_font_size(style.text_px);
@@ -74,7 +75,7 @@ fn make_paragraph(text: &str, style: &ComputedTextStyle, max_width: f32) -> Para
 
     let mut builder = ParagraphBuilder::new(&paragraph_style, shared_font_collection());
     builder.push_style(&text_style);
-    builder.add_text(text);
+    builder.add_text(&text);
 
     let mut paragraph = builder.build();
     paragraph.layout(normalize_width(max_width));
@@ -83,6 +84,7 @@ fn make_paragraph(text: &str, style: &ComputedTextStyle, max_width: f32) -> Para
 
 fn font_style(weight: FontWeight) -> FontStyle {
     let weight = match weight {
+        FontWeight::Light => 300,
         FontWeight::Normal => 400,
         FontWeight::Medium => 500,
         FontWeight::SemiBold => 600,
@@ -145,23 +147,31 @@ pub fn draw_text(
     paragraph.paint(canvas, (left, top));
 }
 
+fn apply_text_transform(text: &str, transform: TextTransform) -> String {
+    match transform {
+        TextTransform::None => text.to_string(),
+        TextTransform::Uppercase => text.to_uppercase(),
+    }
+}
+
 fn text_measure_cache_key(text: &str, style: &ComputedTextStyle, width: f32) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    text.hash(&mut hasher);
+    apply_text_transform(text, style.text_transform).hash(&mut hasher);
     style.color.hash(&mut hasher);
     style.font_weight.hash(&mut hasher);
     style.text_align.hash(&mut hasher);
     style.text_px.to_bits().hash(&mut hasher);
     style.letter_spacing.to_bits().hash(&mut hasher);
     style.line_height.to_bits().hash(&mut hasher);
+    style.text_transform.hash(&mut hasher);
     width.to_bits().hash(&mut hasher);
     hasher.finish()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::measure_text_in_width;
-    use crate::style::ComputedTextStyle;
+    use super::{apply_text_transform, measure_text_in_width};
+    use crate::style::{ComputedTextStyle, TextTransform};
 
     #[test]
     fn textlayout_wraps_long_cjk_text_in_narrow_width() {
@@ -173,6 +183,14 @@ mod tests {
         assert!(
             measured_height > single_line_height,
             "expected narrow text layout to wrap into multiple lines, got height {measured_height}"
+        );
+    }
+
+    #[test]
+    fn textlayout_applies_uppercase_transform() {
+        assert_eq!(
+            apply_text_transform("Physics Education Series", TextTransform::Uppercase),
+            "PHYSICS EDUCATION SERIES"
         );
     }
 }

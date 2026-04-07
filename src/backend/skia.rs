@@ -45,13 +45,15 @@ struct TextDrawStats {
     cache_misses: usize,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct CanvasPaintState {
     fill_color: ScriptColor,
     stroke_color: ScriptColor,
     line_width: f32,
     line_cap: ScriptLineCap,
     line_join: ScriptLineJoin,
+    line_dash: Option<Vec<f32>>,
+    line_dash_phase: f32,
     global_alpha: f32,
 }
 
@@ -73,6 +75,8 @@ impl Default for CanvasPaintState {
             line_width: 1.0,
             line_cap: ScriptLineCap::Butt,
             line_join: ScriptLineJoin::Miter,
+            line_dash: None,
+            line_dash_phase: 0.0,
             global_alpha: 1.0,
         }
     }
@@ -756,6 +760,14 @@ fn draw_canvas_item(
             CanvasCommand::SetLineJoin { join } => {
                 state.line_join = *join;
             }
+            CanvasCommand::SetLineDash { intervals, phase } => {
+                state.line_dash = Some(intervals.clone());
+                state.line_dash_phase = *phase;
+            }
+            CanvasCommand::ClearLineDash => {
+                state.line_dash = None;
+                state.line_dash_phase = 0.0;
+            }
             CanvasCommand::SetGlobalAlpha { alpha } => {
                 state.global_alpha = *alpha;
             }
@@ -795,7 +807,7 @@ fn draw_canvas_item(
                 height,
                 color,
             } => {
-                let mut paint = fill_paint_for_canvas_state(state);
+                let mut paint = fill_paint_for_canvas_state(&state);
                 paint.set_color(apply_script_alpha(*color, state.global_alpha));
                 canvas.draw_rect(Rect::from_xywh(*x, *y, *width, *height), &paint);
             }
@@ -806,7 +818,7 @@ fn draw_canvas_item(
                 height,
                 radius,
             } => {
-                let paint = fill_paint_for_canvas_state(state);
+                let paint = fill_paint_for_canvas_state(&state);
                 let rect = Rect::from_xywh(*x, *y, *width, *height);
                 let rrect = RRect::new_rect_xy(rect, *radius, *radius);
                 canvas.draw_rrect(rrect, &paint);
@@ -819,7 +831,7 @@ fn draw_canvas_item(
                 color,
                 stroke_width,
             } => {
-                let mut paint = stroke_paint_for_canvas_state(state);
+                let mut paint = stroke_paint_for_canvas_state(&state);
                 paint.set_color(apply_script_alpha(*color, state.global_alpha));
                 paint.set_stroke_width(*stroke_width);
                 canvas.draw_rect(Rect::from_xywh(*x, *y, *width, *height), &paint);
@@ -831,21 +843,21 @@ fn draw_canvas_item(
                 height,
                 radius,
             } => {
-                let paint = stroke_paint_for_canvas_state(state);
+                let paint = stroke_paint_for_canvas_state(&state);
                 let rect = Rect::from_xywh(*x, *y, *width, *height);
                 let rrect = RRect::new_rect_xy(rect, *radius, *radius);
                 canvas.draw_rrect(rrect, &paint);
             }
             CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
-                let paint = stroke_paint_for_canvas_state(state);
+                let paint = stroke_paint_for_canvas_state(&state);
                 canvas.draw_line((*x0, *y0), (*x1, *y1), &paint);
             }
             CanvasCommand::FillCircle { cx, cy, radius } => {
-                let paint = fill_paint_for_canvas_state(state);
+                let paint = fill_paint_for_canvas_state(&state);
                 canvas.draw_circle((*cx, *cy), *radius, &paint);
             }
             CanvasCommand::StrokeCircle { cx, cy, radius } => {
-                let paint = stroke_paint_for_canvas_state(state);
+                let paint = stroke_paint_for_canvas_state(&state);
                 canvas.draw_circle((*cx, *cy), *radius, &paint);
             }
             CanvasCommand::BeginPath => {
@@ -874,12 +886,12 @@ fn draw_canvas_item(
                 path.close();
             }
             CanvasCommand::FillPath => {
-                let paint = fill_paint_for_canvas_state(state);
+                let paint = fill_paint_for_canvas_state(&state);
                 let path_snapshot = path.snapshot();
                 canvas.draw_path(&path_snapshot, &paint);
             }
             CanvasCommand::StrokePath => {
-                let paint = stroke_paint_for_canvas_state(state);
+                let paint = stroke_paint_for_canvas_state(&state);
                 let path_snapshot = path.snapshot();
                 canvas.draw_path(&path_snapshot, &paint);
             }
@@ -935,7 +947,7 @@ fn apply_script_alpha(color: ScriptColor, global_alpha: f32) -> skia_safe::Color
     skia_safe::Color::from_argb(alpha, color.r, color.g, color.b)
 }
 
-fn fill_paint_for_canvas_state(state: CanvasPaintState) -> Paint {
+fn fill_paint_for_canvas_state(state: &CanvasPaintState) -> Paint {
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     paint.set_style(PaintStyle::Fill);
@@ -943,7 +955,7 @@ fn fill_paint_for_canvas_state(state: CanvasPaintState) -> Paint {
     paint
 }
 
-fn stroke_paint_for_canvas_state(state: CanvasPaintState) -> Paint {
+fn stroke_paint_for_canvas_state(state: &CanvasPaintState) -> Paint {
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     paint.set_style(PaintStyle::Stroke);
@@ -959,6 +971,11 @@ fn stroke_paint_for_canvas_state(state: CanvasPaintState) -> Paint {
         ScriptLineJoin::Round => skia_safe::paint::Join::Round,
         ScriptLineJoin::Bevel => skia_safe::paint::Join::Bevel,
     });
+    if let Some(intervals) = &state.line_dash {
+        if let Some(path_effect) = skia_safe::PathEffect::dash(intervals, state.line_dash_phase) {
+            paint.set_path_effect(path_effect);
+        }
+    }
     paint
 }
 

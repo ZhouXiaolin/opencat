@@ -49,6 +49,11 @@ pub enum CanvasCommand {
     SetLineJoin {
         join: ScriptLineJoin,
     },
+    SetLineDash {
+        intervals: Vec<f32>,
+        phase: f32,
+    },
+    ClearLineDash,
     SetGlobalAlpha {
         alpha: f32,
     },
@@ -495,6 +500,7 @@ pub(super) const CANVASKIT_RUNTIME: &str = r#"
             this._strokeWidth = 1;
             this._strokeCap = 'butt';
             this._strokeJoin = 'miter';
+            this._strokeDash = null;
             this._antiAlias = true;
         }
 
@@ -505,6 +511,12 @@ pub(super) const CANVASKIT_RUNTIME: &str = r#"
             copy._strokeWidth = this._strokeWidth;
             copy._strokeCap = this._strokeCap;
             copy._strokeJoin = this._strokeJoin;
+            copy._strokeDash = this._strokeDash
+                ? {
+                    intervals: this._strokeDash.intervals.slice(),
+                    phase: this._strokeDash.phase
+                }
+                : null;
             copy._antiAlias = this._antiAlias;
             return copy;
         }
@@ -560,6 +572,24 @@ pub(super) const CANVASKIT_RUNTIME: &str = r#"
 
         setStrokeCap(cap) {
             this._strokeCap = normalizeStrokeCap(cap);
+        }
+
+        setStrokeDash(intervals, phase = 0) {
+            if (!Array.isArray(intervals) || intervals.length < 2) {
+                throw new Error('setStrokeDash expects at least two dash intervals');
+            }
+            const normalized = intervals.map((value) => {
+                const n = toFiniteNumber(value);
+                if (n <= 0) {
+                    throw new Error('setStrokeDash intervals must be positive');
+                }
+                return n;
+            });
+            this._strokeDash = {
+                intervals: normalized,
+                phase: toFiniteNumber(phase, 0)
+            };
+            return this;
         }
 
         setStrokeJoin(join) {
@@ -723,6 +753,11 @@ pub(super) const CANVASKIT_RUNTIME: &str = r#"
         __canvas_set_line_width(id, paint._strokeWidth);
         __canvas_set_line_cap(id, paint._strokeCap);
         __canvas_set_line_join(id, paint._strokeJoin);
+        if (paint._strokeDash) {
+            __canvas_set_line_dash(id, paint._strokeDash.intervals, paint._strokeDash.phase);
+        } else {
+            __canvas_clear_line_dash(id);
+        }
     }
 
     function replayPath(id, path) {
@@ -912,6 +947,11 @@ pub(super) const CANVASKIT_RUNTIME: &str = r#"
 
             save() {
                 __canvas_save(id);
+                return this;
+            },
+
+            setAlphaf(alpha) {
+                __canvas_set_global_alpha(id, toFiniteNumber(alpha, 1));
                 return this;
             },
 
@@ -1128,6 +1168,35 @@ pub(super) fn install_canvaskit_bindings<'js>(
                 .commands
                 .push(CanvasCommand::SetLineJoin { join });
             Ok::<_, rquickjs::Error>(())
+        })?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
+        "__canvas_set_line_dash",
+        Function::new(
+            ctx.clone(),
+            move |id: String, intervals: Vec<f32>, phase: f32| {
+                let mut map = s.lock().unwrap();
+                map.canvases
+                    .entry(id)
+                    .or_default()
+                    .commands
+                    .push(CanvasCommand::SetLineDash { intervals, phase });
+            },
+        )?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
+        "__canvas_clear_line_dash",
+        Function::new(ctx.clone(), move |id: String| {
+            let mut map = s.lock().unwrap();
+            map.canvases
+                .entry(id)
+                .or_default()
+                .commands
+                .push(CanvasCommand::ClearLineDash);
         })?,
     )?;
 

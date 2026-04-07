@@ -1,11 +1,16 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use rquickjs::{Context, Function, Object, Persistent, Runtime};
+use rquickjs::{
+    Context, Error as JsError, Exception, FromJs, Function, Object, Persistent, Runtime,
+};
 
-use crate::style::{
-    AlignItems, FlexDirection, FontWeight, JustifyContent, ObjectFit, Position, ShadowStyle,
-    TextAlign,
+use crate::{
+    frame_ctx::ScriptFrameCtx,
+    style::{
+        AlignItems, FlexDirection, FontWeight, JustifyContent, ObjectFit, Position, ShadowStyle,
+        TextAlign,
+    },
 };
 
 #[path = "script_canvaskit.rs"]
@@ -125,6 +130,7 @@ fn object_fit_from_name(name: &str) -> Option<ObjectFit> {
 
 fn font_weight_from_name(name: &str) -> Option<FontWeight> {
     match name {
+        "light" => Some(FontWeight::Light),
         "normal" => Some(FontWeight::Normal),
         "medium" => Some(FontWeight::Medium),
         "semibold" => Some(FontWeight::SemiBold),
@@ -180,10 +186,20 @@ impl ScriptDriver {
         &self,
         frame: u32,
         total_frames: u32,
+        current_frame: u32,
+        scene_frames: u32,
         current_node_id: Option<&str>,
     ) -> anyhow::Result<StyleMutations> {
         let mut runner = self.create_runner()?;
-        runner.run(frame, total_frames, current_node_id)
+        runner.run(
+            ScriptFrameCtx {
+                frame,
+                total_frames,
+                current_frame,
+                scene_frames,
+            },
+            current_node_id,
+        )
     }
 }
 
@@ -191,8 +207,7 @@ impl ScriptRuntimeCache {
     pub(crate) fn run(
         &mut self,
         driver: &ScriptDriver,
-        frame: u32,
-        total_frames: u32,
+        frame_ctx: ScriptFrameCtx,
         current_node_id: Option<&str>,
     ) -> anyhow::Result<StyleMutations> {
         let key = driver.cache_key();
@@ -202,7 +217,7 @@ impl ScriptRuntimeCache {
                 entry.insert(driver.create_runner()?)
             }
         };
-        runner.run(frame, total_frames, current_node_id)
+        runner.run(frame_ctx, current_node_id)
     }
 }
 
@@ -216,7 +231,11 @@ impl ScriptRunner {
             let globals = ctx.globals();
             let ctx_obj = install_runtime_bindings(&ctx, &store)?;
             let wrapped = format!("globalThis.{RUN_FRAME_FN} = function() {{\n{source}\n}};");
-            ctx.eval::<(), _>(wrapped.as_str())?;
+            map_js_result(
+                ctx.eval::<(), _>(wrapped.as_str()),
+                &ctx,
+                "failed to initialize script runtime",
+            )?;
             let run_fn: Function<'_> = globals.get(RUN_FRAME_FN)?;
             Ok::<_, anyhow::Error>((
                 Persistent::save(&ctx, ctx_obj),
@@ -235,20 +254,29 @@ impl ScriptRunner {
 
     pub(crate) fn run(
         &mut self,
-        frame: u32,
-        total_frames: u32,
+        frame_ctx: ScriptFrameCtx,
         current_node_id: Option<&str>,
     ) -> anyhow::Result<StyleMutations> {
         *self.store.lock().unwrap() = RuntimeMutationStore::default();
 
         self.context.with(|ctx| {
             let ctx_obj = self.ctx_obj.clone().restore(&ctx)?;
-            ctx_obj.set("frame", frame)?;
-            ctx_obj.set("totalFrames", total_frames)?;
+            ctx_obj.set("frame", frame_ctx.frame)?;
+            ctx_obj.set("totalFrames", frame_ctx.total_frames)?;
+            ctx_obj.set("currentFrame", frame_ctx.current_frame)?;
+            ctx_obj.set("sceneFrames", frame_ctx.scene_frames)?;
             ctx_obj.set("__currentCanvasTarget", current_node_id.unwrap_or(""))?;
 
             let run_fn = self.run_fn.clone().restore(&ctx)?;
-            run_fn.call::<(), ()>(())?;
+            let node_label = current_node_id.unwrap_or("<global>");
+            let error_context = format!(
+                "script execution failed for node `{node_label}` at frame {}/{} (scene {}/{})",
+                frame_ctx.frame,
+                frame_ctx.total_frames,
+                frame_ctx.current_frame,
+                frame_ctx.scene_frames
+            );
+            map_js_result(run_fn.call::<(), ()>(()), &ctx, &error_context)?;
             Ok::<_, anyhow::Error>(())
         })?;
 
@@ -260,6 +288,31 @@ impl ScriptRunner {
     }
 }
 
+fn map_js_result<T>(
+    result: Result<T, JsError>,
+    ctx: &rquickjs::Ctx<'_>,
+    error_context: &str,
+) -> anyhow::Result<T> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(JsError::Exception) => {
+            let caught = ctx.catch();
+            if let Ok(exception) = Exception::from_js(ctx, caught.clone()) {
+                let message = exception
+                    .message()
+                    .unwrap_or_else(|| "uncaught JavaScript exception".to_string());
+                let stack = exception.stack().unwrap_or_default();
+                if stack.is_empty() {
+                    anyhow::bail!("{error_context}: {message}");
+                }
+                anyhow::bail!("{error_context}: {message}\n{stack}");
+            }
+            anyhow::bail!("{error_context}: uncaught JavaScript exception");
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
 fn install_runtime_bindings<'js>(
     ctx: &rquickjs::Ctx<'js>,
     store: &MutationStore,
@@ -268,6 +321,8 @@ fn install_runtime_bindings<'js>(
     let ctx_obj = Object::new(ctx.clone())?;
     ctx_obj.set("frame", 0)?;
     ctx_obj.set("totalFrames", 0)?;
+    ctx_obj.set("currentFrame", 0)?;
+    ctx_obj.set("sceneFrames", 0)?;
     ctx_obj.set("__currentCanvasTarget", "")?;
     globals.set("ctx", ctx_obj.clone())?;
 
@@ -294,11 +349,33 @@ mod tests {
         )
         .expect("script should compile");
 
-        let mutations = driver.run(0, 1, None).expect("script should run");
+        let mutations = driver.run(0, 1, 0, 1, None).expect("script should run");
         let title = mutations.get("title").expect("title mutation should exist");
 
         assert_eq!(title.text_align, Some(TextAlign::Center));
         assert_eq!(title.line_height, Some(1.8));
+    }
+
+    #[test]
+    fn script_driver_exposes_global_and_scene_frame_fields() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.getNode("box")
+                .translateX(ctx.frame + ctx.totalFrames)
+                .translateY(ctx.currentFrame + ctx.sceneFrames);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(12, 240, 3, 30, Some("box"))
+            .expect("script should run");
+        let node = mutations.get("box").expect("box mutation should exist");
+
+        assert_eq!(
+            node.transforms,
+            vec![Transform::TranslateX(252.0), Transform::TranslateY(33.0)]
+        );
     }
 
     #[test]
@@ -313,7 +390,7 @@ mod tests {
         )
         .expect("script should compile");
 
-        let mutations = driver.run(0, 1, None).expect("script should run");
+        let mutations = driver.run(0, 1, 0, 1, None).expect("script should run");
         let node = mutations.get("box").expect("box mutation should exist");
 
         assert_eq!(
@@ -338,7 +415,7 @@ mod tests {
         )
         .expect("script should compile");
 
-        let mutations = driver.run(0, 1, None).expect("script should run");
+        let mutations = driver.run(0, 1, 0, 1, None).expect("script should run");
         let icon = mutations.get("icon").expect("icon mutation should exist");
 
         assert_eq!(icon.border_color, Some(ColorToken::Blue));
@@ -368,7 +445,9 @@ mod tests {
         )
         .expect("script should compile");
 
-        let mutations = driver.run(0, 1, Some("card")).expect("script should run");
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
         let canvas = mutations
             .get_canvas("card")
             .expect("canvas mutation should exist");
@@ -427,7 +506,9 @@ mod tests {
         )
         .expect("script should compile");
 
-        let mutations = driver.run(0, 1, Some("card")).expect("script should run");
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
         let canvas = mutations
             .get_canvas("card")
             .expect("canvas mutation should exist");
@@ -459,9 +540,10 @@ mod tests {
                 join: ScriptLineJoin::Bevel,
             }
         );
-        assert!(matches!(canvas.commands[4], CanvasCommand::BeginPath));
-        assert!(matches!(canvas.commands[9], CanvasCommand::ClosePath));
-        assert!(matches!(canvas.commands[10], CanvasCommand::StrokePath));
+        assert!(matches!(canvas.commands[4], CanvasCommand::ClearLineDash));
+        assert!(matches!(canvas.commands[5], CanvasCommand::BeginPath));
+        assert!(matches!(canvas.commands[10], CanvasCommand::ClosePath));
+        assert!(matches!(canvas.commands[11], CanvasCommand::StrokePath));
     }
 
     #[test]
@@ -488,7 +570,9 @@ mod tests {
         )
         .expect("script should compile");
 
-        let mutations = driver.run(0, 1, Some("card")).expect("script should run");
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
         let canvas = mutations
             .get_canvas("card")
             .expect("canvas mutation should exist");
@@ -533,10 +617,80 @@ mod tests {
             canvas.commands[7],
             CanvasCommand::SetLineWidth { width: 3.0 }
         );
+        assert!(matches!(canvas.commands[10], CanvasCommand::ClearLineDash));
         assert!(matches!(
-            canvas.commands[10],
+            canvas.commands[11],
             CanvasCommand::StrokeCircle { .. }
         ));
-        assert_eq!(canvas.commands[11], CanvasCommand::Restore);
+        assert_eq!(canvas.commands[12], CanvasCommand::Restore);
+    }
+
+    #[test]
+    fn script_driver_supports_canvas_global_alpha() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const canvas = ctx.getCanvas();
+            canvas.setAlphaf(0.25);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(
+            canvas.commands[0],
+            CanvasCommand::SetGlobalAlpha { alpha: 0.25 }
+        );
+    }
+
+    #[test]
+    fn script_driver_accepts_stroke_dash_paint_api() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const canvas = ctx.getCanvas();
+            const stroke = new CK.Paint();
+            stroke.setStyle(CK.PaintStyle.Stroke);
+            stroke.setColor(CK.parseColorString("#445566"));
+            stroke.setStrokeWidth(3);
+            stroke.setStrokeDash([6, 4]);
+
+            canvas.drawLine(0, 0, 10, 10, stroke);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(
+            canvas.commands[0],
+            CanvasCommand::SetStrokeStyle {
+                color: ScriptColor {
+                    r: 68,
+                    g: 85,
+                    b: 102,
+                    a: 255,
+                },
+            }
+        );
+        assert_eq!(
+            canvas.commands[1],
+            CanvasCommand::SetLineWidth { width: 3.0 }
+        );
+        assert!(matches!(
+            canvas.commands[4],
+            CanvasCommand::SetLineDash { .. }
+        ));
+        assert!(matches!(canvas.commands[5], CanvasCommand::DrawLine { .. }));
     }
 }

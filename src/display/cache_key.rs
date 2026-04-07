@@ -141,6 +141,7 @@ fn hash_text_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
     hash_f32(style.text_px, state);
     hash_f32(style.letter_spacing, state);
     hash_f32(style.line_height, state);
+    style.text_transform.hash(state);
 }
 
 fn hash_transforms(transforms: &[Transform], state: &mut impl Hasher) {
@@ -225,22 +226,33 @@ fn hash_canvas_command(command: &CanvasCommand, state: &mut impl Hasher) {
             6_u8.hash(state);
             join.hash(state);
         }
-        CanvasCommand::SetGlobalAlpha { alpha } => {
+        CanvasCommand::SetLineDash { intervals, phase } => {
             7_u8.hash(state);
+            intervals.len().hash(state);
+            for interval in intervals {
+                hash_f32(*interval, state);
+            }
+            hash_f32(*phase, state);
+        }
+        CanvasCommand::ClearLineDash => {
+            8_u8.hash(state);
+        }
+        CanvasCommand::SetGlobalAlpha { alpha } => {
+            9_u8.hash(state);
             hash_f32(*alpha, state);
         }
         CanvasCommand::Translate { x, y } => {
-            8_u8.hash(state);
+            10_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
         CanvasCommand::Scale { x, y } => {
-            9_u8.hash(state);
+            11_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
         CanvasCommand::Rotate { degrees } => {
-            10_u8.hash(state);
+            12_u8.hash(state);
             hash_f32(*degrees, state);
         }
         CanvasCommand::ClipRect {
@@ -249,14 +261,14 @@ fn hash_canvas_command(command: &CanvasCommand, state: &mut impl Hasher) {
             width,
             height,
         } => {
-            11_u8.hash(state);
+            13_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
             hash_f32(*width, state);
             hash_f32(*height, state);
         }
         CanvasCommand::Clear { color } => {
-            12_u8.hash(state);
+            14_u8.hash(state);
             color.hash(state);
         }
         CanvasCommand::FillRect {
@@ -266,7 +278,7 @@ fn hash_canvas_command(command: &CanvasCommand, state: &mut impl Hasher) {
             height,
             color,
         } => {
-            13_u8.hash(state);
+            15_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
             hash_f32(*width, state);
@@ -280,7 +292,7 @@ fn hash_canvas_command(command: &CanvasCommand, state: &mut impl Hasher) {
             height,
             radius,
         } => {
-            14_u8.hash(state);
+            16_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
             hash_f32(*width, state);
@@ -295,7 +307,7 @@ fn hash_canvas_command(command: &CanvasCommand, state: &mut impl Hasher) {
             color,
             stroke_width,
         } => {
-            15_u8.hash(state);
+            17_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
             hash_f32(*width, state);
@@ -310,7 +322,7 @@ fn hash_canvas_command(command: &CanvasCommand, state: &mut impl Hasher) {
             height,
             radius,
         } => {
-            16_u8.hash(state);
+            18_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
             hash_f32(*width, state);
@@ -318,39 +330,39 @@ fn hash_canvas_command(command: &CanvasCommand, state: &mut impl Hasher) {
             hash_f32(*radius, state);
         }
         CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
-            17_u8.hash(state);
+            19_u8.hash(state);
             hash_f32(*x0, state);
             hash_f32(*y0, state);
             hash_f32(*x1, state);
             hash_f32(*y1, state);
         }
         CanvasCommand::FillCircle { cx, cy, radius } => {
-            18_u8.hash(state);
+            20_u8.hash(state);
             hash_f32(*cx, state);
             hash_f32(*cy, state);
             hash_f32(*radius, state);
         }
         CanvasCommand::StrokeCircle { cx, cy, radius } => {
-            19_u8.hash(state);
+            21_u8.hash(state);
             hash_f32(*cx, state);
             hash_f32(*cy, state);
             hash_f32(*radius, state);
         }
         CanvasCommand::BeginPath => {
-            20_u8.hash(state);
+            22_u8.hash(state);
         }
         CanvasCommand::MoveTo { x, y } => {
-            21_u8.hash(state);
+            23_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
         CanvasCommand::LineTo { x, y } => {
-            22_u8.hash(state);
+            24_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
         CanvasCommand::QuadTo { cx, cy, x, y } => {
-            23_u8.hash(state);
+            25_u8.hash(state);
             hash_f32(*cx, state);
             hash_f32(*cy, state);
             hash_f32(*x, state);
@@ -364,7 +376,7 @@ fn hash_canvas_command(command: &CanvasCommand, state: &mut impl Hasher) {
             x,
             y,
         } => {
-            24_u8.hash(state);
+            26_u8.hash(state);
             hash_f32(*c1x, state);
             hash_f32(*c1y, state);
             hash_f32(*c2x, state);
@@ -373,13 +385,13 @@ fn hash_canvas_command(command: &CanvasCommand, state: &mut impl Hasher) {
             hash_f32(*y, state);
         }
         CanvasCommand::ClosePath => {
-            25_u8.hash(state);
+            27_u8.hash(state);
         }
         CanvasCommand::FillPath => {
-            26_u8.hash(state);
+            28_u8.hash(state);
         }
         CanvasCommand::StrokePath => {
-            27_u8.hash(state);
+            29_u8.hash(state);
         }
         CanvasCommand::DrawImage {
             asset_id,
@@ -389,7 +401,7 @@ fn hash_canvas_command(command: &CanvasCommand, state: &mut impl Hasher) {
             height,
             object_fit,
         } => {
-            28_u8.hash(state);
+            30_u8.hash(state);
             asset_id.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);

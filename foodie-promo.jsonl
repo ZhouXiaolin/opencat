@@ -1,0 +1,119 @@
+{"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 150}
+{"id": "scene1-login", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] bg-white", "duration": 60}
+{"id": "login-hero", "parentId": "scene1-login", "type": "div", "className": "flex flex-col items-center justify-center w-[390px] h-[420px] bg-gradient-to-br from-orange-400 to-rose-500 relative"}
+{"id": "login-hero-image", "parentId": "login-hero", "type": "image", "className": "w-[180px] h-[180px] object-cover rounded-full shadow-lg", "query": "gourmet food plate"}
+{"id": "login-hero-title", "parentId": "login-hero", "type": "text", "className": "text-[36px] font-bold text-white mt-[24px]", "text": "FoodieHub"}
+{"id": "login-hero-subtitle", "parentId": "login-hero", "type": "text", "className": "text-[16px] text-white/80 mt-[8px]", "text": "Discover delicious meals near you"}
+{"id": "login-form", "parentId": "scene1-login", "type": "div", "className": "flex flex-col w-[390px] px-[32px] gap-[20px] mt-[48px]"}
+{"id": "login-input-email", "parentId": "login-form", "type": "div", "className": "flex flex-row items-center w-full h-[56px] bg-slate-50 rounded-xl px-[16px] gap-[12px] border border-slate-200"}
+{"id": "login-email-icon", "parentId": "login-input-email", "type": "icon", "className": "w-[20px] h-[20px] text-slate-400", "icon": "mail"}
+{"id": "login-email-text", "parentId": "login-input-email", "type": "text", "className": "text-[15px] text-slate-400", "text": "Email address"}
+{"id": "login-input-password", "parentId": "login-form", "type": "div", "className": "flex flex-row items-center w-full h-[56px] bg-slate-50 rounded-xl px-[16px] gap-[12px] border border-slate-200"}
+{"id": "login-password-icon", "parentId": "login-input-password", "type": "icon", "className": "w-[20px] h-[20px] text-slate-400", "icon": "lock"}
+{"id": "login-password-text", "parentId": "login-input-password", "type": "text", "className": "text-[15px] text-slate-400", "text": "Password"}
+{"id": "login-btn", "parentId": "login-form", "type": "div", "className": "flex items-center justify-center w-full h-[56px] bg-gradient-to-r from-orange-500 to-rose-500 rounded-xl shadow-md"}
+{"id": "login-btn-text", "parentId": "login-btn", "type": "text", "className": "text-[16px] font-semibold text-white", "text": "Sign In"}
+{"id": "login-divider", "parentId": "login-form", "type": "div", "className": "flex flex-row items-center w-full gap-[16px]"}
+{"id": "login-divider-line1", "parentId": "login-divider", "type": "div", "className": "flex-1 h-[1px] bg-slate-200"}
+{"id": "login-divider-text", "parentId": "login-divider", "type": "text", "className": "text-[13px] text-slate-400", "text": "or continue with"}
+{"id": "login-divider-line2", "parentId": "login-divider", "type": "div", "className": "flex-1 h-[1px] bg-slate-200"}
+{"id": "login-social", "parentId": "login-form", "type": "div", "className": "flex flex-row justify-center gap-[24px]"}
+{"id": "login-social-google", "parentId": "login-social", "type": "div", "className": "flex items-center justify-center w-[56px] h-[56px] bg-white rounded-full shadow-sm border border-slate-200"}
+{"id": "login-google-icon", "parentId": "login-social-google", "type": "icon", "className": "w-[24px] h-[24px] text-slate-600", "icon": "globe"}
+{"id": "login-social-apple", "parentId": "login-social", "type": "div", "className": "flex items-center justify-center w-[56px] h-[56px] bg-white rounded-full shadow-sm border border-slate-200"}
+{"id": "login-apple-icon", "parentId": "login-social-apple", "type": "icon", "className": "w-[24px] h-[24px] text-slate-800", "icon": "apple"}
+{"id": "login-footer", "parentId": "scene1-login", "type": "div", "className": "flex items-center justify-center w-[390px] grow"}
+{"id": "login-footer-text", "parentId": "login-footer", "type": "text", "className": "text-[14px] text-slate-500", "text": "Don't have an account? Sign Up"}
+{"type": "transition", "from": "scene1-login", "to": "scene2-home", "effect": "slide", "duration": 30}
+{"id": "scene2-home", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] bg-slate-50", "duration": 60}
+{"id": "home-header", "parentId": "scene2-home", "type": "div", "className": "flex flex-row items-center justify-between w-[390px] px-[20px] py-[16px] bg-white"}
+{"id": "home-header-left", "parentId": "home-header", "type": "div", "className": "flex flex-col"}
+{"id": "home-greeting", "parentId": "home-header-left", "type": "text", "className": "text-[14px] text-slate-500", "text": "Good evening"}
+{"id": "home-user-name", "parentId": "home-header-left", "type": "text", "className": "text-[20px] font-bold text-slate-900", "text": "Solaren"}
+{"id": "home-avatar", "parentId": "home-header", "type": "image", "className": "w-[48px] h-[48px] rounded-full object-cover", "query": "person portrait"}
+{"id": "home-search", "parentId": "scene2-home", "type": "div", "className": "flex flex-row items-center w-[350px] mx-[20px] h-[48px] bg-white rounded-xl px-[16px] gap-[12px] shadow-sm mt-[12px]"}
+{"id": "home-search-icon", "parentId": "home-search", "type": "icon", "className": "w-[20px] h-[20px] text-slate-400", "icon": "search"}
+{"id": "home-search-text", "parentId": "home-search", "type": "text", "className": "text-[14px] text-slate-400", "text": "Search dishes, restaurants..."}
+{"id": "home-categories", "parentId": "scene2-home", "type": "div", "className": "flex flex-col w-[390px] px-[20px] mt-[24px]"}
+{"id": "home-categories-title", "parentId": "home-categories", "type": "text", "className": "text-[18px] font-semibold text-slate-900", "text": "Categories"}
+{"id": "home-categories-list", "parentId": "home-categories", "type": "div", "className": "flex flex-row gap-[16px] mt-[16px]"}
+{"id": "home-cat-burger", "parentId": "home-categories-list", "type": "div", "className": "flex flex-col items-center gap-[8px]"}
+{"id": "home-cat-burger-img", "parentId": "home-cat-burger", "type": "image", "className": "w-[64px] h-[64px] rounded-full object-cover shadow-sm", "query": "burger"}
+{"id": "home-cat-burger-text", "parentId": "home-cat-burger", "type": "text", "className": "text-[13px] text-slate-700 font-medium", "text": "Burger"}
+{"id": "home-cat-pizza", "parentId": "home-categories-list", "type": "div", "className": "flex flex-col items-center gap-[8px]"}
+{"id": "home-cat-pizza-img", "parentId": "home-cat-pizza", "type": "image", "className": "w-[64px] h-[64px] rounded-full object-cover shadow-sm", "query": "pizza"}
+{"id": "home-cat-pizza-text", "parentId": "home-cat-pizza", "type": "text", "className": "text-[13px] text-slate-700 font-medium", "text": "Pizza"}
+{"id": "home-cat-sushi", "parentId": "home-categories-list", "type": "div", "className": "flex flex-col items-center gap-[8px]"}
+{"id": "home-cat-sushi-img", "parentId": "home-cat-sushi", "type": "image", "className": "w-[64px] h-[64px] rounded-full object-cover shadow-sm", "query": "sushi"}
+{"id": "home-cat-sushi-text", "parentId": "home-cat-sushi", "type": "text", "className": "text-[13px] text-slate-700 font-medium", "text": "Sushi"}
+{"id": "home-cat-salad", "parentId": "home-categories-list", "type": "div", "className": "flex flex-col items-center gap-[8px]"}
+{"id": "home-cat-salad-img", "parentId": "home-cat-salad", "type": "image", "className": "w-[64px] h-[64px] rounded-full object-cover shadow-sm", "query": "salad"}
+{"id": "home-cat-salad-text", "parentId": "home-cat-salad", "type": "text", "className": "text-[13px] text-slate-700 font-medium", "text": "Salad"}
+{"id": "home-featured", "parentId": "scene2-home", "type": "div", "className": "flex flex-col w-[390px] px-[20px] mt-[24px]"}
+{"id": "home-featured-title", "parentId": "home-featured", "type": "text", "className": "text-[18px] font-semibold text-slate-900", "text": "Featured"}
+{"id": "home-featured-card", "parentId": "home-featured", "type": "div", "className": "flex flex-col w-full mt-[16px] bg-white rounded-2xl overflow-hidden shadow-md"}
+{"id": "home-featured-img", "parentId": "home-featured-card", "type": "image", "className": "w-full h-[180px] object-cover", "query": "pasta dish"}
+{"id": "home-featured-info", "parentId": "home-featured-card", "type": "div", "className": "flex flex-col px-[16px] py-[12px] gap-[8px]"}
+{"id": "home-featured-name", "parentId": "home-featured-info", "type": "text", "className": "text-[16px] font-semibold text-slate-900", "text": "Truffle Mushroom Pasta"}
+{"id": "home-featured-desc", "parentId": "home-featured-info", "type": "div", "className": "flex flex-row items-center gap-[12px]"}
+{"id": "home-featured-rating", "parentId": "home-featured-desc", "type": "div", "className": "flex flex-row items-center gap-[4px]"}
+{"id": "home-featured-star-icon", "parentId": "home-featured-rating", "type": "icon", "className": "w-[16px] h-[16px] text-amber-500", "icon": "star"}
+{"id": "home-featured-rating-text", "parentId": "home-featured-rating", "type": "text", "className": "text-[13px] text-slate-600", "text": "4.9"}
+{"id": "home-featured-time", "parentId": "home-featured-desc", "type": "div", "className": "flex flex-row items-center gap-[4px]"}
+{"id": "home-featured-time-icon", "parentId": "home-featured-time", "type": "icon", "className": "w-[16px] h-[16px] text-slate-400", "icon": "clock"}
+{"id": "home-featured-time-text", "parentId": "home-featured-time", "type": "text", "className": "text-[13px] text-slate-600", "text": "25 min"}
+{"id": "home-featured-price", "parentId": "home-featured-desc", "type": "text", "className": "text-[16px] font-bold text-orange-500", "text": "$18.99"}
+{"id": "home-bottom-nav", "parentId": "scene2-home", "type": "div", "className": "absolute bottom-0 w-[390px] flex flex-row items-center justify-around h-[72px] bg-white border-t border-slate-200"}
+{"id": "home-nav-home", "parentId": "home-bottom-nav", "type": "div", "className": "flex flex-col items-center gap-[4px]"}
+{"id": "home-nav-home-icon", "parentId": "home-nav-home", "type": "icon", "className": "w-[24px] h-[24px] text-orange-500", "icon": "house"}
+{"id": "home-nav-home-text", "parentId": "home-nav-home", "type": "text", "className": "text-[11px] font-medium text-orange-500", "text": "Home"}
+{"id": "home-nav-explore", "parentId": "home-bottom-nav", "type": "div", "className": "flex flex-col items-center gap-[4px]"}
+{"id": "home-nav-explore-icon", "parentId": "home-nav-explore", "type": "icon", "className": "w-[24px] h-[24px] text-slate-400", "icon": "compass"}
+{"id": "home-nav-explore-text", "parentId": "home-nav-explore", "type": "text", "className": "text-[11px] text-slate-400", "text": "Explore"}
+{"id": "home-nav-orders", "parentId": "home-bottom-nav", "type": "div", "className": "flex flex-col items-center gap-[4px]"}
+{"id": "home-nav-orders-icon", "parentId": "home-nav-orders", "type": "icon", "className": "w-[24px] h-[24px] text-slate-400", "icon": "shopping-bag"}
+{"id": "home-nav-orders-text", "parentId": "home-nav-orders", "type": "text", "className": "text-[11px] text-slate-400", "text": "Orders"}
+{"id": "home-nav-profile", "parentId": "home-bottom-nav", "type": "div", "className": "flex flex-col items-center gap-[4px]"}
+{"id": "home-nav-profile-icon", "parentId": "home-nav-profile", "type": "icon", "className": "w-[24px] h-[24px] text-slate-400", "icon": "user"}
+{"id": "home-nav-profile-text", "parentId": "home-nav-profile", "type": "text", "className": "text-[11px] text-slate-400", "text": "Profile"}
+{"type": "transition", "from": "scene2-home", "to": "scene3-settings", "effect": "iris", "duration": 30}
+{"id": "scene3-settings", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] bg-slate-50", "duration": 60}
+{"id": "settings-header", "parentId": "scene3-settings", "type": "div", "className": "flex flex-row items-center w-[390px] px-[20px] py-[16px] bg-white gap-[16px]"}
+{"id": "settings-back-icon", "parentId": "settings-header", "type": "icon", "className": "w-[24px] h-[24px] text-slate-700", "icon": "arrow-left"}
+{"id": "settings-title", "parentId": "settings-header", "type": "text", "className": "text-[20px] font-bold text-slate-900", "text": "Settings"}
+{"id": "settings-profile", "parentId": "scene3-settings", "type": "div", "className": "flex flex-col items-center w-[390px] px-[20px] py-[32px] bg-white mt-[8px] gap-[12px]"}
+{"id": "settings-profile-img", "parentId": "settings-profile", "type": "image", "className": "w-[80px] h-[80px] rounded-full object-cover", "query": "person portrait"}
+{"id": "settings-profile-name", "parentId": "settings-profile", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Solaren"}
+{"id": "settings-profile-email", "parentId": "settings-profile", "type": "text", "className": "text-[14px] text-slate-500", "text": "solaren@foodiehub.com"}
+{"id": "settings-section", "parentId": "scene3-settings", "type": "div", "className": "flex flex-col w-[390px] px-[20px] mt-[16px] gap-[12px]"}
+{"id": "settings-item-notif", "parentId": "settings-section", "type": "div", "className": "flex flex-row items-center justify-between w-full h-[56px] bg-white rounded-xl px-[16px]"}
+{"id": "settings-item-notif-left", "parentId": "settings-item-notif", "type": "div", "className": "flex flex-row items-center gap-[12px]"}
+{"id": "settings-notif-icon", "parentId": "settings-item-notif-left", "type": "icon", "className": "w-[22px] h-[22px] text-orange-500", "icon": "bell"}
+{"id": "settings-notif-text", "parentId": "settings-item-notif-left", "type": "text", "className": "text-[15px] text-slate-700", "text": "Notifications"}
+{"id": "settings-notif-arrow", "parentId": "settings-item-notif", "type": "icon", "className": "w-[20px] h-[20px] text-slate-400", "icon": "chevron-right"}
+{"id": "settings-item-lang", "parentId": "settings-section", "type": "div", "className": "flex flex-row items-center justify-between w-full h-[56px] bg-white rounded-xl px-[16px]"}
+{"id": "settings-item-lang-left", "parentId": "settings-item-lang", "type": "div", "className": "flex flex-row items-center gap-[12px]"}
+{"id": "settings-lang-icon", "parentId": "settings-item-lang-left", "type": "icon", "className": "w-[22px] h-[22px] text-blue-500", "icon": "globe"}
+{"id": "settings-lang-text", "parentId": "settings-item-lang-left", "type": "text", "className": "text-[15px] text-slate-700", "text": "Language"}
+{"id": "settings-lang-value", "parentId": "settings-item-lang", "type": "text", "className": "text-[14px] text-slate-400", "text": "English"}
+{"id": "settings-lang-arrow", "parentId": "settings-item-lang", "type": "icon", "className": "w-[20px] h-[20px] text-slate-400", "icon": "chevron-right"}
+{"id": "settings-item-theme", "parentId": "settings-section", "type": "div", "className": "flex flex-row items-center justify-between w-full h-[56px] bg-white rounded-xl px-[16px]"}
+{"id": "settings-item-theme-left", "parentId": "settings-item-theme", "type": "div", "className": "flex flex-row items-center gap-[12px]"}
+{"id": "settings-theme-icon", "parentId": "settings-item-theme-left", "type": "icon", "className": "w-[22px] h-[22px] text-purple-500", "icon": "moon"}
+{"id": "settings-theme-text", "parentId": "settings-item-theme-left", "type": "text", "className": "text-[15px] text-slate-700", "text": "Dark Mode"}
+{"id": "settings-theme-arrow", "parentId": "settings-item-theme", "type": "icon", "className": "w-[20px] h-[20px] text-slate-400", "icon": "chevron-right"}
+{"id": "settings-item-privacy", "parentId": "settings-section", "type": "div", "className": "flex flex-row items-center justify-between w-full h-[56px] bg-white rounded-xl px-[16px]"}
+{"id": "settings-item-privacy-left", "parentId": "settings-item-privacy", "type": "div", "className": "flex flex-row items-center gap-[12px]"}
+{"id": "settings-privacy-icon", "parentId": "settings-item-privacy-left", "type": "icon", "className": "w-[22px] h-[22px] text-green-500", "icon": "shield-check"}
+{"id": "settings-privacy-text", "parentId": "settings-item-privacy-left", "type": "text", "className": "text-[15px] text-slate-700", "text": "Privacy & Security"}
+{"id": "settings-privacy-arrow", "parentId": "settings-item-privacy", "type": "icon", "className": "w-[20px] h-[20px] text-slate-400", "icon": "chevron-right"}
+{"id": "settings-item-help", "parentId": "settings-section", "type": "div", "className": "flex flex-row items-center justify-between w-full h-[56px] bg-white rounded-xl px-[16px]"}
+{"id": "settings-item-help-left", "parentId": "settings-item-help", "type": "div", "className": "flex flex-row items-center gap-[12px]"}
+{"id": "settings-help-icon", "parentId": "settings-item-help-left", "type": "icon", "className": "w-[22px] h-[22px] text-amber-500", "icon": "life-buoy"}
+{"id": "settings-help-text", "parentId": "settings-item-help-left", "type": "text", "className": "text-[15px] text-slate-700", "text": "Help & Support"}
+{"id": "settings-help-arrow", "parentId": "settings-item-help", "type": "icon", "className": "w-[20px] h-[20px] text-slate-400", "icon": "chevron-right"}
+{"id": "settings-logout", "parentId": "scene3-settings", "type": "div", "className": "flex items-center justify-center w-[350px] mx-[20px] h-[52px] mt-[24px] bg-white rounded-xl border border-rose-200"}
+{"id": "settings-logout-text", "parentId": "settings-logout", "type": "text", "className": "text-[15px] font-medium text-rose-500", "text": "Log Out"}
+{"type": "script", "parentId": "scene1-login", "content": "(function() {\n  var p = ctx.frame / ctx.totalFrames;\n  var hero = ctx.getNode('login-hero');\n  var form = ctx.getNode('login-form');\n  var btn = ctx.getNode('login-btn');\n  var heroImg = ctx.getNode('login-hero-image');\n  var title = ctx.getNode('login-hero-title');\n  var subtitle = ctx.getNode('login-hero-subtitle');\n  var social = ctx.getNode('login-social');\n  var footer = ctx.getNode('login-footer');\n  var ease = function(t) { return t < 0 ? 0 : t > 1 ? 1 : t; };\n  var fadeIn = function(frame, delay, dur) { return ease((frame - delay) / dur); };\n  hero.opacity(fadeIn(ctx.frame, 0, 15));\n  heroImg.scale(0.5 + 0.5 * fadeIn(ctx.frame, 0, 12));\n  heroImg.opacity(fadeIn(ctx.frame, 0, 12));\n  title.opacity(fadeIn(ctx.frame, 5, 10));\n  title.translateY(20 * (1 - fadeIn(ctx.frame, 5, 10)));\n  subtitle.opacity(fadeIn(ctx.frame, 8, 10));\n  subtitle.translateY(15 * (1 - fadeIn(ctx.frame, 8, 10)));\n  form.opacity(fadeIn(ctx.frame, 12, 12));\n  form.translateY(30 * (1 - fadeIn(ctx.frame, 12, 12)));\n  btn.scale(0.9 + 0.1 * fadeIn(ctx.frame, 18, 8));\n  social.opacity(fadeIn(ctx.frame, 22, 10));\n  social.translateY(20 * (1 - fadeIn(ctx.frame, 22, 10)));\n  footer.opacity(fadeIn(ctx.frame, 26, 10));\n})();"}
+{"type": "script", "parentId": "scene2-home", "content": "(function() {\n  var p = ctx.frame / ctx.totalFrames;\n  var ease = function(t) { return t < 0 ? 0 : t > 1 ? 1 : t; };\n  var fadeIn = function(frame, delay, dur) { return ease((frame - delay) / dur); };\n  var header = ctx.getNode('home-header');\n  var search = ctx.getNode('home-search');\n  var cats = ctx.getNode('home-categories');\n  var featured = ctx.getNode('home-featured');\n  var nav = ctx.getNode('home-bottom-nav');\n  header.opacity(fadeIn(ctx.frame, 0, 10));\n  header.translateY(-20 * (1 - fadeIn(ctx.frame, 0, 10)));\n  search.opacity(fadeIn(ctx.frame, 4, 10));\n  search.scale(0.95 + 0.05 * fadeIn(ctx.frame, 4, 10));\n  cats.opacity(fadeIn(ctx.frame, 10, 12));\n  cats.translateY(25 * (1 - fadeIn(ctx.frame, 10, 12)));\n  featured.opacity(fadeIn(ctx.frame, 16, 12));\n  featured.translateY(30 * (1 - fadeIn(ctx.frame, 16, 12)));\n  nav.opacity(fadeIn(ctx.frame, 22, 10));\n  nav.translateY(40 * (1 - fadeIn(ctx.frame, 22, 10)));\n})();"}
+{"type": "script", "parentId": "scene3-settings", "content": "(function() {\n  var p = ctx.frame / ctx.totalFrames;\n  var ease = function(t) { return t < 0 ? 0 : t > 1 ? 1 : t; };\n  var fadeIn = function(frame, delay, dur) { return ease((frame - delay) / dur); };\n  var header = ctx.getNode('settings-header');\n  var profile = ctx.getNode('settings-profile');\n  var section = ctx.getNode('settings-section');\n  var logout = ctx.getNode('settings-logout');\n  header.opacity(fadeIn(ctx.frame, 0, 8));\n  header.translateX(-20 * (1 - fadeIn(ctx.frame, 0, 8)));\n  profile.opacity(fadeIn(ctx.frame, 4, 10));\n  profile.scale(0.9 + 0.1 * fadeIn(ctx.frame, 4, 10));\n  section.opacity(fadeIn(ctx.frame, 10, 14));\n  section.translateY(20 * (1 - fadeIn(ctx.frame, 10, 14)));\n  logout.opacity(fadeIn(ctx.frame, 18, 8));\n})();"}

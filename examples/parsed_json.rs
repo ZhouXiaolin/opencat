@@ -1,11 +1,10 @@
 use opencat::{Composition, EncodingConfig, ScriptDriver, parse};
 
-const INPUT: &str = include_str!("pizza-palace-1280x720.jsonl");
 fn main() -> anyhow::Result<()> {
     let input = if let Some(path) = std::env::args().nth(1) {
         std::fs::read_to_string(path)?
     } else {
-        INPUT.to_string()
+        return Err(anyhow::anyhow!("No input file provided"));
     };
 
     let parsed = parse(&input)?;

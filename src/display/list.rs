@@ -1,9 +1,16 @@
 use crate::{
     assets::AssetId,
-    layout::tree::LayoutRect,
     script::CanvasCommand,
     style::{BackgroundFill, ColorToken, ComputedTextStyle, ObjectFit, ShadowStyle},
 };
+
+#[derive(Clone, Copy, Debug)]
+pub struct DisplayRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct DisplayList {
@@ -28,13 +35,13 @@ pub enum DisplayCommand {
 
 #[derive(Clone, Debug)]
 pub struct DisplayLayer {
-    pub bounds: LayoutRect,
+    pub bounds: DisplayRect,
     pub opacity: f32,
 }
 
 #[derive(Clone, Debug)]
 pub struct DisplayClip {
-    pub bounds: LayoutRect,
+    pub bounds: DisplayRect,
     pub border_radius: f32,
 }
 
@@ -42,7 +49,7 @@ pub struct DisplayClip {
 pub struct DisplayTransform {
     pub translation_x: f32,
     pub translation_y: f32,
-    pub bounds: LayoutRect,
+    pub bounds: DisplayRect,
     pub transforms: Vec<crate::style::Transform>,
 }
 
@@ -57,13 +64,13 @@ pub enum DisplayItem {
 
 #[derive(Clone, Debug)]
 pub struct RectDisplayItem {
-    pub bounds: LayoutRect,
+    pub bounds: DisplayRect,
     pub paint: RectPaintStyle,
 }
 
 #[derive(Clone, Debug)]
 pub struct TextDisplayItem {
-    pub bounds: LayoutRect,
+    pub bounds: DisplayRect,
     pub text: String,
     pub style: ComputedTextStyle,
     pub allow_wrap: bool,
@@ -71,7 +78,7 @@ pub struct TextDisplayItem {
 
 #[derive(Clone, Debug)]
 pub struct BitmapDisplayItem {
-    pub bounds: LayoutRect,
+    pub bounds: DisplayRect,
     pub asset_id: AssetId,
     pub width: u32,
     pub height: u32,
@@ -81,7 +88,7 @@ pub struct BitmapDisplayItem {
 
 #[derive(Clone, Debug)]
 pub struct CanvasDisplayItem {
-    pub bounds: LayoutRect,
+    pub bounds: DisplayRect,
     pub commands: Vec<CanvasCommand>,
 }
 
@@ -115,7 +122,7 @@ pub struct LucidePaintStyle {
 
 #[derive(Clone, Debug)]
 pub struct LucideDisplayItem {
-    pub bounds: LayoutRect,
+    pub bounds: DisplayRect,
     pub icon: String,
     pub paint: LucidePaintStyle,
 }

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{AlphaType, ColorType, Data, Image, ImageInfo, image::CachingHint};
 
-use crate::cache_policy::{BitmapSourceKind, bitmap_source_kind};
+use crate::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
 use crate::codec::decode::VideoDecodeCache;
 
 pub use crate::codec::decode::VideoInfo;

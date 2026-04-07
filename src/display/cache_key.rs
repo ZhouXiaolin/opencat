@@ -1,97 +1,18 @@
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
-    path::Path,
 };
 
 use crate::{
-    assets::AssetsMap,
-    display::list::{DisplayCommand, DisplayItem, DisplayList, TextDisplayItem},
-    element::style::ComputedVisualStyle,
-    layout::{
-        LayoutPassStats,
-        tree::{LayoutNode, LayoutPaintKind},
+    assets::{AssetId, AssetsMap},
+    bitmap_source::{BitmapSourceKind, bitmap_source_kind},
+    display::{
+        list::{DisplayItem, TextDisplayItem},
+        tree::DisplayNode,
     },
+    script::CanvasCommand,
     style::{ComputedTextStyle, Transform},
 };
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum BitmapSourceKind {
-    StaticImage,
-    Video,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum CacheInvalidationScope {
-    Clean,
-    Raster,
-    Composite,
-    Layout,
-    Structure,
-    TimeVariant,
-}
-
-impl CacheInvalidationScope {
-    pub(crate) fn allows_picture_reuse(self) -> bool {
-        matches!(self, Self::Clean)
-    }
-
-    pub(crate) fn prefers_subtree_cache(self) -> bool {
-        matches!(self, Self::Composite)
-    }
-}
-
-pub(crate) fn bitmap_source_kind(path: &Path) -> BitmapSourceKind {
-    match path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("mp4" | "mov" | "m4v" | "webm" | "mkv" | "avi") => BitmapSourceKind::Video,
-        _ => BitmapSourceKind::StaticImage,
-    }
-}
-
-pub(crate) fn display_list_contains_video(list: &DisplayList, assets: &AssetsMap) -> bool {
-    list.commands.iter().any(|command| match command {
-        DisplayCommand::Draw {
-            item: DisplayItem::Bitmap(bitmap),
-        } => assets
-            .path(&bitmap.asset_id)
-            .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
-            .unwrap_or(false),
-        DisplayCommand::Draw {
-            item: DisplayItem::Canvas(canvas),
-        } => canvas.commands.iter().any(|command| {
-            matches!(command, crate::script::CanvasCommand::DrawImage { asset_id, .. }
-                if assets
-                    .path(&crate::assets::AssetId(asset_id.clone()))
-                    .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
-                    .unwrap_or(false))
-        }),
-        _ => false,
-    })
-}
-
-pub(crate) fn scene_cache_scope(
-    layout_pass: &LayoutPassStats,
-    contains_video: bool,
-) -> CacheInvalidationScope {
-    if contains_video {
-        CacheInvalidationScope::TimeVariant
-    } else if layout_pass.structure_rebuild {
-        CacheInvalidationScope::Structure
-    } else if layout_pass.layout_dirty_nodes > 0 {
-        CacheInvalidationScope::Layout
-    } else if layout_pass.raster_dirty_nodes > 0 {
-        CacheInvalidationScope::Raster
-    } else if layout_pass.composite_dirty_nodes > 0 {
-        CacheInvalidationScope::Composite
-    } else {
-        CacheInvalidationScope::Clean
-    }
-}
 
 pub(crate) fn text_picture_cache_key(text: &TextDisplayItem) -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -103,26 +24,27 @@ pub(crate) fn text_picture_cache_key(text: &TextDisplayItem) -> u64 {
     hasher.finish()
 }
 
-pub(crate) fn subtree_picture_cache_key(layout: &LayoutNode, assets: &AssetsMap) -> Option<u64> {
-    subtree_picture_cache_key_inner(layout, assets)
+pub(crate) fn subtree_picture_cache_key(node: &DisplayNode, assets: &AssetsMap) -> Option<u64> {
+    subtree_picture_cache_key_inner(node, assets)
 }
 
-fn subtree_picture_cache_key_inner(layout: &LayoutNode, assets: &AssetsMap) -> Option<u64> {
-    if layout_node_uses_video(layout, assets) {
+fn subtree_picture_cache_key_inner(node: &DisplayNode, assets: &AssetsMap) -> Option<u64> {
+    if display_node_uses_video(node, assets) {
         return None;
     }
 
     let mut hasher = DefaultHasher::new();
-    hash_f32(layout.rect.width, &mut hasher);
-    hash_f32(layout.rect.height, &mut hasher);
-    hash_raster_style(&layout.paint.visual, &mut hasher);
-    hash_layout_paint_kind(&layout.paint.kind, &mut hasher);
-    layout.children.len().hash(&mut hasher);
+    hash_f32(node.transform.bounds.width, &mut hasher);
+    hash_f32(node.transform.bounds.height, &mut hasher);
+    hash_display_item(&node.item, &mut hasher);
+    hash_clip(node.clip.as_ref(), &mut hasher);
+    node.children.len().hash(&mut hasher);
 
-    for child in &layout.children {
-        hash_f32(child.rect.x, &mut hasher);
-        hash_f32(child.rect.y, &mut hasher);
-        hash_composite_style(&child.paint.visual, &mut hasher);
+    for child in &node.children {
+        hash_f32(child.transform.translation_x, &mut hasher);
+        hash_f32(child.transform.translation_y, &mut hasher);
+        hash_f32(child.opacity, &mut hasher);
+        hash_transforms(&child.transform.transforms, &mut hasher);
         let child_key = subtree_picture_cache_key_inner(child, assets)?;
         child_key.hash(&mut hasher);
     }
@@ -130,72 +52,86 @@ fn subtree_picture_cache_key_inner(layout: &LayoutNode, assets: &AssetsMap) -> O
     Some(hasher.finish())
 }
 
-fn layout_node_uses_video(layout: &LayoutNode, assets: &AssetsMap) -> bool {
-    matches!(&layout.paint.kind, LayoutPaintKind::Bitmap(bitmap)
-        if assets
-            .path(&bitmap.asset_id)
-            .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
-            .unwrap_or(false))
-        || matches!(&layout.paint.kind, LayoutPaintKind::Canvas(canvas)
-        if canvas.commands.iter().any(|command| {
-            matches!(command, crate::script::CanvasCommand::DrawImage { asset_id, .. }
-                if assets
-                    .path(&crate::assets::AssetId(asset_id.clone()))
-                    .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
-                    .unwrap_or(false))
-        }))
-        || layout
+fn display_node_uses_video(node: &DisplayNode, assets: &AssetsMap) -> bool {
+    display_item_uses_video(&node.item, assets)
+        || node
             .children
             .iter()
-            .any(|child| layout_node_uses_video(child, assets))
+            .any(|child| display_node_uses_video(child, assets))
 }
 
-fn hash_layout_paint_kind(kind: &LayoutPaintKind, state: &mut impl Hasher) {
-    match kind {
-        LayoutPaintKind::Div => {
+fn display_item_uses_video(item: &DisplayItem, assets: &AssetsMap) -> bool {
+    match item {
+        DisplayItem::Bitmap(bitmap) => assets
+            .path(&bitmap.asset_id)
+            .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
+            .unwrap_or(false),
+        DisplayItem::Canvas(canvas) => canvas.commands.iter().any(|command| {
+            matches!(command, CanvasCommand::DrawImage { asset_id, .. }
+                if assets
+                    .path(&AssetId(asset_id.clone()))
+                    .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
+                    .unwrap_or(false))
+        }),
+        DisplayItem::Rect(_) | DisplayItem::Text(_) | DisplayItem::Lucide(_) => false,
+    }
+}
+
+fn hash_display_item(item: &DisplayItem, state: &mut impl Hasher) {
+    match item {
+        DisplayItem::Rect(rect) => {
             0_u8.hash(state);
+            rect.paint.background.hash(state);
+            hash_f32(rect.paint.border_radius, state);
+            rect.paint.border_width.map(f32::to_bits).hash(state);
+            rect.paint.border_color.hash(state);
+            rect.paint.blur_sigma.map(f32::to_bits).hash(state);
+            rect.paint.shadow.hash(state);
         }
-        LayoutPaintKind::Text(text) => {
+        DisplayItem::Text(text) => {
             1_u8.hash(state);
             text.text.hash(state);
             hash_text_style(&text.style, state);
             text.allow_wrap.hash(state);
         }
-        LayoutPaintKind::Bitmap(bitmap) => {
+        DisplayItem::Bitmap(bitmap) => {
             2_u8.hash(state);
             bitmap.asset_id.hash(state);
             bitmap.width.hash(state);
             bitmap.height.hash(state);
             bitmap.object_fit.hash(state);
+            bitmap.paint.background.hash(state);
+            hash_f32(bitmap.paint.border_radius, state);
+            bitmap.paint.border_width.map(f32::to_bits).hash(state);
+            bitmap.paint.border_color.hash(state);
+            bitmap.paint.blur_sigma.map(f32::to_bits).hash(state);
+            bitmap.paint.shadow.hash(state);
         }
-        LayoutPaintKind::Canvas(canvas) => {
+        DisplayItem::Canvas(canvas) => {
             3_u8.hash(state);
             canvas.commands.len().hash(state);
             for command in &canvas.commands {
                 hash_canvas_command(command, state);
             }
         }
-        LayoutPaintKind::Lucide(lucide) => {
+        DisplayItem::Lucide(lucide) => {
             4_u8.hash(state);
             lucide.icon.hash(state);
-            lucide.foreground.hash(state);
+            lucide.paint.foreground.hash(state);
+            lucide.paint.background.hash(state);
+            lucide.paint.border_width.map(f32::to_bits).hash(state);
+            lucide.paint.border_color.hash(state);
         }
     }
 }
 
-fn hash_raster_style(style: &ComputedVisualStyle, state: &mut impl Hasher) {
-    style.background.hash(state);
-    hash_f32(style.border_radius, state);
-    style.border_width.map(f32::to_bits).hash(state);
-    style.border_color.hash(state);
-    style.blur_sigma.map(f32::to_bits).hash(state);
-    style.object_fit.hash(state);
-    style.shadow.hash(state);
-}
-
-fn hash_composite_style(style: &ComputedVisualStyle, state: &mut impl Hasher) {
-    hash_f32(style.opacity, state);
-    hash_transforms(&style.transforms, state);
+fn hash_clip(clip: Option<&crate::display::list::DisplayClip>, state: &mut impl Hasher) {
+    clip.is_some().hash(state);
+    if let Some(clip) = clip {
+        hash_f32(clip.bounds.width, state);
+        hash_f32(clip.bounds.height, state);
+        hash_f32(clip.border_radius, state);
+    }
 }
 
 fn hash_text_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
@@ -261,53 +197,53 @@ fn hash_f32(value: f32, state: &mut impl Hasher) {
     value.to_bits().hash(state);
 }
 
-fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl Hasher) {
+fn hash_canvas_command(command: &CanvasCommand, state: &mut impl Hasher) {
     match command {
-        crate::script::CanvasCommand::Save => {
+        CanvasCommand::Save => {
             0_u8.hash(state);
         }
-        crate::script::CanvasCommand::Restore => {
+        CanvasCommand::Restore => {
             1_u8.hash(state);
         }
-        crate::script::CanvasCommand::SetFillStyle { color } => {
+        CanvasCommand::SetFillStyle { color } => {
             2_u8.hash(state);
             color.hash(state);
         }
-        crate::script::CanvasCommand::SetStrokeStyle { color } => {
+        CanvasCommand::SetStrokeStyle { color } => {
             3_u8.hash(state);
             color.hash(state);
         }
-        crate::script::CanvasCommand::SetLineWidth { width } => {
+        CanvasCommand::SetLineWidth { width } => {
             4_u8.hash(state);
             hash_f32(*width, state);
         }
-        crate::script::CanvasCommand::SetLineCap { cap } => {
+        CanvasCommand::SetLineCap { cap } => {
             5_u8.hash(state);
             cap.hash(state);
         }
-        crate::script::CanvasCommand::SetLineJoin { join } => {
+        CanvasCommand::SetLineJoin { join } => {
             6_u8.hash(state);
             join.hash(state);
         }
-        crate::script::CanvasCommand::SetGlobalAlpha { alpha } => {
+        CanvasCommand::SetGlobalAlpha { alpha } => {
             7_u8.hash(state);
             hash_f32(*alpha, state);
         }
-        crate::script::CanvasCommand::Translate { x, y } => {
+        CanvasCommand::Translate { x, y } => {
             8_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
-        crate::script::CanvasCommand::Scale { x, y } => {
+        CanvasCommand::Scale { x, y } => {
             9_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
-        crate::script::CanvasCommand::Rotate { degrees } => {
+        CanvasCommand::Rotate { degrees } => {
             10_u8.hash(state);
             hash_f32(*degrees, state);
         }
-        crate::script::CanvasCommand::ClipRect {
+        CanvasCommand::ClipRect {
             x,
             y,
             width,
@@ -319,11 +255,11 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             hash_f32(*width, state);
             hash_f32(*height, state);
         }
-        crate::script::CanvasCommand::Clear { color } => {
+        CanvasCommand::Clear { color } => {
             12_u8.hash(state);
             color.hash(state);
         }
-        crate::script::CanvasCommand::FillRect {
+        CanvasCommand::FillRect {
             x,
             y,
             width,
@@ -337,7 +273,7 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             hash_f32(*height, state);
             color.hash(state);
         }
-        crate::script::CanvasCommand::FillRRect {
+        CanvasCommand::FillRRect {
             x,
             y,
             width,
@@ -351,7 +287,7 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             hash_f32(*height, state);
             hash_f32(*radius, state);
         }
-        crate::script::CanvasCommand::StrokeRect {
+        CanvasCommand::StrokeRect {
             x,
             y,
             width,
@@ -367,7 +303,7 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             color.hash(state);
             hash_f32(*stroke_width, state);
         }
-        crate::script::CanvasCommand::StrokeRRect {
+        CanvasCommand::StrokeRRect {
             x,
             y,
             width,
@@ -381,46 +317,46 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             hash_f32(*height, state);
             hash_f32(*radius, state);
         }
-        crate::script::CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
+        CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
             17_u8.hash(state);
             hash_f32(*x0, state);
             hash_f32(*y0, state);
             hash_f32(*x1, state);
             hash_f32(*y1, state);
         }
-        crate::script::CanvasCommand::FillCircle { cx, cy, radius } => {
+        CanvasCommand::FillCircle { cx, cy, radius } => {
             18_u8.hash(state);
             hash_f32(*cx, state);
             hash_f32(*cy, state);
             hash_f32(*radius, state);
         }
-        crate::script::CanvasCommand::StrokeCircle { cx, cy, radius } => {
+        CanvasCommand::StrokeCircle { cx, cy, radius } => {
             19_u8.hash(state);
             hash_f32(*cx, state);
             hash_f32(*cy, state);
             hash_f32(*radius, state);
         }
-        crate::script::CanvasCommand::BeginPath => {
+        CanvasCommand::BeginPath => {
             20_u8.hash(state);
         }
-        crate::script::CanvasCommand::MoveTo { x, y } => {
+        CanvasCommand::MoveTo { x, y } => {
             21_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
-        crate::script::CanvasCommand::LineTo { x, y } => {
+        CanvasCommand::LineTo { x, y } => {
             22_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
-        crate::script::CanvasCommand::QuadTo { cx, cy, x, y } => {
+        CanvasCommand::QuadTo { cx, cy, x, y } => {
             23_u8.hash(state);
             hash_f32(*cx, state);
             hash_f32(*cy, state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
-        crate::script::CanvasCommand::CubicTo {
+        CanvasCommand::CubicTo {
             c1x,
             c1y,
             c2x,
@@ -436,16 +372,16 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
-        crate::script::CanvasCommand::ClosePath => {
+        CanvasCommand::ClosePath => {
             25_u8.hash(state);
         }
-        crate::script::CanvasCommand::FillPath => {
+        CanvasCommand::FillPath => {
             26_u8.hash(state);
         }
-        crate::script::CanvasCommand::StrokePath => {
+        CanvasCommand::StrokePath => {
             27_u8.hash(state);
         }
-        crate::script::CanvasCommand::DrawImage {
+        CanvasCommand::DrawImage {
             asset_id,
             x,
             y,

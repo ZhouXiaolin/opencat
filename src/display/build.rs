@@ -1,206 +1,254 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 
 use crate::{
-    display::list::{
-        BitmapDisplayItem, BitmapPaintStyle, CanvasDisplayItem, DisplayClip, DisplayCommand,
-        DisplayItem, DisplayLayer, DisplayList, DisplayTransform, LucideDisplayItem,
-        LucidePaintStyle, RectDisplayItem, RectPaintStyle, TextDisplayItem,
+    display::{
+        list::{
+            BitmapDisplayItem, BitmapPaintStyle, CanvasDisplayItem, DisplayClip, DisplayCommand,
+            DisplayItem, DisplayLayer, DisplayList, DisplayRect, DisplayTransform,
+            LucideDisplayItem, LucidePaintStyle, RectDisplayItem, RectPaintStyle, TextDisplayItem,
+        },
+        tree::{DisplayNode, DisplayTree},
     },
-    layout::tree::{LayoutNode, LayoutPaintKind, LayoutRect, LayoutTree},
+    element::tree::{ElementKind, ElementNode},
+    layout::tree::{LayoutNode, LayoutTree},
 };
 
-pub fn build_display_list(layout_tree: &LayoutTree) -> Result<DisplayList> {
+pub fn build_display_tree(
+    element_root: &ElementNode,
+    layout_tree: &LayoutTree,
+) -> Result<DisplayTree> {
+    Ok(DisplayTree {
+        root: build_display_node(element_root, &layout_tree.root)?,
+    })
+}
+
+pub fn build_display_list(
+    element_root: &ElementNode,
+    layout_tree: &LayoutTree,
+) -> Result<DisplayList> {
+    let tree = build_display_tree(element_root, layout_tree)?;
+    Ok(build_display_list_from_tree(&tree))
+}
+
+pub fn build_display_list_from_tree(tree: &DisplayTree) -> DisplayList {
     let mut list = DisplayList::default();
-    build_layout_node_display_list(&layout_tree.root, &mut list)?;
-    Ok(list)
+    push_display_node_commands(&tree.root, &mut list);
+    list
 }
 
-fn sorted_children_by_z_index(children: &[LayoutNode]) -> Vec<&LayoutNode> {
-    let mut sorted = children.iter().collect::<Vec<_>>();
-    sorted.sort_by_key(|child| child.paint.z_index);
-    sorted
-}
-
-fn build_layout_node_display_list(layout: &LayoutNode, list: &mut DisplayList) -> Result<()> {
-    if layout.paint.visual.opacity <= 0.0 {
-        return Ok(());
+fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<DisplayNode> {
+    if element.children.len() != layout.children.len() {
+        return Err(anyhow!(
+            "element/layout child count mismatch while building display tree"
+        ));
     }
 
-    let rect = LayoutRect {
+    let bounds = DisplayRect {
         x: 0.0,
         y: 0.0,
         width: layout.rect.width,
         height: layout.rect.height,
     };
 
-    list.push(DisplayCommand::Save);
-    list.push(DisplayCommand::ApplyTransform {
+    let mut child_pairs = element
+        .children
+        .iter()
+        .zip(layout.children.iter())
+        .collect::<Vec<_>>();
+    child_pairs.sort_by_key(|(child, _)| child.style.layout.z_index);
+
+    Ok(DisplayNode {
         transform: DisplayTransform {
             translation_x: layout.rect.x,
             translation_y: layout.rect.y,
-            bounds: rect,
-            transforms: layout.paint.visual.transforms.clone(),
+            bounds,
+            transforms: element.style.visual.transforms.clone(),
         },
+        opacity: element.style.visual.opacity,
+        clip: element.style.visual.clip_contents.then_some(DisplayClip {
+            bounds,
+            border_radius: element.style.visual.border_radius,
+        }),
+        item: display_item_for_node(element, bounds),
+        children: child_pairs
+            .into_iter()
+            .map(|(child, child_layout)| build_display_node(child, child_layout))
+            .collect::<Result<Vec<_>>>()?,
+    })
+}
+
+fn push_display_node_commands(node: &DisplayNode, list: &mut DisplayList) {
+    if node.opacity <= 0.0 {
+        return;
+    }
+
+    list.push(DisplayCommand::Save);
+    list.push(DisplayCommand::ApplyTransform {
+        transform: node.transform.clone(),
     });
 
-    let uses_layer = layout.paint.visual.opacity < 1.0;
-    if uses_layer {
+    if node.opacity < 1.0 {
         list.push(DisplayCommand::SaveLayer {
             layer: DisplayLayer {
-                bounds: rect,
-                opacity: layout.paint.visual.opacity,
+                bounds: node.transform.bounds,
+                opacity: node.opacity,
             },
         });
     }
 
-    push_paint_commands(layout, rect, list)?;
+    list.push(DisplayCommand::Draw {
+        item: node.item.clone(),
+    });
 
-    if layout.paint.visual.clip_contents {
+    if let Some(clip) = &node.clip {
         list.push(DisplayCommand::Save);
-        list.push(DisplayCommand::Clip {
-            clip: DisplayClip {
-                bounds: rect,
-                border_radius: layout.paint.visual.border_radius,
-            },
-        });
+        list.push(DisplayCommand::Clip { clip: clip.clone() });
     }
 
-    for child in sorted_children_by_z_index(&layout.children) {
-        build_layout_node_display_list(child, list)?;
+    for child in &node.children {
+        push_display_node_commands(child, list);
     }
 
-    if layout.paint.visual.clip_contents {
+    if node.clip.is_some() {
         list.push(DisplayCommand::Restore);
     }
 
-    if uses_layer {
+    if node.opacity < 1.0 {
         list.push(DisplayCommand::Restore);
     }
 
     list.push(DisplayCommand::Restore);
-    Ok(())
 }
 
-fn push_paint_commands(
-    layout: &LayoutNode,
-    rect: LayoutRect,
-    list: &mut DisplayList,
-) -> Result<()> {
-    match &layout.paint.kind {
-        LayoutPaintKind::Div => list.push(DisplayCommand::Draw {
-            item: DisplayItem::Rect(RectDisplayItem {
-                bounds: rect,
-                paint: RectPaintStyle {
-                    background: layout.paint.visual.background,
-                    border_radius: layout.paint.visual.border_radius,
-                    border_width: layout.paint.visual.border_width,
-                    border_color: layout.paint.visual.border_color,
-                    blur_sigma: layout.paint.visual.blur_sigma,
-                    shadow: layout.paint.visual.shadow,
-                },
-            }),
+fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayItem {
+    match &element.kind {
+        ElementKind::Div(_) => DisplayItem::Rect(RectDisplayItem {
+            bounds,
+            paint: RectPaintStyle {
+                background: element.style.visual.background,
+                border_radius: element.style.visual.border_radius,
+                border_width: element.style.visual.border_width,
+                border_color: element.style.visual.border_color,
+                blur_sigma: element.style.visual.blur_sigma,
+                shadow: element.style.visual.shadow,
+            },
         }),
-        LayoutPaintKind::Text(text) => list.push(DisplayCommand::Draw {
-            item: DisplayItem::Text(TextDisplayItem {
-                bounds: rect,
-                text: text.text.clone(),
-                style: text.style,
-                allow_wrap: text.allow_wrap,
-            }),
+        ElementKind::Text(text) => DisplayItem::Text(TextDisplayItem {
+            bounds,
+            text: text.text.clone(),
+            style: text.text_style,
+            allow_wrap: element.style.text.wrap_text
+                || element.style.layout.width.is_some()
+                || element.style.layout.width_full,
         }),
-        LayoutPaintKind::Bitmap(bitmap) => list.push(DisplayCommand::Draw {
-            item: DisplayItem::Bitmap(BitmapDisplayItem {
-                bounds: rect,
-                asset_id: bitmap.asset_id.clone(),
-                width: bitmap.width,
-                height: bitmap.height,
-                object_fit: bitmap.object_fit,
-                paint: BitmapPaintStyle {
-                    background: layout.paint.visual.background,
-                    border_radius: layout.paint.visual.border_radius,
-                    border_width: layout.paint.visual.border_width,
-                    border_color: layout.paint.visual.border_color,
-                    blur_sigma: layout.paint.visual.blur_sigma,
-                    shadow: layout.paint.visual.shadow,
-                },
-            }),
+        ElementKind::Bitmap(bitmap) => DisplayItem::Bitmap(BitmapDisplayItem {
+            bounds,
+            asset_id: bitmap.asset_id.clone(),
+            width: bitmap.width,
+            height: bitmap.height,
+            object_fit: element.style.visual.object_fit,
+            paint: BitmapPaintStyle {
+                background: element.style.visual.background,
+                border_radius: element.style.visual.border_radius,
+                border_width: element.style.visual.border_width,
+                border_color: element.style.visual.border_color,
+                blur_sigma: element.style.visual.blur_sigma,
+                shadow: element.style.visual.shadow,
+            },
         }),
-        LayoutPaintKind::Canvas(canvas) => list.push(DisplayCommand::Draw {
-            item: DisplayItem::Canvas(CanvasDisplayItem {
-                bounds: rect,
-                commands: canvas.commands.clone(),
-            }),
+        ElementKind::Canvas(canvas) => DisplayItem::Canvas(CanvasDisplayItem {
+            bounds,
+            commands: canvas.commands.clone(),
         }),
-        LayoutPaintKind::Lucide(lucide) => list.push(DisplayCommand::Draw {
-            item: DisplayItem::Lucide(LucideDisplayItem {
-                bounds: rect,
-                icon: lucide.icon.clone(),
-                paint: LucidePaintStyle {
-                    foreground: lucide.foreground,
-                    background: layout.paint.visual.background,
-                    border_width: layout.paint.visual.border_width,
-                    border_color: layout.paint.visual.border_color,
-                },
-            }),
+        ElementKind::Lucide(lucide) => DisplayItem::Lucide(LucideDisplayItem {
+            bounds,
+            icon: lucide.icon.clone(),
+            paint: LucidePaintStyle {
+                foreground: element.style.text.color,
+                background: element.style.visual.background,
+                border_width: element.style.visual.border_width,
+                border_color: element.style.visual.border_color,
+            },
         }),
     }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::build_display_list;
+    use super::{build_display_list, build_display_tree};
     use crate::{
-        assets::AssetId,
-        display::list::{DisplayCommand, DisplayItem},
-        layout::tree::{
-            LayoutBitmapPaint, LayoutNode, LayoutPaint, LayoutPaintKind, LayoutRect, LayoutTree,
-        },
-        style::{ObjectFit, Transform},
+        FrameCtx,
+        assets::AssetsMap,
+        element::resolve::resolve_ui_tree,
+        nodes::{div, lucide, text},
+        parser::parse,
+        style::{ColorToken, ObjectFit},
     };
+    use crate::{
+        display::list::{DisplayCommand, DisplayItem},
+        layout::tree::{LayoutNode, LayoutRect, LayoutTree},
+        media::MediaContext,
+    };
+
+    fn simple_layout(id: &str, rect: LayoutRect, children: Vec<LayoutNode>) -> LayoutNode {
+        LayoutNode {
+            id: id.to_string(),
+            rect,
+            children,
+        }
+    }
 
     #[test]
     fn bitmap_display_item_preserves_object_fit() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let element = div()
+            .id("root")
+            .child(
+                crate::nodes::image()
+                    .id("bitmap")
+                    .path("/tmp/test-display-bitmap.png")
+                    .size(2.0, 2.0)
+                    .cover(),
+            )
+            .into();
+        let resolved = resolve_ui_tree(&element, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
         let layout_tree = LayoutTree {
-            root: LayoutNode {
-                rect: LayoutRect {
+            root: simple_layout(
+                "root",
+                LayoutRect {
                     x: 0.0,
                     y: 0.0,
                     width: 320.0,
                     height: 180.0,
                 },
-                paint: LayoutPaint {
-                    visual: crate::element::style::ComputedVisualStyle {
-                        opacity: 1.0,
-                        background: None,
-                        border_radius: 0.0,
-                        border_width: None,
-                        border_color: None,
-                        blur_sigma: None,
-                        object_fit: ObjectFit::Contain,
-                        clip_contents: false,
-                        transforms: Vec::<Transform>::new(),
-                        shadow: None,
+                vec![simple_layout(
+                    "bitmap",
+                    LayoutRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 2.0,
+                        height: 2.0,
                     },
-                    kind: LayoutPaintKind::Bitmap(LayoutBitmapPaint {
-                        asset_id: AssetId("test://fake".to_string()),
-                        width: 2,
-                        height: 2,
-                        object_fit: ObjectFit::Cover,
-                    }),
-                    id: "test://fake".to_string(),
-                    z_index: 0,
-                },
-                children: Vec::new(),
-            },
+                    Vec::new(),
+                )],
+            ),
         };
 
-        let list = build_display_list(&layout_tree).expect("display list should build");
+        let list = build_display_list(&resolved, &layout_tree).expect("display list should build");
         let bitmap = list
             .commands
             .iter()
             .find_map(|command| match command {
-                crate::display::list::DisplayCommand::Draw {
+                DisplayCommand::Draw {
                     item: DisplayItem::Bitmap(bitmap),
                 } => Some(bitmap),
                 _ => None,
@@ -213,103 +261,64 @@ mod tests {
 
     #[test]
     fn display_list_sorts_children_by_z_index_for_painting() {
-        let text_style = crate::style::ComputedTextStyle::default();
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let parsed = crate::parser::parse(
+            r#"{"type":"composition","width":320,"height":180,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"front","parentId":"root","type":"text","className":"text-[12px] z-10","text":"front"}
+{"id":"back","parentId":"root","type":"text","className":"text-[12px]","text":"back"}"#,
+        )
+        .expect("jsonl should parse");
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
         let layout_tree = LayoutTree {
-            root: LayoutNode {
-                rect: LayoutRect {
+            root: simple_layout(
+                "root",
+                LayoutRect {
                     x: 0.0,
                     y: 0.0,
                     width: 320.0,
                     height: 180.0,
                 },
-                paint: LayoutPaint {
-                    visual: crate::element::style::ComputedVisualStyle {
-                        opacity: 1.0,
-                        background: None,
-                        border_radius: 0.0,
-                        border_width: None,
-                        border_color: None,
-                        blur_sigma: None,
-                        object_fit: ObjectFit::Contain,
-                        clip_contents: false,
-                        transforms: Vec::<Transform>::new(),
-                        shadow: None,
-                    },
-                    kind: LayoutPaintKind::Div,
-                    id: "root".to_string(),
-                    z_index: 0,
-                },
-                children: vec![
-                    LayoutNode {
-                        rect: LayoutRect {
+                vec![
+                    simple_layout(
+                        "front",
+                        LayoutRect {
                             x: 0.0,
                             y: 0.0,
                             width: 50.0,
                             height: 20.0,
                         },
-                        paint: LayoutPaint {
-                            visual: crate::element::style::ComputedVisualStyle {
-                                opacity: 1.0,
-                                background: None,
-                                border_radius: 0.0,
-                                border_width: None,
-                                border_color: None,
-                                blur_sigma: None,
-                                object_fit: ObjectFit::Contain,
-                                clip_contents: false,
-                                transforms: Vec::<Transform>::new(),
-                                shadow: None,
-                            },
-                            kind: LayoutPaintKind::Text(crate::layout::tree::LayoutTextPaint {
-                                text: "front".to_string(),
-                                style: text_style,
-                                allow_wrap: false,
-                            }),
-                            id: "front".to_string(),
-                            z_index: 10,
-                        },
-                        children: Vec::new(),
-                    },
-                    LayoutNode {
-                        rect: LayoutRect {
+                        Vec::new(),
+                    ),
+                    simple_layout(
+                        "back",
+                        LayoutRect {
                             x: 0.0,
                             y: 0.0,
                             width: 50.0,
                             height: 20.0,
                         },
-                        paint: LayoutPaint {
-                            visual: crate::element::style::ComputedVisualStyle {
-                                opacity: 1.0,
-                                background: None,
-                                border_radius: 0.0,
-                                border_width: None,
-                                border_color: None,
-                                blur_sigma: None,
-                                object_fit: ObjectFit::Contain,
-                                clip_contents: false,
-                                transforms: Vec::<Transform>::new(),
-                                shadow: None,
-                            },
-                            kind: LayoutPaintKind::Text(crate::layout::tree::LayoutTextPaint {
-                                text: "back".to_string(),
-                                style: text_style,
-                                allow_wrap: false,
-                            }),
-                            id: "back".to_string(),
-                            z_index: 0,
-                        },
-                        children: Vec::new(),
-                    },
+                        Vec::new(),
+                    ),
                 ],
-            },
+            ),
         };
 
-        let list = build_display_list(&layout_tree).expect("display list should build");
+        let list = build_display_list(&resolved, &layout_tree).expect("display list should build");
         let texts = list
             .commands
             .iter()
             .filter_map(|command| match command {
-                crate::display::list::DisplayCommand::Draw {
+                DisplayCommand::Draw {
                     item: DisplayItem::Text(text),
                 } => Some(text.text.as_str()),
                 _ => None,
@@ -321,70 +330,213 @@ mod tests {
 
     #[test]
     fn display_list_emits_clip_commands_for_overflow_hidden_nodes() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 40,
+            height: 40,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let element = div()
+            .id("root")
+            .rounded(12.0)
+            .overflow_hidden()
+            .child(div().id("child"))
+            .into();
+        let resolved = resolve_ui_tree(&element, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
         let layout_tree = LayoutTree {
-            root: LayoutNode {
-                rect: LayoutRect {
+            root: simple_layout(
+                "root",
+                LayoutRect {
                     x: 0.0,
                     y: 0.0,
                     width: 40.0,
                     height: 40.0,
                 },
-                paint: LayoutPaint {
-                    visual: crate::element::style::ComputedVisualStyle {
-                        opacity: 1.0,
-                        background: None,
-                        border_radius: 12.0,
-                        border_width: None,
-                        border_color: None,
-                        blur_sigma: None,
-                        object_fit: ObjectFit::Contain,
-                        clip_contents: true,
-                        transforms: Vec::<Transform>::new(),
-                        shadow: None,
-                    },
-                    kind: LayoutPaintKind::Div,
-                    id: "root".to_string(),
-                    z_index: 0,
-                },
-                children: vec![LayoutNode {
-                    rect: LayoutRect {
+                vec![simple_layout(
+                    "child",
+                    LayoutRect {
                         x: 0.0,
                         y: 0.0,
                         width: 40.0,
                         height: 40.0,
                     },
-                    paint: LayoutPaint {
-                        visual: crate::element::style::ComputedVisualStyle {
-                            opacity: 1.0,
-                            background: None,
-                            border_radius: 0.0,
-                            border_width: None,
-                            border_color: None,
-                            blur_sigma: None,
-                            object_fit: ObjectFit::Contain,
-                            clip_contents: false,
-                            transforms: Vec::<Transform>::new(),
-                            shadow: None,
-                        },
-                        kind: LayoutPaintKind::Div,
-                        id: "child".to_string(),
-                        z_index: 0,
-                    },
-                    children: Vec::new(),
-                }],
-            },
+                    Vec::new(),
+                )],
+            ),
         };
 
-        let list = build_display_list(&layout_tree).expect("display list should build");
+        let list = build_display_list(&resolved, &layout_tree).expect("display list should build");
         let clip = list.commands.iter().find_map(|command| match command {
             DisplayCommand::Clip { clip } => Some(clip),
             _ => None,
         });
 
-        assert!(
-            clip.is_some(),
-            "overflow-hidden nodes should emit clip commands"
-        );
+        assert!(clip.is_some());
         assert_eq!(clip.expect("clip command should exist").border_radius, 12.0);
+    }
+
+    #[test]
+    fn build_display_tree_preserves_sorted_children() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 100,
+            height: 100,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let parsed = crate::parser::parse(
+            r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"late","parentId":"root","type":"text","className":"text-[12px] z-10","text":"late"}
+{"id":"early","parentId":"root","type":"text","className":"text-[12px]","text":"early"}"#,
+        )
+        .expect("jsonl should parse");
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout_tree = LayoutTree {
+            root: simple_layout(
+                "root",
+                LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+                vec![
+                    simple_layout(
+                        "late",
+                        LayoutRect {
+                            x: 1.0,
+                            y: 0.0,
+                            width: 10.0,
+                            height: 10.0,
+                        },
+                        Vec::new(),
+                    ),
+                    simple_layout(
+                        "early",
+                        LayoutRect {
+                            x: 2.0,
+                            y: 0.0,
+                            width: 10.0,
+                            height: 10.0,
+                        },
+                        Vec::new(),
+                    ),
+                ],
+            ),
+        };
+
+        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let texts = tree
+            .root
+            .children
+            .iter()
+            .map(|node| match &node.item {
+                DisplayItem::Text(text) => text.text.as_str(),
+                _ => panic!("expected text item"),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(texts, vec!["early", "late"]);
+    }
+
+    #[test]
+    fn display_tree_builds_lucide_visuals_from_element_style() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let root = div().id("root").child(
+            lucide("play")
+                .id("icon")
+                .size(24.0, 24.0)
+                .text_blue()
+                .border_color(ColorToken::Blue)
+                .border_w(3.5)
+                .bg(ColorToken::Sky200),
+        );
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout_tree = LayoutTree {
+            root: simple_layout(
+                "root",
+                LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 320.0,
+                    height: 180.0,
+                },
+                vec![simple_layout(
+                    "icon",
+                    LayoutRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 24.0,
+                        height: 24.0,
+                    },
+                    Vec::new(),
+                )],
+            ),
+        };
+
+        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let DisplayItem::Lucide(lucide) = &tree.root.children[0].item else {
+            panic!("expected lucide item");
+        };
+        assert_eq!(lucide.paint.foreground, ColorToken::Blue);
+        assert_eq!(lucide.paint.border_color, Some(ColorToken::Blue));
+        assert_eq!(lucide.paint.border_width, Some(3.5));
+        assert_eq!(
+            lucide.paint.background,
+            Some(crate::style::BackgroundFill::Solid(ColorToken::Sky200))
+        );
+    }
+
+    #[test]
+    fn build_display_tree_reports_structure_mismatch() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 100,
+            height: 100,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let parsed = parse(
+            r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"child","parentId":"root","type":"text","className":"text-[12px]","text":"A"}"#,
+        )
+        .expect("jsonl should parse");
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout_tree = LayoutTree {
+            root: simple_layout(
+                "root",
+                LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+                Vec::new(),
+            ),
+        };
+
+        let err = build_display_tree(&resolved, &layout_tree).expect_err("expected mismatch");
+        assert!(err.to_string().contains("child count mismatch"));
     }
 }

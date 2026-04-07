@@ -15,10 +15,7 @@ use crate::{
         style::ComputedLayoutStyle,
         tree::{ElementKind, ElementNode},
     },
-    layout::tree::{
-        LayoutBitmapPaint, LayoutCanvasPaint, LayoutLucidePaint, LayoutNode, LayoutPaint,
-        LayoutPaintKind, LayoutRect, LayoutTextPaint, LayoutTree,
-    },
+    layout::tree::{LayoutNode, LayoutRect, LayoutTree},
     nodes::{AlignItems, JustifyContent, Position},
     style::ComputedTextStyle,
     typography,
@@ -125,12 +122,6 @@ impl LayoutSession {
             self.cached_layout_tree = Some(layout_tree.clone());
             self.last_layout_size = Some(viewport_size);
             return Ok((layout_tree, stats));
-        }
-
-        if stats.paint_dirty_nodes() > 0 {
-            if let Some(layout_tree) = self.cached_layout_tree.as_mut() {
-                sync_layout_paint_subtree(root, &mut layout_tree.root);
-            }
         }
 
         Ok((
@@ -641,54 +632,15 @@ fn build_layout_tree(
     }
 
     Ok(LayoutNode {
+        id: element.style.id.clone(),
         rect: LayoutRect {
             x: layout.location.x,
             y: layout.location.y,
             width: layout.size.width,
             height: layout.size.height,
         },
-        paint: layout_paint_for_element(element),
         children,
     })
-}
-
-fn sync_layout_paint_subtree(element: &ElementNode, layout: &mut LayoutNode) {
-    layout.paint = layout_paint_for_element(element);
-
-    for (child, layout_child) in element.children.iter().zip(layout.children.iter_mut()) {
-        sync_layout_paint_subtree(child, layout_child);
-    }
-}
-
-fn layout_paint_for_element(element: &ElementNode) -> LayoutPaint {
-    LayoutPaint {
-        visual: element.style.visual.clone(),
-        kind: match &element.kind {
-            ElementKind::Div(_) => LayoutPaintKind::Div,
-            ElementKind::Text(text) => LayoutPaintKind::Text(LayoutTextPaint {
-                text: text.text.clone(),
-                style: text.text_style,
-                allow_wrap: element.style.text.wrap_text
-                    || element.style.layout.width.is_some()
-                    || element.style.layout.width_full,
-            }),
-            ElementKind::Bitmap(bitmap) => LayoutPaintKind::Bitmap(LayoutBitmapPaint {
-                asset_id: bitmap.asset_id.clone(),
-                width: bitmap.width,
-                height: bitmap.height,
-                object_fit: element.style.visual.object_fit,
-            }),
-            ElementKind::Canvas(canvas) => LayoutPaintKind::Canvas(LayoutCanvasPaint {
-                commands: canvas.commands.clone(),
-            }),
-            ElementKind::Lucide(lucide) => LayoutPaintKind::Lucide(LayoutLucidePaint {
-                icon: lucide.icon.clone(),
-                foreground: element.style.text.color,
-            }),
-        },
-        id: element.style.id.clone(),
-        z_index: element.style.layout.z_index,
-    }
 }
 
 fn base_style(layout: &ComputedLayoutStyle) -> Style {
@@ -979,7 +931,8 @@ mod tests {
         FrameCtx,
         assets::AssetsMap,
         element::resolve::resolve_ui_tree,
-        layout::tree::{LayoutNode, LayoutPaintKind},
+        element::tree::ElementNode,
+        layout::tree::LayoutNode,
         media::MediaContext,
         nodes::{div, lucide, text},
         parser::parse,
@@ -988,13 +941,23 @@ mod tests {
     use taffy::{AvailableSpace, geometry::Size};
 
     fn find_node_by_id<'a>(node: &'a LayoutNode, id: &str) -> Option<&'a LayoutNode> {
-        if node.paint.id == id {
+        if node.id == id {
             return Some(node);
         }
 
         node.children
             .iter()
             .find_map(|child| find_node_by_id(child, id))
+    }
+
+    fn find_element_by_id<'a>(node: &'a ElementNode, id: &str) -> Option<&'a ElementNode> {
+        if node.style.id == id {
+            return Some(node);
+        }
+
+        node.children
+            .iter()
+            .find_map(|child| find_element_by_id(child, id))
     }
 
     #[test]
@@ -1060,10 +1023,7 @@ mod tests {
         assert!(second_stats.raster_dirty_nodes >= 1);
         assert!(second_stats.composite_dirty_nodes >= 1);
         assert_eq!(second_layout.root.rect.width, 320.0);
-        let LayoutPaintKind::Text(text_paint) = &second_layout.root.children[0].paint.kind else {
-            panic!("expected text paint");
-        };
-        assert_eq!(text_paint.style.color, crate::style::ColorToken::Red);
+        assert_eq!(second_layout.root.children[0].id, "label");
     }
 
     #[test]
@@ -1175,32 +1135,6 @@ mod tests {
     }
 
     #[test]
-    fn lucide_uses_text_color_for_stroke() {
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 1,
-        };
-        let mut media = MediaContext::new();
-        let mut assets = AssetsMap::new();
-
-        let root = div()
-            .id("root")
-            .child(lucide("play").id("icon").size(24.0, 24.0).text_blue());
-
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
-            .expect("tree should resolve");
-        let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
-
-        let LayoutPaintKind::Lucide(lucide) = &layout.root.children[0].paint.kind else {
-            panic!("expected lucide paint");
-        };
-        assert_eq!(lucide.foreground, crate::style::ColorToken::Blue);
-    }
-
-    #[test]
     fn layout_session_marks_lucide_color_change_as_raster_dirty() {
         let frame_ctx = FrameCtx {
             frame: 0,
@@ -1236,48 +1170,6 @@ mod tests {
 
         assert_eq!(second_stats.layout_dirty_nodes, 0);
         assert!(second_stats.raster_dirty_nodes >= 1);
-    }
-
-    #[test]
-    fn lucide_respects_explicit_fill_and_stroke_settings() {
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 1,
-        };
-        let mut media = MediaContext::new();
-        let mut assets = AssetsMap::new();
-
-        let root = div().id("root").child(
-            lucide("play")
-                .id("icon")
-                .size(24.0, 24.0)
-                .border_color(crate::style::ColorToken::Blue)
-                .border_w(3.5)
-                .bg(crate::style::ColorToken::Sky200),
-        );
-
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
-            .expect("tree should resolve");
-        let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
-
-        let LayoutPaintKind::Lucide(lucide) = &layout.root.children[0].paint.kind else {
-            panic!("expected lucide paint");
-        };
-        assert_eq!(lucide.foreground, crate::style::ColorToken::Black);
-        assert_eq!(
-            layout.root.children[0].paint.visual.border_color,
-            Some(crate::style::ColorToken::Blue)
-        );
-        assert_eq!(layout.root.children[0].paint.visual.border_width, Some(3.5));
-        assert_eq!(
-            layout.root.children[0].paint.visual.background,
-            Some(crate::style::BackgroundFill::Solid(
-                crate::style::ColorToken::Sky200,
-            ))
-        );
     }
 
     #[test]
@@ -1340,10 +1232,12 @@ mod tests {
         let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
             .expect("tree should resolve");
         let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
+        let body = find_element_by_id(&resolved, "body").expect("expected resolved body node");
+        let text_style = body.style.text;
         let text_node = &layout.root.children[0].children[0];
 
         assert!(
-            text_node.rect.height > 16.0 * 1.5,
+            text_node.rect.height > text_style.text_px * text_style.line_height,
             "expected parsed text to wrap into multiple lines within card width"
         );
         assert!(
@@ -1388,11 +1282,10 @@ mod tests {
 
         for id in ["cat-burger-text", "cat-sushi-text", "cat-salad-text"] {
             let node = find_node_by_id(&layout.root, id).expect("expected text node");
-            let LayoutPaintKind::Text(text_paint) = &node.paint.kind else {
-                panic!("expected text paint");
-            };
+            let text_node = find_element_by_id(&resolved, id).expect("expected resolved text node");
             assert!(
-                node.rect.height <= text_paint.style.text_px * text_paint.style.line_height + 0.5,
+                node.rect.height
+                    <= text_node.style.text.text_px * text_node.style.text.line_height + 0.5,
                 "expected {id} to stay on one line"
             );
         }
@@ -1424,12 +1317,12 @@ mod tests {
             .expect("tree should resolve");
         let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
         let node = find_node_by_id(&layout.root, "promo-desc").expect("expected promo text node");
-        let LayoutPaintKind::Text(text_paint) = &node.paint.kind else {
-            panic!("expected text paint");
-        };
+        let text_node =
+            find_element_by_id(&resolved, "promo-desc").expect("expected resolved promo text");
 
         assert!(
-            node.rect.height <= text_paint.style.text_px * text_paint.style.line_height + 0.5,
+            node.rect.height
+                <= text_node.style.text.text_px * text_node.style.text.line_height + 0.5,
             "expected promo copy to remain on one line while its column is auto-sized"
         );
     }
@@ -1459,12 +1352,11 @@ mod tests {
             .expect("tree should resolve");
         let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
         let node = find_node_by_id(&layout.root, "promo-desc").expect("expected promo text node");
-        let LayoutPaintKind::Text(text_paint) = &node.paint.kind else {
-            panic!("expected text paint");
-        };
+        let text_node =
+            find_element_by_id(&resolved, "promo-desc").expect("expected resolved promo text");
 
         assert!(
-            node.rect.height > text_paint.style.text_px * text_paint.style.line_height,
+            node.rect.height > text_node.style.text.text_px * text_node.style.text.line_height,
             "expected promo copy to wrap when the flex column has a fixed width"
         );
     }
@@ -1494,12 +1386,11 @@ mod tests {
             .expect("tree should resolve");
         let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
         let node = find_node_by_id(&layout.root, "card-text").expect("expected card text node");
-        let LayoutPaintKind::Text(text_paint) = &node.paint.kind else {
-            panic!("expected text paint");
-        };
+        let text_node =
+            find_element_by_id(&resolved, "card-text").expect("expected resolved card text");
 
         assert!(
-            node.rect.height > text_paint.style.text_px * text_paint.style.line_height,
+            node.rect.height > text_node.style.text.text_px * text_node.style.text.line_height,
             "expected card copy to wrap within a stretched flex-column body"
         );
         assert!(
@@ -1532,12 +1423,12 @@ mod tests {
             .expect("tree should resolve");
         let layout = super::compute_layout(&resolved, &frame_ctx).expect("layout should succeed");
         let node = find_node_by_id(&layout.root, "status-time").expect("expected status text node");
-        let LayoutPaintKind::Text(text_paint) = &node.paint.kind else {
-            panic!("expected text paint");
-        };
+        let text_node =
+            find_element_by_id(&resolved, "status-time").expect("expected resolved status text");
 
         assert!(
-            node.rect.height <= text_paint.style.text_px * text_paint.style.line_height + 0.5,
+            node.rect.height
+                <= text_node.style.text.text_px * text_node.style.text.line_height + 0.5,
             "expected status-bar text to remain single-line inside a fixed-width flex row"
         );
     }

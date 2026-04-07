@@ -1,3 +1,5 @@
+pub(crate) mod invalidation;
+
 use std::{collections::HashSet, path::Path, sync::Arc, time::Instant};
 
 use anyhow::{Result, anyhow};
@@ -9,8 +11,12 @@ use crate::{
     Composition, FrameCtx, Node,
     assets::AssetsMap,
     backend::{resource_cache::BackendResourceCache, skia_transition},
-    cache_policy::display_list_contains_video,
-    display::{build::build_display_list, list::DisplayList},
+    display::{
+        analysis::display_list_contains_video,
+        build::{build_display_list_from_tree, build_display_tree},
+        list::DisplayList,
+        tree::DisplayTree,
+    },
     element::resolve::resolve_ui_tree_with_script_cache,
     layout::LayoutSession,
     media::MediaContext,
@@ -211,7 +217,7 @@ fn render_frame_surface(
 
     match frame_state {
         FrameState::Scene { scene } => {
-            let (layout_tree, display_list, scene_stats) = build_scene_display_list_with_slot(
+            let (display_tree, display_list, scene_stats) = build_scene_display_list_with_slot(
                 &scene,
                 &frame_ctx,
                 session,
@@ -237,7 +243,7 @@ fn render_frame_surface(
                 render_scene_slot(
                     &mut snapshot_runtime,
                     SceneSlot::Scene,
-                    &layout_tree,
+                    &display_tree,
                     &display_list,
                     snapshot_plan,
                     false,
@@ -254,14 +260,14 @@ fn render_frame_surface(
             progress,
             kind,
         } => {
-            let (from_layout, from_display, from_stats) = build_scene_display_list_with_slot(
+            let (from_tree, from_display, from_stats) = build_scene_display_list_with_slot(
                 &from,
                 &frame_ctx,
                 session,
                 mutations.as_ref(),
                 SceneSlot::TransitionFrom,
             )?;
-            let (to_layout, to_display, to_stats) = build_scene_display_list_with_slot(
+            let (to_tree, to_display, to_stats) = build_scene_display_list_with_slot(
                 &to,
                 &frame_ctx,
                 session,
@@ -289,7 +295,7 @@ fn render_frame_surface(
                 let from_snapshot = render_scene_slot(
                     &mut snapshot_runtime,
                     SceneSlot::TransitionFrom,
-                    &from_layout,
+                    &from_tree,
                     &from_display,
                     from_plan,
                     true,
@@ -299,7 +305,7 @@ fn render_frame_surface(
                 let to_snapshot = render_scene_slot(
                     &mut snapshot_runtime,
                     SceneSlot::TransitionTo,
-                    &to_layout,
+                    &to_tree,
                     &to_display,
                     to_plan,
                     true,
@@ -465,11 +471,7 @@ fn build_scene_display_list_with_slot(
     session: &mut RenderSession,
     mutations: Option<&StyleMutations>,
     slot: SceneSlot,
-) -> Result<(
-    crate::layout::tree::LayoutTree,
-    DisplayList,
-    SceneBuildStats,
-)> {
+) -> Result<(DisplayTree, DisplayList, SceneBuildStats)> {
     let mut stats = SceneBuildStats::default();
 
     let resolve_started = Instant::now();
@@ -491,11 +493,12 @@ fn build_scene_display_list_with_slot(
     stats.layout_pass = layout_pass;
 
     let display_started = Instant::now();
-    let display_list = build_display_list(&layout_tree)?;
+    let display_tree = build_display_tree(&element_root, &layout_tree)?;
+    let display_list = build_display_list_from_tree(&display_tree);
     stats.display_ms = display_started.elapsed().as_secs_f64() * 1000.0;
     stats.contains_video = display_list_contains_video(&display_list, &session.assets);
 
-    Ok((layout_tree, display_list, stats))
+    Ok((display_tree, display_list, stats))
 }
 
 #[cfg(test)]

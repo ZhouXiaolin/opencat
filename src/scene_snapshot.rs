@@ -6,48 +6,49 @@ use crate::{
     backend::{
         resource_cache::BackendResourceCache,
         skia::{
-            SkiaBackend, draw_layout_tree_with_subtree_cache, record_display_list_composite_source,
-            record_layout_tree_composite_source_with_subtree_cache,
+            SkiaBackend, draw_display_tree_with_subtree_cache,
+            record_display_list_composite_source,
+            record_display_tree_composite_source_with_subtree_cache,
         },
     },
-    cache_policy::{CacheInvalidationScope, scene_cache_scope},
     display::list::DisplayList,
+    display::tree::DisplayTree,
     frame_ctx::FrameCtx,
-    layout::tree::LayoutTree,
     media::MediaContext,
     profile::{BackendProfile, SceneBuildStats},
+    render::invalidation::{SceneInvalidation, invalidation_for_scene},
     render_cache::{SceneSlot, SceneSnapshotCache},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SceneSnapshotStrategy {
     DisplayList,
-    LayoutTreeWithSubtreeCache,
+    DisplayTreeWithSubtreeCache,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SceneSnapshotPlan {
     pub strategy: SceneSnapshotStrategy,
-    pub cache_scope: CacheInvalidationScope,
+    pub invalidation: SceneInvalidation,
     pub contains_video: bool,
 }
 
 impl SceneSnapshotPlan {
-    pub(crate) fn from_scene(cache_scope: CacheInvalidationScope, contains_video: bool) -> Self {
-        let strategy = if contains_video || cache_scope.prefers_subtree_cache() {
-            SceneSnapshotStrategy::LayoutTreeWithSubtreeCache
+    pub(crate) fn from_scene(invalidation: SceneInvalidation, contains_video: bool) -> Self {
+        let strategy = if contains_video || invalidation.prefers_subtree_cache() {
+            SceneSnapshotStrategy::DisplayTreeWithSubtreeCache
         } else {
             SceneSnapshotStrategy::DisplayList
         };
         Self {
             strategy,
-            cache_scope,
+            invalidation,
             contains_video,
         }
     }
 
     pub(crate) fn allows_cache_reuse(self) -> bool {
-        self.cache_scope.allows_picture_reuse()
+        self.invalidation.allows_picture_reuse()
     }
 }
 
@@ -63,14 +64,16 @@ pub(crate) struct SceneSnapshotRuntime<'a> {
 }
 
 pub(crate) fn plan_for_scene(scene_stats: &SceneBuildStats) -> SceneSnapshotPlan {
-    let cache_scope = scene_cache_scope(&scene_stats.layout_pass, scene_stats.contains_video);
-    SceneSnapshotPlan::from_scene(cache_scope, scene_stats.contains_video)
+    SceneSnapshotPlan::from_scene(
+        invalidation_for_scene(scene_stats),
+        scene_stats.contains_video,
+    )
 }
 
 pub(crate) fn render_scene_slot(
     runtime: &mut SceneSnapshotRuntime<'_>,
     slot: SceneSlot,
-    layout_tree: &LayoutTree,
+    display_tree: &DisplayTree,
     display_list: &DisplayList,
     plan: SceneSnapshotPlan,
     require_scene_snapshot: bool,
@@ -79,7 +82,7 @@ pub(crate) fn render_scene_slot(
     if let Some(snapshot) = resolve_scene_snapshot_for_slot(
         runtime,
         slot,
-        layout_tree,
+        display_tree,
         display_list,
         plan,
         require_scene_snapshot,
@@ -100,14 +103,14 @@ pub(crate) fn render_scene_slot(
     let canvas = canvas.ok_or_else(|| {
         anyhow!("canvas is required when scene rendering falls back to direct draw")
     })?;
-    draw_scene_without_snapshot(runtime, layout_tree, display_list, plan, canvas)?;
+    draw_scene_without_snapshot(runtime, display_tree, display_list, plan, canvas)?;
     Ok(None)
 }
 
 fn resolve_scene_snapshot_for_slot(
     runtime: &mut SceneSnapshotRuntime<'_>,
     slot: SceneSlot,
-    layout_tree: &LayoutTree,
+    display_tree: &DisplayTree,
     display_list: &DisplayList,
     plan: SceneSnapshotPlan,
     require_scene_snapshot: bool,
@@ -117,7 +120,7 @@ fn resolve_scene_snapshot_for_slot(
         if !require_scene_snapshot {
             return Ok(None);
         }
-        return record_layout_tree_scene(runtime, layout_tree).map(Some);
+        return record_display_tree_scene(runtime, display_tree).map(Some);
     }
 
     if plan.allows_cache_reuse() {
@@ -139,22 +142,22 @@ fn resolve_scene_snapshot_for_slot(
         return Ok(None);
     }
 
-    if plan.strategy == SceneSnapshotStrategy::LayoutTreeWithSubtreeCache {
-        return record_layout_tree_scene(runtime, layout_tree).map(Some);
+    if plan.strategy == SceneSnapshotStrategy::DisplayTreeWithSubtreeCache {
+        return record_display_tree_scene(runtime, display_tree).map(Some);
     }
     record_display_list_scene(runtime, display_list).map(Some)
 }
 
 fn draw_scene_without_snapshot(
     runtime: &mut SceneSnapshotRuntime<'_>,
-    layout_tree: &LayoutTree,
+    display_tree: &DisplayTree,
     display_list: &DisplayList,
     plan: SceneSnapshotPlan,
     canvas: &Canvas,
 ) -> Result<()> {
-    if plan.strategy == SceneSnapshotStrategy::LayoutTreeWithSubtreeCache {
-        draw_layout_tree_with_subtree_cache(
-            layout_tree,
+    if plan.strategy == SceneSnapshotStrategy::DisplayTreeWithSubtreeCache {
+        draw_display_tree_with_subtree_cache(
+            display_tree,
             canvas,
             runtime.assets,
             runtime.backend_resources.image_cache(),
@@ -182,12 +185,12 @@ fn draw_scene_without_snapshot(
     backend.execute(display_list)
 }
 
-fn record_layout_tree_scene(
+fn record_display_tree_scene(
     runtime: &mut SceneSnapshotRuntime<'_>,
-    layout_tree: &LayoutTree,
+    display_tree: &DisplayTree,
 ) -> Result<SceneSnapshot> {
-    record_layout_tree_composite_source_with_subtree_cache(
-        layout_tree,
+    record_display_tree_composite_source_with_subtree_cache(
+        display_tree,
         runtime.width,
         runtime.height,
         runtime.assets,

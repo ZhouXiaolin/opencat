@@ -1,6 +1,6 @@
 pub mod assets;
 mod backend;
-mod cache_policy;
+mod bitmap_source;
 pub mod codec;
 pub mod composition;
 pub mod display;

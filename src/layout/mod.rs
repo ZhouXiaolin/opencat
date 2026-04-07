@@ -707,22 +707,33 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             6_u8.hash(state);
             join.hash(state);
         }
-        crate::script::CanvasCommand::SetGlobalAlpha { alpha } => {
+        crate::script::CanvasCommand::SetLineDash { intervals, phase } => {
             7_u8.hash(state);
+            intervals.len().hash(state);
+            for interval in intervals {
+                hash_f32(*interval, state);
+            }
+            hash_f32(*phase, state);
+        }
+        crate::script::CanvasCommand::ClearLineDash => {
+            8_u8.hash(state);
+        }
+        crate::script::CanvasCommand::SetGlobalAlpha { alpha } => {
+            9_u8.hash(state);
             hash_f32(*alpha, state);
         }
         crate::script::CanvasCommand::Translate { x, y } => {
-            8_u8.hash(state);
+            10_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
         crate::script::CanvasCommand::Scale { x, y } => {
-            9_u8.hash(state);
+            11_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
         crate::script::CanvasCommand::Rotate { degrees } => {
-            10_u8.hash(state);
+            12_u8.hash(state);
             hash_f32(*degrees, state);
         }
         crate::script::CanvasCommand::ClipRect {
@@ -731,14 +742,14 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             width,
             height,
         } => {
-            11_u8.hash(state);
+            13_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
             hash_f32(*width, state);
             hash_f32(*height, state);
         }
         crate::script::CanvasCommand::Clear { color } => {
-            12_u8.hash(state);
+            14_u8.hash(state);
             color.hash(state);
         }
         crate::script::CanvasCommand::FillRect {
@@ -748,7 +759,7 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             height,
             color,
         } => {
-            13_u8.hash(state);
+            15_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
             hash_f32(*width, state);
@@ -762,7 +773,7 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             height,
             radius,
         } => {
-            14_u8.hash(state);
+            16_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
             hash_f32(*width, state);
@@ -777,7 +788,7 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             color,
             stroke_width,
         } => {
-            15_u8.hash(state);
+            17_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
             hash_f32(*width, state);
@@ -792,7 +803,7 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             height,
             radius,
         } => {
-            16_u8.hash(state);
+            18_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
             hash_f32(*width, state);
@@ -800,39 +811,39 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             hash_f32(*radius, state);
         }
         crate::script::CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
-            17_u8.hash(state);
+            19_u8.hash(state);
             hash_f32(*x0, state);
             hash_f32(*y0, state);
             hash_f32(*x1, state);
             hash_f32(*y1, state);
         }
         crate::script::CanvasCommand::FillCircle { cx, cy, radius } => {
-            18_u8.hash(state);
+            20_u8.hash(state);
             hash_f32(*cx, state);
             hash_f32(*cy, state);
             hash_f32(*radius, state);
         }
         crate::script::CanvasCommand::StrokeCircle { cx, cy, radius } => {
-            19_u8.hash(state);
+            21_u8.hash(state);
             hash_f32(*cx, state);
             hash_f32(*cy, state);
             hash_f32(*radius, state);
         }
         crate::script::CanvasCommand::BeginPath => {
-            20_u8.hash(state);
+            22_u8.hash(state);
         }
         crate::script::CanvasCommand::MoveTo { x, y } => {
-            21_u8.hash(state);
+            23_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
         crate::script::CanvasCommand::LineTo { x, y } => {
-            22_u8.hash(state);
+            24_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
         crate::script::CanvasCommand::QuadTo { cx, cy, x, y } => {
-            23_u8.hash(state);
+            25_u8.hash(state);
             hash_f32(*cx, state);
             hash_f32(*cy, state);
             hash_f32(*x, state);
@@ -846,7 +857,7 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             x,
             y,
         } => {
-            24_u8.hash(state);
+            26_u8.hash(state);
             hash_f32(*c1x, state);
             hash_f32(*c1y, state);
             hash_f32(*c2x, state);
@@ -855,13 +866,13 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             hash_f32(*y, state);
         }
         crate::script::CanvasCommand::ClosePath => {
-            25_u8.hash(state);
+            27_u8.hash(state);
         }
         crate::script::CanvasCommand::FillPath => {
-            26_u8.hash(state);
+            28_u8.hash(state);
         }
         crate::script::CanvasCommand::StrokePath => {
-            27_u8.hash(state);
+            29_u8.hash(state);
         }
         crate::script::CanvasCommand::DrawImage {
             asset_id,
@@ -871,7 +882,7 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             height,
             object_fit,
         } => {
-            28_u8.hash(state);
+            30_u8.hash(state);
             asset_id.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);

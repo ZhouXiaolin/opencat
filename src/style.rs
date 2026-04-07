@@ -62,11 +62,19 @@ pub enum ObjectFit {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum FontWeight {
+    Light,
     #[default]
     Normal,
     Medium,
     SemiBold,
     Bold,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum TextTransform {
+    #[default]
+    None,
+    Uppercase,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -174,8 +182,10 @@ pub struct NodeStyle {
     pub text_px: Option<f32>,
     pub font_weight: Option<FontWeight>,
     pub letter_spacing: Option<f32>,
+    pub letter_spacing_em: Option<f32>,
     pub text_align: Option<TextAlign>,
     pub line_height: Option<f32>,
+    pub text_transform: Option<TextTransform>,
 
     // Shadow
     pub shadow: Option<ShadowStyle>,
@@ -195,6 +205,7 @@ pub struct ComputedTextStyle {
     pub letter_spacing: f32,
     pub text_align: TextAlign,
     pub line_height: f32,
+    pub text_transform: TextTransform,
     pub wrap_text: bool,
 }
 
@@ -207,19 +218,27 @@ impl Default for ComputedTextStyle {
             letter_spacing: 0.0,
             text_align: TextAlign::Left,
             line_height: 1.5,
+            text_transform: TextTransform::None,
             wrap_text: false,
         }
     }
 }
 
 pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> ComputedTextStyle {
+    let text_px = style.text_px.unwrap_or(parent.text_px);
+    let letter_spacing = style
+        .letter_spacing
+        .or_else(|| style.letter_spacing_em.map(|em| em * text_px))
+        .unwrap_or(parent.letter_spacing);
+
     ComputedTextStyle {
         color: style.text_color.unwrap_or(parent.color),
-        text_px: style.text_px.unwrap_or(parent.text_px),
+        text_px,
         font_weight: style.font_weight.unwrap_or(parent.font_weight),
-        letter_spacing: style.letter_spacing.unwrap_or(parent.letter_spacing),
+        letter_spacing,
         text_align: style.text_align.unwrap_or(parent.text_align),
         line_height: style.line_height.unwrap_or(parent.line_height),
+        text_transform: style.text_transform.unwrap_or(parent.text_transform),
         wrap_text: parent.wrap_text,
     }
 }
@@ -652,6 +671,10 @@ macro_rules! impl_node_style_api {
                 self.font_weight($crate::style::FontWeight::Normal)
             }
 
+            pub fn font_light(self) -> Self {
+                self.font_weight($crate::style::FontWeight::Light)
+            }
+
             pub fn font_medium(self) -> Self {
                 self.font_weight($crate::style::FontWeight::Medium)
             }
@@ -662,6 +685,15 @@ macro_rules! impl_node_style_api {
 
             pub fn font_bold(self) -> Self {
                 self.font_weight($crate::style::FontWeight::Bold)
+            }
+
+            pub fn text_transform(mut self, transform: $crate::style::TextTransform) -> Self {
+                self.style.text_transform = Some(transform);
+                self
+            }
+
+            pub fn uppercase(self) -> Self {
+                self.text_transform($crate::style::TextTransform::Uppercase)
             }
 
             // === Shadow ===

@@ -9,7 +9,7 @@ use crate::nodes::{ImageSource, OpenverseQuery, canvas, div, image, lucide, text
 use crate::script::ScriptDriver;
 use crate::style::{
     AlignItems, ColorToken, FlexDirection, FontWeight, GradientDirection, JustifyContent,
-    NodeStyle, ObjectFit, Position, TextAlign, color_token_from_class_suffix,
+    NodeStyle, ObjectFit, Position, TextAlign, TextTransform, color_token_from_class_suffix,
 };
 use crate::transitions::{
     Timing, Transition, clock_wipe, fade, iris, light_leak, linear, slide, spring, timeline, wipe,
@@ -502,55 +502,84 @@ fn build_timeline(
         .into_iter()
         .map(|root| (root.id.as_str(), root))
         .collect::<HashMap<_, _>>();
+    let root_ids = entries
+        .iter()
+        .filter_map(|entry| match entry {
+            TimelineEntry::SequenceRoot { id } => Some(id.as_str()),
+            TimelineEntry::Transition(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let root_positions = root_ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (*id, index))
+        .collect::<HashMap<_, _>>();
+    let mut transitions_by_pair = HashMap::new();
+
+    for entry in entries {
+        let TimelineEntry::Transition(transition) = entry else {
+            continue;
+        };
+
+        let Some(&from_index) = root_positions.get(transition.from.as_str()) else {
+            return Err(anyhow::anyhow!(
+                "transition references missing sequence root `{}`",
+                transition.from
+            ));
+        };
+        let Some(&to_index) = root_positions.get(transition.to.as_str()) else {
+            return Err(anyhow::anyhow!(
+                "transition references missing sequence root `{}`",
+                transition.to
+            ));
+        };
+
+        if to_index != from_index + 1 {
+            let next_id = root_ids.get(from_index + 1).copied().unwrap_or("<end>");
+            return Err(anyhow::anyhow!(
+                "transition declares `{}` -> `{}`, but root order requires adjacent sequences `{}` -> `{}`",
+                transition.from,
+                transition.to,
+                transition.from,
+                next_id
+            ));
+        }
+
+        if transitions_by_pair
+            .insert(
+                (transition.from.as_str(), transition.to.as_str()),
+                transition,
+            )
+            .is_some()
+        {
+            return Err(anyhow::anyhow!(
+                "duplicate transition declared for `{}` -> `{}`",
+                transition.from,
+                transition.to
+            ));
+        }
+    }
 
     let mut timeline_builder = timeline();
     let mut frames = 0_i32;
 
-    for (index, entry) in entries.iter().enumerate() {
-        match entry {
-            TimelineEntry::SequenceRoot { id } => {
-                let root = roots_by_id
-                    .get(id.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("sequence root `{id}` was not found"))?;
-                let duration = root.duration.ok_or_else(|| {
-                    anyhow::anyhow!("timeline sequence `{id}` is missing a duration")
-                })?;
-                let node = build_node(root, &children_map, scripts_by_parent)?;
-                timeline_builder = timeline_builder.sequence(duration, node);
-                frames += duration as i32;
-            }
-            TimelineEntry::Transition(transition) => {
-                let Some(TimelineEntry::SequenceRoot { id: previous_id }) =
-                    index.checked_sub(1).and_then(|idx| entries.get(idx))
-                else {
-                    return Err(anyhow::anyhow!(
-                        "transition from `{}` to `{}` must appear between two sequences",
-                        transition.from,
-                        transition.to
-                    ));
-                };
-                let Some(TimelineEntry::SequenceRoot { id: next_id }) = entries.get(index + 1)
-                else {
-                    return Err(anyhow::anyhow!(
-                        "transition from `{}` to `{}` must appear between two sequences",
-                        transition.from,
-                        transition.to
-                    ));
-                };
+    for (index, id) in root_ids.iter().enumerate() {
+        let root = roots_by_id
+            .get(*id)
+            .ok_or_else(|| anyhow::anyhow!("sequence root `{id}` was not found"))?;
+        let duration = root
+            .duration
+            .ok_or_else(|| anyhow::anyhow!("timeline sequence `{id}` is missing a duration"))?;
+        let node = build_node(root, &children_map, scripts_by_parent)?;
+        timeline_builder = timeline_builder.sequence(duration, node);
+        frames += duration as i32;
 
-                if previous_id != &transition.from || next_id != &transition.to {
-                    return Err(anyhow::anyhow!(
-                        "transition declares `{}` -> `{}`, but neighboring sequences are `{}` -> `{}`",
-                        transition.from,
-                        transition.to,
-                        previous_id,
-                        next_id
-                    ));
-                }
-
-                timeline_builder = timeline_builder.transition(build_transition(transition)?);
-                frames += transition.duration as i32;
-            }
+        let Some(next_id) = root_ids.get(index + 1) else {
+            continue;
+        };
+        if let Some(transition) = transitions_by_pair.get(&(*id, *next_id)) {
+            timeline_builder = timeline_builder.transition(build_transition(transition)?);
+            frames += transition.duration as i32;
         }
     }
 
@@ -832,8 +861,10 @@ fn parser_style_fingerprint(style: &NodeStyle) -> u64 {
     style.text_px.map(f32::to_bits).hash(&mut hasher);
     style.font_weight.hash(&mut hasher);
     style.letter_spacing.map(f32::to_bits).hash(&mut hasher);
+    style.letter_spacing_em.map(f32::to_bits).hash(&mut hasher);
     style.text_align.hash(&mut hasher);
     style.line_height.map(f32::to_bits).hash(&mut hasher);
+    style.text_transform.hash(&mut hasher);
     style.shadow.hash(&mut hasher);
     hasher.finish()
 }
@@ -880,6 +911,7 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) -> bool {
         "object-fill" => style.object_fit = Some(ObjectFit::Fill),
 
         // Font weight
+        "font-light" => style.font_weight = Some(FontWeight::Light),
         "font-normal" => style.font_weight = Some(FontWeight::Normal),
         "font-medium" => style.font_weight = Some(FontWeight::Medium),
         "font-semibold" => style.font_weight = Some(FontWeight::SemiBold),
@@ -902,6 +934,7 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) -> bool {
 
         // Border
         "border" => style.border_width = Some(1.0),
+        "border-b" => style.border_width = Some(1.0),
         "overflow-hidden" => style.overflow_hidden = true,
         "pointer-events-none" => {}
         "inset-0" => {
@@ -942,9 +975,11 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) -> bool {
         "leading-normal" => style.line_height = Some(1.5),
         "leading-relaxed" => style.line_height = Some(1.625),
         "leading-loose" => style.line_height = Some(2.0),
+        "tracking-tight" => style.letter_spacing = Some(-0.5),
         "tracking-normal" => style.letter_spacing = Some(0.0),
         "tracking-wide" => style.letter_spacing = Some(0.5),
         "tracking-wider" => style.letter_spacing = Some(1.0),
+        "uppercase" => style.text_transform = Some(TextTransform::Uppercase),
         "blur-none" => style.blur_sigma = Some(0.0),
         "blur-sm" => style.blur_sigma = Some(4.0),
         "blur" | "blur-md" => style.blur_sigma = Some(8.0),
@@ -1289,6 +1324,12 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) {
     }
 
     if let Some(value) = class.strip_prefix("tracking-[") {
+        if let Some(v) = value.strip_suffix("em]") {
+            if let Ok(n) = v.parse::<f32>() {
+                style.letter_spacing_em = Some(n);
+                return;
+            }
+        }
         if let Some(v) = value.strip_suffix("px]") {
             if let Ok(n) = v.parse::<f32>() {
                 style.letter_spacing = Some(n);
@@ -1851,7 +1892,7 @@ mod tests {
         };
 
         match frame_state_for_root(&parsed.root, &scene_frame) {
-            FrameState::Scene { scene } => {
+            FrameState::Scene { scene, .. } => {
                 assert_eq!(scene.style_ref().id, "root-a");
                 assert!(scene.style_ref().script_driver.is_some());
             }
@@ -1867,11 +1908,55 @@ mod tests {
         }
 
         match frame_state_for_root(&parsed.root, &final_scene_frame) {
-            FrameState::Scene { scene } => {
+            FrameState::Scene { scene, .. } => {
                 assert_eq!(scene.style_ref().id, "root-b");
             }
             _ => panic!("frame 20 should resolve to the final sequence"),
         }
+    }
+
+    #[test]
+    fn parser_allows_transition_records_outside_scene_boundaries() {
+        let parsed = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
+{"id":"root-a","parentId":null,"type":"div","className":"","duration":10}
+{"id":"root-b","parentId":null,"type":"div","className":"","duration":10}
+{"type":"transition","from":"root-a","to":"root-b","effect":"fade","duration":5}"#,
+        )
+        .expect("timeline jsonl should parse regardless of transition position");
+
+        assert_eq!(parsed.frames, 25);
+
+        let transition_frame = FrameCtx {
+            frame: 12,
+            fps: parsed.fps as u32,
+            width: parsed.width,
+            height: parsed.height,
+            frames: parsed.frames as u32,
+        };
+
+        match frame_state_for_root(&parsed.root, &transition_frame) {
+            FrameState::Transition { from, to, .. } => {
+                assert_eq!(from.style_ref().id, "root-a");
+                assert_eq!(to.style_ref().id, "root-b");
+            }
+            _ => panic!("frame 12 should resolve to the transition"),
+        }
+    }
+
+    #[test]
+    fn parser_rejects_non_adjacent_transition_pairs() {
+        let err = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
+{"id":"root-a","parentId":null,"type":"div","className":"","duration":10}
+{"id":"root-b","parentId":null,"type":"div","className":"","duration":10}
+{"id":"root-c","parentId":null,"type":"div","className":"","duration":10}
+{"type":"transition","from":"root-a","to":"root-c","effect":"fade","duration":5}"#,
+        )
+        .err()
+        .expect("non-adjacent transitions should fail");
+
+        assert!(err.to_string().contains("adjacent sequences"));
     }
 
     #[test]

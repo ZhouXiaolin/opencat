@@ -1,5 +1,6 @@
 use crate::{
     FrameCtx,
+    frame_ctx::ScriptFrameCtx,
     nodes::div,
     style::NodeStyle,
     transitions::{SpringConfig, Timing, TransitionKind},
@@ -47,6 +48,8 @@ pub(crate) enum TimelineSegment {
         duration_in_frames: u32,
         from: Node,
         to: Node,
+        from_duration_in_frames: u32,
+        to_duration_in_frames: u32,
         kind: TransitionKind,
         timing: Timing,
     },
@@ -56,10 +59,13 @@ pub(crate) enum TimelineSegment {
 pub(crate) enum FrameState {
     Scene {
         scene: Node,
+        script_frame_ctx: ScriptFrameCtx,
     },
     Transition {
         from: Node,
         to: Node,
+        from_script_frame_ctx: ScriptFrameCtx,
+        to_script_frame_ctx: ScriptFrameCtx,
         progress: f32,
         kind: TransitionKind,
     },
@@ -71,6 +77,7 @@ pub(crate) fn frame_state_for_root(root: &Node, ctx: &FrameCtx) -> FrameState {
         NodeKind::Timeline(timeline) => frame_state_for_timeline(timeline, ctx),
         _ => FrameState::Scene {
             scene: root.clone(),
+            script_frame_ctx: ScriptFrameCtx::global(ctx),
         },
     }
 }
@@ -79,6 +86,7 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
     if timeline.segments().is_empty() {
         return FrameState::Scene {
             scene: div().id("__empty_timeline_scene").into(),
+            script_frame_ctx: ScriptFrameCtx::global(ctx),
         };
     }
 
@@ -98,6 +106,11 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
                 if frame < start_frame.saturating_add(*duration_in_frames) {
                     return FrameState::Scene {
                         scene: scene.clone(),
+                        script_frame_ctx: ScriptFrameCtx::for_segment(
+                            ctx,
+                            *start_frame,
+                            *duration_in_frames,
+                        ),
                     };
                 }
             }
@@ -106,6 +119,8 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
                 duration_in_frames,
                 from,
                 to,
+                from_duration_in_frames,
+                to_duration_in_frames,
                 kind,
                 timing,
             } => {
@@ -113,6 +128,16 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
                     return FrameState::Transition {
                         from: from.clone(),
                         to: to.clone(),
+                        from_script_frame_ctx: frozen_script_frame_ctx(
+                            ctx,
+                            from_duration_in_frames.saturating_sub(1),
+                            *from_duration_in_frames,
+                        ),
+                        to_script_frame_ctx: frozen_script_frame_ctx(
+                            ctx,
+                            0,
+                            *to_duration_in_frames,
+                        ),
                         progress: transition_progress(
                             frame.saturating_sub(*start_frame),
                             *duration_in_frames,
@@ -128,11 +153,33 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
     match timeline.segments().last() {
         Some(TimelineSegment::Scene { scene, .. }) => FrameState::Scene {
             scene: scene.clone(),
+            script_frame_ctx: ScriptFrameCtx::global(ctx),
         },
-        Some(TimelineSegment::Transition { to, .. }) => FrameState::Scene { scene: to.clone() },
+        Some(TimelineSegment::Transition {
+            to,
+            to_duration_in_frames,
+            ..
+        }) => FrameState::Scene {
+            scene: to.clone(),
+            script_frame_ctx: frozen_script_frame_ctx(ctx, 0, *to_duration_in_frames),
+        },
         None => FrameState::Scene {
             scene: div().id("__empty_timeline_scene").into(),
+            script_frame_ctx: ScriptFrameCtx::global(ctx),
         },
+    }
+}
+
+fn frozen_script_frame_ctx(
+    ctx: &FrameCtx,
+    current_frame: u32,
+    scene_frames: u32,
+) -> ScriptFrameCtx {
+    ScriptFrameCtx {
+        frame: ctx.frame,
+        total_frames: ctx.frames,
+        current_frame: current_frame.min(scene_frames.saturating_sub(1)),
+        scene_frames,
     }
 }
 
@@ -184,4 +231,76 @@ fn settle_time(config: &SpringConfig) -> f32 {
     }
     let threshold: f32 = 0.001;
     -threshold.ln() / gamma
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FrameState;
+    use crate::{
+        FrameCtx,
+        nodes::div,
+        transitions::{linear, slide, timeline},
+    };
+
+    #[test]
+    fn frame_state_uses_scene_local_progress_inside_timeline() {
+        let root = timeline()
+            .sequence(10, div().id("scene-a").into())
+            .transition(slide().timing(linear().duration(5)))
+            .sequence(20, div().id("scene-b").into())
+            .into();
+        let frame_ctx = FrameCtx {
+            frame: 18,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 120,
+        };
+
+        let FrameState::Scene {
+            script_frame_ctx, ..
+        } = super::frame_state_for_root(&root, &frame_ctx)
+        else {
+            panic!("expected scene frame");
+        };
+
+        assert_eq!(script_frame_ctx.frame, 18);
+        assert_eq!(script_frame_ctx.total_frames, 120);
+        assert_eq!(script_frame_ctx.current_frame, 3);
+        assert_eq!(script_frame_ctx.scene_frames, 20);
+    }
+
+    #[test]
+    fn frame_state_freezes_scene_script_clocks_during_transition() {
+        let root = timeline()
+            .sequence(10, div().id("scene-a").into())
+            .transition(slide().timing(linear().duration(6)))
+            .sequence(20, div().id("scene-b").into())
+            .into();
+        let frame_ctx = FrameCtx {
+            frame: 13,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 120,
+        };
+
+        let FrameState::Transition {
+            from_script_frame_ctx,
+            to_script_frame_ctx,
+            ..
+        } = super::frame_state_for_root(&root, &frame_ctx)
+        else {
+            panic!("expected transition frame");
+        };
+
+        assert_eq!(from_script_frame_ctx.frame, 13);
+        assert_eq!(from_script_frame_ctx.total_frames, 120);
+        assert_eq!(from_script_frame_ctx.current_frame, 9);
+        assert_eq!(from_script_frame_ctx.scene_frames, 10);
+        assert_eq!(to_script_frame_ctx.frame, 13);
+        assert_eq!(to_script_frame_ctx.total_frames, 120);
+        assert_eq!(to_script_frame_ctx.current_frame, 0);
+        assert_eq!(to_script_frame_ctx.scene_frames, 20);
+    }
 }

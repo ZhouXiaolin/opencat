@@ -10,6 +10,7 @@ use crate::{
             ElementNode, ElementText,
         },
     },
+    frame_ctx::ScriptFrameCtx,
     media::MediaContext,
     nodes::{Audio, Canvas, Div, Image, Lucide, Text, Video},
     script::{ScriptRuntimeCache, StyleMutations},
@@ -32,6 +33,7 @@ impl ElementIdAllocator {
 
 struct ResolveContext<'a> {
     frame_ctx: &'a FrameCtx,
+    script_frame_ctx: &'a ScriptFrameCtx,
     ids: &'a mut ElementIdAllocator,
     inherited_style: &'a InheritedStyle,
     assets: &'a mut AssetsMap,
@@ -47,9 +49,11 @@ pub fn resolve_ui_tree(
     mutations: Option<&StyleMutations>,
 ) -> Result<ElementNode> {
     let mut script_runtime = ScriptRuntimeCache::default();
+    let script_frame_ctx = ScriptFrameCtx::global(frame_ctx);
     resolve_ui_tree_with_script_cache(
         node,
         frame_ctx,
+        &script_frame_ctx,
         media,
         assets,
         mutations,
@@ -60,6 +64,7 @@ pub fn resolve_ui_tree(
 pub(crate) fn resolve_ui_tree_with_script_cache(
     node: &Node,
     frame_ctx: &FrameCtx,
+    script_frame_ctx: &ScriptFrameCtx,
     media: &mut MediaContext,
     assets: &mut AssetsMap,
     mutations: Option<&StyleMutations>,
@@ -73,6 +78,7 @@ pub(crate) fn resolve_ui_tree_with_script_cache(
     }
     let mut cx = ResolveContext {
         frame_ctx,
+        script_frame_ctx,
         ids: &mut ids,
         inherited_style: &inherited_style,
         assets,
@@ -138,6 +144,7 @@ fn resolve_div(
             }
             let mut child_cx = ResolveContext {
                 frame_ctx: cx.frame_ctx,
+                script_frame_ctx: cx.script_frame_ctx,
                 ids: &mut *cx.ids,
                 inherited_style: &inherited_style,
                 assets: &mut *cx.assets,
@@ -402,8 +409,7 @@ fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<b
 
     let mutations = cx.script_runtime.run(
         driver,
-        cx.frame_ctx.frame,
-        cx.frame_ctx.frames,
+        *cx.script_frame_ctx,
         (!style.id.is_empty()).then_some(style.id.as_str()),
     )?;
     if mutations.is_empty() {
@@ -530,6 +536,7 @@ mod tests {
         FrameCtx,
         assets::AssetsMap,
         element::tree::ElementKind,
+        frame_ctx::ScriptFrameCtx,
         media::MediaContext,
         nodes::{div, lucide, text},
         script::ScriptRuntimeCache,
@@ -781,7 +788,13 @@ mod tests {
             .sequence(10, to_scene.into())
             .into();
 
-        let FrameState::Transition { from, to, .. } = frame_state_for_root(&root, &frame_ctx)
+        let FrameState::Transition {
+            from,
+            to,
+            from_script_frame_ctx,
+            to_script_frame_ctx,
+            ..
+        } = frame_state_for_root(&root, &frame_ctx)
         else {
             panic!("expected transition frame");
         };
@@ -789,6 +802,7 @@ mod tests {
         let from_resolved = resolve_ui_tree_with_script_cache(
             &from,
             &frame_ctx,
+            &from_script_frame_ctx,
             &mut media,
             &mut assets,
             None,
@@ -798,6 +812,7 @@ mod tests {
         let to_resolved = resolve_ui_tree_with_script_cache(
             &to,
             &frame_ctx,
+            &to_script_frame_ctx,
             &mut media,
             &mut assets,
             None,
@@ -807,5 +822,60 @@ mod tests {
 
         assert_eq!(from_resolved.children[0].style.visual.opacity, 0.2);
         assert_eq!(to_resolved.children[0].style.visual.opacity, 0.8);
+    }
+
+    #[test]
+    fn timeline_scripts_receive_scene_local_frames() {
+        let frame_ctx = FrameCtx {
+            frame: 19,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 60,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let mut script_runtime = ScriptRuntimeCache::default();
+
+        let scene = div()
+            .id("scene-b")
+            .script_source(
+                r#"ctx.getNode("title").opacity(ctx.currentFrame === 4 && ctx.sceneFrames === 10 ? 0.6 : 0.1);"#,
+            )
+            .expect("script should compile")
+            .child(text("B").id("title"));
+        let root = timeline()
+            .sequence(
+                10,
+                div().id("scene-a").child(text("A").id("a-title")).into(),
+            )
+            .transition(slide().timing(linear().duration(5)))
+            .sequence(10, scene.into())
+            .into();
+
+        let FrameState::Scene {
+            scene,
+            script_frame_ctx,
+        } = frame_state_for_root(&root, &frame_ctx)
+        else {
+            panic!("expected scene frame");
+        };
+
+        let resolved = resolve_ui_tree_with_script_cache(
+            &scene,
+            &frame_ctx,
+            &script_frame_ctx,
+            &mut media,
+            &mut assets,
+            None,
+            &mut script_runtime,
+        )
+        .expect("scene should resolve");
+
+        assert_eq!(
+            script_frame_ctx,
+            ScriptFrameCtx::for_segment(&frame_ctx, 15, 10)
+        );
+        assert_eq!(resolved.children[0].style.visual.opacity, 0.6);
     }
 }

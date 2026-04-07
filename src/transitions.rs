@@ -180,7 +180,9 @@ impl Timeline {
             if let (
                 Some(TimelineItem::Transition(transition)),
                 Some(TimelineItem::Sequence {
-                    node: next_node, ..
+                    duration_in_frames: next_duration_in_frames,
+                    node: next_node,
+                    ..
                 }),
             ) = (items.get(index + 1), items.get(index + 2))
             {
@@ -190,6 +192,8 @@ impl Timeline {
                     duration_in_frames: transition_duration,
                     from: node.clone(),
                     to: next_node.clone(),
+                    from_duration_in_frames: *duration_in_frames,
+                    to_duration_in_frames: *next_duration_in_frames,
                     kind: transition.kind(),
                     timing: transition.timing,
                 });

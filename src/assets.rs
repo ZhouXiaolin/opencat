@@ -9,7 +9,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use reqwest::header::CONTENT_TYPE;
 use serde::Deserialize;
-use tokio::runtime::Builder;
+use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinSet;
 
 use crate::nodes::{AudioSource, ImageSource, OpenverseQuery};
@@ -33,6 +33,33 @@ struct AssetEntry {
     path: PathBuf,
     width: u32,
     height: u32,
+}
+
+impl AssetEntry {
+    fn image(path: &Path) -> Self {
+        let (width, height) = read_image_dimensions(path);
+        Self {
+            path: path.to_path_buf(),
+            width,
+            height,
+        }
+    }
+
+    fn audio(path: &Path) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            width: 0,
+            height: 0,
+        }
+    }
+
+    fn with_dimensions(path: PathBuf, width: u32, height: u32) -> Self {
+        Self {
+            path,
+            width,
+            height,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -84,20 +111,7 @@ impl AssetsMap {
 
     pub fn register(&mut self, path: &Path) -> AssetId {
         let id = AssetId(path.to_string_lossy().into_owned());
-        if self.entries.contains_key(&id) {
-            return id;
-        }
-
-        let (width, height) = read_image_dimensions(path);
-        self.entries.insert(
-            id.clone(),
-            AssetEntry {
-                path: path.to_path_buf(),
-                width,
-                height,
-            },
-        );
-        id
+        self.insert_entry_if_missing(id, || AssetEntry::image(path))
     }
 
     pub fn preload_image_sources<I>(&mut self, sources: I) -> Result<()>
@@ -116,21 +130,17 @@ impl AssetsMap {
                 }
                 ImageSource::Url(url) => {
                     let id = asset_id_for_url(&url);
-                    if !self.entries.contains_key(&id) {
-                        remote_requests.push(RemoteAssetRequest {
-                            id,
-                            source: RemoteImageSource::Url(url),
-                        });
-                    }
+                    self.push_missing_request(&id, &mut remote_requests, || RemoteAssetRequest {
+                        id: id.clone(),
+                        source: RemoteImageSource::Url(url),
+                    });
                 }
                 ImageSource::Query(query) => {
                     let id = asset_id_for_query(&query);
-                    if !self.entries.contains_key(&id) {
-                        remote_requests.push(RemoteAssetRequest {
-                            id,
-                            source: RemoteImageSource::Query(query),
-                        });
-                    }
+                    self.push_missing_request(&id, &mut remote_requests, || RemoteAssetRequest {
+                        id: id.clone(),
+                        source: RemoteImageSource::Query(query),
+                    });
                 }
             }
         }
@@ -139,17 +149,8 @@ impl AssetsMap {
             return Ok(());
         }
 
-        fs::create_dir_all(&self.cache_dir).with_context(|| {
-            format!(
-                "failed to create asset cache dir {}",
-                self.cache_dir.display()
-            )
-        })?;
-
-        let runtime = Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .context("failed to build tokio runtime for asset preloading")?;
+        self.ensure_cache_dir()?;
+        let runtime = Self::build_preload_runtime("asset")?;
 
         let token = runtime.block_on(fetch_openverse_token(self.openverse_token.clone()))?;
         self.openverse_token = token.clone();
@@ -161,14 +162,8 @@ impl AssetsMap {
         ))?;
 
         for (id, path, width, height) in prepared {
-            self.entries.insert(
-                id,
-                AssetEntry {
-                    path,
-                    width,
-                    height,
-                },
-            );
+            self.entries
+                .insert(id, AssetEntry::with_dimensions(path, width, height));
         }
 
         Ok(())
@@ -190,9 +185,10 @@ impl AssetsMap {
                 }
                 AudioSource::Url(url) => {
                     let id = asset_id_for_audio_url(&url);
-                    if !self.entries.contains_key(&id) {
-                        remote_requests.push(RemoteAudioRequest { id, url });
-                    }
+                    self.push_missing_request(&id, &mut remote_requests, || RemoteAudioRequest {
+                        id: id.clone(),
+                        url,
+                    });
                 }
             }
         }
@@ -201,17 +197,8 @@ impl AssetsMap {
             return Ok(());
         }
 
-        fs::create_dir_all(&self.cache_dir).with_context(|| {
-            format!(
-                "failed to create asset cache dir {}",
-                self.cache_dir.display()
-            )
-        })?;
-
-        let runtime = Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .context("failed to build tokio runtime for audio preloading")?;
+        self.ensure_cache_dir()?;
+        let runtime = Self::build_preload_runtime("audio")?;
 
         let prepared = runtime.block_on(preload_remote_audio_requests(
             self.cache_dir.clone(),
@@ -219,14 +206,7 @@ impl AssetsMap {
         ))?;
 
         for (id, path) in prepared {
-            self.entries.insert(
-                id,
-                AssetEntry {
-                    path,
-                    width: 0,
-                    height: 0,
-                },
-            );
+            self.entries.insert(id, AssetEntry::audio(&path));
         }
 
         Ok(())
@@ -238,13 +218,13 @@ impl AssetsMap {
             ImageSource::Path(path) => Ok(self.register(path)),
             ImageSource::Url(url) => {
                 let id = asset_id_for_url(url);
-                self.entries.get(&id).map(|_| id).ok_or_else(|| {
+                self.require_preloaded(id, || {
                     anyhow!("remote image source {url} was not preloaded before rendering")
                 })
             }
             ImageSource::Query(query) => {
                 let id = asset_id_for_query(query);
-                self.entries.get(&id).map(|_| id).ok_or_else(|| {
+                self.require_preloaded(id, || {
                     anyhow!(
                         "Openverse query {:?} was not preloaded before rendering",
                         query.query
@@ -260,7 +240,7 @@ impl AssetsMap {
             AudioSource::Path(path) => Ok(self.register_audio_path(path)),
             AudioSource::Url(url) => {
                 let id = asset_id_for_audio_url(url);
-                self.entries.get(&id).map(|_| id).ok_or_else(|| {
+                self.require_preloaded(id, || {
                     anyhow!("remote audio source {url} was not preloaded before rendering")
                 })
             }
@@ -269,19 +249,9 @@ impl AssetsMap {
 
     pub fn register_dimensions(&mut self, path: &Path, width: u32, height: u32) -> AssetId {
         let id = AssetId(path.to_string_lossy().into_owned());
-        if self.entries.contains_key(&id) {
-            return id;
-        }
-
-        self.entries.insert(
-            id.clone(),
-            AssetEntry {
-                path: path.to_path_buf(),
-                width,
-                height,
-            },
-        );
-        id
+        self.insert_entry_if_missing(id, || {
+            AssetEntry::with_dimensions(path.to_path_buf(), width, height)
+        })
     }
 
     pub fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()> {
@@ -317,19 +287,58 @@ impl AssetsMap {
 
     fn register_audio_path(&mut self, path: &Path) -> AssetId {
         let id = asset_id_for_audio_path(path);
+        self.insert_entry_if_missing(id, || AssetEntry::audio(path))
+    }
+
+    fn insert_entry_if_missing(
+        &mut self,
+        id: AssetId,
+        build_entry: impl FnOnce() -> AssetEntry,
+    ) -> AssetId {
         if self.entries.contains_key(&id) {
             return id;
         }
 
-        self.entries.insert(
-            id.clone(),
-            AssetEntry {
-                path: path.to_path_buf(),
-                width: 0,
-                height: 0,
-            },
-        );
+        self.entries.insert(id.clone(), build_entry());
         id
+    }
+
+    fn push_missing_request<T>(
+        &self,
+        id: &AssetId,
+        requests: &mut Vec<T>,
+        build_request: impl FnOnce() -> T,
+    ) {
+        if !self.entries.contains_key(id) {
+            requests.push(build_request());
+        }
+    }
+
+    fn require_preloaded(
+        &self,
+        id: AssetId,
+        missing_error: impl FnOnce() -> anyhow::Error,
+    ) -> Result<AssetId> {
+        self.entries
+            .contains_key(&id)
+            .then_some(id)
+            .ok_or_else(missing_error)
+    }
+
+    fn ensure_cache_dir(&self) -> Result<()> {
+        fs::create_dir_all(&self.cache_dir).with_context(|| {
+            format!(
+                "failed to create asset cache dir {}",
+                self.cache_dir.display()
+            )
+        })
+    }
+
+    fn build_preload_runtime(kind: &str) -> Result<Runtime> {
+        Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .with_context(|| format!("failed to build tokio runtime for {kind} preloading"))
     }
 }
 
@@ -338,11 +347,7 @@ async fn preload_remote_requests(
     openverse_token: Option<String>,
     requests: Vec<RemoteAssetRequest>,
 ) -> Result<Vec<(AssetId, PathBuf, u32, u32)>> {
-    let client = reqwest::Client::builder()
-        .user_agent(HTTP_USER_AGENT)
-        .timeout(Duration::from_secs(20))
-        .build()
-        .context("failed to build async http client")?;
+    let client = build_http_client("failed to build async http client")?;
 
     let mut tasks = JoinSet::new();
     for request in requests {
@@ -379,22 +384,7 @@ async fn prepare_remote_asset(
             }
         };
 
-        let bytes = client
-            .get(&resolved_url)
-            .send()
-            .await
-            .with_context(|| format!("failed to download image asset from {resolved_url}"))?
-            .error_for_status()
-            .with_context(|| format!("image download failed for {resolved_url}"))?
-            .bytes()
-            .await
-            .with_context(|| {
-                format!("failed to read downloaded image bytes from {resolved_url}")
-            })?;
-
-        tokio::fs::write(&path, &bytes)
-            .await
-            .with_context(|| format!("failed to write cached image {}", path.display()))?;
+        download_to_cache(&client, &resolved_url, &path, "image").await?;
     }
 
     let (width, height) = read_image_dimensions(&path);
@@ -405,11 +395,7 @@ async fn preload_remote_audio_requests(
     cache_dir: PathBuf,
     requests: Vec<RemoteAudioRequest>,
 ) -> Result<Vec<(AssetId, PathBuf)>> {
-    let client = reqwest::Client::builder()
-        .user_agent(HTTP_USER_AGENT)
-        .timeout(Duration::from_secs(20))
-        .build()
-        .context("failed to build async http client")?;
+    let client = build_http_client("failed to build async http client")?;
 
     let mut tasks = JoinSet::new();
     for request in requests {
@@ -437,22 +423,7 @@ async fn prepare_remote_audio_asset(
     let path = cache_file_path(&cache_dir, &request.id, "audio");
 
     if !path.exists() {
-        let bytes = client
-            .get(&request.url)
-            .send()
-            .await
-            .with_context(|| format!("failed to download audio asset from {}", request.url))?
-            .error_for_status()
-            .with_context(|| format!("audio download failed for {}", request.url))?
-            .bytes()
-            .await
-            .with_context(|| {
-                format!("failed to read downloaded audio bytes from {}", request.url)
-            })?;
-
-        tokio::fs::write(&path, &bytes)
-            .await
-            .with_context(|| format!("failed to write cached audio {}", path.display()))?;
+        download_to_cache(&client, &request.url, &path, "audio").await?;
     }
 
     Ok((request.id, path))
@@ -521,11 +492,8 @@ async fn fetch_openverse_token(existing: Option<String>) -> Result<Option<String
                 "grant_type=client_credentials&client_id={}&client_secret={}",
                 client_id, client_secret
             );
-            let client = reqwest::Client::builder()
-                .user_agent(HTTP_USER_AGENT)
-                .timeout(Duration::from_secs(20))
-                .build()
-                .context("failed to build async http client for Openverse token")?;
+            let client =
+                build_http_client("failed to build async http client for Openverse token")?;
 
             let token: OpenverseTokenResponse = client
                 .post(OPENVERSE_TOKEN_ENDPOINT)
@@ -542,6 +510,36 @@ async fn fetch_openverse_token(existing: Option<String>) -> Result<Option<String
             Ok(Some(token.access_token))
         }
     }
+}
+
+fn build_http_client(context: &str) -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent(HTTP_USER_AGENT)
+        .timeout(Duration::from_secs(20))
+        .build()
+        .with_context(|| context.to_string())
+}
+
+async fn download_to_cache(
+    client: &reqwest::Client,
+    url: &str,
+    path: &Path,
+    asset_kind: &str,
+) -> Result<()> {
+    let bytes = client
+        .get(url)
+        .send()
+        .await
+        .with_context(|| format!("failed to download {asset_kind} asset from {url}"))?
+        .error_for_status()
+        .with_context(|| format!("{asset_kind} download failed for {url}"))?
+        .bytes()
+        .await
+        .with_context(|| format!("failed to read downloaded {asset_kind} bytes from {url}"))?;
+
+    tokio::fs::write(path, &bytes)
+        .await
+        .with_context(|| format!("failed to write cached {asset_kind} {}", path.display()))
 }
 
 fn asset_id_for_url(url: &str) -> AssetId {

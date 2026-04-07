@@ -227,10 +227,14 @@ fn render_frame_surface(
     frame_profile.frame_state_ms = frame_state_started.elapsed().as_secs_f64() * 1000.0;
 
     match frame_state {
-        FrameState::Scene { scene } => {
+        FrameState::Scene {
+            scene,
+            script_frame_ctx,
+        } => {
             let (display_tree, display_list, scene_stats) = build_scene_display_list_with_slot(
                 &scene,
                 &frame_ctx,
+                &script_frame_ctx,
                 session,
                 mutations.as_ref(),
                 SceneSlot::Scene,
@@ -268,12 +272,15 @@ fn render_frame_surface(
         FrameState::Transition {
             from,
             to,
+            from_script_frame_ctx,
+            to_script_frame_ctx,
             progress,
             kind,
         } => {
             let (from_tree, from_display, from_stats) = build_scene_display_list_with_slot(
                 &from,
                 &frame_ctx,
+                &from_script_frame_ctx,
                 session,
                 mutations.as_ref(),
                 SceneSlot::TransitionFrom,
@@ -281,6 +288,7 @@ fn render_frame_surface(
             let (to_tree, to_display, to_stats) = build_scene_display_list_with_slot(
                 &to,
                 &frame_ctx,
+                &to_script_frame_ctx,
                 session,
                 mutations.as_ref(),
                 SceneSlot::TransitionTo,
@@ -377,15 +385,12 @@ fn ensure_assets_preloaded(composition: &Composition, session: &mut RenderSessio
         };
         let root = composition.root_node(&frame_ctx);
         match frame_state_for_root(&root, &frame_ctx) {
-            FrameState::Scene { scene } => {
-                collect_image_sources(&scene, &frame_ctx, &mut image_sources);
-                collect_audio_sources(&scene, &frame_ctx, &mut audio_sources);
+            FrameState::Scene { scene, .. } => {
+                collect_sources(&scene, &frame_ctx, &mut image_sources, &mut audio_sources);
             }
             FrameState::Transition { from, to, .. } => {
-                collect_image_sources(&from, &frame_ctx, &mut image_sources);
-                collect_image_sources(&to, &frame_ctx, &mut image_sources);
-                collect_audio_sources(&from, &frame_ctx, &mut audio_sources);
-                collect_audio_sources(&to, &frame_ctx, &mut audio_sources);
+                collect_sources(&from, &frame_ctx, &mut image_sources, &mut audio_sources);
+                collect_sources(&to, &frame_ctx, &mut image_sources, &mut audio_sources);
             }
         }
     }
@@ -396,68 +401,49 @@ fn ensure_assets_preloaded(composition: &Composition, session: &mut RenderSessio
     Ok(())
 }
 
-fn collect_image_sources(node: &Node, frame_ctx: &FrameCtx, sources: &mut HashSet<ImageSource>) {
+fn collect_sources(
+    node: &Node,
+    frame_ctx: &FrameCtx,
+    image_sources: &mut HashSet<ImageSource>,
+    audio_sources: &mut HashSet<AudioSource>,
+) {
     match node.kind() {
         NodeKind::Component(component) => {
             let rendered = component.render(frame_ctx);
-            collect_image_sources(&rendered, frame_ctx, sources);
+            collect_sources(&rendered, frame_ctx, image_sources, audio_sources);
         }
         NodeKind::Div(div) => {
             for child in div.children_ref() {
-                collect_image_sources(child, frame_ctx, sources);
+                collect_sources(child, frame_ctx, image_sources, audio_sources);
             }
         }
         NodeKind::Canvas(canvas) => {
             for asset in canvas.assets_ref() {
                 if !matches!(asset.source, ImageSource::Unset) {
-                    sources.insert(asset.source.clone());
+                    image_sources.insert(asset.source.clone());
                 }
             }
         }
         NodeKind::Image(image) => {
             if !matches!(image.source(), ImageSource::Unset) {
-                sources.insert(image.source().clone());
-            }
-        }
-        NodeKind::Timeline(_) => match frame_state_for_root(node, frame_ctx) {
-            FrameState::Scene { scene } => collect_image_sources(&scene, frame_ctx, sources),
-            FrameState::Transition { from, to, .. } => {
-                collect_image_sources(&from, frame_ctx, sources);
-                collect_image_sources(&to, frame_ctx, sources);
-            }
-        },
-        NodeKind::Text(_) | NodeKind::Video(_) | NodeKind::Audio(_) | NodeKind::Lucide(_) => {}
-    }
-}
-
-fn collect_audio_sources(node: &Node, frame_ctx: &FrameCtx, sources: &mut HashSet<AudioSource>) {
-    match node.kind() {
-        NodeKind::Component(component) => {
-            let rendered = component.render(frame_ctx);
-            collect_audio_sources(&rendered, frame_ctx, sources);
-        }
-        NodeKind::Div(div) => {
-            for child in div.children_ref() {
-                collect_audio_sources(child, frame_ctx, sources);
+                image_sources.insert(image.source().clone());
             }
         }
         NodeKind::Audio(audio) => {
             if !matches!(audio.source(), AudioSource::Unset) {
-                sources.insert(audio.source().clone());
+                audio_sources.insert(audio.source().clone());
             }
         }
         NodeKind::Timeline(_) => match frame_state_for_root(node, frame_ctx) {
-            FrameState::Scene { scene } => collect_audio_sources(&scene, frame_ctx, sources),
+            FrameState::Scene { scene, .. } => {
+                collect_sources(&scene, frame_ctx, image_sources, audio_sources);
+            }
             FrameState::Transition { from, to, .. } => {
-                collect_audio_sources(&from, frame_ctx, sources);
-                collect_audio_sources(&to, frame_ctx, sources);
+                collect_sources(&from, frame_ctx, image_sources, audio_sources);
+                collect_sources(&to, frame_ctx, image_sources, audio_sources);
             }
         },
-        NodeKind::Canvas(_)
-        | NodeKind::Text(_)
-        | NodeKind::Image(_)
-        | NodeKind::Lucide(_)
-        | NodeKind::Video(_) => {}
+        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Video(_) => {}
     }
 }
 
@@ -535,14 +521,15 @@ fn collect_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
         };
         let root = composition.root_node(&frame_ctx);
         let mut current = HashSet::new();
+        let mut ignored_images = HashSet::new();
 
         match frame_state_for_root(&root, &frame_ctx) {
-            FrameState::Scene { scene } => {
-                collect_audio_sources(&scene, &frame_ctx, &mut current);
+            FrameState::Scene { scene, .. } => {
+                collect_sources(&scene, &frame_ctx, &mut ignored_images, &mut current);
             }
             FrameState::Transition { from, to, .. } => {
-                collect_audio_sources(&from, &frame_ctx, &mut current);
-                collect_audio_sources(&to, &frame_ctx, &mut current);
+                collect_sources(&from, &frame_ctx, &mut ignored_images, &mut current);
+                collect_sources(&to, &frame_ctx, &mut ignored_images, &mut current);
             }
         }
 
@@ -634,6 +621,7 @@ impl Default for RenderSession {
 fn build_scene_display_list_with_slot(
     scene: &Node,
     frame_ctx: &FrameCtx,
+    script_frame_ctx: &crate::frame_ctx::ScriptFrameCtx,
     session: &mut RenderSession,
     mutations: Option<&StyleMutations>,
     slot: SceneSlot,
@@ -644,6 +632,7 @@ fn build_scene_display_list_with_slot(
     let element_root = resolve_ui_tree_with_script_cache(
         scene,
         frame_ctx,
+        script_frame_ctx,
         &mut session.media_ctx,
         &mut session.assets,
         mutations,

@@ -1,4 +1,4 @@
-use anyhow::{Result, ensure};
+use anyhow::{Result, bail, ensure};
 
 use crate::{
     FrameCtx, Node,
@@ -11,7 +11,7 @@ use crate::{
         },
     },
     media::MediaContext,
-    nodes::{Canvas, Div, Image, Lucide, Text, Video},
+    nodes::{Audio, Canvas, Div, Image, Lucide, Text, Video},
     script::{ScriptRuntimeCache, StyleMutations},
     style::{NodeStyle, resolve_text_style},
     view::{ComponentNode, NodeKind},
@@ -91,6 +91,7 @@ fn resolve_node(
         NodeKind::Component(component) => resolve_component(component, cx, media),
         NodeKind::Video(video) => resolve_video(video, cx, media),
         NodeKind::Image(image) => resolve_image(image, cx, media),
+        NodeKind::Audio(audio) => resolve_audio(audio, cx),
         NodeKind::Div(div) => resolve_div(div, cx, media),
         NodeKind::Canvas(canvas) => resolve_canvas(canvas, cx),
         NodeKind::Text(text) => resolve_text(text, cx),
@@ -132,6 +133,9 @@ fn resolve_div(
         let inherited_style = InheritedStyle::for_child(&computed);
         let mut children = Vec::new();
         for child in div.children_ref() {
+            if matches!(child.kind(), NodeKind::Audio(_)) {
+                continue;
+            }
             let mut child_cx = ResolveContext {
                 frame_ctx: cx.frame_ctx,
                 ids: &mut *cx.ids,
@@ -213,6 +217,10 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
         cx.mutation_stack.pop();
     }
     result
+}
+
+fn resolve_audio(_audio: &Audio, _cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
+    bail!("audio nodes are non-visual and must be mounted under a visual parent")
 }
 
 fn resolve_video(

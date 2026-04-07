@@ -1,6 +1,11 @@
 pub(crate) mod invalidation;
 
-use std::{collections::HashSet, path::Path, sync::Arc, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::Arc,
+    time::Instant,
+};
 
 use anyhow::{Result, anyhow};
 use skia_safe::{
@@ -11,6 +16,7 @@ use crate::{
     Composition, FrameCtx, Node,
     assets::AssetsMap,
     backend::{resource_cache::BackendResourceCache, skia_transition},
+    codec::decode::{AudioTrack, decode_audio_to_f32_stereo},
     display::{
         analysis::display_list_contains_video,
         build::{build_display_list_from_tree, build_display_tree},
@@ -20,7 +26,7 @@ use crate::{
     element::resolve::resolve_ui_tree_with_script_cache,
     layout::LayoutSession,
     media::MediaContext,
-    nodes::ImageSource,
+    nodes::{AudioSource, ImageSource},
     profile::{BackendProfile, FrameProfile, RenderProfiler, SceneBuildStats},
     render_cache::{SceneSlot, SceneSnapshotCache},
     scene_snapshot::{SceneSnapshotRuntime, plan_for_scene, render_scene_slot},
@@ -30,6 +36,8 @@ use crate::{
 };
 
 pub use crate::codec::encode::Mp4Config;
+
+const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
 pub enum OutputFormat {
     Mp4(Mp4Config),
@@ -129,6 +137,8 @@ fn render_mp4(
     config: &Mp4Config,
 ) -> Result<()> {
     let mut session = RenderSession::new();
+    ensure_assets_preloaded(composition, &mut session)?;
+    let audio_track = build_audio_track(composition, &mut session.assets)?;
     let source_width = composition.width as u32;
     let source_height = composition.height as u32;
     let encoded_width = source_width + source_width % 2;
@@ -140,6 +150,7 @@ fn render_mp4(
         composition.fps,
         composition.frames,
         config,
+        audio_track.as_ref(),
         |frame_index| {
             let rgba = render_frame_rgba(composition, frame_index, &mut session)?;
             Ok(pad_rgba_frame(
@@ -354,7 +365,8 @@ fn ensure_assets_preloaded(composition: &Composition, session: &mut RenderSessio
         return Ok(());
     }
 
-    let mut sources = HashSet::new();
+    let mut image_sources = HashSet::new();
+    let mut audio_sources = HashSet::new();
     for frame in 0..composition.frames {
         let frame_ctx = FrameCtx {
             frame,
@@ -366,16 +378,20 @@ fn ensure_assets_preloaded(composition: &Composition, session: &mut RenderSessio
         let root = composition.root_node(&frame_ctx);
         match frame_state_for_root(&root, &frame_ctx) {
             FrameState::Scene { scene } => {
-                collect_image_sources(&scene, &frame_ctx, &mut sources);
+                collect_image_sources(&scene, &frame_ctx, &mut image_sources);
+                collect_audio_sources(&scene, &frame_ctx, &mut audio_sources);
             }
             FrameState::Transition { from, to, .. } => {
-                collect_image_sources(&from, &frame_ctx, &mut sources);
-                collect_image_sources(&to, &frame_ctx, &mut sources);
+                collect_image_sources(&from, &frame_ctx, &mut image_sources);
+                collect_image_sources(&to, &frame_ctx, &mut image_sources);
+                collect_audio_sources(&from, &frame_ctx, &mut audio_sources);
+                collect_audio_sources(&to, &frame_ctx, &mut audio_sources);
             }
         }
     }
 
-    session.assets.preload_image_sources(sources)?;
+    session.assets.preload_image_sources(image_sources)?;
+    session.assets.preload_audio_sources(audio_sources)?;
     session.prepared_root_ptr = Some(root_ptr);
     Ok(())
 }
@@ -410,8 +426,158 @@ fn collect_image_sources(node: &Node, frame_ctx: &FrameCtx, sources: &mut HashSe
                 collect_image_sources(&to, frame_ctx, sources);
             }
         },
-        NodeKind::Text(_) | NodeKind::Video(_) | NodeKind::Lucide(_) => {}
+        NodeKind::Text(_) | NodeKind::Video(_) | NodeKind::Audio(_) | NodeKind::Lucide(_) => {}
     }
+}
+
+fn collect_audio_sources(node: &Node, frame_ctx: &FrameCtx, sources: &mut HashSet<AudioSource>) {
+    match node.kind() {
+        NodeKind::Component(component) => {
+            let rendered = component.render(frame_ctx);
+            collect_audio_sources(&rendered, frame_ctx, sources);
+        }
+        NodeKind::Div(div) => {
+            for child in div.children_ref() {
+                collect_audio_sources(child, frame_ctx, sources);
+            }
+        }
+        NodeKind::Audio(audio) => {
+            if !matches!(audio.source(), AudioSource::Unset) {
+                sources.insert(audio.source().clone());
+            }
+        }
+        NodeKind::Timeline(_) => match frame_state_for_root(node, frame_ctx) {
+            FrameState::Scene { scene } => collect_audio_sources(&scene, frame_ctx, sources),
+            FrameState::Transition { from, to, .. } => {
+                collect_audio_sources(&from, frame_ctx, sources);
+                collect_audio_sources(&to, frame_ctx, sources);
+            }
+        },
+        NodeKind::Canvas(_)
+        | NodeKind::Text(_)
+        | NodeKind::Image(_)
+        | NodeKind::Lucide(_)
+        | NodeKind::Video(_) => {}
+    }
+}
+
+#[derive(Clone)]
+struct AudioInterval {
+    source: AudioSource,
+    start_frame: u32,
+    end_frame: u32,
+}
+
+fn build_audio_track(
+    composition: &Composition,
+    assets: &mut AssetsMap,
+) -> Result<Option<AudioTrack>> {
+    let intervals = collect_audio_intervals(composition);
+    if intervals.is_empty() {
+        return Ok(None);
+    }
+
+    let total_frames =
+        frame_to_audio_sample(composition.frames, composition.fps, AUDIO_SAMPLE_RATE);
+    let mut mixed = vec![0.0_f32; total_frames * 2];
+    let mut decoded = HashMap::new();
+
+    for interval in intervals {
+        let clip = if let Some(clip) = decoded.get(&interval.source) {
+            clip
+        } else {
+            let asset_id = assets.register_audio_source(&interval.source)?;
+            let path = assets
+                .path(&asset_id)
+                .ok_or_else(|| anyhow!("missing cached audio asset for {}", asset_id.0))?;
+            let clip = decode_audio_to_f32_stereo(path, AUDIO_SAMPLE_RATE)?;
+            decoded.insert(interval.source.clone(), clip);
+            decoded
+                .get(&interval.source)
+                .expect("decoded audio clip should exist")
+        };
+
+        let start_sample =
+            frame_to_audio_sample(interval.start_frame, composition.fps, AUDIO_SAMPLE_RATE);
+        let end_sample =
+            frame_to_audio_sample(interval.end_frame, composition.fps, AUDIO_SAMPLE_RATE);
+        let available_frames = clip
+            .sample_frames()
+            .min(end_sample.saturating_sub(start_sample));
+
+        for frame_offset in 0..available_frames {
+            let mix_index = (start_sample + frame_offset) * 2;
+            let clip_index = frame_offset * 2;
+            mixed[mix_index] += clip.samples[clip_index];
+            mixed[mix_index + 1] += clip.samples[clip_index + 1];
+        }
+    }
+
+    for sample in &mut mixed {
+        *sample = sample.clamp(-1.0, 1.0);
+    }
+
+    Ok(Some(AudioTrack::new(AUDIO_SAMPLE_RATE, 2, mixed)))
+}
+
+fn collect_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
+    let mut active = HashMap::<AudioSource, u32>::new();
+    let mut previous = HashSet::<AudioSource>::new();
+    let mut intervals = Vec::new();
+
+    for frame in 0..composition.frames {
+        let frame_ctx = FrameCtx {
+            frame,
+            fps: composition.fps,
+            width: composition.width,
+            height: composition.height,
+            frames: composition.frames,
+        };
+        let root = composition.root_node(&frame_ctx);
+        let mut current = HashSet::new();
+
+        match frame_state_for_root(&root, &frame_ctx) {
+            FrameState::Scene { scene } => {
+                collect_audio_sources(&scene, &frame_ctx, &mut current);
+            }
+            FrameState::Transition { from, to, .. } => {
+                collect_audio_sources(&from, &frame_ctx, &mut current);
+                collect_audio_sources(&to, &frame_ctx, &mut current);
+            }
+        }
+
+        for source in current.difference(&previous) {
+            active.insert(source.clone(), frame);
+        }
+
+        for source in previous.difference(&current) {
+            if let Some(start_frame) = active.remove(source) {
+                intervals.push(AudioInterval {
+                    source: source.clone(),
+                    start_frame,
+                    end_frame: frame,
+                });
+            }
+        }
+
+        previous = current;
+    }
+
+    for source in previous {
+        if let Some(start_frame) = active.remove(&source) {
+            intervals.push(AudioInterval {
+                source,
+                start_frame,
+                end_frame: composition.frames,
+            });
+        }
+    }
+
+    intervals
+}
+
+fn frame_to_audio_sample(frame: u32, fps: u32, sample_rate: u32) -> usize {
+    ((frame as u64 * sample_rate as u64) / fps as u64) as usize
 }
 
 pub fn render_frame_rgba(

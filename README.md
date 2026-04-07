@@ -1,373 +1,278 @@
 # OpenCat
 
-OpenCat 是一个用 Rust 编写的声明式视频渲染库。它的目标不是做传统的时间线编辑器，而是把“某一帧应该长什么样”描述成一棵场景树，再把这棵树稳定地转换成图像和视频输出。
+OpenCat 是一个用 Rust 编写的声明式视频渲染库。它的核心目标不是做时间线编辑器，而是回答一个更基础的问题：
 
-从当前代码来看，这个项目已经具备一条完整的主链路：
+给定某一帧的上下文，当前画面应该是什么样，以及如何把这个结果稳定、高效地变成像素和视频。
 
-1. 用 Rust API 或 JSONL 描述场景。
-2. 在每一帧生成对应的节点树。
-3. 解析成可布局、可绘制的中间结构。
-4. 通过 Skia 渲染为像素。
-5. 输出 PNG 或编码为 MP4。
+当前架构已经明确收敛为一条单向主链路：
 
-这份 README 的目的不是列功能清单，而是沉淀当前架构、设计重心、已知边界，以及接下来最值得投入的路线图。
+`ui tree -> element tree -> layout tree -> display tree/display list -> backend(skia)`
 
-## 当前项目状态
+这条链路是项目当前最重要的约束。各层职责需要保持单一，import 只能单向流动，缓存、dirty、diff 这类策略只能建立在某一层已经产出的“事实”之上，不能反向污染更低层。
 
-目前仓库已经可以完成以下事情：
+## 当前架构
 
-- 用声明式节点 API 构建静态或动态场景。
-- 用 `TransitionSeries` 构建场景切换和转场。
-- 支持从 JSONL 构建场景，并在末尾附带 `script` 行驱动透明度、位移、缩放、旋转等动画。
-- 要求每个可渲染节点显式提供稳定 `id`。
-- 用 Taffy 做布局，用 Skia 做绘制。
-- 输出单帧 PNG 或整段 MP4。
-- 处理文本、图片和视频素材。
-- 图片支持三种来源：
-  - `image().path(...)`
-  - `image().url(...)`
-  - `image().query(...)`
-- 远程图片会在渲染前统一扫描并预下载到 `~/.opencat/assets`。
-- 对布局、栅格和合成阶段做分层缓存。
+### 1. UI Tree
 
-当前主语言是 Rust，主要代码都在 `src/` 下，示例在 `examples/` 下。
+用户入口层负责表达“我要什么场景”，不负责解释如何布局或如何绘制。
 
-## 核心设计
-
-### 1. 系统的真正输入是什么
-
-从第一性原理看，OpenCat 的输入不是“组件列表”，也不是“时间线文件”，而是：
-
-- 一段时间长度。
-- 一个给定帧上下文 `FrameCtx`。
-- 在这个上下文下应当出现的场景树。
-
-也就是说，系统的核心问题是：
-
-> 给定第 N 帧，画面应该是什么样，然后如何尽量高效地把它变成像素。
-
-这也是为什么当前代码里 `Composition` 的根节点是一个 `Fn(&FrameCtx) -> Node`，而不是一份静态模板。
-
-### 2. 当前主链路
-
-当前实现大致分成下面几层：
-
-#### 组装层
-
-- `composition.rs`
-  - 定义 `Composition` 和 `CompositionBuilder`
-  - 负责尺寸、帧率、总帧数和根组件
 - `view.rs`
-  - 定义通用 `Node` / `NodeKind`
-  - 把 `Div`、`Text`、`Image`、`Video`、`Timeline`、组件节点统一到一个树模型里
+  - 通用 `Node` / `NodeKind`
 - `nodes/`
-  - 提供用户可直接使用的声明式节点 API
-  - 图片节点支持本地路径、远程 URL 和 Openverse 查询
+  - `div` / `text` / `image` / `video` / `canvas` / `lucide`
+- `composition.rs`
+  - `Composition`、尺寸、帧率、总帧数、根组件
+- `timeline.rs`
+  - 普通场景和转场时间语义
 - `transitions.rs`
-  - 把多个场景和转场组织成时间序列
+  - 场景切换与转场配置
 - `parser.rs`
-  - 支持从 JSONL 解析出场景树和末尾脚本内容
-- `script.rs`
-  - 负责执行 JSONL 携带的脚本，并生成逐帧样式变更
+  - JSONL -> UI tree
 
-#### 解析层
+这一层的产物是用户声明的场景树。它可以是 Rust API，也可以来自 JSONL，但两者都只是同一层的不同输入形式。
+
+### 2. Element Tree
+
+`element` 层负责把用户表达解析成“可布局、可渲染语义”的稳定结构。
 
 - `element/resolve.rs`
-  - 把用户层的 `Node` 转成更接近渲染的数据结构 `ElementNode`
-  - 在这里合并继承文本样式、素材信息和脚本修改
+  - 组件展开
+  - 脚本驱动的逐帧样式修改
+  - 文本继承样式合并
+  - 图片/视频资源绑定
+- `element/tree.rs`
+  - `ElementNode`
+- `element/style.rs`
+  - `ComputedStyle`
 
-#### 布局层
+这一层的重点不是几何，而是渲染语义归一化。到这里为止，系统已经知道“节点是什么、样式是什么、资源是什么”，但还不知道几何落位。
+
+### 3. Layout Tree
+
+`layout` 层现在是纯几何层，不再携带 paint 语义。
 
 - `layout/mod.rs`
-  - 基于 Taffy 计算布局
-  - 维护 `LayoutSession`
-  - 跟踪哪些节点发生了结构、布局、栅格或合成级别的变化
+  - `LayoutSession`
+  - Taffy 布局计算
+  - 结构/布局/栅格/合成 dirty 统计
+- `layout/tree.rs`
+  - `LayoutTree`
+  - `LayoutNode { id, rect, children }`
 
-#### 绘制准备层
+这一层只回答：
 
+- 每个节点的矩形几何是什么
+- 本帧相对上一帧发生了哪种级别的变化
+
+它不负责决定如何绘制，也不负责决定具体的缓存粒度。
+
+### 4. Display Tree / Display List
+
+`display` 层负责把“element 语义 + layout 几何”组装成后端可消费的绘制语义。
+
+- `display/tree.rs`
+  - retained `DisplayTree`
+- `display/list.rs`
+  - flat `DisplayList`
 - `display/build.rs`
-  - 把布局树转换成显示列表 `DisplayList`
-  - 为后端生成更线性的绘制命令
+  - `ElementNode + LayoutTree -> DisplayTree`
+  - `DisplayTree -> DisplayList`
+- `display/analysis.rs`
+  - display-level 分析，比如是否包含视频
+- `display/cache_key.rs`
+  - text picture key
+  - subtree picture key
 
-#### 渲染层
+这里是当前渲染语义真正收敛的地方。
+
+`DisplayTree` 保留层级关系，供 subtree cache / snapshot planning 使用。  
+`DisplayList` 是线性执行形式，供 backend 快速执行。
+
+### 5. Render / Snapshot Planning
+
+`render` 层只负责 orchestration，不直接实现低层绘制细节。
+
+- `render.rs`
+  - frame orchestration
+  - scene / transition 分发
+  - profile 汇总
+- `render/invalidation.rs`
+  - 把 `LayoutPassStats + contains_video` 解释为统一的 invalidation 语义
+- `scene_snapshot.rs`
+  - scene snapshot planning
+  - snapshot 复用 / 录制 / direct draw 回退
+
+当前 invalidation 语义已经统一为：
+
+- `Clean`
+- `Composite`
+- `Raster`
+- `Layout`
+- `Structure`
+- `TimeVariant`
+
+这里的原则是：
+
+- `layout` 产出 dirty facts
+- `display` 产出渲染语义与 cache key
+- `render` 解释这些事实，并决定采用哪种 snapshot / reuse 策略
+
+### 6. Backend
+
+`backend` 只执行 display 语义，不再直接依赖 `layout`。
 
 - `backend/skia.rs`
-  - 用 Skia 执行绘制
-  - 负责文本、位图、图片缓存和子树缓存
+  - 执行 `DisplayList`
+  - 执行 `DisplayTree` 上的 subtree cache 绘制
 - `backend/skia_transition.rs`
-  - 执行转场的实际视觉效果
+  - transition 实现
+- `backend/cache.rs`
+  - image/text/subtree picture caches
+- `backend/resource_cache.rs`
+  - backend cache 聚合访问
 
-#### 媒体和编码层
+这一层不再负责解释“节点是什么”，也不再直接理解 layout tree。
 
-- `media.rs`
-  - 统一图片和视频素材访问
-- `codec/decode.rs`
-  - 负责视频解码
-- `codec/encode.rs`
-  - 负责把 RGBA 帧编码成 H.264 MP4
-
-#### 运行时辅助层
+### 7. Media / Codec / Assets
 
 - `assets.rs`
-  - 管理素材路径、尺寸和远程图片预加载
-- `render_cache.rs`
-  - 管理图片、文本图像、子树图像和整场景图像缓存
-- `cache_policy.rs`
-  - 决定当前帧应复用到什么粒度
-- `profile.rs`
-  - 记录每帧和整体渲染性能信息
+  - 资源注册、Openverse 查询、远程图片预拉取
+- `media.rs`
+  - 图片/视频位图访问
+- `codec/decode.rs`
+  - 视频解码
+- `codec/encode.rs`
+  - RGBA -> MP4
 
-## 渲染流程
+## 当前每帧主流程
 
-当前每一帧的核心流程可以概括为：
+一帧的渲染主链路现在是：
 
-1. 扫描整段内容用到的远程图片资源并预下载
-2. 构造 `FrameCtx`
-3. 调用 `Composition.root_node(ctx)` 得到根节点
-4. 如果根节点是时间线，先判断当前帧属于普通场景还是转场
-5. 执行脚本，收集样式变更
-6. 把节点树解析为 `ElementNode`
-7. 用 `LayoutSession` 计算或复用布局结果
-8. 构建 `DisplayList`，或直接走布局树绘制路径
-9. 根据缓存策略决定：
-   - 直接重绘
-   - 复用整场景图片
-   - 复用子树图片
-10. 得到当前帧像素
-11. 写 PNG 或交给编码器写入 MP4
+1. 构造 `FrameCtx`
+2. 从 `Composition` 得到 UI tree
+3. 解析为 `ElementNode`
+4. 用 `LayoutSession` 计算 `LayoutTree + LayoutPassStats`
+5. 从 `ElementNode + LayoutTree` 构建 `DisplayTree`
+6. 从 `DisplayTree` 展平为 `DisplayList`
+7. 用 `display` 分析结果和 `layout` dirty facts 生成 invalidation
+8. `render/scene_snapshot` 决定：
+   - 直接执行 `DisplayList`
+   - 记录并复用整场景 snapshot
+   - 基于 `DisplayTree` 走 subtree cache
+9. `backend/skia` 执行 display 语义
+10. 输出 PNG 或编码 MP4
 
-这个流程的关键点不在“能不能画出来”，而在“有没有把变化拆对”。当前实现已经明显在往这个方向走。
+## 当前边界约束
 
-## 当前架构最值得保留的部分
+这是当前代码最需要守住的部分：
 
-### 声明式优先
+### `ui -> element`
 
-项目最好的地方，是它没有把自己做成一堆命令式绘图调用，而是始终坚持“先描述场景，再渲染场景”。这使得它天然适合：
+- UI 层只表达用户意图
+- 组件展开、样式继承、脚本修改都应在 element 层完成
 
-- 动画
-- 模板化视频
-- 自动生成内容
-- 用脚本对局部样式做逐帧控制
+### `element -> layout`
 
-### 帧驱动模型清晰
+- layout 只消费 element 的结构与 layout style
+- layout 产出几何与 dirty facts
+- layout 不负责 paint 语义
 
-`FrameCtx` 是一个很好的中心概念。它把“当前是第几帧、总共多少帧、尺寸和帧率是多少”放在同一个地方，让组件和时间线都能围绕同一个时间模型工作。
+### `layout + element -> display`
 
-### 缓存策略方向是对的
+- display 是第一层完整的渲染语义
+- 所有 backend 可见的结构都应来自 display，而不是 layout
 
-当前最有技术含量的部分，是布局模块和缓存策略模块。
+### `display -> backend`
 
-项目已经不是“每帧把所有东西从头做一遍”，而是在主动区分：
+- backend 只能执行 display 语义
+- backend 不应直接 import `layout`
 
-- 结构变化
-- 布局变化
-- 栅格变化
-- 合成变化
+### `facts -> policy`
 
-这是非常正确的方向，因为渲染系统的本质不是减少代码行数，而是减少不必要的工作。
+- dirty / diff / contains_video / cache key 都是 facts
+- snapshot policy / reuse policy / fallback policy 都应集中在 render 层解释
 
-## 当前架构的主要边界
-
-下面这些不是“代码不好”，而是系统继续长大之前需要正视的边界。
-
-### 1. 场景模型还没有完全收敛为一个单一事实来源
-
-现在有两种主要入口和一种配套动画机制：
-
-- Rust 节点 API
-- JSONL 解析
-- JSONL 末尾附带的脚本动画
-
-目前真正需要收敛的是 Rust API 和 JSONL 这两种场景输入方式。脚本系统更像 JSONL 的动画层，而不是一套独立场景模型。长期看，这会带来两个问题：
-
-- 某些能力只能从一种入口进入
-- 同一个概念会在多个地方重复定义
-
-如果项目继续扩展，最好尽早明确：
-
-- 哪一层是“正式场景模型”
-- Rust API 和 JSONL 分别是怎样映射到这个模型上的
-- 脚本层对这个模型允许做哪些逐帧修改
-
-### 2. 时长仍然带有推断色彩
-
-`CompositionBuilder::build()` 在没有显式传 `frames` 时，会尝试从根节点推断时长，否则默认使用一个固定值。
-
-这对早期开发方便，但从系统定义上看，视频时长应该是明确输入，而不是猜测结果。否则调用方会很难判断一段内容为什么是这个长度。
-
-### 3. 节点身份已经显式化，但语义还需要继续收敛
-
-当前系统已经要求节点显式提供 `id`，这比之前的可选身份更稳。但长期看，仍然建议继续明确：
-
-- 哪些 `id` 是运行时主键
-- 哪些只是面向脚本或业务的名称
-- 节点重排时缓存和脚本命中的稳定规则是什么
-
-### 4. 渲染中间表示仍然存在双路径
-
-当前代码同时维护了两种思路：
-
-- 从布局树生成 `DisplayList` 再交给后端执行
-- 直接基于布局树和子树缓存做绘制
-
-这在当前阶段能帮助性能实验，但长期会带来维护成本，因为任何新能力都要想清楚自己该落在哪条路径上。
-
-### 5. 资源准备已经前移，但错误边界还可以继续做硬
-
-现在远程图片已经改成渲染前扫描和预下载，这比渲染时临时下载更合理。但资源边界仍然有继续加强的空间，比如：
-
-- 本地素材不存在时的报错一致性
-- 视频元数据失败时的行为
-- 资源预加载阶段的错误分类和反馈
-
-### 6. 视频读取语义偏向顺序播放
-
-当前视频解码缓存更适合导出视频这种从头到尾顺序前进的场景。如果未来要支持预览、拖动、跳转或局部重渲染，这一层的语义需要提前澄清。
-
-## 具体优先路线图
-
-下面这份路线图不是“大而全”的愿望清单，而是按价值和风险排序后的建议。
-
-### P0: 先把系统边界说清楚
-
-这是最优先的事情，因为如果边界不清楚，后面的优化和功能扩展都会分叉。
-
-建议先做两件事：
-
-1. 明确“正式场景模型”是什么
-   - 建议把 `Node -> ElementNode -> LayoutTree` 这条链路写成稳定约定
-   - 明确 Rust API、JSONL 分别处在什么层
-   - 明确 JSONL 末尾脚本是动画层，不是第三套场景描述
-2. 明确哪些属性属于：
-   - 结构级
-   - 布局级
-   - 栅格级
-   - 合成级
-
-这样做的直接收益是：缓存、脚本和未来功能扩展会围绕同一套规则，而不是靠约定俗成。
-
-### P0: 把时长和身份变成显式概念
-
-建议优先补强两类基础语义：
-
-1. 时长
-   - 让内容时长更显式
-   - 减少默认推断和兜底值
-2. 节点身份
-   - 在现在强制 `id` 的基础上，进一步区分“运行时主键”和“脚本/业务标识”
-   - 明确节点重排、插入和删除时的身份稳定规则
-
-这一步会直接决定后续缓存是否可信、脚本是否可维护。
-
-### P1: 收敛渲染主路径
-
-现在最值得做的架构整理，是选定一个“主中间表示”。
-
-建议在下面两种方向里二选一，并围绕选中的那条路径继续建设：
-
-- `ElementNode -> LayoutTree -> DisplayList -> Backend`
-- `ElementNode -> LayoutTree -> Backend`
-
-不是说另一条一定要删，而是需要明确哪条是长期主路径，哪条只是优化手段。否则每加一个新能力，系统复杂度都会翻倍。
-
-### P1: 继续强化资源边界和错误暴露
-
-远程图片预下载已经完成，但资源链路仍然建议继续补强：
-
-- 本地路径校验要更早、更明确
-- 视频元数据读取失败时不要静默返回零尺寸
-- 预加载阶段要能给出更清晰的失败原因和来源信息
-
-这是提高系统可信度最便宜的一步。渲染系统最怕的不是报错，而是无声失败。
-
-### P2: 为预览和时间跳转预留语义
-
-即使当前主要目标是离线导出，也建议尽早定义以下问题：
-
-- 支不支持随机跳帧
-- 支不支持回退帧
-- 资源缓存是否只针对顺序前进优化
-- 未来的“预览模式”和“导出模式”是否需要不同策略
-
-现在不一定要全部实现，但应该先把语义说清楚。
-
-### P2: 把性能观测变成长期资产
-
-现在项目已经有 profiler，这是很好的基础。下一步建议把它从“打印统计”推进到“固定基准”：
-
-- 静态场景基准
-- 文本动画基准
-- 图片动画基准
-- 视频混排基准
-- 转场基准
-
-这样以后每次改缓存、改布局、改绘制路径，都能知道自己到底是在变快还是变慢。
-
-## 推荐的近期执行顺序
-
-如果只做最值得做的几步，我建议按下面顺序推进：
-
-1. 先补文档和约定
-   - 统一场景模型、节点身份、时长语义
-2. 再收敛渲染主路径
-   - 选主表示，减少双路径扩散
-3. 再继续补强资源边界
-   - 在现有预加载基础上，让错误更早、更明确地暴露
-4. 最后为预览和跳帧能力预留接口
-
-这个顺序的原因很简单：
-
-- 不先讲清边界，后面的优化会越来越乱
-- 不先收敛主路径，后面的功能会越来越贵
-- 不先做错误边界，问题会越来越难排查
-
-## 项目结构速览
+## 代码结构速览
 
 ```text
 src/
-  composition.rs       组合入口和构建器
-  view.rs              通用节点模型
-  nodes/               声明式节点 API
-  transitions.rs       场景序列和转场
-  parser.rs            JSONL 输入解析
-  script.rs            按帧脚本和样式变更
-  element/             节点解析与计算样式
-  layout/              Taffy 布局和脏区判断
-  display/             显示列表构建
-  backend/             Skia 绘制与转场后端
-  codec/               视频编解码
-  media.rs             图片/视频素材访问
-  assets.rs            本地/远程素材注册、Openverse 查询和预加载
-  render_cache.rs      图像与图片缓存
-  cache_policy.rs      缓存粒度策略
-  profile.rs           性能统计
+  composition.rs
+  frame_ctx.rs
+  view.rs
+  nodes/
+  parser.rs
+  timeline.rs
+  transitions.rs
 
-examples/
-  hello_world.rs       基础场景和脚本动画示例
-  video_playback.rs    图片、视频、文本、转场混排示例
-  parsed_json.rs       从 JSONL 构建场景示例
+  element/
+    resolve.rs
+    style.rs
+    tree.rs
+
+  layout/
+    mod.rs
+    tree.rs
+
+  display/
+    analysis.rs
+    build.rs
+    cache_key.rs
+    list.rs
+    tree.rs
+
+  render.rs
+  render/
+    invalidation.rs
+  scene_snapshot.rs
+  render_cache.rs
+  profile.rs
+
+  backend/
+    cache.rs
+    resource_cache.rs
+    skia.rs
+    skia_transition.rs
+
+  assets.rs
+  media.rs
+  codec/
 ```
 
 ## 开发与验证
 
-本仓库当前可用的基础验证方式：
+基础命令：
 
 ```bash
-cargo check
-cargo test
-cargo run --example hello_world
+rtk cargo fmt
+ rtk cargo test
+ rtk cargo run --example hello_world
 ```
 
-如果本地具备可用的编码环境，第二条命令会在 `out/` 目录生成一个 MP4 示例文件。
+性能/架构相关改动后，必须额外跑：
 
-## 适合这个项目的演进原则
+```bash
+ rtk cargo run --example video_playback
+```
 
-如果要继续推进 OpenCat，我建议始终守住下面几条原则：
+`examples/video_playback.rs` 是当前最重要的 profile 场景。它同时覆盖：
 
-- 优先明确系统边界，而不是先堆功能
-- 优先让变化分类正确，而不是先做激进优化
-- 优先让错误尽早暴露，而不是静默兜底
-- 优先收敛核心模型，而不是让输入形式继续扩散
-- 优先用稳定身份驱动缓存和脚本，而不是依赖位置和偶然顺序
+- 文本
+- 图片
+- 视频
+- canvas
+- transforms
+- transitions
+- snapshot / subtree cache 路径
 
-如果这些原则保持住，OpenCat 很有机会从“一个能跑的渲染库”长成“一个可持续扩展的视频场景引擎”。
+任何对 `element/layout/display/render/backend` 边界、cache reuse、dirty 语义、snapshot planning 的修改，都应至少跑一次这个 example，并查看最终打印的 `Render profile`。
+
+## 当前建议
+
+如果继续沿当前方向推进，优先级应该是：
+
+1. 继续保持 `layout` 纯几何，不把 paint 语义放回去
+2. 让所有 backend-facing 结构都从 `display` 产出
+3. 让 invalidation / snapshot policy 继续集中在 `render`
+4. 用 `video_playback` 持续盯住 profile，避免边界纯化造成隐藏性能退化
+
+现在最重要的不是继续加功能，而是保持这条主链路稳定、单向、可解释。

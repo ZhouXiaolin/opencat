@@ -46,7 +46,11 @@ impl Canvas {
     }
 
     pub fn asset_query_count(mut self, asset_id: &str, count: usize) -> Self {
-        if let Some(asset) = self.assets.iter_mut().find(|asset| asset.asset_id == asset_id) {
+        if let Some(asset) = self
+            .assets
+            .iter_mut()
+            .find(|asset| asset.asset_id == asset_id)
+        {
             if let ImageSource::Query(query) = &mut asset.source {
                 query.count = count.max(1);
             }
@@ -55,7 +59,11 @@ impl Canvas {
     }
 
     pub fn asset_aspect_ratio(mut self, asset_id: &str, aspect_ratio: impl Into<String>) -> Self {
-        if let Some(asset) = self.assets.iter_mut().find(|asset| asset.asset_id == asset_id) {
+        if let Some(asset) = self
+            .assets
+            .iter_mut()
+            .find(|asset| asset.asset_id == asset_id)
+        {
             if let ImageSource::Query(query) = &mut asset.source {
                 query.aspect_ratio = Some(aspect_ratio.into());
             }

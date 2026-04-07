@@ -392,14 +392,12 @@ fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<b
         return Ok(false);
     };
 
-    let mutations = cx
-        .script_runtime
-        .run(
-            driver,
-            cx.frame_ctx.frame,
-            cx.frame_ctx.frames,
-            (!style.id.is_empty()).then_some(style.id.as_str()),
-        )?;
+    let mutations = cx.script_runtime.run(
+        driver,
+        cx.frame_ctx.frame,
+        cx.frame_ctx.frames,
+        (!style.id.is_empty()).then_some(style.id.as_str()),
+    )?;
     if mutations.is_empty() {
         return Ok(false);
     }
@@ -415,7 +413,11 @@ fn apply_mutation_stack(style: &mut NodeStyle, stack: &[StyleMutations]) {
     }
 }
 
-fn apply_canvas_mutation_stack(commands: &mut Vec<crate::script::CanvasCommand>, stack: &[StyleMutations], id: &str) {
+fn apply_canvas_mutation_stack(
+    commands: &mut Vec<crate::script::CanvasCommand>,
+    stack: &[StyleMutations],
+    id: &str,
+) {
     for mutations in stack {
         mutations.apply_to_canvas(commands, id);
     }

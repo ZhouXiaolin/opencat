@@ -34,29 +34,112 @@ pub enum ScriptLineJoin {
 pub enum CanvasCommand {
     Save,
     Restore,
-    SetFillStyle { color: ScriptColor },
-    SetStrokeStyle { color: ScriptColor },
-    SetLineWidth { width: f32 },
-    SetLineCap { cap: ScriptLineCap },
-    SetLineJoin { join: ScriptLineJoin },
-    SetGlobalAlpha { alpha: f32 },
-    Translate { x: f32, y: f32 },
-    Scale { x: f32, y: f32 },
-    Rotate { degrees: f32 },
-    ClipRect { x: f32, y: f32, width: f32, height: f32 },
-    Clear { color: Option<ScriptColor> },
-    FillRect { x: f32, y: f32, width: f32, height: f32, color: ScriptColor },
-    FillRRect { x: f32, y: f32, width: f32, height: f32, radius: f32 },
-    StrokeRect { x: f32, y: f32, width: f32, height: f32, color: ScriptColor, stroke_width: f32 },
-    StrokeRRect { x: f32, y: f32, width: f32, height: f32, radius: f32 },
-    DrawLine { x0: f32, y0: f32, x1: f32, y1: f32 },
-    FillCircle { cx: f32, cy: f32, radius: f32 },
-    StrokeCircle { cx: f32, cy: f32, radius: f32 },
+    SetFillStyle {
+        color: ScriptColor,
+    },
+    SetStrokeStyle {
+        color: ScriptColor,
+    },
+    SetLineWidth {
+        width: f32,
+    },
+    SetLineCap {
+        cap: ScriptLineCap,
+    },
+    SetLineJoin {
+        join: ScriptLineJoin,
+    },
+    SetGlobalAlpha {
+        alpha: f32,
+    },
+    Translate {
+        x: f32,
+        y: f32,
+    },
+    Scale {
+        x: f32,
+        y: f32,
+    },
+    Rotate {
+        degrees: f32,
+    },
+    ClipRect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
+    Clear {
+        color: Option<ScriptColor>,
+    },
+    FillRect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        color: ScriptColor,
+    },
+    FillRRect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        radius: f32,
+    },
+    StrokeRect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        color: ScriptColor,
+        stroke_width: f32,
+    },
+    StrokeRRect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        radius: f32,
+    },
+    DrawLine {
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+    },
+    FillCircle {
+        cx: f32,
+        cy: f32,
+        radius: f32,
+    },
+    StrokeCircle {
+        cx: f32,
+        cy: f32,
+        radius: f32,
+    },
     BeginPath,
-    MoveTo { x: f32, y: f32 },
-    LineTo { x: f32, y: f32 },
-    QuadTo { cx: f32, cy: f32, x: f32, y: f32 },
-    CubicTo { c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32 },
+    MoveTo {
+        x: f32,
+        y: f32,
+    },
+    LineTo {
+        x: f32,
+        y: f32,
+    },
+    QuadTo {
+        cx: f32,
+        cy: f32,
+        x: f32,
+        y: f32,
+    },
+    CubicTo {
+        c1x: f32,
+        c1y: f32,
+        c2x: f32,
+        c2y: f32,
+        x: f32,
+        y: f32,
+    },
     ClosePath,
     FillPath,
     StrokePath,
@@ -251,20 +334,78 @@ pub(super) fn install_canvaskit_bindings<'js>(
 
     push_canvas_command!("__canvas_save", |id| CanvasCommand::Save);
     push_canvas_command!("__canvas_restore", |id| CanvasCommand::Restore);
-    push_canvas_command!("__canvas_translate", |id, x: f32, y: f32| CanvasCommand::Translate { x, y });
-    push_canvas_command!("__canvas_scale", |id, x: f32, y: f32| CanvasCommand::Scale { x, y });
-    push_canvas_command!("__canvas_rotate", |id, degrees: f32| CanvasCommand::Rotate { degrees });
-    push_canvas_command!("__canvas_clip_rect", |id, x: f32, y: f32, width: f32, height: f32| CanvasCommand::ClipRect { x, y, width, height });
-    push_canvas_command!("__canvas_draw_line", |id, x0: f32, y0: f32, x1: f32, y1: f32| CanvasCommand::DrawLine { x0, y0, x1, y1 });
-    push_canvas_command!("__canvas_fill_circle", |id, cx: f32, cy: f32, radius: f32| CanvasCommand::FillCircle { cx, cy, radius });
-    push_canvas_command!("__canvas_stroke_circle", |id, cx: f32, cy: f32, radius: f32| CanvasCommand::StrokeCircle { cx, cy, radius });
-    push_canvas_command!("__canvas_fill_rrect", |id, x: f32, y: f32, width: f32, height: f32, radius: f32| CanvasCommand::FillRRect { x, y, width, height, radius });
-    push_canvas_command!("__canvas_stroke_rrect", |id, x: f32, y: f32, width: f32, height: f32, radius: f32| CanvasCommand::StrokeRRect { x, y, width, height, radius });
+    push_canvas_command!("__canvas_translate", |id, x: f32, y: f32| {
+        CanvasCommand::Translate { x, y }
+    });
+    push_canvas_command!("__canvas_scale", |id, x: f32, y: f32| {
+        CanvasCommand::Scale { x, y }
+    });
+    push_canvas_command!("__canvas_rotate", |id, degrees: f32| {
+        CanvasCommand::Rotate { degrees }
+    });
+    push_canvas_command!(
+        "__canvas_clip_rect",
+        |id, x: f32, y: f32, width: f32, height: f32| CanvasCommand::ClipRect {
+            x,
+            y,
+            width,
+            height
+        }
+    );
+    push_canvas_command!(
+        "__canvas_draw_line",
+        |id, x0: f32, y0: f32, x1: f32, y1: f32| CanvasCommand::DrawLine { x0, y0, x1, y1 }
+    );
+    push_canvas_command!(
+        "__canvas_fill_circle",
+        |id, cx: f32, cy: f32, radius: f32| CanvasCommand::FillCircle { cx, cy, radius }
+    );
+    push_canvas_command!(
+        "__canvas_stroke_circle",
+        |id, cx: f32, cy: f32, radius: f32| CanvasCommand::StrokeCircle { cx, cy, radius }
+    );
+    push_canvas_command!(
+        "__canvas_fill_rrect",
+        |id, x: f32, y: f32, width: f32, height: f32, radius: f32| CanvasCommand::FillRRect {
+            x,
+            y,
+            width,
+            height,
+            radius
+        }
+    );
+    push_canvas_command!(
+        "__canvas_stroke_rrect",
+        |id, x: f32, y: f32, width: f32, height: f32, radius: f32| CanvasCommand::StrokeRRect {
+            x,
+            y,
+            width,
+            height,
+            radius
+        }
+    );
     push_canvas_command!("__canvas_begin_path", |id| CanvasCommand::BeginPath);
-    push_canvas_command!("__canvas_move_to", |id, x: f32, y: f32| CanvasCommand::MoveTo { x, y });
-    push_canvas_command!("__canvas_line_to", |id, x: f32, y: f32| CanvasCommand::LineTo { x, y });
-    push_canvas_command!("__canvas_quad_to", |id, cx: f32, cy: f32, x: f32, y: f32| CanvasCommand::QuadTo { cx, cy, x, y });
-    push_canvas_command!("__canvas_cubic_to", |id, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32| CanvasCommand::CubicTo { c1x, c1y, c2x, c2y, x, y });
+    push_canvas_command!("__canvas_move_to", |id, x: f32, y: f32| {
+        CanvasCommand::MoveTo { x, y }
+    });
+    push_canvas_command!("__canvas_line_to", |id, x: f32, y: f32| {
+        CanvasCommand::LineTo { x, y }
+    });
+    push_canvas_command!(
+        "__canvas_quad_to",
+        |id, cx: f32, cy: f32, x: f32, y: f32| CanvasCommand::QuadTo { cx, cy, x, y }
+    );
+    push_canvas_command!(
+        "__canvas_cubic_to",
+        |id, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32| CanvasCommand::CubicTo {
+            c1x,
+            c1y,
+            c2x,
+            c2y,
+            x,
+            y
+        }
+    );
     push_canvas_command!("__canvas_close_path", |id| CanvasCommand::ClosePath);
     push_canvas_command!("__canvas_fill_path", |id| CanvasCommand::FillPath);
     push_canvas_command!("__canvas_stroke_path", |id| CanvasCommand::StrokePath);
@@ -275,7 +416,11 @@ pub(super) fn install_canvaskit_bindings<'js>(
         Function::new(ctx.clone(), move |id: String, color: String| {
             let color = parse_color(&color, "setFillStyle")?;
             let mut map = s.lock().unwrap();
-            map.canvases.entry(id).or_default().commands.push(CanvasCommand::SetFillStyle { color });
+            map.canvases
+                .entry(id)
+                .or_default()
+                .commands
+                .push(CanvasCommand::SetFillStyle { color });
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;
@@ -286,7 +431,11 @@ pub(super) fn install_canvaskit_bindings<'js>(
         Function::new(ctx.clone(), move |id: String, color: String| {
             let color = parse_color(&color, "setStrokeStyle")?;
             let mut map = s.lock().unwrap();
-            map.canvases.entry(id).or_default().commands.push(CanvasCommand::SetStrokeStyle { color });
+            map.canvases
+                .entry(id)
+                .or_default()
+                .commands
+                .push(CanvasCommand::SetStrokeStyle { color });
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;
@@ -296,9 +445,13 @@ pub(super) fn install_canvaskit_bindings<'js>(
         "__canvas_set_line_width",
         Function::new(ctx.clone(), move |id: String, width: f32| {
             let mut map = s.lock().unwrap();
-            map.canvases.entry(id).or_default().commands.push(CanvasCommand::SetLineWidth {
-                width: width.max(0.0),
-            });
+            map.canvases
+                .entry(id)
+                .or_default()
+                .commands
+                .push(CanvasCommand::SetLineWidth {
+                    width: width.max(0.0),
+                });
         })?,
     )?;
 
@@ -306,9 +459,14 @@ pub(super) fn install_canvaskit_bindings<'js>(
     globals.set(
         "__canvas_set_line_cap",
         Function::new(ctx.clone(), move |id: String, cap: String| {
-            let cap = line_cap_from_name(&cap).ok_or_else(|| js_error("setLineCap", format!("unsupported line cap `{cap}`")))?;
+            let cap = line_cap_from_name(&cap)
+                .ok_or_else(|| js_error("setLineCap", format!("unsupported line cap `{cap}`")))?;
             let mut map = s.lock().unwrap();
-            map.canvases.entry(id).or_default().commands.push(CanvasCommand::SetLineCap { cap });
+            map.canvases
+                .entry(id)
+                .or_default()
+                .commands
+                .push(CanvasCommand::SetLineCap { cap });
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;
@@ -317,9 +475,15 @@ pub(super) fn install_canvaskit_bindings<'js>(
     globals.set(
         "__canvas_set_line_join",
         Function::new(ctx.clone(), move |id: String, join: String| {
-            let join = line_join_from_name(&join).ok_or_else(|| js_error("setLineJoin", format!("unsupported line join `{join}`")))?;
+            let join = line_join_from_name(&join).ok_or_else(|| {
+                js_error("setLineJoin", format!("unsupported line join `{join}`"))
+            })?;
             let mut map = s.lock().unwrap();
-            map.canvases.entry(id).or_default().commands.push(CanvasCommand::SetLineJoin { join });
+            map.canvases
+                .entry(id)
+                .or_default()
+                .commands
+                .push(CanvasCommand::SetLineJoin { join });
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;
@@ -329,9 +493,13 @@ pub(super) fn install_canvaskit_bindings<'js>(
         "__canvas_set_global_alpha",
         Function::new(ctx.clone(), move |id: String, alpha: f32| {
             let mut map = s.lock().unwrap();
-            map.canvases.entry(id).or_default().commands.push(CanvasCommand::SetGlobalAlpha {
-                alpha: alpha.clamp(0.0, 1.0),
-            });
+            map.canvases
+                .entry(id)
+                .or_default()
+                .commands
+                .push(CanvasCommand::SetGlobalAlpha {
+                    alpha: alpha.clamp(0.0, 1.0),
+                });
         })?,
     )?;
 
@@ -344,7 +512,11 @@ pub(super) fn install_canvaskit_bindings<'js>(
                 None => None,
             };
             let mut map = s.lock().unwrap();
-            map.canvases.entry(id).or_default().commands.push(CanvasCommand::Clear { color });
+            map.canvases
+                .entry(id)
+                .or_default()
+                .commands
+                .push(CanvasCommand::Clear { color });
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;
@@ -352,40 +524,89 @@ pub(super) fn install_canvaskit_bindings<'js>(
     let s = store.clone();
     globals.set(
         "__canvas_fill_rect",
-        Function::new(ctx.clone(), move |id: String, x: f32, y: f32, width: f32, height: f32, color: String| {
-            let color = parse_color(&color, "fillRect")?;
-            let mut map = s.lock().unwrap();
-            map.canvases.entry(id).or_default().commands.push(CanvasCommand::FillRect {
-                x, y, width, height, color
-            });
-            Ok::<_, rquickjs::Error>(())
-        })?,
+        Function::new(
+            ctx.clone(),
+            move |id: String, x: f32, y: f32, width: f32, height: f32, color: String| {
+                let color = parse_color(&color, "fillRect")?;
+                let mut map = s.lock().unwrap();
+                map.canvases
+                    .entry(id)
+                    .or_default()
+                    .commands
+                    .push(CanvasCommand::FillRect {
+                        x,
+                        y,
+                        width,
+                        height,
+                        color,
+                    });
+                Ok::<_, rquickjs::Error>(())
+            },
+        )?,
     )?;
 
     let s = store.clone();
     globals.set(
         "__canvas_stroke_rect",
-        Function::new(ctx.clone(), move |id: String, x: f32, y: f32, width: f32, height: f32, color: String, stroke_width: f32| {
-            let color = parse_color(&color, "strokeRect")?;
-            let mut map = s.lock().unwrap();
-            map.canvases.entry(id).or_default().commands.push(CanvasCommand::StrokeRect {
-                x, y, width, height, color, stroke_width: stroke_width.max(0.0)
-            });
-            Ok::<_, rquickjs::Error>(())
-        })?,
+        Function::new(
+            ctx.clone(),
+            move |id: String,
+                  x: f32,
+                  y: f32,
+                  width: f32,
+                  height: f32,
+                  color: String,
+                  stroke_width: f32| {
+                let color = parse_color(&color, "strokeRect")?;
+                let mut map = s.lock().unwrap();
+                map.canvases
+                    .entry(id)
+                    .or_default()
+                    .commands
+                    .push(CanvasCommand::StrokeRect {
+                        x,
+                        y,
+                        width,
+                        height,
+                        color,
+                        stroke_width: stroke_width.max(0.0),
+                    });
+                Ok::<_, rquickjs::Error>(())
+            },
+        )?,
     )?;
 
     let s = store.clone();
     globals.set(
         "__canvas_draw_image",
-        Function::new(ctx.clone(), move |id: String, asset_id: String, x: f32, y: f32, width: f32, height: f32, fit: String| {
-            let object_fit = object_fit_from_name(&fit).ok_or_else(|| js_error("drawImage", format!("unsupported objectFit `{fit}`")))?;
-            let mut map = s.lock().unwrap();
-            map.canvases.entry(id).or_default().commands.push(CanvasCommand::DrawImage {
-                asset_id, x, y, width, height, object_fit
-            });
-            Ok::<_, rquickjs::Error>(())
-        })?,
+        Function::new(
+            ctx.clone(),
+            move |id: String,
+                  asset_id: String,
+                  x: f32,
+                  y: f32,
+                  width: f32,
+                  height: f32,
+                  fit: String| {
+                let object_fit = object_fit_from_name(&fit).ok_or_else(|| {
+                    js_error("drawImage", format!("unsupported objectFit `{fit}`"))
+                })?;
+                let mut map = s.lock().unwrap();
+                map.canvases
+                    .entry(id)
+                    .or_default()
+                    .commands
+                    .push(CanvasCommand::DrawImage {
+                        asset_id,
+                        x,
+                        y,
+                        width,
+                        height,
+                        object_fit,
+                    });
+                Ok::<_, rquickjs::Error>(())
+            },
+        )?,
     )?;
 
     Ok(())
@@ -396,5 +617,6 @@ fn js_error(op: &'static str, message: String) -> rquickjs::Error {
 }
 
 fn parse_color(color: &str, op: &'static str) -> Result<ScriptColor, rquickjs::Error> {
-    script_color_from_value(color).ok_or_else(|| js_error(op, format!("unsupported color `{color}`")))
+    script_color_from_value(color)
+        .ok_or_else(|| js_error(op, format!("unsupported color `{color}`")))
 }

@@ -8,14 +8,12 @@ use crate::style::{
     TextAlign,
 };
 
-#[path = "script_node_style.rs"]
-mod node_style;
 #[path = "script_canvaskit.rs"]
 mod canvaskit;
+#[path = "script_node_style.rs"]
+mod node_style;
 
-pub use canvaskit::{
-    CanvasCommand, CanvasMutations, ScriptColor, ScriptLineCap, ScriptLineJoin,
-};
+pub use canvaskit::{CanvasCommand, CanvasMutations, ScriptColor, ScriptLineCap, ScriptLineJoin};
 pub use node_style::NodeStyleMutations;
 
 #[derive(Debug, Clone, Default)]

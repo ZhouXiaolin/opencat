@@ -86,6 +86,10 @@ impl RenderSession {
         }
     }
 
+    pub fn print_profile_summary(&self) {
+        self.profiler.print_summary();
+    }
+
     fn layout_session_mut(&mut self, slot: SceneSlot) -> &mut LayoutSession {
         match slot {
             SceneSlot::Scene => &mut self.scene_layout,
@@ -604,7 +608,11 @@ fn picture_for_slot(
 #[cfg(test)]
 mod tests {
     use super::{RenderSession, pad_rgba_frame, render_frame_rgba};
-    use crate::{Composition, FrameCtx, nodes::{canvas, div}, style::ColorToken};
+    use crate::{
+        Composition, FrameCtx,
+        nodes::{canvas, div},
+        style::ColorToken,
+    };
 
     fn write_test_png(path: &std::path::Path) {
         let mut image = image::RgbaImage::new(2, 1);
@@ -734,10 +742,8 @@ mod tests {
 
     #[test]
     fn canvas_node_draw_image_uses_asset_alias_in_backend() {
-        let image_path = std::env::temp_dir().join(format!(
-            "opencat-canvas-test-{}.png",
-            std::process::id()
-        ));
+        let image_path =
+            std::env::temp_dir().join(format!("opencat-canvas-test-{}.png", std::process::id()));
         write_test_png(&image_path);
 
         let scene = canvas()
@@ -756,8 +762,7 @@ mod tests {
             .expect("composition should build");
 
         let mut session = RenderSession::new();
-        let frame =
-            render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+        let frame = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
 
         let _ = std::fs::remove_file(&image_path);
 

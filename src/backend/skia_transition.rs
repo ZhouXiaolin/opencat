@@ -8,8 +8,6 @@ use skia_safe::{
 
 use crate::transitions::{LightLeakTransition, SlideDirection, TransitionKind, WipeDirection};
 
-const LIGHT_LEAK_MASK_SCALE: f32 = 0.25;
-
 const LIGHT_LEAK_MASK_SKSL: &str = r#"
 uniform float evolveProgress;
 uniform float retractProgress;
@@ -370,7 +368,8 @@ fn draw_light_leak_transition(
     width: i32,
     height: i32,
 ) -> Result<()> {
-    let mask_size = scaled_mask_size(width, height);
+    let mask_scale = params.mask_scale.clamp(0.03125, 1.0);
+    let mask_size = scaled_mask_size(width, height, mask_scale);
     let mask_image = render_light_leak_mask(progress, params, mask_size.0, mask_size.1)?;
 
     let from_shader = from.to_shader(
@@ -386,7 +385,7 @@ fn draw_light_leak_transition(
         Option::<&Rect>::None,
     );
 
-    let scale_matrix = Matrix::scale((1.0 / LIGHT_LEAK_MASK_SCALE, 1.0 / LIGHT_LEAK_MASK_SCALE));
+    let scale_matrix = Matrix::scale((1.0 / mask_scale, 1.0 / mask_scale));
     let mask_shader = mask_image
         .to_shader(
             Some((TileMode::Clamp, TileMode::Clamp)),
@@ -436,9 +435,9 @@ fn render_light_leak_mask(
     Ok(surface.image_snapshot())
 }
 
-fn scaled_mask_size(width: i32, height: i32) -> (i32, i32) {
-    let scaled_width = ((width as f32) * LIGHT_LEAK_MASK_SCALE).round() as i32;
-    let scaled_height = ((height as f32) * LIGHT_LEAK_MASK_SCALE).round() as i32;
+fn scaled_mask_size(width: i32, height: i32, mask_scale: f32) -> (i32, i32) {
+    let scaled_width = ((width as f32) * mask_scale).round() as i32;
+    let scaled_height = ((height as f32) * mask_scale).round() as i32;
     (scaled_width.max(1), scaled_height.max(1))
 }
 

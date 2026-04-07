@@ -128,9 +128,9 @@ fn hello_world_demo(_ctx: &FrameCtx) -> Node {
         lucide("badge-check")
             .id("icon-badge")
             .size(72.0, 72.0)
-            .text_color(ColorToken::White)
+            .text_white()
             .border_w(2.5)
-            .bg(ColorToken::Emerald400)
+            .bg_emerald_400()
             .into(),
     );
 

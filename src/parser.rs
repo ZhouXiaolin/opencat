@@ -110,6 +110,8 @@ enum JsonLine {
         seed: Option<f32>,
         #[serde(rename = "hueShift")]
         hue_shift: Option<f32>,
+        #[serde(rename = "maskScale")]
+        mask_scale: Option<f32>,
     },
 }
 
@@ -145,6 +147,7 @@ struct ParsedTransition {
     mass: Option<f32>,
     seed: Option<f32>,
     hue_shift: Option<f32>,
+    mask_scale: Option<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -358,6 +361,7 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 mass,
                 seed,
                 hue_shift,
+                mask_scale,
             } => timeline_entries.push(TimelineEntry::Transition(ParsedTransition {
                 from,
                 to,
@@ -370,6 +374,7 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 mass,
                 seed,
                 hue_shift,
+                mask_scale,
             })),
         }
     }
@@ -677,6 +682,9 @@ fn build_transition(transition: &ParsedTransition) -> anyhow::Result<Transition>
             }
             if let Some(hue_shift) = transition.hue_shift {
                 builder = builder.hue_shift(hue_shift);
+            }
+            if let Some(mask_scale) = transition.mask_scale {
+                builder = builder.mask_scale(mask_scale);
             }
             Ok(builder.timing(timing))
         }

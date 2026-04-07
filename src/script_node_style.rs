@@ -248,52 +248,106 @@ pub(super) fn install_node_style_bindings<'js>(
         map.entry(id).or_default().opacity = Some(v);
     });
     set_style_binding!("__record_translate_x", map, |id, v: f32| {
-        map.entry(id).or_default().transforms.push(Transform::TranslateX(v));
+        map.entry(id)
+            .or_default()
+            .transforms
+            .push(Transform::TranslateX(v));
     });
     set_style_binding!("__record_translate_y", map, |id, v: f32| {
-        map.entry(id).or_default().transforms.push(Transform::TranslateY(v));
+        map.entry(id)
+            .or_default()
+            .transforms
+            .push(Transform::TranslateY(v));
     });
     set_style_binding!("__record_translate", map, |id, x: f32, y: f32| {
-        map.entry(id).or_default().transforms.push(Transform::Translate(x, y));
+        map.entry(id)
+            .or_default()
+            .transforms
+            .push(Transform::Translate(x, y));
     });
     set_style_binding!("__record_scale", map, |id, v: f32| {
-        map.entry(id).or_default().transforms.push(Transform::Scale(v));
+        map.entry(id)
+            .or_default()
+            .transforms
+            .push(Transform::Scale(v));
     });
     set_style_binding!("__record_scale_x", map, |id, v: f32| {
-        map.entry(id).or_default().transforms.push(Transform::ScaleX(v));
+        map.entry(id)
+            .or_default()
+            .transforms
+            .push(Transform::ScaleX(v));
     });
     set_style_binding!("__record_scale_y", map, |id, v: f32| {
-        map.entry(id).or_default().transforms.push(Transform::ScaleY(v));
+        map.entry(id)
+            .or_default()
+            .transforms
+            .push(Transform::ScaleY(v));
     });
     set_style_binding!("__record_rotate", map, |id, v: f32| {
-        map.entry(id).or_default().transforms.push(Transform::RotateDeg(v));
+        map.entry(id)
+            .or_default()
+            .transforms
+            .push(Transform::RotateDeg(v));
     });
     set_style_binding!("__record_skew_x", map, |id, v: f32| {
-        map.entry(id).or_default().transforms.push(Transform::SkewXDeg(v));
+        map.entry(id)
+            .or_default()
+            .transforms
+            .push(Transform::SkewXDeg(v));
     });
     set_style_binding!("__record_skew_y", map, |id, v: f32| {
-        map.entry(id).or_default().transforms.push(Transform::SkewYDeg(v));
+        map.entry(id)
+            .or_default()
+            .transforms
+            .push(Transform::SkewYDeg(v));
     });
     set_style_binding!("__record_skew", map, |id, x_deg: f32, y_deg: f32| {
-        map.entry(id).or_default().transforms.push(Transform::SkewDeg(x_deg, y_deg));
+        map.entry(id)
+            .or_default()
+            .transforms
+            .push(Transform::SkewDeg(x_deg, y_deg));
     });
     set_style_binding!("__record_position", map, |id, v: String| {
         if let Some(pos) = position_from_name(&v) {
             map.entry(id).or_default().position = Some(pos);
         }
     });
-    set_style_binding!("__record_left", map, |id, v: f32| { map.entry(id).or_default().inset_left = Some(v); });
-    set_style_binding!("__record_top", map, |id, v: f32| { map.entry(id).or_default().inset_top = Some(v); });
-    set_style_binding!("__record_right", map, |id, v: f32| { map.entry(id).or_default().inset_right = Some(v); });
-    set_style_binding!("__record_bottom", map, |id, v: f32| { map.entry(id).or_default().inset_bottom = Some(v); });
-    set_style_binding!("__record_width", map, |id, v: f32| { map.entry(id).or_default().width = Some(v); });
-    set_style_binding!("__record_height", map, |id, v: f32| { map.entry(id).or_default().height = Some(v); });
-    set_style_binding!("__record_padding", map, |id, v: f32| { map.entry(id).or_default().padding = Some(v); });
-    set_style_binding!("__record_padding_x", map, |id, v: f32| { map.entry(id).or_default().padding_x = Some(v); });
-    set_style_binding!("__record_padding_y", map, |id, v: f32| { map.entry(id).or_default().padding_y = Some(v); });
-    set_style_binding!("__record_margin", map, |id, v: f32| { map.entry(id).or_default().margin = Some(v); });
-    set_style_binding!("__record_margin_x", map, |id, v: f32| { map.entry(id).or_default().margin_x = Some(v); });
-    set_style_binding!("__record_margin_y", map, |id, v: f32| { map.entry(id).or_default().margin_y = Some(v); });
+    set_style_binding!("__record_left", map, |id, v: f32| {
+        map.entry(id).or_default().inset_left = Some(v);
+    });
+    set_style_binding!("__record_top", map, |id, v: f32| {
+        map.entry(id).or_default().inset_top = Some(v);
+    });
+    set_style_binding!("__record_right", map, |id, v: f32| {
+        map.entry(id).or_default().inset_right = Some(v);
+    });
+    set_style_binding!("__record_bottom", map, |id, v: f32| {
+        map.entry(id).or_default().inset_bottom = Some(v);
+    });
+    set_style_binding!("__record_width", map, |id, v: f32| {
+        map.entry(id).or_default().width = Some(v);
+    });
+    set_style_binding!("__record_height", map, |id, v: f32| {
+        map.entry(id).or_default().height = Some(v);
+    });
+    set_style_binding!("__record_padding", map, |id, v: f32| {
+        map.entry(id).or_default().padding = Some(v);
+    });
+    set_style_binding!("__record_padding_x", map, |id, v: f32| {
+        map.entry(id).or_default().padding_x = Some(v);
+    });
+    set_style_binding!("__record_padding_y", map, |id, v: f32| {
+        map.entry(id).or_default().padding_y = Some(v);
+    });
+    set_style_binding!("__record_margin", map, |id, v: f32| {
+        map.entry(id).or_default().margin = Some(v);
+    });
+    set_style_binding!("__record_margin_x", map, |id, v: f32| {
+        map.entry(id).or_default().margin_x = Some(v);
+    });
+    set_style_binding!("__record_margin_y", map, |id, v: f32| {
+        map.entry(id).or_default().margin_y = Some(v);
+    });
     set_style_binding!("__record_flex_direction", map, |id, v: String| {
         if let Some(fd) = flex_direction_from_name(&v) {
             map.entry(id).or_default().flex_direction = Some(fd);
@@ -309,21 +363,31 @@ pub(super) fn install_node_style_bindings<'js>(
             map.entry(id).or_default().align_items = Some(ai);
         }
     });
-    set_style_binding!("__record_gap", map, |id, v: f32| { map.entry(id).or_default().gap = Some(v); });
-    set_style_binding!("__record_flex_grow", map, |id, v: f32| { map.entry(id).or_default().flex_grow = Some(v); });
+    set_style_binding!("__record_gap", map, |id, v: f32| {
+        map.entry(id).or_default().gap = Some(v);
+    });
+    set_style_binding!("__record_flex_grow", map, |id, v: f32| {
+        map.entry(id).or_default().flex_grow = Some(v);
+    });
     set_style_binding!("__record_bg", map, |id, v: String| {
         if let Some(c) = color_from_name(&v) {
             map.entry(id).or_default().bg_color = Some(c);
         }
     });
-    set_style_binding!("__record_border_radius", map, |id, v: f32| { map.entry(id).or_default().border_radius = Some(v); });
-    set_style_binding!("__record_border_width", map, |id, v: f32| { map.entry(id).or_default().border_width = Some(v); });
+    set_style_binding!("__record_border_radius", map, |id, v: f32| {
+        map.entry(id).or_default().border_radius = Some(v);
+    });
+    set_style_binding!("__record_border_width", map, |id, v: f32| {
+        map.entry(id).or_default().border_width = Some(v);
+    });
     set_style_binding!("__record_border_color", map, |id, v: String| {
         if let Some(c) = color_from_name(&v) {
             map.entry(id).or_default().border_color = Some(c);
         }
     });
-    set_style_binding!("__record_stroke_width", map, |id, v: f32| { map.entry(id).or_default().border_width = Some(v.max(0.0)); });
+    set_style_binding!("__record_stroke_width", map, |id, v: f32| {
+        map.entry(id).or_default().border_width = Some(v.max(0.0));
+    });
     set_style_binding!("__record_stroke_color", map, |id, v: String| {
         if let Some(c) = color_from_name(&v) {
             map.entry(id).or_default().border_color = Some(c);
@@ -344,19 +408,25 @@ pub(super) fn install_node_style_bindings<'js>(
             map.entry(id).or_default().text_color = Some(c);
         }
     });
-    set_style_binding!("__record_text_size", map, |id, v: f32| { map.entry(id).or_default().text_px = Some(v); });
+    set_style_binding!("__record_text_size", map, |id, v: f32| {
+        map.entry(id).or_default().text_px = Some(v);
+    });
     set_style_binding!("__record_font_weight", map, |id, v: String| {
         if let Some(fw) = font_weight_from_name(&v) {
             map.entry(id).or_default().font_weight = Some(fw);
         }
     });
-    set_style_binding!("__record_letter_spacing", map, |id, v: f32| { map.entry(id).or_default().letter_spacing = Some(v); });
+    set_style_binding!("__record_letter_spacing", map, |id, v: f32| {
+        map.entry(id).or_default().letter_spacing = Some(v);
+    });
     set_style_binding!("__record_text_align", map, |id, v: String| {
         if let Some(align) = text_align_from_name(&v) {
             map.entry(id).or_default().text_align = Some(align);
         }
     });
-    set_style_binding!("__record_line_height", map, |id, v: f32| { map.entry(id).or_default().line_height = Some(v); });
+    set_style_binding!("__record_line_height", map, |id, v: f32| {
+        map.entry(id).or_default().line_height = Some(v);
+    });
     set_style_binding!("__record_shadow", map, |id, v: String| {
         if let Some(sh) = shadow_from_name(&v) {
             map.entry(id).or_default().shadow = Some(sh);

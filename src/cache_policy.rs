@@ -137,13 +137,13 @@ fn layout_node_uses_video(layout: &LayoutNode, assets: &AssetsMap) -> bool {
             .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
             .unwrap_or(false))
         || matches!(&layout.paint.kind, LayoutPaintKind::Canvas(canvas)
-            if canvas.commands.iter().any(|command| {
-                matches!(command, crate::script::CanvasCommand::DrawImage { asset_id, .. }
-                    if assets
-                        .path(&crate::assets::AssetId(asset_id.clone()))
-                        .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
-                        .unwrap_or(false))
-            }))
+        if canvas.commands.iter().any(|command| {
+            matches!(command, crate::script::CanvasCommand::DrawImage { asset_id, .. }
+                if assets
+                    .path(&crate::assets::AssetId(asset_id.clone()))
+                    .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
+                    .unwrap_or(false))
+        }))
         || layout
             .children
             .iter()

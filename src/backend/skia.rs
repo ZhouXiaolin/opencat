@@ -920,18 +920,20 @@ fn draw_canvas_item(
                 width,
                 height,
             } => {
-                canvas.clip_rect(Rect::from_xywh(*x, *y, *width, *height), ClipOp::Intersect, true);
+                canvas.clip_rect(
+                    Rect::from_xywh(*x, *y, *width, *height),
+                    ClipOp::Intersect,
+                    true,
+                );
             }
-            CanvasCommand::Clear { color } => {
-                match color {
-                    Some(color) => {
-                        canvas.clear(apply_script_alpha(*color, state.global_alpha));
-                    }
-                    None => {
-                        canvas.clear(skia_safe::Color::TRANSPARENT);
-                    }
+            CanvasCommand::Clear { color } => match color {
+                Some(color) => {
+                    canvas.clear(apply_script_alpha(*color, state.global_alpha));
                 }
-            }
+                None => {
+                    canvas.clear(skia_safe::Color::TRANSPARENT);
+                }
+            },
             CanvasCommand::FillRect {
                 x,
                 y,

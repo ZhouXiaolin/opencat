@@ -64,12 +64,14 @@ enum Presentation {
 pub struct LightLeakTransition {
     pub seed: f32,
     pub hue_shift: f32,
+    pub mask_scale: f32,
 }
 
 #[derive(Clone, Copy)]
 pub struct LightLeakBuilder {
     seed: f32,
     hue_shift: f32,
+    mask_scale: f32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -347,11 +349,17 @@ impl LightLeakBuilder {
         self
     }
 
+    pub fn mask_scale(mut self, mask_scale: f32) -> Self {
+        self.mask_scale = mask_scale.clamp(0.03125, 1.0);
+        self
+    }
+
     pub fn timing(self, timing: Timing) -> Transition {
         Transition {
             presentation: Presentation::LightLeak(LightLeakTransition {
                 seed: self.seed,
                 hue_shift: self.hue_shift,
+                mask_scale: self.mask_scale,
             }),
             timing,
         }
@@ -416,6 +424,7 @@ pub fn light_leak() -> LightLeakBuilder {
     LightLeakBuilder {
         seed: 0.0,
         hue_shift: 0.0,
+        mask_scale: 0.25,
     }
 }
 

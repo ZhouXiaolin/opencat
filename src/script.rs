@@ -281,7 +281,7 @@ fn install_runtime_bindings<'js>(
 
 #[cfg(test)]
 mod tests {
-    use super::{CanvasCommand, ScriptColor, ScriptDriver, ScriptLineCap};
+    use super::{CanvasCommand, ScriptColor, ScriptDriver, ScriptLineCap, ScriptLineJoin};
     use crate::style::{ColorToken, ObjectFit, TextAlign, Transform};
 
     #[test]
@@ -347,15 +347,23 @@ mod tests {
     }
 
     #[test]
-    fn script_driver_records_canvas_commands_for_current_node() {
+    fn script_driver_records_standard_canvaskit_rect_and_image_commands() {
         let driver = ScriptDriver::from_source(
             r##"
+            const CK = ctx.CanvasKit;
             const canvas = ctx.getCanvas();
+            const fill = new CK.Paint();
+            fill.setStyle(CK.PaintStyle.Fill);
+            fill.setColor(CK.Color(255, 0, 0, 1));
+
+            const image = ctx.getImage("hero");
             canvas
-                .setFillStyle("#ff0000")
-                .setLineCap("round")
-                .fillRect(0, 0, 40, 20, "#ff0000")
-                .drawImage("hero", 10, 10, 80, 60, "cover");
+                .drawRect(CK.XYWHRect(0, 0, 40, 20), fill)
+                .drawImageRect(
+                    image,
+                    CK.XYWHRect(0, 0, 1, 1),
+                    CK.XYWHRect(10, 10, 80, 60),
+                );
         "##,
         )
         .expect("script should compile");
@@ -367,23 +375,6 @@ mod tests {
 
         assert_eq!(
             canvas.commands[0],
-            CanvasCommand::SetFillStyle {
-                color: ScriptColor {
-                    r: 255,
-                    g: 0,
-                    b: 0,
-                    a: 255,
-                },
-            }
-        );
-        assert_eq!(
-            canvas.commands[1],
-            CanvasCommand::SetLineCap {
-                cap: ScriptLineCap::Round,
-            }
-        );
-        assert_eq!(
-            canvas.commands[2],
             CanvasCommand::FillRect {
                 x: 0.0,
                 y: 0.0,
@@ -398,15 +389,154 @@ mod tests {
             }
         );
         assert_eq!(
-            canvas.commands[3],
+            canvas.commands[1],
             CanvasCommand::DrawImage {
                 asset_id: "hero".to_string(),
                 x: 10.0,
                 y: 10.0,
                 width: 80.0,
                 height: 60.0,
-                object_fit: ObjectFit::Cover,
+                object_fit: ObjectFit::Fill,
             }
         );
+    }
+
+    #[test]
+    fn script_driver_applies_standard_stroke_paint_to_path_commands() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const canvas = ctx.getCanvas();
+            const stroke = new CK.Paint();
+            stroke.setStyle(CK.PaintStyle.Stroke);
+            stroke.setColor(CK.parseColorString("rgba(251,191,36,0.2)"));
+            stroke.setStrokeWidth(3);
+            stroke.setStrokeCap(CK.StrokeCap.Round);
+            stroke.setStrokeJoin(CK.StrokeJoin.Bevel);
+
+            const path = new CK.Path();
+            path
+                .moveTo(0, 0)
+                .lineTo(10, 0)
+                .quadTo(15, 5, 10, 10)
+                .cubicTo(8, 14, 2, 14, 0, 10)
+                .close();
+
+            canvas.drawPath(path, stroke);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(0, 1, Some("card")).expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(
+            canvas.commands[0],
+            CanvasCommand::SetStrokeStyle {
+                color: ScriptColor {
+                    r: 251,
+                    g: 191,
+                    b: 36,
+                    a: 51,
+                },
+            }
+        );
+        assert_eq!(
+            canvas.commands[1],
+            CanvasCommand::SetLineWidth { width: 3.0 }
+        );
+        assert_eq!(
+            canvas.commands[2],
+            CanvasCommand::SetLineCap {
+                cap: ScriptLineCap::Round,
+            }
+        );
+        assert_eq!(
+            canvas.commands[3],
+            CanvasCommand::SetLineJoin {
+                join: ScriptLineJoin::Bevel,
+            }
+        );
+        assert!(matches!(canvas.commands[4], CanvasCommand::BeginPath));
+        assert!(matches!(canvas.commands[9], CanvasCommand::ClosePath));
+        assert!(matches!(canvas.commands[10], CanvasCommand::StrokePath));
+    }
+
+    #[test]
+    fn script_driver_supports_standard_rrect_circle_and_rotate_pivot() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const canvas = ctx.getCanvas();
+            const fill = new CK.Paint();
+            fill.setStyle(CK.PaintStyle.Fill);
+            fill.setColor(CK.parseColorString("#112233"));
+
+            const stroke = new CK.Paint();
+            stroke.setStyle(CK.PaintStyle.Stroke);
+            stroke.setColor(CK.parseColorString("#445566"));
+            stroke.setStrokeWidth(3);
+
+            canvas.save();
+            canvas.rotate(15, 20, 30);
+            canvas.drawRRect(CK.RRectXY(CK.XYWHRect(1, 2, 30, 40), 6, 6), fill);
+            canvas.drawCircle(12, 14, 8, stroke);
+            canvas.restore();
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(0, 1, Some("card")).expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(canvas.commands[0], CanvasCommand::Save);
+        assert_eq!(
+            canvas.commands[1],
+            CanvasCommand::Translate { x: 20.0, y: 30.0 }
+        );
+        assert_eq!(canvas.commands[2], CanvasCommand::Rotate { degrees: 15.0 });
+        assert_eq!(
+            canvas.commands[3],
+            CanvasCommand::Translate { x: -20.0, y: -30.0 }
+        );
+        assert_eq!(
+            canvas.commands[4],
+            CanvasCommand::SetFillStyle {
+                color: ScriptColor {
+                    r: 17,
+                    g: 34,
+                    b: 51,
+                    a: 255,
+                },
+            }
+        );
+        assert!(matches!(
+            canvas.commands[5],
+            CanvasCommand::FillRRect { .. }
+        ));
+        assert_eq!(
+            canvas.commands[6],
+            CanvasCommand::SetStrokeStyle {
+                color: ScriptColor {
+                    r: 68,
+                    g: 85,
+                    b: 102,
+                    a: 255,
+                },
+            }
+        );
+        assert_eq!(
+            canvas.commands[7],
+            CanvasCommand::SetLineWidth { width: 3.0 }
+        );
+        assert!(matches!(
+            canvas.commands[10],
+            CanvasCommand::StrokeCircle { .. }
+        ));
+        assert_eq!(canvas.commands[11], CanvasCommand::Restore);
     }
 }

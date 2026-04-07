@@ -9,47 +9,58 @@ use opencat::{
 const VIDEO_PATH: &str = "/Users/solaren/Resources/mp4/2.mp4";
 const IMAGE_PATH: &str = "/Users/solaren/Resources/png/3.png";
 const STAGE_CANVAS_SCRIPT: &str = r##"
+const CK = ctx.CanvasKit;
 const canvas = ctx.getCanvas();
+const fill = (color) => {
+    const paint = new CK.Paint();
+    paint.setStyle(CK.PaintStyle.Fill);
+    paint.setColor(CK.parseColorString(color));
+    return paint;
+};
+const stroke = (color, width = 1, cap = CK.StrokeCap.Butt, join = CK.StrokeJoin.Miter) => {
+    const paint = new CK.Paint();
+    paint.setStyle(CK.PaintStyle.Stroke);
+    paint.setColor(CK.parseColorString(color));
+    paint.setStrokeWidth(width);
+    paint.setStrokeCap(cap);
+    paint.setStrokeJoin(join);
+    return paint;
+};
 const width = 220;
 const height = 140;
 const t = ctx.frame / ctx.fps;
 const orbit = Math.sin(t * Math.PI * 2.0 * 0.25);
 const pulse = (Math.sin(t * Math.PI * 2.0 * 0.75) + 1.0) * 0.5;
+const image = ctx.getImage("stage-thumb");
 
 canvas.clear();
-canvas.setFillStyle("#0f172ac7");
-canvas.fillRRect(0, 0, width, height, 20);
-canvas.setStrokeStyle("#94a3b86b");
-canvas.setLineWidth(1.5);
-canvas.strokeRRect(0, 0, width, height, 20);
+canvas.drawRRect(CK.RRectXY(CK.XYWHRect(0, 0, width, height), 20, 20), fill("#0f172ac7"));
+canvas.drawRRect(
+    CK.RRectXY(CK.XYWHRect(0, 0, width, height), 20, 20),
+    stroke("#94a3b86b", 1.5),
+);
 
-canvas.fillRect(18, 26, width - 36, 2, "#2dd4bf59");
-canvas.fillRect(18, 70, width - 36, 2, "#2dd4bf29");
+canvas.drawRect(CK.XYWHRect(18, 26, width - 36, 2), fill("#2dd4bf59"));
+canvas.drawRect(CK.XYWHRect(18, 70, width - 36, 2), fill("#2dd4bf29"));
 
 canvas.save();
 canvas.translate(width * 0.5, height * 0.5);
 canvas.rotate(orbit * 10.0);
-canvas.setFillStyle("#2dd4bf24");
-canvas.fillCircle(0, 0, 26 + pulse * 10);
-canvas.setStrokeStyle("#2dd4bf8c");
-canvas.setLineWidth(2);
-canvas.strokeCircle(0, 0, 32 + pulse * 8);
-canvas.setStrokeStyle("#e2e8f0b8");
-canvas.drawLine(-68, 0, 68, 0);
-canvas.setStrokeStyle("#e2e8f05c");
-canvas.setLineWidth(1.5);
-canvas.drawLine(0, -40, 0, 40);
-canvas.setFillStyle("#f8fafc");
-canvas.fillCircle(orbit * 68, 0, 8 + pulse * 4);
+canvas.drawCircle(0, 0, 26 + pulse * 10, fill("#2dd4bf24"));
+canvas.drawCircle(0, 0, 32 + pulse * 8, stroke("#2dd4bf8c", 2));
+canvas.drawLine(-68, 0, 68, 0, stroke("#e2e8f0b8"));
+canvas.drawLine(0, -40, 0, 40, stroke("#e2e8f05c", 1.5));
+canvas.drawCircle(orbit * 68, 0, 8 + pulse * 4, fill("#f8fafc"));
 canvas.restore();
 
-canvas.drawImage("stage-thumb", 144, 24, 56, 56, "cover");
-canvas.setStrokeStyle("#f8fafc61");
-canvas.setLineWidth(1.5);
-canvas.strokeRRect(144, 24, 56, 56, 12);
+canvas.drawImageRect(image, CK.XYWHRect(0, 0, 1, 1), CK.XYWHRect(144, 24, 56, 56));
+canvas.drawRRect(
+    CK.RRectXY(CK.XYWHRect(144, 24, 56, 56), 12, 12),
+    stroke("#f8fafc61", 1.5),
+);
 
-canvas.fillRect(20, 100, 126, 8, "#334155e6");
-canvas.fillRect(20, 100, 36 + pulse * 90, 8, "#2dd4bf");
+canvas.drawRect(CK.XYWHRect(20, 100, 126, 8), fill("#334155e6"));
+canvas.drawRect(CK.XYWHRect(20, 100, 36 + pulse * 90, 8), fill("#2dd4bf"));
 "##;
 
 fn pulse(frame: u32, fps: u32, speed: f32) -> f32 {

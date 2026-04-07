@@ -5,7 +5,21 @@ use opencat::{
 };
 
 const PENDULUM_SCRIPT: &str = r##"
+const CK = ctx.CanvasKit;
 const canvas = ctx.getCanvas();
+const fill = (color) => {
+    const paint = new CK.Paint();
+    paint.setStyle(CK.PaintStyle.Fill);
+    paint.setColor(CK.parseColorString(color));
+    return paint;
+};
+const stroke = (color, width = 1) => {
+    const paint = new CK.Paint();
+    paint.setStyle(CK.PaintStyle.Stroke);
+    paint.setColor(CK.parseColorString(color));
+    paint.setStrokeWidth(width);
+    return paint;
+};
 const t = ctx.frame / 30.0;
 const gravity = 9.81;
 const length = 220.0;
@@ -15,8 +29,8 @@ const angle = amplitude * Math.cos(omega * t);
 
 canvas.clear("#f8fafc");
 
-canvas.fillRect(0, 0, 960, 44, "#0f172a");
-canvas.fillRect(0, 44, 960, 4, "#334155");
+canvas.drawRect(CK.XYWHRect(0, 0, 960, 44), fill("#0f172a"));
+canvas.drawRect(CK.XYWHRect(0, 44, 960, 4), fill("#334155"));
 
 const pivotX = 480;
 const pivotY = 96;
@@ -25,17 +39,26 @@ const bobSize = 44;
 canvas.save();
 canvas.translate(pivotX, pivotY);
 canvas.rotate(angle * 180 / Math.PI);
-canvas.fillRect(-4, 0, 8, length, "#0f172a");
-canvas.fillRect(-bobSize / 2, length - bobSize / 2, bobSize, bobSize, "#0ea5e9");
-canvas.strokeRect(-bobSize / 2, length - bobSize / 2, bobSize, bobSize, "#082f49", 3);
+canvas.drawRect(CK.XYWHRect(-4, 0, 8, length), fill("#0f172a"));
+canvas.drawRect(
+    CK.XYWHRect(-bobSize / 2, length - bobSize / 2, bobSize, bobSize),
+    fill("#0ea5e9"),
+);
+canvas.drawRect(
+    CK.XYWHRect(-bobSize / 2, length - bobSize / 2, bobSize, bobSize),
+    stroke("#082f49", 3),
+);
 canvas.restore();
 
-canvas.fillRect(pivotX - 10, pivotY - 10, 20, 20, "#e2e8f0");
-canvas.strokeRect(pivotX - 10, pivotY - 10, 20, 20, "#0f172a", 3);
+canvas.drawRect(CK.XYWHRect(pivotX - 10, pivotY - 10, 20, 20), fill("#e2e8f0"));
+canvas.drawRect(CK.XYWHRect(pivotX - 10, pivotY - 10, 20, 20), stroke("#0f172a", 3));
 
 const energy = (1 - Math.cos(angle)) * 100;
-canvas.fillRect(120, 560, 720, 14, "#cbd5e1");
-canvas.fillRect(120, 560, Math.max(0, Math.min(720, energy / 100 * 720)), 14, "#38bdf8");
+canvas.drawRect(CK.XYWHRect(120, 560, 720, 14), fill("#cbd5e1"));
+canvas.drawRect(
+    CK.XYWHRect(120, 560, Math.max(0, Math.min(720, energy / 100 * 720)), 14),
+    fill("#38bdf8"),
+);
 "##;
 
 fn pendulum_scene(_ctx: &FrameCtx) -> Node {
@@ -76,7 +99,7 @@ fn pendulum_scene(_ctx: &FrameCtx) -> Node {
                                 .text_slate_900(),
                         )
                         .child(
-                            text("这个示例直接在 backend 的 Skia canvas 上执行脚本。摆角由 ctx.frame 驱动，图形通过 ctx.getCanvas() 逐帧绘制。")
+                            text("这个示例直接在 backend 的 Skia canvas 上执行脚本。摆角由 ctx.frame 驱动，图形通过 CanvasKit 风格的 ctx.getCanvas() 子集逐帧绘制。")
                                 .id("pendulum-subtitle")
                                 .text_px(16.0)
                                 .line_height(1.55)

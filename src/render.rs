@@ -646,7 +646,17 @@ mod tests {
             .id("canvas")
             .size(2.0, 1.0)
             .asset_path("hero", &image_path)
-            .script_source(r#"ctx.getCanvas().drawImage("hero", 0, 0, 2, 1, "fill");"#)
+            .script_source(
+                r#"
+                const CK = ctx.CanvasKit;
+                const image = ctx.getImage("hero");
+                ctx.getCanvas().drawImageRect(
+                    image,
+                    CK.XYWHRect(0, 0, 1, 1),
+                    CK.XYWHRect(0, 0, 2, 1),
+                );
+                "#,
+            )
             .expect("script should compile");
 
         let composition = Composition::new("canvas_asset_alias")

@@ -1,4 +1,6 @@
 pub mod audio;
+pub(crate) mod backend_object;
+pub(crate) mod frame_view;
 pub mod pipeline;
 pub mod policy;
 pub mod preflight;

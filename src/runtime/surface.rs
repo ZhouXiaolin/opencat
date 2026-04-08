@@ -12,7 +12,7 @@ use skia_safe::gpu::{self, backend_render_targets, mtl};
 
 use crate::{
     render::{RenderSession, render_frame_to_target},
-    runtime::target::{RenderSurfaceKind, RenderTargetHandle},
+    runtime::target::{RenderFrameViewKind, RenderTargetHandle},
     scene::composition::Composition,
 };
 
@@ -28,12 +28,12 @@ impl MetalEncodeBridge {
         let mut target = Box::new(MetalOffscreenTarget::new(width, height)?);
         let target_ptr = target.as_mut() as *mut MetalOffscreenTarget as *mut std::ffi::c_void;
         let handle = RenderTargetHandle::new(
-            RenderSurfaceKind::Canvas,
+            RenderFrameViewKind::DrawContext2D,
             target_ptr,
             MetalOffscreenTarget::begin_frame_bridge,
             MetalOffscreenTarget::end_frame_bridge,
         )
-        .with_surface_view_resolver(MetalOffscreenTarget::resolve_skia_canvas_bridge)
+        .with_frame_view_resolver(MetalOffscreenTarget::resolve_skia_canvas_bridge)
         .with_readback_rgba(MetalOffscreenTarget::readback_rgba_bridge);
         Ok(Self {
             _target: target,

@@ -1,5 +1,4 @@
 use anyhow::{Result, anyhow};
-use skia_safe::Canvas;
 
 use crate::{
     backend::resource_cache::BackendResourceCache,
@@ -8,12 +7,13 @@ use crate::{
     frame_ctx::FrameCtx,
     resource::{assets::AssetsMap, media::MediaContext},
     runtime::{
+        frame_view::RenderFrameView,
         policy::{
             cache::{SceneSlot, SceneSnapshotCache},
             invalidation::{SceneInvalidation, invalidation_for_scene},
         },
         profile::{BackendProfile, SceneBuildStats},
-        render_engine::{SceneRenderContext, SharedRenderEngine, SharedSceneSnapshot},
+        render_engine::{SceneRenderContext, SceneSnapshot, SharedRenderEngine},
     },
 };
 
@@ -89,8 +89,8 @@ pub(crate) fn render_scene_slot(
     display_list: &DisplayList,
     plan: SceneSnapshotPlan,
     require_scene_snapshot: bool,
-    canvas: Option<&Canvas>,
-) -> Result<Option<SharedSceneSnapshot>> {
+    frame_view: Option<RenderFrameView>,
+) -> Result<Option<SceneSnapshot>> {
     let engine = runtime.render_engine.clone();
     if let Some(snapshot) = resolve_scene_snapshot_for_slot(
         runtime,
@@ -100,8 +100,12 @@ pub(crate) fn render_scene_slot(
         plan,
         require_scene_snapshot,
     )? {
-        if let Some(canvas) = canvas {
-            engine.draw_scene_snapshot(&snapshot, canvas, Some(&mut *runtime.backend_profile))?;
+        if let Some(frame_view) = frame_view {
+            engine.draw_scene_snapshot(
+                &snapshot,
+                frame_view,
+                Some(&mut *runtime.backend_profile),
+            )?;
             return Ok(None);
         }
         return Ok(Some(snapshot));
@@ -113,8 +117,8 @@ pub(crate) fn render_scene_slot(
         ));
     }
 
-    let canvas = canvas.ok_or_else(|| {
-        anyhow!("canvas is required when scene rendering falls back to direct draw")
+    let frame_view = frame_view.ok_or_else(|| {
+        anyhow!("frame view is required when scene rendering falls back to direct draw")
     })?;
     let mut render_context = runtime.render_context();
     engine.draw_scene_without_snapshot(
@@ -122,7 +126,7 @@ pub(crate) fn render_scene_slot(
         display_tree,
         display_list,
         plan,
-        canvas,
+        frame_view,
     )?;
     Ok(None)
 }
@@ -134,7 +138,7 @@ fn resolve_scene_snapshot_for_slot(
     display_list: &DisplayList,
     plan: SceneSnapshotPlan,
     require_scene_snapshot: bool,
-) -> Result<Option<SharedSceneSnapshot>> {
+) -> Result<Option<SceneSnapshot>> {
     let engine = runtime.render_engine.clone();
     if plan.contains_video {
         runtime.scene_snapshots.store_scene_snapshot(slot, None);
@@ -149,13 +153,13 @@ fn resolve_scene_snapshot_for_slot(
 
     if plan.allows_cache_reuse() {
         if let Some(snapshot) = runtime.scene_snapshots.scene_snapshot(slot) {
-            runtime.backend_profile.picture_cache_hits += 1;
+            runtime.backend_profile.scene_snapshot_cache_hits += 1;
             return Ok(Some(snapshot));
         }
 
         let mut render_context = runtime.render_context();
         let snapshot = engine.record_display_list_snapshot(&mut render_context, display_list)?;
-        runtime.backend_profile.picture_cache_misses += 1;
+        runtime.backend_profile.scene_snapshot_cache_misses += 1;
         runtime
             .scene_snapshots
             .store_scene_snapshot(slot, Some(snapshot.clone()));

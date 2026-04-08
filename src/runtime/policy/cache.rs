@@ -1,4 +1,4 @@
-use crate::runtime::render_engine::SharedSceneSnapshot;
+use crate::runtime::render_engine::SceneSnapshot;
 
 #[derive(Clone, Copy)]
 pub(crate) enum SceneSlot {
@@ -9,7 +9,7 @@ pub(crate) enum SceneSlot {
 
 #[derive(Default)]
 struct PictureSlotCache {
-    source: Option<SharedSceneSnapshot>,
+    source: Option<SceneSnapshot>,
 }
 
 pub(crate) struct SceneSnapshotCache {
@@ -27,7 +27,7 @@ impl SceneSnapshotCache {
         }
     }
 
-    pub(crate) fn scene_snapshot(&self, slot: SceneSlot) -> Option<SharedSceneSnapshot> {
+    pub(crate) fn scene_snapshot(&self, slot: SceneSlot) -> Option<SceneSnapshot> {
         match slot {
             SceneSlot::Scene => self.scene_picture_cache.source.clone(),
             SceneSlot::TransitionFrom => self.transition_from_picture_cache.source.clone(),
@@ -35,11 +35,7 @@ impl SceneSnapshotCache {
         }
     }
 
-    pub(crate) fn store_scene_snapshot(
-        &mut self,
-        slot: SceneSlot,
-        source: Option<SharedSceneSnapshot>,
-    ) {
+    pub(crate) fn store_scene_snapshot(&mut self, slot: SceneSlot, source: Option<SceneSnapshot>) {
         match slot {
             SceneSlot::Scene => self.scene_picture_cache.source = source,
             SceneSlot::TransitionFrom => self.transition_from_picture_cache.source = source,

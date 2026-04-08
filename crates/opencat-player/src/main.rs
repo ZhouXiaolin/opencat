@@ -15,8 +15,8 @@ mod app {
     use foreign_types::{ForeignType, ForeignTypeRef};
     use metal::{CommandQueue, Device, MTLPixelFormat, MetalDrawable, MetalLayer};
     use opencat::{
-        Composition, FrameCtx, RenderSession, RenderSurfaceKind, RenderTargetHandle, ScriptDriver,
-        parse,
+        Composition, FrameCtx, RenderFrameViewKind, RenderSession, RenderTargetHandle,
+        ScriptDriver, parse,
     };
     use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
     use skia_safe::{
@@ -230,12 +230,12 @@ mod app {
         )?);
         let target_ptr = metal_target.as_mut() as *mut MetalSkiaRenderTarget as *mut c_void;
         let mut render_target = RenderTargetHandle::new(
-            RenderSurfaceKind::Canvas,
+            RenderFrameViewKind::DrawContext2D,
             target_ptr,
             MetalSkiaRenderTarget::begin_frame_bridge,
             MetalSkiaRenderTarget::end_frame_bridge,
         )
-        .with_surface_view_resolver(MetalSkiaRenderTarget::resolve_skia_canvas_bridge)
+        .with_frame_view_resolver(MetalSkiaRenderTarget::resolve_skia_canvas_bridge)
         .with_present_frame(MetalSkiaRenderTarget::present_frame_bridge);
 
         let mut session = RenderSession::new();

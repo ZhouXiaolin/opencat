@@ -4,7 +4,8 @@ use crate::{
     backend::skia::renderer as skia_renderer,
     render::RenderBackend,
     runtime::{
-        render_engine::SharedRenderEngine, target::RenderSurfaceKind, text_engine::SharedTextEngine,
+        render_engine::SharedRenderEngine, target::RenderFrameViewKind,
+        text_engine::SharedTextEngine,
     },
 };
 
@@ -17,7 +18,7 @@ struct RegisteredFrameBackend {
 }
 
 struct RegisteredSurfaceBackend {
-    surface_kind: RenderSurfaceKind,
+    frame_view_kind: RenderFrameViewKind,
     engine_factory: fn() -> SharedRenderEngine,
 }
 
@@ -53,7 +54,7 @@ const FRAME_BACKENDS: &[RegisteredFrameBackend] = &[
 ];
 
 const SURFACE_BACKENDS: &[RegisteredSurfaceBackend] = &[RegisteredSurfaceBackend {
-    surface_kind: RenderSurfaceKind::Canvas,
+    frame_view_kind: RenderFrameViewKind::DrawContext2D,
     engine_factory: skia_renderer::shared_raster_engine,
 }];
 
@@ -92,12 +93,12 @@ pub(crate) fn render_engine_for_backend(backend: RenderBackend) -> Result<Shared
     Ok((entry.engine_factory)())
 }
 
-pub(crate) fn render_engine_for_surface_kind(
-    surface_kind: RenderSurfaceKind,
+pub(crate) fn render_engine_for_frame_view_kind(
+    frame_view_kind: RenderFrameViewKind,
 ) -> Result<SharedRenderEngine> {
     SURFACE_BACKENDS
         .iter()
-        .find(|entry| entry.surface_kind == surface_kind)
+        .find(|entry| entry.frame_view_kind == frame_view_kind)
         .map(|entry| (entry.engine_factory)())
-        .ok_or_else(|| anyhow!("no render engine registered for target surface {surface_kind:?}"))
+        .ok_or_else(|| anyhow!("no render engine registered for frame view {frame_view_kind:?}"))
 }

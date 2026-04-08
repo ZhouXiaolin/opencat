@@ -18,7 +18,7 @@ pub use render::{
     EncodingConfig, Mp4Config, OutputFormat, RenderBackend, RenderSession, render_frame_rgb,
     render_frame_rgba, render_frame_to_target,
 };
-pub use runtime::target::{RenderSurfaceKind, RenderTargetHandle};
+pub use runtime::target::{RenderFrameViewKind, RenderTargetHandle};
 pub use scene::composition::Composition;
 pub use scene::node::{Node, NodeKind, component_node, component_node_with_duration};
 pub use scene::primitives::{

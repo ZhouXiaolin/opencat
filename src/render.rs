@@ -169,12 +169,8 @@ pub fn render_frame_to_target(
     session: &mut RenderSession,
     target: &mut RenderTargetHandle,
 ) -> Result<()> {
-    render_registry::render_engine_for_surface_kind(target.surface_kind())?.render_frame_to_target(
-        composition,
-        frame_index,
-        session,
-        target,
-    )
+    render_registry::render_engine_for_frame_view_kind(target.frame_view_kind())?
+        .render_frame_to_target(composition, frame_index, session, target)
 }
 
 pub fn render_frame_rgba(

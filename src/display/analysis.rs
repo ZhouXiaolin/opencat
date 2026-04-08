@@ -16,8 +16,8 @@ pub(crate) fn display_list_contains_video(list: &DisplayList, assets: &AssetsMap
             .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
             .unwrap_or(false),
         DisplayCommand::Draw {
-            item: DisplayItem::Canvas(canvas),
-        } => canvas.commands.iter().any(|command| {
+            item: DisplayItem::DrawScript(script),
+        } => script.commands.iter().any(|command| {
             matches!(command, CanvasCommand::DrawImage { asset_id, .. }
                 if assets
                     .path(&AssetId(asset_id.clone()))

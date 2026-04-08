@@ -58,7 +58,7 @@ pub enum DisplayItem {
     Rect(RectDisplayItem),
     Text(TextDisplayItem),
     Bitmap(BitmapDisplayItem),
-    Canvas(CanvasDisplayItem),
+    DrawScript(DrawScriptDisplayItem),
     Lucide(LucideDisplayItem),
 }
 
@@ -87,7 +87,7 @@ pub struct BitmapDisplayItem {
 }
 
 #[derive(Clone, Debug)]
-pub struct CanvasDisplayItem {
+pub struct DrawScriptDisplayItem {
     pub bounds: DisplayRect,
     pub commands: Vec<CanvasCommand>,
 }

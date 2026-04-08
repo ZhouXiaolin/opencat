@@ -3,8 +3,8 @@ use anyhow::{Result, anyhow};
 use crate::{
     display::{
         list::{
-            BitmapDisplayItem, BitmapPaintStyle, CanvasDisplayItem, DisplayClip, DisplayCommand,
-            DisplayItem, DisplayLayer, DisplayList, DisplayRect, DisplayTransform,
+            BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayCommand, DisplayItem,
+            DisplayLayer, DisplayList, DisplayRect, DisplayTransform, DrawScriptDisplayItem,
             LucideDisplayItem, LucidePaintStyle, RectDisplayItem, RectPaintStyle, TextDisplayItem,
         },
         tree::{DisplayNode, DisplayTree},
@@ -156,7 +156,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 shadow: element.style.visual.shadow,
             },
         }),
-        ElementKind::Canvas(canvas) => DisplayItem::Canvas(CanvasDisplayItem {
+        ElementKind::Canvas(canvas) => DisplayItem::DrawScript(DrawScriptDisplayItem {
             bounds,
             commands: canvas.commands.clone(),
         }),

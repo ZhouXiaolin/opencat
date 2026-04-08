@@ -8,13 +8,13 @@ use skia_safe::{
 };
 
 use crate::{
-    display::cache_key::text_picture_cache_key,
+    display::cache_key::text_snapshot_cache_key,
     display::list::{
-        BitmapDisplayItem, CanvasDisplayItem, DisplayCommand, DisplayItem, DisplayList,
-        DisplayRect, DisplayTransform, LucideDisplayItem, RectDisplayItem, TextDisplayItem,
+        BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayList, DisplayRect, DisplayTransform,
+        DrawScriptDisplayItem, LucideDisplayItem, RectDisplayItem, TextDisplayItem,
     },
     display::{
-        cache_key::subtree_picture_cache_key,
+        cache_key::subtree_snapshot_cache_key,
         tree::{DisplayNode, DisplayTree},
     },
     frame_ctx::FrameCtx,
@@ -29,7 +29,7 @@ use crate::{
 };
 
 use super::{
-    cache::{SkiaImageCache, SkiaSubtreePictureCache, SkiaTextPictureCache},
+    cache::{SkiaImageCache, SkiaSubtreeSnapshotCache, SkiaTextSnapshotCache},
     text as skia_text,
 };
 
@@ -50,7 +50,7 @@ struct TextDrawStats {
 }
 
 #[derive(Clone)]
-struct CanvasPaintState {
+struct DrawScriptPaintState {
     fill_color: ScriptColor,
     stroke_color: ScriptColor,
     line_width: f32,
@@ -61,7 +61,7 @@ struct CanvasPaintState {
     global_alpha: f32,
 }
 
-impl Default for CanvasPaintState {
+impl Default for DrawScriptPaintState {
     fn default() -> Self {
         Self {
             fill_color: ScriptColor {
@@ -92,8 +92,8 @@ pub struct SkiaBackend<'a> {
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     image_cache: SkiaImageCache,
-    text_picture_cache: SkiaTextPictureCache,
-    subtree_picture_cache: Option<SkiaSubtreePictureCache>,
+    text_snapshot_cache: SkiaTextSnapshotCache,
+    subtree_snapshot_cache: Option<SkiaSubtreeSnapshotCache>,
     profile: Option<&'a mut BackendProfile>,
 }
 
@@ -104,8 +104,8 @@ impl<'a> SkiaBackend<'a> {
         _height: i32,
         assets: &'a AssetsMap,
         image_cache: SkiaImageCache,
-        text_picture_cache: SkiaTextPictureCache,
-        subtree_picture_cache: Option<SkiaSubtreePictureCache>,
+        text_snapshot_cache: SkiaTextSnapshotCache,
+        subtree_snapshot_cache: Option<SkiaSubtreeSnapshotCache>,
         media_ctx: Option<&'a mut MediaContext>,
         frame_ctx: &'a FrameCtx,
         profile: Option<&'a mut BackendProfile>,
@@ -114,8 +114,8 @@ impl<'a> SkiaBackend<'a> {
             canvas,
             assets,
             image_cache,
-            text_picture_cache,
-            subtree_picture_cache,
+            text_snapshot_cache,
+            subtree_snapshot_cache,
             media_ctx,
             frame_ctx,
             profile,
@@ -144,24 +144,24 @@ impl<'a> SkiaBackend<'a> {
         self.canvas.save();
         apply_transform(self.canvas, &node.transform);
 
-        let subtree_cache = self.subtree_picture_cache.clone();
+        let subtree_cache = self.subtree_snapshot_cache.clone();
         if let Some(cache) = subtree_cache {
-            if let Some(key) = subtree_picture_cache_key(node, self.assets) {
-                if let Some(picture) = cache.borrow().get(&key).cloned() {
+            if let Some(key) = subtree_snapshot_cache_key(node, self.assets) {
+                if let Some(snapshot) = cache.borrow().get(&key).cloned() {
                     if let Some(profile) = self.profile.as_deref_mut() {
                         profile.subtree_snapshot_cache_hits += 1;
                     }
-                    self.draw_subtree_picture(node, &picture)?;
+                    self.draw_subtree_snapshot(node, &snapshot)?;
                     self.canvas.restore();
                     return Ok(());
                 }
 
-                let picture = self.record_cached_subtree_picture(node)?;
-                cache.borrow_mut().insert(key, picture.clone());
+                let snapshot = self.record_cached_subtree_snapshot(node)?;
+                cache.borrow_mut().insert(key, snapshot.clone());
                 if let Some(profile) = self.profile.as_deref_mut() {
                     profile.subtree_snapshot_cache_misses += 1;
                 }
-                self.draw_subtree_picture(node, &picture)?;
+                self.draw_subtree_snapshot(node, &snapshot)?;
                 self.canvas.restore();
                 return Ok(());
             }
@@ -199,7 +199,7 @@ impl<'a> SkiaBackend<'a> {
             }
             DisplayItem::Text(text) => {
                 let started = Instant::now();
-                let stats = draw_text(self.canvas, text, &self.text_picture_cache)?;
+                let stats = draw_text(self.canvas, text, &self.text_snapshot_cache)?;
                 if let Some(profile) = self.profile.as_deref_mut() {
                     profile.draw_text_count += 1;
                     profile.text_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
@@ -228,11 +228,11 @@ impl<'a> SkiaBackend<'a> {
                     profile.video_frame_decodes += stats.video_frame_decodes;
                 }
             }
-            DisplayItem::Canvas(canvas) => {
+            DisplayItem::DrawScript(script) => {
                 let started = Instant::now();
-                draw_canvas_item(
+                draw_script_item(
                     self.canvas,
-                    canvas,
+                    script,
                     self.assets,
                     &self.image_cache,
                     &mut self.media_ctx,
@@ -250,7 +250,7 @@ impl<'a> SkiaBackend<'a> {
         Ok(())
     }
 
-    fn record_cached_subtree_picture(&mut self, node: &DisplayNode) -> Result<Picture> {
+    fn record_cached_subtree_snapshot(&mut self, node: &DisplayNode) -> Result<Picture> {
         let started = Instant::now();
         let bounds = Rect::from_xywh(
             0.0,
@@ -266,8 +266,8 @@ impl<'a> SkiaBackend<'a> {
             node.transform.bounds.height as i32,
             self.assets,
             self.image_cache.clone(),
-            self.text_picture_cache.clone(),
-            self.subtree_picture_cache.clone(),
+            self.text_snapshot_cache.clone(),
+            self.subtree_snapshot_cache.clone(),
             None,
             self.frame_ctx,
             self.profile.as_deref_mut(),
@@ -281,19 +281,19 @@ impl<'a> SkiaBackend<'a> {
         } else {
             backend.draw_display_children(&node.children)?;
         }
-        let picture = recorder
+        let snapshot = recorder
             .finish_recording_as_picture(None)
-            .ok_or_else(|| anyhow!("failed to record subtree picture"))?;
+            .ok_or_else(|| anyhow!("failed to record subtree snapshot"))?;
         if let Some(profile) = self.profile.as_deref_mut() {
             profile.scene_snapshot_record_ms += started.elapsed().as_secs_f64() * 1000.0;
         }
-        Ok(picture)
+        Ok(snapshot)
     }
 
-    fn draw_subtree_picture(&mut self, node: &DisplayNode, picture: &Picture) -> Result<()> {
+    fn draw_subtree_snapshot(&mut self, node: &DisplayNode, snapshot: &Picture) -> Result<()> {
         self.with_display_opacity(node.opacity, node.transform.bounds, |backend| {
             let started = Instant::now();
-            backend.canvas.draw_picture(picture, None, None);
+            backend.canvas.draw_picture(snapshot, None, None);
             if let Some(profile) = backend.profile.as_deref_mut() {
                 profile.scene_snapshot_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
             }
@@ -360,7 +360,7 @@ pub(crate) fn record_display_list_composite_source<'a>(
     height: i32,
     assets: &'a AssetsMap,
     image_cache: SkiaImageCache,
-    text_picture_cache: SkiaTextPictureCache,
+    text_snapshot_cache: SkiaTextSnapshotCache,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     mut profile: Option<&'a mut BackendProfile>,
@@ -375,20 +375,20 @@ pub(crate) fn record_display_list_composite_source<'a>(
         height,
         assets,
         image_cache,
-        text_picture_cache,
+        text_snapshot_cache,
         None,
         media_ctx,
         frame_ctx,
         profile.as_deref_mut(),
     );
     backend.execute(list)?;
-    let picture = recorder
+    let snapshot = recorder
         .finish_recording_as_picture(None)
-        .ok_or_else(|| anyhow!("failed to record display list picture"))?;
+        .ok_or_else(|| anyhow!("failed to record display list snapshot"))?;
     if let Some(profile) = profile {
         profile.scene_snapshot_record_ms += started.elapsed().as_secs_f64() * 1000.0;
     }
-    Ok(picture)
+    Ok(snapshot)
 }
 
 pub(crate) fn draw_display_tree_with_subtree_cache<'a>(
@@ -396,8 +396,8 @@ pub(crate) fn draw_display_tree_with_subtree_cache<'a>(
     canvas: &'a Canvas,
     assets: &'a AssetsMap,
     image_cache: SkiaImageCache,
-    text_picture_cache: SkiaTextPictureCache,
-    subtree_picture_cache: SkiaSubtreePictureCache,
+    text_snapshot_cache: SkiaTextSnapshotCache,
+    subtree_snapshot_cache: SkiaSubtreeSnapshotCache,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     profile: Option<&'a mut BackendProfile>,
@@ -408,8 +408,8 @@ pub(crate) fn draw_display_tree_with_subtree_cache<'a>(
         display_tree.root.transform.bounds.height as i32,
         assets,
         image_cache,
-        text_picture_cache,
-        Some(subtree_picture_cache),
+        text_snapshot_cache,
+        Some(subtree_snapshot_cache),
         media_ctx,
         frame_ctx,
         profile,
@@ -423,8 +423,8 @@ pub(crate) fn record_display_tree_composite_source_with_subtree_cache<'a>(
     height: i32,
     assets: &'a AssetsMap,
     image_cache: SkiaImageCache,
-    text_picture_cache: SkiaTextPictureCache,
-    subtree_picture_cache: SkiaSubtreePictureCache,
+    text_snapshot_cache: SkiaTextSnapshotCache,
+    subtree_snapshot_cache: SkiaSubtreeSnapshotCache,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     mut profile: Option<&'a mut BackendProfile>,
@@ -439,20 +439,20 @@ pub(crate) fn record_display_tree_composite_source_with_subtree_cache<'a>(
         height,
         assets,
         image_cache,
-        text_picture_cache,
-        Some(subtree_picture_cache),
+        text_snapshot_cache,
+        Some(subtree_snapshot_cache),
         media_ctx,
         frame_ctx,
         profile.as_deref_mut(),
     );
     backend.draw_display_subtree(&display_tree.root)?;
-    let picture = recorder
+    let snapshot = recorder
         .finish_recording_as_picture(None)
-        .ok_or_else(|| anyhow!("failed to record display tree picture"))?;
+        .ok_or_else(|| anyhow!("failed to record display tree snapshot"))?;
     if let Some(profile) = profile {
         profile.scene_snapshot_record_ms += started.elapsed().as_secs_f64() * 1000.0;
     }
-    Ok(picture)
+    Ok(snapshot)
 }
 
 fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
@@ -532,14 +532,14 @@ fn draw_shadow(canvas: &Canvas, rect: Rect, radius: f32, shadow: ShadowStyle) {
 fn draw_text(
     canvas: &Canvas,
     text: &TextDisplayItem,
-    text_picture_cache: &RefCell<HashMap<u64, Picture>>,
+    text_snapshot_cache: &RefCell<HashMap<u64, Picture>>,
 ) -> Result<TextDrawStats> {
-    let cache_key = text_picture_cache_key(text);
-    if let Some(picture) = text_picture_cache.borrow().get(&cache_key).cloned() {
+    let cache_key = text_snapshot_cache_key(text);
+    if let Some(snapshot) = text_snapshot_cache.borrow().get(&cache_key).cloned() {
         let draw_started = Instant::now();
         canvas.save();
         canvas.translate((text.bounds.x, text.bounds.y));
-        canvas.draw_picture(&picture, None, None);
+        canvas.draw_picture(&snapshot, None, None);
         canvas.restore();
         Ok(TextDrawStats {
             snapshot_record_ms: 0.0,
@@ -549,16 +549,16 @@ fn draw_text(
         })
     } else {
         let record_started = Instant::now();
-        let picture = record_text_picture(text)?;
+        let snapshot = record_text_snapshot(text)?;
         let snapshot_record_ms = record_started.elapsed().as_secs_f64() * 1000.0;
-        text_picture_cache
+        text_snapshot_cache
             .borrow_mut()
-            .insert(cache_key, picture.clone());
+            .insert(cache_key, snapshot.clone());
 
         let draw_started = Instant::now();
         canvas.save();
         canvas.translate((text.bounds.x, text.bounds.y));
-        canvas.draw_picture(&picture, None, None);
+        canvas.draw_picture(&snapshot, None, None);
         canvas.restore();
         Ok(TextDrawStats {
             snapshot_record_ms,
@@ -569,7 +569,7 @@ fn draw_text(
     }
 }
 
-fn record_text_picture(text: &TextDisplayItem) -> Result<Picture> {
+fn record_text_snapshot(text: &TextDisplayItem) -> Result<Picture> {
     let width = text.bounds.width.max(1.0);
     let height = text.bounds.height.max(1.0);
     let bounds = Rect::from_xywh(0.0, 0.0, width, height);
@@ -586,7 +586,7 @@ fn record_text_picture(text: &TextDisplayItem) -> Result<Picture> {
     );
     recorder
         .finish_recording_as_picture(None)
-        .ok_or_else(|| anyhow!("failed to record text picture"))
+        .ok_or_else(|| anyhow!("failed to record text snapshot"))
 }
 
 fn draw_bitmap(
@@ -727,15 +727,15 @@ fn draw_bitmap(
     Ok(stats)
 }
 
-fn draw_canvas_item(
+fn draw_script_item(
     canvas: &Canvas,
-    item: &CanvasDisplayItem,
+    item: &DrawScriptDisplayItem,
     assets: &AssetsMap,
     image_cache: &RefCell<HashMap<String, Option<SkiaImage>>>,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
 ) -> Result<()> {
-    let mut state = CanvasPaintState::default();
+    let mut state = DrawScriptPaintState::default();
     let mut path = PathBuilder::new();
 
     canvas.save();
@@ -811,7 +811,7 @@ fn draw_canvas_item(
                 height,
                 color,
             } => {
-                let mut paint = fill_paint_for_canvas_state(&state);
+                let mut paint = fill_paint_for_draw_script(&state);
                 paint.set_color(apply_script_alpha(*color, state.global_alpha));
                 canvas.draw_rect(Rect::from_xywh(*x, *y, *width, *height), &paint);
             }
@@ -822,7 +822,7 @@ fn draw_canvas_item(
                 height,
                 radius,
             } => {
-                let paint = fill_paint_for_canvas_state(&state);
+                let paint = fill_paint_for_draw_script(&state);
                 let rect = Rect::from_xywh(*x, *y, *width, *height);
                 let rrect = RRect::new_rect_xy(rect, *radius, *radius);
                 canvas.draw_rrect(rrect, &paint);
@@ -835,7 +835,7 @@ fn draw_canvas_item(
                 color,
                 stroke_width,
             } => {
-                let mut paint = stroke_paint_for_canvas_state(&state);
+                let mut paint = stroke_paint_for_draw_script(&state);
                 paint.set_color(apply_script_alpha(*color, state.global_alpha));
                 paint.set_stroke_width(*stroke_width);
                 canvas.draw_rect(Rect::from_xywh(*x, *y, *width, *height), &paint);
@@ -847,21 +847,21 @@ fn draw_canvas_item(
                 height,
                 radius,
             } => {
-                let paint = stroke_paint_for_canvas_state(&state);
+                let paint = stroke_paint_for_draw_script(&state);
                 let rect = Rect::from_xywh(*x, *y, *width, *height);
                 let rrect = RRect::new_rect_xy(rect, *radius, *radius);
                 canvas.draw_rrect(rrect, &paint);
             }
             CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
-                let paint = stroke_paint_for_canvas_state(&state);
+                let paint = stroke_paint_for_draw_script(&state);
                 canvas.draw_line((*x0, *y0), (*x1, *y1), &paint);
             }
             CanvasCommand::FillCircle { cx, cy, radius } => {
-                let paint = fill_paint_for_canvas_state(&state);
+                let paint = fill_paint_for_draw_script(&state);
                 canvas.draw_circle((*cx, *cy), *radius, &paint);
             }
             CanvasCommand::StrokeCircle { cx, cy, radius } => {
-                let paint = stroke_paint_for_canvas_state(&state);
+                let paint = stroke_paint_for_draw_script(&state);
                 canvas.draw_circle((*cx, *cy), *radius, &paint);
             }
             CanvasCommand::BeginPath => {
@@ -890,12 +890,12 @@ fn draw_canvas_item(
                 path.close();
             }
             CanvasCommand::FillPath => {
-                let paint = fill_paint_for_canvas_state(&state);
+                let paint = fill_paint_for_draw_script(&state);
                 let path_snapshot = path.snapshot();
                 canvas.draw_path(&path_snapshot, &paint);
             }
             CanvasCommand::StrokePath => {
-                let paint = stroke_paint_for_canvas_state(&state);
+                let paint = stroke_paint_for_draw_script(&state);
                 let path_snapshot = path.snapshot();
                 canvas.draw_path(&path_snapshot, &paint);
             }
@@ -951,7 +951,7 @@ fn apply_script_alpha(color: ScriptColor, global_alpha: f32) -> skia_safe::Color
     skia_safe::Color::from_argb(alpha, color.r, color.g, color.b)
 }
 
-fn fill_paint_for_canvas_state(state: &CanvasPaintState) -> Paint {
+fn fill_paint_for_draw_script(state: &DrawScriptPaintState) -> Paint {
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     paint.set_style(PaintStyle::Fill);
@@ -959,7 +959,7 @@ fn fill_paint_for_canvas_state(state: &CanvasPaintState) -> Paint {
     paint
 }
 
-fn stroke_paint_for_canvas_state(state: &CanvasPaintState) -> Paint {
+fn stroke_paint_for_draw_script(state: &DrawScriptPaintState) -> Paint {
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     paint.set_style(PaintStyle::Stroke);

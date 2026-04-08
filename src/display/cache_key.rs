@@ -16,7 +16,7 @@ use crate::{
     style::{ComputedTextStyle, Transform},
 };
 
-pub(crate) fn text_picture_cache_key(text: &TextDisplayItem) -> u64 {
+pub(crate) fn text_snapshot_cache_key(text: &TextDisplayItem) -> u64 {
     let mut hasher = DefaultHasher::new();
     text.text.hash(&mut hasher);
     hash_text_style(&text.style, &mut hasher);
@@ -26,11 +26,11 @@ pub(crate) fn text_picture_cache_key(text: &TextDisplayItem) -> u64 {
     hasher.finish()
 }
 
-pub(crate) fn subtree_picture_cache_key(node: &DisplayNode, assets: &AssetsMap) -> Option<u64> {
-    subtree_picture_cache_key_inner(node, assets)
+pub(crate) fn subtree_snapshot_cache_key(node: &DisplayNode, assets: &AssetsMap) -> Option<u64> {
+    subtree_snapshot_cache_key_inner(node, assets)
 }
 
-fn subtree_picture_cache_key_inner(node: &DisplayNode, assets: &AssetsMap) -> Option<u64> {
+fn subtree_snapshot_cache_key_inner(node: &DisplayNode, assets: &AssetsMap) -> Option<u64> {
     if display_node_uses_video(node, assets) {
         return None;
     }
@@ -47,7 +47,7 @@ fn subtree_picture_cache_key_inner(node: &DisplayNode, assets: &AssetsMap) -> Op
         hash_f32(child.transform.translation_y, &mut hasher);
         hash_f32(child.opacity, &mut hasher);
         hash_transforms(&child.transform.transforms, &mut hasher);
-        let child_key = subtree_picture_cache_key_inner(child, assets)?;
+        let child_key = subtree_snapshot_cache_key_inner(child, assets)?;
         child_key.hash(&mut hasher);
     }
 
@@ -68,7 +68,7 @@ fn display_item_uses_video(item: &DisplayItem, assets: &AssetsMap) -> bool {
             .path(&bitmap.asset_id)
             .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
             .unwrap_or(false),
-        DisplayItem::Canvas(canvas) => canvas.commands.iter().any(|command| {
+        DisplayItem::DrawScript(script) => script.commands.iter().any(|command| {
             matches!(command, CanvasCommand::DrawImage { asset_id, .. }
                 if assets
                     .path(&AssetId(asset_id.clone()))
@@ -109,11 +109,11 @@ fn hash_display_item(item: &DisplayItem, state: &mut impl Hasher) {
             bitmap.paint.blur_sigma.map(f32::to_bits).hash(state);
             bitmap.paint.shadow.hash(state);
         }
-        DisplayItem::Canvas(canvas) => {
+        DisplayItem::DrawScript(script) => {
             3_u8.hash(state);
-            canvas.commands.len().hash(state);
-            for command in &canvas.commands {
-                hash_canvas_command(command, state);
+            script.commands.len().hash(state);
+            for command in &script.commands {
+                hash_draw_script_command(command, state);
             }
         }
         DisplayItem::Lucide(lucide) => {
@@ -200,7 +200,7 @@ fn hash_f32(value: f32, state: &mut impl Hasher) {
     value.to_bits().hash(state);
 }
 
-fn hash_canvas_command(command: &CanvasCommand, state: &mut impl Hasher) {
+fn hash_draw_script_command(command: &CanvasCommand, state: &mut impl Hasher) {
     match command {
         CanvasCommand::Save => {
             0_u8.hash(state);

@@ -10,12 +10,6 @@ pub struct ScriptColor {
     pub a: u8,
 }
 
-impl ScriptColor {
-    pub fn to_skia(self) -> skia_safe::Color {
-        skia_safe::Color::from_argb(self.a, self.r, self.g, self.b)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScriptLineCap {
     Butt,
@@ -239,14 +233,9 @@ fn parse_rgb_function(value: &str) -> Option<ScriptColor> {
 }
 
 fn script_color_from_value(value: &str) -> Option<ScriptColor> {
-    let color = crate::style::color_token_from_script_name(value).map(|color| color.to_skia());
-    if let Some(color) = color {
-        return Some(ScriptColor {
-            r: color.r(),
-            g: color.g(),
-            b: color.b(),
-            a: color.a(),
-        });
+    let color = crate::style::color_token_from_script_name(value).map(|color| color.rgba());
+    if let Some((r, g, b, a)) = color {
+        return Some(ScriptColor { r, g, b, a });
     }
 
     if let Some(color) = parse_rgb_function(value) {

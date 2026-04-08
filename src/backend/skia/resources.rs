@@ -1,20 +1,20 @@
 use crate::backend::skia::cache::{
-    SkiaImageCache, SkiaSubtreePictureCache, SkiaTextPictureCache, new_image_cache,
-    new_subtree_picture_cache, new_text_picture_cache,
+    SkiaImageCache, SkiaSubtreeSnapshotCache, SkiaTextSnapshotCache, new_image_cache,
+    new_subtree_snapshot_cache, new_text_snapshot_cache,
 };
 
 pub(crate) struct SkiaBackendResources {
     image_cache: SkiaImageCache,
-    text_picture_cache: SkiaTextPictureCache,
-    subtree_picture_cache: SkiaSubtreePictureCache,
+    text_snapshot_cache: SkiaTextSnapshotCache,
+    subtree_snapshot_cache: SkiaSubtreeSnapshotCache,
 }
 
 impl SkiaBackendResources {
     pub(crate) fn new() -> Self {
         Self {
             image_cache: new_image_cache(),
-            text_picture_cache: new_text_picture_cache(),
-            subtree_picture_cache: new_subtree_picture_cache(),
+            text_snapshot_cache: new_text_snapshot_cache(),
+            subtree_snapshot_cache: new_subtree_snapshot_cache(),
         }
     }
 
@@ -22,12 +22,12 @@ impl SkiaBackendResources {
         self.image_cache.clone()
     }
 
-    pub(crate) fn text_picture_cache(&self) -> SkiaTextPictureCache {
-        self.text_picture_cache.clone()
+    pub(crate) fn text_snapshot_cache(&self) -> SkiaTextSnapshotCache {
+        self.text_snapshot_cache.clone()
     }
 
-    pub(crate) fn subtree_picture_cache(&self) -> SkiaSubtreePictureCache {
-        self.subtree_picture_cache.clone()
+    pub(crate) fn subtree_snapshot_cache(&self) -> SkiaSubtreeSnapshotCache {
+        self.subtree_snapshot_cache.clone()
     }
 }
 

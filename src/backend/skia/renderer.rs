@@ -33,7 +33,7 @@ pub(crate) struct SkiaRenderEngine {
 }
 
 struct SkiaSceneSnapshot {
-    picture: Picture,
+    snapshot: Picture,
 }
 
 pub(crate) fn shared_raster_engine() -> SharedRenderEngine {
@@ -120,12 +120,12 @@ impl RenderEngine for SkiaRenderEngine {
         mut profile: Option<&mut BackendProfile>,
     ) -> Result<()> {
         let canvas = skia_canvas(frame_view)?;
-        let picture = skia_picture(snapshot)?;
-        if picture.cull_rect().is_empty() {
-            return Err(anyhow!("scene snapshot picture has empty bounds"));
+        let snapshot_picture = skia_snapshot_picture(snapshot)?;
+        if snapshot_picture.cull_rect().is_empty() {
+            return Err(anyhow!("scene snapshot has empty bounds"));
         }
         let started = Instant::now();
-        canvas.draw_picture(picture, None, None);
+        canvas.draw_picture(snapshot_picture, None, None);
         if let Some(profile) = profile.as_deref_mut() {
             profile.scene_snapshot_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
         }
@@ -137,19 +137,19 @@ impl RenderEngine for SkiaRenderEngine {
         runtime: &mut SceneRenderContext<'_>,
         display_tree: &DisplayTree,
     ) -> Result<SceneSnapshot> {
-        let picture = skia::record_display_tree_composite_source_with_subtree_cache(
+        let snapshot = skia::record_display_tree_composite_source_with_subtree_cache(
             display_tree,
             runtime.width,
             runtime.height,
             runtime.assets,
             runtime.backend_resources.skia().image_cache(),
-            runtime.backend_resources.skia().text_picture_cache(),
-            runtime.backend_resources.skia().subtree_picture_cache(),
+            runtime.backend_resources.skia().text_snapshot_cache(),
+            runtime.backend_resources.skia().subtree_snapshot_cache(),
             Some(&mut *runtime.media_ctx),
             runtime.frame_ctx,
             Some(&mut *runtime.backend_profile),
         )?;
-        Ok(SceneSnapshot::new(SkiaSceneSnapshot { picture }))
+        Ok(SceneSnapshot::new(SkiaSceneSnapshot { snapshot }))
     }
 
     fn record_display_list_snapshot(
@@ -157,18 +157,18 @@ impl RenderEngine for SkiaRenderEngine {
         runtime: &mut SceneRenderContext<'_>,
         display_list: &DisplayList,
     ) -> Result<SceneSnapshot> {
-        let picture = skia::record_display_list_composite_source(
+        let snapshot = skia::record_display_list_composite_source(
             display_list,
             runtime.width,
             runtime.height,
             runtime.assets,
             runtime.backend_resources.skia().image_cache(),
-            runtime.backend_resources.skia().text_picture_cache(),
+            runtime.backend_resources.skia().text_snapshot_cache(),
             Some(&mut *runtime.media_ctx),
             runtime.frame_ctx,
             Some(&mut *runtime.backend_profile),
         )?;
-        Ok(SceneSnapshot::new(SkiaSceneSnapshot { picture }))
+        Ok(SceneSnapshot::new(SkiaSceneSnapshot { snapshot }))
     }
 
     fn draw_scene_without_snapshot(
@@ -186,8 +186,8 @@ impl RenderEngine for SkiaRenderEngine {
                 canvas,
                 runtime.assets,
                 runtime.backend_resources.skia().image_cache(),
-                runtime.backend_resources.skia().text_picture_cache(),
-                runtime.backend_resources.skia().subtree_picture_cache(),
+                runtime.backend_resources.skia().text_snapshot_cache(),
+                runtime.backend_resources.skia().subtree_snapshot_cache(),
                 Some(&mut *runtime.media_ctx),
                 runtime.frame_ctx,
                 Some(&mut *runtime.backend_profile),
@@ -201,7 +201,7 @@ impl RenderEngine for SkiaRenderEngine {
             runtime.height,
             runtime.assets,
             runtime.backend_resources.skia().image_cache(),
-            runtime.backend_resources.skia().text_picture_cache(),
+            runtime.backend_resources.skia().text_snapshot_cache(),
             None,
             Some(&mut *runtime.media_ctx),
             runtime.frame_ctx,
@@ -224,8 +224,8 @@ impl RenderEngine for SkiaRenderEngine {
         let canvas = skia_canvas(frame_view)?;
         skia_transition::draw_transition(
             canvas,
-            skia_picture(from)?,
-            skia_picture(to)?,
+            skia_snapshot_picture(from)?,
+            skia_snapshot_picture(to)?,
             progress,
             kind,
             width,
@@ -276,10 +276,10 @@ fn render_frame_rgba_raster(
     Ok(rgba)
 }
 
-fn skia_picture(snapshot: &SceneSnapshot) -> Result<&Picture> {
+fn skia_snapshot_picture(snapshot: &SceneSnapshot) -> Result<&Picture> {
     snapshot
         .downcast_ref::<SkiaSceneSnapshot>()
-        .map(|snapshot| &snapshot.picture)
+        .map(|snapshot| &snapshot.snapshot)
         .ok_or_else(|| anyhow!("scene snapshot is not compatible with skia renderer"))
 }
 

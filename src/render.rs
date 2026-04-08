@@ -1,5 +1,3 @@
-pub(crate) mod invalidation;
-
 use std::{
     collections::{HashMap, HashSet},
     path::Path,

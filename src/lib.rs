@@ -22,7 +22,7 @@ mod timeline;
 pub mod transitions;
 pub mod typography;
 pub mod view;
-
+mod invalidation;
 pub use composition::Composition;
 pub use frame_ctx::FrameCtx;
 pub use nodes::{

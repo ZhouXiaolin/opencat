@@ -15,7 +15,7 @@ mod app {
     use foreign_types::{ForeignType, ForeignTypeRef};
     use metal::{CommandQueue, Device, MTLPixelFormat, MetalDrawable, MetalLayer};
     use opencat::{
-        Composition, FrameCtx, RenderBackendKind, RenderSession, RenderTargetHandle, ScriptDriver,
+        Composition, FrameCtx, RenderSession, RenderSurfaceKind, RenderTargetHandle, ScriptDriver,
         parse,
     };
     use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
@@ -113,7 +113,7 @@ mod app {
             let backend_render_target =
                 backend_render_targets::make_mtl((drawable_width, drawable_height), &texture_info);
 
-            let mut surface = gpu::surfaces::wrap_backend_render_target(
+            let surface = gpu::surfaces::wrap_backend_render_target(
                 &mut self.skia,
                 &backend_render_target,
                 SurfaceOrigin::TopLeft,
@@ -123,10 +123,9 @@ mod app {
             )
             .ok_or_else(|| anyhow!("failed to wrap metal backend render target"))?;
 
-            let canvas_ptr = surface.canvas() as *const _ as *mut c_void;
             self.current_drawable = Some(drawable);
             self.current_surface = Some(surface);
-            Ok(canvas_ptr)
+            Ok(self as *mut Self as *mut c_void)
         }
 
         fn end_frame(&mut self) -> Result<()> {
@@ -162,6 +161,17 @@ mod app {
         unsafe fn end_frame_bridge(user_data: *mut c_void) -> Result<()> {
             // SAFETY: user_data 来自 Box<MetalSkiaRenderTarget> 的稳定地址。
             unsafe { &mut *(user_data as *mut Self) }.end_frame()
+        }
+
+        unsafe fn resolve_skia_canvas_bridge(
+            _user_data: *mut c_void,
+            frame_surface: *mut c_void,
+        ) -> Result<*mut c_void> {
+            let target = unsafe { &mut *(frame_surface as *mut Self) };
+            let surface = target.current_surface.as_mut().ok_or_else(|| {
+                anyhow!("skia canvas requested before drawable surface was ready")
+            })?;
+            Ok(surface.canvas() as *const _ as *mut c_void)
         }
 
         unsafe fn present_frame_bridge(user_data: *mut c_void) -> Result<()> {
@@ -220,18 +230,21 @@ mod app {
         )?);
         let target_ptr = metal_target.as_mut() as *mut MetalSkiaRenderTarget as *mut c_void;
         let mut render_target = RenderTargetHandle::new(
-            RenderBackendKind::Skia,
+            RenderSurfaceKind::Canvas,
             target_ptr,
             MetalSkiaRenderTarget::begin_frame_bridge,
             MetalSkiaRenderTarget::end_frame_bridge,
         )
+        .with_surface_view_resolver(MetalSkiaRenderTarget::resolve_skia_canvas_bridge)
         .with_present_frame(MetalSkiaRenderTarget::present_frame_bridge);
 
         let mut session = RenderSession::new();
         let total_frames = composition.frames.max(1);
 
         let frame_duration = Duration::from_secs_f64(1.0 / (parsed.fps as f64).max(1.0));
-        if let Err(error) = composition.render_frame_with_target(0, &mut session, &mut render_target) {
+        if let Err(error) =
+            composition.render_frame_with_target(0, &mut session, &mut render_target)
+        {
             return Err(anyhow!("failed to render warmup frame: {error:#}"));
         }
         if let Err(error) = render_target.present_frame() {

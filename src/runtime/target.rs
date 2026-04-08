@@ -2,9 +2,11 @@ use std::ffi::c_void;
 
 use anyhow::{Result, anyhow};
 
+use crate::runtime::frame_view::RenderFrameView;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RenderSurfaceKind {
-    Canvas,
+pub enum RenderFrameViewKind {
+    DrawContext2D,
 }
 
 #[derive(Clone, Copy)]
@@ -32,42 +34,39 @@ pub type BeginFrameFn =
 pub type EndFrameFn = unsafe fn(user_data: *mut c_void) -> Result<()>;
 pub type PresentFrameFn = unsafe fn(user_data: *mut c_void) -> Result<()>;
 pub type ReadbackRgbaFn = unsafe fn(user_data: *mut c_void) -> Result<Vec<u8>>;
-pub type ResolveSurfaceViewFn =
+pub type ResolveFrameViewFn =
     unsafe fn(user_data: *mut c_void, frame_surface: *mut c_void) -> Result<*mut c_void>;
 
 pub struct RenderTargetHandle {
-    surface_kind: RenderSurfaceKind,
+    frame_view_kind: RenderFrameViewKind,
     user_data: *mut c_void,
     begin_frame: BeginFrameFn,
     end_frame: EndFrameFn,
-    resolve_surface_view: Option<ResolveSurfaceViewFn>,
+    resolve_frame_view: Option<ResolveFrameViewFn>,
     present_frame: Option<PresentFrameFn>,
     readback_rgba: Option<ReadbackRgbaFn>,
 }
 
 impl RenderTargetHandle {
     pub fn new(
-        surface_kind: RenderSurfaceKind,
+        frame_view_kind: RenderFrameViewKind,
         user_data: *mut c_void,
         begin_frame: BeginFrameFn,
         end_frame: EndFrameFn,
     ) -> Self {
         Self {
-            surface_kind,
+            frame_view_kind,
             user_data,
             begin_frame,
             end_frame,
-            resolve_surface_view: None,
+            resolve_frame_view: None,
             present_frame: None,
             readback_rgba: None,
         }
     }
 
-    pub fn with_surface_view_resolver(
-        mut self,
-        resolve_surface_view: ResolveSurfaceViewFn,
-    ) -> Self {
-        self.resolve_surface_view = Some(resolve_surface_view);
+    pub fn with_frame_view_resolver(mut self, resolve_frame_view: ResolveFrameViewFn) -> Self {
+        self.resolve_frame_view = Some(resolve_frame_view);
         self
     }
 
@@ -81,8 +80,8 @@ impl RenderTargetHandle {
         self
     }
 
-    pub fn surface_kind(&self) -> RenderSurfaceKind {
-        self.surface_kind
+    pub fn frame_view_kind(&self) -> RenderFrameViewKind {
+        self.frame_view_kind
     }
 
     pub(crate) fn begin_frame_surface(
@@ -116,30 +115,25 @@ impl RenderTargetHandle {
         unsafe { readback(self.user_data) }
     }
 
-    pub(crate) fn resolve_surface_view(
+    pub(crate) fn resolve_frame_view(
         &mut self,
         frame_surface: FrameSurfaceHandle,
-    ) -> Result<*mut c_void> {
+    ) -> Result<RenderFrameView> {
         let resolve = self
-            .resolve_surface_view
-            .ok_or_else(|| anyhow!("render target does not expose a frame surface resolver"))?;
+            .resolve_frame_view
+            .ok_or_else(|| anyhow!("render target does not expose a frame view resolver"))?;
         // SAFETY: frame surface handle is created by this target's begin_frame callback.
         let view = unsafe { resolve(self.user_data, frame_surface.raw()) }?;
-        if view.is_null() {
-            return Err(anyhow!(
-                "render target frame surface resolver returned null view"
-            ));
-        }
-        Ok(view)
+        RenderFrameView::new(self.frame_view_kind, view)
     }
 
-    pub(crate) fn require_surface_kind(&self, expected: RenderSurfaceKind) -> Result<()> {
-        if self.surface_kind == expected {
+    pub(crate) fn require_frame_view_kind(&self, expected: RenderFrameViewKind) -> Result<()> {
+        if self.frame_view_kind == expected {
             return Ok(());
         }
         Err(anyhow!(
-            "render target surface {:?} is not compatible with renderer {:?}",
-            self.surface_kind,
+            "render target frame view {:?} is not compatible with renderer {:?}",
+            self.frame_view_kind,
             expected
         ))
     }

@@ -8,7 +8,6 @@ use skia_safe::{
 };
 
 use crate::{
-    backend::cache::{ImageCache, SubtreePictureCache, TextPictureCache},
     display::cache_key::text_picture_cache_key,
     display::list::{
         BitmapDisplayItem, CanvasDisplayItem, DisplayCommand, DisplayItem, DisplayList,
@@ -29,7 +28,10 @@ use crate::{
     style::{BackgroundFill, GradientDirection, ObjectFit, ShadowStyle, Transform},
 };
 
-use super::text as skia_text;
+use super::{
+    cache::{SkiaImageCache, SkiaSubtreePictureCache, SkiaTextPictureCache},
+    text as skia_text,
+};
 
 struct BitmapDrawStats {
     draw_ms: f64,
@@ -41,8 +43,8 @@ struct BitmapDrawStats {
 }
 
 struct TextDrawStats {
-    picture_record_ms: f64,
-    picture_draw_ms: f64,
+    snapshot_record_ms: f64,
+    snapshot_draw_ms: f64,
     cache_hits: usize,
     cache_misses: usize,
 }
@@ -89,9 +91,9 @@ pub struct SkiaBackend<'a> {
     assets: &'a AssetsMap,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
-    image_cache: ImageCache,
-    text_picture_cache: TextPictureCache,
-    subtree_picture_cache: Option<SubtreePictureCache>,
+    image_cache: SkiaImageCache,
+    text_picture_cache: SkiaTextPictureCache,
+    subtree_picture_cache: Option<SkiaSubtreePictureCache>,
     profile: Option<&'a mut BackendProfile>,
 }
 
@@ -101,9 +103,9 @@ impl<'a> SkiaBackend<'a> {
         _width: i32,
         _height: i32,
         assets: &'a AssetsMap,
-        image_cache: ImageCache,
-        text_picture_cache: TextPictureCache,
-        subtree_picture_cache: Option<SubtreePictureCache>,
+        image_cache: SkiaImageCache,
+        text_picture_cache: SkiaTextPictureCache,
+        subtree_picture_cache: Option<SkiaSubtreePictureCache>,
         media_ctx: Option<&'a mut MediaContext>,
         frame_ctx: &'a FrameCtx,
         profile: Option<&'a mut BackendProfile>,
@@ -147,7 +149,7 @@ impl<'a> SkiaBackend<'a> {
             if let Some(key) = subtree_picture_cache_key(node, self.assets) {
                 if let Some(picture) = cache.borrow().get(&key).cloned() {
                     if let Some(profile) = self.profile.as_deref_mut() {
-                        profile.subtree_picture_cache_hits += 1;
+                        profile.subtree_snapshot_cache_hits += 1;
                     }
                     self.draw_subtree_picture(node, &picture)?;
                     self.canvas.restore();
@@ -157,7 +159,7 @@ impl<'a> SkiaBackend<'a> {
                 let picture = self.record_cached_subtree_picture(node)?;
                 cache.borrow_mut().insert(key, picture.clone());
                 if let Some(profile) = self.profile.as_deref_mut() {
-                    profile.subtree_picture_cache_misses += 1;
+                    profile.subtree_snapshot_cache_misses += 1;
                 }
                 self.draw_subtree_picture(node, &picture)?;
                 self.canvas.restore();
@@ -201,8 +203,8 @@ impl<'a> SkiaBackend<'a> {
                 if let Some(profile) = self.profile.as_deref_mut() {
                     profile.draw_text_count += 1;
                     profile.text_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
-                    profile.text_picture_record_ms += stats.picture_record_ms;
-                    profile.text_picture_draw_ms += stats.picture_draw_ms;
+                    profile.text_snapshot_record_ms += stats.snapshot_record_ms;
+                    profile.text_snapshot_draw_ms += stats.snapshot_draw_ms;
                     profile.text_cache_hits += stats.cache_hits;
                     profile.text_cache_misses += stats.cache_misses;
                 }
@@ -283,7 +285,7 @@ impl<'a> SkiaBackend<'a> {
             .finish_recording_as_picture(None)
             .ok_or_else(|| anyhow!("failed to record subtree picture"))?;
         if let Some(profile) = self.profile.as_deref_mut() {
-            profile.picture_record_ms += started.elapsed().as_secs_f64() * 1000.0;
+            profile.scene_snapshot_record_ms += started.elapsed().as_secs_f64() * 1000.0;
         }
         Ok(picture)
     }
@@ -293,7 +295,7 @@ impl<'a> SkiaBackend<'a> {
             let started = Instant::now();
             backend.canvas.draw_picture(picture, None, None);
             if let Some(profile) = backend.profile.as_deref_mut() {
-                profile.picture_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
+                profile.scene_snapshot_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
             }
             Ok(())
         })
@@ -357,8 +359,8 @@ pub(crate) fn record_display_list_composite_source<'a>(
     width: i32,
     height: i32,
     assets: &'a AssetsMap,
-    image_cache: ImageCache,
-    text_picture_cache: TextPictureCache,
+    image_cache: SkiaImageCache,
+    text_picture_cache: SkiaTextPictureCache,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     mut profile: Option<&'a mut BackendProfile>,
@@ -384,7 +386,7 @@ pub(crate) fn record_display_list_composite_source<'a>(
         .finish_recording_as_picture(None)
         .ok_or_else(|| anyhow!("failed to record display list picture"))?;
     if let Some(profile) = profile {
-        profile.picture_record_ms += started.elapsed().as_secs_f64() * 1000.0;
+        profile.scene_snapshot_record_ms += started.elapsed().as_secs_f64() * 1000.0;
     }
     Ok(picture)
 }
@@ -393,9 +395,9 @@ pub(crate) fn draw_display_tree_with_subtree_cache<'a>(
     display_tree: &DisplayTree,
     canvas: &'a Canvas,
     assets: &'a AssetsMap,
-    image_cache: ImageCache,
-    text_picture_cache: TextPictureCache,
-    subtree_picture_cache: SubtreePictureCache,
+    image_cache: SkiaImageCache,
+    text_picture_cache: SkiaTextPictureCache,
+    subtree_picture_cache: SkiaSubtreePictureCache,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     profile: Option<&'a mut BackendProfile>,
@@ -420,9 +422,9 @@ pub(crate) fn record_display_tree_composite_source_with_subtree_cache<'a>(
     width: i32,
     height: i32,
     assets: &'a AssetsMap,
-    image_cache: ImageCache,
-    text_picture_cache: TextPictureCache,
-    subtree_picture_cache: SubtreePictureCache,
+    image_cache: SkiaImageCache,
+    text_picture_cache: SkiaTextPictureCache,
+    subtree_picture_cache: SkiaSubtreePictureCache,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     mut profile: Option<&'a mut BackendProfile>,
@@ -448,7 +450,7 @@ pub(crate) fn record_display_tree_composite_source_with_subtree_cache<'a>(
         .finish_recording_as_picture(None)
         .ok_or_else(|| anyhow!("failed to record display tree picture"))?;
     if let Some(profile) = profile {
-        profile.picture_record_ms += started.elapsed().as_secs_f64() * 1000.0;
+        profile.scene_snapshot_record_ms += started.elapsed().as_secs_f64() * 1000.0;
     }
     Ok(picture)
 }
@@ -540,15 +542,15 @@ fn draw_text(
         canvas.draw_picture(&picture, None, None);
         canvas.restore();
         Ok(TextDrawStats {
-            picture_record_ms: 0.0,
-            picture_draw_ms: draw_started.elapsed().as_secs_f64() * 1000.0,
+            snapshot_record_ms: 0.0,
+            snapshot_draw_ms: draw_started.elapsed().as_secs_f64() * 1000.0,
             cache_hits: 1,
             cache_misses: 0,
         })
     } else {
         let record_started = Instant::now();
         let picture = record_text_picture(text)?;
-        let picture_record_ms = record_started.elapsed().as_secs_f64() * 1000.0;
+        let snapshot_record_ms = record_started.elapsed().as_secs_f64() * 1000.0;
         text_picture_cache
             .borrow_mut()
             .insert(cache_key, picture.clone());
@@ -559,8 +561,8 @@ fn draw_text(
         canvas.draw_picture(&picture, None, None);
         canvas.restore();
         Ok(TextDrawStats {
-            picture_record_ms,
-            picture_draw_ms: draw_started.elapsed().as_secs_f64() * 1000.0,
+            snapshot_record_ms,
+            snapshot_draw_ms: draw_started.elapsed().as_secs_f64() * 1000.0,
             cache_hits: 0,
             cache_misses: 1,
         })

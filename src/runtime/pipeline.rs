@@ -1,7 +1,6 @@
 use std::time::Instant;
 
 use anyhow::Result;
-use skia_safe::Canvas;
 
 use crate::{
     display::{
@@ -13,6 +12,7 @@ use crate::{
     element::resolve::resolve_ui_tree_with_script_cache,
     frame_ctx::{FrameCtx, ScriptFrameCtx},
     runtime::{
+        frame_view::RenderFrameView,
         policy::{
             cache::SceneSlot,
             snapshot::{SceneSnapshotRuntime, plan_for_scene, render_scene_slot},
@@ -30,11 +30,11 @@ use crate::{
     },
 };
 
-pub(crate) fn render_frame_on_canvas(
+pub(crate) fn render_frame_on_surface(
     composition: &Composition,
     frame_index: u32,
     session: &mut RenderSession,
-    canvas: &Canvas,
+    frame_view: RenderFrameView,
 ) -> Result<()> {
     ensure_assets_preloaded(composition, session)?;
 
@@ -94,7 +94,7 @@ pub(crate) fn render_frame_on_canvas(
                     &display_list,
                     snapshot_plan,
                     false,
-                    Some(canvas),
+                    Some(frame_view),
                 )?;
             }
 
@@ -171,7 +171,7 @@ pub(crate) fn render_frame_on_canvas(
 
             let transition_started = Instant::now();
             session.render_engine_handle().draw_transition(
-                canvas,
+                frame_view,
                 &from_snapshot,
                 &to_snapshot,
                 progress,

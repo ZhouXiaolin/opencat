@@ -1,21 +1,20 @@
-use std::{any::Any, sync::OnceLock, time::Instant};
+use std::{sync::OnceLock, time::Instant};
 
 use anyhow::{Result, anyhow};
 use skia_safe::{AlphaType, Canvas, ColorType, ImageInfo, Picture, image::CachingHint, surfaces};
+use std::ffi::c_void;
 
 #[cfg(target_os = "macos")]
 use crate::runtime::surface::MetalEncodeBridge;
 use crate::{
     display::{list::DisplayList, tree::DisplayTree},
     runtime::{
+        frame_view::RenderFrameView,
         policy::snapshot::{SceneSnapshotPlan, SceneSnapshotStrategy},
         profile::BackendProfile,
-        render_engine::{
-            RenderEngine, SceneRenderContext, SceneSnapshotHandle, SharedRenderEngine,
-            SharedSceneSnapshot,
-        },
+        render_engine::{RenderEngine, SceneRenderContext, SceneSnapshot, SharedRenderEngine},
         session::RenderSession,
-        target::{RenderSurfaceKind, RenderTargetHandle},
+        target::{RenderFrameViewKind, RenderTargetHandle},
         text_engine::SharedTextEngine,
     },
     scene::{composition::Composition, transition::TransitionKind},
@@ -35,12 +34,6 @@ pub(crate) struct SkiaRenderEngine {
 
 struct SkiaSceneSnapshot {
     picture: Picture,
-}
-
-impl SceneSnapshotHandle for SkiaSceneSnapshot {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
 }
 
 pub(crate) fn shared_raster_engine() -> SharedRenderEngine {
@@ -68,8 +61,8 @@ pub(crate) fn shared_metal_engine() -> SharedRenderEngine {
 }
 
 impl RenderEngine for SkiaRenderEngine {
-    fn target_surface_kind(&self) -> RenderSurfaceKind {
-        RenderSurfaceKind::Canvas
+    fn target_frame_view_kind(&self) -> RenderFrameViewKind {
+        RenderFrameViewKind::DrawContext2D
     }
 
     fn text_engine(&self) -> SharedTextEngine {
@@ -83,16 +76,14 @@ impl RenderEngine for SkiaRenderEngine {
         session: &mut RenderSession,
         target: &mut RenderTargetHandle,
     ) -> Result<()> {
-        target.require_surface_kind(self.target_surface_kind())?;
+        target.require_frame_view_kind(self.target_frame_view_kind())?;
         let frame_surface = target.begin_frame_surface(composition.width, composition.height)?;
-        let canvas_ptr = target.resolve_surface_view(frame_surface)?;
-        // SAFETY: Skia 渲染引擎通过 target surface view resolver 获取 `skia_safe::Canvas` 有效指针。
-        let canvas = unsafe { &*(canvas_ptr as *const Canvas) };
-        let render_result = crate::runtime::pipeline::render_frame_on_canvas(
+        let frame_view = target.resolve_frame_view(frame_surface)?;
+        let render_result = crate::runtime::pipeline::render_frame_on_surface(
             composition,
             frame_index,
             session,
-            canvas,
+            frame_view,
         );
         let end_result = target.end_frame();
         render_result.and(end_result)
@@ -124,10 +115,11 @@ impl RenderEngine for SkiaRenderEngine {
 
     fn draw_scene_snapshot(
         &self,
-        snapshot: &SharedSceneSnapshot,
-        canvas: &Canvas,
+        snapshot: &SceneSnapshot,
+        frame_view: RenderFrameView,
         mut profile: Option<&mut BackendProfile>,
     ) -> Result<()> {
+        let canvas = skia_canvas(frame_view)?;
         let picture = skia_picture(snapshot)?;
         if picture.cull_rect().is_empty() {
             return Err(anyhow!("scene snapshot picture has empty bounds"));
@@ -135,7 +127,7 @@ impl RenderEngine for SkiaRenderEngine {
         let started = Instant::now();
         canvas.draw_picture(picture, None, None);
         if let Some(profile) = profile.as_deref_mut() {
-            profile.picture_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
+            profile.scene_snapshot_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
         }
         Ok(())
     }
@@ -144,39 +136,39 @@ impl RenderEngine for SkiaRenderEngine {
         &self,
         runtime: &mut SceneRenderContext<'_>,
         display_tree: &DisplayTree,
-    ) -> Result<SharedSceneSnapshot> {
+    ) -> Result<SceneSnapshot> {
         let picture = skia::record_display_tree_composite_source_with_subtree_cache(
             display_tree,
             runtime.width,
             runtime.height,
             runtime.assets,
-            runtime.backend_resources.image_cache(),
-            runtime.backend_resources.text_picture_cache(),
-            runtime.backend_resources.subtree_picture_cache(),
+            runtime.backend_resources.skia().image_cache(),
+            runtime.backend_resources.skia().text_picture_cache(),
+            runtime.backend_resources.skia().subtree_picture_cache(),
             Some(&mut *runtime.media_ctx),
             runtime.frame_ctx,
             Some(&mut *runtime.backend_profile),
         )?;
-        Ok(std::sync::Arc::new(SkiaSceneSnapshot { picture }) as SharedSceneSnapshot)
+        Ok(SceneSnapshot::new(SkiaSceneSnapshot { picture }))
     }
 
     fn record_display_list_snapshot(
         &self,
         runtime: &mut SceneRenderContext<'_>,
         display_list: &DisplayList,
-    ) -> Result<SharedSceneSnapshot> {
+    ) -> Result<SceneSnapshot> {
         let picture = skia::record_display_list_composite_source(
             display_list,
             runtime.width,
             runtime.height,
             runtime.assets,
-            runtime.backend_resources.image_cache(),
-            runtime.backend_resources.text_picture_cache(),
+            runtime.backend_resources.skia().image_cache(),
+            runtime.backend_resources.skia().text_picture_cache(),
             Some(&mut *runtime.media_ctx),
             runtime.frame_ctx,
             Some(&mut *runtime.backend_profile),
         )?;
-        Ok(std::sync::Arc::new(SkiaSceneSnapshot { picture }) as SharedSceneSnapshot)
+        Ok(SceneSnapshot::new(SkiaSceneSnapshot { picture }))
     }
 
     fn draw_scene_without_snapshot(
@@ -185,16 +177,17 @@ impl RenderEngine for SkiaRenderEngine {
         display_tree: &DisplayTree,
         display_list: &DisplayList,
         plan: SceneSnapshotPlan,
-        canvas: &Canvas,
+        frame_view: RenderFrameView,
     ) -> Result<()> {
+        let canvas = skia_canvas(frame_view)?;
         if plan.strategy == SceneSnapshotStrategy::DisplayTreeWithSubtreeCache {
             skia::draw_display_tree_with_subtree_cache(
                 display_tree,
                 canvas,
                 runtime.assets,
-                runtime.backend_resources.image_cache(),
-                runtime.backend_resources.text_picture_cache(),
-                runtime.backend_resources.subtree_picture_cache(),
+                runtime.backend_resources.skia().image_cache(),
+                runtime.backend_resources.skia().text_picture_cache(),
+                runtime.backend_resources.skia().subtree_picture_cache(),
                 Some(&mut *runtime.media_ctx),
                 runtime.frame_ctx,
                 Some(&mut *runtime.backend_profile),
@@ -207,8 +200,8 @@ impl RenderEngine for SkiaRenderEngine {
             runtime.width,
             runtime.height,
             runtime.assets,
-            runtime.backend_resources.image_cache(),
-            runtime.backend_resources.text_picture_cache(),
+            runtime.backend_resources.skia().image_cache(),
+            runtime.backend_resources.skia().text_picture_cache(),
             None,
             Some(&mut *runtime.media_ctx),
             runtime.frame_ctx,
@@ -219,15 +212,16 @@ impl RenderEngine for SkiaRenderEngine {
 
     fn draw_transition(
         &self,
-        canvas: &Canvas,
-        from: &SharedSceneSnapshot,
-        to: &SharedSceneSnapshot,
+        frame_view: RenderFrameView,
+        from: &SceneSnapshot,
+        to: &SceneSnapshot,
         progress: f32,
         kind: TransitionKind,
         width: i32,
         height: i32,
         profile: Option<&mut BackendProfile>,
     ) -> Result<()> {
+        let canvas = skia_canvas(frame_view)?;
         skia_transition::draw_transition(
             canvas,
             skia_picture(from)?,
@@ -248,11 +242,15 @@ fn render_frame_rgba_raster(
 ) -> Result<Vec<u8>> {
     let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
-    crate::runtime::pipeline::render_frame_on_canvas(
+    let frame_view = RenderFrameView::new(
+        RenderFrameViewKind::DrawContext2D,
+        surface.canvas() as *const _ as *mut c_void,
+    )?;
+    crate::runtime::pipeline::render_frame_on_surface(
         composition,
         frame_index,
         session,
-        surface.canvas(),
+        frame_view,
     )?;
     let image = surface.image_snapshot();
     let image_info = ImageInfo::new(
@@ -278,11 +276,21 @@ fn render_frame_rgba_raster(
     Ok(rgba)
 }
 
-fn skia_picture(snapshot: &SharedSceneSnapshot) -> Result<&Picture> {
+fn skia_picture(snapshot: &SceneSnapshot) -> Result<&Picture> {
     snapshot
-        .as_ref()
-        .as_any()
         .downcast_ref::<SkiaSceneSnapshot>()
         .map(|snapshot| &snapshot.picture)
         .ok_or_else(|| anyhow!("scene snapshot is not compatible with skia renderer"))
+}
+
+fn skia_canvas(frame_view: RenderFrameView) -> Result<&'static Canvas> {
+    if frame_view.kind() != RenderFrameViewKind::DrawContext2D {
+        return Err(anyhow!(
+            "render frame view {:?} is not compatible with skia renderer",
+            frame_view.kind()
+        ));
+    }
+    // SAFETY: Skia backend only accepts Canvas surface views and the raw pointer is owned by the
+    // active target or raster surface for the duration of the call chain.
+    Ok(unsafe { &*(frame_view.raw() as *const Canvas) })
 }

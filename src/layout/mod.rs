@@ -389,7 +389,7 @@ fn raster_affect_hash(element: &ElementNode) -> u64 {
         ElementKind::Canvas(canvas) => {
             canvas.commands.len().hash(&mut hasher);
             for command in &canvas.commands {
-                hash_canvas_command(command, &mut hasher);
+                hash_draw_script_command(command, &mut hasher);
             }
         }
         ElementKind::Lucide(lucide) => {
@@ -711,7 +711,10 @@ fn base_style(layout: &ComputedLayoutStyle) -> Style {
     style
 }
 
-fn hash_canvas_command(command: &crate::scene::script::CanvasCommand, state: &mut impl Hasher) {
+fn hash_draw_script_command(
+    command: &crate::scene::script::CanvasCommand,
+    state: &mut impl Hasher,
+) {
     match command {
         crate::scene::script::CanvasCommand::Save => {
             0_u8.hash(state);

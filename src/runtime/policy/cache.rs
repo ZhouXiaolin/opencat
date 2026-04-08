@@ -8,38 +8,38 @@ pub(crate) enum SceneSlot {
 }
 
 #[derive(Default)]
-struct PictureSlotCache {
+struct SceneSnapshotSlotCache {
     source: Option<SceneSnapshot>,
 }
 
 pub(crate) struct SceneSnapshotCache {
-    scene_picture_cache: PictureSlotCache,
-    transition_from_picture_cache: PictureSlotCache,
-    transition_to_picture_cache: PictureSlotCache,
+    scene_snapshot_slot: SceneSnapshotSlotCache,
+    transition_from_snapshot_slot: SceneSnapshotSlotCache,
+    transition_to_snapshot_slot: SceneSnapshotSlotCache,
 }
 
 impl SceneSnapshotCache {
     pub(crate) fn new() -> Self {
         Self {
-            scene_picture_cache: PictureSlotCache::default(),
-            transition_from_picture_cache: PictureSlotCache::default(),
-            transition_to_picture_cache: PictureSlotCache::default(),
+            scene_snapshot_slot: SceneSnapshotSlotCache::default(),
+            transition_from_snapshot_slot: SceneSnapshotSlotCache::default(),
+            transition_to_snapshot_slot: SceneSnapshotSlotCache::default(),
         }
     }
 
     pub(crate) fn scene_snapshot(&self, slot: SceneSlot) -> Option<SceneSnapshot> {
         match slot {
-            SceneSlot::Scene => self.scene_picture_cache.source.clone(),
-            SceneSlot::TransitionFrom => self.transition_from_picture_cache.source.clone(),
-            SceneSlot::TransitionTo => self.transition_to_picture_cache.source.clone(),
+            SceneSlot::Scene => self.scene_snapshot_slot.source.clone(),
+            SceneSlot::TransitionFrom => self.transition_from_snapshot_slot.source.clone(),
+            SceneSlot::TransitionTo => self.transition_to_snapshot_slot.source.clone(),
         }
     }
 
     pub(crate) fn store_scene_snapshot(&mut self, slot: SceneSlot, source: Option<SceneSnapshot>) {
         match slot {
-            SceneSlot::Scene => self.scene_picture_cache.source = source,
-            SceneSlot::TransitionFrom => self.transition_from_picture_cache.source = source,
-            SceneSlot::TransitionTo => self.transition_to_picture_cache.source = source,
+            SceneSlot::Scene => self.scene_snapshot_slot.source = source,
+            SceneSlot::TransitionFrom => self.transition_from_snapshot_slot.source = source,
+            SceneSlot::TransitionTo => self.transition_to_snapshot_slot.source = source,
         }
     }
 }

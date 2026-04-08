@@ -1,8 +1,10 @@
 use crate::{
-    assets::{AssetId, AssetsMap},
-    bitmap_source::{BitmapSourceKind, bitmap_source_kind},
     display::list::{DisplayCommand, DisplayItem, DisplayList},
-    script::CanvasCommand,
+    resource::{
+        assets::{AssetId, AssetsMap},
+        bitmap_source::{BitmapSourceKind, bitmap_source_kind},
+    },
+    scene::script::CanvasCommand,
 };
 
 pub(crate) fn display_list_contains_video(list: &DisplayList, assets: &AssetsMap) -> bool {

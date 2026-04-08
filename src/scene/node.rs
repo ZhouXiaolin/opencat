@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use crate::{
-    FrameCtx,
-    nodes::{Audio, Canvas, Div, Image, Lucide, Text, Video},
-    script::ScriptDriver,
+    frame_ctx::FrameCtx,
+    scene::{
+        primitives::{Audio, Canvas, Div, Image, Lucide, Text, Video},
+        script::ScriptDriver,
+        time::TimelineNode,
+    },
     style::NodeStyle,
-    timeline::TimelineNode,
 };
 
 #[derive(Clone)]

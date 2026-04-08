@@ -16,9 +16,12 @@ use crate::{
         tree::{ElementKind, ElementNode},
     },
     layout::tree::{LayoutNode, LayoutRect, LayoutTree},
-    nodes::{AlignItems, JustifyContent, Position},
+    runtime::{
+        render_registry,
+        text_engine::{SharedTextEngine, TextEngine, TextMeasureRequest},
+    },
+    scene::primitives::{AlignItems, JustifyContent, Position},
     style::ComputedTextStyle,
-    typography,
 };
 
 #[derive(Clone)]
@@ -84,6 +87,16 @@ impl LayoutSession {
         root: &ElementNode,
         frame_ctx: &FrameCtx,
     ) -> Result<(LayoutTree, LayoutPassStats)> {
+        let text_engine = default_text_engine();
+        self.compute_layout_with_text_engine(root, frame_ctx, text_engine.as_ref())
+    }
+
+    pub(crate) fn compute_layout_with_text_engine(
+        &mut self,
+        root: &ElementNode,
+        frame_ctx: &FrameCtx,
+        text_engine: &dyn TextEngine,
+    ) -> Result<(LayoutTree, LayoutPassStats)> {
         let mut stats = LayoutPassStats::default();
         let viewport_size = (frame_ctx.width, frame_ctx.height);
 
@@ -112,7 +125,7 @@ impl LayoutSession {
                     height: AvailableSpace::Definite(frame_ctx.height as f32),
                 },
                 |known_dimensions, available_space, _node_id, node_context, _style| {
-                    measure_node(known_dimensions, available_space, node_context)
+                    measure_node(known_dimensions, available_space, node_context, text_engine)
                 },
             )?;
 
@@ -155,8 +168,17 @@ impl Default for LayoutSession {
 }
 
 pub fn compute_layout(root: &ElementNode, frame_ctx: &FrameCtx) -> Result<LayoutTree> {
+    let text_engine = default_text_engine();
+    compute_layout_with_text_engine(root, frame_ctx, text_engine.as_ref())
+}
+
+pub(crate) fn compute_layout_with_text_engine(
+    root: &ElementNode,
+    frame_ctx: &FrameCtx,
+    text_engine: &dyn TextEngine,
+) -> Result<LayoutTree> {
     let mut session = LayoutSession::new();
-    let (layout_tree, _) = session.compute_layout(root, frame_ctx)?;
+    let (layout_tree, _) = session.compute_layout_with_text_engine(root, frame_ctx, text_engine)?;
     Ok(layout_tree)
 }
 
@@ -164,6 +186,7 @@ fn measure_node(
     known_dimensions: taffy::geometry::Size<Option<f32>>,
     available_space: taffy::geometry::Size<AvailableSpace>,
     node_context: Option<&mut TextMeasureContext>,
+    text_engine: &dyn TextEngine,
 ) -> taffy::geometry::Size<f32> {
     let Some(text) = node_context else {
         return taffy::geometry::Size::ZERO;
@@ -181,12 +204,21 @@ fn measure_node(
         f32::INFINITY
     };
 
-    let measured = typography::measure_text_in_width(&text.text, &text.style, max_width);
+    let measured = text_engine.measure(&TextMeasureRequest {
+        text: &text.text,
+        style: &text.style,
+        max_width,
+        allow_wrap: text.allow_wrap,
+    });
 
     taffy::geometry::Size {
-        width: known_dimensions.width.unwrap_or(measured.0),
-        height: known_dimensions.height.unwrap_or(measured.1),
+        width: known_dimensions.width.unwrap_or(measured.width),
+        height: known_dimensions.height.unwrap_or(measured.height),
     }
+}
+
+fn default_text_engine() -> SharedTextEngine {
+    render_registry::default_text_engine()
 }
 
 fn build_taffy_subtree(
@@ -679,35 +711,35 @@ fn base_style(layout: &ComputedLayoutStyle) -> Style {
     style
 }
 
-fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl Hasher) {
+fn hash_canvas_command(command: &crate::scene::script::CanvasCommand, state: &mut impl Hasher) {
     match command {
-        crate::script::CanvasCommand::Save => {
+        crate::scene::script::CanvasCommand::Save => {
             0_u8.hash(state);
         }
-        crate::script::CanvasCommand::Restore => {
+        crate::scene::script::CanvasCommand::Restore => {
             1_u8.hash(state);
         }
-        crate::script::CanvasCommand::SetFillStyle { color } => {
+        crate::scene::script::CanvasCommand::SetFillStyle { color } => {
             2_u8.hash(state);
             color.hash(state);
         }
-        crate::script::CanvasCommand::SetStrokeStyle { color } => {
+        crate::scene::script::CanvasCommand::SetStrokeStyle { color } => {
             3_u8.hash(state);
             color.hash(state);
         }
-        crate::script::CanvasCommand::SetLineWidth { width } => {
+        crate::scene::script::CanvasCommand::SetLineWidth { width } => {
             4_u8.hash(state);
             hash_f32(*width, state);
         }
-        crate::script::CanvasCommand::SetLineCap { cap } => {
+        crate::scene::script::CanvasCommand::SetLineCap { cap } => {
             5_u8.hash(state);
             cap.hash(state);
         }
-        crate::script::CanvasCommand::SetLineJoin { join } => {
+        crate::scene::script::CanvasCommand::SetLineJoin { join } => {
             6_u8.hash(state);
             join.hash(state);
         }
-        crate::script::CanvasCommand::SetLineDash { intervals, phase } => {
+        crate::scene::script::CanvasCommand::SetLineDash { intervals, phase } => {
             7_u8.hash(state);
             intervals.len().hash(state);
             for interval in intervals {
@@ -715,28 +747,28 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             }
             hash_f32(*phase, state);
         }
-        crate::script::CanvasCommand::ClearLineDash => {
+        crate::scene::script::CanvasCommand::ClearLineDash => {
             8_u8.hash(state);
         }
-        crate::script::CanvasCommand::SetGlobalAlpha { alpha } => {
+        crate::scene::script::CanvasCommand::SetGlobalAlpha { alpha } => {
             9_u8.hash(state);
             hash_f32(*alpha, state);
         }
-        crate::script::CanvasCommand::Translate { x, y } => {
+        crate::scene::script::CanvasCommand::Translate { x, y } => {
             10_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
-        crate::script::CanvasCommand::Scale { x, y } => {
+        crate::scene::script::CanvasCommand::Scale { x, y } => {
             11_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
-        crate::script::CanvasCommand::Rotate { degrees } => {
+        crate::scene::script::CanvasCommand::Rotate { degrees } => {
             12_u8.hash(state);
             hash_f32(*degrees, state);
         }
-        crate::script::CanvasCommand::ClipRect {
+        crate::scene::script::CanvasCommand::ClipRect {
             x,
             y,
             width,
@@ -748,11 +780,11 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             hash_f32(*width, state);
             hash_f32(*height, state);
         }
-        crate::script::CanvasCommand::Clear { color } => {
+        crate::scene::script::CanvasCommand::Clear { color } => {
             14_u8.hash(state);
             color.hash(state);
         }
-        crate::script::CanvasCommand::FillRect {
+        crate::scene::script::CanvasCommand::FillRect {
             x,
             y,
             width,
@@ -766,7 +798,7 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             hash_f32(*height, state);
             color.hash(state);
         }
-        crate::script::CanvasCommand::FillRRect {
+        crate::scene::script::CanvasCommand::FillRRect {
             x,
             y,
             width,
@@ -780,7 +812,7 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             hash_f32(*height, state);
             hash_f32(*radius, state);
         }
-        crate::script::CanvasCommand::StrokeRect {
+        crate::scene::script::CanvasCommand::StrokeRect {
             x,
             y,
             width,
@@ -796,7 +828,7 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             color.hash(state);
             hash_f32(*stroke_width, state);
         }
-        crate::script::CanvasCommand::StrokeRRect {
+        crate::scene::script::CanvasCommand::StrokeRRect {
             x,
             y,
             width,
@@ -810,46 +842,46 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             hash_f32(*height, state);
             hash_f32(*radius, state);
         }
-        crate::script::CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
+        crate::scene::script::CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
             19_u8.hash(state);
             hash_f32(*x0, state);
             hash_f32(*y0, state);
             hash_f32(*x1, state);
             hash_f32(*y1, state);
         }
-        crate::script::CanvasCommand::FillCircle { cx, cy, radius } => {
+        crate::scene::script::CanvasCommand::FillCircle { cx, cy, radius } => {
             20_u8.hash(state);
             hash_f32(*cx, state);
             hash_f32(*cy, state);
             hash_f32(*radius, state);
         }
-        crate::script::CanvasCommand::StrokeCircle { cx, cy, radius } => {
+        crate::scene::script::CanvasCommand::StrokeCircle { cx, cy, radius } => {
             21_u8.hash(state);
             hash_f32(*cx, state);
             hash_f32(*cy, state);
             hash_f32(*radius, state);
         }
-        crate::script::CanvasCommand::BeginPath => {
+        crate::scene::script::CanvasCommand::BeginPath => {
             22_u8.hash(state);
         }
-        crate::script::CanvasCommand::MoveTo { x, y } => {
+        crate::scene::script::CanvasCommand::MoveTo { x, y } => {
             23_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
-        crate::script::CanvasCommand::LineTo { x, y } => {
+        crate::scene::script::CanvasCommand::LineTo { x, y } => {
             24_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
-        crate::script::CanvasCommand::QuadTo { cx, cy, x, y } => {
+        crate::scene::script::CanvasCommand::QuadTo { cx, cy, x, y } => {
             25_u8.hash(state);
             hash_f32(*cx, state);
             hash_f32(*cy, state);
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
-        crate::script::CanvasCommand::CubicTo {
+        crate::scene::script::CanvasCommand::CubicTo {
             c1x,
             c1y,
             c2x,
@@ -865,16 +897,16 @@ fn hash_canvas_command(command: &crate::script::CanvasCommand, state: &mut impl 
             hash_f32(*x, state);
             hash_f32(*y, state);
         }
-        crate::script::CanvasCommand::ClosePath => {
+        crate::scene::script::CanvasCommand::ClosePath => {
             27_u8.hash(state);
         }
-        crate::script::CanvasCommand::FillPath => {
+        crate::scene::script::CanvasCommand::FillPath => {
             28_u8.hash(state);
         }
-        crate::script::CanvasCommand::StrokePath => {
+        crate::scene::script::CanvasCommand::StrokePath => {
             29_u8.hash(state);
         }
-        crate::script::CanvasCommand::DrawImage {
+        crate::scene::script::CanvasCommand::DrawImage {
             asset_id,
             x,
             y,
@@ -940,13 +972,12 @@ mod tests {
     use super::{LayoutSession, TextMeasureContext, measure_node};
     use crate::{
         FrameCtx,
-        assets::AssetsMap,
         element::resolve::resolve_ui_tree,
         element::tree::ElementNode,
         layout::tree::LayoutNode,
-        media::MediaContext,
-        nodes::{div, lucide, text},
-        parser::parse,
+        parse,
+        resource::{assets::AssetsMap, media::MediaContext},
+        scene::primitives::{div, lucide, text},
         style::ComputedTextStyle,
     };
     use taffy::{AvailableSpace, geometry::Size};
@@ -989,6 +1020,7 @@ mod tests {
                 height: AvailableSpace::Definite(40.0),
             },
             Some(&mut ctx),
+            super::default_text_engine().as_ref(),
         );
 
         assert!(

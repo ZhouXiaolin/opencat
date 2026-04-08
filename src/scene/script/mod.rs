@@ -14,12 +14,10 @@ use crate::{
     },
 };
 
-#[path = "script_canvaskit.rs"]
-mod canvaskit;
-#[path = "script_node_style.rs"]
+mod canvas_api;
 mod node_style;
 
-pub use canvaskit::{CanvasCommand, CanvasMutations, ScriptColor, ScriptLineCap, ScriptLineJoin};
+pub use canvas_api::{CanvasCommand, CanvasMutations, ScriptColor, ScriptLineCap, ScriptLineJoin};
 pub use node_style::NodeStyleMutations;
 
 #[derive(Debug, Clone, Default)]
@@ -337,9 +335,9 @@ fn install_runtime_bindings<'js>(
     globals.set("ctx", ctx_obj.clone())?;
 
     node_style::install_node_style_bindings(ctx, store)?;
-    canvaskit::install_canvaskit_bindings(ctx, store)?;
+    canvas_api::install_canvaskit_bindings(ctx, store)?;
     ctx.eval::<(), _>(node_style::NODE_STYLE_RUNTIME)?;
-    ctx.eval::<(), _>(canvaskit::CANVASKIT_RUNTIME)?;
+    ctx.eval::<(), _>(canvas_api::CANVASKIT_RUNTIME)?;
 
     Ok(ctx_obj)
 }

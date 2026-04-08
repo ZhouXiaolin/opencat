@@ -1,6 +1,6 @@
-use crate::{
-    Node,
-    timeline::{TimelineNode, TimelineSegment},
+use crate::scene::{
+    node::Node,
+    time::{TimelineNode, TimelineSegment},
 };
 
 #[derive(Clone, Copy, Debug)]

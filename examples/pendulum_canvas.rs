@@ -1,8 +1,4 @@
-use opencat::{
-    Composition, EncodingConfig, FrameCtx, Node,
-    nodes::{canvas, div, text},
-    style::ColorToken,
-};
+use opencat::{Composition, EncodingConfig, FrameCtx, Node, canvas, div, style::ColorToken, text};
 
 const PENDULUM_SCRIPT: &str = r##"
 const CK = ctx.CanvasKit;

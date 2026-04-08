@@ -4,13 +4,15 @@ use std::{
 };
 
 use crate::{
-    assets::{AssetId, AssetsMap},
-    bitmap_source::{BitmapSourceKind, bitmap_source_kind},
     display::{
         list::{DisplayItem, TextDisplayItem},
         tree::DisplayNode,
     },
-    script::CanvasCommand,
+    resource::{
+        assets::{AssetId, AssetsMap},
+        bitmap_source::{BitmapSourceKind, bitmap_source_kind},
+    },
+    scene::script::CanvasCommand,
     style::{ComputedTextStyle, Transform},
 };
 

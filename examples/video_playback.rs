@@ -1,9 +1,8 @@
 use std::f32::consts::PI;
 
 use opencat::{
-    Composition, EncodingConfig, FrameCtx, Node, light_leak,
-    nodes::{audio, canvas, div, image, text, video},
-    transitions::{linear, slide, timeline},
+    Composition, EncodingConfig, FrameCtx, Node, audio, canvas, div, image, light_leak, linear,
+    slide, text, timeline, video,
 };
 
 const VIDEO_PATH: &str = "/Users/solaren/Resources/mp4/2.mp4";

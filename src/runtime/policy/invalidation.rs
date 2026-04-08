@@ -1,4 +1,4 @@
-use crate::{layout::LayoutPassStats, profile::SceneBuildStats};
+use crate::{layout::LayoutPassStats, runtime::profile::SceneBuildStats};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SceneInvalidation {
@@ -46,7 +46,7 @@ pub(crate) fn invalidation_for_scene(scene_stats: &SceneBuildStats) -> SceneInva
 #[cfg(test)]
 mod tests {
     use super::{SceneInvalidation, invalidation_for_scene};
-    use crate::{layout::LayoutPassStats, profile::SceneBuildStats};
+    use crate::{layout::LayoutPassStats, runtime::profile::SceneBuildStats};
 
     #[test]
     fn scene_invalidation_prioritizes_time_variant() {

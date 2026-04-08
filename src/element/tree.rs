@@ -1,5 +1,5 @@
-use crate::assets::AssetId;
-use crate::script::CanvasCommand;
+use crate::resource::assets::AssetId;
+use crate::scene::script::CanvasCommand;
 use crate::style::ComputedTextStyle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

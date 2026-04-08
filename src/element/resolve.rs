@@ -2,7 +2,6 @@ use anyhow::{Result, bail, ensure};
 
 use crate::{
     FrameCtx, Node,
-    assets::{AssetId, AssetsMap},
     element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
@@ -11,11 +10,16 @@ use crate::{
         },
     },
     frame_ctx::ScriptFrameCtx,
-    media::MediaContext,
-    nodes::{Audio, Canvas, Div, Image, Lucide, Text, Video},
-    script::{ScriptRuntimeCache, StyleMutations},
+    resource::{
+        assets::{AssetId, AssetsMap},
+        media::MediaContext,
+    },
+    scene::script::{ScriptRuntimeCache, StyleMutations},
+    scene::{
+        node::{ComponentNode, NodeKind},
+        primitives::{Audio, Canvas, Div, Image, Lucide, Text, Video},
+    },
     style::{NodeStyle, resolve_text_style},
-    view::{ComponentNode, NodeKind},
 };
 
 #[derive(Default)]
@@ -245,12 +249,12 @@ fn resolve_video(
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style);
 
-        let info = media
-            .video_info(video.source())
-            .unwrap_or_else(|_| crate::media::VideoInfo {
+        let info = media.video_info(video.source()).unwrap_or_else(|_| {
+            crate::resource::media::VideoInfo {
                 width: 0,
                 height: 0,
-            });
+            }
+        });
 
         let asset_id = cx
             .assets
@@ -428,7 +432,7 @@ fn apply_mutation_stack(style: &mut NodeStyle, stack: &[StyleMutations]) {
 }
 
 fn apply_canvas_mutation_stack(
-    commands: &mut Vec<crate::script::CanvasCommand>,
+    commands: &mut Vec<crate::scene::script::CanvasCommand>,
     stack: &[StyleMutations],
     id: &str,
 ) {
@@ -534,14 +538,15 @@ mod tests {
     use super::{resolve_ui_tree, resolve_ui_tree_with_script_cache};
     use crate::{
         FrameCtx,
-        assets::AssetsMap,
         element::tree::ElementKind,
         frame_ctx::ScriptFrameCtx,
-        media::MediaContext,
-        nodes::{div, lucide, text},
-        script::ScriptRuntimeCache,
-        timeline::{FrameState, frame_state_for_root},
-        transitions::{linear, slide, timeline},
+        resource::{assets::AssetsMap, media::MediaContext},
+        scene::script::ScriptRuntimeCache,
+        scene::{
+            primitives::{div, lucide, text},
+            time::{FrameState, frame_state_for_root},
+            transition::{linear, slide, timeline},
+        },
     };
 
     #[test]

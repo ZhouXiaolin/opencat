@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use opencat::{
     Composition, FrameCtx, Node, RenderSession, canvas, div, image, light_leak, linear,
-    render_frame_rgba, slide, text, transitions::timeline, video,
+    render_frame_rgba, slide, text, timeline, video,
 };
 
 const VIDEO_PATH: &str = "/Users/solaren/Resources/mp4/2.mp4";

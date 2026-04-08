@@ -2,6 +2,7 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     hash::{Hash, Hasher},
+    sync::{Arc, OnceLock},
 };
 
 use skia_safe::{
@@ -13,15 +14,75 @@ use skia_safe::{
     },
 };
 
-use crate::style::{ComputedTextStyle, FontWeight, TextAlign, TextTransform};
+use crate::{
+    runtime::text_engine::{SharedTextEngine, TextEngine, TextMeasureRequest, TextMeasurement},
+    style::{ComputedTextStyle, FontWeight, TextAlign, TextTransform},
+};
 
-static EMOJI_FONT_DATA: &[u8] = include_bytes!("../assets/NotoColorEmoji.ttf");
+static EMOJI_FONT_DATA: &[u8] = include_bytes!("../../../assets/NotoColorEmoji.ttf");
 const UNBOUNDED_LAYOUT_WIDTH: f32 = 100_000.0;
 
 thread_local! {
     static TEXT_MEASURE_CACHE: RefCell<HashMap<u64, (f32, f32)>> = RefCell::new(HashMap::new());
     static SHARED_FONT_COLLECTION: RefCell<Option<FontCollection>> = const { RefCell::new(None) };
     static EMOJI_TYPEFACE: RefCell<Option<Option<Typeface>>> = const { RefCell::new(None) };
+}
+
+pub(crate) struct SkiaTextEngine;
+
+pub(crate) fn shared_text_engine() -> SharedTextEngine {
+    static TEXT_ENGINE: OnceLock<SharedTextEngine> = OnceLock::new();
+    TEXT_ENGINE
+        .get_or_init(|| Arc::new(SkiaTextEngine) as SharedTextEngine)
+        .clone()
+}
+
+impl TextEngine for SkiaTextEngine {
+    fn measure(&self, request: &TextMeasureRequest<'_>) -> TextMeasurement {
+        let layout_width = if request.allow_wrap {
+            request.max_width
+        } else {
+            f32::INFINITY
+        };
+        let normalized_width = normalize_width(layout_width);
+        let cache_key = text_measure_cache_key(request.text, request.style, normalized_width);
+
+        if let Some(measured) =
+            TEXT_MEASURE_CACHE.with(|cache| cache.borrow().get(&cache_key).copied())
+        {
+            return TextMeasurement {
+                width: measured.0,
+                height: measured.1,
+            };
+        }
+
+        let paragraph = make_paragraph(request.text, request.style, normalized_width);
+        let measured = (
+            paragraph.longest_line().max(1.0),
+            paragraph.height().max(1.0),
+        );
+        TEXT_MEASURE_CACHE.with(|cache| {
+            cache.borrow_mut().insert(cache_key, measured);
+        });
+        TextMeasurement {
+            width: measured.0,
+            height: measured.1,
+        }
+    }
+}
+
+pub(crate) fn draw_text(
+    canvas: &Canvas,
+    text: &str,
+    left: f32,
+    top: f32,
+    width: f32,
+    allow_wrap: bool,
+    style: &ComputedTextStyle,
+) {
+    let layout_width = if allow_wrap { width } else { f32::INFINITY };
+    let paragraph = make_paragraph(text, style, layout_width);
+    paragraph.paint(canvas, (left, top));
 }
 
 fn get_emoji_typeface() -> Option<Typeface> {
@@ -109,44 +170,6 @@ fn normalize_width(width: f32) -> f32 {
     }
 }
 
-pub fn measure_text(text: &str, style: &ComputedTextStyle) -> (f32, f32) {
-    measure_text_in_width(text, style, f32::INFINITY)
-}
-
-pub fn measure_text_in_width(text: &str, style: &ComputedTextStyle, max_width: f32) -> (f32, f32) {
-    let normalized_width = normalize_width(max_width);
-    let cache_key = text_measure_cache_key(text, style, normalized_width);
-
-    if let Some(measured) = TEXT_MEASURE_CACHE.with(|cache| cache.borrow().get(&cache_key).copied())
-    {
-        return measured;
-    }
-
-    let paragraph = make_paragraph(text, style, normalized_width);
-    let measured = (
-        paragraph.longest_line().max(1.0),
-        paragraph.height().max(1.0),
-    );
-    TEXT_MEASURE_CACHE.with(|cache| {
-        cache.borrow_mut().insert(cache_key, measured);
-    });
-    measured
-}
-
-pub fn draw_text(
-    canvas: &Canvas,
-    text: &str,
-    left: f32,
-    top: f32,
-    width: f32,
-    allow_wrap: bool,
-    style: &ComputedTextStyle,
-) {
-    let layout_width = if allow_wrap { width } else { f32::INFINITY };
-    let paragraph = make_paragraph(text, style, layout_width);
-    paragraph.paint(canvas, (left, top));
-}
-
 fn apply_text_transform(text: &str, transform: TextTransform) -> String {
     match transform {
         TextTransform::None => text.to_string(),
@@ -170,19 +193,27 @@ fn text_measure_cache_key(text: &str, style: &ComputedTextStyle, width: f32) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_text_transform, measure_text_in_width};
-    use crate::style::{ComputedTextStyle, TextTransform};
+    use super::{apply_text_transform, shared_text_engine};
+    use crate::{
+        runtime::text_engine::TextMeasureRequest,
+        style::{ComputedTextStyle, TextTransform},
+    };
 
     #[test]
     fn textlayout_wraps_long_cjk_text_in_narrow_width() {
         let style = ComputedTextStyle::default();
         let single_line_height = style.text_px * style.line_height;
-        let (_, measured_height) =
-            measure_text_in_width("这是一个没有空格但应该自动换行的很长中文句子", &style, 80.0);
+        let measured = shared_text_engine().measure(&TextMeasureRequest {
+            text: "这是一个没有空格但应该自动换行的很长中文句子",
+            style: &style,
+            max_width: 80.0,
+            allow_wrap: true,
+        });
 
         assert!(
-            measured_height > single_line_height,
-            "expected narrow text layout to wrap into multiple lines, got height {measured_height}"
+            measured.height > single_line_height,
+            "expected narrow text layout to wrap into multiple lines, got height {}",
+            measured.height
         );
     }
 

@@ -289,12 +289,12 @@ fn generate_variants(colors: &[GeneratedColor]) -> String {
     output
 }
 
-fn generate_match_arms(colors: &[GeneratedColor]) -> String {
+fn generate_rgba_match_arms(colors: &[GeneratedColor]) -> String {
     let mut output = String::new();
     for color in colors {
         let _ = writeln!(
             output,
-            "ColorToken::{} => Color::from_rgb(0x{:02x}, 0x{:02x}, 0x{:02x}),",
+            "ColorToken::{} => (0x{:02x}, 0x{:02x}, 0x{:02x}, 0xff),",
             color.variant, color.rgb.r, color.rgb.g, color.rgb.b
         );
     }
@@ -347,14 +347,18 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     output.push_str("}\n\n");
 
     output.push_str("impl ColorToken {\n");
-    output.push_str("    pub fn to_skia(self) -> Color {\n");
+    output.push_str("    pub fn rgba(self) -> (u8, u8, u8, u8) {\n");
     output.push_str("        match self {\n");
-    output.push_str(&indent_block(&generate_match_arms(colors), 3));
-    output.push_str("            ColorToken::Primary => ColorToken::Blue.to_skia(),\n");
-    output.push_str("            ColorToken::Transparent => Color::from_argb(0, 0, 0, 0),\n");
-    output
-        .push_str("            ColorToken::Custom(r, g, b, a) => Color::from_argb(a, r, g, b),\n");
+    output.push_str(&indent_block(&generate_rgba_match_arms(colors), 3));
+    output.push_str("            ColorToken::Primary => ColorToken::Blue.rgba(),\n");
+    output.push_str("            ColorToken::Transparent => (0, 0, 0, 0),\n");
+    output.push_str("            ColorToken::Custom(r, g, b, a) => (r, g, b, a),\n");
     output.push_str("        }\n");
+    output.push_str("    }\n");
+    output.push_str("\n");
+    output.push_str("    pub fn to_skia(self) -> Color {\n");
+    output.push_str("        let (r, g, b, a) = self.rgba();\n");
+    output.push_str("        Color::from_argb(a, r, g, b)\n");
     output.push_str("    }\n");
     output.push_str("}\n\n");
 

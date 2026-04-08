@@ -178,16 +178,16 @@ mod tests {
     use super::{build_display_list, build_display_tree};
     use crate::{
         FrameCtx,
-        assets::AssetsMap,
         element::resolve::resolve_ui_tree,
-        nodes::{div, lucide, text},
-        parser::parse,
+        parse,
+        resource::assets::AssetsMap,
+        resource::media::MediaContext,
+        scene::primitives::{div, lucide},
         style::{ColorToken, ObjectFit},
     };
     use crate::{
         display::list::{DisplayCommand, DisplayItem},
         layout::tree::{LayoutNode, LayoutRect, LayoutTree},
-        media::MediaContext,
     };
 
     fn simple_layout(id: &str, rect: LayoutRect, children: Vec<LayoutNode>) -> LayoutNode {
@@ -212,7 +212,7 @@ mod tests {
         let element = div()
             .id("root")
             .child(
-                crate::nodes::image()
+                crate::scene::primitives::image()
                     .id("bitmap")
                     .path("/tmp/test-display-bitmap.png")
                     .size(2.0, 2.0)
@@ -270,7 +270,7 @@ mod tests {
         };
         let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
-        let parsed = crate::parser::parse(
+        let parsed = crate::parse(
             r#"{"type":"composition","width":320,"height":180,"fps":30,"frames":1}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"front","parentId":"root","type":"text","className":"text-[12px] z-10","text":"front"}
@@ -390,7 +390,7 @@ mod tests {
         };
         let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
-        let parsed = crate::parser::parse(
+        let parsed = crate::parse(
             r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"late","parentId":"root","type":"text","className":"text-[12px] z-10","text":"late"}

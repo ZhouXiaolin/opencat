@@ -8,9 +8,7 @@ use skia_safe::{
 };
 
 use crate::{
-    assets::AssetsMap,
     backend::cache::{ImageCache, SubtreePictureCache, TextPictureCache},
-    bitmap_source::{BitmapSourceKind, bitmap_source_kind},
     display::cache_key::text_picture_cache_key,
     display::list::{
         BitmapDisplayItem, CanvasDisplayItem, DisplayCommand, DisplayItem, DisplayList,
@@ -21,13 +19,17 @@ use crate::{
         tree::{DisplayNode, DisplayTree},
     },
     frame_ctx::FrameCtx,
-    media::MediaContext,
-    profile::BackendProfile,
-    scene_snapshot::SceneSnapshot,
-    script::{CanvasCommand, ScriptColor, ScriptLineCap, ScriptLineJoin},
+    resource::{
+        assets::AssetsMap,
+        bitmap_source::{BitmapSourceKind, bitmap_source_kind},
+        media::MediaContext,
+    },
+    runtime::profile::BackendProfile,
+    scene::script::{CanvasCommand, ScriptColor, ScriptLineCap, ScriptLineJoin},
     style::{BackgroundFill, GradientDirection, ObjectFit, ShadowStyle, Transform},
-    typography,
 };
+
+use super::text as skia_text;
 
 struct BitmapDrawStats {
     draw_ms: f64,
@@ -360,7 +362,7 @@ pub(crate) fn record_display_list_composite_source<'a>(
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     mut profile: Option<&'a mut BackendProfile>,
-) -> Result<SceneSnapshot> {
+) -> Result<Picture> {
     let started = Instant::now();
     let bounds = Rect::from_xywh(0.0, 0.0, width as f32, height as f32);
     let mut recorder = PictureRecorder::new();
@@ -384,7 +386,7 @@ pub(crate) fn record_display_list_composite_source<'a>(
     if let Some(profile) = profile {
         profile.picture_record_ms += started.elapsed().as_secs_f64() * 1000.0;
     }
-    Ok(SceneSnapshot::new(picture))
+    Ok(picture)
 }
 
 pub(crate) fn draw_display_tree_with_subtree_cache<'a>(
@@ -424,7 +426,7 @@ pub(crate) fn record_display_tree_composite_source_with_subtree_cache<'a>(
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     mut profile: Option<&'a mut BackendProfile>,
-) -> Result<SceneSnapshot> {
+) -> Result<Picture> {
     let started = Instant::now();
     let bounds = Rect::from_xywh(0.0, 0.0, width as f32, height as f32);
     let mut recorder = PictureRecorder::new();
@@ -448,7 +450,7 @@ pub(crate) fn record_display_tree_composite_source_with_subtree_cache<'a>(
     if let Some(profile) = profile {
         profile.picture_record_ms += started.elapsed().as_secs_f64() * 1000.0;
     }
-    Ok(SceneSnapshot::new(picture))
+    Ok(picture)
 }
 
 fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
@@ -571,7 +573,7 @@ fn record_text_picture(text: &TextDisplayItem) -> Result<Picture> {
     let bounds = Rect::from_xywh(0.0, 0.0, width, height);
     let mut recorder = PictureRecorder::new();
     let recording_canvas = recorder.begin_recording(bounds, false);
-    typography::draw_text(
+    skia_text::draw_text(
         recording_canvas,
         &text.text,
         0.0,
@@ -904,7 +906,7 @@ fn draw_canvas_item(
                 object_fit,
             } => {
                 let image = load_asset_image(
-                    &crate::assets::AssetId(asset_id.clone()),
+                    &crate::resource::assets::AssetId(asset_id.clone()),
                     assets,
                     image_cache,
                     media_ctx,
@@ -980,7 +982,7 @@ fn stroke_paint_for_canvas_state(state: &CanvasPaintState) -> Paint {
 }
 
 fn load_asset_image(
-    asset_id: &crate::assets::AssetId,
+    asset_id: &crate::resource::assets::AssetId,
     assets: &AssetsMap,
     image_cache: &RefCell<HashMap<String, Option<SkiaImage>>>,
     media_ctx: &mut Option<&mut MediaContext>,

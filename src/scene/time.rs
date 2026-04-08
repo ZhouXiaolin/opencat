@@ -1,10 +1,12 @@
 use crate::{
-    FrameCtx,
+    frame_ctx::FrameCtx,
     frame_ctx::ScriptFrameCtx,
-    nodes::div,
+    scene::{
+        node::{Node, NodeKind},
+        primitives::div,
+        transition::{SpringConfig, Timing, TransitionKind},
+    },
     style::NodeStyle,
-    transitions::{SpringConfig, Timing, TransitionKind},
-    view::{Node, NodeKind},
 };
 
 #[derive(Clone)]
@@ -237,9 +239,11 @@ fn settle_time(config: &SpringConfig) -> f32 {
 mod tests {
     use super::FrameState;
     use crate::{
-        FrameCtx,
-        nodes::div,
-        transitions::{linear, slide, timeline},
+        frame_ctx::FrameCtx,
+        scene::{
+            primitives::div,
+            transition::{linear, slide, timeline},
+        },
     };
 
     #[test]

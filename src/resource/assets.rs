@@ -12,7 +12,7 @@ use serde::Deserialize;
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinSet;
 
-use crate::nodes::{AudioSource, ImageSource, OpenverseQuery};
+use crate::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
 
 const OPENVERSE_IMAGES_ENDPOINT: &str = "https://api.openverse.org/v1/images/";
 const OPENVERSE_TOKEN_ENDPOINT: &str = "https://api.openverse.org/v1/auth_tokens/token/";

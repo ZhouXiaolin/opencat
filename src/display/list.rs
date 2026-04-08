@@ -1,6 +1,6 @@
 use crate::{
-    assets::AssetId,
-    script::CanvasCommand,
+    resource::assets::AssetId,
+    scene::script::CanvasCommand,
     style::{BackgroundFill, ColorToken, ComputedTextStyle, ObjectFit, ShadowStyle},
 };
 

@@ -1,8 +1,4 @@
-use opencat::{
-    Composition, EncodingConfig, FrameCtx, Node, lucide,
-    nodes::{div, text},
-    style::ColorToken,
-};
+use opencat::{Composition, EncodingConfig, FrameCtx, Node, div, lucide, style::ColorToken, text};
 
 fn icon_card(id: &str, title: &str, detail: &str, surface: ColorToken, icon: Node) -> Node {
     div()

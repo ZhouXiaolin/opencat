@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 
-use crate::{FrameCtx, Node};
+use crate::{frame_ctx::FrameCtx, scene::node::Node};
 
 type RootComponent = dyn Fn(&FrameCtx) -> Node + Send + Sync;
 

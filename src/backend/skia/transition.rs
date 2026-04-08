@@ -6,9 +6,8 @@ use skia_safe::{
     RRect, Rect, RuntimeEffect, TileMode, runtime_effect::ChildPtr, surfaces,
 };
 
-use crate::{
-    scene_snapshot::SceneSnapshot,
-    transitions::{LightLeakTransition, SlideDirection, TransitionKind, WipeDirection},
+use crate::scene::transition::{
+    LightLeakTransition, SlideDirection, TransitionKind, WipeDirection,
 };
 
 const LIGHT_LEAK_MASK_SKSL: &str = r#"
@@ -150,16 +149,14 @@ impl LightLeakCompositeUniforms {
 
 pub fn draw_transition(
     canvas: &Canvas,
-    from: &SceneSnapshot,
-    to: &SceneSnapshot,
+    from: &Picture,
+    to: &Picture,
     progress: f32,
     kind: TransitionKind,
     width: i32,
     height: i32,
-    mut profile: Option<&mut crate::profile::BackendProfile>,
+    mut profile: Option<&mut crate::runtime::profile::BackendProfile>,
 ) -> Result<()> {
-    let from = from.picture()?;
-    let to = to.picture()?;
     match kind {
         TransitionKind::Slide(direction) => {
             draw_slide_transition(canvas, from, to, progress, direction, width, height)
@@ -380,7 +377,7 @@ fn draw_light_leak_transition(
     params: LightLeakTransition,
     width: i32,
     height: i32,
-    mut profile: Option<&mut crate::profile::BackendProfile>,
+    mut profile: Option<&mut crate::runtime::profile::BackendProfile>,
 ) -> Result<()> {
     let mask_scale = params.mask_scale.clamp(0.03125, 1.0);
     let mask_size = scaled_mask_size(width, height, mask_scale);
@@ -501,38 +498,4 @@ fn uniform_data<T>(value: &T) -> Data {
     let size = std::mem::size_of::<T>();
     let bytes = unsafe { std::slice::from_raw_parts((value as *const T).cast::<u8>(), size) };
     Data::new_copy(bytes)
-}
-
-fn rotate_hue(color: [f32; 3], degrees: f32) -> [f32; 3] {
-    let radians = degrees.to_radians();
-    let cos_a = radians.cos();
-    let sin_a = radians.sin();
-    let sqrt_third = 0.57735_f32;
-    let matrix = [
-        [
-            cos_a + (1.0 - cos_a) / 3.0,
-            (1.0 - cos_a) / 3.0 - sin_a * sqrt_third,
-            (1.0 - cos_a) / 3.0 + sin_a * sqrt_third,
-        ],
-        [
-            (1.0 - cos_a) / 3.0 + sin_a * sqrt_third,
-            cos_a + (1.0 - cos_a) / 3.0,
-            (1.0 - cos_a) / 3.0 - sin_a * sqrt_third,
-        ],
-        [
-            (1.0 - cos_a) / 3.0 - sin_a * sqrt_third,
-            (1.0 - cos_a) / 3.0 + sin_a * sqrt_third,
-            cos_a + (1.0 - cos_a) / 3.0,
-        ],
-    ];
-
-    [
-        dot3(matrix[0], color).clamp(0.0, 1.0),
-        dot3(matrix[1], color).clamp(0.0, 1.0),
-        dot3(matrix[2], color).clamp(0.0, 1.0),
-    ]
-}
-
-fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }

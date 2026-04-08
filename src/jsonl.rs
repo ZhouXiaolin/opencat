@@ -5,16 +5,19 @@ use std::sync::{Mutex, OnceLock};
 
 use serde::Deserialize;
 
-use crate::nodes::{ImageSource, OpenverseQuery, canvas, div, image, lucide, text, video};
-use crate::script::ScriptDriver;
+use crate::scene::{
+    node::Node,
+    primitives::{ImageSource, OpenverseQuery, canvas, div, image, lucide, text, video},
+    script::ScriptDriver,
+    transition::{
+        Timing, Transition, clock_wipe, fade, iris, light_leak, linear, slide, spring, timeline,
+        wipe,
+    },
+};
 use crate::style::{
     AlignItems, ColorToken, FlexDirection, FontWeight, GradientDirection, JustifyContent,
     NodeStyle, ObjectFit, Position, TextAlign, TextTransform, color_token_from_class_suffix,
 };
-use crate::transitions::{
-    Timing, Transition, clock_wipe, fade, iris, light_leak, linear, slide, spring, timeline, wipe,
-};
-use crate::view::Node;
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "type")]
@@ -1823,10 +1826,9 @@ mod tests {
     use super::{parse, parse_class_name};
     use crate::{
         FrameCtx,
+        scene::node::NodeKind,
+        scene::time::{FrameState, frame_state_for_root},
         style::{ColorToken, GradientDirection, TextAlign},
-        timeline::FrameState,
-        timeline::frame_state_for_root,
-        view::NodeKind,
     };
 
     #[test]

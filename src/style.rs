@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use skia_safe::Color;
 
-use crate::script::ScriptDriver;
+use crate::scene::script::ScriptDriver;
 
 include!(concat!(env!("OUT_DIR"), "/tailwind_color_items.rs"));
 
@@ -771,13 +771,13 @@ macro_rules! impl_node_style_api {
                 self
             }
 
-            pub fn script_driver(mut self, driver: $crate::script::ScriptDriver) -> Self {
+            pub fn script_driver(mut self, driver: $crate::ScriptDriver) -> Self {
                 self.style.script_driver = Some(std::sync::Arc::new(driver));
                 self
             }
 
             pub fn script_source(self, source: &str) -> anyhow::Result<Self> {
-                let driver = $crate::script::ScriptDriver::from_source(source)?;
+                let driver = $crate::ScriptDriver::from_source(source)?;
                 Ok(self.script_driver(driver))
             }
         }

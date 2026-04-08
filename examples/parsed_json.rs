@@ -25,7 +25,11 @@ fn main() -> anyhow::Result<()> {
 
     let encode_config = EncodingConfig::mp4();
     std::fs::create_dir_all("out")?;
-    composition.render_with_backend("out/parsed.mp4", &encode_config, RenderBackend::SkiaMetal)?;
+    composition.render_with_backend(
+        "out/parsed.mp4",
+        &encode_config,
+        RenderBackend::Accelerated,
+    )?;
     println!("Rendered out/parsed.mp4");
 
     Ok(())

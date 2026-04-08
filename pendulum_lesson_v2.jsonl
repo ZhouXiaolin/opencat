@@ -220,16 +220,16 @@
 {"id": "scene10-grid", "parentId": "scene10-content", "type": "div", "className": "flex flex-row gap-[20px]"}
 {"id": "scene10-s1", "parentId": "scene10-grid", "type": "div", "className": "flex flex-col items-center p-[24px] bg-white/10 rounded-xl border border-white/20 w-[280px]"}
 {"id": "scene10-s1-icon", "parentId": "scene10-s1", "type": "icon", "className": "w-[36px] h-[36px] text-blue-200 mb-[12px]", "icon": "circle"}
-{"id": "scene10-s1-text", "parentId": "scene10-s1", "type": "text", "className": "text-[17px] text-white/90 text-center", "text": "单摆 = 轻质细线 + 质点摆球 + 固定悬挂点"}
+{"id": "scene10-s1-text", "parentId": "scene10-s1", "type": "text", "className": "text-[17px] text-white/90 text-center w-full", "text": "单摆 = 轻质细线 + 质点摆球 + 固定悬挂点"}
 {"id": "scene10-s2", "parentId": "scene10-grid", "type": "div", "className": "flex flex-col items-center p-[24px] bg-white/10 rounded-xl border border-white/20 w-[280px]"}
 {"id": "scene10-s2-icon", "parentId": "scene10-s2", "type": "icon", "className": "w-[36px] h-[36px] text-emerald-200 mb-[12px]", "icon": "activity"}
-{"id": "scene10-s2-text", "parentId": "scene10-s2", "type": "text", "className": "text-[17px] text-white/90 text-center", "text": "小角度下做简谐运动，回复力 F = -mg sin(θ)"}
+{"id": "scene10-s2-text", "parentId": "scene10-s2", "type": "text", "className": "text-[17px] text-white/90 text-center w-full", "text": "小角度下做简谐运动，回复力 F = -mg sin(θ)"}
 {"id": "scene10-s3", "parentId": "scene10-grid", "type": "div", "className": "flex flex-col items-center p-[24px] bg-white/10 rounded-xl border border-white/20 w-[280px]"}
 {"id": "scene10-s3-icon", "parentId": "scene10-s3", "type": "icon", "className": "w-[36px] h-[36px] text-amber-200 mb-[12px]", "icon": "clock"}
-{"id": "scene10-s3-text", "parentId": "scene10-s3", "type": "text", "className": "text-[17px] text-white/90 text-center", "text": "周期 T = 2π√(L/g)，与质量和振幅无关"}
+{"id": "scene10-s3-text", "parentId": "scene10-s3", "type": "text", "className": "text-[17px] text-white/90 text-center w-full", "text": "周期 T = 2π√(L/g)，与质量和振幅无关"}
 {"id": "scene10-s4", "parentId": "scene10-grid", "type": "div", "className": "flex flex-col items-center p-[24px] bg-white/10 rounded-xl border border-white/20 w-[280px]"}
 {"id": "scene10-s4-icon", "parentId": "scene10-s4", "type": "icon", "className": "w-[36px] h-[36px] text-rose-200 mb-[12px]", "icon": "shield-check"}
-{"id": "scene10-s4-text", "parentId": "scene10-s4", "type": "text", "className": "text-[17px] text-white/90 text-center", "text": "动能与势能相互转化，机械能守恒"}
+{"id": "scene10-s4-text", "parentId": "scene10-s4", "type": "text", "className": "text-[17px] text-white/90 text-center w-full", "text": "动能与势能相互转化，机械能守恒"}
 {"id": "scene10-end", "parentId": "scene10-content", "type": "div", "className": "flex flex-row items-center gap-[12px] mt-[16px]"}
 {"id": "scene10-end-icon", "parentId": "scene10-end", "type": "icon", "className": "w-[28px] h-[28px] text-white/70", "icon": "heart"}
 {"id": "scene10-end-text", "parentId": "scene10-end", "type": "text", "className": "text-[22px] text-white/70", "text": "感谢观看"}

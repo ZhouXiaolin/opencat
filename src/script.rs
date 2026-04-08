@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use anyhow::anyhow;
 use rquickjs::{
     Context, Error as JsError, Exception, FromJs, Function, Object, Persistent, Runtime,
 };
@@ -257,7 +258,13 @@ impl ScriptRunner {
         frame_ctx: ScriptFrameCtx,
         current_node_id: Option<&str>,
     ) -> anyhow::Result<StyleMutations> {
-        *self.store.lock().unwrap() = RuntimeMutationStore::default();
+        {
+            let mut store = self
+                .store
+                .lock()
+                .map_err(|_| anyhow!("script mutation store lock poisoned before execution"))?;
+            *store = RuntimeMutationStore::default();
+        }
 
         self.context.with(|ctx| {
             let ctx_obj = self.ctx_obj.clone().restore(&ctx)?;
@@ -280,7 +287,10 @@ impl ScriptRunner {
             Ok::<_, anyhow::Error>(())
         })?;
 
-        let mutations = self.store.lock().unwrap();
+        let mutations = self
+            .store
+            .lock()
+            .map_err(|_| anyhow!("script mutation store lock poisoned after execution"))?;
         Ok(StyleMutations {
             mutations: mutations.styles.clone(),
             canvas_mutations: mutations.canvases.clone(),

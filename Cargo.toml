@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
+members = [".", "crates/opencat-player"]
 
 [dependencies]
 anyhow = "1.0"
 ffmpeg-next = "8.1.0"
-skia-safe = { version = "0.93.1", features = ["textlayout"] }
+skia-safe = { version = "0.93.1", features = ["textlayout", "metal"] }
 taffy = "0.10.0"
 image = "0.25.10"
 serde = { version = "1.0", features = ["derive"] }
@@ -18,3 +19,7 @@ num_cpus = "1.17.0"
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
 dirs = "6.0.0"
 tokio = { version = "1.51.0", features = ["rt-multi-thread", "fs"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+foreign-types = "0.5.0"
+metal = "0.31.0"

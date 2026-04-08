@@ -16,7 +16,7 @@ use crate::{
     frame_ctx::FrameCtx,
     media::MediaContext,
     profile::{BackendProfile, SceneBuildStats},
-    render::invalidation::{SceneInvalidation, invalidation_for_scene},
+    invalidation::{SceneInvalidation, invalidation_for_scene},
     render_cache::{SceneSlot, SceneSnapshotCache},
 };
 

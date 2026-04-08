@@ -1,4 +1,4 @@
-use opencat::{Composition, EncodingConfig, ScriptDriver, parse};
+use opencat::{Composition, EncodingConfig, RenderBackend, ScriptDriver, parse};
 
 fn main() -> anyhow::Result<()> {
     let input = if let Some(path) = std::env::args().nth(1) {
@@ -25,7 +25,7 @@ fn main() -> anyhow::Result<()> {
 
     let encode_config = EncodingConfig::mp4();
     std::fs::create_dir_all("out")?;
-    composition.render("out/parsed.mp4", &encode_config)?;
+    composition.render_with_backend("out/parsed.mp4", &encode_config, RenderBackend::SkiaMetal)?;
     println!("Rendered out/parsed.mp4");
 
     Ok(())

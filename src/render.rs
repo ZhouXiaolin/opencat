@@ -9,8 +9,18 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use skia_safe::{
-    AlphaType, ColorType, EncodedImageFormat, ImageInfo, image::CachingHint, surfaces,
+    AlphaType, Canvas, ColorType, EncodedImageFormat, ImageInfo, image::CachingHint, surfaces,
 };
+
+#[cfg(target_os = "macos")]
+use foreign_types::ForeignType;
+#[cfg(target_os = "macos")]
+use metal::{
+    Device, MTLOrigin, MTLPixelFormat, MTLRegion, MTLSize, MTLStorageMode, MTLTextureType,
+    MTLTextureUsage, Texture, TextureDescriptor,
+};
+#[cfg(target_os = "macos")]
+use skia_safe::gpu::{self, backend_render_targets, mtl};
 
 use crate::{
     Composition, FrameCtx, Node,
@@ -29,6 +39,7 @@ use crate::{
     nodes::{AudioSource, ImageSource},
     profile::{BackendProfile, FrameProfile, RenderProfiler, SceneBuildStats},
     render_cache::{SceneSlot, SceneSnapshotCache},
+    render_target::RenderTargetHandle,
     scene_snapshot::{SceneSnapshotRuntime, plan_for_scene, render_scene_slot},
     script::{ScriptRuntimeCache, StyleMutations},
     timeline::{FrameState, frame_state_for_root},
@@ -42,6 +53,12 @@ const AUDIO_SAMPLE_RATE: u32 = 48_000;
 pub enum OutputFormat {
     Mp4(Mp4Config),
     Png,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderBackend {
+    SkiaRaster,
+    SkiaMetal,
 }
 
 pub struct EncodingConfig {
@@ -112,29 +129,77 @@ impl RenderSession {
 
 impl Composition {
     pub fn render(&self, output_path: impl AsRef<Path>, config: &EncodingConfig) -> Result<()> {
+        self.render_with_backend(output_path, config, RenderBackend::SkiaRaster)
+    }
+
+    pub fn render_with_backend(
+        &self,
+        output_path: impl AsRef<Path>,
+        config: &EncodingConfig,
+        backend: RenderBackend,
+    ) -> Result<()> {
         match &config.format {
-            OutputFormat::Mp4(mp4_config) => render_mp4(self, output_path, mp4_config),
-            OutputFormat::Png => render_png(self, output_path),
+            OutputFormat::Mp4(mp4_config) => render_mp4(self, output_path, mp4_config, backend),
+            OutputFormat::Png => render_png(self, output_path, backend),
         }
+    }
+
+    pub fn render_frame_with_target(
+        &self,
+        frame_index: u32,
+        session: &mut RenderSession,
+        target: &mut RenderTargetHandle,
+    ) -> Result<()> {
+        render_frame_to_target(self, frame_index, session, target)
     }
 }
 
-fn render_png(composition: &Composition, output_path: impl AsRef<Path>) -> Result<()> {
-    let mut session = RenderSession::new();
-    let mut surface = render_frame_surface(composition, 0, &mut session)?;
-    let image = surface.image_snapshot();
-    let data = image
-        .encode(None, EncodedImageFormat::PNG, 100)
-        .ok_or_else(|| anyhow!("failed to encode PNG"))?;
-    std::fs::write(output_path, &*data)?;
-    session.profiler.print_summary();
-    Ok(())
+fn render_png(
+    composition: &Composition,
+    output_path: impl AsRef<Path>,
+    backend: RenderBackend,
+) -> Result<()> {
+    match backend {
+        RenderBackend::SkiaRaster => {
+            let mut session = RenderSession::new();
+            let mut surface = render_frame_surface(composition, 0, &mut session)?;
+            let image = surface.image_snapshot();
+            let data = image
+                .encode(None, EncodedImageFormat::PNG, 100)
+                .ok_or_else(|| anyhow!("failed to encode PNG"))?;
+            std::fs::write(output_path, &*data)?;
+            session.profiler.print_summary();
+            Ok(())
+        }
+        RenderBackend::SkiaMetal => {
+            #[cfg(target_os = "macos")]
+            {
+                let mut session = RenderSession::new();
+                let mut bridge = MetalEncodeBridge::new(composition.width, composition.height)?;
+                let rgba = bridge.render_frame_rgba(composition, 0, &mut session)?;
+                let image = image::RgbaImage::from_raw(
+                    composition.width as u32,
+                    composition.height as u32,
+                    rgba,
+                )
+                .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
+                image.save(output_path)?;
+                session.profiler.print_summary();
+                return Ok(());
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Err(anyhow!("SkiaMetal backend is only available on macOS"))
+            }
+        }
+    }
 }
 
 fn render_mp4(
     composition: &Composition,
     output_path: impl AsRef<Path>,
     config: &Mp4Config,
+    backend: RenderBackend,
 ) -> Result<()> {
     let mut session = RenderSession::new();
     ensure_assets_preloaded(composition, &mut session)?;
@@ -143,25 +208,59 @@ fn render_mp4(
     let source_height = composition.height as u32;
     let encoded_width = source_width + source_width % 2;
     let encoded_height = source_height + source_height % 2;
-    crate::codec::encode::encode_rgba_frames(
-        output_path,
-        encoded_width,
-        encoded_height,
-        composition.fps,
-        composition.frames,
-        config,
-        audio_track.as_ref(),
-        |frame_index| {
-            let rgba = render_frame_rgba(composition, frame_index, &mut session)?;
-            Ok(pad_rgba_frame(
-                &rgba,
-                source_width,
-                source_height,
+    match backend {
+        RenderBackend::SkiaRaster => {
+            crate::codec::encode::encode_rgba_frames(
+                output_path,
                 encoded_width,
                 encoded_height,
-            ))
-        },
-    )?;
+                composition.fps,
+                composition.frames,
+                config,
+                audio_track.as_ref(),
+                |frame_index| {
+                    let rgba = render_frame_rgba(composition, frame_index, &mut session)?;
+                    Ok(pad_rgba_frame(
+                        &rgba,
+                        source_width,
+                        source_height,
+                        encoded_width,
+                        encoded_height,
+                    ))
+                },
+            )?;
+        }
+        RenderBackend::SkiaMetal => {
+            #[cfg(target_os = "macos")]
+            {
+                let mut bridge = MetalEncodeBridge::new(composition.width, composition.height)?;
+                crate::codec::encode::encode_rgba_frames(
+                    output_path,
+                    encoded_width,
+                    encoded_height,
+                    composition.fps,
+                    composition.frames,
+                    config,
+                    audio_track.as_ref(),
+                    |frame_index| {
+                        let rgba =
+                            bridge.render_frame_rgba(composition, frame_index, &mut session)?;
+                        Ok(pad_rgba_frame(
+                            &rgba,
+                            source_width,
+                            source_height,
+                            encoded_width,
+                            encoded_height,
+                        ))
+                    },
+                )?;
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                return Err(anyhow!("SkiaMetal backend is only available on macOS"));
+            }
+        }
+    }
     session.profiler.print_summary();
     Ok(())
 }
@@ -202,6 +301,38 @@ fn render_frame_surface(
     frame_index: u32,
     session: &mut RenderSession,
 ) -> Result<skia_safe::Surface> {
+    let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
+        .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
+    render_frame_on_canvas(composition, frame_index, session, surface.canvas())?;
+    Ok(surface)
+}
+
+pub fn render_frame_to_target(
+    composition: &Composition,
+    frame_index: u32,
+    session: &mut RenderSession,
+    target: &mut RenderTargetHandle,
+) -> Result<()> {
+    target.require_skia_backend()?;
+    let canvas_ptr = target.begin_frame(composition.width, composition.height)?;
+    if canvas_ptr.is_null() {
+        return Err(anyhow!(
+            "render target begin_frame returned null canvas pointer"
+        ));
+    }
+    // SAFETY: Skia 后端目标约定 begin_frame 返回 `skia_safe::Canvas` 有效指针。
+    let canvas = unsafe { &*(canvas_ptr as *const Canvas) };
+    let render_result = render_frame_on_canvas(composition, frame_index, session, canvas);
+    let end_result = target.end_frame();
+    render_result.and(end_result)
+}
+
+fn render_frame_on_canvas(
+    composition: &Composition,
+    frame_index: u32,
+    session: &mut RenderSession,
+    canvas: &Canvas,
+) -> Result<()> {
     ensure_assets_preloaded(composition, session)?;
 
     let mut frame_profile = FrameProfile::default();
@@ -217,11 +348,7 @@ fn render_frame_surface(
     let mutations: Option<StyleMutations> = None;
     frame_profile.script_ms = script_started.elapsed().as_secs_f64() * 1000.0;
 
-    let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
-        .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
-    let canvas = surface.canvas();
     let root = composition.root_node(&frame_ctx);
-
     let frame_state_started = Instant::now();
     let frame_state = frame_state_for_root(&root, &frame_ctx);
     frame_profile.frame_state_ms = frame_state_started.elapsed().as_secs_f64() * 1000.0;
@@ -364,7 +491,7 @@ fn render_frame_surface(
     }
 
     session.profiler.push(frame_profile);
-    Ok(surface)
+    Ok(())
 }
 
 fn ensure_assets_preloaded(composition: &Composition, session: &mut RenderSession) -> Result<()> {
@@ -595,6 +722,158 @@ pub fn render_frame_rgba(
     }
 
     Ok(rgba)
+}
+
+#[cfg(target_os = "macos")]
+struct MetalEncodeBridge {
+    target: Box<MetalOffscreenTarget>,
+    handle: RenderTargetHandle,
+}
+
+#[cfg(target_os = "macos")]
+impl MetalEncodeBridge {
+    fn new(width: i32, height: i32) -> Result<Self> {
+        let mut target = Box::new(MetalOffscreenTarget::new(width, height)?);
+        let target_ptr = target.as_mut() as *mut MetalOffscreenTarget as *mut std::ffi::c_void;
+        let handle = RenderTargetHandle::new(
+            crate::render_target::RenderBackendKind::Skia,
+            target_ptr,
+            MetalOffscreenTarget::begin_frame_bridge,
+            MetalOffscreenTarget::end_frame_bridge,
+        );
+        Ok(Self { target, handle })
+    }
+
+    fn render_frame_rgba(
+        &mut self,
+        composition: &Composition,
+        frame_index: u32,
+        session: &mut RenderSession,
+    ) -> Result<Vec<u8>> {
+        render_frame_to_target(composition, frame_index, session, &mut self.handle)?;
+        self.target.readback_rgba()
+    }
+}
+
+#[cfg(target_os = "macos")]
+struct MetalOffscreenTarget {
+    device: Device,
+    skia: gpu::DirectContext,
+    texture: Texture,
+    width: i32,
+    height: i32,
+    current_surface: Option<skia_safe::Surface>,
+}
+
+#[cfg(target_os = "macos")]
+impl MetalOffscreenTarget {
+    fn new(width: i32, height: i32) -> Result<Self> {
+        let device = Device::system_default().ok_or_else(|| anyhow!("no Metal device found"))?;
+        let command_queue = device.new_command_queue();
+        let backend = unsafe {
+            mtl::BackendContext::new(
+                device.as_ptr() as mtl::Handle,
+                command_queue.as_ptr() as mtl::Handle,
+            )
+        };
+        let skia = gpu::direct_contexts::make_metal(&backend, None)
+            .ok_or_else(|| anyhow!("failed to create Skia Metal direct context"))?;
+        let texture = Self::create_texture(&device, width, height);
+        Ok(Self {
+            device,
+            skia,
+            texture,
+            width,
+            height,
+            current_surface: None,
+        })
+    }
+
+    fn create_texture(device: &Device, width: i32, height: i32) -> Texture {
+        let descriptor = TextureDescriptor::new();
+        descriptor.set_texture_type(MTLTextureType::D2);
+        descriptor.set_width(width.max(1) as u64);
+        descriptor.set_height(height.max(1) as u64);
+        descriptor.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
+        descriptor.set_storage_mode(MTLStorageMode::Shared);
+        descriptor.set_usage(MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead);
+        device.new_texture(&descriptor)
+    }
+
+    fn ensure_size(&mut self, width: i32, height: i32) {
+        if self.width == width && self.height == height {
+            return;
+        }
+        self.texture = Self::create_texture(&self.device, width, height);
+        self.width = width;
+        self.height = height;
+    }
+
+    fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut std::ffi::c_void> {
+        if width <= 0 || height <= 0 {
+            return Err(anyhow!("invalid offscreen target size {width}x{height}"));
+        }
+        self.ensure_size(width, height);
+
+        let texture_info = unsafe { mtl::TextureInfo::new(self.texture.as_ptr() as mtl::Handle) };
+        let backend_render_target =
+            backend_render_targets::make_mtl((self.width, self.height), &texture_info);
+        let mut surface = gpu::surfaces::wrap_backend_render_target(
+            &mut self.skia,
+            &backend_render_target,
+            skia_safe::gpu::SurfaceOrigin::TopLeft,
+            ColorType::BGRA8888,
+            None,
+            None,
+        )
+        .ok_or_else(|| anyhow!("failed to wrap metal offscreen render target"))?;
+        let canvas_ptr = surface.canvas() as *const _ as *mut std::ffi::c_void;
+        self.current_surface = Some(surface);
+        Ok(canvas_ptr)
+    }
+
+    fn end_frame(&mut self) -> Result<()> {
+        let surface = self
+            .current_surface
+            .take()
+            .ok_or_else(|| anyhow!("offscreen end_frame called before begin_frame"))?;
+        self.skia.flush_and_submit();
+        drop(surface);
+        Ok(())
+    }
+
+    fn readback_rgba(&self) -> Result<Vec<u8>> {
+        let width = self.width.max(1) as u64;
+        let height = self.height.max(1) as u64;
+        let mut bgra = vec![0_u8; (width * height * 4) as usize];
+        let region = MTLRegion {
+            origin: MTLOrigin { x: 0, y: 0, z: 0 },
+            size: MTLSize {
+                width,
+                height,
+                depth: 1,
+            },
+        };
+        self.texture
+            .as_ref()
+            .get_bytes(bgra.as_mut_ptr().cast(), width * 4, region, 0);
+        for px in bgra.chunks_exact_mut(4) {
+            px.swap(0, 2);
+        }
+        Ok(bgra)
+    }
+
+    unsafe fn begin_frame_bridge(
+        user_data: *mut std::ffi::c_void,
+        width: i32,
+        height: i32,
+    ) -> Result<*mut std::ffi::c_void> {
+        unsafe { &mut *(user_data as *mut Self) }.begin_frame(width, height)
+    }
+
+    unsafe fn end_frame_bridge(user_data: *mut std::ffi::c_void) -> Result<()> {
+        unsafe { &mut *(user_data as *mut Self) }.end_frame()
+    }
 }
 
 pub fn render_frame_rgb(

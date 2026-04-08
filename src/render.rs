@@ -726,7 +726,7 @@ pub fn render_frame_rgba(
 
 #[cfg(target_os = "macos")]
 struct MetalEncodeBridge {
-    target: Box<MetalOffscreenTarget>,
+    _target: Box<MetalOffscreenTarget>,
     handle: RenderTargetHandle,
 }
 
@@ -740,8 +740,12 @@ impl MetalEncodeBridge {
             target_ptr,
             MetalOffscreenTarget::begin_frame_bridge,
             MetalOffscreenTarget::end_frame_bridge,
-        );
-        Ok(Self { target, handle })
+        )
+        .with_readback_rgba(MetalOffscreenTarget::readback_rgba_bridge);
+        Ok(Self {
+            _target: target,
+            handle,
+        })
     }
 
     fn render_frame_rgba(
@@ -751,7 +755,7 @@ impl MetalEncodeBridge {
         session: &mut RenderSession,
     ) -> Result<Vec<u8>> {
         render_frame_to_target(composition, frame_index, session, &mut self.handle)?;
-        self.target.readback_rgba()
+        self.handle.readback_rgba()
     }
 }
 
@@ -873,6 +877,10 @@ impl MetalOffscreenTarget {
 
     unsafe fn end_frame_bridge(user_data: *mut std::ffi::c_void) -> Result<()> {
         unsafe { &mut *(user_data as *mut Self) }.end_frame()
+    }
+
+    unsafe fn readback_rgba_bridge(user_data: *mut std::ffi::c_void) -> Result<Vec<u8>> {
+        unsafe { &mut *(user_data as *mut Self) }.readback_rgba()
     }
 }
 

@@ -402,11 +402,11 @@ fn indent_block(block: &str, level: usize) -> String {
 fn generate_inherent_impls(colors: &[GeneratedColor]) -> String {
     let mut output = String::new();
     for ty in [
-        "crate::nodes::Div",
-        "crate::nodes::Image",
-        "crate::nodes::Text",
-        "crate::nodes::Video",
-        "crate::nodes::Lucide",
+        "crate::scene::primitives::Div",
+        "crate::scene::primitives::Image",
+        "crate::scene::primitives::Text",
+        "crate::scene::primitives::Video",
+        "crate::scene::primitives::Lucide",
     ] {
         let _ = writeln!(output, "impl {ty} {{");
         for color in colors {

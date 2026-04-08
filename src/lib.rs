@@ -14,6 +14,7 @@ pub mod parser;
 mod profile;
 pub mod render;
 mod render_cache;
+pub mod render_target;
 mod scene_snapshot;
 pub mod script;
 pub mod style;
@@ -30,8 +31,10 @@ pub use nodes::{
 };
 pub use parser::{ParsedComposition, parse};
 pub use render::{
-    EncodingConfig, Mp4Config, OutputFormat, RenderSession, render_frame_rgb, render_frame_rgba,
+    EncodingConfig, Mp4Config, OutputFormat, RenderBackend, RenderSession, render_frame_rgb,
+    render_frame_rgba, render_frame_to_target,
 };
+pub use render_target::{RenderBackendKind, RenderTargetHandle};
 pub use script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use transitions::{
     ClockWipeBuilder, FadeBuilder, IrisBuilder, SlideBuilder, SlideDirection, SpringConfig,

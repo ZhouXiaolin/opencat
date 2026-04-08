@@ -231,8 +231,16 @@ mod app {
         let total_frames = composition.frames.max(1);
 
         let frame_duration = Duration::from_secs_f64(1.0 / (parsed.fps as f64).max(1.0));
-        let mut next_tick = Instant::now();
-        let mut frame_index = 0_u32;
+        if let Err(error) = composition.render_frame_with_target(0, &mut session, &mut render_target) {
+            return Err(anyhow!("failed to render warmup frame: {error:#}"));
+        }
+        if let Err(error) = render_target.present_frame() {
+            return Err(anyhow!("failed to present warmup frame: {error:#}"));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+
+        let mut next_tick = Instant::now() + frame_duration;
+        let mut frame_index = 1 % total_frames;
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::WaitUntil(next_tick);
@@ -266,13 +274,7 @@ mod app {
                     }
 
                     frame_index = (frame_index + 1) % total_frames;
-                    next_tick += frame_duration;
-
-                    let now = Instant::now();
-                    while now > next_tick + frame_duration {
-                        frame_index = (frame_index + 1) % total_frames;
-                        next_tick += frame_duration;
-                    }
+                    next_tick = Instant::now() + frame_duration;
                 }
                 _ => {}
             }

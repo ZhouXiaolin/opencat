@@ -27,6 +27,7 @@ pub struct AssetsMap {
     entries: HashMap<AssetId, AssetEntry>,
     cache_dir: PathBuf,
     openverse_token: Option<String>,
+    preload_runtime: Option<Runtime>,
 }
 
 struct AssetEntry {
@@ -106,6 +107,7 @@ impl AssetsMap {
             entries: HashMap::new(),
             cache_dir,
             openverse_token: None,
+            preload_runtime: None,
         }
     }
 
@@ -150,16 +152,18 @@ impl AssetsMap {
         }
 
         self.ensure_cache_dir()?;
-        let runtime = Self::build_preload_runtime("asset")?;
-
-        let token = runtime.block_on(fetch_openverse_token(self.openverse_token.clone()))?;
+        let cache_dir = self.cache_dir.clone();
+        let existing_token = self.openverse_token.clone();
+        let token = {
+            let runtime = self.preload_runtime("asset")?;
+            runtime.block_on(fetch_openverse_token(existing_token))?
+        };
         self.openverse_token = token.clone();
 
-        let prepared = runtime.block_on(preload_remote_requests(
-            self.cache_dir.clone(),
-            token,
-            remote_requests,
-        ))?;
+        let prepared = {
+            let runtime = self.preload_runtime("asset")?;
+            runtime.block_on(preload_remote_requests(cache_dir, token, remote_requests))?
+        };
 
         for (id, path, width, height) in prepared {
             self.entries
@@ -198,12 +202,11 @@ impl AssetsMap {
         }
 
         self.ensure_cache_dir()?;
-        let runtime = Self::build_preload_runtime("audio")?;
-
-        let prepared = runtime.block_on(preload_remote_audio_requests(
-            self.cache_dir.clone(),
-            remote_requests,
-        ))?;
+        let cache_dir = self.cache_dir.clone();
+        let prepared = {
+            let runtime = self.preload_runtime("audio")?;
+            runtime.block_on(preload_remote_audio_requests(cache_dir, remote_requests))?
+        };
 
         for (id, path) in prepared {
             self.entries.insert(id, AssetEntry::audio(&path));
@@ -339,6 +342,15 @@ impl AssetsMap {
             .enable_all()
             .build()
             .with_context(|| format!("failed to build tokio runtime for {kind} preloading"))
+    }
+
+    fn preload_runtime(&mut self, kind: &str) -> Result<&Runtime> {
+        if self.preload_runtime.is_none() {
+            self.preload_runtime = Some(Self::build_preload_runtime(kind)?);
+        }
+        self.preload_runtime
+            .as_ref()
+            .ok_or_else(|| anyhow!("failed to initialize tokio runtime for {kind} preloading"))
     }
 }
 

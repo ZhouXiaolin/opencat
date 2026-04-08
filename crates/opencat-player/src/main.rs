@@ -136,11 +136,14 @@ mod app {
                 .ok_or_else(|| anyhow!("end_frame called before begin_frame"))?;
             self.skia.flush_and_submit();
             drop(surface);
+            Ok(())
+        }
 
+        fn present_frame(&mut self) -> Result<()> {
             let drawable = self
                 .current_drawable
                 .take()
-                .ok_or_else(|| anyhow!("missing drawable for frame presentation"))?;
+                .ok_or_else(|| anyhow!("present_frame called before end_frame"))?;
             let command_buffer = self.command_queue.new_command_buffer();
             command_buffer.present_drawable(&drawable);
             command_buffer.commit();
@@ -159,6 +162,11 @@ mod app {
         unsafe fn end_frame_bridge(user_data: *mut c_void) -> Result<()> {
             // SAFETY: user_data 来自 Box<MetalSkiaRenderTarget> 的稳定地址。
             unsafe { &mut *(user_data as *mut Self) }.end_frame()
+        }
+
+        unsafe fn present_frame_bridge(user_data: *mut c_void) -> Result<()> {
+            // SAFETY: user_data 来自 Box<MetalSkiaRenderTarget> 的稳定地址。
+            unsafe { &mut *(user_data as *mut Self) }.present_frame()
         }
     }
 
@@ -216,7 +224,8 @@ mod app {
             target_ptr,
             MetalSkiaRenderTarget::begin_frame_bridge,
             MetalSkiaRenderTarget::end_frame_bridge,
-        );
+        )
+        .with_present_frame(MetalSkiaRenderTarget::present_frame_bridge);
 
         let mut session = RenderSession::new();
         let total_frames = composition.frames.max(1);
@@ -247,6 +256,11 @@ mod app {
                         &mut render_target,
                     ) {
                         eprintln!("render error: {error:#}");
+                        *control_flow = ControlFlow::Exit;
+                        return;
+                    }
+                    if let Err(error) = render_target.present_frame() {
+                        eprintln!("present error: {error:#}");
                         *control_flow = ControlFlow::Exit;
                         return;
                     }

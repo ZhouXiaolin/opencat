@@ -1,4 +1,4 @@
-use crate::resource::assets::AssetId;
+use crate::resource::{assets::AssetId, media::VideoFrameTiming};
 use crate::scene::script::CanvasCommand;
 use crate::style::ComputedTextStyle;
 
@@ -36,6 +36,7 @@ pub struct ElementBitmap {
     pub asset_id: AssetId,
     pub width: u32,
     pub height: u32,
+    pub video_timing: Option<VideoFrameTiming>,
 }
 
 #[derive(Clone, Debug)]

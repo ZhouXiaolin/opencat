@@ -21,7 +21,7 @@ use crate::{
     resource::{
         assets::AssetsMap,
         bitmap_source::{BitmapSourceKind, bitmap_source_kind},
-        media::MediaContext,
+        media::{MediaContext, VideoFrameRequest},
     },
     runtime::profile::BackendProfile,
     scene::script::{CanvasCommand, ScriptColor, ScriptLineCap, ScriptLineJoin},
@@ -615,10 +615,22 @@ fn draw_bitmap(
         let media = media_ctx
             .as_deref_mut()
             .ok_or_else(|| anyhow!("video asset requires media context: {}", path.display()))?;
-        let target_time = frame_ctx.frame as f64 / frame_ctx.fps as f64;
+        let request = bitmap
+            .video_timing
+            .map(|timing| VideoFrameRequest {
+                composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps as f64,
+                timing,
+                quality: media.video_preview_quality(),
+            })
+            .ok_or_else(|| {
+                anyhow!(
+                    "video bitmap is missing timing metadata: {}",
+                    path.display()
+                )
+            })?;
         let decode_started = Instant::now();
         let (data, width, height) = media
-            .get_bitmap(path, target_time)
+            .get_bitmap(path, Some(request))
             .with_context(|| format!("failed to decode video frame: {}", path.display()))?;
         stats.video_decode_ms = decode_started.elapsed().as_secs_f64() * 1000.0;
         stats.video_frame_decodes = 1;
@@ -1000,9 +1012,13 @@ fn load_asset_image(
         let media = media_ctx
             .as_deref_mut()
             .ok_or_else(|| anyhow!("video asset requires media context: {}", path.display()))?;
-        let target_time = frame_ctx.frame as f64 / frame_ctx.fps as f64;
+        let request = VideoFrameRequest {
+            composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps as f64,
+            timing: crate::resource::media::VideoFrameTiming::default(),
+            quality: media.video_preview_quality(),
+        };
         let (data, width, height) = media
-            .get_bitmap(path, target_time)
+            .get_bitmap(path, Some(request))
             .with_context(|| format!("failed to decode video frame: {}", path.display()))?;
         let info = ImageInfo::new(
             (width as i32, height as i32),

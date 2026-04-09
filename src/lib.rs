@@ -21,6 +21,7 @@ pub use render::{
     EncodingConfig, Mp4Config, OutputFormat, RenderBackend, RenderSession, build_audio_track,
     render_audio_chunk, render_frame_rgb, render_frame_rgba, render_frame_to_target,
 };
+pub use resource::media::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality};
 pub use runtime::audio::AudioBuffer;
 pub use runtime::target::{RenderFrameViewKind, RenderTargetHandle};
 pub use scene::composition::{AudioAttachment, Composition, CompositionAudioSource};

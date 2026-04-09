@@ -88,6 +88,10 @@ impl Composition {
         (self.root)(ctx)
     }
 
+    pub fn has_audio_sources(&self) -> bool {
+        !self.audio_sources.is_empty()
+    }
+
     pub(crate) fn audio_sources(&self) -> &[CompositionAudioSource] {
         self.audio_sources.as_ref()
     }

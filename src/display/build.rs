@@ -147,6 +147,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
             asset_id: bitmap.asset_id.clone(),
             width: bitmap.width,
             height: bitmap.height,
+            video_timing: bitmap.video_timing,
             object_fit: element.style.visual.object_fit,
             paint: BitmapPaintStyle {
                 background: element.style.visual.background,

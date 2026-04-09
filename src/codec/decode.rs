@@ -20,6 +20,7 @@ use ffmpeg_next::{
 pub struct VideoInfo {
     pub width: u32,
     pub height: u32,
+    pub duration_secs: Option<f64>,
 }
 
 #[derive(Clone, Debug)]
@@ -56,6 +57,7 @@ struct VideoDecoder {
     time_base: ffmpeg::util::rational::Rational,
     width: u32,
     height: u32,
+    duration_secs: Option<f64>,
     current_pts_secs: f64,
     current_frame: Option<Arc<Vec<u8>>>,
     eof: bool,
@@ -87,6 +89,10 @@ impl VideoDecoder {
 
         let width = decoder.width();
         let height = decoder.height();
+        let duration_secs = stream
+            .duration()
+            .checked_mul(time_base.numerator() as i64)
+            .map(|duration_ticks| duration_ticks as f64 / time_base.denominator() as f64);
         let scaler = ScalingContext::get(
             decoder.format(),
             width,
@@ -106,6 +112,7 @@ impl VideoDecoder {
             time_base,
             width,
             height,
+            duration_secs,
             current_pts_secs: -1.0,
             current_frame: None,
             eof: false,
@@ -116,10 +123,15 @@ impl VideoDecoder {
         VideoInfo {
             width: self.width,
             height: self.height,
+            duration_secs: self.duration_secs,
         }
     }
 
-    fn get_frame_at_time(&mut self, target_secs: f64) -> Result<Arc<Vec<u8>>> {
+    fn get_frame_at_time(
+        &mut self,
+        target_secs: f64,
+        quality: crate::resource::media::VideoPreviewQuality,
+    ) -> Result<Arc<Vec<u8>>> {
         if self.current_frame.is_some() && (self.current_pts_secs - target_secs).abs() < 1e-6 {
             return Ok(self
                 .current_frame
@@ -127,8 +139,8 @@ impl VideoDecoder {
                 .expect("current frame should exist"));
         }
 
-        if target_secs + 1e-6 < self.current_pts_secs {
-            self.reopen()?;
+        if self.should_seek_to_target(target_secs, quality) {
+            self.seek_to_time(target_secs)?;
         }
 
         self.decode_forward(target_secs)?;
@@ -137,8 +149,43 @@ impl VideoDecoder {
             .ok_or_else(|| anyhow!("failed to decode frame at {:.3}s", target_secs))
     }
 
+    fn should_seek_to_target(
+        &self,
+        target_secs: f64,
+        quality: crate::resource::media::VideoPreviewQuality,
+    ) -> bool {
+        if self.current_frame.is_none() {
+            return true;
+        }
+
+        if target_secs + 1e-6 < self.current_pts_secs {
+            return true;
+        }
+
+        let forward_delta = target_secs - self.current_pts_secs;
+        let seek_threshold_secs = match quality {
+            crate::resource::media::VideoPreviewQuality::Realtime => 0.35,
+            crate::resource::media::VideoPreviewQuality::Exact => 1.5,
+        };
+        forward_delta > seek_threshold_secs
+    }
+
     fn reopen(&mut self) -> Result<()> {
         *self = Self::open(&self.path)?;
+        Ok(())
+    }
+
+    fn seek_to_time(&mut self, target_secs: f64) -> Result<()> {
+        let target_pts = (target_secs.max(0.0) * 1_000_000.0).round() as i64;
+        if self.input.seek(target_pts, ..target_pts).is_err() {
+            self.reopen()?;
+            return Ok(());
+        }
+
+        self.decoder.flush();
+        self.current_pts_secs = -1.0;
+        self.current_frame = None;
+        self.eof = false;
         Ok(())
     }
 
@@ -204,7 +251,12 @@ impl VideoDecodeCache {
         }
     }
 
-    pub fn get_frame(&mut self, path: &Path, target_time_secs: f64) -> Result<Arc<Vec<u8>>> {
+    pub fn get_frame(
+        &mut self,
+        path: &Path,
+        target_time_secs: f64,
+        quality: crate::resource::media::VideoPreviewQuality,
+    ) -> Result<Arc<Vec<u8>>> {
         if !self.decoders.contains_key(path) {
             let decoder = VideoDecoder::open(path)?;
             self.decoders.insert(path.to_path_buf(), decoder);
@@ -212,7 +264,7 @@ impl VideoDecodeCache {
         self.decoders
             .get_mut(path)
             .expect("video decoder should exist")
-            .get_frame_at_time(target_time_secs)
+            .get_frame_at_time(target_time_secs, quality)
     }
 
     pub fn info(&mut self, path: &Path) -> Result<VideoInfo> {

@@ -82,11 +82,7 @@ pub(crate) fn collect_sources(
                 image_sources.insert(image.source().clone());
             }
         }
-        NodeKind::Audio(audio) => {
-            if !matches!(audio.source(), AudioSource::Unset) {
-                audio_sources.insert(audio.source().clone());
-            }
-        }
+        NodeKind::Audio(_) => {}
         NodeKind::Timeline(_) => match frame_state_for_root(node, frame_ctx) {
             FrameState::Scene { scene, .. } => {
                 collect_sources(&scene, frame_ctx, image_sources, audio_sources);

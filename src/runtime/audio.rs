@@ -6,7 +6,6 @@ use crate::{
     codec::decode::{AudioTrack, decode_audio_to_f32_stereo},
     frame_ctx::FrameCtx,
     resource::assets::AssetsMap,
-    runtime::preflight::collect_sources,
     scene::{
         composition::{AudioAttachment, Composition, CompositionAudioSource},
         primitives::AudioSource,
@@ -14,72 +13,106 @@ use crate::{
     },
 };
 
-const AUDIO_SAMPLE_RATE: u32 = 48_000;
+pub(crate) const AUDIO_SAMPLE_RATE: u32 = 48_000;
+pub(crate) const AUDIO_CHANNELS: u16 = 2;
+const DEFAULT_AUDIO_CHUNK_FRAMES: usize = 2048;
+
+#[derive(Clone, Debug)]
+pub struct AudioBuffer {
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub samples: Vec<f32>,
+}
+
+impl AudioBuffer {
+    fn silence(sample_frames: usize) -> Self {
+        Self {
+            sample_rate: AUDIO_SAMPLE_RATE,
+            channels: AUDIO_CHANNELS,
+            samples: vec![0.0; sample_frames * AUDIO_CHANNELS as usize],
+        }
+    }
+
+}
 
 #[derive(Clone)]
 struct AudioInterval {
     source: AudioSource,
-    start_frame: u32,
-    end_frame: u32,
+    start_sample_frame: usize,
+    end_sample_frame: usize,
 }
 
 pub(crate) fn build_audio_track(
     composition: &Composition,
     assets: &mut AssetsMap,
 ) -> Result<Option<AudioTrack>> {
-    let intervals = collect_audio_intervals(composition);
+    let intervals = resolve_audio_intervals(composition);
     if intervals.is_empty() {
         return Ok(None);
     }
 
-    let total_frames =
-        frame_to_audio_sample(composition.frames, composition.fps, AUDIO_SAMPLE_RATE);
-    let mut mixed = vec![0.0_f32; total_frames * 2];
-    let mut decoded = HashMap::new();
+    let total_sample_frames = frame_to_audio_sample_frames(
+        composition.frames,
+        composition.fps,
+        AUDIO_SAMPLE_RATE,
+    );
+    let mut mixed = Vec::with_capacity(total_sample_frames * AUDIO_CHANNELS as usize);
+    let mut decoded = DecodedAudioCache::default();
 
-    for interval in intervals {
-        let clip = if let Some(clip) = decoded.get(&interval.source) {
-            clip
-        } else {
-            let asset_id = assets.register_audio_source(&interval.source)?;
-            let path = assets
-                .path(&asset_id)
-                .ok_or_else(|| anyhow!("missing cached audio asset for {}", asset_id.0))?;
-            let clip = decode_audio_to_f32_stereo(path, AUDIO_SAMPLE_RATE)?;
-            decoded.insert(interval.source.clone(), clip);
-            decoded
-                .get(&interval.source)
-                .expect("decoded audio clip should exist")
-        };
-
-        let start_sample =
-            frame_to_audio_sample(interval.start_frame, composition.fps, AUDIO_SAMPLE_RATE);
-        let end_sample =
-            frame_to_audio_sample(interval.end_frame, composition.fps, AUDIO_SAMPLE_RATE);
-        let available_frames = clip
-            .sample_frames()
-            .min(end_sample.saturating_sub(start_sample));
-
-        for frame_offset in 0..available_frames {
-            let mix_index = (start_sample + frame_offset) * 2;
-            let clip_index = frame_offset * 2;
-            mixed[mix_index] += clip.samples[clip_index];
-            mixed[mix_index + 1] += clip.samples[clip_index + 1];
-        }
+    let mut start_sample_frame = 0;
+    while start_sample_frame < total_sample_frames {
+        let chunk_sample_frames =
+            (total_sample_frames - start_sample_frame).min(DEFAULT_AUDIO_CHUNK_FRAMES);
+        let chunk = render_audio_chunk_from_intervals(
+            assets,
+            &intervals,
+            &mut decoded,
+            start_sample_frame,
+            chunk_sample_frames,
+        )?;
+        mixed.extend_from_slice(&chunk.samples);
+        start_sample_frame += chunk_sample_frames;
     }
 
-    for sample in &mut mixed {
-        *sample = sample.clamp(-1.0, 1.0);
-    }
-
-    Ok(Some(AudioTrack::new(AUDIO_SAMPLE_RATE, 2, mixed)))
+    Ok(Some(AudioTrack::new(AUDIO_SAMPLE_RATE, AUDIO_CHANNELS, mixed)))
 }
 
-fn collect_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
+pub(crate) fn render_audio_chunk(
+    composition: &Composition,
+    assets: &mut AssetsMap,
+    start_time_secs: f64,
+    sample_frames: usize,
+) -> Result<Option<AudioBuffer>> {
+    let intervals = resolve_audio_intervals(composition);
+    if intervals.is_empty() {
+        return Ok(None);
+    }
+
+    let total_sample_frames = frame_to_audio_sample_frames(
+        composition.frames,
+        composition.fps,
+        AUDIO_SAMPLE_RATE,
+    );
+    let start_sample_frame = time_to_audio_sample_frame(start_time_secs, AUDIO_SAMPLE_RATE)
+        .min(total_sample_frames);
+    let sample_frames = sample_frames.min(total_sample_frames.saturating_sub(start_sample_frame));
+    if sample_frames == 0 {
+        return Ok(Some(AudioBuffer::silence(0)));
+    }
+
+    let mut decoded = DecodedAudioCache::default();
+    Ok(Some(render_audio_chunk_from_intervals(
+        assets,
+        &intervals,
+        &mut decoded,
+        start_sample_frame,
+        sample_frames,
+    )?))
+}
+
+fn resolve_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
     let mut active_specs = HashMap::<CompositionAudioSource, u32>::new();
     let mut previous_specs = HashSet::<CompositionAudioSource>::new();
-    let mut active = HashMap::<AudioSource, u32>::new();
-    let mut previous = HashSet::<AudioSource>::new();
     let mut intervals = Vec::new();
 
     for spec in composition.audio_sources() {
@@ -116,30 +149,22 @@ fn collect_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
                 .map(|duration| frame < start_frame.saturating_add(duration))
                 .unwrap_or(true)
         });
-        let mut ignored_images = HashSet::new();
-        let mut current = HashSet::<AudioSource>::new();
-
-        match frame_state_for_root(&root, &frame_ctx) {
-            FrameState::Scene { scene, .. } => {
-                collect_sources(&scene, &frame_ctx, &mut ignored_images, &mut current);
-            }
-            FrameState::Transition { from, to, .. } => {
-                collect_sources(&from, &frame_ctx, &mut ignored_images, &mut current);
-                collect_sources(&to, &frame_ctx, &mut ignored_images, &mut current);
-            }
-        }
 
         for spec in previous_specs.difference(&current_specs) {
             if let Some(start_frame) = active_specs.remove(spec) {
+                let start_sample_frame =
+                    frame_to_audio_sample_frames(start_frame, composition.fps, AUDIO_SAMPLE_RATE);
                 let end_frame = spec
                     .duration
                     .map(|duration| start_frame.saturating_add(duration))
                     .unwrap_or(frame)
                     .min(frame);
+                let end_sample_frame =
+                    frame_to_audio_sample_frames(end_frame, composition.fps, AUDIO_SAMPLE_RATE);
                 intervals.push(AudioInterval {
                     source: spec.source.clone(),
-                    start_frame,
-                    end_frame,
+                    start_sample_frame,
+                    end_sample_frame,
                 });
             }
         }
@@ -147,46 +172,24 @@ fn collect_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
         for spec in current_specs.difference(&previous_specs) {
             active_specs.insert(spec.clone(), frame);
         }
-
-        for source in current.difference(&previous) {
-            active.insert(source.clone(), frame);
-        }
-
-        for source in previous.difference(&current) {
-            if let Some(start_frame) = active.remove(source) {
-                intervals.push(AudioInterval {
-                    source: source.clone(),
-                    start_frame,
-                    end_frame: frame,
-                });
-            }
-        }
-
-        previous = current;
         previous_specs = current_specs;
-    }
-
-    for source in previous {
-        if let Some(start_frame) = active.remove(&source) {
-            intervals.push(AudioInterval {
-                source,
-                start_frame,
-                end_frame: composition.frames,
-            });
-        }
     }
 
     for spec in previous_specs {
         if let Some(start_frame) = active_specs.remove(&spec) {
+            let start_sample_frame =
+                frame_to_audio_sample_frames(start_frame, composition.fps, AUDIO_SAMPLE_RATE);
             let end_frame = spec
                 .duration
                 .map(|duration| start_frame.saturating_add(duration))
                 .unwrap_or(composition.frames)
                 .min(composition.frames);
+            let end_sample_frame =
+                frame_to_audio_sample_frames(end_frame, composition.fps, AUDIO_SAMPLE_RATE);
             intervals.push(AudioInterval {
                 source: spec.source,
-                start_frame,
-                end_frame,
+                start_sample_frame,
+                end_sample_frame,
             });
         }
     }
@@ -203,6 +206,77 @@ fn active_scene_ids(root: &crate::scene::node::Node, frame_ctx: &FrameCtx) -> Ha
     }
 }
 
-fn frame_to_audio_sample(frame: u32, fps: u32, sample_rate: u32) -> usize {
+#[derive(Default)]
+struct DecodedAudioCache {
+    decoded: std::collections::HashMap<AudioSource, AudioTrack>,
+}
+
+impl DecodedAudioCache {
+    fn get_or_decode<'a>(
+        &'a mut self,
+        assets: &mut AssetsMap,
+        source: &AudioSource,
+    ) -> Result<&'a AudioTrack> {
+        if !self.decoded.contains_key(source) {
+            let asset_id = assets.register_audio_source(source)?;
+            let path = assets
+                .path(&asset_id)
+                .ok_or_else(|| anyhow!("missing cached audio asset for {}", asset_id.0))?;
+            let clip = decode_audio_to_f32_stereo(path, AUDIO_SAMPLE_RATE)?;
+            self.decoded.insert(source.clone(), clip);
+        }
+        Ok(self
+            .decoded
+            .get(source)
+            .expect("decoded audio clip should exist"))
+    }
+}
+
+fn render_audio_chunk_from_intervals(
+    assets: &mut AssetsMap,
+    intervals: &[AudioInterval],
+    decoded: &mut DecodedAudioCache,
+    start_sample_frame: usize,
+    sample_frames: usize,
+) -> Result<AudioBuffer> {
+    let mut mixed = AudioBuffer::silence(sample_frames);
+    let end_sample_frame = start_sample_frame.saturating_add(sample_frames);
+
+    for interval in intervals {
+        if interval.end_sample_frame <= start_sample_frame
+            || interval.start_sample_frame >= end_sample_frame
+        {
+            continue;
+        }
+
+        let clip = decoded.get_or_decode(assets, &interval.source)?;
+        let overlap_start = interval.start_sample_frame.max(start_sample_frame);
+        let overlap_end = interval.end_sample_frame.min(end_sample_frame);
+        let chunk_offset_frames = overlap_start.saturating_sub(start_sample_frame);
+        let interval_offset_frames = overlap_start.saturating_sub(interval.start_sample_frame);
+        let copy_frames = overlap_end.saturating_sub(overlap_start);
+        let available_frames = clip.sample_frames().saturating_sub(interval_offset_frames);
+        let mix_frames = copy_frames.min(available_frames);
+
+        for frame_offset in 0..mix_frames {
+            let mix_index = (chunk_offset_frames + frame_offset) * AUDIO_CHANNELS as usize;
+            let clip_index = (interval_offset_frames + frame_offset) * AUDIO_CHANNELS as usize;
+            mixed.samples[mix_index] += clip.samples[clip_index];
+            mixed.samples[mix_index + 1] += clip.samples[clip_index + 1];
+        }
+    }
+
+    for sample in &mut mixed.samples {
+        *sample = sample.clamp(-1.0, 1.0);
+    }
+
+    Ok(mixed)
+}
+
+fn frame_to_audio_sample_frames(frame: u32, fps: u32, sample_rate: u32) -> usize {
     ((frame as u64 * sample_rate as u64) / fps as u64) as usize
+}
+
+fn time_to_audio_sample_frame(time_secs: f64, sample_rate: u32) -> usize {
+    (time_secs.max(0.0) * sample_rate as f64).floor() as usize
 }

@@ -2,9 +2,56 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 
-use crate::{frame_ctx::FrameCtx, scene::{node::Node, primitives::AudioSource}};
+use crate::{
+    frame_ctx::FrameCtx,
+    scene::{
+        node::Node,
+        primitives::AudioSource,
+    },
+};
 
 type RootComponent = dyn Fn(&FrameCtx) -> Node + Send + Sync;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum AudioAttachment {
+    Timeline,
+    Scene { scene_id: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CompositionAudioSource {
+    pub id: String,
+    pub source: AudioSource,
+    pub attach: AudioAttachment,
+    pub duration: Option<u32>,
+}
+
+impl CompositionAudioSource {
+    pub fn timeline(id: impl Into<String>, source: AudioSource) -> Self {
+        Self {
+            id: id.into(),
+            source,
+            attach: AudioAttachment::Timeline,
+            duration: None,
+        }
+    }
+
+    pub fn scene(id: impl Into<String>, source: AudioSource, scene_id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            source,
+            attach: AudioAttachment::Scene {
+                scene_id: scene_id.into(),
+            },
+            duration: None,
+        }
+    }
+
+    pub fn with_duration(mut self, duration: Option<u32>) -> Self {
+        self.duration = duration;
+        self
+    }
+}
 
 #[derive(Clone)]
 pub struct Composition {
@@ -14,7 +61,7 @@ pub struct Composition {
     pub fps: u32,
     pub frames: u32,
     pub(crate) root: Arc<RootComponent>,
-    pub(crate) global_audio_sources: Arc<Vec<AudioSource>>,
+    pub(crate) audio_sources: Arc<Vec<CompositionAudioSource>>,
 }
 
 pub struct CompositionBuilder {
@@ -24,7 +71,7 @@ pub struct CompositionBuilder {
     fps: u32,
     frames: Option<u32>,
     root: Option<Arc<RootComponent>>,
-    global_audio_sources: Vec<AudioSource>,
+    audio_sources: Vec<CompositionAudioSource>,
 }
 
 impl Composition {
@@ -36,7 +83,7 @@ impl Composition {
             fps: 30,
             frames: None,
             root: None,
-            global_audio_sources: Vec::new(),
+            audio_sources: Vec::new(),
         }
     }
 
@@ -44,8 +91,8 @@ impl Composition {
         (self.root)(ctx)
     }
 
-    pub(crate) fn global_audio_sources(&self) -> &[AudioSource] {
-        self.global_audio_sources.as_ref()
+    pub(crate) fn audio_sources(&self) -> &[CompositionAudioSource] {
+        self.audio_sources.as_ref()
     }
 
     pub fn aligned_for_video_encoding(&self) -> Composition {
@@ -62,7 +109,7 @@ impl Composition {
             fps: self.fps,
             frames: self.frames,
             root: self.root.clone(),
-            global_audio_sources: self.global_audio_sources.clone(),
+            audio_sources: self.audio_sources.clone(),
         }
     }
 }
@@ -92,11 +139,23 @@ impl CompositionBuilder {
         self
     }
 
+    pub fn audio_sources<I>(mut self, sources: I) -> Self
+    where
+        I: IntoIterator<Item = CompositionAudioSource>,
+    {
+        self.audio_sources = sources.into_iter().collect();
+        self
+    }
+
     pub fn global_audio_sources<I>(mut self, sources: I) -> Self
     where
         I: IntoIterator<Item = AudioSource>,
     {
-        self.global_audio_sources = sources.into_iter().collect();
+        self.audio_sources = sources
+            .into_iter()
+            .enumerate()
+            .map(|(index, source)| CompositionAudioSource::timeline(format!("audio-{index}"), source))
+            .collect();
         self
     }
 
@@ -128,7 +187,7 @@ impl CompositionBuilder {
             fps: self.fps,
             frames,
             root,
-            global_audio_sources: Arc::new(self.global_audio_sources),
+            audio_sources: Arc::new(self.audio_sources),
         })
     }
 }

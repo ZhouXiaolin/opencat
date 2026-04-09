@@ -8,7 +8,7 @@ use crate::{
     resource::assets::AssetsMap,
     runtime::preflight::collect_sources,
     scene::{
-        composition::Composition,
+        composition::{AudioAttachment, Composition, CompositionAudioSource},
         primitives::AudioSource,
         time::{FrameState, frame_state_for_root},
     },
@@ -76,13 +76,17 @@ pub(crate) fn build_audio_track(
 }
 
 fn collect_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
+    let mut active_specs = HashMap::<CompositionAudioSource, u32>::new();
+    let mut previous_specs = HashSet::<CompositionAudioSource>::new();
     let mut active = HashMap::<AudioSource, u32>::new();
     let mut previous = HashSet::<AudioSource>::new();
     let mut intervals = Vec::new();
 
-    for source in composition.global_audio_sources() {
-        previous.insert(source.clone());
-        active.insert(source.clone(), 0);
+    for spec in composition.audio_sources() {
+        if matches!(spec.attach, AudioAttachment::Timeline) {
+            previous_specs.insert(spec.clone());
+            active_specs.insert(spec.clone(), 0);
+        }
     }
 
     for frame in 0..composition.frames {
@@ -94,12 +98,26 @@ fn collect_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
             frames: composition.frames,
         };
         let root = composition.root_node(&frame_ctx);
-        let mut current = composition
-            .global_audio_sources()
+        let active_scene_ids = active_scene_ids(&root, &frame_ctx);
+        let mut current_specs = composition
+            .audio_sources()
             .iter()
             .cloned()
+            .filter(|spec| match &spec.attach {
+                AudioAttachment::Timeline => true,
+                AudioAttachment::Scene { scene_id } => active_scene_ids.contains(scene_id),
+            })
             .collect::<HashSet<_>>();
+        current_specs.retain(|spec| {
+            let Some(start_frame) = active_specs.get(spec).copied() else {
+                return true;
+            };
+            spec.duration
+                .map(|duration| frame < start_frame.saturating_add(duration))
+                .unwrap_or(true)
+        });
         let mut ignored_images = HashSet::new();
+        let mut current = HashSet::<AudioSource>::new();
 
         match frame_state_for_root(&root, &frame_ctx) {
             FrameState::Scene { scene, .. } => {
@@ -109,6 +127,25 @@ fn collect_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
                 collect_sources(&from, &frame_ctx, &mut ignored_images, &mut current);
                 collect_sources(&to, &frame_ctx, &mut ignored_images, &mut current);
             }
+        }
+
+        for spec in previous_specs.difference(&current_specs) {
+            if let Some(start_frame) = active_specs.remove(spec) {
+                let end_frame = spec
+                    .duration
+                    .map(|duration| start_frame.saturating_add(duration))
+                    .unwrap_or(frame)
+                    .min(frame);
+                intervals.push(AudioInterval {
+                    source: spec.source.clone(),
+                    start_frame,
+                    end_frame,
+                });
+            }
+        }
+
+        for spec in current_specs.difference(&previous_specs) {
+            active_specs.insert(spec.clone(), frame);
         }
 
         for source in current.difference(&previous) {
@@ -126,6 +163,7 @@ fn collect_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
         }
 
         previous = current;
+        previous_specs = current_specs;
     }
 
     for source in previous {
@@ -138,7 +176,31 @@ fn collect_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
         }
     }
 
+    for spec in previous_specs {
+        if let Some(start_frame) = active_specs.remove(&spec) {
+            let end_frame = spec
+                .duration
+                .map(|duration| start_frame.saturating_add(duration))
+                .unwrap_or(composition.frames)
+                .min(composition.frames);
+            intervals.push(AudioInterval {
+                source: spec.source,
+                start_frame,
+                end_frame,
+            });
+        }
+    }
+
     intervals
+}
+
+fn active_scene_ids(root: &crate::scene::node::Node, frame_ctx: &FrameCtx) -> HashSet<String> {
+    match frame_state_for_root(root, frame_ctx) {
+        FrameState::Scene { scene, .. } => HashSet::from([scene.style_ref().id.clone()]),
+        FrameState::Transition { from, to, .. } => {
+            HashSet::from([from.style_ref().id.clone(), to.style_ref().id.clone()])
+        }
+    }
 }
 
 fn frame_to_audio_sample(frame: u32, fps: u32, sample_rate: u32) -> usize {

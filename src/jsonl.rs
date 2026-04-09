@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 use crate::scene::{
+    composition::{AudioAttachment, CompositionAudioSource},
     node::Node,
     primitives::{AudioSource, ImageSource, OpenverseQuery},
 };
@@ -79,6 +80,7 @@ enum JsonLine {
         id: String,
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
+        #[allow(dead_code)]
         #[serde(rename = "className")]
         class_name: Option<String>,
         path: Option<String>,
@@ -130,7 +132,6 @@ enum ParsedElementKind {
     Text { content: String },
     Canvas,
     Image { source: ImageSource },
-    Audio { source: AudioSource },
     Icon { name: String },
     Video { path: PathBuf },
 }
@@ -161,6 +162,14 @@ struct ParsedTransition {
 }
 
 #[derive(Debug, Clone)]
+struct ParsedAudioElement {
+    id: String,
+    parent_id: Option<String>,
+    duration: Option<u32>,
+    source: AudioSource,
+}
+
+#[derive(Debug, Clone)]
 enum TimelineEntry {
     SequenceRoot { id: String },
     Transition(ParsedTransition),
@@ -173,7 +182,7 @@ pub struct ParsedComposition {
     pub frames: i32,
     pub root: Node,
     pub script: Option<String>,
-    pub global_audio_sources: Vec<AudioSource>,
+    pub audio_sources: Vec<CompositionAudioSource>,
 }
 
 pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
@@ -182,7 +191,7 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     let mut fps = 30;
     let mut frames = 90;
     let mut global_scripts = Vec::new();
-    let mut global_audio_sources = Vec::new();
+    let mut audio_elements = Vec::new();
     let mut scripts_by_parent: HashMap<String, Vec<String>> = HashMap::new();
     let mut elements: Vec<ParsedElement> = Vec::new();
     let mut timeline_entries = Vec::new();
@@ -314,30 +323,17 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
             JsonLine::Audio {
                 id,
                 parent_id,
-                class_name,
+                class_name: _,
                 path,
                 url,
                 duration,
             } => {
                 let source = parse_audio_source(path, url)?;
-                if parent_id.is_none() {
-                    global_audio_sources.push(source);
-                    continue;
-                }
-                let style = parse_class_name_with_context(
-                    class_name.as_deref().unwrap_or(""),
-                    &id,
-                    line_index + 1,
-                );
-                if parent_id.is_none() {
-                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
-                }
-                elements.push(ParsedElement {
+                audio_elements.push(ParsedAudioElement {
                     id,
                     parent_id,
                     duration,
-                    style,
-                    kind: ParsedElementKind::Audio { source },
+                    source,
                 });
             }
             JsonLine::Video {
@@ -422,6 +418,14 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
         .iter()
         .any(|entry| matches!(entry, TimelineEntry::Transition(_)))
         || elements.iter().filter(|el| el.parent_id.is_none()).count() > 1;
+    let elements_by_id = elements
+        .iter()
+        .map(|element| (element.id.as_str(), element))
+        .collect::<HashMap<_, _>>();
+    let audio_sources = audio_elements
+        .into_iter()
+        .map(|audio| resolve_audio_source(audio, &elements_by_id))
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let (root, frames) = if has_timeline {
         build_timeline(&elements, &scripts_by_parent, &timeline_entries)?
     } else {
@@ -435,8 +439,45 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
         frames,
         root,
         script: join_scripts(global_scripts),
-        global_audio_sources,
+        audio_sources,
     })
+}
+
+fn resolve_audio_source(
+    audio: ParsedAudioElement,
+    elements_by_id: &HashMap<&str, &ParsedElement>,
+) -> anyhow::Result<CompositionAudioSource> {
+    let attach = match audio.parent_id.as_deref() {
+        None => AudioAttachment::Timeline,
+        Some(parent_id) => AudioAttachment::Scene {
+            scene_id: resolve_scene_root_id(parent_id, elements_by_id)?.to_string(),
+        },
+    };
+
+    Ok(CompositionAudioSource {
+        id: audio.id,
+        source: audio.source,
+        attach,
+        duration: audio.duration,
+    })
+}
+
+fn resolve_scene_root_id<'a>(
+    start_id: &'a str,
+    elements_by_id: &HashMap<&'a str, &'a ParsedElement>,
+) -> anyhow::Result<&'a str> {
+    let mut current_id = start_id;
+
+    loop {
+        let element = elements_by_id.get(current_id).copied().ok_or_else(|| {
+            anyhow::anyhow!("audio node references missing visual parent `{current_id}`")
+        })?;
+
+        match element.parent_id.as_deref() {
+            Some(parent_id) => current_id = parent_id,
+            None => return Ok(element.id.as_str()),
+        }
+    }
 }
 
 fn parse_image_source(
@@ -532,8 +573,11 @@ mod tests {
     use super::{parse, parse_class_name};
     use crate::{
         FrameCtx,
-        scene::node::NodeKind,
-        scene::time::{FrameState, frame_state_for_root},
+        scene::{
+            composition::AudioAttachment,
+            node::NodeKind,
+            time::{FrameState, frame_state_for_root},
+        },
         style::{ColorToken, GradientDirection, TextAlign},
     };
 
@@ -825,7 +869,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_treats_root_audio_as_global_track() {
+    fn parser_treats_root_audio_as_timeline_audio_source() {
         let parsed = parse(
             r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
 {"id":"bgm","parentId":null,"type":"audio","path":"/tmp/demo.mp3"}
@@ -833,7 +877,28 @@ mod tests {
         )
         .expect("jsonl with global audio should parse");
 
-        assert_eq!(parsed.global_audio_sources.len(), 1);
+        assert_eq!(parsed.audio_sources.len(), 1);
+        assert!(matches!(
+            parsed.audio_sources[0].attach,
+            AudioAttachment::Timeline
+        ));
         assert!(matches!(parsed.root.kind(), NodeKind::Div(_)));
+    }
+
+    #[test]
+    fn parser_attaches_nested_audio_to_owning_scene() {
+        let parsed = parse(
+            r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
+{"id":"scene-a","parentId":null,"type":"div","className":"w-full h-full","duration":30}
+{"id":"content","parentId":"scene-a","type":"div","className":"w-full h-full"}
+{"id":"voice","parentId":"content","type":"audio","path":"/tmp/voice.mp3"}"#,
+        )
+        .expect("jsonl with scene audio should parse");
+
+        assert_eq!(parsed.audio_sources.len(), 1);
+        assert!(matches!(
+            &parsed.audio_sources[0].attach,
+            AudioAttachment::Scene { scene_id } if scene_id == "scene-a"
+        ));
     }
 }

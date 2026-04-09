@@ -26,7 +26,7 @@ fn main() -> anyhow::Result<()> {
         .size(parsed.width, parsed.height)
         .fps(parsed.fps as u32)
         .frames(parsed.frames as u32)
-        .global_audio_sources(parsed.global_audio_sources.clone())
+        .audio_sources(parsed.audio_sources.clone())
         .root(move |_ctx| root.clone())
         .build()?;
 

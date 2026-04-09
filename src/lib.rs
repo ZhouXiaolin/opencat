@@ -22,7 +22,7 @@ pub use render::{
     render_frame_rgba, render_frame_to_target,
 };
 pub use runtime::target::{RenderFrameViewKind, RenderTargetHandle};
-pub use scene::composition::Composition;
+pub use scene::composition::{AudioAttachment, Composition, CompositionAudioSource};
 pub use scene::node::{Node, NodeKind, component_node, component_node_with_duration};
 pub use scene::primitives::{
     Audio, AudioSource, Canvas, CanvasAsset, Image, ImageSource, OpenverseQuery, audio, canvas,

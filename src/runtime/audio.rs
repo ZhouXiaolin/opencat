@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::{Result, anyhow};
 
@@ -41,12 +44,32 @@ struct AudioInterval {
     end_sample_frame: usize,
 }
 
+type AudioIntervalCacheKey = (usize, usize, u32, u32);
+
+#[derive(Default)]
+pub(crate) struct AudioIntervalCache {
+    key: Option<AudioIntervalCacheKey>,
+    intervals: Vec<AudioInterval>,
+}
+
+impl AudioIntervalCache {
+    fn get_or_resolve<'a>(&'a mut self, composition: &Composition) -> &'a [AudioInterval] {
+        let key = composition_audio_cache_key(composition);
+        if self.key != Some(key) {
+            self.intervals = resolve_audio_intervals(composition);
+            self.key = Some(key);
+        }
+        self.intervals.as_slice()
+    }
+}
+
 pub(crate) fn build_audio_track(
     composition: &Composition,
     assets: &mut AssetsMap,
     decoded: &mut DecodedAudioCache,
+    interval_cache: &mut AudioIntervalCache,
 ) -> Result<Option<AudioTrack>> {
-    let intervals = resolve_audio_intervals(composition);
+    let intervals = interval_cache.get_or_resolve(composition);
     if intervals.is_empty() {
         return Ok(None);
     }
@@ -81,10 +104,11 @@ pub(crate) fn render_audio_chunk(
     composition: &Composition,
     assets: &mut AssetsMap,
     decoded: &mut DecodedAudioCache,
+    interval_cache: &mut AudioIntervalCache,
     start_time_secs: f64,
     sample_frames: usize,
 ) -> Result<Option<AudioBuffer>> {
-    let intervals = resolve_audio_intervals(composition);
+    let intervals = interval_cache.get_or_resolve(composition);
     if intervals.is_empty() {
         return Ok(None);
     }
@@ -192,6 +216,17 @@ fn resolve_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
     }
 
     intervals
+}
+
+fn composition_audio_cache_key(composition: &Composition) -> AudioIntervalCacheKey {
+    let root_ptr = Arc::as_ptr(&composition.root) as *const () as usize;
+    let audio_sources_ptr = Arc::as_ptr(&composition.audio_sources) as usize;
+    (
+        root_ptr,
+        audio_sources_ptr,
+        composition.frames,
+        composition.fps,
+    )
 }
 
 fn active_scene_ids(root: &crate::scene::node::Node, frame_ctx: &FrameCtx) -> HashSet<String> {

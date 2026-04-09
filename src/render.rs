@@ -121,6 +121,7 @@ pub fn build_audio_track(
         composition,
         &mut session.assets,
         &mut session.audio_decode_cache,
+        &mut session.audio_interval_cache,
     )
 }
 
@@ -135,6 +136,7 @@ pub fn render_audio_chunk(
         composition,
         &mut session.assets,
         &mut session.audio_decode_cache,
+        &mut session.audio_interval_cache,
         start_time_secs,
         sample_frames,
     )

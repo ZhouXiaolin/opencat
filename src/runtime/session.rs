@@ -6,7 +6,7 @@ use crate::{
         media::{MediaContext, VideoPreviewQuality},
     },
     runtime::{
-        audio::DecodedAudioCache,
+        audio::{AudioIntervalCache, DecodedAudioCache},
         policy::cache::{SceneSlot, SceneSnapshotCache},
         profile::RenderProfiler,
         render_engine::SharedRenderEngine,
@@ -28,6 +28,7 @@ pub struct RenderSession {
     pub(crate) profiler: RenderProfiler,
     pub(crate) prepared_root_ptr: Option<usize>,
     pub(crate) audio_decode_cache: DecodedAudioCache,
+    pub(crate) audio_interval_cache: AudioIntervalCache,
     pub(crate) text_engine: SharedTextEngine,
     pub(crate) render_engine: SharedRenderEngine,
 }
@@ -51,6 +52,7 @@ impl RenderSession {
             profiler: RenderProfiler::default(),
             prepared_root_ptr: None,
             audio_decode_cache: DecodedAudioCache::default(),
+            audio_interval_cache: AudioIntervalCache::default(),
             text_engine,
             render_engine,
         }

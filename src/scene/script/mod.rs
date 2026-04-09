@@ -200,6 +200,10 @@ impl ScriptDriver {
             current_node_id,
         )
     }
+
+    pub fn source(&self) -> &str {
+        &self.source
+    }
 }
 
 impl ScriptRuntimeCache {

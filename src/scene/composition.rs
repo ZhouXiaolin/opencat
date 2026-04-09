@@ -6,6 +6,7 @@ use crate::{frame_ctx::FrameCtx, scene::node::Node};
 
 type RootComponent = dyn Fn(&FrameCtx) -> Node + Send + Sync;
 
+#[derive(Clone)]
 pub struct Composition {
     pub id: String,
     pub width: i32,
@@ -38,6 +39,23 @@ impl Composition {
 
     pub fn root_node(&self, ctx: &FrameCtx) -> Node {
         (self.root)(ctx)
+    }
+
+    pub fn aligned_for_video_encoding(&self) -> Composition {
+        let aligned_width = align_to_even(self.width.max(1));
+        let aligned_height = align_to_even(self.height.max(1));
+        if aligned_width == self.width && aligned_height == self.height {
+            return self.clone();
+        }
+
+        Composition {
+            id: self.id.clone(),
+            width: aligned_width,
+            height: aligned_height,
+            fps: self.fps,
+            frames: self.frames,
+            root: self.root.clone(),
+        }
     }
 }
 
@@ -96,4 +114,8 @@ impl CompositionBuilder {
             root,
         })
     }
+}
+
+fn align_to_even(value: i32) -> i32 {
+    value + (value & 1)
 }

@@ -101,66 +101,26 @@ fn render_mp4(
     config: &Mp4Config,
     backend: RenderBackend,
 ) -> Result<()> {
+    let composition = composition.aligned_for_video_encoding();
     let engine = render_registry::render_engine_for_backend(backend)?;
     let mut session = RenderSession::with_render_engine(engine.clone());
-    ensure_assets_preloaded(composition, &mut session)?;
-    let audio_track = build_audio_track(composition, &mut session.assets)?;
-    let source_width = composition.width as u32;
-    let source_height = composition.height as u32;
-    let encoded_width = source_width + source_width % 2;
-    let encoded_height = source_height + source_height % 2;
+    ensure_assets_preloaded(&composition, &mut session)?;
+    let audio_track = build_audio_track(&composition, &mut session.assets)?;
     crate::codec::encode::encode_rgba_frames(
         output_path,
-        encoded_width,
-        encoded_height,
+        composition.width as u32,
+        composition.height as u32,
         composition.fps,
         composition.frames,
         config,
         audio_track.as_ref(),
         |frame_index| {
-            let rgba = engine.render_frame_rgba(composition, frame_index, &mut session)?;
-            Ok(pad_rgba_frame(
-                &rgba,
-                source_width,
-                source_height,
-                encoded_width,
-                encoded_height,
-            ))
+            let rgba = engine.render_frame_rgba(&composition, frame_index, &mut session)?;
+            Ok(rgba)
         },
     )?;
     session.profiler.print_summary();
     Ok(())
-}
-
-fn pad_rgba_frame(
-    rgba: &[u8],
-    source_width: u32,
-    source_height: u32,
-    target_width: u32,
-    target_height: u32,
-) -> Vec<u8> {
-    if source_width == target_width && source_height == target_height {
-        return rgba.to_vec();
-    }
-
-    let source_width = source_width as usize;
-    let source_height = source_height as usize;
-    let target_width = target_width as usize;
-    let target_height = target_height as usize;
-    let mut padded = vec![0_u8; target_width * target_height * 4];
-
-    for y in 0..target_height {
-        let source_y = y.min(source_height.saturating_sub(1));
-        for x in 0..target_width {
-            let source_x = x.min(source_width.saturating_sub(1));
-            let source_index = (source_y * source_width + source_x) * 4;
-            let target_index = (y * target_width + x) * 4;
-            padded[target_index..target_index + 4]
-                .copy_from_slice(&rgba[source_index..source_index + 4]);
-        }
-    }
-
-    padded
 }
 
 pub fn render_frame_to_target(
@@ -198,7 +158,7 @@ pub fn render_frame_rgb(
 
 #[cfg(test)]
 mod tests {
-    use super::{RenderSession, pad_rgba_frame, render_frame_rgba};
+    use super::{RenderSession, render_frame_rgba};
     use crate::{
         Composition, FrameCtx,
         scene::primitives::{canvas, div},
@@ -372,18 +332,26 @@ mod tests {
     }
 
     #[test]
-    fn pad_rgba_frame_extends_edge_pixels_for_even_dimensions() {
-        let rgba = vec![
-            1, 0, 0, 255, 2, 0, 0, 255, 3, 0, 0, 255, 4, 0, 0, 255, 5, 0, 0, 255, 6, 0, 0, 255, 7,
-            0, 0, 255, 8, 0, 0, 255, 9, 0, 0, 255,
-        ];
+    fn composition_alignment_for_video_encoding_rounds_up_to_even_dimensions() {
+        let composition = Composition::new("align")
+            .size(3, 5)
+            .fps(30)
+            .frames(1)
+            .root(|_ctx| div().id("root").into())
+            .build()
+            .expect("composition should build");
 
-        let padded = pad_rgba_frame(&rgba, 3, 3, 4, 4);
+        let aligned = composition.aligned_for_video_encoding();
+        assert_eq!((aligned.width, aligned.height), (4, 6));
 
-        assert_eq!(pixel_rgba(&padded, 4, 0, 0), [1, 0, 0, 255]);
-        assert_eq!(pixel_rgba(&padded, 4, 2, 2), [9, 0, 0, 255]);
-        assert_eq!(pixel_rgba(&padded, 4, 3, 0), [3, 0, 0, 255]);
-        assert_eq!(pixel_rgba(&padded, 4, 0, 3), [7, 0, 0, 255]);
-        assert_eq!(pixel_rgba(&padded, 4, 3, 3), [9, 0, 0, 255]);
+        let even = Composition::new("align-even")
+            .size(1280, 720)
+            .fps(30)
+            .frames(1)
+            .root(|_ctx| div().id("root").into())
+            .build()
+            .expect("composition should build");
+        let even_aligned = even.aligned_for_video_encoding();
+        assert_eq!((even_aligned.width, even_aligned.height), (1280, 720));
     }
 }

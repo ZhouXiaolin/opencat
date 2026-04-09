@@ -44,6 +44,7 @@ pub fn encode_rgba_frames(
     frame_count: u32,
     config: &Mp4Config,
     audio_track: Option<&AudioTrack>,
+    mut on_video_frame_encoded: impl FnMut(u32, u32),
     mut frame_provider: impl FnMut(u32) -> Result<Vec<u8>>,
 ) -> Result<()> {
     ffmpeg::init()?;
@@ -136,6 +137,7 @@ pub fn encode_rgba_frames(
             stream_time_base,
             video_frame_duration,
         )?;
+        on_video_frame_encoded(frame_index + 1, frame_count);
     }
 
     video_encoder.send_eof()?;

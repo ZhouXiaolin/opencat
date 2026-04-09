@@ -135,6 +135,8 @@ fn collect_scene_rects(
     draw_order: &mut u32,
     out: &mut Vec<FrameElementRect>,
 ) -> Result<()> {
+    seed_asset_entries_for_inspect(scene, frame_ctx, &mut session.assets);
+
     let mut source_meta_by_id = HashMap::<String, SourceNodeMeta>::new();
     collect_source_metadata(scene, frame_ctx, &mut source_meta_by_id);
 
@@ -165,6 +167,46 @@ fn collect_scene_rects(
         draw_order,
         out,
     )
+}
+
+fn seed_asset_entries_for_inspect(
+    node: &Node,
+    frame_ctx: &FrameCtx,
+    assets: &mut crate::resource::assets::AssetsMap,
+) {
+    match node.kind() {
+        NodeKind::Component(component) => {
+            let rendered = component.render(frame_ctx);
+            seed_asset_entries_for_inspect(&rendered, frame_ctx, assets);
+        }
+        NodeKind::Div(div) => {
+            for child in div.children_ref() {
+                seed_asset_entries_for_inspect(child, frame_ctx, assets);
+            }
+        }
+        NodeKind::Canvas(canvas) => {
+            for asset in canvas.assets_ref() {
+                assets.ensure_image_source_entry_for_inspect(&asset.source);
+            }
+        }
+        NodeKind::Image(image) => {
+            assets.ensure_image_source_entry_for_inspect(image.source());
+        }
+        NodeKind::Timeline(timeline) => {
+            for segment in timeline.segments() {
+                match segment {
+                    TimelineSegment::Scene { scene, .. } => {
+                        seed_asset_entries_for_inspect(scene, frame_ctx, assets);
+                    }
+                    TimelineSegment::Transition { from, to, .. } => {
+                        seed_asset_entries_for_inspect(from, frame_ctx, assets);
+                        seed_asset_entries_for_inspect(to, frame_ctx, assets);
+                    }
+                }
+            }
+        }
+        NodeKind::Text(_) | NodeKind::Audio(_) | NodeKind::Lucide(_) | NodeKind::Video(_) => {}
+    }
 }
 
 fn collect_rects_in_draw_order(

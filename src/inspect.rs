@@ -13,7 +13,7 @@ use crate::{
     runtime::{policy::cache::SceneSlot, session::RenderSession},
     scene::{
         node::{Node, NodeKind},
-        primitives::{AudioSource, ImageSource},
+        primitives::ImageSource,
         time::{FrameState, TimelineSegment, frame_state_for_root},
     },
     style::NodeStyle,
@@ -205,7 +205,7 @@ fn seed_asset_entries_for_inspect(
                 }
             }
         }
-        NodeKind::Text(_) | NodeKind::Audio(_) | NodeKind::Lucide(_) | NodeKind::Video(_) => {}
+        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Video(_) => {}
     }
 }
 
@@ -363,12 +363,6 @@ fn collect_source_metadata(
                 entry.media_source = Some(format_image_source(image.source()));
             }
         }
-        NodeKind::Audio(audio) => {
-            let entry = upsert_style_meta(audio.style_ref(), "audio", out);
-            if let Some(entry) = entry {
-                entry.media_source = Some(format_audio_source(audio.source()));
-            }
-        }
         NodeKind::Lucide(icon) => {
             let entry = upsert_style_meta(icon.style_ref(), "lucide", out);
             if let Some(entry) = entry {
@@ -428,13 +422,5 @@ fn format_image_source(source: &ImageSource) -> String {
                 query.query, query.count, aspect
             )
         }
-    }
-}
-
-fn format_audio_source(source: &AudioSource) -> String {
-    match source {
-        AudioSource::Unset => "unset".to_string(),
-        AudioSource::Path(path) => path.to_string_lossy().to_string(),
-        AudioSource::Url(url) => url.clone(),
     }
 }

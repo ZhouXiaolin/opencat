@@ -1,6 +1,6 @@
 {"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 1003}
 {"id": "scene1", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] relative bg-white", "duration": 500}
-{"id": "bgm", "parentId": "scene1", "type": "audio", "path": "/Users/solaren/Downloads/1.mp3"}
+{"id": "bgm", "parentId": null, "type": "audio", "path": "/Users/solaren/Downloads/1.mp3"}
 {"id": "s1-img", "parentId": "scene1", "type": "video", "className": "w-[390px] h-[260px] object-cover", "query": null, "path": "/Users/solaren/Resources/mp4/02a0592f0d972c3c2dd2f9fb429223ce.mov"}
 {"id": "s1-body", "parentId": "scene1", "type": "div", "className": "flex flex-col grow px-[28px] py-[22px] gap-[16px]"}
 {"id": "s1-title", "parentId": "s1-body", "type": "text", "className": "text-[26px] font-bold text-slate-900 leading-tight", "text": "1. Data Source & Licensing"}

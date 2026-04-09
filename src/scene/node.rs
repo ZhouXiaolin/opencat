@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     frame_ctx::FrameCtx,
     scene::{
-        primitives::{Audio, Canvas, Div, Image, Lucide, Text, Video},
+        primitives::{Canvas, Div, Image, Lucide, Text, Video},
         script::ScriptDriver,
         time::TimelineNode,
     },
@@ -52,7 +52,6 @@ pub enum NodeKind {
     Canvas(Canvas),
     Text(Text),
     Image(Image),
-    Audio(Audio),
     Lucide(Lucide),
     Video(Video),
     Timeline(TimelineNode),
@@ -66,7 +65,6 @@ impl NodeKind {
             Self::Canvas(node) => node.style_ref(),
             Self::Text(node) => node.style_ref(),
             Self::Image(node) => node.style_ref(),
-            Self::Audio(node) => node.style_ref(),
             Self::Lucide(node) => node.style_ref(),
             Self::Video(node) => node.style_ref(),
             Self::Timeline(node) => node.style_ref(),
@@ -78,12 +76,9 @@ impl NodeKind {
             Self::Component(node) => node.duration_in_frames(ctx),
             Self::Div(node) => node.duration_in_frames(ctx),
             Self::Timeline(node) => Some(node.duration_in_frames()),
-            Self::Text(_)
-            | Self::Canvas(_)
-            | Self::Image(_)
-            | Self::Audio(_)
-            | Self::Lucide(_)
-            | Self::Video(_) => None,
+            Self::Text(_) | Self::Canvas(_) | Self::Image(_) | Self::Lucide(_) | Self::Video(_) => {
+                None
+            }
         }
     }
 
@@ -94,7 +89,6 @@ impl NodeKind {
             Self::Canvas(node) => &mut node.style,
             Self::Text(node) => &mut node.style,
             Self::Image(node) => &mut node.style,
-            Self::Audio(node) => &mut node.style,
             Self::Lucide(node) => &mut node.style,
             Self::Video(node) => &mut node.style,
             Self::Timeline(node) => &mut node.style,
@@ -195,12 +189,6 @@ impl From<Image> for NodeKind {
     }
 }
 
-impl From<Audio> for NodeKind {
-    fn from(value: Audio) -> Self {
-        Self::Audio(value)
-    }
-}
-
 impl From<Lucide> for NodeKind {
     fn from(value: Lucide) -> Self {
         Self::Lucide(value)
@@ -219,11 +207,50 @@ impl From<TimelineNode> for NodeKind {
     }
 }
 
-impl<T> From<T> for Node
-where
-    T: Into<NodeKind>,
-{
-    fn from(value: T) -> Self {
+impl From<ComponentNode> for Node {
+    fn from(value: ComponentNode) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Div> for Node {
+    fn from(value: Div) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Canvas> for Node {
+    fn from(value: Canvas) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Text> for Node {
+    fn from(value: Text) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Image> for Node {
+    fn from(value: Image) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Lucide> for Node {
+    fn from(value: Lucide) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Video> for Node {
+    fn from(value: Video) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<TimelineNode> for Node {
+    fn from(value: TimelineNode) -> Self {
         Self::new(value)
     }
 }

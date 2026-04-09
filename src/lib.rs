@@ -26,8 +26,8 @@ pub use runtime::target::{RenderFrameViewKind, RenderTargetHandle};
 pub use scene::composition::{AudioAttachment, Composition, CompositionAudioSource};
 pub use scene::node::{Node, NodeKind, component_node, component_node_with_duration};
 pub use scene::primitives::{
-    Audio, AudioSource, Canvas, CanvasAsset, Image, ImageSource, OpenverseQuery, audio, canvas,
-    div, image, lucide, text, video,
+    AudioSource, Canvas, CanvasAsset, Image, ImageSource, OpenverseQuery, canvas, div, image,
+    lucide, text, video,
 };
 pub use scene::script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use scene::transition::{

@@ -4,8 +4,8 @@ use anyhow::{Result, anyhow};
 use foreign_types::ForeignType;
 #[cfg(target_os = "macos")]
 use metal::{
-    CommandQueue, Device, MTLPixelFormat, MTLStorageMode, MTLTextureType, MTLTextureUsage,
-    Texture, TextureDescriptor,
+    CommandQueue, Device, MTLPixelFormat, MTLStorageMode, MTLTextureType, MTLTextureUsage, Texture,
+    TextureDescriptor,
 };
 #[cfg(target_os = "macos")]
 use skia_safe::gpu::{self, backend_render_targets, mtl};

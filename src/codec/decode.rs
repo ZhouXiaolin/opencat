@@ -226,22 +226,36 @@ impl VideoDecoder {
 
     fn receive_until(&mut self, target_secs: f64) -> Result<bool> {
         let mut frame = ffmpeg::frame::Video::empty();
+        let mut selected_frame: Option<ffmpeg::frame::Video> = None;
+        let mut selected_pts_secs = -1.0;
+        let mut reached_target = false;
+
         while self.decoder.receive_frame(&mut frame).is_ok() {
             let pts = frame.pts().unwrap_or(0);
             let pts_secs = pts as f64 * self.time_base.numerator() as f64
                 / self.time_base.denominator() as f64;
-
-            let mut rgba = ffmpeg::frame::Video::new(Pixel::RGBA, self.width, self.height);
-            self.scaler.run(&frame, &mut rgba)?;
-
-            self.current_pts_secs = pts_secs;
-            self.current_frame = Some(Arc::new(pack_rgba(&rgba, self.width, self.height)));
+            selected_pts_secs = pts_secs;
+            selected_frame = Some(frame.clone());
 
             if pts_secs >= target_secs {
-                return Ok(true);
+                reached_target = true;
+                break;
             }
         }
-        Ok(false)
+
+        if let Some(frame) = selected_frame.as_ref() {
+            self.update_current_frame(frame, selected_pts_secs)?;
+        }
+
+        Ok(reached_target)
+    }
+
+    fn update_current_frame(&mut self, frame: &ffmpeg::frame::Video, pts_secs: f64) -> Result<()> {
+        let mut rgba = ffmpeg::frame::Video::new(Pixel::RGBA, self.width, self.height);
+        self.scaler.run(frame, &mut rgba)?;
+        self.current_pts_secs = pts_secs;
+        self.current_frame = Some(Arc::new(pack_rgba(&rgba, self.width, self.height)));
+        Ok(())
     }
 }
 

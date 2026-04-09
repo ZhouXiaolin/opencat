@@ -7,6 +7,7 @@ fn main() {
 mod app {
     use std::ffi::c_void;
     use std::num::{NonZeroU16, NonZeroU32};
+    use std::sync::mpsc::{self, Receiver};
     use std::time::{Duration, Instant};
 
     use anyhow::{Context, Result, anyhow};
@@ -17,11 +18,10 @@ mod app {
     use metal::{CommandQueue, Device, MTLPixelFormat, MetalDrawable, MetalLayer};
     use opencat::{
         Composition, FrameCtx, RenderFrameViewKind, RenderSession, RenderTargetHandle,
-        ScriptDriver, codec::decode::AudioTrack, parse,
+        ScriptDriver, parse, render_audio_chunk,
     };
-    use opencat::render::build_audio_track;
     use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
-    use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source, buffer::SamplesBuffer};
+    use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source};
     use skia_safe::{
         ColorType,
         gpu::{self, SurfaceOrigin, backend_render_targets, mtl},
@@ -31,26 +31,173 @@ mod app {
     use winit::event_loop::{ControlFlow, EventLoop};
     use winit::window::WindowBuilder;
 
+    const AUDIO_CHUNK_FRAMES: usize = 2048;
+    const AUDIO_SAMPLE_RATE: u32 = 48_000;
+    const AUDIO_CHANNELS: u16 = 2;
+
+    enum AudioChunkMessage {
+        Samples(Vec<f32>),
+        Error(String),
+    }
+
+    struct AudioRenderSource {
+        receiver: Receiver<AudioChunkMessage>,
+        sample_rate: NonZeroU32,
+        channels: NonZeroU16,
+        chunk_sample_frames: usize,
+        current_chunk: Vec<f32>,
+        current_sample_index: usize,
+        last_error: Option<String>,
+        disconnected: bool,
+    }
+
+    impl AudioRenderSource {
+        fn new(composition: Composition, has_audio: bool) -> Result<Option<Self>> {
+            if !has_audio {
+                return Ok(None);
+            }
+
+            let sample_rate = NonZeroU32::new(AUDIO_SAMPLE_RATE)
+                .ok_or_else(|| anyhow!("audio chunk sample rate must be non-zero"))?;
+            let channels = NonZeroU16::new(AUDIO_CHANNELS)
+                .ok_or_else(|| anyhow!("audio chunk channel count must be non-zero"))?;
+            let loop_sample_frames = composition_sample_frames(
+                composition.frames.max(1),
+                composition.fps.max(1),
+                sample_rate,
+            );
+            let (sender, receiver) = mpsc::sync_channel(3);
+            std::thread::spawn(move || {
+                let mut session = RenderSession::new();
+                let mut next_loop_sample_frame = 0;
+
+                loop {
+                    let chunk = match render_audio_chunk_looping(
+                        &composition,
+                        &mut session,
+                        next_loop_sample_frame,
+                        AUDIO_CHUNK_FRAMES,
+                        sample_rate,
+                        channels,
+                        loop_sample_frames.max(1),
+                    ) {
+                        Ok(chunk) => {
+                            next_loop_sample_frame = (next_loop_sample_frame + AUDIO_CHUNK_FRAMES)
+                                % loop_sample_frames.max(1);
+                            AudioChunkMessage::Samples(chunk)
+                        }
+                        Err(error) => {
+                            let _ = sender.send(AudioChunkMessage::Error(format!("{error:#}")));
+                            break;
+                        }
+                    };
+
+                    if sender.send(chunk).is_err() {
+                        break;
+                    }
+                }
+            });
+
+            Ok(Some(Self {
+                receiver,
+                sample_rate,
+                channels,
+                chunk_sample_frames: AUDIO_CHUNK_FRAMES,
+                current_chunk: Vec::new(),
+                current_sample_index: 0,
+                last_error: None,
+                disconnected: false,
+            }))
+        }
+
+        fn refill_chunk(&mut self) {
+            if self.disconnected {
+                self.current_chunk =
+                    vec![0.0; self.chunk_sample_frames * self.channels.get() as usize];
+                self.current_sample_index = 0;
+                return;
+            }
+
+            match self.receiver.recv() {
+                Ok(AudioChunkMessage::Samples(chunk)) => {
+                    self.current_chunk = if chunk.is_empty() {
+                        vec![0.0; self.chunk_sample_frames * self.channels.get() as usize]
+                    } else {
+                        chunk
+                    };
+                    self.current_sample_index = 0;
+                    self.last_error = None;
+                }
+                Ok(AudioChunkMessage::Error(message)) => {
+                    if self.last_error.as_deref() != Some(message.as_str()) {
+                        eprintln!("audio render error: {message}");
+                        self.last_error = Some(message);
+                    }
+                    self.disconnected = true;
+                    self.current_chunk =
+                        vec![0.0; self.chunk_sample_frames * self.channels.get() as usize];
+                    self.current_sample_index = 0;
+                }
+                Err(_) => {
+                    self.disconnected = true;
+                    self.current_chunk =
+                        vec![0.0; self.chunk_sample_frames * self.channels.get() as usize];
+                    self.current_sample_index = 0;
+                }
+            }
+        }
+    }
+
+    impl Iterator for AudioRenderSource {
+        type Item = f32;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.current_sample_index >= self.current_chunk.len() {
+                self.refill_chunk();
+            }
+
+            let sample = self.current_chunk.get(self.current_sample_index).copied()?;
+            self.current_sample_index += 1;
+            Some(sample)
+        }
+    }
+
+    impl Source for AudioRenderSource {
+        fn current_span_len(&self) -> Option<usize> {
+            None
+        }
+
+        fn channels(&self) -> rodio::ChannelCount {
+            self.channels
+        }
+
+        fn sample_rate(&self) -> rodio::SampleRate {
+            self.sample_rate
+        }
+
+        fn total_duration(&self) -> Option<Duration> {
+            None
+        }
+    }
+
     struct AudioPlayback {
         _sink: MixerDeviceSink,
         player: Player,
     }
 
     impl AudioPlayback {
-        fn new(track: AudioTrack) -> Result<Self> {
+        fn new(composition: Composition, has_audio: bool) -> Result<Option<Self>> {
+            let Some(source) = AudioRenderSource::new(composition, has_audio)? else {
+                return Ok(None);
+            };
             let sink = DeviceSinkBuilder::open_default_sink()
                 .context("failed to open default audio output device")?;
             let player = Player::connect_new(&sink.mixer());
-            let channels = NonZeroU16::new(track.channels)
-                .ok_or_else(|| anyhow!("audio track channel count must be non-zero"))?;
-            let sample_rate = NonZeroU32::new(track.sample_rate)
-                .ok_or_else(|| anyhow!("audio track sample rate must be non-zero"))?;
-            let source = SamplesBuffer::new(channels, sample_rate, track.samples).repeat_infinite();
             player.append(source);
-            Ok(Self {
+            Ok(Some(Self {
                 _sink: sink,
                 player,
-            })
+            }))
         }
 
         fn frame_index(&self, total_frames: u32, fps: u32) -> u32 {
@@ -80,6 +227,46 @@ mod app {
             };
             Instant::now() + Duration::from_secs_f64(remaining_secs.max(0.001))
         }
+    }
+
+    fn render_audio_chunk_looping(
+        composition: &Composition,
+        session: &mut RenderSession,
+        start_loop_sample_frame: usize,
+        chunk_sample_frames: usize,
+        sample_rate: NonZeroU32,
+        channels: NonZeroU16,
+        loop_sample_frames: usize,
+    ) -> Result<Vec<f32>> {
+        let channel_count = channels.get() as usize;
+        let mut samples = Vec::with_capacity(chunk_sample_frames * channel_count);
+        let mut next_loop_sample_frame = start_loop_sample_frame % loop_sample_frames.max(1);
+
+        while samples.len() < chunk_sample_frames * channel_count {
+            let remaining_frames = chunk_sample_frames - (samples.len() / channel_count);
+            let frames_until_loop_end = loop_sample_frames.saturating_sub(next_loop_sample_frame);
+            let request_frames = remaining_frames.min(frames_until_loop_end.max(1));
+            let start_time_secs = next_loop_sample_frame as f64 / sample_rate.get() as f64;
+            let chunk = render_audio_chunk(composition, session, start_time_secs, request_frames)?;
+            let chunk_samples = chunk
+                .map(|chunk| chunk.samples)
+                .unwrap_or_else(|| vec![0.0; request_frames * channel_count]);
+            let rendered_frames = chunk_samples.len() / channel_count;
+            samples.extend_from_slice(&chunk_samples);
+            if rendered_frames < request_frames {
+                samples.resize(
+                    samples.len() + (request_frames - rendered_frames) * channel_count,
+                    0.0,
+                );
+            }
+
+            next_loop_sample_frame += request_frames;
+            if next_loop_sample_frame >= loop_sample_frames {
+                next_loop_sample_frame = 0;
+            }
+        }
+
+        Ok(samples)
     }
 
     struct MetalSkiaRenderTarget {
@@ -242,6 +429,7 @@ mod app {
             .with_context(|| format!("failed to read jsonl file: {input_path}"))?;
 
         let parsed = parse(&input).context("failed to parse JSONL composition")?;
+        let has_audio = !parsed.audio_sources.is_empty();
         let mut root = parsed.root;
         if let Some(script) = parsed.script.as_deref() {
             if !script.trim().is_empty() {
@@ -308,9 +496,7 @@ mod app {
         }
         std::thread::sleep(Duration::from_millis(100));
 
-        let audio_playback = build_audio_track(&composition, &mut session)?
-            .map(AudioPlayback::new)
-            .transpose()?;
+        let audio_playback = AudioPlayback::new(composition.clone(), has_audio)?;
         let mut next_tick = audio_playback
             .as_ref()
             .map(|playback| playback.next_redraw_deadline(fps))
@@ -362,6 +548,10 @@ mod app {
                 _ => {}
             }
         });
+    }
+
+    fn composition_sample_frames(frames: u32, fps: u32, sample_rate: NonZeroU32) -> usize {
+        ((frames as u64 * sample_rate.get() as u64) / fps.max(1) as u64) as usize
     }
 }
 

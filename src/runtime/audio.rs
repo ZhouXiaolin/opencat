@@ -32,7 +32,6 @@ impl AudioBuffer {
             samples: vec![0.0; sample_frames * AUDIO_CHANNELS as usize],
         }
     }
-
 }
 
 #[derive(Clone)]
@@ -45,19 +44,16 @@ struct AudioInterval {
 pub(crate) fn build_audio_track(
     composition: &Composition,
     assets: &mut AssetsMap,
+    decoded: &mut DecodedAudioCache,
 ) -> Result<Option<AudioTrack>> {
     let intervals = resolve_audio_intervals(composition);
     if intervals.is_empty() {
         return Ok(None);
     }
 
-    let total_sample_frames = frame_to_audio_sample_frames(
-        composition.frames,
-        composition.fps,
-        AUDIO_SAMPLE_RATE,
-    );
+    let total_sample_frames =
+        frame_to_audio_sample_frames(composition.frames, composition.fps, AUDIO_SAMPLE_RATE);
     let mut mixed = Vec::with_capacity(total_sample_frames * AUDIO_CHANNELS as usize);
-    let mut decoded = DecodedAudioCache::default();
 
     let mut start_sample_frame = 0;
     while start_sample_frame < total_sample_frames {
@@ -66,7 +62,7 @@ pub(crate) fn build_audio_track(
         let chunk = render_audio_chunk_from_intervals(
             assets,
             &intervals,
-            &mut decoded,
+            decoded,
             start_sample_frame,
             chunk_sample_frames,
         )?;
@@ -74,12 +70,17 @@ pub(crate) fn build_audio_track(
         start_sample_frame += chunk_sample_frames;
     }
 
-    Ok(Some(AudioTrack::new(AUDIO_SAMPLE_RATE, AUDIO_CHANNELS, mixed)))
+    Ok(Some(AudioTrack::new(
+        AUDIO_SAMPLE_RATE,
+        AUDIO_CHANNELS,
+        mixed,
+    )))
 }
 
 pub(crate) fn render_audio_chunk(
     composition: &Composition,
     assets: &mut AssetsMap,
+    decoded: &mut DecodedAudioCache,
     start_time_secs: f64,
     sample_frames: usize,
 ) -> Result<Option<AudioBuffer>> {
@@ -88,23 +89,19 @@ pub(crate) fn render_audio_chunk(
         return Ok(None);
     }
 
-    let total_sample_frames = frame_to_audio_sample_frames(
-        composition.frames,
-        composition.fps,
-        AUDIO_SAMPLE_RATE,
-    );
-    let start_sample_frame = time_to_audio_sample_frame(start_time_secs, AUDIO_SAMPLE_RATE)
-        .min(total_sample_frames);
+    let total_sample_frames =
+        frame_to_audio_sample_frames(composition.frames, composition.fps, AUDIO_SAMPLE_RATE);
+    let start_sample_frame =
+        time_to_audio_sample_frame(start_time_secs, AUDIO_SAMPLE_RATE).min(total_sample_frames);
     let sample_frames = sample_frames.min(total_sample_frames.saturating_sub(start_sample_frame));
     if sample_frames == 0 {
         return Ok(Some(AudioBuffer::silence(0)));
     }
 
-    let mut decoded = DecodedAudioCache::default();
     Ok(Some(render_audio_chunk_from_intervals(
         assets,
         &intervals,
-        &mut decoded,
+        decoded,
         start_sample_frame,
         sample_frames,
     )?))
@@ -207,7 +204,7 @@ fn active_scene_ids(root: &crate::scene::node::Node, frame_ctx: &FrameCtx) -> Ha
 }
 
 #[derive(Default)]
-struct DecodedAudioCache {
+pub(crate) struct DecodedAudioCache {
     decoded: std::collections::HashMap<AudioSource, AudioTrack>,
 }
 

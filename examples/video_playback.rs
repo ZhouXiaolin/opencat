@@ -1,8 +1,9 @@
 use std::f32::consts::PI;
+use std::path::PathBuf;
 
 use opencat::{
-    Composition, EncodingConfig, FrameCtx, Node, audio, canvas, div, image, light_leak, linear,
-    slide, text, timeline, video,
+    AudioSource, Composition, CompositionAudioSource, EncodingConfig, FrameCtx, Node, canvas, div,
+    image, light_leak, linear, slide, text, timeline, video,
 };
 
 const VIDEO_PATH: &str = "/Users/solaren/Resources/mp4/2.mp4";
@@ -95,7 +96,6 @@ fn scene_one(ctx: &FrameCtx) -> Node {
         .bg_slate_900()
         .px(56.0)
         .py(48.0)
-        .child(audio().path(AUDIO_PATH).id("scene-one-audio"))
         .child(
             div()
                 .id("scene-one-copy")
@@ -253,7 +253,6 @@ fn scene_two(ctx: &FrameCtx) -> Node {
         .w_full()
         .h_full()
         .bg_slate_50()
-        .child(audio().path(AUDIO_PATH).id("scene-two-audio"))
         .child(
             image()
                 .path(IMAGE_PATH)
@@ -351,7 +350,6 @@ fn scene_three(ctx: &FrameCtx) -> Node {
         .bg_black()
         .px(52.0)
         .py(48.0)
-        .child(audio().path(AUDIO_PATH).id("scene-three-audio"))
         .child(
             div()
                 .id("scene-three-header")
@@ -474,9 +472,26 @@ fn evaluation_demo(ctx: &FrameCtx) -> Node {
 }
 
 fn main() -> anyhow::Result<()> {
+    let audio_source = AudioSource::Path(PathBuf::from(AUDIO_PATH));
     let composition = Composition::new("video_playback")
         .size(1280, 720)
         .fps(30)
+        .audio_sources([
+            CompositionAudioSource::scene(
+                "scene-one-audio",
+                audio_source.clone(),
+                "scene-one-root",
+            )
+            .with_duration(Some(90)),
+            CompositionAudioSource::scene(
+                "scene-two-audio",
+                audio_source.clone(),
+                "scene-two-root",
+            )
+            .with_duration(Some(90)),
+            CompositionAudioSource::scene("scene-three-audio", audio_source, "scene-three-root")
+                .with_duration(Some(90)),
+        ])
         .root(evaluation_demo)
         .build()?;
 

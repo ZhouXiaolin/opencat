@@ -4,10 +4,7 @@ use anyhow::{Result, anyhow};
 
 use crate::{
     frame_ctx::FrameCtx,
-    scene::{
-        node::Node,
-        primitives::AudioSource,
-    },
+    scene::{node::Node, primitives::AudioSource},
 };
 
 type RootComponent = dyn Fn(&FrameCtx) -> Node + Send + Sync;
@@ -154,7 +151,9 @@ impl CompositionBuilder {
         self.audio_sources = sources
             .into_iter()
             .enumerate()
-            .map(|(index, source)| CompositionAudioSource::timeline(format!("audio-{index}"), source))
+            .map(|(index, source)| {
+                CompositionAudioSource::timeline(format!("audio-{index}"), source)
+            })
             .collect();
         self
     }

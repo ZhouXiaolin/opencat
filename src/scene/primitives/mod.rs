@@ -7,7 +7,7 @@ mod text;
 mod video;
 
 pub use crate::style::{AlignItems, JustifyContent, Position};
-pub use audio::{Audio, AudioSource, audio};
+pub use audio::AudioSource;
 pub use canvas::{Canvas, CanvasAsset, canvas};
 pub use div::{Div, div};
 pub use image::{Image, ImageSource, OpenverseQuery, image};

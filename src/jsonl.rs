@@ -530,13 +530,10 @@ fn parse_image_source(
 }
 
 fn parse_audio_source(path: Option<String>, url: Option<String>) -> anyhow::Result<AudioSource> {
-    let sources = [
-        path.as_ref().map(|_| "path"),
-        url.as_ref().map(|_| "url"),
-    ]
-    .into_iter()
-    .flatten()
-    .count();
+    let sources = [path.as_ref().map(|_| "path"), url.as_ref().map(|_| "url")]
+        .into_iter()
+        .flatten()
+        .count();
 
     if sources == 0 {
         return Err(anyhow::anyhow!("audio node requires one of: path, url"));

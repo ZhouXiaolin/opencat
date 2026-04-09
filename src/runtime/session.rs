@@ -3,6 +3,7 @@ use crate::{
     layout::LayoutSession,
     resource::{assets::AssetsMap, media::MediaContext},
     runtime::{
+        audio::DecodedAudioCache,
         policy::cache::{SceneSlot, SceneSnapshotCache},
         profile::RenderProfiler,
         render_engine::SharedRenderEngine,
@@ -23,6 +24,7 @@ pub struct RenderSession {
     pub(crate) transition_to_layout: LayoutSession,
     pub(crate) profiler: RenderProfiler,
     pub(crate) prepared_root_ptr: Option<usize>,
+    pub(crate) audio_decode_cache: DecodedAudioCache,
     pub(crate) text_engine: SharedTextEngine,
     pub(crate) render_engine: SharedRenderEngine,
 }
@@ -45,6 +47,7 @@ impl RenderSession {
             transition_to_layout: LayoutSession::new(),
             profiler: RenderProfiler::default(),
             prepared_root_ptr: None,
+            audio_decode_cache: DecodedAudioCache::default(),
             text_engine,
             render_engine,
         }

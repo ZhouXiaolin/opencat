@@ -4,6 +4,7 @@ use anyhow::{Result, anyhow};
 
 use crate::{
     codec::decode::AudioTrack,
+    resource::media::VideoPreviewQuality,
     runtime::{
         audio::{
             AudioBuffer, build_audio_track as build_runtime_audio_track,
@@ -165,6 +166,9 @@ fn render_mp4(
     let composition = composition.aligned_for_video_encoding();
     let engine = render_registry::render_engine_for_backend(backend)?;
     let mut session = RenderSession::with_render_engine(engine.clone());
+    session
+        .media_ctx
+        .set_video_preview_quality(VideoPreviewQuality::Exact);
     let audio_track = build_audio_track(&composition, &mut session)?;
     crate::codec::encode::encode_rgba_frames(
         output_path,

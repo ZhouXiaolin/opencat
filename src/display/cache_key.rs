@@ -101,6 +101,12 @@ fn hash_display_item(item: &DisplayItem, state: &mut impl Hasher) {
             bitmap.asset_id.hash(state);
             bitmap.width.hash(state);
             bitmap.height.hash(state);
+            bitmap.video_timing.is_some().hash(state);
+            if let Some(video_timing) = bitmap.video_timing {
+                video_timing.media_offset_secs.to_bits().hash(state);
+                video_timing.playback_rate.to_bits().hash(state);
+                video_timing.looping.hash(state);
+            }
             bitmap.object_fit.hash(state);
             bitmap.paint.background.hash(state);
             hash_f32(bitmap.paint.border_radius, state);

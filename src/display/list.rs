@@ -1,5 +1,6 @@
 use crate::{
     resource::assets::AssetId,
+    resource::media::VideoFrameTiming,
     scene::script::CanvasCommand,
     style::{BackgroundFill, ColorToken, ComputedTextStyle, ObjectFit, ShadowStyle},
 };
@@ -82,6 +83,7 @@ pub struct BitmapDisplayItem {
     pub asset_id: AssetId,
     pub width: u32,
     pub height: u32,
+    pub video_timing: Option<VideoFrameTiming>,
     pub object_fit: ObjectFit,
     pub paint: BitmapPaintStyle,
 }

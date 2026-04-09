@@ -245,6 +245,7 @@ fn resolve_video(
             crate::resource::media::VideoInfo {
                 width: 0,
                 height: 0,
+                duration_secs: None,
             }
         });
 
@@ -258,6 +259,7 @@ fn resolve_video(
                 asset_id,
                 width: info.width,
                 height: info.height,
+                video_timing: Some(video.timing()),
             }),
             style: computed,
             children: Vec::new(),
@@ -293,6 +295,7 @@ fn resolve_image(
                 asset_id,
                 width,
                 height,
+                video_timing: None,
             }),
             style: computed,
             children: Vec::new(),

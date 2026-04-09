@@ -1,7 +1,10 @@
 use crate::{
     backend::resource_cache::BackendResourceCache,
     layout::LayoutSession,
-    resource::{assets::AssetsMap, media::MediaContext},
+    resource::{
+        assets::AssetsMap,
+        media::{MediaContext, VideoPreviewQuality},
+    },
     runtime::{
         audio::DecodedAudioCache,
         policy::cache::{SceneSlot, SceneSnapshotCache},
@@ -55,6 +58,10 @@ impl RenderSession {
 
     pub fn print_profile_summary(&self) {
         self.profiler.print_summary();
+    }
+
+    pub fn set_video_preview_quality(&mut self, quality: VideoPreviewQuality) {
+        self.media_ctx.set_video_preview_quality(quality);
     }
 
     pub(crate) fn layout_session_mut(&mut self, slot: SceneSlot) -> &mut LayoutSession {

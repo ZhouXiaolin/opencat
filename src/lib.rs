@@ -11,6 +11,7 @@ pub mod resource;
 pub mod runtime;
 pub mod scene;
 pub mod style;
+mod text;
 
 pub use frame_ctx::FrameCtx;
 pub use jsonl::{ParsedComposition, parse};

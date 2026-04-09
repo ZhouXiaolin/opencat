@@ -16,12 +16,9 @@ use crate::{
         tree::{ElementKind, ElementNode},
     },
     layout::tree::{LayoutNode, LayoutRect, LayoutTree},
-    runtime::{
-        render_registry,
-        text_engine::{SharedTextEngine, TextEngine, TextMeasureRequest},
-    },
     scene::primitives::{AlignItems, JustifyContent, Position},
     style::ComputedTextStyle,
+    text::{TextMeasureRequest, TextMeasurer},
 };
 
 #[derive(Clone)]
@@ -82,20 +79,21 @@ impl LayoutSession {
         }
     }
 
+    #[cfg(test)]
     pub fn compute_layout(
         &mut self,
         root: &ElementNode,
         frame_ctx: &FrameCtx,
     ) -> Result<(LayoutTree, LayoutPassStats)> {
-        let text_engine = default_text_engine();
-        self.compute_layout_with_text_engine(root, frame_ctx, text_engine.as_ref())
+        let text_measurer = default_text_measurer();
+        self.compute_layout_with_text_engine(root, frame_ctx, text_measurer.as_ref())
     }
 
     pub(crate) fn compute_layout_with_text_engine(
         &mut self,
         root: &ElementNode,
         frame_ctx: &FrameCtx,
-        text_engine: &dyn TextEngine,
+        text_measurer: &dyn TextMeasurer,
     ) -> Result<(LayoutTree, LayoutPassStats)> {
         let mut stats = LayoutPassStats::default();
         let viewport_size = (frame_ctx.width, frame_ctx.height);
@@ -125,7 +123,12 @@ impl LayoutSession {
                     height: AvailableSpace::Definite(frame_ctx.height as f32),
                 },
                 |known_dimensions, available_space, _node_id, node_context, _style| {
-                    measure_node(known_dimensions, available_space, node_context, text_engine)
+                    measure_node(
+                        known_dimensions,
+                        available_space,
+                        node_context,
+                        text_measurer,
+                    )
                 },
             )?;
 
@@ -167,18 +170,26 @@ impl Default for LayoutSession {
     }
 }
 
+#[cfg(test)]
 pub fn compute_layout(root: &ElementNode, frame_ctx: &FrameCtx) -> Result<LayoutTree> {
-    let text_engine = default_text_engine();
-    compute_layout_with_text_engine(root, frame_ctx, text_engine.as_ref())
+    let text_measurer = default_text_measurer();
+    compute_layout_with_text_engine(root, frame_ctx, text_measurer.as_ref())
 }
 
+#[cfg(test)]
+fn default_text_measurer() -> crate::text::SharedTextMeasurer {
+    crate::backend::skia::text::shared_text_engine()
+}
+
+#[cfg(test)]
 pub(crate) fn compute_layout_with_text_engine(
     root: &ElementNode,
     frame_ctx: &FrameCtx,
-    text_engine: &dyn TextEngine,
+    text_measurer: &dyn TextMeasurer,
 ) -> Result<LayoutTree> {
     let mut session = LayoutSession::new();
-    let (layout_tree, _) = session.compute_layout_with_text_engine(root, frame_ctx, text_engine)?;
+    let (layout_tree, _) =
+        session.compute_layout_with_text_engine(root, frame_ctx, text_measurer)?;
     Ok(layout_tree)
 }
 
@@ -186,7 +197,7 @@ fn measure_node(
     known_dimensions: taffy::geometry::Size<Option<f32>>,
     available_space: taffy::geometry::Size<AvailableSpace>,
     node_context: Option<&mut TextMeasureContext>,
-    text_engine: &dyn TextEngine,
+    text_measurer: &dyn TextMeasurer,
 ) -> taffy::geometry::Size<f32> {
     let Some(text) = node_context else {
         return taffy::geometry::Size::ZERO;
@@ -204,7 +215,7 @@ fn measure_node(
         f32::INFINITY
     };
 
-    let measured = text_engine.measure(&TextMeasureRequest {
+    let measured = text_measurer.measure(&TextMeasureRequest {
         text: &text.text,
         style: &text.style,
         max_width,
@@ -215,10 +226,6 @@ fn measure_node(
         width: known_dimensions.width.unwrap_or(measured.width),
         height: known_dimensions.height.unwrap_or(measured.height),
     }
-}
-
-fn default_text_engine() -> SharedTextEngine {
-    render_registry::default_text_engine()
 }
 
 fn build_taffy_subtree(
@@ -1023,7 +1030,7 @@ mod tests {
                 height: AvailableSpace::Definite(40.0),
             },
             Some(&mut ctx),
-            super::default_text_engine().as_ref(),
+            super::default_text_measurer().as_ref(),
         );
 
         assert!(

@@ -355,11 +355,6 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     output.push_str("            ColorToken::Custom(r, g, b, a) => (r, g, b, a),\n");
     output.push_str("        }\n");
     output.push_str("    }\n");
-    output.push_str("\n");
-    output.push_str("    pub fn to_skia(self) -> Color {\n");
-    output.push_str("        let (r, g, b, a) = self.rgba();\n");
-    output.push_str("        Color::from_argb(a, r, g, b)\n");
-    output.push_str("    }\n");
     output.push_str("}\n\n");
 
     output.push_str(&generate_impls(colors));

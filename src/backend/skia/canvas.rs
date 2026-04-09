@@ -30,6 +30,7 @@ use crate::{
 
 use super::{
     cache::{SkiaImageCache, SkiaSubtreeSnapshotCache, SkiaTextSnapshotCache},
+    color::{script_color, skia_color},
     text as skia_text,
 };
 
@@ -239,8 +240,8 @@ impl<'a> SkiaBackend<'a> {
                     self.frame_ctx,
                 )?;
                 if let Some(profile) = self.profile.as_deref_mut() {
-                    profile.draw_bitmap_count += 1;
-                    profile.bitmap_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
+                    profile.draw_script_count += 1;
+                    profile.draw_script_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
                 }
             }
             DisplayItem::Lucide(lucide) => {
@@ -481,7 +482,7 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
         }
 
         if let (Some(width), Some(color)) = (style.border_width, style.border_color) {
-            paint.set_color(color.to_skia());
+            paint.set_color(skia_color(color));
             paint.set_style(PaintStyle::Stroke);
             paint.set_stroke_width(width);
             canvas.draw_rrect(rrect, &paint);
@@ -493,7 +494,7 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
         }
 
         if let (Some(width), Some(color)) = (style.border_width, style.border_color) {
-            paint.set_color(color.to_skia());
+            paint.set_color(skia_color(color));
             paint.set_style(PaintStyle::Stroke);
             paint.set_stroke_width(width);
             canvas.draw_rect(rect, &paint);
@@ -711,7 +712,7 @@ fn draw_bitmap(
         let mut border_paint = Paint::default();
         border_paint.set_anti_alias(true);
         apply_blur_effect(&mut border_paint, bitmap.paint.blur_sigma);
-        border_paint.set_color(color.to_skia());
+        border_paint.set_color(skia_color(color));
         border_paint.set_style(PaintStyle::Stroke);
         border_paint.set_stroke_width(width);
 
@@ -948,7 +949,8 @@ fn apply_script_alpha(color: ScriptColor, global_alpha: f32) -> skia_safe::Color
     let alpha = ((color.a as f32) * global_alpha.clamp(0.0, 1.0))
         .round()
         .clamp(0.0, 255.0) as u8;
-    skia_safe::Color::from_argb(alpha, color.r, color.g, color.b)
+    let color = script_color(color);
+    skia_safe::Color::from_argb(alpha, color.r(), color.g(), color.b())
 }
 
 fn fill_paint_for_draw_script(state: &DrawScriptPaintState) -> Paint {
@@ -1169,7 +1171,7 @@ fn draw_lucide(canvas: &Canvas, item: &LucideDisplayItem) {
     let stroke_paint = stroke_width.map(|width| {
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
-        paint.set_color(stroke_color.to_skia());
+        paint.set_color(skia_color(stroke_color));
         paint.set_style(PaintStyle::Stroke);
         paint.set_stroke_width(width / scale);
         paint.set_stroke_cap(skia_safe::paint::Cap::Round);
@@ -1199,7 +1201,7 @@ fn apply_background_paint(paint: &mut Paint, background: BackgroundFill, bounds:
     match background {
         BackgroundFill::Solid(color) => {
             paint.set_shader(None);
-            paint.set_color(color.to_skia());
+            paint.set_color(skia_color(color));
         }
         BackgroundFill::LinearGradient {
             direction,
@@ -1230,8 +1232,8 @@ fn apply_background_paint(paint: &mut Paint, background: BackgroundFill, bounds:
                 ),
             };
             let colors = match via {
-                Some(via) => vec![from.to_skia(), via.to_skia(), to.to_skia()],
-                None => vec![from.to_skia(), to.to_skia()],
+                Some(via) => vec![skia_color(from), skia_color(via), skia_color(to)],
+                None => vec![skia_color(from), skia_color(to)],
             };
             let positions = via.map(|_| [0.0, 0.5, 1.0]);
             if let Some(shader) = gradient_shader::linear(
@@ -1245,7 +1247,7 @@ fn apply_background_paint(paint: &mut Paint, background: BackgroundFill, bounds:
                 paint.set_shader(shader);
             } else {
                 paint.set_shader(None);
-                paint.set_color(from.to_skia());
+                paint.set_color(skia_color(from));
             }
         }
     }

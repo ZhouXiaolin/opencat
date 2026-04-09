@@ -7,6 +7,7 @@ pub struct BackendProfile {
     pub text_snapshot_record_ms: f64,
     pub text_snapshot_draw_ms: f64,
     pub bitmap_draw_ms: f64,
+    pub draw_script_draw_ms: f64,
     pub image_decode_ms: f64,
     pub video_decode_ms: f64,
     pub scene_snapshot_record_ms: f64,
@@ -25,6 +26,7 @@ pub struct BackendProfile {
     pub draw_rect_count: usize,
     pub draw_text_count: usize,
     pub draw_bitmap_count: usize,
+    pub draw_script_count: usize,
     pub save_layer_count: usize,
 }
 
@@ -81,6 +83,7 @@ impl FrameProfile {
         self.backend.text_snapshot_record_ms += profile.text_snapshot_record_ms;
         self.backend.text_snapshot_draw_ms += profile.text_snapshot_draw_ms;
         self.backend.bitmap_draw_ms += profile.bitmap_draw_ms;
+        self.backend.draw_script_draw_ms += profile.draw_script_draw_ms;
         self.backend.image_decode_ms += profile.image_decode_ms;
         self.backend.video_decode_ms += profile.video_decode_ms;
         self.backend.scene_snapshot_record_ms += profile.scene_snapshot_record_ms;
@@ -99,6 +102,7 @@ impl FrameProfile {
         self.backend.draw_rect_count += profile.draw_rect_count;
         self.backend.draw_text_count += profile.draw_text_count;
         self.backend.draw_bitmap_count += profile.draw_bitmap_count;
+        self.backend.draw_script_count += profile.draw_script_count;
         self.backend.save_layer_count += profile.save_layer_count;
     }
 }
@@ -163,12 +167,13 @@ impl RenderProfiler {
             average_usize(&self.frames, |frame| frame.structure_rebuilds),
         );
         eprintln!(
-            "  backend avg ms/frame: rect {:.2}, text {:.2}, text_snapshot_record {:.2}, text_snapshot_draw {:.2}, bitmap {:.2}, image_decode {:.2}, video_decode {:.2}, scene_snapshot_record {:.2}, scene_snapshot_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}",
+            "  backend avg ms/frame: rect {:.2}, text {:.2}, text_snapshot_record {:.2}, text_snapshot_draw {:.2}, bitmap {:.2}, draw_script {:.2}, image_decode {:.2}, video_decode {:.2}, scene_snapshot_record {:.2}, scene_snapshot_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}",
             average(&self.frames, |frame| frame.backend.rect_draw_ms),
             average(&self.frames, |frame| frame.backend.text_draw_ms),
             average(&self.frames, |frame| frame.backend.text_snapshot_record_ms),
             average(&self.frames, |frame| frame.backend.text_snapshot_draw_ms),
             average(&self.frames, |frame| frame.backend.bitmap_draw_ms),
+            average(&self.frames, |frame| frame.backend.draw_script_draw_ms),
             average(&self.frames, |frame| frame.backend.image_decode_ms),
             average(&self.frames, |frame| frame.backend.video_decode_ms),
             average(&self.frames, |frame| frame.backend.scene_snapshot_record_ms),
@@ -177,10 +182,11 @@ impl RenderProfiler {
             average(&self.frames, |frame| frame.backend.light_leak_composite_ms),
         );
         eprintln!(
-            "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, save_layer {:.1}, text_hit {:.2}, text_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, img_hit {:.2}, img_miss {:.2}, video_decode {:.2}",
+            "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, text_hit {:.2}, text_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, img_hit {:.2}, img_miss {:.2}, video_decode {:.2}",
             average_usize(&self.frames, |frame| frame.backend.draw_rect_count),
             average_usize(&self.frames, |frame| frame.backend.draw_text_count),
             average_usize(&self.frames, |frame| frame.backend.draw_bitmap_count),
+            average_usize(&self.frames, |frame| frame.backend.draw_script_count),
             average_usize(&self.frames, |frame| frame.backend.save_layer_count),
             average_usize(&self.frames, |frame| frame.backend.text_cache_hits),
             average_usize(&self.frames, |frame| frame.backend.text_cache_misses),

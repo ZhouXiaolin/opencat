@@ -1729,10 +1729,10 @@ fn parse_color_token_with_opacity(value: &str) -> Option<ColorToken> {
 
     let opacity_percent = opacity_suffix.parse::<f32>().ok()?;
     let opacity = (opacity_percent / 100.0).clamp(0.0, 1.0);
-    let color = color.to_skia();
-    let alpha = ((color.a() as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+    let (r, g, b, a) = color.rgba();
+    let alpha = ((a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
 
-    Some(ColorToken::Custom(color.r(), color.g(), color.b(), alpha))
+    Some(ColorToken::Custom(r, g, b, alpha))
 }
 
 fn parse_signed_bracket_f32(
@@ -2069,22 +2069,16 @@ mod tests {
         );
         assert_eq!(style.bg_gradient_via, Some(ColorToken::Transparent));
         assert_eq!(style.blur_sigma, Some(24.0));
-        assert_eq!(
-            style.bg_gradient_from.expect("from color").to_skia().a(),
-            77
-        );
-        assert_eq!(style.bg_gradient_to.expect("to color").to_skia().a(), 51);
+        assert_eq!(style.bg_gradient_from.expect("from color").rgba().3, 77);
+        assert_eq!(style.bg_gradient_to.expect("to color").rgba().3, 51);
 
         let overlay = parse_class_name("bg-gradient-to-t from-rose-900/10 to-amber-100/15");
         assert_eq!(
             overlay.bg_gradient_direction,
             Some(GradientDirection::ToTop)
         );
-        assert_eq!(
-            overlay.bg_gradient_from.expect("from color").to_skia().a(),
-            26
-        );
-        assert_eq!(overlay.bg_gradient_to.expect("to color").to_skia().a(), 38);
+        assert_eq!(overlay.bg_gradient_from.expect("from color").rgba().3, 26);
+        assert_eq!(overlay.bg_gradient_to.expect("to color").rgba().3, 38);
     }
 
     #[test]

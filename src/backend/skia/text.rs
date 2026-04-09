@@ -15,6 +15,7 @@ use skia_safe::{
 };
 
 use crate::{
+    backend::skia::color::skia_color,
     runtime::text_engine::{SharedTextEngine, TextEngine, TextMeasureRequest, TextMeasurement},
     style::{ComputedTextStyle, FontWeight, TextAlign, TextTransform},
 };
@@ -123,7 +124,7 @@ fn shared_font_collection() -> FontCollection {
 fn make_paragraph(text: &str, style: &ComputedTextStyle, max_width: f32) -> Paragraph {
     let text = apply_text_transform(text, style.text_transform);
     let mut text_style = ParagraphTextStyle::new();
-    text_style.set_color(style.color.to_skia());
+    text_style.set_color(skia_color(style.color));
     text_style.set_font_size(style.text_px);
     text_style.set_font_style(font_style(style.font_weight));
     text_style.set_letter_spacing(style.letter_spacing);

@@ -58,6 +58,7 @@ struct VideoDecoder {
     width: u32,
     height: u32,
     duration_secs: Option<f64>,
+    keyframe_pts_secs: Vec<f64>,
     current_pts_secs: f64,
     current_frame: Option<Arc<Vec<u8>>>,
     eof: bool,
@@ -93,6 +94,7 @@ impl VideoDecoder {
             .duration()
             .checked_mul(time_base.numerator() as i64)
             .map(|duration_ticks| duration_ticks as f64 / time_base.denominator() as f64);
+        let keyframe_pts_secs = collect_video_keyframe_pts_secs(path, stream_index, time_base)?;
         let scaler = ScalingContext::get(
             decoder.format(),
             width,
@@ -113,6 +115,7 @@ impl VideoDecoder {
             width,
             height,
             duration_secs,
+            keyframe_pts_secs,
             current_pts_secs: -1.0,
             current_frame: None,
             eof: false,
@@ -164,6 +167,7 @@ impl VideoDecoder {
 
         let forward_delta = target_secs - self.current_pts_secs;
         let seek_threshold_secs = match quality {
+            crate::resource::media::VideoPreviewQuality::Scrubbing => 0.12,
             crate::resource::media::VideoPreviewQuality::Realtime => 0.35,
             crate::resource::media::VideoPreviewQuality::Exact => 1.5,
         };
@@ -176,7 +180,8 @@ impl VideoDecoder {
     }
 
     fn seek_to_time(&mut self, target_secs: f64) -> Result<()> {
-        let target_pts = (target_secs.max(0.0) * 1_000_000.0).round() as i64;
+        let seek_secs = nearest_keyframe_before(&self.keyframe_pts_secs, target_secs.max(0.0));
+        let target_pts = (seek_secs * 1_000_000.0).round() as i64;
         if self.input.seek(target_pts, ..target_pts).is_err() {
             self.reopen()?;
             return Ok(());
@@ -286,6 +291,46 @@ impl Default for VideoDecodeCache {
     }
 }
 
+fn collect_video_keyframe_pts_secs(
+    path: &Path,
+    stream_index: usize,
+    time_base: ffmpeg::util::rational::Rational,
+) -> Result<Vec<f64>> {
+    let mut input = format::input(path)
+        .with_context(|| format!("failed to open video for keyframe scan: {}", path.display()))?;
+    let mut keyframes = Vec::new();
+
+    for (stream, packet) in input.packets() {
+        if stream.index() != stream_index || !packet.is_key() {
+            continue;
+        }
+
+        let pts = packet.pts().or_else(|| packet.dts()).unwrap_or(0);
+        let pts_secs = pts as f64 * time_base.numerator() as f64 / time_base.denominator() as f64;
+        if keyframes
+            .last()
+            .is_none_or(|last| (pts_secs - last).abs() > 1e-6)
+        {
+            keyframes.push(pts_secs.max(0.0));
+        }
+    }
+
+    if keyframes.is_empty() {
+        keyframes.push(0.0);
+    }
+
+    Ok(keyframes)
+}
+
+fn nearest_keyframe_before(keyframes: &[f64], target_secs: f64) -> f64 {
+    if keyframes.is_empty() {
+        return target_secs.max(0.0);
+    }
+
+    let index = keyframes.partition_point(|&secs| secs <= target_secs + 1e-6);
+    keyframes[index.saturating_sub(1)]
+}
+
 pub fn decode_audio_to_f32_stereo(path: &Path, target_rate: u32) -> Result<AudioTrack> {
     ffmpeg::init()?;
 
@@ -388,4 +433,17 @@ fn pack_rgba(frame: &ffmpeg::frame::Video, width: u32, height: u32) -> Vec<u8> {
         packed.extend_from_slice(&frame.data(0)[start..start + row_bytes]);
     }
     packed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::nearest_keyframe_before;
+
+    #[test]
+    fn nearest_keyframe_before_clamps_to_previous_anchor() {
+        let keyframes = [0.0, 0.5, 1.2, 2.4];
+        assert!((nearest_keyframe_before(&keyframes, 0.1) - 0.0).abs() < 1e-6);
+        assert!((nearest_keyframe_before(&keyframes, 1.8) - 1.2).abs() < 1e-6);
+        assert!((nearest_keyframe_before(&keyframes, 3.0) - 2.4).abs() < 1e-6);
+    }
 }

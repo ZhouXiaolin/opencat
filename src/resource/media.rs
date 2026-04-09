@@ -13,6 +13,7 @@ pub use crate::codec::decode::VideoInfo;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum VideoPreviewQuality {
+    Scrubbing,
     Realtime,
     Exact,
 }
@@ -183,7 +184,7 @@ mod tests {
                 playback_rate: 1.0,
                 looping: true,
             },
-            quality: VideoPreviewQuality::Realtime,
+            quality: VideoPreviewQuality::Scrubbing,
         };
 
         assert!((request.resolve_time_secs(&info) - 3.0).abs() < 1e-6);

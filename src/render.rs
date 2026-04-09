@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 use crate::{
     codec::decode::AudioTrack,
     runtime::{
-        audio::build_audio_track as build_runtime_audio_track,
+        audio::{AudioBuffer, build_audio_track as build_runtime_audio_track, render_audio_chunk as render_runtime_audio_chunk},
         preflight::ensure_assets_preloaded,
         render_registry,
         target::RenderTargetHandle,
@@ -114,6 +114,21 @@ pub fn build_audio_track(
 ) -> Result<Option<AudioTrack>> {
     ensure_assets_preloaded(composition, session)?;
     build_runtime_audio_track(composition, &mut session.assets)
+}
+
+pub fn render_audio_chunk(
+    composition: &Composition,
+    session: &mut RenderSession,
+    start_time_secs: f64,
+    sample_frames: usize,
+) -> Result<Option<AudioBuffer>> {
+    ensure_assets_preloaded(composition, session)?;
+    render_runtime_audio_chunk(
+        composition,
+        &mut session.assets,
+        start_time_secs,
+        sample_frames,
+    )
 }
 
 fn render_png(

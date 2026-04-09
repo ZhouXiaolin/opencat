@@ -5,7 +5,7 @@ use serde::Deserialize;
 
 use crate::scene::{
     node::Node,
-    primitives::{ImageSource, OpenverseQuery},
+    primitives::{AudioSource, ImageSource, OpenverseQuery},
 };
 use crate::style::NodeStyle;
 
@@ -74,6 +74,17 @@ enum JsonLine {
         aspect_ratio: Option<String>,
         duration: Option<u32>,
     },
+    #[serde(rename = "audio")]
+    Audio {
+        id: String,
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        #[serde(rename = "className")]
+        class_name: Option<String>,
+        path: Option<String>,
+        url: Option<String>,
+        duration: Option<u32>,
+    },
     #[serde(rename = "video")]
     Video {
         id: String,
@@ -119,6 +130,7 @@ enum ParsedElementKind {
     Text { content: String },
     Canvas,
     Image { source: ImageSource },
+    Audio { source: AudioSource },
     Icon { name: String },
     Video { path: PathBuf },
 }
@@ -161,6 +173,7 @@ pub struct ParsedComposition {
     pub frames: i32,
     pub root: Node,
     pub script: Option<String>,
+    pub global_audio_sources: Vec<AudioSource>,
 }
 
 pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
@@ -169,6 +182,7 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     let mut fps = 30;
     let mut frames = 90;
     let mut global_scripts = Vec::new();
+    let mut global_audio_sources = Vec::new();
     let mut scripts_by_parent: HashMap<String, Vec<String>> = HashMap::new();
     let mut elements: Vec<ParsedElement> = Vec::new();
     let mut timeline_entries = Vec::new();
@@ -297,6 +311,35 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                     kind: ParsedElementKind::Image { source },
                 });
             }
+            JsonLine::Audio {
+                id,
+                parent_id,
+                class_name,
+                path,
+                url,
+                duration,
+            } => {
+                let source = parse_audio_source(path, url)?;
+                if parent_id.is_none() {
+                    global_audio_sources.push(source);
+                    continue;
+                }
+                let style = parse_class_name_with_context(
+                    class_name.as_deref().unwrap_or(""),
+                    &id,
+                    line_index + 1,
+                );
+                if parent_id.is_none() {
+                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
+                }
+                elements.push(ParsedElement {
+                    id,
+                    parent_id,
+                    duration,
+                    style,
+                    kind: ParsedElementKind::Audio { source },
+                });
+            }
             JsonLine::Video {
                 id,
                 parent_id,
@@ -392,6 +435,7 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
         frames,
         root,
         script: join_scripts(global_scripts),
+        global_audio_sources,
     })
 }
 
@@ -442,6 +486,36 @@ fn parse_image_source(
         count: query_count.unwrap_or(1).max(1),
         aspect_ratio,
     }))
+}
+
+fn parse_audio_source(path: Option<String>, url: Option<String>) -> anyhow::Result<AudioSource> {
+    let sources = [
+        path.as_ref().map(|_| "path"),
+        url.as_ref().map(|_| "url"),
+    ]
+    .into_iter()
+    .flatten()
+    .count();
+
+    if sources == 0 {
+        return Err(anyhow::anyhow!("audio node requires one of: path, url"));
+    }
+
+    if sources > 1 {
+        return Err(anyhow::anyhow!(
+            "audio node accepts only one source: path or url"
+        ));
+    }
+
+    if let Some(path) = path {
+        return Ok(AudioSource::Path(PathBuf::from(path)));
+    }
+
+    let Some(url) = url else {
+        return Err(anyhow::anyhow!("audio node requires one of: path, url"));
+    };
+
+    Ok(AudioSource::Url(url))
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -731,5 +805,35 @@ mod tests {
 {"id":"search-icon","parentId":"root","type":"icon","className":"w-[20px] h-[20px] text-slate-400","icon":"search"}"#,
         )
         .expect("jsonl with lucide icon should parse");
+    }
+
+    #[test]
+    fn parser_accepts_audio_nodes() {
+        parse(
+            r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"bgm","parentId":"root","type":"audio","path":"/tmp/demo.mp3"}"#,
+        )
+        .expect("jsonl with audio path should parse");
+
+        parse(
+            r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"stream","parentId":"root","type":"audio","url":"https://example.com/demo.mp3"}"#,
+        )
+        .expect("jsonl with audio url should parse");
+    }
+
+    #[test]
+    fn parser_treats_root_audio_as_global_track() {
+        let parsed = parse(
+            r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
+{"id":"bgm","parentId":null,"type":"audio","path":"/tmp/demo.mp3"}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}"#,
+        )
+        .expect("jsonl with global audio should parse");
+
+        assert_eq!(parsed.global_audio_sources.len(), 1);
+        assert!(matches!(parsed.root.kind(), NodeKind::Div(_)));
     }
 }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 
-use crate::{frame_ctx::FrameCtx, scene::node::Node};
+use crate::{frame_ctx::FrameCtx, scene::{node::Node, primitives::AudioSource}};
 
 type RootComponent = dyn Fn(&FrameCtx) -> Node + Send + Sync;
 
@@ -14,6 +14,7 @@ pub struct Composition {
     pub fps: u32,
     pub frames: u32,
     pub(crate) root: Arc<RootComponent>,
+    pub(crate) global_audio_sources: Arc<Vec<AudioSource>>,
 }
 
 pub struct CompositionBuilder {
@@ -23,6 +24,7 @@ pub struct CompositionBuilder {
     fps: u32,
     frames: Option<u32>,
     root: Option<Arc<RootComponent>>,
+    global_audio_sources: Vec<AudioSource>,
 }
 
 impl Composition {
@@ -34,11 +36,16 @@ impl Composition {
             fps: 30,
             frames: None,
             root: None,
+            global_audio_sources: Vec::new(),
         }
     }
 
     pub fn root_node(&self, ctx: &FrameCtx) -> Node {
         (self.root)(ctx)
+    }
+
+    pub(crate) fn global_audio_sources(&self) -> &[AudioSource] {
+        self.global_audio_sources.as_ref()
     }
 
     pub fn aligned_for_video_encoding(&self) -> Composition {
@@ -55,6 +62,7 @@ impl Composition {
             fps: self.fps,
             frames: self.frames,
             root: self.root.clone(),
+            global_audio_sources: self.global_audio_sources.clone(),
         }
     }
 }
@@ -81,6 +89,14 @@ impl CompositionBuilder {
         F: Fn(&FrameCtx) -> Node + Send + Sync + 'static,
     {
         self.root = Some(Arc::new(root));
+        self
+    }
+
+    pub fn global_audio_sources<I>(mut self, sources: I) -> Self
+    where
+        I: IntoIterator<Item = AudioSource>,
+    {
+        self.global_audio_sources = sources.into_iter().collect();
         self
     }
 
@@ -112,6 +128,7 @@ impl CompositionBuilder {
             fps: self.fps,
             frames,
             root,
+            global_audio_sources: Arc::new(self.global_audio_sources),
         })
     }
 }

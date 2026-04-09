@@ -1,15 +1,22 @@
+use std::collections::HashMap;
+
 use anyhow::{Result, anyhow};
 
 use crate::{
     Composition, FrameCtx,
-    element::{resolve::resolve_ui_tree_with_script_cache, tree::ElementNode},
+    element::{
+        resolve::resolve_ui_tree_with_script_cache,
+        tree::{ElementKind, ElementNode},
+    },
     frame_ctx::ScriptFrameCtx,
     layout::tree::LayoutNode,
     runtime::{policy::cache::SceneSlot, session::RenderSession},
     scene::{
-        node::Node,
-        time::{FrameState, frame_state_for_root},
+        node::{Node, NodeKind},
+        primitives::{AudioSource, ImageSource},
+        time::{FrameState, TimelineSegment, frame_state_for_root},
     },
+    style::NodeStyle,
 };
 
 #[derive(Clone, Debug)]
@@ -22,7 +29,14 @@ pub struct FrameElementRect {
     pub z_index: i32,
     pub depth: u32,
     pub draw_order: u32,
+    pub parent_draw_order: Option<u32>,
     pub slot: FrameElementSlot,
+    pub kind: String,
+    pub text_content: Option<String>,
+    pub media_source: Option<String>,
+    pub icon_name: Option<String>,
+    pub script_source: Option<String>,
+    pub canvas_command_count: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,6 +44,15 @@ pub enum FrameElementSlot {
     Scene,
     TransitionFrom,
     TransitionTo,
+}
+
+#[derive(Clone, Debug, Default)]
+struct SourceNodeMeta {
+    kind: Option<String>,
+    text_content: Option<String>,
+    media_source: Option<String>,
+    icon_name: Option<String>,
+    script_source: Option<String>,
 }
 
 pub fn collect_frame_layout_rects(
@@ -112,6 +135,9 @@ fn collect_scene_rects(
     draw_order: &mut u32,
     out: &mut Vec<FrameElementRect>,
 ) -> Result<()> {
+    let mut source_meta_by_id = HashMap::<String, SourceNodeMeta>::new();
+    collect_source_metadata(scene, frame_ctx, &mut source_meta_by_id);
+
     let element_root = resolve_ui_tree_with_script_cache(
         scene,
         frame_ctx,
@@ -134,6 +160,8 @@ fn collect_scene_rects(
         0.0,
         0.0,
         0,
+        None,
+        &source_meta_by_id,
         draw_order,
         out,
     )
@@ -146,6 +174,8 @@ fn collect_rects_in_draw_order(
     parent_x: f32,
     parent_y: f32,
     depth: u32,
+    parent_draw_order: Option<u32>,
+    source_meta_by_id: &HashMap<String, SourceNodeMeta>,
     draw_order: &mut u32,
     out: &mut Vec<FrameElementRect>,
 ) -> Result<()> {
@@ -157,22 +187,60 @@ fn collect_rects_in_draw_order(
 
     let x = parent_x + layout.rect.x;
     let y = parent_y + layout.rect.y;
+    let current_draw_order = *draw_order;
+    *draw_order = draw_order.saturating_add(1);
 
-    if layout.rect.width > 0.0 && layout.rect.height > 0.0 {
+    let node_id = &element.style.id;
+    let source_meta = source_meta_by_id.get(node_id);
+    let kind = source_meta
+        .and_then(|meta| meta.kind.clone())
+        .unwrap_or_else(|| fallback_kind_for_element(element).to_string());
+    let text_content = source_meta
+        .and_then(|meta| meta.text_content.clone())
+        .or_else(|| match &element.kind {
+            ElementKind::Text(text) => Some(text.text.clone()),
+            _ => None,
+        });
+    let media_source = source_meta.and_then(|meta| meta.media_source.clone());
+    let icon_name = source_meta
+        .and_then(|meta| meta.icon_name.clone())
+        .or_else(|| match &element.kind {
+            ElementKind::Lucide(icon) => Some(icon.icon.clone()),
+            _ => None,
+        });
+    let script_source = source_meta.and_then(|meta| meta.script_source.clone());
+    let canvas_command_count = match &element.kind {
+        ElementKind::Canvas(canvas) => Some(canvas.commands.len() as u32),
+        _ => None,
+    };
+
+    let pushed_current_node = layout.rect.width > 0.0 && layout.rect.height > 0.0;
+    if pushed_current_node {
         out.push(FrameElementRect {
-            id: element.style.id.clone(),
+            id: node_id.clone(),
             x,
             y,
             width: layout.rect.width,
             height: layout.rect.height,
             z_index: element.style.layout.z_index,
             depth,
-            draw_order: *draw_order,
+            draw_order: current_draw_order,
+            parent_draw_order,
             slot,
+            kind,
+            text_content,
+            media_source,
+            icon_name,
+            script_source,
+            canvas_command_count,
         });
     }
 
-    *draw_order = draw_order.saturating_add(1);
+    let next_parent_draw_order = if pushed_current_node {
+        Some(current_draw_order)
+    } else {
+        parent_draw_order
+    };
 
     let mut child_pairs = element
         .children
@@ -189,10 +257,142 @@ fn collect_rects_in_draw_order(
             x,
             y,
             depth.saturating_add(1),
+            next_parent_draw_order,
+            source_meta_by_id,
             draw_order,
             out,
         )?;
     }
 
     Ok(())
+}
+
+fn fallback_kind_for_element(element: &ElementNode) -> &'static str {
+    match element.kind {
+        ElementKind::Div(_) => "div",
+        ElementKind::Text(_) => "text",
+        ElementKind::Bitmap(_) => "bitmap",
+        ElementKind::Canvas(_) => "canvas",
+        ElementKind::Lucide(_) => "lucide",
+    }
+}
+
+fn collect_source_metadata(
+    node: &Node,
+    frame_ctx: &FrameCtx,
+    out: &mut HashMap<String, SourceNodeMeta>,
+) {
+    match node.kind() {
+        NodeKind::Component(component) => {
+            let rendered = component.render(frame_ctx);
+            collect_source_metadata(&rendered, frame_ctx, out);
+        }
+        NodeKind::Div(div) => {
+            let entry = upsert_style_meta(div.style_ref(), "div", out);
+            if let Some(entry) = entry {
+                entry.media_source = None;
+            }
+            for child in div.children_ref() {
+                collect_source_metadata(child, frame_ctx, out);
+            }
+        }
+        NodeKind::Canvas(canvas) => {
+            let entry = upsert_style_meta(canvas.style_ref(), "canvas", out);
+            if let Some(entry) = entry {
+                let asset_ids = canvas
+                    .assets_ref()
+                    .iter()
+                    .map(|asset| asset.asset_id.clone())
+                    .collect::<Vec<_>>();
+                if !asset_ids.is_empty() {
+                    entry.media_source = Some(format!("assets: {}", asset_ids.join(", ")));
+                }
+            }
+        }
+        NodeKind::Text(text) => {
+            let entry = upsert_style_meta(text.style_ref(), "text", out);
+            if let Some(entry) = entry {
+                entry.text_content = Some(text.content().to_string());
+            }
+        }
+        NodeKind::Image(image) => {
+            let entry = upsert_style_meta(image.style_ref(), "image", out);
+            if let Some(entry) = entry {
+                entry.media_source = Some(format_image_source(image.source()));
+            }
+        }
+        NodeKind::Audio(audio) => {
+            let entry = upsert_style_meta(audio.style_ref(), "audio", out);
+            if let Some(entry) = entry {
+                entry.media_source = Some(format_audio_source(audio.source()));
+            }
+        }
+        NodeKind::Lucide(icon) => {
+            let entry = upsert_style_meta(icon.style_ref(), "lucide", out);
+            if let Some(entry) = entry {
+                entry.icon_name = Some(icon.icon().to_string());
+            }
+        }
+        NodeKind::Video(video) => {
+            let entry = upsert_style_meta(video.style_ref(), "video", out);
+            if let Some(entry) = entry {
+                entry.media_source = Some(video.source().to_string_lossy().to_string());
+            }
+        }
+        NodeKind::Timeline(timeline) => {
+            let _ = upsert_style_meta(timeline.style_ref(), "timeline", out);
+            for segment in timeline.segments() {
+                match segment {
+                    TimelineSegment::Scene { scene, .. } => {
+                        collect_source_metadata(scene, frame_ctx, out);
+                    }
+                    TimelineSegment::Transition { from, to, .. } => {
+                        collect_source_metadata(from, frame_ctx, out);
+                        collect_source_metadata(to, frame_ctx, out);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn upsert_style_meta<'a>(
+    style: &NodeStyle,
+    kind: &str,
+    out: &'a mut HashMap<String, SourceNodeMeta>,
+) -> Option<&'a mut SourceNodeMeta> {
+    if style.id.is_empty() {
+        return None;
+    }
+
+    let entry = out.entry(style.id.clone()).or_default();
+    entry.kind = Some(kind.to_string());
+    entry.script_source = style
+        .script_driver
+        .as_ref()
+        .map(|driver| driver.source().to_string());
+    Some(entry)
+}
+
+fn format_image_source(source: &ImageSource) -> String {
+    match source {
+        ImageSource::Unset => "unset".to_string(),
+        ImageSource::Path(path) => path.to_string_lossy().to_string(),
+        ImageSource::Url(url) => url.clone(),
+        ImageSource::Query(query) => {
+            let aspect = query.aspect_ratio.as_deref().unwrap_or("-");
+            format!(
+                "query:{} count:{} aspect:{}",
+                query.query, query.count, aspect
+            )
+        }
+    }
+}
+
+fn format_audio_source(source: &AudioSource) -> String {
+    match source {
+        AudioSource::Unset => "unset".to_string(),
+        AudioSource::Path(path) => path.to_string_lossy().to_string(),
+        AudioSource::Url(url) => url.clone(),
+    }
 }

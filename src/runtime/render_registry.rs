@@ -3,10 +3,7 @@ use anyhow::{Result, anyhow};
 use crate::{
     backend::skia::renderer as skia_renderer,
     render::RenderBackend,
-    runtime::{
-        render_engine::SharedRenderEngine, target::RenderFrameViewKind,
-        text_engine::SharedTextEngine,
-    },
+    runtime::{render_engine::SharedRenderEngine, target::RenderFrameViewKind},
 };
 
 struct RegisteredFrameBackend {
@@ -69,10 +66,6 @@ pub(crate) fn default_render_backend() -> RenderBackend {
 pub(crate) fn default_render_engine() -> SharedRenderEngine {
     render_engine_for_backend(default_render_backend())
         .expect("default render backend must resolve to a registered engine")
-}
-
-pub(crate) fn default_text_engine() -> SharedTextEngine {
-    default_render_engine().text_engine()
 }
 
 pub(crate) fn render_engine_for_backend(backend: RenderBackend) -> Result<SharedRenderEngine> {

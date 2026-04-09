@@ -22,6 +22,7 @@ pub fn build_display_tree(
     })
 }
 
+#[cfg(test)]
 pub fn build_display_list(
     element_root: &ElementNode,
     layout_tree: &LayoutTree,

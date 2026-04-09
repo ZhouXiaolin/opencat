@@ -48,6 +48,11 @@ fn try_main() -> Result<(), String> {
         generate_inherent_impls(&generated),
     )
     .map_err(|error| format!("failed to write generated color inherent impls: {error}"))?;
+    fs::write(
+        out_dir.join("tailwind_jsonl_rules.rs"),
+        generate_tailwind_jsonl_rules(),
+    )
+    .map_err(|error| format!("failed to write generated jsonl tailwind rules: {error}"))?;
 
     generate_lucide_icons(&out_dir)?;
 
@@ -427,6 +432,297 @@ fn generate_inherent_impls(colors: &[GeneratedColor]) -> String {
         }
         output.push_str("}\n\n");
     }
+    output
+}
+
+fn generate_tailwind_jsonl_rules() -> String {
+    const EXACT_CLASS_RULE_SPECS: &[(&str, &str)] = &[
+        ("relative", "ExactClassAction::Position(Position::Relative)"),
+        ("absolute", "ExactClassAction::Position(Position::Absolute)"),
+        ("flex", "ExactClassAction::Flex"),
+        (
+            "flex-row",
+            "ExactClassAction::FlexDirection(FlexDirection::Row)",
+        ),
+        (
+            "flex-col",
+            "ExactClassAction::FlexDirection(FlexDirection::Col)",
+        ),
+        (
+            "flex-column",
+            "ExactClassAction::FlexDirection(FlexDirection::Col)",
+        ),
+        (
+            "justify-start",
+            "ExactClassAction::JustifyContent(JustifyContent::Start)",
+        ),
+        (
+            "justify-center",
+            "ExactClassAction::JustifyContent(JustifyContent::Center)",
+        ),
+        (
+            "justify-end",
+            "ExactClassAction::JustifyContent(JustifyContent::End)",
+        ),
+        (
+            "justify-between",
+            "ExactClassAction::JustifyContent(JustifyContent::Between)",
+        ),
+        (
+            "justify-around",
+            "ExactClassAction::JustifyContent(JustifyContent::Around)",
+        ),
+        (
+            "justify-evenly",
+            "ExactClassAction::JustifyContent(JustifyContent::Evenly)",
+        ),
+        (
+            "items-start",
+            "ExactClassAction::AlignItems(AlignItems::Start)",
+        ),
+        (
+            "items-center",
+            "ExactClassAction::AlignItems(AlignItems::Center)",
+        ),
+        ("items-end", "ExactClassAction::AlignItems(AlignItems::End)"),
+        (
+            "items-stretch",
+            "ExactClassAction::AlignItems(AlignItems::Stretch)",
+        ),
+        (
+            "object-contain",
+            "ExactClassAction::ObjectFit(ObjectFit::Contain)",
+        ),
+        (
+            "object-cover",
+            "ExactClassAction::ObjectFit(ObjectFit::Cover)",
+        ),
+        (
+            "object-fill",
+            "ExactClassAction::ObjectFit(ObjectFit::Fill)",
+        ),
+        (
+            "font-light",
+            "ExactClassAction::FontWeight(FontWeight::Light)",
+        ),
+        (
+            "font-normal",
+            "ExactClassAction::FontWeight(FontWeight::Normal)",
+        ),
+        (
+            "font-medium",
+            "ExactClassAction::FontWeight(FontWeight::Medium)",
+        ),
+        (
+            "font-semibold",
+            "ExactClassAction::FontWeight(FontWeight::SemiBold)",
+        ),
+        (
+            "font-bold",
+            "ExactClassAction::FontWeight(FontWeight::Bold)",
+        ),
+        ("shadow-sm", "ExactClassAction::Shadow(ShadowStyle::SM)"),
+        ("shadow-md", "ExactClassAction::Shadow(ShadowStyle::MD)"),
+        ("shadow-lg", "ExactClassAction::Shadow(ShadowStyle::LG)"),
+        ("shadow-xl", "ExactClassAction::Shadow(ShadowStyle::XL)"),
+        ("rounded-none", "ExactClassAction::BorderRadius(0.0)"),
+        ("rounded-sm", "ExactClassAction::BorderRadius(4.0)"),
+        ("rounded", "ExactClassAction::BorderRadius(8.0)"),
+        ("rounded-md", "ExactClassAction::BorderRadius(8.0)"),
+        ("rounded-lg", "ExactClassAction::BorderRadius(16.0)"),
+        ("rounded-xl", "ExactClassAction::BorderRadius(24.0)"),
+        ("rounded-2xl", "ExactClassAction::BorderRadius(32.0)"),
+        ("rounded-full", "ExactClassAction::BorderRadius(9999.0)"),
+        ("border", "ExactClassAction::BorderWidth(1.0)"),
+        ("border-b", "ExactClassAction::BorderWidth(1.0)"),
+        ("border-t", "ExactClassAction::BorderWidth(1.0)"),
+        ("overflow-hidden", "ExactClassAction::OverflowHidden"),
+        ("pointer-events-none", "ExactClassAction::Noop"),
+        ("inset-0", "ExactClassAction::InsetZero"),
+        (
+            "bg-gradient-to-r",
+            "ExactClassAction::BgGradientDirection(GradientDirection::ToRight)",
+        ),
+        (
+            "bg-gradient-to-l",
+            "ExactClassAction::BgGradientDirection(GradientDirection::ToLeft)",
+        ),
+        (
+            "bg-gradient-to-b",
+            "ExactClassAction::BgGradientDirection(GradientDirection::ToBottom)",
+        ),
+        (
+            "bg-gradient-to-t",
+            "ExactClassAction::BgGradientDirection(GradientDirection::ToTop)",
+        ),
+        (
+            "bg-gradient-to-br",
+            "ExactClassAction::BgGradientDirection(GradientDirection::ToBottomRight)",
+        ),
+        ("shrink-0", "ExactClassAction::FlexShrink(0.0)"),
+        ("flex-shrink-0", "ExactClassAction::FlexShrink(0.0)"),
+        ("flex-1", "ExactClassAction::FlexGrow(1.0)"),
+        ("grow", "ExactClassAction::FlexGrow(1.0)"),
+        ("text-left", "ExactClassAction::TextAlign(TextAlign::Left)"),
+        (
+            "text-center",
+            "ExactClassAction::TextAlign(TextAlign::Center)",
+        ),
+        (
+            "text-right",
+            "ExactClassAction::TextAlign(TextAlign::Right)",
+        ),
+        ("w-full", "ExactClassAction::WidthFull"),
+        ("h-full", "ExactClassAction::HeightFull"),
+        ("leading-none", "ExactClassAction::LineHeight(1.0)"),
+        ("leading-tight", "ExactClassAction::LineHeight(1.25)"),
+        ("leading-snug", "ExactClassAction::LineHeight(1.375)"),
+        ("leading-normal", "ExactClassAction::LineHeight(1.5)"),
+        ("leading-relaxed", "ExactClassAction::LineHeight(1.625)"),
+        ("leading-loose", "ExactClassAction::LineHeight(2.0)"),
+        ("tracking-tight", "ExactClassAction::LetterSpacing(-0.5)"),
+        ("tracking-normal", "ExactClassAction::LetterSpacing(0.0)"),
+        ("tracking-wide", "ExactClassAction::LetterSpacing(0.5)"),
+        ("tracking-wider", "ExactClassAction::LetterSpacing(1.0)"),
+        (
+            "uppercase",
+            "ExactClassAction::TextTransform(TextTransform::Uppercase)",
+        ),
+        ("blur-none", "ExactClassAction::BlurSigma(0.0)"),
+        ("blur-sm", "ExactClassAction::BlurSigma(4.0)"),
+        ("blur", "ExactClassAction::BlurSigma(8.0)"),
+        ("blur-md", "ExactClassAction::BlurSigma(8.0)"),
+        ("blur-lg", "ExactClassAction::BlurSigma(16.0)"),
+        ("blur-xl", "ExactClassAction::BlurSigma(24.0)"),
+        ("blur-2xl", "ExactClassAction::BlurSigma(40.0)"),
+        ("blur-3xl", "ExactClassAction::BlurSigma(64.0)"),
+    ];
+
+    const BRACKET_F32_RULE_SPECS: &[(&str, &str)] = &[
+        ("gap-[", "Gap"),
+        ("w-[", "Width"),
+        ("h-[", "Height"),
+        ("left-[", "InsetLeft"),
+        ("top-[", "InsetTop"),
+        ("right-[", "InsetRight"),
+        ("bottom-[", "InsetBottom"),
+        ("text-[", "TextPx"),
+        ("p-[", "Padding"),
+        ("px-[", "PaddingX"),
+        ("py-[", "PaddingY"),
+        ("m-[", "Margin"),
+        ("mx-[", "MarginX"),
+        ("my-[", "MarginY"),
+        ("rounded-[", "BorderRadius"),
+        ("border-[", "BorderWidth"),
+        ("opacity-[", "OpacityClamped"),
+        ("blur-[", "BlurSigma"),
+        ("grow-[", "FlexGrow"),
+        ("leading-[", "LineHeight"),
+        ("pt-[", "PaddingTop"),
+        ("pr-[", "PaddingRight"),
+        ("pb-[", "PaddingBottom"),
+        ("pl-[", "PaddingLeft"),
+        ("mt-[", "MarginTop"),
+        ("mr-[", "MarginRight"),
+        ("mb-[", "MarginBottom"),
+        ("ml-[", "MarginLeft"),
+    ];
+    const SIGNED_BRACKET_F32_RULE_SPECS: &[(&str, &str, &str)] = &[
+        ("left-[", "-left-[", "InsetLeft"),
+        ("top-[", "-top-[", "InsetTop"),
+        ("right-[", "-right-[", "InsetRight"),
+        ("bottom-[", "-bottom-[", "InsetBottom"),
+    ];
+    const SPACING_SCALE_RULE_SPECS: &[(&str, &str)] = &[
+        ("gap-", "Gap"),
+        ("w-", "Width"),
+        ("h-", "Height"),
+        ("left-", "InsetLeft"),
+        ("top-", "InsetTop"),
+        ("right-", "InsetRight"),
+        ("bottom-", "InsetBottom"),
+        ("p-", "Padding"),
+        ("px-", "PaddingX"),
+        ("py-", "PaddingY"),
+        ("pt-", "PaddingTop"),
+        ("pr-", "PaddingRight"),
+        ("pb-", "PaddingBottom"),
+        ("pl-", "PaddingLeft"),
+        ("m-", "Margin"),
+        ("mx-", "MarginX"),
+        ("my-", "MarginY"),
+        ("mt-", "MarginTop"),
+        ("mr-", "MarginRight"),
+        ("mb-", "MarginBottom"),
+        ("ml-", "MarginLeft"),
+    ];
+    const COLOR_PREFIX_RULE_SPECS: &[(&str, &str)] = &[
+        ("bg-", "Bg"),
+        ("text-", "Text"),
+        ("border-", "Border"),
+        ("from-", "GradientFrom"),
+        ("via-", "GradientVia"),
+        ("to-", "GradientTo"),
+    ];
+    const TEXT_SIZE_RULE_SPECS: &[(&str, f32)] = &[
+        ("xs", 12.0),
+        ("sm", 14.0),
+        ("base", 16.0),
+        ("lg", 18.0),
+        ("xl", 20.0),
+        ("2xl", 24.0),
+        ("3xl", 30.0),
+        ("4xl", 36.0),
+        ("5xl", 48.0),
+        ("6xl", 60.0),
+        ("7xl", 72.0),
+        ("8xl", 96.0),
+        ("9xl", 128.0),
+    ];
+
+    let mut output = String::new();
+    output.push_str("// @generated by build.rs; do not edit.\n\n");
+
+    output.push_str("const EXACT_CLASS_RULES: &[(&str, ExactClassAction)] = &[\n");
+    for (class_name, action) in EXACT_CLASS_RULE_SPECS {
+        let _ = writeln!(output, "    ({class_name:?}, {action}),");
+    }
+    output.push_str("];\n\n");
+
+    output.push_str("const BRACKET_F32_RULES: &[(&str, F32Target)] = &[\n");
+    for (prefix, target) in BRACKET_F32_RULE_SPECS {
+        let _ = writeln!(output, "    ({prefix:?}, F32Target::{target}),");
+    }
+    output.push_str("];\n\n");
+
+    output.push_str("const SIGNED_BRACKET_F32_RULES: &[(&str, &str, F32Target)] = &[\n");
+    for (positive_prefix, negative_prefix, target) in SIGNED_BRACKET_F32_RULE_SPECS {
+        let _ = writeln!(
+            output,
+            "    ({positive_prefix:?}, {negative_prefix:?}, F32Target::{target}),"
+        );
+    }
+    output.push_str("];\n\n");
+
+    output.push_str("const SPACING_SCALE_RULES: &[(&str, F32Target)] = &[\n");
+    for (prefix, target) in SPACING_SCALE_RULE_SPECS {
+        let _ = writeln!(output, "    ({prefix:?}, F32Target::{target}),");
+    }
+    output.push_str("];\n\n");
+
+    output.push_str("const COLOR_PREFIX_RULES: &[(&str, ColorTarget)] = &[\n");
+    for (prefix, target) in COLOR_PREFIX_RULE_SPECS {
+        let _ = writeln!(output, "    ({prefix:?}, ColorTarget::{target}),");
+    }
+    output.push_str("];\n\n");
+
+    output.push_str("const TAILWIND_TEXT_SIZE_RULES: &[(&str, f32)] = &[\n");
+    for (name, px) in TEXT_SIZE_RULE_SPECS {
+        let _ = writeln!(output, "    ({name:?}, {px:.1}),");
+    }
+    output.push_str("];\n");
+
     output
 }
 

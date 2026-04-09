@@ -53,10 +53,20 @@ impl EncodingConfig {
 
 impl Composition {
     pub fn render(&self, output_path: impl AsRef<Path>, config: &EncodingConfig) -> Result<()> {
-        self.render_with_backend(
+        self.render_with_progress(output_path, config, |_, _| {})
+    }
+
+    pub fn render_with_progress(
+        &self,
+        output_path: impl AsRef<Path>,
+        config: &EncodingConfig,
+        on_video_frame_encoded: impl FnMut(u32, u32),
+    ) -> Result<()> {
+        self.render_with_backend_progress(
             output_path,
             config,
             render_registry::default_render_backend(),
+            on_video_frame_encoded,
         )
     }
 
@@ -66,8 +76,24 @@ impl Composition {
         config: &EncodingConfig,
         backend: RenderBackend,
     ) -> Result<()> {
+        self.render_with_backend_progress(output_path, config, backend, |_, _| {})
+    }
+
+    pub fn render_with_backend_progress(
+        &self,
+        output_path: impl AsRef<Path>,
+        config: &EncodingConfig,
+        backend: RenderBackend,
+        on_video_frame_encoded: impl FnMut(u32, u32),
+    ) -> Result<()> {
         match &config.format {
-            OutputFormat::Mp4(mp4_config) => render_mp4(self, output_path, mp4_config, backend),
+            OutputFormat::Mp4(mp4_config) => render_mp4(
+                self,
+                output_path,
+                mp4_config,
+                backend,
+                on_video_frame_encoded,
+            ),
             OutputFormat::Png => render_png(self, output_path, backend),
         }
     }
@@ -111,6 +137,7 @@ fn render_mp4(
     output_path: impl AsRef<Path>,
     config: &Mp4Config,
     backend: RenderBackend,
+    on_video_frame_encoded: impl FnMut(u32, u32),
 ) -> Result<()> {
     let composition = composition.aligned_for_video_encoding();
     let engine = render_registry::render_engine_for_backend(backend)?;
@@ -124,6 +151,7 @@ fn render_mp4(
         composition.frames,
         config,
         audio_track.as_ref(),
+        on_video_frame_encoded,
         |frame_index| {
             let rgba = engine.render_frame_rgba(&composition, frame_index, &mut session)?;
             Ok(rgba)

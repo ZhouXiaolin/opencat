@@ -3,6 +3,7 @@ pub mod codec;
 pub mod display;
 pub mod element;
 pub mod frame_ctx;
+pub mod inspect;
 pub mod jsonl;
 pub mod layout;
 mod lucide_icons;
@@ -14,6 +15,7 @@ pub mod style;
 mod text;
 
 pub use frame_ctx::FrameCtx;
+pub use inspect::{FrameElementRect, FrameElementSlot, collect_frame_layout_rects};
 pub use jsonl::{ParsedComposition, parse};
 pub use render::{
     EncodingConfig, Mp4Config, OutputFormat, RenderBackend, RenderSession, render_frame_rgb,

@@ -237,6 +237,37 @@ impl AssetsMap {
         }
     }
 
+    pub fn ensure_image_source_entry_for_inspect(&mut self, source: &ImageSource) {
+        match source {
+            ImageSource::Unset => {}
+            ImageSource::Path(path) => {
+                let _ = self.register(path);
+            }
+            ImageSource::Url(url) => {
+                let id = asset_id_for_url(url);
+                if self.entries.contains_key(&id) {
+                    return;
+                }
+                self.entries
+                    .insert(id, AssetEntry::with_dimensions(PathBuf::from(url), 0, 0));
+            }
+            ImageSource::Query(query) => {
+                let id = asset_id_for_query(query);
+                if self.entries.contains_key(&id) {
+                    return;
+                }
+                self.entries.insert(
+                    id,
+                    AssetEntry::with_dimensions(
+                        PathBuf::from(format!("openverse://{}", query.query)),
+                        0,
+                        0,
+                    ),
+                );
+            }
+        }
+    }
+
     pub fn register_audio_source(&mut self, source: &AudioSource) -> Result<AssetId> {
         match source {
             AudioSource::Unset => Err(anyhow!("audio source is required before rendering")),

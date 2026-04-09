@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use skia_safe::Color;
-
 use crate::scene::script::ScriptDriver;
 
 include!(concat!(env!("OUT_DIR"), "/tailwind_color_items.rs"));

@@ -3,8 +3,11 @@ use std::path::Path;
 use anyhow::{Result, anyhow};
 
 use crate::{
+    codec::decode::AudioTrack,
     runtime::{
-        audio::build_audio_track, preflight::ensure_assets_preloaded, render_registry,
+        audio::build_audio_track as build_runtime_audio_track,
+        preflight::ensure_assets_preloaded,
+        render_registry,
         target::RenderTargetHandle,
     },
     scene::composition::Composition,
@@ -79,6 +82,14 @@ impl Composition {
     }
 }
 
+pub fn build_audio_track(
+    composition: &Composition,
+    session: &mut RenderSession,
+) -> Result<Option<AudioTrack>> {
+    ensure_assets_preloaded(composition, session)?;
+    build_runtime_audio_track(composition, &mut session.assets)
+}
+
 fn render_png(
     composition: &Composition,
     output_path: impl AsRef<Path>,
@@ -104,8 +115,7 @@ fn render_mp4(
     let composition = composition.aligned_for_video_encoding();
     let engine = render_registry::render_engine_for_backend(backend)?;
     let mut session = RenderSession::with_render_engine(engine.clone());
-    ensure_assets_preloaded(&composition, &mut session)?;
-    let audio_track = build_audio_track(&composition, &mut session.assets)?;
+    let audio_track = build_audio_track(&composition, &mut session)?;
     crate::codec::encode::encode_rgba_frames(
         output_path,
         composition.width as u32,

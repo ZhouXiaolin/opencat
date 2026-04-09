@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::scene::{
     node::Node,
-    primitives::{ImageSource, canvas, div, image, lucide, text, video},
+    primitives::{AudioSource, ImageSource, audio, canvas, div, image, lucide, text, video},
     script::ScriptDriver,
     transition::{
         Timing, Transition, clock_wipe, fade, iris, light_leak, linear, slide, spring, timeline,
@@ -218,6 +218,18 @@ fn build_node(
             };
             image_node.style = style;
             Ok(Node::new(image_node))
+        }
+        ParsedElementKind::Audio { source } => {
+            let mut audio_node = audio();
+            audio_node = match source {
+                AudioSource::Unset => {
+                    return Err(anyhow::anyhow!("audio node requires one of: path, url"));
+                }
+                AudioSource::Path(path) => audio_node.path(path),
+                AudioSource::Url(url) => audio_node.url(url.clone()),
+            };
+            audio_node.style = style;
+            Ok(Node::new(audio_node))
         }
         ParsedElementKind::Icon { name } => {
             let mut icon_node = lucide(name.clone());

@@ -80,6 +80,11 @@ fn collect_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
     let mut previous = HashSet::<AudioSource>::new();
     let mut intervals = Vec::new();
 
+    for source in composition.global_audio_sources() {
+        previous.insert(source.clone());
+        active.insert(source.clone(), 0);
+    }
+
     for frame in 0..composition.frames {
         let frame_ctx = FrameCtx {
             frame,
@@ -89,7 +94,11 @@ fn collect_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
             frames: composition.frames,
         };
         let root = composition.root_node(&frame_ctx);
-        let mut current = HashSet::new();
+        let mut current = composition
+            .global_audio_sources()
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
         let mut ignored_images = HashSet::new();
 
         match frame_state_for_root(&root, &frame_ctx) {

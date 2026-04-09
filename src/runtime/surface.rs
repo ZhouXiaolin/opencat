@@ -4,11 +4,13 @@ use anyhow::{Result, anyhow};
 use foreign_types::ForeignType;
 #[cfg(target_os = "macos")]
 use metal::{
-    Device, MTLOrigin, MTLPixelFormat, MTLRegion, MTLSize, MTLStorageMode, MTLTextureType,
-    MTLTextureUsage, Texture, TextureDescriptor,
+    CommandQueue, Device, MTLPixelFormat, MTLStorageMode, MTLTextureType, MTLTextureUsage,
+    Texture, TextureDescriptor,
 };
 #[cfg(target_os = "macos")]
 use skia_safe::gpu::{self, backend_render_targets, mtl};
+#[cfg(target_os = "macos")]
+use skia_safe::{AlphaType, ColorType, ImageInfo};
 
 use crate::{
     render::{RenderSession, render_frame_to_target},
@@ -55,11 +57,13 @@ impl MetalEncodeBridge {
 #[cfg(target_os = "macos")]
 struct MetalOffscreenTarget {
     device: Device,
+    _command_queue: CommandQueue,
     skia: gpu::DirectContext,
     texture: Texture,
     width: i32,
     height: i32,
     current_surface: Option<skia_safe::Surface>,
+    current_rgba: Option<Vec<u8>>,
 }
 
 #[cfg(target_os = "macos")]
@@ -78,11 +82,13 @@ impl MetalOffscreenTarget {
         let texture = Self::create_texture(&device, width, height);
         Ok(Self {
             device,
+            _command_queue: command_queue,
             skia,
             texture,
             width,
             height,
             current_surface: None,
+            current_rgba: None,
         })
     }
 
@@ -125,38 +131,44 @@ impl MetalOffscreenTarget {
         )
         .ok_or_else(|| anyhow!("failed to wrap metal offscreen render target"))?;
         self.current_surface = Some(surface);
+        self.current_rgba = None;
         Ok(self as *mut Self as *mut std::ffi::c_void)
     }
 
     fn end_frame(&mut self) -> Result<()> {
-        let surface = self
+        let mut surface = self
             .current_surface
             .take()
             .ok_or_else(|| anyhow!("offscreen end_frame called before begin_frame"))?;
-        self.skia.flush_and_submit();
+        self.skia.flush_and_submit_surface(&mut surface, None);
+        let width = self.width.max(1);
+        let height = self.height.max(1);
+        let image_info = ImageInfo::new(
+            (width, height),
+            ColorType::RGBA8888,
+            AlphaType::Premul,
+            None,
+        );
+        let mut rgba = vec![0_u8; (width as usize) * (height as usize) * 4];
+        let read_ok = surface.read_pixels(
+            &image_info,
+            rgba.as_mut_slice(),
+            (width as usize) * 4,
+            (0, 0),
+        );
+        if !read_ok {
+            return Err(anyhow!("failed to read pixels from offscreen skia surface"));
+        }
+        self.current_rgba = Some(rgba);
         drop(surface);
         Ok(())
     }
 
     fn readback_rgba(&self) -> Result<Vec<u8>> {
-        let width = self.width.max(1) as u64;
-        let height = self.height.max(1) as u64;
-        let mut bgra = vec![0_u8; (width * height * 4) as usize];
-        let region = MTLRegion {
-            origin: MTLOrigin { x: 0, y: 0, z: 0 },
-            size: MTLSize {
-                width,
-                height,
-                depth: 1,
-            },
-        };
-        self.texture
+        self.current_rgba
             .as_ref()
-            .get_bytes(bgra.as_mut_ptr().cast(), width * 4, region, 0);
-        for px in bgra.chunks_exact_mut(4) {
-            px.swap(0, 2);
-        }
-        Ok(bgra)
+            .cloned()
+            .ok_or_else(|| anyhow!("offscreen readback called before frame pixels were ready"))
     }
 
     unsafe fn begin_frame_bridge(

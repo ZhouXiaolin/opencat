@@ -192,22 +192,7 @@ fn draw_slide_transition(
     height: i32,
 ) -> Result<()> {
     let progress = progress.clamp(0.0, 1.0);
-    let w = width as f32;
-    let h = height as f32;
-
-    let to_offset = match direction {
-        SlideDirection::FromLeft => (w * (progress - 1.0), 0.0),
-        SlideDirection::FromRight => (-w * progress, 0.0),
-        SlideDirection::FromTop => (0.0, h * (progress - 1.0)),
-        SlideDirection::FromBottom => (0.0, -h * progress),
-    };
-
-    let from_offset = match direction {
-        SlideDirection::FromLeft => (w * progress, 0.0),
-        SlideDirection::FromRight => (w * (1.0 - progress), 0.0),
-        SlideDirection::FromTop => (0.0, h * progress),
-        SlideDirection::FromBottom => (0.0, h * (1.0 - progress)),
-    };
+    let (to_offset, from_offset) = slide_offsets(direction, progress, width as f32, height as f32);
 
     canvas.save();
     canvas.translate(to_offset);
@@ -220,6 +205,29 @@ fn draw_slide_transition(
     canvas.restore();
 
     Ok(())
+}
+
+fn slide_offsets(
+    direction: SlideDirection,
+    progress: f32,
+    width: f32,
+    height: f32,
+) -> ((f32, f32), (f32, f32)) {
+    let to_offset = match direction {
+        SlideDirection::FromLeft => (width * (progress - 1.0), 0.0),
+        SlideDirection::FromRight => (width * (1.0 - progress), 0.0),
+        SlideDirection::FromTop => (0.0, height * (progress - 1.0)),
+        SlideDirection::FromBottom => (0.0, height * (1.0 - progress)),
+    };
+
+    let from_offset = match direction {
+        SlideDirection::FromLeft => (width * progress, 0.0),
+        SlideDirection::FromRight => (-width * progress, 0.0),
+        SlideDirection::FromTop => (0.0, height * progress),
+        SlideDirection::FromBottom => (0.0, -height * progress),
+    };
+
+    (to_offset, from_offset)
 }
 
 fn draw_fade_transition(
@@ -498,4 +506,34 @@ fn uniform_data<T>(value: &T) -> Data {
     let size = std::mem::size_of::<T>();
     let bytes = unsafe { std::slice::from_raw_parts((value as *const T).cast::<u8>(), size) };
     Data::new_copy(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slide_offsets;
+    use crate::scene::transition::SlideDirection;
+
+    #[test]
+    fn slide_offsets_match_expected_directions() {
+        let width = 100.0;
+        let height = 60.0;
+        let progress = 0.25;
+
+        assert_eq!(
+            slide_offsets(SlideDirection::FromLeft, progress, width, height),
+            ((-75.0, 0.0), (25.0, 0.0))
+        );
+        assert_eq!(
+            slide_offsets(SlideDirection::FromRight, progress, width, height),
+            ((75.0, 0.0), (-25.0, 0.0))
+        );
+        assert_eq!(
+            slide_offsets(SlideDirection::FromTop, progress, width, height),
+            ((0.0, -45.0), (0.0, 15.0))
+        );
+        assert_eq!(
+            slide_offsets(SlideDirection::FromBottom, progress, width, height),
+            ((0.0, 45.0), (0.0, -15.0))
+        );
+    }
 }

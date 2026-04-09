@@ -16,3 +16,4 @@ raw-window-handle = "0.5.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.25.0"
 objc = "0.2.7"
+rodio = "0.22.2"

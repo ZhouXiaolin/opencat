@@ -6,6 +6,7 @@ fn main() {
 #[cfg(target_os = "macos")]
 mod app {
     use std::ffi::c_void;
+    use std::num::{NonZeroU16, NonZeroU32};
     use std::time::{Duration, Instant};
 
     use anyhow::{Context, Result, anyhow};
@@ -16,9 +17,11 @@ mod app {
     use metal::{CommandQueue, Device, MTLPixelFormat, MetalDrawable, MetalLayer};
     use opencat::{
         Composition, FrameCtx, RenderFrameViewKind, RenderSession, RenderTargetHandle,
-        ScriptDriver, parse,
+        ScriptDriver, codec::decode::AudioTrack, parse,
     };
+    use opencat::render::build_audio_track;
     use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
+    use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source, buffer::SamplesBuffer};
     use skia_safe::{
         ColorType,
         gpu::{self, SurfaceOrigin, backend_render_targets, mtl},
@@ -27,6 +30,57 @@ mod app {
     use winit::event::{Event, WindowEvent};
     use winit::event_loop::{ControlFlow, EventLoop};
     use winit::window::WindowBuilder;
+
+    struct AudioPlayback {
+        _sink: MixerDeviceSink,
+        player: Player,
+    }
+
+    impl AudioPlayback {
+        fn new(track: AudioTrack) -> Result<Self> {
+            let sink = DeviceSinkBuilder::open_default_sink()
+                .context("failed to open default audio output device")?;
+            let player = Player::connect_new(&sink.mixer());
+            let channels = NonZeroU16::new(track.channels)
+                .ok_or_else(|| anyhow!("audio track channel count must be non-zero"))?;
+            let sample_rate = NonZeroU32::new(track.sample_rate)
+                .ok_or_else(|| anyhow!("audio track sample rate must be non-zero"))?;
+            let source = SamplesBuffer::new(channels, sample_rate, track.samples).repeat_infinite();
+            player.append(source);
+            Ok(Self {
+                _sink: sink,
+                player,
+            })
+        }
+
+        fn frame_index(&self, total_frames: u32, fps: u32) -> u32 {
+            if total_frames <= 1 {
+                return 0;
+            }
+
+            let fps = fps.max(1);
+            let loop_secs = total_frames as f64 / fps as f64;
+            if loop_secs <= f64::EPSILON {
+                return 0;
+            }
+
+            let elapsed_secs = self.player.get_pos().as_secs_f64();
+            let loop_pos_secs = elapsed_secs % loop_secs;
+            ((loop_pos_secs * fps as f64).floor() as u32) % total_frames
+        }
+
+        fn next_redraw_deadline(&self, fps: u32) -> Instant {
+            let fps = fps.max(1);
+            let frame_position = self.player.get_pos().as_secs_f64() * fps as f64;
+            let fractional = frame_position.fract();
+            let remaining_secs = if fractional <= f64::EPSILON {
+                1.0 / fps as f64
+            } else {
+                (1.0 - fractional) / fps as f64
+            };
+            Instant::now() + Duration::from_secs_f64(remaining_secs.max(0.001))
+        }
+    }
 
     struct MetalSkiaRenderTarget {
         layer: MetalLayer,
@@ -201,6 +255,7 @@ mod app {
             .size(parsed.width, parsed.height)
             .fps(parsed.fps as u32)
             .frames(parsed.frames as u32)
+            .global_audio_sources(parsed.global_audio_sources.clone())
             .root(move |_ctx: &FrameCtx| root.clone())
             .build()
             .context("failed to build composition")?;
@@ -240,8 +295,9 @@ mod app {
 
         let mut session = RenderSession::new();
         let total_frames = composition.frames.max(1);
+        let fps = composition.fps.max(1);
 
-        let frame_duration = Duration::from_secs_f64(1.0 / (parsed.fps as f64).max(1.0));
+        let frame_duration = Duration::from_secs_f64(1.0 / fps as f64);
         if let Err(error) =
             composition.render_frame_with_target(0, &mut session, &mut render_target)
         {
@@ -252,8 +308,14 @@ mod app {
         }
         std::thread::sleep(Duration::from_millis(100));
 
-        let mut next_tick = Instant::now() + frame_duration;
-        let mut frame_index = 1 % total_frames;
+        let audio_playback = build_audio_track(&composition, &mut session)?
+            .map(AudioPlayback::new)
+            .transpose()?;
+        let mut next_tick = audio_playback
+            .as_ref()
+            .map(|playback| playback.next_redraw_deadline(fps))
+            .unwrap_or_else(|| Instant::now() + frame_duration);
+        let mut fallback_frame_index = 1 % total_frames;
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::WaitUntil(next_tick);
@@ -271,6 +333,10 @@ mod app {
                     }
                 }
                 Event::RedrawRequested(_) => {
+                    let frame_index = audio_playback
+                        .as_ref()
+                        .map(|playback| playback.frame_index(total_frames, fps))
+                        .unwrap_or(fallback_frame_index);
                     if let Err(error) = composition.render_frame_with_target(
                         frame_index,
                         &mut session,
@@ -286,8 +352,12 @@ mod app {
                         return;
                     }
 
-                    frame_index = (frame_index + 1) % total_frames;
-                    next_tick = Instant::now() + frame_duration;
+                    if let Some(playback) = audio_playback.as_ref() {
+                        next_tick = playback.next_redraw_deadline(fps);
+                    } else {
+                        fallback_frame_index = (frame_index + 1) % total_frames;
+                        next_tick = Instant::now() + frame_duration;
+                    }
                 }
                 _ => {}
             }

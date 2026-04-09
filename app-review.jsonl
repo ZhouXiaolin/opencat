@@ -1,0 +1,48 @@
+{"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 1003}
+{"id": "scene1", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] relative bg-white", "duration": 500}
+{"id": "bgm", "parentId": null, "type": "audio", "path": "/Users/solaren/Downloads/1.mp3"}
+{"id": "s1-img", "parentId": "scene1", "type": "image", "className": "w-[390px] h-[260px] object-cover", "query": null, "path": "/Users/solaren/Downloads/1.png"}
+{"id": "s1-body", "parentId": "scene1", "type": "div", "className": "flex flex-col grow px-[28px] py-[22px] gap-[16px]"}
+{"id": "s1-title", "parentId": "s1-body", "type": "text", "className": "text-[26px] font-bold text-slate-900 leading-tight", "text": "1. Data Source & Licensing"}
+{"id": "s1-card1", "parentId": "s1-body", "type": "div", "className": "flex flex-col gap-[6px] bg-blue-50 rounded-xl p-[14px]"}
+{"id": "s1-c1-row", "parentId": "s1-card1", "type": "div", "className": "flex flex-row items-center gap-[10px]"}
+{"id": "s1-c1-icon", "parentId": "s1-c1-row", "type": "icon", "className": "w-[18px] h-[18px] text-blue-500", "icon": "globe"}
+{"id": "s1-c1-title", "parentId": "s1-c1-row", "type": "text", "className": "text-[15px] font-semibold text-slate-800", "text": "RadioBrowser API"}
+{"id": "s1-c1-body", "parentId": "s1-card1", "type": "text", "className": "text-[13px] text-slate-500 leading-relaxed", "text": "Free, open, community-driven directory service for internet radio stations."}
+{"id": "s1-card2", "parentId": "s1-body", "type": "div", "className": "flex flex-col gap-[6px] bg-blue-50 rounded-xl p-[14px]"}
+{"id": "s1-c2-row", "parentId": "s1-card2", "type": "div", "className": "flex flex-row items-center gap-[10px]"}
+{"id": "s1-c2-icon", "parentId": "s1-c2-row", "type": "icon", "className": "w-[18px] h-[18px] text-blue-500", "icon": "lock-open"}
+{"id": "s1-c2-title", "parentId": "s1-c2-row", "type": "text", "className": "text-[15px] font-semibold text-slate-800", "text": "Public Domain"}
+{"id": "s1-c2-body", "parentId": "s1-card2", "type": "text", "className": "text-[13px] text-slate-500 leading-relaxed", "text": "\"Everyone is free to use the collected data in their works. I give all the rights I have at the accumulated data to the public domain.\""}
+{"id": "s1-card3", "parentId": "s1-body", "type": "div", "className": "flex flex-col gap-[6px] bg-blue-50 rounded-xl p-[14px]"}
+{"id": "s1-c3-row", "parentId": "s1-card3", "type": "div", "className": "flex flex-row items-center gap-[10px]"}
+{"id": "s1-c3-icon", "parentId": "s1-c3-row", "type": "icon", "className": "w-[18px] h-[18px] text-blue-500", "icon": "code"}
+{"id": "s1-c3-title", "parentId": "s1-c3-row", "type": "text", "className": "text-[15px] font-semibold text-slate-800", "text": "Free & Open Source"}
+{"id": "s1-c3-body", "parentId": "s1-card3", "type": "text", "className": "text-[13px] text-slate-500 leading-relaxed", "text": "May be used in both free and commercial software without restriction."}
+{"type": "script", "parentId": "scene1", "content": "var p = ctx.currentFrame / ctx.sceneFrames;\nvar e = function(t) { return t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t); };\nvar fade = function(node, start, dur) {\n  var t = e((p - start) / dur);\n  node.opacity(t).translateY(16 * (1 - t));\n};\nfade(ctx.getNode('s1-img'), 0, 0.15);\nfade(ctx.getNode('s1-title'), 0.06, 0.12);\nfade(ctx.getNode('s1-card1'), 0.14, 0.10);\nfade(ctx.getNode('s1-card2'), 0.22, 0.10);\nfade(ctx.getNode('s1-card3'), 0.30, 0.10);"}
+{"type": "transition", "from": "scene1", "to": "scene2", "effect": "slide", "direction": "from-right", "duration": 30}
+{"id": "scene2", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] relative bg-slate-50", "duration": 473}
+{"id": "s2-img", "parentId": "scene2", "type": "image", "className": "w-[390px] h-[260px] object-cover", "query": null, "path": "/Users/solaren/Downloads/2.png"}
+{"id": "s2-body", "parentId": "scene2", "type": "div", "className": "flex flex-col grow px-[28px] py-[22px] gap-[12px]"}
+{"id": "s2-title", "parentId": "s2-body", "type": "text", "className": "text-[26px] font-bold text-slate-900 leading-tight", "text": "2. Nature of Content & Usage"}
+{"id": "s2-card1", "parentId": "s2-body", "type": "div", "className": "flex flex-col gap-[6px] bg-emerald-50 rounded-xl p-[14px]"}
+{"id": "s2-c1-row", "parentId": "s2-card1", "type": "div", "className": "flex flex-row items-center gap-[10px]"}
+{"id": "s2-c1-icon", "parentId": "s2-c1-row", "type": "icon", "className": "w-[18px] h-[18px] text-emerald-500", "icon": "radio"}
+{"id": "s2-c1-title", "parentId": "s2-c1-row", "type": "text", "className": "text-[15px] font-semibold text-slate-800", "text": "Public Broadcast Streams"}
+{"id": "s2-c1-body", "parentId": "s2-card1", "type": "text", "className": "text-[13px] text-slate-500 leading-relaxed", "text": "All audio streams are publicly broadcast internet radio over standard HTTP/HTTPS protocols."}
+{"id": "s2-card2", "parentId": "s2-body", "type": "div", "className": "flex flex-col gap-[6px] bg-emerald-50 rounded-xl p-[14px]"}
+{"id": "s2-c2-row", "parentId": "s2-card2", "type": "div", "className": "flex flex-row items-center gap-[10px]"}
+{"id": "s2-c2-icon", "parentId": "s2-c2-row", "type": "icon", "className": "w-[18px] h-[18px] text-emerald-500", "icon": "shield-off"}
+{"id": "s2-c2-title", "parentId": "s2-c2-row", "type": "text", "className": "text-[15px] font-semibold text-slate-800", "text": "No Hosting or Storage"}
+{"id": "s2-c2-body", "parentId": "s2-card2", "type": "text", "className": "text-[13px] text-slate-500 leading-relaxed", "text": "Does not host, store, cache, modify, convert, or download any audio content."}
+{"id": "s2-card3", "parentId": "s2-body", "type": "div", "className": "flex flex-col gap-[6px] bg-emerald-50 rounded-xl p-[14px]"}
+{"id": "s2-c3-row", "parentId": "s2-card3", "type": "div", "className": "flex flex-row items-center gap-[10px]"}
+{"id": "s2-c3-icon", "parentId": "s2-c3-row", "type": "icon", "className": "w-[18px] h-[18px] text-emerald-500", "icon": "arrow-right-left"}
+{"id": "s2-c3-title", "parentId": "s2-c3-row", "type": "text", "className": "text-[15px] font-semibold text-slate-800", "text": "Direct Streaming Only"}
+{"id": "s2-c3-body", "parentId": "s2-card3", "type": "text", "className": "text-[13px] text-slate-500 leading-relaxed", "text": "Connects users directly to original broadcasters' servers."}
+{"id": "s2-card4", "parentId": "s2-body", "type": "div", "className": "flex flex-col gap-[6px] bg-emerald-50 rounded-xl p-[14px]"}
+{"id": "s2-c4-row", "parentId": "s2-card4", "type": "div", "className": "flex flex-row items-center gap-[10px]"}
+{"id": "s2-c4-icon", "parentId": "s2-c4-row", "type": "icon", "className": "w-[18px] h-[18px] text-emerald-500", "icon": "ban"}
+{"id": "s2-c4-title", "parentId": "s2-c4-row", "type": "text", "className": "text-[15px] font-semibold text-slate-800", "text": "No Redistribution"}
+{"id": "s2-c4-body", "parentId": "s2-card4", "type": "text", "className": "text-[13px] text-slate-500 leading-relaxed", "text": "No content is re-broadcast, re-encoded, or redistributed. No ownership or exclusive rights claimed."}
+{"type": "script", "parentId": "scene2", "content": "var p = ctx.currentFrame / ctx.sceneFrames;\nvar e = function(t) { return t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t); };\nvar fade = function(node, start, dur) {\n  var t = e((p - start) / dur);\n  node.opacity(t).translateY(16 * (1 - t));\n};\nfade(ctx.getNode('s2-img'), 0, 0.15);\nfade(ctx.getNode('s2-title'), 0.06, 0.12);\nfade(ctx.getNode('s2-card1'), 0.14, 0.09);\nfade(ctx.getNode('s2-card2'), 0.21, 0.09);\nfade(ctx.getNode('s2-card3'), 0.28, 0.09);\nfade(ctx.getNode('s2-card4'), 0.35, 0.09);"}

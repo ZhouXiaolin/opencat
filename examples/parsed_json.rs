@@ -1,4 +1,4 @@
-use opencat::{Composition, EncodingConfig, RenderBackend, ScriptDriver, parse};
+use opencat::{Composition, EncodingConfig, ScriptDriver, parse};
 
 fn main() -> anyhow::Result<()> {
     let input = if let Some(path) = std::env::args().nth(1) {
@@ -11,25 +11,28 @@ fn main() -> anyhow::Result<()> {
 
     println!("Parsed composition: {}x{}", parsed.width, parsed.height);
 
-    let root = parsed.root;
-    let script = parsed.script.unwrap_or_default();
-    let driver = ScriptDriver::from_source(&script)?;
-    let root = root.script_driver(driver);
+    let root = if let Some(script) = parsed.script.as_deref() {
+        if script.trim().is_empty() {
+            parsed.root
+        } else {
+            let driver = ScriptDriver::from_source(script)?;
+            parsed.root.script_driver(driver)
+        }
+    } else {
+        parsed.root
+    };
 
     let composition = Composition::new("parsed")
         .size(parsed.width, parsed.height)
         .fps(parsed.fps as u32)
         .frames(parsed.frames as u32)
+        .global_audio_sources(parsed.global_audio_sources.clone())
         .root(move |_ctx| root.clone())
         .build()?;
 
     let encode_config = EncodingConfig::mp4();
     std::fs::create_dir_all("out")?;
-    composition.render_with_backend(
-        "out/parsed.mp4",
-        &encode_config,
-        RenderBackend::Accelerated,
-    )?;
+    composition.render("out/parsed.mp4", &encode_config)?;
     println!("Rendered out/parsed.mp4");
 
     Ok(())

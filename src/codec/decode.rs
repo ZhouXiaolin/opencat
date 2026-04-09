@@ -48,6 +48,7 @@ impl AudioTrack {
 }
 
 struct VideoDecoder {
+    path: PathBuf,
     input: format::context::Input,
     decoder: ffmpeg::decoder::Video,
     scaler: ScalingContext,
@@ -97,6 +98,7 @@ impl VideoDecoder {
         )?;
 
         Ok(Self {
+            path: path.to_path_buf(),
             input,
             decoder,
             scaler,
@@ -125,17 +127,19 @@ impl VideoDecoder {
                 .expect("current frame should exist"));
         }
 
-        if target_secs <= self.current_pts_secs {
-            return self
-                .current_frame
-                .clone()
-                .ok_or_else(|| anyhow!("no frame available"));
+        if target_secs + 1e-6 < self.current_pts_secs {
+            self.reopen()?;
         }
 
         self.decode_forward(target_secs)?;
         self.current_frame
             .clone()
             .ok_or_else(|| anyhow!("failed to decode frame at {:.3}s", target_secs))
+    }
+
+    fn reopen(&mut self) -> Result<()> {
+        *self = Self::open(&self.path)?;
+        Ok(())
     }
 
     fn decode_forward(&mut self, target_secs: f64) -> Result<()> {

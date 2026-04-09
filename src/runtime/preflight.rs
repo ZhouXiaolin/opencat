@@ -24,9 +24,9 @@ pub(crate) fn ensure_assets_preloaded(
 
     let mut image_sources = HashSet::new();
     let mut audio_sources = composition
-        .global_audio_sources()
+        .audio_sources()
         .iter()
-        .cloned()
+        .map(|audio| audio.source.clone())
         .collect::<HashSet<_>>();
     for frame in 0..composition.frames {
         let frame_ctx = FrameCtx {

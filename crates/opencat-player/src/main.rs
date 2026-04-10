@@ -1,9 +1,9 @@
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn main() {
-    eprintln!("opencat-player 目前仅支持 macOS");
+    eprintln!("opencat-player 目前仅支持 macOS / Windows");
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod app {
     use std::ffi::c_void;
     use std::num::{NonZeroU16, NonZeroU32};
@@ -11,25 +11,54 @@ mod app {
     use std::time::{Duration, Instant};
 
     use anyhow::{Context, Result, anyhow};
-    use cocoa::appkit::NSView;
-    use cocoa::base::{YES, id};
-    use core_graphics_types::geometry::CGSize;
-    use foreign_types::{ForeignType, ForeignTypeRef};
-    use metal::{CommandQueue, Device, MTLPixelFormat, MetalDrawable, MetalLayer};
     use opencat::{
         Composition, FrameCtx, RenderFrameViewKind, RenderSession, RenderTargetHandle,
         ScriptDriver, parse, render_audio_chunk,
     };
     use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
     use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source};
+    use winit::dpi::LogicalSize;
+    use winit::event::{Event, WindowEvent};
+    use winit::event_loop::{ControlFlow, EventLoop};
+    use winit::window::{Window, WindowBuilder};
+
+    #[cfg(target_os = "macos")]
+    use cocoa::appkit::NSView;
+    #[cfg(target_os = "macos")]
+    use cocoa::base::{YES, id};
+    #[cfg(target_os = "macos")]
+    use core_graphics_types::geometry::CGSize;
+    #[cfg(target_os = "macos")]
+    use foreign_types::{ForeignType, ForeignTypeRef};
+    #[cfg(target_os = "macos")]
+    use metal::{CommandQueue, Device, MTLPixelFormat, MetalDrawable, MetalLayer};
+    #[cfg(target_os = "macos")]
     use skia_safe::{
         ColorType,
         gpu::{self, SurfaceOrigin, backend_render_targets, mtl},
     };
-    use winit::dpi::LogicalSize;
-    use winit::event::{Event, WindowEvent};
-    use winit::event_loop::{ControlFlow, EventLoop};
-    use winit::window::WindowBuilder;
+
+    #[cfg(target_os = "windows")]
+    use std::ffi::CString;
+    #[cfg(target_os = "windows")]
+    use skia_safe::{
+        ColorType,
+        gpu::{self, SurfaceOrigin, backend_render_targets, gl},
+    };
+    #[cfg(target_os = "windows")]
+    use windows_sys::Win32::{
+        Foundation::{FreeLibrary, HMODULE, HWND},
+        Graphics::{
+            Gdi::{GetDC, HDC, ReleaseDC},
+            OpenGL::{
+                ChoosePixelFormat, HGLRC, PFD_DOUBLEBUFFER, PFD_DRAW_TO_WINDOW, PFD_MAIN_PLANE,
+                PFD_SUPPORT_OPENGL, PFD_TYPE_RGBA, PIXELFORMATDESCRIPTOR, SetPixelFormat,
+                SwapBuffers, wglCreateContext, wglDeleteContext, wglGetProcAddress,
+                wglMakeCurrent,
+            },
+        },
+        System::LibraryLoader::{GetProcAddress, LoadLibraryA},
+    };
 
     const AUDIO_CHUNK_FRAMES: usize = 2048;
     const AUDIO_SAMPLE_RATE: u32 = 48_000;
@@ -269,6 +298,7 @@ mod app {
         Ok(samples)
     }
 
+    #[cfg(target_os = "macos")]
     struct MetalSkiaRenderTarget {
         layer: MetalLayer,
         command_queue: CommandQueue,
@@ -277,6 +307,7 @@ mod app {
         current_surface: Option<skia_safe::Surface>,
     }
 
+    #[cfg(target_os = "macos")]
     impl MetalSkiaRenderTarget {
         fn new(ns_view: *mut c_void, width: i32, height: i32, scale_factor: f64) -> Result<Self> {
             let device =
@@ -292,7 +323,6 @@ mod app {
             layer.set_contents_scale(scale_factor);
             layer.set_drawable_size(CGSize::new(width as f64, height as f64));
 
-            // SAFETY: ns_view 来自 winit AppKit 句柄，当前线程有效。
             unsafe {
                 let view: id = ns_view as id;
                 view.setWantsLayer(YES);
@@ -395,12 +425,10 @@ mod app {
             width: i32,
             height: i32,
         ) -> Result<*mut c_void> {
-            // SAFETY: user_data 来自 Box<MetalSkiaRenderTarget> 的稳定地址。
             unsafe { &mut *(user_data as *mut Self) }.begin_frame(width, height)
         }
 
         unsafe fn end_frame_bridge(user_data: *mut c_void) -> Result<()> {
-            // SAFETY: user_data 来自 Box<MetalSkiaRenderTarget> 的稳定地址。
             unsafe { &mut *(user_data as *mut Self) }.end_frame()
         }
 
@@ -416,9 +444,285 @@ mod app {
         }
 
         unsafe fn present_frame_bridge(user_data: *mut c_void) -> Result<()> {
-            // SAFETY: user_data 来自 Box<MetalSkiaRenderTarget> 的稳定地址。
             unsafe { &mut *(user_data as *mut Self) }.present_frame()
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn build_platform_render_target(
+        window: &Window,
+        width: i32,
+        height: i32,
+    ) -> Result<(Box<MetalSkiaRenderTarget>, RenderTargetHandle)> {
+        let raw = window.raw_window_handle();
+        let (ns_window, ns_view) = match raw {
+            RawWindowHandle::AppKit(handle) => (handle.ns_window, handle.ns_view),
+            _ => return Err(anyhow!("expected AppKit window handle on macOS")),
+        };
+        if ns_window.is_null() || ns_view.is_null() {
+            return Err(anyhow!("AppKit window handles are null"));
+        }
+
+        let mut target = Box::new(MetalSkiaRenderTarget::new(
+            ns_view,
+            width,
+            height,
+            window.scale_factor(),
+        )?);
+        let target_ptr = target.as_mut() as *mut MetalSkiaRenderTarget as *mut c_void;
+        let render_target = RenderTargetHandle::new(
+            RenderFrameViewKind::DrawContext2D,
+            target_ptr,
+            MetalSkiaRenderTarget::begin_frame_bridge,
+            MetalSkiaRenderTarget::end_frame_bridge,
+        )
+        .with_frame_view_resolver(MetalSkiaRenderTarget::resolve_skia_canvas_bridge)
+        .with_present_frame(MetalSkiaRenderTarget::present_frame_bridge);
+        Ok((target, render_target))
+    }
+
+    #[cfg(target_os = "windows")]
+    struct WglSkiaRenderTarget {
+        hwnd: HWND,
+        hdc: HDC,
+        glrc: HGLRC,
+        opengl32: HMODULE,
+        skia: gpu::DirectContext,
+        current_surface: Option<skia_safe::Surface>,
+    }
+
+    #[cfg(target_os = "windows")]
+    impl WglSkiaRenderTarget {
+        fn new(hwnd: HWND, _width: i32, _height: i32) -> Result<Self> {
+            if hwnd.is_null() {
+                return Err(anyhow!("Win32 window handle is null"));
+            }
+
+            let hdc = unsafe { GetDC(hwnd) };
+            if hdc.is_null() {
+                return Err(anyhow!("GetDC returned null for Win32 window"));
+            }
+
+            let pixel_format_descriptor = PIXELFORMATDESCRIPTOR {
+                nSize: std::mem::size_of::<PIXELFORMATDESCRIPTOR>() as u16,
+                nVersion: 1,
+                dwFlags: PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
+                iPixelType: PFD_TYPE_RGBA,
+                cColorBits: 32,
+                cAlphaBits: 8,
+                cDepthBits: 24,
+                cStencilBits: 8,
+                iLayerType: PFD_MAIN_PLANE as u8,
+                ..Default::default()
+            };
+
+            let pixel_format = unsafe { ChoosePixelFormat(hdc, &pixel_format_descriptor) };
+            if pixel_format == 0 {
+                unsafe {
+                    let _ = ReleaseDC(hwnd, hdc);
+                }
+                return Err(anyhow!("ChoosePixelFormat failed for Win32 OpenGL window"));
+            }
+
+            if unsafe { SetPixelFormat(hdc, pixel_format, &pixel_format_descriptor) } == 0 {
+                unsafe {
+                    let _ = ReleaseDC(hwnd, hdc);
+                }
+                return Err(anyhow!("SetPixelFormat failed for Win32 OpenGL window"));
+            }
+
+            let glrc = unsafe { wglCreateContext(hdc) };
+            if glrc.is_null() {
+                unsafe {
+                    let _ = ReleaseDC(hwnd, hdc);
+                }
+                return Err(anyhow!("wglCreateContext failed for Win32 window"));
+            }
+
+            if unsafe { wglMakeCurrent(hdc, glrc) } == 0 {
+                unsafe {
+                    let _ = wglDeleteContext(glrc);
+                    let _ = ReleaseDC(hwnd, hdc);
+                }
+                return Err(anyhow!("wglMakeCurrent failed while creating Win32 context"));
+            }
+
+            let opengl32 = unsafe { LoadLibraryA(b"opengl32.dll\0".as_ptr()) };
+            if opengl32.is_null() {
+                unsafe {
+                    let _ = wglMakeCurrent(hdc, std::ptr::null_mut());
+                    let _ = wglDeleteContext(glrc);
+                    let _ = ReleaseDC(hwnd, hdc);
+                }
+                return Err(anyhow!("LoadLibraryA(opengl32.dll) failed"));
+            }
+
+            let interface = gl::Interface::new_load_with(|name| load_gl_proc_address(opengl32, name))
+                .ok_or_else(|| anyhow!("failed to create Skia OpenGL interface"))?;
+            let skia = gpu::direct_contexts::make_gl(interface, None)
+                .ok_or_else(|| anyhow!("failed to create Skia OpenGL direct context"))?;
+
+            Ok(Self {
+                hwnd,
+                hdc,
+                glrc,
+                opengl32,
+                skia,
+                current_surface: None,
+            })
+        }
+
+        fn make_current(&self) -> Result<()> {
+            if unsafe { wglMakeCurrent(self.hdc, self.glrc) } == 0 {
+                return Err(anyhow!("wglMakeCurrent failed for Win32 render target"));
+            }
+            Ok(())
+        }
+
+        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void> {
+            if width <= 0 || height <= 0 {
+                return Err(anyhow!("invalid render target size {width}x{height}"));
+            }
+
+            self.make_current()?;
+
+            let backend_render_target = backend_render_targets::make_gl(
+                (width, height),
+                0,
+                8,
+                gl::FramebufferInfo {
+                    fboid: 0,
+                    format: gl::Format::RGBA8.into(),
+                    ..Default::default()
+                },
+            );
+
+            let surface = gpu::surfaces::wrap_backend_render_target(
+                &mut self.skia,
+                &backend_render_target,
+                SurfaceOrigin::BottomLeft,
+                ColorType::RGBA8888,
+                None,
+                None,
+            )
+            .ok_or_else(|| anyhow!("failed to wrap Win32 OpenGL framebuffer for Skia"))?;
+
+            self.current_surface = Some(surface);
+            Ok(self as *mut Self as *mut c_void)
+        }
+
+        fn end_frame(&mut self) -> Result<()> {
+            let mut surface = self
+                .current_surface
+                .take()
+                .ok_or_else(|| anyhow!("end_frame called before begin_frame"))?;
+            self.skia.flush_and_submit_surface(&mut surface, None);
+            drop(surface);
+            Ok(())
+        }
+
+        fn present_frame(&mut self) -> Result<()> {
+            self.make_current()?;
+            if unsafe { SwapBuffers(self.hdc) } == 0 {
+                return Err(anyhow!("SwapBuffers failed for Win32 window"));
+            }
+            Ok(())
+        }
+
+        unsafe fn begin_frame_bridge(
+            user_data: *mut c_void,
+            width: i32,
+            height: i32,
+        ) -> Result<*mut c_void> {
+            unsafe { &mut *(user_data as *mut Self) }.begin_frame(width, height)
+        }
+
+        unsafe fn end_frame_bridge(user_data: *mut c_void) -> Result<()> {
+            unsafe { &mut *(user_data as *mut Self) }.end_frame()
+        }
+
+        unsafe fn resolve_skia_canvas_bridge(
+            _user_data: *mut c_void,
+            frame_surface: *mut c_void,
+        ) -> Result<*mut c_void> {
+            let target = unsafe { &mut *(frame_surface as *mut Self) };
+            let surface = target.current_surface.as_mut().ok_or_else(|| {
+                anyhow!("skia canvas requested before Win32 framebuffer surface was ready")
+            })?;
+            Ok(surface.canvas() as *const _ as *mut c_void)
+        }
+
+        unsafe fn present_frame_bridge(user_data: *mut c_void) -> Result<()> {
+            unsafe { &mut *(user_data as *mut Self) }.present_frame()
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    impl Drop for WglSkiaRenderTarget {
+        fn drop(&mut self) {
+            self.current_surface.take();
+            self.skia.release_resources_and_abandon();
+
+            unsafe {
+                let _ = wglMakeCurrent(self.hdc, std::ptr::null_mut());
+                if !self.glrc.is_null() {
+                    let _ = wglDeleteContext(self.glrc);
+                }
+                if !self.hdc.is_null() {
+                    let _ = ReleaseDC(self.hwnd, self.hdc);
+                }
+                if !self.opengl32.is_null() {
+                    let _ = FreeLibrary(self.opengl32);
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn build_platform_render_target(
+        window: &Window,
+        width: i32,
+        height: i32,
+    ) -> Result<(Box<WglSkiaRenderTarget>, RenderTargetHandle)> {
+        let raw = window.raw_window_handle();
+        let hwnd = match raw {
+            RawWindowHandle::Win32(handle) => handle.hwnd as HWND,
+            _ => return Err(anyhow!("expected Win32 window handle on Windows")),
+        };
+        if hwnd.is_null() {
+            return Err(anyhow!("Win32 window handle is null"));
+        }
+
+        let mut target = Box::new(WglSkiaRenderTarget::new(hwnd, width, height)?);
+        let target_ptr = target.as_mut() as *mut WglSkiaRenderTarget as *mut c_void;
+        let render_target = RenderTargetHandle::new(
+            RenderFrameViewKind::DrawContext2D,
+            target_ptr,
+            WglSkiaRenderTarget::begin_frame_bridge,
+            WglSkiaRenderTarget::end_frame_bridge,
+        )
+        .with_frame_view_resolver(WglSkiaRenderTarget::resolve_skia_canvas_bridge)
+        .with_present_frame(WglSkiaRenderTarget::present_frame_bridge);
+        Ok((target, render_target))
+    }
+
+    #[cfg(target_os = "windows")]
+    fn load_gl_proc_address(opengl32: HMODULE, name: &str) -> *const c_void {
+        let Ok(name) = CString::new(name) else {
+            return std::ptr::null();
+        };
+
+        let wgl_proc = unsafe { wglGetProcAddress(name.as_ptr() as *const u8) };
+        if let Some(proc) = wgl_proc {
+            let raw = proc as *const () as usize;
+            if !matches!(raw, 0 | 1 | 2 | 3 | usize::MAX) {
+                return proc as *const () as *const c_void;
+            }
+        }
+
+        unsafe { GetProcAddress(opengl32, name.as_ptr() as *const u8) }
+            .map(|proc| proc as *const () as *const c_void)
+            .unwrap_or(std::ptr::null())
     }
 
     pub fn run() -> Result<()> {
@@ -456,30 +760,8 @@ mod app {
             .build(&event_loop)
             .context("failed to create window")?;
 
-        let raw = window.raw_window_handle();
-        let (ns_window, ns_view) = match raw {
-            RawWindowHandle::AppKit(handle) => (handle.ns_window, handle.ns_view),
-            _ => return Err(anyhow!("expected AppKit window handle on macOS")),
-        };
-        if ns_window.is_null() || ns_view.is_null() {
-            return Err(anyhow!("AppKit window handles are null"));
-        }
-
-        let mut metal_target = Box::new(MetalSkiaRenderTarget::new(
-            ns_view,
-            parsed.width,
-            parsed.height,
-            window.scale_factor(),
-        )?);
-        let target_ptr = metal_target.as_mut() as *mut MetalSkiaRenderTarget as *mut c_void;
-        let mut render_target = RenderTargetHandle::new(
-            RenderFrameViewKind::DrawContext2D,
-            target_ptr,
-            MetalSkiaRenderTarget::begin_frame_bridge,
-            MetalSkiaRenderTarget::end_frame_bridge,
-        )
-        .with_frame_view_resolver(MetalSkiaRenderTarget::resolve_skia_canvas_bridge)
-        .with_present_frame(MetalSkiaRenderTarget::present_frame_bridge);
+        let (mut _platform_target, mut render_target) =
+            build_platform_render_target(&window, parsed.width, parsed.height)?;
 
         let mut session = RenderSession::new();
         let total_frames = composition.frames.max(1);
@@ -555,7 +837,7 @@ mod app {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn main() -> anyhow::Result<()> {
     app::run()
 }

@@ -57,8 +57,7 @@ pub fn encode_rgba_frames(
         )
     })?;
 
-    let video_codec = ffmpeg::encoder::find(codec::Id::H264)
-        .ok_or_else(|| anyhow!("H264 encoder not found in local ffmpeg"))?;
+    let video_codec = select_video_encoder()?;
 
     let nominal_time_base = Rational(1, fps as i32);
     let stream_time_base = Rational(1, 90_000);
@@ -81,8 +80,10 @@ pub fn encode_rgba_frames(
     }
 
     let mut encode_options = Dictionary::new();
-    encode_options.set("crf", &config.crf.to_string());
-    encode_options.set("preset", &config.preset);
+    if video_codec.id() == codec::Id::H264 {
+        encode_options.set("crf", &config.crf.to_string());
+        encode_options.set("preset", &config.preset);
+    }
     let mut video_encoder = video_encoder_ctx.open_as_with(video_codec, encode_options)?;
     let video_packet_time_base = nominal_time_base;
     let video_frame_duration = 1_i64;
@@ -156,6 +157,34 @@ pub fn encode_rgba_frames(
 
     output.write_trailer()?;
     Ok(())
+}
+
+fn select_video_encoder() -> Result<ffmpeg::Codec> {
+    const SOFTWARE_H264_ENCODERS: [&str; 2] = ["libx264", "libopenh264"];
+
+    for name in SOFTWARE_H264_ENCODERS {
+        let Some(codec) = ffmpeg::encoder::find_by_name(name) else {
+            continue;
+        };
+
+        if codec_supports_pixel_format(codec, Pixel::YUV420P) {
+            eprintln!("[export] using software H.264 encoder `{}`", codec.name());
+            return Ok(codec);
+        }
+    }
+
+    Err(anyhow!(
+        "no compatible software H.264 encoder found for yuv420p input frames (tried libx264 and libopenh264)"
+    ))
+}
+
+fn codec_supports_pixel_format(codec: ffmpeg::Codec, pixel_format: Pixel) -> bool {
+    codec
+        .video()
+        .ok()
+        .and_then(|video| video.formats())
+        .map(|mut formats| formats.any(|format| format == pixel_format))
+        .unwrap_or(true)
 }
 
 struct AudioOutputContext<'a> {

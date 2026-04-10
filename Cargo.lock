@@ -2151,6 +2151,7 @@ dependencies = [
  "raw-window-handle",
  "rodio",
  "skia-safe",
+ "windows-sys 0.61.2",
  "winit",
 ]
 

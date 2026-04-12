@@ -2,7 +2,6 @@ use crate::{
     frame_ctx::FrameCtx,
     frame_ctx::ScriptFrameCtx,
     scene::{
-        easing::Easing,
         node::{Node, NodeKind},
         primitives::div,
         transition::{Timing, TransitionKind},

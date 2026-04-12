@@ -1,5 +1,5 @@
 use opencat::{
-    Composition, EncodingConfig, FrameCtx, Node, clock_wipe, div, linear, text, timeline, wipe,
+    Composition, Easing, EncodingConfig, FrameCtx, Node, clock_wipe, div, text, timeline, wipe,
 };
 
 fn scene_panel(label: &str, is_pink: bool) -> Node {
@@ -66,9 +66,9 @@ fn test(_ctx: &FrameCtx) -> Node {
 fn slide_transition_demo(_ctx: &FrameCtx) -> Node {
     timeline()
         .sequence(60, test(_ctx))
-        .transition(wipe().from_bottom_left().timing(linear().duration(60)))
+        .transition(wipe().from_bottom_left().timing(Easing::Linear, 60))
         .sequence(60, scene_panel("B", true))
-        .transition(clock_wipe().timing(linear().duration(60)))
+        .transition(clock_wipe().timing(Easing::Linear, 60))
         .sequence(60, scene_panel("A", false))
         .into()
 }

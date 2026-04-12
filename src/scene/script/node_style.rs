@@ -1,11 +1,11 @@
 use rquickjs::Function;
 
-use crate::style::{ColorToken, Transform, color_token_from_script_name};
+use crate::style::{color_token_from_script_name, ColorToken, Transform};
 
 use super::{
-    MutationStore, align_items_from_name, flex_direction_from_name, font_weight_from_name,
+    align_items_from_name, flex_direction_from_name, font_weight_from_name,
     justify_content_from_name, object_fit_from_name, position_from_name, shadow_from_name,
-    text_align_from_name,
+    text_align_from_name, MutationStore,
 };
 
 #[derive(Debug, Clone, Default)]

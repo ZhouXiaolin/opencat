@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::style::{NodeStyle, impl_node_style_api};
+use crate::style::{impl_node_style_api, NodeStyle};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OpenverseQuery {
@@ -77,7 +77,7 @@ impl_node_style_api!(Image);
 
 #[cfg(test)]
 mod tests {
-    use super::{ImageSource, image};
+    use super::{image, ImageSource};
 
     #[test]
     fn image_query_builder_keeps_openverse_options() {

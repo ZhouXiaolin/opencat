@@ -1,4 +1,5 @@
 use crate::scene::{
+    easing::{Easing, SpringConfig},
     node::Node,
     time::{TimelineNode, TimelineSegment},
 };
@@ -85,19 +86,20 @@ pub enum Timing {
     },
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct SpringConfig {
-    pub damping: f32,
-    pub stiffness: f32,
-    pub mass: f32,
-}
+impl Timing {
+    pub(crate) fn easing(&self) -> Easing {
+        match self {
+            Timing::Linear { .. } => Easing::Linear,
+            Timing::Spring { config, .. } => Easing::Spring(*config),
+        }
+    }
 
-impl Default for SpringConfig {
-    fn default() -> Self {
-        Self {
-            damping: 10.0,
-            stiffness: 100.0,
-            mass: 1.0,
+    pub(crate) fn duration_in_frames(&self) -> u32 {
+        match self {
+            Timing::Linear { duration_in_frames } => *duration_in_frames,
+            Timing::Spring {
+                duration_in_frames, ..
+            } => *duration_in_frames,
         }
     }
 }
@@ -219,12 +221,7 @@ impl From<Timeline> for Node {
 
 impl Transition {
     fn duration_in_frames(&self) -> u32 {
-        match self.timing {
-            Timing::Linear { duration_in_frames } => duration_in_frames,
-            Timing::Spring {
-                duration_in_frames, ..
-            } => duration_in_frames,
-        }
+        self.timing.duration_in_frames()
     }
 
     fn kind(&self) -> TransitionKind {

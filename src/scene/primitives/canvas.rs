@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::{
     scene::primitives::{ImageSource, OpenverseQuery},
-    style::{NodeStyle, impl_node_style_api},
+    style::{impl_node_style_api, NodeStyle},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

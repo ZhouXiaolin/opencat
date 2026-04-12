@@ -8,9 +8,9 @@ mod video;
 
 pub use crate::style::{AlignItems, JustifyContent, Position};
 pub use audio::AudioSource;
-pub use canvas::{Canvas, CanvasAsset, canvas};
-pub use div::{Div, div};
-pub use image::{Image, ImageSource, OpenverseQuery, image};
-pub use lucide::{Lucide, lucide};
-pub use text::{Text, text};
-pub use video::{Video, video};
+pub use canvas::{canvas, Canvas, CanvasAsset};
+pub use div::{div, Div};
+pub use image::{image, Image, ImageSource, OpenverseQuery};
+pub use lucide::{lucide, Lucide};
+pub use text::{text, Text};
+pub use video::{video, Video};

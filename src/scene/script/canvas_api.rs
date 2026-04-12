@@ -1,6 +1,6 @@
 use rquickjs::Function;
 
-use super::{MutationStore, object_fit_from_name};
+use super::{object_fit_from_name, MutationStore};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScriptColor {

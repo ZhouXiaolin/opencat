@@ -1,4 +1,4 @@
-use crate::style::{NodeStyle, impl_node_style_api};
+use crate::style::{impl_node_style_api, NodeStyle};
 
 #[derive(Clone)]
 pub struct Text {

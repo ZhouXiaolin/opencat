@@ -209,17 +209,18 @@ fn hello_world_demo(_ctx: &FrameCtx) -> Node {
 }
 
 fn main() -> anyhow::Result<()> {
+    let source = include_str!("hello_world_anim.js");
     let composition = Composition::new("hello_world")
         .size(1280, 720)
         .fps(30)
-        .frames(1)
-        .root(hello_world_demo)
+        .frames(240)
+        .root(|ctx| { hello_world_demo(ctx)})
         .build()?;
 
-    let encode_config = EncodingConfig::png();
+    let encode_config = EncodingConfig::mp4();
     std::fs::create_dir_all("out")?;
-    composition.render("out/hello_world.png", &encode_config)?;
-    println!("Rendered out/hello_world.png");
+    composition.render("out/hello_world.mp4", &encode_config)?;
+    println!("Rendered out/hello_world.mp4");
 
     Ok(())
 }

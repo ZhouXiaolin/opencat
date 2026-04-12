@@ -14,6 +14,7 @@ use crate::{
     },
 };
 
+mod animate_api;
 mod canvas_api;
 mod node_style;
 
@@ -56,6 +57,9 @@ impl StyleMutations {
 struct RuntimeMutationStore {
     styles: HashMap<String, NodeStyleMutations>,
     canvases: HashMap<String, CanvasMutations>,
+    current_frame: u32,
+    scene_frames: u32,
+    animate_state: std::sync::Mutex<animate_api::AnimateState>,
 }
 
 type MutationStore = Arc<Mutex<RuntimeMutationStore>>;
@@ -265,7 +269,11 @@ impl ScriptRunner {
                 .store
                 .lock()
                 .map_err(|_| anyhow!("script mutation store lock poisoned before execution"))?;
-            *store = RuntimeMutationStore::default();
+            *store = RuntimeMutationStore {
+                current_frame: frame_ctx.current_frame,
+                scene_frames: frame_ctx.scene_frames,
+                ..Default::default()
+            };
         }
 
         self.context.with(|ctx| {
@@ -340,8 +348,10 @@ fn install_runtime_bindings<'js>(
 
     node_style::install_node_style_bindings(ctx, store)?;
     canvas_api::install_canvaskit_bindings(ctx, store)?;
+    animate_api::install_animate_bindings(ctx, store)?;
     ctx.eval::<(), _>(node_style::NODE_STYLE_RUNTIME)?;
     ctx.eval::<(), _>(canvas_api::CANVASKIT_RUNTIME)?;
+    ctx.eval::<(), _>(animate_api::ANIMATE_RUNTIME)?;
 
     Ok(ctx_obj)
 }
@@ -704,5 +714,156 @@ mod tests {
             CanvasCommand::SetLineDash { .. }
         ));
         assert!(matches!(canvas.commands[5], CanvasCommand::DrawLine { .. }));
+    }
+
+    #[test]
+    fn script_driver_animate_linear_opacity() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            const s = ctx.animate({
+                from: { opacity: 0 },
+                to: { opacity: 1 },
+                duration: 20,
+                easing: 'linear',
+            });
+            ctx.getNode("box").opacity(s.opacity);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(10, 20, 10, 20, None).expect("script should run");
+        let node = mutations.get("box").expect("box mutation should exist");
+
+        assert!((node.opacity.unwrap() - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn script_driver_animate_ease_out_translate() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            const s = ctx.animate({
+                from: { translateX: 0 },
+                to: { translateX: 100 },
+                duration: 20,
+                easing: 'ease-out',
+            });
+            ctx.getNode("box").translateX(s.translateX);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(10, 20, 10, 20, None).expect("script should run");
+        let node = mutations.get("box").expect("box mutation should exist");
+
+        let tx = match &node.transforms[0] {
+            Transform::TranslateX(v) => *v,
+            _ => panic!("expected TranslateX"),
+        };
+        assert!(tx > 50.0, "ease-out should be > 50% at halfway, got {}", tx);
+    }
+
+    #[test]
+    fn script_driver_animate_spring_auto_duration() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            const s = ctx.animate({
+                from: { opacity: 0 },
+                to: { opacity: 1 },
+                easing: 'spring-stiff',
+            });
+            ctx.getNode("box").opacity(s.opacity);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(0, 60, 0, 60, None).expect("script should run");
+        let node = mutations.get("box").expect("box mutation should exist");
+
+        assert!((node.opacity.unwrap() - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn script_driver_animate_settle_frame() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            const s = ctx.animate({
+                from: { opacity: 0 },
+                to: { opacity: 1 },
+                duration: 20,
+                delay: 5,
+                easing: 'linear',
+            });
+            ctx.getNode("box").opacity(s.opacity);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(30, 60, 30, 60, None).expect("script should run");
+        let node = mutations.get("box").expect("box mutation should exist");
+
+        assert!((node.opacity.unwrap() - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn script_driver_stagger_animations() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            const anims = ctx.stagger(3, {
+                from: { opacity: 0 },
+                to: { opacity: 1 },
+                duration: 10,
+                gap: 5,
+                easing: 'linear',
+            });
+            ctx.getNode("a").opacity(anims[0].opacity);
+            ctx.getNode("b").opacity(anims[1].opacity);
+            ctx.getNode("c").opacity(anims[2].opacity);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(5, 30, 5, 30, None).expect("script should run");
+
+        let a = mutations.get("a").expect("a mutation should exist");
+        let b = mutations.get("b").expect("b mutation should exist");
+
+        let a_opacity = a.opacity.unwrap();
+        let b_opacity = b.opacity.unwrap();
+
+        assert!(
+            a_opacity > b_opacity,
+            "a should be more animated than b: a={} b={}",
+            a_opacity,
+            b_opacity
+        );
+    }
+
+    #[test]
+    fn script_driver_animate_custom_bezier() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            const s = ctx.animate({
+                from: { scale: 0.5 },
+                to: { scale: 1.0 },
+                duration: 20,
+                easing: [0.68, -0.6, 0.32, 1.6],
+            });
+            ctx.getNode("box").scale(s.scale);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(10, 20, 10, 20, None).expect("script should run");
+        let node = mutations.get("box").expect("box mutation should exist");
+
+        let sc = match &node.transforms[0] {
+            Transform::Scale(v) => *v,
+            _ => panic!("expected Scale"),
+        };
+        assert!(
+            sc >= 0.75,
+            "bezier should produce value >= 0.75 at halfway, got {}",
+            sc
+        );
     }
 }

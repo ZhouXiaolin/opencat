@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
 use crate::scene::{
+    easing::{Easing, SpringConfig, easing_from_name},
     node::Node,
     primitives::{ImageSource, canvas, div, image, lucide, text, video},
     script::ScriptDriver,
     transition::{
-        Timing, Transition, clock_wipe, fade, iris, light_leak, linear, slide, spring, timeline,
+        Transition, clock_wipe, fade, iris, light_leak, slide, timeline,
         wipe,
     },
 };
@@ -233,23 +234,24 @@ fn build_node(
 }
 
 fn build_transition(transition: &ParsedTransition) -> anyhow::Result<Transition> {
-    let timing = parse_transition_timing(transition)?;
+    let easing = parse_transition_easing(transition)?;
+    let duration = transition.duration;
     let effect = normalize_transition_name(&transition.effect);
 
     match effect.as_str() {
-        "fade" => Ok(fade().timing(timing)),
-        "clock_wipe" => Ok(clock_wipe().timing(timing)),
-        "iris" => Ok(iris().timing(timing)),
+        "fade" => Ok(fade().timing(easing, duration)),
+        "clock_wipe" => Ok(clock_wipe().timing(easing, duration)),
+        "iris" => Ok(iris().timing(easing, duration)),
         "slide" => match transition
             .direction
             .as_deref()
             .map(normalize_transition_name)
             .as_deref()
         {
-            None | Some("from_left") => Ok(slide().from_left().timing(timing)),
-            Some("from_right") => Ok(slide().from_right().timing(timing)),
-            Some("from_top") => Ok(slide().from_top().timing(timing)),
-            Some("from_bottom") => Ok(slide().from_bottom().timing(timing)),
+            None | Some("from_left") => Ok(slide().from_left().timing(easing, duration)),
+            Some("from_right") => Ok(slide().from_right().timing(easing, duration)),
+            Some("from_top") => Ok(slide().from_top().timing(easing, duration)),
+            Some("from_bottom") => Ok(slide().from_bottom().timing(easing, duration)),
             Some(direction) => Err(anyhow::anyhow!("unsupported slide direction `{direction}`")),
         },
         "wipe" => match transition
@@ -258,14 +260,14 @@ fn build_transition(transition: &ParsedTransition) -> anyhow::Result<Transition>
             .map(normalize_transition_name)
             .as_deref()
         {
-            None | Some("from_left") => Ok(wipe().from_left().timing(timing)),
-            Some("from_right") => Ok(wipe().from_right().timing(timing)),
-            Some("from_top") => Ok(wipe().from_top().timing(timing)),
-            Some("from_bottom") => Ok(wipe().from_bottom().timing(timing)),
-            Some("from_top_left") => Ok(wipe().from_top_left().timing(timing)),
-            Some("from_top_right") => Ok(wipe().from_top_right().timing(timing)),
-            Some("from_bottom_left") => Ok(wipe().from_bottom_left().timing(timing)),
-            Some("from_bottom_right") => Ok(wipe().from_bottom_right().timing(timing)),
+            None | Some("from_left") => Ok(wipe().from_left().timing(easing, duration)),
+            Some("from_right") => Ok(wipe().from_right().timing(easing, duration)),
+            Some("from_top") => Ok(wipe().from_top().timing(easing, duration)),
+            Some("from_bottom") => Ok(wipe().from_bottom().timing(easing, duration)),
+            Some("from_top_left") => Ok(wipe().from_top_left().timing(easing, duration)),
+            Some("from_top_right") => Ok(wipe().from_top_right().timing(easing, duration)),
+            Some("from_bottom_left") => Ok(wipe().from_bottom_left().timing(easing, duration)),
+            Some("from_bottom_right") => Ok(wipe().from_bottom_right().timing(easing, duration)),
             Some(direction) => Err(anyhow::anyhow!("unsupported wipe direction `{direction}`")),
         },
         "light_leak" => {
@@ -279,7 +281,7 @@ fn build_transition(transition: &ParsedTransition) -> anyhow::Result<Transition>
             if let Some(mask_scale) = transition.mask_scale {
                 builder = builder.mask_scale(mask_scale);
             }
-            Ok(builder.timing(timing))
+            Ok(builder.timing(easing, duration))
         }
         _ => Err(anyhow::anyhow!(
             "unsupported transition effect `{}`",
@@ -288,42 +290,37 @@ fn build_transition(transition: &ParsedTransition) -> anyhow::Result<Transition>
     }
 }
 
-fn parse_transition_timing(transition: &ParsedTransition) -> anyhow::Result<Timing> {
+fn parse_transition_easing(transition: &ParsedTransition) -> anyhow::Result<Easing> {
+    // Explicit spring parameters override timing field
+    if transition.damping.is_some()
+        || transition.stiffness.is_some()
+        || transition.mass.is_some()
+    {
+        let mut config = SpringConfig::default();
+        if let Some(damping) = transition.damping {
+            config.damping = damping;
+        }
+        if let Some(stiffness) = transition.stiffness {
+            config.stiffness = stiffness;
+        }
+        if let Some(mass) = transition.mass {
+            config.mass = mass;
+        }
+        return Ok(Easing::Spring(config));
+    }
+
     let timing = transition
         .timing
         .as_deref()
         .map(normalize_transition_name)
-        .unwrap_or_else(|| {
-            if transition.damping.is_some()
-                || transition.stiffness.is_some()
-                || transition.mass.is_some()
-            {
-                "spring".to_string()
-            } else {
-                "linear".to_string()
-            }
-        });
+        .unwrap_or_else(|| "linear".to_string());
 
-    match timing.as_str() {
-        "linear" => Ok(linear().duration(transition.duration)),
-        "spring" => {
-            let mut builder = spring();
-            if let Some(damping) = transition.damping {
-                builder = builder.damping(damping);
-            }
-            if let Some(stiffness) = transition.stiffness {
-                builder = builder.stiffness(stiffness);
-            }
-            if let Some(mass) = transition.mass {
-                builder = builder.mass(mass);
-            }
-            Ok(builder.duration(transition.duration))
-        }
-        _ => Err(anyhow::anyhow!(
+    easing_from_name(&timing).ok_or_else(|| {
+        anyhow::anyhow!(
             "unsupported transition timing `{}`",
             transition.timing.as_deref().unwrap_or("unknown")
-        )),
-    }
+        )
+    })
 }
 
 fn normalize_transition_name(value: &str) -> String {

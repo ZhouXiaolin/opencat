@@ -11,7 +11,7 @@ use crate::scene::{
 use crate::style::NodeStyle;
 
 mod builder;
-mod tailwind;
+pub(crate) mod tailwind;
 
 use builder::{build_timeline, build_tree, join_scripts};
 

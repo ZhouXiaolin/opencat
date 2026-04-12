@@ -536,11 +536,12 @@ mod tests {
         element::tree::ElementKind,
         frame_ctx::ScriptFrameCtx,
         resource::{assets::AssetsMap, media::MediaContext},
+        scene::easing::Easing,
         scene::script::ScriptRuntimeCache,
         scene::{
             primitives::{div, lucide, text},
             time::{FrameState, frame_state_for_root},
-            transition::{linear, slide, timeline},
+            transition::{slide, timeline},
         },
     };
 
@@ -784,7 +785,7 @@ mod tests {
             .child(text("To").id("title"));
         let root = timeline()
             .sequence(10, from_scene.into())
-            .transition(slide().timing(linear().duration(10)))
+            .transition(slide().timing(Easing::Linear, 10))
             .sequence(10, to_scene.into())
             .into();
 
@@ -849,7 +850,7 @@ mod tests {
                 10,
                 div().id("scene-a").child(text("A").id("a-title")).into(),
             )
-            .transition(slide().timing(linear().duration(5)))
+            .transition(slide().timing(Easing::Linear, 5))
             .sequence(10, scene.into())
             .into();
 

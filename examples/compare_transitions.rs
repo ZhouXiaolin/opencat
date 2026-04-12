@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use opencat::{
-    Composition, FrameCtx, Node, RenderSession, canvas, div, image, light_leak, linear,
+    Composition, Easing, FrameCtx, Node, RenderSession, canvas, div, image, light_leak,
     render_frame_rgba, slide, text, timeline, video,
 };
 
@@ -288,12 +288,12 @@ fn scene_b(ctx: &FrameCtx) -> Node {
 fn composition_for(case: CaseKind) -> anyhow::Result<Composition> {
     let root = move |ctx: &FrameCtx| -> Node {
         let transition = match case {
-            CaseKind::Slide => slide().timing(linear().duration(TRANSITION_FRAMES)),
+            CaseKind::Slide => slide().timing(Easing::Linear, TRANSITION_FRAMES),
             CaseKind::LightLeak { mask_scale } => light_leak()
                 .seed(3.0)
                 .hue_shift(30.0)
                 .mask_scale(mask_scale)
-                .timing(linear().duration(TRANSITION_FRAMES)),
+                .timing(Easing::Linear, TRANSITION_FRAMES),
         };
 
         timeline()

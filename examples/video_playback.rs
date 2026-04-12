@@ -2,8 +2,8 @@ use std::f32::consts::PI;
 use std::path::PathBuf;
 
 use opencat::{
-    AudioSource, Composition, CompositionAudioSource, EncodingConfig, FrameCtx, Node, canvas, div,
-    image, light_leak, linear, slide, text, timeline, video,
+    AudioSource, Composition, CompositionAudioSource, Easing, EncodingConfig, FrameCtx, Node, canvas, div,
+    image, light_leak, slide, text, timeline, video,
 };
 
 const VIDEO_PATH: &str = "/Users/solaren/Resources/mp4/2.mp4";
@@ -459,13 +459,13 @@ fn metric_card(id: &str, label: &str, value: &str) -> Node {
 fn evaluation_demo(ctx: &FrameCtx) -> Node {
     timeline()
         .sequence(90, scene_one(ctx))
-        .transition(slide().timing(linear().duration(24)))
+        .transition(slide().timing(Easing::Linear, 24))
         .sequence(90, scene_two(ctx))
         .transition(
             light_leak()
                 .seed(3.0)
                 .hue_shift(30.0)
-                .timing(linear().duration(72)),
+                .timing(Easing::Linear, 72),
         )
         .sequence(90, scene_three(ctx))
         .into()

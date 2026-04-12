@@ -1,5 +1,5 @@
 use crate::scene::{
-    easing::{Easing, SpringConfig},
+    easing::Easing,
     node::Node,
     time::{TimelineNode, TimelineSegment},
 };
@@ -48,7 +48,8 @@ enum TimelineItem {
 #[derive(Clone)]
 pub struct Transition {
     presentation: Presentation,
-    timing: Timing,
+    easing: Easing,
+    duration_in_frames: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -75,35 +76,6 @@ pub struct LightLeakBuilder {
     mask_scale: f32,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum Timing {
-    Linear {
-        duration_in_frames: u32,
-    },
-    Spring {
-        config: SpringConfig,
-        duration_in_frames: u32,
-    },
-}
-
-impl Timing {
-    pub(crate) fn easing(&self) -> Easing {
-        match self {
-            Timing::Linear { .. } => Easing::Linear,
-            Timing::Spring { config, .. } => Easing::Spring(*config),
-        }
-    }
-
-    pub(crate) fn duration_in_frames(&self) -> u32 {
-        match self {
-            Timing::Linear { duration_in_frames } => *duration_in_frames,
-            Timing::Spring {
-                duration_in_frames, ..
-            } => *duration_in_frames,
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 pub struct SlideBuilder {
     direction: SlideDirection,
@@ -122,14 +94,6 @@ pub struct ClockWipeBuilder;
 
 #[derive(Clone, Copy)]
 pub struct IrisBuilder;
-
-#[derive(Clone, Copy)]
-pub struct LinearTimingBuilder;
-
-#[derive(Clone, Copy)]
-pub struct SpringTimingBuilder {
-    config: SpringConfig,
-}
 
 impl Timeline {
     pub fn sequence(mut self, duration_in_frames: u32, node: Node) -> Self {
@@ -197,7 +161,7 @@ impl Timeline {
                     from_duration_in_frames: *duration_in_frames,
                     to_duration_in_frames: *next_duration_in_frames,
                     kind: transition.kind(),
-                    timing: transition.timing,
+                    easing: transition.easing,
                 });
                 cursor += transition_duration;
             }
@@ -220,8 +184,8 @@ impl From<Timeline> for Node {
 }
 
 impl Transition {
-    fn duration_in_frames(&self) -> u32 {
-        self.timing.duration_in_frames()
+    pub(crate) fn duration_in_frames(&self) -> u32 {
+        self.duration_in_frames
     }
 
     fn kind(&self) -> TransitionKind {
@@ -258,19 +222,21 @@ impl SlideBuilder {
         self
     }
 
-    pub fn timing(self, timing: Timing) -> Transition {
+    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
         Transition {
             presentation: Presentation::Slide(self.direction),
-            timing,
+            easing,
+            duration_in_frames,
         }
     }
 }
 
 impl FadeBuilder {
-    pub fn timing(self, timing: Timing) -> Transition {
+    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
         Transition {
             presentation: Presentation::Fade,
-            timing,
+            easing,
+            duration_in_frames,
         }
     }
 }
@@ -313,28 +279,31 @@ impl WipeBuilder {
         self
     }
 
-    pub fn timing(self, timing: Timing) -> Transition {
+    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
         Transition {
             presentation: Presentation::Wipe(self.direction),
-            timing,
+            easing,
+            duration_in_frames,
         }
     }
 }
 
 impl ClockWipeBuilder {
-    pub fn timing(self, timing: Timing) -> Transition {
+    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
         Transition {
             presentation: Presentation::ClockWipe,
-            timing,
+            easing,
+            duration_in_frames,
         }
     }
 }
 
 impl IrisBuilder {
-    pub fn timing(self, timing: Timing) -> Transition {
+    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
         Transition {
             presentation: Presentation::Iris,
-            timing,
+            easing,
+            duration_in_frames,
         }
     }
 }
@@ -355,43 +324,14 @@ impl LightLeakBuilder {
         self
     }
 
-    pub fn timing(self, timing: Timing) -> Transition {
+    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
         Transition {
             presentation: Presentation::LightLeak(LightLeakTransition {
                 seed: self.seed,
                 hue_shift: self.hue_shift,
                 mask_scale: self.mask_scale,
             }),
-            timing,
-        }
-    }
-}
-
-impl LinearTimingBuilder {
-    pub fn duration(self, duration_in_frames: u32) -> Timing {
-        Timing::Linear { duration_in_frames }
-    }
-}
-
-impl SpringTimingBuilder {
-    pub fn damping(mut self, damping: f32) -> Self {
-        self.config.damping = damping;
-        self
-    }
-
-    pub fn stiffness(mut self, stiffness: f32) -> Self {
-        self.config.stiffness = stiffness;
-        self
-    }
-
-    pub fn mass(mut self, mass: f32) -> Self {
-        self.config.mass = mass;
-        self
-    }
-
-    pub fn duration(self, duration_in_frames: u32) -> Timing {
-        Timing::Spring {
-            config: self.config,
+            easing,
             duration_in_frames,
         }
     }
@@ -426,16 +366,6 @@ pub fn light_leak() -> LightLeakBuilder {
         seed: 0.0,
         hue_shift: 0.0,
         mask_scale: 0.25,
-    }
-}
-
-pub fn linear() -> LinearTimingBuilder {
-    LinearTimingBuilder
-}
-
-pub fn spring() -> SpringTimingBuilder {
-    SpringTimingBuilder {
-        config: SpringConfig::default(),
     }
 }
 

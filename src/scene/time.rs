@@ -2,9 +2,10 @@ use crate::{
     frame_ctx::FrameCtx,
     frame_ctx::ScriptFrameCtx,
     scene::{
+        easing::Easing,
         node::{Node, NodeKind},
         primitives::div,
-        transition::{Timing, TransitionKind},
+        transition::TransitionKind,
     },
     style::NodeStyle,
 };
@@ -53,7 +54,7 @@ pub(crate) enum TimelineSegment {
         from_duration_in_frames: u32,
         to_duration_in_frames: u32,
         kind: TransitionKind,
-        timing: Timing,
+        easing: Easing,
     },
 }
 
@@ -124,7 +125,7 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
                 from_duration_in_frames,
                 to_duration_in_frames,
                 kind,
-                timing,
+                easing,
             } => {
                 if frame < start_frame.saturating_add(*duration_in_frames) {
                     return FrameState::Transition {
@@ -143,7 +144,7 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
                         progress: transition_progress(
                             frame.saturating_sub(*start_frame),
                             *duration_in_frames,
-                            timing,
+                            easing,
                         ),
                         kind: *kind,
                     };
@@ -185,13 +186,13 @@ fn frozen_script_frame_ctx(
     }
 }
 
-fn transition_progress(frame: u32, duration_in_frames: u32, timing: &Timing) -> f32 {
+fn transition_progress(frame: u32, duration_in_frames: u32, easing: &Easing) -> f32 {
     if duration_in_frames == 0 {
         return 1.0;
     }
 
     let t = (frame as f32 / duration_in_frames as f32).clamp(0.0, 1.0);
-    timing.easing().apply(t).clamp(0.0, 1.0)
+    easing.apply(t).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]
@@ -200,8 +201,9 @@ mod tests {
     use crate::{
         frame_ctx::FrameCtx,
         scene::{
+            easing::Easing,
             primitives::div,
-            transition::{linear, slide, timeline},
+            transition::{slide, timeline},
         },
     };
 
@@ -209,7 +211,7 @@ mod tests {
     fn frame_state_uses_scene_local_progress_inside_timeline() {
         let root = timeline()
             .sequence(10, div().id("scene-a").into())
-            .transition(slide().timing(linear().duration(5)))
+            .transition(slide().timing(Easing::Linear, 5))
             .sequence(20, div().id("scene-b").into())
             .into();
         let frame_ctx = FrameCtx {
@@ -237,7 +239,7 @@ mod tests {
     fn frame_state_freezes_scene_script_clocks_during_transition() {
         let root = timeline()
             .sequence(10, div().id("scene-a").into())
-            .transition(slide().timing(linear().duration(6)))
+            .transition(slide().timing(Easing::Linear, 6))
             .sequence(20, div().id("scene-b").into())
             .into();
         let frame_ctx = FrameCtx {

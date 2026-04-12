@@ -197,8 +197,21 @@ pub fn easing_from_name(name: &str) -> Option<Easing> {
         "spring-stiff" => Some(presets::SPRING_STIFF),
         "spring-slow" => Some(presets::SPRING_SLOW),
         "spring-wobbly" => Some(presets::SPRING_WOBBLY),
+        s if s.starts_with("bezier:") => parse_bezier(&s[7..]),
         _ => None,
     }
+}
+
+fn parse_bezier(input: &str) -> Option<Easing> {
+    let parts: Vec<&str> = input.split(',').collect();
+    if parts.len() != 4 {
+        return None;
+    }
+    let x1 = parts[0].parse().ok()?;
+    let y1 = parts[1].parse().ok()?;
+    let x2 = parts[2].parse().ok()?;
+    let y2 = parts[3].parse().ok()?;
+    Some(Easing::CubicBezier(x1, y1, x2, y2))
 }
 
 #[cfg(test)]
@@ -266,6 +279,14 @@ mod tests {
         assert!(easing_from_name("spring-slow").is_some());
         assert!(easing_from_name("spring-wobbly").is_some());
         assert!(easing_from_name("unknown").is_none());
+    }
+
+    #[test]
+    fn easing_from_name_parses_bezier() {
+        let easing = easing_from_name("bezier:0.4,0,0.2,1").unwrap();
+        assert!(matches!(easing, Easing::CubicBezier(0.4, 0.0, 0.2, 1.0)));
+        assert!(easing_from_name("bezier:0.4").is_none());
+        assert!(easing_from_name("bezier:a,b,c,d").is_none());
     }
 
     #[test]

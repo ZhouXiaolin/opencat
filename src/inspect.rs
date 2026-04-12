@@ -424,3 +424,6 @@ fn format_image_source(source: &ImageSource) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod browser_layout_tests;

@@ -58,7 +58,6 @@ struct RuntimeMutationStore {
     styles: HashMap<String, NodeStyleMutations>,
     canvases: HashMap<String, CanvasMutations>,
     current_frame: u32,
-    scene_frames: u32,
     animate_state: std::sync::Mutex<animate_api::AnimateState>,
 }
 
@@ -271,7 +270,6 @@ impl ScriptRunner {
                 .map_err(|_| anyhow!("script mutation store lock poisoned before execution"))?;
             *store = RuntimeMutationStore {
                 current_frame: frame_ctx.current_frame,
-                scene_frames: frame_ctx.scene_frames,
                 ..Default::default()
             };
         }

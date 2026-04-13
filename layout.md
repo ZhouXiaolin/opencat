@@ -1,111 +1,187 @@
-# Layout Alignment Notes
+# Layout Alignment
 
-## Purpose
+## 目标
 
-这份文档记录 `opencat` 当前在浏览器布局对比中的测量敏感点，方便后续继续把
-`Tailwind HTML + Chrome` 与 `Rust Node tree + Taffy + Skia text measurement`
-对齐得更精确。
+`opencat` 的布局对齐工作分成两层：
 
-当前浏览器对比测试入口：
+- Rust 单元测试只负责 parser 和语义映射，验证 Tailwind class 是否被正确解析进 `NodeStyle`
+- 浏览器几何对齐只放在 `src/inspect/browser_layout_tests.rs`，用生成的 HTML + ChromeDriver 去对比我们自己的布局引擎
+
+这条边界是强约束：
+
+- 解析正确，不代表布局正确
+- 布局正确，也不应该靠 parser 单测证明
+
+## 当前测试入口
 
 ```bash
 cd /Users/solaren/Projects/CatCut/opencat
-CHROMEDRIVER_BIN=/Users/solaren/.local/bin/chromedriver \
-CHROME_BIN='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
-rtk cargo test chromedriver_tailwind_layout_matches_taffy -- --nocapture
+rtk cargo test parser_ -- --nocapture
+rtk cargo test generated_layout_fixture_templates_cover_utilities_manifest -- --nocapture
+rtk cargo test chromedriver_tailwind_extended_flex_layout_matches_taffy -- --nocapture
 ```
 
-## Current Coverage
+其中：
 
-当前浏览器回归套件已覆盖这些类别：
+- `parser_` 负责 class -> style 映射
+- `generated_layout_fixture_templates_cover_utilities_manifest` 负责检查自动生成模板能否承接已接入的 layout group
+- `chromedriver_tailwind_extended_flex_layout_matches_taffy` 负责真正的浏览器几何对齐
 
-- `justify-*`
-- `items-*`
-- `gap / padding / padding-* / margin / margin-* / spacing scale`
-- `relative / absolute / inset-0 / inset-x / inset-y / left / right / top / bottom`
-- `grow / shrink / basis` 的长度型子集，以及 `grow-[n] / shrink-[n]`
-- `flex-row / flex-col` 下主轴与交叉轴的对齐差异
-- 文本的单行、换行、字号、`leading-*`、`tracking-*`、`uppercase`
+## 自动生成链路
 
-## Known Sensitive Points
+浏览器布局测试不再手工一条条补 fixture，而是从 `testsupport/utilities.test.ts` 自动抽取。
 
-### 1. Text measurement is still the biggest source of browser mismatch
+流程如下：
 
-盒模型类 fixture 大多已经稳定；目前主要偏差集中在文本。
+1. 从 `utilities.test.ts` 定位 `test('...')`
+2. 抽取 test body 中第一个候选 class 数组
+3. 通过 `LayoutGroupSpec` 把这个测试组映射到一个 fixture 模板
+4. 生成 HTML，编译 Tailwind CSS
+5. 用 ChromeDriver 读取浏览器几何
+6. 用 `RenderSession + Taffy + text measurement` 读取引擎几何
+7. 逐节点比对
 
-根因上，浏览器和 `opencat` 不是同一个文本栈：
+这意味着后续扩覆盖的主方式应该是：
 
-- 浏览器使用 Chrome 的排版与 font metrics
-- `opencat` 使用 Skia text measurement，再把结果喂给 Taffy
+- 优先补 `utilities.test.ts` 对应组的模板
+- 再跑 browser parity
+- 根据失败修 parser 或布局引擎
 
-因此即便 class 一致，也可能出现这些差异：
+而不是继续手工添加离散 fixture。
 
-- 文本宽度有少量偏差
-- 文本高度与 baseline/line box 位置有偏差
-- `tracking` 和 `uppercase` 叠加时，宽度偏差会放大
-- `leading-*` 会放大多行高度差异
+## 当前已接入的 layout group
 
-### 2. The previous large text divergence was caused by absolute line-height parsing
+自动生成模板当前已覆盖：
 
-`text-leading-and-tracking-stack` 和 `fixed-width-multisize-copy` 之前出现的数百像素级
-`height / y` 偏差，根因已经确认并修复：
+- `position`
+- `inset / inset-x / inset-y / inset-s / inset-e / inset-bs / inset-be`
+- `top / right / bottom / left`
+- `width`
+- `height`
+- `flex`
+- `flex-shrink`
+- `flex-grow`
+- `flex-basis`
+- `flex-direction`
+- `flex-wrap`
+- `justify`
+- `align-content`
+- `place-content`
+- `items`
+- `place-items`
+- `gap`
+- `p / px / py / pt / pr / pb / pl`
+- `margin / mx / my / mt / mr / mb / ml / ms / me / mbs / mbe`
+- `self`
+
+这批里，margin 现在已经是自动生成测试的一部分，不再依赖手工 fixture。
+
+## 当前明确不放进通用模板的项
+
+### viewport units
+
+`w-screen / w-svw / w-lvw / w-dvw` 与 `h-screen / h-svh / h-lvh / h-dvh` 目前不走通用模板。
+
+原因不是 parser，而是测试模型本身：
+
+- 浏览器里的真实 viewport 是 headless Chrome 的窗口尺寸
+- `opencat` 的布局基准是 composition 宽高
+
+这两个坐标系不一致时，会制造假失败。它们需要单独的 viewport 专项模板。
+
+### 当前样式模型还没完整承载的能力
+
+以下能力和浏览器语义还有结构性差距，因此还不能简单混进当前通用生成器：
+
+- `size-*` 的完整集合
+- `width/height` 的 `auto / min / max / fit`
+- 百分比型 `width/height`
+- `margin-auto`
+
+根因是我们当前内部尺寸模型主要仍是：
+
+- `width: Option<f32>`
+- `height: Option<f32>`
+- `width_full / height_full`
+- margin 仍是数值边距，而不是可表达 `auto`
+
+如果要把这些能力完整接进来，需要先扩内部数据模型，而不是只补 parser。
+
+## 文本对齐规则
+
+浏览器布局测试里，文本节点的几何容差现在固定为 `1px`。
+
+实现规则是：
+
+- 非文本节点继续使用 fixture 自己的 `tolerance_px`
+- 文本节点无论 fixture 容差是多少，都强制收紧到 `1.0`
+
+这样做的目的很直接：
+
+- 盒模型可以允许少量模板级浮动
+- 文本必须保持严格，否则真正的排版漂移会被大容差吞掉
+
+## 文本未对齐的根因
+
+当前文本偏差的根因，不在普通盒模型，而在“文本测量栈不是同一个实现”：
+
+- 浏览器使用 Chrome 的字体选择、字形 shaping、line box 和 font metrics
+- `opencat` 使用 Skia 的文本测量结果，再把结果送给 Taffy 参与布局
+
+因此文本类失败的首要怀疑对象应该是：
+
+- font metrics 不同
+- line-height 解释不同
+- letter-spacing 放大宽度误差
+- uppercase 或换行策略改变测量结果
+- 父容器对文本宽度约束的传播方式不同
+
+结论上，文本错位通常不是“Flex 算法错了”，而是“文本测量输入或度量结果已经和浏览器分叉了”。
+
+### 已经确认并修复过的一类根因
+
+之前一批大幅文本错位来自 arbitrary line-height 的误读：
 
 - `leading-[18px]`
 - `leading-[24px]`
 
-这类 Tailwind arbitrary line-height 在浏览器里是“绝对像素行高”，但 `opencat` 之前把它当成
-了 unitless multiplier。
+浏览器把它当成绝对像素行高，但我们之前把它当成 unitless multiplier，导致高度被成倍放大。
 
-结果就是：
+现在这类问题已经通过区分：
 
-- `text-[16px] leading-[18px]` 被算成 `16 * 18 = 288px`
-- `text-[20px] leading-[24px]` 被算成 `20 * 24 = 480px`
+- `line_height`
+- `line_height_px`
 
-这不是约束传递问题，而是 line-height 数据模型缺少“absolute px”分支。
+修掉了。
 
-现在修复方式是：
+这说明文本问题要从“输入语义是否先错了”开始查，而不是一上来怪 Taffy。
 
-- 保留原来的 unitless `line_height`
-- 新增 absolute `line_height_px`
-- `leading-[18px]` 这类 class 走 `line_height_px`
-- Skia paragraph layout 时把 absolute px 转回对应的 height override
+## 实践规则
 
-修复后，这两个样本已经重新回到主 browser parity suite。
+后续推进布局对齐时，按这个顺序处理：
 
-### 3. `basis-*` support is currently length-only
+1. 先看 parser 是否把 class 映射对了
+2. 再看该组是否已经接入 `browser_layout_tests.rs` 的自动模板
+3. 跑 browser parity，看是盒模型错位还是文本错位
+4. 盒模型失败优先修布局引擎
+5. 文本失败优先查测量输入、宽度约束、line-height、tracking、字体度量
 
-目前为了先把浏览器回归扩起来，`basis-*` 只支持长度型子集：
+不要再把布局几何测试散落到 parser 单测里。
 
-- `basis-<spacing>`
-- `basis-px`
-- `basis-[<px>]`
+## 本轮状态
 
-还没有覆盖：
+本轮完成后，以下检查通过：
 
-- `basis-1/2`
-- `basis-full`
-- 其它百分比 / 分数型 basis
+```bash
+cd /Users/solaren/Projects/CatCut/opencat
+rtk cargo test parser_ -- --nocapture
+rtk cargo test generated_layout_fixture_templates_cover_utilities_manifest -- --nocapture
+rtk cargo test chromedriver_tailwind_extended_flex_layout_matches_taffy -- --nocapture
+rtk cargo check
+```
 
-后续如果要更完整对齐 Tailwind，需要把 `flex-basis` 从 `Option<f32>` 升级成可表达
-`length/percent/auto` 的模型。
+当前可以继续扩的方向很明确：
 
-## Interpretation Rules For The Test Suite
-
-当前对浏览器对比结果的解释应遵循这几个原则：
-
-- 盒模型 fixture 的失败，优先当成真实布局回归
-- 文本 fixture 的小偏差，优先看是否属于 font metrics 差异
-- 文本 fixture 的大偏差，优先检查约束传递、wrap 策略和父容器布局模式
-- 不要把所有文本失败都简单归因为“字体不同”
-
-## Next Alignment Work
-
-后续建议按这个顺序继续收敛：
-
-1. 给失败文本 fixture 输出更多中间信息：
-   `wrap_text`、父容器宽度约束、Taffy measure 输入宽度、Skia 返回宽高。
-2. 对比浏览器的：
-   `font-size`、`line-height`、`letter-spacing`、`text-transform`、`white-space`、`width`.
-3. 把 `flex-basis` 数据模型扩成：
-   `auto / length / percent`.
-4. 再逐步把更多来自 Tailwind `utilities.test.ts` 的布局类加入浏览器矩阵。
+- 先补更多 `utilities.test.ts` 的 layout group 模板
+- 用 browser suite 炸出真实差异
+- 再按差异扩内部尺寸与 margin 模型

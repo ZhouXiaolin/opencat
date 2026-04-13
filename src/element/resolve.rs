@@ -495,6 +495,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             justify_content: style.justify_content.unwrap_or_default(),
             align_items: style.align_items.unwrap_or_default(),
             gap: style.gap.unwrap_or(0.0),
+            flex_basis: style.flex_basis,
             flex_grow: style.flex_grow.unwrap_or(0.0),
             flex_shrink: style.flex_shrink,
             z_index: style.z_index.unwrap_or(0),

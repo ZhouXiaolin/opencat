@@ -618,7 +618,7 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("opacity-[", "OpacityClamped"),
         ("blur-[", "BlurSigma"),
         ("grow-[", "FlexGrow"),
-        ("leading-[", "LineHeight"),
+        ("shrink-[", "FlexShrink"),
         ("pt-[", "PaddingTop"),
         ("pr-[", "PaddingRight"),
         ("pb-[", "PaddingBottom"),

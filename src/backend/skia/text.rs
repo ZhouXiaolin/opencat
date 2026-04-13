@@ -128,7 +128,7 @@ fn make_paragraph(text: &str, style: &ComputedTextStyle, max_width: f32) -> Para
     text_style.set_font_size(style.text_px);
     text_style.set_font_style(font_style(style.font_weight));
     text_style.set_letter_spacing(style.letter_spacing);
-    text_style.set_height(style.line_height);
+    text_style.set_height(style.resolved_line_height_px() / style.text_px);
     text_style.set_height_override(true);
 
     let mut paragraph_style = ParagraphStyle::new();
@@ -186,10 +186,11 @@ fn text_measure_cache_key(text: &str, style: &ComputedTextStyle, width: f32) -> 
     style.text_align.hash(&mut hasher);
     style.text_px.to_bits().hash(&mut hasher);
     style.letter_spacing.to_bits().hash(&mut hasher);
-    style.line_height.to_bits().hash(&mut hasher);
-    style.text_transform.hash(&mut hasher);
-    width.to_bits().hash(&mut hasher);
-    hasher.finish()
+        style.line_height.to_bits().hash(&mut hasher);
+        style.line_height_px.map(f32::to_bits).hash(&mut hasher);
+        style.text_transform.hash(&mut hasher);
+        width.to_bits().hash(&mut hasher);
+        hasher.finish()
 }
 
 #[cfg(test)]
@@ -203,7 +204,7 @@ mod tests {
     #[test]
     fn textlayout_wraps_long_cjk_text_in_narrow_width() {
         let style = ComputedTextStyle::default();
-        let single_line_height = style.text_px * style.line_height;
+        let single_line_height = style.resolved_line_height_px();
         let measured = shared_text_engine().measure(&TextMeasureRequest {
             text: "这是一个没有空格但应该自动换行的很长中文句子",
             style: &style,

@@ -594,6 +594,14 @@ mod tests {
     }
 
     #[test]
+    fn parser_maps_absolute_px_line_height_separately() {
+        let style = parse_class_name("leading-[18px]");
+
+        assert_eq!(style.line_height, None);
+        assert_eq!(style.line_height_px, Some(18.0));
+    }
+
+    #[test]
     fn parser_keeps_script_line() {
         let parsed = parse(
             r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":90}

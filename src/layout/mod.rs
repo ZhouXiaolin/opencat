@@ -439,6 +439,7 @@ fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: 
     style.justify_content.hash(state);
     style.align_items.hash(state);
     hash_f32(style.gap, state);
+    hash_option_f32(style.flex_basis, state);
     hash_f32(style.flex_grow, state);
     hash_option_f32(style.flex_shrink, state);
     style.z_index.hash(state);
@@ -462,6 +463,7 @@ fn hash_text_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
     hash_f32(style.letter_spacing, state);
     style.text_align.hash(state);
     hash_f32(style.line_height, state);
+    hash_option_f32(style.line_height_px, state);
     style.wrap_text.hash(state);
 }
 
@@ -470,6 +472,7 @@ fn hash_text_layout_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
     style.font_weight.hash(state);
     hash_f32(style.letter_spacing, state);
     hash_f32(style.line_height, state);
+    hash_option_f32(style.line_height_px, state);
     style.wrap_text.hash(state);
 }
 
@@ -709,6 +712,10 @@ fn base_style(layout: &ComputedLayoutStyle) -> Style {
             right: taffy::style::LengthPercentageAuto::length(layout.margin_right),
             bottom: taffy::style::LengthPercentageAuto::length(layout.margin_bottom),
         },
+        flex_basis: layout
+            .flex_basis
+            .map(Dimension::length)
+            .unwrap_or(Dimension::auto()),
         flex_grow: layout.flex_grow,
         ..Default::default()
     };
@@ -979,37 +986,97 @@ fn map_align(value: AlignItems) -> taffy::prelude::AlignItems {
 
 #[cfg(test)]
 mod tests {
-    use super::{LayoutSession, TextMeasureContext, measure_node};
+    use std::sync::Mutex;
+
+    use super::{LayoutSession, TextMeasureContext, compute_layout_with_text_engine, measure_node};
     use crate::{
         FrameCtx,
         element::resolve::resolve_ui_tree,
-        element::tree::ElementNode,
-        layout::tree::LayoutNode,
-        parse,
+        jsonl::tailwind::parse_class_name,
         resource::{assets::AssetsMap, media::MediaContext},
         scene::primitives::{div, lucide, text},
         style::ComputedTextStyle,
+        text::{TextMeasureRequest, TextMeasurement, TextMeasurer},
     };
     use taffy::{AvailableSpace, geometry::Size};
 
-    fn find_node_by_id<'a>(node: &'a LayoutNode, id: &str) -> Option<&'a LayoutNode> {
-        if node.id == id {
-            return Some(node);
-        }
-
-        node.children
-            .iter()
-            .find_map(|child| find_node_by_id(child, id))
+    #[derive(Debug, Clone)]
+    struct RecordedMeasure {
+        text: String,
+        max_width: f32,
+        allow_wrap: bool,
     }
 
-    fn find_element_by_id<'a>(node: &'a ElementNode, id: &str) -> Option<&'a ElementNode> {
-        if node.style.id == id {
-            return Some(node);
+    #[derive(Default)]
+    struct RecordingTextMeasurer {
+        requests: Mutex<Vec<RecordedMeasure>>,
+    }
+
+    impl RecordingTextMeasurer {
+        fn request_for(&self, text: &str) -> Option<RecordedMeasure> {
+            self.requests
+                .lock()
+                .expect("recording lock should not be poisoned")
+                .iter()
+                .find(|request| request.text == text)
+                .cloned()
         }
 
-        node.children
-            .iter()
-            .find_map(|child| find_element_by_id(child, id))
+        fn requests_for(&self, text: &str) -> Vec<RecordedMeasure> {
+            self.requests
+                .lock()
+                .expect("recording lock should not be poisoned")
+                .iter()
+                .filter(|request| request.text == text)
+                .cloned()
+                .collect()
+        }
+    }
+
+    impl TextMeasurer for RecordingTextMeasurer {
+        fn measure(&self, request: &TextMeasureRequest<'_>) -> TextMeasurement {
+            self.requests
+                .lock()
+                .expect("recording lock should not be poisoned")
+                .push(RecordedMeasure {
+                    text: request.text.to_string(),
+                    max_width: request.max_width,
+                    allow_wrap: request.allow_wrap,
+                });
+
+            let line_height = request.style.resolved_line_height_px();
+            TextMeasurement {
+                width: if request.allow_wrap && request.max_width.is_finite() {
+                    request.max_width.min(120.0).max(1.0)
+                } else {
+                    120.0
+                },
+                height: line_height.max(1.0),
+            }
+        }
+    }
+
+    fn classed_div(
+        id: &'static str,
+        class_name: &'static str,
+        children: Vec<crate::Node>,
+    ) -> crate::scene::primitives::Div {
+        let mut node = div();
+        node.style = parse_class_name(class_name);
+        node.style.id = id.to_string();
+        node.children = children;
+        node
+    }
+
+    fn classed_text(
+        id: &'static str,
+        class_name: &'static str,
+        content: &'static str,
+    ) -> crate::scene::primitives::Text {
+        let mut node = text(content);
+        node.style = parse_class_name(class_name);
+        node.style.id = id.to_string();
+        node
     }
 
     #[test]
@@ -1036,6 +1103,102 @@ mod tests {
         assert!(
             measured.width > 80.0,
             "expected auto-width text to ignore narrow available width and remain single-line"
+        );
+    }
+
+    #[test]
+    fn block_text_wrapper_passes_container_width_to_text_measurement() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 340,
+            height: 240,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let root = classed_div(
+            "root",
+            "w-full h-full p-[20px]",
+            vec![classed_div(
+                "tight-wrap",
+                "mb-[12px]",
+                vec![
+                    classed_text("lead-tight", "text-[16px] leading-[18px]", "Tight leading")
+                        .into(),
+                ],
+            )
+            .into()],
+        )
+        .into();
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let measurer = RecordingTextMeasurer::default();
+
+        let _layout = compute_layout_with_text_engine(&resolved, &frame_ctx, &measurer)
+            .expect("layout should succeed");
+
+        let requests = measurer.requests_for("Tight leading");
+        assert!(!requests.is_empty(), "expected to record Tight leading measurement");
+        assert!(requests.iter().all(|request| request.allow_wrap));
+        assert!(
+            requests.iter().all(|request| request.max_width >= 280.0),
+            "expected block wrapper text to always measure against container width, got {:?}",
+            requests
+        );
+    }
+
+    #[test]
+    fn stretched_flex_item_wrapper_passes_container_width_to_text_measurement() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 240,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let root = classed_div(
+            "root",
+            "w-full h-full p-[20px]",
+            vec![classed_div(
+                "copy-card",
+                "flex flex-col gap-[8px] w-[180px]",
+                vec![classed_div(
+                    "copy-title-wrap",
+                    "",
+                    vec![
+                        classed_text(
+                            "copy-title",
+                            "text-[20px] leading-[24px]",
+                            "Layout parity",
+                        )
+                        .into(),
+                    ],
+                )
+                .into()],
+            )
+            .into()],
+        )
+        .into();
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let measurer = RecordingTextMeasurer::default();
+
+        let _layout = compute_layout_with_text_engine(&resolved, &frame_ctx, &measurer)
+            .expect("layout should succeed");
+
+        let requests = measurer.requests_for("Layout parity");
+        assert!(
+            !requests.is_empty(),
+            "expected to record Layout parity measurement"
+        );
+        assert!(requests.iter().all(|request| request.allow_wrap));
+        assert!(
+            requests.iter().all(|request| request.max_width >= 170.0),
+            "expected stretched flex item wrapper text to always measure against card width, got {:?}",
+            requests
         );
     }
 

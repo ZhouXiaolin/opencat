@@ -878,6 +878,61 @@ const GENERATED_LAYOUT_GROUP_SPECS: &[LayoutGroupSpec] = &[
         build_fixture: build_padding_fixture,
     },
     LayoutGroupSpec {
+        test_name: "margin",
+        normalize: normalize_margin_candidate,
+        build_fixture: build_margin_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "mx",
+        normalize: normalize_margin_candidate,
+        build_fixture: build_margin_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "my",
+        normalize: normalize_margin_candidate,
+        build_fixture: build_margin_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "mt",
+        normalize: normalize_margin_candidate,
+        build_fixture: build_margin_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "ms",
+        normalize: normalize_margin_candidate,
+        build_fixture: build_margin_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "me",
+        normalize: normalize_margin_candidate,
+        build_fixture: build_margin_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "mbs",
+        normalize: normalize_margin_candidate,
+        build_fixture: build_margin_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "mbe",
+        normalize: normalize_margin_candidate,
+        build_fixture: build_margin_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "mr",
+        normalize: normalize_margin_candidate,
+        build_fixture: build_margin_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "mb",
+        normalize: normalize_margin_candidate,
+        build_fixture: build_margin_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "ml",
+        normalize: normalize_margin_candidate,
+        build_fixture: build_margin_fixture,
+    },
+    LayoutGroupSpec {
         test_name: "self",
         normalize: normalize_self_candidate,
         build_fixture: build_self_fixture,
@@ -1210,6 +1265,23 @@ fn normalize_padding_candidate(class_name: &str) -> Option<String> {
     if is_numeric_spacing_or_bracket(
         class_name,
         &["p-", "px-", "py-", "pt-", "pr-", "pb-", "pl-"],
+    ) {
+        Some(class_name.to_string())
+    } else {
+        None
+    }
+}
+
+fn normalize_margin_candidate(class_name: &str) -> Option<String> {
+    if class_name.ends_with("auto") || class_name.contains("big") || class_name.contains("var(") {
+        return None;
+    }
+    if is_numeric_spacing_or_bracket(
+        class_name,
+        &[
+            "m-", "-m-", "mx-", "-mx-", "my-", "-my-", "mt-", "-mt-", "mr-", "-mr-", "mb-", "-mb-",
+            "ml-", "-ml-", "ms-", "-ms-", "me-", "-me-", "mbs-", "-mbs-", "mbe-", "-mbe-",
+        ],
     ) {
         Some(class_name.to_string())
     } else {
@@ -1557,6 +1629,47 @@ fn build_padding_fixture(class_name: &str) -> Option<LayoutFixture> {
                 leak_str(format!("w-[160px] h-[120px] {class_name}")),
                 vec![FixtureNode::div("inner", "w-[24px] h-[24px]", vec![])],
             )],
+        ),
+    })
+}
+
+fn build_margin_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("margin", class_name),
+        viewport_width: 960,
+        viewport_height: 320,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "flex flex-col w-full h-full p-[16px] gap-[24px]",
+            vec![
+                FixtureNode::div(
+                    "row-case",
+                    "flex items-start w-[900px] h-[72px] gap-[8px]",
+                    vec![
+                        FixtureNode::div("row-before", "w-[48px] h-[24px] shrink-0", vec![]),
+                        FixtureNode::div(
+                            "row-target",
+                            leak_str(format!("{class_name} w-[40px] h-[24px] shrink-0")),
+                            vec![],
+                        ),
+                        FixtureNode::div("row-after", "w-[64px] h-[24px] shrink-0", vec![]),
+                    ],
+                ),
+                FixtureNode::div(
+                    "col-case",
+                    "flex flex-col items-start w-[240px] gap-[8px]",
+                    vec![
+                        FixtureNode::div("col-before", "w-[56px] h-[24px]", vec![]),
+                        FixtureNode::div(
+                            "col-target",
+                            leak_str(format!("{class_name} w-[40px] h-[24px]")),
+                            vec![],
+                        ),
+                        FixtureNode::div("col-after", "w-[72px] h-[24px]", vec![]),
+                    ],
+                ),
+            ],
         ),
     })
 }

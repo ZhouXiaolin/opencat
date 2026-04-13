@@ -210,6 +210,61 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
+    if let Some(value) = parse_signed_spacing_scale_class(class, "m-", "-m-") {
+        style.margin = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_signed_spacing_scale_class(class, "mx-", "-mx-") {
+        style.margin_x = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_signed_spacing_scale_class(class, "my-", "-my-") {
+        style.margin_y = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_signed_spacing_scale_class(class, "mt-", "-mt-") {
+        style.margin_top = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_signed_spacing_scale_class(class, "mr-", "-mr-") {
+        style.margin_right = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_signed_spacing_scale_class(class, "mb-", "-mb-") {
+        style.margin_bottom = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_signed_spacing_scale_class(class, "ml-", "-ml-") {
+        style.margin_left = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_signed_spacing_scale_class(class, "ms-", "-ms-") {
+        style.margin_left = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_signed_spacing_scale_class(class, "me-", "-me-") {
+        style.margin_right = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_signed_spacing_scale_class(class, "mbs-", "-mbs-") {
+        style.margin_top = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_signed_spacing_scale_class(class, "mbe-", "-mbe-") {
+        style.margin_bottom = Some(value);
+        return true;
+    }
+
     if parse_flex_shorthand_class(class, style) {
         return true;
     }
@@ -671,6 +726,38 @@ fn parse_signed_bracket_f32(
         .strip_prefix(negative_prefix)
         .and_then(parse_bracket_f32)
         .map(|value| -value)
+}
+
+fn parse_signed_spacing_scale_class(
+    class: &str,
+    positive_prefix: &str,
+    negative_prefix: &str,
+) -> Option<f32> {
+    if let Some(value) = class.strip_prefix(positive_prefix) {
+        if let Some(value) = value.strip_prefix('[').and_then(parse_bracket_f32) {
+            return Some(value);
+        }
+        if let Some(value) = parse_bracket_f32(value) {
+            return Some(value);
+        }
+        if let Some(value) = parse_tailwind_spacing_token(value) {
+            return Some(value);
+        }
+    }
+
+    if let Some(value) = class.strip_prefix(negative_prefix) {
+        if let Some(value) = value.strip_prefix('[').and_then(parse_bracket_f32) {
+            return Some(-value);
+        }
+        if let Some(value) = parse_bracket_f32(value) {
+            return Some(-value);
+        }
+        if let Some(value) = parse_tailwind_spacing_token(value) {
+            return Some(-value);
+        }
+    }
+
+    None
 }
 
 fn parse_bracket_f32(value: &str) -> Option<f32> {

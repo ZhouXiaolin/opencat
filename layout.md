@@ -19,13 +19,73 @@ cd /Users/solaren/Projects/CatCut/opencat
 rtk cargo test parser_ -- --nocapture
 rtk cargo test generated_layout_fixture_templates_cover_utilities_manifest -- --nocapture
 rtk cargo test chromedriver_tailwind_extended_flex_layout_matches_taffy -- --nocapture
+rtk cargo test chromedriver_tailwind_layout_matches_taffy -- --nocapture
 ```
 
 其中：
 
 - `parser_` 负责 class -> style 映射
 - `generated_layout_fixture_templates_cover_utilities_manifest` 负责检查自动生成模板能否承接已接入的 layout group
-- `chromedriver_tailwind_extended_flex_layout_matches_taffy` 负责真正的浏览器几何对齐
+- `chromedriver_tailwind_extended_flex_layout_matches_taffy` 负责自动生成 fixture 的浏览器几何对齐
+- `chromedriver_tailwind_layout_matches_taffy` 负责手动 fixtures + 集成 fixtures 的浏览器几何对齐
+
+## 测试文件结构
+
+浏览器布局测试分为三个层次，避免文件无限膨胀：
+
+### 1. 自动生成测试（`GENERATED_LAYOUT_GROUP_SPECS`）
+
+- 位置：`src/inspect/browser_layout_tests.rs`
+- 数量：60+ 组
+- 来源：从 `testsupport/utilities.test.ts` 自动抽取
+- 职责：测试**单个 utility class** 的布局语义
+
+### 2. 手动 fixtures（`browser_layout_fixtures()`）
+
+- 位置：`src/inspect/browser_layout_tests.rs`
+- 数量：11 个独特场景
+- 职责：测试**不在自动生成覆盖范围内**的特殊组合
+- 维护原则：只保留无法被其他测试替代的独特场景
+
+### 3. 集成测试 fixtures（`browser_layout_integration_fixtures()`）
+
+- 位置：`src/inspect/browser_layout_integration_tests.rs`
+- 数量：49 个场景
+- 职责：测试**多个 utility class 组合**的真实 UI 模式
+- 为什么手动：这些测试验证的是 utility 之间的交互效应，而非单个 class 的语义
+
+#### 为什么集成测试不自动生成？
+
+`utilities.test.ts` 测试的是**单个 utility class 生成的 CSS 是否正确**，而集成测试验证的是：
+
+- 多个 utility 组合后的布局效果
+- 真实场景模式（卡片、导航栏、表单、文本换行等）
+- 浏览器渲染与 Taffy 布局引擎的一致性
+
+例如 `flex-row-justify-between` 涉及：
+```
+flex flex-row justify-between items-center w-full h-full px-[24px] py-[16px]
+```
+
+虽然 `utilities.test.ts` 分别测试了 `flex`, `flex-row`, `justify-between`, `items-center` 等 class，但**没有测试它们组合在一起时浏览器的实际渲染结果是否与 Taffy 一致**。
+
+#### 集成测试覆盖的典型场景
+
+- Flex 行/列布局与对齐（justify-between, items-center, gap 等）
+- 文本在窄容器中的换行行为
+- 绝对定位叠加层（badges, overlays）
+- 嵌套 flex 布局（导航栏、侧边栏、卡片）
+- 导航网格、标签页、表单等 UI 模式
+- 中文文本排版
+
+#### 维护规则
+
+向集成测试添加新 fixture 时：
+
+1. 确保场景测试有意义的 utility 组合
+2. 避免与已有 fixture 重复
+3. 使用真实的视口尺寸和合理的容差值
+4. 优先覆盖实际开发中常见的布局模式
 
 ## 自动生成链路
 
@@ -69,12 +129,22 @@ rtk cargo test chromedriver_tailwind_extended_flex_layout_matches_taffy -- --noc
 - `place-content`
 - `items`
 - `place-items`
-- `gap`
+- `gap / gap-x / gap-y`
 - `p / px / py / pt / pr / pb / pl`
 - `margin / mx / my / mt / mr / mb / ml / ms / me / mbs / mbe`
 - `self`
+- `min-width / max-width`
+- `min-height / max-height`
+- `order`
+- `translate-x / translate-y`
+- `visibility`
+- `box-sizing`
+- `aspect-ratio`
+- `place-self`
+- `justify-items`
+- `justify-self`
 
-这批里，margin 现在已经是自动生成测试的一部分，不再依赖手工 fixture。
+这批里，所有新增的 layout group 都已接入自动生成测试，不再依赖手工 fixture。
 
 ## 当前明确不放进通用模板的项
 
@@ -177,11 +247,31 @@ cd /Users/solaren/Projects/CatCut/opencat
 rtk cargo test parser_ -- --nocapture
 rtk cargo test generated_layout_fixture_templates_cover_utilities_manifest -- --nocapture
 rtk cargo test chromedriver_tailwind_extended_flex_layout_matches_taffy -- --nocapture
+rtk cargo test chromedriver_tailwind_layout_matches_taffy -- --nocapture
 rtk cargo check
 ```
+
+### 文件重构完成
+
+- `browser_layout_tests.rs`：从 3623 行精简到 2451 行
+  - 60+ 个自动生成规格
+  - 11 个独特手动 fixtures（无法被其他测试替代的场景）
+- `browser_layout_integration_tests.rs`：新增 1140 行
+  - 49 个集成测试 fixtures
+  - 覆盖真实 UI 模式的组合场景
+- 删除了 49 个冗余 fixtures（从主文件迁移到集成测试文件）
+
+### 测试分层职责
+
+| 层级 | 文件 | 数量 | 职责 |
+|------|------|------|------|
+| 自动生成 | `browser_layout_tests.rs` | 60+ | 单个 utility class 的布局语义 |
+| 手动 fixtures | `browser_layout_tests.rs` | 11 | 无法被自动生成的特殊组合 |
+| 集成测试 | `browser_layout_integration_tests.rs` | 49 | 多 utility 组合的真实 UI 模式 |
 
 当前可以继续扩的方向很明确：
 
 - 先补更多 `utilities.test.ts` 的 layout group 模板
 - 用 browser suite 炸出真实差异
 - 再按差异扩内部尺寸与 margin 模型
+- 集成测试按需添加新的真实布局模式

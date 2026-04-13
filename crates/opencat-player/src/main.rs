@@ -39,12 +39,12 @@ mod app {
     };
 
     #[cfg(target_os = "windows")]
-    use std::ffi::CString;
-    #[cfg(target_os = "windows")]
     use skia_safe::{
         ColorType,
         gpu::{self, SurfaceOrigin, backend_render_targets, gl},
     };
+    #[cfg(target_os = "windows")]
+    use std::ffi::CString;
     #[cfg(target_os = "windows")]
     use windows_sys::Win32::{
         Foundation::{FreeLibrary, HMODULE, HWND},
@@ -53,8 +53,7 @@ mod app {
             OpenGL::{
                 ChoosePixelFormat, HGLRC, PFD_DOUBLEBUFFER, PFD_DRAW_TO_WINDOW, PFD_MAIN_PLANE,
                 PFD_SUPPORT_OPENGL, PFD_TYPE_RGBA, PIXELFORMATDESCRIPTOR, SetPixelFormat,
-                SwapBuffers, wglCreateContext, wglDeleteContext, wglGetProcAddress,
-                wglMakeCurrent,
+                SwapBuffers, wglCreateContext, wglDeleteContext, wglGetProcAddress, wglMakeCurrent,
             },
         },
         System::LibraryLoader::{GetProcAddress, LoadLibraryA},
@@ -544,7 +543,9 @@ mod app {
                     let _ = wglDeleteContext(glrc);
                     let _ = ReleaseDC(hwnd, hdc);
                 }
-                return Err(anyhow!("wglMakeCurrent failed while creating Win32 context"));
+                return Err(anyhow!(
+                    "wglMakeCurrent failed while creating Win32 context"
+                ));
             }
 
             let opengl32 = unsafe { LoadLibraryA(b"opengl32.dll\0".as_ptr()) };
@@ -557,8 +558,9 @@ mod app {
                 return Err(anyhow!("LoadLibraryA(opengl32.dll) failed"));
             }
 
-            let interface = gl::Interface::new_load_with(|name| load_gl_proc_address(opengl32, name))
-                .ok_or_else(|| anyhow!("failed to create Skia OpenGL interface"))?;
+            let interface =
+                gl::Interface::new_load_with(|name| load_gl_proc_address(opengl32, name))
+                    .ok_or_else(|| anyhow!("failed to create Skia OpenGL interface"))?;
             let skia = gpu::direct_contexts::make_gl(interface, None)
                 .ok_or_else(|| anyhow!("failed to create Skia OpenGL direct context"))?;
 

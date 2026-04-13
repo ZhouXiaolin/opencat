@@ -156,6 +156,7 @@ pub struct NodeStyle {
     pub is_flex: bool,
     pub auto_size: bool,
     pub gap: Option<f32>,
+    pub flex_basis: Option<f32>,
     pub flex_grow: Option<f32>,
     pub flex_shrink: Option<f32>,
     pub z_index: Option<i32>,
@@ -183,6 +184,7 @@ pub struct NodeStyle {
     pub letter_spacing_em: Option<f32>,
     pub text_align: Option<TextAlign>,
     pub line_height: Option<f32>,
+    pub line_height_px: Option<f32>,
     pub text_transform: Option<TextTransform>,
 
     // Shadow
@@ -203,6 +205,7 @@ pub struct ComputedTextStyle {
     pub letter_spacing: f32,
     pub text_align: TextAlign,
     pub line_height: f32,
+    pub line_height_px: Option<f32>,
     pub text_transform: TextTransform,
     pub wrap_text: bool,
 }
@@ -216,6 +219,7 @@ impl Default for ComputedTextStyle {
             letter_spacing: 0.0,
             text_align: TextAlign::Left,
             line_height: 1.5,
+            line_height_px: None,
             text_transform: TextTransform::None,
             wrap_text: false,
         }
@@ -228,6 +232,13 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
         .letter_spacing
         .or_else(|| style.letter_spacing_em.map(|em| em * text_px))
         .unwrap_or(parent.letter_spacing);
+    let (line_height, line_height_px) = if let Some(px) = style.line_height_px {
+        (parent.line_height, Some(px))
+    } else if let Some(scale) = style.line_height {
+        (scale, None)
+    } else {
+        (parent.line_height, parent.line_height_px)
+    };
 
     ComputedTextStyle {
         color: style.text_color.unwrap_or(parent.color),
@@ -235,9 +246,18 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
         font_weight: style.font_weight.unwrap_or(parent.font_weight),
         letter_spacing,
         text_align: style.text_align.unwrap_or(parent.text_align),
-        line_height: style.line_height.unwrap_or(parent.line_height),
+        line_height,
+        line_height_px,
         text_transform: style.text_transform.unwrap_or(parent.text_transform),
         wrap_text: parent.wrap_text,
+    }
+}
+
+impl ComputedTextStyle {
+    pub fn resolved_line_height_px(&self) -> f32 {
+        self.line_height_px
+            .unwrap_or(self.text_px * self.line_height)
+            .max(1.0)
     }
 }
 
@@ -479,9 +499,19 @@ macro_rules! impl_node_style_api {
                 self
             }
 
+            pub fn flex_basis(mut self, basis: f32) -> Self {
+                self.style.flex_basis = Some(basis);
+                self
+            }
+
             // === Layout: Flex Grow ===
             pub fn flex_grow(mut self, grow: f32) -> Self {
                 self.style.flex_grow = Some(grow);
+                self
+            }
+
+            pub fn flex_shrink(mut self, shrink: f32) -> Self {
+                self.style.flex_shrink = Some(shrink);
                 self
             }
 

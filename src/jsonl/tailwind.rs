@@ -140,6 +140,10 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
+    if apply_bracket_line_height_rule(class, style) {
+        return true;
+    }
+
     if apply_bracket_f32_rule(class, BRACKET_F32_RULES, style) {
         return true;
     }
@@ -150,6 +154,46 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
 
     if apply_spacing_scale_rule(class, SPACING_SCALE_RULES, style) {
         return true;
+    }
+
+    if let Some(n) = parse_prefixed_bracket_f32(class, "basis-[") {
+        style.flex_basis = Some(n);
+        return true;
+    }
+
+    if let Some(value) = class.strip_prefix("basis-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
+            style.flex_basis = Some(n);
+            return true;
+        }
+    }
+
+    if let Some(n) = parse_prefixed_bracket_f32(class, "inset-x-[") {
+        style.inset_left = Some(n);
+        style.inset_right = Some(n);
+        return true;
+    }
+
+    if let Some(value) = class.strip_prefix("inset-x-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
+            style.inset_left = Some(n);
+            style.inset_right = Some(n);
+            return true;
+        }
+    }
+
+    if let Some(n) = parse_prefixed_bracket_f32(class, "inset-y-[") {
+        style.inset_top = Some(n);
+        style.inset_bottom = Some(n);
+        return true;
+    }
+
+    if let Some(value) = class.strip_prefix("inset-y-") {
+        if let Some(n) = parse_tailwind_spacing_token(value) {
+            style.inset_top = Some(n);
+            style.inset_bottom = Some(n);
+            return true;
+        }
     }
 
     if let Some(after) = class
@@ -192,6 +236,24 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         .and_then(|value| value.parse::<f32>().ok())
     {
         style.flex_grow = Some(n);
+        return true;
+    }
+
+    if class == "grow" {
+        style.flex_grow = Some(1.0);
+        return true;
+    }
+
+    if let Some(n) = class
+        .strip_prefix("shrink-")
+        .and_then(|value| value.parse::<f32>().ok())
+    {
+        style.flex_shrink = Some(n);
+        return true;
+    }
+
+    if class == "shrink" {
+        style.flex_shrink = Some(1.0);
         return true;
     }
 
@@ -252,7 +314,7 @@ enum F32Target {
     OpacityClamped,
     BlurSigma,
     FlexGrow,
-    LineHeight,
+    FlexShrink,
 }
 
 #[derive(Copy, Clone)]
@@ -416,6 +478,32 @@ fn apply_bracket_tracking_rule(class: &str, style: &mut NodeStyle) -> bool {
     false
 }
 
+fn apply_bracket_line_height_rule(class: &str, style: &mut NodeStyle) -> bool {
+    let Some(value) = class
+        .strip_prefix("leading-[")
+        .and_then(|value| value.strip_suffix(']'))
+    else {
+        return false;
+    };
+
+    if let Some(px) = value
+        .strip_suffix("px")
+        .and_then(|value| value.parse::<f32>().ok())
+    {
+        style.line_height_px = Some(px);
+        style.line_height = None;
+        return true;
+    }
+
+    if let Ok(scale) = value.parse::<f32>() {
+        style.line_height = Some(scale);
+        style.line_height_px = None;
+        return true;
+    }
+
+    false
+}
+
 fn parse_prefixed_bracket_f32(class: &str, prefix: &str) -> Option<f32> {
     class.strip_prefix(prefix).and_then(parse_bracket_f32)
 }
@@ -455,7 +543,7 @@ fn apply_f32_target(style: &mut NodeStyle, target: F32Target, value: f32) {
         F32Target::OpacityClamped => style.opacity = Some(value.clamp(0.0, 1.0)),
         F32Target::BlurSigma => style.blur_sigma = Some(value),
         F32Target::FlexGrow => style.flex_grow = Some(value),
-        F32Target::LineHeight => style.line_height = Some(value),
+        F32Target::FlexShrink => style.flex_shrink = Some(value),
     }
 }
 

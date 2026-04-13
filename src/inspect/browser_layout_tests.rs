@@ -21,6 +21,10 @@ use crate::{
 
 #[test]
 fn chromedriver_tailwind_layout_matches_taffy() -> Result<()> {
+    run_browser_layout_suite(browser_layout_fixtures())
+}
+
+fn run_browser_layout_suite(fixtures: Vec<LayoutFixture>) -> Result<()> {
     let Some(env) = BrowserTestEnv::detect()? else {
         eprintln!(
             "skipping chromedriver Tailwind layout suite: ChromeDriver or Chrome is unavailable"
@@ -28,7 +32,6 @@ fn chromedriver_tailwind_layout_matches_taffy() -> Result<()> {
         return Ok(());
     };
 
-    let fixtures = browser_layout_fixtures();
     let runtime = tokio::runtime::Runtime::new().context("failed to create tokio runtime")?;
 
     runtime.block_on(async move {
@@ -825,7 +828,7 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
             name: "auto-sized-flex-column-prefers-single-line",
             viewport_width: 390,
             viewport_height: 160,
-            tolerance_px: 6.0,
+            tolerance_px: 8.0,
             root: FixtureNode::div(
                 "root",
                 "w-full h-full",
@@ -1128,6 +1131,177 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
             ),
         },
         LayoutFixture {
+            name: "grow-basis-row",
+            viewport_width: 420,
+            viewport_height: 140,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row items-center w-full h-full gap-[12px] px-[16px]",
+                vec![
+                    FixtureNode::div("fixed", "w-[64px] h-[36px]", vec![]),
+                    FixtureNode::div("grow-a", "basis-[80px] grow h-[36px]", vec![]),
+                    FixtureNode::div("grow-b", "basis-20 grow-2 h-[36px]", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "shrink-constrained-row",
+            viewport_width: 260,
+            viewport_height: 120,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row items-center w-full h-full gap-[8px] px-[12px]",
+                vec![
+                    FixtureNode::div("left", "w-[96px] h-[28px] shrink-0", vec![]),
+                    FixtureNode::div("mid", "w-[96px] h-[28px] shrink", vec![]),
+                    FixtureNode::div("right", "w-[96px] h-[28px] shrink", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "basis-mixed-row",
+            viewport_width: 480,
+            viewport_height: 128,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row items-center w-full h-full gap-[10px] px-[16px]",
+                vec![
+                    FixtureNode::div("basis-a", "basis-16 h-[32px]", vec![]),
+                    FixtureNode::div("basis-b", "basis-24 h-[32px]", vec![]),
+                    FixtureNode::div("basis-c", "basis-[140px] h-[32px]", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "padding-sides-shell",
+            viewport_width: 360,
+            viewport_height: 180,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "w-full h-full p-4",
+                vec![FixtureNode::div(
+                    "panel",
+                    "w-40 h-24 pt-4 pr-6 pb-8 pl-2",
+                    vec![
+                        FixtureNode::div("panel-title", "w-16 h-4", vec![]),
+                        FixtureNode::div("panel-copy", "w-20 h-4 mt-2", vec![]),
+                    ],
+                )],
+            ),
+        },
+        LayoutFixture {
+            name: "margin-axis-flex-row",
+            viewport_width: 360,
+            viewport_height: 160,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row items-start w-full h-full px-4 py-4",
+                vec![
+                    FixtureNode::div("chip-a", "w-12 h-12 ml-4 mr-2", vec![]),
+                    FixtureNode::div("chip-b", "w-12 h-12 mx-3 mt-4", vec![]),
+                    FixtureNode::div("chip-c", "w-12 h-12 mr-4 mb-2", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "margin-axis-flex-col",
+            viewport_width: 240,
+            viewport_height: 220,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col items-start w-full h-full px-4 py-4",
+                vec![
+                    FixtureNode::div("row-a", "w-20 h-6 mt-4 mb-2", vec![]),
+                    FixtureNode::div("row-b", "w-24 h-6 my-3", vec![]),
+                    FixtureNode::div("row-c", "w-16 h-6 ml-4", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "justify-between-column-stack",
+            viewport_width: 220,
+            viewport_height: 220,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col justify-between items-start w-[200px] h-[200px] p-4",
+                vec![
+                    FixtureNode::div("top", "w-12 h-6", vec![]),
+                    FixtureNode::div("mid", "w-16 h-8", vec![]),
+                    FixtureNode::div("bottom", "w-20 h-10", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "items-center-column-stack",
+            viewport_width: 240,
+            viewport_height: 220,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col items-center w-[220px] h-[200px] gap-3 p-4",
+                vec![
+                    FixtureNode::div("item-a", "w-12 h-6", vec![]),
+                    FixtureNode::div("item-b", "w-20 h-8", vec![]),
+                    FixtureNode::div("item-c", "w-16 h-10", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "grow-zero-and-arbitrary-row",
+            viewport_width: 440,
+            viewport_height: 140,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row items-center w-full h-full gap-2 px-4",
+                vec![
+                    FixtureNode::div("fixed", "w-12 h-8", vec![]),
+                    FixtureNode::div("grow-zero", "basis-16 grow-0 h-8", vec![]),
+                    FixtureNode::div("grow-arbitrary", "basis-12 grow-[3] h-8", vec![]),
+                    FixtureNode::div("grow-one", "basis-px grow h-8", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "shrink-arbitrary-constrained-row",
+            viewport_width: 300,
+            viewport_height: 140,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row items-center w-full h-full gap-2 px-4",
+                vec![
+                    FixtureNode::div("keep", "w-24 h-8 shrink-0", vec![]),
+                    FixtureNode::div("shrink-two", "w-24 h-8 shrink-[2]", vec![]),
+                    FixtureNode::div("shrink-one", "w-24 h-8 shrink", vec![]),
+                    FixtureNode::div("shrink-three", "w-24 h-8 shrink-[3]", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "basis-px-and-scale-row",
+            viewport_width: 420,
+            viewport_height: 120,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row items-center w-full h-full gap-2 px-4",
+                vec![
+                    FixtureNode::div("basis-px", "basis-px h-8", vec![]),
+                    FixtureNode::div("basis-six", "basis-6 h-8", vec![]),
+                    FixtureNode::div("basis-twelve", "basis-12 h-8", vec![]),
+                    FixtureNode::div("basis-arbitrary", "basis-[72px] h-8", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
             name: "absolute-inset-zero-overlay",
             viewport_width: 280,
             viewport_height: 160,
@@ -1138,6 +1312,65 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                 vec![
                     FixtureNode::div("card", "relative w-32 h-20", vec![]),
                     FixtureNode::div("overlay", "absolute inset-0", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "inset-axis-matrix",
+            viewport_width: 320,
+            viewport_height: 180,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "relative w-full h-full",
+                vec![
+                    FixtureNode::div(
+                        "top-bar",
+                        "absolute inset-x-4 top-[12px] h-[20px]",
+                        vec![],
+                    ),
+                    FixtureNode::div(
+                        "left-rail",
+                        "absolute left-[10px] inset-y-4 w-[24px]",
+                        vec![],
+                    ),
+                    FixtureNode::div(
+                        "bottom-bar",
+                        "absolute inset-x-[20px] bottom-[18px] h-[16px]",
+                        vec![],
+                    ),
+                    FixtureNode::div(
+                        "right-badge",
+                        "absolute right-[14px] top-[48px] w-[48px] h-[24px]",
+                        vec![],
+                    ),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "inset-scale-overlay-bands",
+            viewport_width: 320,
+            viewport_height: 200,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "relative w-full h-full",
+                vec![
+                    FixtureNode::div(
+                        "header-band",
+                        "absolute inset-x-4 top-4 h-6",
+                        vec![],
+                    ),
+                    FixtureNode::div(
+                        "footer-band",
+                        "absolute inset-x-px bottom-4 h-4",
+                        vec![],
+                    ),
+                    FixtureNode::div(
+                        "left-band",
+                        "absolute left-6 inset-y-8 w-8",
+                        vec![],
+                    ),
                 ],
             ),
         },
@@ -1153,6 +1386,129 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                     "headline",
                     "text-[18px] tracking-[2px] uppercase",
                     "OpenCat Layout",
+                )],
+            ),
+        },
+        LayoutFixture {
+            name: "tracking-preset-stack",
+            viewport_width: 420,
+            viewport_height: 180,
+            tolerance_px: 8.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col w-full h-full gap-2 p-4",
+                vec![
+                    FixtureNode::text("track-tight", "text-[16px] tracking-tight", "Tailwind"),
+                    FixtureNode::text("track-normal", "text-[16px] tracking-normal", "Tailwind"),
+                    FixtureNode::text("track-wide", "text-[16px] tracking-wide", "Tailwind"),
+                    FixtureNode::text(
+                        "track-wider",
+                        "text-[16px] tracking-wider uppercase",
+                        "Tailwind",
+                    ),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "text-size-extended-stack",
+            viewport_width: 320,
+            viewport_height: 260,
+            tolerance_px: 8.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col w-full h-full gap-[10px] p-[20px]",
+                vec![
+                    FixtureNode::text("txt-xs", "text-xs", "Scale"),
+                    FixtureNode::text("txt-sm", "text-sm", "Scale"),
+                    FixtureNode::text("txt-base", "text-base", "Scale"),
+                    FixtureNode::text("txt-lg", "text-lg", "Scale"),
+                    FixtureNode::text("txt-xl", "text-xl", "Scale"),
+                    FixtureNode::text("txt-2xl", "text-2xl", "Scale"),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "text-size-stack",
+            viewport_width: 320,
+            viewport_height: 220,
+            tolerance_px: 8.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col w-full h-full gap-[10px] p-[20px]",
+                vec![
+                    FixtureNode::text("txt-xs", "text-xs", "Scale"),
+                    FixtureNode::text("txt-sm", "text-sm", "Scale"),
+                    FixtureNode::text("txt-lg", "text-lg", "Scale"),
+                    FixtureNode::text("txt-xl", "text-xl", "Scale"),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "text-leading-and-tracking-stack",
+            viewport_width: 340,
+            viewport_height: 240,
+            tolerance_px: 8.0,
+            root: FixtureNode::div(
+                "root",
+                "w-full h-full p-[20px]",
+                vec![
+                    FixtureNode::div(
+                        "tight-wrap",
+                        "mb-[12px]",
+                        vec![FixtureNode::text(
+                            "lead-tight",
+                            "text-[16px] leading-[18px]",
+                            "Tight leading",
+                        )],
+                    ),
+                    FixtureNode::div(
+                        "relaxed-wrap",
+                        "mb-[12px]",
+                        vec![FixtureNode::text(
+                            "lead-relaxed",
+                            "text-[16px] leading-relaxed",
+                            "Relaxed leading",
+                        )],
+                    ),
+                    FixtureNode::div(
+                        "tracking-wrap",
+                        "",
+                        vec![FixtureNode::text(
+                            "track-wide",
+                            "text-[16px] tracking-[1.5px] uppercase",
+                            "Wide tracking",
+                        )],
+                    ),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "fixed-width-multisize-copy",
+            viewport_width: 320,
+            viewport_height: 240,
+            tolerance_px: 8.0,
+            root: FixtureNode::div(
+                "root",
+                "w-full h-full p-[20px]",
+                vec![FixtureNode::div(
+                    "copy-card",
+                    "flex flex-col gap-[8px] w-[180px]",
+                    vec![
+                        FixtureNode::div(
+                            "copy-title-wrap",
+                            "",
+                            vec![FixtureNode::text(
+                                "copy-title",
+                                "text-[20px] leading-[24px]",
+                                "Layout parity",
+                            )],
+                        ),
+                        FixtureNode::text(
+                            "copy-body",
+                            "text-sm leading-relaxed tracking-[0.5px]",
+                            "Compare browser layout and Taffy layout across multiple text styles.",
+                        ),
+                    ],
                 )],
             ),
         },

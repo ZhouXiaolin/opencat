@@ -149,6 +149,7 @@ fn hash_text_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
     hash_f32(style.text_px, state);
     hash_f32(style.letter_spacing, state);
     hash_f32(style.line_height, state);
+    style.line_height_px.map(f32::to_bits).hash(state);
     style.text_transform.hash(state);
 }
 

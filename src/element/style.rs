@@ -57,6 +57,7 @@ pub struct ComputedLayoutStyle {
     pub justify_content: JustifyContent,
     pub align_items: AlignItems,
     pub gap: f32,
+    pub flex_basis: Option<f32>,
     pub flex_grow: f32,
     pub flex_shrink: Option<f32>,
     pub z_index: i32,

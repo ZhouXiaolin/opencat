@@ -214,7 +214,7 @@ fn main() -> anyhow::Result<()> {
         .size(1280, 720)
         .fps(30)
         .frames(240)
-        .root(|ctx| { hello_world_demo(ctx)})
+        .root(|ctx| hello_world_demo(ctx))
         .build()?;
 
     let encode_config = EncodingConfig::mp4();

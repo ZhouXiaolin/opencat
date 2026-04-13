@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
 use crate::style::{
-    AlignItems, ColorToken, FlexDirection, FontWeight, GradientDirection, JustifyContent,
-    NodeStyle, ObjectFit, Position, ShadowStyle, TextAlign, TextTransform,
+    AlignItems, ColorToken, FlexDirection, FlexWrap, FontWeight, GradientDirection, JustifyContent,
+    LengthPercentageAuto, NodeStyle, ObjectFit, Position, ShadowStyle, TextAlign, TextTransform,
     color_token_from_class_suffix,
 };
 
@@ -33,12 +33,33 @@ fn parse_class_name_impl(class_name: &str, context: Option<(&str, usize)>) -> No
     }
 
     let classes: Vec<&str> = class_name.split_whitespace().collect();
+    let mut text_size_default_line_height_px = None;
+    let mut has_explicit_line_height = false;
 
     for class in &classes {
+        if let Some(after) = class
+            .strip_prefix("text-")
+            .filter(|_| !class.starts_with("text-["))
+        {
+            text_size_default_line_height_px =
+                parse_tailwind_text_size_default_line_height_px(after);
+        }
+
+        if class.starts_with("leading-") {
+            has_explicit_line_height = true;
+        }
+
         if !parse_single_class(class, &mut style) {
             if let Some((node_id, line_number)) = context {
                 report_unsupported_tailwind_class(class, node_id, line_number);
             }
+        }
+    }
+
+    if !has_explicit_line_height {
+        if let Some(line_height_px) = text_size_default_line_height_px {
+            style.line_height_px = Some(line_height_px);
+            style.line_height = None;
         }
     }
 
@@ -86,8 +107,15 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
             style.is_flex = true;
             style.flex_direction = Some(value);
         }
+        ExactClassAction::FlexWrap(value) => style.flex_wrap = Some(value),
         ExactClassAction::JustifyContent(value) => style.justify_content = Some(value),
         ExactClassAction::AlignItems(value) => style.align_items = Some(value),
+        ExactClassAction::AlignContent(value) => style.align_content = Some(value),
+        ExactClassAction::AlignSelf(value) => style.align_self = Some(value),
+        ExactClassAction::PlaceContent(value) => {
+            style.justify_content = Some(value);
+            style.align_content = Some(value);
+        }
         ExactClassAction::ObjectFit(value) => style.object_fit = Some(value),
         ExactClassAction::FontWeight(value) => style.font_weight = Some(value),
         ExactClassAction::Shadow(value) => style.shadow = Some(value),
@@ -96,10 +124,11 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         ExactClassAction::OverflowHidden => style.overflow_hidden = true,
         ExactClassAction::Noop => {}
         ExactClassAction::InsetZero => {
-            style.inset_left = Some(0.0);
-            style.inset_top = Some(0.0);
-            style.inset_right = Some(0.0);
-            style.inset_bottom = Some(0.0);
+            let zero = LengthPercentageAuto::length(0.0);
+            style.inset_left = Some(zero);
+            style.inset_top = Some(zero);
+            style.inset_right = Some(zero);
+            style.inset_bottom = Some(zero);
         }
         ExactClassAction::BgGradientDirection(value) => style.bg_gradient_direction = Some(value),
         ExactClassAction::FlexShrink(value) => style.flex_shrink = Some(value),
@@ -121,6 +150,70 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
 }
 
 fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
+    if let Some(value) = parse_length_percentage_auto_class(class, "inset-", "-inset-") {
+        style.inset_left = Some(value);
+        style.inset_top = Some(value);
+        style.inset_right = Some(value);
+        style.inset_bottom = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_length_percentage_auto_class(class, "inset-x-", "-inset-x-") {
+        style.inset_left = Some(value);
+        style.inset_right = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_length_percentage_auto_class(class, "inset-y-", "-inset-y-") {
+        style.inset_top = Some(value);
+        style.inset_bottom = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_length_percentage_auto_class(class, "inset-s-", "-inset-s-") {
+        style.inset_left = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_length_percentage_auto_class(class, "inset-e-", "-inset-e-") {
+        style.inset_right = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_length_percentage_auto_class(class, "inset-bs-", "-inset-bs-") {
+        style.inset_top = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_length_percentage_auto_class(class, "inset-be-", "-inset-be-") {
+        style.inset_bottom = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_length_percentage_auto_class(class, "left-", "-left-") {
+        style.inset_left = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_length_percentage_auto_class(class, "top-", "-top-") {
+        style.inset_top = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_length_percentage_auto_class(class, "right-", "-right-") {
+        style.inset_right = Some(value);
+        return true;
+    }
+
+    if let Some(value) = parse_length_percentage_auto_class(class, "bottom-", "-bottom-") {
+        style.inset_bottom = Some(value);
+        return true;
+    }
+
+    if parse_flex_shorthand_class(class, style) {
+        return true;
+    }
+
     if apply_signed_bracket_f32_rule(class, SIGNED_BRACKET_F32_RULES, style) {
         return true;
     }
@@ -157,41 +250,25 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
     }
 
     if let Some(n) = parse_prefixed_bracket_f32(class, "basis-[") {
-        style.flex_basis = Some(n);
+        style.flex_basis = Some(LengthPercentageAuto::length(n));
         return true;
     }
 
     if let Some(value) = class.strip_prefix("basis-") {
-        if let Some(n) = parse_tailwind_spacing_token(value) {
-            style.flex_basis = Some(n);
+        if value == "auto" {
+            style.flex_basis = Some(LengthPercentageAuto::auto());
             return true;
         }
-    }
-
-    if let Some(n) = parse_prefixed_bracket_f32(class, "inset-x-[") {
-        style.inset_left = Some(n);
-        style.inset_right = Some(n);
-        return true;
-    }
-
-    if let Some(value) = class.strip_prefix("inset-x-") {
-        if let Some(n) = parse_tailwind_spacing_token(value) {
-            style.inset_left = Some(n);
-            style.inset_right = Some(n);
+        if value == "full" {
+            style.flex_basis = Some(LengthPercentageAuto::percent(1.0));
             return true;
         }
-    }
-
-    if let Some(n) = parse_prefixed_bracket_f32(class, "inset-y-[") {
-        style.inset_top = Some(n);
-        style.inset_bottom = Some(n);
-        return true;
-    }
-
-    if let Some(value) = class.strip_prefix("inset-y-") {
+        if let Some(percent) = parse_fraction(value) {
+            style.flex_basis = Some(LengthPercentageAuto::percent(percent));
+            return true;
+        }
         if let Some(n) = parse_tailwind_spacing_token(value) {
-            style.inset_top = Some(n);
-            style.inset_bottom = Some(n);
+            style.flex_basis = Some(LengthPercentageAuto::length(n));
             return true;
         }
     }
@@ -332,8 +409,12 @@ enum ExactClassAction {
     Position(Position),
     Flex,
     FlexDirection(FlexDirection),
+    FlexWrap(FlexWrap),
     JustifyContent(JustifyContent),
     AlignItems(AlignItems),
+    AlignContent(JustifyContent),
+    AlignSelf(AlignItems),
+    PlaceContent(JustifyContent),
     ObjectFit(ObjectFit),
     FontWeight(FontWeight),
     Shadow(ShadowStyle),
@@ -519,10 +600,10 @@ fn apply_f32_target(style: &mut NodeStyle, target: F32Target, value: f32) {
             style.height = Some(value);
             style.height_full = false;
         }
-        F32Target::InsetLeft => style.inset_left = Some(value),
-        F32Target::InsetTop => style.inset_top = Some(value),
-        F32Target::InsetRight => style.inset_right = Some(value),
-        F32Target::InsetBottom => style.inset_bottom = Some(value),
+        F32Target::InsetLeft => style.inset_left = Some(LengthPercentageAuto::length(value)),
+        F32Target::InsetTop => style.inset_top = Some(LengthPercentageAuto::length(value)),
+        F32Target::InsetRight => style.inset_right = Some(LengthPercentageAuto::length(value)),
+        F32Target::InsetBottom => style.inset_bottom = Some(LengthPercentageAuto::length(value)),
         F32Target::TextPx => style.text_px = Some(value),
         F32Target::Padding => style.padding = Some(value),
         F32Target::PaddingX => style.padding_x = Some(value),
@@ -612,6 +693,131 @@ fn parse_tailwind_text_size(value: &str) -> Option<f32> {
         .iter()
         .find_map(|(name, px)| (*name == value).then_some(*px))
         .or_else(|| value.parse::<f32>().ok())
+}
+
+fn parse_tailwind_text_size_default_line_height_px(value: &str) -> Option<f32> {
+    match value {
+        "xs" => Some(16.0),
+        "sm" => Some(20.0),
+        "base" => Some(24.0),
+        "lg" => Some(28.0),
+        "xl" => Some(28.0),
+        "2xl" => Some(32.0),
+        "3xl" => Some(36.0),
+        "4xl" => Some(40.0),
+        "5xl" => Some(48.0),
+        "6xl" => Some(60.0),
+        "7xl" => Some(72.0),
+        "8xl" => Some(96.0),
+        "9xl" => Some(128.0),
+        _ => None,
+    }
+}
+
+fn parse_flex_shorthand_class(class: &str, style: &mut NodeStyle) -> bool {
+    match class {
+        "flex-auto" => {
+            style.flex_grow = Some(1.0);
+            style.flex_shrink = Some(1.0);
+            style.flex_basis = Some(LengthPercentageAuto::auto());
+            return true;
+        }
+        "flex-initial" => {
+            style.flex_grow = Some(0.0);
+            style.flex_shrink = Some(1.0);
+            style.flex_basis = Some(LengthPercentageAuto::auto());
+            return true;
+        }
+        "flex-none" => {
+            style.flex_grow = Some(0.0);
+            style.flex_shrink = Some(0.0);
+            style.flex_basis = Some(LengthPercentageAuto::auto());
+            return true;
+        }
+        _ => {}
+    }
+
+    if let Some(value) = class.strip_prefix("flex-[") {
+        if let Some(value) = value
+            .strip_suffix(']')
+            .and_then(|value| value.parse::<f32>().ok())
+        {
+            style.flex_grow = Some(value);
+            style.flex_shrink = Some(1.0);
+            style.flex_basis = Some(LengthPercentageAuto::length(0.0));
+            return true;
+        }
+    }
+
+    if let Some(value) = class.strip_prefix("flex-") {
+        if let Some(value) = value.parse::<f32>().ok() {
+            style.flex_grow = Some(value);
+            style.flex_shrink = Some(1.0);
+            style.flex_basis = Some(LengthPercentageAuto::length(0.0));
+            return true;
+        }
+        if let Some(value) = parse_fraction(value) {
+            style.flex_grow = Some(1.0);
+            style.flex_shrink = Some(1.0);
+            style.flex_basis = Some(LengthPercentageAuto::percent(value));
+            return true;
+        }
+    }
+
+    false
+}
+
+fn parse_length_percentage_auto_class(
+    class: &str,
+    positive_prefix: &str,
+    negative_prefix: &str,
+) -> Option<LengthPercentageAuto> {
+    let (negative, value) = if let Some(value) = class.strip_prefix(negative_prefix) {
+        (true, value)
+    } else if let Some(value) = class.strip_prefix(positive_prefix) {
+        (false, value)
+    } else {
+        return None;
+    };
+
+    parse_length_percentage_auto_value(value, negative)
+}
+
+fn parse_length_percentage_auto_value(value: &str, negative: bool) -> Option<LengthPercentageAuto> {
+    if value == "auto" {
+        return (!negative).then_some(LengthPercentageAuto::auto());
+    }
+    if value == "full" {
+        let sign = if negative { -1.0 } else { 1.0 };
+        return Some(LengthPercentageAuto::percent(sign));
+    }
+    if let Some(fraction) = parse_fraction(value) {
+        let sign = if negative { -1.0 } else { 1.0 };
+        return Some(LengthPercentageAuto::percent(sign * fraction));
+    }
+    if let Some(value) = value.strip_prefix('[').and_then(parse_bracket_f32) {
+        let sign = if negative { -1.0 } else { 1.0 };
+        return Some(LengthPercentageAuto::length(sign * value));
+    }
+    if let Some(value) = parse_bracket_f32(value) {
+        let sign = if negative { -1.0 } else { 1.0 };
+        return Some(LengthPercentageAuto::length(sign * value));
+    }
+    if let Some(value) = parse_tailwind_spacing_token(value) {
+        let sign = if negative { -1.0 } else { 1.0 };
+        return Some(LengthPercentageAuto::length(sign * value));
+    }
+    None
+}
+
+fn parse_fraction(value: &str) -> Option<f32> {
+    let (numerator, denominator) = value.split_once('/')?;
+    let numerator = numerator.parse::<f32>().ok()?;
+    let denominator = denominator.parse::<f32>().ok()?;
+    if denominator == 0.0 {
+        return None;
+    }
+    Some(numerator / denominator)
 }
 
 fn color_from_hex(value: &str) -> Option<ColorToken> {

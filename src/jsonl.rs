@@ -575,7 +575,10 @@ mod tests {
             node::NodeKind,
             time::{FrameState, frame_state_for_root},
         },
-        style::{ColorToken, GradientDirection, TextAlign},
+        style::{
+            AlignItems, ColorToken, FlexDirection, FlexWrap, GradientDirection, JustifyContent,
+            LengthPercentageAuto, TextAlign,
+        },
     };
 
     #[test]
@@ -781,12 +784,31 @@ mod tests {
 
         assert_eq!(style.width, Some(80.0));
         assert_eq!(style.height, Some(112.0));
-        assert_eq!(style.inset_left, Some(32.0));
-        assert_eq!(style.inset_top, Some(16.0));
+        assert_eq!(style.inset_left, Some(LengthPercentageAuto::length(32.0)));
+        assert_eq!(style.inset_top, Some(LengthPercentageAuto::length(16.0)));
         assert_eq!(style.padding_x, Some(24.0));
         assert_eq!(style.padding_y, Some(8.0));
         assert_eq!(style.gap, Some(14.0));
         assert_eq!(style.text_px, Some(30.0));
+        assert_eq!(style.line_height_px, Some(36.0));
+    }
+
+    #[test]
+    fn parser_keeps_tailwind_text_size_default_line_height() {
+        let style = parse_class_name("text-sm");
+
+        assert_eq!(style.text_px, Some(14.0));
+        assert_eq!(style.line_height_px, Some(20.0));
+        assert_eq!(style.line_height, None);
+    }
+
+    #[test]
+    fn parser_lets_explicit_leading_override_text_size_default() {
+        let style = parse_class_name("leading-relaxed text-sm");
+
+        assert_eq!(style.text_px, Some(14.0));
+        assert_eq!(style.line_height_px, None);
+        assert_eq!(style.line_height, Some(1.625));
     }
 
     #[test]
@@ -802,13 +824,82 @@ mod tests {
         assert_eq!(style.bg_gradient_from, Some(ColorToken::Transparent));
         assert_eq!(style.bg_gradient_via, Some(ColorToken::Pink500));
         assert_eq!(style.bg_gradient_to, Some(ColorToken::Violet400));
-        assert_eq!(style.inset_right, Some(0.0));
-        assert_eq!(style.inset_bottom, Some(0.0));
-        assert_eq!(style.inset_top, Some(-80.0));
-        assert_eq!(style.inset_left, Some(-24.0));
+        assert_eq!(style.inset_right, Some(LengthPercentageAuto::length(0.0)));
+        assert_eq!(style.inset_bottom, Some(LengthPercentageAuto::length(0.0)));
+        assert_eq!(style.inset_top, Some(LengthPercentageAuto::length(-80.0)));
+        assert_eq!(style.inset_left, Some(LengthPercentageAuto::length(-24.0)));
         assert_eq!(style.z_index, Some(10));
         assert_eq!(style.flex_shrink, Some(0.0));
         assert_eq!(style.letter_spacing, Some(1.0));
+    }
+
+    #[test]
+    fn parser_aligns_inset_utilities_with_tailwind_layout_cases() {
+        let style = parse_class_name(
+            "inset-auto inset-x-4 -inset-y-full inset-s-3/4 inset-e-[12px] inset-bs-auto -inset-be-2",
+        );
+
+        assert_eq!(style.inset_left, Some(LengthPercentageAuto::percent(0.75)));
+        assert_eq!(style.inset_right, Some(LengthPercentageAuto::length(12.0)));
+        assert_eq!(style.inset_top, Some(LengthPercentageAuto::auto()));
+        assert_eq!(style.inset_bottom, Some(LengthPercentageAuto::length(-8.0)));
+    }
+
+    #[test]
+    fn parser_supports_edge_inset_full_fraction_and_negative_values() {
+        let style = parse_class_name("top-auto -right-full bottom-3/4 left-[18px] -left-4");
+
+        assert_eq!(style.inset_top, Some(LengthPercentageAuto::auto()));
+        assert_eq!(style.inset_right, Some(LengthPercentageAuto::percent(-1.0)));
+        assert_eq!(
+            style.inset_bottom,
+            Some(LengthPercentageAuto::percent(0.75))
+        );
+        assert_eq!(style.inset_left, Some(LengthPercentageAuto::length(-16.0)));
+    }
+
+    #[test]
+    fn parser_supports_flex_basis_and_shorthand_layout_cases() {
+        let basis = parse_class_name("basis-auto basis-full basis-11/12 basis-[123px]");
+        assert_eq!(basis.flex_basis, Some(LengthPercentageAuto::length(123.0)));
+
+        let full = parse_class_name("basis-full");
+        assert_eq!(full.flex_basis, Some(LengthPercentageAuto::percent(1.0)));
+
+        let fraction = parse_class_name("basis-11/12");
+        assert_eq!(
+            fraction.flex_basis,
+            Some(LengthPercentageAuto::percent(11.0 / 12.0))
+        );
+
+        let auto = parse_class_name("basis-auto");
+        assert_eq!(auto.flex_basis, Some(LengthPercentageAuto::auto()));
+
+        let flex_auto = parse_class_name("flex-auto");
+        assert_eq!(flex_auto.flex_grow, Some(1.0));
+        assert_eq!(flex_auto.flex_shrink, Some(1.0));
+        assert_eq!(flex_auto.flex_basis, Some(LengthPercentageAuto::auto()));
+
+        let flex_none = parse_class_name("flex-none");
+        assert_eq!(flex_none.flex_grow, Some(0.0));
+        assert_eq!(flex_none.flex_shrink, Some(0.0));
+        assert_eq!(flex_none.flex_basis, Some(LengthPercentageAuto::auto()));
+
+        let flex_fraction = parse_class_name("flex-1/2");
+        assert_eq!(flex_fraction.flex_grow, Some(1.0));
+        assert_eq!(flex_fraction.flex_shrink, Some(1.0));
+        assert_eq!(
+            flex_fraction.flex_basis,
+            Some(LengthPercentageAuto::percent(0.5))
+        );
+
+        let flex_numeric = parse_class_name("flex-[123]");
+        assert_eq!(flex_numeric.flex_grow, Some(123.0));
+        assert_eq!(flex_numeric.flex_shrink, Some(1.0));
+        assert_eq!(
+            flex_numeric.flex_basis,
+            Some(LengthPercentageAuto::length(0.0))
+        );
     }
 
     #[test]
@@ -834,6 +925,119 @@ mod tests {
         );
         assert_eq!(overlay.bg_gradient_from.expect("from color").rgba().3, 26);
         assert_eq!(overlay.bg_gradient_to.expect("to color").rgba().3, 38);
+    }
+
+    #[test]
+    fn parser_covers_core_exact_layout_utilities() {
+        let style = parse_class_name(
+            "absolute flex flex-col justify-evenly items-end grow shrink-0 w-full h-full object-cover overflow-hidden z-10",
+        );
+
+        assert_eq!(style.position, Some(crate::style::Position::Absolute));
+        assert!(style.is_flex);
+        assert_eq!(style.flex_direction, Some(crate::style::FlexDirection::Col));
+        assert_eq!(
+            style.justify_content,
+            Some(crate::style::JustifyContent::Evenly)
+        );
+        assert_eq!(style.align_items, Some(crate::style::AlignItems::End));
+        assert_eq!(style.flex_grow, Some(1.0));
+        assert_eq!(style.flex_shrink, Some(0.0));
+        assert!(style.width_full);
+        assert!(style.height_full);
+        assert_eq!(style.object_fit, Some(crate::style::ObjectFit::Cover));
+        assert!(style.overflow_hidden);
+        assert_eq!(style.z_index, Some(10));
+    }
+
+    #[test]
+    fn parser_supports_reverse_and_wrap_flex_layout_utilities() {
+        let row_reverse = parse_class_name("flex-row-reverse");
+        assert_eq!(row_reverse.flex_direction, Some(FlexDirection::RowReverse));
+
+        let col_reverse = parse_class_name("flex-col-reverse");
+        assert_eq!(col_reverse.flex_direction, Some(FlexDirection::ColReverse));
+
+        let wrap = parse_class_name("flex-wrap");
+        assert_eq!(wrap.flex_wrap, Some(FlexWrap::Wrap));
+
+        let wrap_reverse = parse_class_name("flex-wrap-reverse");
+        assert_eq!(wrap_reverse.flex_wrap, Some(FlexWrap::WrapReverse));
+
+        let nowrap = parse_class_name("flex-nowrap");
+        assert_eq!(nowrap.flex_wrap, Some(FlexWrap::NoWrap));
+    }
+
+    #[test]
+    fn parser_maps_safe_and_extended_alignment_utilities() {
+        let justify = parse_class_name("justify-center-safe justify-stretch");
+        assert_eq!(justify.justify_content, Some(JustifyContent::Stretch));
+
+        let justify_end_safe = parse_class_name("justify-end-safe");
+        assert_eq!(justify_end_safe.justify_content, Some(JustifyContent::End));
+
+        let items = parse_class_name("items-center-safe items-baseline-last");
+        assert_eq!(items.align_items, Some(AlignItems::Baseline));
+
+        let items_end_safe = parse_class_name("items-end-safe");
+        assert_eq!(items_end_safe.align_items, Some(AlignItems::End));
+
+        let place_items = parse_class_name("place-items-center-safe");
+        assert_eq!(place_items.align_items, Some(AlignItems::Center));
+
+        let place_items_baseline = parse_class_name("place-items-baseline");
+        assert_eq!(place_items_baseline.align_items, Some(AlignItems::Baseline));
+    }
+
+    #[test]
+    fn parser_maps_align_content_and_place_content_utilities() {
+        let content = parse_class_name("content-center-safe content-evenly");
+        assert_eq!(content.align_content, Some(JustifyContent::Evenly));
+
+        let content_end_safe = parse_class_name("content-end-safe");
+        assert_eq!(content_end_safe.align_content, Some(JustifyContent::End));
+
+        let content_stretch = parse_class_name("content-stretch");
+        assert_eq!(content_stretch.align_content, Some(JustifyContent::Stretch));
+
+        let place_content = parse_class_name("place-content-between");
+        assert_eq!(place_content.justify_content, Some(JustifyContent::Between));
+        assert_eq!(place_content.align_content, Some(JustifyContent::Between));
+
+        let place_content_safe = parse_class_name("place-content-center-safe");
+        assert_eq!(
+            place_content_safe.justify_content,
+            Some(JustifyContent::Center)
+        );
+        assert_eq!(
+            place_content_safe.align_content,
+            Some(JustifyContent::Center)
+        );
+
+        let place_content_end = parse_class_name("place-content-end-safe");
+        assert_eq!(place_content_end.justify_content, Some(JustifyContent::End));
+        assert_eq!(place_content_end.align_content, Some(JustifyContent::End));
+    }
+
+    #[test]
+    fn parser_maps_align_self_and_ignores_unsupported_normal_baseline_variants() {
+        let self_end = parse_class_name("self-end-safe");
+        assert_eq!(self_end.align_self, Some(AlignItems::End));
+
+        let self_center = parse_class_name("self-center-safe");
+        assert_eq!(self_center.align_self, Some(AlignItems::Center));
+
+        let self_baseline = parse_class_name("self-baseline-last");
+        assert_eq!(self_baseline.align_self, Some(AlignItems::Baseline));
+
+        let self_stretch = parse_class_name("self-stretch");
+        assert_eq!(self_stretch.align_self, Some(AlignItems::Stretch));
+
+        let ignored =
+            parse_class_name("content-normal content-baseline place-content-baseline self-auto");
+        assert_eq!(ignored.align_content, None);
+        assert_eq!(ignored.justify_content, None);
+        assert_eq!(ignored.align_self, None);
     }
 
     #[test]

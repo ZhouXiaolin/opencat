@@ -1,6 +1,6 @@
 use crate::style::{
-    AlignItems, BackgroundFill, ComputedTextStyle, FlexDirection, JustifyContent, ObjectFit,
-    Position, ShadowStyle, Transform,
+    AlignItems, BackgroundFill, ComputedTextStyle, FlexDirection, FlexWrap, JustifyContent,
+    LengthPercentageAuto, ObjectFit, Position, ShadowStyle, Transform,
 };
 
 #[derive(Clone, Debug)]
@@ -25,7 +25,8 @@ impl InheritedStyle {
         let parent_has_inline_constraint =
             style.layout.width.is_some() || style.layout.width_full || style.text.wrap_text;
         let parent_stacks_text_vertically = !style.layout.is_flex
-            || (style.layout.flex_direction == FlexDirection::Col
+            || ((style.layout.flex_direction == FlexDirection::Col
+                || style.layout.flex_direction == FlexDirection::ColReverse)
                 && style.layout.align_items == AlignItems::Stretch);
         text.wrap_text = parent_has_inline_constraint && parent_stacks_text_vertically;
         Self { text }
@@ -35,10 +36,10 @@ impl InheritedStyle {
 #[derive(Clone, Debug)]
 pub struct ComputedLayoutStyle {
     pub position: Position,
-    pub inset_left: Option<f32>,
-    pub inset_top: Option<f32>,
-    pub inset_right: Option<f32>,
-    pub inset_bottom: Option<f32>,
+    pub inset_left: Option<LengthPercentageAuto>,
+    pub inset_top: Option<LengthPercentageAuto>,
+    pub inset_right: Option<LengthPercentageAuto>,
+    pub inset_bottom: Option<LengthPercentageAuto>,
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub width_full: bool,
@@ -56,8 +57,11 @@ pub struct ComputedLayoutStyle {
     pub flex_direction: FlexDirection,
     pub justify_content: JustifyContent,
     pub align_items: AlignItems,
+    pub flex_wrap: FlexWrap,
+    pub align_content: Option<JustifyContent>,
+    pub align_self: Option<AlignItems>,
     pub gap: f32,
-    pub flex_basis: Option<f32>,
+    pub flex_basis: Option<LengthPercentageAuto>,
     pub flex_grow: f32,
     pub flex_shrink: Option<f32>,
     pub z_index: i32,

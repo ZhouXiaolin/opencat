@@ -6,7 +6,9 @@ use std::hash::{Hash, Hasher};
 use anyhow::Result;
 use taffy::{
     AvailableSpace, TaffyTree,
-    prelude::{Dimension, JustifyContent as TaffyJustifyContent, Style},
+    prelude::{
+        AlignContent as TaffyAlignContent, Dimension, JustifyContent as TaffyJustifyContent, Style,
+    },
 };
 
 use crate::{
@@ -17,7 +19,7 @@ use crate::{
     },
     layout::tree::{LayoutNode, LayoutRect, LayoutTree},
     scene::primitives::{AlignItems, JustifyContent, Position},
-    style::ComputedTextStyle,
+    style::{ComputedTextStyle, LengthPercentageAuto},
     text::{TextMeasureRequest, TextMeasurer},
 };
 
@@ -419,10 +421,10 @@ fn composite_affect_hash(element: &ElementNode) -> u64 {
 
 fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: &mut impl Hasher) {
     style.position.hash(state);
-    hash_option_f32(style.inset_left, state);
-    hash_option_f32(style.inset_top, state);
-    hash_option_f32(style.inset_right, state);
-    hash_option_f32(style.inset_bottom, state);
+    hash_option_length_percentage_auto(style.inset_left, state);
+    hash_option_length_percentage_auto(style.inset_top, state);
+    hash_option_length_percentage_auto(style.inset_right, state);
+    hash_option_length_percentage_auto(style.inset_bottom, state);
     hash_option_f32(style.width, state);
     hash_option_f32(style.height, state);
     style.width_full.hash(state);
@@ -436,10 +438,13 @@ fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: 
     hash_f32(style.margin_bottom, state);
     hash_f32(style.margin_left, state);
     style.flex_direction.hash(state);
+    style.flex_wrap.hash(state);
     style.justify_content.hash(state);
     style.align_items.hash(state);
+    style.align_content.hash(state);
+    style.align_self.hash(state);
     hash_f32(style.gap, state);
-    hash_option_f32(style.flex_basis, state);
+    hash_option_length_percentage_auto(style.flex_basis, state);
     hash_f32(style.flex_grow, state);
     hash_option_f32(style.flex_shrink, state);
     style.z_index.hash(state);
@@ -527,6 +532,21 @@ fn hash_option_f32(value: Option<f32>, state: &mut impl Hasher) {
     value.map(f32::to_bits).hash(state);
 }
 
+fn hash_option_length_percentage_auto(
+    value: Option<LengthPercentageAuto>,
+    state: &mut impl Hasher,
+) {
+    value.map(hash_length_percentage_auto_bits).hash(state);
+}
+
+fn hash_length_percentage_auto_bits(value: LengthPercentageAuto) -> (u8, u32) {
+    match value {
+        LengthPercentageAuto::Auto => (0, 0),
+        LengthPercentageAuto::Length(length) => (1, length.to_bits()),
+        LengthPercentageAuto::Percent(percent) => (2, percent.to_bits()),
+    }
+}
+
 fn hash_f32(value: f32, state: &mut impl Hasher) {
     value.to_bits().hash(state);
 }
@@ -592,6 +612,8 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                 width: taffy::style::LengthPercentage::length(layout.gap),
                 height: taffy::style::LengthPercentage::length(layout.gap),
             },
+            flex_wrap: map_flex_wrap(layout.flex_wrap),
+            align_content: layout.align_content.map(map_align_content),
             ..base_style(layout)
         },
         ElementKind::Text(_) => Style {
@@ -689,22 +711,10 @@ fn base_style(layout: &ComputedLayoutStyle) -> Style {
     let mut style = Style {
         position: map_position(layout.position),
         inset: taffy::geometry::Rect {
-            left: layout
-                .inset_left
-                .map(taffy::style::LengthPercentageAuto::length)
-                .unwrap_or(taffy::style::LengthPercentageAuto::auto()),
-            top: layout
-                .inset_top
-                .map(taffy::style::LengthPercentageAuto::length)
-                .unwrap_or(taffy::style::LengthPercentageAuto::auto()),
-            right: layout
-                .inset_right
-                .map(taffy::style::LengthPercentageAuto::length)
-                .unwrap_or(taffy::style::LengthPercentageAuto::auto()),
-            bottom: layout
-                .inset_bottom
-                .map(taffy::style::LengthPercentageAuto::length)
-                .unwrap_or(taffy::style::LengthPercentageAuto::auto()),
+            left: resolve_length_percentage_auto(layout.inset_left),
+            top: resolve_length_percentage_auto(layout.inset_top),
+            right: resolve_length_percentage_auto(layout.inset_right),
+            bottom: resolve_length_percentage_auto(layout.inset_bottom),
         },
         margin: taffy::geometry::Rect {
             left: taffy::style::LengthPercentageAuto::length(layout.margin_left),
@@ -714,15 +724,36 @@ fn base_style(layout: &ComputedLayoutStyle) -> Style {
         },
         flex_basis: layout
             .flex_basis
-            .map(Dimension::length)
+            .map(resolve_dimension_value)
             .unwrap_or(Dimension::auto()),
         flex_grow: layout.flex_grow,
+        align_self: layout.align_self.map(map_align),
         ..Default::default()
     };
     if let Some(flex_shrink) = layout.flex_shrink {
         style.flex_shrink = flex_shrink;
     }
     style
+}
+
+fn resolve_length_percentage_auto(
+    value: Option<LengthPercentageAuto>,
+) -> taffy::style::LengthPercentageAuto {
+    match value.unwrap_or(LengthPercentageAuto::Auto) {
+        LengthPercentageAuto::Auto => taffy::style::LengthPercentageAuto::auto(),
+        LengthPercentageAuto::Length(length) => taffy::style::LengthPercentageAuto::length(length),
+        LengthPercentageAuto::Percent(percent) => {
+            taffy::style::LengthPercentageAuto::percent(percent)
+        }
+    }
+}
+
+fn resolve_dimension_value(value: LengthPercentageAuto) -> Dimension {
+    match value {
+        LengthPercentageAuto::Auto => Dimension::auto(),
+        LengthPercentageAuto::Length(length) => Dimension::length(length),
+        LengthPercentageAuto::Percent(percent) => Dimension::percent(percent),
+    }
 }
 
 fn hash_draw_script_command(
@@ -954,6 +985,18 @@ fn map_flex_direction(value: Option<crate::style::FlexDirection>) -> taffy::prel
     match value {
         None | Some(crate::style::FlexDirection::Row) => taffy::prelude::FlexDirection::Row,
         Some(crate::style::FlexDirection::Col) => taffy::prelude::FlexDirection::Column,
+        Some(crate::style::FlexDirection::RowReverse) => taffy::prelude::FlexDirection::RowReverse,
+        Some(crate::style::FlexDirection::ColReverse) => {
+            taffy::prelude::FlexDirection::ColumnReverse
+        }
+    }
+}
+
+fn map_flex_wrap(value: crate::style::FlexWrap) -> taffy::prelude::FlexWrap {
+    match value {
+        crate::style::FlexWrap::NoWrap => taffy::prelude::FlexWrap::NoWrap,
+        crate::style::FlexWrap::Wrap => taffy::prelude::FlexWrap::Wrap,
+        crate::style::FlexWrap::WrapReverse => taffy::prelude::FlexWrap::WrapReverse,
     }
 }
 
@@ -972,6 +1015,7 @@ fn map_justify(value: JustifyContent) -> TaffyJustifyContent {
         JustifyContent::Between => TaffyJustifyContent::SpaceBetween,
         JustifyContent::Around => TaffyJustifyContent::SpaceAround,
         JustifyContent::Evenly => TaffyJustifyContent::SpaceEvenly,
+        JustifyContent::Stretch => TaffyJustifyContent::Stretch,
     }
 }
 
@@ -980,7 +1024,20 @@ fn map_align(value: AlignItems) -> taffy::prelude::AlignItems {
         AlignItems::Start => taffy::prelude::AlignItems::FlexStart,
         AlignItems::Center => taffy::prelude::AlignItems::Center,
         AlignItems::End => taffy::prelude::AlignItems::FlexEnd,
+        AlignItems::Baseline => taffy::prelude::AlignItems::Baseline,
         AlignItems::Stretch => taffy::prelude::AlignItems::Stretch,
+    }
+}
+
+fn map_align_content(value: JustifyContent) -> TaffyAlignContent {
+    match value {
+        JustifyContent::Start => TaffyAlignContent::FlexStart,
+        JustifyContent::Center => TaffyAlignContent::Center,
+        JustifyContent::End => TaffyAlignContent::FlexEnd,
+        JustifyContent::Between => TaffyAlignContent::SpaceBetween,
+        JustifyContent::Around => TaffyAlignContent::SpaceAround,
+        JustifyContent::Evenly => TaffyAlignContent::SpaceEvenly,
+        JustifyContent::Stretch => TaffyAlignContent::Stretch,
     }
 }
 
@@ -1120,15 +1177,17 @@ mod tests {
         let root = classed_div(
             "root",
             "w-full h-full p-[20px]",
-            vec![classed_div(
-                "tight-wrap",
-                "mb-[12px]",
-                vec![
-                    classed_text("lead-tight", "text-[16px] leading-[18px]", "Tight leading")
-                        .into(),
-                ],
-            )
-            .into()],
+            vec![
+                classed_div(
+                    "tight-wrap",
+                    "mb-[12px]",
+                    vec![
+                        classed_text("lead-tight", "text-[16px] leading-[18px]", "Tight leading")
+                            .into(),
+                    ],
+                )
+                .into(),
+            ],
         )
         .into();
         let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
@@ -1139,7 +1198,10 @@ mod tests {
             .expect("layout should succeed");
 
         let requests = measurer.requests_for("Tight leading");
-        assert!(!requests.is_empty(), "expected to record Tight leading measurement");
+        assert!(
+            !requests.is_empty(),
+            "expected to record Tight leading measurement"
+        );
         assert!(requests.iter().all(|request| request.allow_wrap));
         assert!(
             requests.iter().all(|request| request.max_width >= 280.0),
@@ -1162,24 +1224,28 @@ mod tests {
         let root = classed_div(
             "root",
             "w-full h-full p-[20px]",
-            vec![classed_div(
-                "copy-card",
-                "flex flex-col gap-[8px] w-[180px]",
-                vec![classed_div(
-                    "copy-title-wrap",
-                    "",
+            vec![
+                classed_div(
+                    "copy-card",
+                    "flex flex-col gap-[8px] w-[180px]",
                     vec![
-                        classed_text(
-                            "copy-title",
-                            "text-[20px] leading-[24px]",
-                            "Layout parity",
+                        classed_div(
+                            "copy-title-wrap",
+                            "",
+                            vec![
+                                classed_text(
+                                    "copy-title",
+                                    "text-[20px] leading-[24px]",
+                                    "Layout parity",
+                                )
+                                .into(),
+                            ],
                         )
                         .into(),
                     ],
                 )
-                .into()],
-            )
-            .into()],
+                .into(),
+            ],
         )
         .into();
         let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
@@ -1387,5 +1453,4 @@ mod tests {
         assert_eq!(second_stats.layout_dirty_nodes, 0);
         assert!(second_stats.raster_dirty_nodes >= 1);
     }
-
 }

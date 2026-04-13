@@ -1,11 +1,11 @@
 use rquickjs::Function;
 
-use crate::style::{color_token_from_script_name, ColorToken, Transform};
+use crate::style::{ColorToken, Transform, color_token_from_script_name};
 
 use super::{
-    align_items_from_name, flex_direction_from_name, font_weight_from_name,
+    MutationStore, align_items_from_name, flex_direction_from_name, font_weight_from_name,
     justify_content_from_name, object_fit_from_name, position_from_name, shadow_from_name,
-    text_align_from_name, MutationStore,
+    text_align_from_name,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -50,16 +50,16 @@ impl NodeStyleMutations {
             style.position = Some(v);
         }
         if let Some(v) = self.inset_left {
-            style.inset_left = Some(v);
+            style.inset_left = Some(crate::style::LengthPercentageAuto::length(v));
         }
         if let Some(v) = self.inset_top {
-            style.inset_top = Some(v);
+            style.inset_top = Some(crate::style::LengthPercentageAuto::length(v));
         }
         if let Some(v) = self.inset_right {
-            style.inset_right = Some(v);
+            style.inset_right = Some(crate::style::LengthPercentageAuto::length(v));
         }
         if let Some(v) = self.inset_bottom {
-            style.inset_bottom = Some(v);
+            style.inset_bottom = Some(crate::style::LengthPercentageAuto::length(v));
         }
         if let Some(v) = self.width {
             style.width = Some(v);

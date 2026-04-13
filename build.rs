@@ -449,8 +449,25 @@ fn generate_tailwind_jsonl_rules() -> String {
             "ExactClassAction::FlexDirection(FlexDirection::Col)",
         ),
         (
+            "flex-row-reverse",
+            "ExactClassAction::FlexDirection(FlexDirection::RowReverse)",
+        ),
+        (
+            "flex-col-reverse",
+            "ExactClassAction::FlexDirection(FlexDirection::ColReverse)",
+        ),
+        (
             "flex-column",
             "ExactClassAction::FlexDirection(FlexDirection::Col)",
+        ),
+        ("flex-wrap", "ExactClassAction::FlexWrap(FlexWrap::Wrap)"),
+        (
+            "flex-wrap-reverse",
+            "ExactClassAction::FlexWrap(FlexWrap::WrapReverse)",
+        ),
+        (
+            "flex-nowrap",
+            "ExactClassAction::FlexWrap(FlexWrap::NoWrap)",
         ),
         (
             "justify-start",
@@ -477,6 +494,18 @@ fn generate_tailwind_jsonl_rules() -> String {
             "ExactClassAction::JustifyContent(JustifyContent::Evenly)",
         ),
         (
+            "justify-stretch",
+            "ExactClassAction::JustifyContent(JustifyContent::Stretch)",
+        ),
+        (
+            "justify-center-safe",
+            "ExactClassAction::JustifyContent(JustifyContent::Center)",
+        ),
+        (
+            "justify-end-safe",
+            "ExactClassAction::JustifyContent(JustifyContent::End)",
+        ),
+        (
             "items-start",
             "ExactClassAction::AlignItems(AlignItems::Start)",
         ),
@@ -486,8 +515,157 @@ fn generate_tailwind_jsonl_rules() -> String {
         ),
         ("items-end", "ExactClassAction::AlignItems(AlignItems::End)"),
         (
+            "items-center-safe",
+            "ExactClassAction::AlignItems(AlignItems::Center)",
+        ),
+        (
+            "items-end-safe",
+            "ExactClassAction::AlignItems(AlignItems::End)",
+        ),
+        (
+            "items-baseline",
+            "ExactClassAction::AlignItems(AlignItems::Baseline)",
+        ),
+        (
+            "items-baseline-last",
+            "ExactClassAction::AlignItems(AlignItems::Baseline)",
+        ),
+        (
             "items-stretch",
             "ExactClassAction::AlignItems(AlignItems::Stretch)",
+        ),
+        (
+            "content-start",
+            "ExactClassAction::AlignContent(JustifyContent::Start)",
+        ),
+        (
+            "content-center",
+            "ExactClassAction::AlignContent(JustifyContent::Center)",
+        ),
+        (
+            "content-center-safe",
+            "ExactClassAction::AlignContent(JustifyContent::Center)",
+        ),
+        (
+            "content-end",
+            "ExactClassAction::AlignContent(JustifyContent::End)",
+        ),
+        (
+            "content-end-safe",
+            "ExactClassAction::AlignContent(JustifyContent::End)",
+        ),
+        (
+            "content-between",
+            "ExactClassAction::AlignContent(JustifyContent::Between)",
+        ),
+        (
+            "content-around",
+            "ExactClassAction::AlignContent(JustifyContent::Around)",
+        ),
+        (
+            "content-evenly",
+            "ExactClassAction::AlignContent(JustifyContent::Evenly)",
+        ),
+        (
+            "content-stretch",
+            "ExactClassAction::AlignContent(JustifyContent::Stretch)",
+        ),
+        ("content-normal", "ExactClassAction::Noop"),
+        ("content-baseline", "ExactClassAction::Noop"),
+        (
+            "place-content-start",
+            "ExactClassAction::PlaceContent(JustifyContent::Start)",
+        ),
+        (
+            "place-content-center",
+            "ExactClassAction::PlaceContent(JustifyContent::Center)",
+        ),
+        (
+            "place-content-center-safe",
+            "ExactClassAction::PlaceContent(JustifyContent::Center)",
+        ),
+        (
+            "place-content-end",
+            "ExactClassAction::PlaceContent(JustifyContent::End)",
+        ),
+        (
+            "place-content-end-safe",
+            "ExactClassAction::PlaceContent(JustifyContent::End)",
+        ),
+        (
+            "place-content-between",
+            "ExactClassAction::PlaceContent(JustifyContent::Between)",
+        ),
+        (
+            "place-content-around",
+            "ExactClassAction::PlaceContent(JustifyContent::Around)",
+        ),
+        (
+            "place-content-evenly",
+            "ExactClassAction::PlaceContent(JustifyContent::Evenly)",
+        ),
+        (
+            "place-content-stretch",
+            "ExactClassAction::PlaceContent(JustifyContent::Stretch)",
+        ),
+        ("place-content-baseline", "ExactClassAction::Noop"),
+        (
+            "place-items-start",
+            "ExactClassAction::AlignItems(AlignItems::Start)",
+        ),
+        (
+            "place-items-end",
+            "ExactClassAction::AlignItems(AlignItems::End)",
+        ),
+        (
+            "place-items-end-safe",
+            "ExactClassAction::AlignItems(AlignItems::End)",
+        ),
+        (
+            "place-items-center",
+            "ExactClassAction::AlignItems(AlignItems::Center)",
+        ),
+        (
+            "place-items-center-safe",
+            "ExactClassAction::AlignItems(AlignItems::Center)",
+        ),
+        (
+            "place-items-baseline",
+            "ExactClassAction::AlignItems(AlignItems::Baseline)",
+        ),
+        (
+            "place-items-stretch",
+            "ExactClassAction::AlignItems(AlignItems::Stretch)",
+        ),
+        ("self-auto", "ExactClassAction::Noop"),
+        (
+            "self-start",
+            "ExactClassAction::AlignSelf(AlignItems::Start)",
+        ),
+        ("self-end", "ExactClassAction::AlignSelf(AlignItems::End)"),
+        (
+            "self-end-safe",
+            "ExactClassAction::AlignSelf(AlignItems::End)",
+        ),
+        (
+            "self-center",
+            "ExactClassAction::AlignSelf(AlignItems::Center)",
+        ),
+        (
+            "self-center-safe",
+            "ExactClassAction::AlignSelf(AlignItems::Center)",
+        ),
+        (
+            "self-baseline",
+            "ExactClassAction::AlignSelf(AlignItems::Baseline)",
+        ),
+        (
+            "self-baseline-last",
+            "ExactClassAction::AlignSelf(AlignItems::Baseline)",
+        ),
+        (
+            "self-stretch",
+            "ExactClassAction::AlignSelf(AlignItems::Stretch)",
         ),
         (
             "object-contain",
@@ -573,7 +751,15 @@ fn generate_tailwind_jsonl_rules() -> String {
             "ExactClassAction::TextAlign(TextAlign::Right)",
         ),
         ("w-full", "ExactClassAction::WidthFull"),
+        ("w-screen", "ExactClassAction::WidthFull"),
+        ("w-svw", "ExactClassAction::WidthFull"),
+        ("w-lvw", "ExactClassAction::WidthFull"),
+        ("w-dvw", "ExactClassAction::WidthFull"),
         ("h-full", "ExactClassAction::HeightFull"),
+        ("h-screen", "ExactClassAction::HeightFull"),
+        ("h-svh", "ExactClassAction::HeightFull"),
+        ("h-lvh", "ExactClassAction::HeightFull"),
+        ("h-dvh", "ExactClassAction::HeightFull"),
         ("leading-none", "ExactClassAction::LineHeight(1.0)"),
         ("leading-tight", "ExactClassAction::LineHeight(1.25)"),
         ("leading-snug", "ExactClassAction::LineHeight(1.375)"),

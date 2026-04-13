@@ -5,10 +5,7 @@ use crate::scene::{
     node::Node,
     primitives::{ImageSource, canvas, div, image, lucide, text, video},
     script::ScriptDriver,
-    transition::{
-        Transition, clock_wipe, fade, iris, light_leak, slide, timeline,
-        wipe,
-    },
+    transition::{Transition, clock_wipe, fade, iris, light_leak, slide, timeline, wipe},
 };
 
 use super::{ParsedElement, ParsedElementKind, ParsedTransition, TimelineEntry};
@@ -292,10 +289,7 @@ fn build_transition(transition: &ParsedTransition) -> anyhow::Result<Transition>
 
 fn parse_transition_easing(transition: &ParsedTransition) -> anyhow::Result<Easing> {
     // Explicit spring parameters override timing field
-    if transition.damping.is_some()
-        || transition.stiffness.is_some()
-        || transition.mass.is_some()
-    {
+    if transition.damping.is_some() || transition.stiffness.is_some() || transition.mass.is_some() {
         let mut config = SpringConfig::default();
         if let Some(damping) = transition.damping {
             config.damping = damping;

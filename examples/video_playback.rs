@@ -2,8 +2,8 @@ use std::f32::consts::PI;
 use std::path::PathBuf;
 
 use opencat::{
-    AudioSource, Composition, CompositionAudioSource, Easing, EncodingConfig, FrameCtx, Node, canvas, div,
-    image, light_leak, slide, text, timeline, video,
+    AudioSource, Composition, CompositionAudioSource, Easing, EncodingConfig, FrameCtx, Node,
+    canvas, div, image, light_leak, slide, text, timeline, video,
 };
 
 const VIDEO_PATH: &str = "/Users/solaren/Resources/mp4/2.mp4";

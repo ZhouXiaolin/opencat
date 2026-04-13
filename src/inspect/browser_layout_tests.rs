@@ -24,6 +24,24 @@ fn chromedriver_tailwind_layout_matches_taffy() -> Result<()> {
     run_browser_layout_suite(browser_layout_fixtures())
 }
 
+#[test]
+fn chromedriver_tailwind_extended_flex_layout_matches_taffy() -> Result<()> {
+    run_browser_layout_suite(generated_layout_coverage_fixtures()?)
+}
+
+#[test]
+fn generated_layout_fixture_templates_cover_utilities_manifest() -> Result<()> {
+    let report = generated_layout_coverage_report()?;
+    if report.uncovered.is_empty() {
+        return Ok(());
+    }
+
+    bail!(
+        "layout utility coverage gaps in browser fixture generator:\n{}",
+        report.uncovered.join("\n")
+    )
+}
+
 fn run_browser_layout_suite(fixtures: Vec<LayoutFixture>) -> Result<()> {
     let Some(env) = BrowserTestEnv::detect()? else {
         eprintln!(
@@ -39,6 +57,7 @@ fn run_browser_layout_suite(fixtures: Vec<LayoutFixture>) -> Result<()> {
         let mut failures = Vec::new();
 
         for fixture in fixtures {
+            let text_ids = fixture.root.collect_text_ids();
             let css = compile_tailwind_css(&fixture)?;
             let html = fixture.render_html_document(&css);
             let html_path = write_fixture_file(&fixture.name, "html", &html)?;
@@ -49,6 +68,7 @@ fn run_browser_layout_suite(fixtures: Vec<LayoutFixture>) -> Result<()> {
                 &fixture.name,
                 &browser_rects,
                 &taffy_rects,
+                &text_ids,
                 fixture.tolerance_px,
             ) {
                 failures.push(error.to_string());
@@ -171,14 +191,8 @@ impl BrowserHarness {
             (webdriver_url, Some(child))
         };
 
-        let session_id = create_session(
-            &client,
-            &webdriver_url,
-            env.chrome_bin.as_ref(),
-            1280,
-            800,
-        )
-        .await?;
+        let session_id =
+            create_session(&client, &webdriver_url, env.chrome_bin.as_ref(), 1280, 800).await?;
 
         Ok(Self {
             client,
@@ -376,9 +390,7 @@ async fn webdriver_post(
     payload: Value,
 ) -> Result<Value> {
     let response = client
-        .post(format!(
-            "{webdriver_url}/session/{session_id}/{endpoint}"
-        ))
+        .post(format!("{webdriver_url}/session/{session_id}/{endpoint}"))
         .json(&payload)
         .send()
         .await
@@ -395,8 +407,8 @@ async fn webdriver_post(
 }
 
 fn reserve_port() -> Result<u16> {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")
-        .context("failed to reserve a local TCP port")?;
+    let listener =
+        std::net::TcpListener::bind("127.0.0.1:0").context("failed to reserve a local TCP port")?;
     let port = listener
         .local_addr()
         .context("failed to inspect reserved TCP port")?
@@ -459,6 +471,7 @@ fn assert_layouts_close(
     fixture_name: &str,
     browser_rects: &BTreeMap<String, BrowserRect>,
     taffy_rects: &BTreeMap<String, BrowserRect>,
+    text_ids: &BTreeSet<String>,
     tolerance_px: f32,
 ) -> Result<()> {
     let browser_ids = browser_rects.keys().cloned().collect::<BTreeSet<_>>();
@@ -486,10 +499,17 @@ fn assert_layouts_close(
             ("width", browser.width, taffy.width),
             ("height", browser.height, taffy.height),
         ] {
+            // Keep text strict so font/layout drift stays visible even when a fixture
+            // needs a looser tolerance for non-text geometry.
+            let effective_tolerance = if text_ids.contains(&id) {
+                1.0
+            } else {
+                tolerance_px
+            };
             let delta = (browser_value - taffy_value).abs();
-            if delta > tolerance_px {
+            if delta > effective_tolerance {
                 mismatches.push(format!(
-                    "{id}.{field}: browser={browser_value:.2} taffy={taffy_value:.2} Δ={delta:.2}"
+                    "{id}.{field}: browser={browser_value:.2} taffy={taffy_value:.2} Δ={delta:.2} tol={effective_tolerance:.2}"
                 ));
             }
         }
@@ -537,8 +557,7 @@ fn write_fixture_file(name: &str, extension: &str, content: &str) -> Result<Path
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("target")
         .join("browser-layout-tests");
-    fs::create_dir_all(&dir)
-        .with_context(|| format!("failed to create {}", dir.display()))?;
+    fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .context("system clock is before unix epoch")?
@@ -610,12 +629,27 @@ impl FixtureNode {
         out
     }
 
+    fn collect_text_ids(&self) -> BTreeSet<String> {
+        let mut out = BTreeSet::new();
+        self.collect_text_ids_into(&mut out);
+        out
+    }
+
     fn collect_candidates_into(&self, out: &mut Vec<String>) {
         for class in self.class_name.split_whitespace() {
             out.push(class.to_string());
         }
         for child in &self.children {
             child.collect_candidates_into(out);
+        }
+    }
+
+    fn collect_text_ids_into(&self, out: &mut BTreeSet<String>) {
+        if matches!(self.kind, FixtureNodeKind::Text(_)) {
+            out.insert(self.id.to_string());
+        }
+        for child in &self.children {
+            child.collect_text_ids_into(out);
         }
     }
 
@@ -663,6 +697,906 @@ fn escape_html(input: &str) -> String {
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+struct GeneratedCoverageReport {
+    fixtures: Vec<LayoutFixture>,
+    uncovered: Vec<String>,
+}
+
+#[derive(Clone, Copy)]
+struct LayoutGroupSpec {
+    test_name: &'static str,
+    normalize: fn(&str) -> Option<String>,
+    build_fixture: fn(&str) -> Option<LayoutFixture>,
+}
+
+const GENERATED_LAYOUT_GROUP_SPECS: &[LayoutGroupSpec] = &[
+    LayoutGroupSpec {
+        test_name: "position",
+        normalize: normalize_position_candidate,
+        build_fixture: build_position_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "inset",
+        normalize: normalize_inset_candidate,
+        build_fixture: build_inset_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "inset-x",
+        normalize: normalize_inset_candidate,
+        build_fixture: build_inset_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "inset-y",
+        normalize: normalize_inset_candidate,
+        build_fixture: build_inset_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "inset-s",
+        normalize: normalize_inset_candidate,
+        build_fixture: build_inset_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "inset-e",
+        normalize: normalize_inset_candidate,
+        build_fixture: build_inset_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "inset-bs",
+        normalize: normalize_inset_candidate,
+        build_fixture: build_inset_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "inset-be",
+        normalize: normalize_inset_candidate,
+        build_fixture: build_inset_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "top",
+        normalize: normalize_inset_candidate,
+        build_fixture: build_inset_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "right",
+        normalize: normalize_inset_candidate,
+        build_fixture: build_inset_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "bottom",
+        normalize: normalize_inset_candidate,
+        build_fixture: build_inset_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "left",
+        normalize: normalize_inset_candidate,
+        build_fixture: build_inset_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "width",
+        normalize: normalize_width_candidate,
+        build_fixture: build_width_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "height",
+        normalize: normalize_height_candidate,
+        build_fixture: build_height_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "flex",
+        normalize: normalize_flex_candidate,
+        build_fixture: build_flex_sizing_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "flex-shrink",
+        normalize: normalize_flex_shrink_candidate,
+        build_fixture: build_flex_sizing_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "flex-grow",
+        normalize: normalize_flex_grow_candidate,
+        build_fixture: build_flex_sizing_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "flex-basis",
+        normalize: normalize_flex_basis_candidate,
+        build_fixture: build_flex_sizing_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "flex-direction",
+        normalize: normalize_flex_direction_candidate,
+        build_fixture: build_flex_direction_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "flex-wrap",
+        normalize: normalize_flex_wrap_candidate,
+        build_fixture: build_flex_wrap_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "justify",
+        normalize: normalize_justify_candidate,
+        build_fixture: build_justify_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "align-content",
+        normalize: normalize_align_content_candidate,
+        build_fixture: build_align_content_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "place-content",
+        normalize: normalize_place_content_candidate,
+        build_fixture: build_place_content_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "items",
+        normalize: normalize_items_candidate,
+        build_fixture: build_items_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "place-items",
+        normalize: normalize_place_items_candidate,
+        build_fixture: build_place_items_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "gap",
+        normalize: normalize_gap_candidate,
+        build_fixture: build_gap_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "p",
+        normalize: normalize_padding_candidate,
+        build_fixture: build_padding_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "px",
+        normalize: normalize_padding_candidate,
+        build_fixture: build_padding_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "py",
+        normalize: normalize_padding_candidate,
+        build_fixture: build_padding_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "pt",
+        normalize: normalize_padding_candidate,
+        build_fixture: build_padding_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "pr",
+        normalize: normalize_padding_candidate,
+        build_fixture: build_padding_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "pb",
+        normalize: normalize_padding_candidate,
+        build_fixture: build_padding_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "pl",
+        normalize: normalize_padding_candidate,
+        build_fixture: build_padding_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "self",
+        normalize: normalize_self_candidate,
+        build_fixture: build_self_fixture,
+    },
+];
+
+fn generated_layout_coverage_fixtures() -> Result<Vec<LayoutFixture>> {
+    Ok(generated_layout_coverage_report()?.fixtures)
+}
+
+fn generated_layout_coverage_report() -> Result<GeneratedCoverageReport> {
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("testsupport/utilities.test.ts"),
+    )
+    .context("failed to read testsupport/utilities.test.ts")?;
+
+    let mut fixtures = Vec::new();
+    let mut uncovered = Vec::new();
+
+    for spec in GENERATED_LAYOUT_GROUP_SPECS {
+        extend_group_fixtures(
+            &mut fixtures,
+            &mut uncovered,
+            spec.test_name,
+            extract_layout_test_candidates(&source, spec.test_name)?,
+            spec.normalize,
+            spec.build_fixture,
+        );
+    }
+
+    Ok(GeneratedCoverageReport {
+        fixtures,
+        uncovered,
+    })
+}
+
+fn extend_group_fixtures(
+    fixtures: &mut Vec<LayoutFixture>,
+    uncovered: &mut Vec<String>,
+    group_name: &str,
+    candidates: Vec<String>,
+    normalize: fn(&str) -> Option<String>,
+    build_fixture: fn(&str) -> Option<LayoutFixture>,
+) {
+    let normalized = normalize_layout_candidates(candidates, normalize);
+    for class_name in normalized {
+        match build_fixture(&class_name) {
+            Some(fixture) => fixtures.push(fixture),
+            None => uncovered.push(format!("{group_name}: {class_name}")),
+        }
+    }
+}
+
+fn normalize_layout_candidates(
+    candidates: Vec<String>,
+    normalize: fn(&str) -> Option<String>,
+) -> Vec<String> {
+    let mut deduped = BTreeSet::new();
+    for candidate in candidates {
+        if let Some(candidate) = normalize(&candidate) {
+            deduped.insert(candidate);
+        }
+    }
+    deduped.into_iter().collect()
+}
+
+fn extract_layout_test_candidates(source: &str, test_name: &str) -> Result<Vec<String>> {
+    let marker = format!("test('{test_name}', async () => {{");
+    let start = source
+        .find(&marker)
+        .ok_or_else(|| anyhow!("failed to find `{test_name}` in utilities.test.ts"))?;
+    let after_test = &source[start..];
+    let body = extract_test_body(after_test)
+        .ok_or_else(|| anyhow!("failed to isolate body for `{test_name}`"))?;
+    let array = extract_first_array_literal(body)
+        .ok_or_else(|| anyhow!("failed to find first candidate array for `{test_name}`"))?;
+    Ok(parse_js_string_literals(array))
+}
+
+fn parse_js_string_literals(input: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\'' && ch != '"' {
+            continue;
+        }
+        let quote = ch;
+        let mut value = String::new();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                if let Some(escaped) = chars.next() {
+                    value.push(escaped);
+                }
+                continue;
+            }
+            if ch == quote {
+                break;
+            }
+            value.push(ch);
+        }
+        out.push(value);
+    }
+    out
+}
+
+fn extract_test_body(input: &str) -> Option<&str> {
+    let body_start = input.find('{')? + 1;
+    let mut depth = 1_i32;
+    let mut single = false;
+    let mut double = false;
+    let mut template = false;
+    let mut escape = false;
+
+    for (index, ch) in input
+        .char_indices()
+        .skip_while(|(index, _)| *index < body_start)
+    {
+        if escape {
+            escape = false;
+            continue;
+        }
+        match ch {
+            '\\' if single || double || template => escape = true,
+            '\'' if !double && !template => single = !single,
+            '"' if !single && !template => double = !double,
+            '`' if !single && !double => template = !template,
+            '{' if !single && !double && !template => depth += 1,
+            '}' if !single && !double && !template => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&input[body_start..index]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn extract_first_array_literal(input: &str) -> Option<&str> {
+    let mut single = false;
+    let mut double = false;
+    let mut template = false;
+    let mut escape = false;
+    let mut depth = 0_i32;
+    let mut start = None;
+
+    for (index, ch) in input.char_indices() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        match ch {
+            '\\' if single || double || template => escape = true,
+            '\'' if !double && !template => single = !single,
+            '"' if !single && !template => double = !double,
+            '`' if !single && !double => template = !template,
+            '[' if !single && !double && !template => {
+                if depth == 0 {
+                    start = Some(index + 1);
+                }
+                depth += 1;
+            }
+            ']' if !single && !double && !template => {
+                depth -= 1;
+                if depth == 0 {
+                    return start.map(|start| &input[start..index]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn normalize_safe_alias(class_name: &str) -> String {
+    class_name
+        .strip_suffix("-safe")
+        .unwrap_or(class_name)
+        .to_string()
+}
+
+fn is_numeric_spacing_or_bracket(class_name: &str, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|prefix| {
+        class_name
+            .strip_prefix(prefix)
+            .is_some_and(|suffix| suffix.ends_with(']') || suffix.parse::<f32>().is_ok())
+    })
+}
+
+fn is_fraction_class(class_name: &str, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|prefix| {
+        class_name.strip_prefix(prefix).is_some_and(|suffix| {
+            let Some((left, right)) = suffix.split_once('/') else {
+                return false;
+            };
+            left.parse::<f32>().is_ok() && right.parse::<f32>().is_ok()
+        })
+    })
+}
+
+fn normalize_position_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "absolute" | "relative" => Some(class_name.to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_inset_candidate(class_name: &str) -> Option<String> {
+    if class_name.contains("shadow") || class_name.contains("shadowned") {
+        return None;
+    }
+    Some(class_name.to_string())
+}
+
+fn normalize_flex_direction_candidate(class_name: &str) -> Option<String> {
+    Some(class_name.to_string())
+}
+
+fn normalize_flex_wrap_candidate(class_name: &str) -> Option<String> {
+    Some(class_name.to_string())
+}
+
+fn normalize_justify_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "justify-normal" => None,
+        _ => Some(normalize_safe_alias(class_name)),
+    }
+}
+
+fn normalize_align_content_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "content-normal" | "content-baseline" => None,
+        _ => Some(normalize_safe_alias(class_name)),
+    }
+}
+
+fn normalize_place_content_candidate(class_name: &str) -> Option<String> {
+    if class_name == "place-content-baseline" {
+        None
+    } else {
+        Some(normalize_safe_alias(class_name))
+    }
+}
+
+fn normalize_items_candidate(class_name: &str) -> Option<String> {
+    if class_name.contains("baseline") {
+        None
+    } else {
+        Some(normalize_safe_alias(class_name))
+    }
+}
+
+fn normalize_place_items_candidate(class_name: &str) -> Option<String> {
+    if class_name.contains("baseline") {
+        None
+    } else {
+        Some(normalize_safe_alias(class_name))
+    }
+}
+
+fn normalize_self_candidate(class_name: &str) -> Option<String> {
+    if class_name == "self-auto" || class_name.contains("baseline") {
+        None
+    } else {
+        Some(normalize_safe_alias(class_name))
+    }
+}
+
+fn normalize_width_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "w-full" => Some(class_name.to_string()),
+        _ if is_numeric_spacing_or_bracket(class_name, &["w-"]) => Some(class_name.to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_height_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "h-full" => Some(class_name.to_string()),
+        _ if is_numeric_spacing_or_bracket(class_name, &["h-"]) => Some(class_name.to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_flex_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "flex-1" | "flex-99" | "flex-auto" | "flex-initial" | "flex-none" | "flex-[123]" => {
+            Some(class_name.to_string())
+        }
+        "flex-1/2" => Some(class_name.to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_flex_shrink_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "shrink" | "shrink-0" | "shrink-[123]" => Some(class_name.to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_flex_grow_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "grow" | "grow-0" | "grow-[123]" => Some(class_name.to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_flex_basis_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "basis-auto" | "basis-full" | "basis-[123px]" => Some(class_name.to_string()),
+        _ if is_fraction_class(class_name, &["basis-"]) => Some(class_name.to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_gap_candidate(class_name: &str) -> Option<String> {
+    if is_numeric_spacing_or_bracket(class_name, &["gap-"]) {
+        Some(class_name.to_string())
+    } else {
+        None
+    }
+}
+
+fn normalize_padding_candidate(class_name: &str) -> Option<String> {
+    if class_name.contains("big") {
+        return None;
+    }
+    if is_numeric_spacing_or_bracket(
+        class_name,
+        &["p-", "px-", "py-", "pt-", "pr-", "pb-", "pl-"],
+    ) {
+        Some(class_name.to_string())
+    } else {
+        None
+    }
+}
+
+fn leak_str(value: impl Into<String>) -> &'static str {
+    Box::leak(value.into().into_boxed_str())
+}
+
+fn generated_fixture_name(group: &str, class_name: &str) -> &'static str {
+    let sanitized = class_name
+        .chars()
+        .map(|ch| match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' => ch,
+            _ => '-',
+        })
+        .collect::<String>();
+    leak_str(format!("generated-{group}-{sanitized}"))
+}
+
+fn build_position_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("position", class_name),
+        viewport_width: 320,
+        viewport_height: 180,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "relative w-full h-full",
+            vec![
+                FixtureNode::div("before", "w-[120px] h-[32px]", vec![]),
+                FixtureNode::div(
+                    "target",
+                    leak_str(format!(
+                        "{class_name} left-[24px] top-[12px] w-[80px] h-[28px]"
+                    )),
+                    vec![],
+                ),
+                FixtureNode::div("after", "w-[96px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_inset_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("inset", class_name),
+        viewport_width: 320,
+        viewport_height: 220,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "relative w-[220px] h-[180px]",
+            vec![FixtureNode::div(
+                "target",
+                leak_str(format!("absolute {class_name} w-[40px] h-[32px]")),
+                vec![],
+            )],
+        ),
+    })
+}
+
+fn build_flex_direction_fixture(class_name: &str) -> Option<LayoutFixture> {
+    let (viewport_width, viewport_height, root_class) = if class_name.contains("col") {
+        (
+            240,
+            220,
+            format!("flex {class_name} items-start w-[180px] h-[200px] p-[12px] gap-[10px]"),
+        )
+    } else {
+        (
+            320,
+            140,
+            format!("flex {class_name} items-start w-full h-full p-[16px] gap-[8px]"),
+        )
+    };
+
+    Some(LayoutFixture {
+        name: generated_fixture_name("flex-direction", class_name),
+        viewport_width,
+        viewport_height,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            leak_str(root_class),
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[28px]", vec![]),
+                FixtureNode::div("item-b", "w-[56px] h-[32px]", vec![]),
+                FixtureNode::div("item-c", "w-[48px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_width_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("width", class_name),
+        viewport_width: 320,
+        viewport_height: 180,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "w-full h-full",
+            vec![FixtureNode::div(
+                "target",
+                leak_str(format!("{class_name} h-[24px]")),
+                vec![],
+            )],
+        ),
+    })
+}
+
+fn build_height_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("height", class_name),
+        viewport_width: 320,
+        viewport_height: 220,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "w-[220px] h-[180px]",
+            vec![FixtureNode::div(
+                "target",
+                leak_str(format!("{class_name} w-[48px]")),
+                vec![],
+            )],
+        ),
+    })
+}
+
+fn build_flex_sizing_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("flex-sizing", class_name),
+        viewport_width: 360,
+        viewport_height: 120,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "flex w-[280px] h-[64px] gap-[8px]",
+            vec![
+                FixtureNode::div("fixed-a", "w-[40px] h-[24px] shrink-0", vec![]),
+                FixtureNode::div("target", leak_str(format!("{class_name} h-[24px]")), vec![]),
+                FixtureNode::div("fixed-b", "w-[56px] h-[24px] shrink-0", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_flex_wrap_fixture(class_name: &str) -> Option<LayoutFixture> {
+    let viewport_height = if class_name == "flex-nowrap" {
+        120
+    } else {
+        160
+    };
+    let root_class = if class_name == "flex-nowrap" {
+        format!("flex {class_name} items-start w-[120px] h-[80px] p-[8px] gap-[8px]")
+    } else {
+        format!("flex {class_name} items-start w-[152px] h-[140px] p-[8px] gap-[8px]")
+    };
+
+    Some(LayoutFixture {
+        name: generated_fixture_name("flex-wrap", class_name),
+        viewport_width: 220,
+        viewport_height,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            leak_str(root_class),
+            vec![
+                FixtureNode::div("item-a", "w-[56px] h-[24px] shrink-0", vec![]),
+                FixtureNode::div("item-b", "w-[56px] h-[24px] shrink-0", vec![]),
+                FixtureNode::div("item-c", "w-[56px] h-[24px] shrink-0", vec![]),
+                FixtureNode::div("item-d", "w-[56px] h-[24px] shrink-0", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_justify_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("justify", class_name),
+        viewport_width: 320,
+        viewport_height: 140,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            leak_str(format!(
+                "flex {class_name} items-start w-[240px] h-[80px] p-[8px] gap-[8px]"
+            )),
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-b", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-c", "w-[40px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_align_content_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("align-content", class_name),
+        viewport_width: 220,
+        viewport_height: 220,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            leak_str(format!(
+                "flex flex-wrap {class_name} items-start w-[152px] h-[180px] p-[8px] gap-[8px]"
+            )),
+            vec![
+                FixtureNode::div("item-a", "w-[56px] h-[24px]", vec![]),
+                FixtureNode::div("item-b", "w-[56px] h-[24px]", vec![]),
+                FixtureNode::div("item-c", "w-[56px] h-[24px]", vec![]),
+                FixtureNode::div("item-d", "w-[56px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_place_content_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("place-content", class_name),
+        viewport_width: 220,
+        viewport_height: 220,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            leak_str(format!(
+                "flex flex-wrap {class_name} items-start w-[152px] h-[180px] p-[8px] gap-[8px]"
+            )),
+            vec![
+                FixtureNode::div("item-a", "w-[120px] h-[24px]", vec![]),
+                FixtureNode::div("item-b", "w-[120px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_items_fixture(class_name: &str) -> Option<LayoutFixture> {
+    let children = if class_name.ends_with("stretch") {
+        vec![
+            FixtureNode::div("item-a", "w-[40px]", vec![]),
+            FixtureNode::div("item-b", "w-[40px]", vec![]),
+            FixtureNode::div("item-c", "w-[40px]", vec![]),
+        ]
+    } else {
+        vec![
+            FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+            FixtureNode::div("item-b", "w-[40px] h-[32px]", vec![]),
+            FixtureNode::div("item-c", "w-[40px] h-[20px]", vec![]),
+        ]
+    };
+
+    Some(LayoutFixture {
+        name: generated_fixture_name("items", class_name),
+        viewport_width: 260,
+        viewport_height: 160,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            leak_str(format!(
+                "flex {class_name} w-[220px] h-[120px] p-[8px] gap-[8px]"
+            )),
+            children,
+        ),
+    })
+}
+
+fn build_place_items_fixture(class_name: &str) -> Option<LayoutFixture> {
+    let (viewport_width, viewport_height, root_class, children) = if class_name.ends_with("end") {
+        (
+            260,
+            200,
+            format!("flex flex-col {class_name} w-[220px] h-[160px] p-[8px] gap-[8px]"),
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-b", "w-[64px] h-[24px]", vec![]),
+                FixtureNode::div("item-c", "w-[52px] h-[24px]", vec![]),
+            ],
+        )
+    } else if class_name.ends_with("stretch") {
+        (
+            260,
+            160,
+            format!("flex {class_name} w-[220px] h-[120px] p-[8px] gap-[8px]"),
+            vec![
+                FixtureNode::div("item-a", "w-[40px]", vec![]),
+                FixtureNode::div("item-b", "w-[40px]", vec![]),
+                FixtureNode::div("item-c", "w-[40px]", vec![]),
+            ],
+        )
+    } else {
+        (
+            260,
+            160,
+            format!("flex {class_name} w-[220px] h-[120px] p-[8px] gap-[8px]"),
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-b", "w-[40px] h-[32px]", vec![]),
+                FixtureNode::div("item-c", "w-[40px] h-[20px]", vec![]),
+            ],
+        )
+    };
+
+    Some(LayoutFixture {
+        name: generated_fixture_name("place-items", class_name),
+        viewport_width,
+        viewport_height,
+        tolerance_px: 1.0,
+        root: FixtureNode::div("root", leak_str(root_class), children),
+    })
+}
+
+fn build_gap_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("gap", class_name),
+        viewport_width: 320,
+        viewport_height: 120,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            leak_str(format!("flex w-[240px] h-[48px] {class_name}")),
+            vec![
+                FixtureNode::div("item-a", "w-[24px] h-[24px]", vec![]),
+                FixtureNode::div("item-b", "w-[24px] h-[24px]", vec![]),
+                FixtureNode::div("item-c", "w-[24px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_padding_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("padding", class_name),
+        viewport_width: 320,
+        viewport_height: 220,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "w-full h-full",
+            vec![FixtureNode::div(
+                "target",
+                leak_str(format!("w-[160px] h-[120px] {class_name}")),
+                vec![FixtureNode::div("inner", "w-[24px] h-[24px]", vec![])],
+            )],
+        ),
+    })
+}
+
+fn build_self_fixture(class_name: &str) -> Option<LayoutFixture> {
+    let (parent_class, target_class) = match class_name {
+        "self-start" => (
+            "flex items-end w-[220px] h-[120px] p-[8px] gap-[8px]",
+            "self-start w-[40px] h-[24px]",
+        ),
+        "self-center" => (
+            "flex items-end w-[220px] h-[120px] p-[8px] gap-[8px]",
+            "self-center w-[40px] h-[24px]",
+        ),
+        "self-end" => (
+            "flex items-start w-[220px] h-[120px] p-[8px] gap-[8px]",
+            "self-end w-[40px] h-[24px]",
+        ),
+        "self-stretch" => (
+            "flex items-start w-[220px] h-[120px] p-[8px] gap-[8px]",
+            "self-stretch w-[40px]",
+        ),
+        _ => return None,
+    };
+
+    Some(LayoutFixture {
+        name: generated_fixture_name("self", class_name),
+        viewport_width: 260,
+        viewport_height: 160,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            parent_class,
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-b", leak_str(target_class), vec![]),
+                FixtureNode::div("item-c", "w-[40px] h-[24px]", vec![]),
+            ],
+        ),
+    })
 }
 
 fn browser_layout_fixtures() -> Vec<LayoutFixture> {
@@ -778,11 +1712,7 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                         "flex flex-col items-center gap-[8px]",
                         vec![
                             FixtureNode::div("cat-pizza-icon", "w-[56px] h-[56px]", vec![]),
-                            FixtureNode::text(
-                                "cat-pizza-text",
-                                "text-[12px] font-medium",
-                                "Pizza",
-                            ),
+                            FixtureNode::text("cat-pizza-text", "text-[12px] font-medium", "Pizza"),
                         ],
                     ),
                     FixtureNode::div(
@@ -802,11 +1732,7 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                         "flex flex-col items-center gap-[8px]",
                         vec![
                             FixtureNode::div("cat-sushi-icon", "w-[56px] h-[56px]", vec![]),
-                            FixtureNode::text(
-                                "cat-sushi-text",
-                                "text-[12px] font-medium",
-                                "Sushi",
-                            ),
+                            FixtureNode::text("cat-sushi-text", "text-[12px] font-medium", "Sushi"),
                         ],
                     ),
                     FixtureNode::div(
@@ -814,11 +1740,7 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                         "flex flex-col items-center gap-[8px]",
                         vec![
                             FixtureNode::div("cat-salad-icon", "w-[56px] h-[56px]", vec![]),
-                            FixtureNode::text(
-                                "cat-salad-text",
-                                "text-[12px] font-medium",
-                                "Salad",
-                            ),
+                            FixtureNode::text("cat-salad-text", "text-[12px] font-medium", "Salad"),
                         ],
                     ),
                 ],
@@ -839,16 +1761,8 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                         "promo-text",
                         "flex flex-col gap-[4px]",
                         vec![
-                            FixtureNode::text(
-                                "promo-title",
-                                "text-[18px] font-bold",
-                                "50% OFF",
-                            ),
-                            FixtureNode::text(
-                                "promo-desc",
-                                "text-[13px]",
-                                "First order discount",
-                            ),
+                            FixtureNode::text("promo-title", "text-[18px] font-bold", "50% OFF"),
+                            FixtureNode::text("promo-desc", "text-[13px]", "First order discount"),
                         ],
                     )],
                 )],
@@ -867,11 +1781,7 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                     "flex flex-col w-[80px] gap-[4px]",
                     vec![
                         FixtureNode::text("promo-title", "text-[18px] font-bold", "50% OFF"),
-                        FixtureNode::text(
-                            "promo-desc",
-                            "text-[13px]",
-                            "First order discount",
-                        ),
+                        FixtureNode::text("promo-desc", "text-[13px]", "First order discount"),
                     ],
                 )],
             ),
@@ -1324,11 +2234,7 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                 "root",
                 "relative w-full h-full",
                 vec![
-                    FixtureNode::div(
-                        "top-bar",
-                        "absolute inset-x-4 top-[12px] h-[20px]",
-                        vec![],
-                    ),
+                    FixtureNode::div("top-bar", "absolute inset-x-4 top-[12px] h-[20px]", vec![]),
                     FixtureNode::div(
                         "left-rail",
                         "absolute left-[10px] inset-y-4 w-[24px]",
@@ -1356,21 +2262,9 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                 "root",
                 "relative w-full h-full",
                 vec![
-                    FixtureNode::div(
-                        "header-band",
-                        "absolute inset-x-4 top-4 h-6",
-                        vec![],
-                    ),
-                    FixtureNode::div(
-                        "footer-band",
-                        "absolute inset-x-px bottom-4 h-4",
-                        vec![],
-                    ),
-                    FixtureNode::div(
-                        "left-band",
-                        "absolute left-6 inset-y-8 w-8",
-                        vec![],
-                    ),
+                    FixtureNode::div("header-band", "absolute inset-x-4 top-4 h-6", vec![]),
+                    FixtureNode::div("footer-band", "absolute inset-x-px bottom-4 h-4", vec![]),
+                    FixtureNode::div("left-band", "absolute left-6 inset-y-8 w-8", vec![]),
                 ],
             ),
         },
@@ -1540,11 +2434,569 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                 "root",
                 "relative w-full h-full",
                 vec![
-                    FixtureNode::div("top-left", "absolute left-[8px] top-[8px] w-[36px] h-[20px]", vec![]),
-                    FixtureNode::div("top-right", "absolute right-[8px] top-[8px] w-[36px] h-[20px]", vec![]),
-                    FixtureNode::div("bottom-left", "absolute left-[8px] bottom-[8px] w-[36px] h-[20px]", vec![]),
-                    FixtureNode::div("bottom-right", "absolute right-[8px] bottom-[8px] w-[36px] h-[20px]", vec![]),
+                    FixtureNode::div(
+                        "top-left",
+                        "absolute left-[8px] top-[8px] w-[36px] h-[20px]",
+                        vec![],
+                    ),
+                    FixtureNode::div(
+                        "top-right",
+                        "absolute right-[8px] top-[8px] w-[36px] h-[20px]",
+                        vec![],
+                    ),
+                    FixtureNode::div(
+                        "bottom-left",
+                        "absolute left-[8px] bottom-[8px] w-[36px] h-[20px]",
+                        vec![],
+                    ),
+                    FixtureNode::div(
+                        "bottom-right",
+                        "absolute right-[8px] bottom-[8px] w-[36px] h-[20px]",
+                        vec![],
+                    ),
                 ],
+            ),
+        },
+        // ── flex-column + items-* (column-axis alignment) ──────────────
+        LayoutFixture {
+            name: "items-start-column",
+            viewport_width: 240,
+            viewport_height: 220,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col items-start w-[220px] h-[200px] gap-3 p-4",
+                vec![
+                    FixtureNode::div("item-a", "w-12 h-6", vec![]),
+                    FixtureNode::div("item-b", "w-20 h-8", vec![]),
+                    FixtureNode::div("item-c", "w-16 h-10", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "items-end-column",
+            viewport_width: 240,
+            viewport_height: 220,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col items-end w-[220px] h-[200px] gap-3 p-4",
+                vec![
+                    FixtureNode::div("item-a", "w-12 h-6", vec![]),
+                    FixtureNode::div("item-b", "w-20 h-8", vec![]),
+                    FixtureNode::div("item-c", "w-16 h-10", vec![]),
+                ],
+            ),
+        },
+        // ── deep nested flex containers ────────────────────────────────
+        LayoutFixture {
+            name: "deep-nested-card",
+            viewport_width: 360,
+            viewport_height: 260,
+            tolerance_px: 6.0,
+            root: FixtureNode::div(
+                "root",
+                "w-full h-full p-4",
+                vec![FixtureNode::div(
+                    "card",
+                    "flex flex-col w-[280px] gap-[12px] p-[16px]",
+                    vec![
+                        FixtureNode::div(
+                            "header-row",
+                            "flex flex-row items-center justify-between",
+                            vec![
+                                FixtureNode::div("avatar", "w-[32px] h-[32px]", vec![]),
+                                FixtureNode::div(
+                                    "header-text",
+                                    "flex flex-col gap-[2px] ml-[8px]",
+                                    vec![
+                                        FixtureNode::text("name", "text-[14px] font-bold", "Alice"),
+                                        FixtureNode::text("time", "text-[11px]", "2 min ago"),
+                                    ],
+                                ),
+                                FixtureNode::div("badge", "w-[40px] h-[20px]", vec![]),
+                            ],
+                        ),
+                        FixtureNode::div("divider", "w-full h-[1px]", vec![]),
+                        FixtureNode::text(
+                            "body-text",
+                            "text-[13px]",
+                            "Nested flex layout with header row, body and footer.",
+                        ),
+                    ],
+                )],
+            ),
+        },
+        LayoutFixture {
+            name: "three-level-nested-flex",
+            viewport_width: 400,
+            viewport_height: 280,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col w-full h-full p-[16px] gap-[12px]",
+                vec![
+                    FixtureNode::div(
+                        "nav",
+                        "flex flex-row justify-between w-full h-[40px] px-[12px]",
+                        vec![
+                            FixtureNode::div(
+                                "nav-left",
+                                "flex flex-row items-center gap-[8px]",
+                                vec![
+                                    FixtureNode::div("logo", "w-[24px] h-[24px]", vec![]),
+                                    FixtureNode::text("brand", "text-[16px] font-bold", "Brand"),
+                                ],
+                            ),
+                            FixtureNode::div(
+                                "nav-right",
+                                "flex flex-row items-center gap-[12px]",
+                                vec![
+                                    FixtureNode::div("icon-a", "w-[20px] h-[20px]", vec![]),
+                                    FixtureNode::div("icon-b", "w-[20px] h-[20px]", vec![]),
+                                ],
+                            ),
+                        ],
+                    ),
+                    FixtureNode::div(
+                        "content",
+                        "flex flex-row w-full gap-[12px]",
+                        vec![
+                            FixtureNode::div(
+                                "sidebar",
+                                "flex flex-col gap-[8px] w-[80px]",
+                                vec![
+                                    FixtureNode::div("sb-item-1", "w-full h-[28px]", vec![]),
+                                    FixtureNode::div("sb-item-2", "w-full h-[28px]", vec![]),
+                                    FixtureNode::div("sb-item-3", "w-full h-[28px]", vec![]),
+                                ],
+                            ),
+                            FixtureNode::div(
+                                "main",
+                                "flex flex-col gap-[10px] grow",
+                                vec![
+                                    FixtureNode::div("card-a", "w-full h-[48px]", vec![]),
+                                    FixtureNode::div("card-b", "w-full h-[48px]", vec![]),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        },
+        // ── flex equal-grow rows ───────────────────────────────────────
+        LayoutFixture {
+            name: "equal-grow-three-columns",
+            viewport_width: 360,
+            viewport_height: 120,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row w-full h-full gap-[8px] px-[12px]",
+                vec![
+                    FixtureNode::div("col-a", "grow h-full", vec![]),
+                    FixtureNode::div("col-b", "grow h-full", vec![]),
+                    FixtureNode::div("col-c", "grow h-full", vec![]),
+                ],
+            ),
+        },
+        LayoutFixture {
+            name: "equal-grow-four-columns",
+            viewport_width: 400,
+            viewport_height: 100,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row w-full h-full gap-[6px] px-[10px]",
+                vec![
+                    FixtureNode::div("col-a", "grow h-full", vec![]),
+                    FixtureNode::div("col-b", "grow h-full", vec![]),
+                    FixtureNode::div("col-c", "grow h-full", vec![]),
+                    FixtureNode::div("col-d", "grow h-full", vec![]),
+                ],
+            ),
+        },
+        // ── absolute within flex ───────────────────────────────────────
+        LayoutFixture {
+            name: "absolute-badge-in-flex-row",
+            viewport_width: 320,
+            viewport_height: 100,
+            tolerance_px: 6.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row items-center w-full h-full px-[16px] gap-[12px]",
+                vec![
+                    FixtureNode::div(
+                        "icon-wrap",
+                        "relative w-[48px] h-[48px]",
+                        vec![
+                            FixtureNode::div("icon", "w-[48px] h-[48px]", vec![]),
+                            FixtureNode::div(
+                                "dot",
+                                "absolute right-0 top-0 w-[10px] h-[10px]",
+                                vec![],
+                            ),
+                        ],
+                    ),
+                    FixtureNode::div(
+                        "text-col",
+                        "flex flex-col gap-[4px]",
+                        vec![
+                            FixtureNode::text("title", "text-[14px] font-bold", "Notification"),
+                            FixtureNode::text("desc", "text-[12px]", "You have a new message"),
+                        ],
+                    ),
+                ],
+            ),
+        },
+        // ── centered card in viewport ──────────────────────────────────
+        LayoutFixture {
+            name: "centered-card-viewport",
+            viewport_width: 390,
+            viewport_height: 220,
+            tolerance_px: 10.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col items-center justify-center w-full h-full",
+                vec![FixtureNode::div(
+                    "card",
+                    "flex flex-col items-center gap-[12px] w-[280px] px-[20px] py-[24px]",
+                    vec![
+                        FixtureNode::div("icon", "w-[48px] h-[48px]", vec![]),
+                        FixtureNode::text("heading", "text-[18px] font-bold", "Welcome"),
+                        FixtureNode::text("sub", "text-[13px]", "Get started with CatCut"),
+                    ],
+                )],
+            ),
+        },
+        // ── block flow with varied-width children ──────────────────────
+        LayoutFixture {
+            name: "block-flow-varied-widths",
+            viewport_width: 320,
+            viewport_height: 200,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "w-full h-full p-[16px]",
+                vec![
+                    FixtureNode::div("full-row", "w-full h-[32px] mb-[8px]", vec![]),
+                    FixtureNode::div("half-row", "w-[140px] h-[24px] mb-[8px]", vec![]),
+                    FixtureNode::div("third-row", "w-[96px] h-[20px] mb-[8px]", vec![]),
+                    FixtureNode::div("wide-row", "w-[280px] h-[28px]", vec![]),
+                ],
+            ),
+        },
+        // ── flex column stretch implicit ───────────────────────────────
+        LayoutFixture {
+            name: "flex-col-stretch-implicit-width",
+            viewport_width: 320,
+            viewport_height: 180,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col w-[240px] h-[160px] p-[12px] gap-[8px]",
+                vec![
+                    FixtureNode::div("header", "w-full h-[32px]", vec![]),
+                    FixtureNode::div("body", "w-full h-[48px]", vec![]),
+                    FixtureNode::div("footer", "w-full h-[28px]", vec![]),
+                ],
+            ),
+        },
+        // ── sidebar + main layout ──────────────────────────────────────
+        LayoutFixture {
+            name: "sidebar-main-layout",
+            viewport_width: 480,
+            viewport_height: 240,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row w-full h-full",
+                vec![
+                    FixtureNode::div(
+                        "sidebar",
+                        "flex flex-col gap-[12px] w-[100px] p-[12px]",
+                        vec![
+                            FixtureNode::div("nav-a", "w-full h-[28px]", vec![]),
+                            FixtureNode::div("nav-b", "w-full h-[28px]", vec![]),
+                            FixtureNode::div("nav-c", "w-full h-[28px]", vec![]),
+                        ],
+                    ),
+                    FixtureNode::div(
+                        "main",
+                        "flex flex-col gap-[12px] grow p-[16px]",
+                        vec![
+                            FixtureNode::div("card-top", "w-full h-[60px]", vec![]),
+                            FixtureNode::div("card-bot", "w-full h-[60px]", vec![]),
+                        ],
+                    ),
+                ],
+            ),
+        },
+        // ── text in fixed-width card with font-weight ──────────────────
+        LayoutFixture {
+            name: "text-font-weight-in-card",
+            viewport_width: 320,
+            viewport_height: 200,
+            tolerance_px: 8.0,
+            root: FixtureNode::div(
+                "root",
+                "w-full h-full p-[16px]",
+                vec![FixtureNode::div(
+                    "card",
+                    "flex flex-col gap-[8px] w-[240px] p-[16px]",
+                    vec![
+                        FixtureNode::text("title-bold", "text-[16px] font-bold", "Bold Title"),
+                        FixtureNode::text(
+                            "sub-medium",
+                            "text-[14px] font-medium",
+                            "Medium Subtitle",
+                        ),
+                        FixtureNode::text(
+                            "body-normal",
+                            "text-[13px]",
+                            "Normal body text goes here.",
+                        ),
+                        FixtureNode::text("footer-light", "text-[11px]", "Light footer"),
+                    ],
+                )],
+            ),
+        },
+        // ── Chinese text wrapping in narrow container ──────────────────
+        LayoutFixture {
+            name: "chinese-text-wrap-narrow",
+            viewport_width: 240,
+            viewport_height: 200,
+            tolerance_px: 8.0,
+            root: FixtureNode::div(
+                "root",
+                "w-full h-full p-[12px]",
+                vec![FixtureNode::div(
+                    "text-card",
+                    "w-[180px]",
+                    vec![
+                        FixtureNode::text(
+                            "headline",
+                            "text-[15px] font-bold mb-[6px]",
+                            "中文标题换行测试",
+                        ),
+                        FixtureNode::text(
+                            "body",
+                            "text-[12px] leading-relaxed",
+                            "从微小的原子到浩瀚的宇宙，科学无处不在。保持好奇心，勇敢提问，每一次实验都是新的发现。",
+                        ),
+                    ],
+                )],
+            ),
+        },
+        // ── flex row with text auto-sizing and fixed box ────────────────
+        LayoutFixture {
+            name: "flex-row-text-icon-row",
+            viewport_width: 360,
+            viewport_height: 80,
+            tolerance_px: 6.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row items-center w-full h-full px-[16px] gap-[12px]",
+                vec![
+                    FixtureNode::div("icon", "w-[32px] h-[32px] shrink-0", vec![]),
+                    FixtureNode::text("label", "text-[14px]", "Menu Item"),
+                    FixtureNode::div("spacer", "grow h-[1px]", vec![]),
+                    FixtureNode::div("chevron", "w-[16px] h-[16px] shrink-0", vec![]),
+                ],
+            ),
+        },
+        // ── justify-between column with stretched children ─────────────
+        LayoutFixture {
+            name: "justify-between-column-stretch",
+            viewport_width: 320,
+            viewport_height: 240,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col justify-between w-[280px] h-[220px] p-[16px]",
+                vec![
+                    FixtureNode::div("top", "w-full h-[40px]", vec![]),
+                    FixtureNode::div("mid", "w-full h-[40px]", vec![]),
+                    FixtureNode::div("bottom", "w-full h-[40px]", vec![]),
+                ],
+            ),
+        },
+        // ── complex absolute positioning with flex parent ──────────────
+        LayoutFixture {
+            name: "absolute-overlay-on-flex-card",
+            viewport_width: 360,
+            viewport_height: 160,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "w-full h-full p-[16px]",
+                vec![FixtureNode::div(
+                    "card",
+                    "relative flex flex-col gap-[8px] w-[280px] p-[16px]",
+                    vec![
+                        FixtureNode::text("title", "text-[16px] font-bold", "Card Title"),
+                        FixtureNode::text("body", "text-[13px]", "Card body text."),
+                        FixtureNode::div(
+                            "badge",
+                            "absolute right-[8px] top-[8px] w-[48px] h-[20px]",
+                            vec![],
+                        ),
+                    ],
+                )],
+            ),
+        },
+        // ── mixed grow and fixed width ─────────────────────────────────
+        LayoutFixture {
+            name: "mixed-grow-fixed-row",
+            viewport_width: 400,
+            viewport_height: 120,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row items-center w-full h-full gap-[8px] px-[12px]",
+                vec![
+                    FixtureNode::div("fixed-left", "w-[48px] h-[36px] shrink-0", vec![]),
+                    FixtureNode::div("grow-a", "grow h-[36px]", vec![]),
+                    FixtureNode::div("fixed-mid", "w-[64px] h-[36px] shrink-0", vec![]),
+                    FixtureNode::div("grow-b", "grow h-[36px]", vec![]),
+                    FixtureNode::div("fixed-right", "w-[48px] h-[36px] shrink-0", vec![]),
+                ],
+            ),
+        },
+        // ── tab bar pattern ────────────────────────────────────────────
+        LayoutFixture {
+            name: "tab-bar-pattern",
+            viewport_width: 390,
+            viewport_height: 60,
+            tolerance_px: 6.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row justify-around items-center w-full h-full px-[8px]",
+                vec![
+                    FixtureNode::div(
+                        "tab-a",
+                        "flex flex-col items-center gap-[2px]",
+                        vec![
+                            FixtureNode::div("tab-a-icon", "w-[20px] h-[20px]", vec![]),
+                            FixtureNode::text("tab-a-label", "text-[10px]", "Home"),
+                        ],
+                    ),
+                    FixtureNode::div(
+                        "tab-b",
+                        "flex flex-col items-center gap-[2px]",
+                        vec![
+                            FixtureNode::div("tab-b-icon", "w-[20px] h-[20px]", vec![]),
+                            FixtureNode::text("tab-b-label", "text-[10px]", "Search"),
+                        ],
+                    ),
+                    FixtureNode::div(
+                        "tab-c",
+                        "flex flex-col items-center gap-[2px]",
+                        vec![
+                            FixtureNode::div("tab-c-icon", "w-[20px] h-[20px]", vec![]),
+                            FixtureNode::text("tab-c-label", "text-[10px]", "Profile"),
+                        ],
+                    ),
+                    FixtureNode::div(
+                        "tab-d",
+                        "flex flex-col items-center gap-[2px]",
+                        vec![
+                            FixtureNode::div("tab-d-icon", "w-[20px] h-[20px]", vec![]),
+                            FixtureNode::text("tab-d-label", "text-[10px]", "Settings"),
+                        ],
+                    ),
+                ],
+            ),
+        },
+        // ── horizontal scroll-like row (overflow hidden) ───────────────
+        LayoutFixture {
+            name: "horizontal-scroll-row",
+            viewport_width: 390,
+            viewport_height: 120,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col w-full h-full py-[12px]",
+                vec![
+                    FixtureNode::text("section-title", "text-[14px] font-bold mb-[8px]", "Section"),
+                    FixtureNode::div(
+                        "scroll-row",
+                        "flex flex-row gap-[10px] px-[16px]",
+                        vec![
+                            FixtureNode::div("card-a", "w-[120px] h-[64px] shrink-0", vec![]),
+                            FixtureNode::div("card-b", "w-[120px] h-[64px] shrink-0", vec![]),
+                            FixtureNode::div("card-c", "w-[120px] h-[64px] shrink-0", vec![]),
+                            FixtureNode::div("card-d", "w-[120px] h-[64px] shrink-0", vec![]),
+                        ],
+                    ),
+                ],
+            ),
+        },
+        // ── two-column form layout ─────────────────────────────────────
+        LayoutFixture {
+            name: "form-like-column",
+            viewport_width: 320,
+            viewport_height: 260,
+            tolerance_px: 6.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-col w-full h-full p-[20px] gap-[16px]",
+                vec![
+                    FixtureNode::text("form-title", "text-[18px] font-bold", "Sign In"),
+                    FixtureNode::div(
+                        "field-1",
+                        "flex flex-col gap-[4px]",
+                        vec![
+                            FixtureNode::text("label-1", "text-[12px]", "Email"),
+                            FixtureNode::div("input-1", "w-full h-[36px]", vec![]),
+                        ],
+                    ),
+                    FixtureNode::div(
+                        "field-2",
+                        "flex flex-col gap-[4px]",
+                        vec![
+                            FixtureNode::text("label-2", "text-[12px]", "Password"),
+                            FixtureNode::div("input-2", "w-full h-[36px]", vec![]),
+                        ],
+                    ),
+                    FixtureNode::div("submit-btn", "w-full h-[40px] mt-[8px]", vec![]),
+                ],
+            ),
+        },
+        // ── flex row with large gap ────────────────────────────────────
+        LayoutFixture {
+            name: "large-gap-flex-row",
+            viewport_width: 400,
+            viewport_height: 80,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "flex flex-row items-center justify-center w-full h-full gap-[32px]",
+                vec![
+                    FixtureNode::div("dot-a", "w-[16px] h-[16px]", vec![]),
+                    FixtureNode::div("dot-b", "w-[16px] h-[16px]", vec![]),
+                    FixtureNode::div("dot-c", "w-[16px] h-[16px]", vec![]),
+                ],
+            ),
+        },
+        // ── nested absolute positioning ────────────────────────────────
+        LayoutFixture {
+            name: "nested-absolute-in-absolute",
+            viewport_width: 320,
+            viewport_height: 180,
+            tolerance_px: 1.0,
+            root: FixtureNode::div(
+                "root",
+                "relative w-full h-full",
+                vec![FixtureNode::div(
+                    "panel",
+                    "absolute left-[20px] top-[20px] w-[200px] h-[120px]",
+                    vec![FixtureNode::div(
+                        "inner",
+                        "absolute right-[8px] bottom-[8px] w-[60px] h-[30px]",
+                        vec![],
+                    )],
+                )],
             ),
         },
     ]

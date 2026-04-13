@@ -186,11 +186,11 @@ fn text_measure_cache_key(text: &str, style: &ComputedTextStyle, width: f32) -> 
     style.text_align.hash(&mut hasher);
     style.text_px.to_bits().hash(&mut hasher);
     style.letter_spacing.to_bits().hash(&mut hasher);
-        style.line_height.to_bits().hash(&mut hasher);
-        style.line_height_px.map(f32::to_bits).hash(&mut hasher);
-        style.text_transform.hash(&mut hasher);
-        width.to_bits().hash(&mut hasher);
-        hasher.finish()
+    style.line_height.to_bits().hash(&mut hasher);
+    style.line_height_px.map(f32::to_bits).hash(&mut hasher);
+    style.text_transform.hash(&mut hasher);
+    width.to_bits().hash(&mut hasher);
+    hasher.finish()
 }
 
 #[cfg(test)]

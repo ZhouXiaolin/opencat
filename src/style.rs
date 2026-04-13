@@ -18,6 +18,16 @@ pub enum FlexDirection {
     #[default]
     Row,
     Col,
+    RowReverse,
+    ColReverse,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum FlexWrap {
+    #[default]
+    NoWrap,
+    Wrap,
+    WrapReverse,
 }
 
 /// Main axis alignment - Tailwind: justify-*
@@ -30,6 +40,7 @@ pub enum JustifyContent {
     Between,
     Around,
     Evenly,
+    Stretch,
 }
 
 /// Cross axis alignment - Tailwind: items-*
@@ -38,8 +49,46 @@ pub enum AlignItems {
     Start,
     Center,
     End,
+    Baseline,
     #[default]
     Stretch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LengthPercentage {
+    Length(f32),
+    Percent(f32),
+}
+
+impl LengthPercentage {
+    pub const fn length(value: f32) -> Self {
+        Self::Length(value)
+    }
+
+    pub const fn percent(value: f32) -> Self {
+        Self::Percent(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LengthPercentageAuto {
+    Auto,
+    Length(f32),
+    Percent(f32),
+}
+
+impl LengthPercentageAuto {
+    pub const fn auto() -> Self {
+        Self::Auto
+    }
+
+    pub const fn length(value: f32) -> Self {
+        Self::Length(value)
+    }
+
+    pub const fn percent(value: f32) -> Self {
+        Self::Percent(value)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
@@ -122,10 +171,10 @@ pub enum Transform {
 pub struct NodeStyle {
     // Positioning
     pub position: Option<Position>,
-    pub inset_left: Option<f32>,
-    pub inset_top: Option<f32>,
-    pub inset_right: Option<f32>,
-    pub inset_bottom: Option<f32>,
+    pub inset_left: Option<LengthPercentageAuto>,
+    pub inset_top: Option<LengthPercentageAuto>,
+    pub inset_right: Option<LengthPercentageAuto>,
+    pub inset_bottom: Option<LengthPercentageAuto>,
 
     // Size
     pub width: Option<f32>,
@@ -156,7 +205,10 @@ pub struct NodeStyle {
     pub is_flex: bool,
     pub auto_size: bool,
     pub gap: Option<f32>,
-    pub flex_basis: Option<f32>,
+    pub flex_wrap: Option<FlexWrap>,
+    pub align_content: Option<JustifyContent>,
+    pub align_self: Option<AlignItems>,
+    pub flex_basis: Option<LengthPercentageAuto>,
     pub flex_grow: Option<f32>,
     pub flex_shrink: Option<f32>,
     pub z_index: Option<i32>,
@@ -279,26 +331,27 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn left(mut self, value: f32) -> Self {
-                self.style.inset_left = Some(value);
+                self.style.inset_left = Some($crate::style::LengthPercentageAuto::length(value));
                 self
             }
 
             pub fn top(mut self, value: f32) -> Self {
-                self.style.inset_top = Some(value);
+                self.style.inset_top = Some($crate::style::LengthPercentageAuto::length(value));
                 self
             }
 
             pub fn right(mut self, value: f32) -> Self {
-                self.style.inset_right = Some(value);
+                self.style.inset_right = Some($crate::style::LengthPercentageAuto::length(value));
                 self
             }
 
             pub fn bottom(mut self, value: f32) -> Self {
-                self.style.inset_bottom = Some(value);
+                self.style.inset_bottom = Some($crate::style::LengthPercentageAuto::length(value));
                 self
             }
 
             pub fn inset(mut self, value: f32) -> Self {
+                let value = $crate::style::LengthPercentageAuto::length(value);
                 self.style.inset_left = Some(value);
                 self.style.inset_top = Some(value);
                 self.style.inset_right = Some(value);
@@ -414,6 +467,14 @@ macro_rules! impl_node_style_api {
                 self.flex_direction($crate::style::FlexDirection::Col)
             }
 
+            pub fn flex_row_reverse(self) -> Self {
+                self.flex_direction($crate::style::FlexDirection::RowReverse)
+            }
+
+            pub fn flex_col_reverse(self) -> Self {
+                self.flex_direction($crate::style::FlexDirection::ColReverse)
+            }
+
             pub fn flex(self) -> Self {
                 self.flex_row()
             }
@@ -471,6 +532,43 @@ macro_rules! impl_node_style_api {
                 self.justify_content($crate::style::JustifyContent::Evenly)
             }
 
+            pub fn justify_stretch(self) -> Self {
+                self.justify_content($crate::style::JustifyContent::Stretch)
+            }
+
+            pub fn align_content(mut self, align_content: $crate::style::JustifyContent) -> Self {
+                self.style.align_content = Some(align_content);
+                self
+            }
+
+            pub fn content_start(self) -> Self {
+                self.align_content($crate::style::JustifyContent::Start)
+            }
+
+            pub fn content_center(self) -> Self {
+                self.align_content($crate::style::JustifyContent::Center)
+            }
+
+            pub fn content_end(self) -> Self {
+                self.align_content($crate::style::JustifyContent::End)
+            }
+
+            pub fn content_between(self) -> Self {
+                self.align_content($crate::style::JustifyContent::Between)
+            }
+
+            pub fn content_around(self) -> Self {
+                self.align_content($crate::style::JustifyContent::Around)
+            }
+
+            pub fn content_evenly(self) -> Self {
+                self.align_content($crate::style::JustifyContent::Evenly)
+            }
+
+            pub fn content_stretch(self) -> Self {
+                self.align_content($crate::style::JustifyContent::Stretch)
+            }
+
             // === Layout: Align Items (cross axis) ===
             pub fn align_items(mut self, align_items: $crate::style::AlignItems) -> Self {
                 self.style.align_items = Some(align_items);
@@ -489,8 +587,54 @@ macro_rules! impl_node_style_api {
                 self.align_items($crate::style::AlignItems::End)
             }
 
+            pub fn items_baseline(self) -> Self {
+                self.align_items($crate::style::AlignItems::Baseline)
+            }
+
             pub fn items_stretch(self) -> Self {
                 self.align_items($crate::style::AlignItems::Stretch)
+            }
+
+            pub fn align_self(mut self, align_self: $crate::style::AlignItems) -> Self {
+                self.style.align_self = Some(align_self);
+                self
+            }
+
+            pub fn self_start(self) -> Self {
+                self.align_self($crate::style::AlignItems::Start)
+            }
+
+            pub fn self_center(self) -> Self {
+                self.align_self($crate::style::AlignItems::Center)
+            }
+
+            pub fn self_end(self) -> Self {
+                self.align_self($crate::style::AlignItems::End)
+            }
+
+            pub fn self_baseline(self) -> Self {
+                self.align_self($crate::style::AlignItems::Baseline)
+            }
+
+            pub fn self_stretch(self) -> Self {
+                self.align_self($crate::style::AlignItems::Stretch)
+            }
+
+            pub fn flex_wrap(mut self, flex_wrap: $crate::style::FlexWrap) -> Self {
+                self.style.flex_wrap = Some(flex_wrap);
+                self
+            }
+
+            pub fn wrap(self) -> Self {
+                self.flex_wrap($crate::style::FlexWrap::Wrap)
+            }
+
+            pub fn wrap_reverse(self) -> Self {
+                self.flex_wrap($crate::style::FlexWrap::WrapReverse)
+            }
+
+            pub fn nowrap(self) -> Self {
+                self.flex_wrap($crate::style::FlexWrap::NoWrap)
             }
 
             // === Layout: Gap ===
@@ -500,7 +644,7 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn flex_basis(mut self, basis: f32) -> Self {
-                self.style.flex_basis = Some(basis);
+                self.style.flex_basis = Some($crate::style::LengthPercentageAuto::length(basis));
                 self
             }
 

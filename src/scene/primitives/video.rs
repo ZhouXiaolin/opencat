@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::resource::media::VideoFrameTiming;
-use crate::style::{impl_node_style_api, NodeStyle};
+use crate::style::{NodeStyle, impl_node_style_api};
 
 #[derive(Clone)]
 pub struct Video {

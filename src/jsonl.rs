@@ -1041,6 +1041,27 @@ mod tests {
     }
 
     #[test]
+    fn parser_supports_margin_scales_brackets_and_negative_values() {
+        let style = parse_class_name("m-2.5 -mx-4 mt-[6px] -mb-[8px] mr-99");
+
+        assert_eq!(style.margin, Some(10.0));
+        assert_eq!(style.margin_x, Some(-16.0));
+        assert_eq!(style.margin_top, Some(6.0));
+        assert_eq!(style.margin_bottom, Some(-8.0));
+        assert_eq!(style.margin_right, Some(396.0));
+    }
+
+    #[test]
+    fn parser_maps_logical_margin_aliases_to_physical_edges() {
+        let style = parse_class_name("ms-3 me-[10px] -mbs-2 mbe-1 -ml-[12px]");
+
+        assert_eq!(style.margin_left, Some(-12.0));
+        assert_eq!(style.margin_right, Some(10.0));
+        assert_eq!(style.margin_top, Some(-8.0));
+        assert_eq!(style.margin_bottom, Some(4.0));
+    }
+
+    #[test]
     fn parser_accepts_image_query_nodes() {
         parse(
             r#"{"type":"composition","width":1280,"height":720,"fps":30,"frames":90}

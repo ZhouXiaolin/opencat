@@ -1,6 +1,6 @@
 use rquickjs::Function;
 
-use crate::style::{ColorToken, Transform, color_token_from_script_name};
+use crate::style::{ColorToken, LengthPercentageAuto, Transform, color_token_from_script_name};
 
 use super::{
     MutationStore, align_items_from_name, flex_direction_from_name, font_weight_from_name,
@@ -79,13 +79,13 @@ impl NodeStyleMutations {
             style.padding_y = Some(v);
         }
         if let Some(v) = self.margin {
-            style.margin = Some(v);
+            style.margin = Some(LengthPercentageAuto::Length(v));
         }
         if let Some(v) = self.margin_x {
-            style.margin_x = Some(v);
+            style.margin_x = Some(LengthPercentageAuto::Length(v));
         }
         if let Some(v) = self.margin_y {
-            style.margin_y = Some(v);
+            style.margin_y = Some(LengthPercentageAuto::Length(v));
         }
         if let Some(v) = self.flex_direction {
             style.flex_direction = Some(v);

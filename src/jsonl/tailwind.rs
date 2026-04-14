@@ -2,9 +2,9 @@ use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
 use crate::style::{
-    AlignItems, ColorToken, FlexDirection, FlexWrap, FontWeight, GradientDirection, JustifyContent,
-    LengthPercentageAuto, NodeStyle, ObjectFit, Position, ShadowStyle, TextAlign, TextTransform,
-    color_token_from_class_suffix,
+    AlignItems, ColorToken, FlexDirection, FlexWrap, FontWeight, GradientDirection, GridAutoFlow,
+    GridPlacement, JustifyContent, LengthPercentageAuto, NodeStyle, ObjectFit, Position, ShadowStyle,
+    TextAlign, TextTransform, color_token_from_class_suffix,
 };
 
 static UNSUPPORTED_TAILWIND_CLASSES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -103,6 +103,9 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
                 style.flex_direction = Some(FlexDirection::Row);
             }
         }
+        ExactClassAction::Grid => {
+            style.is_grid = true;
+        }
         ExactClassAction::FlexDirection(value) => {
             style.is_flex = true;
             style.flex_direction = Some(value);
@@ -146,6 +149,13 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         ExactClassAction::LetterSpacing(value) => style.letter_spacing = Some(value),
         ExactClassAction::TextTransform(value) => style.text_transform = Some(value),
         ExactClassAction::BlurSigma(value) => style.blur_sigma = Some(value),
+        ExactClassAction::GridAutoFlow(value) => style.grid_auto_flow = Some(value),
+        ExactClassAction::ColStartAuto => style.col_start = Some(GridPlacement::Auto),
+        ExactClassAction::ColEndAuto => style.col_end = Some(GridPlacement::Auto),
+        ExactClassAction::RowStartAuto => style.row_start = Some(GridPlacement::Auto),
+        ExactClassAction::RowEndAuto => style.row_end = Some(GridPlacement::Auto),
+        ExactClassAction::GridColsNone => style.grid_template_columns = None,
+        ExactClassAction::GridRowsNone => style.grid_template_rows = None,
     }
 }
 
@@ -211,58 +221,173 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
     }
 
     if let Some(value) = parse_signed_spacing_scale_class(class, "m-", "-m-") {
-        style.margin = Some(value);
+        style.margin = Some(LengthPercentageAuto::Length(value));
         return true;
     }
 
     if let Some(value) = parse_signed_spacing_scale_class(class, "mx-", "-mx-") {
-        style.margin_x = Some(value);
+        style.margin_x = Some(LengthPercentageAuto::Length(value));
         return true;
     }
 
     if let Some(value) = parse_signed_spacing_scale_class(class, "my-", "-my-") {
-        style.margin_y = Some(value);
+        style.margin_y = Some(LengthPercentageAuto::Length(value));
         return true;
     }
 
     if let Some(value) = parse_signed_spacing_scale_class(class, "mt-", "-mt-") {
-        style.margin_top = Some(value);
+        style.margin_top = Some(LengthPercentageAuto::Length(value));
         return true;
     }
 
     if let Some(value) = parse_signed_spacing_scale_class(class, "mr-", "-mr-") {
-        style.margin_right = Some(value);
+        style.margin_right = Some(LengthPercentageAuto::Length(value));
         return true;
     }
 
     if let Some(value) = parse_signed_spacing_scale_class(class, "mb-", "-mb-") {
-        style.margin_bottom = Some(value);
+        style.margin_bottom = Some(LengthPercentageAuto::Length(value));
         return true;
     }
 
     if let Some(value) = parse_signed_spacing_scale_class(class, "ml-", "-ml-") {
-        style.margin_left = Some(value);
+        style.margin_left = Some(LengthPercentageAuto::Length(value));
         return true;
     }
 
     if let Some(value) = parse_signed_spacing_scale_class(class, "ms-", "-ms-") {
-        style.margin_left = Some(value);
+        style.margin_left = Some(LengthPercentageAuto::Length(value));
         return true;
     }
 
     if let Some(value) = parse_signed_spacing_scale_class(class, "me-", "-me-") {
-        style.margin_right = Some(value);
+        style.margin_right = Some(LengthPercentageAuto::Length(value));
         return true;
     }
 
     if let Some(value) = parse_signed_spacing_scale_class(class, "mbs-", "-mbs-") {
-        style.margin_top = Some(value);
+        style.margin_top = Some(LengthPercentageAuto::Length(value));
         return true;
     }
 
     if let Some(value) = parse_signed_spacing_scale_class(class, "mbe-", "-mbe-") {
-        style.margin_bottom = Some(value);
+        style.margin_bottom = Some(LengthPercentageAuto::Length(value));
         return true;
+    }
+
+    // margin-auto variants: mx-auto, ml-auto, etc.
+    match class {
+        "m-auto" => {
+            style.margin = Some(LengthPercentageAuto::Auto);
+            return true;
+        }
+        "mx-auto" => {
+            style.margin_x = Some(LengthPercentageAuto::Auto);
+            return true;
+        }
+        "my-auto" => {
+            style.margin_y = Some(LengthPercentageAuto::Auto);
+            return true;
+        }
+        "mt-auto" => {
+            style.margin_top = Some(LengthPercentageAuto::Auto);
+            return true;
+        }
+        "mr-auto" => {
+            style.margin_right = Some(LengthPercentageAuto::Auto);
+            return true;
+        }
+        "mb-auto" => {
+            style.margin_bottom = Some(LengthPercentageAuto::Auto);
+            return true;
+        }
+        "ml-auto" => {
+            style.margin_left = Some(LengthPercentageAuto::Auto);
+            return true;
+        }
+        "ms-auto" => {
+            style.margin_left = Some(LengthPercentageAuto::Auto);
+            return true;
+        }
+        "me-auto" => {
+            style.margin_right = Some(LengthPercentageAuto::Auto);
+            return true;
+        }
+        _ => {}
+    }
+
+    // grid-cols-N
+    if let Some(cols_str) = class.strip_prefix("grid-cols-") {
+        if let Ok(cols) = cols_str.parse::<u16>() {
+            style.is_grid = true;
+            style.grid_template_columns = Some(cols);
+            return true;
+        }
+    }
+
+    // grid-rows-N
+    if let Some(rows_str) = class.strip_prefix("grid-rows-") {
+        if let Ok(rows) = rows_str.parse::<u16>() {
+            style.is_grid = true;
+            style.grid_template_rows = Some(rows);
+            return true;
+        }
+    }
+
+    // col-start-N / -col-start-N
+    if let Some(value) = class.strip_prefix("col-start-") {
+        if let Ok(line) = value.parse::<i16>() {
+            style.col_start = Some(GridPlacement::Line(line));
+            return true;
+        }
+    }
+    if let Some(value) = class.strip_prefix("-col-start-") {
+        if let Ok(line) = value.parse::<i16>() {
+            style.col_start = Some(GridPlacement::Line(-line));
+            return true;
+        }
+    }
+
+    // col-end-N / -col-end-N
+    if let Some(value) = class.strip_prefix("col-end-") {
+        if let Ok(line) = value.parse::<i16>() {
+            style.col_end = Some(GridPlacement::Line(line));
+            return true;
+        }
+    }
+    if let Some(value) = class.strip_prefix("-col-end-") {
+        if let Ok(line) = value.parse::<i16>() {
+            style.col_end = Some(GridPlacement::Line(-line));
+            return true;
+        }
+    }
+
+    // row-start-N / -row-start-N
+    if let Some(value) = class.strip_prefix("row-start-") {
+        if let Ok(line) = value.parse::<i16>() {
+            style.row_start = Some(GridPlacement::Line(line));
+            return true;
+        }
+    }
+    if let Some(value) = class.strip_prefix("-row-start-") {
+        if let Ok(line) = value.parse::<i16>() {
+            style.row_start = Some(GridPlacement::Line(-line));
+            return true;
+        }
+    }
+
+    // row-end-N / -row-end-N
+    if let Some(value) = class.strip_prefix("row-end-") {
+        if let Ok(line) = value.parse::<i16>() {
+            style.row_end = Some(GridPlacement::Line(line));
+            return true;
+        }
+    }
+    if let Some(value) = class.strip_prefix("-row-end-") {
+        if let Ok(line) = value.parse::<i16>() {
+            style.row_end = Some(GridPlacement::Line(-line));
+            return true;
+        }
     }
 
     if parse_flex_shorthand_class(class, style) {
@@ -422,6 +547,7 @@ enum F32Target {
     Gap,
     Width,
     Height,
+    MaxWidth,
     InsetLeft,
     InsetTop,
     InsetRight,
@@ -463,6 +589,7 @@ enum ColorTarget {
 enum ExactClassAction {
     Position(Position),
     Flex,
+    Grid,
     FlexDirection(FlexDirection),
     FlexWrap(FlexWrap),
     JustifyContent(JustifyContent),
@@ -488,6 +615,13 @@ enum ExactClassAction {
     LetterSpacing(f32),
     TextTransform(TextTransform),
     BlurSigma(f32),
+    GridAutoFlow(GridAutoFlow),
+    ColStartAuto,
+    ColEndAuto,
+    RowStartAuto,
+    RowEndAuto,
+    GridColsNone,
+    GridRowsNone,
 }
 
 include!(concat!(env!("OUT_DIR"), "/tailwind_jsonl_rules.rs"));
@@ -655,6 +789,7 @@ fn apply_f32_target(style: &mut NodeStyle, target: F32Target, value: f32) {
             style.height = Some(value);
             style.height_full = false;
         }
+        F32Target::MaxWidth => style.max_width = Some(value),
         F32Target::InsetLeft => style.inset_left = Some(LengthPercentageAuto::length(value)),
         F32Target::InsetTop => style.inset_top = Some(LengthPercentageAuto::length(value)),
         F32Target::InsetRight => style.inset_right = Some(LengthPercentageAuto::length(value)),
@@ -667,13 +802,13 @@ fn apply_f32_target(style: &mut NodeStyle, target: F32Target, value: f32) {
         F32Target::PaddingRight => style.padding_right = Some(value),
         F32Target::PaddingBottom => style.padding_bottom = Some(value),
         F32Target::PaddingLeft => style.padding_left = Some(value),
-        F32Target::Margin => style.margin = Some(value),
-        F32Target::MarginX => style.margin_x = Some(value),
-        F32Target::MarginY => style.margin_y = Some(value),
-        F32Target::MarginTop => style.margin_top = Some(value),
-        F32Target::MarginRight => style.margin_right = Some(value),
-        F32Target::MarginBottom => style.margin_bottom = Some(value),
-        F32Target::MarginLeft => style.margin_left = Some(value),
+        F32Target::Margin => style.margin = Some(LengthPercentageAuto::Length(value)),
+        F32Target::MarginX => style.margin_x = Some(LengthPercentageAuto::Length(value)),
+        F32Target::MarginY => style.margin_y = Some(LengthPercentageAuto::Length(value)),
+        F32Target::MarginTop => style.margin_top = Some(LengthPercentageAuto::Length(value)),
+        F32Target::MarginRight => style.margin_right = Some(LengthPercentageAuto::Length(value)),
+        F32Target::MarginBottom => style.margin_bottom = Some(LengthPercentageAuto::Length(value)),
+        F32Target::MarginLeft => style.margin_left = Some(LengthPercentageAuto::Length(value)),
         F32Target::BorderRadius => style.border_radius = Some(value),
         F32Target::BorderWidth => style.border_width = Some(value),
         F32Target::OpacityClamped => style.opacity = Some(value.clamp(0.0, 1.0)),

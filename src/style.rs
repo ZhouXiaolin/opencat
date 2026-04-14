@@ -77,6 +77,34 @@ pub enum LengthPercentageAuto {
     Percent(f32),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum GridAutoFlow {
+    #[default]
+    Row,
+    Column,
+    RowDense,
+    ColumnDense,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum GridPlacement {
+    #[default]
+    Auto,
+    Line(i16),
+}
+
+impl std::hash::Hash for LengthPercentageAuto {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            LengthPercentageAuto::Auto => {}
+            LengthPercentageAuto::Length(v) | LengthPercentageAuto::Percent(v) => {
+                v.to_bits().hash(state);
+            }
+        }
+    }
+}
+
 impl LengthPercentageAuto {
     pub const fn auto() -> Self {
         Self::Auto
@@ -179,6 +207,7 @@ pub struct NodeStyle {
     // Size
     pub width: Option<f32>,
     pub height: Option<f32>,
+    pub max_width: Option<f32>,
     pub width_full: bool,
     pub height_full: bool,
 
@@ -190,19 +219,27 @@ pub struct NodeStyle {
     pub padding_right: Option<f32>,
     pub padding_bottom: Option<f32>,
     pub padding_left: Option<f32>,
-    pub margin: Option<f32>,
-    pub margin_x: Option<f32>,
-    pub margin_y: Option<f32>,
-    pub margin_top: Option<f32>,
-    pub margin_right: Option<f32>,
-    pub margin_bottom: Option<f32>,
-    pub margin_left: Option<f32>,
+    pub margin: Option<LengthPercentageAuto>,
+    pub margin_x: Option<LengthPercentageAuto>,
+    pub margin_y: Option<LengthPercentageAuto>,
+    pub margin_top: Option<LengthPercentageAuto>,
+    pub margin_right: Option<LengthPercentageAuto>,
+    pub margin_bottom: Option<LengthPercentageAuto>,
+    pub margin_left: Option<LengthPercentageAuto>,
 
     // Layout
     pub flex_direction: Option<FlexDirection>,
     pub justify_content: Option<JustifyContent>,
     pub align_items: Option<AlignItems>,
     pub is_flex: bool,
+    pub is_grid: bool,
+    pub grid_template_columns: Option<u16>,
+    pub grid_template_rows: Option<u16>,
+    pub grid_auto_flow: Option<GridAutoFlow>,
+    pub col_start: Option<GridPlacement>,
+    pub col_end: Option<GridPlacement>,
+    pub row_start: Option<GridPlacement>,
+    pub row_end: Option<GridPlacement>,
     pub auto_size: bool,
     pub gap: Option<f32>,
     pub flex_wrap: Option<FlexWrap>,
@@ -418,37 +455,72 @@ macro_rules! impl_node_style_api {
 
             // === Margin ===
             pub fn m(mut self, value: f32) -> Self {
-                self.style.margin = Some(value);
+                self.style.margin = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn mx(mut self, value: f32) -> Self {
-                self.style.margin_x = Some(value);
+                self.style.margin_x = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn my(mut self, value: f32) -> Self {
-                self.style.margin_y = Some(value);
+                self.style.margin_y = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn mt(mut self, value: f32) -> Self {
-                self.style.margin_top = Some(value);
+                self.style.margin_top = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn mb(mut self, value: f32) -> Self {
-                self.style.margin_bottom = Some(value);
+                self.style.margin_bottom = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn ml(mut self, value: f32) -> Self {
-                self.style.margin_left = Some(value);
+                self.style.margin_left = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn mr(mut self, value: f32) -> Self {
-                self.style.margin_right = Some(value);
+                self.style.margin_right = Some($crate::style::LengthPercentageAuto::Length(value));
+                self
+            }
+
+            pub fn mx_auto(mut self) -> Self {
+                self.style.margin_x = Some($crate::style::LengthPercentageAuto::Auto);
+                self
+            }
+
+            pub fn my_auto(mut self) -> Self {
+                self.style.margin_y = Some($crate::style::LengthPercentageAuto::Auto);
+                self
+            }
+
+            pub fn m_auto(mut self) -> Self {
+                self.style.margin = Some($crate::style::LengthPercentageAuto::Auto);
+                self
+            }
+
+            pub fn ml_auto(mut self) -> Self {
+                self.style.margin_left = Some($crate::style::LengthPercentageAuto::Auto);
+                self
+            }
+
+            pub fn mr_auto(mut self) -> Self {
+                self.style.margin_right = Some($crate::style::LengthPercentageAuto::Auto);
+                self
+            }
+
+            pub fn mt_auto(mut self) -> Self {
+                self.style.margin_top = Some($crate::style::LengthPercentageAuto::Auto);
+                self
+            }
+
+            pub fn mb_auto(mut self) -> Self {
+                self.style.margin_bottom = Some($crate::style::LengthPercentageAuto::Auto);
                 self
             }
 
@@ -479,9 +551,56 @@ macro_rules! impl_node_style_api {
                 self.flex_row()
             }
 
+            pub fn grid(mut self) -> Self {
+                self.style.is_grid = true;
+                self
+            }
+
+            pub fn grid_cols(mut self, cols: u16) -> Self {
+                self.style.is_grid = true;
+                self.style.grid_template_columns = Some(cols);
+                self
+            }
+
+            pub fn grid_rows(mut self, rows: u16) -> Self {
+                self.style.is_grid = true;
+                self.style.grid_template_rows = Some(rows);
+                self
+            }
+
+            pub fn grid_auto_flow(mut self, flow: $crate::style::GridAutoFlow) -> Self {
+                self.style.grid_auto_flow = Some(flow);
+                self
+            }
+
+            pub fn col_start(mut self, line: i16) -> Self {
+                self.style.col_start = Some($crate::style::GridPlacement::Line(line));
+                self
+            }
+
+            pub fn col_end(mut self, line: i16) -> Self {
+                self.style.col_end = Some($crate::style::GridPlacement::Line(line));
+                self
+            }
+
+            pub fn row_start(mut self, line: i16) -> Self {
+                self.style.row_start = Some($crate::style::GridPlacement::Line(line));
+                self
+            }
+
+            pub fn row_end(mut self, line: i16) -> Self {
+                self.style.row_end = Some($crate::style::GridPlacement::Line(line));
+                self
+            }
+
             pub fn w_full(mut self) -> Self {
                 self.style.width = None;
                 self.style.width_full = true;
+                self
+            }
+
+            pub fn max_w(mut self, value: f32) -> Self {
+                self.style.max_width = Some(value);
                 self
             }
 

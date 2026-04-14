@@ -9,6 +9,7 @@ use crate::{
             ElementNode, ElementText,
         },
     },
+    style::LengthPercentageAuto,
     frame_ctx::ScriptFrameCtx,
     resource::{
         assets::{AssetId, AssetsMap},
@@ -447,6 +448,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             inset_bottom: style.inset_bottom,
             width: style.width,
             height: style.height,
+            max_width: style.max_width,
             width_full: style.width_full,
             height_full: style.height_full,
             padding_top: style
@@ -473,23 +475,31 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
                 .margin_top
                 .or(style.margin_y)
                 .or(style.margin)
-                .unwrap_or(0.0),
+                .unwrap_or(LengthPercentageAuto::Length(0.0)),
             margin_right: style
                 .margin_right
                 .or(style.margin_x)
                 .or(style.margin)
-                .unwrap_or(0.0),
+                .unwrap_or(LengthPercentageAuto::Length(0.0)),
             margin_bottom: style
                 .margin_bottom
                 .or(style.margin_y)
                 .or(style.margin)
-                .unwrap_or(0.0),
+                .unwrap_or(LengthPercentageAuto::Length(0.0)),
             margin_left: style
                 .margin_left
                 .or(style.margin_x)
                 .or(style.margin)
-                .unwrap_or(0.0),
+                .unwrap_or(LengthPercentageAuto::Length(0.0)),
             is_flex: style.is_flex,
+            is_grid: style.is_grid,
+            grid_template_columns: style.grid_template_columns,
+            grid_template_rows: style.grid_template_rows,
+            grid_auto_flow: style.grid_auto_flow,
+            col_start: style.col_start,
+            col_end: style.col_end,
+            row_start: style.row_start,
+            row_end: style.row_end,
             auto_size: style.auto_size,
             flex_direction: style.flex_direction.unwrap_or_default(),
             justify_content: style.justify_content.unwrap_or_default(),

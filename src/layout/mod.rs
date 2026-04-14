@@ -8,6 +8,7 @@ use taffy::{
     AvailableSpace, TaffyTree,
     prelude::{
         AlignContent as TaffyAlignContent, Dimension, JustifyContent as TaffyJustifyContent, Style,
+        TaffyGridLine,
     },
 };
 
@@ -433,10 +434,10 @@ fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: 
     hash_f32(style.padding_right, state);
     hash_f32(style.padding_bottom, state);
     hash_f32(style.padding_left, state);
-    hash_f32(style.margin_top, state);
-    hash_f32(style.margin_right, state);
-    hash_f32(style.margin_bottom, state);
-    hash_f32(style.margin_left, state);
+    style.margin_top.hash(state);
+    style.margin_right.hash(state);
+    style.margin_bottom.hash(state);
+    style.margin_left.hash(state);
     style.flex_direction.hash(state);
     style.flex_wrap.hash(state);
     style.justify_content.hash(state);
@@ -447,6 +448,14 @@ fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: 
     hash_option_length_percentage_auto(style.flex_basis, state);
     hash_f32(style.flex_grow, state);
     hash_option_f32(style.flex_shrink, state);
+    style.is_grid.hash(state);
+    style.grid_template_columns.hash(state);
+    style.grid_template_rows.hash(state);
+    style.grid_auto_flow.hash(state);
+    style.col_start.hash(state);
+    style.col_end.hash(state);
+    style.row_start.hash(state);
+    style.row_end.hash(state);
     style.z_index.hash(state);
 }
 
@@ -568,10 +577,72 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
     let layout = &element.style.layout;
     match &element.kind {
         ElementKind::Div(_) => Style {
-            display: if layout.is_flex {
+            display: if layout.is_grid {
+                taffy::prelude::Display::Grid
+            } else if layout.is_flex {
                 taffy::prelude::Display::Flex
             } else {
                 taffy::prelude::Display::Block
+            },
+            grid_template_columns: layout.grid_template_columns.map_or_else(
+                Vec::new,
+                |cols| {
+                    (0..cols)
+                        .map(|_| {
+                            taffy::style::GridTemplateComponent::Single(
+                                taffy::style_helpers::fr(1.0),
+                            )
+                        })
+                        .collect()
+                },
+            ),
+            grid_template_rows: layout.grid_template_rows.map_or_else(
+                Vec::new,
+                |rows| {
+                    (0..rows)
+                        .map(|_| {
+                            taffy::style::GridTemplateComponent::Single(
+                                taffy::style_helpers::fr(1.0),
+                            )
+                        })
+                        .collect()
+                },
+            ),
+            grid_auto_flow: layout.grid_auto_flow.map_or_else(
+                taffy::style::GridAutoFlow::default,
+                |flow| match flow {
+                    crate::style::GridAutoFlow::Row => taffy::style::GridAutoFlow::Row,
+                    crate::style::GridAutoFlow::Column => taffy::style::GridAutoFlow::Column,
+                    crate::style::GridAutoFlow::RowDense => taffy::style::GridAutoFlow::RowDense,
+                    crate::style::GridAutoFlow::ColumnDense => taffy::style::GridAutoFlow::ColumnDense,
+                },
+            ),
+            grid_column: taffy::geometry::Line {
+                start: layout.col_start.map_or_else(
+                    taffy::style::GridPlacement::default,
+                    |p| resolve_grid_placement(p),
+                ),
+                end: layout.col_end.map_or_else(
+                    taffy::style::GridPlacement::default,
+                    |p| resolve_grid_placement(p),
+                ),
+            },
+            grid_row: taffy::geometry::Line {
+                start: layout.row_start.map_or_else(
+                    taffy::style::GridPlacement::default,
+                    |p| resolve_grid_placement(p),
+                ),
+                end: layout.row_end.map_or_else(
+                    taffy::style::GridPlacement::default,
+                    |p| resolve_grid_placement(p),
+                ),
+            },
+            max_size: taffy::geometry::Size {
+                width: layout
+                    .max_width
+                    .map(Dimension::length)
+                    .unwrap_or(Dimension::auto()),
+                height: Dimension::auto(),
             },
             size: match layout.position {
                 Position::Absolute => taffy::geometry::Size {
@@ -682,6 +753,15 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
     }
 }
 
+fn resolve_grid_placement(placement: crate::style::GridPlacement) -> taffy::style::GridPlacement {
+    match placement {
+        crate::style::GridPlacement::Auto => taffy::style::GridPlacement::Auto,
+        crate::style::GridPlacement::Line(index) => {
+            taffy::style::GridPlacement::from_line_index(index)
+        }
+    }
+}
+
 fn build_layout_tree(
     element: &ElementNode,
     taffy: &TaffyTree<TextMeasureContext>,
@@ -717,10 +797,10 @@ fn base_style(layout: &ComputedLayoutStyle) -> Style {
             bottom: resolve_length_percentage_auto(layout.inset_bottom),
         },
         margin: taffy::geometry::Rect {
-            left: taffy::style::LengthPercentageAuto::length(layout.margin_left),
-            top: taffy::style::LengthPercentageAuto::length(layout.margin_top),
-            right: taffy::style::LengthPercentageAuto::length(layout.margin_right),
-            bottom: taffy::style::LengthPercentageAuto::length(layout.margin_bottom),
+            left: resolve_length_percentage_auto(Some(layout.margin_left)),
+            top: resolve_length_percentage_auto(Some(layout.margin_top)),
+            right: resolve_length_percentage_auto(Some(layout.margin_right)),
+            bottom: resolve_length_percentage_auto(Some(layout.margin_bottom)),
         },
         flex_basis: layout
             .flex_basis

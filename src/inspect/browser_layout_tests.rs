@@ -127,19 +127,25 @@ impl BrowserTestEnv {
         let chromedriver_bin = find_executable(
             "CHROMEDRIVER_BIN",
             &[
-                "chromedriver",
                 "/opt/homebrew/bin/chromedriver",
                 "/usr/local/bin/chromedriver",
+                "/usr/bin/chromium-driver",
+                "chromedriver",
             ],
         );
         let chrome_bin = find_executable(
             "CHROME_BIN",
             &[
+                "/usr/bin/google-chrome",
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/chromium",
+                "/usr/bin/chromium-browser",
+                "/snap/bin/chromium",
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                "/Applications/Chromium.app/Contents/MacOS/Chromium",
                 "google-chrome",
                 "chromium",
                 "chromium-browser",
-                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                "/Applications/Chromium.app/Contents/MacOS/Chromium",
             ],
         )
         .or_else(|| find_executable("GOOGLE_CHROME_BIN", &[]));
@@ -1037,6 +1043,52 @@ const GENERATED_LAYOUT_GROUP_SPECS: &[LayoutGroupSpec] = &[
         normalize: normalize_justify_self_candidate,
         build_fixture: build_justify_self_fixture,
     },
+    // ── Grid ────────────────────────────────────────────────────────
+    LayoutGroupSpec {
+        test_name: "grid-cols",
+        normalize: normalize_grid_cols_candidate,
+        build_fixture: build_grid_cols_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "grid-rows",
+        normalize: normalize_grid_rows_candidate,
+        build_fixture: build_grid_rows_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "grid-flow",
+        normalize: normalize_grid_flow_candidate,
+        build_fixture: build_grid_flow_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "auto-cols",
+        normalize: normalize_auto_sizing_candidate,
+        build_fixture: build_auto_cols_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "auto-rows",
+        normalize: normalize_auto_sizing_candidate,
+        build_fixture: build_auto_rows_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "col-start",
+        normalize: normalize_grid_placement_candidate,
+        build_fixture: build_col_start_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "col-end",
+        normalize: normalize_grid_placement_candidate,
+        build_fixture: build_col_end_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "row-start",
+        normalize: normalize_grid_placement_candidate,
+        build_fixture: build_row_start_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "row-end",
+        normalize: normalize_grid_placement_candidate,
+        build_fixture: build_row_end_fixture,
+    },
 ];
 
 fn generated_layout_coverage_fixtures() -> Result<Vec<LayoutFixture>> {
@@ -1413,6 +1465,60 @@ fn normalize_justify_self_candidate(class_name: &str) -> Option<String> {
     }
 }
 
+// ── Grid normalize functions ─────────────────────────────────────────────
+
+fn normalize_grid_cols_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "grid-cols-12" | "grid-cols-99" => Some(class_name.to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_grid_rows_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "grid-rows-12" | "grid-rows-99" => Some(class_name.to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_grid_flow_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "grid-flow-row" | "grid-flow-col" | "grid-flow-dense" | "grid-flow-row-dense"
+        | "grid-flow-col-dense" => Some(class_name.to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_auto_sizing_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "auto-cols-auto" | "auto-cols-min" | "auto-cols-max" | "auto-cols-fr"
+        | "auto-rows-auto" | "auto-rows-min" | "auto-rows-max" | "auto-rows-fr" => {
+            Some(class_name.to_string())
+        }
+        _ => None,
+    }
+}
+
+fn normalize_grid_placement_candidate(class_name: &str) -> Option<String> {
+    if class_name.contains('/') || class_name.contains("unknown") || class_name.contains("custom") {
+        return None;
+    }
+    // col-start-4, col-start-99, -col-start-4, col-start-auto, col-start-[123]
+    if class_name.starts_with("col-start-") || class_name.starts_with("-col-start-") {
+        return Some(class_name.to_string());
+    }
+    if class_name.starts_with("col-end-") || class_name.starts_with("-col-end-") {
+        return Some(class_name.to_string());
+    }
+    if class_name.starts_with("row-start-") || class_name.starts_with("-row-start-") {
+        return Some(class_name.to_string());
+    }
+    if class_name.starts_with("row-end-") || class_name.starts_with("-row-end-") {
+        return Some(class_name.to_string());
+    }
+    None
+}
+
 fn normalize_width_candidate(class_name: &str) -> Option<String> {
     match class_name {
         "w-full" => Some(class_name.to_string()),
@@ -1476,7 +1582,14 @@ fn normalize_padding_candidate(class_name: &str) -> Option<String> {
 }
 
 fn normalize_margin_candidate(class_name: &str) -> Option<String> {
-    if class_name.ends_with("auto") || class_name.contains("big") || class_name.contains("var(") {
+    // Allow margin-auto variants (mx-auto, ml-auto, etc.)
+    if matches!(
+        class_name,
+        "mx-auto" | "my-auto" | "ml-auto" | "mr-auto" | "mt-auto" | "mb-auto" | "m-auto"
+    ) {
+        return Some(class_name.to_string());
+    }
+    if class_name.contains("big") || class_name.contains("var(") {
         return None;
     }
     if is_numeric_spacing_or_bracket(
@@ -2243,6 +2356,204 @@ fn build_justify_self_fixture(class_name: &str) -> Option<LayoutFixture> {
     })
 }
 
+// ── Grid build_fixture functions ──────────────────────────────────────────
+
+fn build_grid_cols_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("grid-cols", class_name),
+        viewport_width: 320,
+        viewport_height: 160,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            leak_str(format!("grid {class_name} w-[280px] h-[120px] gap-[8px] p-[8px]")),
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-b", "w-[40px] h-[32px]", vec![]),
+                FixtureNode::div("item-c", "w-[40px] h-[20px]", vec![]),
+                FixtureNode::div("item-d", "w-[40px] h-[28px]", vec![]),
+                FixtureNode::div("item-e", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-f", "w-[40px] h-[20px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_grid_rows_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("grid-rows", class_name),
+        viewport_width: 320,
+        viewport_height: 220,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            leak_str(format!(
+                "grid grid-cols-2 {class_name} w-[280px] h-[180px] gap-[8px] p-[8px]"
+            )),
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-b", "w-[40px] h-[32px]", vec![]),
+                FixtureNode::div("item-c", "w-[40px] h-[20px]", vec![]),
+                FixtureNode::div("item-d", "w-[40px] h-[28px]", vec![]),
+                FixtureNode::div("item-e", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-f", "w-[40px] h-[20px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_grid_flow_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("grid-flow", class_name),
+        viewport_width: 320,
+        viewport_height: 180,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            leak_str(format!(
+                "grid grid-cols-3 {class_name} w-[280px] h-[140px] gap-[8px] p-[8px]"
+            )),
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-b", "w-[40px] h-[32px]", vec![]),
+                FixtureNode::div("item-c", "w-[40px] h-[20px]", vec![]),
+                FixtureNode::div("item-d", "w-[40px] h-[28px]", vec![]),
+                FixtureNode::div("item-e", "w-[40px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_auto_cols_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("auto-cols", class_name),
+        viewport_width: 320,
+        viewport_height: 160,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            leak_str(format!("grid {class_name} w-[280px] h-[120px] gap-[8px] p-[8px]")),
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-b", "w-[40px] h-[32px]", vec![]),
+                FixtureNode::div("item-c", "w-[40px] h-[20px]", vec![]),
+                FixtureNode::div("item-d", "w-[40px] h-[28px]", vec![]),
+                FixtureNode::div("item-e", "w-[40px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_auto_rows_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("auto-rows", class_name),
+        viewport_width: 320,
+        viewport_height: 180,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            leak_str(format!(
+                "grid grid-cols-3 {class_name} w-[280px] h-[140px] gap-[8px] p-[8px]"
+            )),
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-b", "w-[40px] h-[32px]", vec![]),
+                FixtureNode::div("item-c", "w-[40px] h-[20px]", vec![]),
+                FixtureNode::div("item-d", "w-[40px] h-[28px]", vec![]),
+                FixtureNode::div("item-e", "w-[40px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_col_start_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("col-start", class_name),
+        viewport_width: 320,
+        viewport_height: 140,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "grid grid-cols-3 w-[280px] h-[100px] gap-[8px] p-[8px]",
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div(
+                    "target",
+                    leak_str(format!("{class_name} w-[40px] h-[24px]")),
+                    vec![],
+                ),
+                FixtureNode::div("item-c", "w-[40px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_col_end_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("col-end", class_name),
+        viewport_width: 320,
+        viewport_height: 140,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "grid grid-cols-3 w-[280px] h-[100px] gap-[8px] p-[8px]",
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div(
+                    "target",
+                    leak_str(format!("{class_name} w-[40px] h-[24px]")),
+                    vec![],
+                ),
+                FixtureNode::div("item-c", "w-[40px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_row_start_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("row-start", class_name),
+        viewport_width: 320,
+        viewport_height: 200,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "grid grid-cols-3 grid-rows-3 w-[280px] h-[160px] gap-[8px] p-[8px]",
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div(
+                    "target",
+                    leak_str(format!("{class_name} w-[40px] h-[24px]")),
+                    vec![],
+                ),
+                FixtureNode::div("item-c", "w-[40px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_row_end_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("row-end", class_name),
+        viewport_width: 320,
+        viewport_height: 200,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "grid grid-cols-3 grid-rows-3 w-[280px] h-[160px] gap-[8px] p-[8px]",
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div(
+                    "target",
+                    leak_str(format!("{class_name} w-[40px] h-[24px]")),
+                    vec![],
+                ),
+                FixtureNode::div("item-c", "w-[40px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
 fn browser_layout_fixtures() -> Vec<LayoutFixture> {
     vec![
         LayoutFixture {
@@ -2275,9 +2586,9 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                 ],
             ),
         },
-        LayoutFixture {
-        LayoutFixture {
-            name: "shrink-arbitrary-constrained-row",
+        // ── shrink arbitrary constrained row ───────────────────────────
+    LayoutFixture {
+        name: "shrink-arbitrary-constrained-row",
             viewport_width: 300,
             viewport_height: 140,
             tolerance_px: 1.0,
@@ -2292,9 +2603,9 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                 ],
             ),
         },
-        LayoutFixture {
-        LayoutFixture {
-            name: "absolute-inset-zero-overlay",
+        // ── absolute inset zero overlay ────────────────────────────────
+    LayoutFixture {
+        name: "absolute-inset-zero-overlay",
             viewport_width: 280,
             viewport_height: 160,
             tolerance_px: 1.0,
@@ -2307,9 +2618,9 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                 ],
             ),
         },
-        LayoutFixture {
-        LayoutFixture {
-            name: "inset-scale-overlay-bands",
+        // ── inset scale overlay bands ──────────────────────────────────
+    LayoutFixture {
+        name: "inset-scale-overlay-bands",
             viewport_width: 320,
             viewport_height: 200,
             tolerance_px: 1.0,
@@ -2323,9 +2634,9 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                 ],
             ),
         },
-        LayoutFixture {
-        LayoutFixture {
-            name: "text-size-stack",
+        // ── text size stack ────────────────────────────────────────────
+    LayoutFixture {
+        name: "text-size-stack",
             viewport_width: 320,
             viewport_height: 220,
             tolerance_px: 8.0,
@@ -2340,9 +2651,9 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                 ],
             ),
         },
-        LayoutFixture {
-        LayoutFixture {
-            name: "fixed-width-multisize-copy",
+        // ── fixed width multisize copy ──────────────────────────────────
+    LayoutFixture {
+        name: "fixed-width-multisize-copy",
             viewport_width: 320,
             viewport_height: 240,
             tolerance_px: 8.0,
@@ -2371,9 +2682,9 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                 )],
             ),
         },
-        LayoutFixture {
-        LayoutFixture {
-            name: "items-start-column",
+        // ── items start column ─────────────────────────────────────────
+    LayoutFixture {
+        name: "items-start-column",
             viewport_width: 240,
             viewport_height: 220,
             tolerance_px: 1.0,
@@ -2387,7 +2698,7 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                 ],
             ),
         },
-        LayoutFixture {
+        // ── equal grow three columns ────────────────────────────────────
         LayoutFixture {
             name: "equal-grow-three-columns",
             viewport_width: 360,
@@ -2403,7 +2714,6 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
                 ],
             ),
         },
-        LayoutFixture {
         LayoutFixture {
             name: "flex-col-stretch-implicit-width",
             viewport_width: 320,

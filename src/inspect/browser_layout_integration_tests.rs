@@ -29,7 +29,7 @@ use super::browser_layout_tests::{FixtureNode, LayoutFixture};
 // Integration fixture definitions
 // ---------------------------------------------------------------------------
 
-fn browser_layout_integration_fixtures() -> Vec<LayoutFixture> {
+pub(crate) fn browser_layout_integration_fixtures() -> Vec<LayoutFixture> {
     vec![
         // ── Block flow ───────────────────────────────────────────────────
         LayoutFixture {

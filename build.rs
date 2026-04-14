@@ -440,6 +440,7 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("relative", "ExactClassAction::Position(Position::Relative)"),
         ("absolute", "ExactClassAction::Position(Position::Absolute)"),
         ("flex", "ExactClassAction::Flex"),
+        ("grid", "ExactClassAction::Grid"),
         (
             "flex-row",
             "ExactClassAction::FlexDirection(FlexDirection::Row)",
@@ -782,6 +783,37 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("blur-xl", "ExactClassAction::BlurSigma(24.0)"),
         ("blur-2xl", "ExactClassAction::BlurSigma(40.0)"),
         ("blur-3xl", "ExactClassAction::BlurSigma(64.0)"),
+        // Grid auto flow
+        ("grid-flow-row", "ExactClassAction::GridAutoFlow(GridAutoFlow::Row)"),
+        ("grid-flow-col", "ExactClassAction::GridAutoFlow(GridAutoFlow::Column)"),
+        ("grid-flow-dense", "ExactClassAction::GridAutoFlow(GridAutoFlow::RowDense)"),
+        (
+            "grid-flow-row-dense",
+            "ExactClassAction::GridAutoFlow(GridAutoFlow::RowDense)",
+        ),
+        (
+            "grid-flow-col-dense",
+            "ExactClassAction::GridAutoFlow(GridAutoFlow::ColumnDense)",
+        ),
+        // Grid placement auto
+        ("col-start-auto", "ExactClassAction::ColStartAuto"),
+        ("col-end-auto", "ExactClassAction::ColEndAuto"),
+        ("row-start-auto", "ExactClassAction::RowStartAuto"),
+        ("row-end-auto", "ExactClassAction::RowEndAuto"),
+        // Grid template none/subgrid (treated as no-op for now)
+        ("grid-cols-none", "ExactClassAction::Noop"),
+        ("grid-cols-subgrid", "ExactClassAction::Noop"),
+        ("grid-rows-none", "ExactClassAction::Noop"),
+        ("grid-rows-subgrid", "ExactClassAction::Noop"),
+        // Auto sizing
+        ("auto-cols-auto", "ExactClassAction::Noop"),
+        ("auto-cols-min", "ExactClassAction::Noop"),
+        ("auto-cols-max", "ExactClassAction::Noop"),
+        ("auto-cols-fr", "ExactClassAction::Noop"),
+        ("auto-rows-auto", "ExactClassAction::Noop"),
+        ("auto-rows-min", "ExactClassAction::Noop"),
+        ("auto-rows-max", "ExactClassAction::Noop"),
+        ("auto-rows-fr", "ExactClassAction::Noop"),
     ];
 
     const BRACKET_F32_RULE_SPECS: &[(&str, &str)] = &[
@@ -813,6 +845,7 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("mr-[", "MarginRight"),
         ("mb-[", "MarginBottom"),
         ("ml-[", "MarginLeft"),
+        ("max-w-[", "MaxWidth"),
     ];
     const SIGNED_BRACKET_F32_RULE_SPECS: &[(&str, &str, &str)] = &[
         ("left-[", "-left-[", "InsetLeft"),
@@ -842,6 +875,7 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("mr-", "MarginRight"),
         ("mb-", "MarginBottom"),
         ("ml-", "MarginLeft"),
+        ("max-w-", "MaxWidth"),
     ];
     const COLOR_PREFIX_RULE_SPECS: &[(&str, &str)] = &[
         ("bg-", "Bg"),

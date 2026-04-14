@@ -773,8 +773,8 @@ mod tests {
         assert_eq!(style.bg_gradient_from, Some(ColorToken::Orange500));
         assert_eq!(style.bg_gradient_to, Some(ColorToken::Amber500));
         assert!(style.overflow_hidden);
-        assert_eq!(style.margin_top, Some(4.0));
-        assert_eq!(style.margin_bottom, Some(16.0));
+        assert_eq!(style.margin_top, Some(LengthPercentageAuto::Length(4.0)));
+        assert_eq!(style.margin_bottom, Some(LengthPercentageAuto::Length(16.0)));
         assert_eq!(style.padding_bottom, Some(20.0));
     }
 
@@ -1042,23 +1042,85 @@ mod tests {
 
     #[test]
     fn parser_supports_margin_scales_brackets_and_negative_values() {
+        use crate::style::LengthPercentageAuto as LPA;
         let style = parse_class_name("m-2.5 -mx-4 mt-[6px] -mb-[8px] mr-99");
 
-        assert_eq!(style.margin, Some(10.0));
-        assert_eq!(style.margin_x, Some(-16.0));
-        assert_eq!(style.margin_top, Some(6.0));
-        assert_eq!(style.margin_bottom, Some(-8.0));
-        assert_eq!(style.margin_right, Some(396.0));
+        assert_eq!(style.margin, Some(LPA::Length(10.0)));
+        assert_eq!(style.margin_x, Some(LPA::Length(-16.0)));
+        assert_eq!(style.margin_top, Some(LPA::Length(6.0)));
+        assert_eq!(style.margin_bottom, Some(LPA::Length(-8.0)));
+        assert_eq!(style.margin_right, Some(LPA::Length(396.0)));
     }
 
     #[test]
     fn parser_maps_logical_margin_aliases_to_physical_edges() {
+        use crate::style::LengthPercentageAuto as LPA;
         let style = parse_class_name("ms-3 me-[10px] -mbs-2 mbe-1 -ml-[12px]");
 
-        assert_eq!(style.margin_left, Some(-12.0));
-        assert_eq!(style.margin_right, Some(10.0));
-        assert_eq!(style.margin_top, Some(-8.0));
-        assert_eq!(style.margin_bottom, Some(4.0));
+        assert_eq!(style.margin_left, Some(LPA::Length(-12.0)));
+        assert_eq!(style.margin_right, Some(LPA::Length(10.0)));
+        assert_eq!(style.margin_top, Some(LPA::Length(-8.0)));
+        assert_eq!(style.margin_bottom, Some(LPA::Length(4.0)));
+    }
+
+    #[test]
+    fn parser_supports_grid_display_and_columns() {
+        let style = parse_class_name("grid");
+        assert!(style.is_grid);
+        assert_eq!(style.grid_template_columns, None);
+
+        let style = parse_class_name("grid grid-cols-2");
+        assert!(style.is_grid);
+        assert_eq!(style.grid_template_columns, Some(2));
+
+        let style = parse_class_name("grid grid-cols-4");
+        assert!(style.is_grid);
+        assert_eq!(style.grid_template_columns, Some(4));
+    }
+
+    #[test]
+    fn parser_supports_max_width_bracket_and_scale() {
+        let style = parse_class_name("max-w-[280px]");
+        assert_eq!(style.max_width, Some(280.0));
+
+        let style = parse_class_name("max-w-[120px]");
+        assert_eq!(style.max_width, Some(120.0));
+
+        // spacing scale: max-w-20 → 20 * 4 = 80
+        let style = parse_class_name("max-w-20");
+        assert_eq!(style.max_width, Some(80.0));
+    }
+
+    #[test]
+    fn parser_supports_margin_auto_variants() {
+        use crate::style::LengthPercentageAuto as LPA;
+
+        let style = parse_class_name("mx-auto");
+        assert_eq!(style.margin_x, Some(LPA::Auto));
+
+        let style = parse_class_name("ml-auto");
+        assert_eq!(style.margin_left, Some(LPA::Auto));
+
+        let style = parse_class_name("mr-auto");
+        assert_eq!(style.margin_right, Some(LPA::Auto));
+
+        let style = parse_class_name("mt-auto");
+        assert_eq!(style.margin_top, Some(LPA::Auto));
+
+        let style = parse_class_name("mb-auto");
+        assert_eq!(style.margin_bottom, Some(LPA::Auto));
+
+        let style = parse_class_name("m-auto");
+        assert_eq!(style.margin, Some(LPA::Auto));
+
+        let style = parse_class_name("my-auto");
+        assert_eq!(style.margin_y, Some(LPA::Auto));
+
+        let style = parse_class_name("ms-auto");
+        assert_eq!(style.margin_left, Some(LPA::Auto));
+
+        let style = parse_class_name("me-auto");
+        assert_eq!(style.margin_right, Some(LPA::Auto));
     }
 
     #[test]

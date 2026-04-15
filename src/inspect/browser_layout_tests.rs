@@ -1160,6 +1160,16 @@ const GENERATED_LAYOUT_GROUP_SPECS: &[LayoutGroupSpec] = &[
         build_fixture: build_auto_rows_fixture,
     },
     LayoutGroupSpec {
+        test_name: "col",
+        normalize: normalize_grid_shorthand_candidate,
+        build_fixture: build_col_fixture,
+    },
+    LayoutGroupSpec {
+        test_name: "row",
+        normalize: normalize_grid_shorthand_candidate,
+        build_fixture: build_row_fixture,
+    },
+    LayoutGroupSpec {
         test_name: "col-start",
         normalize: normalize_grid_placement_candidate,
         build_fixture: build_col_start_fixture,
@@ -1607,6 +1617,20 @@ fn normalize_grid_placement_candidate(class_name: &str) -> Option<String> {
         return Some(class_name.to_string());
     }
     None
+}
+
+fn normalize_grid_shorthand_candidate(class_name: &str) -> Option<String> {
+    match class_name {
+        "col-auto"
+        | "col-span-4"
+        | "col-span-full"
+        | "col-[span_123/span_123]"
+        | "row-auto"
+        | "row-span-4"
+        | "row-span-full"
+        | "row-[span_123/span_123]" => Some(class_name.to_string()),
+        _ => None,
+    }
 }
 
 fn normalize_width_candidate(class_name: &str) -> Option<String> {
@@ -2578,6 +2602,29 @@ fn build_col_start_fixture(class_name: &str) -> Option<LayoutFixture> {
     })
 }
 
+fn build_col_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("col", class_name),
+        viewport_width: 360,
+        viewport_height: 180,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "grid grid-cols-4 grid-rows-3 w-[320px] h-[140px] gap-[8px] p-[8px]",
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div(
+                    "target",
+                    leak_str(format!("{class_name} h-[24px]")),
+                    vec![],
+                ),
+                FixtureNode::div("item-c", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-d", "w-[40px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
 fn build_col_end_fixture(class_name: &str) -> Option<LayoutFixture> {
     Some(LayoutFixture {
         name: generated_fixture_name("col-end", class_name),
@@ -2595,6 +2642,29 @@ fn build_col_end_fixture(class_name: &str) -> Option<LayoutFixture> {
                     vec![],
                 ),
                 FixtureNode::div("item-c", "w-[40px] h-[24px]", vec![]),
+            ],
+        ),
+    })
+}
+
+fn build_row_fixture(class_name: &str) -> Option<LayoutFixture> {
+    Some(LayoutFixture {
+        name: generated_fixture_name("row", class_name),
+        viewport_width: 360,
+        viewport_height: 260,
+        tolerance_px: 1.0,
+        root: FixtureNode::div(
+            "root",
+            "grid grid-cols-3 grid-rows-4 w-[280px] h-[220px] gap-[8px] p-[8px]",
+            vec![
+                FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div(
+                    "target",
+                    leak_str(format!("{class_name} w-[40px]")),
+                    vec![],
+                ),
+                FixtureNode::div("item-c", "w-[40px] h-[24px]", vec![]),
+                FixtureNode::div("item-d", "w-[40px] h-[24px]", vec![]),
             ],
         ),
     })

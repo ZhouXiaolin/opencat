@@ -99,6 +99,7 @@ pub enum GridPlacement {
     #[default]
     Auto,
     Line(i16),
+    Span(u16),
 }
 
 impl std::hash::Hash for LengthPercentageAuto {

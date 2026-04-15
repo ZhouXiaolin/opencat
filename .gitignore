@@ -2,3 +2,5 @@
 out/
 .DS_Store
 .serena
+.qwen
+codedb.snapshot

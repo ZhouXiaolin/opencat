@@ -7,15 +7,16 @@ use anyhow::Result;
 use taffy::{
     AvailableSpace, TaffyTree,
     prelude::{
-        AlignContent as TaffyAlignContent, Dimension, JustifyContent as TaffyJustifyContent, Style,
-        TaffyGridLine,
+        AlignContent as TaffyAlignContent, Dimension, FromFr,
+        JustifyContent as TaffyJustifyContent, Style, TaffyAuto, TaffyGridLine,
     },
+    style::TrackSizingFunction,
+    style_helpers::{flex, span},
 };
 
 use crate::{
     FrameCtx,
     element::{
-        style::ComputedLayoutStyle,
         tree::{ElementKind, ElementNode},
     },
     layout::tree::{LayoutNode, LayoutRect, LayoutTree},
@@ -239,7 +240,7 @@ fn build_taffy_subtree(
     let mut children = Vec::new();
     let mut child_ids = Vec::new();
 
-    for (index, child) in element.children.iter().enumerate() {
+    for (index, child) in ordered_children(element) {
         let (child_id, child_cache) = build_taffy_subtree(taffy, child, index)?;
         child_ids.push(child_id);
         children.push(child_cache);
@@ -264,6 +265,14 @@ fn build_taffy_subtree(
             children,
         },
     ))
+}
+
+fn ordered_children(element: &ElementNode) -> Vec<(usize, &ElementNode)> {
+    let mut children = element.children.iter().enumerate().collect::<Vec<_>>();
+    if element.style.layout.is_flex || element.style.layout.is_grid {
+        children.sort_by_key(|(index, child)| (child.style.layout.order, *index));
+    }
+    children
 }
 
 fn update_cached_subtree(
@@ -303,11 +312,9 @@ fn update_cached_subtree(
         }
     }
 
-    for (index, (child, cached_child)) in element
-        .children
-        .iter()
+    for ((index, child), cached_child) in ordered_children(element)
+        .into_iter()
         .zip(cached.children.iter_mut())
-        .enumerate()
     {
         update_cached_subtree(child, cached_child, index, taffy, stats)?;
     }
@@ -331,7 +338,7 @@ fn same_structure(cached: &CachedLayoutNode, element: &ElementNode, sibling_inde
     cached
         .children
         .iter()
-        .zip(element.children.iter())
+        .zip(ordered_children(element).into_iter().map(|(_, child)| child))
         .enumerate()
         .all(|(index, (cached_child, child))| same_structure(cached_child, child, index))
 }
@@ -361,6 +368,7 @@ fn node_identity(element: &ElementNode, sibling_index: usize) -> u64 {
 fn layout_affect_hash(element: &ElementNode) -> u64 {
     let mut hasher = DefaultHasher::new();
     hash_layout_style(&element.style.layout, &mut hasher);
+    hash_option_f32(element.style.visual.border_width, &mut hasher);
 
     match &element.kind {
         ElementKind::Div(_) => {}
@@ -430,6 +438,7 @@ fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: 
     hash_option_f32(style.height, state);
     style.width_full.hash(state);
     style.height_full.hash(state);
+    style.min_height.hash(state);
     hash_f32(style.padding_top, state);
     hash_f32(style.padding_right, state);
     hash_f32(style.padding_bottom, state);
@@ -444,7 +453,13 @@ fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: 
     style.align_items.hash(state);
     style.align_content.hash(state);
     style.align_self.hash(state);
+    style.justify_items.hash(state);
+    style.justify_self.hash(state);
     hash_f32(style.gap, state);
+    hash_option_f32(style.gap_x, state);
+    hash_option_f32(style.gap_y, state);
+    style.order.hash(state);
+    hash_option_f32(style.aspect_ratio, state);
     hash_option_length_percentage_auto(style.flex_basis, state);
     hash_f32(style.flex_grow, state);
     hash_option_f32(style.flex_shrink, state);
@@ -452,6 +467,7 @@ fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: 
     style.grid_template_columns.hash(state);
     style.grid_template_rows.hash(state);
     style.grid_auto_flow.hash(state);
+    style.grid_auto_rows.hash(state);
     style.col_start.hash(state);
     style.col_end.hash(state);
     style.row_start.hash(state);
@@ -589,9 +605,7 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                 |cols| {
                     (0..cols)
                         .map(|_| {
-                            taffy::style::GridTemplateComponent::Single(
-                                taffy::style_helpers::fr(1.0),
-                            )
+                            taffy::style::GridTemplateComponent::Single(flex(1.0))
                         })
                         .collect()
                 },
@@ -601,9 +615,7 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                 |rows| {
                     (0..rows)
                         .map(|_| {
-                            taffy::style::GridTemplateComponent::Single(
-                                taffy::style_helpers::fr(1.0),
-                            )
+                            taffy::style::GridTemplateComponent::Single(flex(1.0))
                         })
                         .collect()
                 },
@@ -617,32 +629,59 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     crate::style::GridAutoFlow::ColumnDense => taffy::style::GridAutoFlow::ColumnDense,
                 },
             ),
-            grid_column: taffy::geometry::Line {
-                start: layout.col_start.map_or_else(
-                    taffy::style::GridPlacement::default,
-                    |p| resolve_grid_placement(p),
-                ),
-                end: layout.col_end.map_or_else(
-                    taffy::style::GridPlacement::default,
-                    |p| resolve_grid_placement(p),
-                ),
-            },
-            grid_row: taffy::geometry::Line {
-                start: layout.row_start.map_or_else(
-                    taffy::style::GridPlacement::default,
-                    |p| resolve_grid_placement(p),
-                ),
-                end: layout.row_end.map_or_else(
-                    taffy::style::GridPlacement::default,
-                    |p| resolve_grid_placement(p),
-                ),
-            },
+            grid_auto_rows: layout.grid_auto_rows.map_or_else(
+                Vec::new,
+                |auto_rows| {
+                    use taffy::style::MaxTrackSizingFunction;
+                    vec![match auto_rows {
+                        crate::style::GridAutoRows::Auto => {
+                            // auto = minmax(auto, auto)
+                            taffy::geometry::MinMax {
+                                min: taffy::style::MinTrackSizingFunction::AUTO,
+                                max: MaxTrackSizingFunction::AUTO,
+                            }
+                        }
+                        crate::style::GridAutoRows::Min => {
+                            taffy::geometry::MinMax {
+                                min: taffy::style::MinTrackSizingFunction::AUTO,
+                                max: MaxTrackSizingFunction::min_content(),
+                            }
+                        }
+                        crate::style::GridAutoRows::Max => {
+                            taffy::geometry::MinMax {
+                                min: taffy::style::MinTrackSizingFunction::AUTO,
+                                max: MaxTrackSizingFunction::max_content(),
+                            }
+                        }
+                        crate::style::GridAutoRows::Fr => {
+                            TrackSizingFunction::from_fr(1.0)
+                        }
+                    }]
+                },
+            ),
+            justify_items: layout.justify_items.map(map_align_items_to_justify_items),
+            grid_column: resolve_grid_axis_placement(layout.col_start, layout.col_end),
+            grid_row: resolve_grid_axis_placement(layout.row_start, layout.row_end),
             max_size: taffy::geometry::Size {
                 width: layout
                     .max_width
                     .map(Dimension::length)
                     .unwrap_or(Dimension::auto()),
                 height: Dimension::auto(),
+            },
+            min_size: taffy::geometry::Size {
+                width: Dimension::auto(),
+                height: layout.min_height.map_or_else(
+                    Dimension::auto,
+                    |v| match v {
+                        crate::style::LengthPercentageAuto::Auto => Dimension::auto(),
+                        crate::style::LengthPercentageAuto::Length(px) => Dimension::length(px),
+                        crate::style::LengthPercentageAuto::Percent(pct) => {
+                            let resolved = if pct < 0.0 { 1.0 } else { pct };
+                            Dimension::percent(resolved)
+                        }
+                    },
+                ),
             },
             size: match layout.position {
                 Position::Absolute => taffy::geometry::Size {
@@ -680,19 +719,23 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             justify_content: Some(map_justify(layout.justify_content)),
             align_items: Some(map_align(layout.align_items)),
             gap: taffy::geometry::Size {
-                width: taffy::style::LengthPercentage::length(layout.gap),
-                height: taffy::style::LengthPercentage::length(layout.gap),
+                width: taffy::style::LengthPercentage::length(
+                    layout.gap_x.unwrap_or(layout.gap),
+                ),
+                height: taffy::style::LengthPercentage::length(
+                    layout.gap_y.unwrap_or(layout.gap),
+                ),
             },
             flex_wrap: map_flex_wrap(layout.flex_wrap),
             align_content: layout.align_content.map(map_align_content),
-            ..base_style(layout)
+            ..base_style(element)
         },
         ElementKind::Text(_) => Style {
             size: taffy::geometry::Size {
                 width: resolve_dimension(layout.width, layout.width_full, Dimension::auto()),
                 height: resolve_dimension(layout.height, layout.height_full, Dimension::auto()),
             },
-            ..base_style(layout)
+            ..base_style(element)
         },
         ElementKind::Bitmap(bitmap) => Style {
             size: taffy::geometry::Size {
@@ -707,7 +750,7 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     Dimension::length(bitmap.height as f32),
                 ),
             },
-            ..base_style(layout)
+            ..base_style(element)
         },
         ElementKind::Canvas(_) => Style {
             display: taffy::prelude::Display::Block,
@@ -737,7 +780,7 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     ),
                 },
             },
-            ..base_style(layout)
+            ..base_style(element)
         },
         ElementKind::Lucide(_) => Style {
             size: taffy::geometry::Size {
@@ -748,7 +791,7 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     Dimension::length(24.0),
                 ),
             },
-            ..base_style(layout)
+            ..base_style(element)
         },
     }
 }
@@ -762,6 +805,27 @@ fn resolve_grid_placement(placement: crate::style::GridPlacement) -> taffy::styl
     }
 }
 
+fn resolve_grid_axis_placement(
+    start: Option<crate::style::GridPlacement>,
+    end: Option<crate::style::GridPlacement>,
+) -> taffy::geometry::Line<taffy::style::GridPlacement> {
+    match (start, end) {
+        (None, None) => taffy::geometry::Line::default(),
+        (Some(start), None) => taffy::geometry::Line {
+            start: resolve_grid_placement(start),
+            end: span(1),
+        },
+        (None, Some(end)) => taffy::geometry::Line {
+            start: span(1),
+            end: resolve_grid_placement(end),
+        },
+        (Some(start), Some(end)) => taffy::geometry::Line {
+            start: resolve_grid_placement(start),
+            end: resolve_grid_placement(end),
+        },
+    }
+}
+
 fn build_layout_tree(
     element: &ElementNode,
     taffy: &TaffyTree<TextMeasureContext>,
@@ -771,7 +835,10 @@ fn build_layout_tree(
     let mut children = Vec::new();
     let taffy_children = taffy.children(node_id)?;
 
-    for (element_child, taffy_child) in element.children.iter().zip(taffy_children.into_iter()) {
+    for ((_, element_child), taffy_child) in ordered_children(element)
+        .into_iter()
+        .zip(taffy_children.into_iter())
+    {
         children.push(build_layout_tree(element_child, taffy, taffy_child)?);
     }
 
@@ -787,7 +854,9 @@ fn build_layout_tree(
     })
 }
 
-fn base_style(layout: &ComputedLayoutStyle) -> Style {
+fn base_style(element: &ElementNode) -> Style {
+    let layout = &element.style.layout;
+    let border_width = element.style.visual.border_width.unwrap_or(0.0);
     let mut style = Style {
         position: map_position(layout.position),
         inset: taffy::geometry::Rect {
@@ -808,6 +877,14 @@ fn base_style(layout: &ComputedLayoutStyle) -> Style {
             .unwrap_or(Dimension::auto()),
         flex_grow: layout.flex_grow,
         align_self: layout.align_self.map(map_align),
+        justify_self: layout.justify_self.map(map_align_items_to_justify_self),
+        aspect_ratio: layout.aspect_ratio,
+        border: taffy::geometry::Rect {
+            left: taffy::style::LengthPercentage::length(border_width),
+            top: taffy::style::LengthPercentage::length(border_width),
+            right: taffy::style::LengthPercentage::length(border_width),
+            bottom: taffy::style::LengthPercentage::length(border_width),
+        },
         ..Default::default()
     };
     if let Some(flex_shrink) = layout.flex_shrink {
@@ -1107,6 +1184,14 @@ fn map_align(value: AlignItems) -> taffy::prelude::AlignItems {
         AlignItems::Baseline => taffy::prelude::AlignItems::Baseline,
         AlignItems::Stretch => taffy::prelude::AlignItems::Stretch,
     }
+}
+
+fn map_align_items_to_justify_items(value: AlignItems) -> taffy::prelude::AlignItems {
+    map_align(value)
+}
+
+fn map_align_items_to_justify_self(value: AlignItems) -> taffy::prelude::AlignItems {
+    map_align(value)
 }
 
 fn map_align_content(value: JustifyContent) -> TaffyAlignContent {

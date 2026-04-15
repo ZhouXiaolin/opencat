@@ -284,9 +284,18 @@ fn collect_rects_in_draw_order(
         parent_draw_order
     };
 
-    let mut child_pairs = element
+    let mut ordered_children = element
         .children
         .iter()
+        .enumerate()
+        .collect::<Vec<_>>();
+    if element.style.layout.is_flex || element.style.layout.is_grid {
+        ordered_children.sort_by_key(|(index, child)| (child.style.layout.order, *index));
+    }
+
+    let mut child_pairs = ordered_children
+        .into_iter()
+        .map(|(_, child)| child)
         .zip(layout.children.iter())
         .collect::<Vec<_>>();
     child_pairs.sort_by_key(|(child, _)| child.style.layout.z_index);

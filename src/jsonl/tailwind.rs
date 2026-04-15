@@ -388,6 +388,14 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         }
     }
 
+    if parse_grid_axis_shorthand_class(class, "col-", "-col-", "col-span-", style, true) {
+        return true;
+    }
+
+    if parse_grid_axis_shorthand_class(class, "row-", "-row-", "row-span-", style, false) {
+        return true;
+    }
+
     // grid-cols-N
     if let Some(cols_str) = class.strip_prefix("grid-cols-") {
         if let Ok(cols) = cols_str.parse::<u16>() {
@@ -997,6 +1005,88 @@ fn parse_grid_line_value(value: &str) -> Option<i16> {
                 .and_then(|v| v.strip_suffix(']'))
                 .and_then(|v| v.parse::<i16>().ok())
         })
+}
+
+fn parse_grid_span_value(value: &str) -> Option<u16> {
+    value
+        .parse::<u16>()
+        .ok()
+        .or_else(|| {
+            value
+                .strip_prefix('[')
+                .and_then(|v| v.strip_suffix(']'))
+                .and_then(|v| v.parse::<u16>().ok())
+        })
+}
+
+fn parse_grid_axis_token(value: &str) -> Option<GridPlacement> {
+    if value == "auto" {
+        return Some(GridPlacement::Auto);
+    }
+    if let Some(value) = value.strip_prefix("span_") {
+        return parse_grid_span_value(value).map(GridPlacement::Span);
+    }
+    parse_grid_line_value(value).map(GridPlacement::Line)
+}
+
+fn parse_grid_axis_bracket_shorthand(value: &str) -> Option<(GridPlacement, GridPlacement)> {
+    let inner = value.strip_prefix('[')?.strip_suffix(']')?;
+    let (start, end) = inner.split_once('/')?;
+    Some((parse_grid_axis_token(start)?, parse_grid_axis_token(end)?))
+}
+
+fn parse_grid_axis_shorthand_class(
+    class: &str,
+    axis_prefix: &str,
+    negative_axis_prefix: &str,
+    span_prefix: &str,
+    style: &mut NodeStyle,
+    is_column: bool,
+) -> bool {
+    let mut assign = |start: GridPlacement, end: GridPlacement| {
+        if is_column {
+            style.col_start = Some(start);
+            style.col_end = Some(end);
+        } else {
+            style.row_start = Some(start);
+            style.row_end = Some(end);
+        }
+    };
+
+    if let Some(value) = class.strip_prefix(span_prefix) {
+        if value == "full" {
+            assign(GridPlacement::Line(1), GridPlacement::Line(-1));
+            return true;
+        }
+        if let Some(span) = parse_grid_span_value(value) {
+            assign(GridPlacement::Span(span), GridPlacement::Span(span));
+            return true;
+        }
+    }
+
+    if let Some(value) = class.strip_prefix(axis_prefix) {
+        if let Some((start, end)) = parse_grid_axis_bracket_shorthand(value) {
+            assign(start, end);
+            return true;
+        }
+        if value == "auto" {
+            assign(GridPlacement::Auto, GridPlacement::Auto);
+            return true;
+        }
+        if let Some(line) = parse_grid_line_value(value) {
+            assign(GridPlacement::Line(line), GridPlacement::Auto);
+            return true;
+        }
+    }
+
+    if let Some(value) = class.strip_prefix(negative_axis_prefix) {
+        if let Some(line) = parse_grid_line_value(value) {
+            assign(GridPlacement::Line(-line), GridPlacement::Auto);
+            return true;
+        }
+    }
+
+    false
 }
 
 fn parse_tailwind_spacing_token(value: &str) -> Option<f32> {

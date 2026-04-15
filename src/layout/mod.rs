@@ -802,6 +802,7 @@ fn resolve_grid_placement(placement: crate::style::GridPlacement) -> taffy::styl
         crate::style::GridPlacement::Line(index) => {
             taffy::style::GridPlacement::from_line_index(index)
         }
+        crate::style::GridPlacement::Span(span_count) => span(span_count),
     }
 }
 

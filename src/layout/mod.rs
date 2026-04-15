@@ -483,7 +483,9 @@ fn hash_raster_style(style: &crate::element::style::ComputedVisualStyle, state: 
     hash_option_f32(style.blur_sigma, state);
     style.object_fit.hash(state);
     style.clip_contents.hash(state);
-    style.shadow.hash(state);
+    style.box_shadow.hash(state);
+    style.inset_shadow.hash(state);
+    style.drop_shadow.hash(state);
 }
 
 fn hash_text_style(style: &ComputedTextStyle, state: &mut impl Hasher) {

@@ -9,8 +9,8 @@ use rquickjs::{
 use crate::{
     frame_ctx::ScriptFrameCtx,
     style::{
-        AlignItems, FlexDirection, FontWeight, JustifyContent, ObjectFit, Position, ShadowStyle,
-        TextAlign,
+        AlignItems, BoxShadow, BoxShadowStyle, DropShadow, DropShadowStyle, FlexDirection,
+        FontWeight, InsetShadow, InsetShadowStyle, JustifyContent, ObjectFit, Position, TextAlign,
     },
 };
 
@@ -141,12 +141,42 @@ fn font_weight_from_name(name: &str) -> Option<FontWeight> {
     }
 }
 
-fn shadow_from_name(name: &str) -> Option<ShadowStyle> {
+fn box_shadow_from_name(name: &str) -> Option<BoxShadow> {
     match name {
-        "sm" => Some(ShadowStyle::SM),
-        "md" => Some(ShadowStyle::MD),
-        "lg" => Some(ShadowStyle::LG),
-        "xl" => Some(ShadowStyle::XL),
+        "2xs" => Some(BoxShadow::from_style(BoxShadowStyle::TwoXs)),
+        "xs" => Some(BoxShadow::from_style(BoxShadowStyle::Xs)),
+        "sm" => Some(BoxShadow::from_style(BoxShadowStyle::Sm)),
+        "base" | "default" => Some(BoxShadow::from_style(BoxShadowStyle::Base)),
+        "md" => Some(BoxShadow::from_style(BoxShadowStyle::Md)),
+        "lg" => Some(BoxShadow::from_style(BoxShadowStyle::Lg)),
+        "xl" => Some(BoxShadow::from_style(BoxShadowStyle::Xl)),
+        "2xl" => Some(BoxShadow::from_style(BoxShadowStyle::TwoXl)),
+        "3xl" => Some(BoxShadow::from_style(BoxShadowStyle::ThreeXl)),
+        _ => None,
+    }
+}
+
+fn inset_shadow_from_name(name: &str) -> Option<InsetShadow> {
+    match name {
+        "2xs" => Some(InsetShadow::from_style(InsetShadowStyle::TwoXs)),
+        "xs" => Some(InsetShadow::from_style(InsetShadowStyle::Xs)),
+        "base" | "default" => Some(InsetShadow::from_style(InsetShadowStyle::Base)),
+        "sm" => Some(InsetShadow::from_style(InsetShadowStyle::Sm)),
+        "md" => Some(InsetShadow::from_style(InsetShadowStyle::Md)),
+        _ => None,
+    }
+}
+
+fn drop_shadow_from_name(name: &str) -> Option<DropShadow> {
+    match name {
+        "xs" => Some(DropShadow::from_style(DropShadowStyle::Xs)),
+        "sm" => Some(DropShadow::from_style(DropShadowStyle::Sm)),
+        "base" | "default" => Some(DropShadow::from_style(DropShadowStyle::Base)),
+        "md" => Some(DropShadow::from_style(DropShadowStyle::Md)),
+        "lg" => Some(DropShadow::from_style(DropShadowStyle::Lg)),
+        "xl" => Some(DropShadow::from_style(DropShadowStyle::Xl)),
+        "2xl" => Some(DropShadow::from_style(DropShadowStyle::TwoXl)),
+        "3xl" => Some(DropShadow::from_style(DropShadowStyle::ThreeXl)),
         _ => None,
     }
 }

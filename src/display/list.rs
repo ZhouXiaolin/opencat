@@ -2,7 +2,10 @@ use crate::{
     resource::assets::AssetId,
     resource::media::VideoFrameTiming,
     scene::script::CanvasCommand,
-    style::{BackgroundFill, ColorToken, ComputedTextStyle, ObjectFit, ShadowStyle},
+    style::{
+        BackgroundFill, BoxShadow, ColorToken, ComputedTextStyle, DropShadow, InsetShadow,
+        ObjectFit,
+    },
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -75,7 +78,7 @@ pub struct TextDisplayItem {
     pub text: String,
     pub style: ComputedTextStyle,
     pub allow_wrap: bool,
-    pub shadow: Option<ShadowStyle>,
+    pub drop_shadow: Option<DropShadow>,
 }
 
 #[derive(Clone, Debug)]
@@ -93,7 +96,7 @@ pub struct BitmapDisplayItem {
 pub struct DrawScriptDisplayItem {
     pub bounds: DisplayRect,
     pub commands: Vec<CanvasCommand>,
-    pub shadow: Option<ShadowStyle>,
+    pub drop_shadow: Option<DropShadow>,
 }
 
 #[derive(Clone, Debug)]
@@ -103,7 +106,9 @@ pub struct RectPaintStyle {
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
     pub blur_sigma: Option<f32>,
-    pub shadow: Option<ShadowStyle>,
+    pub box_shadow: Option<BoxShadow>,
+    pub inset_shadow: Option<InsetShadow>,
+    pub drop_shadow: Option<DropShadow>,
 }
 
 #[derive(Clone, Debug)]
@@ -113,7 +118,9 @@ pub struct BitmapPaintStyle {
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
     pub blur_sigma: Option<f32>,
-    pub shadow: Option<ShadowStyle>,
+    pub box_shadow: Option<BoxShadow>,
+    pub inset_shadow: Option<InsetShadow>,
+    pub drop_shadow: Option<DropShadow>,
 }
 
 #[derive(Clone, Debug)]
@@ -122,7 +129,7 @@ pub struct LucidePaintStyle {
     pub background: Option<BackgroundFill>,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
-    pub shadow: Option<ShadowStyle>,
+    pub drop_shadow: Option<DropShadow>,
 }
 
 #[derive(Clone, Debug)]
@@ -175,22 +182,32 @@ impl DisplayItem {
         }
     }
 
-    pub fn shadow_style(&self) -> Option<ShadowStyle> {
-        match self {
-            Self::Rect(rect) => rect.paint.shadow,
-            Self::Text(text) => text.shadow,
-            Self::Bitmap(bitmap) => bitmap.paint.shadow,
-            Self::DrawScript(script) => script.shadow,
-            Self::Lucide(lucide) => lucide.paint.shadow,
-        }
-    }
-
     pub fn visual_bounds(&self) -> DisplayRect {
-        self.shadow_style()
-            .map(|shadow| {
-                let (left, top, right, bottom) = shadow.outsets();
-                self.bounds().outset(left, top, right, bottom)
-            })
-            .unwrap_or_else(|| self.bounds())
+        let bounds = self.bounds();
+        let mut visual_bounds = bounds;
+
+        let box_shadow = match self {
+            Self::Rect(rect) => rect.paint.box_shadow,
+            Self::Bitmap(bitmap) => bitmap.paint.box_shadow,
+            Self::Text(_) | Self::DrawScript(_) | Self::Lucide(_) => None,
+        };
+        if let Some(shadow) = box_shadow {
+            let (left, top, right, bottom) = shadow.outsets();
+            visual_bounds = visual_bounds.union(bounds.outset(left, top, right, bottom));
+        }
+
+        let drop_shadow = match self {
+            Self::Rect(rect) => rect.paint.drop_shadow,
+            Self::Text(text) => text.drop_shadow,
+            Self::Bitmap(bitmap) => bitmap.paint.drop_shadow,
+            Self::DrawScript(script) => script.drop_shadow,
+            Self::Lucide(lucide) => lucide.paint.drop_shadow,
+        };
+        if let Some(shadow) = drop_shadow {
+            let (left, top, right, bottom) = shadow.outsets();
+            visual_bounds = visual_bounds.union(bounds.outset(left, top, right, bottom));
+        }
+
+        visual_bounds
     }
 }

@@ -4,8 +4,8 @@ use crate::style::{ColorToken, LengthPercentageAuto, Transform, color_token_from
 
 use super::{
     MutationStore, align_items_from_name, flex_direction_from_name, font_weight_from_name,
-    justify_content_from_name, object_fit_from_name, position_from_name, shadow_from_name,
-    text_align_from_name,
+    box_shadow_from_name, drop_shadow_from_name, inset_shadow_from_name,
+    justify_content_from_name, object_fit_from_name, position_from_name, text_align_from_name,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -41,7 +41,12 @@ pub struct NodeStyleMutations {
     pub letter_spacing: Option<f32>,
     pub text_align: Option<crate::style::TextAlign>,
     pub line_height: Option<f32>,
-    pub shadow: Option<crate::style::ShadowStyle>,
+    pub box_shadow: Option<crate::style::BoxShadow>,
+    pub box_shadow_color: Option<ColorToken>,
+    pub inset_shadow: Option<crate::style::InsetShadow>,
+    pub inset_shadow_color: Option<ColorToken>,
+    pub drop_shadow: Option<crate::style::DropShadow>,
+    pub drop_shadow_color: Option<ColorToken>,
 }
 
 impl NodeStyleMutations {
@@ -141,8 +146,23 @@ impl NodeStyleMutations {
         if let Some(v) = self.line_height {
             style.line_height = Some(v);
         }
-        if let Some(v) = self.shadow {
-            style.shadow = Some(v);
+        if let Some(v) = self.box_shadow {
+            style.box_shadow = Some(v);
+        }
+        if let Some(v) = self.box_shadow_color {
+            style.box_shadow_color = Some(v);
+        }
+        if let Some(v) = self.inset_shadow {
+            style.inset_shadow = Some(v);
+        }
+        if let Some(v) = self.inset_shadow_color {
+            style.inset_shadow_color = Some(v);
+        }
+        if let Some(v) = self.drop_shadow {
+            style.drop_shadow = Some(v);
+        }
+        if let Some(v) = self.drop_shadow_color {
+            style.drop_shadow_color = Some(v);
         }
     }
 }
@@ -357,8 +377,33 @@ pub(super) fn install_node_style_bindings<'js>(
         map.entry(id).or_default().line_height = Some(v);
     });
     set_style_binding!("__record_shadow", map, |id, v: String| {
-        if let Some(sh) = shadow_from_name(&v) {
-            map.entry(id).or_default().shadow = Some(sh);
+        if let Some(sh) = box_shadow_from_name(&v) {
+            map.entry(id).or_default().box_shadow = Some(sh);
+        }
+    });
+    set_style_binding!("__record_shadow_color", map, |id, v: String| {
+        if let Some(color) = color_from_name(&v) {
+            map.entry(id).or_default().box_shadow_color = Some(color);
+        }
+    });
+    set_style_binding!("__record_inset_shadow", map, |id, v: String| {
+        if let Some(sh) = inset_shadow_from_name(&v) {
+            map.entry(id).or_default().inset_shadow = Some(sh);
+        }
+    });
+    set_style_binding!("__record_inset_shadow_color", map, |id, v: String| {
+        if let Some(color) = color_from_name(&v) {
+            map.entry(id).or_default().inset_shadow_color = Some(color);
+        }
+    });
+    set_style_binding!("__record_drop_shadow", map, |id, v: String| {
+        if let Some(sh) = drop_shadow_from_name(&v) {
+            map.entry(id).or_default().drop_shadow = Some(sh);
+        }
+    });
+    set_style_binding!("__record_drop_shadow_color", map, |id, v: String| {
+        if let Some(color) = color_from_name(&v) {
+            map.entry(id).or_default().drop_shadow_color = Some(color);
         }
     });
 

@@ -700,10 +700,79 @@ fn generate_tailwind_jsonl_rules() -> String {
             "font-bold",
             "ExactClassAction::FontWeight(FontWeight::Bold)",
         ),
-        ("shadow-sm", "ExactClassAction::Shadow(ShadowStyle::SM)"),
-        ("shadow-md", "ExactClassAction::Shadow(ShadowStyle::MD)"),
-        ("shadow-lg", "ExactClassAction::Shadow(ShadowStyle::LG)"),
-        ("shadow-xl", "ExactClassAction::Shadow(ShadowStyle::XL)"),
+        ("shadow-none", "ExactClassAction::ClearBoxShadow"),
+        (
+            "shadow-2xs",
+            "ExactClassAction::BoxShadow(BoxShadowStyle::TwoXs)",
+        ),
+        ("shadow-xs", "ExactClassAction::BoxShadow(BoxShadowStyle::Xs)"),
+        ("shadow-sm", "ExactClassAction::BoxShadow(BoxShadowStyle::Sm)"),
+        ("shadow", "ExactClassAction::BoxShadow(BoxShadowStyle::Base)"),
+        ("shadow-md", "ExactClassAction::BoxShadow(BoxShadowStyle::Md)"),
+        ("shadow-lg", "ExactClassAction::BoxShadow(BoxShadowStyle::Lg)"),
+        ("shadow-xl", "ExactClassAction::BoxShadow(BoxShadowStyle::Xl)"),
+        (
+            "shadow-2xl",
+            "ExactClassAction::BoxShadow(BoxShadowStyle::TwoXl)",
+        ),
+        (
+            "shadow-3xl",
+            "ExactClassAction::BoxShadow(BoxShadowStyle::ThreeXl)",
+        ),
+        ("drop-shadow-none", "ExactClassAction::ClearDropShadow"),
+        (
+            "drop-shadow-xs",
+            "ExactClassAction::DropShadow(DropShadowStyle::Xs)",
+        ),
+        (
+            "drop-shadow-sm",
+            "ExactClassAction::DropShadow(DropShadowStyle::Sm)",
+        ),
+        (
+            "drop-shadow",
+            "ExactClassAction::DropShadow(DropShadowStyle::Base)",
+        ),
+        (
+            "drop-shadow-md",
+            "ExactClassAction::DropShadow(DropShadowStyle::Md)",
+        ),
+        (
+            "drop-shadow-lg",
+            "ExactClassAction::DropShadow(DropShadowStyle::Lg)",
+        ),
+        (
+            "drop-shadow-xl",
+            "ExactClassAction::DropShadow(DropShadowStyle::Xl)",
+        ),
+        (
+            "drop-shadow-2xl",
+            "ExactClassAction::DropShadow(DropShadowStyle::TwoXl)",
+        ),
+        (
+            "drop-shadow-3xl",
+            "ExactClassAction::DropShadow(DropShadowStyle::ThreeXl)",
+        ),
+        ("inset-shadow-none", "ExactClassAction::ClearInsetShadow"),
+        (
+            "inset-shadow-2xs",
+            "ExactClassAction::InsetShadow(InsetShadowStyle::TwoXs)",
+        ),
+        (
+            "inset-shadow-xs",
+            "ExactClassAction::InsetShadow(InsetShadowStyle::Xs)",
+        ),
+        (
+            "inset-shadow",
+            "ExactClassAction::InsetShadow(InsetShadowStyle::Base)",
+        ),
+        (
+            "inset-shadow-sm",
+            "ExactClassAction::InsetShadow(InsetShadowStyle::Sm)",
+        ),
+        (
+            "inset-shadow-md",
+            "ExactClassAction::InsetShadow(InsetShadowStyle::Md)",
+        ),
         ("rounded-none", "ExactClassAction::BorderRadius(0.0)"),
         ("rounded-sm", "ExactClassAction::BorderRadius(4.0)"),
         ("rounded", "ExactClassAction::BorderRadius(8.0)"),

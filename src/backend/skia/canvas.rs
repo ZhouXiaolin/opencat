@@ -26,7 +26,10 @@ use crate::{
     },
     runtime::profile::BackendProfile,
     scene::script::{CanvasCommand, ScriptColor, ScriptLineCap, ScriptLineJoin},
-    style::{BackgroundFill, GradientDirection, ObjectFit, ShadowStyle, Transform},
+    style::{
+        BackgroundFill, BoxShadow, DropShadow, GradientDirection, InsetShadow, ObjectFit,
+        Transform,
+    },
 };
 
 use super::{
@@ -193,8 +196,11 @@ impl<'a> SkiaBackend<'a> {
         match item {
             DisplayItem::Rect(rect) => {
                 let started = Instant::now();
-                if let Some(shadow) = rect.paint.shadow {
-                    draw_item_shadow(self.canvas, rect.bounds, shadow, |canvas| {
+                if let Some(shadow) = rect.paint.box_shadow {
+                    draw_box_shadow(self.canvas, rect.bounds, rect.paint.border_radius, shadow);
+                }
+                if let Some(shadow) = rect.paint.drop_shadow {
+                    draw_item_drop_shadow(self.canvas, rect.bounds, shadow, |canvas| {
                         draw_rect(canvas, rect);
                         Ok(())
                     })?;
@@ -207,8 +213,8 @@ impl<'a> SkiaBackend<'a> {
             }
             DisplayItem::Text(text) => {
                 let started = Instant::now();
-                if let Some(shadow) = text.shadow {
-                    draw_item_shadow(self.canvas, text.bounds, shadow, |canvas| {
+                if let Some(shadow) = text.drop_shadow {
+                    draw_item_drop_shadow(self.canvas, text.bounds, shadow, |canvas| {
                         draw_text(canvas, text, &self.text_snapshot_cache).map(|_| ())
                     })?;
                 }
@@ -223,8 +229,11 @@ impl<'a> SkiaBackend<'a> {
                 }
             }
             DisplayItem::Bitmap(bitmap) => {
-                if let Some(shadow) = bitmap.paint.shadow {
-                    draw_item_shadow(self.canvas, bitmap.bounds, shadow, |canvas| {
+                if let Some(shadow) = bitmap.paint.box_shadow {
+                    draw_box_shadow(self.canvas, bitmap.bounds, bitmap.paint.border_radius, shadow);
+                }
+                if let Some(shadow) = bitmap.paint.drop_shadow {
+                    draw_item_drop_shadow(self.canvas, bitmap.bounds, shadow, |canvas| {
                         draw_bitmap(
                             canvas,
                             bitmap,
@@ -256,8 +265,8 @@ impl<'a> SkiaBackend<'a> {
             }
             DisplayItem::DrawScript(script) => {
                 let started = Instant::now();
-                if let Some(shadow) = script.shadow {
-                    draw_item_shadow(self.canvas, script.bounds, shadow, |canvas| {
+                if let Some(shadow) = script.drop_shadow {
+                    draw_item_drop_shadow(self.canvas, script.bounds, shadow, |canvas| {
                         draw_script_item(
                             canvas,
                             script,
@@ -282,8 +291,8 @@ impl<'a> SkiaBackend<'a> {
                 }
             }
             DisplayItem::Lucide(lucide) => {
-                if let Some(shadow) = lucide.paint.shadow {
-                    draw_item_shadow(self.canvas, lucide.bounds, shadow, |canvas| {
+                if let Some(shadow) = lucide.paint.drop_shadow {
+                    draw_item_drop_shadow(self.canvas, lucide.bounds, shadow, |canvas| {
                         draw_lucide(canvas, lucide);
                         Ok(())
                     })?;
@@ -497,11 +506,12 @@ pub(crate) fn record_display_tree_composite_source_with_subtree_cache<'a>(
 
 fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
     let style = &rect.paint;
-    if style.background.is_none() && style.border_width.is_none() {
+    if style.background.is_none() && style.border_width.is_none() && style.inset_shadow.is_none() {
         return;
     }
 
-    let rect = layout_rect_to_skia(rect.bounds);
+    let bounds = rect.bounds;
+    let rect = layout_rect_to_skia(bounds);
     let radius = effective_corner_radius(rect, style.border_radius);
 
     let mut paint = Paint::default();
@@ -516,6 +526,10 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
             canvas.draw_rrect(rrect, &paint);
         }
 
+        if let Some(shadow) = style.inset_shadow {
+            draw_inset_shadow(canvas, bounds, style.border_radius, shadow);
+        }
+
         if let (Some(width), Some(color)) = (style.border_width, style.border_color) {
             paint.set_color(skia_color(color));
             paint.set_style(PaintStyle::Stroke);
@@ -528,6 +542,10 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
             canvas.draw_rect(rect, &paint);
         }
 
+        if let Some(shadow) = style.inset_shadow {
+            draw_inset_shadow(canvas, bounds, style.border_radius, shadow);
+        }
+
         if let (Some(width), Some(color)) = (style.border_width, style.border_color) {
             paint.set_color(skia_color(color));
             paint.set_style(PaintStyle::Stroke);
@@ -537,10 +555,75 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
     }
 }
 
-fn draw_item_shadow(
+fn draw_box_shadow(
     canvas: &Canvas,
     bounds: DisplayRect,
-    shadow: ShadowStyle,
+    border_radius: f32,
+    shadow: BoxShadow,
+) {
+    let shadow_bounds = if shadow.spread != 0.0 {
+        bounds.outset(shadow.spread, shadow.spread, shadow.spread, shadow.spread)
+    } else {
+        bounds
+    };
+    let rect = layout_rect_to_skia(shadow_bounds.translate(shadow.offset_x, shadow.offset_y));
+    let radius = effective_corner_radius(rect, (border_radius + shadow.spread).max(0.0));
+
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint.set_style(PaintStyle::Fill);
+    paint.set_color(skia_color(shadow.color));
+
+    if let Some(mask_filter) = MaskFilter::blur(BlurStyle::Normal, shadow.blur_sigma, false) {
+        paint.set_mask_filter(mask_filter);
+    }
+
+    if radius > 0.0 {
+        let rrect = RRect::new_rect_xy(rect, radius, radius);
+        canvas.draw_rrect(rrect, &paint);
+    } else {
+        canvas.draw_rect(rect, &paint);
+    }
+}
+
+fn draw_inset_shadow(
+    canvas: &Canvas,
+    bounds: DisplayRect,
+    border_radius: f32,
+    shadow: InsetShadow,
+) {
+    let shadow_bounds = if shadow.spread != 0.0 {
+        bounds.outset(shadow.spread, shadow.spread, shadow.spread, shadow.spread)
+    } else {
+        bounds
+    };
+    let rect = layout_rect_to_skia(shadow_bounds.translate(shadow.offset_x, shadow.offset_y));
+    let radius = effective_corner_radius(rect, (border_radius + shadow.spread).max(0.0));
+
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint.set_style(PaintStyle::Fill);
+    paint.set_color(skia_color(shadow.color));
+
+    if let Some(mask_filter) = MaskFilter::blur(BlurStyle::Inner, shadow.blur_sigma, false) {
+        paint.set_mask_filter(mask_filter);
+    }
+
+    canvas.save();
+    clip_bounds(canvas, bounds, border_radius);
+    if radius > 0.0 {
+        let rrect = RRect::new_rect_xy(rect, radius, radius);
+        canvas.draw_rrect(rrect, &paint);
+    } else {
+        canvas.draw_rect(rect, &paint);
+    }
+    canvas.restore();
+}
+
+fn draw_item_drop_shadow(
+    canvas: &Canvas,
+    bounds: DisplayRect,
+    shadow: DropShadow,
     draw: impl FnOnce(&Canvas) -> Result<()>,
 ) -> Result<()> {
     let (left, top, right, bottom) = shadow.outsets();
@@ -548,9 +631,9 @@ fn draw_item_shadow(
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     let shadow_filter = image_filters::drop_shadow_only(
-        (0.0, shadow.offset_y()),
-        (shadow.sigma(), shadow.sigma()),
-        Color4f::new(0.0, 0.0, 0.0, 30.0 / 255.0),
+        (shadow.offset_x, shadow.offset_y),
+        (shadow.blur_sigma, shadow.blur_sigma),
+        color4f_from_token(shadow.color),
         None::<skia_safe::ColorSpace>,
         None::<skia_safe::ImageFilter>,
         None::<skia_safe::image_filters::CropRect>,
@@ -750,6 +833,10 @@ fn draw_bitmap(
 
     if needs_clip {
         canvas.restore();
+    }
+
+    if let Some(shadow) = bitmap.paint.inset_shadow {
+        draw_inset_shadow(canvas, bitmap.bounds, bitmap.paint.border_radius, shadow);
     }
 
     if let (Some(width), Some(color)) = (bitmap.paint.border_width, bitmap.paint.border_color) {
@@ -1299,6 +1386,16 @@ fn apply_background_paint(paint: &mut Paint, background: BackgroundFill, bounds:
             }
         }
     }
+}
+
+fn color4f_from_token(token: crate::style::ColorToken) -> Color4f {
+    let (r, g, b, a) = token.rgba();
+    Color4f::new(
+        r as f32 / 255.0,
+        g as f32 / 255.0,
+        b as f32 / 255.0,
+        a as f32 / 255.0,
+    )
 }
 
 fn clip_bounds(canvas: &Canvas, bounds: DisplayRect, border_radius: f32) {

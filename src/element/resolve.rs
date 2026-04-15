@@ -543,7 +543,15 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             object_fit: style.object_fit.unwrap_or_default(),
             clip_contents: style.overflow_hidden,
             transforms: style.transforms.clone(),
-            shadow: style.shadow,
+            box_shadow: style
+                .box_shadow
+                .map(|shadow| shadow.with_color(style.box_shadow_color.unwrap_or(shadow.color))),
+            inset_shadow: style.inset_shadow.map(|shadow| {
+                shadow.with_color(style.inset_shadow_color.unwrap_or(shadow.color))
+            }),
+            drop_shadow: style.drop_shadow.map(|shadow| {
+                shadow.with_color(style.drop_shadow_color.unwrap_or(shadow.color))
+            }),
         },
         text,
         id: style.id.clone(),

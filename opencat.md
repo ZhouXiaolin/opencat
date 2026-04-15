@@ -104,16 +104,16 @@ OpenCat JSONL 是 HTML+CSS+JS 的 JSON Lines 序列化。每一行是一个 JSON
 {"type": "transition", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 12}
 ```
 
-**effect 类型**：
+**effect 类型**（`effect` 只填类型名，方向由 `direction` 字段单独指定）：
 
-| effect | 说明 | 特有参数 |
-|--------|------|----------|
+| effect | 说明 | direction（可选） |
+|--------|------|-------------------|
 | `fade` | 淡入淡出 | — |
-| `slide` | 滑动切换 | `direction`: `from_left` / `from_right` / `from_top` / `from_bottom` |
-| `wipe` | 擦除切换 | `direction`: 8 方向（`from_left` / `from_right` / `from_top` / `from_bottom` / `from_top_left` / `from_top_right` / `from_bottom_left` / `from_bottom_right`） |
+| `slide` | 滑动切换 | `from_left`（默认）/ `from_right` / `from_top` / `from_bottom` |
+| `wipe` | 擦除切换 | `from_left`（默认）/ `from_right` / `from_top` / `from_bottom` / `from_top_left` / `from_top_right` / `from_bottom_left` / `from_bottom_right` |
 | `clock_wipe` | 时钟擦除 | — |
 | `iris` | 光圈开合 | — |
-| `light_leak` | 光泄漏 | `seed`, `hueShift`, `maskScale` |
+| `light_leak` | 光泄漏 | —（特有参数：`seed`, `hueShift`, `maskScale`） |
 
 **timing 控制**（所有 effect 通用）：
 
@@ -451,3 +451,4 @@ canvas.drawPath(path, stroke('#38bdf8', 2));
 | 布局用 `absolute` 定位 | 默认用 `flex`，`absolute` 仅用于重叠/固定边缘 |
 | `parentId` 引用无效 id | 必须引用已存在的节点 |
 | 帧数不匹配 | `composition.frames == sum(scene.duration) + sum(transition.duration)` |
+| `"effect": "slide-left"` | effect 和方向是两个字段：`"effect": "slide", "direction": "from_left"` |

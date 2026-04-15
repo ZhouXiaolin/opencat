@@ -451,6 +451,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             max_width: style.max_width,
             width_full: style.width_full,
             height_full: style.height_full,
+            min_height: style.min_height,
             padding_top: style
                 .padding_top
                 .or(style.padding_y)
@@ -496,6 +497,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             grid_template_columns: style.grid_template_columns,
             grid_template_rows: style.grid_template_rows,
             grid_auto_flow: style.grid_auto_flow,
+            grid_auto_rows: style.grid_auto_rows,
             col_start: style.col_start,
             col_end: style.col_end,
             row_start: style.row_start,
@@ -507,7 +509,13 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             flex_wrap: style.flex_wrap.unwrap_or_default(),
             align_content: style.align_content,
             align_self: style.align_self,
+            justify_items: style.justify_items,
+            justify_self: style.justify_self,
             gap: style.gap.unwrap_or(0.0),
+            gap_x: style.gap_x,
+            gap_y: style.gap_y,
+            order: style.order.unwrap_or(0),
+            aspect_ratio: style.aspect_ratio,
             flex_basis: style.flex_basis,
             flex_grow: style.flex_grow.unwrap_or(0.0),
             flex_shrink: style.flex_shrink,

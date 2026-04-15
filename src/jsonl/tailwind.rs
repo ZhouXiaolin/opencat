@@ -3,8 +3,8 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::style::{
     AlignItems, ColorToken, FlexDirection, FlexWrap, FontWeight, GradientDirection, GridAutoFlow,
-    GridPlacement, JustifyContent, LengthPercentageAuto, NodeStyle, ObjectFit, Position, ShadowStyle,
-    TextAlign, TextTransform, color_token_from_class_suffix,
+    GridAutoRows, GridPlacement, JustifyContent, LengthPercentageAuto, NodeStyle, ObjectFit,
+    Position, ShadowStyle, TextAlign, TextTransform, color_token_from_class_suffix,
 };
 
 static UNSUPPORTED_TAILWIND_CLASSES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -119,6 +119,16 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
             style.justify_content = Some(value);
             style.align_content = Some(value);
         }
+        ExactClassAction::PlaceSelf(value) => {
+            style.align_self = Some(value);
+            style.justify_self = Some(value);
+        }
+        ExactClassAction::JustifyItems(value) => {
+            style.justify_items = Some(value);
+        }
+        ExactClassAction::JustifySelf(value) => {
+            style.justify_self = Some(value);
+        }
         ExactClassAction::ObjectFit(value) => style.object_fit = Some(value),
         ExactClassAction::FontWeight(value) => style.font_weight = Some(value),
         ExactClassAction::Shadow(value) => style.shadow = Some(value),
@@ -150,6 +160,9 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         ExactClassAction::TextTransform(value) => style.text_transform = Some(value),
         ExactClassAction::BlurSigma(value) => style.blur_sigma = Some(value),
         ExactClassAction::GridAutoFlow(value) => style.grid_auto_flow = Some(value),
+        ExactClassAction::GridAutoRows(value) => style.grid_auto_rows = Some(value),
+        ExactClassAction::AspectRatio(value) => style.aspect_ratio = Some(value),
+        ExactClassAction::Order(value) => style.order = Some(value),
         ExactClassAction::ColStartAuto => style.col_start = Some(GridPlacement::Auto),
         ExactClassAction::ColEndAuto => style.col_end = Some(GridPlacement::Auto),
         ExactClassAction::RowStartAuto => style.row_start = Some(GridPlacement::Auto),
@@ -316,6 +329,65 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         _ => {}
     }
 
+    // gap-x-N / gap-x-[Npx]
+    if let Some(value) = class.strip_prefix("gap-x-") {
+        if let Some(n) = parse_bracket_f32(value).or_else(|| parse_tailwind_spacing_token(value)) {
+            style.gap_x = Some(n);
+            return true;
+        }
+    }
+
+    // gap-y-N / gap-y-[Npx]
+    if let Some(value) = class.strip_prefix("gap-y-") {
+        if let Some(n) = parse_bracket_f32(value).or_else(|| parse_tailwind_spacing_token(value)) {
+            style.gap_y = Some(n);
+            return true;
+        }
+    }
+
+    // order-N / order-[N]
+    if let Some(value) = class.strip_prefix("order-") {
+        if let Ok(n) = value.parse::<i32>() {
+            style.order = Some(n);
+            return true;
+        }
+        if let Some(value) = value.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
+            if let Ok(n) = value.parse::<i32>() {
+                style.order = Some(n);
+                return true;
+            }
+        }
+    }
+
+    // aspect-video → 16/9, aspect-square → 1, aspect-auto, aspect-[W/H]
+    if let Some(value) = class.strip_prefix("aspect-") {
+        if let Some(ratio) = parse_aspect_ratio(value) {
+            style.aspect_ratio = Some(ratio);
+            return true;
+        }
+    }
+
+    // min-h-full → min-height: 100%, min-h-screen → min-height: 100vh, min-h-N, min-h-[Npx]
+    if let Some(value) = class.strip_prefix("min-h-") {
+        if value == "full" {
+            style.min_height = Some(LengthPercentageAuto::Percent(1.0));
+            return true;
+        }
+        if value == "screen" {
+            // 100vh — store as a large sentinel; resolved to viewport height at layout time
+            style.min_height = Some(LengthPercentageAuto::Percent(-1.0));
+            return true;
+        }
+        if let Some(n) = parse_bracket_f32(value) {
+            style.min_height = Some(LengthPercentageAuto::Length(n));
+            return true;
+        }
+        if let Some(n) = parse_tailwind_spacing_token(value) {
+            style.min_height = Some(LengthPercentageAuto::Length(n));
+            return true;
+        }
+    }
+
     // grid-cols-N
     if let Some(cols_str) = class.strip_prefix("grid-cols-") {
         if let Ok(cols) = cols_str.parse::<u16>() {
@@ -336,13 +408,13 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
 
     // col-start-N / -col-start-N
     if let Some(value) = class.strip_prefix("col-start-") {
-        if let Ok(line) = value.parse::<i16>() {
+        if let Some(line) = parse_grid_line_value(value) {
             style.col_start = Some(GridPlacement::Line(line));
             return true;
         }
     }
     if let Some(value) = class.strip_prefix("-col-start-") {
-        if let Ok(line) = value.parse::<i16>() {
+        if let Some(line) = parse_grid_line_value(value) {
             style.col_start = Some(GridPlacement::Line(-line));
             return true;
         }
@@ -350,13 +422,13 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
 
     // col-end-N / -col-end-N
     if let Some(value) = class.strip_prefix("col-end-") {
-        if let Ok(line) = value.parse::<i16>() {
+        if let Some(line) = parse_grid_line_value(value) {
             style.col_end = Some(GridPlacement::Line(line));
             return true;
         }
     }
     if let Some(value) = class.strip_prefix("-col-end-") {
-        if let Ok(line) = value.parse::<i16>() {
+        if let Some(line) = parse_grid_line_value(value) {
             style.col_end = Some(GridPlacement::Line(-line));
             return true;
         }
@@ -364,13 +436,13 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
 
     // row-start-N / -row-start-N
     if let Some(value) = class.strip_prefix("row-start-") {
-        if let Ok(line) = value.parse::<i16>() {
+        if let Some(line) = parse_grid_line_value(value) {
             style.row_start = Some(GridPlacement::Line(line));
             return true;
         }
     }
     if let Some(value) = class.strip_prefix("-row-start-") {
-        if let Ok(line) = value.parse::<i16>() {
+        if let Some(line) = parse_grid_line_value(value) {
             style.row_start = Some(GridPlacement::Line(-line));
             return true;
         }
@@ -378,13 +450,13 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
 
     // row-end-N / -row-end-N
     if let Some(value) = class.strip_prefix("row-end-") {
-        if let Ok(line) = value.parse::<i16>() {
+        if let Some(line) = parse_grid_line_value(value) {
             style.row_end = Some(GridPlacement::Line(line));
             return true;
         }
     }
     if let Some(value) = class.strip_prefix("-row-end-") {
-        if let Ok(line) = value.parse::<i16>() {
+        if let Some(line) = parse_grid_line_value(value) {
             style.row_end = Some(GridPlacement::Line(-line));
             return true;
         }
@@ -545,6 +617,9 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
 #[derive(Copy, Clone)]
 enum F32Target {
     Gap,
+    GapX,
+    GapY,
+    MinHeight,
     Width,
     Height,
     MaxWidth,
@@ -597,6 +672,9 @@ enum ExactClassAction {
     AlignContent(JustifyContent),
     AlignSelf(AlignItems),
     PlaceContent(JustifyContent),
+    PlaceSelf(AlignItems),
+    JustifyItems(AlignItems),
+    JustifySelf(AlignItems),
     ObjectFit(ObjectFit),
     FontWeight(FontWeight),
     Shadow(ShadowStyle),
@@ -616,6 +694,9 @@ enum ExactClassAction {
     TextTransform(TextTransform),
     BlurSigma(f32),
     GridAutoFlow(GridAutoFlow),
+    GridAutoRows(GridAutoRows),
+    AspectRatio(f32),
+    Order(i32),
     ColStartAuto,
     ColEndAuto,
     RowStartAuto,
@@ -781,6 +862,9 @@ fn parse_prefixed_bracket_f32(class: &str, prefix: &str) -> Option<f32> {
 fn apply_f32_target(style: &mut NodeStyle, target: F32Target, value: f32) {
     match target {
         F32Target::Gap => style.gap = Some(value),
+        F32Target::GapX => style.gap_x = Some(value),
+        F32Target::GapY => style.gap_y = Some(value),
+        F32Target::MinHeight => style.min_height = Some(LengthPercentageAuto::Length(value)),
         F32Target::Width => {
             style.width = Some(value);
             style.width_full = false;
@@ -896,10 +980,23 @@ fn parse_signed_spacing_scale_class(
 }
 
 fn parse_bracket_f32(value: &str) -> Option<f32> {
+    let value = value.strip_prefix('[').unwrap_or(value);
     value
         .strip_suffix("px]")
         .or_else(|| value.strip_suffix(']'))
         .and_then(|value| value.parse::<f32>().ok())
+}
+
+fn parse_grid_line_value(value: &str) -> Option<i16> {
+    value
+        .parse::<i16>()
+        .ok()
+        .or_else(|| {
+            value
+                .strip_prefix('[')
+                .and_then(|v| v.strip_suffix(']'))
+                .and_then(|v| v.parse::<i16>().ok())
+        })
 }
 
 fn parse_tailwind_spacing_token(value: &str) -> Option<f32> {
@@ -1076,5 +1173,20 @@ fn parse_hex_nibble(byte: u8) -> Option<u8> {
         b'a'..=b'f' => Some(byte - b'a' + 10),
         b'A'..=b'F' => Some(byte - b'A' + 10),
         _ => None,
+    }
+}
+
+fn parse_aspect_ratio(value: &str) -> Option<f32> {
+    match value {
+        "auto" => None, // auto = no constraint, don't set
+        "square" => Some(1.0),
+        "video" => Some(16.0 / 9.0),
+        _ => {
+            // aspect-[W/H]
+            if let Some(inner) = value.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
+                return parse_fraction(inner);
+            }
+            None
+        }
     }
 }

@@ -86,6 +86,14 @@ pub enum GridAutoFlow {
     ColumnDense,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GridAutoRows {
+    Auto,
+    Min,
+    Max,
+    Fr,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum GridPlacement {
     #[default]
@@ -236,15 +244,23 @@ pub struct NodeStyle {
     pub grid_template_columns: Option<u16>,
     pub grid_template_rows: Option<u16>,
     pub grid_auto_flow: Option<GridAutoFlow>,
+    pub grid_auto_rows: Option<GridAutoRows>,
     pub col_start: Option<GridPlacement>,
     pub col_end: Option<GridPlacement>,
     pub row_start: Option<GridPlacement>,
     pub row_end: Option<GridPlacement>,
     pub auto_size: bool,
     pub gap: Option<f32>,
+    pub gap_x: Option<f32>,
+    pub gap_y: Option<f32>,
+    pub order: Option<i32>,
+    pub aspect_ratio: Option<f32>,
+    pub min_height: Option<LengthPercentageAuto>,
     pub flex_wrap: Option<FlexWrap>,
     pub align_content: Option<JustifyContent>,
     pub align_self: Option<AlignItems>,
+    pub justify_items: Option<AlignItems>,
+    pub justify_self: Option<AlignItems>,
     pub flex_basis: Option<LengthPercentageAuto>,
     pub flex_grow: Option<f32>,
     pub flex_shrink: Option<f32>,

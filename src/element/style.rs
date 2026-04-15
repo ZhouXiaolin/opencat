@@ -1,7 +1,7 @@
 use crate::style::{
     AlignItems, BackgroundFill, ComputedTextStyle, FlexDirection, FlexWrap, GridAutoFlow,
-    GridPlacement, JustifyContent, LengthPercentageAuto, ObjectFit, Position, ShadowStyle,
-    Transform,
+    GridAutoRows, GridPlacement, JustifyContent, LengthPercentageAuto, ObjectFit, Position,
+    ShadowStyle, Transform,
 };
 
 #[derive(Clone, Debug)]
@@ -54,11 +54,13 @@ pub struct ComputedLayoutStyle {
     pub margin_right: LengthPercentageAuto,
     pub margin_bottom: LengthPercentageAuto,
     pub margin_left: LengthPercentageAuto,
+    pub min_height: Option<LengthPercentageAuto>,
     pub is_flex: bool,
     pub is_grid: bool,
     pub grid_template_columns: Option<u16>,
     pub grid_template_rows: Option<u16>,
     pub grid_auto_flow: Option<GridAutoFlow>,
+    pub grid_auto_rows: Option<GridAutoRows>,
     pub col_start: Option<GridPlacement>,
     pub col_end: Option<GridPlacement>,
     pub row_start: Option<GridPlacement>,
@@ -70,7 +72,13 @@ pub struct ComputedLayoutStyle {
     pub flex_wrap: FlexWrap,
     pub align_content: Option<JustifyContent>,
     pub align_self: Option<AlignItems>,
+    pub justify_items: Option<AlignItems>,
+    pub justify_self: Option<AlignItems>,
     pub gap: f32,
+    pub gap_x: Option<f32>,
+    pub gap_y: Option<f32>,
+    pub order: i32,
+    pub aspect_ratio: Option<f32>,
     pub flex_basis: Option<LengthPercentageAuto>,
     pub flex_grow: f32,
     pub flex_shrink: Option<f32>,

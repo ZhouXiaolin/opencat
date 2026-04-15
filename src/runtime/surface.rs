@@ -1,3 +1,4 @@
+#[cfg(target_os = "macos")]
 use anyhow::{Result, anyhow};
 
 #[cfg(target_os = "macos")]
@@ -12,6 +13,7 @@ use skia_safe::gpu::{self, backend_render_targets, mtl};
 #[cfg(target_os = "macos")]
 use skia_safe::{AlphaType, ColorType, ImageInfo};
 
+#[cfg(target_os = "macos")]
 use crate::{
     render::{RenderSession, render_frame_to_target},
     runtime::target::{RenderFrameViewKind, RenderTargetHandle},

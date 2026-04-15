@@ -169,6 +169,33 @@ pub enum ShadowStyle {
     XL,
 }
 
+impl ShadowStyle {
+    pub fn sigma(self) -> f32 {
+        match self {
+            Self::SM => 2.0 / 6.0,
+            Self::MD => 4.0 / 6.0,
+            Self::LG => 10.0 / 6.0,
+            Self::XL => 20.0 / 6.0,
+        }
+    }
+
+    pub fn offset_y(self) -> f32 {
+        match self {
+            Self::SM => 1.0,
+            Self::MD => 3.0,
+            Self::LG => 6.0,
+            Self::XL => 10.0,
+        }
+    }
+
+    pub fn outsets(self) -> (f32, f32, f32, f32) {
+        let extent = self.sigma() * 3.0;
+        let top = (extent - self.offset_y()).max(0.0);
+        let bottom = extent + self.offset_y();
+        (extent, top, extent, bottom)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GradientDirection {
     ToRight,

@@ -75,6 +75,7 @@ pub struct TextDisplayItem {
     pub text: String,
     pub style: ComputedTextStyle,
     pub allow_wrap: bool,
+    pub shadow: Option<ShadowStyle>,
 }
 
 #[derive(Clone, Debug)]
@@ -92,6 +93,7 @@ pub struct BitmapDisplayItem {
 pub struct DrawScriptDisplayItem {
     pub bounds: DisplayRect,
     pub commands: Vec<CanvasCommand>,
+    pub shadow: Option<ShadowStyle>,
 }
 
 #[derive(Clone, Debug)]
@@ -120,6 +122,7 @@ pub struct LucidePaintStyle {
     pub background: Option<BackgroundFill>,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    pub shadow: Option<ShadowStyle>,
 }
 
 #[derive(Clone, Debug)]
@@ -127,4 +130,67 @@ pub struct LucideDisplayItem {
     pub bounds: DisplayRect,
     pub icon: String,
     pub paint: LucidePaintStyle,
+}
+
+impl DisplayRect {
+    pub fn outset(self, left: f32, top: f32, right: f32, bottom: f32) -> Self {
+        Self {
+            x: self.x - left,
+            y: self.y - top,
+            width: self.width + left + right,
+            height: self.height + top + bottom,
+        }
+    }
+
+    pub fn translate(self, dx: f32, dy: f32) -> Self {
+        Self {
+            x: self.x + dx,
+            y: self.y + dy,
+            ..self
+        }
+    }
+
+    pub fn union(self, other: Self) -> Self {
+        let left = self.x.min(other.x);
+        let top = self.y.min(other.y);
+        let right = (self.x + self.width).max(other.x + other.width);
+        let bottom = (self.y + self.height).max(other.y + other.height);
+        Self {
+            x: left,
+            y: top,
+            width: right - left,
+            height: bottom - top,
+        }
+    }
+}
+
+impl DisplayItem {
+    pub fn bounds(&self) -> DisplayRect {
+        match self {
+            Self::Rect(rect) => rect.bounds,
+            Self::Text(text) => text.bounds,
+            Self::Bitmap(bitmap) => bitmap.bounds,
+            Self::DrawScript(script) => script.bounds,
+            Self::Lucide(lucide) => lucide.bounds,
+        }
+    }
+
+    pub fn shadow_style(&self) -> Option<ShadowStyle> {
+        match self {
+            Self::Rect(rect) => rect.paint.shadow,
+            Self::Text(text) => text.shadow,
+            Self::Bitmap(bitmap) => bitmap.paint.shadow,
+            Self::DrawScript(script) => script.shadow,
+            Self::Lucide(lucide) => lucide.paint.shadow,
+        }
+    }
+
+    pub fn visual_bounds(&self) -> DisplayRect {
+        self.shadow_style()
+            .map(|shadow| {
+                let (left, top, right, bottom) = shadow.outsets();
+                self.bounds().outset(left, top, right, bottom)
+            })
+            .unwrap_or_else(|| self.bounds())
+    }
 }

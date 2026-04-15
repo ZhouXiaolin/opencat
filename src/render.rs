@@ -295,6 +295,57 @@ mod tests {
     }
 
     #[test]
+    fn subtree_cache_preserves_shadow_outside_node_bounds_during_opacity_animation() {
+        let scene = div()
+            .id("root")
+            .w_full()
+            .h_full()
+            .bg_white()
+            .script_source(r#"ctx.getNode("box").opacity(ctx.frame === 0 ? 1 : 0.5);"#)
+            .expect("script should compile")
+            .child(
+                div()
+                    .id("box")
+                    .absolute()
+                    .left(10.0)
+                    .top(10.0)
+                    .w(20.0)
+                    .h(8.0)
+                    .rounded_full()
+                    .bg(ColorToken::Red500)
+                    .shadow_lg(),
+            );
+
+        let composition = Composition::new("shadow_clip_consistency")
+            .size(40, 40)
+            .fps(30)
+            .frames(2)
+            .root(move |_ctx: &FrameCtx| scene.clone().into())
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let first =
+            render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
+        let second =
+            render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
+
+        let first_shadow = pixel_rgba(&first, 40, 20, 22);
+        let second_shadow = pixel_rgba(&second, 40, 20, 22);
+
+        assert!(
+            first_shadow[0] < 245 || first_shadow[1] < 245 || first_shadow[2] < 245,
+            "frame 0 should contain shadow outside the node bounds, got {:?}",
+            first_shadow
+        );
+        assert!(
+            second_shadow[0] < 250 || second_shadow[1] < 250 || second_shadow[2] < 250,
+            "frame 1 should keep the shadow visible instead of clipping back to background, got {:?}",
+            second_shadow
+        );
+    }
+
+    #[test]
     fn display_list_and_subtree_cache_both_preserve_overflow_clipping() {
         let scene = div()
             .id("root")

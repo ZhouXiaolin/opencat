@@ -91,7 +91,7 @@ fn push_display_node_commands(node: &DisplayNode, list: &mut DisplayList) {
     if node.opacity < 1.0 {
         list.push(DisplayCommand::SaveLayer {
             layer: DisplayLayer {
-                bounds: node.transform.bounds,
+                bounds: node.layer_bounds(),
                 opacity: node.opacity,
             },
         });
@@ -141,6 +141,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
             allow_wrap: element.style.text.wrap_text
                 || element.style.layout.width.is_some()
                 || element.style.layout.width_full,
+            shadow: element.style.visual.shadow,
         }),
         ElementKind::Bitmap(bitmap) => DisplayItem::Bitmap(BitmapDisplayItem {
             bounds,
@@ -161,6 +162,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
         ElementKind::Canvas(canvas) => DisplayItem::DrawScript(DrawScriptDisplayItem {
             bounds,
             commands: canvas.commands.clone(),
+            shadow: element.style.visual.shadow,
         }),
         ElementKind::Lucide(lucide) => DisplayItem::Lucide(LucideDisplayItem {
             bounds,
@@ -170,6 +172,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 background: element.style.visual.background,
                 border_width: element.style.visual.border_width,
                 border_color: element.style.visual.border_color,
+                shadow: element.style.visual.shadow,
             },
         }),
     }

@@ -95,6 +95,7 @@ fn hash_display_item(item: &DisplayItem, state: &mut impl Hasher) {
             text.text.hash(state);
             hash_text_style(&text.style, state);
             text.allow_wrap.hash(state);
+            text.shadow.hash(state);
         }
         DisplayItem::Bitmap(bitmap) => {
             2_u8.hash(state);
@@ -118,6 +119,7 @@ fn hash_display_item(item: &DisplayItem, state: &mut impl Hasher) {
         DisplayItem::DrawScript(script) => {
             3_u8.hash(state);
             script.commands.len().hash(state);
+            script.shadow.hash(state);
             for command in &script.commands {
                 hash_draw_script_command(command, state);
             }
@@ -129,6 +131,7 @@ fn hash_display_item(item: &DisplayItem, state: &mut impl Hasher) {
             lucide.paint.background.hash(state);
             lucide.paint.border_width.map(f32::to_bits).hash(state);
             lucide.paint.border_color.hash(state);
+            lucide.paint.shadow.hash(state);
         }
     }
 }

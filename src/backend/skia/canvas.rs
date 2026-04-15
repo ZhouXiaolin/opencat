@@ -2,9 +2,10 @@ use std::{cell::RefCell, collections::HashMap, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
-    BlurStyle, Canvas, ClipOp, Data, Image as SkiaImage, ImageInfo, MaskFilter, Paint, PaintStyle,
-    PathBuilder, Picture, PictureRecorder, RRect, Rect, TileMode, canvas::SrcRectConstraint,
-    gradient_shader, images,
+    BlurStyle, Canvas, ClipOp, Color4f, Data, Image as SkiaImage, ImageInfo, MaskFilter, Paint,
+    PaintStyle, PathBuilder, Picture, PictureRecorder, RRect, Rect, TileMode,
+    canvas::{SaveLayerRec, SrcRectConstraint},
+    gradient_shader, image_filters, images,
 };
 
 use crate::{
@@ -174,7 +175,7 @@ impl<'a> SkiaBackend<'a> {
     }
 
     fn draw_display_subtree_contents(&mut self, node: &DisplayNode) -> Result<()> {
-        self.with_display_opacity(node.opacity, node.transform.bounds, |backend| {
+        self.with_display_opacity(node.opacity, node.layer_bounds(), |backend| {
             backend.draw_display_item(&node.item)?;
             if let Some(clip) = &node.clip {
                 backend.canvas.save();
@@ -192,6 +193,12 @@ impl<'a> SkiaBackend<'a> {
         match item {
             DisplayItem::Rect(rect) => {
                 let started = Instant::now();
+                if let Some(shadow) = rect.paint.shadow {
+                    draw_item_shadow(self.canvas, rect.bounds, shadow, |canvas| {
+                        draw_rect(canvas, rect);
+                        Ok(())
+                    })?;
+                }
                 draw_rect(self.canvas, rect);
                 if let Some(profile) = self.profile.as_deref_mut() {
                     profile.draw_rect_count += 1;
@@ -200,6 +207,11 @@ impl<'a> SkiaBackend<'a> {
             }
             DisplayItem::Text(text) => {
                 let started = Instant::now();
+                if let Some(shadow) = text.shadow {
+                    draw_item_shadow(self.canvas, text.bounds, shadow, |canvas| {
+                        draw_text(canvas, text, &self.text_snapshot_cache).map(|_| ())
+                    })?;
+                }
                 let stats = draw_text(self.canvas, text, &self.text_snapshot_cache)?;
                 if let Some(profile) = self.profile.as_deref_mut() {
                     profile.draw_text_count += 1;
@@ -211,6 +223,19 @@ impl<'a> SkiaBackend<'a> {
                 }
             }
             DisplayItem::Bitmap(bitmap) => {
+                if let Some(shadow) = bitmap.paint.shadow {
+                    draw_item_shadow(self.canvas, bitmap.bounds, shadow, |canvas| {
+                        draw_bitmap(
+                            canvas,
+                            bitmap,
+                            self.assets,
+                            &self.image_cache,
+                            &mut self.media_ctx,
+                            self.frame_ctx,
+                        )
+                        .map(|_| ())
+                    })?;
+                }
                 let stats = draw_bitmap(
                     self.canvas,
                     bitmap,
@@ -231,6 +256,18 @@ impl<'a> SkiaBackend<'a> {
             }
             DisplayItem::DrawScript(script) => {
                 let started = Instant::now();
+                if let Some(shadow) = script.shadow {
+                    draw_item_shadow(self.canvas, script.bounds, shadow, |canvas| {
+                        draw_script_item(
+                            canvas,
+                            script,
+                            self.assets,
+                            &self.image_cache,
+                            &mut self.media_ctx,
+                            self.frame_ctx,
+                        )
+                    })?;
+                }
                 draw_script_item(
                     self.canvas,
                     script,
@@ -245,6 +282,12 @@ impl<'a> SkiaBackend<'a> {
                 }
             }
             DisplayItem::Lucide(lucide) => {
+                if let Some(shadow) = lucide.paint.shadow {
+                    draw_item_shadow(self.canvas, lucide.bounds, shadow, |canvas| {
+                        draw_lucide(canvas, lucide);
+                        Ok(())
+                    })?;
+                }
                 draw_lucide(self.canvas, lucide);
             }
         }
@@ -253,18 +296,14 @@ impl<'a> SkiaBackend<'a> {
 
     fn record_cached_subtree_snapshot(&mut self, node: &DisplayNode) -> Result<Picture> {
         let started = Instant::now();
-        let bounds = Rect::from_xywh(
-            0.0,
-            0.0,
-            node.transform.bounds.width.max(1.0),
-            node.transform.bounds.height.max(1.0),
-        );
+        let layer_bounds = node.layer_bounds();
+        let bounds = layout_rect_to_skia(layer_bounds);
         let mut recorder = PictureRecorder::new();
         let recording_canvas = recorder.begin_recording(bounds, false);
         let mut backend = SkiaBackend::new_with_cache_and_profile(
             recording_canvas,
-            node.transform.bounds.width as i32,
-            node.transform.bounds.height as i32,
+            layer_bounds.width.max(1.0) as i32,
+            layer_bounds.height.max(1.0) as i32,
             self.assets,
             self.image_cache.clone(),
             self.text_snapshot_cache.clone(),
@@ -292,7 +331,7 @@ impl<'a> SkiaBackend<'a> {
     }
 
     fn draw_subtree_snapshot(&mut self, node: &DisplayNode, snapshot: &Picture) -> Result<()> {
-        self.with_display_opacity(node.opacity, node.transform.bounds, |backend| {
+        self.with_display_opacity(node.opacity, node.layer_bounds(), |backend| {
             let started = Instant::now();
             backend.canvas.draw_picture(snapshot, None, None);
             if let Some(profile) = backend.profile.as_deref_mut() {
@@ -458,16 +497,12 @@ pub(crate) fn record_display_tree_composite_source_with_subtree_cache<'a>(
 
 fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
     let style = &rect.paint;
-    if style.background.is_none() && style.border_width.is_none() && style.shadow.is_none() {
+    if style.background.is_none() && style.border_width.is_none() {
         return;
     }
 
     let rect = layout_rect_to_skia(rect.bounds);
     let radius = effective_corner_radius(rect, style.border_radius);
-
-    if let Some(shadow) = style.shadow {
-        draw_shadow(canvas, rect, radius, shadow);
-    }
 
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
@@ -502,32 +537,33 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
     }
 }
 
-fn draw_shadow(canvas: &Canvas, rect: Rect, radius: f32, shadow: ShadowStyle) {
-    let (blur, offset_y) = match shadow {
-        ShadowStyle::SM => (2.0, 1.0),
-        ShadowStyle::MD => (4.0, 3.0),
-        ShadowStyle::LG => (10.0, 6.0),
-        ShadowStyle::XL => (20.0, 10.0),
-    };
-
+fn draw_item_shadow(
+    canvas: &Canvas,
+    bounds: DisplayRect,
+    shadow: ShadowStyle,
+    draw: impl FnOnce(&Canvas) -> Result<()>,
+) -> Result<()> {
+    let (left, top, right, bottom) = shadow.outsets();
+    let shadow_bounds = layout_rect_to_skia(bounds.outset(left, top, right, bottom));
     let mut paint = Paint::default();
-    paint.set_color(skia_safe::Color::from_argb(30, 0, 0, 0));
     paint.set_anti_alias(true);
-
-    let shadow_rect = Rect::from_xywh(
-        rect.left() - blur / 2.0,
-        rect.top() + offset_y - blur / 2.0,
-        rect.width() + blur,
-        rect.height() + blur,
-    );
-
-    let radius = effective_corner_radius(shadow_rect, radius + blur / 2.0);
-    if radius > 0.0 {
-        let rrect = RRect::new_rect_xy(shadow_rect, radius, radius);
-        canvas.draw_rrect(rrect, &paint);
-    } else {
-        canvas.draw_rect(shadow_rect, &paint);
-    }
+    let shadow_filter = image_filters::drop_shadow_only(
+        (0.0, shadow.offset_y()),
+        (shadow.sigma(), shadow.sigma()),
+        Color4f::new(0.0, 0.0, 0.0, 30.0 / 255.0),
+        None::<skia_safe::ColorSpace>,
+        None::<skia_safe::ImageFilter>,
+        None::<skia_safe::image_filters::CropRect>,
+    )
+    .ok_or_else(|| anyhow!("failed to create drop shadow filter"))?;
+    paint.set_image_filter(shadow_filter);
+    let layer = SaveLayerRec::default()
+        .bounds(&shadow_bounds)
+        .paint(&paint);
+    canvas.save_layer(&layer);
+    let result = draw(canvas);
+    canvas.restore();
+    result
 }
 
 fn draw_text(
@@ -677,10 +713,6 @@ fn draw_bitmap(
 
     let src_width = bitmap.width as f32;
     let src_height = bitmap.height as f32;
-
-    if let Some(shadow) = bitmap.paint.shadow {
-        draw_shadow(canvas, dst, radius, shadow);
-    }
 
     if let Some(color) = bitmap.paint.background {
         let mut background_paint = Paint::default();

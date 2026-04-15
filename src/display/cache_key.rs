@@ -88,14 +88,16 @@ fn hash_display_item(item: &DisplayItem, state: &mut impl Hasher) {
             rect.paint.border_width.map(f32::to_bits).hash(state);
             rect.paint.border_color.hash(state);
             rect.paint.blur_sigma.map(f32::to_bits).hash(state);
-            rect.paint.shadow.hash(state);
+            rect.paint.box_shadow.hash(state);
+            rect.paint.inset_shadow.hash(state);
+            rect.paint.drop_shadow.hash(state);
         }
         DisplayItem::Text(text) => {
             1_u8.hash(state);
             text.text.hash(state);
             hash_text_style(&text.style, state);
             text.allow_wrap.hash(state);
-            text.shadow.hash(state);
+            text.drop_shadow.hash(state);
         }
         DisplayItem::Bitmap(bitmap) => {
             2_u8.hash(state);
@@ -114,12 +116,14 @@ fn hash_display_item(item: &DisplayItem, state: &mut impl Hasher) {
             bitmap.paint.border_width.map(f32::to_bits).hash(state);
             bitmap.paint.border_color.hash(state);
             bitmap.paint.blur_sigma.map(f32::to_bits).hash(state);
-            bitmap.paint.shadow.hash(state);
+            bitmap.paint.box_shadow.hash(state);
+            bitmap.paint.inset_shadow.hash(state);
+            bitmap.paint.drop_shadow.hash(state);
         }
         DisplayItem::DrawScript(script) => {
             3_u8.hash(state);
             script.commands.len().hash(state);
-            script.shadow.hash(state);
+            script.drop_shadow.hash(state);
             for command in &script.commands {
                 hash_draw_script_command(command, state);
             }
@@ -131,7 +135,7 @@ fn hash_display_item(item: &DisplayItem, state: &mut impl Hasher) {
             lucide.paint.background.hash(state);
             lucide.paint.border_width.map(f32::to_bits).hash(state);
             lucide.paint.border_color.hash(state);
-            lucide.paint.shadow.hash(state);
+            lucide.paint.drop_shadow.hash(state);
         }
     }
 }

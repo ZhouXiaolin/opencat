@@ -1,7 +1,7 @@
 use crate::style::{
-    AlignItems, BackgroundFill, ComputedTextStyle, FlexDirection, FlexWrap, GridAutoFlow,
-    GridAutoRows, GridPlacement, JustifyContent, LengthPercentageAuto, ObjectFit, Position,
-    ShadowStyle, Transform,
+    AlignItems, BackgroundFill, BoxShadow, ComputedTextStyle, DropShadow, FlexDirection,
+    FlexWrap, GridAutoFlow, GridAutoRows, GridPlacement, InsetShadow, JustifyContent,
+    LengthPercentageAuto, ObjectFit, Position, Transform,
 };
 
 #[derive(Clone, Debug)]
@@ -96,5 +96,7 @@ pub struct ComputedVisualStyle {
     pub object_fit: ObjectFit,
     pub clip_contents: bool,
     pub transforms: Vec<Transform>,
-    pub shadow: Option<ShadowStyle>,
+    pub box_shadow: Option<BoxShadow>,
+    pub inset_shadow: Option<InsetShadow>,
+    pub drop_shadow: Option<DropShadow>,
 }

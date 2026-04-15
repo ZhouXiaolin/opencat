@@ -45,6 +45,11 @@
             case 'textAlign': __record_text_align(id, String(args[0])); break;
             case 'lineHeight': __record_line_height(id, args[0]); break;
             case 'shadow': __record_shadow(id, String(args[0])); break;
+            case 'shadowColor': __record_shadow_color(id, String(args[0])); break;
+            case 'insetShadow': __record_inset_shadow(id, String(args[0])); break;
+            case 'insetShadowColor': __record_inset_shadow_color(id, String(args[0])); break;
+            case 'dropShadow': __record_drop_shadow(id, String(args[0])); break;
+            case 'dropShadowColor': __record_drop_shadow_color(id, String(args[0])); break;
         }
     }
 

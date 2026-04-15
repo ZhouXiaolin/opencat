@@ -2,9 +2,10 @@ use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
 use crate::style::{
-    AlignItems, ColorToken, FlexDirection, FlexWrap, FontWeight, GradientDirection, GridAutoFlow,
-    GridAutoRows, GridPlacement, JustifyContent, LengthPercentageAuto, NodeStyle, ObjectFit,
-    Position, ShadowStyle, TextAlign, TextTransform, color_token_from_class_suffix,
+    AlignItems, BoxShadow, BoxShadowStyle, ColorToken, DropShadow, DropShadowStyle,
+    FlexDirection, FlexWrap, FontWeight, GradientDirection, GridAutoFlow, GridAutoRows,
+    GridPlacement, InsetShadow, InsetShadowStyle, JustifyContent, LengthPercentageAuto, NodeStyle,
+    ObjectFit, Position, TextAlign, TextTransform, color_token_from_class_suffix,
 };
 
 static UNSUPPORTED_TAILWIND_CLASSES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -131,7 +132,16 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         }
         ExactClassAction::ObjectFit(value) => style.object_fit = Some(value),
         ExactClassAction::FontWeight(value) => style.font_weight = Some(value),
-        ExactClassAction::Shadow(value) => style.shadow = Some(value),
+        ExactClassAction::BoxShadow(value) => style.box_shadow = Some(BoxShadow::from_style(value)),
+        ExactClassAction::InsetShadow(value) => {
+            style.inset_shadow = Some(InsetShadow::from_style(value))
+        }
+        ExactClassAction::DropShadow(value) => {
+            style.drop_shadow = Some(DropShadow::from_style(value))
+        }
+        ExactClassAction::ClearBoxShadow => style.box_shadow = None,
+        ExactClassAction::ClearInsetShadow => style.inset_shadow = None,
+        ExactClassAction::ClearDropShadow => style.drop_shadow = None,
         ExactClassAction::BorderRadius(value) => style.border_radius = Some(value),
         ExactClassAction::BorderWidth(value) => style.border_width = Some(value),
         ExactClassAction::OverflowHidden => style.overflow_hidden = true,
@@ -173,6 +183,20 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
 }
 
 fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
+    if apply_shadow_value_rule(class, "shadow-[", ShadowValueTarget::Box, style)
+        || apply_shadow_value_rule(class, "inset-shadow-[", ShadowValueTarget::Inset, style)
+        || apply_shadow_value_rule(class, "drop-shadow-[", ShadowValueTarget::Drop, style)
+    {
+        return true;
+    }
+
+    if apply_shadow_color_rule(class, "shadow-", ShadowColorTarget::Box, style)
+        || apply_shadow_color_rule(class, "inset-shadow-", ShadowColorTarget::Inset, style)
+        || apply_shadow_color_rule(class, "drop-shadow-", ShadowColorTarget::Drop, style)
+    {
+        return true;
+    }
+
     if let Some(value) = parse_length_percentage_auto_class(class, "inset-", "-inset-") {
         style.inset_left = Some(value);
         style.inset_top = Some(value);
@@ -669,6 +693,20 @@ enum ColorTarget {
 }
 
 #[derive(Copy, Clone)]
+enum ShadowColorTarget {
+    Box,
+    Inset,
+    Drop,
+}
+
+#[derive(Copy, Clone)]
+enum ShadowValueTarget {
+    Box,
+    Inset,
+    Drop,
+}
+
+#[derive(Copy, Clone)]
 enum ExactClassAction {
     Position(Position),
     Flex,
@@ -685,7 +723,12 @@ enum ExactClassAction {
     JustifySelf(AlignItems),
     ObjectFit(ObjectFit),
     FontWeight(FontWeight),
-    Shadow(ShadowStyle),
+    BoxShadow(BoxShadowStyle),
+    InsetShadow(InsetShadowStyle),
+    DropShadow(DropShadowStyle),
+    ClearBoxShadow,
+    ClearInsetShadow,
+    ClearDropShadow,
     BorderRadius(f32),
     BorderWidth(f32),
     OverflowHidden,
@@ -771,6 +814,174 @@ fn apply_color_prefix_rule(
     false
 }
 
+fn apply_shadow_color_rule(
+    class: &str,
+    prefix: &str,
+    target: ShadowColorTarget,
+    style: &mut NodeStyle,
+) -> bool {
+    let Some(value) = class.strip_prefix(prefix) else {
+        return false;
+    };
+    let Some(color) = parse_any_color_value(value) else {
+        return false;
+    };
+    match target {
+        ShadowColorTarget::Box => style.box_shadow_color = Some(color),
+        ShadowColorTarget::Inset => style.inset_shadow_color = Some(color),
+        ShadowColorTarget::Drop => style.drop_shadow_color = Some(color),
+    }
+    true
+}
+
+fn apply_shadow_value_rule(
+    class: &str,
+    prefix: &str,
+    target: ShadowValueTarget,
+    style: &mut NodeStyle,
+) -> bool {
+    let Some(value) = class
+        .strip_prefix(prefix)
+        .and_then(|value| value.strip_suffix(']'))
+    else {
+        return false;
+    };
+
+    match target {
+        ShadowValueTarget::Box => parse_box_shadow_value(value)
+            .map(|shadow| style.box_shadow = Some(shadow))
+            .is_some(),
+        ShadowValueTarget::Inset => parse_inset_shadow_value(value)
+            .map(|shadow| style.inset_shadow = Some(shadow))
+            .is_some(),
+        ShadowValueTarget::Drop => parse_drop_shadow_value(value)
+            .map(|shadow| style.drop_shadow = Some(shadow))
+            .is_some(),
+    }
+}
+
+fn parse_box_shadow_value(value: &str) -> Option<BoxShadow> {
+    let tokens = split_shadow_tokens(value);
+    let (length_tokens, color) = split_shadow_tokens_and_color(tokens)?;
+    let color = color.unwrap_or(ColorToken::Custom(0, 0, 0, 30));
+    match length_tokens.as_slice() {
+        [offset_x, offset_y, blur] => Some(BoxShadow {
+            offset_x: parse_shadow_length(offset_x)?,
+            offset_y: parse_shadow_length(offset_y)?,
+            blur_sigma: parse_shadow_blur(blur)?,
+            spread: 0.0,
+            color,
+        }),
+        [offset_x, offset_y, blur, spread] => Some(BoxShadow {
+            offset_x: parse_shadow_length(offset_x)?,
+            offset_y: parse_shadow_length(offset_y)?,
+            blur_sigma: parse_shadow_blur(blur)?,
+            spread: parse_shadow_length(spread)?,
+            color,
+        }),
+        _ => None,
+    }
+}
+
+fn parse_inset_shadow_value(value: &str) -> Option<InsetShadow> {
+    let tokens = split_shadow_tokens(value);
+    let (length_tokens, color) = split_shadow_tokens_and_color(tokens)?;
+    let color = color.unwrap_or(ColorToken::Custom(0, 0, 0, 30));
+    match length_tokens.as_slice() {
+        [offset_x, offset_y, blur] => Some(InsetShadow {
+            offset_x: parse_shadow_length(offset_x)?,
+            offset_y: parse_shadow_length(offset_y)?,
+            blur_sigma: parse_shadow_blur(blur)?,
+            spread: 0.0,
+            color,
+        }),
+        [offset_x, offset_y, blur, spread] => Some(InsetShadow {
+            offset_x: parse_shadow_length(offset_x)?,
+            offset_y: parse_shadow_length(offset_y)?,
+            blur_sigma: parse_shadow_blur(blur)?,
+            spread: parse_shadow_length(spread)?,
+            color,
+        }),
+        _ => None,
+    }
+}
+
+fn parse_drop_shadow_value(value: &str) -> Option<DropShadow> {
+    let tokens = split_shadow_tokens(value);
+    let (length_tokens, color) = split_shadow_tokens_and_color(tokens)?;
+    let color = color.unwrap_or(ColorToken::Custom(0, 0, 0, 30));
+    match length_tokens.as_slice() {
+        [offset_x, offset_y] => Some(DropShadow {
+            offset_x: parse_shadow_length(offset_x)?,
+            offset_y: parse_shadow_length(offset_y)?,
+            blur_sigma: 0.0,
+            color,
+        }),
+        [offset_x, offset_y, blur] => Some(DropShadow {
+            offset_x: parse_shadow_length(offset_x)?,
+            offset_y: parse_shadow_length(offset_y)?,
+            blur_sigma: parse_shadow_blur(blur)?,
+            color,
+        }),
+        _ => None,
+    }
+}
+
+fn split_shadow_tokens(value: &str) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    let mut start = 0;
+    let mut depth: usize = 0;
+
+    for (idx, ch) in value.char_indices() {
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            '_' if depth == 0 => {
+                tokens.push(&value[start..idx]);
+                start = idx + 1;
+            }
+            _ => {}
+        }
+    }
+
+    if start <= value.len() {
+        tokens.push(&value[start..]);
+    }
+
+    tokens.into_iter().filter(|token| !token.is_empty()).collect()
+}
+
+fn split_shadow_tokens_and_color(tokens: Vec<&str>) -> Option<(Vec<&str>, Option<ColorToken>)> {
+    let mut tokens = tokens;
+    if tokens.is_empty() {
+        return None;
+    }
+    let color = if let Some(last) = tokens.last().copied() {
+        if let Some(color) = parse_any_color_value(last) {
+            tokens.pop();
+            Some(color)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    Some((tokens, color))
+}
+
+fn parse_shadow_length(token: &str) -> Option<f32> {
+    let token = token.trim();
+    token
+        .strip_suffix("px")
+        .unwrap_or(token)
+        .parse::<f32>()
+        .ok()
+}
+
+fn parse_shadow_blur(token: &str) -> Option<f32> {
+    parse_shadow_length(token).map(|value| value / 6.0)
+}
+
 fn apply_bracket_hex_color_rule(
     class: &str,
     prefix: &str,
@@ -802,7 +1013,7 @@ fn apply_bracket_color_rule(
     else {
         return false;
     };
-    let Some(color) = parse_color_token_with_opacity(value) else {
+    let Some(color) = parse_any_color_value(value) else {
         return false;
     };
     apply_color_target(style, target, color);
@@ -921,6 +1132,12 @@ fn apply_color_target(style: &mut NodeStyle, target: ColorTarget, value: ColorTo
     }
 }
 
+fn parse_any_color_value(value: &str) -> Option<ColorToken> {
+    parse_color_token_with_opacity(value)
+        .or_else(|| color_from_hex(value))
+        .or_else(|| parse_rgb_function_color(value))
+}
+
 fn parse_color_token_with_opacity(value: &str) -> Option<ColorToken> {
     let (base, opacity_suffix) = match value.rsplit_once('/') {
         Some((base, opacity_suffix)) => (base, Some(opacity_suffix)),
@@ -938,6 +1155,53 @@ fn parse_color_token_with_opacity(value: &str) -> Option<ColorToken> {
     let alpha = ((a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
 
     Some(ColorToken::Custom(r, g, b, alpha))
+}
+
+fn parse_rgb_function_color(value: &str) -> Option<ColorToken> {
+    let lower = value.trim();
+    let (inner, has_alpha) = if let Some(inner) = lower
+        .strip_prefix("rgba(")
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        (inner, true)
+    } else if let Some(inner) = lower
+        .strip_prefix("rgb(")
+        .and_then(|value| value.strip_suffix(')'))
+    {
+        (inner, false)
+    } else {
+        return None;
+    };
+
+    let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
+    if (!has_alpha && parts.len() != 3) || (has_alpha && parts.len() != 4) {
+        return None;
+    }
+
+    let r = parse_rgb_channel(parts[0])?;
+    let g = parse_rgb_channel(parts[1])?;
+    let b = parse_rgb_channel(parts[2])?;
+    let a = if has_alpha {
+        parse_alpha_channel(parts[3])?
+    } else {
+        255
+    };
+    Some(ColorToken::Custom(r, g, b, a))
+}
+
+fn parse_rgb_channel(value: &str) -> Option<u8> {
+    value.parse::<f32>().ok().map(|value| value.round().clamp(0.0, 255.0) as u8)
+}
+
+fn parse_alpha_channel(value: &str) -> Option<u8> {
+    if let Some(percent) = value.strip_suffix('%') {
+        let alpha = percent.parse::<f32>().ok()? / 100.0;
+        return Some((alpha * 255.0).round().clamp(0.0, 255.0) as u8);
+    }
+
+    let alpha = value.parse::<f32>().ok()?;
+    let alpha = if alpha <= 1.0 { alpha * 255.0 } else { alpha };
+    Some(alpha.round().clamp(0.0, 255.0) as u8)
 }
 
 fn parse_signed_bracket_f32(
@@ -1278,5 +1542,47 @@ fn parse_aspect_ratio(value: &str) -> Option<f32> {
             }
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_class_name;
+    use crate::style::ColorToken;
+
+    #[test]
+    fn parses_box_drop_and_inset_shadows_separately() {
+        let style = parse_class_name("shadow-lg drop-shadow-md inset-shadow-sm");
+
+        assert!(style.box_shadow.is_some());
+        assert!(style.drop_shadow.is_some());
+        assert!(style.inset_shadow.is_some());
+    }
+
+    #[test]
+    fn shadow_color_override_is_order_independent() {
+        let a = parse_class_name("shadow-red-500 shadow-lg");
+        let b = parse_class_name("shadow-lg shadow-red-500");
+
+        assert_eq!(a.box_shadow_color, Some(ColorToken::Red500));
+        assert_eq!(b.box_shadow_color, Some(ColorToken::Red500));
+    }
+
+    #[test]
+    fn parses_arbitrary_shadow_values_and_rgb_colors() {
+        let style =
+            parse_class_name("shadow-[0_8px_24px_rgba(0,0,0,0.18)] drop-shadow-[2px_4px_12px_#00000066]");
+
+        let box_shadow = style.box_shadow.expect("box shadow should parse");
+        assert_eq!(box_shadow.offset_x, 0.0);
+        assert_eq!(box_shadow.offset_y, 8.0);
+        assert!((box_shadow.blur_sigma - 4.0).abs() < f32::EPSILON);
+        assert_eq!(box_shadow.color, ColorToken::Custom(0, 0, 0, 46));
+
+        let drop_shadow = style.drop_shadow.expect("drop shadow should parse");
+        assert_eq!(drop_shadow.offset_x, 2.0);
+        assert_eq!(drop_shadow.offset_y, 4.0);
+        assert!((drop_shadow.blur_sigma - 2.0).abs() < f32::EPSILON);
+        assert_eq!(drop_shadow.color, ColorToken::Custom(0, 0, 0, 102));
     }
 }

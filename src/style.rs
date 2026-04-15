@@ -162,38 +162,210 @@ pub enum TextTransform {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ShadowStyle {
-    SM,
-    MD,
-    LG,
-    XL,
+pub enum BoxShadowStyle {
+    TwoXs,
+    Xs,
+    Sm,
+    Base,
+    Md,
+    Lg,
+    Xl,
+    TwoXl,
+    ThreeXl,
 }
 
-impl ShadowStyle {
-    pub fn sigma(self) -> f32 {
-        match self {
-            Self::SM => 2.0 / 6.0,
-            Self::MD => 4.0 / 6.0,
-            Self::LG => 10.0 / 6.0,
-            Self::XL => 20.0 / 6.0,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DropShadowStyle {
+    Xs,
+    Sm,
+    Base,
+    Md,
+    Lg,
+    Xl,
+    TwoXl,
+    ThreeXl,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InsetShadowStyle {
+    TwoXs,
+    Xs,
+    Base,
+    Sm,
+    Md,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BoxShadow {
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub blur_sigma: f32,
+    pub spread: f32,
+    pub color: ColorToken,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InsetShadow {
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub blur_sigma: f32,
+    pub spread: f32,
+    pub color: ColorToken,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DropShadow {
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub blur_sigma: f32,
+    pub color: ColorToken,
+}
+
+impl std::hash::Hash for BoxShadow {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.offset_x.to_bits().hash(state);
+        self.offset_y.to_bits().hash(state);
+        self.blur_sigma.to_bits().hash(state);
+        self.spread.to_bits().hash(state);
+        self.color.hash(state);
+    }
+}
+
+impl std::hash::Hash for InsetShadow {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.offset_x.to_bits().hash(state);
+        self.offset_y.to_bits().hash(state);
+        self.blur_sigma.to_bits().hash(state);
+        self.spread.to_bits().hash(state);
+        self.color.hash(state);
+    }
+}
+
+impl std::hash::Hash for DropShadow {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.offset_x.to_bits().hash(state);
+        self.offset_y.to_bits().hash(state);
+        self.blur_sigma.to_bits().hash(state);
+        self.color.hash(state);
+    }
+}
+
+impl BoxShadow {
+    pub fn from_style(style: BoxShadowStyle) -> Self {
+        match style {
+            BoxShadowStyle::TwoXs => Self::new(0.0, 1.0, 0.5 / 6.0, 0.0, 0.05),
+            BoxShadowStyle::Xs => Self::new(0.0, 1.0, 2.0 / 6.0, 0.0, 0.05),
+            BoxShadowStyle::Sm => Self::new(0.0, 1.0, 3.0 / 6.0, 0.0, 0.10),
+            BoxShadowStyle::Base => Self::new(0.0, 1.0, 4.0 / 6.0, 0.0, 0.10),
+            BoxShadowStyle::Md => Self::new(0.0, 4.0, 6.0 / 6.0, 0.0, 0.10),
+            BoxShadowStyle::Lg => Self::new(0.0, 10.0, 15.0 / 6.0, 0.0, 0.10),
+            BoxShadowStyle::Xl => Self::new(0.0, 20.0, 25.0 / 6.0, 0.0, 0.10),
+            BoxShadowStyle::TwoXl => Self::new(0.0, 25.0, 50.0 / 6.0, 0.0, 0.18),
+            BoxShadowStyle::ThreeXl => Self::new(0.0, 35.0, 60.0 / 6.0, 0.0, 0.22),
         }
     }
 
-    pub fn offset_y(self) -> f32 {
-        match self {
-            Self::SM => 1.0,
-            Self::MD => 3.0,
-            Self::LG => 6.0,
-            Self::XL => 10.0,
+    pub const fn new(offset_x: f32, offset_y: f32, blur_sigma: f32, spread: f32, alpha: f32) -> Self {
+        Self {
+            offset_x,
+            offset_y,
+            blur_sigma,
+            spread,
+            color: shadow_color(alpha),
         }
+    }
+
+    pub const fn with_color(mut self, color: ColorToken) -> Self {
+        self.color = color;
+        self
     }
 
     pub fn outsets(self) -> (f32, f32, f32, f32) {
-        let extent = self.sigma() * 3.0;
-        let top = (extent - self.offset_y()).max(0.0);
-        let bottom = extent + self.offset_y();
-        (extent, top, extent, bottom)
+        shadow_outsets(
+            self.blur_sigma,
+            self.offset_x,
+            self.offset_y,
+            self.spread.max(0.0),
+        )
     }
+}
+
+impl InsetShadow {
+    pub fn from_style(style: InsetShadowStyle) -> Self {
+        match style {
+            InsetShadowStyle::TwoXs => Self::new(0.0, 1.0, 1.0 / 6.0, 0.0, 0.05),
+            InsetShadowStyle::Xs => Self::new(0.0, 1.0, 2.0 / 6.0, 0.0, 0.08),
+            InsetShadowStyle::Base => Self::new(0.0, 2.0, 4.0 / 6.0, 0.0, 0.10),
+            InsetShadowStyle::Sm => Self::new(0.0, 2.0, 5.0 / 6.0, 0.0, 0.12),
+            InsetShadowStyle::Md => Self::new(0.0, 3.0, 7.0 / 6.0, 1.0, 0.14),
+        }
+    }
+
+    pub const fn new(offset_x: f32, offset_y: f32, blur_sigma: f32, spread: f32, alpha: f32) -> Self {
+        Self {
+            offset_x,
+            offset_y,
+            blur_sigma,
+            spread,
+            color: shadow_color(alpha),
+        }
+    }
+
+    pub const fn with_color(mut self, color: ColorToken) -> Self {
+        self.color = color;
+        self
+    }
+}
+
+impl DropShadow {
+    pub fn from_style(style: DropShadowStyle) -> Self {
+        match style {
+            DropShadowStyle::Xs => Self::new(0.0, 1.0, 1.0 / 6.0, 0.05),
+            DropShadowStyle::Sm => Self::new(0.0, 1.0, 2.0 / 6.0, 30.0 / 255.0),
+            DropShadowStyle::Base => Self::new(0.0, 1.0, 2.0 / 6.0, 30.0 / 255.0),
+            DropShadowStyle::Md => Self::new(0.0, 3.0, 4.0 / 6.0, 0.14),
+            DropShadowStyle::Lg => Self::new(0.0, 6.0, 8.0 / 6.0, 0.16),
+            DropShadowStyle::Xl => Self::new(0.0, 10.0, 14.0 / 6.0, 0.18),
+            DropShadowStyle::TwoXl => Self::new(0.0, 16.0, 24.0 / 6.0, 0.20),
+            DropShadowStyle::ThreeXl => Self::new(0.0, 24.0, 36.0 / 6.0, 0.22),
+        }
+    }
+
+    pub const fn new(offset_x: f32, offset_y: f32, blur_sigma: f32, alpha: f32) -> Self {
+        Self {
+            offset_x,
+            offset_y,
+            blur_sigma,
+            color: shadow_color(alpha),
+        }
+    }
+
+    pub const fn with_color(mut self, color: ColorToken) -> Self {
+        self.color = color;
+        self
+    }
+
+    pub fn outsets(self) -> (f32, f32, f32, f32) {
+        shadow_outsets(self.blur_sigma, self.offset_x, self.offset_y, 0.0)
+    }
+}
+
+const fn shadow_color(alpha: f32) -> ColorToken {
+    ColorToken::Custom(0, 0, 0, (alpha * 255.0) as u8)
+}
+
+fn shadow_outsets(
+    blur_sigma: f32,
+    offset_x: f32,
+    offset_y: f32,
+    spread: f32,
+) -> (f32, f32, f32, f32) {
+    let extent = blur_sigma * 3.0;
+    let left = (extent + spread - offset_x).max(0.0);
+    let top = (extent + spread - offset_y).max(0.0);
+    let right = (extent + spread + offset_x).max(0.0);
+    let bottom = (extent + spread + offset_y).max(0.0);
+    (left, top, right, bottom)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -321,7 +493,12 @@ pub struct NodeStyle {
     pub text_transform: Option<TextTransform>,
 
     // Shadow
-    pub shadow: Option<ShadowStyle>,
+    pub box_shadow: Option<BoxShadow>,
+    pub box_shadow_color: Option<ColorToken>,
+    pub inset_shadow: Option<InsetShadow>,
+    pub inset_shadow_color: Option<ColorToken>,
+    pub drop_shadow: Option<DropShadow>,
+    pub drop_shadow_color: Option<ColorToken>,
 
     // Identity (for JS animation targeting and stable scene updates)
     pub id: String,
@@ -1032,25 +1209,74 @@ macro_rules! impl_node_style_api {
             }
 
             // === Shadow ===
-            pub fn shadow(mut self, style: $crate::style::ShadowStyle) -> Self {
-                self.style.shadow = Some(style);
+            pub fn shadow(mut self, style: $crate::style::BoxShadowStyle) -> Self {
+                self.style.box_shadow = Some($crate::style::BoxShadow::from_style(style));
                 self
             }
 
             pub fn shadow_sm(self) -> Self {
-                self.shadow($crate::style::ShadowStyle::SM)
+                self.shadow($crate::style::BoxShadowStyle::Sm)
             }
 
             pub fn shadow_md(self) -> Self {
-                self.shadow($crate::style::ShadowStyle::MD)
+                self.shadow($crate::style::BoxShadowStyle::Md)
             }
 
             pub fn shadow_lg(self) -> Self {
-                self.shadow($crate::style::ShadowStyle::LG)
+                self.shadow($crate::style::BoxShadowStyle::Lg)
             }
 
             pub fn shadow_xl(self) -> Self {
-                self.shadow($crate::style::ShadowStyle::XL)
+                self.shadow($crate::style::BoxShadowStyle::Xl)
+            }
+
+            pub fn shadow_color(mut self, color: $crate::style::ColorToken) -> Self {
+                self.style.box_shadow_color = Some(color);
+                self
+            }
+
+            pub fn inset_shadow(mut self, style: $crate::style::InsetShadowStyle) -> Self {
+                self.style.inset_shadow = Some($crate::style::InsetShadow::from_style(style));
+                self
+            }
+
+            pub fn inset_shadow_sm(self) -> Self {
+                self.inset_shadow($crate::style::InsetShadowStyle::Sm)
+            }
+
+            pub fn inset_shadow_md(self) -> Self {
+                self.inset_shadow($crate::style::InsetShadowStyle::Md)
+            }
+
+            pub fn inset_shadow_color(mut self, color: $crate::style::ColorToken) -> Self {
+                self.style.inset_shadow_color = Some(color);
+                self
+            }
+
+            pub fn drop_shadow(mut self, style: $crate::style::DropShadowStyle) -> Self {
+                self.style.drop_shadow = Some($crate::style::DropShadow::from_style(style));
+                self
+            }
+
+            pub fn drop_shadow_sm(self) -> Self {
+                self.drop_shadow($crate::style::DropShadowStyle::Sm)
+            }
+
+            pub fn drop_shadow_md(self) -> Self {
+                self.drop_shadow($crate::style::DropShadowStyle::Md)
+            }
+
+            pub fn drop_shadow_lg(self) -> Self {
+                self.drop_shadow($crate::style::DropShadowStyle::Lg)
+            }
+
+            pub fn drop_shadow_xl(self) -> Self {
+                self.drop_shadow($crate::style::DropShadowStyle::Xl)
+            }
+
+            pub fn drop_shadow_color(mut self, color: $crate::style::ColorToken) -> Self {
+                self.style.drop_shadow_color = Some(color);
+                self
             }
 
             // === Letter Spacing ===

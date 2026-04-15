@@ -131,7 +131,9 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 border_width: element.style.visual.border_width,
                 border_color: element.style.visual.border_color,
                 blur_sigma: element.style.visual.blur_sigma,
-                shadow: element.style.visual.shadow,
+                box_shadow: element.style.visual.box_shadow,
+                inset_shadow: element.style.visual.inset_shadow,
+                drop_shadow: element.style.visual.drop_shadow,
             },
         }),
         ElementKind::Text(text) => DisplayItem::Text(TextDisplayItem {
@@ -141,7 +143,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
             allow_wrap: element.style.text.wrap_text
                 || element.style.layout.width.is_some()
                 || element.style.layout.width_full,
-            shadow: element.style.visual.shadow,
+            drop_shadow: element.style.visual.drop_shadow,
         }),
         ElementKind::Bitmap(bitmap) => DisplayItem::Bitmap(BitmapDisplayItem {
             bounds,
@@ -156,13 +158,15 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 border_width: element.style.visual.border_width,
                 border_color: element.style.visual.border_color,
                 blur_sigma: element.style.visual.blur_sigma,
-                shadow: element.style.visual.shadow,
+                box_shadow: element.style.visual.box_shadow,
+                inset_shadow: element.style.visual.inset_shadow,
+                drop_shadow: element.style.visual.drop_shadow,
             },
         }),
         ElementKind::Canvas(canvas) => DisplayItem::DrawScript(DrawScriptDisplayItem {
             bounds,
             commands: canvas.commands.clone(),
-            shadow: element.style.visual.shadow,
+            drop_shadow: element.style.visual.drop_shadow,
         }),
         ElementKind::Lucide(lucide) => DisplayItem::Lucide(LucideDisplayItem {
             bounds,
@@ -172,7 +176,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 background: element.style.visual.background,
                 border_width: element.style.visual.border_width,
                 border_color: element.style.visual.border_color,
-                shadow: element.style.visual.shadow,
+                drop_shadow: element.style.visual.drop_shadow,
             },
         }),
     }

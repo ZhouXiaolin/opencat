@@ -1,13 +1,13 @@
-use opencat::{Composition, EncodingConfig, ScriptDriver, parse};
+use opencat::{Composition, EncodingConfig, ScriptDriver, parse_file};
 
 fn main() -> anyhow::Result<()> {
-    let input = if let Some(path) = std::env::args().nth(1) {
-        std::fs::read_to_string(path)?
+    let path = if let Some(path) = std::env::args().nth(1) {
+        path
     } else {
         return Err(anyhow::anyhow!("No input file provided"));
     };
 
-    let parsed = parse(&input)?;
+    let parsed = parse_file(&path)?;
 
     println!("Parsed composition: {}x{}", parsed.width, parsed.height);
 

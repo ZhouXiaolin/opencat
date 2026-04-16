@@ -705,12 +705,30 @@ fn generate_tailwind_jsonl_rules() -> String {
             "shadow-2xs",
             "ExactClassAction::BoxShadow(BoxShadowStyle::TwoXs)",
         ),
-        ("shadow-xs", "ExactClassAction::BoxShadow(BoxShadowStyle::Xs)"),
-        ("shadow-sm", "ExactClassAction::BoxShadow(BoxShadowStyle::Sm)"),
-        ("shadow", "ExactClassAction::BoxShadow(BoxShadowStyle::Base)"),
-        ("shadow-md", "ExactClassAction::BoxShadow(BoxShadowStyle::Md)"),
-        ("shadow-lg", "ExactClassAction::BoxShadow(BoxShadowStyle::Lg)"),
-        ("shadow-xl", "ExactClassAction::BoxShadow(BoxShadowStyle::Xl)"),
+        (
+            "shadow-xs",
+            "ExactClassAction::BoxShadow(BoxShadowStyle::Xs)",
+        ),
+        (
+            "shadow-sm",
+            "ExactClassAction::BoxShadow(BoxShadowStyle::Sm)",
+        ),
+        (
+            "shadow",
+            "ExactClassAction::BoxShadow(BoxShadowStyle::Base)",
+        ),
+        (
+            "shadow-md",
+            "ExactClassAction::BoxShadow(BoxShadowStyle::Md)",
+        ),
+        (
+            "shadow-lg",
+            "ExactClassAction::BoxShadow(BoxShadowStyle::Lg)",
+        ),
+        (
+            "shadow-xl",
+            "ExactClassAction::BoxShadow(BoxShadowStyle::Xl)",
+        ),
         (
             "shadow-2xl",
             "ExactClassAction::BoxShadow(BoxShadowStyle::TwoXl)",
@@ -853,9 +871,18 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("blur-2xl", "ExactClassAction::BlurSigma(40.0)"),
         ("blur-3xl", "ExactClassAction::BlurSigma(64.0)"),
         // Grid auto flow
-        ("grid-flow-row", "ExactClassAction::GridAutoFlow(GridAutoFlow::Row)"),
-        ("grid-flow-col", "ExactClassAction::GridAutoFlow(GridAutoFlow::Column)"),
-        ("grid-flow-dense", "ExactClassAction::GridAutoFlow(GridAutoFlow::RowDense)"),
+        (
+            "grid-flow-row",
+            "ExactClassAction::GridAutoFlow(GridAutoFlow::Row)",
+        ),
+        (
+            "grid-flow-col",
+            "ExactClassAction::GridAutoFlow(GridAutoFlow::Column)",
+        ),
+        (
+            "grid-flow-dense",
+            "ExactClassAction::GridAutoFlow(GridAutoFlow::RowDense)",
+        ),
         (
             "grid-flow-row-dense",
             "ExactClassAction::GridAutoFlow(GridAutoFlow::RowDense)",
@@ -879,10 +906,22 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("auto-cols-min", "ExactClassAction::Noop"),
         ("auto-cols-max", "ExactClassAction::Noop"),
         ("auto-cols-fr", "ExactClassAction::Noop"),
-        ("auto-rows-auto", "ExactClassAction::GridAutoRows(GridAutoRows::Auto)"),
-        ("auto-rows-min", "ExactClassAction::GridAutoRows(GridAutoRows::Min)"),
-        ("auto-rows-max", "ExactClassAction::GridAutoRows(GridAutoRows::Max)"),
-        ("auto-rows-fr", "ExactClassAction::GridAutoRows(GridAutoRows::Fr)"),
+        (
+            "auto-rows-auto",
+            "ExactClassAction::GridAutoRows(GridAutoRows::Auto)",
+        ),
+        (
+            "auto-rows-min",
+            "ExactClassAction::GridAutoRows(GridAutoRows::Min)",
+        ),
+        (
+            "auto-rows-max",
+            "ExactClassAction::GridAutoRows(GridAutoRows::Max)",
+        ),
+        (
+            "auto-rows-fr",
+            "ExactClassAction::GridAutoRows(GridAutoRows::Fr)",
+        ),
         // Order
         ("order-first", "ExactClassAction::Order(i32::MIN)"),
         ("order-last", "ExactClassAction::Order(i32::MAX)"),
@@ -891,22 +930,64 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("aspect-square", "ExactClassAction::AspectRatio(1.0)"),
         ("aspect-video", "ExactClassAction::AspectRatio(16.0 / 9.0)"),
         // Place self (sets both align-self and justify-self)
-        ("place-self-auto", "ExactClassAction::PlaceSelf(AlignItems::Stretch)"),
-        ("place-self-start", "ExactClassAction::PlaceSelf(AlignItems::Start)"),
-        ("place-self-end", "ExactClassAction::PlaceSelf(AlignItems::End)"),
-        ("place-self-center", "ExactClassAction::PlaceSelf(AlignItems::Center)"),
-        ("place-self-stretch", "ExactClassAction::PlaceSelf(AlignItems::Stretch)"),
+        (
+            "place-self-auto",
+            "ExactClassAction::PlaceSelf(AlignItems::Stretch)",
+        ),
+        (
+            "place-self-start",
+            "ExactClassAction::PlaceSelf(AlignItems::Start)",
+        ),
+        (
+            "place-self-end",
+            "ExactClassAction::PlaceSelf(AlignItems::End)",
+        ),
+        (
+            "place-self-center",
+            "ExactClassAction::PlaceSelf(AlignItems::Center)",
+        ),
+        (
+            "place-self-stretch",
+            "ExactClassAction::PlaceSelf(AlignItems::Stretch)",
+        ),
         // Justify items (container-level grid alignment)
-        ("justify-items-start", "ExactClassAction::JustifyItems(AlignItems::Start)"),
-        ("justify-items-end", "ExactClassAction::JustifyItems(AlignItems::End)"),
-        ("justify-items-center", "ExactClassAction::JustifyItems(AlignItems::Center)"),
-        ("justify-items-stretch", "ExactClassAction::JustifyItems(AlignItems::Stretch)"),
+        (
+            "justify-items-start",
+            "ExactClassAction::JustifyItems(AlignItems::Start)",
+        ),
+        (
+            "justify-items-end",
+            "ExactClassAction::JustifyItems(AlignItems::End)",
+        ),
+        (
+            "justify-items-center",
+            "ExactClassAction::JustifyItems(AlignItems::Center)",
+        ),
+        (
+            "justify-items-stretch",
+            "ExactClassAction::JustifyItems(AlignItems::Stretch)",
+        ),
         // Justify self (per-item grid alignment)
-        ("justify-self-auto", "ExactClassAction::JustifySelf(AlignItems::Stretch)"),
-        ("justify-self-start", "ExactClassAction::JustifySelf(AlignItems::Start)"),
-        ("justify-self-end", "ExactClassAction::JustifySelf(AlignItems::End)"),
-        ("justify-self-center", "ExactClassAction::JustifySelf(AlignItems::Center)"),
-        ("justify-self-stretch", "ExactClassAction::JustifySelf(AlignItems::Stretch)"),
+        (
+            "justify-self-auto",
+            "ExactClassAction::JustifySelf(AlignItems::Stretch)",
+        ),
+        (
+            "justify-self-start",
+            "ExactClassAction::JustifySelf(AlignItems::Start)",
+        ),
+        (
+            "justify-self-end",
+            "ExactClassAction::JustifySelf(AlignItems::End)",
+        ),
+        (
+            "justify-self-center",
+            "ExactClassAction::JustifySelf(AlignItems::Center)",
+        ),
+        (
+            "justify-self-stretch",
+            "ExactClassAction::JustifySelf(AlignItems::Stretch)",
+        ),
     ];
 
     const BRACKET_F32_RULE_SPECS: &[(&str, &str)] = &[

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use serde::Deserialize;
 
 use crate::scene::{
@@ -29,7 +30,9 @@ enum JsonLine {
     Script {
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
-        content: String,
+        #[serde(alias = "content")]
+        src: Option<String>,
+        path: Option<String>,
     },
     #[serde(rename = "div")]
     Div {
@@ -186,6 +189,21 @@ pub struct ParsedComposition {
 }
 
 pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
+    parse_with_base_dir(input, None)
+}
+
+pub fn parse_file(path: impl AsRef<Path>) -> anyhow::Result<ParsedComposition> {
+    let path = path.as_ref();
+    let input = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read jsonl file: {}", path.display()))?;
+    let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    parse_with_base_dir(&input, Some(base_dir))
+}
+
+pub fn parse_with_base_dir(
+    input: &str,
+    base_dir: Option<&Path>,
+) -> anyhow::Result<ParsedComposition> {
     let mut width = 1920;
     let mut height = 1080;
     let mut fps = 30;
@@ -215,14 +233,16 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
                 fps = f;
                 frames = fs;
             }
-            JsonLine::Script { parent_id, content } => {
+            JsonLine::Script {
+                parent_id,
+                src,
+                path,
+            } => {
+                let source = resolve_script_source(src, path, base_dir)?;
                 if let Some(parent_id) = parent_id {
-                    scripts_by_parent
-                        .entry(parent_id)
-                        .or_default()
-                        .push(content);
+                    scripts_by_parent.entry(parent_id).or_default().push(source);
                 } else {
-                    global_scripts.push(content);
+                    global_scripts.push(source);
                 }
             }
             JsonLine::Div {
@@ -443,6 +463,36 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     })
 }
 
+fn resolve_script_source(
+    src: Option<String>,
+    path: Option<String>,
+    base_dir: Option<&Path>,
+) -> anyhow::Result<String> {
+    match (src, path) {
+        (Some(source), None) => Ok(source),
+        (None, Some(path)) => {
+            let resolved_path = resolve_script_path(base_dir, &path);
+            std::fs::read_to_string(&resolved_path)
+                .with_context(|| format!("failed to read script file: {}", resolved_path.display()))
+        }
+        (Some(_), Some(_)) => anyhow::bail!("script node must use only one of src/content or path"),
+        (None, None) => anyhow::bail!("script node requires either src/content or path"),
+    }
+}
+
+fn resolve_script_path(base_dir: Option<&Path>, path: &str) -> PathBuf {
+    let path = PathBuf::from(path);
+    if path.is_absolute() {
+        return path;
+    }
+
+    if let Some(base_dir) = base_dir {
+        return base_dir.join(path);
+    }
+
+    path
+}
+
 fn resolve_audio_source(
     audio: ParsedAudioElement,
     elements_by_id: &HashMap<&str, &ParsedElement>,
@@ -567,7 +617,13 @@ fn parse_class_name_with_context(class_name: &str, node_id: &str, line_number: u
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, parse_class_name};
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::{parse, parse_class_name, parse_file};
     use crate::{
         FrameCtx,
         scene::{
@@ -609,7 +665,7 @@ mod tests {
         let parsed = parse(
             r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":90}
 {"id":"root","parentId":null,"type":"div","className":"flex","text":null}
-{"type":"script","content":"ctx.getNode('root').opacity(0.5);"}"#,
+{"type":"script","src":"ctx.getNode('root').opacity(0.5);"}"#,
         )
         .expect("jsonl should parse");
 
@@ -622,11 +678,85 @@ mod tests {
     }
 
     #[test]
+    fn parser_keeps_legacy_script_content_line() {
+        let parsed = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":90}
+{"id":"root","parentId":null,"type":"div","className":"flex","text":null}
+{"type":"script","content":"ctx.getNode('root').opacity(0.5);"}"#,
+        )
+        .expect("jsonl with legacy content should parse");
+
+        assert_eq!(
+            parsed.script.as_deref(),
+            Some("ctx.getNode('root').opacity(0.5);")
+        );
+    }
+
+    #[test]
+    fn parser_resolves_script_path_relative_to_jsonl_file() {
+        let fixture_dir = unique_test_dir("jsonl-script-path");
+        fs::create_dir_all(&fixture_dir).expect("fixture dir should be created");
+
+        let script_path = fixture_dir.join("scene.js");
+        fs::write(&script_path, "ctx.getNode('root').opacity(0.75);")
+            .expect("script fixture should be written");
+
+        let jsonl_path = fixture_dir.join("scene.jsonl");
+        fs::write(
+            &jsonl_path,
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":90}
+{"id":"root","parentId":null,"type":"div","className":"flex","text":null}
+{"type":"script","path":"scene.js"}"#,
+        )
+        .expect("jsonl fixture should be written");
+
+        let parsed = parse_file(&jsonl_path).expect("jsonl with script path should parse");
+
+        assert_eq!(
+            parsed.script.as_deref(),
+            Some("ctx.getNode('root').opacity(0.75);")
+        );
+
+        fs::remove_dir_all(&fixture_dir).expect("fixture dir should be removed");
+    }
+
+    #[test]
+    fn parser_resolves_absolute_script_path_directly() {
+        let fixture_dir = unique_test_dir("jsonl-absolute-script-path");
+        fs::create_dir_all(&fixture_dir).expect("fixture dir should be created");
+
+        let script_path = fixture_dir.join("scene.js");
+        fs::write(&script_path, "ctx.getNode('root').opacity(0.25);")
+            .expect("script fixture should be written");
+
+        let jsonl_path = fixture_dir.join("scene.jsonl");
+        fs::write(
+            &jsonl_path,
+            format!(
+                "{{\"type\":\"composition\",\"width\":640,\"height\":360,\"fps\":30,\"frames\":90}}\n\
+{{\"id\":\"root\",\"parentId\":null,\"type\":\"div\",\"className\":\"flex\",\"text\":null}}\n\
+{{\"type\":\"script\",\"path\":\"{}\"}}",
+                script_path.display()
+            ),
+        )
+        .expect("jsonl fixture should be written");
+
+        let parsed = parse_file(&jsonl_path).expect("jsonl with absolute script path should parse");
+
+        assert_eq!(
+            parsed.script.as_deref(),
+            Some("ctx.getNode('root').opacity(0.25);")
+        );
+
+        fs::remove_dir_all(&fixture_dir).expect("fixture dir should be removed");
+    }
+
+    #[test]
     fn parser_builds_timeline_from_root_sequences_and_transitions() {
         let parsed = parse(
             r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
 {"id":"root-a","parentId":null,"type":"div","className":"","duration":10}
-{"type":"script","parentId":"root-a","content":"ctx.getNode('root-a').opacity(0.6);"}
+{"type":"script","parentId":"root-a","src":"ctx.getNode('root-a').opacity(0.6);"}
 {"type":"transition","from":"root-a","to":"root-b","effect":"fade","duration":5}
 {"id":"root-b","parentId":null,"type":"div","className":"","duration":10}"#,
         )
@@ -1195,5 +1325,13 @@ mod tests {
             &parsed.audio_sources[0].attach,
             AudioAttachment::Scene { scene_id } if scene_id == "scene-a"
         ));
+    }
+
+    fn unique_test_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("opencat-{name}-{nanos}"))
     }
 }

@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
 use crate::style::{
-    AlignItems, BoxShadow, BoxShadowStyle, ColorToken, DropShadow, DropShadowStyle,
-    FlexDirection, FlexWrap, FontWeight, GradientDirection, GridAutoFlow, GridAutoRows,
-    GridPlacement, InsetShadow, InsetShadowStyle, JustifyContent, LengthPercentageAuto, NodeStyle,
-    ObjectFit, Position, TextAlign, TextTransform, color_token_from_class_suffix,
+    AlignItems, BoxShadow, BoxShadowStyle, ColorToken, DropShadow, DropShadowStyle, FlexDirection,
+    FlexWrap, FontWeight, GradientDirection, GridAutoFlow, GridAutoRows, GridPlacement,
+    InsetShadow, InsetShadowStyle, JustifyContent, LengthPercentageAuto, NodeStyle, ObjectFit,
+    Position, TextAlign, TextTransform, color_token_from_class_suffix,
 };
 
 static UNSUPPORTED_TAILWIND_CLASSES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -948,7 +948,10 @@ fn split_shadow_tokens(value: &str) -> Vec<&str> {
         tokens.push(&value[start..]);
     }
 
-    tokens.into_iter().filter(|token| !token.is_empty()).collect()
+    tokens
+        .into_iter()
+        .filter(|token| !token.is_empty())
+        .collect()
 }
 
 fn split_shadow_tokens_and_color(tokens: Vec<&str>) -> Option<(Vec<&str>, Option<ColorToken>)> {
@@ -1190,7 +1193,10 @@ fn parse_rgb_function_color(value: &str) -> Option<ColorToken> {
 }
 
 fn parse_rgb_channel(value: &str) -> Option<u8> {
-    value.parse::<f32>().ok().map(|value| value.round().clamp(0.0, 255.0) as u8)
+    value
+        .parse::<f32>()
+        .ok()
+        .map(|value| value.round().clamp(0.0, 255.0) as u8)
 }
 
 fn parse_alpha_channel(value: &str) -> Option<u8> {
@@ -1260,27 +1266,21 @@ fn parse_bracket_f32(value: &str) -> Option<f32> {
 }
 
 fn parse_grid_line_value(value: &str) -> Option<i16> {
-    value
-        .parse::<i16>()
-        .ok()
-        .or_else(|| {
-            value
-                .strip_prefix('[')
-                .and_then(|v| v.strip_suffix(']'))
-                .and_then(|v| v.parse::<i16>().ok())
-        })
+    value.parse::<i16>().ok().or_else(|| {
+        value
+            .strip_prefix('[')
+            .and_then(|v| v.strip_suffix(']'))
+            .and_then(|v| v.parse::<i16>().ok())
+    })
 }
 
 fn parse_grid_span_value(value: &str) -> Option<u16> {
-    value
-        .parse::<u16>()
-        .ok()
-        .or_else(|| {
-            value
-                .strip_prefix('[')
-                .and_then(|v| v.strip_suffix(']'))
-                .and_then(|v| v.parse::<u16>().ok())
-        })
+    value.parse::<u16>().ok().or_else(|| {
+        value
+            .strip_prefix('[')
+            .and_then(|v| v.strip_suffix(']'))
+            .and_then(|v| v.parse::<u16>().ok())
+    })
 }
 
 fn parse_grid_axis_token(value: &str) -> Option<GridPlacement> {
@@ -1570,8 +1570,9 @@ mod tests {
 
     #[test]
     fn parses_arbitrary_shadow_values_and_rgb_colors() {
-        let style =
-            parse_class_name("shadow-[0_8px_24px_rgba(0,0,0,0.18)] drop-shadow-[2px_4px_12px_#00000066]");
+        let style = parse_class_name(
+            "shadow-[0_8px_24px_rgba(0,0,0,0.18)] drop-shadow-[2px_4px_12px_#00000066]",
+        );
 
         let box_shadow = style.box_shadow.expect("box shadow should parse");
         assert_eq!(box_shadow.offset_x, 0.0);

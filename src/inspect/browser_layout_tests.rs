@@ -241,7 +241,8 @@ impl BrowserHarness {
         viewport_width: i32,
         viewport_height: i32,
     ) -> Result<BTreeMap<String, BrowserRect>> {
-        self.resize_viewport(viewport_width, viewport_height).await?;
+        self.resize_viewport(viewport_width, viewport_height)
+            .await?;
 
         let canonical = html_path
             .canonicalize()
@@ -726,7 +727,11 @@ pub(crate) struct FixtureNode {
 }
 
 impl FixtureNode {
-    pub(crate) fn div(id: &'static str, class_name: &'static str, children: Vec<FixtureNode>) -> Self {
+    pub(crate) fn div(
+        id: &'static str,
+        class_name: &'static str,
+        children: Vec<FixtureNode>,
+    ) -> Self {
         Self {
             id,
             class_name,
@@ -1474,7 +1479,9 @@ fn normalize_max_width_candidate(class_name: &str) -> Option<String> {
         "max-w-0" | "max-w-full" | "max-w-[123px]" | "max-w-xs" | "max-w-sm" | "max-w-md"
         | "max-w-lg" | "max-w-xl" | "max-w-2xl" | "max-w-3xl" | "max-w-4xl" | "max-w-5xl"
         | "max-w-6xl" | "max-w-7xl" | "max-w-none" | "max-w-screen-sm" | "max-w-screen-md"
-        | "max-w-screen-lg" | "max-w-screen-xl" | "max-w-screen-2xl" => Some(class_name.to_string()),
+        | "max-w-screen-lg" | "max-w-screen-xl" | "max-w-screen-2xl" => {
+            Some(class_name.to_string())
+        }
         _ => None,
     }
 }
@@ -1551,7 +1558,9 @@ fn normalize_place_self_candidate(class_name: &str) -> Option<String> {
 
 fn normalize_justify_items_candidate(class_name: &str) -> Option<String> {
     match class_name {
-        "justify-items-start" | "justify-items-end" | "justify-items-center"
+        "justify-items-start"
+        | "justify-items-end"
+        | "justify-items-center"
         | "justify-items-stretch" => Some(class_name.to_string()),
         _ => None,
     }
@@ -1583,7 +1592,10 @@ fn normalize_grid_rows_candidate(class_name: &str) -> Option<String> {
 
 fn normalize_grid_flow_candidate(class_name: &str) -> Option<String> {
     match class_name {
-        "grid-flow-row" | "grid-flow-col" | "grid-flow-dense" | "grid-flow-row-dense"
+        "grid-flow-row"
+        | "grid-flow-col"
+        | "grid-flow-dense"
+        | "grid-flow-row-dense"
         | "grid-flow-col-dense" => Some(class_name.to_string()),
         _ => None,
     }
@@ -2212,7 +2224,11 @@ fn build_max_width_fixture(class_name: &str) -> Option<LayoutFixture> {
             vec![FixtureNode::div(
                 "target",
                 leak_str(format!("{class_name} h-[32px]")),
-                vec![FixtureNode::text("inner", "text-[14px]", "max width content")],
+                vec![FixtureNode::text(
+                    "inner",
+                    "text-[14px]",
+                    "max width content",
+                )],
             )],
         ),
     })
@@ -2248,7 +2264,11 @@ fn build_max_height_fixture(class_name: &str) -> Option<LayoutFixture> {
             vec![FixtureNode::div(
                 "target",
                 leak_str(format!("{class_name} w-[120px]")),
-                vec![FixtureNode::text("inner", "text-[14px]", "max height content that may overflow")],
+                vec![FixtureNode::text(
+                    "inner",
+                    "text-[14px]",
+                    "max height content that may overflow",
+                )],
             )],
         ),
     })
@@ -2265,7 +2285,11 @@ fn build_order_fixture(class_name: &str) -> Option<LayoutFixture> {
             "flex w-[280px] h-[64px] gap-[8px]",
             vec![
                 FixtureNode::div("item-a", "order-3 w-[40px] h-[24px]", vec![]),
-                FixtureNode::div("item-b", leak_str(format!("{class_name} w-[40px] h-[24px]")), vec![]),
+                FixtureNode::div(
+                    "item-b",
+                    leak_str(format!("{class_name} w-[40px] h-[24px]")),
+                    vec![],
+                ),
                 FixtureNode::div("item-c", "order-2 w-[40px] h-[24px]", vec![]),
             ],
         ),
@@ -2341,7 +2365,9 @@ fn build_box_sizing_fixture(class_name: &str) -> Option<LayoutFixture> {
             "w-full h-full",
             vec![FixtureNode::div(
                 "target",
-                leak_str(format!("{class_name} w-[120px] h-[64px] p-[12px] border-4 border-black")),
+                leak_str(format!(
+                    "{class_name} w-[120px] h-[64px] p-[12px] border-4 border-black"
+                )),
                 vec![],
             )],
         ),
@@ -2399,11 +2425,7 @@ fn build_place_self_fixture(class_name: &str) -> Option<LayoutFixture> {
         root: FixtureNode::div(
             "root",
             parent_class,
-            vec![FixtureNode::div(
-                "target",
-                leak_str(target_class),
-                vec![],
-            )],
+            vec![FixtureNode::div("target", leak_str(target_class), vec![])],
         ),
     })
 }
@@ -2480,7 +2502,9 @@ fn build_grid_cols_fixture(class_name: &str) -> Option<LayoutFixture> {
         tolerance_px: 1.0,
         root: FixtureNode::div(
             "root",
-            leak_str(format!("grid {class_name} w-[280px] h-[120px] gap-[8px] p-[8px]")),
+            leak_str(format!(
+                "grid {class_name} w-[280px] h-[120px] gap-[8px] p-[8px]"
+            )),
             vec![
                 FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
                 FixtureNode::div("item-b", "w-[40px] h-[32px]", vec![]),
@@ -2546,7 +2570,9 @@ fn build_auto_cols_fixture(class_name: &str) -> Option<LayoutFixture> {
         tolerance_px: 1.0,
         root: FixtureNode::div(
             "root",
-            leak_str(format!("grid {class_name} w-[280px] h-[120px] gap-[8px] p-[8px]")),
+            leak_str(format!(
+                "grid {class_name} w-[280px] h-[120px] gap-[8px] p-[8px]"
+            )),
             vec![
                 FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
                 FixtureNode::div("item-b", "w-[40px] h-[32px]", vec![]),
@@ -2613,11 +2639,7 @@ fn build_col_fixture(class_name: &str) -> Option<LayoutFixture> {
             "grid grid-cols-4 grid-rows-3 w-[320px] h-[140px] gap-[8px] p-[8px]",
             vec![
                 FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
-                FixtureNode::div(
-                    "target",
-                    leak_str(format!("{class_name} h-[24px]")),
-                    vec![],
-                ),
+                FixtureNode::div("target", leak_str(format!("{class_name} h-[24px]")), vec![]),
                 FixtureNode::div("item-c", "w-[40px] h-[24px]", vec![]),
                 FixtureNode::div("item-d", "w-[40px] h-[24px]", vec![]),
             ],
@@ -2658,11 +2680,7 @@ fn build_row_fixture(class_name: &str) -> Option<LayoutFixture> {
             "grid grid-cols-3 grid-rows-4 w-[280px] h-[220px] gap-[8px] p-[8px]",
             vec![
                 FixtureNode::div("item-a", "w-[40px] h-[24px]", vec![]),
-                FixtureNode::div(
-                    "target",
-                    leak_str(format!("{class_name} w-[40px]")),
-                    vec![],
-                ),
+                FixtureNode::div("target", leak_str(format!("{class_name} w-[40px]")), vec![]),
                 FixtureNode::div("item-c", "w-[40px] h-[24px]", vec![]),
                 FixtureNode::div("item-d", "w-[40px] h-[24px]", vec![]),
             ],
@@ -2747,8 +2765,8 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
             ),
         },
         // ── shrink arbitrary constrained row ───────────────────────────
-    LayoutFixture {
-        name: "shrink-arbitrary-constrained-row",
+        LayoutFixture {
+            name: "shrink-arbitrary-constrained-row",
             viewport_width: 300,
             viewport_height: 140,
             tolerance_px: 1.0,
@@ -2764,8 +2782,8 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
             ),
         },
         // ── absolute inset zero overlay ────────────────────────────────
-    LayoutFixture {
-        name: "absolute-inset-zero-overlay",
+        LayoutFixture {
+            name: "absolute-inset-zero-overlay",
             viewport_width: 280,
             viewport_height: 160,
             tolerance_px: 1.0,
@@ -2779,8 +2797,8 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
             ),
         },
         // ── inset scale overlay bands ──────────────────────────────────
-    LayoutFixture {
-        name: "inset-scale-overlay-bands",
+        LayoutFixture {
+            name: "inset-scale-overlay-bands",
             viewport_width: 320,
             viewport_height: 200,
             tolerance_px: 1.0,
@@ -2795,8 +2813,8 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
             ),
         },
         // ── text size stack ────────────────────────────────────────────
-    LayoutFixture {
-        name: "text-size-stack",
+        LayoutFixture {
+            name: "text-size-stack",
             viewport_width: 320,
             viewport_height: 220,
             tolerance_px: 8.0,
@@ -2812,8 +2830,8 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
             ),
         },
         // ── fixed width multisize copy ──────────────────────────────────
-    LayoutFixture {
-        name: "fixed-width-multisize-copy",
+        LayoutFixture {
+            name: "fixed-width-multisize-copy",
             viewport_width: 320,
             viewport_height: 240,
             tolerance_px: 8.0,
@@ -2843,8 +2861,8 @@ fn browser_layout_fixtures() -> Vec<LayoutFixture> {
             ),
         },
         // ── items start column ─────────────────────────────────────────
-    LayoutFixture {
-        name: "items-start-column",
+        LayoutFixture {
+            name: "items-start-column",
             viewport_width: 240,
             viewport_height: 220,
             tolerance_px: 1.0,

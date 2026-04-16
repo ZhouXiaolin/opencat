@@ -24,10 +24,31 @@ pub enum ScriptLineJoin {
     Bevel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ScriptPointMode {
+    Points,
+    Lines,
+    Polygon,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ScriptFontEdging {
+    Alias,
+    AntiAlias,
+    SubpixelAntiAlias,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum CanvasCommand {
     Save,
+    SaveLayer {
+        alpha: f32,
+        bounds: Option<[f32; 4]>,
+    },
     Restore,
+    RestoreToCount {
+        count: i32,
+    },
     SetFillStyle {
         color: ScriptColor,
     },
@@ -51,6 +72,9 @@ pub enum CanvasCommand {
     SetGlobalAlpha {
         alpha: f32,
     },
+    SetAntiAlias {
+        enabled: bool,
+    },
     Translate {
         x: f32,
         y: f32,
@@ -67,9 +91,28 @@ pub enum CanvasCommand {
         y: f32,
         width: f32,
         height: f32,
+        anti_alias: bool,
     },
     Clear {
         color: Option<ScriptColor>,
+    },
+    DrawPaint {
+        color: ScriptColor,
+        anti_alias: bool,
+    },
+    DrawText {
+        text: String,
+        x: f32,
+        y: f32,
+        color: ScriptColor,
+        anti_alias: bool,
+        stroke: bool,
+        stroke_width: f32,
+        font_size: f32,
+        font_scale_x: f32,
+        font_skew_x: f32,
+        font_subpixel: bool,
+        font_edging: ScriptFontEdging,
     },
     FillRect {
         x: f32,
@@ -140,6 +183,33 @@ pub enum CanvasCommand {
         y: f32,
     },
     ClosePath,
+    AddRectPath {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
+    AddRRectPath {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        radius: f32,
+    },
+    AddOvalPath {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
+    AddArcPath {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        start_angle: f32,
+        sweep_angle: f32,
+    },
     FillPath,
     StrokePath,
     DrawImage {
@@ -148,7 +218,92 @@ pub enum CanvasCommand {
         y: f32,
         width: f32,
         height: f32,
+        src_rect: Option<[f32; 4]>,
+        alpha: f32,
+        anti_alias: bool,
         object_fit: crate::style::ObjectFit,
+    },
+    DrawArc {
+        cx: f32,
+        cy: f32,
+        rx: f32,
+        ry: f32,
+        start_angle: f32,
+        sweep_angle: f32,
+        use_center: bool,
+    },
+    StrokeArc {
+        cx: f32,
+        cy: f32,
+        rx: f32,
+        ry: f32,
+        start_angle: f32,
+        sweep_angle: f32,
+    },
+    FillOval {
+        cx: f32,
+        cy: f32,
+        rx: f32,
+        ry: f32,
+    },
+    StrokeOval {
+        cx: f32,
+        cy: f32,
+        rx: f32,
+        ry: f32,
+    },
+    ClipPath {
+        anti_alias: bool,
+    },
+    ClipRRect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        radius: f32,
+        anti_alias: bool,
+    },
+    DrawPoints {
+        mode: ScriptPointMode,
+        points: Vec<f32>,
+    },
+    FillDRRect {
+        outer_x: f32,
+        outer_y: f32,
+        outer_width: f32,
+        outer_height: f32,
+        outer_radius: f32,
+        inner_x: f32,
+        inner_y: f32,
+        inner_width: f32,
+        inner_height: f32,
+        inner_radius: f32,
+    },
+    StrokeDRRect {
+        outer_x: f32,
+        outer_y: f32,
+        outer_width: f32,
+        outer_height: f32,
+        outer_radius: f32,
+        inner_x: f32,
+        inner_y: f32,
+        inner_width: f32,
+        inner_height: f32,
+        inner_radius: f32,
+    },
+    Skew {
+        sx: f32,
+        sy: f32,
+    },
+    DrawImageSimple {
+        asset_id: String,
+        x: f32,
+        y: f32,
+        alpha: f32,
+        anti_alias: bool,
+    },
+    Concat {
+        matrix: [f32; 9],
     },
 }
 
@@ -171,6 +326,24 @@ fn line_join_from_name(name: &str) -> Option<ScriptLineJoin> {
         "miter" => Some(ScriptLineJoin::Miter),
         "round" => Some(ScriptLineJoin::Round),
         "bevel" => Some(ScriptLineJoin::Bevel),
+        _ => None,
+    }
+}
+
+fn point_mode_from_name(name: &str) -> Option<ScriptPointMode> {
+    match name {
+        "points" => Some(ScriptPointMode::Points),
+        "lines" => Some(ScriptPointMode::Lines),
+        "polygon" => Some(ScriptPointMode::Polygon),
+        _ => None,
+    }
+}
+
+fn font_edging_from_name(name: &str) -> Option<ScriptFontEdging> {
+    match name {
+        "alias" => Some(ScriptFontEdging::Alias),
+        "antiAlias" => Some(ScriptFontEdging::AntiAlias),
+        "subpixelAntiAlias" => Some(ScriptFontEdging::SubpixelAntiAlias),
         _ => None,
     }
 }
@@ -1007,7 +1180,35 @@ pub(super) fn install_canvaskit_bindings<'js>(
     }
 
     push_canvas_command!("__canvas_save", |id| CanvasCommand::Save);
+    let s = store.clone();
+    globals.set(
+        "__canvas_save_layer",
+        Function::new(
+            ctx.clone(),
+            move |id: String, alpha: f32, bounds: Option<Vec<f32>>| {
+                let bounds = match bounds {
+                    Some(bounds) => Some(parse_image_rect_coords(&bounds, "saveLayer")?),
+                    None => None,
+                };
+                let mut map = s.lock().unwrap();
+                map.canvases
+                    .entry(id)
+                    .or_default()
+                    .commands
+                    .push(CanvasCommand::SaveLayer {
+                        alpha: alpha.clamp(0.0, 1.0),
+                        bounds,
+                    });
+                Ok::<_, rquickjs::Error>(())
+            },
+        )?,
+    )?;
     push_canvas_command!("__canvas_restore", |id| CanvasCommand::Restore);
+    push_canvas_command!("__canvas_restore_to_count", |id, count: i32| {
+        CanvasCommand::RestoreToCount {
+            count: count.max(1),
+        }
+    });
     push_canvas_command!("__canvas_translate", |id, x: f32, y: f32| {
         CanvasCommand::Translate { x, y }
     });
@@ -1019,11 +1220,12 @@ pub(super) fn install_canvaskit_bindings<'js>(
     });
     push_canvas_command!(
         "__canvas_clip_rect",
-        |id, x: f32, y: f32, width: f32, height: f32| CanvasCommand::ClipRect {
+        |id, x: f32, y: f32, width: f32, height: f32, anti_alias: bool| CanvasCommand::ClipRect {
             x,
             y,
             width,
-            height
+            height,
+            anti_alias,
         }
     );
     push_canvas_command!(
@@ -1081,6 +1283,47 @@ pub(super) fn install_canvaskit_bindings<'js>(
         }
     );
     push_canvas_command!("__canvas_close_path", |id| CanvasCommand::ClosePath);
+    push_canvas_command!(
+        "__canvas_path_add_rect",
+        |id, x: f32, y: f32, width: f32, height: f32| CanvasCommand::AddRectPath {
+            x,
+            y,
+            width,
+            height,
+        }
+    );
+    push_canvas_command!(
+        "__canvas_path_add_rrect",
+        |id, x: f32, y: f32, width: f32, height: f32, radius: f32| CanvasCommand::AddRRectPath {
+            x,
+            y,
+            width,
+            height,
+            radius,
+        }
+    );
+    push_canvas_command!(
+        "__canvas_path_add_oval",
+        |id, x: f32, y: f32, width: f32, height: f32| CanvasCommand::AddOvalPath {
+            x,
+            y,
+            width,
+            height,
+        }
+    );
+    push_canvas_command!(
+        "__canvas_path_add_arc",
+        |id, x: f32, y: f32, width: f32, height: f32, start_angle: f32, sweep_angle: f32| {
+            CanvasCommand::AddArcPath {
+                x,
+                y,
+                width,
+                height,
+                start_angle,
+                sweep_angle,
+            }
+        }
+    );
     push_canvas_command!("__canvas_fill_path", |id| CanvasCommand::FillPath);
     push_canvas_command!("__canvas_stroke_path", |id| CanvasCommand::StrokePath);
 
@@ -1208,6 +1451,19 @@ pub(super) fn install_canvaskit_bindings<'js>(
 
     let s = store.clone();
     globals.set(
+        "__canvas_set_anti_alias",
+        Function::new(ctx.clone(), move |id: String, enabled: bool| {
+            let mut map = s.lock().unwrap();
+            map.canvases
+                .entry(id)
+                .or_default()
+                .commands
+                .push(CanvasCommand::SetAntiAlias { enabled });
+        })?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
         "__canvas_clear",
         Function::new(ctx.clone(), move |id: String, color: Option<String>| {
             let color = match color {
@@ -1222,6 +1478,108 @@ pub(super) fn install_canvaskit_bindings<'js>(
                 .push(CanvasCommand::Clear { color });
             Ok::<_, rquickjs::Error>(())
         })?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
+        "__canvas_draw_paint",
+        Function::new(
+            ctx.clone(),
+            move |id: String, color: String, anti_alias: bool| {
+                let color = parse_color(&color, "drawPaint")?;
+                let mut map = s.lock().unwrap();
+                map.canvases
+                    .entry(id)
+                    .or_default()
+                    .commands
+                    .push(CanvasCommand::DrawPaint { color, anti_alias });
+                Ok::<_, rquickjs::Error>(())
+            },
+        )?,
+    )?;
+
+    globals.set(
+        "__canvas_measure_text",
+        Function::new(
+            ctx.clone(),
+            move |text: String,
+                  font_size: f32,
+                  font_scale_x: f32,
+                  font_skew_x: f32,
+                  font_subpixel: bool,
+                  font_edging: String| {
+                let font_edging = font_edging_from_name(&font_edging).ok_or_else(|| {
+                    js_error(
+                        "measureText",
+                        format!("unsupported font edging `{font_edging}`"),
+                    )
+                })?;
+                let font = make_script_font(
+                    font_size,
+                    font_scale_x,
+                    font_skew_x,
+                    font_subpixel,
+                    font_edging,
+                );
+                let (width, _) = font.measure_str(text, None);
+                Ok::<_, rquickjs::Error>(width)
+            },
+        )?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
+        "__canvas_draw_text",
+        Function::new(
+            ctx.clone(),
+            move |id: String,
+                  text: String,
+                  values: Vec<f32>,
+                  color: String,
+                  flags: Vec<bool>,
+                  font_edging: String| {
+                if values.len() < 6 {
+                    return Err(js_error(
+                        "drawText",
+                        "expected text values [x, y, fontSize, scaleX, skewX, strokeWidth]"
+                            .to_string(),
+                    ));
+                }
+                if flags.len() < 3 {
+                    return Err(js_error(
+                        "drawText",
+                        "expected text flags [antiAlias, stroke, fontSubpixel]".to_string(),
+                    ));
+                }
+                let color = parse_color(&color, "drawText")?;
+                let font_edging = font_edging_from_name(&font_edging).ok_or_else(|| {
+                    js_error(
+                        "drawText",
+                        format!("unsupported font edging `{font_edging}`"),
+                    )
+                })?;
+                let mut map = s.lock().unwrap();
+                map.canvases
+                    .entry(id)
+                    .or_default()
+                    .commands
+                    .push(CanvasCommand::DrawText {
+                        text,
+                        x: values[0],
+                        y: values[1],
+                        color,
+                        anti_alias: flags[0],
+                        stroke: flags[1],
+                        stroke_width: values[5].max(0.0),
+                        font_size: values[2].max(1.0),
+                        font_scale_x: values[3],
+                        font_skew_x: values[4],
+                        font_subpixel: flags[2],
+                        font_edging,
+                    });
+                Ok::<_, rquickjs::Error>(())
+            },
+        )?,
     )?;
 
     let s = store.clone();
@@ -1286,14 +1644,29 @@ pub(super) fn install_canvaskit_bindings<'js>(
             ctx.clone(),
             move |id: String,
                   asset_id: String,
-                  x: f32,
-                  y: f32,
-                  width: f32,
-                  height: f32,
-                  fit: String| {
+                  values: Vec<f32>,
+                  fit: String,
+                  alpha: f32,
+                  anti_alias: bool| {
                 let object_fit = object_fit_from_name(&fit).ok_or_else(|| {
                     js_error("drawImage", format!("unsupported objectFit `{fit}`"))
                 })?;
+                if values.len() < 4 {
+                    return Err(js_error(
+                        "drawImageRect",
+                        "expected destination rect as [x, y, width, height]".to_string(),
+                    ));
+                }
+                let src_rect = match values.len() {
+                    4 => None,
+                    8.. => Some(parse_image_rect_coords(&values[4..8], "drawImageRect")?),
+                    _ => {
+                        return Err(js_error(
+                            "drawImageRect",
+                            "expected either 4 or 8 image rect values".to_string(),
+                        ));
+                    }
+                };
                 let mut map = s.lock().unwrap();
                 map.canvases
                     .entry(id)
@@ -1301,15 +1674,267 @@ pub(super) fn install_canvaskit_bindings<'js>(
                     .commands
                     .push(CanvasCommand::DrawImage {
                         asset_id,
-                        x,
-                        y,
-                        width,
-                        height,
+                        x: values[0],
+                        y: values[1],
+                        width: values[2],
+                        height: values[3],
+                        src_rect,
+                        alpha: alpha.clamp(0.0, 1.0),
+                        anti_alias,
                         object_fit,
                     });
                 Ok::<_, rquickjs::Error>(())
             },
         )?,
+    )?;
+
+    // --- drawArc (fill) ---
+    let s = store.clone();
+    globals.set(
+        "__canvas_draw_arc",
+        Function::new(
+            ctx.clone(),
+            move |id: String,
+                  cx: f32,
+                  cy: f32,
+                  rx: f32,
+                  ry: f32,
+                  start_angle: f32,
+                  sweep_angle: f32| {
+                let mut map = s.lock().unwrap();
+                map.canvases
+                    .entry(id)
+                    .or_default()
+                    .commands
+                    .push(CanvasCommand::DrawArc {
+                        cx,
+                        cy,
+                        rx,
+                        ry,
+                        start_angle,
+                        sweep_angle,
+                        use_center: false,
+                    });
+                Ok::<_, rquickjs::Error>(())
+            },
+        )?,
+    )?;
+
+    // --- drawArc (fill, useCenter) ---
+    let s = store.clone();
+    globals.set(
+        "__canvas_draw_arc_to_center",
+        Function::new(
+            ctx.clone(),
+            move |id: String,
+                  cx: f32,
+                  cy: f32,
+                  rx: f32,
+                  ry: f32,
+                  start_angle: f32,
+                  sweep_angle: f32| {
+                let mut map = s.lock().unwrap();
+                map.canvases
+                    .entry(id)
+                    .or_default()
+                    .commands
+                    .push(CanvasCommand::DrawArc {
+                        cx,
+                        cy,
+                        rx,
+                        ry,
+                        start_angle,
+                        sweep_angle,
+                        use_center: true,
+                    });
+                Ok::<_, rquickjs::Error>(())
+            },
+        )?,
+    )?;
+
+    // --- drawArc (stroke) ---
+    push_canvas_command!(
+        "__canvas_stroke_arc",
+        |id, cx: f32, cy: f32, rx: f32, ry: f32, start_angle: f32, sweep_angle: f32| {
+            CanvasCommand::StrokeArc {
+                cx,
+                cy,
+                rx,
+                ry,
+                start_angle,
+                sweep_angle,
+            }
+        }
+    );
+
+    // --- drawOval (fill) ---
+    push_canvas_command!(
+        "__canvas_fill_oval",
+        |id, cx: f32, cy: f32, rx: f32, ry: f32| CanvasCommand::FillOval { cx, cy, rx, ry }
+    );
+
+    // --- drawOval (stroke) ---
+    push_canvas_command!(
+        "__canvas_stroke_oval",
+        |id, cx: f32, cy: f32, rx: f32, ry: f32| CanvasCommand::StrokeOval { cx, cy, rx, ry }
+    );
+
+    // --- clipPath ---
+    push_canvas_command!("__canvas_clip_path", |id, anti_alias: bool| {
+        CanvasCommand::ClipPath { anti_alias }
+    });
+
+    // --- clipRRect ---
+    push_canvas_command!(
+        "__canvas_clip_rrect",
+        |id, x: f32, y: f32, width: f32, height: f32, radius: f32, anti_alias: bool| {
+            CanvasCommand::ClipRRect {
+                x,
+                y,
+                width,
+                height,
+                radius,
+                anti_alias,
+            }
+        }
+    );
+
+    // --- drawPoints ---
+    let s = store.clone();
+    globals.set(
+        "__canvas_draw_points",
+        Function::new(
+            ctx.clone(),
+            move |id: String, mode: String, points: Vec<f32>| {
+                let mode = point_mode_from_name(&mode).ok_or_else(|| {
+                    js_error("drawPoints", format!("unsupported point mode `{mode}`"))
+                })?;
+                let mut map = s.lock().unwrap();
+                map.canvases
+                    .entry(id)
+                    .or_default()
+                    .commands
+                    .push(CanvasCommand::DrawPoints { mode, points });
+                Ok::<_, rquickjs::Error>(())
+            },
+        )?,
+    )?;
+
+    // --- drawDRRect (fill) ---
+    let s = store.clone();
+    globals.set(
+        "__canvas_fill_drrect",
+        Function::new(ctx.clone(), move |id: String, coords: Vec<f32>| {
+            let (
+                outer_x,
+                outer_y,
+                outer_width,
+                outer_height,
+                outer_radius,
+                inner_x,
+                inner_y,
+                inner_width,
+                inner_height,
+                inner_radius,
+            ) = parse_drrect_coords(&coords, "fillDRRect")?;
+            let mut map = s.lock().unwrap();
+            map.canvases
+                .entry(id)
+                .or_default()
+                .commands
+                .push(CanvasCommand::FillDRRect {
+                    outer_x,
+                    outer_y,
+                    outer_width,
+                    outer_height,
+                    outer_radius,
+                    inner_x,
+                    inner_y,
+                    inner_width,
+                    inner_height,
+                    inner_radius,
+                });
+            Ok::<_, rquickjs::Error>(())
+        })?,
+    )?;
+
+    // --- drawDRRect (stroke) ---
+    let s = store.clone();
+    globals.set(
+        "__canvas_stroke_drrect",
+        Function::new(ctx.clone(), move |id: String, coords: Vec<f32>| {
+            let (
+                outer_x,
+                outer_y,
+                outer_width,
+                outer_height,
+                outer_radius,
+                inner_x,
+                inner_y,
+                inner_width,
+                inner_height,
+                inner_radius,
+            ) = parse_drrect_coords(&coords, "strokeDRRect")?;
+            let mut map = s.lock().unwrap();
+            map.canvases
+                .entry(id)
+                .or_default()
+                .commands
+                .push(CanvasCommand::StrokeDRRect {
+                    outer_x,
+                    outer_y,
+                    outer_width,
+                    outer_height,
+                    outer_radius,
+                    inner_x,
+                    inner_y,
+                    inner_width,
+                    inner_height,
+                    inner_radius,
+                });
+            Ok::<_, rquickjs::Error>(())
+        })?,
+    )?;
+
+    // --- skew ---
+    push_canvas_command!("__canvas_skew", |id, sx: f32, sy: f32| {
+        CanvasCommand::Skew { sx, sy }
+    });
+
+    // --- drawImage (simple, no dest) ---
+    push_canvas_command!(
+        "__canvas_draw_image_simple",
+        |id, asset_id: String, x: f32, y: f32, alpha: f32, anti_alias: bool| {
+            CanvasCommand::DrawImageSimple {
+                asset_id,
+                x,
+                y,
+                alpha: alpha.clamp(0.0, 1.0),
+                anti_alias,
+            }
+        }
+    );
+
+    // --- concat ---
+    let s = store.clone();
+    globals.set(
+        "__canvas_concat",
+        Function::new(ctx.clone(), move |id: String, values: Vec<f32>| {
+            if values.len() < 9 {
+                return Err(js_error("concat", "expected 9 matrix values".to_string()));
+            }
+            let matrix = [
+                values[0], values[1], values[2], values[3], values[4], values[5], values[6],
+                values[7], values[8],
+            ];
+            let mut map = s.lock().unwrap();
+            map.canvases
+                .entry(id)
+                .or_default()
+                .commands
+                .push(CanvasCommand::Concat { matrix });
+            Ok::<_, rquickjs::Error>(())
+        })?,
     )?;
 
     Ok(())
@@ -1322,4 +1947,52 @@ fn js_error(op: &'static str, message: String) -> rquickjs::Error {
 fn parse_color(color: &str, op: &'static str) -> Result<ScriptColor, rquickjs::Error> {
     script_color_from_value(color)
         .ok_or_else(|| js_error(op, format!("unsupported color `{color}`")))
+}
+
+fn make_script_font(
+    font_size: f32,
+    font_scale_x: f32,
+    font_skew_x: f32,
+    font_subpixel: bool,
+    font_edging: ScriptFontEdging,
+) -> skia_safe::Font {
+    let mut font = skia_safe::Font::default();
+    if let Some(typeface) =
+        skia_safe::FontMgr::new().legacy_make_typeface(None, skia_safe::FontStyle::normal())
+    {
+        font.set_typeface(typeface);
+    }
+    font.set_size(font_size.max(1.0));
+    font.set_scale_x(font_scale_x);
+    font.set_skew_x(font_skew_x);
+    font.set_subpixel(font_subpixel);
+    font.set_edging(match font_edging {
+        ScriptFontEdging::Alias => skia_safe::font::Edging::Alias,
+        ScriptFontEdging::AntiAlias => skia_safe::font::Edging::AntiAlias,
+        ScriptFontEdging::SubpixelAntiAlias => skia_safe::font::Edging::SubpixelAntiAlias,
+    });
+    font
+}
+
+fn parse_image_rect_coords(coords: &[f32], op: &'static str) -> Result<[f32; 4], rquickjs::Error> {
+    if coords.len() < 4 {
+        return Err(js_error(
+            op,
+            "expected source rect as [x, y, width, height]".to_string(),
+        ));
+    }
+    Ok([coords[0], coords[1], coords[2], coords[3]])
+}
+
+fn parse_drrect_coords(
+    coords: &[f32],
+    op: &'static str,
+) -> Result<(f32, f32, f32, f32, f32, f32, f32, f32, f32, f32), rquickjs::Error> {
+    if coords.len() < 10 {
+        return Err(js_error(op, "expected 10 coordinate values".to_string()));
+    }
+    Ok((
+        coords[0], coords[1], coords[2], coords[3], coords[4], coords[5], coords[6], coords[7],
+        coords[8], coords[9],
+    ))
 }

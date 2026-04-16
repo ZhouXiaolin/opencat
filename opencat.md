@@ -1,5 +1,9 @@
 # OpenCat JSONL
 
+> **⚠️ 重要格式要求**
+> - **每行一个 JSON 对象**，禁止换行分隔多行 JSON
+> - **script 内容禁止注释**，代码必须纯净
+
 OpenCat JSONL 是 HTML+CSS+JS 的 JSON Lines 序列化。每一行是一个 JSON 对象，描述 DOM 节点、脚本或转场。
 
 **心智映射**：
@@ -89,6 +93,8 @@ OpenCat JSONL 是 HTML+CSS+JS 的 JSON Lines 序列化。每一行是一个 JSON
 | `video` | `<video>` | — |
 
 ### 1.4 Script
+
+> **⚠️ script.content 禁止注释**，代码必须纯净
 
 挂载在节点上，每帧执行（类比 `requestAnimationFrame` 循环）：
 
@@ -317,97 +323,191 @@ icons.forEach(function(id, i) {
 
 ---
 
-## 4. Canvas（CanvasKit 子集）
+## 4. Canvas（CanvasKit 脚本子集）
 
-`type: "canvas"` 节点类似 HTML `<canvas>`，由 script 每帧绘制。API 是 CanvasKit 的简化子集。
+`type: "canvas"` 节点类似 HTML `<canvas>`，但只支持 OpenCat 当前暴露的 CanvasKit 子集。脚本必须作为 `canvas` 节点的子 `script` 挂载，并会在每一帧重新执行。
 
 ```json
 {"id": "chart", "parentId": "scene1", "type": "canvas", "className": "w-[300px] h-[200px]"}
-{"type": "script", "parentId": "chart", "content": "..."}
+{"type": "script", "parentId": "chart", "content": "var CK = ctx.CanvasKit;\nvar canvas = ctx.getCanvas();\ncanvas.clear('#ffffff');"}
 ```
 
 ### 入口对象
 
-- `ctx.CanvasKit` / `globalThis.CanvasKit` — 工具函数 + 构造器
-- `ctx.getCanvas()` — 画布绘图接口
-- `ctx.getImage(assetId)` — 加载资产图片
+| 对象 | 作用 |
+|------|------|
+| `ctx.CanvasKit` / `globalThis.CanvasKit` | CanvasKit 风格工具函数、构造器、枚举 |
+| `ctx.getCanvas()` | 取得当前 `canvas` 节点对应的绘图接口 |
+| `ctx.getImage(assetId)` | 取得图片句柄，只接受宿主侧已接入的 asset id |
 
-### CanvasKit 工具
+### 当前支持的 CanvasKit 工具
 
 ```js
 var CK = ctx.CanvasKit;
 
 // 颜色
-CK.Color(r, g, b, a?)          // 0-255
-CK.Color4f(r, g, b, a?)        // 0-1
-CK.parseColorString('#ff0000')  // hex / rgb / rgba
-CK.multiplyByAlpha(color, 0.5)  // 乘以透明度
+CK.Color(r, g, b, a?)            // r/g/b: 0-255, a: 0-1
+CK.Color4f(r, g, b, a?)          // 全部 0-1
+CK.ColorAsInt(r, g, b, a?)       // 打包成 ARGB int
+CK.parseColorString('#ff0000')   // 支持 black/white/#rgb/#rrggbb/#rrggbbaa/rgb()/rgba()
+CK.multiplyByAlpha(color, 0.5)
 
 // 几何
 CK.LTRBRect(l, t, r, b)
 CK.XYWHRect(x, y, w, h)
-CK.RRectXY(rect, rx, ry)       // 圆角矩形
+CK.RRectXY(rect, rx, ry)
 
-// 常量
+// 构造器
+new CK.Paint()
+new CK.Path()
+new CK.Font(null, size?, scaleX?, skewX?)
+CK.PathEffect.MakeDash(intervals, phase?)
+
+// 枚举 / 常量
 CK.BLACK / CK.WHITE
-CK.PaintStyle.Fill / .Stroke
-CK.StrokeCap.Round / .Butt / .Square
-CK.StrokeJoin.Round / .Miter / .Bevel
+CK.PaintStyle.Fill / CK.PaintStyle.Stroke
+CK.StrokeCap.Butt / Round / Square
+CK.StrokeJoin.Miter / Round / Bevel
+CK.FontEdging.Alias / AntiAlias / SubpixelAntiAlias
+CK.BlendMode.SrcOver
+CK.ClipOp.Intersect / Difference
+CK.PointMode.Points / Lines / Polygon
 ```
 
-### Canvas API
+### `ctx.getCanvas()` 当前支持的方法
 
-`ctx.getCanvas()` 返回的绘图接口：
+所有方法都支持链式调用；只有 `save()` / `saveLayer()` 返回 save count。
 
 ```js
 var canvas = ctx.getCanvas();
 
-canvas.clear('#ffffff');                          // 清空
-canvas.save();                                    // save/restore 状态栈
-canvas.translate(dx, dy).scale(sx, sy).rotate(degrees);
-canvas.setAlphaf(0.8);                            // 全局透明度
-canvas.clipRect(CK.XYWHRect(0, 0, 100, 100));
+// 状态与变换
+canvas.clear(color?);
+canvas.save();
+canvas.saveLayer(paint?);
+canvas.saveLayer(boundsRect);
+canvas.saveLayer(paint, boundsRect);
+canvas.restore();
+canvas.restoreToCount(saveCount);
+canvas.translate(dx, dy);
+canvas.scale(sx, sy?);
+canvas.rotate(degrees, rx?, ry?);
+canvas.skew(sx, sy);
+canvas.concat([m00, m01, m02, m10, m11, m12, m20, m21, m22]);
+canvas.setAlphaf(alpha);
 
-// 图形绘制（全部支持链式调用）
-canvas.drawRect(rect, paint);                     // 矩形
-canvas.drawRRect(rrect, paint);                   // 圆角矩形
-canvas.drawCircle(cx, cy, radius, paint);         // 圆
-canvas.drawLine(x0, y0, x1, y1, paint);           // 线段
-canvas.drawPath(path, paint);                     // 路径
-canvas.drawImageRect(image, srcRect, destRect);   // 图片
+// 裁剪
+canvas.clipRect(rect, CK.ClipOp.Intersect, doAntiAlias?);
+canvas.clipPath(path, CK.ClipOp.Intersect, doAntiAlias?);
+canvas.clipRRect(rrect, CK.ClipOp.Intersect, doAntiAlias?);
+
+// 形状
+canvas.drawPaint(paint);
+canvas.drawColor(color, CK.BlendMode.SrcOver);
+canvas.drawColorComponents(r, g, b, a?, CK.BlendMode.SrcOver);
+canvas.drawColorInt(colorInt, CK.BlendMode.SrcOver);
+canvas.drawRect(rect, paint);
+canvas.drawRRect(rrect, paint);
+canvas.drawDRRect(outerRRect, innerRRect, paint);
+canvas.drawCircle(cx, cy, radius, paint);
+canvas.drawOval(rect, paint);
+canvas.drawArc(ovalRect, startDeg, sweepDeg, useCenter, paint);
+canvas.drawLine(x0, y0, x1, y1, paint);
+canvas.drawPath(path, paint);
+canvas.drawPoints(CK.PointMode.Points, points, paint);
+canvas.drawPoints(CK.PointMode.Lines, points, paint);
+canvas.drawPoints(CK.PointMode.Polygon, points, paint);
+
+// 图片
+canvas.drawImage(image, x, y, paint?);
+canvas.drawImageRect(image, srcRect, destRect, paint?, fastSample?);
+
+// 文字
+canvas.drawText(text, x, y, paint, font);
 ```
 
-### Paint
+### `Paint` 支持范围
 
 ```js
 var paint = new CK.Paint();
-paint.setStyle(CK.PaintStyle.Fill);          // Fill | Stroke
+
+paint.setStyle(CK.PaintStyle.Fill);     // Fill | Stroke
 paint.setColor(CK.parseColorString('#ff0000'));
+paint.setColorComponents(1, 0, 0, 1);
+paint.setColorInt(CK.ColorAsInt(255, 0, 0, 1));
 paint.setAlphaf(0.8);
 paint.setStrokeWidth(2);
-paint.setStrokeCap('round');
-paint.setStrokeJoin('round');
+paint.setStrokeCap(CK.StrokeCap.Round);
+paint.setStrokeJoin(CK.StrokeJoin.Round);
 paint.setAntiAlias(true);
-paint.setStrokeDash([10, 5], 0);            // 虚线
+paint.setStrokeDash([10, 5], 0);        // 兼容层，底层等价于 PathEffect.MakeDash()
+paint.setPathEffect(CK.PathEffect.MakeDash([10, 5], 0));
 ```
 
-### Path
+当前 `PathEffect` 只支持 dash。
+
+### `Path` 支持范围
 
 ```js
 var path = new CK.Path();
 path.moveTo(x, y);
 path.lineTo(x, y);
-path.quadTo(x1, y1, x2, y2);               // 二次贝塞尔
-path.cubicTo(x1, y1, x2, y2, x3, y3);      // 三次贝塞尔
+path.quadTo(x1, y1, x2, y2);
+path.cubicTo(x1, y1, x2, y2, x3, y3);
+path.addRect(CK.XYWHRect(10, 10, 80, 40));
+path.addRRect(CK.RRectXY(CK.XYWHRect(10, 10, 80, 40), 8, 8));
+path.addOval(CK.XYWHRect(10, 10, 80, 40));
+path.addArc(CK.XYWHRect(10, 10, 80, 40), 0, 180);
 path.close();
+path.reset();
+path.rewind();
 ```
 
-### 图片
+### 文字 API 支持范围
+
+当前是“基础可用版”，对齐最小 CanvasKit 风格接口：
+
+```js
+var font = new CK.Font(null, 32);
+font.setSize(36);
+font.setScaleX(1);
+font.setSkewX(0);
+font.setSubpixel(true);
+font.setEdging(CK.FontEdging.SubpixelAntiAlias);
+
+var width = font.measureText('Hello OpenCat');
+canvas.drawText('Hello OpenCat', 40, 80, paint, font);
+```
+
+约束：
+- `typeface` 当前必须传 `null`，表示系统默认字体
+- 不支持自定义字体对象、`Typeface`、`FontMgr`、字体 asset
+- 不支持 `TextBlob`、`Paragraph`
+
+### 图片资源约束
+
+Canvas 脚本里的图片必须通过 `ctx.getImage(assetId)` 获取，不能直接传 URL、文件路径或宿主原生图片对象：
 
 ```js
 var img = ctx.getImage('hero-asset');
-canvas.drawImageRect(img, srcRect, destRect);  // srcRect 当前未裁切，整张缩放到 dest
+canvas.drawImage(img, 40, 40);
+canvas.drawImageRect(
+  img,
+  CK.XYWHRect(0, 0, 320, 180),
+  CK.XYWHRect(40, 40, 160, 90)
+);
 ```
+
+`drawImageRect()` 当前已经支持 `srcRect` 裁切，不再是整图强制缩放。
+
+### 当前明确限制
+
+- 这是 CanvasKit 子集，不是完整 CanvasKit。
+- `clipRect()` / `clipPath()` / `clipRRect()` 目前只支持 `CK.ClipOp.Intersect`，传 `Difference` 会抛错。
+- `drawColor()` / `drawColorInt()` / `drawColorComponents()` 目前只支持 `CK.BlendMode.SrcOver`。
+- `PathEffect` 目前只支持 `MakeDash()`。
+- 文字绘制只支持系统默认字体，不支持外部字体资源。
+- `ctx.getImage()` 只接受 asset id 句柄，不接受任意外部图片对象。
 
 ### 推荐模板
 
@@ -421,6 +521,7 @@ function fill(color) {
   p.setColor(CK.parseColorString(color));
   return p;
 }
+
 function stroke(color, width) {
   var p = new CK.Paint();
   p.setStyle(CK.PaintStyle.Stroke);
@@ -429,6 +530,9 @@ function stroke(color, width) {
   return p;
 }
 
+var font = new CK.Font(null, 24);
+font.setEdging(CK.FontEdging.SubpixelAntiAlias);
+
 canvas.clear(CK.WHITE);
 canvas.drawRect(CK.XYWHRect(10, 10, 100, 60), fill('#0f172a'));
 canvas.drawCircle(80, 40, 12, fill('#f8fafc'));
@@ -436,6 +540,7 @@ canvas.drawCircle(80, 40, 12, fill('#f8fafc'));
 var path = new CK.Path();
 path.moveTo(10, 10).lineTo(60, 10).lineTo(60, 40).close();
 canvas.drawPath(path, stroke('#38bdf8', 2));
+canvas.drawText('OpenCat', 16, 96, fill('#0f172a'), font);
 ```
 
 ---

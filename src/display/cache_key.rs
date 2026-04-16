@@ -219,8 +219,22 @@ fn hash_draw_script_command(command: &CanvasCommand, state: &mut impl Hasher) {
         CanvasCommand::Save => {
             0_u8.hash(state);
         }
+        CanvasCommand::SaveLayer { alpha, bounds } => {
+            45_u8.hash(state);
+            hash_f32(*alpha, state);
+            bounds.is_some().hash(state);
+            if let Some(bounds) = bounds {
+                for value in bounds {
+                    hash_f32(*value, state);
+                }
+            }
+        }
         CanvasCommand::Restore => {
             1_u8.hash(state);
+        }
+        CanvasCommand::RestoreToCount { count } => {
+            43_u8.hash(state);
+            count.hash(state);
         }
         CanvasCommand::SetFillStyle { color } => {
             2_u8.hash(state);
@@ -257,6 +271,10 @@ fn hash_draw_script_command(command: &CanvasCommand, state: &mut impl Hasher) {
             9_u8.hash(state);
             hash_f32(*alpha, state);
         }
+        CanvasCommand::SetAntiAlias { enabled } => {
+            44_u8.hash(state);
+            enabled.hash(state);
+        }
         CanvasCommand::Translate { x, y } => {
             10_u8.hash(state);
             hash_f32(*x, state);
@@ -276,16 +294,51 @@ fn hash_draw_script_command(command: &CanvasCommand, state: &mut impl Hasher) {
             y,
             width,
             height,
+            anti_alias,
         } => {
             13_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
             hash_f32(*width, state);
             hash_f32(*height, state);
+            anti_alias.hash(state);
         }
         CanvasCommand::Clear { color } => {
             14_u8.hash(state);
             color.hash(state);
+        }
+        CanvasCommand::DrawPaint { color, anti_alias } => {
+            46_u8.hash(state);
+            color.hash(state);
+            anti_alias.hash(state);
+        }
+        CanvasCommand::DrawText {
+            text,
+            x,
+            y,
+            color,
+            anti_alias,
+            stroke,
+            stroke_width,
+            font_size,
+            font_scale_x,
+            font_skew_x,
+            font_subpixel,
+            font_edging,
+        } => {
+            51_u8.hash(state);
+            text.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            color.hash(state);
+            anti_alias.hash(state);
+            stroke.hash(state);
+            hash_f32(*stroke_width, state);
+            hash_f32(*font_size, state);
+            hash_f32(*font_scale_x, state);
+            hash_f32(*font_skew_x, state);
+            font_subpixel.hash(state);
+            font_edging.hash(state);
         }
         CanvasCommand::FillRect {
             x,
@@ -403,6 +456,60 @@ fn hash_draw_script_command(command: &CanvasCommand, state: &mut impl Hasher) {
         CanvasCommand::ClosePath => {
             27_u8.hash(state);
         }
+        CanvasCommand::AddRectPath {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            47_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+        }
+        CanvasCommand::AddRRectPath {
+            x,
+            y,
+            width,
+            height,
+            radius,
+        } => {
+            48_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            hash_f32(*radius, state);
+        }
+        CanvasCommand::AddOvalPath {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            49_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+        }
+        CanvasCommand::AddArcPath {
+            x,
+            y,
+            width,
+            height,
+            start_angle,
+            sweep_angle,
+        } => {
+            50_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            hash_f32(*start_angle, state);
+            hash_f32(*sweep_angle, state);
+        }
         CanvasCommand::FillPath => {
             28_u8.hash(state);
         }
@@ -415,6 +522,9 @@ fn hash_draw_script_command(command: &CanvasCommand, state: &mut impl Hasher) {
             y,
             width,
             height,
+            src_rect,
+            alpha,
+            anti_alias,
             object_fit,
         } => {
             30_u8.hash(state);
@@ -423,7 +533,163 @@ fn hash_draw_script_command(command: &CanvasCommand, state: &mut impl Hasher) {
             hash_f32(*y, state);
             hash_f32(*width, state);
             hash_f32(*height, state);
+            src_rect.is_some().hash(state);
+            if let Some(src_rect) = src_rect {
+                for value in src_rect {
+                    hash_f32(*value, state);
+                }
+            }
+            hash_f32(*alpha, state);
+            anti_alias.hash(state);
             object_fit.hash(state);
+        }
+        CanvasCommand::DrawArc {
+            cx,
+            cy,
+            rx,
+            ry,
+            start_angle,
+            sweep_angle,
+            use_center,
+        } => {
+            31_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*rx, state);
+            hash_f32(*ry, state);
+            hash_f32(*start_angle, state);
+            hash_f32(*sweep_angle, state);
+            use_center.hash(state);
+        }
+        CanvasCommand::StrokeArc {
+            cx,
+            cy,
+            rx,
+            ry,
+            start_angle,
+            sweep_angle,
+        } => {
+            32_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*rx, state);
+            hash_f32(*ry, state);
+            hash_f32(*start_angle, state);
+            hash_f32(*sweep_angle, state);
+        }
+        CanvasCommand::FillOval { cx, cy, rx, ry } => {
+            33_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*rx, state);
+            hash_f32(*ry, state);
+        }
+        CanvasCommand::StrokeOval { cx, cy, rx, ry } => {
+            34_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*rx, state);
+            hash_f32(*ry, state);
+        }
+        CanvasCommand::ClipPath { anti_alias } => {
+            35_u8.hash(state);
+            anti_alias.hash(state);
+        }
+        CanvasCommand::ClipRRect {
+            x,
+            y,
+            width,
+            height,
+            radius,
+            anti_alias,
+        } => {
+            36_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            hash_f32(*radius, state);
+            anti_alias.hash(state);
+        }
+        CanvasCommand::DrawPoints { mode, points } => {
+            37_u8.hash(state);
+            mode.hash(state);
+            for p in points {
+                hash_f32(*p, state);
+            }
+        }
+        CanvasCommand::FillDRRect {
+            outer_x,
+            outer_y,
+            outer_width,
+            outer_height,
+            outer_radius,
+            inner_x,
+            inner_y,
+            inner_width,
+            inner_height,
+            inner_radius,
+        } => {
+            38_u8.hash(state);
+            hash_f32(*outer_x, state);
+            hash_f32(*outer_y, state);
+            hash_f32(*outer_width, state);
+            hash_f32(*outer_height, state);
+            hash_f32(*outer_radius, state);
+            hash_f32(*inner_x, state);
+            hash_f32(*inner_y, state);
+            hash_f32(*inner_width, state);
+            hash_f32(*inner_height, state);
+            hash_f32(*inner_radius, state);
+        }
+        CanvasCommand::StrokeDRRect {
+            outer_x,
+            outer_y,
+            outer_width,
+            outer_height,
+            outer_radius,
+            inner_x,
+            inner_y,
+            inner_width,
+            inner_height,
+            inner_radius,
+        } => {
+            39_u8.hash(state);
+            hash_f32(*outer_x, state);
+            hash_f32(*outer_y, state);
+            hash_f32(*outer_width, state);
+            hash_f32(*outer_height, state);
+            hash_f32(*outer_radius, state);
+            hash_f32(*inner_x, state);
+            hash_f32(*inner_y, state);
+            hash_f32(*inner_width, state);
+            hash_f32(*inner_height, state);
+            hash_f32(*inner_radius, state);
+        }
+        CanvasCommand::Skew { sx, sy } => {
+            40_u8.hash(state);
+            hash_f32(*sx, state);
+            hash_f32(*sy, state);
+        }
+        CanvasCommand::DrawImageSimple {
+            asset_id,
+            x,
+            y,
+            alpha,
+            anti_alias,
+        } => {
+            41_u8.hash(state);
+            asset_id.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*alpha, state);
+            anti_alias.hash(state);
+        }
+        CanvasCommand::Concat { matrix } => {
+            42_u8.hash(state);
+            for v in matrix {
+                hash_f32(*v, state);
+            }
         }
     }
 }

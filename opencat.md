@@ -94,12 +94,13 @@ OpenCat JSONL 是 HTML+CSS+JS 的 JSON Lines 序列化。每一行是一个 JSON
 
 ### 1.4 Script
 
-> **⚠️ script.content 禁止注释**，代码必须纯净
+> **⚠️ script.src 禁止注释**，代码必须纯净
 
 挂载在节点上，每帧执行（类比 `requestAnimationFrame` 循环）：
 
 ```json
-{"type": "script", "parentId": "scene1", "content": "var node = ctx.getNode('title');\nvar anim = ctx.animate({from:{opacity:0},to:{opacity:1},duration:20,easing:'spring-gentle'});\nnode.opacity(anim.opacity);"}
+{"type": "script", "parentId": "scene1", "src": "var node = ctx.getNode('title');\nvar anim = ctx.animate({from:{opacity:0},to:{opacity:1},duration:20,easing:'spring-gentle'});\nnode.opacity(anim.opacity);"}
+{"type": "script", "parentId": "scene1", "path": "scene1.js"}
 ```
 
 ### 1.5 Transition
@@ -329,7 +330,7 @@ icons.forEach(function(id, i) {
 
 ```json
 {"id": "chart", "parentId": "scene1", "type": "canvas", "className": "w-[300px] h-[200px]"}
-{"type": "script", "parentId": "chart", "content": "var CK = ctx.CanvasKit;\nvar canvas = ctx.getCanvas();\ncanvas.clear('#ffffff');"}
+{"type": "script", "parentId": "chart", "src": "var CK = ctx.CanvasKit;\nvar canvas = ctx.getCanvas();\ncanvas.clear('#ffffff');"}
 ```
 
 ### 入口对象

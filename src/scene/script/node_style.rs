@@ -3,8 +3,8 @@ use rquickjs::Function;
 use crate::style::{ColorToken, LengthPercentageAuto, Transform, color_token_from_script_name};
 
 use super::{
-    MutationStore, align_items_from_name, flex_direction_from_name, font_weight_from_name,
-    box_shadow_from_name, drop_shadow_from_name, inset_shadow_from_name,
+    MutationStore, align_items_from_name, box_shadow_from_name, drop_shadow_from_name,
+    flex_direction_from_name, font_weight_from_name, inset_shadow_from_name,
     justify_content_from_name, object_fit_from_name, position_from_name, text_align_from_name,
 };
 

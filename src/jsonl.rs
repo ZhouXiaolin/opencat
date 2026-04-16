@@ -774,7 +774,10 @@ mod tests {
         assert_eq!(style.bg_gradient_to, Some(ColorToken::Amber500));
         assert!(style.overflow_hidden);
         assert_eq!(style.margin_top, Some(LengthPercentageAuto::Length(4.0)));
-        assert_eq!(style.margin_bottom, Some(LengthPercentageAuto::Length(16.0)));
+        assert_eq!(
+            style.margin_bottom,
+            Some(LengthPercentageAuto::Length(16.0))
+        );
         assert_eq!(style.padding_bottom, Some(20.0));
     }
 

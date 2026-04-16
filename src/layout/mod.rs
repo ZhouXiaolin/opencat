@@ -16,9 +16,7 @@ use taffy::{
 
 use crate::{
     FrameCtx,
-    element::{
-        tree::{ElementKind, ElementNode},
-    },
+    element::tree::{ElementKind, ElementNode},
     layout::tree::{LayoutNode, LayoutRect, LayoutTree},
     scene::primitives::{AlignItems, JustifyContent, Position},
     style::{ComputedTextStyle, LengthPercentageAuto},
@@ -338,7 +336,11 @@ fn same_structure(cached: &CachedLayoutNode, element: &ElementNode, sibling_inde
     cached
         .children
         .iter()
-        .zip(ordered_children(element).into_iter().map(|(_, child)| child))
+        .zip(
+            ordered_children(element)
+                .into_iter()
+                .map(|(_, child)| child),
+        )
         .enumerate()
         .all(|(index, (cached_child, child))| same_structure(cached_child, child, index))
 }
@@ -602,65 +604,48 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             } else {
                 taffy::prelude::Display::Block
             },
-            grid_template_columns: layout.grid_template_columns.map_or_else(
-                Vec::new,
-                |cols| {
-                    (0..cols)
-                        .map(|_| {
-                            taffy::style::GridTemplateComponent::Single(flex(1.0))
-                        })
-                        .collect()
-                },
-            ),
-            grid_template_rows: layout.grid_template_rows.map_or_else(
-                Vec::new,
-                |rows| {
-                    (0..rows)
-                        .map(|_| {
-                            taffy::style::GridTemplateComponent::Single(flex(1.0))
-                        })
-                        .collect()
-                },
-            ),
+            grid_template_columns: layout.grid_template_columns.map_or_else(Vec::new, |cols| {
+                (0..cols)
+                    .map(|_| taffy::style::GridTemplateComponent::Single(flex(1.0)))
+                    .collect()
+            }),
+            grid_template_rows: layout.grid_template_rows.map_or_else(Vec::new, |rows| {
+                (0..rows)
+                    .map(|_| taffy::style::GridTemplateComponent::Single(flex(1.0)))
+                    .collect()
+            }),
             grid_auto_flow: layout.grid_auto_flow.map_or_else(
                 taffy::style::GridAutoFlow::default,
                 |flow| match flow {
                     crate::style::GridAutoFlow::Row => taffy::style::GridAutoFlow::Row,
                     crate::style::GridAutoFlow::Column => taffy::style::GridAutoFlow::Column,
                     crate::style::GridAutoFlow::RowDense => taffy::style::GridAutoFlow::RowDense,
-                    crate::style::GridAutoFlow::ColumnDense => taffy::style::GridAutoFlow::ColumnDense,
+                    crate::style::GridAutoFlow::ColumnDense => {
+                        taffy::style::GridAutoFlow::ColumnDense
+                    }
                 },
             ),
-            grid_auto_rows: layout.grid_auto_rows.map_or_else(
-                Vec::new,
-                |auto_rows| {
-                    use taffy::style::MaxTrackSizingFunction;
-                    vec![match auto_rows {
-                        crate::style::GridAutoRows::Auto => {
-                            // auto = minmax(auto, auto)
-                            taffy::geometry::MinMax {
-                                min: taffy::style::MinTrackSizingFunction::AUTO,
-                                max: MaxTrackSizingFunction::AUTO,
-                            }
+            grid_auto_rows: layout.grid_auto_rows.map_or_else(Vec::new, |auto_rows| {
+                use taffy::style::MaxTrackSizingFunction;
+                vec![match auto_rows {
+                    crate::style::GridAutoRows::Auto => {
+                        // auto = minmax(auto, auto)
+                        taffy::geometry::MinMax {
+                            min: taffy::style::MinTrackSizingFunction::AUTO,
+                            max: MaxTrackSizingFunction::AUTO,
                         }
-                        crate::style::GridAutoRows::Min => {
-                            taffy::geometry::MinMax {
-                                min: taffy::style::MinTrackSizingFunction::AUTO,
-                                max: MaxTrackSizingFunction::min_content(),
-                            }
-                        }
-                        crate::style::GridAutoRows::Max => {
-                            taffy::geometry::MinMax {
-                                min: taffy::style::MinTrackSizingFunction::AUTO,
-                                max: MaxTrackSizingFunction::max_content(),
-                            }
-                        }
-                        crate::style::GridAutoRows::Fr => {
-                            TrackSizingFunction::from_fr(1.0)
-                        }
-                    }]
-                },
-            ),
+                    }
+                    crate::style::GridAutoRows::Min => taffy::geometry::MinMax {
+                        min: taffy::style::MinTrackSizingFunction::AUTO,
+                        max: MaxTrackSizingFunction::min_content(),
+                    },
+                    crate::style::GridAutoRows::Max => taffy::geometry::MinMax {
+                        min: taffy::style::MinTrackSizingFunction::AUTO,
+                        max: MaxTrackSizingFunction::max_content(),
+                    },
+                    crate::style::GridAutoRows::Fr => TrackSizingFunction::from_fr(1.0),
+                }]
+            }),
             justify_items: layout.justify_items.map(map_align_items_to_justify_items),
             grid_column: resolve_grid_axis_placement(layout.col_start, layout.col_end),
             grid_row: resolve_grid_axis_placement(layout.row_start, layout.row_end),
@@ -673,17 +658,14 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             },
             min_size: taffy::geometry::Size {
                 width: Dimension::auto(),
-                height: layout.min_height.map_or_else(
-                    Dimension::auto,
-                    |v| match v {
-                        crate::style::LengthPercentageAuto::Auto => Dimension::auto(),
-                        crate::style::LengthPercentageAuto::Length(px) => Dimension::length(px),
-                        crate::style::LengthPercentageAuto::Percent(pct) => {
-                            let resolved = if pct < 0.0 { 1.0 } else { pct };
-                            Dimension::percent(resolved)
-                        }
-                    },
-                ),
+                height: layout.min_height.map_or_else(Dimension::auto, |v| match v {
+                    crate::style::LengthPercentageAuto::Auto => Dimension::auto(),
+                    crate::style::LengthPercentageAuto::Length(px) => Dimension::length(px),
+                    crate::style::LengthPercentageAuto::Percent(pct) => {
+                        let resolved = if pct < 0.0 { 1.0 } else { pct };
+                        Dimension::percent(resolved)
+                    }
+                }),
             },
             size: match layout.position {
                 Position::Absolute => taffy::geometry::Size {
@@ -721,12 +703,8 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             justify_content: Some(map_justify(layout.justify_content)),
             align_items: Some(map_align(layout.align_items)),
             gap: taffy::geometry::Size {
-                width: taffy::style::LengthPercentage::length(
-                    layout.gap_x.unwrap_or(layout.gap),
-                ),
-                height: taffy::style::LengthPercentage::length(
-                    layout.gap_y.unwrap_or(layout.gap),
-                ),
+                width: taffy::style::LengthPercentage::length(layout.gap_x.unwrap_or(layout.gap)),
+                height: taffy::style::LengthPercentage::length(layout.gap_y.unwrap_or(layout.gap)),
             },
             flex_wrap: map_flex_wrap(layout.flex_wrap),
             align_content: layout.align_content.map(map_align_content),
@@ -924,8 +902,22 @@ fn hash_draw_script_command(
         crate::scene::script::CanvasCommand::Save => {
             0_u8.hash(state);
         }
+        crate::scene::script::CanvasCommand::SaveLayer { alpha, bounds } => {
+            45_u8.hash(state);
+            hash_f32(*alpha, state);
+            bounds.is_some().hash(state);
+            if let Some(bounds) = bounds {
+                for value in bounds {
+                    hash_f32(*value, state);
+                }
+            }
+        }
         crate::scene::script::CanvasCommand::Restore => {
             1_u8.hash(state);
+        }
+        crate::scene::script::CanvasCommand::RestoreToCount { count } => {
+            43_u8.hash(state);
+            count.hash(state);
         }
         crate::scene::script::CanvasCommand::SetFillStyle { color } => {
             2_u8.hash(state);
@@ -962,6 +954,10 @@ fn hash_draw_script_command(
             9_u8.hash(state);
             hash_f32(*alpha, state);
         }
+        crate::scene::script::CanvasCommand::SetAntiAlias { enabled } => {
+            44_u8.hash(state);
+            enabled.hash(state);
+        }
         crate::scene::script::CanvasCommand::Translate { x, y } => {
             10_u8.hash(state);
             hash_f32(*x, state);
@@ -981,16 +977,51 @@ fn hash_draw_script_command(
             y,
             width,
             height,
+            anti_alias,
         } => {
             13_u8.hash(state);
             hash_f32(*x, state);
             hash_f32(*y, state);
             hash_f32(*width, state);
             hash_f32(*height, state);
+            anti_alias.hash(state);
         }
         crate::scene::script::CanvasCommand::Clear { color } => {
             14_u8.hash(state);
             color.hash(state);
+        }
+        crate::scene::script::CanvasCommand::DrawPaint { color, anti_alias } => {
+            46_u8.hash(state);
+            color.hash(state);
+            anti_alias.hash(state);
+        }
+        crate::scene::script::CanvasCommand::DrawText {
+            text,
+            x,
+            y,
+            color,
+            anti_alias,
+            stroke,
+            stroke_width,
+            font_size,
+            font_scale_x,
+            font_skew_x,
+            font_subpixel,
+            font_edging,
+        } => {
+            51_u8.hash(state);
+            text.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            color.hash(state);
+            anti_alias.hash(state);
+            stroke.hash(state);
+            hash_f32(*stroke_width, state);
+            hash_f32(*font_size, state);
+            hash_f32(*font_scale_x, state);
+            hash_f32(*font_skew_x, state);
+            font_subpixel.hash(state);
+            font_edging.hash(state);
         }
         crate::scene::script::CanvasCommand::FillRect {
             x,
@@ -1108,6 +1139,60 @@ fn hash_draw_script_command(
         crate::scene::script::CanvasCommand::ClosePath => {
             27_u8.hash(state);
         }
+        crate::scene::script::CanvasCommand::AddRectPath {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            47_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+        }
+        crate::scene::script::CanvasCommand::AddRRectPath {
+            x,
+            y,
+            width,
+            height,
+            radius,
+        } => {
+            48_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            hash_f32(*radius, state);
+        }
+        crate::scene::script::CanvasCommand::AddOvalPath {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            49_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+        }
+        crate::scene::script::CanvasCommand::AddArcPath {
+            x,
+            y,
+            width,
+            height,
+            start_angle,
+            sweep_angle,
+        } => {
+            50_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            hash_f32(*start_angle, state);
+            hash_f32(*sweep_angle, state);
+        }
         crate::scene::script::CanvasCommand::FillPath => {
             28_u8.hash(state);
         }
@@ -1120,6 +1205,9 @@ fn hash_draw_script_command(
             y,
             width,
             height,
+            src_rect,
+            alpha,
+            anti_alias,
             object_fit,
         } => {
             30_u8.hash(state);
@@ -1128,7 +1216,163 @@ fn hash_draw_script_command(
             hash_f32(*y, state);
             hash_f32(*width, state);
             hash_f32(*height, state);
+            src_rect.is_some().hash(state);
+            if let Some(src_rect) = src_rect {
+                for value in src_rect {
+                    hash_f32(*value, state);
+                }
+            }
+            hash_f32(*alpha, state);
+            anti_alias.hash(state);
             object_fit.hash(state);
+        }
+        crate::scene::script::CanvasCommand::DrawArc {
+            cx,
+            cy,
+            rx,
+            ry,
+            start_angle,
+            sweep_angle,
+            use_center,
+        } => {
+            31_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*rx, state);
+            hash_f32(*ry, state);
+            hash_f32(*start_angle, state);
+            hash_f32(*sweep_angle, state);
+            use_center.hash(state);
+        }
+        crate::scene::script::CanvasCommand::StrokeArc {
+            cx,
+            cy,
+            rx,
+            ry,
+            start_angle,
+            sweep_angle,
+        } => {
+            32_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*rx, state);
+            hash_f32(*ry, state);
+            hash_f32(*start_angle, state);
+            hash_f32(*sweep_angle, state);
+        }
+        crate::scene::script::CanvasCommand::FillOval { cx, cy, rx, ry } => {
+            33_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*rx, state);
+            hash_f32(*ry, state);
+        }
+        crate::scene::script::CanvasCommand::StrokeOval { cx, cy, rx, ry } => {
+            34_u8.hash(state);
+            hash_f32(*cx, state);
+            hash_f32(*cy, state);
+            hash_f32(*rx, state);
+            hash_f32(*ry, state);
+        }
+        crate::scene::script::CanvasCommand::ClipPath { anti_alias } => {
+            35_u8.hash(state);
+            anti_alias.hash(state);
+        }
+        crate::scene::script::CanvasCommand::ClipRRect {
+            x,
+            y,
+            width,
+            height,
+            radius,
+            anti_alias,
+        } => {
+            36_u8.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*width, state);
+            hash_f32(*height, state);
+            hash_f32(*radius, state);
+            anti_alias.hash(state);
+        }
+        crate::scene::script::CanvasCommand::DrawPoints { mode, points } => {
+            37_u8.hash(state);
+            mode.hash(state);
+            for p in points {
+                hash_f32(*p, state);
+            }
+        }
+        crate::scene::script::CanvasCommand::FillDRRect {
+            outer_x,
+            outer_y,
+            outer_width,
+            outer_height,
+            outer_radius,
+            inner_x,
+            inner_y,
+            inner_width,
+            inner_height,
+            inner_radius,
+        } => {
+            38_u8.hash(state);
+            hash_f32(*outer_x, state);
+            hash_f32(*outer_y, state);
+            hash_f32(*outer_width, state);
+            hash_f32(*outer_height, state);
+            hash_f32(*outer_radius, state);
+            hash_f32(*inner_x, state);
+            hash_f32(*inner_y, state);
+            hash_f32(*inner_width, state);
+            hash_f32(*inner_height, state);
+            hash_f32(*inner_radius, state);
+        }
+        crate::scene::script::CanvasCommand::StrokeDRRect {
+            outer_x,
+            outer_y,
+            outer_width,
+            outer_height,
+            outer_radius,
+            inner_x,
+            inner_y,
+            inner_width,
+            inner_height,
+            inner_radius,
+        } => {
+            39_u8.hash(state);
+            hash_f32(*outer_x, state);
+            hash_f32(*outer_y, state);
+            hash_f32(*outer_width, state);
+            hash_f32(*outer_height, state);
+            hash_f32(*outer_radius, state);
+            hash_f32(*inner_x, state);
+            hash_f32(*inner_y, state);
+            hash_f32(*inner_width, state);
+            hash_f32(*inner_height, state);
+            hash_f32(*inner_radius, state);
+        }
+        crate::scene::script::CanvasCommand::Skew { sx, sy } => {
+            40_u8.hash(state);
+            hash_f32(*sx, state);
+            hash_f32(*sy, state);
+        }
+        crate::scene::script::CanvasCommand::DrawImageSimple {
+            asset_id,
+            x,
+            y,
+            alpha,
+            anti_alias,
+        } => {
+            41_u8.hash(state);
+            asset_id.hash(state);
+            hash_f32(*x, state);
+            hash_f32(*y, state);
+            hash_f32(*alpha, state);
+            anti_alias.hash(state);
+        }
+        crate::scene::script::CanvasCommand::Concat { matrix } => {
+            42_u8.hash(state);
+            for v in matrix {
+                hash_f32(*v, state);
+            }
         }
     }
 }

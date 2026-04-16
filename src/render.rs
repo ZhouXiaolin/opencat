@@ -425,7 +425,7 @@ mod tests {
                 const image = ctx.getImage("hero");
                 ctx.getCanvas().drawImageRect(
                     image,
-                    CK.XYWHRect(0, 0, 1, 1),
+                    CK.XYWHRect(0, 0, 2, 1),
                     CK.XYWHRect(0, 0, 2, 1),
                 );
                 "#,

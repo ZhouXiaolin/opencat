@@ -18,7 +18,10 @@ mod animate_api;
 mod canvas_api;
 mod node_style;
 
-pub use canvas_api::{CanvasCommand, CanvasMutations, ScriptColor, ScriptLineCap, ScriptLineJoin};
+pub use canvas_api::{
+    CanvasCommand, CanvasMutations, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
+    ScriptPointMode,
+};
 pub use node_style::NodeStyleMutations;
 
 #[derive(Debug, Clone, Default)]
@@ -386,7 +389,9 @@ fn install_runtime_bindings<'js>(
 
 #[cfg(test)]
 mod tests {
-    use super::{CanvasCommand, ScriptColor, ScriptDriver, ScriptLineCap, ScriptLineJoin};
+    use super::{
+        CanvasCommand, ScriptColor, ScriptDriver, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
+    };
     use crate::style::{ColorToken, ObjectFit, TextAlign, Transform};
 
     #[test]
@@ -504,6 +509,10 @@ mod tests {
 
         assert_eq!(
             canvas.commands[0],
+            CanvasCommand::SetAntiAlias { enabled: true }
+        );
+        assert_eq!(
+            canvas.commands[1],
             CanvasCommand::FillRect {
                 x: 0.0,
                 y: 0.0,
@@ -518,13 +527,16 @@ mod tests {
             }
         );
         assert_eq!(
-            canvas.commands[1],
+            canvas.commands[2],
             CanvasCommand::DrawImage {
                 asset_id: "hero".to_string(),
                 x: 10.0,
                 y: 10.0,
                 width: 80.0,
                 height: 60.0,
+                src_rect: Some([0.0, 0.0, 1.0, 1.0]),
+                alpha: 1.0,
+                anti_alias: true,
                 object_fit: ObjectFit::Fill,
             }
         );
@@ -565,6 +577,10 @@ mod tests {
 
         assert_eq!(
             canvas.commands[0],
+            CanvasCommand::SetAntiAlias { enabled: true }
+        );
+        assert_eq!(
+            canvas.commands[1],
             CanvasCommand::SetStrokeStyle {
                 color: ScriptColor {
                     r: 251,
@@ -575,25 +591,25 @@ mod tests {
             }
         );
         assert_eq!(
-            canvas.commands[1],
+            canvas.commands[2],
             CanvasCommand::SetLineWidth { width: 3.0 }
         );
         assert_eq!(
-            canvas.commands[2],
+            canvas.commands[3],
             CanvasCommand::SetLineCap {
                 cap: ScriptLineCap::Round,
             }
         );
         assert_eq!(
-            canvas.commands[3],
+            canvas.commands[4],
             CanvasCommand::SetLineJoin {
                 join: ScriptLineJoin::Bevel,
             }
         );
-        assert!(matches!(canvas.commands[4], CanvasCommand::ClearLineDash));
-        assert!(matches!(canvas.commands[5], CanvasCommand::BeginPath));
-        assert!(matches!(canvas.commands[10], CanvasCommand::ClosePath));
-        assert!(matches!(canvas.commands[11], CanvasCommand::StrokePath));
+        assert!(matches!(canvas.commands[5], CanvasCommand::ClearLineDash));
+        assert!(matches!(canvas.commands[6], CanvasCommand::BeginPath));
+        assert!(matches!(canvas.commands[11], CanvasCommand::ClosePath));
+        assert!(matches!(canvas.commands[12], CanvasCommand::StrokePath));
     }
 
     #[test]
@@ -639,6 +655,10 @@ mod tests {
         );
         assert_eq!(
             canvas.commands[4],
+            CanvasCommand::SetAntiAlias { enabled: true }
+        );
+        assert_eq!(
+            canvas.commands[5],
             CanvasCommand::SetFillStyle {
                 color: ScriptColor {
                     r: 17,
@@ -649,11 +669,15 @@ mod tests {
             }
         );
         assert!(matches!(
-            canvas.commands[5],
+            canvas.commands[6],
             CanvasCommand::FillRRect { .. }
         ));
         assert_eq!(
-            canvas.commands[6],
+            canvas.commands[7],
+            CanvasCommand::SetAntiAlias { enabled: true }
+        );
+        assert_eq!(
+            canvas.commands[8],
             CanvasCommand::SetStrokeStyle {
                 color: ScriptColor {
                     r: 68,
@@ -664,15 +688,15 @@ mod tests {
             }
         );
         assert_eq!(
-            canvas.commands[7],
+            canvas.commands[9],
             CanvasCommand::SetLineWidth { width: 3.0 }
         );
-        assert!(matches!(canvas.commands[10], CanvasCommand::ClearLineDash));
+        assert!(matches!(canvas.commands[12], CanvasCommand::ClearLineDash));
         assert!(matches!(
-            canvas.commands[11],
+            canvas.commands[13],
             CanvasCommand::StrokeCircle { .. }
         ));
-        assert_eq!(canvas.commands[12], CanvasCommand::Restore);
+        assert_eq!(canvas.commands[14], CanvasCommand::Restore);
     }
 
     #[test]
@@ -724,6 +748,10 @@ mod tests {
 
         assert_eq!(
             canvas.commands[0],
+            CanvasCommand::SetAntiAlias { enabled: true }
+        );
+        assert_eq!(
+            canvas.commands[1],
             CanvasCommand::SetStrokeStyle {
                 color: ScriptColor {
                     r: 68,
@@ -734,14 +762,540 @@ mod tests {
             }
         );
         assert_eq!(
-            canvas.commands[1],
+            canvas.commands[2],
             CanvasCommand::SetLineWidth { width: 3.0 }
         );
         assert!(matches!(
-            canvas.commands[4],
+            canvas.commands[5],
             CanvasCommand::SetLineDash { .. }
         ));
-        assert!(matches!(canvas.commands[5], CanvasCommand::DrawLine { .. }));
+        assert!(matches!(canvas.commands[6], CanvasCommand::DrawLine { .. }));
+    }
+
+    #[test]
+    fn script_driver_accepts_path_effect_dash_api() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const canvas = ctx.getCanvas();
+            const stroke = new CK.Paint();
+            stroke.setStyle(CK.PaintStyle.Stroke);
+            stroke.setColor(CK.parseColorString("#445566"));
+            stroke.setStrokeWidth(2);
+            stroke.setPathEffect(CK.PathEffect.MakeDash([3, 2], 1));
+
+            canvas.drawLine(1, 2, 11, 12, stroke);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(
+            canvas.commands[5],
+            CanvasCommand::SetLineDash {
+                intervals: vec![3.0, 2.0],
+                phase: 1.0,
+            }
+        );
+        assert_eq!(
+            canvas.commands[6],
+            CanvasCommand::DrawLine {
+                x0: 1.0,
+                y0: 2.0,
+                x1: 11.0,
+                y1: 12.0,
+            }
+        );
+    }
+
+    #[test]
+    fn script_driver_supports_path_shape_builders() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const canvas = ctx.getCanvas();
+            const fill = new CK.Paint();
+            fill.setStyle(CK.PaintStyle.Fill);
+            fill.setColor(CK.BLACK);
+
+            const path = new CK.Path();
+            path
+                .addRect(CK.LTRBRect(0, 0, 10, 5))
+                .addRRect(CK.RRectXY(CK.LTRBRect(2, 3, 8, 9), 1, 1))
+                .addOval(CK.LTRBRect(10, 20, 30, 40))
+                .addArc(CK.LTRBRect(5, 6, 15, 26), 10, 90);
+
+            canvas.drawPath(path, fill);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(
+            canvas.commands[3],
+            CanvasCommand::AddRectPath {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 5.0,
+            }
+        );
+        assert_eq!(
+            canvas.commands[4],
+            CanvasCommand::AddRRectPath {
+                x: 2.0,
+                y: 3.0,
+                width: 6.0,
+                height: 6.0,
+                radius: 1.0,
+            }
+        );
+        assert_eq!(
+            canvas.commands[5],
+            CanvasCommand::AddOvalPath {
+                x: 10.0,
+                y: 20.0,
+                width: 20.0,
+                height: 20.0,
+            }
+        );
+        assert_eq!(
+            canvas.commands[6],
+            CanvasCommand::AddArcPath {
+                x: 5.0,
+                y: 6.0,
+                width: 10.0,
+                height: 20.0,
+                start_angle: 10.0,
+                sweep_angle: 90.0,
+            }
+        );
+        assert!(matches!(canvas.commands[7], CanvasCommand::FillPath));
+    }
+
+    #[test]
+    fn script_driver_reset_and_rewind_clear_path_ops() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const canvas = ctx.getCanvas();
+            const fill = new CK.Paint();
+            fill.setStyle(CK.PaintStyle.Fill);
+            fill.setColor(CK.BLACK);
+
+            const path = new CK.Path();
+            path.addRect(CK.LTRBRect(0, 0, 10, 5));
+            path.reset();
+            path.addOval(CK.LTRBRect(1, 2, 11, 12));
+            path.rewind();
+            path.addArc(CK.LTRBRect(3, 4, 13, 24), 15, 180);
+
+            canvas.drawPath(path, fill);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(canvas.commands.len(), 5);
+        assert!(matches!(canvas.commands[2], CanvasCommand::BeginPath));
+        assert_eq!(
+            canvas.commands[3],
+            CanvasCommand::AddArcPath {
+                x: 3.0,
+                y: 4.0,
+                width: 10.0,
+                height: 20.0,
+                start_angle: 15.0,
+                sweep_angle: 180.0,
+            }
+        );
+        assert!(matches!(canvas.commands[4], CanvasCommand::FillPath));
+    }
+
+    #[test]
+    fn script_driver_uses_ltrb_rects_for_arc_and_oval() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const canvas = ctx.getCanvas();
+            const fill = new CK.Paint();
+            fill.setStyle(CK.PaintStyle.Fill);
+            fill.setColor(CK.BLACK);
+
+            const stroke = new CK.Paint();
+            stroke.setStyle(CK.PaintStyle.Stroke);
+            stroke.setColor(CK.WHITE);
+
+            canvas.drawArc(CK.LTRBRect(10, 20, 30, 50), 15, 120, true, fill);
+            canvas.drawOval(CK.LTRBRect(40, 60, 90, 120), stroke);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(
+            canvas.commands[2],
+            CanvasCommand::DrawArc {
+                cx: 20.0,
+                cy: 35.0,
+                rx: 10.0,
+                ry: 15.0,
+                start_angle: 15.0,
+                sweep_angle: 120.0,
+                use_center: true,
+            }
+        );
+        assert_eq!(
+            canvas.commands[9],
+            CanvasCommand::StrokeOval {
+                cx: 65.0,
+                cy: 90.0,
+                rx: 25.0,
+                ry: 30.0,
+            }
+        );
+    }
+
+    #[test]
+    fn script_driver_records_restore_to_count_and_antialias_flags() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const canvas = ctx.getCanvas();
+            const fill = new CK.Paint();
+            fill.setStyle(CK.PaintStyle.Fill);
+            fill.setColor(CK.BLACK);
+            fill.setAntiAlias(false);
+
+            const saveCount = canvas.save();
+            canvas.clipRect(CK.LTRBRect(0, 0, 20, 10), CK.ClipOp.Intersect, false);
+            canvas.drawRect(CK.XYWHRect(0, 0, 10, 5), fill);
+            canvas.restoreToCount(saveCount);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(canvas.commands[0], CanvasCommand::Save);
+        assert_eq!(
+            canvas.commands[1],
+            CanvasCommand::ClipRect {
+                x: 0.0,
+                y: 0.0,
+                width: 20.0,
+                height: 10.0,
+                anti_alias: false,
+            }
+        );
+        assert_eq!(
+            canvas.commands[2],
+            CanvasCommand::SetAntiAlias { enabled: false }
+        );
+        assert_eq!(
+            canvas.commands[3],
+            CanvasCommand::FillRect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 5.0,
+                color: ScriptColor {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+            }
+        );
+        assert_eq!(
+            canvas.commands[4],
+            CanvasCommand::RestoreToCount { count: 2 }
+        );
+    }
+
+    #[test]
+    fn script_driver_records_image_source_rect_and_paint_alpha() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const canvas = ctx.getCanvas();
+            const image = ctx.getImage("hero");
+            const paint = new CK.Paint();
+            paint.setAlphaf(0.5);
+            paint.setAntiAlias(false);
+
+            canvas.drawImageRect(
+                image,
+                CK.LTRBRect(2, 4, 12, 14),
+                CK.LTRBRect(10, 20, 30, 50),
+                paint,
+            );
+            canvas.drawImage(image, 8, 9, paint);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(
+            canvas.commands[0],
+            CanvasCommand::DrawImage {
+                asset_id: "hero".to_string(),
+                x: 10.0,
+                y: 20.0,
+                width: 20.0,
+                height: 30.0,
+                src_rect: Some([2.0, 4.0, 10.0, 10.0]),
+                alpha: 0.5,
+                anti_alias: false,
+                object_fit: ObjectFit::Fill,
+            }
+        );
+        assert_eq!(
+            canvas.commands[1],
+            CanvasCommand::DrawImageSimple {
+                asset_id: "hero".to_string(),
+                x: 8.0,
+                y: 9.0,
+                alpha: 0.5,
+                anti_alias: false,
+            }
+        );
+    }
+
+    #[test]
+    fn script_driver_records_draw_paint_and_draw_color_variants() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const canvas = ctx.getCanvas();
+            const paint = new CK.Paint();
+            paint.setColor(CK.Color4f(0.25, 0.5, 0.75, 0.5));
+            paint.setAntiAlias(false);
+
+            canvas.drawPaint(paint);
+            canvas.drawColor(CK.parseColorString("#112233"));
+            canvas.drawColorInt(CK.ColorAsInt(68, 85, 102, 0.5));
+            canvas.drawColorComponents(0.2, 0.4, 0.6, 0.8);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(
+            canvas.commands[0],
+            CanvasCommand::DrawPaint {
+                color: ScriptColor {
+                    r: 64,
+                    g: 128,
+                    b: 191,
+                    a: 128,
+                },
+                anti_alias: false,
+            }
+        );
+        assert_eq!(
+            canvas.commands[1],
+            CanvasCommand::DrawPaint {
+                color: ScriptColor {
+                    r: 17,
+                    g: 34,
+                    b: 51,
+                    a: 255,
+                },
+                anti_alias: true,
+            }
+        );
+        assert_eq!(
+            canvas.commands[2],
+            CanvasCommand::DrawPaint {
+                color: ScriptColor {
+                    r: 68,
+                    g: 85,
+                    b: 102,
+                    a: 128,
+                },
+                anti_alias: true,
+            }
+        );
+        assert_eq!(
+            canvas.commands[3],
+            CanvasCommand::DrawPaint {
+                color: ScriptColor {
+                    r: 51,
+                    g: 102,
+                    b: 153,
+                    a: 204,
+                },
+                anti_alias: true,
+            }
+        );
+    }
+
+    #[test]
+    fn script_driver_records_save_layer_bounds_and_alpha() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const canvas = ctx.getCanvas();
+            const paint = new CK.Paint();
+            paint.setAlphaf(0.25);
+
+            const count = canvas.saveLayer(paint, CK.LTRBRect(1, 2, 11, 12));
+            canvas.drawColor(CK.WHITE);
+            canvas.restoreToCount(count - 1);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(
+            canvas.commands[0],
+            CanvasCommand::SaveLayer {
+                alpha: 0.25,
+                bounds: Some([1.0, 2.0, 10.0, 10.0]),
+            }
+        );
+        assert_eq!(
+            canvas.commands[1],
+            CanvasCommand::DrawPaint {
+                color: ScriptColor {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    a: 255,
+                },
+                anti_alias: true,
+            }
+        );
+        assert_eq!(
+            canvas.commands[2],
+            CanvasCommand::RestoreToCount { count: 1 }
+        );
+    }
+
+    #[test]
+    fn script_driver_records_canvas_text_commands() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const canvas = ctx.getCanvas();
+            const paint = new CK.Paint();
+            paint.setStyle(CK.PaintStyle.Stroke);
+            paint.setColor(CK.parseColorString("#112233"));
+            paint.setStrokeWidth(2);
+            paint.setAntiAlias(false);
+
+            const font = new CK.Font(null, 28, 1.2, 0.1);
+            font.setSubpixel(false);
+            font.setEdging(CK.FontEdging.Alias);
+
+            canvas.drawText("Type", 12, 34, paint, font);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(0, 1, 0, 1, Some("card"))
+            .expect("script should run");
+        let canvas = mutations
+            .get_canvas("card")
+            .expect("canvas mutation should exist");
+
+        assert_eq!(
+            canvas.commands[0],
+            CanvasCommand::DrawText {
+                text: "Type".to_string(),
+                x: 12.0,
+                y: 34.0,
+                color: ScriptColor {
+                    r: 17,
+                    g: 34,
+                    b: 51,
+                    a: 255,
+                },
+                anti_alias: false,
+                stroke: true,
+                stroke_width: 2.0,
+                font_size: 28.0,
+                font_scale_x: 1.2,
+                font_skew_x: 0.1,
+                font_subpixel: false,
+                font_edging: ScriptFontEdging::Alias,
+            }
+        );
+    }
+
+    #[test]
+    fn script_driver_exposes_font_measure_text() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            const CK = ctx.CanvasKit;
+            const font = new CK.Font(null, 24);
+            const width = font.measureText("Hello");
+            ctx.getNode("box").translateX(width);
+        "##,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(0, 1, 0, 1, None).expect("script should run");
+        let node = mutations.get("box").expect("box mutation should exist");
+
+        let tx = match &node.transforms[0] {
+            Transform::TranslateX(v) => *v,
+            _ => panic!("expected TranslateX"),
+        };
+        assert!(
+            tx > 20.0,
+            "measureText should return usable width, got {}",
+            tx
+        );
     }
 
     #[test]

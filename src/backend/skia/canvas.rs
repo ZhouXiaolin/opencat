@@ -2,8 +2,8 @@ use std::{cell::RefCell, collections::HashMap, time::Instant};
 
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
-    BlurStyle, Canvas, ClipOp, Color4f, Data, Image as SkiaImage, ImageInfo, MaskFilter, Paint,
-    PaintStyle, PathBuilder, Picture, PictureRecorder, RRect, Rect, TileMode,
+    BlurStyle, Canvas, ClipOp, Color4f, Data, Font, Image as SkiaImage, ImageInfo, MaskFilter,
+    Paint, PaintStyle, PathBuilder, Picture, PictureRecorder, RRect, Rect, TileMode,
     canvas::{SaveLayerRec, SrcRectConstraint},
     gradient_shader, image_filters, images,
 };
@@ -25,10 +25,12 @@ use crate::{
         media::{MediaContext, VideoFrameRequest},
     },
     runtime::profile::BackendProfile,
-    scene::script::{CanvasCommand, ScriptColor, ScriptLineCap, ScriptLineJoin},
+    scene::script::{
+        CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
+        ScriptPointMode,
+    },
     style::{
-        BackgroundFill, BoxShadow, DropShadow, GradientDirection, InsetShadow, ObjectFit,
-        Transform,
+        BackgroundFill, BoxShadow, DropShadow, GradientDirection, InsetShadow, ObjectFit, Transform,
     },
 };
 
@@ -64,6 +66,7 @@ struct DrawScriptPaintState {
     line_dash: Option<Vec<f32>>,
     line_dash_phase: f32,
     global_alpha: f32,
+    anti_alias: bool,
 }
 
 impl Default for DrawScriptPaintState {
@@ -87,6 +90,7 @@ impl Default for DrawScriptPaintState {
             line_dash: None,
             line_dash_phase: 0.0,
             global_alpha: 1.0,
+            anti_alias: true,
         }
     }
 }
@@ -230,7 +234,12 @@ impl<'a> SkiaBackend<'a> {
             }
             DisplayItem::Bitmap(bitmap) => {
                 if let Some(shadow) = bitmap.paint.box_shadow {
-                    draw_box_shadow(self.canvas, bitmap.bounds, bitmap.paint.border_radius, shadow);
+                    draw_box_shadow(
+                        self.canvas,
+                        bitmap.bounds,
+                        bitmap.paint.border_radius,
+                        shadow,
+                    );
                 }
                 if let Some(shadow) = bitmap.paint.drop_shadow {
                     draw_item_drop_shadow(self.canvas, bitmap.bounds, shadow, |canvas| {
@@ -555,12 +564,7 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
     }
 }
 
-fn draw_box_shadow(
-    canvas: &Canvas,
-    bounds: DisplayRect,
-    border_radius: f32,
-    shadow: BoxShadow,
-) {
+fn draw_box_shadow(canvas: &Canvas, bounds: DisplayRect, border_radius: f32, shadow: BoxShadow) {
     let shadow_bounds = if shadow.spread != 0.0 {
         bounds.outset(shadow.spread, shadow.spread, shadow.spread, shadow.spread)
     } else {
@@ -640,9 +644,7 @@ fn draw_item_drop_shadow(
     )
     .ok_or_else(|| anyhow!("failed to create drop shadow filter"))?;
     paint.set_image_filter(shadow_filter);
-    let layer = SaveLayerRec::default()
-        .bounds(&shadow_bounds)
-        .paint(&paint);
+    let layer = SaveLayerRec::default().bounds(&shadow_bounds).paint(&paint);
     canvas.save_layer(&layer);
     let result = draw(canvas);
     canvas.restore();
@@ -878,8 +880,25 @@ fn draw_script_item(
             CanvasCommand::Save => {
                 canvas.save();
             }
+            CanvasCommand::SaveLayer { alpha, bounds } => {
+                let mut paint = Paint::default();
+                paint.set_alpha(
+                    (255.0 * (state.global_alpha * *alpha).clamp(0.0, 1.0)).round() as u8,
+                );
+                let bounds_rect = bounds
+                    .map(|bounds| Rect::from_xywh(bounds[0], bounds[1], bounds[2], bounds[3]));
+                let layer = if let Some(bounds_rect) = bounds_rect.as_ref() {
+                    SaveLayerRec::default().bounds(bounds_rect).paint(&paint)
+                } else {
+                    SaveLayerRec::default().paint(&paint)
+                };
+                canvas.save_layer(&layer);
+            }
             CanvasCommand::Restore => {
                 canvas.restore();
+            }
+            CanvasCommand::RestoreToCount { count } => {
+                canvas.restore_to_count((*count).max(1) as usize);
             }
             CanvasCommand::SetFillStyle { color } => {
                 state.fill_color = *color;
@@ -907,6 +926,9 @@ fn draw_script_item(
             CanvasCommand::SetGlobalAlpha { alpha } => {
                 state.global_alpha = *alpha;
             }
+            CanvasCommand::SetAntiAlias { enabled } => {
+                state.anti_alias = *enabled;
+            }
             CanvasCommand::Translate { x, y } => {
                 canvas.translate((*x, *y));
             }
@@ -921,11 +943,12 @@ fn draw_script_item(
                 y,
                 width,
                 height,
+                anti_alias,
             } => {
                 canvas.clip_rect(
                     Rect::from_xywh(*x, *y, *width, *height),
                     ClipOp::Intersect,
-                    true,
+                    *anti_alias,
                 );
             }
             CanvasCommand::Clear { color } => match color {
@@ -936,6 +959,57 @@ fn draw_script_item(
                     canvas.clear(skia_safe::Color::TRANSPARENT);
                 }
             },
+            CanvasCommand::DrawPaint { color, anti_alias } => {
+                let mut paint = Paint::default();
+                paint.set_anti_alias(*anti_alias);
+                paint.set_style(PaintStyle::Fill);
+                paint.set_color(apply_script_alpha(*color, state.global_alpha));
+                canvas.draw_paint(&paint);
+            }
+            CanvasCommand::DrawText {
+                text,
+                x,
+                y,
+                color,
+                anti_alias,
+                stroke,
+                stroke_width,
+                font_size,
+                font_scale_x,
+                font_skew_x,
+                font_subpixel,
+                font_edging,
+            } => {
+                let mut paint = Paint::default();
+                paint.set_anti_alias(*anti_alias);
+                paint.set_style(if *stroke {
+                    PaintStyle::Stroke
+                } else {
+                    PaintStyle::Fill
+                });
+                paint.set_stroke_width((*stroke_width).max(0.0));
+                paint.set_color(apply_script_alpha(*color, state.global_alpha));
+
+                let mut font = Font::default();
+                if let Some(typeface) = skia_safe::FontMgr::new()
+                    .legacy_make_typeface(None, skia_safe::FontStyle::normal())
+                {
+                    font.set_typeface(typeface);
+                }
+                font.set_size((*font_size).max(1.0));
+                font.set_scale_x(*font_scale_x);
+                font.set_skew_x(*font_skew_x);
+                font.set_subpixel(*font_subpixel);
+                font.set_edging(match font_edging {
+                    ScriptFontEdging::Alias => skia_safe::font::Edging::Alias,
+                    ScriptFontEdging::AntiAlias => skia_safe::font::Edging::AntiAlias,
+                    ScriptFontEdging::SubpixelAntiAlias => {
+                        skia_safe::font::Edging::SubpixelAntiAlias
+                    }
+                });
+
+                canvas.draw_str(text, (*x, *y), &font, &paint);
+            }
             CanvasCommand::FillRect {
                 x,
                 y,
@@ -1021,6 +1095,57 @@ fn draw_script_item(
             CanvasCommand::ClosePath => {
                 path.close();
             }
+            CanvasCommand::AddRectPath {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                path.add_rect(
+                    Rect::from_xywh(*x, *y, *width, *height),
+                    None::<skia_safe::PathDirection>,
+                    None::<usize>,
+                );
+            }
+            CanvasCommand::AddRRectPath {
+                x,
+                y,
+                width,
+                height,
+                radius,
+            } => {
+                path.add_rrect(
+                    RRect::new_rect_xy(Rect::from_xywh(*x, *y, *width, *height), *radius, *radius),
+                    None::<skia_safe::PathDirection>,
+                    None::<usize>,
+                );
+            }
+            CanvasCommand::AddOvalPath {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                path.add_oval(
+                    Rect::from_xywh(*x, *y, *width, *height),
+                    None::<skia_safe::PathDirection>,
+                    None::<usize>,
+                );
+            }
+            CanvasCommand::AddArcPath {
+                x,
+                y,
+                width,
+                height,
+                start_angle,
+                sweep_angle,
+            } => {
+                path.add_arc(
+                    Rect::from_xywh(*x, *y, *width, *height),
+                    *start_angle,
+                    *sweep_angle,
+                );
+            }
             CanvasCommand::FillPath => {
                 let paint = fill_paint_for_draw_script(&state);
                 let path_snapshot = path.snapshot();
@@ -1037,6 +1162,9 @@ fn draw_script_item(
                 y,
                 width,
                 height,
+                src_rect,
+                alpha,
+                anti_alias,
                 object_fit,
             } => {
                 let image = load_asset_image(
@@ -1049,25 +1177,209 @@ fn draw_script_item(
                 let dst = Rect::from_xywh(*x, *y, *width, *height);
                 let src_width = image.width() as f32;
                 let src_height = image.height() as f32;
-                let paint = Paint::default();
-                match object_fit {
-                    ObjectFit::Fill => {
-                        canvas.draw_image_rect(image, None, dst, &paint);
-                    }
-                    ObjectFit::Contain => {
-                        let fitted = fitted_rect(src_width, src_height, dst, false);
-                        canvas.draw_image_rect(image, None, fitted, &paint);
-                    }
-                    ObjectFit::Cover => {
-                        let src = cover_src_rect(src_width, src_height, dst);
-                        canvas.draw_image_rect(
-                            image,
-                            Some((&src, SrcRectConstraint::Strict)),
-                            dst,
-                            &paint,
-                        );
+                let mut paint = Paint::default();
+                paint.set_anti_alias(*anti_alias);
+                paint.set_alpha(
+                    (255.0 * (state.global_alpha * *alpha).clamp(0.0, 1.0)).round() as u8,
+                );
+                if let Some(src_rect) = src_rect {
+                    let src = Rect::from_xywh(src_rect[0], src_rect[1], src_rect[2], src_rect[3]);
+                    canvas.draw_image_rect(
+                        image,
+                        Some((&src, SrcRectConstraint::Strict)),
+                        dst,
+                        &paint,
+                    );
+                } else {
+                    match object_fit {
+                        ObjectFit::Fill => {
+                            canvas.draw_image_rect(image, None, dst, &paint);
+                        }
+                        ObjectFit::Contain => {
+                            let fitted = fitted_rect(src_width, src_height, dst, false);
+                            canvas.draw_image_rect(image, None, fitted, &paint);
+                        }
+                        ObjectFit::Cover => {
+                            let src = cover_src_rect(src_width, src_height, dst);
+                            canvas.draw_image_rect(
+                                image,
+                                Some((&src, SrcRectConstraint::Strict)),
+                                dst,
+                                &paint,
+                            );
+                        }
                     }
                 }
+            }
+            CanvasCommand::DrawArc {
+                cx,
+                cy,
+                rx,
+                ry,
+                start_angle,
+                sweep_angle,
+                use_center,
+            } => {
+                let paint = fill_paint_for_draw_script(&state);
+                let rect = Rect::from_xywh(cx - rx, cy - ry, rx * 2.0, ry * 2.0);
+                let mut builder = PathBuilder::new();
+                if *use_center {
+                    builder.move_to((*cx, *cy));
+                    builder.arc_to(rect, *start_angle, *sweep_angle, false);
+                    builder.close();
+                } else {
+                    builder.arc_to(rect, *start_angle, *sweep_angle, false);
+                }
+                let arc_path = builder.snapshot();
+                canvas.draw_path(&arc_path, &paint);
+            }
+            CanvasCommand::StrokeArc {
+                cx,
+                cy,
+                rx,
+                ry,
+                start_angle,
+                sweep_angle,
+            } => {
+                let paint = stroke_paint_for_draw_script(&state);
+                let rect = Rect::from_xywh(cx - rx, cy - ry, rx * 2.0, ry * 2.0);
+                let mut builder = PathBuilder::new();
+                builder.arc_to(rect, *start_angle, *sweep_angle, false);
+                let arc_path = builder.snapshot();
+                canvas.draw_path(&arc_path, &paint);
+            }
+            CanvasCommand::FillOval { cx, cy, rx, ry } => {
+                let paint = fill_paint_for_draw_script(&state);
+                let rect = Rect::from_xywh(cx - rx, cy - ry, rx * 2.0, ry * 2.0);
+                canvas.draw_oval(rect, &paint);
+            }
+            CanvasCommand::StrokeOval { cx, cy, rx, ry } => {
+                let paint = stroke_paint_for_draw_script(&state);
+                let rect = Rect::from_xywh(cx - rx, cy - ry, rx * 2.0, ry * 2.0);
+                canvas.draw_oval(rect, &paint);
+            }
+            CanvasCommand::ClipPath { anti_alias } => {
+                let clip_path = path.snapshot();
+                canvas.clip_path(&clip_path, ClipOp::Intersect, *anti_alias);
+                // Reset path builder after clip so it doesn't interfere with subsequent path ops
+                path = PathBuilder::new();
+            }
+            CanvasCommand::ClipRRect {
+                x,
+                y,
+                width,
+                height,
+                radius,
+                anti_alias,
+            } => {
+                let rect = Rect::from_xywh(*x, *y, *width, *height);
+                let rrect = RRect::new_rect_xy(rect, *radius, *radius);
+                canvas.clip_rrect(rrect, ClipOp::Intersect, *anti_alias);
+            }
+            CanvasCommand::DrawPoints { mode, points } => {
+                let paint = stroke_paint_for_draw_script(&state);
+                let pts: Vec<(f32, f32)> = points
+                    .chunks_exact(2)
+                    .map(|chunk| (chunk[0], chunk[1]))
+                    .collect();
+                match mode {
+                    ScriptPointMode::Points => {
+                        for &(x, y) in &pts {
+                            canvas.draw_circle((x, y), paint.stroke_width() / 2.0, &paint);
+                        }
+                    }
+                    ScriptPointMode::Lines => {
+                        for chunk in pts.chunks_exact(2) {
+                            canvas.draw_line(
+                                (chunk[0].0, chunk[0].1),
+                                (chunk[1].0, chunk[1].1),
+                                &paint,
+                            );
+                        }
+                    }
+                    ScriptPointMode::Polygon => {
+                        if pts.len() >= 2 {
+                            let mut pb = PathBuilder::new();
+                            pb.move_to(pts[0]);
+                            for &pt in &pts[1..] {
+                                pb.line_to(pt);
+                            }
+                            pb.close();
+                            let poly_path = pb.snapshot();
+                            canvas.draw_path(&poly_path, &paint);
+                        }
+                    }
+                }
+            }
+            CanvasCommand::FillDRRect {
+                outer_x,
+                outer_y,
+                outer_width,
+                outer_height,
+                outer_radius,
+                inner_x,
+                inner_y,
+                inner_width,
+                inner_height,
+                inner_radius,
+            } => {
+                let paint = fill_paint_for_draw_script(&state);
+                let outer_rect = Rect::from_xywh(*outer_x, *outer_y, *outer_width, *outer_height);
+                let outer = RRect::new_rect_xy(outer_rect, *outer_radius, *outer_radius);
+                let inner_rect = Rect::from_xywh(*inner_x, *inner_y, *inner_width, *inner_height);
+                let inner = RRect::new_rect_xy(inner_rect, *inner_radius, *inner_radius);
+                canvas.draw_drrect(outer, inner, &paint);
+            }
+            CanvasCommand::StrokeDRRect {
+                outer_x,
+                outer_y,
+                outer_width,
+                outer_height,
+                outer_radius,
+                inner_x,
+                inner_y,
+                inner_width,
+                inner_height,
+                inner_radius,
+            } => {
+                let paint = stroke_paint_for_draw_script(&state);
+                let outer_rect = Rect::from_xywh(*outer_x, *outer_y, *outer_width, *outer_height);
+                let outer = RRect::new_rect_xy(outer_rect, *outer_radius, *outer_radius);
+                let inner_rect = Rect::from_xywh(*inner_x, *inner_y, *inner_width, *inner_height);
+                let inner = RRect::new_rect_xy(inner_rect, *inner_radius, *inner_radius);
+                canvas.draw_drrect(outer, inner, &paint);
+            }
+            CanvasCommand::Skew { sx, sy } => {
+                let matrix = skia_safe::Matrix::skew((*sx, *sy));
+                canvas.concat(&matrix);
+            }
+            CanvasCommand::DrawImageSimple {
+                asset_id,
+                x,
+                y,
+                alpha,
+                anti_alias,
+            } => {
+                let image = load_asset_image(
+                    &crate::resource::assets::AssetId(asset_id.clone()),
+                    assets,
+                    image_cache,
+                    media_ctx,
+                    frame_ctx,
+                )?;
+                let mut paint = Paint::default();
+                paint.set_anti_alias(*anti_alias);
+                paint.set_alpha(
+                    (255.0 * (state.global_alpha * *alpha).clamp(0.0, 1.0)).round() as u8,
+                );
+                canvas.draw_image(image, (*x, *y), Some(&paint));
+            }
+            CanvasCommand::Concat { matrix } => {
+                let m = skia_safe::Matrix::new_all(
+                    matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5], matrix[6],
+                    matrix[7], matrix[8],
+                );
+                canvas.concat(&m);
             }
         }
     }
@@ -1086,7 +1398,7 @@ fn apply_script_alpha(color: ScriptColor, global_alpha: f32) -> skia_safe::Color
 
 fn fill_paint_for_draw_script(state: &DrawScriptPaintState) -> Paint {
     let mut paint = Paint::default();
-    paint.set_anti_alias(true);
+    paint.set_anti_alias(state.anti_alias);
     paint.set_style(PaintStyle::Fill);
     paint.set_color(apply_script_alpha(state.fill_color, state.global_alpha));
     paint
@@ -1094,7 +1406,7 @@ fn fill_paint_for_draw_script(state: &DrawScriptPaintState) -> Paint {
 
 fn stroke_paint_for_draw_script(state: &DrawScriptPaintState) -> Paint {
     let mut paint = Paint::default();
-    paint.set_anti_alias(true);
+    paint.set_anti_alias(state.anti_alias);
     paint.set_style(PaintStyle::Stroke);
     paint.set_color(apply_script_alpha(state.stroke_color, state.global_alpha));
     paint.set_stroke_width(state.line_width.max(0.0));

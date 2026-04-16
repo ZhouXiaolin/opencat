@@ -265,7 +265,13 @@ impl BoxShadow {
         }
     }
 
-    pub const fn new(offset_x: f32, offset_y: f32, blur_sigma: f32, spread: f32, alpha: f32) -> Self {
+    pub const fn new(
+        offset_x: f32,
+        offset_y: f32,
+        blur_sigma: f32,
+        spread: f32,
+        alpha: f32,
+    ) -> Self {
         Self {
             offset_x,
             offset_y,
@@ -301,7 +307,13 @@ impl InsetShadow {
         }
     }
 
-    pub const fn new(offset_x: f32, offset_y: f32, blur_sigma: f32, spread: f32, alpha: f32) -> Self {
+    pub const fn new(
+        offset_x: f32,
+        offset_y: f32,
+        blur_sigma: f32,
+        spread: f32,
+        alpha: f32,
+    ) -> Self {
         Self {
             offset_x,
             offset_y,

@@ -203,11 +203,106 @@
         return path;
     }
 
+    function ensureFont(font) {
+        if (!(font instanceof Font)) {
+            throw new Error('expected a CanvasKit.Font instance');
+        }
+        return font;
+    }
+
     function ensureImage(image) {
         if (!image || image.__opencatImage !== true) {
             throw new Error('expected an image from ctx.getImage(assetId)');
         }
         return image;
+    }
+
+    function ensurePathEffect(effect) {
+        if (!effect || effect.__opencatPathEffect !== true) {
+            throw new Error('expected a CanvasKit.PathEffect instance');
+        }
+        return effect;
+    }
+
+    function resolveImagePaint(paint) {
+        if (paint == null) {
+            return {
+                alpha: 1,
+                antiAlias: true
+            };
+        }
+        const resolved = ensurePaint(paint);
+        return {
+            alpha: clamp(resolved._color[3], 0, 1),
+            antiAlias: resolved._antiAlias
+        };
+    }
+
+    class Font {
+        constructor(typeface = null, size = 16, scaleX = 1, skewX = 0) {
+            if (typeface != null) {
+                throw new Error('custom typeface is not supported yet; pass null for system default');
+            }
+            this._size = Math.max(1, toFiniteNumber(size, 16));
+            this._scaleX = toFiniteNumber(scaleX, 1);
+            this._skewX = toFiniteNumber(skewX, 0);
+            this._subpixel = true;
+            this._edging = 'antiAlias';
+        }
+
+        copy() {
+            const copy = new Font(null, this._size, this._scaleX, this._skewX);
+            copy._subpixel = this._subpixel;
+            copy._edging = this._edging;
+            return copy;
+        }
+
+        delete() {}
+
+        getSize() {
+            return this._size;
+        }
+
+        measureText(str) {
+            return __canvas_measure_text(
+                String(str),
+                this._size,
+                this._scaleX,
+                this._skewX,
+                this._subpixel,
+                this._edging
+            );
+        }
+
+        setEdging(edging) {
+            if (edging !== CanvasKit.FontEdging.Alias
+                && edging !== CanvasKit.FontEdging.AntiAlias
+                && edging !== CanvasKit.FontEdging.SubpixelAntiAlias) {
+                throw new Error(`unsupported FontEdging: ${edging}`);
+            }
+            this._edging = edging;
+            return this;
+        }
+
+        setScaleX(scaleX) {
+            this._scaleX = toFiniteNumber(scaleX, 1);
+            return this;
+        }
+
+        setSize(size) {
+            this._size = Math.max(1, toFiniteNumber(size, 16));
+            return this;
+        }
+
+        setSkewX(skewX) {
+            this._skewX = toFiniteNumber(skewX, 0);
+            return this;
+        }
+
+        setSubpixel(subpixel) {
+            this._subpixel = !!subpixel;
+            return this;
+        }
     }
 
     class Paint {
@@ -217,7 +312,7 @@
             this._strokeWidth = 1;
             this._strokeCap = 'butt';
             this._strokeJoin = 'miter';
-            this._strokeDash = null;
+            this._pathEffect = null;
             this._antiAlias = true;
         }
 
@@ -228,10 +323,13 @@
             copy._strokeWidth = this._strokeWidth;
             copy._strokeCap = this._strokeCap;
             copy._strokeJoin = this._strokeJoin;
-            copy._strokeDash = this._strokeDash
+            copy._pathEffect = this._pathEffect
                 ? {
-                    intervals: this._strokeDash.intervals.slice(),
-                    phase: this._strokeDash.phase
+                    __opencatPathEffect: true,
+                    kind: this._pathEffect.kind,
+                    intervals: this._pathEffect.intervals.slice(),
+                    phase: this._pathEffect.phase,
+                    delete() {}
                 }
                 : null;
             copy._antiAlias = this._antiAlias;
@@ -292,21 +390,7 @@
         }
 
         setStrokeDash(intervals, phase = 0) {
-            if (!Array.isArray(intervals) || intervals.length < 2) {
-                throw new Error('setStrokeDash expects at least two dash intervals');
-            }
-            const normalized = intervals.map((value) => {
-                const n = toFiniteNumber(value);
-                if (n <= 0) {
-                    throw new Error('setStrokeDash intervals must be positive');
-                }
-                return n;
-            });
-            this._strokeDash = {
-                intervals: normalized,
-                phase: toFiniteNumber(phase, 0)
-            };
-            return this;
+            return this.setPathEffect(CanvasKit.PathEffect.MakeDash(intervals, phase));
         }
 
         setStrokeJoin(join) {
@@ -319,6 +403,25 @@
 
         setStyle(style) {
             this._style = normalizePaintStyle(style);
+        }
+
+        setPathEffect(effect) {
+            if (effect == null) {
+                this._pathEffect = null;
+                return this;
+            }
+            const resolved = ensurePathEffect(effect);
+            if (resolved.kind !== 'dash') {
+                throw new Error(`unsupported PathEffect kind: ${resolved.kind}`);
+            }
+            this._pathEffect = {
+                __opencatPathEffect: true,
+                kind: resolved.kind,
+                intervals: resolved.intervals.slice(),
+                phase: resolved.phase,
+                delete() {}
+            };
+            return this;
         }
     }
 
@@ -371,6 +474,67 @@
 
         close() {
             this._ops.push(['close']);
+            return this;
+        }
+
+        addRect(rect) {
+            const normalized = normalizeRect(rect);
+            this._ops.push([
+                'addRect',
+                normalized.x,
+                normalized.y,
+                normalized.width,
+                normalized.height
+            ]);
+            return this;
+        }
+
+        addRRect(rrect) {
+            const normalized = normalizeRRect(rrect);
+            this._ops.push([
+                'addRRect',
+                normalized.x,
+                normalized.y,
+                normalized.width,
+                normalized.height,
+                normalized.radius
+            ]);
+            return this;
+        }
+
+        addOval(oval) {
+            const normalized = normalizeRect(oval);
+            this._ops.push([
+                'addOval',
+                normalized.x,
+                normalized.y,
+                normalized.width,
+                normalized.height
+            ]);
+            return this;
+        }
+
+        addArc(oval, startAngle, sweepAngle) {
+            const normalized = normalizeRect(oval);
+            this._ops.push([
+                'addArc',
+                normalized.x,
+                normalized.y,
+                normalized.width,
+                normalized.height,
+                toFiniteNumber(startAngle),
+                toFiniteNumber(sweepAngle)
+            ]);
+            return this;
+        }
+
+        reset() {
+            this._ops = [];
+            return this;
+        }
+
+        rewind() {
+            this._ops = [];
             return this;
         }
     }
@@ -438,7 +602,29 @@
             };
         },
         Paint,
+        Font,
         Path,
+        PathEffect: {
+            MakeDash(intervals, phase = 0) {
+                if (!Array.isArray(intervals) || intervals.length < 2) {
+                    throw new Error('MakeDash expects at least two dash intervals');
+                }
+                const normalized = intervals.map((value) => {
+                    const n = toFiniteNumber(value);
+                    if (n <= 0) {
+                        throw new Error('MakeDash intervals must be positive');
+                    }
+                    return n;
+                });
+                return {
+                    __opencatPathEffect: true,
+                    kind: 'dash',
+                    intervals: normalized,
+                    phase: toFiniteNumber(phase, 0),
+                    delete() {}
+                };
+            }
+        },
         PaintStyle: {
             Fill: 'fill',
             Stroke: 'stroke'
@@ -453,25 +639,40 @@
             Round: 'round',
             Bevel: 'bevel'
         },
+        BlendMode: {
+            SrcOver: 'srcOver'
+        },
+        FontEdging: {
+            Alias: 'alias',
+            AntiAlias: 'antiAlias',
+            SubpixelAntiAlias: 'subpixelAntiAlias'
+        },
         ClipOp: {
             Difference: 'difference',
             Intersect: 'intersect'
+        },
+        PointMode: {
+            Points: 'points',
+            Lines: 'lines',
+            Polygon: 'polygon'
         },
         BLACK: [0, 0, 0, 1],
         WHITE: [1, 1, 1, 1]
     };
 
     function applyFillPaint(id, paint) {
+        __canvas_set_anti_alias(id, paint._antiAlias);
         __canvas_set_fill_style(id, colorToCss(paint._color));
     }
 
     function applyStrokePaint(id, paint) {
+        __canvas_set_anti_alias(id, paint._antiAlias);
         __canvas_set_stroke_style(id, colorToCss(paint._color));
         __canvas_set_line_width(id, paint._strokeWidth);
         __canvas_set_line_cap(id, paint._strokeCap);
         __canvas_set_line_join(id, paint._strokeJoin);
-        if (paint._strokeDash) {
-            __canvas_set_line_dash(id, paint._strokeDash.intervals, paint._strokeDash.phase);
+        if (paint._pathEffect && paint._pathEffect.kind === 'dash') {
+            __canvas_set_line_dash(id, paint._pathEffect.intervals, paint._pathEffect.phase);
         } else {
             __canvas_clear_line_dash(id);
         }
@@ -496,6 +697,18 @@
                 case 'close':
                     __canvas_close_path(id);
                     break;
+                case 'addRect':
+                    __canvas_path_add_rect(id, op[1], op[2], op[3], op[4]);
+                    break;
+                case 'addRRect':
+                    __canvas_path_add_rrect(id, op[1], op[2], op[3], op[4], op[5]);
+                    break;
+                case 'addOval':
+                    __canvas_path_add_oval(id, op[1], op[2], op[3], op[4]);
+                    break;
+                case 'addArc':
+                    __canvas_path_add_arc(id, op[1], op[2], op[3], op[4], op[5], op[6]);
+                    break;
                 default:
                     throw new Error(`unsupported path verb: ${op[0]}`);
             }
@@ -504,6 +717,8 @@
 
     function makeCanvas(id) {
         return {
+            __saveCount: 1,
+
             clear(color) {
                 if (arguments.length === 0 || color == null) {
                     __canvas_clear(id, null);
@@ -513,7 +728,7 @@
                 return this;
             },
 
-            clipRect(rect, op = CanvasKit.ClipOp.Intersect) {
+            clipRect(rect, op = CanvasKit.ClipOp.Intersect, doAntiAlias = true) {
                 if (op !== CanvasKit.ClipOp.Intersect) {
                     throw new Error('only CanvasKit.ClipOp.Intersect is supported');
                 }
@@ -523,7 +738,8 @@
                     normalized.x,
                     normalized.y,
                     normalized.width,
-                    normalized.height
+                    normalized.height,
+                    !!doAntiAlias
                 );
                 return this;
             },
@@ -550,17 +766,56 @@
                 return this;
             },
 
-            drawImageRect(image, _src, dest) {
+            drawColor(color, blendMode = CanvasKit.BlendMode.SrcOver) {
+                if (blendMode !== CanvasKit.BlendMode.SrcOver) {
+                    throw new Error('only CanvasKit.BlendMode.SrcOver is supported');
+                }
+                __canvas_draw_paint(id, colorToCss(color), true);
+                return this;
+            },
+
+            drawColorComponents(r, g, b, a = 1, blendMode = CanvasKit.BlendMode.SrcOver) {
+                return this.drawColor(CanvasKit.Color4f(r, g, b, a), blendMode);
+            },
+
+            drawColorInt(color, blendMode = CanvasKit.BlendMode.SrcOver) {
+                const value = Number(color) >>> 0;
+                return this.drawColor([
+                    ((value >>> 16) & 0xff) / 255,
+                    ((value >>> 8) & 0xff) / 255,
+                    (value & 0xff) / 255,
+                    ((value >>> 24) & 0xff) / 255
+                ], blendMode);
+            },
+
+            drawPaint(paint) {
+                const resolvedPaint = ensurePaint(paint);
+                __canvas_draw_paint(id, colorToCss(resolvedPaint._color), resolvedPaint._antiAlias);
+                return this;
+            },
+
+            drawImageRect(image, src, dest, paint = null, fastSample = false) {
                 const resolvedImage = ensureImage(image);
+                const source = normalizeRect(src);
                 const normalized = normalizeRect(dest);
+                const imagePaint = resolveImagePaint(paint);
                 __canvas_draw_image(
                     id,
                     resolvedImage.assetId,
-                    normalized.x,
-                    normalized.y,
-                    normalized.width,
-                    normalized.height,
-                    'fill'
+                    [
+                        normalized.x,
+                        normalized.y,
+                        normalized.width,
+                        normalized.height,
+                        source.x,
+                        source.y,
+                        source.width,
+                        source.height
+                    ],
+                    'fill',
+                    imagePaint.alpha,
+                    imagePaint.antiAlias,
+                    !!fastSample
                 );
                 return this;
             },
@@ -596,6 +851,7 @@
             drawRect(rect, paint) {
                 const normalized = normalizeRect(rect);
                 const resolvedPaint = ensurePaint(paint);
+                __canvas_set_anti_alias(id, resolvedPaint._antiAlias);
                 if (resolvedPaint._style === CanvasKit.PaintStyle.Stroke) {
                     __canvas_stroke_rect(
                         id,
@@ -616,6 +872,31 @@
                         colorToCss(resolvedPaint._color)
                     );
                 }
+                return this;
+            },
+
+            drawText(str, x, y, paint, font) {
+                const resolvedPaint = ensurePaint(paint);
+                const resolvedFont = ensureFont(font);
+                __canvas_draw_text(
+                    id,
+                    String(str),
+                    [
+                        toFiniteNumber(x),
+                        toFiniteNumber(y),
+                        resolvedFont._size,
+                        resolvedFont._scaleX,
+                        resolvedFont._skewX,
+                        resolvedPaint._strokeWidth
+                    ],
+                    colorToCss(resolvedPaint._color),
+                    [
+                        resolvedPaint._antiAlias,
+                        resolvedPaint._style === CanvasKit.PaintStyle.Stroke,
+                        resolvedFont._subpixel
+                    ],
+                    resolvedFont._edging
+                );
                 return this;
             },
 
@@ -647,7 +928,18 @@
             },
 
             restore() {
+                this.__saveCount = Math.max(1, this.__saveCount - 1);
                 __canvas_restore(id);
+                return this;
+            },
+
+            restoreToCount(saveCount) {
+                const target = Math.max(1, Math.min(
+                    this.__saveCount,
+                    Math.floor(toFiniteNumber(saveCount, this.__saveCount))
+                ));
+                __canvas_restore_to_count(id, target);
+                this.__saveCount = target;
                 return this;
             },
 
@@ -664,7 +956,31 @@
 
             save() {
                 __canvas_save(id);
-                return this;
+                this.__saveCount += 1;
+                return this.__saveCount;
+            },
+
+            saveLayer(paint = null, bounds = null) {
+                let layerPaint = paint;
+                let layerBounds = bounds;
+                if (layerBounds == null && isArrayLike(layerPaint)) {
+                    layerBounds = layerPaint;
+                    layerPaint = null;
+                }
+                const resolvedPaint = layerPaint == null ? null : ensurePaint(layerPaint);
+                const normalizedBounds = layerBounds == null
+                    ? null
+                    : (() => {
+                        const rect = normalizeRect(layerBounds);
+                        return [rect.x, rect.y, rect.width, rect.height];
+                    })();
+                __canvas_save_layer(
+                    id,
+                    resolvedPaint ? clamp(resolvedPaint._color[3], 0, 1) : 1,
+                    normalizedBounds
+                );
+                this.__saveCount += 1;
+                return this.__saveCount;
             },
 
             setAlphaf(alpha) {
@@ -681,6 +997,139 @@
 
             translate(dx, dy) {
                 __canvas_translate(id, toFiniteNumber(dx), toFiniteNumber(dy));
+                return this;
+            },
+
+            drawArc(oval, startAngle, sweepAngle, useCenter, paint) {
+                const resolvedPaint = ensurePaint(paint);
+                const normalized = normalizeRect(oval);
+                const cx = (normalized.left + normalized.right) / 2;
+                const cy = (normalized.top + normalized.bottom) / 2;
+                const rx = Math.max(0, normalized.width / 2);
+                const ry = Math.max(0, normalized.height / 2);
+                if (resolvedPaint._style === CanvasKit.PaintStyle.Stroke) {
+                    applyStrokePaint(id, resolvedPaint);
+                    __canvas_stroke_arc(id, cx, cy, rx, ry, toFiniteNumber(startAngle), toFiniteNumber(sweepAngle));
+                } else {
+                    applyFillPaint(id, resolvedPaint);
+                    const fn = useCenter ? __canvas_draw_arc_to_center : __canvas_draw_arc;
+                    fn(id, cx, cy, rx, ry, toFiniteNumber(startAngle), toFiniteNumber(sweepAngle));
+                }
+                return this;
+            },
+
+            drawOval(oval, paint) {
+                const resolvedPaint = ensurePaint(paint);
+                const normalized = normalizeRect(oval);
+                const cx = (normalized.left + normalized.right) / 2;
+                const cy = (normalized.top + normalized.bottom) / 2;
+                const rx = Math.max(0, normalized.width / 2);
+                const ry = Math.max(0, normalized.height / 2);
+                if (resolvedPaint._style === CanvasKit.PaintStyle.Stroke) {
+                    applyStrokePaint(id, resolvedPaint);
+                    __canvas_stroke_oval(id, cx, cy, rx, ry);
+                } else {
+                    applyFillPaint(id, resolvedPaint);
+                    __canvas_fill_oval(id, cx, cy, rx, ry);
+                }
+                return this;
+            },
+
+            clipPath(path, op = CanvasKit.ClipOp.Intersect, doAntiAlias = true) {
+                if (op !== CanvasKit.ClipOp.Intersect) {
+                    throw new Error('only CanvasKit.ClipOp.Intersect is supported');
+                }
+                const resolvedPath = ensurePath(path);
+                replayPath(id, resolvedPath);
+                __canvas_clip_path(id, !!doAntiAlias);
+                return this;
+            },
+
+            clipRRect(rrect, op = CanvasKit.ClipOp.Intersect, doAntiAlias = true) {
+                if (op !== CanvasKit.ClipOp.Intersect) {
+                    throw new Error('only CanvasKit.ClipOp.Intersect is supported');
+                }
+                const normalized = normalizeRRect(rrect);
+                __canvas_clip_rrect(
+                    id,
+                    normalized.x,
+                    normalized.y,
+                    normalized.width,
+                    normalized.height,
+                    normalized.radius,
+                    !!doAntiAlias
+                );
+                return this;
+            },
+
+            drawPoints(mode, points, paint) {
+                if (!isArrayLike(points)) {
+                    throw new Error('drawPoints expects an array of coordinates');
+                }
+                const resolvedPaint = ensurePaint(paint);
+                if (resolvedPaint._style === CanvasKit.PaintStyle.Stroke) {
+                    applyStrokePaint(id, resolvedPaint);
+                } else {
+                    applyFillPaint(id, resolvedPaint);
+                }
+                const flat = [];
+                for (let i = 0; i < points.length; i++) {
+                    flat.push(toFiniteNumber(points[i]));
+                }
+                const modeStr = mode === CanvasKit.PointMode.Points ? 'points'
+                    : mode === CanvasKit.PointMode.Lines ? 'lines'
+                    : mode === CanvasKit.PointMode.Polygon ? 'polygon'
+                    : mode;
+                __canvas_draw_points(id, modeStr, flat);
+                return this;
+            },
+
+            drawDRRect(outer, inner, paint) {
+                const outerNorm = normalizeRRect(outer);
+                const innerNorm = normalizeRRect(inner);
+                const resolvedPaint = ensurePaint(paint);
+                const coords = [
+                    outerNorm.x, outerNorm.y, outerNorm.width, outerNorm.height, outerNorm.radius,
+                    innerNorm.x, innerNorm.y, innerNorm.width, innerNorm.height, innerNorm.radius
+                ];
+                if (resolvedPaint._style === CanvasKit.PaintStyle.Stroke) {
+                    applyStrokePaint(id, resolvedPaint);
+                    __canvas_stroke_drrect(id, coords);
+                } else {
+                    applyFillPaint(id, resolvedPaint);
+                    __canvas_fill_drrect(id, coords);
+                }
+                return this;
+            },
+
+            skew(sx, sy) {
+                __canvas_skew(id, toFiniteNumber(sx), toFiniteNumber(sy));
+                return this;
+            },
+
+            drawImage(image, x, y, paint) {
+                const resolvedImage = ensureImage(image);
+                const imagePaint = resolveImagePaint(paint);
+                __canvas_draw_image_simple(
+                    id,
+                    resolvedImage.assetId,
+                    toFiniteNumber(x),
+                    toFiniteNumber(y),
+                    imagePaint.alpha,
+                    imagePaint.antiAlias
+                );
+                return this;
+            },
+
+            concat(matrix) {
+                if (!isArrayLike(matrix) || matrix.length < 9) {
+                    throw new Error('concat expects a 9-element matrix array');
+                }
+                const values = [];
+                for (let i = 0; i < 9; i++) {
+                    values.push(toFiniteNumber(matrix[i]));
+                }
+                __canvas_concat(id, values);
                 return this;
             }
         };
@@ -703,6 +1152,7 @@
         if (!canvasCache[id]) {
             canvasCache[id] = makeCanvas(id);
         }
+        canvasCache[id].__saveCount = 1;
         return canvasCache[id];
     };
 })();

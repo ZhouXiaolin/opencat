@@ -9,7 +9,6 @@ use crate::{
             ElementNode, ElementText,
         },
     },
-    style::LengthPercentageAuto,
     frame_ctx::ScriptFrameCtx,
     resource::{
         assets::{AssetId, AssetsMap},
@@ -20,6 +19,7 @@ use crate::{
         node::{ComponentNode, NodeKind},
         primitives::{Canvas, Div, Image, Lucide, Text, Video},
     },
+    style::LengthPercentageAuto,
     style::{NodeStyle, resolve_text_style},
 };
 
@@ -546,12 +546,12 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             box_shadow: style
                 .box_shadow
                 .map(|shadow| shadow.with_color(style.box_shadow_color.unwrap_or(shadow.color))),
-            inset_shadow: style.inset_shadow.map(|shadow| {
-                shadow.with_color(style.inset_shadow_color.unwrap_or(shadow.color))
-            }),
-            drop_shadow: style.drop_shadow.map(|shadow| {
-                shadow.with_color(style.drop_shadow_color.unwrap_or(shadow.color))
-            }),
+            inset_shadow: style
+                .inset_shadow
+                .map(|shadow| shadow.with_color(style.inset_shadow_color.unwrap_or(shadow.color))),
+            drop_shadow: style
+                .drop_shadow
+                .map(|shadow| shadow.with_color(style.drop_shadow_color.unwrap_or(shadow.color))),
         },
         text,
         id: style.id.clone(),

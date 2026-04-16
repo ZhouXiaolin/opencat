@@ -13,7 +13,7 @@ mod app {
     use anyhow::{Context, Result, anyhow};
     use opencat::{
         Composition, FrameCtx, RenderFrameViewKind, RenderSession, RenderTargetHandle,
-        ScriptDriver, parse, render_audio_chunk,
+        ScriptDriver, parse_file, render_audio_chunk,
     };
     use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
     use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source};
@@ -731,10 +731,7 @@ mod app {
         let input_path = std::env::args()
             .nth(1)
             .ok_or_else(|| anyhow!("usage: cargo run -p opencat-player -- <input.jsonl>"))?;
-        let input = std::fs::read_to_string(&input_path)
-            .with_context(|| format!("failed to read jsonl file: {input_path}"))?;
-
-        let parsed = parse(&input).context("failed to parse JSONL composition")?;
+        let parsed = parse_file(&input_path).context("failed to parse JSONL composition")?;
         let has_audio = !parsed.audio_sources.is_empty();
         let mut root = parsed.root;
         if let Some(script) = parsed.script.as_deref() {

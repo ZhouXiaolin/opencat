@@ -1,32 +1,32 @@
 # OpenCat JSONL
 
-> **⚠️ Important format rules**
-> - **One JSON object per line**. Do not split a single JSON object across multiple lines.
-> - **Do not put comments inside script content**. Script code must stay clean.
+> **⚠️ 重要格式要求**
+> - **每行一个 JSON 对象**，禁止把单个 JSON 对象拆成多行
+> - **script 内容禁止注释**，代码必须保持纯净
 
-OpenCat JSONL is a JSON Lines format for describing compositions, scene nodes, scripts, and transitions.
+OpenCat JSONL 是用于描述 composition、场景节点、脚本和转场的 JSON Lines 格式。
 
 ---
 
-## 1. File Structure
+## 1. 文件结构
 
-### 1.1 Composition (first line, required)
+### 1.1 Composition（第 1 行，必填）
 
 ```json
 {"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 180}
 ```
 
-`frames / fps` defines the total duration in seconds.
+`frames / fps` 表示总时长（秒）。
 
-### 1.2 Two Modes: Single Scene vs Multi Scene
+### 1.2 两种模式：单场景 vs 多场景
 
-#### Single Scene
+#### 单场景
 
-There is one root node with `parentId: null`, and no transition. `composition.frames` must match that scene's `duration`.
+只有一个 `parentId: null` 的根节点，没有转场。`composition.frames` 必须等于该场景的 `duration`。
 
 ```text
-Timeline: [   scene1: 60 frames   ]
-Constraint: composition.frames = scene1.duration
+时间线：[   scene1: 60 帧   ]
+约束：composition.frames = scene1.duration
 ```
 
 ```json
@@ -35,13 +35,13 @@ Constraint: composition.frames = scene1.duration
 {"id": "title", "parentId": "scene1", "type": "text", "className": "text-[24px] font-bold", "text": "Hello"}
 ```
 
-#### Multi Scene + Transition
+#### 多场景 + 转场
 
-There can be multiple root nodes with `parentId: null`. Scenes are connected by `transition` records. Each scene has its own independent node tree. Transitions consume extra frames and overlap the two scenes during the handoff.
+可以有多个 `parentId: null` 的根节点。场景之间通过 `transition` 记录连接。每个场景都有自己独立的节点树。转场会额外消耗帧数，并在切换期间让两个场景发生重叠。
 
 ```text
-Timeline: [ scene1: 60 frames ] [ fade: 12 frames ] [ scene2: 90 frames ]
-Constraint: composition.frames = 60 + 12 + 90 = 162
+时间线：[ scene1: 60 帧 ] [ fade: 12 帧 ] [ scene2: 90 帧 ]
+约束：composition.frames = 60 + 12 + 90 = 162
 ```
 
 ```json
@@ -53,17 +53,17 @@ Constraint: composition.frames = 60 + 12 + 90 = 162
 {"type": "transition", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 12}
 ```
 
-**Key rules**:
+**关键规则**：
 
-- Each scene owns its own node tree. Nodes are not shared across scenes.
-- `composition.frames = sum(all scene.duration) + sum(all transition.duration)`
-- Transitions are chained in order: `scene1 -> transition(scene1->scene2) -> scene2 -> ...`
+- 每个场景有独立的节点树，节点不会跨场景共享
+- `composition.frames = sum(所有 scene.duration) + sum(所有 transition.duration)`
+- 转场按顺序连接：`scene1 -> transition(scene1->scene2) -> scene2 -> ...`
 
-### 1.3 Element Nodes
+### 1.3 元素节点
 
-Each element is one JSON line. Parent-child relationships are defined through `parentId`.
+每个元素占一行 JSON，通过 `parentId` 形成父子关系。
 
-`className` uses Tailwind-style classes for layout and visual properties, similar to how you would style an HTML node with Tailwind.
+`className` 使用的是 Tailwind 风格的类名，用来描述布局和视觉属性，方式上类似给 HTML 节点写 Tailwind。
 
 ```json
 {"id": "title", "parentId": "scene1", "type": "text", "className": "text-[24px] font-bold text-slate-900", "text": "Hello"}
@@ -71,23 +71,23 @@ Each element is one JSON line. Parent-child relationships are defined through `p
 {"id": "search", "parentId": "scene1", "type": "icon", "className": "w-[24px] h-[24px] text-slate-400", "icon": "search"}
 ```
 
-**Type mapping**:
+**类型对照**：
 
-| type | HTML equivalent | Special fields |
-|------|-----------------|----------------|
+| type | 对应 HTML | 特有字段 |
+|------|-----------|----------|
 | `div` | `<div>` | — |
-| `text` | `<span>` / `<p>` | `text`: text content |
-| `image` | `<img>` | `query`: image search query (1-4 nouns) |
-| `icon` | Lucide icon | `icon`: icon name in kebab-case |
-| `canvas` | `<canvas>` | requires a matching script |
-| `audio` | `<audio>` | `path` or `url` |
+| `text` | `<span>` / `<p>` | `text`: 文本内容 |
+| `image` | `<img>` | `query`: 图片搜索词（1-4 个名词） |
+| `icon` | Lucide 图标 | `icon`: kebab-case 图标名 |
+| `canvas` | `<canvas>` | 需要配套 script |
+| `audio` | `<audio>` | `path` 或 `url` |
 | `video` | `<video>` | — |
 
 ### 1.4 Script
 
-> **⚠️ `script.src` must not contain comments**
+> **⚠️ `script.src` 中禁止注释**
 
-Scripts are attached to nodes and run on every frame.
+脚本挂载在节点上，并且会在每一帧执行。
 
 ```json
 {"type": "script", "parentId": "scene1", "src": "var node = ctx.getNode('title');\nvar anim = ctx.animate({from:{opacity:0},to:{opacity:1},duration:20,easing:'spring-gentle'});\nnode.opacity(anim.opacity);"}
@@ -96,43 +96,43 @@ Scripts are attached to nodes and run on every frame.
 
 ### 1.5 Transition
 
-Transitions are only used in multi-scene mode. A transition describes the handoff between two scenes and consumes additional frames.
+转场只在多场景模式下使用。它描述两个场景之间的切换，并额外占用帧数。
 
 ```json
 {"type": "transition", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 12}
 ```
 
-**Effect types** (`effect` and `direction` are separate fields):
+**effect 类型**（`effect` 和 `direction` 是两个独立字段）：
 
-| effect | Description | direction (optional) |
-|--------|-------------|----------------------|
-| `fade` | Cross fade | — |
-| `slide` | Sliding transition | `from_left` (default) / `from_right` / `from_top` / `from_bottom` |
-| `wipe` | Wipe transition | `from_left` (default) / `from_right` / `from_top` / `from_bottom` / `from_top_left` / `from_top_right` / `from_bottom_left` / `from_bottom_right` |
-| `clock_wipe` | Clock wipe | — |
-| `iris` | Iris open/close | — |
-| `light_leak` | Light leak | — (`seed`, `hueShift`, `maskScale` are supported) |
+| effect | 说明 | direction（可选） |
+|--------|------|-------------------|
+| `fade` | 淡入淡出 | — |
+| `slide` | 滑动切换 | `from_left`（默认）/ `from_right` / `from_top` / `from_bottom` |
+| `wipe` | 擦除切换 | `from_left`（默认）/ `from_right` / `from_top` / `from_bottom` / `from_top_left` / `from_top_right` / `from_bottom_left` / `from_bottom_right` |
+| `clock_wipe` | 时钟擦除 | — |
+| `iris` | 光圈开合 | — |
+| `light_leak` | 光泄漏 | —（支持 `seed`、`hueShift`、`maskScale`） |
 
-**Timing control** (available for all effects):
+**timing 控制**（所有 effect 通用）：
 
-`timing` uses the same easing names as `ctx.animate()`. The default is `"linear"`.
+`timing` 使用和 `ctx.animate()` 一样的缓动名称，默认值是 `"linear"`。
 
-| timing | Description |
-|--------|-------------|
-| `"linear"` (default) | Constant speed |
+| timing | 说明 |
+|--------|------|
+| `"linear"`（默认） | 匀速 |
 | `"ease"` | CSS ease |
-| `"ease-in"` | Ease in |
-| `"ease-out"` | Ease out |
-| `"ease-in-out"` | Ease in and out |
-| `"spring-default"` / `"spring-gentle"` / … | Spring presets |
-| `"bezier:x1,y1,x2,y2"` | Cubic bezier |
+| `"ease-in"` | 渐入 |
+| `"ease-out"` | 渐出 |
+| `"ease-in-out"` | 渐入渐出 |
+| `"spring-default"` / `"spring-gentle"` / … | 弹簧预设 |
+| `"bezier:x1,y1,x2,y2"` | 三次贝塞尔 |
 
 ```json
 {"type": "transition", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 20, "timing": "ease-out"}
 {"type": "transition", "from": "scene1", "to": "scene2", "effect": "slide", "direction": "from_right", "duration": 15, "timing": "bezier:0.4,0,0.2,1"}
 ```
 
-Custom spring parameters can also be used directly through `damping`, `stiffness`, and `mass`:
+也可以直接使用自定义弹簧参数：
 
 ```json
 {"type": "transition", "from": "scene1", "to": "scene2", "effect": "wipe", "direction": "from_right", "duration": 12, "damping": 10, "stiffness": 100, "mass": 1}
@@ -140,44 +140,44 @@ Custom spring parameters can also be used directly through `damping`, `stiffness
 
 ---
 
-## 2. Styling (Tailwind)
+## 2. 样式（Tailwind）
 
-Most Tailwind classes work directly for layout, color, spacing, border radius, and related visual styling.
+大多数 Tailwind 类名都可以直接用于布局、颜色、间距、圆角等静态样式。
 
-**Main restrictions**:
+**主要限制**：
 
-- Do not use CSS animation classes
-- Do not generate transform-related Tailwind classes in `className`
-  - This includes classes such as `transform`, `translate-*`, `rotate-*`, `scale-*`, and `skew-*`
-  - Use the script node API instead for transforms
+- 不要使用 CSS 动画类
+- 不要在 `className` 中生成任何 transform 相关的 Tailwind 类
+  - 包括 `transform`、`translate-*`、`rotate-*`、`scale-*`、`skew-*`
+  - 这类变换统一通过脚本节点 API 处理
 
-| Avoid | Use instead |
-|------|-------------|
+| 不要用 | 替代方案 |
+|------|----------|
 | `transition-*` `animate-*` `duration-*` `ease-*` `delay-*` | `ctx.animate()` / `ctx.stagger()` |
 | `transform` `translate-*` `rotate-*` `scale-*` `skew-*` | `ctx.getNode(...).translateX()` / `translateY()` / `scale()` / `rotate()` / `skew()` |
 
-> Tailwind handles static styling. Scripts handle motion.
+> Tailwind 负责静态样式，脚本负责动态效果。
 
 ---
 
-## 3. Animation System
+## 3. 动画系统
 
-Animations are declared in JavaScript. Scripts run on every frame and read interpolated animation values to drive node properties.
+动画通过 JavaScript 声明。脚本每帧执行，并读取插值后的动画值来驱动节点属性。
 
 ### Context
 
-| Field | Description |
-|------|-------------|
-| `ctx.frame` | Global frame index |
-| `ctx.totalFrames` | Total frame count |
-| `ctx.currentFrame` | Frame index within the current scene (`0 -> sceneFrames - 1`) |
-| `ctx.sceneFrames` | Frame count of the current scene |
+| 字段 | 说明 |
+|------|------|
+| `ctx.frame` | 全局帧号 |
+| `ctx.totalFrames` | 全局总帧数 |
+| `ctx.currentFrame` | 当前场景内的帧号（`0 -> sceneFrames - 1`） |
+| `ctx.sceneFrames` | 当前场景的总帧数 |
 
-For scene-local animation, prefer `ctx.currentFrame` and `ctx.sceneFrames`.
+场景内动画优先使用 `ctx.currentFrame` 和 `ctx.sceneFrames`。
 
 ### ctx.animate(opts)
 
-Declare a `from -> to` animation. The returned object exposes animated values through getters.
+声明一个 `from -> to` 动画。返回对象中的属性通过 getter 暴露当前插值结果。
 
 ```js
 var anim = ctx.animate({
@@ -192,15 +192,15 @@ var anim = ctx.animate({
 node.opacity(anim.opacity).translateY(anim.translateY).scale(anim.scale);
 ```
 
-Additional fields:
+附加字段：
 
-- `anim.progress`: progress from `0` to `1`
-- `anim.settled`: whether a spring animation has settled
-- `anim.settleFrame`: the frame where the spring settled
+- `anim.progress`：从 `0` 到 `1`
+- `anim.settled`：弹簧是否已经稳定
+- `anim.settleFrame`：弹簧稳定的帧号
 
 ### ctx.stagger(count, opts)
 
-Like `animate`, but creates multiple animations with staggered delay.
+和 `animate` 类似，但会为多个元素生成带交错延迟的动画。
 
 ```js
 var anims = ctx.stagger(4, {
@@ -214,30 +214,30 @@ var anims = ctx.stagger(4, {
 
 ### Easing
 
-| Preset | Effect |
-|--------|--------|
-| `'linear'` | Constant speed |
-| `'spring-default'` | General spring |
-| `'spring-gentle'` | Soft spring |
-| `'spring-stiff'` | Stiffer spring |
-| `'spring-slow'` | Slower spring |
-| `'spring-wobbly'` | Wobbly spring |
+| 预设 | 效果 |
+|------|------|
+| `'linear'` | 匀速 |
+| `'spring-default'` | 通用弹簧 |
+| `'spring-gentle'` | 柔和弹簧 |
+| `'spring-stiff'` | 更硬的弹簧 |
+| `'spring-slow'` | 更慢的弹簧 |
+| `'spring-wobbly'` | 摇摆感更强 |
 
-Custom spring:
+自定义弹簧：
 
 ```js
 easing: { spring: { stiffness: 120, damping: 12, mass: 0.9 } }
 ```
 
-Cubic bezier:
+三次贝塞尔：
 
 ```js
 easing: [0.25, 0.1, 0.25, 1.0]
 ```
 
-### Node API
+### 节点 API
 
-`ctx.getNode('id')` returns a chainable proxy object.
+`ctx.getNode('id')` 会返回一个可链式调用的代理对象。
 
 ```js
 // Transform
@@ -263,9 +263,9 @@ node.textAlign('center').lineHeight(1.5).letterSpacing(1).shadow('lg');
 node.strokeWidth(2).strokeColor('gray-300').fillColor('blue-500');
 ```
 
-### Common Patterns
+### 常用模式
 
-**Staggered entrance**:
+**交错入场**：
 
 ```js
 var items = ['card-1', 'card-2', 'card-3'];
@@ -280,7 +280,7 @@ items.forEach(function(id, i) {
 });
 ```
 
-**Linked motion**:
+**联动效果**：
 
 ```js
 var hero = ctx.animate({
@@ -293,7 +293,7 @@ ctx.getNode('subtitle')
   .translateY(hero.translateY * 0.6);
 ```
 
-**Looping pulse**:
+**循环脉冲**：
 
 ```js
 var icons = ['icon-a', 'icon-b', 'icon-c'];
@@ -320,55 +320,55 @@ icons.forEach(function(id, i) {
 });
 ```
 
-### Restrictions
+### 限制
 
-- Do not use `document`, `window`, `requestAnimationFrame`, or `element.style`
-- Access nodes only through `ctx.getNode()`
-- `duration` is required for non-spring easing
+- 不要使用 `document`、`window`、`requestAnimationFrame`、`element.style`
+- 只能通过 `ctx.getNode()` 获取节点
+- 非弹簧缓动必须提供 `duration`
 
 ---
 
-## 4. Canvas (CanvasKit-style subset)
+## 4. Canvas（CanvasKit 风格子集）
 
-A `type: "canvas"` node behaves like a canvas surface, but only supports the CanvasKit subset currently exposed by OpenCat. The drawing script must be attached as a child script of that canvas node and is re-executed on every frame.
+`type: "canvas"` 节点相当于一个画布表面，但只支持 OpenCat 当前暴露出来的 CanvasKit 子集。绘图脚本必须作为该 canvas 节点的子 script 挂载，并且会在每一帧重新执行。
 
 ```json
 {"id": "chart", "parentId": "scene1", "type": "canvas", "className": "w-[300px] h-[200px]"}
 {"type": "script", "parentId": "chart", "src": "var CK = ctx.CanvasKit;\nvar canvas = ctx.getCanvas();\ncanvas.clear('#ffffff');"}
 ```
 
-### Entry Points
+### 入口对象
 
-| Object | Purpose |
-|--------|---------|
-| `ctx.CanvasKit` / `globalThis.CanvasKit` | CanvasKit-style helpers, constructors, and enums |
-| `ctx.getCanvas()` | Returns the drawing interface for the current canvas node |
-| `ctx.getImage(assetId)` | Returns an image handle for a host-provided asset id |
+| 对象 | 作用 |
+|------|------|
+| `ctx.CanvasKit` / `globalThis.CanvasKit` | CanvasKit 风格的辅助函数、构造器和枚举 |
+| `ctx.getCanvas()` | 返回当前 canvas 节点的绘图接口 |
+| `ctx.getImage(assetId)` | 返回宿主侧提供的 asset id 对应图片句柄 |
 
-### Supported CanvasKit Helpers
+### 当前支持的 CanvasKit 辅助能力
 
 ```js
 var CK = ctx.CanvasKit;
 
-// Color
+// 颜色
 CK.Color(r, g, b, a?)
 CK.Color4f(r, g, b, a?)
 CK.ColorAsInt(r, g, b, a?)
 CK.parseColorString('#ff0000')
 CK.multiplyByAlpha(color, 0.5)
 
-// Geometry
+// 几何
 CK.LTRBRect(l, t, r, b)
 CK.XYWHRect(x, y, w, h)
 CK.RRectXY(rect, rx, ry)
 
-// Constructors
+// 构造器
 new CK.Paint()
 new CK.Path()
 new CK.Font(null, size?, scaleX?, skewX?)
 CK.PathEffect.MakeDash(intervals, phase?)
 
-// Enums / constants
+// 枚举 / 常量
 CK.BLACK / CK.WHITE
 CK.PaintStyle.Fill / CK.PaintStyle.Stroke
 CK.StrokeCap.Butt / Round / Square
@@ -379,14 +379,14 @@ CK.ClipOp.Intersect / Difference
 CK.PointMode.Points / Lines / Polygon
 ```
 
-### Supported `ctx.getCanvas()` Methods
+### `ctx.getCanvas()` 当前支持的方法
 
-Methods are chainable unless noted otherwise.
+除特殊说明外，方法都支持链式调用。
 
 ```js
 var canvas = ctx.getCanvas();
 
-// State and transforms
+// 状态和变换
 canvas.clear(color?);
 canvas.save();
 canvas.saveLayer(paint?);
@@ -401,12 +401,12 @@ canvas.skew(sx, sy);
 canvas.concat([m00, m01, m02, m10, m11, m12, m20, m21, m22]);
 canvas.setAlphaf(alpha);
 
-// Clipping
+// 裁剪
 canvas.clipRect(rect, CK.ClipOp.Intersect, doAntiAlias?);
 canvas.clipPath(path, CK.ClipOp.Intersect, doAntiAlias?);
 canvas.clipRRect(rrect, CK.ClipOp.Intersect, doAntiAlias?);
 
-// Shapes
+// 图形
 canvas.drawPaint(paint);
 canvas.drawColor(color, CK.BlendMode.SrcOver);
 canvas.drawColorComponents(r, g, b, a?, CK.BlendMode.SrcOver);
@@ -423,15 +423,15 @@ canvas.drawPoints(CK.PointMode.Points, points, paint);
 canvas.drawPoints(CK.PointMode.Lines, points, paint);
 canvas.drawPoints(CK.PointMode.Polygon, points, paint);
 
-// Images
+// 图片
 canvas.drawImage(image, x, y, paint?);
 canvas.drawImageRect(image, srcRect, destRect, paint?, fastSample?);
 
-// Text
+// 文字
 canvas.drawText(text, x, y, paint, font);
 ```
 
-### `Paint` Support
+### `Paint` 支持范围
 
 ```js
 var paint = new CK.Paint();
@@ -449,9 +449,9 @@ paint.setStrokeDash([10, 5], 0);
 paint.setPathEffect(CK.PathEffect.MakeDash([10, 5], 0));
 ```
 
-Only dash path effects are currently supported.
+目前只支持 dash 路径效果。
 
-### `Path` Support
+### `Path` 支持范围
 
 ```js
 var path = new CK.Path();
@@ -468,7 +468,7 @@ path.reset();
 path.rewind();
 ```
 
-### Text API Support
+### 文字 API 支持范围
 
 ```js
 var font = new CK.Font(null, 32);
@@ -482,15 +482,15 @@ var width = font.measureText('Hello OpenCat');
 canvas.drawText('Hello OpenCat', 40, 80, paint, font);
 ```
 
-Current constraints:
+当前约束：
 
-- `typeface` must currently be `null`, which means the system default font
-- Custom font objects, `Typeface`, `FontMgr`, and font assets are not supported
-- `TextBlob` and `Paragraph` are not supported
+- `typeface` 目前必须为 `null`，表示系统默认字体
+- 不支持自定义字体对象、`Typeface`、`FontMgr` 和字体 asset
+- 不支持 `TextBlob` 和 `Paragraph`
 
-### Image Resource Rules
+### 图片资源规则
 
-Canvas scripts must acquire images through `ctx.getImage(assetId)`. URLs, file paths, and arbitrary native image objects are not accepted.
+Canvas 脚本中的图片必须通过 `ctx.getImage(assetId)` 获取，不能直接传 URL、文件路径或任意原生图片对象。
 
 ```js
 var img = ctx.getImage('hero-asset');
@@ -502,16 +502,16 @@ canvas.drawImageRect(
 );
 ```
 
-### Current Explicit Limits
+### 当前明确限制
 
-- This is a CanvasKit subset, not full CanvasKit
-- `clipRect()`, `clipPath()`, and `clipRRect()` currently only support `CK.ClipOp.Intersect`
-- `drawColor()`, `drawColorInt()`, and `drawColorComponents()` currently only support `CK.BlendMode.SrcOver`
-- `PathEffect` currently only supports `MakeDash()`
-- Text drawing only supports the system default font
-- `ctx.getImage()` only accepts asset id handles
+- 这里只是 CanvasKit 子集，不是完整 CanvasKit
+- `clipRect()`、`clipPath()`、`clipRRect()` 目前只支持 `CK.ClipOp.Intersect`
+- `drawColor()`、`drawColorInt()`、`drawColorComponents()` 目前只支持 `CK.BlendMode.SrcOver`
+- `PathEffect` 目前只支持 `MakeDash()`
+- 文字绘制仅支持系统默认字体
+- `ctx.getImage()` 只接受 asset id 句柄
 
-### Recommended Template
+### 推荐模板
 
 ```js
 var CK = ctx.CanvasKit;
@@ -547,16 +547,16 @@ canvas.drawText('OpenCat', 16, 96, fill('#0f172a'), font);
 
 ---
 
-## 5. Common Errors
+## 5. 常见错误
 
-| Wrong | Correct |
-|------|---------|
-| `type: "div"` with a `text` field | Only `type: "text"` accepts `text` |
-| Coloring icons with `bg-{color}` | Use `text-{color}` for icons |
-| `id` contains "icon" but `type: "div"` | Use `type: "icon"` with a Lucide icon name |
-| Image `query` contains adjectives | Use only 1-4 nouns |
-| Relying on `absolute` layout by default | Prefer flex layout; use `absolute` only for overlap or pinned edges |
-| Putting transform Tailwind classes in `className` | Use node transform APIs such as `translateX()`, `translateY()`, `scale()`, `rotate()`, and `skew()` |
-| `parentId` points to an invalid id | `parentId` must reference an existing node |
-| Frame count mismatch | `composition.frames == sum(scene.duration) + sum(transition.duration)` |
-| `"effect": "slide-left"` | Use separate fields: `"effect": "slide", "direction": "from_left"` |
+| 错误 | 正确 |
+|------|------|
+| `type: "div"` 却带有 `text` 字段 | 只有 `type: "text"` 才能带 `text` |
+| 用 `bg-{color}` 给图标着色 | 图标应该使用 `text-{color}` |
+| `id` 里有 "icon" 但 `type: "div"` | 应该使用 `type: "icon"` 并提供 Lucide 图标名 |
+| 图片 `query` 里带形容词 | 只使用 1-4 个名词 |
+| 默认依赖 `absolute` 做布局 | 优先使用 flex；`absolute` 只用于重叠或贴边 |
+| 在 `className` 中写 transform 相关 Tailwind 类 | 使用节点变换 API，如 `translateX()`、`translateY()`、`scale()`、`rotate()`、`skew()` |
+| `parentId` 指向不存在的 id | `parentId` 必须引用已存在节点 |
+| 帧数不匹配 | `composition.frames == sum(scene.duration) + sum(transition.duration)` |
+| `"effect": "slide-left"` | 应拆成两个字段：`"effect": "slide", "direction": "from_left"` |

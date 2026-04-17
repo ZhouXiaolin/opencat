@@ -161,6 +161,25 @@ pub enum TextTransform {
     Uppercase,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct BorderRadius {
+    pub top_left: f32,
+    pub top_right: f32,
+    pub bottom_right: f32,
+    pub bottom_left: f32,
+}
+
+impl BorderRadius {
+    pub const fn uniform(r: f32) -> Self {
+        Self {
+            top_left: r,
+            top_right: r,
+            bottom_right: r,
+            bottom_left: r,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BoxShadowStyle {
     TwoXs,
@@ -485,10 +504,11 @@ pub struct NodeStyle {
     pub bg_gradient_via: Option<ColorToken>,
     pub bg_gradient_to: Option<ColorToken>,
     pub bg_gradient_direction: Option<GradientDirection>,
-    pub border_radius: Option<f32>,
+    pub border_radius: Option<BorderRadius>,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
     pub blur_sigma: Option<f32>,
+    pub backdrop_blur_sigma: Option<f32>,
     pub object_fit: Option<ObjectFit>,
     pub overflow_hidden: bool,
     pub transforms: Vec<Transform>,
@@ -1084,7 +1104,7 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn rounded(mut self, radius: f32) -> Self {
-                self.style.border_radius = Some(radius);
+                self.style.border_radius = Some($crate::style::BorderRadius::uniform(radius));
                 self
             }
 

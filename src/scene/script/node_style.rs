@@ -114,7 +114,7 @@ impl NodeStyleMutations {
             style.bg_color = Some(v);
         }
         if let Some(v) = self.border_radius {
-            style.border_radius = Some(v);
+            style.border_radius = Some(crate::style::BorderRadius::uniform(v));
         }
         if let Some(v) = self.border_width {
             style.border_width = Some(v);

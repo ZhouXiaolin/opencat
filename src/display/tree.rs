@@ -9,6 +9,7 @@ pub struct DisplayTree {
 pub struct DisplayNode {
     pub transform: DisplayTransform,
     pub opacity: f32,
+    pub backdrop_blur_sigma: Option<f32>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,
     pub children: Vec<DisplayNode>,

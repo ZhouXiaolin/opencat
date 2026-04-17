@@ -142,8 +142,13 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         ExactClassAction::ClearBoxShadow => style.box_shadow = None,
         ExactClassAction::ClearInsetShadow => style.inset_shadow = None,
         ExactClassAction::ClearDropShadow => style.drop_shadow = None,
-        ExactClassAction::BorderRadius(value) => style.border_radius = Some(value),
+        ExactClassAction::BorderRadius(value) => {
+            style.border_radius = Some(crate::style::BorderRadius::uniform(value))
+        }
         ExactClassAction::BorderWidth(value) => style.border_width = Some(value),
+        ExactClassAction::BackdropBlurSigma(value) => {
+            style.backdrop_blur_sigma = Some(value)
+        }
         ExactClassAction::OverflowHidden => style.overflow_hidden = true,
         ExactClassAction::Noop => {}
         ExactClassAction::InsetZero => {
@@ -567,11 +572,15 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         }
     }
 
+    if apply_directional_rounded(class, style) {
+        return true;
+    }
+
     if let Some(n) = class
         .strip_prefix("rounded-")
         .and_then(|value| value.parse::<f32>().ok())
     {
-        style.border_radius = Some(n);
+        style.border_radius = Some(crate::style::BorderRadius::uniform(n));
         return true;
     }
 
@@ -744,6 +753,7 @@ enum ExactClassAction {
     LetterSpacing(f32),
     TextTransform(TextTransform),
     BlurSigma(f32),
+    BackdropBlurSigma(f32),
     GridAutoFlow(GridAutoFlow),
     GridAutoRows(GridAutoRows),
     AspectRatio(f32),
@@ -1081,6 +1091,56 @@ fn parse_prefixed_bracket_f32(class: &str, prefix: &str) -> Option<f32> {
     class.strip_prefix(prefix).and_then(parse_bracket_f32)
 }
 
+const ROUNDED_SIZE_MAP: &[(&str, f32)] = &[
+    ("none", 0.0),
+    ("sm", 4.0),
+    ("", 8.0),
+    ("md", 8.0),
+    ("lg", 16.0),
+    ("xl", 24.0),
+    ("2xl", 32.0),
+    ("3xl", 48.0),
+    ("full", 9999.0),
+];
+
+fn resolve_rounded_size(size_str: &str) -> Option<f32> {
+    ROUNDED_SIZE_MAP
+        .iter()
+        .find(|(name, _)| *name == size_str)
+        .map(|(_, v)| *v)
+        .or_else(|| size_str.parse::<f32>().ok())
+}
+
+fn apply_directional_rounded(class: &str, style: &mut NodeStyle) -> bool {
+    let directions: &[(&str, [bool; 4])] = &[
+        ("rounded-t-", [true, true, false, false]),
+        ("rounded-b-", [false, false, true, true]),
+        ("rounded-l-", [true, false, false, true]),
+        ("rounded-r-", [false, true, true, false]),
+        ("rounded-tl-", [true, false, false, false]),
+        ("rounded-tr-", [false, true, false, false]),
+        ("rounded-bl-", [false, false, false, true]),
+        ("rounded-br-", [false, false, true, false]),
+    ];
+
+    for (prefix, corners) in directions {
+        if let Some(size_str) = class.strip_prefix(prefix) {
+            let Some(value) = resolve_rounded_size(size_str) else {
+                return false;
+            };
+            let r = style
+                .border_radius
+                .get_or_insert_with(crate::style::BorderRadius::default);
+            if corners[0] { r.top_left = value; }
+            if corners[1] { r.top_right = value; }
+            if corners[2] { r.bottom_right = value; }
+            if corners[3] { r.bottom_left = value; }
+            return true;
+        }
+    }
+    false
+}
+
 fn apply_f32_target(style: &mut NodeStyle, target: F32Target, value: f32) {
     match target {
         F32Target::Gap => style.gap = Some(value),
@@ -1115,7 +1175,9 @@ fn apply_f32_target(style: &mut NodeStyle, target: F32Target, value: f32) {
         F32Target::MarginRight => style.margin_right = Some(LengthPercentageAuto::Length(value)),
         F32Target::MarginBottom => style.margin_bottom = Some(LengthPercentageAuto::Length(value)),
         F32Target::MarginLeft => style.margin_left = Some(LengthPercentageAuto::Length(value)),
-        F32Target::BorderRadius => style.border_radius = Some(value),
+        F32Target::BorderRadius => {
+            style.border_radius = Some(crate::style::BorderRadius::uniform(value))
+        }
         F32Target::BorderWidth => style.border_width = Some(value),
         F32Target::OpacityClamped => style.opacity = Some(value.clamp(0.0, 1.0)),
         F32Target::BlurSigma => style.blur_sigma = Some(value),

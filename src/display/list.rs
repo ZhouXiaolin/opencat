@@ -3,8 +3,8 @@ use crate::{
     resource::media::VideoFrameTiming,
     scene::script::CanvasCommand,
     style::{
-        BackgroundFill, BoxShadow, ColorToken, ComputedTextStyle, DropShadow, InsetShadow,
-        ObjectFit,
+        BackgroundFill, BorderRadius, BoxShadow, ColorToken, ComputedTextStyle, DropShadow,
+        InsetShadow, ObjectFit,
     },
 };
 
@@ -41,12 +41,13 @@ pub enum DisplayCommand {
 pub struct DisplayLayer {
     pub bounds: DisplayRect,
     pub opacity: f32,
+    pub backdrop_blur_sigma: Option<f32>,
 }
 
 #[derive(Clone, Debug)]
 pub struct DisplayClip {
     pub bounds: DisplayRect,
-    pub border_radius: f32,
+    pub border_radius: BorderRadius,
 }
 
 #[derive(Clone, Debug)]
@@ -102,7 +103,7 @@ pub struct DrawScriptDisplayItem {
 #[derive(Clone, Debug)]
 pub struct RectPaintStyle {
     pub background: Option<BackgroundFill>,
-    pub border_radius: f32,
+    pub border_radius: BorderRadius,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
     pub blur_sigma: Option<f32>,
@@ -114,7 +115,7 @@ pub struct RectPaintStyle {
 #[derive(Clone, Debug)]
 pub struct BitmapPaintStyle {
     pub background: Option<BackgroundFill>,
-    pub border_radius: f32,
+    pub border_radius: BorderRadius,
     pub border_width: Option<f32>,
     pub border_color: Option<ColorToken>,
     pub blur_sigma: Option<f32>,

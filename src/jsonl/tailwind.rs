@@ -146,9 +146,7 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
             style.border_radius = Some(crate::style::BorderRadius::uniform(value))
         }
         ExactClassAction::BorderWidth(value) => style.border_width = Some(value),
-        ExactClassAction::BackdropBlurSigma(value) => {
-            style.backdrop_blur_sigma = Some(value)
-        }
+        ExactClassAction::BackdropBlurSigma(value) => style.backdrop_blur_sigma = Some(value),
         ExactClassAction::OverflowHidden => style.overflow_hidden = true,
         ExactClassAction::Noop => {}
         ExactClassAction::InsetZero => {
@@ -1131,10 +1129,18 @@ fn apply_directional_rounded(class: &str, style: &mut NodeStyle) -> bool {
             let r = style
                 .border_radius
                 .get_or_insert_with(crate::style::BorderRadius::default);
-            if corners[0] { r.top_left = value; }
-            if corners[1] { r.top_right = value; }
-            if corners[2] { r.bottom_right = value; }
-            if corners[3] { r.bottom_left = value; }
+            if corners[0] {
+                r.top_left = value;
+            }
+            if corners[1] {
+                r.top_right = value;
+            }
+            if corners[2] {
+                r.bottom_right = value;
+            }
+            if corners[3] {
+                r.bottom_left = value;
+            }
             return true;
         }
     }

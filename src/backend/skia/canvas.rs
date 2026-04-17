@@ -585,7 +585,10 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
     }
 }
 
-fn spread_radius(border_radius: crate::style::BorderRadius, spread: f32) -> crate::style::BorderRadius {
+fn spread_radius(
+    border_radius: crate::style::BorderRadius,
+    spread: f32,
+) -> crate::style::BorderRadius {
     crate::style::BorderRadius {
         top_left: (border_radius.top_left + spread).max(0.0),
         top_right: (border_radius.top_right + spread).max(0.0),
@@ -594,7 +597,12 @@ fn spread_radius(border_radius: crate::style::BorderRadius, spread: f32) -> crat
     }
 }
 
-fn draw_box_shadow(canvas: &Canvas, bounds: DisplayRect, border_radius: crate::style::BorderRadius, shadow: BoxShadow) {
+fn draw_box_shadow(
+    canvas: &Canvas,
+    bounds: DisplayRect,
+    border_radius: crate::style::BorderRadius,
+    shadow: BoxShadow,
+) {
     let shadow_bounds = if shadow.spread != 0.0 {
         bounds.outset(shadow.spread, shadow.spread, shadow.spread, shadow.spread)
     } else {

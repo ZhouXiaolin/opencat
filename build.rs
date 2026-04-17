@@ -870,14 +870,35 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("blur-xl", "ExactClassAction::BlurSigma(24.0)"),
         ("blur-2xl", "ExactClassAction::BlurSigma(40.0)"),
         ("blur-3xl", "ExactClassAction::BlurSigma(64.0)"),
-        ("backdrop-blur-none", "ExactClassAction::BackdropBlurSigma(0.0)"),
-        ("backdrop-blur-sm", "ExactClassAction::BackdropBlurSigma(4.0)"),
+        (
+            "backdrop-blur-none",
+            "ExactClassAction::BackdropBlurSigma(0.0)",
+        ),
+        (
+            "backdrop-blur-sm",
+            "ExactClassAction::BackdropBlurSigma(4.0)",
+        ),
         ("backdrop-blur", "ExactClassAction::BackdropBlurSigma(4.0)"),
-        ("backdrop-blur-md", "ExactClassAction::BackdropBlurSigma(12.0)"),
-        ("backdrop-blur-lg", "ExactClassAction::BackdropBlurSigma(16.0)"),
-        ("backdrop-blur-xl", "ExactClassAction::BackdropBlurSigma(24.0)"),
-        ("backdrop-blur-2xl", "ExactClassAction::BackdropBlurSigma(40.0)"),
-        ("backdrop-blur-3xl", "ExactClassAction::BackdropBlurSigma(64.0)"),
+        (
+            "backdrop-blur-md",
+            "ExactClassAction::BackdropBlurSigma(12.0)",
+        ),
+        (
+            "backdrop-blur-lg",
+            "ExactClassAction::BackdropBlurSigma(16.0)",
+        ),
+        (
+            "backdrop-blur-xl",
+            "ExactClassAction::BackdropBlurSigma(24.0)",
+        ),
+        (
+            "backdrop-blur-2xl",
+            "ExactClassAction::BackdropBlurSigma(40.0)",
+        ),
+        (
+            "backdrop-blur-3xl",
+            "ExactClassAction::BackdropBlurSigma(64.0)",
+        ),
         // Grid auto flow
         (
             "grid-flow-row",

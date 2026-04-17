@@ -34,6 +34,12 @@ examples/                  Example programs
 
 ## Quick Start
 
+To generate the showcase video:
+
+```bash
+cargo run --bin parse_json -- json/opencat-project-showcase-landscape.jsonl
+```
+
 Run the desktop player:
 
 ```bash

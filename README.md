@@ -4,6 +4,10 @@ OpenCat is a Rust toolkit for building and rendering timeline-based visual compo
 It combines a declarative scene model, a JSONL-based interchange format, a layout engine,
 and a rendering pipeline for generating animated output.
 
+https://github.com/user-attachments/assets/dfe6e104-691a-4775-94a3-7cf7105f1e2e
+
+
+
 The project is organized as:
 
 - `opencat` library: the core APIs for parsing, scene construction, layout, rendering, audio, and runtime support

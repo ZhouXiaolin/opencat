@@ -2122,35 +2122,24 @@ name = "opencat"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cocoa",
+ "core-graphics-types",
  "dirs",
  "ffmpeg-next",
  "foreign-types 0.5.0",
  "image",
  "metal",
  "num_cpus",
+ "objc",
+ "raw-window-handle",
  "reqwest",
+ "rodio",
  "rquickjs",
  "serde",
  "serde_json",
  "skia-safe",
  "taffy",
  "tokio",
-]
-
-[[package]]
-name = "opencat-player"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cocoa",
- "core-graphics-types",
- "foreign-types 0.5.0",
- "metal",
- "objc",
- "opencat",
- "raw-window-handle",
- "rodio",
- "skia-safe",
  "windows-sys 0.61.2",
  "winit",
 ]

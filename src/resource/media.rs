@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -23,6 +24,14 @@ pub struct VideoFrameTiming {
     pub media_offset_secs: f64,
     pub playback_rate: f64,
     pub looping: bool,
+}
+
+impl std::hash::Hash for VideoFrameTiming {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.media_offset_secs.to_bits().hash(state);
+        self.playback_rate.to_bits().hash(state);
+        self.looping.hash(state);
+    }
 }
 
 impl Default for VideoFrameTiming {

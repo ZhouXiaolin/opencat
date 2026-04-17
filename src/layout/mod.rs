@@ -368,219 +368,207 @@ fn node_identity(element: &ElementNode, sibling_index: usize) -> u64 {
 }
 
 fn layout_affect_hash(element: &ElementNode) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    hash_layout_style(&element.style.layout, &mut hasher);
-    hash_option_f32(element.style.visual.border_width, &mut hasher);
-
-    match &element.kind {
-        ElementKind::Div(_) => {}
-        ElementKind::Text(text) => {
-            text.text.hash(&mut hasher);
-            hash_text_layout_style(&text.text_style, &mut hasher);
-        }
-        ElementKind::Bitmap(bitmap) => {
-            bitmap.width.hash(&mut hasher);
-            bitmap.height.hash(&mut hasher);
-        }
-        ElementKind::Canvas(_) => {}
-        ElementKind::Lucide(lucide) => {
-            lucide.icon.hash(&mut hasher);
-        }
-    }
-
-    hasher.finish()
+    calculate_hash(&LayoutFingerprint(element))
 }
 
 fn raster_affect_hash(element: &ElementNode) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    hash_raster_style(&element.style.visual, &mut hasher);
-
-    match &element.kind {
-        ElementKind::Div(_) => {}
-        ElementKind::Text(text) => {
-            text.text.hash(&mut hasher);
-            hash_text_style(&text.text_style, &mut hasher);
-        }
-        ElementKind::Bitmap(bitmap) => {
-            bitmap.asset_id.hash(&mut hasher);
-            bitmap.width.hash(&mut hasher);
-            bitmap.height.hash(&mut hasher);
-        }
-        ElementKind::Canvas(canvas) => {
-            canvas.commands.len().hash(&mut hasher);
-            for command in &canvas.commands {
-                hash_draw_script_command(command, &mut hasher);
-            }
-        }
-        ElementKind::Lucide(lucide) => {
-            lucide.icon.hash(&mut hasher);
-            element.style.text.color.hash(&mut hasher);
-        }
-    }
-
-    hasher.finish()
+    calculate_hash(&RasterFingerprint(element))
 }
 
 fn composite_affect_hash(element: &ElementNode) -> u64 {
+    calculate_hash(&CompositeFingerprint(element))
+}
+
+fn calculate_hash(value: &impl Hash) -> u64 {
     let mut hasher = DefaultHasher::new();
-    hash_f32(element.style.visual.opacity, &mut hasher);
-    for transform in &element.style.visual.transforms {
-        hash_transform(transform, &mut hasher);
-    }
+    value.hash(&mut hasher);
     hasher.finish()
 }
 
-fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: &mut impl Hasher) {
-    style.position.hash(state);
-    hash_option_length_percentage_auto(style.inset_left, state);
-    hash_option_length_percentage_auto(style.inset_top, state);
-    hash_option_length_percentage_auto(style.inset_right, state);
-    hash_option_length_percentage_auto(style.inset_bottom, state);
-    hash_option_f32(style.width, state);
-    hash_option_f32(style.height, state);
-    style.width_full.hash(state);
-    style.height_full.hash(state);
-    style.min_height.hash(state);
-    hash_f32(style.padding_top, state);
-    hash_f32(style.padding_right, state);
-    hash_f32(style.padding_bottom, state);
-    hash_f32(style.padding_left, state);
-    style.margin_top.hash(state);
-    style.margin_right.hash(state);
-    style.margin_bottom.hash(state);
-    style.margin_left.hash(state);
-    style.flex_direction.hash(state);
-    style.flex_wrap.hash(state);
-    style.justify_content.hash(state);
-    style.align_items.hash(state);
-    style.align_content.hash(state);
-    style.align_self.hash(state);
-    style.justify_items.hash(state);
-    style.justify_self.hash(state);
-    hash_f32(style.gap, state);
-    hash_option_f32(style.gap_x, state);
-    hash_option_f32(style.gap_y, state);
-    style.order.hash(state);
-    hash_option_f32(style.aspect_ratio, state);
-    hash_option_length_percentage_auto(style.flex_basis, state);
-    hash_f32(style.flex_grow, state);
-    hash_option_f32(style.flex_shrink, state);
-    style.is_grid.hash(state);
-    style.grid_template_columns.hash(state);
-    style.grid_template_rows.hash(state);
-    style.grid_auto_flow.hash(state);
-    style.grid_auto_rows.hash(state);
-    style.col_start.hash(state);
-    style.col_end.hash(state);
-    style.row_start.hash(state);
-    style.row_end.hash(state);
-    style.z_index.hash(state);
+#[derive(Clone, Copy)]
+struct F32Hash(f32);
+
+impl Hash for F32Hash {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
 }
 
-fn hash_raster_style(style: &crate::element::style::ComputedVisualStyle, state: &mut impl Hasher) {
-    style.background.hash(state);
-    hash_f32(style.border_radius.top_left, state);
-    hash_f32(style.border_radius.top_right, state);
-    hash_f32(style.border_radius.bottom_right, state);
-    hash_f32(style.border_radius.bottom_left, state);
-    hash_option_f32(style.border_width, state);
-    style.border_color.hash(state);
-    hash_option_f32(style.blur_sigma, state);
-    style.object_fit.hash(state);
-    style.clip_contents.hash(state);
-    style.box_shadow.hash(state);
-    style.inset_shadow.hash(state);
-    style.drop_shadow.hash(state);
-}
+struct LayoutFingerprint<'a>(&'a ElementNode);
 
-fn hash_text_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
-    style.color.hash(state);
-    hash_f32(style.text_px, state);
-    style.font_weight.hash(state);
-    hash_f32(style.letter_spacing, state);
-    style.text_align.hash(state);
-    hash_f32(style.line_height, state);
-    hash_option_f32(style.line_height_px, state);
-    style.wrap_text.hash(state);
-}
+impl Hash for LayoutFingerprint<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        LayoutStyleFingerprint(&self.0.style.layout).hash(state);
+        self.0.style.visual.border_width.map(F32Hash).hash(state);
 
-fn hash_text_layout_style(style: &ComputedTextStyle, state: &mut impl Hasher) {
-    hash_f32(style.text_px, state);
-    style.font_weight.hash(state);
-    hash_f32(style.letter_spacing, state);
-    hash_f32(style.line_height, state);
-    hash_option_f32(style.line_height_px, state);
-    style.wrap_text.hash(state);
-}
-
-fn hash_transform(transform: &crate::style::Transform, state: &mut impl Hasher) {
-    match *transform {
-        crate::style::Transform::TranslateX(x) => {
-            0_u8.hash(state);
-            hash_f32(x, state);
-        }
-        crate::style::Transform::TranslateY(y) => {
-            1_u8.hash(state);
-            hash_f32(y, state);
-        }
-        crate::style::Transform::Translate(x, y) => {
-            2_u8.hash(state);
-            hash_f32(x, state);
-            hash_f32(y, state);
-        }
-        crate::style::Transform::Scale(value) => {
-            3_u8.hash(state);
-            hash_f32(value, state);
-        }
-        crate::style::Transform::ScaleX(value) => {
-            4_u8.hash(state);
-            hash_f32(value, state);
-        }
-        crate::style::Transform::ScaleY(value) => {
-            5_u8.hash(state);
-            hash_f32(value, state);
-        }
-        crate::style::Transform::RotateDeg(value) => {
-            6_u8.hash(state);
-            hash_f32(value, state);
-        }
-        crate::style::Transform::SkewXDeg(value) => {
-            7_u8.hash(state);
-            hash_f32(value, state);
-        }
-        crate::style::Transform::SkewYDeg(value) => {
-            8_u8.hash(state);
-            hash_f32(value, state);
-        }
-        crate::style::Transform::SkewDeg(x, y) => {
-            9_u8.hash(state);
-            hash_f32(x, state);
-            hash_f32(y, state);
+        match &self.0.kind {
+            ElementKind::Div(_) | ElementKind::Canvas(_) => {}
+            ElementKind::Text(text) => {
+                text.text.hash(state);
+                TextLayoutStyleFingerprint(&text.text_style).hash(state);
+            }
+            ElementKind::Bitmap(bitmap) => {
+                bitmap.width.hash(state);
+                bitmap.height.hash(state);
+            }
+            ElementKind::Lucide(lucide) => {
+                lucide.icon.hash(state);
+            }
         }
     }
 }
 
-fn hash_option_f32(value: Option<f32>, state: &mut impl Hasher) {
-    value.map(f32::to_bits).hash(state);
-}
+struct RasterFingerprint<'a>(&'a ElementNode);
 
-fn hash_option_length_percentage_auto(
-    value: Option<LengthPercentageAuto>,
-    state: &mut impl Hasher,
-) {
-    value.map(hash_length_percentage_auto_bits).hash(state);
-}
+impl Hash for RasterFingerprint<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        RasterVisualStyleFingerprint(&self.0.style.visual).hash(state);
 
-fn hash_length_percentage_auto_bits(value: LengthPercentageAuto) -> (u8, u32) {
-    match value {
-        LengthPercentageAuto::Auto => (0, 0),
-        LengthPercentageAuto::Length(length) => (1, length.to_bits()),
-        LengthPercentageAuto::Percent(percent) => (2, percent.to_bits()),
+        match &self.0.kind {
+            ElementKind::Div(_) => {}
+            ElementKind::Text(text) => {
+                text.text.hash(state);
+                TextRasterStyleFingerprint(&text.text_style).hash(state);
+            }
+            ElementKind::Bitmap(bitmap) => {
+                bitmap.asset_id.hash(state);
+                bitmap.width.hash(state);
+                bitmap.height.hash(state);
+                bitmap.video_timing.hash(state);
+            }
+            ElementKind::Canvas(canvas) => {
+                canvas.commands.hash(state);
+            }
+            ElementKind::Lucide(lucide) => {
+                lucide.icon.hash(state);
+                self.0.style.text.color.hash(state);
+            }
+        }
     }
 }
 
-fn hash_f32(value: f32, state: &mut impl Hasher) {
-    value.to_bits().hash(state);
+struct CompositeFingerprint<'a>(&'a ElementNode);
+
+impl Hash for CompositeFingerprint<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        CompositeVisualStyleFingerprint(&self.0.style.visual).hash(state);
+    }
+}
+
+struct LayoutStyleFingerprint<'a>(&'a crate::element::style::ComputedLayoutStyle);
+
+impl Hash for LayoutStyleFingerprint<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let style = self.0;
+        style.position.hash(state);
+        style.inset_left.hash(state);
+        style.inset_top.hash(state);
+        style.inset_right.hash(state);
+        style.inset_bottom.hash(state);
+        style.width.map(F32Hash).hash(state);
+        style.height.map(F32Hash).hash(state);
+        style.max_width.map(F32Hash).hash(state);
+        style.width_full.hash(state);
+        style.height_full.hash(state);
+        F32Hash(style.padding_top).hash(state);
+        F32Hash(style.padding_right).hash(state);
+        F32Hash(style.padding_bottom).hash(state);
+        F32Hash(style.padding_left).hash(state);
+        style.margin_top.hash(state);
+        style.margin_right.hash(state);
+        style.margin_bottom.hash(state);
+        style.margin_left.hash(state);
+        style.min_height.hash(state);
+        style.is_flex.hash(state);
+        style.is_grid.hash(state);
+        style.grid_template_columns.hash(state);
+        style.grid_template_rows.hash(state);
+        style.grid_auto_flow.hash(state);
+        style.grid_auto_rows.hash(state);
+        style.col_start.hash(state);
+        style.col_end.hash(state);
+        style.row_start.hash(state);
+        style.row_end.hash(state);
+        style.auto_size.hash(state);
+        style.flex_direction.hash(state);
+        style.justify_content.hash(state);
+        style.align_items.hash(state);
+        style.flex_wrap.hash(state);
+        style.align_content.hash(state);
+        style.align_self.hash(state);
+        style.justify_items.hash(state);
+        style.justify_self.hash(state);
+        F32Hash(style.gap).hash(state);
+        style.gap_x.map(F32Hash).hash(state);
+        style.gap_y.map(F32Hash).hash(state);
+        style.order.hash(state);
+        style.aspect_ratio.map(F32Hash).hash(state);
+        style.flex_basis.hash(state);
+        F32Hash(style.flex_grow).hash(state);
+        style.flex_shrink.map(F32Hash).hash(state);
+        style.z_index.hash(state);
+    }
+}
+
+struct RasterVisualStyleFingerprint<'a>(&'a crate::element::style::ComputedVisualStyle);
+
+impl Hash for RasterVisualStyleFingerprint<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let style = self.0;
+        style.background.hash(state);
+        style.border_radius.hash(state);
+        style.border_width.map(F32Hash).hash(state);
+        style.border_color.hash(state);
+        style.blur_sigma.map(F32Hash).hash(state);
+        style.object_fit.hash(state);
+        style.clip_contents.hash(state);
+        style.box_shadow.hash(state);
+        style.inset_shadow.hash(state);
+        style.drop_shadow.hash(state);
+    }
+}
+
+struct CompositeVisualStyleFingerprint<'a>(&'a crate::element::style::ComputedVisualStyle);
+
+impl Hash for CompositeVisualStyleFingerprint<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let style = self.0;
+        F32Hash(style.opacity).hash(state);
+        style.backdrop_blur_sigma.map(F32Hash).hash(state);
+        style.transforms.hash(state);
+    }
+}
+
+struct TextRasterStyleFingerprint<'a>(&'a ComputedTextStyle);
+
+impl Hash for TextRasterStyleFingerprint<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let style = self.0;
+        style.color.hash(state);
+        F32Hash(style.text_px).hash(state);
+        style.font_weight.hash(state);
+        F32Hash(style.letter_spacing).hash(state);
+        style.text_align.hash(state);
+        F32Hash(style.line_height).hash(state);
+        style.line_height_px.map(F32Hash).hash(state);
+        style.text_transform.hash(state);
+        style.wrap_text.hash(state);
+    }
+}
+
+struct TextLayoutStyleFingerprint<'a>(&'a ComputedTextStyle);
+
+impl Hash for TextLayoutStyleFingerprint<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let style = self.0;
+        F32Hash(style.text_px).hash(state);
+        style.font_weight.hash(state);
+        F32Hash(style.letter_spacing).hash(state);
+        F32Hash(style.line_height).hash(state);
+        style.line_height_px.map(F32Hash).hash(state);
+        style.text_transform.hash(state);
+        style.wrap_text.hash(state);
+    }
 }
 
 fn text_measure_context_for_element(element: &ElementNode) -> Option<TextMeasureContext> {
@@ -894,489 +882,6 @@ fn resolve_dimension_value(value: LengthPercentageAuto) -> Dimension {
         LengthPercentageAuto::Auto => Dimension::auto(),
         LengthPercentageAuto::Length(length) => Dimension::length(length),
         LengthPercentageAuto::Percent(percent) => Dimension::percent(percent),
-    }
-}
-
-fn hash_draw_script_command(
-    command: &crate::scene::script::CanvasCommand,
-    state: &mut impl Hasher,
-) {
-    match command {
-        crate::scene::script::CanvasCommand::Save => {
-            0_u8.hash(state);
-        }
-        crate::scene::script::CanvasCommand::SaveLayer { alpha, bounds } => {
-            45_u8.hash(state);
-            hash_f32(*alpha, state);
-            bounds.is_some().hash(state);
-            if let Some(bounds) = bounds {
-                for value in bounds {
-                    hash_f32(*value, state);
-                }
-            }
-        }
-        crate::scene::script::CanvasCommand::Restore => {
-            1_u8.hash(state);
-        }
-        crate::scene::script::CanvasCommand::RestoreToCount { count } => {
-            43_u8.hash(state);
-            count.hash(state);
-        }
-        crate::scene::script::CanvasCommand::SetFillStyle { color } => {
-            2_u8.hash(state);
-            color.hash(state);
-        }
-        crate::scene::script::CanvasCommand::SetStrokeStyle { color } => {
-            3_u8.hash(state);
-            color.hash(state);
-        }
-        crate::scene::script::CanvasCommand::SetLineWidth { width } => {
-            4_u8.hash(state);
-            hash_f32(*width, state);
-        }
-        crate::scene::script::CanvasCommand::SetLineCap { cap } => {
-            5_u8.hash(state);
-            cap.hash(state);
-        }
-        crate::scene::script::CanvasCommand::SetLineJoin { join } => {
-            6_u8.hash(state);
-            join.hash(state);
-        }
-        crate::scene::script::CanvasCommand::SetLineDash { intervals, phase } => {
-            7_u8.hash(state);
-            intervals.len().hash(state);
-            for interval in intervals {
-                hash_f32(*interval, state);
-            }
-            hash_f32(*phase, state);
-        }
-        crate::scene::script::CanvasCommand::ClearLineDash => {
-            8_u8.hash(state);
-        }
-        crate::scene::script::CanvasCommand::SetGlobalAlpha { alpha } => {
-            9_u8.hash(state);
-            hash_f32(*alpha, state);
-        }
-        crate::scene::script::CanvasCommand::SetAntiAlias { enabled } => {
-            44_u8.hash(state);
-            enabled.hash(state);
-        }
-        crate::scene::script::CanvasCommand::Translate { x, y } => {
-            10_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-        }
-        crate::scene::script::CanvasCommand::Scale { x, y } => {
-            11_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-        }
-        crate::scene::script::CanvasCommand::Rotate { degrees } => {
-            12_u8.hash(state);
-            hash_f32(*degrees, state);
-        }
-        crate::scene::script::CanvasCommand::ClipRect {
-            x,
-            y,
-            width,
-            height,
-            anti_alias,
-        } => {
-            13_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            hash_f32(*width, state);
-            hash_f32(*height, state);
-            anti_alias.hash(state);
-        }
-        crate::scene::script::CanvasCommand::Clear { color } => {
-            14_u8.hash(state);
-            color.hash(state);
-        }
-        crate::scene::script::CanvasCommand::DrawPaint { color, anti_alias } => {
-            46_u8.hash(state);
-            color.hash(state);
-            anti_alias.hash(state);
-        }
-        crate::scene::script::CanvasCommand::DrawText {
-            text,
-            x,
-            y,
-            color,
-            anti_alias,
-            stroke,
-            stroke_width,
-            font_size,
-            font_scale_x,
-            font_skew_x,
-            font_subpixel,
-            font_edging,
-        } => {
-            51_u8.hash(state);
-            text.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            color.hash(state);
-            anti_alias.hash(state);
-            stroke.hash(state);
-            hash_f32(*stroke_width, state);
-            hash_f32(*font_size, state);
-            hash_f32(*font_scale_x, state);
-            hash_f32(*font_skew_x, state);
-            font_subpixel.hash(state);
-            font_edging.hash(state);
-        }
-        crate::scene::script::CanvasCommand::FillRect {
-            x,
-            y,
-            width,
-            height,
-            color,
-        } => {
-            15_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            hash_f32(*width, state);
-            hash_f32(*height, state);
-            color.hash(state);
-        }
-        crate::scene::script::CanvasCommand::FillRRect {
-            x,
-            y,
-            width,
-            height,
-            radius,
-        } => {
-            16_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            hash_f32(*width, state);
-            hash_f32(*height, state);
-            hash_f32(*radius, state);
-        }
-        crate::scene::script::CanvasCommand::StrokeRect {
-            x,
-            y,
-            width,
-            height,
-            color,
-            stroke_width,
-        } => {
-            17_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            hash_f32(*width, state);
-            hash_f32(*height, state);
-            color.hash(state);
-            hash_f32(*stroke_width, state);
-        }
-        crate::scene::script::CanvasCommand::StrokeRRect {
-            x,
-            y,
-            width,
-            height,
-            radius,
-        } => {
-            18_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            hash_f32(*width, state);
-            hash_f32(*height, state);
-            hash_f32(*radius, state);
-        }
-        crate::scene::script::CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
-            19_u8.hash(state);
-            hash_f32(*x0, state);
-            hash_f32(*y0, state);
-            hash_f32(*x1, state);
-            hash_f32(*y1, state);
-        }
-        crate::scene::script::CanvasCommand::FillCircle { cx, cy, radius } => {
-            20_u8.hash(state);
-            hash_f32(*cx, state);
-            hash_f32(*cy, state);
-            hash_f32(*radius, state);
-        }
-        crate::scene::script::CanvasCommand::StrokeCircle { cx, cy, radius } => {
-            21_u8.hash(state);
-            hash_f32(*cx, state);
-            hash_f32(*cy, state);
-            hash_f32(*radius, state);
-        }
-        crate::scene::script::CanvasCommand::BeginPath => {
-            22_u8.hash(state);
-        }
-        crate::scene::script::CanvasCommand::MoveTo { x, y } => {
-            23_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-        }
-        crate::scene::script::CanvasCommand::LineTo { x, y } => {
-            24_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-        }
-        crate::scene::script::CanvasCommand::QuadTo { cx, cy, x, y } => {
-            25_u8.hash(state);
-            hash_f32(*cx, state);
-            hash_f32(*cy, state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-        }
-        crate::scene::script::CanvasCommand::CubicTo {
-            c1x,
-            c1y,
-            c2x,
-            c2y,
-            x,
-            y,
-        } => {
-            26_u8.hash(state);
-            hash_f32(*c1x, state);
-            hash_f32(*c1y, state);
-            hash_f32(*c2x, state);
-            hash_f32(*c2y, state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-        }
-        crate::scene::script::CanvasCommand::ClosePath => {
-            27_u8.hash(state);
-        }
-        crate::scene::script::CanvasCommand::AddRectPath {
-            x,
-            y,
-            width,
-            height,
-        } => {
-            47_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            hash_f32(*width, state);
-            hash_f32(*height, state);
-        }
-        crate::scene::script::CanvasCommand::AddRRectPath {
-            x,
-            y,
-            width,
-            height,
-            radius,
-        } => {
-            48_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            hash_f32(*width, state);
-            hash_f32(*height, state);
-            hash_f32(*radius, state);
-        }
-        crate::scene::script::CanvasCommand::AddOvalPath {
-            x,
-            y,
-            width,
-            height,
-        } => {
-            49_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            hash_f32(*width, state);
-            hash_f32(*height, state);
-        }
-        crate::scene::script::CanvasCommand::AddArcPath {
-            x,
-            y,
-            width,
-            height,
-            start_angle,
-            sweep_angle,
-        } => {
-            50_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            hash_f32(*width, state);
-            hash_f32(*height, state);
-            hash_f32(*start_angle, state);
-            hash_f32(*sweep_angle, state);
-        }
-        crate::scene::script::CanvasCommand::FillPath => {
-            28_u8.hash(state);
-        }
-        crate::scene::script::CanvasCommand::StrokePath => {
-            29_u8.hash(state);
-        }
-        crate::scene::script::CanvasCommand::DrawImage {
-            asset_id,
-            x,
-            y,
-            width,
-            height,
-            src_rect,
-            alpha,
-            anti_alias,
-            object_fit,
-        } => {
-            30_u8.hash(state);
-            asset_id.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            hash_f32(*width, state);
-            hash_f32(*height, state);
-            src_rect.is_some().hash(state);
-            if let Some(src_rect) = src_rect {
-                for value in src_rect {
-                    hash_f32(*value, state);
-                }
-            }
-            hash_f32(*alpha, state);
-            anti_alias.hash(state);
-            object_fit.hash(state);
-        }
-        crate::scene::script::CanvasCommand::DrawArc {
-            cx,
-            cy,
-            rx,
-            ry,
-            start_angle,
-            sweep_angle,
-            use_center,
-        } => {
-            31_u8.hash(state);
-            hash_f32(*cx, state);
-            hash_f32(*cy, state);
-            hash_f32(*rx, state);
-            hash_f32(*ry, state);
-            hash_f32(*start_angle, state);
-            hash_f32(*sweep_angle, state);
-            use_center.hash(state);
-        }
-        crate::scene::script::CanvasCommand::StrokeArc {
-            cx,
-            cy,
-            rx,
-            ry,
-            start_angle,
-            sweep_angle,
-        } => {
-            32_u8.hash(state);
-            hash_f32(*cx, state);
-            hash_f32(*cy, state);
-            hash_f32(*rx, state);
-            hash_f32(*ry, state);
-            hash_f32(*start_angle, state);
-            hash_f32(*sweep_angle, state);
-        }
-        crate::scene::script::CanvasCommand::FillOval { cx, cy, rx, ry } => {
-            33_u8.hash(state);
-            hash_f32(*cx, state);
-            hash_f32(*cy, state);
-            hash_f32(*rx, state);
-            hash_f32(*ry, state);
-        }
-        crate::scene::script::CanvasCommand::StrokeOval { cx, cy, rx, ry } => {
-            34_u8.hash(state);
-            hash_f32(*cx, state);
-            hash_f32(*cy, state);
-            hash_f32(*rx, state);
-            hash_f32(*ry, state);
-        }
-        crate::scene::script::CanvasCommand::ClipPath { anti_alias } => {
-            35_u8.hash(state);
-            anti_alias.hash(state);
-        }
-        crate::scene::script::CanvasCommand::ClipRRect {
-            x,
-            y,
-            width,
-            height,
-            radius,
-            anti_alias,
-        } => {
-            36_u8.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            hash_f32(*width, state);
-            hash_f32(*height, state);
-            hash_f32(*radius, state);
-            anti_alias.hash(state);
-        }
-        crate::scene::script::CanvasCommand::DrawPoints { mode, points } => {
-            37_u8.hash(state);
-            mode.hash(state);
-            for p in points {
-                hash_f32(*p, state);
-            }
-        }
-        crate::scene::script::CanvasCommand::FillDRRect {
-            outer_x,
-            outer_y,
-            outer_width,
-            outer_height,
-            outer_radius,
-            inner_x,
-            inner_y,
-            inner_width,
-            inner_height,
-            inner_radius,
-        } => {
-            38_u8.hash(state);
-            hash_f32(*outer_x, state);
-            hash_f32(*outer_y, state);
-            hash_f32(*outer_width, state);
-            hash_f32(*outer_height, state);
-            hash_f32(*outer_radius, state);
-            hash_f32(*inner_x, state);
-            hash_f32(*inner_y, state);
-            hash_f32(*inner_width, state);
-            hash_f32(*inner_height, state);
-            hash_f32(*inner_radius, state);
-        }
-        crate::scene::script::CanvasCommand::StrokeDRRect {
-            outer_x,
-            outer_y,
-            outer_width,
-            outer_height,
-            outer_radius,
-            inner_x,
-            inner_y,
-            inner_width,
-            inner_height,
-            inner_radius,
-        } => {
-            39_u8.hash(state);
-            hash_f32(*outer_x, state);
-            hash_f32(*outer_y, state);
-            hash_f32(*outer_width, state);
-            hash_f32(*outer_height, state);
-            hash_f32(*outer_radius, state);
-            hash_f32(*inner_x, state);
-            hash_f32(*inner_y, state);
-            hash_f32(*inner_width, state);
-            hash_f32(*inner_height, state);
-            hash_f32(*inner_radius, state);
-        }
-        crate::scene::script::CanvasCommand::Skew { sx, sy } => {
-            40_u8.hash(state);
-            hash_f32(*sx, state);
-            hash_f32(*sy, state);
-        }
-        crate::scene::script::CanvasCommand::DrawImageSimple {
-            asset_id,
-            x,
-            y,
-            alpha,
-            anti_alias,
-        } => {
-            41_u8.hash(state);
-            asset_id.hash(state);
-            hash_f32(*x, state);
-            hash_f32(*y, state);
-            hash_f32(*alpha, state);
-            anti_alias.hash(state);
-        }
-        crate::scene::script::CanvasCommand::Concat { matrix } => {
-            42_u8.hash(state);
-            for v in matrix {
-                hash_f32(*v, state);
-            }
-        }
     }
 }
 

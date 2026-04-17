@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{hash::Hash, sync::Arc};
 
 use crate::scene::script::ScriptDriver;
 
@@ -177,6 +177,15 @@ impl BorderRadius {
             bottom_right: r,
             bottom_left: r,
         }
+    }
+}
+
+impl std::hash::Hash for BorderRadius {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.top_left.to_bits().hash(state);
+        self.top_right.to_bits().hash(state);
+        self.bottom_right.to_bits().hash(state);
+        self.bottom_left.to_bits().hash(state);
     }
 }
 
@@ -433,6 +442,55 @@ pub enum Transform {
     SkewDeg(f32, f32),
 }
 
+impl std::hash::Hash for Transform {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match *self {
+            Transform::TranslateX(x) => {
+                0_u8.hash(state);
+                x.to_bits().hash(state);
+            }
+            Transform::TranslateY(y) => {
+                1_u8.hash(state);
+                y.to_bits().hash(state);
+            }
+            Transform::Translate(x, y) => {
+                2_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+            }
+            Transform::Scale(value) => {
+                3_u8.hash(state);
+                value.to_bits().hash(state);
+            }
+            Transform::ScaleX(value) => {
+                4_u8.hash(state);
+                value.to_bits().hash(state);
+            }
+            Transform::ScaleY(value) => {
+                5_u8.hash(state);
+                value.to_bits().hash(state);
+            }
+            Transform::RotateDeg(value) => {
+                6_u8.hash(state);
+                value.to_bits().hash(state);
+            }
+            Transform::SkewXDeg(value) => {
+                7_u8.hash(state);
+                value.to_bits().hash(state);
+            }
+            Transform::SkewYDeg(value) => {
+                8_u8.hash(state);
+                value.to_bits().hash(state);
+            }
+            Transform::SkewDeg(x, y) => {
+                9_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+            }
+        }
+    }
+}
+
 /// Style context container - carries all possible style info for inheritance
 #[derive(Debug, Clone, Default)]
 pub struct NodeStyle {
@@ -550,6 +608,20 @@ pub struct ComputedTextStyle {
     pub line_height_px: Option<f32>,
     pub text_transform: TextTransform,
     pub wrap_text: bool,
+}
+
+impl std::hash::Hash for ComputedTextStyle {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.color.hash(state);
+        self.text_px.to_bits().hash(state);
+        self.font_weight.hash(state);
+        self.letter_spacing.to_bits().hash(state);
+        self.text_align.hash(state);
+        self.line_height.to_bits().hash(state);
+        self.line_height_px.map(f32::to_bits).hash(state);
+        self.text_transform.hash(state);
+        self.wrap_text.hash(state);
+    }
 }
 
 impl Default for ComputedTextStyle {

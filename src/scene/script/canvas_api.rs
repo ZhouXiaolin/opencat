@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use rquickjs::Function;
 
 use super::{MutationStore, object_fit_from_name};
@@ -305,6 +307,479 @@ pub enum CanvasCommand {
     Concat {
         matrix: [f32; 9],
     },
+}
+
+impl std::hash::Hash for CanvasCommand {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            CanvasCommand::Save => {
+                0_u8.hash(state);
+            }
+            CanvasCommand::SaveLayer { alpha, bounds } => {
+                45_u8.hash(state);
+                alpha.to_bits().hash(state);
+                bounds.map(|rect| rect.map(f32::to_bits)).hash(state);
+            }
+            CanvasCommand::Restore => {
+                1_u8.hash(state);
+            }
+            CanvasCommand::RestoreToCount { count } => {
+                43_u8.hash(state);
+                count.hash(state);
+            }
+            CanvasCommand::SetFillStyle { color } => {
+                2_u8.hash(state);
+                color.hash(state);
+            }
+            CanvasCommand::SetStrokeStyle { color } => {
+                3_u8.hash(state);
+                color.hash(state);
+            }
+            CanvasCommand::SetLineWidth { width } => {
+                4_u8.hash(state);
+                width.to_bits().hash(state);
+            }
+            CanvasCommand::SetLineCap { cap } => {
+                5_u8.hash(state);
+                cap.hash(state);
+            }
+            CanvasCommand::SetLineJoin { join } => {
+                6_u8.hash(state);
+                join.hash(state);
+            }
+            CanvasCommand::SetLineDash { intervals, phase } => {
+                7_u8.hash(state);
+                intervals
+                    .iter()
+                    .map(|value| value.to_bits())
+                    .collect::<Vec<_>>()
+                    .hash(state);
+                phase.to_bits().hash(state);
+            }
+            CanvasCommand::ClearLineDash => {
+                8_u8.hash(state);
+            }
+            CanvasCommand::SetGlobalAlpha { alpha } => {
+                9_u8.hash(state);
+                alpha.to_bits().hash(state);
+            }
+            CanvasCommand::SetAntiAlias { enabled } => {
+                44_u8.hash(state);
+                enabled.hash(state);
+            }
+            CanvasCommand::Translate { x, y } => {
+                10_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+            }
+            CanvasCommand::Scale { x, y } => {
+                11_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+            }
+            CanvasCommand::Rotate { degrees } => {
+                12_u8.hash(state);
+                degrees.to_bits().hash(state);
+            }
+            CanvasCommand::ClipRect {
+                x,
+                y,
+                width,
+                height,
+                anti_alias,
+            } => {
+                13_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
+                anti_alias.hash(state);
+            }
+            CanvasCommand::Clear { color } => {
+                14_u8.hash(state);
+                color.hash(state);
+            }
+            CanvasCommand::DrawPaint { color, anti_alias } => {
+                46_u8.hash(state);
+                color.hash(state);
+                anti_alias.hash(state);
+            }
+            CanvasCommand::DrawText {
+                text,
+                x,
+                y,
+                color,
+                anti_alias,
+                stroke,
+                stroke_width,
+                font_size,
+                font_scale_x,
+                font_skew_x,
+                font_subpixel,
+                font_edging,
+            } => {
+                51_u8.hash(state);
+                text.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                color.hash(state);
+                anti_alias.hash(state);
+                stroke.hash(state);
+                stroke_width.to_bits().hash(state);
+                font_size.to_bits().hash(state);
+                font_scale_x.to_bits().hash(state);
+                font_skew_x.to_bits().hash(state);
+                font_subpixel.hash(state);
+                font_edging.hash(state);
+            }
+            CanvasCommand::FillRect {
+                x,
+                y,
+                width,
+                height,
+                color,
+            } => {
+                15_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
+                color.hash(state);
+            }
+            CanvasCommand::FillRRect {
+                x,
+                y,
+                width,
+                height,
+                radius,
+            } => {
+                16_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
+                radius.to_bits().hash(state);
+            }
+            CanvasCommand::StrokeRect {
+                x,
+                y,
+                width,
+                height,
+                color,
+                stroke_width,
+            } => {
+                17_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
+                color.hash(state);
+                stroke_width.to_bits().hash(state);
+            }
+            CanvasCommand::StrokeRRect {
+                x,
+                y,
+                width,
+                height,
+                radius,
+            } => {
+                18_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
+                radius.to_bits().hash(state);
+            }
+            CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
+                19_u8.hash(state);
+                x0.to_bits().hash(state);
+                y0.to_bits().hash(state);
+                x1.to_bits().hash(state);
+                y1.to_bits().hash(state);
+            }
+            CanvasCommand::FillCircle { cx, cy, radius } => {
+                20_u8.hash(state);
+                cx.to_bits().hash(state);
+                cy.to_bits().hash(state);
+                radius.to_bits().hash(state);
+            }
+            CanvasCommand::StrokeCircle { cx, cy, radius } => {
+                21_u8.hash(state);
+                cx.to_bits().hash(state);
+                cy.to_bits().hash(state);
+                radius.to_bits().hash(state);
+            }
+            CanvasCommand::BeginPath => {
+                22_u8.hash(state);
+            }
+            CanvasCommand::MoveTo { x, y } => {
+                23_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+            }
+            CanvasCommand::LineTo { x, y } => {
+                24_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+            }
+            CanvasCommand::QuadTo { cx, cy, x, y } => {
+                25_u8.hash(state);
+                cx.to_bits().hash(state);
+                cy.to_bits().hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+            }
+            CanvasCommand::CubicTo {
+                c1x,
+                c1y,
+                c2x,
+                c2y,
+                x,
+                y,
+            } => {
+                26_u8.hash(state);
+                c1x.to_bits().hash(state);
+                c1y.to_bits().hash(state);
+                c2x.to_bits().hash(state);
+                c2y.to_bits().hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+            }
+            CanvasCommand::ClosePath => {
+                27_u8.hash(state);
+            }
+            CanvasCommand::AddRectPath {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                47_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
+            }
+            CanvasCommand::AddRRectPath {
+                x,
+                y,
+                width,
+                height,
+                radius,
+            } => {
+                48_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
+                radius.to_bits().hash(state);
+            }
+            CanvasCommand::AddOvalPath {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                49_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
+            }
+            CanvasCommand::AddArcPath {
+                x,
+                y,
+                width,
+                height,
+                start_angle,
+                sweep_angle,
+            } => {
+                50_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
+                start_angle.to_bits().hash(state);
+                sweep_angle.to_bits().hash(state);
+            }
+            CanvasCommand::FillPath => {
+                28_u8.hash(state);
+            }
+            CanvasCommand::StrokePath => {
+                29_u8.hash(state);
+            }
+            CanvasCommand::DrawImage {
+                asset_id,
+                x,
+                y,
+                width,
+                height,
+                src_rect,
+                alpha,
+                anti_alias,
+                object_fit,
+            } => {
+                30_u8.hash(state);
+                asset_id.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
+                src_rect.map(|rect| rect.map(f32::to_bits)).hash(state);
+                alpha.to_bits().hash(state);
+                anti_alias.hash(state);
+                object_fit.hash(state);
+            }
+            CanvasCommand::DrawArc {
+                cx,
+                cy,
+                rx,
+                ry,
+                start_angle,
+                sweep_angle,
+                use_center,
+            } => {
+                31_u8.hash(state);
+                cx.to_bits().hash(state);
+                cy.to_bits().hash(state);
+                rx.to_bits().hash(state);
+                ry.to_bits().hash(state);
+                start_angle.to_bits().hash(state);
+                sweep_angle.to_bits().hash(state);
+                use_center.hash(state);
+            }
+            CanvasCommand::StrokeArc {
+                cx,
+                cy,
+                rx,
+                ry,
+                start_angle,
+                sweep_angle,
+            } => {
+                32_u8.hash(state);
+                cx.to_bits().hash(state);
+                cy.to_bits().hash(state);
+                rx.to_bits().hash(state);
+                ry.to_bits().hash(state);
+                start_angle.to_bits().hash(state);
+                sweep_angle.to_bits().hash(state);
+            }
+            CanvasCommand::FillOval { cx, cy, rx, ry } => {
+                33_u8.hash(state);
+                cx.to_bits().hash(state);
+                cy.to_bits().hash(state);
+                rx.to_bits().hash(state);
+                ry.to_bits().hash(state);
+            }
+            CanvasCommand::StrokeOval { cx, cy, rx, ry } => {
+                34_u8.hash(state);
+                cx.to_bits().hash(state);
+                cy.to_bits().hash(state);
+                rx.to_bits().hash(state);
+                ry.to_bits().hash(state);
+            }
+            CanvasCommand::ClipPath { anti_alias } => {
+                35_u8.hash(state);
+                anti_alias.hash(state);
+            }
+            CanvasCommand::ClipRRect {
+                x,
+                y,
+                width,
+                height,
+                radius,
+                anti_alias,
+            } => {
+                36_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
+                radius.to_bits().hash(state);
+                anti_alias.hash(state);
+            }
+            CanvasCommand::DrawPoints { mode, points } => {
+                37_u8.hash(state);
+                mode.hash(state);
+                points
+                    .iter()
+                    .map(|value| value.to_bits())
+                    .collect::<Vec<_>>()
+                    .hash(state);
+            }
+            CanvasCommand::FillDRRect {
+                outer_x,
+                outer_y,
+                outer_width,
+                outer_height,
+                outer_radius,
+                inner_x,
+                inner_y,
+                inner_width,
+                inner_height,
+                inner_radius,
+            } => {
+                38_u8.hash(state);
+                outer_x.to_bits().hash(state);
+                outer_y.to_bits().hash(state);
+                outer_width.to_bits().hash(state);
+                outer_height.to_bits().hash(state);
+                outer_radius.to_bits().hash(state);
+                inner_x.to_bits().hash(state);
+                inner_y.to_bits().hash(state);
+                inner_width.to_bits().hash(state);
+                inner_height.to_bits().hash(state);
+                inner_radius.to_bits().hash(state);
+            }
+            CanvasCommand::StrokeDRRect {
+                outer_x,
+                outer_y,
+                outer_width,
+                outer_height,
+                outer_radius,
+                inner_x,
+                inner_y,
+                inner_width,
+                inner_height,
+                inner_radius,
+            } => {
+                39_u8.hash(state);
+                outer_x.to_bits().hash(state);
+                outer_y.to_bits().hash(state);
+                outer_width.to_bits().hash(state);
+                outer_height.to_bits().hash(state);
+                outer_radius.to_bits().hash(state);
+                inner_x.to_bits().hash(state);
+                inner_y.to_bits().hash(state);
+                inner_width.to_bits().hash(state);
+                inner_height.to_bits().hash(state);
+                inner_radius.to_bits().hash(state);
+            }
+            CanvasCommand::Skew { sx, sy } => {
+                40_u8.hash(state);
+                sx.to_bits().hash(state);
+                sy.to_bits().hash(state);
+            }
+            CanvasCommand::DrawImageSimple {
+                asset_id,
+                x,
+                y,
+                alpha,
+                anti_alias,
+            } => {
+                41_u8.hash(state);
+                asset_id.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                alpha.to_bits().hash(state);
+                anti_alias.hash(state);
+            }
+            CanvasCommand::Concat { matrix } => {
+                42_u8.hash(state);
+                matrix.map(f32::to_bits).hash(state);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

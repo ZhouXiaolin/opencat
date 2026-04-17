@@ -479,7 +479,10 @@ fn hash_layout_style(style: &crate::element::style::ComputedLayoutStyle, state: 
 
 fn hash_raster_style(style: &crate::element::style::ComputedVisualStyle, state: &mut impl Hasher) {
     style.background.hash(state);
-    hash_f32(style.border_radius, state);
+    hash_f32(style.border_radius.top_left, state);
+    hash_f32(style.border_radius.top_right, state);
+    hash_f32(style.border_radius.bottom_right, state);
+    hash_f32(style.border_radius.bottom_left, state);
     hash_option_f32(style.border_width, state);
     style.border_color.hash(state);
     hash_option_f32(style.blur_sigma, state);

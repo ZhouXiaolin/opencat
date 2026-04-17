@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::HashMap, time::Instant};
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
     BlurStyle, Canvas, ClipOp, Color4f, Data, Font, Image as SkiaImage, ImageInfo, MaskFilter,
-    Paint, PaintStyle, PathBuilder, Picture, PictureRecorder, RRect, Rect, TileMode,
+    Paint, PaintStyle, PathBuilder, Picture, PictureRecorder, Point, RRect, Rect, TileMode,
     canvas::{SaveLayerRec, SrcRectConstraint},
     gradient_shader, image_filters, images,
 };
@@ -396,9 +396,30 @@ impl<'a> SkiaBackend<'a> {
                 if let Some(profile) = self.profile.as_deref_mut() {
                     profile.save_layer_count += 1;
                 }
-                let alpha = (layer.opacity * 255.0).round() as u32;
-                self.canvas
-                    .save_layer_alpha(layout_rect_to_skia(layer.bounds), alpha);
+                let bounds = layout_rect_to_skia(layer.bounds);
+                if let Some(sigma) = layer.backdrop_blur_sigma.filter(|s| *s > 0.0) {
+                    let alpha = (layer.opacity * 255.0).round() as u32;
+                    let mut paint = Paint::default();
+                    paint.set_alpha(alpha as u8);
+                    let backdrop = image_filters::blur(
+                        (sigma, sigma),
+                        TileMode::Clamp,
+                        None,
+                        None::<skia_safe::image_filters::CropRect>,
+                    );
+                    if let Some(backdrop) = backdrop {
+                        let rec = SaveLayerRec::default()
+                            .bounds(&bounds)
+                            .paint(&paint)
+                            .backdrop(&backdrop);
+                        self.canvas.save_layer(&rec);
+                    } else {
+                        self.canvas.save_layer_alpha(bounds, alpha);
+                    }
+                } else {
+                    let alpha = (layer.opacity * 255.0).round() as u32;
+                    self.canvas.save_layer_alpha(bounds, alpha);
+                }
             }
             DisplayCommand::Clip { clip } => {
                 clip_bounds(self.canvas, clip.bounds, clip.border_radius);
@@ -521,14 +542,14 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
 
     let bounds = rect.bounds;
     let rect = layout_rect_to_skia(bounds);
-    let radius = effective_corner_radius(rect, style.border_radius);
+    let radii = effective_corner_radius(rect, style.border_radius);
 
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     apply_blur_effect(&mut paint, style.blur_sigma);
 
-    if radius > 0.0 {
-        let rrect = RRect::new_rect_xy(rect, radius, radius);
+    if radii.iter().any(|&r| r > 0.0) {
+        let rrect = make_rrect(rect, style.border_radius);
 
         if let Some(background) = style.background {
             apply_background_paint(&mut paint, background, rect);
@@ -564,14 +585,24 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
     }
 }
 
-fn draw_box_shadow(canvas: &Canvas, bounds: DisplayRect, border_radius: f32, shadow: BoxShadow) {
+fn spread_radius(border_radius: crate::style::BorderRadius, spread: f32) -> crate::style::BorderRadius {
+    crate::style::BorderRadius {
+        top_left: (border_radius.top_left + spread).max(0.0),
+        top_right: (border_radius.top_right + spread).max(0.0),
+        bottom_right: (border_radius.bottom_right + spread).max(0.0),
+        bottom_left: (border_radius.bottom_left + spread).max(0.0),
+    }
+}
+
+fn draw_box_shadow(canvas: &Canvas, bounds: DisplayRect, border_radius: crate::style::BorderRadius, shadow: BoxShadow) {
     let shadow_bounds = if shadow.spread != 0.0 {
         bounds.outset(shadow.spread, shadow.spread, shadow.spread, shadow.spread)
     } else {
         bounds
     };
     let rect = layout_rect_to_skia(shadow_bounds.translate(shadow.offset_x, shadow.offset_y));
-    let radius = effective_corner_radius(rect, (border_radius + shadow.spread).max(0.0));
+    let sr = spread_radius(border_radius, shadow.spread);
+    let radii = effective_corner_radius(rect, sr);
 
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
@@ -582,8 +613,8 @@ fn draw_box_shadow(canvas: &Canvas, bounds: DisplayRect, border_radius: f32, sha
         paint.set_mask_filter(mask_filter);
     }
 
-    if radius > 0.0 {
-        let rrect = RRect::new_rect_xy(rect, radius, radius);
+    if radii.iter().any(|&r| r > 0.0) {
+        let rrect = make_rrect(rect, sr);
         canvas.draw_rrect(rrect, &paint);
     } else {
         canvas.draw_rect(rect, &paint);
@@ -593,7 +624,7 @@ fn draw_box_shadow(canvas: &Canvas, bounds: DisplayRect, border_radius: f32, sha
 fn draw_inset_shadow(
     canvas: &Canvas,
     bounds: DisplayRect,
-    border_radius: f32,
+    border_radius: crate::style::BorderRadius,
     shadow: InsetShadow,
 ) {
     let shadow_bounds = if shadow.spread != 0.0 {
@@ -602,7 +633,8 @@ fn draw_inset_shadow(
         bounds
     };
     let rect = layout_rect_to_skia(shadow_bounds.translate(shadow.offset_x, shadow.offset_y));
-    let radius = effective_corner_radius(rect, (border_radius + shadow.spread).max(0.0));
+    let sr = spread_radius(border_radius, shadow.spread);
+    let radii = effective_corner_radius(rect, sr);
 
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
@@ -615,8 +647,8 @@ fn draw_inset_shadow(
 
     canvas.save();
     clip_bounds(canvas, bounds, border_radius);
-    if radius > 0.0 {
-        let rrect = RRect::new_rect_xy(rect, radius, radius);
+    if radii.iter().any(|&r| r > 0.0) {
+        let rrect = make_rrect(rect, sr);
         canvas.draw_rrect(rrect, &paint);
     } else {
         canvas.draw_rect(rect, &paint);
@@ -791,7 +823,7 @@ fn draw_bitmap(
 
     let draw_started = Instant::now();
     let dst = layout_rect_to_skia(bitmap.bounds);
-    let radius = effective_corner_radius(dst, bitmap.paint.border_radius);
+    let radii = effective_corner_radius(dst, bitmap.paint.border_radius);
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     apply_blur_effect(&mut paint, bitmap.paint.blur_sigma);
@@ -804,17 +836,17 @@ fn draw_bitmap(
         background_paint.set_anti_alias(true);
         apply_blur_effect(&mut background_paint, bitmap.paint.blur_sigma);
         apply_background_paint(&mut background_paint, color, dst);
-        if radius > 0.0 {
-            let rrect = RRect::new_rect_xy(dst, radius, radius);
+        if radii.iter().any(|&r| r > 0.0) {
+            let rrect = make_rrect(dst, bitmap.paint.border_radius);
             canvas.draw_rrect(rrect, &background_paint);
         } else {
             canvas.draw_rect(dst, &background_paint);
         }
     }
 
-    let needs_clip = radius > 0.0;
+    let needs_clip = radii.iter().any(|&r| r > 0.0);
     if needs_clip {
-        let rrect = RRect::new_rect_xy(dst, radius, radius);
+        let rrect = make_rrect(dst, bitmap.paint.border_radius);
         canvas.save();
         canvas.clip_rrect(rrect, ClipOp::Intersect, true);
     }
@@ -849,8 +881,8 @@ fn draw_bitmap(
         border_paint.set_style(PaintStyle::Stroke);
         border_paint.set_stroke_width(width);
 
-        if radius > 0.0 {
-            let rrect = RRect::new_rect_xy(dst, radius, radius);
+        if radii.iter().any(|&r| r > 0.0) {
+            let rrect = make_rrect(dst, bitmap.paint.border_radius);
             canvas.draw_rrect(rrect, &border_paint);
         } else {
             canvas.draw_rect(dst, &border_paint);
@@ -1481,12 +1513,30 @@ fn load_asset_image(
     Ok(image)
 }
 
-fn effective_corner_radius(rect: Rect, radius: f32) -> f32 {
-    if radius <= 0.0 {
-        return 0.0;
-    }
+fn effective_corner_radius(rect: Rect, radius: crate::style::BorderRadius) -> [f32; 4] {
+    let clamp = |r: f32| {
+        if r <= 0.0 {
+            return 0.0;
+        }
+        r.min(rect.width() / 2.0).min(rect.height() / 2.0)
+    };
+    [
+        clamp(radius.top_left),
+        clamp(radius.top_right),
+        clamp(radius.bottom_right),
+        clamp(radius.bottom_left),
+    ]
+}
 
-    radius.min(rect.width() / 2.0).min(rect.height() / 2.0)
+fn make_rrect(rect: Rect, radius: crate::style::BorderRadius) -> RRect {
+    let radii = effective_corner_radius(rect, radius);
+    let points = [
+        Point::from((radii[0], radii[0])),
+        Point::from((radii[1], radii[1])),
+        Point::from((radii[2], radii[2])),
+        Point::from((radii[3], radii[3])),
+    ];
+    RRect::new_rect_radii(rect, &points)
 }
 
 fn apply_blur_effect(paint: &mut Paint, blur_sigma: Option<f32>) {
@@ -1710,11 +1760,11 @@ fn color4f_from_token(token: crate::style::ColorToken) -> Color4f {
     )
 }
 
-fn clip_bounds(canvas: &Canvas, bounds: DisplayRect, border_radius: f32) {
+fn clip_bounds(canvas: &Canvas, bounds: DisplayRect, border_radius: crate::style::BorderRadius) {
     let rect = layout_rect_to_skia(bounds);
-    let radius = effective_corner_radius(rect, border_radius);
-    if radius > 0.0 {
-        let rrect = RRect::new_rect_xy(rect, radius, radius);
+    let radii = effective_corner_radius(rect, border_radius);
+    if radii.iter().any(|&r| r > 0.0) {
+        let rrect = make_rrect(rect, border_radius);
         canvas.clip_rrect(rrect, ClipOp::Intersect, true);
     } else {
         canvas.clip_rect(rect, ClipOp::Intersect, true);

@@ -536,10 +536,11 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
                     },
                 )
                 .or_else(|| style.bg_color.map(crate::style::BackgroundFill::Solid)),
-            border_radius: style.border_radius.unwrap_or(0.0),
+            border_radius: style.border_radius.unwrap_or_default(),
             border_width: style.border_width,
             border_color: style.border_color,
             blur_sigma: style.blur_sigma,
+            backdrop_blur_sigma: style.backdrop_blur_sigma,
             object_fit: style.object_fit.unwrap_or_default(),
             clip_contents: style.overflow_hidden,
             transforms: style.transforms.clone(),

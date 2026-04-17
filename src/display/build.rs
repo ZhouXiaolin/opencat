@@ -66,6 +66,7 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
             transforms: element.style.visual.transforms.clone(),
         },
         opacity: element.style.visual.opacity,
+        backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
         clip: element.style.visual.clip_contents.then_some(DisplayClip {
             bounds,
             border_radius: element.style.visual.border_radius,
@@ -88,11 +89,12 @@ fn push_display_node_commands(node: &DisplayNode, list: &mut DisplayList) {
         transform: node.transform.clone(),
     });
 
-    if node.opacity < 1.0 {
+    if node.opacity < 1.0 || node.backdrop_blur_sigma.is_some() {
         list.push(DisplayCommand::SaveLayer {
             layer: DisplayLayer {
                 bounds: node.layer_bounds(),
                 opacity: node.opacity,
+                backdrop_blur_sigma: node.backdrop_blur_sigma,
             },
         });
     }
@@ -114,7 +116,7 @@ fn push_display_node_commands(node: &DisplayNode, list: &mut DisplayList) {
         list.push(DisplayCommand::Restore);
     }
 
-    if node.opacity < 1.0 {
+    if node.opacity < 1.0 || node.backdrop_blur_sigma.is_some() {
         list.push(DisplayCommand::Restore);
     }
 

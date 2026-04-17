@@ -84,7 +84,10 @@ fn hash_display_item(item: &DisplayItem, state: &mut impl Hasher) {
         DisplayItem::Rect(rect) => {
             0_u8.hash(state);
             rect.paint.background.hash(state);
-            hash_f32(rect.paint.border_radius, state);
+            hash_f32(rect.paint.border_radius.top_left, state);
+            hash_f32(rect.paint.border_radius.top_right, state);
+            hash_f32(rect.paint.border_radius.bottom_right, state);
+            hash_f32(rect.paint.border_radius.bottom_left, state);
             rect.paint.border_width.map(f32::to_bits).hash(state);
             rect.paint.border_color.hash(state);
             rect.paint.blur_sigma.map(f32::to_bits).hash(state);
@@ -112,7 +115,10 @@ fn hash_display_item(item: &DisplayItem, state: &mut impl Hasher) {
             }
             bitmap.object_fit.hash(state);
             bitmap.paint.background.hash(state);
-            hash_f32(bitmap.paint.border_radius, state);
+            hash_f32(bitmap.paint.border_radius.top_left, state);
+            hash_f32(bitmap.paint.border_radius.top_right, state);
+            hash_f32(bitmap.paint.border_radius.bottom_right, state);
+            hash_f32(bitmap.paint.border_radius.bottom_left, state);
             bitmap.paint.border_width.map(f32::to_bits).hash(state);
             bitmap.paint.border_color.hash(state);
             bitmap.paint.blur_sigma.map(f32::to_bits).hash(state);
@@ -145,7 +151,10 @@ fn hash_clip(clip: Option<&crate::display::list::DisplayClip>, state: &mut impl 
     if let Some(clip) = clip {
         hash_f32(clip.bounds.width, state);
         hash_f32(clip.bounds.height, state);
-        hash_f32(clip.border_radius, state);
+        hash_f32(clip.border_radius.top_left, state);
+        hash_f32(clip.border_radius.top_right, state);
+        hash_f32(clip.border_radius.bottom_right, state);
+        hash_f32(clip.border_radius.bottom_left, state);
     }
 }
 

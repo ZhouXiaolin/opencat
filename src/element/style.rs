@@ -89,10 +89,11 @@ pub struct ComputedLayoutStyle {
 pub struct ComputedVisualStyle {
     pub opacity: f32,
     pub background: Option<BackgroundFill>,
-    pub border_radius: f32,
+    pub border_radius: crate::style::BorderRadius,
     pub border_width: Option<f32>,
     pub border_color: Option<crate::style::ColorToken>,
     pub blur_sigma: Option<f32>,
+    pub backdrop_blur_sigma: Option<f32>,
     pub object_fit: ObjectFit,
     pub clip_contents: bool,
     pub transforms: Vec<Transform>,

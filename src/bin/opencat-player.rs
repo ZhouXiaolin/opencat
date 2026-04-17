@@ -730,7 +730,7 @@ mod app {
     pub fn run() -> Result<()> {
         let input_path = std::env::args()
             .nth(1)
-            .ok_or_else(|| anyhow!("usage: cargo run -p opencat-player -- <input.jsonl>"))?;
+            .ok_or_else(|| anyhow!("usage: cargo run --bin opencat-player -- <input.jsonl>"))?;
         let parsed = parse_file(&input_path).context("failed to parse JSONL composition")?;
         let has_audio = !parsed.audio_sources.is_empty();
         let mut root = parsed.root;

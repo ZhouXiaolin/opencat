@@ -157,9 +157,10 @@ impl Hash for LucidePaintFp<'_> {
 pub(super) fn item_is_time_variant(item: &DisplayItem, assets: &AssetsMap) -> bool {
     match item {
         DisplayItem::Bitmap(bitmap) => bitmap_is_video(bitmap, assets),
-        // Canvas scripts are programmatic paint producers, not stable UI paint items.
-        // Treat them like video and always route them through dynamic rendering.
-        DisplayItem::DrawScript(_) => true,
+        // DrawScript 的命令序列本身就是纯数据;若脚本输出稳定,hash 稳定即可跨帧复用。
+        // 若脚本每帧产出不同 commands(读取 time_secs 等),hash 每帧变 → ItemPictureCache
+        // 自然 miss,行为正确。无需静态分析脚本内容。
+        DisplayItem::DrawScript(_) => false,
         DisplayItem::Rect(_) | DisplayItem::Text(_) | DisplayItem::Lucide(_) => false,
     }
 }

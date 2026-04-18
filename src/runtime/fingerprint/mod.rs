@@ -143,23 +143,37 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
     nodes: &[AnnotatedDisplayNode],
     analysis: &DisplayAnalysisTable,
     subtree_contains_time_variant: bool,
-) -> Option<u64> {
+) -> Option<SubtreeSnapshotFingerprint> {
     if subtree_contains_time_variant {
         return None;
     }
-    let mut hasher = DefaultHasher::new();
-    hash_node_recorded_paint(node, &mut hasher);
-    node.children.len().hash(&mut hasher);
+
+    let mut primary = DefaultHasher::new();
+    let mut secondary = ahash::AHasher::default();
+
+    hash_node_recorded_paint(node, &mut primary);
+    hash_node_recorded_paint(node, &mut secondary);
+
+    node.children.len().hash(&mut primary);
+    node.children.len().hash(&mut secondary);
+
     for &child_handle in &node.children {
         let child = &nodes[child_handle.0];
-        hash_node_draw_time_composite(child, &mut hasher);
-        analysis
+        hash_node_draw_time_composite(child, &mut primary);
+        hash_node_draw_time_composite(child, &mut secondary);
+
+        let child_fp = analysis
             .require(child_handle)
             .snapshot_fingerprint
-            .expect("stable annotated child must carry snapshot_fingerprint")
-            .hash(&mut hasher);
+            .expect("stable annotated child must carry snapshot_fingerprint");
+        child_fp.primary.hash(&mut primary);
+        child_fp.secondary.hash(&mut secondary);
     }
-    Some(hasher.finish())
+
+    Some(SubtreeSnapshotFingerprint {
+        primary: primary.finish(),
+        secondary: secondary.finish(),
+    })
 }
 
 fn hash_node_recorded_paint<H: Hasher>(node: &AnnotatedDisplayNode, hasher: &mut H) {

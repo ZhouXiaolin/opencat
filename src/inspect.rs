@@ -10,7 +10,7 @@ use crate::{
     },
     frame_ctx::ScriptFrameCtx,
     layout::tree::LayoutNode,
-    runtime::{policy::cache::SceneSlot, session::RenderSession},
+    runtime::{compositor::SceneSlot, session::RenderSession},
     scene::{
         node::{Node, NodeKind},
         primitives::ImageSource,

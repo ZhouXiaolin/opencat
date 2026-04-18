@@ -1,4 +1,4 @@
-use std::{sync::OnceLock, time::Instant};
+use std::sync::OnceLock;
 
 use anyhow::{Result, anyhow};
 use skia_safe::{AlphaType, Canvas, ColorType, ImageInfo, Picture, image::CachingHint, surfaces};
@@ -10,8 +10,7 @@ use crate::{
     display::{list::DisplayList, tree::DisplayTree},
     runtime::{
         frame_view::RenderFrameView,
-        policy::snapshot::{SceneSnapshotPlan, SceneSnapshotStrategy},
-        profile::BackendProfile,
+        profile::backend_span,
         render_engine::{RenderEngine, SceneRenderContext, SceneSnapshot, SharedRenderEngine},
         session::RenderSession,
         target::{RenderFrameViewKind, RenderTargetHandle},
@@ -117,18 +116,13 @@ impl RenderEngine for SkiaRenderEngine {
         &self,
         snapshot: &SceneSnapshot,
         frame_view: RenderFrameView,
-        mut profile: Option<&mut BackendProfile>,
     ) -> Result<()> {
         let canvas = skia_canvas(frame_view)?;
         let snapshot_picture = skia_snapshot_picture(snapshot)?;
         if snapshot_picture.cull_rect().is_empty() {
             return Err(anyhow!("scene snapshot has empty bounds"));
         }
-        let started = Instant::now();
         canvas.draw_picture(snapshot_picture, None, None);
-        if let Some(profile) = profile.as_deref_mut() {
-            profile.scene_snapshot_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
-        }
         Ok(())
     }
 
@@ -137,18 +131,36 @@ impl RenderEngine for SkiaRenderEngine {
         runtime: &mut SceneRenderContext<'_>,
         display_tree: &DisplayTree,
     ) -> Result<SceneSnapshot> {
-        let snapshot = skia::record_display_tree_composite_source_with_subtree_cache(
+        let snapshot = skia::record_display_tree_snapshot(
             display_tree,
             runtime.width,
             runtime.height,
             runtime.assets,
-            runtime.backend_resources.image_cache(),
-            runtime.backend_resources.text_snapshot_cache(),
-            runtime.backend_resources.item_picture_cache(),
-            runtime.backend_resources.subtree_snapshot_cache(),
+            runtime.cache_registry.image_cache(),
+            runtime.cache_registry.text_snapshot_cache(),
+            runtime.cache_registry.item_picture_cache(),
+            runtime.cache_registry.subtree_snapshot_cache(),
             Some(&mut *runtime.media_ctx),
             runtime.frame_ctx,
-            Some(&mut *runtime.backend_profile),
+        )?;
+        Ok(SceneSnapshot::new(SkiaSceneSnapshot { snapshot }))
+    }
+
+    fn record_display_tree_static_snapshot(
+        &self,
+        runtime: &mut SceneRenderContext<'_>,
+        display_tree: &DisplayTree,
+    ) -> Result<SceneSnapshot> {
+        let snapshot = skia::record_display_tree_static_skeleton(
+            display_tree,
+            runtime.width,
+            runtime.height,
+            runtime.assets,
+            runtime.cache_registry.image_cache(),
+            runtime.cache_registry.text_snapshot_cache(),
+            runtime.cache_registry.item_picture_cache(),
+            runtime.cache_registry.subtree_snapshot_cache(),
+            runtime.frame_ctx,
         )?;
         Ok(SceneSnapshot::new(SkiaSceneSnapshot { snapshot }))
     }
@@ -158,73 +170,81 @@ impl RenderEngine for SkiaRenderEngine {
         runtime: &mut SceneRenderContext<'_>,
         display_list: &DisplayList,
     ) -> Result<SceneSnapshot> {
-        let snapshot = skia::record_display_list_composite_source(
+        let snapshot = skia::record_display_list_snapshot(
             display_list,
             runtime.width,
             runtime.height,
             runtime.assets,
-            runtime.backend_resources.image_cache(),
-            runtime.backend_resources.text_snapshot_cache(),
-            runtime.backend_resources.item_picture_cache(),
+            runtime.cache_registry.image_cache(),
+            runtime.cache_registry.text_snapshot_cache(),
+            runtime.cache_registry.item_picture_cache(),
             Some(&mut *runtime.media_ctx),
             runtime.frame_ctx,
-            Some(&mut *runtime.backend_profile),
         )?;
         Ok(SceneSnapshot::new(SkiaSceneSnapshot { snapshot }))
     }
 
-    fn draw_scene_without_snapshot(
+    fn draw_display_tree_dynamic(
         &self,
         runtime: &mut SceneRenderContext<'_>,
         display_tree: &DisplayTree,
-        display_list: &DisplayList,
-        plan: SceneSnapshotPlan,
         frame_view: RenderFrameView,
     ) -> Result<()> {
         let canvas = skia_canvas(frame_view)?;
-        if plan.contains_video {
-            return skia::draw_display_tree_layered_video(
-                display_tree,
-                canvas,
-                runtime.assets,
-                runtime.backend_resources.image_cache(),
-                runtime.backend_resources.text_snapshot_cache(),
-                runtime.backend_resources.item_picture_cache(),
-                runtime.backend_resources.subtree_snapshot_cache(),
-                runtime.backend_resources.scene_static_picture_cache(),
-                Some(&mut *runtime.media_ctx),
-                runtime.frame_ctx,
-                Some(&mut *runtime.backend_profile),
-            );
-        }
-        if plan.strategy == SceneSnapshotStrategy::DisplayTreeWithSubtreeCache {
-            skia::draw_display_tree_with_subtree_cache(
-                display_tree,
-                canvas,
-                runtime.assets,
-                runtime.backend_resources.image_cache(),
-                runtime.backend_resources.text_snapshot_cache(),
-                runtime.backend_resources.item_picture_cache(),
-                runtime.backend_resources.subtree_snapshot_cache(),
-                Some(&mut *runtime.media_ctx),
-                runtime.frame_ctx,
-                Some(&mut *runtime.backend_profile),
-            )?;
-            return Ok(());
-        }
+        skia::draw_display_tree_dynamic_layered(
+            display_tree,
+            canvas,
+            runtime.assets,
+            runtime.cache_registry.image_cache(),
+            runtime.cache_registry.text_snapshot_cache(),
+            runtime.cache_registry.item_picture_cache(),
+            runtime.cache_registry.subtree_snapshot_cache(),
+            Some(&mut *runtime.media_ctx),
+            runtime.frame_ctx,
+        )
+    }
 
-        let mut backend = skia::SkiaBackend::new_with_cache_and_profile(
+    fn draw_display_tree(
+        &self,
+        runtime: &mut SceneRenderContext<'_>,
+        display_tree: &DisplayTree,
+        frame_view: RenderFrameView,
+    ) -> Result<()> {
+        let _profile_span = backend_span("display_tree_direct_draw");
+        let canvas = skia_canvas(frame_view)?;
+        skia::draw_display_tree_cached(
+            display_tree,
+            canvas,
+            runtime.assets,
+            runtime.cache_registry.image_cache(),
+            runtime.cache_registry.text_snapshot_cache(),
+            runtime.cache_registry.item_picture_cache(),
+            runtime.cache_registry.subtree_snapshot_cache(),
+            Some(&mut *runtime.media_ctx),
+            runtime.frame_ctx,
+        )?;
+        Ok(())
+    }
+
+    fn draw_display_list(
+        &self,
+        runtime: &mut SceneRenderContext<'_>,
+        display_list: &DisplayList,
+        frame_view: RenderFrameView,
+    ) -> Result<()> {
+        let _profile_span = backend_span("display_list_direct_draw");
+        let canvas = skia_canvas(frame_view)?;
+        let mut backend = skia::SkiaBackend::new_with_cache(
             canvas,
             runtime.width,
             runtime.height,
             runtime.assets,
-            runtime.backend_resources.image_cache(),
-            runtime.backend_resources.text_snapshot_cache(),
-            runtime.backend_resources.item_picture_cache(),
+            runtime.cache_registry.image_cache(),
+            runtime.cache_registry.text_snapshot_cache(),
+            runtime.cache_registry.item_picture_cache(),
             None,
             Some(&mut *runtime.media_ctx),
             runtime.frame_ctx,
-            Some(&mut *runtime.backend_profile),
         );
         backend.execute(display_list)
     }
@@ -238,7 +258,6 @@ impl RenderEngine for SkiaRenderEngine {
         kind: TransitionKind,
         width: i32,
         height: i32,
-        profile: Option<&mut BackendProfile>,
     ) -> Result<()> {
         let canvas = skia_canvas(frame_view)?;
         skia_transition::draw_transition(
@@ -249,7 +268,6 @@ impl RenderEngine for SkiaRenderEngine {
             kind,
             width,
             height,
-            profile,
         )
     }
 }

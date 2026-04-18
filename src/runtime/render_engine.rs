@@ -1,15 +1,13 @@
 use anyhow::Result;
 
 use crate::{
-    backend::resource_cache::BackendResourceCache,
     display::{list::DisplayList, tree::DisplayTree},
     frame_ctx::FrameCtx,
     resource::{assets::AssetsMap, media::MediaContext},
     runtime::{
         backend_object::BackendObject,
+        cache::CacheRegistry,
         frame_view::RenderFrameView,
-        policy::snapshot::SceneSnapshotPlan,
-        profile::BackendProfile,
         session::RenderSession,
         target::{RenderFrameViewKind, RenderTargetHandle},
         text_engine::SharedTextEngine,
@@ -21,10 +19,9 @@ pub(crate) type SceneSnapshot = BackendObject;
 
 pub(crate) struct SceneRenderContext<'a> {
     pub assets: &'a AssetsMap,
-    pub backend_resources: &'a BackendResourceCache,
+    pub cache_registry: &'a CacheRegistry,
     pub media_ctx: &'a mut MediaContext,
     pub frame_ctx: &'a FrameCtx,
-    pub backend_profile: &'a mut BackendProfile,
     pub width: i32,
     pub height: i32,
 }
@@ -49,9 +46,13 @@ pub(crate) trait RenderEngine: Send + Sync {
         &self,
         snapshot: &SceneSnapshot,
         frame_view: RenderFrameView,
-        profile: Option<&mut BackendProfile>,
     ) -> Result<()>;
     fn record_display_tree_snapshot(
+        &self,
+        runtime: &mut SceneRenderContext<'_>,
+        display_tree: &DisplayTree,
+    ) -> Result<SceneSnapshot>;
+    fn record_display_tree_static_snapshot(
         &self,
         runtime: &mut SceneRenderContext<'_>,
         display_tree: &DisplayTree,
@@ -61,12 +62,22 @@ pub(crate) trait RenderEngine: Send + Sync {
         runtime: &mut SceneRenderContext<'_>,
         display_list: &DisplayList,
     ) -> Result<SceneSnapshot>;
-    fn draw_scene_without_snapshot(
+    fn draw_display_tree_dynamic(
         &self,
         runtime: &mut SceneRenderContext<'_>,
         display_tree: &DisplayTree,
+        frame_view: RenderFrameView,
+    ) -> Result<()>;
+    fn draw_display_tree(
+        &self,
+        runtime: &mut SceneRenderContext<'_>,
+        display_tree: &DisplayTree,
+        frame_view: RenderFrameView,
+    ) -> Result<()>;
+    fn draw_display_list(
+        &self,
+        runtime: &mut SceneRenderContext<'_>,
         display_list: &DisplayList,
-        plan: SceneSnapshotPlan,
         frame_view: RenderFrameView,
     ) -> Result<()>;
     fn draw_transition(
@@ -78,7 +89,6 @@ pub(crate) trait RenderEngine: Send + Sync {
         kind: TransitionKind,
         width: i32,
         height: i32,
-        profile: Option<&mut BackendProfile>,
     ) -> Result<()>;
 }
 pub(crate) type SharedRenderEngine = std::sync::Arc<dyn RenderEngine>;

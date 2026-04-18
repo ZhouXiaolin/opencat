@@ -1,10 +1,11 @@
 pub(crate) mod audio;
 pub(crate) mod backend_object;
 pub(crate) mod cache;
+pub(crate) mod compositor;
 pub(crate) mod fingerprint;
 pub(crate) mod frame_view;
+pub(crate) mod invalidation;
 pub(crate) mod pipeline;
-pub(crate) mod policy;
 pub(crate) mod preflight;
 pub(crate) mod profile;
 pub(crate) mod render_engine;

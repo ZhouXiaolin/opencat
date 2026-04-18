@@ -3,10 +3,9 @@ use std::hash::{Hash, Hasher};
 use crate::{
     display::list::{BitmapDisplayItem, DisplayClip, DisplayItem, TextDisplayItem},
     resource::{
-        assets::{AssetId, AssetsMap},
+        assets::AssetsMap,
         bitmap_source::{BitmapSourceKind, bitmap_source_kind},
     },
-    scene::script::CanvasCommand,
     style::ComputedTextStyle,
 };
 
@@ -158,13 +157,9 @@ impl Hash for LucidePaintFp<'_> {
 pub(super) fn item_is_time_variant(item: &DisplayItem, assets: &AssetsMap) -> bool {
     match item {
         DisplayItem::Bitmap(bitmap) => bitmap_is_video(bitmap, assets),
-        DisplayItem::DrawScript(script) => script.commands.iter().any(|command| {
-            matches!(command, CanvasCommand::DrawImage { asset_id, .. }
-                if assets
-                    .path(&AssetId(asset_id.clone()))
-                    .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
-                    .unwrap_or(false))
-        }),
+        // Canvas scripts are programmatic paint producers, not stable UI paint items.
+        // Treat them like video and always route them through dynamic rendering.
+        DisplayItem::DrawScript(_) => true,
         DisplayItem::Rect(_) | DisplayItem::Text(_) | DisplayItem::Lucide(_) => false,
     }
 }

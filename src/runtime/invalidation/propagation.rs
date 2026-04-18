@@ -4,7 +4,7 @@ use crate::runtime::{
     analysis::{DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeInvalidation},
     annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey},
     compositor::SceneSlot,
-    fingerprint::{CompositeSig, PaintVariance},
+    fingerprint::CompositeSig,
 };
 
 #[derive(Default)]
@@ -68,7 +68,7 @@ fn mark_display_node_composite_dirty(
     invalidation: &mut DisplayInvalidationTable,
     previous: &HashMap<RenderNodeKey, CompositeSig>,
     next: &mut HashMap<RenderNodeKey, CompositeSig>,
-) -> bool {
+) {
     let node = display_tree.node(handle);
     let node_key = display_tree.key(handle);
     let current_sig = CompositeSig::from_annotated_node(node);
@@ -77,11 +77,8 @@ fn mark_display_node_composite_dirty(
         .is_some_and(|previous_sig| *previous_sig != current_sig);
     next.insert(node_key, current_sig);
 
-    let node_analysis = analysis.require(handle);
-    let mut subtree_contains_dynamic =
-        node_analysis.paint_variance == PaintVariance::TimeVariant || composite_dirty;
     for &child_handle in &node.children {
-        subtree_contains_dynamic |= mark_display_node_composite_dirty(
+        mark_display_node_composite_dirty(
             child_handle,
             display_tree,
             analysis,
@@ -94,8 +91,6 @@ fn mark_display_node_composite_dirty(
         handle,
         DisplayNodeInvalidation {
             composite_dirty,
-            subtree_contains_dynamic,
         },
     );
-    subtree_contains_dynamic
 }

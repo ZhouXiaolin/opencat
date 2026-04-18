@@ -9,7 +9,7 @@ use crate::runtime::surface::MetalEncodeBridge;
 use crate::{
     runtime::{
         annotation::AnnotatedDisplayTree,
-        compositor::DynamicLayer,
+        compositor::OrderedSceneProgram,
         frame_view::RenderFrameView,
         profile::backend_span,
         render_engine::{RenderEngine, SceneRenderContext, SceneSnapshot, SharedRenderEngine},
@@ -147,57 +147,18 @@ impl RenderEngine for SkiaRenderEngine {
         Ok(SceneSnapshot::new(SkiaSceneSnapshot { snapshot }))
     }
 
-    fn record_display_tree_static_snapshot(
+    fn draw_ordered_scene(
         &self,
         runtime: &mut SceneRenderContext<'_>,
         display_tree: &AnnotatedDisplayTree,
-    ) -> Result<SceneSnapshot> {
-        let snapshot = skia::record_display_tree_static_skeleton(
-            display_tree,
-            runtime.width,
-            runtime.height,
-            runtime.assets,
-            runtime.cache_registry.image_cache(),
-            runtime.cache_registry.text_snapshot_cache(),
-            runtime.cache_registry.item_picture_cache(),
-            runtime.cache_registry.subtree_snapshot_cache(),
-            runtime.frame_ctx,
-        )?;
-        Ok(SceneSnapshot::new(SkiaSceneSnapshot { snapshot }))
-    }
-
-    fn draw_dynamic_layer(
-        &self,
-        runtime: &mut SceneRenderContext<'_>,
-        display_tree: &AnnotatedDisplayTree,
-        layer: &DynamicLayer,
-        frame_view: RenderFrameView,
-    ) -> Result<()> {
-        let canvas = skia_canvas(frame_view)?;
-        skia::draw_dynamic_layer_cached(
-            display_tree,
-            layer,
-            canvas,
-            runtime.assets,
-            runtime.cache_registry.image_cache(),
-            runtime.cache_registry.text_snapshot_cache(),
-            runtime.cache_registry.item_picture_cache(),
-            runtime.cache_registry.subtree_snapshot_cache(),
-            Some(&mut *runtime.media_ctx),
-            runtime.frame_ctx,
-        )
-    }
-
-    fn draw_display_tree(
-        &self,
-        runtime: &mut SceneRenderContext<'_>,
-        display_tree: &AnnotatedDisplayTree,
+        ordered_scene: &OrderedSceneProgram,
         frame_view: RenderFrameView,
     ) -> Result<()> {
         let _profile_span = backend_span("display_tree_direct_draw");
         let canvas = skia_canvas(frame_view)?;
-        skia::draw_display_tree_cached(
+        skia::draw_ordered_scene_cached(
             display_tree,
+            ordered_scene,
             canvas,
             runtime.assets,
             runtime.cache_registry.image_cache(),

@@ -1,4 +1,5 @@
 use std::f32::consts::PI;
+use std::env;
 use std::path::PathBuf;
 
 use opencat::{
@@ -64,6 +65,49 @@ canvas.drawRect(CK.XYWHRect(20, 100, 126, 8), fill("#334155e6"));
 canvas.drawRect(CK.XYWHRect(20, 100, 36 + pulse * 90, 8), fill("#2dd4bf"));
 "##;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VideoShellMode {
+    None,
+    OpacityOnly,
+    ClipOnly,
+    OpacityAndClip,
+}
+
+impl VideoShellMode {
+    fn from_env() -> Self {
+        match env::var("OPENCAT_VIDEO_WRAPPER_MODE")
+            .unwrap_or_else(|_| "opacity_and_clip".to_string())
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "none" => Self::None,
+            "opacity" | "opacity_only" => Self::OpacityOnly,
+            "clip" | "clip_only" => Self::ClipOnly,
+            "opacity_and_clip" | "both" | "default" => Self::OpacityAndClip,
+            other => panic!(
+                "unsupported OPENCAT_VIDEO_WRAPPER_MODE={other}; expected one of none|opacity_only|clip_only|opacity_and_clip"
+            ),
+        }
+    }
+
+    fn uses_opacity(self) -> bool {
+        matches!(self, Self::OpacityOnly | Self::OpacityAndClip)
+    }
+
+    fn uses_clip(self) -> bool {
+        matches!(self, Self::ClipOnly | Self::OpacityAndClip)
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::None => "shell: none",
+            Self::OpacityOnly => "shell: opacity only",
+            Self::ClipOnly => "shell: clip only",
+            Self::OpacityAndClip => "shell: clip + opacity",
+        }
+    }
+}
+
 fn pulse(frame: u32, fps: u32, speed: f32) -> f32 {
     (((frame as f32 / fps as f32) * speed * PI * 2.0).sin() + 1.0) * 0.5
 }
@@ -85,6 +129,7 @@ fn scene_one(ctx: &FrameCtx) -> Node {
     let orbit = swing(ctx.frame, ctx.fps, 0.25);
     let badge_scale = 0.92 + pulse(ctx.frame, ctx.fps, 0.75) * 0.16;
     let title_y = swing(ctx.frame, ctx.fps, 0.5) * 10.0;
+    let shell_mode = VideoShellMode::from_env();
 
     div()
         .id("scene-one-root")
@@ -176,14 +221,7 @@ fn scene_one(ctx: &FrameCtx) -> Node {
                 .w(640.0)
                 .h(580.0)
                 .child(
-                    video(VIDEO_PATH)
-                        .id("scene-one-video")
-                        .w(640.0)
-                        .h(580.0)
-                        .cover()
-                        .rounded_2xl()
-                        .translate_x(orbit * 16.0)
-                        .scale(1.0 + pulse(ctx.frame, ctx.fps, 0.35) * 0.04),
+                    video_shell(orbit, ctx, shell_mode),
                 )
                 .child(
                     image()
@@ -233,6 +271,50 @@ fn scene_one(ctx: &FrameCtx) -> Node {
                         .overflow_hidden()
                         .script_source(STAGE_CANVAS_SCRIPT)
                         .expect("scene one canvas script should compile"),
+                ),
+        )
+        .into()
+}
+
+fn video_shell(orbit: f32, ctx: &FrameCtx, shell_mode: VideoShellMode) -> Node {
+    let mut shell = div()
+        .id("scene-one-video-shell")
+        .w(640.0)
+        .h(580.0)
+        .bg_slate_800();
+
+    if shell_mode.uses_clip() {
+        shell = shell.rounded_2xl().overflow_hidden();
+    }
+    if shell_mode.uses_opacity() {
+        shell = shell.opacity(0.76);
+    }
+
+    shell
+        .child(
+            video(VIDEO_PATH)
+                .id("scene-one-video")
+                .w(640.0)
+                .h(580.0)
+                .cover()
+                .translate_x(orbit * 16.0)
+                .scale(1.0 + pulse(ctx.frame, ctx.fps, 0.35) * 0.04),
+        )
+        .child(
+            div()
+                .id("scene-one-video-shell-hud")
+                .absolute()
+                .left(18.0)
+                .top(18.0)
+                .px(12.0)
+                .py(8.0)
+                .rounded_xl()
+                .bg_black()
+                .child(
+                    text(shell_mode.label())
+                        .id("scene-one-video-shell-label")
+                        .text_px(16.0)
+                        .text_white(),
                 ),
         )
         .into()

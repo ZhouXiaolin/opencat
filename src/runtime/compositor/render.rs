@@ -6,7 +6,7 @@ use crate::{
     runtime::{
         annotation::AnnotatedDisplayTree,
         cache::CacheRegistry,
-        compositor::record_layered_scene,
+        compositor::OrderedSceneProgram,
         frame_view::RenderFrameView,
         profile::{BackendCountMetric, backend_span, record_backend_count},
         render_engine::{SceneRenderContext, SceneSnapshot, SharedRenderEngine},
@@ -68,16 +68,11 @@ pub(crate) fn render_scene_slot(
     let frame_view = frame_view.ok_or_else(|| {
         anyhow!("frame view is required when scene rendering falls back to direct draw")
     })?;
-    if plan.renders_layered_scene() {
-        let mut render_context = runtime.render_context();
-        let layered_scene =
-            record_layered_scene(&mut render_context, engine.clone(), display_tree)?;
-        layered_scene.compose(&mut render_context, engine, display_tree, frame_view)?;
-        return Ok(None);
-    }
 
     let mut render_context = runtime.render_context();
-    engine.draw_display_tree(&mut render_context, display_tree, frame_view)?;
+    let ordered_scene = OrderedSceneProgram::build(display_tree);
+    debug_assert!(plan.renders_ordered_scene());
+    engine.draw_ordered_scene(&mut render_context, display_tree, &ordered_scene, frame_view)?;
     Ok(None)
 }
 
@@ -89,17 +84,6 @@ fn resolve_scene_snapshot_for_slot(
     require_scene_snapshot: bool,
 ) -> Result<Option<SceneSnapshot>> {
     let engine = runtime.render_engine.clone();
-    if plan.renders_layered_scene() {
-        runtime.scene_snapshots.store_scene_snapshot(slot, None);
-        if !require_scene_snapshot {
-            return Ok(None);
-        }
-        let mut render_context = runtime.render_context();
-        return engine
-            .record_display_tree_snapshot(&mut render_context, display_tree)
-            .map(Some);
-    }
-
     if plan.allows_scene_snapshot_cache {
         if let Some(snapshot) = runtime.scene_snapshots.scene_snapshot(slot) {
             record_backend_count(BackendCountMetric::SceneSnapshotCacheHit, 1);

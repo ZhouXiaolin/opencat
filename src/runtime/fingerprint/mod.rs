@@ -22,8 +22,7 @@ use crate::{
     runtime::{
         analysis::DisplayAnalysisTable,
         annotation::{
-            AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle,
-            DrawCompositeSemantics, RecordedNodeSemantics,
+            AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics,
         },
     },
 };
@@ -152,63 +151,6 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
     Some(hasher.finish())
 }
 
-/// 计算视频场景的静态骨架指纹。
-pub fn scene_static_skeleton_fingerprint(display_tree: &AnnotatedDisplayTree) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    hash_scene_static_skeleton(display_tree, display_tree.root, &mut hasher, true);
-    hasher.finish()
-}
-
-const TIME_VARIANT_SENTINEL: u64 = 0x5449_4d45_5641_5254;
-
-fn hash_scene_static_skeleton(
-    display_tree: &AnnotatedDisplayTree,
-    handle: AnnotatedNodeHandle,
-    hasher: &mut DefaultHasher,
-    include_self_composite: bool,
-) {
-    let node = display_tree.node(handle);
-    let node_analysis = display_tree.analysis(handle);
-    let node_invalidation = display_tree.invalidation(handle);
-    if node_analysis.paint_variance == PaintVariance::TimeVariant
-        || node_invalidation.composite_dirty
-    {
-        hash_time_variant_sentinel(node, hasher);
-        return;
-    }
-
-    hash_node_recorded_paint(node, hasher);
-    if include_self_composite {
-        hash_node_draw_time_composite(node, hasher);
-    }
-    node.children.len().hash(hasher);
-
-    for &child_handle in &node.children {
-        let child = display_tree.node(child_handle);
-        let child_analysis = display_tree.analysis(child_handle);
-        let child_invalidation = display_tree.invalidation(child_handle);
-        if child_invalidation.subtree_contains_dynamic {
-            hash_time_variant_sentinel(child, hasher);
-        } else {
-            hash_node_draw_time_composite(child, hasher);
-            if let Some(snapshot_fingerprint) = child_analysis.snapshot_fingerprint {
-                snapshot_fingerprint.hash(hasher);
-            } else {
-                hash_scene_static_skeleton(display_tree, child_handle, hasher, false);
-            }
-        }
-    }
-}
-
-fn hash_time_variant_sentinel(node: &AnnotatedDisplayNode, hasher: &mut DefaultHasher) {
-    TIME_VARIANT_SENTINEL.hash(hasher);
-    let recorded = node.recorded_semantics();
-    F32Hash(recorded.bounds.width).hash(hasher);
-    F32Hash(recorded.bounds.height).hash(hasher);
-    ClipFp(recorded.clip).hash(hasher);
-    hash_node_draw_time_composite(node, hasher);
-}
-
 fn hash_node_recorded_paint(node: &AnnotatedDisplayNode, hasher: &mut DefaultHasher) {
     hash_recorded_semantics(&node.recorded_semantics(), hasher);
 }
@@ -247,7 +189,7 @@ mod tests {
     use crate::{
         display::list::{
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
-            DisplayTransform, RectDisplayItem, RectPaintStyle,
+            DisplayTransform, DrawScriptDisplayItem, RectDisplayItem, RectPaintStyle,
         },
         resource::assets::AssetsMap,
         runtime::{
@@ -434,12 +376,6 @@ mod tests {
                 subtree_contains_time_variant,
             );
         }
-        let subtree_contains_dynamic = node.composite_dirty
-            || subtree_contains_time_variant
-            || annotated
-                .children
-                .iter()
-                .any(|&child_handle| invalidation.get(child_handle).subtree_contains_dynamic);
         let mut node_layer_bounds = annotated.item.visual_bounds();
         for &child_handle in &annotated.children {
             let child = &nodes[child_handle.0];
@@ -455,7 +391,6 @@ mod tests {
             handle,
             DisplayNodeInvalidation {
                 composite_dirty: node.composite_dirty,
-                subtree_contains_dynamic,
             },
         );
 
@@ -662,71 +597,19 @@ mod tests {
     }
 
     #[test]
-    fn scene_static_skeleton_fingerprint_ignores_time_variant_paint_but_tracks_composite() {
-        let mut a = annotated_rect_node(AnnotatedRectConfig::default());
-        let mut b = annotated_rect_node(AnnotatedRectConfig::default());
-        let mut c = annotated_rect_node(AnnotatedRectConfig::default());
-
-        let dynamic_a = annotated_rect_node(AnnotatedRectConfig {
-            key: RenderNodeKey(2),
-            transform: rect_transform(10.0, 20.0),
-            opacity: 0.9,
-            paint_variance: PaintVariance::TimeVariant,
-            ..Default::default()
+    fn draw_script_is_always_time_variant() {
+        let assets = AssetsMap::new();
+        let script_item = DisplayItem::DrawScript(DrawScriptDisplayItem {
+            bounds: empty_bounds(),
+            commands: Vec::new(),
+            drop_shadow: None,
         });
-
-        let dynamic_b = annotated_rect_node(AnnotatedRectConfig {
-            key: RenderNodeKey(2),
-            transform: rect_transform(10.0, 20.0),
-            opacity: 0.9,
-            paint_variance: PaintVariance::TimeVariant,
-            background: Some(crate::style::BackgroundFill::Solid(
-                crate::style::ColorToken::Red,
-            )),
-            ..Default::default()
-        });
-
-        let dynamic_c = annotated_rect_node(AnnotatedRectConfig {
-            key: RenderNodeKey(2),
-            transform: rect_transform(30.0, 20.0),
-            opacity: 0.9,
-            paint_variance: PaintVariance::TimeVariant,
-            ..Default::default()
-        });
-
-        a.children.push(dynamic_a);
-        b.children.push(dynamic_b);
-        c.children.push(dynamic_c);
-        let a = finalize_annotated_tree(a);
-        let b = finalize_annotated_tree(b);
-        let c = finalize_annotated_tree(c);
 
         assert_eq!(
-            scene_static_skeleton_fingerprint(&a),
-            scene_static_skeleton_fingerprint(&b),
-            "dynamic subtree paint must not affect the static skeleton fingerprint"
+            classify_paint(&script_item, &assets),
+            PaintVariance::TimeVariant
         );
-        assert_ne!(
-            scene_static_skeleton_fingerprint(&a),
-            scene_static_skeleton_fingerprint(&c),
-            "dynamic subtree composite must affect the static skeleton fingerprint"
-        );
+        assert_eq!(item_paint_fingerprint(&script_item, &assets), None);
     }
 
-    #[test]
-    fn scene_static_skeleton_fingerprint_tracks_root_composite_even_after_it_settles() {
-        let a = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig::default()));
-        let b = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
-            transform: rect_transform(24.0, 12.0),
-            opacity: 0.6,
-            backdrop_blur_sigma: Some(8.0),
-            ..Default::default()
-        }));
-
-        assert_ne!(
-            scene_static_skeleton_fingerprint(&a),
-            scene_static_skeleton_fingerprint(&b),
-            "scene-static key must include root composite because the cached scene picture bakes it in"
-        );
-    }
 }

@@ -11,7 +11,6 @@ pub struct DisplayNodeAnalysis {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisplayNodeInvalidation {
     pub composite_dirty: bool,
-    pub subtree_contains_dynamic: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -74,7 +73,4 @@ impl DisplayInvalidationTable {
         }
     }
 
-    pub fn get(&self, handle: AnnotatedNodeHandle) -> DisplayNodeInvalidation {
-        self.nodes.get(handle.0).copied().unwrap_or_default()
-    }
 }

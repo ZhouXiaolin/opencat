@@ -24,6 +24,8 @@ pub(crate) enum BackendDurationMetric {
     VideoDecode,
     SubtreeSnapshotRecord,
     SubtreeSnapshotDraw,
+    SubtreeImageRasterize,
+    SubtreeImageDraw,
     LightLeakMask,
     LightLeakComposite,
 }
@@ -35,6 +37,9 @@ pub(crate) enum BackendCountMetric {
     SubtreeSnapshotCacheHit,
     SubtreeSnapshotCacheMiss,
     SubtreeSnapshotCollisionRejected,
+    SubtreeImageCacheHit,
+    SubtreeImageCacheMiss,
+    SubtreeImagePromote,
     TextCacheHit,
     TextCacheMiss,
     ItemPictureCacheHit,

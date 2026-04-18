@@ -67,6 +67,8 @@ pub struct BackendProfile {
     pub video_decode_ms: f64,
     pub subtree_snapshot_record_ms: f64,
     pub subtree_snapshot_draw_ms: f64,
+    pub subtree_image_rasterize_ms: f64,
+    pub subtree_image_draw_ms: f64,
     pub light_leak_mask_ms: f64,
     pub light_leak_composite_ms: f64,
     pub scene_snapshot_cache_hits: usize,
@@ -74,6 +76,9 @@ pub struct BackendProfile {
     pub subtree_snapshot_cache_hits: usize,
     pub subtree_snapshot_cache_misses: usize,
     pub subtree_snapshot_collision_rejected: usize,
+    pub subtree_image_cache_hits: usize,
+    pub subtree_image_cache_misses: usize,
+    pub subtree_image_promotions: usize,
     pub text_cache_hits: usize,
     pub text_cache_misses: usize,
     pub item_picture_cache_hits: usize,
@@ -105,6 +110,8 @@ impl BackendProfile {
             BackendDurationMetric::VideoDecode => self.video_decode_ms += ms,
             BackendDurationMetric::SubtreeSnapshotRecord => self.subtree_snapshot_record_ms += ms,
             BackendDurationMetric::SubtreeSnapshotDraw => self.subtree_snapshot_draw_ms += ms,
+            BackendDurationMetric::SubtreeImageRasterize => self.subtree_image_rasterize_ms += ms,
+            BackendDurationMetric::SubtreeImageDraw => self.subtree_image_draw_ms += ms,
             BackendDurationMetric::LightLeakMask => self.light_leak_mask_ms += ms,
             BackendDurationMetric::LightLeakComposite => self.light_leak_composite_ms += ms,
         }
@@ -124,6 +131,15 @@ impl BackendProfile {
             }
             BackendCountMetric::SubtreeSnapshotCollisionRejected => {
                 self.subtree_snapshot_collision_rejected += amount;
+            }
+            BackendCountMetric::SubtreeImageCacheHit => {
+                self.subtree_image_cache_hits += amount;
+            }
+            BackendCountMetric::SubtreeImageCacheMiss => {
+                self.subtree_image_cache_misses += amount;
+            }
+            BackendCountMetric::SubtreeImagePromote => {
+                self.subtree_image_promotions += amount;
             }
             BackendCountMetric::TextCacheHit => self.text_cache_hits += amount,
             BackendCountMetric::TextCacheMiss => self.text_cache_misses += amount,
@@ -269,6 +285,8 @@ impl FrameProfile {
         self.backend.video_decode_ms += profile.video_decode_ms;
         self.backend.subtree_snapshot_record_ms += profile.subtree_snapshot_record_ms;
         self.backend.subtree_snapshot_draw_ms += profile.subtree_snapshot_draw_ms;
+        self.backend.subtree_image_rasterize_ms += profile.subtree_image_rasterize_ms;
+        self.backend.subtree_image_draw_ms += profile.subtree_image_draw_ms;
         self.backend.light_leak_mask_ms += profile.light_leak_mask_ms;
         self.backend.light_leak_composite_ms += profile.light_leak_composite_ms;
         self.backend.scene_snapshot_cache_hits += profile.scene_snapshot_cache_hits;
@@ -276,6 +294,9 @@ impl FrameProfile {
         self.backend.subtree_snapshot_cache_hits += profile.subtree_snapshot_cache_hits;
         self.backend.subtree_snapshot_cache_misses += profile.subtree_snapshot_cache_misses;
         self.backend.subtree_snapshot_collision_rejected += profile.subtree_snapshot_collision_rejected;
+        self.backend.subtree_image_cache_hits += profile.subtree_image_cache_hits;
+        self.backend.subtree_image_cache_misses += profile.subtree_image_cache_misses;
+        self.backend.subtree_image_promotions += profile.subtree_image_promotions;
         self.backend.text_cache_hits += profile.text_cache_hits;
         self.backend.text_cache_misses += profile.text_cache_misses;
         self.backend.item_picture_cache_hits += profile.item_picture_cache_hits;
@@ -356,7 +377,7 @@ impl RenderProfiler {
             average_usize(&self.frames, |frame| frame.structure_rebuilds),
         );
         eprintln!(
-            "  backend avg ms/frame: rect {:.2}, text {:.2}, text_snapshot_record {:.2}, text_snapshot_draw {:.2}, item_picture_record {:.2}, item_picture_draw {:.2}, bitmap {:.2}, draw_script {:.2}, image_decode {:.2}, video_decode {:.2}, subtree_snapshot_record {:.2}, subtree_snapshot_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}",
+            "  backend avg ms/frame: rect {:.2}, text {:.2}, text_snapshot_record {:.2}, text_snapshot_draw {:.2}, item_picture_record {:.2}, item_picture_draw {:.2}, bitmap {:.2}, draw_script {:.2}, image_decode {:.2}, video_decode {:.2}, subtree_snapshot_record {:.2}, subtree_snapshot_draw {:.2}, subtree_image_rasterize {:.2}, subtree_image_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}",
             average(&self.frames, |frame| frame.backend.rect_draw_ms),
             average(&self.frames, |frame| frame.backend.text_draw_ms),
             average(&self.frames, |frame| frame.backend.text_snapshot_record_ms),
@@ -371,11 +392,13 @@ impl RenderProfiler {
                 .backend
                 .subtree_snapshot_record_ms),
             average(&self.frames, |frame| frame.backend.subtree_snapshot_draw_ms),
+            average(&self.frames, |frame| frame.backend.subtree_image_rasterize_ms),
+            average(&self.frames, |frame| frame.backend.subtree_image_draw_ms),
             average(&self.frames, |frame| frame.backend.light_leak_mask_ms),
             average(&self.frames, |frame| frame.backend.light_leak_composite_ms),
         );
         eprintln!(
-            "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, text_hit {:.2}, text_miss {:.2}, item_hit {:.2}, item_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, subtree_collision_rejected {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}",
+            "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, text_hit {:.2}, text_miss {:.2}, item_hit {:.2}, item_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, subtree_collision_rejected {:.2}, subtree_image_hit {:.2}, subtree_image_miss {:.2}, subtree_image_promote {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}",
             average_usize(&self.frames, |frame| frame.backend.draw_rect_count),
             average_usize(&self.frames, |frame| frame.backend.draw_text_count),
             average_usize(&self.frames, |frame| frame.backend.draw_bitmap_count),
@@ -402,6 +425,9 @@ impl RenderProfiler {
             average_usize(&self.frames, |frame| frame
                 .backend
                 .subtree_snapshot_collision_rejected),
+            average_usize(&self.frames, |frame| frame.backend.subtree_image_cache_hits),
+            average_usize(&self.frames, |frame| frame.backend.subtree_image_cache_misses),
+            average_usize(&self.frames, |frame| frame.backend.subtree_image_promotions),
             average_usize(&self.frames, |frame| frame.backend.image_cache_hits),
             average_usize(&self.frames, |frame| frame.backend.image_cache_misses),
             average_usize(&self.frames, |frame| frame.backend.video_frame_cache_hits),
@@ -511,4 +537,25 @@ fn average_when_counted(
         return 0.0;
     }
     frames.iter().map(value).sum::<f64>() / total_count as f64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BackendCountMetric, BackendDurationMetric, BackendProfile};
+
+    #[test]
+    fn backend_profile_records_subtree_image_metrics() {
+        let mut profile = BackendProfile::default();
+        profile.record_duration(BackendDurationMetric::SubtreeImageRasterize, 3.5);
+        profile.record_duration(BackendDurationMetric::SubtreeImageDraw, 1.25);
+        profile.record_count(BackendCountMetric::SubtreeImageCacheHit, 2);
+        profile.record_count(BackendCountMetric::SubtreeImageCacheMiss, 1);
+        profile.record_count(BackendCountMetric::SubtreeImagePromote, 1);
+
+        assert_eq!(profile.subtree_image_rasterize_ms, 3.5);
+        assert_eq!(profile.subtree_image_draw_ms, 1.25);
+        assert_eq!(profile.subtree_image_cache_hits, 2);
+        assert_eq!(profile.subtree_image_cache_misses, 1);
+        assert_eq!(profile.subtree_image_promotions, 1);
+    }
 }

@@ -73,6 +73,7 @@ pub struct BackendProfile {
     pub scene_snapshot_cache_misses: usize,
     pub subtree_snapshot_cache_hits: usize,
     pub subtree_snapshot_cache_misses: usize,
+    pub subtree_snapshot_collision_rejected: usize,
     pub text_cache_hits: usize,
     pub text_cache_misses: usize,
     pub item_picture_cache_hits: usize,
@@ -120,6 +121,9 @@ impl BackendProfile {
             }
             BackendCountMetric::SubtreeSnapshotCacheMiss => {
                 self.subtree_snapshot_cache_misses += amount;
+            }
+            BackendCountMetric::SubtreeSnapshotCollisionRejected => {
+                self.subtree_snapshot_collision_rejected += amount;
             }
             BackendCountMetric::TextCacheHit => self.text_cache_hits += amount,
             BackendCountMetric::TextCacheMiss => self.text_cache_misses += amount,
@@ -271,6 +275,7 @@ impl FrameProfile {
         self.backend.scene_snapshot_cache_misses += profile.scene_snapshot_cache_misses;
         self.backend.subtree_snapshot_cache_hits += profile.subtree_snapshot_cache_hits;
         self.backend.subtree_snapshot_cache_misses += profile.subtree_snapshot_cache_misses;
+        self.backend.subtree_snapshot_collision_rejected += profile.subtree_snapshot_collision_rejected;
         self.backend.text_cache_hits += profile.text_cache_hits;
         self.backend.text_cache_misses += profile.text_cache_misses;
         self.backend.item_picture_cache_hits += profile.item_picture_cache_hits;
@@ -370,7 +375,7 @@ impl RenderProfiler {
             average(&self.frames, |frame| frame.backend.light_leak_composite_ms),
         );
         eprintln!(
-            "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, text_hit {:.2}, text_miss {:.2}, item_hit {:.2}, item_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}",
+            "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, text_hit {:.2}, text_miss {:.2}, item_hit {:.2}, item_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, subtree_collision_rejected {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}",
             average_usize(&self.frames, |frame| frame.backend.draw_rect_count),
             average_usize(&self.frames, |frame| frame.backend.draw_text_count),
             average_usize(&self.frames, |frame| frame.backend.draw_bitmap_count),
@@ -394,6 +399,9 @@ impl RenderProfiler {
             average_usize(&self.frames, |frame| frame
                 .backend
                 .subtree_snapshot_cache_misses),
+            average_usize(&self.frames, |frame| frame
+                .backend
+                .subtree_snapshot_collision_rejected),
             average_usize(&self.frames, |frame| frame.backend.image_cache_hits),
             average_usize(&self.frames, |frame| frame.backend.image_cache_misses),
             average_usize(&self.frames, |frame| frame.backend.video_frame_cache_hits),

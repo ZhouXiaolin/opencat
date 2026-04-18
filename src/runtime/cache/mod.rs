@@ -10,8 +10,16 @@ use crate::runtime::cache::lru::BoundedLruCache;
 pub(crate) type SharedLruCache<K, V> = Rc<RefCell<BoundedLruCache<K, V>>>;
 pub(crate) type ImageCache = SharedLruCache<String, Option<SkiaImage>>;
 pub(crate) type TextSnapshotCache = SharedLruCache<u64, Picture>;
-pub(crate) type SubtreeSnapshotCache = SharedLruCache<u64, Picture>;
+pub(crate) type SubtreeSnapshotCache = SharedLruCache<u64, CachedSubtreeSnapshot>;
 pub(crate) type ItemPictureCache = SharedLruCache<u64, Picture>;
+
+/// `SubtreeSnapshotCache` 的 value。命中时必须用 `secondary_fingerprint` 与查询端的
+/// 次级 hash 做二次比对，任一不等视为 64-bit hash 碰撞，走 miss 重录。
+#[derive(Clone)]
+pub(crate) struct CachedSubtreeSnapshot {
+    pub picture: Picture,
+    pub secondary_fingerprint: u64,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CacheCaps {

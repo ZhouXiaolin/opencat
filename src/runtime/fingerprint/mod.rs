@@ -1,7 +1,8 @@
-//! Paint 与 composite 两个独立维度的指纹。
+//! Paint、subtree snapshot 与 composite 三个独立维度的指纹。
 //!
-//! - [`paint_fingerprint`]：缓存键。仅由"画什么"决定，不含 transform/opacity。
-//!   对 TimeVariant 内容（video、含 video 的 draw script）返回 `None`。
+//! - [`subtree_paint_fingerprint`]：纯 paint 指纹。仅由"画什么"决定，不含任何 composite。
+//! - [`subtree_snapshot_fingerprint`]：subtree picture 缓存键。
+//!   不含当前节点自己的 composite，但递归包含所有后代 composite，因为后代会被烘焙进当前节点 picture。
 //! - [`composite_signature`]：每帧比对用的合成参数摘要（transform/opacity/blur），
 //!   **不进入缓存键**。
 //! - [`classify_paint`]：判定单个 DisplayItem 的 paint variance。
@@ -103,6 +104,23 @@ pub fn subtree_paint_fingerprint(node: &DisplayNode, assets: &AssetsMap) -> Opti
     Some(hasher.finish())
 }
 
+/// 计算 subtree snapshot fingerprint。
+///
+/// 这个 key 用于缓存“当前节点整棵子树录成的 picture”。
+/// 它故意：
+/// - 不包含当前节点自己的 translation / opacity / transforms，因为这些在 picture 外部应用
+/// - 递归包含所有后代的 composite 状态，因为后代的 composite 会被烘焙进当前节点 picture
+///
+/// 若任一后代是 TimeVariant，返回 `None`。
+pub fn subtree_snapshot_fingerprint(node: &DisplayNode, assets: &AssetsMap) -> Option<u64> {
+    if node_contains_time_variant(node, assets) {
+        return None;
+    }
+    let mut hasher = DefaultHasher::new();
+    hash_subtree_snapshot(node, &mut hasher);
+    Some(hasher.finish())
+}
+
 // ---------- TimeVariant 判定（内部） ----------
 
 fn item_is_time_variant(item: &DisplayItem, assets: &AssetsMap) -> bool {
@@ -146,6 +164,23 @@ fn hash_subtree_paint(node: &DisplayNode, hasher: &mut DefaultHasher) {
     node.children.len().hash(hasher);
     for child in &node.children {
         hash_subtree_paint(child, hasher);
+    }
+}
+
+fn hash_subtree_snapshot(node: &DisplayNode, hasher: &mut DefaultHasher) {
+    F32Hash(node.transform.bounds.width).hash(hasher);
+    F32Hash(node.transform.bounds.height).hash(hasher);
+    DisplayItemFp(&node.item).hash(hasher);
+    ClipFp(node.clip.as_ref()).hash(hasher);
+    node.children.len().hash(hasher);
+
+    for child in &node.children {
+        F32Hash(child.transform.translation_x).hash(hasher);
+        F32Hash(child.transform.translation_y).hash(hasher);
+        F32Hash(child.opacity).hash(hasher);
+        child.backdrop_blur_sigma.map(F32Hash).hash(hasher);
+        child.transform.transforms.hash(hasher);
+        hash_subtree_snapshot(child, hasher);
     }
 }
 
@@ -349,7 +384,7 @@ mod tests {
                 },
             }),
             children: Vec::new(),
-            paint_fingerprint: None,
+            snapshot_fingerprint: None,
             paint_variance: PaintVariance::Stable,
             subtree_contains_time_variant: false,
         }
@@ -410,6 +445,42 @@ mod tests {
         let sig_a = CompositeSig::from_node(&a);
         let sig_b = CompositeSig::from_node(&b);
         assert_ne!(sig_a, sig_b);
+    }
+
+    #[test]
+    fn snapshot_fingerprint_ignores_current_node_transform() {
+        let assets = AssetsMap::new();
+        let mut a = rect_node(0.0, 0.0, 1.0);
+        let mut b = rect_node(0.0, 0.0, 1.0);
+        a.transform.transforms = vec![Transform::Scale(1.0)];
+        b.transform.transforms = vec![Transform::Scale(2.0)];
+
+        let fp_a = subtree_snapshot_fingerprint(&a, &assets);
+        let fp_b = subtree_snapshot_fingerprint(&b, &assets);
+        assert_eq!(
+            fp_a, fp_b,
+            "current node transform is applied outside its snapshot and must not bust the key"
+        );
+    }
+
+    #[test]
+    fn snapshot_fingerprint_tracks_descendant_transform_changes() {
+        let assets = AssetsMap::new();
+        let mut a = rect_node(0.0, 0.0, 1.0);
+        let mut b = rect_node(0.0, 0.0, 1.0);
+        let mut child_a = rect_node(0.0, 0.0, 1.0);
+        let mut child_b = rect_node(0.0, 0.0, 1.0);
+        child_a.transform.transforms = vec![Transform::Scale(1.0)];
+        child_b.transform.transforms = vec![Transform::Scale(2.0)];
+        a.children.push(child_a);
+        b.children.push(child_b);
+
+        let fp_a = subtree_snapshot_fingerprint(&a, &assets);
+        let fp_b = subtree_snapshot_fingerprint(&b, &assets);
+        assert_ne!(
+            fp_a, fp_b,
+            "descendant transform is baked into the parent snapshot and must affect the key"
+        );
     }
 
     #[test]

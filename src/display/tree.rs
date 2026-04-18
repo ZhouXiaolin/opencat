@@ -19,9 +19,14 @@ pub struct DisplayNode {
     pub paint_variance: PaintVariance,
     /// 本节点或任一后代是否为 TimeVariant。向上传播标志。
     pub subtree_contains_time_variant: bool,
-    /// 整棵子树的 paint 指纹，构建期一次性计算。
-    /// `None` 表示子树含 TimeVariant，不可缓存。
-    pub paint_fingerprint: Option<u64>,
+    /// 当前节点的 subtree snapshot 指纹。
+    ///
+    /// 语义是“在当前节点自身 composite 之外，这棵子树录成 picture 后会长什么样”。
+    /// 因此：
+    /// - 不包含当前节点自己的 translation / opacity / transforms
+    /// - 递归包含所有后代的 composite 状态，因为它们会被烘焙进当前节点 picture
+    /// - `None` 表示子树含 TimeVariant，不可缓存
+    pub snapshot_fingerprint: Option<u64>,
 }
 
 impl DisplayNode {

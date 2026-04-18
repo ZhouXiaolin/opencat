@@ -95,12 +95,12 @@ fn build_display_node(
         children,
         paint_variance,
         subtree_contains_time_variant,
-        paint_fingerprint: None,
+        snapshot_fingerprint: None,
     };
 
-    // 只在整棵子树都是 Stable 时才计算 paint_fingerprint。
+    // 只在整棵子树都是 Stable 时才计算 subtree snapshot fingerprint。
     if !subtree_contains_time_variant {
-        node.paint_fingerprint = fingerprint::subtree_paint_fingerprint(&node, assets);
+        node.snapshot_fingerprint = fingerprint::subtree_snapshot_fingerprint(&node, assets);
     }
 
     Ok(node)

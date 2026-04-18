@@ -472,4 +472,121 @@ mod tests {
         let even_aligned = even.aligned_for_video_encoding();
         assert_eq!((even_aligned.width, even_aligned.height), (1280, 720));
     }
+
+    #[test]
+    fn subtree_cache_preserves_rust_driven_scale_animation() {
+        let composition = Composition::new("rust_scale_cache")
+            .size(24, 24)
+            .fps(30)
+            .frames(2)
+            .root(|ctx: &FrameCtx| {
+                let scale = if ctx.frame == 0 { 1.0 } else { 2.0 };
+                div()
+                    .id("root")
+                    .w_full()
+                    .h_full()
+                    .bg_black()
+                    .child(
+                        div()
+                            .id("dot")
+                            .absolute()
+                            .left(8.0)
+                            .top(8.0)
+                            .w(8.0)
+                            .h(8.0)
+                            .rounded_full()
+                            .bg_white()
+                            .scale(scale),
+                    )
+                    .into()
+            })
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let first =
+            render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
+        let second =
+            render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
+
+        assert_eq!(
+            pixel_rgba(&first, 24, 5, 12),
+            [0, 0, 0, 255],
+            "frame 0 should keep pixels outside the original dot bounds black"
+        );
+        assert_eq!(
+            pixel_rgba(&second, 24, 5, 12),
+            [255, 255, 255, 255],
+            "frame 1 should expand the dot when scale changes under subtree caching"
+        );
+    }
+
+    #[test]
+    fn subtree_cache_invalidation_tracks_descendant_transform_changes() {
+        let composition = Composition::new("nested_transform_cache")
+            .size(24, 24)
+            .fps(30)
+            .frames(2)
+            .root(|ctx: &FrameCtx| {
+                let scale = if ctx.frame == 0 { 1.0 } else { 2.0 };
+                let ticker_color = if ctx.frame == 0 {
+                    ColorToken::Red500
+                } else {
+                    ColorToken::Blue500
+                };
+                div()
+                    .id("root")
+                    .w_full()
+                    .h_full()
+                    .bg_black()
+                    .child(
+                        div()
+                            .id("group")
+                            .absolute()
+                            .left(8.0)
+                            .top(8.0)
+                            .h(8.0)
+                            .w(8.0)
+                            .child(
+                                div()
+                                    .id("dot")
+                                    .w_full()
+                                    .h_full()
+                                    .rounded_full()
+                                    .bg_white()
+                                    .scale(scale),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("ticker-fill")
+                            .absolute()
+                            .left(0.0)
+                            .top(0.0)
+                            .w(1.0)
+                            .h(1.0)
+                            .bg(ticker_color),
+                    )
+                    .into()
+            })
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let first =
+            render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
+        let second =
+            render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
+
+        assert_eq!(
+            pixel_rgba(&first, 24, 5, 12),
+            [0, 0, 0, 255],
+            "frame 0 should keep pixels outside the original dot bounds black"
+        );
+        assert_eq!(
+            pixel_rgba(&second, 24, 5, 12),
+            [255, 255, 255, 255],
+            "frame 1 should redraw the parent subtree when a descendant transform changes"
+        );
+    }
 }

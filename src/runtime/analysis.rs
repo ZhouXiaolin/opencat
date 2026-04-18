@@ -1,11 +1,14 @@
-use crate::runtime::{annotation::AnnotatedNodeHandle, fingerprint::PaintVariance};
+use crate::runtime::{
+    annotation::AnnotatedNodeHandle,
+    fingerprint::{PaintVariance, SubtreeSnapshotFingerprint},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DisplayNodeAnalysis {
     pub paint_variance: PaintVariance,
     pub subtree_contains_time_variant: bool,
     pub paint_fingerprint: Option<u64>,
-    pub snapshot_fingerprint: Option<u64>,
+    pub snapshot_fingerprint: Option<SubtreeSnapshotFingerprint>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

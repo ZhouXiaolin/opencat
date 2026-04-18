@@ -22,7 +22,7 @@ use crate::{
     runtime::{
         annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle, RecordedNodeSemantics},
         compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram},
-        fingerprint::{item_paint_fingerprint, text_paint_fingerprint},
+        fingerprint::{SubtreeSnapshotFingerprint, item_paint_fingerprint, text_paint_fingerprint},
     },
     runtime::cache::{ImageCache, ItemPictureCache, SubtreeSnapshotCache, TextSnapshotCache},
     runtime::profile::{
@@ -153,7 +153,7 @@ impl<'a> SkiaBackend<'a> {
         }
     }
 
-    fn node_snapshot_fingerprint(&self, handle: AnnotatedNodeHandle) -> Option<u64> {
+    fn node_snapshot_fingerprint(&self, handle: AnnotatedNodeHandle) -> Option<SubtreeSnapshotFingerprint> {
         self.display_tree.analysis(handle).snapshot_fingerprint
     }
 
@@ -193,15 +193,15 @@ impl<'a> SkiaBackend<'a> {
     ) -> Result<()> {
         let subtree_cache = self.subtree_snapshot_cache.clone();
         if let Some(cache) = subtree_cache {
-            if let Some(key) = self.node_snapshot_fingerprint(handle) {
-                if let Some(snapshot) = cache.borrow_mut().get_cloned(&key) {
+            if let Some(fp) = self.node_snapshot_fingerprint(handle) {
+                if let Some(snapshot) = cache.borrow_mut().get_cloned(&fp.primary) {
                     record_backend_count(BackendCountMetric::SubtreeSnapshotCacheHit, 1);
                     self.draw_subtree_snapshot(&snapshot, opacity, backdrop_blur_sigma, bounds)?;
                     return Ok(());
                 }
 
                 let snapshot = self.record_cached_subtree_snapshot(handle)?;
-                cache.borrow_mut().insert(key, snapshot.clone());
+                cache.borrow_mut().insert(fp.primary, snapshot.clone());
                 record_backend_count(BackendCountMetric::SubtreeSnapshotCacheMiss, 1);
                 self.draw_subtree_snapshot(&snapshot, opacity, backdrop_blur_sigma, bounds)?;
                 return Ok(());

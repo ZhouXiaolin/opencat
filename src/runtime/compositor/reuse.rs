@@ -64,7 +64,7 @@ mod tests {
                 DisplayNodeInvalidation,
             },
             annotation::{AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey},
-            fingerprint::PaintVariance,
+            fingerprint::{PaintVariance, SubtreeSnapshotFingerprint},
         },
         style::{BorderRadius, ComputedTextStyle},
     };
@@ -126,7 +126,7 @@ mod tests {
                 paint_variance: PaintVariance::Stable,
                 subtree_contains_time_variant: false,
                 paint_fingerprint: Some(1),
-                snapshot_fingerprint: Some(2),
+                snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 2, secondary: 2 }),
             },
         );
         let display_tree = tree(
@@ -164,7 +164,7 @@ mod tests {
                 paint_variance: PaintVariance::Stable,
                 subtree_contains_time_variant: false,
                 paint_fingerprint: Some(1),
-                snapshot_fingerprint: Some(2),
+                snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 2, secondary: 2 }),
             },
         );
         let display_tree = tree(

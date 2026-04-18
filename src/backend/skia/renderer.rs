@@ -141,6 +141,7 @@ impl RenderEngine for SkiaRenderEngine {
             runtime.cache_registry.text_snapshot_cache(),
             runtime.cache_registry.item_picture_cache(),
             runtime.cache_registry.subtree_snapshot_cache(),
+            runtime.cache_registry.subtree_image_cache(),
             Some(&mut *runtime.media_ctx),
             runtime.frame_ctx,
         )?;
@@ -165,6 +166,7 @@ impl RenderEngine for SkiaRenderEngine {
             runtime.cache_registry.text_snapshot_cache(),
             runtime.cache_registry.item_picture_cache(),
             runtime.cache_registry.subtree_snapshot_cache(),
+            runtime.cache_registry.subtree_image_cache(),
             Some(&mut *runtime.media_ctx),
             runtime.frame_ctx,
         )?;

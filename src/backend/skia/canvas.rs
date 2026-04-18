@@ -24,7 +24,7 @@ use crate::{
         compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram},
         fingerprint::{SubtreeSnapshotFingerprint, item_paint_fingerprint, text_paint_fingerprint},
     },
-    runtime::cache::{CachedSubtreeSnapshot, ImageCache, ItemPictureCache, SubtreeSnapshotCache, TextSnapshotCache},
+    runtime::cache::{CachedSubtreeSnapshot, ImageCache, ItemPictureCache, SubtreeImageCache, SubtreeSnapshotCache, TextSnapshotCache},
     runtime::profile::{
         BackendCountMetric, BackendDurationMetric, backend_span, record_backend_count,
         record_backend_duration, record_backend_elapsed,
@@ -124,6 +124,7 @@ pub struct SkiaBackend<'a> {
     text_snapshot_cache: TextSnapshotCache,
     item_picture_cache: ItemPictureCache,
     subtree_snapshot_cache: Option<SubtreeSnapshotCache>,
+    subtree_image_cache: Option<SubtreeImageCache>,
 }
 
 impl<'a> SkiaBackend<'a> {
@@ -137,6 +138,7 @@ impl<'a> SkiaBackend<'a> {
         text_snapshot_cache: TextSnapshotCache,
         item_picture_cache: ItemPictureCache,
         subtree_snapshot_cache: Option<SubtreeSnapshotCache>,
+        subtree_image_cache: Option<SubtreeImageCache>,
         media_ctx: Option<&'a mut MediaContext>,
         frame_ctx: &'a FrameCtx,
     ) -> Self {
@@ -148,6 +150,7 @@ impl<'a> SkiaBackend<'a> {
             text_snapshot_cache,
             item_picture_cache,
             subtree_snapshot_cache,
+            subtree_image_cache,
             media_ctx,
             frame_ctx,
         }
@@ -225,6 +228,8 @@ impl<'a> SkiaBackend<'a> {
                 CachedSubtreeSnapshot {
                     picture: picture.clone(),
                     secondary_fingerprint: fingerprint.secondary,
+                    consecutive_hits: 0,
+                    recorded_bounds: bounds,
                 },
             );
             record_backend_count(BackendCountMetric::SubtreeSnapshotCacheMiss, 1);
@@ -544,6 +549,7 @@ impl<'a> SkiaBackend<'a> {
             self.text_snapshot_cache.clone(),
             self.item_picture_cache.clone(),
             self.subtree_snapshot_cache.clone(),
+            self.subtree_image_cache.clone(),
             None,
             self.frame_ctx,
         );
@@ -659,6 +665,7 @@ pub(crate) fn draw_ordered_scene_cached<'a>(
     text_snapshot_cache: TextSnapshotCache,
     item_picture_cache: ItemPictureCache,
     subtree_snapshot_cache: SubtreeSnapshotCache,
+    subtree_image_cache: SubtreeImageCache,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
 ) -> Result<()> {
@@ -672,6 +679,7 @@ pub(crate) fn draw_ordered_scene_cached<'a>(
         text_snapshot_cache,
         item_picture_cache,
         Some(subtree_snapshot_cache),
+        Some(subtree_image_cache),
         media_ctx,
         frame_ctx,
     );
@@ -687,6 +695,7 @@ pub(crate) fn record_display_tree_snapshot<'a>(
     text_snapshot_cache: TextSnapshotCache,
     item_picture_cache: ItemPictureCache,
     subtree_snapshot_cache: SubtreeSnapshotCache,
+    subtree_image_cache: SubtreeImageCache,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
 ) -> Result<Picture> {
@@ -704,6 +713,7 @@ pub(crate) fn record_display_tree_snapshot<'a>(
         text_snapshot_cache,
         item_picture_cache,
         Some(subtree_snapshot_cache),
+        Some(subtree_image_cache),
         media_ctx,
         frame_ctx,
     );

@@ -17,8 +17,12 @@ pub struct DisplayNode {
 
     /// 本节点自身 paint 的 variance（不看子树）。
     pub paint_variance: PaintVariance,
+    /// 当前节点的 composite 是否相对上一帧发生变化（按 DFS 位置对齐）。
+    pub composite_dirty: bool,
     /// 本节点或任一后代是否为 TimeVariant。向上传播标志。
     pub subtree_contains_time_variant: bool,
+    /// 本节点或任一后代是否需要在 layered scene 的 dynamic pass 中重绘。
+    pub subtree_contains_dynamic: bool,
     /// 当前节点的 subtree snapshot 指纹。
     ///
     /// 语义是“在当前节点自身 composite 之外，这棵子树录成 picture 后会长什么样”。

@@ -151,24 +151,24 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
     Some(hasher.finish())
 }
 
-fn hash_node_recorded_paint(node: &AnnotatedDisplayNode, hasher: &mut DefaultHasher) {
+fn hash_node_recorded_paint<H: Hasher>(node: &AnnotatedDisplayNode, hasher: &mut H) {
     hash_recorded_semantics(&node.recorded_semantics(), hasher);
 }
 
-fn hash_node_draw_time_composite(node: &AnnotatedDisplayNode, hasher: &mut DefaultHasher) {
+fn hash_node_draw_time_composite<H: Hasher>(node: &AnnotatedDisplayNode, hasher: &mut H) {
     hash_draw_composite_semantics(&node.draw_composite_semantics(), hasher);
 }
 
-fn hash_recorded_semantics(semantics: &RecordedNodeSemantics<'_>, hasher: &mut DefaultHasher) {
+fn hash_recorded_semantics<H: Hasher>(semantics: &RecordedNodeSemantics<'_>, hasher: &mut H) {
     F32Hash(semantics.bounds.width).hash(hasher);
     F32Hash(semantics.bounds.height).hash(hasher);
     DisplayItemFp(semantics.item).hash(hasher);
     ClipFp(semantics.clip).hash(hasher);
 }
 
-fn hash_draw_composite_semantics(
+fn hash_draw_composite_semantics<H: Hasher>(
     semantics: &DrawCompositeSemantics<'_>,
-    hasher: &mut DefaultHasher,
+    hasher: &mut H,
 ) {
     F32Hash(semantics.transform.translation_x).hash(hasher);
     F32Hash(semantics.transform.translation_y).hash(hasher);

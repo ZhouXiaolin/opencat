@@ -17,6 +17,7 @@ dirs = "6.0.0"
 tokio = { version = "1.51.0", features = ["rt-multi-thread", "fs"] }
 winit = "0.28.7"
 raw-window-handle = "0.5.2"
+ahash = "0.8"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 skia-safe = { version = "0.93.1", features = ["textlayout", "binary-cache", "gl"] }
@@ -41,4 +42,3 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_LibraryLoader",
 ] }
 
-ahash = "0.8"

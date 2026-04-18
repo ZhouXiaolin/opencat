@@ -29,6 +29,17 @@ use crate::{
 
 use display_item::{ClipFp, DisplayItemFp, F32Hash, TextFp, item_is_time_variant};
 
+/// subtree picture cache 的双 hash fingerprint。
+///
+/// `primary` 用于 `HashMap` 查表；`secondary` 在命中后做二次验证，
+/// 规避 64-bit hash 碰撞。两个 hasher 必须 feed 完全相同的字节流，
+/// 但底层 hash 算法独立。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SubtreeSnapshotFingerprint {
+    pub primary: u64,
+    pub secondary: u64,
+}
+
 /// 每个节点的 paint variance 分类。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaintVariance {
@@ -610,6 +621,26 @@ mod tests {
             PaintVariance::TimeVariant
         );
         assert_eq!(item_paint_fingerprint(&script_item, &assets), None);
+    }
+
+    #[test]
+    fn subtree_snapshot_fingerprint_primary_and_secondary_are_independent() {
+        use std::hash::Hasher;
+
+        let mut primary = std::collections::hash_map::DefaultHasher::new();
+        let mut secondary = ahash::AHasher::default();
+        primary.write_u64(0xdead_beef);
+        secondary.write_u64(0xdead_beef);
+
+        let fp = SubtreeSnapshotFingerprint {
+            primary: primary.finish(),
+            secondary: secondary.finish(),
+        };
+
+        assert_ne!(
+            fp.primary, fp.secondary,
+            "两个独立 hasher 在相同输入下必须产出不同结果"
+        );
     }
 
 }

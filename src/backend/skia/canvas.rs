@@ -24,7 +24,7 @@ use crate::{
         compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram},
         fingerprint::{SubtreeSnapshotFingerprint, item_paint_fingerprint, text_paint_fingerprint},
     },
-    runtime::cache::{ImageCache, ItemPictureCache, SubtreeSnapshotCache, TextSnapshotCache},
+    runtime::cache::{CachedSubtreeSnapshot, ImageCache, ItemPictureCache, SubtreeSnapshotCache, TextSnapshotCache},
     runtime::profile::{
         BackendCountMetric, BackendDurationMetric, backend_span, record_backend_count,
         record_backend_duration, record_backend_elapsed,
@@ -192,20 +192,43 @@ impl<'a> SkiaBackend<'a> {
         bounds: DisplayRect,
     ) -> Result<()> {
         let subtree_cache = self.subtree_snapshot_cache.clone();
-        if let Some(cache) = subtree_cache {
-            if let Some(fp) = self.node_snapshot_fingerprint(handle) {
-                if let Some(snapshot) = cache.borrow_mut().get_cloned(&fp.primary) {
-                    record_backend_count(BackendCountMetric::SubtreeSnapshotCacheHit, 1);
-                    self.draw_subtree_snapshot(&snapshot, opacity, backdrop_blur_sigma, bounds)?;
-                    return Ok(());
-                }
+        if let Some(cache) = subtree_cache
+            && let Some(fingerprint) = self.node_snapshot_fingerprint(handle)
+        {
+            let lookup = {
+                let mut cache_ref = cache.borrow_mut();
+                let cached = cache_ref.get_cloned(&fingerprint.primary);
+                let resolution = resolve_subtree_snapshot_lookup(
+                    fingerprint,
+                    cached.as_ref().map(|entry| entry.secondary_fingerprint),
+                );
+                (resolution, cached)
+            };
 
-                let snapshot = self.record_cached_subtree_snapshot(handle)?;
-                cache.borrow_mut().insert(fp.primary, snapshot.clone());
-                record_backend_count(BackendCountMetric::SubtreeSnapshotCacheMiss, 1);
-                self.draw_subtree_snapshot(&snapshot, opacity, backdrop_blur_sigma, bounds)?;
-                return Ok(());
+            match lookup {
+                (SubtreeSnapshotResolution::Hit, Some(entry)) => {
+                    record_backend_count(BackendCountMetric::SubtreeSnapshotCacheHit, 1);
+                    return self.draw_subtree_snapshot(&entry.picture, opacity, backdrop_blur_sigma, bounds);
+                }
+                (SubtreeSnapshotResolution::CollisionRejected, _) => {
+                    record_backend_count(BackendCountMetric::SubtreeSnapshotCollisionRejected, 1);
+                }
+                (SubtreeSnapshotResolution::Miss, _) => {}
+                (SubtreeSnapshotResolution::Hit, None) => {
+                    unreachable!("Hit resolution requires cached entry")
+                }
             }
+
+            let picture = self.record_cached_subtree_snapshot(handle)?;
+            cache.borrow_mut().insert(
+                fingerprint.primary,
+                CachedSubtreeSnapshot {
+                    picture: picture.clone(),
+                    secondary_fingerprint: fingerprint.secondary,
+                },
+            );
+            record_backend_count(BackendCountMetric::SubtreeSnapshotCacheMiss, 1);
+            return self.draw_subtree_snapshot(&picture, opacity, backdrop_blur_sigma, bounds);
         }
 
         self.draw_display_subtree_contents(handle, opacity, backdrop_blur_sigma, bounds)

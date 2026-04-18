@@ -228,7 +228,7 @@ mod tests {
     use super::{RenderSession, render_frame_rgba};
     use crate::{
         Composition, FrameCtx,
-        scene::primitives::{canvas, div},
+        scene::primitives::{canvas, div, image},
         style::ColorToken,
     };
 
@@ -588,5 +588,70 @@ mod tests {
             [255, 255, 255, 255],
             "frame 1 should redraw the parent subtree when a descendant transform changes"
         );
+    }
+
+    #[test]
+    fn non_video_bitmap_populates_item_picture_cache() {
+        let image_path =
+            std::env::temp_dir().join(format!("opencat-item-cache-{}.png", std::process::id()));
+        write_test_png(&image_path);
+
+        let composition = Composition::new("bitmap_item_cache")
+            .size(24, 24)
+            .fps(30)
+            .frames(2)
+            .root({
+                let image_path = image_path.clone();
+                move |ctx: &FrameCtx| {
+                    let ticker_color = if ctx.frame == 0 {
+                        ColorToken::Red500
+                    } else {
+                        ColorToken::Blue500
+                    };
+                    div()
+                        .id("root")
+                        .w_full()
+                        .h_full()
+                        .bg_black()
+                        .child(
+                            image()
+                                .path(&image_path)
+                                .id("bitmap")
+                                .absolute()
+                                .left(8.0)
+                                .top(8.0)
+                                .w(8.0)
+                                .h(8.0),
+                        )
+                        .child(
+                            div()
+                                .id("ticker")
+                                .absolute()
+                                .left(0.0)
+                                .top(0.0)
+                                .w(1.0)
+                                .h(1.0)
+                                .bg(ticker_color),
+                        )
+                        .into()
+                }
+            })
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let _ = render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
+        let _ = render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
+
+        assert_eq!(
+            session
+                .backend_resources
+                .item_picture_cache()
+                .borrow()
+                .len(),
+            1
+        );
+
+        let _ = std::fs::remove_file(&image_path);
     }
 }

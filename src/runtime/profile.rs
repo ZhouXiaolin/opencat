@@ -6,10 +6,15 @@ pub struct BackendProfile {
     pub text_draw_ms: f64,
     pub text_snapshot_record_ms: f64,
     pub text_snapshot_draw_ms: f64,
+    pub item_picture_record_ms: f64,
+    pub item_picture_draw_ms: f64,
     pub bitmap_draw_ms: f64,
     pub draw_script_draw_ms: f64,
     pub image_decode_ms: f64,
     pub video_decode_ms: f64,
+    pub scene_static_record_ms: f64,
+    pub scene_static_draw_ms: f64,
+    pub scene_dynamic_draw_ms: f64,
     pub scene_snapshot_record_ms: f64,
     pub scene_snapshot_draw_ms: f64,
     pub light_leak_mask_ms: f64,
@@ -20,8 +25,14 @@ pub struct BackendProfile {
     pub subtree_snapshot_cache_misses: usize,
     pub text_cache_hits: usize,
     pub text_cache_misses: usize,
+    pub item_picture_cache_hits: usize,
+    pub item_picture_cache_misses: usize,
     pub image_cache_hits: usize,
     pub image_cache_misses: usize,
+    pub video_frame_cache_hits: usize,
+    pub video_frame_cache_misses: usize,
+    pub scene_static_cache_hits: usize,
+    pub scene_static_cache_misses: usize,
     pub video_frame_decodes: usize,
     pub draw_rect_count: usize,
     pub draw_text_count: usize,
@@ -82,10 +93,15 @@ impl FrameProfile {
         self.backend.text_draw_ms += profile.text_draw_ms;
         self.backend.text_snapshot_record_ms += profile.text_snapshot_record_ms;
         self.backend.text_snapshot_draw_ms += profile.text_snapshot_draw_ms;
+        self.backend.item_picture_record_ms += profile.item_picture_record_ms;
+        self.backend.item_picture_draw_ms += profile.item_picture_draw_ms;
         self.backend.bitmap_draw_ms += profile.bitmap_draw_ms;
         self.backend.draw_script_draw_ms += profile.draw_script_draw_ms;
         self.backend.image_decode_ms += profile.image_decode_ms;
         self.backend.video_decode_ms += profile.video_decode_ms;
+        self.backend.scene_static_record_ms += profile.scene_static_record_ms;
+        self.backend.scene_static_draw_ms += profile.scene_static_draw_ms;
+        self.backend.scene_dynamic_draw_ms += profile.scene_dynamic_draw_ms;
         self.backend.scene_snapshot_record_ms += profile.scene_snapshot_record_ms;
         self.backend.scene_snapshot_draw_ms += profile.scene_snapshot_draw_ms;
         self.backend.light_leak_mask_ms += profile.light_leak_mask_ms;
@@ -96,8 +112,14 @@ impl FrameProfile {
         self.backend.subtree_snapshot_cache_misses += profile.subtree_snapshot_cache_misses;
         self.backend.text_cache_hits += profile.text_cache_hits;
         self.backend.text_cache_misses += profile.text_cache_misses;
+        self.backend.item_picture_cache_hits += profile.item_picture_cache_hits;
+        self.backend.item_picture_cache_misses += profile.item_picture_cache_misses;
         self.backend.image_cache_hits += profile.image_cache_hits;
         self.backend.image_cache_misses += profile.image_cache_misses;
+        self.backend.video_frame_cache_hits += profile.video_frame_cache_hits;
+        self.backend.video_frame_cache_misses += profile.video_frame_cache_misses;
+        self.backend.scene_static_cache_hits += profile.scene_static_cache_hits;
+        self.backend.scene_static_cache_misses += profile.scene_static_cache_misses;
         self.backend.video_frame_decodes += profile.video_frame_decodes;
         self.backend.draw_rect_count += profile.draw_rect_count;
         self.backend.draw_text_count += profile.draw_text_count;
@@ -167,22 +189,27 @@ impl RenderProfiler {
             average_usize(&self.frames, |frame| frame.structure_rebuilds),
         );
         eprintln!(
-            "  backend avg ms/frame: rect {:.2}, text {:.2}, text_snapshot_record {:.2}, text_snapshot_draw {:.2}, bitmap {:.2}, draw_script {:.2}, image_decode {:.2}, video_decode {:.2}, scene_snapshot_record {:.2}, scene_snapshot_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}",
+            "  backend avg ms/frame: rect {:.2}, text {:.2}, text_snapshot_record {:.2}, text_snapshot_draw {:.2}, item_picture_record {:.2}, item_picture_draw {:.2}, bitmap {:.2}, draw_script {:.2}, image_decode {:.2}, video_decode {:.2}, scene_static_record {:.2}, scene_static_draw {:.2}, scene_dynamic_draw {:.2}, scene_snapshot_record {:.2}, scene_snapshot_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}",
             average(&self.frames, |frame| frame.backend.rect_draw_ms),
             average(&self.frames, |frame| frame.backend.text_draw_ms),
             average(&self.frames, |frame| frame.backend.text_snapshot_record_ms),
             average(&self.frames, |frame| frame.backend.text_snapshot_draw_ms),
+            average(&self.frames, |frame| frame.backend.item_picture_record_ms),
+            average(&self.frames, |frame| frame.backend.item_picture_draw_ms),
             average(&self.frames, |frame| frame.backend.bitmap_draw_ms),
             average(&self.frames, |frame| frame.backend.draw_script_draw_ms),
             average(&self.frames, |frame| frame.backend.image_decode_ms),
             average(&self.frames, |frame| frame.backend.video_decode_ms),
+            average(&self.frames, |frame| frame.backend.scene_static_record_ms),
+            average(&self.frames, |frame| frame.backend.scene_static_draw_ms),
+            average(&self.frames, |frame| frame.backend.scene_dynamic_draw_ms),
             average(&self.frames, |frame| frame.backend.scene_snapshot_record_ms),
             average(&self.frames, |frame| frame.backend.scene_snapshot_draw_ms),
             average(&self.frames, |frame| frame.backend.light_leak_mask_ms),
             average(&self.frames, |frame| frame.backend.light_leak_composite_ms),
         );
         eprintln!(
-            "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, text_hit {:.2}, text_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, img_hit {:.2}, img_miss {:.2}, video_decode {:.2}",
+            "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, text_hit {:.2}, text_miss {:.2}, item_hit {:.2}, item_miss {:.2}, scene_static_hit {:.2}, scene_static_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}",
             average_usize(&self.frames, |frame| frame.backend.draw_rect_count),
             average_usize(&self.frames, |frame| frame.backend.draw_text_count),
             average_usize(&self.frames, |frame| frame.backend.draw_bitmap_count),
@@ -190,6 +217,14 @@ impl RenderProfiler {
             average_usize(&self.frames, |frame| frame.backend.save_layer_count),
             average_usize(&self.frames, |frame| frame.backend.text_cache_hits),
             average_usize(&self.frames, |frame| frame.backend.text_cache_misses),
+            average_usize(&self.frames, |frame| frame.backend.item_picture_cache_hits),
+            average_usize(&self.frames, |frame| frame
+                .backend
+                .item_picture_cache_misses),
+            average_usize(&self.frames, |frame| frame.backend.scene_static_cache_hits),
+            average_usize(&self.frames, |frame| frame
+                .backend
+                .scene_static_cache_misses),
             average_usize(&self.frames, |frame| frame
                 .backend
                 .scene_snapshot_cache_hits),
@@ -204,6 +239,8 @@ impl RenderProfiler {
                 .subtree_snapshot_cache_misses),
             average_usize(&self.frames, |frame| frame.backend.image_cache_hits),
             average_usize(&self.frames, |frame| frame.backend.image_cache_misses),
+            average_usize(&self.frames, |frame| frame.backend.video_frame_cache_hits),
+            average_usize(&self.frames, |frame| frame.backend.video_frame_cache_misses),
             average_usize(&self.frames, |frame| frame.backend.video_frame_decodes),
         );
     }

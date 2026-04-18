@@ -94,7 +94,9 @@ fn build_display_node(
         item,
         children,
         paint_variance,
+        composite_dirty: false,
         subtree_contains_time_variant,
+        subtree_contains_dynamic: subtree_contains_time_variant,
         snapshot_fingerprint: None,
     };
 
@@ -281,7 +283,8 @@ mod tests {
             ),
         };
 
-        let list = build_display_list(&resolved, &layout_tree, &assets).expect("display list should build");
+        let list = build_display_list(&resolved, &layout_tree, &assets)
+            .expect("display list should build");
         let bitmap = list
             .commands
             .iter()
@@ -294,7 +297,10 @@ mod tests {
             .expect("bitmap draw item should exist");
 
         assert_eq!(bitmap.object_fit, ObjectFit::Cover);
-        assert_eq!(bitmap.paint.border_radius, crate::style::BorderRadius::default());
+        assert_eq!(
+            bitmap.paint.border_radius,
+            crate::style::BorderRadius::default()
+        );
     }
 
     #[test]
@@ -351,7 +357,8 @@ mod tests {
             ),
         };
 
-        let list = build_display_list(&resolved, &layout_tree, &assets).expect("display list should build");
+        let list = build_display_list(&resolved, &layout_tree, &assets)
+            .expect("display list should build");
         let texts = list
             .commands
             .iter()
@@ -407,7 +414,8 @@ mod tests {
             ),
         };
 
-        let list = build_display_list(&resolved, &layout_tree, &assets).expect("display list should build");
+        let list = build_display_list(&resolved, &layout_tree, &assets)
+            .expect("display list should build");
         let clip = list.commands.iter().find_map(|command| match command {
             DisplayCommand::Clip { clip } => Some(clip),
             _ => None,
@@ -479,7 +487,8 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree, &assets).expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree, &assets)
+            .expect("display tree should build");
         let texts = tree
             .root
             .children
@@ -537,7 +546,8 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree, &assets).expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree, &assets)
+            .expect("display tree should build");
         let DisplayItem::Lucide(lucide) = &tree.root.children[0].item else {
             panic!("expected lucide item");
         };
@@ -582,7 +592,8 @@ mod tests {
             ),
         };
 
-        let err = build_display_tree(&resolved, &layout_tree, &assets).expect_err("expected mismatch");
+        let err =
+            build_display_tree(&resolved, &layout_tree, &assets).expect_err("expected mismatch");
         assert!(err.to_string().contains("child count mismatch"));
     }
 }

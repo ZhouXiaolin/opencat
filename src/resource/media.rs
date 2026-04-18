@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,6 +8,7 @@ use skia_safe::{AlphaType, ColorType, Data, Image, ImageInfo, image::CachingHint
 
 use crate::codec::decode::VideoDecodeCache;
 use crate::resource::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
+use crate::runtime::cache::{CacheCaps, video_frames::VideoFrameCache};
 
 pub use crate::codec::decode::VideoInfo;
 
@@ -73,62 +73,30 @@ impl VideoFrameRequest {
     }
 }
 
-/// 视频帧的 LRU 缓存，key 按 100μs 粒度量化时间。
-/// 用来去重同一帧内多次请求（transition 的 from/to 常常引用同一 path/pts）。
-struct VideoFrameLruCache {
-    entries: VecDeque<(VideoFrameKey, Arc<Vec<u8>>)>,
-    capacity: usize,
-}
-
-#[derive(Clone, Eq, PartialEq)]
-struct VideoFrameKey {
-    path: PathBuf,
-    pts_quantized: u64,
-}
-
-impl VideoFrameLruCache {
-    fn new(capacity: usize) -> Self {
-        Self {
-            entries: VecDeque::with_capacity(capacity),
-            capacity,
-        }
-    }
-
-    fn get(&mut self, key: &VideoFrameKey) -> Option<Arc<Vec<u8>>> {
-        let pos = self.entries.iter().position(|(k, _)| k == key)?;
-        let (k, v) = self.entries.remove(pos).expect("position is valid");
-        self.entries.push_back((k, v.clone()));
-        Some(v)
-    }
-
-    fn insert(&mut self, key: VideoFrameKey, value: Arc<Vec<u8>>) {
-        if let Some(pos) = self.entries.iter().position(|(k, _)| k == &key) {
-            self.entries.remove(pos);
-        }
-        if self.entries.len() >= self.capacity {
-            self.entries.pop_front();
-        }
-        self.entries.push_back((key, value));
-    }
-}
-
-fn quantize_pts(time_secs: f64) -> u64 {
-    (time_secs.max(0.0) * 10_000.0).round() as u64
+pub struct VideoBitmap {
+    pub data: Arc<Vec<u8>>,
+    pub width: u32,
+    pub height: u32,
+    pub frame_cache_hit: bool,
 }
 
 pub struct MediaContext {
     videos: VideoDecodeCache,
     images: HashMap<PathBuf, (Arc<Vec<u8>>, u32, u32)>,
-    video_frame_cache: VideoFrameLruCache,
+    video_frame_cache: VideoFrameCache,
     video_preview_quality: VideoPreviewQuality,
 }
 
 impl MediaContext {
     pub fn new() -> Self {
+        Self::with_cache_caps(CacheCaps::default())
+    }
+
+    pub fn with_cache_caps(caps: CacheCaps) -> Self {
         Self {
             videos: VideoDecodeCache::new(),
             images: HashMap::new(),
-            video_frame_cache: VideoFrameLruCache::new(8),
+            video_frame_cache: VideoFrameCache::new(caps.video_frames),
             video_preview_quality: VideoPreviewQuality::Realtime,
         }
     }
@@ -145,25 +113,37 @@ impl MediaContext {
         &mut self,
         path: &Path,
         request: VideoFrameRequest,
-    ) -> Result<Arc<Vec<u8>>> {
+    ) -> Result<(Arc<Vec<u8>>, bool)> {
         let info = self.video_info(path)?;
         let target_time_secs = request.resolve_time_secs(&info);
-        let key = VideoFrameKey {
-            path: path.to_path_buf(),
-            pts_quantized: quantize_pts(target_time_secs),
-        };
-        if let Some(cached) = self.video_frame_cache.get(&key) {
-            return Ok(cached);
+        if let Some(cached) = self.video_frame_cache.get(path, target_time_secs) {
+            return Ok((cached, true));
         }
         let data = self
             .videos
             .get_frame(path, target_time_secs, request.quality)?;
-        self.video_frame_cache.insert(key, data.clone());
-        Ok(data)
+        self.video_frame_cache
+            .insert(path, target_time_secs, data.clone());
+        Ok((data, false))
     }
 
     pub fn video_info(&mut self, path: &Path) -> Result<VideoInfo> {
         self.videos.info(path)
+    }
+
+    pub fn get_video_bitmap(
+        &mut self,
+        path: &Path,
+        request: VideoFrameRequest,
+    ) -> Result<VideoBitmap> {
+        let (data, frame_cache_hit) = self.get_video_frame(path, request)?;
+        let info = self.video_info(path)?;
+        Ok(VideoBitmap {
+            data,
+            width: info.width,
+            height: info.height,
+            frame_cache_hit,
+        })
     }
 
     pub fn get_bitmap(
@@ -176,9 +156,8 @@ impl MediaContext {
                 let request = video_request.ok_or_else(|| {
                     anyhow!("video bitmap request is required for {}", path.display())
                 })?;
-                let data = self.get_video_frame(path, request)?;
-                let info = self.video_info(path)?;
-                Ok((data, info.width, info.height))
+                let bitmap = self.get_video_bitmap(path, request)?;
+                Ok((bitmap.data, bitmap.width, bitmap.height))
             }
             BitmapSourceKind::StaticImage => {
                 if !self.images.contains_key(path) {

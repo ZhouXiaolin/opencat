@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, time::Instant};
+use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
@@ -20,7 +20,14 @@ use crate::{
         bitmap_source::{BitmapSourceKind, bitmap_source_kind},
         media::{MediaContext, VideoFrameRequest},
     },
-    runtime::fingerprint::text_paint_fingerprint,
+    runtime::cache::{
+        ImageCache, ItemPictureCache, SceneStaticPictureCache, SubtreeSnapshotCache,
+        TextSnapshotCache,
+    },
+    runtime::fingerprint::{
+        PaintVariance, item_paint_fingerprint, scene_static_skeleton_fingerprint,
+        text_paint_fingerprint,
+    },
     runtime::profile::BackendProfile,
     scene::script::{
         CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
@@ -32,7 +39,6 @@ use crate::{
 };
 
 use super::{
-    cache::{SkiaImageCache, SkiaSubtreeSnapshotCache, SkiaTextSnapshotCache},
     color::{script_color, skia_color},
     text as skia_text,
 };
@@ -43,12 +49,21 @@ struct BitmapDrawStats {
     video_decode_ms: f64,
     image_cache_hits: usize,
     image_cache_misses: usize,
+    video_frame_cache_hits: usize,
+    video_frame_cache_misses: usize,
     video_frame_decodes: usize,
 }
 
 struct TextDrawStats {
     snapshot_record_ms: f64,
     snapshot_draw_ms: f64,
+    cache_hits: usize,
+    cache_misses: usize,
+}
+
+struct ItemPictureDrawStats {
+    record_ms: f64,
+    draw_ms: f64,
     cache_hits: usize,
     cache_misses: usize,
 }
@@ -97,9 +112,10 @@ pub struct SkiaBackend<'a> {
     assets: &'a AssetsMap,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
-    image_cache: SkiaImageCache,
-    text_snapshot_cache: SkiaTextSnapshotCache,
-    subtree_snapshot_cache: Option<SkiaSubtreeSnapshotCache>,
+    image_cache: ImageCache,
+    text_snapshot_cache: TextSnapshotCache,
+    item_picture_cache: ItemPictureCache,
+    subtree_snapshot_cache: Option<SubtreeSnapshotCache>,
     profile: Option<&'a mut BackendProfile>,
 }
 
@@ -109,9 +125,10 @@ impl<'a> SkiaBackend<'a> {
         _width: i32,
         _height: i32,
         assets: &'a AssetsMap,
-        image_cache: SkiaImageCache,
-        text_snapshot_cache: SkiaTextSnapshotCache,
-        subtree_snapshot_cache: Option<SkiaSubtreeSnapshotCache>,
+        image_cache: ImageCache,
+        text_snapshot_cache: TextSnapshotCache,
+        item_picture_cache: ItemPictureCache,
+        subtree_snapshot_cache: Option<SubtreeSnapshotCache>,
         media_ctx: Option<&'a mut MediaContext>,
         frame_ctx: &'a FrameCtx,
         profile: Option<&'a mut BackendProfile>,
@@ -121,6 +138,7 @@ impl<'a> SkiaBackend<'a> {
             assets,
             image_cache,
             text_snapshot_cache,
+            item_picture_cache,
             subtree_snapshot_cache,
             media_ctx,
             frame_ctx,
@@ -142,6 +160,20 @@ impl<'a> SkiaBackend<'a> {
         Ok(())
     }
 
+    fn draw_display_children_static_only(&mut self, children: &[DisplayNode]) -> Result<()> {
+        for child in children {
+            self.draw_display_subtree_static_only(child)?;
+        }
+        Ok(())
+    }
+
+    fn draw_display_children_dynamic_only(&mut self, children: &[DisplayNode]) -> Result<()> {
+        for child in children {
+            self.draw_display_subtree_dynamic_only(child)?;
+        }
+        Ok(())
+    }
+
     fn draw_display_subtree(&mut self, node: &DisplayNode) -> Result<()> {
         if node.opacity <= 0.0 {
             return Ok(());
@@ -149,16 +181,20 @@ impl<'a> SkiaBackend<'a> {
 
         self.canvas.save();
         apply_transform(self.canvas, &node.transform);
+        let result = self.draw_display_subtree_after_transform(node);
+        self.canvas.restore();
+        result
+    }
 
+    fn draw_display_subtree_after_transform(&mut self, node: &DisplayNode) -> Result<()> {
         let subtree_cache = self.subtree_snapshot_cache.clone();
         if let Some(cache) = subtree_cache {
             if let Some(key) = node.snapshot_fingerprint {
-                if let Some(snapshot) = cache.borrow().get(&key).cloned() {
+                if let Some(snapshot) = cache.borrow_mut().get_cloned(&key) {
                     if let Some(profile) = self.profile.as_deref_mut() {
                         profile.subtree_snapshot_cache_hits += 1;
                     }
                     self.draw_subtree_snapshot(node, &snapshot)?;
-                    self.canvas.restore();
                     return Ok(());
                 }
 
@@ -168,14 +204,11 @@ impl<'a> SkiaBackend<'a> {
                     profile.subtree_snapshot_cache_misses += 1;
                 }
                 self.draw_subtree_snapshot(node, &snapshot)?;
-                self.canvas.restore();
                 return Ok(());
             }
         }
 
-        self.draw_display_subtree_contents(node)?;
-        self.canvas.restore();
-        Ok(())
+        self.draw_display_subtree_contents(node)
     }
 
     fn draw_display_subtree_contents(&mut self, node: &DisplayNode) -> Result<()> {
@@ -193,7 +226,102 @@ impl<'a> SkiaBackend<'a> {
         })
     }
 
+    fn draw_display_subtree_static_only(&mut self, node: &DisplayNode) -> Result<()> {
+        if node.opacity <= 0.0
+            || node.paint_variance == PaintVariance::TimeVariant
+            || node.composite_dirty
+        {
+            return Ok(());
+        }
+
+        self.canvas.save();
+        apply_transform(self.canvas, &node.transform);
+        let result = if !node.subtree_contains_dynamic {
+            self.draw_display_subtree_after_transform(node)
+        } else {
+            self.with_display_opacity(node.opacity, node.layer_bounds(), |backend| {
+                backend.draw_display_item(&node.item)?;
+                if let Some(clip) = &node.clip {
+                    backend.canvas.save();
+                    clip_bounds(backend.canvas, clip.bounds, clip.border_radius);
+                    backend.draw_display_children_static_only(&node.children)?;
+                    backend.canvas.restore();
+                    Ok(())
+                } else {
+                    backend.draw_display_children_static_only(&node.children)
+                }
+            })
+        };
+        self.canvas.restore();
+        result
+    }
+
+    fn draw_display_subtree_dynamic_only(&mut self, node: &DisplayNode) -> Result<()> {
+        if node.opacity <= 0.0 || !node.subtree_contains_dynamic {
+            return Ok(());
+        }
+
+        self.canvas.save();
+        apply_transform(self.canvas, &node.transform);
+        let result = if node.paint_variance == PaintVariance::TimeVariant || node.composite_dirty {
+            self.draw_display_subtree_contents(node)
+        } else {
+            self.with_display_opacity(node.opacity, node.layer_bounds(), |backend| {
+                if let Some(clip) = &node.clip {
+                    backend.canvas.save();
+                    clip_bounds(backend.canvas, clip.bounds, clip.border_radius);
+                    backend.draw_display_children_dynamic_only(&node.children)?;
+                    backend.canvas.restore();
+                    Ok(())
+                } else {
+                    backend.draw_display_children_dynamic_only(&node.children)
+                }
+            })
+        };
+        self.canvas.restore();
+        result
+    }
+
     fn draw_display_item(&mut self, item: &DisplayItem) -> Result<()> {
+        if should_cache_item_picture(item)
+            && let Some(cache_key) = item_paint_fingerprint(item, self.assets)
+        {
+            let stats = draw_item_picture_cached(
+                self.canvas,
+                item,
+                cache_key,
+                self.assets,
+                &self.image_cache,
+                &self.text_snapshot_cache,
+                &self.item_picture_cache,
+                &mut self.media_ctx,
+                self.frame_ctx,
+            )?;
+            if let Some(profile) = self.profile.as_deref_mut() {
+                profile.item_picture_record_ms += stats.record_ms;
+                profile.item_picture_draw_ms += stats.draw_ms;
+                profile.item_picture_cache_hits += stats.cache_hits;
+                profile.item_picture_cache_misses += stats.cache_misses;
+                match item {
+                    DisplayItem::Bitmap(_) => {
+                        profile.draw_bitmap_count += 1;
+                        profile.bitmap_draw_ms += stats.draw_ms;
+                    }
+                    DisplayItem::DrawScript(_) => {
+                        profile.draw_script_count += 1;
+                        profile.draw_script_draw_ms += stats.draw_ms;
+                    }
+                    DisplayItem::Lucide(_) => {}
+                    DisplayItem::Rect(_) | DisplayItem::Text(_) => {}
+                }
+            }
+            return Ok(());
+        }
+
+        self.draw_display_item_uncached(item)
+    }
+
+    fn draw_display_item_uncached(&mut self, item: &DisplayItem) -> Result<()> {
         match item {
             DisplayItem::Rect(rect) => {
                 let started = Instant::now();
@@ -266,6 +394,8 @@ impl<'a> SkiaBackend<'a> {
                     profile.video_decode_ms += stats.video_decode_ms;
                     profile.image_cache_hits += stats.image_cache_hits;
                     profile.image_cache_misses += stats.image_cache_misses;
+                    profile.video_frame_cache_hits += stats.video_frame_cache_hits;
+                    profile.video_frame_cache_misses += stats.video_frame_cache_misses;
                     profile.video_frame_decodes += stats.video_frame_decodes;
                 }
             }
@@ -322,6 +452,7 @@ impl<'a> SkiaBackend<'a> {
             self.assets,
             self.image_cache.clone(),
             self.text_snapshot_cache.clone(),
+            self.item_picture_cache.clone(),
             self.subtree_snapshot_cache.clone(),
             None,
             self.frame_ctx,
@@ -435,8 +566,9 @@ pub(crate) fn record_display_list_composite_source<'a>(
     width: i32,
     height: i32,
     assets: &'a AssetsMap,
-    image_cache: SkiaImageCache,
-    text_snapshot_cache: SkiaTextSnapshotCache,
+    image_cache: ImageCache,
+    text_snapshot_cache: TextSnapshotCache,
+    item_picture_cache: ItemPictureCache,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     mut profile: Option<&'a mut BackendProfile>,
@@ -452,6 +584,7 @@ pub(crate) fn record_display_list_composite_source<'a>(
         assets,
         image_cache,
         text_snapshot_cache,
+        item_picture_cache,
         None,
         media_ctx,
         frame_ctx,
@@ -471,9 +604,10 @@ pub(crate) fn draw_display_tree_with_subtree_cache<'a>(
     display_tree: &DisplayTree,
     canvas: &'a Canvas,
     assets: &'a AssetsMap,
-    image_cache: SkiaImageCache,
-    text_snapshot_cache: SkiaTextSnapshotCache,
-    subtree_snapshot_cache: SkiaSubtreeSnapshotCache,
+    image_cache: ImageCache,
+    text_snapshot_cache: TextSnapshotCache,
+    item_picture_cache: ItemPictureCache,
+    subtree_snapshot_cache: SubtreeSnapshotCache,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     profile: Option<&'a mut BackendProfile>,
@@ -485,6 +619,7 @@ pub(crate) fn draw_display_tree_with_subtree_cache<'a>(
         assets,
         image_cache,
         text_snapshot_cache,
+        item_picture_cache,
         Some(subtree_snapshot_cache),
         media_ctx,
         frame_ctx,
@@ -493,14 +628,88 @@ pub(crate) fn draw_display_tree_with_subtree_cache<'a>(
     backend.draw_display_subtree(&display_tree.root)
 }
 
+pub(crate) fn draw_display_tree_layered_video<'a>(
+    display_tree: &DisplayTree,
+    canvas: &'a Canvas,
+    assets: &'a AssetsMap,
+    image_cache: ImageCache,
+    text_snapshot_cache: TextSnapshotCache,
+    item_picture_cache: ItemPictureCache,
+    subtree_snapshot_cache: SubtreeSnapshotCache,
+    scene_static_picture_cache: SceneStaticPictureCache,
+    media_ctx: Option<&'a mut MediaContext>,
+    frame_ctx: &'a FrameCtx,
+    mut profile: Option<&'a mut BackendProfile>,
+) -> Result<()> {
+    let skeleton_fp = scene_static_skeleton_fingerprint(&display_tree.root);
+    let static_snapshot = if let Some(snapshot) = scene_static_picture_cache
+        .borrow_mut()
+        .get_cloned(&skeleton_fp)
+    {
+        if let Some(profile) = profile.as_deref_mut() {
+            profile.scene_static_cache_hits += 1;
+        }
+        snapshot
+    } else {
+        let snapshot = record_display_tree_static_skeleton(
+            display_tree,
+            display_tree.root.transform.bounds.width as i32,
+            display_tree.root.transform.bounds.height as i32,
+            assets,
+            image_cache.clone(),
+            text_snapshot_cache.clone(),
+            item_picture_cache.clone(),
+            subtree_snapshot_cache.clone(),
+            frame_ctx,
+            profile.as_deref_mut(),
+        )?;
+        scene_static_picture_cache
+            .borrow_mut()
+            .insert(skeleton_fp, snapshot.clone());
+        if let Some(profile) = profile.as_deref_mut() {
+            profile.scene_static_cache_misses += 1;
+        }
+        snapshot
+    };
+
+    if let Some(profile) = profile.as_deref_mut() {
+        let started = Instant::now();
+        canvas.draw_picture(&static_snapshot, None, None);
+        profile.scene_static_draw_ms += started.elapsed().as_secs_f64() * 1000.0;
+    } else {
+        canvas.draw_picture(&static_snapshot, None, None);
+    }
+
+    let dynamic_started = Instant::now();
+    let mut backend = SkiaBackend::new_with_cache_and_profile(
+        canvas,
+        display_tree.root.transform.bounds.width as i32,
+        display_tree.root.transform.bounds.height as i32,
+        assets,
+        image_cache,
+        text_snapshot_cache,
+        item_picture_cache,
+        Some(subtree_snapshot_cache),
+        media_ctx,
+        frame_ctx,
+        profile.as_deref_mut(),
+    );
+    backend.draw_display_subtree_dynamic_only(&display_tree.root)?;
+    if let Some(profile) = profile {
+        profile.scene_dynamic_draw_ms += dynamic_started.elapsed().as_secs_f64() * 1000.0;
+    }
+    Ok(())
+}
+
 pub(crate) fn record_display_tree_composite_source_with_subtree_cache<'a>(
     display_tree: &DisplayTree,
     width: i32,
     height: i32,
     assets: &'a AssetsMap,
-    image_cache: SkiaImageCache,
-    text_snapshot_cache: SkiaTextSnapshotCache,
-    subtree_snapshot_cache: SkiaSubtreeSnapshotCache,
+    image_cache: ImageCache,
+    text_snapshot_cache: TextSnapshotCache,
+    item_picture_cache: ItemPictureCache,
+    subtree_snapshot_cache: SubtreeSnapshotCache,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     mut profile: Option<&'a mut BackendProfile>,
@@ -516,6 +725,7 @@ pub(crate) fn record_display_tree_composite_source_with_subtree_cache<'a>(
         assets,
         image_cache,
         text_snapshot_cache,
+        item_picture_cache,
         Some(subtree_snapshot_cache),
         media_ctx,
         frame_ctx,
@@ -527,6 +737,45 @@ pub(crate) fn record_display_tree_composite_source_with_subtree_cache<'a>(
         .ok_or_else(|| anyhow!("failed to record display tree snapshot"))?;
     if let Some(profile) = profile {
         profile.scene_snapshot_record_ms += started.elapsed().as_secs_f64() * 1000.0;
+    }
+    Ok(snapshot)
+}
+
+pub(crate) fn record_display_tree_static_skeleton<'a>(
+    display_tree: &DisplayTree,
+    width: i32,
+    height: i32,
+    assets: &'a AssetsMap,
+    image_cache: ImageCache,
+    text_snapshot_cache: TextSnapshotCache,
+    item_picture_cache: ItemPictureCache,
+    subtree_snapshot_cache: SubtreeSnapshotCache,
+    frame_ctx: &'a FrameCtx,
+    mut profile: Option<&'a mut BackendProfile>,
+) -> Result<Picture> {
+    let started = Instant::now();
+    let bounds = Rect::from_xywh(0.0, 0.0, width as f32, height as f32);
+    let mut recorder = PictureRecorder::new();
+    let recording_canvas = recorder.begin_recording(bounds, false);
+    let mut backend = SkiaBackend::new_with_cache_and_profile(
+        recording_canvas,
+        width,
+        height,
+        assets,
+        image_cache,
+        text_snapshot_cache,
+        item_picture_cache,
+        Some(subtree_snapshot_cache),
+        None,
+        frame_ctx,
+        profile.as_deref_mut(),
+    );
+    backend.draw_display_subtree_static_only(&display_tree.root)?;
+    let snapshot = recorder
+        .finish_recording_as_picture(None)
+        .ok_or_else(|| anyhow!("failed to record display tree static skeleton"))?;
+    if let Some(profile) = profile {
+        profile.scene_static_record_ms += started.elapsed().as_secs_f64() * 1000.0;
     }
     Ok(snapshot)
 }
@@ -691,10 +940,10 @@ fn draw_item_drop_shadow(
 fn draw_text(
     canvas: &Canvas,
     text: &TextDisplayItem,
-    text_snapshot_cache: &RefCell<HashMap<u64, Picture>>,
+    text_snapshot_cache: &TextSnapshotCache,
 ) -> Result<TextDrawStats> {
     let cache_key = text_paint_fingerprint(text);
-    if let Some(snapshot) = text_snapshot_cache.borrow().get(&cache_key).cloned() {
+    if let Some(snapshot) = text_snapshot_cache.borrow_mut().get_cloned(&cache_key) {
         let draw_started = Instant::now();
         canvas.save();
         canvas.translate((text.bounds.x, text.bounds.y));
@@ -728,6 +977,161 @@ fn draw_text(
     }
 }
 
+fn should_cache_item_picture(item: &DisplayItem) -> bool {
+    matches!(
+        item,
+        DisplayItem::Bitmap(_) | DisplayItem::DrawScript(_) | DisplayItem::Lucide(_)
+    )
+}
+
+fn draw_item_picture_cached(
+    canvas: &Canvas,
+    item: &DisplayItem,
+    cache_key: u64,
+    assets: &AssetsMap,
+    image_cache: &ImageCache,
+    text_snapshot_cache: &TextSnapshotCache,
+    item_picture_cache: &ItemPictureCache,
+    media_ctx: &mut Option<&mut MediaContext>,
+    frame_ctx: &FrameCtx,
+) -> Result<ItemPictureDrawStats> {
+    let visual_bounds = item.visual_bounds();
+    if let Some(snapshot) = item_picture_cache.borrow_mut().get_cloned(&cache_key) {
+        let draw_started = Instant::now();
+        canvas.save();
+        canvas.translate((visual_bounds.x, visual_bounds.y));
+        canvas.draw_picture(&snapshot, None, None);
+        canvas.restore();
+        return Ok(ItemPictureDrawStats {
+            record_ms: 0.0,
+            draw_ms: draw_started.elapsed().as_secs_f64() * 1000.0,
+            cache_hits: 1,
+            cache_misses: 0,
+        });
+    }
+
+    let record_started = Instant::now();
+    let snapshot = record_item_picture(
+        item,
+        assets,
+        image_cache,
+        text_snapshot_cache,
+        media_ctx,
+        frame_ctx,
+    )?;
+    let record_ms = record_started.elapsed().as_secs_f64() * 1000.0;
+    item_picture_cache
+        .borrow_mut()
+        .insert(cache_key, snapshot.clone());
+
+    let draw_started = Instant::now();
+    canvas.save();
+    canvas.translate((visual_bounds.x, visual_bounds.y));
+    canvas.draw_picture(&snapshot, None, None);
+    canvas.restore();
+    Ok(ItemPictureDrawStats {
+        record_ms,
+        draw_ms: draw_started.elapsed().as_secs_f64() * 1000.0,
+        cache_hits: 0,
+        cache_misses: 1,
+    })
+}
+
+fn record_item_picture(
+    item: &DisplayItem,
+    assets: &AssetsMap,
+    image_cache: &ImageCache,
+    text_snapshot_cache: &TextSnapshotCache,
+    media_ctx: &mut Option<&mut MediaContext>,
+    frame_ctx: &FrameCtx,
+) -> Result<Picture> {
+    let visual_bounds = item.visual_bounds();
+    let bounds = Rect::from_xywh(
+        0.0,
+        0.0,
+        visual_bounds.width.max(1.0),
+        visual_bounds.height.max(1.0),
+    );
+    let mut recorder = PictureRecorder::new();
+    let recording_canvas = recorder.begin_recording(bounds, false);
+    recording_canvas.translate((-visual_bounds.x, -visual_bounds.y));
+    draw_display_item_direct(
+        recording_canvas,
+        item,
+        assets,
+        image_cache,
+        text_snapshot_cache,
+        media_ctx,
+        frame_ctx,
+    )?;
+    recorder
+        .finish_recording_as_picture(None)
+        .ok_or_else(|| anyhow!("failed to record item picture"))
+}
+
+fn draw_display_item_direct(
+    canvas: &Canvas,
+    item: &DisplayItem,
+    assets: &AssetsMap,
+    image_cache: &ImageCache,
+    text_snapshot_cache: &TextSnapshotCache,
+    media_ctx: &mut Option<&mut MediaContext>,
+    frame_ctx: &FrameCtx,
+) -> Result<()> {
+    match item {
+        DisplayItem::Rect(rect) => {
+            if let Some(shadow) = rect.paint.box_shadow {
+                draw_box_shadow(canvas, rect.bounds, rect.paint.border_radius, shadow);
+            }
+            if let Some(shadow) = rect.paint.drop_shadow {
+                draw_item_drop_shadow(canvas, rect.bounds, shadow, |canvas| {
+                    draw_rect(canvas, rect);
+                    Ok(())
+                })?;
+            }
+            draw_rect(canvas, rect);
+        }
+        DisplayItem::Text(text) => {
+            if let Some(shadow) = text.drop_shadow {
+                draw_item_drop_shadow(canvas, text.bounds, shadow, |canvas| {
+                    draw_text(canvas, text, text_snapshot_cache).map(|_| ())
+                })?;
+            }
+            let _ = draw_text(canvas, text, text_snapshot_cache)?;
+        }
+        DisplayItem::Bitmap(bitmap) => {
+            if let Some(shadow) = bitmap.paint.box_shadow {
+                draw_box_shadow(canvas, bitmap.bounds, bitmap.paint.border_radius, shadow);
+            }
+            if let Some(shadow) = bitmap.paint.drop_shadow {
+                draw_item_drop_shadow(canvas, bitmap.bounds, shadow, |canvas| {
+                    draw_bitmap(canvas, bitmap, assets, image_cache, media_ctx, frame_ctx)
+                        .map(|_| ())
+                })?;
+            }
+            let _ = draw_bitmap(canvas, bitmap, assets, image_cache, media_ctx, frame_ctx)?;
+        }
+        DisplayItem::DrawScript(script) => {
+            if let Some(shadow) = script.drop_shadow {
+                draw_item_drop_shadow(canvas, script.bounds, shadow, |canvas| {
+                    draw_script_item(canvas, script, assets, image_cache, media_ctx, frame_ctx)
+                })?;
+            }
+            draw_script_item(canvas, script, assets, image_cache, media_ctx, frame_ctx)?;
+        }
+        DisplayItem::Lucide(lucide) => {
+            if let Some(shadow) = lucide.paint.drop_shadow {
+                draw_item_drop_shadow(canvas, lucide.bounds, shadow, |canvas| {
+                    draw_lucide(canvas, lucide);
+                    Ok(())
+                })?;
+            }
+            draw_lucide(canvas, lucide);
+        }
+    }
+    Ok(())
+}
+
 fn record_text_snapshot(text: &TextDisplayItem) -> Result<Picture> {
     let width = text.bounds.width.max(1.0);
     let height = text.bounds.height.max(1.0);
@@ -752,7 +1156,7 @@ fn draw_bitmap(
     canvas: &Canvas,
     bitmap: &BitmapDisplayItem,
     assets: &AssetsMap,
-    image_cache: &RefCell<HashMap<String, Option<SkiaImage>>>,
+    image_cache: &ImageCache,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
 ) -> Result<BitmapDrawStats> {
@@ -766,6 +1170,8 @@ fn draw_bitmap(
         video_decode_ms: 0.0,
         image_cache_hits: 0,
         image_cache_misses: 0,
+        video_frame_cache_hits: 0,
+        video_frame_cache_misses: 0,
         video_frame_decodes: 0,
     };
 
@@ -787,31 +1193,39 @@ fn draw_bitmap(
                 )
             })?;
         let decode_started = Instant::now();
-        let (data, width, height) = media
-            .get_bitmap(path, Some(request))
+        let video_bitmap = media
+            .get_video_bitmap(path, request)
             .with_context(|| format!("failed to decode video frame: {}", path.display()))?;
-        stats.video_decode_ms = decode_started.elapsed().as_secs_f64() * 1000.0;
-        stats.video_frame_decodes = 1;
+        if video_bitmap.frame_cache_hit {
+            stats.video_frame_cache_hits = 1;
+        } else {
+            stats.video_frame_cache_misses = 1;
+            stats.video_frame_decodes = 1;
+            stats.video_decode_ms = decode_started.elapsed().as_secs_f64() * 1000.0;
+        }
         let info = ImageInfo::new(
-            (width as i32, height as i32),
+            (video_bitmap.width as i32, video_bitmap.height as i32),
             skia_safe::ColorType::RGBA8888,
             skia_safe::AlphaType::Unpremul,
             None,
         );
-        images::raster_from_data(&info, Data::new_copy(&data), width as usize * 4).ok_or_else(
-            || {
-                anyhow!(
-                    "failed to create skia image from video frame: {}",
-                    path.display()
-                )
-            },
-        )?
+        images::raster_from_data(
+            &info,
+            Data::new_copy(&video_bitmap.data),
+            video_bitmap.width as usize * 4,
+        )
+        .ok_or_else(|| {
+            anyhow!(
+                "failed to create skia image from video frame: {}",
+                path.display()
+            )
+        })?
     } else {
         let key = bitmap.asset_id.0.clone();
         let mut cache = image_cache.borrow_mut();
-        if let Some(Some(img)) = cache.get(&key) {
+        if let Some(Some(img)) = cache.get_cloned(&key) {
             stats.image_cache_hits = 1;
-            img.clone()
+            img
         } else {
             let decode_started = Instant::now();
             let encoded = std::fs::read(path)
@@ -902,7 +1316,7 @@ fn draw_script_item(
     canvas: &Canvas,
     item: &DrawScriptDisplayItem,
     assets: &AssetsMap,
-    image_cache: &RefCell<HashMap<String, Option<SkiaImage>>>,
+    image_cache: &ImageCache,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
 ) -> Result<()> {
@@ -1468,7 +1882,7 @@ fn stroke_paint_for_draw_script(state: &DrawScriptPaintState) -> Paint {
 fn load_asset_image(
     asset_id: &crate::resource::assets::AssetId,
     assets: &AssetsMap,
-    image_cache: &RefCell<HashMap<String, Option<SkiaImage>>>,
+    image_cache: &ImageCache,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
 ) -> Result<SkiaImage> {
@@ -1485,28 +1899,32 @@ fn load_asset_image(
             timing: crate::resource::media::VideoFrameTiming::default(),
             quality: media.video_preview_quality(),
         };
-        let (data, width, height) = media
-            .get_bitmap(path, Some(request))
+        let video_bitmap = media
+            .get_video_bitmap(path, request)
             .with_context(|| format!("failed to decode video frame: {}", path.display()))?;
         let info = ImageInfo::new(
-            (width as i32, height as i32),
+            (video_bitmap.width as i32, video_bitmap.height as i32),
             skia_safe::ColorType::RGBA8888,
             skia_safe::AlphaType::Unpremul,
             None,
         );
-        return images::raster_from_data(&info, Data::new_copy(&data), width as usize * 4)
-            .ok_or_else(|| {
-                anyhow!(
-                    "failed to create skia image from video frame: {}",
-                    path.display()
-                )
-            });
+        return images::raster_from_data(
+            &info,
+            Data::new_copy(&video_bitmap.data),
+            video_bitmap.width as usize * 4,
+        )
+        .ok_or_else(|| {
+            anyhow!(
+                "failed to create skia image from video frame: {}",
+                path.display()
+            )
+        });
     }
 
     let key = asset_id.0.clone();
     let mut cache = image_cache.borrow_mut();
-    if let Some(Some(img)) = cache.get(&key) {
-        return Ok(img.clone());
+    if let Some(Some(img)) = cache.get_cloned(&key) {
+        return Ok(img);
     }
 
     let encoded = std::fs::read(path)

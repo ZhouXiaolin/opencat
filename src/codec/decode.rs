@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -62,6 +63,18 @@ struct VideoDecoder {
     current_pts_secs: f64,
     current_frame: Option<Arc<Vec<u8>>>,
     eof: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DecoderCursor {
+    has_frame: bool,
+    current_pts_secs: f64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DecoderLaneSelection {
+    Reuse(usize),
+    OpenNew,
 }
 
 impl VideoDecoder {
@@ -150,6 +163,13 @@ impl VideoDecoder {
         self.current_frame
             .clone()
             .ok_or_else(|| anyhow!("failed to decode frame at {:.3}s", target_secs))
+    }
+
+    fn cursor(&self) -> DecoderCursor {
+        DecoderCursor {
+            has_frame: self.current_frame.is_some(),
+            current_pts_secs: self.current_pts_secs,
+        }
     }
 
     fn should_seek_to_target(
@@ -259,14 +279,87 @@ impl VideoDecoder {
     }
 }
 
+fn seek_threshold_secs(quality: crate::resource::media::VideoPreviewQuality) -> f64 {
+    match quality {
+        crate::resource::media::VideoPreviewQuality::Scrubbing => 0.12,
+        crate::resource::media::VideoPreviewQuality::Realtime => 0.35,
+        crate::resource::media::VideoPreviewQuality::Exact => 1.5,
+    }
+}
+
+fn select_decoder_lane(
+    cursors: &[DecoderCursor],
+    target_secs: f64,
+    quality: crate::resource::media::VideoPreviewQuality,
+    max_lanes_per_asset: usize,
+) -> DecoderLaneSelection {
+    if cursors.is_empty() {
+        return DecoderLaneSelection::OpenNew;
+    }
+
+    if let Some((index, _)) = cursors.iter().enumerate().find(|(_, cursor)| {
+        cursor.has_frame && (cursor.current_pts_secs - target_secs).abs() < 1e-6
+    }) {
+        return DecoderLaneSelection::Reuse(index);
+    }
+
+    if let Some((index, _)) = cursors
+        .iter()
+        .enumerate()
+        .find(|(_, cursor)| !cursor.has_frame)
+    {
+        return DecoderLaneSelection::Reuse(index);
+    }
+
+    let seek_threshold_secs = seek_threshold_secs(quality);
+    if let Some((index, _)) = cursors
+        .iter()
+        .enumerate()
+        .filter(|(_, cursor)| {
+            cursor.has_frame
+                && target_secs + 1e-6 >= cursor.current_pts_secs
+                && target_secs - cursor.current_pts_secs <= seek_threshold_secs
+        })
+        .min_by(|(_, left), (_, right)| {
+            (target_secs - left.current_pts_secs)
+                .partial_cmp(&(target_secs - right.current_pts_secs))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    {
+        return DecoderLaneSelection::Reuse(index);
+    }
+
+    if cursors.len() < max_lanes_per_asset.max(1) {
+        return DecoderLaneSelection::OpenNew;
+    }
+
+    let (index, _) = cursors
+        .iter()
+        .enumerate()
+        .min_by(|(_, left), (_, right)| {
+            (left.current_pts_secs - target_secs)
+                .abs()
+                .partial_cmp(&(right.current_pts_secs - target_secs).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .expect("non-empty cursor list should produce a nearest lane");
+    DecoderLaneSelection::Reuse(index)
+}
+
 pub struct VideoDecodeCache {
-    decoders: HashMap<PathBuf, VideoDecoder>,
+    decoders: HashMap<PathBuf, VecDeque<VideoDecoder>>,
+    max_lanes_per_asset: usize,
 }
 
 impl VideoDecodeCache {
     pub fn new() -> Self {
+        Self::with_max_lanes_per_asset(2)
+    }
+
+    pub fn with_max_lanes_per_asset(max_lanes_per_asset: usize) -> Self {
         Self {
             decoders: HashMap::new(),
+            max_lanes_per_asset: max_lanes_per_asset.max(1),
         }
     }
 
@@ -276,25 +369,41 @@ impl VideoDecodeCache {
         target_time_secs: f64,
         quality: crate::resource::media::VideoPreviewQuality,
     ) -> Result<Arc<Vec<u8>>> {
-        if !self.decoders.contains_key(path) {
-            let decoder = VideoDecoder::open(path)?;
-            self.decoders.insert(path.to_path_buf(), decoder);
-        }
-        self.decoders
-            .get_mut(path)
-            .expect("video decoder should exist")
-            .get_frame_at_time(target_time_secs, quality)
+        let path_buf = path.to_path_buf();
+        let decoders = self.decoders.entry(path_buf).or_default();
+        let cursors: Vec<_> = decoders.iter().map(VideoDecoder::cursor).collect();
+        let selection = select_decoder_lane(
+            &cursors,
+            target_time_secs,
+            quality,
+            self.max_lanes_per_asset,
+        );
+
+        let mut decoder = match selection {
+            DecoderLaneSelection::Reuse(index) => decoders
+                .remove(index)
+                .expect("selected decoder lane should exist"),
+            DecoderLaneSelection::OpenNew => VideoDecoder::open(path)?,
+        };
+
+        let frame = decoder.get_frame_at_time(target_time_secs, quality)?;
+        decoders.push_back(decoder);
+        Ok(frame)
     }
 
     pub fn info(&mut self, path: &Path) -> Result<VideoInfo> {
         if !self.decoders.contains_key(path) {
             let decoder = VideoDecoder::open(path)?;
-            self.decoders.insert(path.to_path_buf(), decoder);
+            let mut lanes = VecDeque::new();
+            lanes.push_back(decoder);
+            self.decoders.insert(path.to_path_buf(), lanes);
         }
         Ok(self
             .decoders
             .get(path)
             .expect("video decoder should exist")
+            .front()
+            .expect("video decoder lane should exist")
             .info())
     }
 }
@@ -451,7 +560,11 @@ fn pack_rgba(frame: &ffmpeg::frame::Video, width: u32, height: u32) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::nearest_keyframe_before;
+    use super::{
+        DecoderCursor, DecoderLaneSelection, nearest_keyframe_before, seek_threshold_secs,
+        select_decoder_lane,
+    };
+    use crate::resource::media::VideoPreviewQuality;
 
     #[test]
     fn nearest_keyframe_before_clamps_to_previous_anchor() {
@@ -459,5 +572,57 @@ mod tests {
         assert!((nearest_keyframe_before(&keyframes, 0.1) - 0.0).abs() < 1e-6);
         assert!((nearest_keyframe_before(&keyframes, 1.8) - 1.2).abs() < 1e-6);
         assert!((nearest_keyframe_before(&keyframes, 3.0) - 2.4).abs() < 1e-6);
+    }
+
+    #[test]
+    fn select_decoder_lane_prefers_continuation_without_seek() {
+        let lanes = [
+            DecoderCursor {
+                has_frame: true,
+                current_pts_secs: 2.0,
+            },
+            DecoderCursor {
+                has_frame: true,
+                current_pts_secs: 4.8,
+            },
+        ];
+
+        let selection = select_decoder_lane(&lanes, 2.3, VideoPreviewQuality::Realtime, 2);
+        assert_eq!(selection, DecoderLaneSelection::Reuse(0));
+    }
+
+    #[test]
+    fn select_decoder_lane_opens_new_lane_when_seek_would_thrash() {
+        let lanes = [DecoderCursor {
+            has_frame: true,
+            current_pts_secs: 6.0,
+        }];
+
+        let selection = select_decoder_lane(&lanes, 1.0, VideoPreviewQuality::Exact, 2);
+        assert_eq!(selection, DecoderLaneSelection::OpenNew);
+    }
+
+    #[test]
+    fn select_decoder_lane_reuses_nearest_lane_when_lane_budget_is_full() {
+        let lanes = [
+            DecoderCursor {
+                has_frame: true,
+                current_pts_secs: 1.0,
+            },
+            DecoderCursor {
+                has_frame: true,
+                current_pts_secs: 8.0,
+            },
+        ];
+
+        let selection = select_decoder_lane(&lanes, 6.9, VideoPreviewQuality::Exact, 2);
+        assert_eq!(selection, DecoderLaneSelection::Reuse(1));
+    }
+
+    #[test]
+    fn seek_threshold_matches_preview_quality() {
+        assert!((seek_threshold_secs(VideoPreviewQuality::Scrubbing) - 0.12).abs() < 1e-6);
+        assert!((seek_threshold_secs(VideoPreviewQuality::Realtime) - 0.35).abs() < 1e-6);
+        assert!((seek_threshold_secs(VideoPreviewQuality::Exact) - 1.5).abs() < 1e-6);
     }
 }

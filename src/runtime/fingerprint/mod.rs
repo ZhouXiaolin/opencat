@@ -121,6 +121,16 @@ pub fn subtree_snapshot_fingerprint(node: &DisplayNode, assets: &AssetsMap) -> O
     Some(hasher.finish())
 }
 
+/// 计算视频场景的静态骨架指纹。
+///
+/// 含 TimeVariant 的子树会被压缩成哨兵，只保留其 composite / clip / bounds.size。
+/// 因此同一场景里视频帧变化不会污染静态层缓存键。
+pub fn scene_static_skeleton_fingerprint(node: &DisplayNode) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    hash_scene_static_skeleton(node, &mut hasher);
+    hasher.finish()
+}
+
 // ---------- TimeVariant 判定（内部） ----------
 
 fn item_is_time_variant(item: &DisplayItem, assets: &AssetsMap) -> bool {
@@ -182,6 +192,46 @@ fn hash_subtree_snapshot(node: &DisplayNode, hasher: &mut DefaultHasher) {
         child.transform.transforms.hash(hasher);
         hash_subtree_snapshot(child, hasher);
     }
+}
+
+const TIME_VARIANT_SENTINEL: u64 = 0x5449_4d45_5641_5254;
+
+fn hash_scene_static_skeleton(node: &DisplayNode, hasher: &mut DefaultHasher) {
+    if node.paint_variance == PaintVariance::TimeVariant || node.composite_dirty {
+        hash_time_variant_sentinel(node, hasher);
+        return;
+    }
+
+    F32Hash(node.transform.bounds.width).hash(hasher);
+    F32Hash(node.transform.bounds.height).hash(hasher);
+    DisplayItemFp(&node.item).hash(hasher);
+    ClipFp(node.clip.as_ref()).hash(hasher);
+    node.children.len().hash(hasher);
+
+    for child in &node.children {
+        if child.subtree_contains_dynamic {
+            hash_time_variant_sentinel(child, hasher);
+        } else {
+            F32Hash(child.transform.translation_x).hash(hasher);
+            F32Hash(child.transform.translation_y).hash(hasher);
+            F32Hash(child.opacity).hash(hasher);
+            child.backdrop_blur_sigma.map(F32Hash).hash(hasher);
+            child.transform.transforms.hash(hasher);
+            hash_scene_static_skeleton(child, hasher);
+        }
+    }
+}
+
+fn hash_time_variant_sentinel(node: &DisplayNode, hasher: &mut DefaultHasher) {
+    TIME_VARIANT_SENTINEL.hash(hasher);
+    F32Hash(node.transform.bounds.width).hash(hasher);
+    F32Hash(node.transform.bounds.height).hash(hasher);
+    ClipFp(node.clip.as_ref()).hash(hasher);
+    F32Hash(node.transform.translation_x).hash(hasher);
+    F32Hash(node.transform.translation_y).hash(hasher);
+    F32Hash(node.opacity).hash(hasher);
+    node.backdrop_blur_sigma.map(F32Hash).hash(hasher);
+    node.transform.transforms.hash(hasher);
 }
 
 fn calculate_hash(value: &impl Hash) -> u64 {
@@ -386,7 +436,9 @@ mod tests {
             children: Vec::new(),
             snapshot_fingerprint: None,
             paint_variance: PaintVariance::Stable,
+            composite_dirty: false,
             subtree_contains_time_variant: false,
+            subtree_contains_dynamic: false,
         }
     }
 
@@ -511,5 +563,44 @@ mod tests {
             PaintVariance::TimeVariant
         );
         assert_eq!(item_paint_fingerprint(&bitmap_item, &assets), None);
+    }
+
+    #[test]
+    fn scene_static_skeleton_fingerprint_ignores_time_variant_paint_but_tracks_composite() {
+        let mut a = rect_node(0.0, 0.0, 1.0);
+        let mut b = rect_node(0.0, 0.0, 1.0);
+        let mut c = rect_node(0.0, 0.0, 1.0);
+
+        let mut dynamic_a = rect_node(10.0, 20.0, 0.9);
+        dynamic_a.paint_variance = PaintVariance::TimeVariant;
+        dynamic_a.subtree_contains_time_variant = true;
+
+        let mut dynamic_b = rect_node(10.0, 20.0, 0.9);
+        dynamic_b.paint_variance = PaintVariance::TimeVariant;
+        dynamic_b.subtree_contains_time_variant = true;
+        if let DisplayItem::Rect(ref mut rect) = dynamic_b.item {
+            rect.paint.background = Some(crate::style::BackgroundFill::Solid(
+                crate::style::ColorToken::Red,
+            ));
+        }
+
+        let mut dynamic_c = rect_node(30.0, 20.0, 0.9);
+        dynamic_c.paint_variance = PaintVariance::TimeVariant;
+        dynamic_c.subtree_contains_time_variant = true;
+
+        a.children.push(dynamic_a);
+        b.children.push(dynamic_b);
+        c.children.push(dynamic_c);
+
+        assert_eq!(
+            scene_static_skeleton_fingerprint(&a),
+            scene_static_skeleton_fingerprint(&b),
+            "dynamic subtree paint must not affect the static skeleton fingerprint"
+        );
+        assert_ne!(
+            scene_static_skeleton_fingerprint(&a),
+            scene_static_skeleton_fingerprint(&c),
+            "dynamic subtree composite must affect the static skeleton fingerprint"
+        );
     }
 }

@@ -34,6 +34,7 @@ pub(crate) enum BackendCountMetric {
     SceneSnapshotCacheMiss,
     SubtreeSnapshotCacheHit,
     SubtreeSnapshotCacheMiss,
+    SubtreeSnapshotCollisionRejected,
     TextCacheHit,
     TextCacheMiss,
     ItemPictureCacheHit,

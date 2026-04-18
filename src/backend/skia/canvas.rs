@@ -892,6 +892,26 @@ fn draw_text(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SubtreeSnapshotResolution {
+    Hit,
+    Miss,
+    CollisionRejected,
+}
+
+pub(crate) fn resolve_subtree_snapshot_lookup(
+    query_fingerprint: crate::runtime::fingerprint::SubtreeSnapshotFingerprint,
+    cached_secondary: Option<u64>,
+) -> SubtreeSnapshotResolution {
+    match cached_secondary {
+        None => SubtreeSnapshotResolution::Miss,
+        Some(secondary) if secondary == query_fingerprint.secondary => {
+            SubtreeSnapshotResolution::Hit
+        }
+        Some(_) => SubtreeSnapshotResolution::CollisionRejected,
+    }
+}
+
 fn should_cache_item_picture(item: &DisplayItem) -> bool {
     matches!(
         item,
@@ -2141,4 +2161,39 @@ fn cover_src_rect(src_width: f32, src_height: f32, dst: Rect) -> Rect {
     let y = (src_height - visible_height) / 2.0;
 
     Rect::from_xywh(x, y, visible_width, visible_height)
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::{SubtreeSnapshotResolution, resolve_subtree_snapshot_lookup};
+    use crate::runtime::fingerprint::SubtreeSnapshotFingerprint;
+
+    #[test]
+    fn hit_returns_hit_when_secondary_matches() {
+        let fp = SubtreeSnapshotFingerprint { primary: 1, secondary: 100 };
+        let cached_secondary = Some(100u64);
+        assert_eq!(
+            resolve_subtree_snapshot_lookup(fp, cached_secondary),
+            SubtreeSnapshotResolution::Hit,
+        );
+    }
+
+    #[test]
+    fn collision_returns_reject_when_primary_same_but_secondary_differs() {
+        let fp = SubtreeSnapshotFingerprint { primary: 1, secondary: 100 };
+        let cached_secondary = Some(999u64);
+        assert_eq!(
+            resolve_subtree_snapshot_lookup(fp, cached_secondary),
+            SubtreeSnapshotResolution::CollisionRejected,
+        );
+    }
+
+    #[test]
+    fn miss_returns_miss_when_cache_has_nothing() {
+        let fp = SubtreeSnapshotFingerprint { primary: 1, secondary: 100 };
+        assert_eq!(
+            resolve_subtree_snapshot_lookup(fp, None),
+            SubtreeSnapshotResolution::Miss,
+        );
+    }
 }

@@ -43,7 +43,16 @@ pub(crate) fn analyze_live_node_item_execution(
     handle: AnnotatedNodeHandle,
 ) -> LiveNodeItemExecution {
     match &display_tree.node(handle).item {
-        DisplayItem::DrawScript(_) => LiveNodeItemExecution::FrameLocalPicture,
+        DisplayItem::DrawScript(_) => {
+            // Stable DrawScript 有 paint fingerprint → 交给 draw_display_item 走 ItemPictureCache。
+            // TimeVariant 保留 FrameLocalPicture 兜底,避免给 cache 塞永远 miss 的短命 key。
+            match display_tree.analysis(handle).paint_variance {
+                crate::runtime::fingerprint::PaintVariance::Stable => LiveNodeItemExecution::Direct,
+                crate::runtime::fingerprint::PaintVariance::TimeVariant => {
+                    LiveNodeItemExecution::FrameLocalPicture
+                }
+            }
+        }
         DisplayItem::Rect(_)
         | DisplayItem::Text(_)
         | DisplayItem::Bitmap(_)
@@ -244,7 +253,38 @@ mod tests {
     }
 
     #[test]
-    fn draw_script_prefers_frame_local_picture_execution() {
+    fn draw_script_stable_prefers_direct_execution() {
+        let mut analysis = DisplayAnalysisTable::default();
+        analysis.insert(
+            AnnotatedNodeHandle(0),
+            DisplayNodeAnalysis {
+                paint_variance: PaintVariance::Stable,
+                subtree_contains_time_variant: false,
+                paint_fingerprint: Some(7),
+                snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 8, secondary: 8 }),
+            },
+        );
+        let display_tree = tree(
+            vec![node(
+                DisplayItem::DrawScript(DrawScriptDisplayItem {
+                    bounds: rect_bounds(),
+                    commands: Vec::new(),
+                    drop_shadow: None,
+                }),
+                Vec::new(),
+            )],
+            analysis,
+        );
+
+        assert_eq!(
+            analyze_live_node_item_execution(&display_tree, AnnotatedNodeHandle(0)),
+            LiveNodeItemExecution::Direct,
+            "Stable DrawScript 应走 Direct 路径,由 draw_display_item 接 ItemPictureCache"
+        );
+    }
+
+    #[test]
+    fn draw_script_time_variant_falls_back_to_frame_local_picture() {
         let mut analysis = DisplayAnalysisTable::default();
         analysis.insert(
             AnnotatedNodeHandle(0),
@@ -269,7 +309,8 @@ mod tests {
 
         assert_eq!(
             analyze_live_node_item_execution(&display_tree, AnnotatedNodeHandle(0)),
-            LiveNodeItemExecution::FrameLocalPicture
+            LiveNodeItemExecution::FrameLocalPicture,
+            "TimeVariant DrawScript 走 FrameLocalPicture 兜底,不污染 ItemPictureCache"
         );
     }
 }

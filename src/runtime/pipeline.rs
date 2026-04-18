@@ -12,13 +12,13 @@ use crate::{
     element::resolve::resolve_ui_tree_with_script_cache,
     frame_ctx::{FrameCtx, ScriptFrameCtx},
     runtime::{
+        compositor::{SceneRenderRuntime, SceneSlot, plan_for_scene, render_scene_slot},
         frame_view::RenderFrameView,
-        policy::{
-            cache::SceneSlot,
-            snapshot::{SceneSnapshotRuntime, plan_for_scene, render_scene_slot},
-        },
+        invalidation::mark_display_tree_composite_dirty,
         preflight::ensure_assets_preloaded,
-        profile::{BackendProfile, FrameProfile, SceneBuildStats},
+        profile::{
+            BackendProfileCollector, FrameProfile, SceneBuildStats, with_backend_profile_sink,
+        },
         session::RenderSession,
     },
     scene::{
@@ -73,16 +73,15 @@ pub(crate) fn render_frame_on_surface(
             let snapshot_plan = plan_for_scene(&scene_stats);
 
             let backend_started = Instant::now();
-            let mut backend_profile = BackendProfile::default();
+            let mut backend_collector = BackendProfileCollector::default();
             let render_engine = session.render_engine_handle();
-            {
-                let mut snapshot_runtime = SceneSnapshotRuntime {
+            with_backend_profile_sink(&mut backend_collector, || {
+                let mut snapshot_runtime = SceneRenderRuntime {
                     assets: &session.assets,
                     scene_snapshots: &mut session.scene_snapshots,
-                    backend_resources: &session.backend_resources,
+                    cache_registry: &session.cache_registry,
                     media_ctx: &mut session.media_ctx,
                     frame_ctx: &frame_ctx,
-                    backend_profile: &mut backend_profile,
                     render_engine,
                     width: composition.width,
                     height: composition.height,
@@ -95,10 +94,11 @@ pub(crate) fn render_frame_on_surface(
                     snapshot_plan,
                     false,
                     Some(frame_view),
-                )?;
-            }
+                )
+            })?;
 
             frame_profile.backend_ms = backend_started.elapsed().as_secs_f64() * 1000.0;
+            let backend_profile = backend_collector.finish();
             frame_profile.merge_backend_profile(&backend_profile);
         }
         FrameState::Transition {
@@ -131,57 +131,59 @@ pub(crate) fn render_frame_on_surface(
             let to_plan = plan_for_scene(&to_stats);
 
             let backend_started = Instant::now();
-            let mut backend_profile = BackendProfile::default();
+            let mut backend_collector = BackendProfileCollector::default();
             let render_engine = session.render_engine_handle();
-            let (from_snapshot, to_snapshot) = {
-                let mut snapshot_runtime = SceneSnapshotRuntime {
-                    assets: &session.assets,
-                    scene_snapshots: &mut session.scene_snapshots,
-                    backend_resources: &session.backend_resources,
-                    media_ctx: &mut session.media_ctx,
-                    frame_ctx: &frame_ctx,
-                    backend_profile: &mut backend_profile,
-                    render_engine,
-                    width: composition.width,
-                    height: composition.height,
-                };
-                let from_snapshot = render_scene_slot(
-                    &mut snapshot_runtime,
-                    SceneSlot::TransitionFrom,
-                    &from_tree,
-                    &from_display,
-                    from_plan,
-                    true,
-                    None,
-                )?
-                .expect("transition source scene snapshot should exist");
-                let to_snapshot = render_scene_slot(
-                    &mut snapshot_runtime,
-                    SceneSlot::TransitionTo,
-                    &to_tree,
-                    &to_display,
-                    to_plan,
-                    true,
-                    None,
-                )?
-                .expect("transition target scene snapshot should exist");
-                (from_snapshot, to_snapshot)
-            };
+            let (from_snapshot, to_snapshot) =
+                with_backend_profile_sink(&mut backend_collector, || -> Result<_> {
+                    let mut snapshot_runtime = SceneRenderRuntime {
+                        assets: &session.assets,
+                        scene_snapshots: &mut session.scene_snapshots,
+                        cache_registry: &session.cache_registry,
+                        media_ctx: &mut session.media_ctx,
+                        frame_ctx: &frame_ctx,
+                        render_engine,
+                        width: composition.width,
+                        height: composition.height,
+                    };
+                    let from_snapshot = render_scene_slot(
+                        &mut snapshot_runtime,
+                        SceneSlot::TransitionFrom,
+                        &from_tree,
+                        &from_display,
+                        from_plan,
+                        true,
+                        None,
+                    )?
+                    .expect("transition source scene snapshot should exist");
+                    let to_snapshot = render_scene_slot(
+                        &mut snapshot_runtime,
+                        SceneSlot::TransitionTo,
+                        &to_tree,
+                        &to_display,
+                        to_plan,
+                        true,
+                        None,
+                    )?
+                    .expect("transition target scene snapshot should exist");
+                    Ok((from_snapshot, to_snapshot))
+                })?;
             frame_profile.backend_ms = backend_started.elapsed().as_secs_f64() * 1000.0;
 
             let transition_started = Instant::now();
-            session.render_engine_handle().draw_transition(
-                frame_view,
-                &from_snapshot,
-                &to_snapshot,
-                progress,
-                kind,
-                composition.width,
-                composition.height,
-                Some(&mut backend_profile),
-            )?;
+            with_backend_profile_sink(&mut backend_collector, || {
+                session.render_engine_handle().draw_transition(
+                    frame_view,
+                    &from_snapshot,
+                    &to_snapshot,
+                    progress,
+                    kind,
+                    composition.width,
+                    composition.height,
+                )
+            })?;
             let transition_ms = transition_started.elapsed().as_secs_f64() * 1000.0;
             frame_profile.transition_ms = transition_ms;
+            let backend_profile = backend_collector.finish();
             frame_profile.merge_backend_profile(&backend_profile);
             match kind {
                 TransitionKind::Slide(_) => {
@@ -233,7 +235,8 @@ pub(crate) fn build_scene_display_list_with_slot(
 
     let display_started = Instant::now();
     let mut display_tree = build_display_tree(&element_root, &layout_tree, &session.assets)?;
-    session.mark_display_tree_composite_dirty(
+    mark_display_tree_composite_dirty(
+        session.composite_history_mut(),
         slot,
         &mut display_tree,
         stats.layout_pass.structure_rebuild,

@@ -9,38 +9,32 @@
 //!
 //! 这个模块是纯函数、无副作用、无状态、不依赖 profile。
 
+mod display_item;
+
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
 };
 
 use crate::{
-    display::{
-        list::{BitmapDisplayItem, DisplayClip, DisplayItem, TextDisplayItem},
-        tree::DisplayNode,
-    },
-    resource::{
-        assets::{AssetId, AssetsMap},
-        bitmap_source::{BitmapSourceKind, bitmap_source_kind},
-    },
-    scene::script::CanvasCommand,
-    style::ComputedTextStyle,
+    display::{list::DisplayItem, tree::DisplayNode},
+    resource::assets::AssetsMap,
 };
 
-// ---------- Public API ----------
+use display_item::{ClipFp, DisplayItemFp, F32Hash, TextFp, item_is_time_variant};
 
 /// 每个节点的 paint variance 分类。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaintVariance {
-    /// 画面内容跨帧稳定（除非 paint_fingerprint 变）。
+    /// 画面内容跨帧稳定。
     Stable,
-    /// 画面内容每帧都可能变（video、含 video 的 draw script）。
+    /// 画面内容每帧都可能变。
     TimeVariant,
 }
 
-/// 合成参数摘要：transform、opacity、blur、save_layer 标志等。
+/// 合成参数摘要：transform、opacity、blur。
 ///
-/// **不进入缓存键**。每帧对同一节点比对，用来判断是否需要重新合成（但 paint 可复用）。
+/// **不进入缓存键**。每帧对同一节点比对，用来判断是否需要重新合成。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CompositeSig {
     pub translation_x_bits: u32,
@@ -65,8 +59,6 @@ impl CompositeSig {
 }
 
 /// 判定单个 DisplayItem 的 paint variance。
-///
-/// 视频 bitmap、含 video 引用的 draw script → TimeVariant；其余 → Stable。
 pub fn classify_paint(item: &DisplayItem, assets: &AssetsMap) -> PaintVariance {
     if item_is_time_variant(item, assets) {
         PaintVariance::TimeVariant
@@ -75,14 +67,12 @@ pub fn classify_paint(item: &DisplayItem, assets: &AssetsMap) -> PaintVariance {
     }
 }
 
-/// 计算文字项的 paint fingerprint（仅 text 内容 + 样式 + bounds size）。
-pub fn text_paint_fingerprint(text: &TextDisplayItem) -> u64 {
+/// 计算文字项的 paint fingerprint。
+pub fn text_paint_fingerprint(text: &crate::display::list::TextDisplayItem) -> u64 {
     calculate_hash(&TextFp(text))
 }
 
-/// 计算单个 DisplayItem 的 paint fingerprint（**不含** transform/opacity/translation）。
-///
-/// 对 TimeVariant 项返回 `None`。
+/// 计算单个 DisplayItem 的 paint fingerprint。
 pub fn item_paint_fingerprint(item: &DisplayItem, assets: &AssetsMap) -> Option<u64> {
     if item_is_time_variant(item, assets) {
         return None;
@@ -92,9 +82,7 @@ pub fn item_paint_fingerprint(item: &DisplayItem, assets: &AssetsMap) -> Option<
     Some(hasher.finish())
 }
 
-/// 计算子树 paint fingerprint（递归，**不含** transform/opacity）。
-///
-/// 若任一后代是 TimeVariant，返回 `None`。
+/// 计算子树 paint fingerprint。
 pub fn subtree_paint_fingerprint(node: &DisplayNode, assets: &AssetsMap) -> Option<u64> {
     if node_contains_time_variant(node, assets) {
         return None;
@@ -105,13 +93,6 @@ pub fn subtree_paint_fingerprint(node: &DisplayNode, assets: &AssetsMap) -> Opti
 }
 
 /// 计算 subtree snapshot fingerprint。
-///
-/// 这个 key 用于缓存“当前节点整棵子树录成的 picture”。
-/// 它故意：
-/// - 不包含当前节点自己的 translation / opacity / transforms，因为这些在 picture 外部应用
-/// - 递归包含所有后代的 composite 状态，因为后代的 composite 会被烘焙进当前节点 picture
-///
-/// 若任一后代是 TimeVariant，返回 `None`。
 pub fn subtree_snapshot_fingerprint(node: &DisplayNode, assets: &AssetsMap) -> Option<u64> {
     if node_contains_time_variant(node, assets) {
         return None;
@@ -122,36 +103,10 @@ pub fn subtree_snapshot_fingerprint(node: &DisplayNode, assets: &AssetsMap) -> O
 }
 
 /// 计算视频场景的静态骨架指纹。
-///
-/// 含 TimeVariant 的子树会被压缩成哨兵，只保留其 composite / clip / bounds.size。
-/// 因此同一场景里视频帧变化不会污染静态层缓存键。
 pub fn scene_static_skeleton_fingerprint(node: &DisplayNode) -> u64 {
     let mut hasher = DefaultHasher::new();
     hash_scene_static_skeleton(node, &mut hasher);
     hasher.finish()
-}
-
-// ---------- TimeVariant 判定（内部） ----------
-
-fn item_is_time_variant(item: &DisplayItem, assets: &AssetsMap) -> bool {
-    match item {
-        DisplayItem::Bitmap(bitmap) => bitmap_is_video(bitmap, assets),
-        DisplayItem::DrawScript(script) => script.commands.iter().any(|command| {
-            matches!(command, CanvasCommand::DrawImage { asset_id, .. }
-                if assets
-                    .path(&AssetId(asset_id.clone()))
-                    .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
-                    .unwrap_or(false))
-        }),
-        DisplayItem::Rect(_) | DisplayItem::Text(_) | DisplayItem::Lucide(_) => false,
-    }
-}
-
-fn bitmap_is_video(bitmap: &BitmapDisplayItem, assets: &AssetsMap) -> bool {
-    assets
-        .path(&bitmap.asset_id)
-        .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
-        .unwrap_or(false)
 }
 
 fn node_contains_time_variant(node: &DisplayNode, assets: &AssetsMap) -> bool {
@@ -162,10 +117,6 @@ fn node_contains_time_variant(node: &DisplayNode, assets: &AssetsMap) -> bool {
             .any(|child| node_contains_time_variant(child, assets))
 }
 
-// ---------- Paint hash 构造（内部） ----------
-
-/// 递归哈希一棵子树的 paint 内容。**不含** child 的 translation/opacity/transforms。
-/// 若任一后代是 TimeVariant，调用者已经提前 return None，这里不检查。
 fn hash_subtree_paint(node: &DisplayNode, hasher: &mut DefaultHasher) {
     F32Hash(node.transform.bounds.width).hash(hasher);
     F32Hash(node.transform.bounds.height).hash(hasher);
@@ -238,151 +189,6 @@ fn calculate_hash(value: &impl Hash) -> u64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
-}
-
-#[derive(Clone, Copy)]
-struct F32Hash(f32);
-
-impl Hash for F32Hash {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.to_bits().hash(state);
-    }
-}
-
-struct TextFp<'a>(&'a TextDisplayItem);
-
-impl Hash for TextFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.text.hash(state);
-        TextStyleFp(&self.0.style).hash(state);
-        self.0.allow_wrap.hash(state);
-        F32Hash(self.0.bounds.width).hash(state);
-        F32Hash(self.0.bounds.height).hash(state);
-        self.0.drop_shadow.hash(state);
-    }
-}
-
-struct DisplayItemFp<'a>(&'a DisplayItem);
-
-impl Hash for DisplayItemFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self.0 {
-            DisplayItem::Rect(rect) => {
-                0_u8.hash(state);
-                F32Hash(rect.bounds.width).hash(state);
-                F32Hash(rect.bounds.height).hash(state);
-                RectPaintFp(&rect.paint).hash(state);
-            }
-            DisplayItem::Text(text) => {
-                1_u8.hash(state);
-                text.text.hash(state);
-                TextStyleFp(&text.style).hash(state);
-                text.allow_wrap.hash(state);
-                text.drop_shadow.hash(state);
-                F32Hash(text.bounds.width).hash(state);
-                F32Hash(text.bounds.height).hash(state);
-            }
-            DisplayItem::Bitmap(bitmap) => {
-                2_u8.hash(state);
-                bitmap.asset_id.hash(state);
-                bitmap.width.hash(state);
-                bitmap.height.hash(state);
-                bitmap.video_timing.hash(state);
-                bitmap.object_fit.hash(state);
-                F32Hash(bitmap.bounds.width).hash(state);
-                F32Hash(bitmap.bounds.height).hash(state);
-                BitmapPaintFp(&bitmap.paint).hash(state);
-            }
-            DisplayItem::DrawScript(script) => {
-                3_u8.hash(state);
-                script.commands.hash(state);
-                script.drop_shadow.hash(state);
-                F32Hash(script.bounds.width).hash(state);
-                F32Hash(script.bounds.height).hash(state);
-            }
-            DisplayItem::Lucide(lucide) => {
-                4_u8.hash(state);
-                lucide.icon.hash(state);
-                LucidePaintFp(&lucide.paint).hash(state);
-                F32Hash(lucide.bounds.width).hash(state);
-                F32Hash(lucide.bounds.height).hash(state);
-            }
-        }
-    }
-}
-
-struct ClipFp<'a>(Option<&'a DisplayClip>);
-
-impl Hash for ClipFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.is_some().hash(state);
-        if let Some(clip) = self.0 {
-            F32Hash(clip.bounds.width).hash(state);
-            F32Hash(clip.bounds.height).hash(state);
-            clip.border_radius.hash(state);
-        }
-    }
-}
-
-struct TextStyleFp<'a>(&'a ComputedTextStyle);
-
-impl Hash for TextStyleFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let style = self.0;
-        style.color.hash(state);
-        style.font_weight.hash(state);
-        style.text_align.hash(state);
-        F32Hash(style.text_px).hash(state);
-        F32Hash(style.letter_spacing).hash(state);
-        F32Hash(style.line_height).hash(state);
-        style.line_height_px.map(F32Hash).hash(state);
-        style.text_transform.hash(state);
-    }
-}
-
-struct RectPaintFp<'a>(&'a crate::display::list::RectPaintStyle);
-
-impl Hash for RectPaintFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let paint = self.0;
-        paint.background.hash(state);
-        paint.border_radius.hash(state);
-        paint.border_width.map(F32Hash).hash(state);
-        paint.border_color.hash(state);
-        paint.blur_sigma.map(F32Hash).hash(state);
-        paint.box_shadow.hash(state);
-        paint.inset_shadow.hash(state);
-        paint.drop_shadow.hash(state);
-    }
-}
-
-struct BitmapPaintFp<'a>(&'a crate::display::list::BitmapPaintStyle);
-
-impl Hash for BitmapPaintFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let paint = self.0;
-        paint.background.hash(state);
-        paint.border_radius.hash(state);
-        paint.border_width.map(F32Hash).hash(state);
-        paint.border_color.hash(state);
-        paint.blur_sigma.map(F32Hash).hash(state);
-        paint.box_shadow.hash(state);
-        paint.inset_shadow.hash(state);
-        paint.drop_shadow.hash(state);
-    }
-}
-
-struct LucidePaintFp<'a>(&'a crate::display::list::LucidePaintStyle);
-
-impl Hash for LucidePaintFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let paint = self.0;
-        paint.foreground.hash(state);
-        paint.background.hash(state);
-        paint.border_width.map(F32Hash).hash(state);
-        paint.border_color.hash(state);
-        paint.drop_shadow.hash(state);
-    }
 }
 
 #[cfg(test)]

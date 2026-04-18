@@ -1,4 +1,57 @@
+mod bus;
+
+use std::collections::BTreeMap;
+
 use crate::layout::LayoutPassStats;
+
+pub(crate) use bus::{
+    BackendCountMetric, BackendDurationMetric, BackendProfileEvent, BackendProfileSink,
+    backend_span, record_backend_count, record_backend_duration, record_backend_elapsed,
+    with_backend_profile_sink,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct BackendSpanKey {
+    pub depth: usize,
+    pub parent: Option<&'static str>,
+    pub name: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct BackendSpanAggregate {
+    pub inclusive_ms: f64,
+    pub exclusive_ms: f64,
+    pub count: usize,
+}
+
+impl BackendSpanAggregate {
+    fn record(&mut self, inclusive_ms: f64, exclusive_ms: f64) {
+        self.inclusive_ms += inclusive_ms;
+        self.exclusive_ms += exclusive_ms;
+        self.count += 1;
+    }
+
+    fn merge(&mut self, other: &BackendSpanAggregate) {
+        self.inclusive_ms += other.inclusive_ms;
+        self.exclusive_ms += other.exclusive_ms;
+        self.count += other.count;
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct BackendSpanRecord {
+    depth: usize,
+    parent: Option<&'static str>,
+    name: &'static str,
+    inclusive_ms: f64,
+    exclusive_ms: f64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct BackendProfileReport {
+    pub profile: BackendProfile,
+    pub spans: BTreeMap<BackendSpanKey, BackendSpanAggregate>,
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct BackendProfile {
@@ -15,8 +68,8 @@ pub struct BackendProfile {
     pub scene_static_record_ms: f64,
     pub scene_static_draw_ms: f64,
     pub scene_dynamic_draw_ms: f64,
-    pub scene_snapshot_record_ms: f64,
-    pub scene_snapshot_draw_ms: f64,
+    pub subtree_snapshot_record_ms: f64,
+    pub subtree_snapshot_draw_ms: f64,
     pub light_leak_mask_ms: f64,
     pub light_leak_composite_ms: f64,
     pub scene_snapshot_cache_hits: usize,
@@ -39,6 +92,125 @@ pub struct BackendProfile {
     pub draw_bitmap_count: usize,
     pub draw_script_count: usize,
     pub save_layer_count: usize,
+}
+
+impl BackendProfile {
+    fn record_duration(&mut self, metric: BackendDurationMetric, ms: f64) {
+        match metric {
+            BackendDurationMetric::RectDraw => self.rect_draw_ms += ms,
+            BackendDurationMetric::TextDraw => self.text_draw_ms += ms,
+            BackendDurationMetric::TextSnapshotRecord => self.text_snapshot_record_ms += ms,
+            BackendDurationMetric::TextSnapshotDraw => self.text_snapshot_draw_ms += ms,
+            BackendDurationMetric::ItemPictureRecord => self.item_picture_record_ms += ms,
+            BackendDurationMetric::ItemPictureDraw => self.item_picture_draw_ms += ms,
+            BackendDurationMetric::BitmapDraw => self.bitmap_draw_ms += ms,
+            BackendDurationMetric::DrawScriptDraw => self.draw_script_draw_ms += ms,
+            BackendDurationMetric::ImageDecode => self.image_decode_ms += ms,
+            BackendDurationMetric::VideoDecode => self.video_decode_ms += ms,
+            BackendDurationMetric::SceneStaticRecord => self.scene_static_record_ms += ms,
+            BackendDurationMetric::SceneStaticDraw => self.scene_static_draw_ms += ms,
+            BackendDurationMetric::SceneDynamicDraw => self.scene_dynamic_draw_ms += ms,
+            BackendDurationMetric::SubtreeSnapshotRecord => self.subtree_snapshot_record_ms += ms,
+            BackendDurationMetric::SubtreeSnapshotDraw => self.subtree_snapshot_draw_ms += ms,
+            BackendDurationMetric::LightLeakMask => self.light_leak_mask_ms += ms,
+            BackendDurationMetric::LightLeakComposite => self.light_leak_composite_ms += ms,
+        }
+    }
+
+    fn record_count(&mut self, metric: BackendCountMetric, amount: usize) {
+        match metric {
+            BackendCountMetric::SceneSnapshotCacheHit => self.scene_snapshot_cache_hits += amount,
+            BackendCountMetric::SceneSnapshotCacheMiss => {
+                self.scene_snapshot_cache_misses += amount
+            }
+            BackendCountMetric::SubtreeSnapshotCacheHit => {
+                self.subtree_snapshot_cache_hits += amount;
+            }
+            BackendCountMetric::SubtreeSnapshotCacheMiss => {
+                self.subtree_snapshot_cache_misses += amount;
+            }
+            BackendCountMetric::TextCacheHit => self.text_cache_hits += amount,
+            BackendCountMetric::TextCacheMiss => self.text_cache_misses += amount,
+            BackendCountMetric::ItemPictureCacheHit => self.item_picture_cache_hits += amount,
+            BackendCountMetric::ItemPictureCacheMiss => self.item_picture_cache_misses += amount,
+            BackendCountMetric::ImageCacheHit => self.image_cache_hits += amount,
+            BackendCountMetric::ImageCacheMiss => self.image_cache_misses += amount,
+            BackendCountMetric::VideoFrameCacheHit => self.video_frame_cache_hits += amount,
+            BackendCountMetric::VideoFrameCacheMiss => self.video_frame_cache_misses += amount,
+            BackendCountMetric::SceneStaticCacheHit => self.scene_static_cache_hits += amount,
+            BackendCountMetric::SceneStaticCacheMiss => self.scene_static_cache_misses += amount,
+            BackendCountMetric::VideoFrameDecode => self.video_frame_decodes += amount,
+            BackendCountMetric::DrawRect => self.draw_rect_count += amount,
+            BackendCountMetric::DrawText => self.draw_text_count += amount,
+            BackendCountMetric::DrawBitmap => self.draw_bitmap_count += amount,
+            BackendCountMetric::DrawScript => self.draw_script_count += amount,
+            BackendCountMetric::SaveLayer => self.save_layer_count += amount,
+        }
+    }
+}
+
+impl BackendProfileSink for BackendProfile {
+    fn record_backend_event(&mut self, event: BackendProfileEvent) {
+        match event {
+            BackendProfileEvent::Duration { metric, ms } => self.record_duration(metric, ms),
+            BackendProfileEvent::Count { metric, amount } => self.record_count(metric, amount),
+            BackendProfileEvent::SpanCompleted { .. } => {}
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct BackendProfileCollector {
+    profile: BackendProfile,
+    span_records: Vec<BackendSpanRecord>,
+}
+
+impl BackendProfileCollector {
+    pub(crate) fn finish(self) -> BackendProfileReport {
+        let mut spans = BTreeMap::<BackendSpanKey, BackendSpanAggregate>::new();
+        for record in self.span_records {
+            spans
+                .entry(BackendSpanKey {
+                    depth: record.depth,
+                    parent: record.parent,
+                    name: record.name,
+                })
+                .or_default()
+                .record(record.inclusive_ms, record.exclusive_ms);
+        }
+        BackendProfileReport {
+            profile: self.profile,
+            spans,
+        }
+    }
+}
+
+impl BackendProfileSink for BackendProfileCollector {
+    fn record_backend_event(&mut self, event: BackendProfileEvent) {
+        match event {
+            BackendProfileEvent::Duration { metric, ms } => {
+                self.profile.record_duration(metric, ms);
+            }
+            BackendProfileEvent::Count { metric, amount } => {
+                self.profile.record_count(metric, amount);
+            }
+            BackendProfileEvent::SpanCompleted {
+                depth,
+                name,
+                parent,
+                inclusive_ms,
+                exclusive_ms,
+            } => {
+                self.span_records.push(BackendSpanRecord {
+                    depth,
+                    parent,
+                    name,
+                    inclusive_ms,
+                    exclusive_ms,
+                });
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -69,6 +241,7 @@ pub(crate) struct FrameProfile {
     pub composite_dirty_nodes: usize,
     pub structure_rebuilds: usize,
     pub backend: BackendProfile,
+    pub backend_spans: BTreeMap<BackendSpanKey, BackendSpanAggregate>,
 }
 
 #[derive(Default)]
@@ -88,7 +261,8 @@ impl FrameProfile {
         self.structure_rebuilds += usize::from(stats.layout_pass.structure_rebuild);
     }
 
-    pub(crate) fn merge_backend_profile(&mut self, profile: &BackendProfile) {
+    pub(crate) fn merge_backend_profile(&mut self, report: &BackendProfileReport) {
+        let profile = &report.profile;
         self.backend.rect_draw_ms += profile.rect_draw_ms;
         self.backend.text_draw_ms += profile.text_draw_ms;
         self.backend.text_snapshot_record_ms += profile.text_snapshot_record_ms;
@@ -102,8 +276,8 @@ impl FrameProfile {
         self.backend.scene_static_record_ms += profile.scene_static_record_ms;
         self.backend.scene_static_draw_ms += profile.scene_static_draw_ms;
         self.backend.scene_dynamic_draw_ms += profile.scene_dynamic_draw_ms;
-        self.backend.scene_snapshot_record_ms += profile.scene_snapshot_record_ms;
-        self.backend.scene_snapshot_draw_ms += profile.scene_snapshot_draw_ms;
+        self.backend.subtree_snapshot_record_ms += profile.subtree_snapshot_record_ms;
+        self.backend.subtree_snapshot_draw_ms += profile.subtree_snapshot_draw_ms;
         self.backend.light_leak_mask_ms += profile.light_leak_mask_ms;
         self.backend.light_leak_composite_ms += profile.light_leak_composite_ms;
         self.backend.scene_snapshot_cache_hits += profile.scene_snapshot_cache_hits;
@@ -126,6 +300,9 @@ impl FrameProfile {
         self.backend.draw_bitmap_count += profile.draw_bitmap_count;
         self.backend.draw_script_count += profile.draw_script_count;
         self.backend.save_layer_count += profile.save_layer_count;
+        for (key, aggregate) in &report.spans {
+            self.backend_spans.entry(*key).or_default().merge(aggregate);
+        }
     }
 }
 
@@ -189,7 +366,7 @@ impl RenderProfiler {
             average_usize(&self.frames, |frame| frame.structure_rebuilds),
         );
         eprintln!(
-            "  backend avg ms/frame: rect {:.2}, text {:.2}, text_snapshot_record {:.2}, text_snapshot_draw {:.2}, item_picture_record {:.2}, item_picture_draw {:.2}, bitmap {:.2}, draw_script {:.2}, image_decode {:.2}, video_decode {:.2}, scene_static_record {:.2}, scene_static_draw {:.2}, scene_dynamic_draw {:.2}, scene_snapshot_record {:.2}, scene_snapshot_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}",
+            "  backend avg ms/frame: rect {:.2}, text {:.2}, text_snapshot_record {:.2}, text_snapshot_draw {:.2}, item_picture_record {:.2}, item_picture_draw {:.2}, bitmap {:.2}, draw_script {:.2}, image_decode {:.2}, video_decode {:.2}, scene_static_record {:.2}, scene_static_draw {:.2}, scene_dynamic_draw {:.2}, subtree_snapshot_record {:.2}, subtree_snapshot_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}",
             average(&self.frames, |frame| frame.backend.rect_draw_ms),
             average(&self.frames, |frame| frame.backend.text_draw_ms),
             average(&self.frames, |frame| frame.backend.text_snapshot_record_ms),
@@ -203,8 +380,10 @@ impl RenderProfiler {
             average(&self.frames, |frame| frame.backend.scene_static_record_ms),
             average(&self.frames, |frame| frame.backend.scene_static_draw_ms),
             average(&self.frames, |frame| frame.backend.scene_dynamic_draw_ms),
-            average(&self.frames, |frame| frame.backend.scene_snapshot_record_ms),
-            average(&self.frames, |frame| frame.backend.scene_snapshot_draw_ms),
+            average(&self.frames, |frame| frame
+                .backend
+                .subtree_snapshot_record_ms),
+            average(&self.frames, |frame| frame.backend.subtree_snapshot_draw_ms),
             average(&self.frames, |frame| frame.backend.light_leak_mask_ms),
             average(&self.frames, |frame| frame.backend.light_leak_composite_ms),
         );
@@ -243,6 +422,79 @@ impl RenderProfiler {
             average_usize(&self.frames, |frame| frame.backend.video_frame_cache_misses),
             average_usize(&self.frames, |frame| frame.backend.video_frame_decodes),
         );
+        self.print_backend_span_summary();
+    }
+
+    fn print_backend_span_summary(&self) {
+        let mut aggregate = BTreeMap::<BackendSpanKey, BackendSpanAggregate>::new();
+        for frame in &self.frames {
+            for (key, value) in &frame.backend_spans {
+                aggregate.entry(*key).or_default().merge(value);
+            }
+        }
+
+        if aggregate.is_empty() {
+            return;
+        }
+
+        eprintln!("  backend avg spans/frame:");
+        let mut roots = aggregate
+            .iter()
+            .filter_map(|(key, value)| {
+                (key.depth == 0 && key.parent.is_none()).then_some((*key, *value))
+            })
+            .collect::<Vec<_>>();
+        roots.sort_by(|(left_key, left), (right_key, right)| {
+            right
+                .inclusive_ms
+                .partial_cmp(&left.inclusive_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| left_key.name.cmp(right_key.name))
+        });
+
+        for (key, _) in roots {
+            print_backend_span_node(self.frames.len(), &aggregate, key);
+        }
+    }
+}
+
+fn print_backend_span_node(
+    frame_count: usize,
+    aggregate: &BTreeMap<BackendSpanKey, BackendSpanAggregate>,
+    key: BackendSpanKey,
+) {
+    let Some(value) = aggregate.get(&key) else {
+        return;
+    };
+
+    let indent = 2 + key.depth * 2;
+    let padding = " ".repeat(indent);
+    eprintln!(
+        "{}{}: incl {:.2}, excl {:.2}, calls {:.2}",
+        padding,
+        key.name,
+        value.inclusive_ms / frame_count as f64,
+        value.exclusive_ms / frame_count as f64,
+        value.count as f64 / frame_count as f64,
+    );
+
+    let mut children = aggregate
+        .iter()
+        .filter_map(|(child_key, child)| {
+            (child_key.depth == key.depth + 1 && child_key.parent == Some(key.name))
+                .then_some((*child_key, *child))
+        })
+        .collect::<Vec<_>>();
+    children.sort_by(|(left_key, left), (right_key, right)| {
+        right
+            .inclusive_ms
+            .partial_cmp(&left.inclusive_ms)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left_key.name.cmp(right_key.name))
+    });
+
+    for (child_key, _) in children {
+        print_backend_span_node(frame_count, aggregate, child_key);
     }
 }
 

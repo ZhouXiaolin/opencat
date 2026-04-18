@@ -644,11 +644,7 @@ mod tests {
         let _ = render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
 
         assert_eq!(
-            session
-                .backend_resources
-                .item_picture_cache()
-                .borrow()
-                .len(),
+            session.cache_registry.item_picture_cache().borrow().len(),
             1
         );
 

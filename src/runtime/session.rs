@@ -1,5 +1,4 @@
 use crate::{
-    backend::resource_cache::BackendResourceCache,
     layout::LayoutSession,
     resource::{
         assets::AssetsMap,
@@ -7,9 +6,9 @@ use crate::{
     },
     runtime::{
         audio::{AudioIntervalCache, DecodedAudioCache},
-        cache::CacheCaps,
-        fingerprint::CompositeSig,
-        policy::cache::{SceneSlot, SceneSnapshotCache},
+        cache::{CacheCaps, CacheRegistry},
+        compositor::{SceneSlot, SceneSnapshotCache},
+        invalidation::CompositeHistory,
         profile::RenderProfiler,
         render_engine::SharedRenderEngine,
         render_registry,
@@ -18,18 +17,11 @@ use crate::{
     scene::script::ScriptRuntimeCache,
 };
 
-#[derive(Default)]
-struct CompositeHistoryCache {
-    scene: Vec<CompositeSig>,
-    transition_from: Vec<CompositeSig>,
-    transition_to: Vec<CompositeSig>,
-}
-
 pub struct RenderSession {
     pub(crate) media_ctx: MediaContext,
     pub(crate) assets: AssetsMap,
     pub(crate) scene_snapshots: SceneSnapshotCache,
-    pub(crate) backend_resources: BackendResourceCache,
+    pub(crate) cache_registry: CacheRegistry,
     pub(crate) script_runtime: ScriptRuntimeCache,
     pub(crate) scene_layout: LayoutSession,
     pub(crate) transition_from_layout: LayoutSession,
@@ -40,7 +32,7 @@ pub struct RenderSession {
     pub(crate) audio_interval_cache: AudioIntervalCache,
     pub(crate) text_engine: SharedTextEngine,
     pub(crate) render_engine: SharedRenderEngine,
-    composite_history: CompositeHistoryCache,
+    composite_history: CompositeHistory,
 }
 
 impl RenderSession {
@@ -65,7 +57,7 @@ impl RenderSession {
             media_ctx: MediaContext::with_cache_caps(cache_caps),
             assets: AssetsMap::new(),
             scene_snapshots: SceneSnapshotCache::new(),
-            backend_resources: BackendResourceCache::new(cache_caps),
+            cache_registry: CacheRegistry::new(cache_caps),
             script_runtime: ScriptRuntimeCache::default(),
             scene_layout: LayoutSession::new(),
             transition_from_layout: LayoutSession::new(),
@@ -76,7 +68,7 @@ impl RenderSession {
             audio_interval_cache: AudioIntervalCache::default(),
             text_engine,
             render_engine,
-            composite_history: CompositeHistoryCache::default(),
+            composite_history: CompositeHistory::default(),
         }
     }
 
@@ -104,37 +96,8 @@ impl RenderSession {
         self.render_engine.clone()
     }
 
-    pub(crate) fn mark_display_tree_composite_dirty(
-        &mut self,
-        slot: SceneSlot,
-        display_tree: &mut crate::display::tree::DisplayTree,
-        structure_rebuild: bool,
-    ) {
-        let previous = if structure_rebuild {
-            &[][..]
-        } else {
-            self.composite_history_for_slot(slot)
-        };
-        let mut next = Vec::new();
-        let mut index = 0;
-        mark_display_node_composite_dirty(&mut display_tree.root, previous, &mut index, &mut next);
-        *self.composite_history_for_slot_mut(slot) = next;
-    }
-
-    fn composite_history_for_slot(&self, slot: SceneSlot) -> &[CompositeSig] {
-        match slot {
-            SceneSlot::Scene => &self.composite_history.scene,
-            SceneSlot::TransitionFrom => &self.composite_history.transition_from,
-            SceneSlot::TransitionTo => &self.composite_history.transition_to,
-        }
-    }
-
-    fn composite_history_for_slot_mut(&mut self, slot: SceneSlot) -> &mut Vec<CompositeSig> {
-        match slot {
-            SceneSlot::Scene => &mut self.composite_history.scene,
-            SceneSlot::TransitionFrom => &mut self.composite_history.transition_from,
-            SceneSlot::TransitionTo => &mut self.composite_history.transition_to,
-        }
+    pub(crate) fn composite_history_mut(&mut self) -> &mut CompositeHistory {
+        &mut self.composite_history
     }
 }
 
@@ -142,30 +105,4 @@ impl Default for RenderSession {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn mark_display_node_composite_dirty(
-    node: &mut crate::display::tree::DisplayNode,
-    previous: &[CompositeSig],
-    index: &mut usize,
-    next: &mut Vec<CompositeSig>,
-) -> bool {
-    let current_index = *index;
-    *index += 1;
-
-    let current_sig = CompositeSig::from_node(node);
-    let composite_dirty = previous
-        .get(current_index)
-        .is_some_and(|previous_sig| *previous_sig != current_sig);
-    next.push(current_sig);
-    node.composite_dirty = composite_dirty;
-
-    let mut subtree_contains_dynamic = node.paint_variance
-        == crate::runtime::fingerprint::PaintVariance::TimeVariant
-        || composite_dirty;
-    for child in &mut node.children {
-        subtree_contains_dynamic |= mark_display_node_composite_dirty(child, previous, index, next);
-    }
-    node.subtree_contains_dynamic = subtree_contains_dynamic;
-    subtree_contains_dynamic
 }

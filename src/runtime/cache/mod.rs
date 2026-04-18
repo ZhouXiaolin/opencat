@@ -6,13 +6,14 @@ use std::{cell::RefCell, rc::Rc};
 use skia_safe::{Image as SkiaImage, Picture};
 
 use crate::runtime::cache::lru::BoundedLruCache;
+use crate::runtime::render_engine::SceneSnapshot;
 
 pub(crate) type SharedLruCache<K, V> = Rc<RefCell<BoundedLruCache<K, V>>>;
 pub(crate) type ImageCache = SharedLruCache<String, Option<SkiaImage>>;
 pub(crate) type TextSnapshotCache = SharedLruCache<u64, Picture>;
 pub(crate) type SubtreeSnapshotCache = SharedLruCache<u64, Picture>;
 pub(crate) type ItemPictureCache = SharedLruCache<u64, Picture>;
-pub(crate) type SceneStaticPictureCache = SharedLruCache<u64, Picture>;
+pub(crate) type SceneStaticPictureCache = SharedLruCache<u64, SceneSnapshot>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CacheCaps {

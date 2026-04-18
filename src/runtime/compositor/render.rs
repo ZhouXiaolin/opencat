@@ -1,10 +1,10 @@
 use anyhow::{Result, anyhow};
 
 use crate::{
-    display::{list::DisplayList, tree::DisplayTree},
     frame_ctx::FrameCtx,
     resource::{assets::AssetsMap, media::MediaContext},
     runtime::{
+        annotation::AnnotatedDisplayTree,
         cache::CacheRegistry,
         compositor::record_layered_scene,
         frame_view::RenderFrameView,
@@ -42,21 +42,15 @@ impl<'a> SceneRenderRuntime<'a> {
 pub(crate) fn render_scene_slot(
     runtime: &mut SceneRenderRuntime<'_>,
     slot: SceneSlot,
-    display_tree: &DisplayTree,
-    display_list: &DisplayList,
+    display_tree: &AnnotatedDisplayTree,
     plan: SceneRenderPlan,
     require_scene_snapshot: bool,
     frame_view: Option<RenderFrameView>,
 ) -> Result<Option<SceneSnapshot>> {
     let engine = runtime.render_engine.clone();
-    if let Some(snapshot) = resolve_scene_snapshot_for_slot(
-        runtime,
-        slot,
-        display_tree,
-        display_list,
-        plan,
-        require_scene_snapshot,
-    )? {
+    if let Some(snapshot) =
+        resolve_scene_snapshot_for_slot(runtime, slot, display_tree, plan, require_scene_snapshot)?
+    {
         if let Some(frame_view) = frame_view {
             let _profile_span = backend_span("scene_snapshot_present");
             engine.draw_scene_snapshot(&snapshot, frame_view)?;
@@ -83,19 +77,14 @@ pub(crate) fn render_scene_slot(
     }
 
     let mut render_context = runtime.render_context();
-    if plan.records_display_tree_snapshot() {
-        engine.draw_display_tree(&mut render_context, display_tree, frame_view)?;
-    } else {
-        engine.draw_display_list(&mut render_context, display_list, frame_view)?;
-    }
+    engine.draw_display_tree(&mut render_context, display_tree, frame_view)?;
     Ok(None)
 }
 
 fn resolve_scene_snapshot_for_slot(
     runtime: &mut SceneRenderRuntime<'_>,
     slot: SceneSlot,
-    display_tree: &DisplayTree,
-    display_list: &DisplayList,
+    display_tree: &AnnotatedDisplayTree,
     plan: SceneRenderPlan,
     require_scene_snapshot: bool,
 ) -> Result<Option<SceneSnapshot>> {
@@ -118,7 +107,7 @@ fn resolve_scene_snapshot_for_slot(
         }
 
         let mut render_context = runtime.render_context();
-        let snapshot = engine.record_display_list_snapshot(&mut render_context, display_list)?;
+        let snapshot = engine.record_display_tree_snapshot(&mut render_context, display_tree)?;
         record_backend_count(BackendCountMetric::SceneSnapshotCacheMiss, 1);
         runtime
             .scene_snapshots
@@ -131,15 +120,8 @@ fn resolve_scene_snapshot_for_slot(
         return Ok(None);
     }
 
-    if plan.records_display_tree_snapshot() {
-        let mut render_context = runtime.render_context();
-        return engine
-            .record_display_tree_snapshot(&mut render_context, display_tree)
-            .map(Some);
-    }
-
     let mut render_context = runtime.render_context();
     engine
-        .record_display_list_snapshot(&mut render_context, display_list)
+        .record_display_tree_snapshot(&mut render_context, display_tree)
         .map(Some)
 }

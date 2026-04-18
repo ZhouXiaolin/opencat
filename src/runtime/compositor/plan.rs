@@ -2,7 +2,6 @@ use crate::runtime::profile::SceneBuildStats;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SceneRenderStrategy {
-    DisplayListSnapshot,
     DisplayTreeSnapshot,
     LayeredScene,
 }
@@ -18,33 +17,21 @@ impl SceneRenderPlan {
         let has_structural_change = scene_stats.layout_pass.structure_rebuild
             || scene_stats.layout_pass.layout_dirty_nodes > 0
             || scene_stats.layout_pass.raster_dirty_nodes > 0;
-        let has_composite_change = scene_stats.layout_pass.composite_dirty_nodes > 0;
 
         let strategy = if scene_stats.contains_video {
             SceneRenderStrategy::LayeredScene
-        } else if has_composite_change {
-            SceneRenderStrategy::DisplayTreeSnapshot
         } else {
-            SceneRenderStrategy::DisplayListSnapshot
+            SceneRenderStrategy::DisplayTreeSnapshot
         };
 
         Self {
             strategy,
-            allows_scene_snapshot_cache: !scene_stats.contains_video
-                && !has_structural_change
-                && !has_composite_change,
+            allows_scene_snapshot_cache: !scene_stats.contains_video && !has_structural_change,
         }
     }
 
     pub(crate) fn renders_layered_scene(self) -> bool {
         self.strategy == SceneRenderStrategy::LayeredScene
-    }
-
-    pub(crate) fn records_display_tree_snapshot(self) -> bool {
-        matches!(
-            self.strategy,
-            SceneRenderStrategy::DisplayTreeSnapshot | SceneRenderStrategy::LayeredScene
-        )
     }
 }
 
@@ -89,7 +76,7 @@ mod tests {
         let stats = SceneBuildStats::default();
 
         let plan = SceneRenderPlan::from_scene(&stats);
-        assert_eq!(plan.strategy, SceneRenderStrategy::DisplayListSnapshot);
+        assert_eq!(plan.strategy, SceneRenderStrategy::DisplayTreeSnapshot);
         assert!(plan.allows_scene_snapshot_cache);
     }
 }

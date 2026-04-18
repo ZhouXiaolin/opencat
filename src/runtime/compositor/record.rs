@@ -1,19 +1,17 @@
 use anyhow::Result;
 
-use crate::{
-    display::tree::DisplayTree,
-    runtime::{
-        compositor::LayeredScene,
-        fingerprint::scene_static_skeleton_fingerprint,
-        profile::{BackendCountMetric, record_backend_count},
-        render_engine::{SceneRenderContext, SharedRenderEngine},
-    },
+use crate::runtime::{
+    annotation::AnnotatedDisplayTree,
+    compositor::LayeredScene,
+    fingerprint::scene_static_skeleton_fingerprint,
+    profile::{BackendCountMetric, record_backend_count},
+    render_engine::{SceneRenderContext, SharedRenderEngine},
 };
 
 pub(crate) fn record_layered_scene(
     runtime: &mut SceneRenderContext<'_>,
     render_engine: SharedRenderEngine,
-    display_tree: &DisplayTree,
+    display_tree: &AnnotatedDisplayTree,
 ) -> Result<LayeredScene> {
     let skeleton_fp = scene_static_skeleton_fingerprint(&display_tree.root);
     let static_cache = runtime.cache_registry.scene_static_picture_cache();

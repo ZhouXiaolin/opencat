@@ -1,3 +1,4 @@
+pub(crate) mod annotation;
 pub(crate) mod audio;
 pub(crate) mod backend_object;
 pub(crate) mod cache;

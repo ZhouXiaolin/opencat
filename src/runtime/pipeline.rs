@@ -3,15 +3,11 @@ use std::time::Instant;
 use anyhow::Result;
 
 use crate::{
-    display::{
-        analysis::display_list_contains_video,
-        build::{build_display_list_from_tree, build_display_tree},
-        list::DisplayList,
-        tree::DisplayTree,
-    },
+    display::build::build_display_tree,
     element::resolve::resolve_ui_tree_with_script_cache,
     frame_ctx::{FrameCtx, ScriptFrameCtx},
     runtime::{
+        annotation::{AnnotatedDisplayTree, annotate_display_tree},
         compositor::{SceneRenderRuntime, SceneSlot, plan_for_scene, render_scene_slot},
         frame_view::RenderFrameView,
         invalidation::mark_display_tree_composite_dirty,
@@ -61,7 +57,7 @@ pub(crate) fn render_frame_on_surface(
             scene,
             script_frame_ctx,
         } => {
-            let (display_tree, display_list, scene_stats) = build_scene_display_list_with_slot(
+            let (annotated_display_tree, scene_stats) = build_scene_display_list_with_slot(
                 &scene,
                 &frame_ctx,
                 &script_frame_ctx,
@@ -89,8 +85,7 @@ pub(crate) fn render_frame_on_surface(
                 render_scene_slot(
                     &mut snapshot_runtime,
                     SceneSlot::Scene,
-                    &display_tree,
-                    &display_list,
+                    &annotated_display_tree,
                     snapshot_plan,
                     false,
                     Some(frame_view),
@@ -109,7 +104,7 @@ pub(crate) fn render_frame_on_surface(
             progress,
             kind,
         } => {
-            let (from_tree, from_display, from_stats) = build_scene_display_list_with_slot(
+            let (from_annotated_tree, from_stats) = build_scene_display_list_with_slot(
                 &from,
                 &frame_ctx,
                 &from_script_frame_ctx,
@@ -117,7 +112,7 @@ pub(crate) fn render_frame_on_surface(
                 mutations.as_ref(),
                 SceneSlot::TransitionFrom,
             )?;
-            let (to_tree, to_display, to_stats) = build_scene_display_list_with_slot(
+            let (to_annotated_tree, to_stats) = build_scene_display_list_with_slot(
                 &to,
                 &frame_ctx,
                 &to_script_frame_ctx,
@@ -148,8 +143,7 @@ pub(crate) fn render_frame_on_surface(
                     let from_snapshot = render_scene_slot(
                         &mut snapshot_runtime,
                         SceneSlot::TransitionFrom,
-                        &from_tree,
-                        &from_display,
+                        &from_annotated_tree,
                         from_plan,
                         true,
                         None,
@@ -158,8 +152,7 @@ pub(crate) fn render_frame_on_surface(
                     let to_snapshot = render_scene_slot(
                         &mut snapshot_runtime,
                         SceneSlot::TransitionTo,
-                        &to_tree,
-                        &to_display,
+                        &to_annotated_tree,
                         to_plan,
                         true,
                         None,
@@ -210,7 +203,7 @@ pub(crate) fn build_scene_display_list_with_slot(
     session: &mut RenderSession,
     mutations: Option<&StyleMutations>,
     slot: SceneSlot,
-) -> Result<(DisplayTree, DisplayList, SceneBuildStats)> {
+) -> Result<(AnnotatedDisplayTree, SceneBuildStats)> {
     let mut stats = SceneBuildStats::default();
 
     let resolve_started = Instant::now();
@@ -234,16 +227,16 @@ pub(crate) fn build_scene_display_list_with_slot(
     stats.layout_pass = layout_pass;
 
     let display_started = Instant::now();
-    let mut display_tree = build_display_tree(&element_root, &layout_tree, &session.assets)?;
+    let display_tree = build_display_tree(&element_root, &layout_tree, &session.assets)?;
+    let mut annotated_display_tree = annotate_display_tree(&display_tree, &session.assets);
     mark_display_tree_composite_dirty(
         session.composite_history_mut(),
         slot,
-        &mut display_tree,
+        &mut annotated_display_tree,
         stats.layout_pass.structure_rebuild,
     );
-    let display_list = build_display_list_from_tree(&display_tree);
     stats.display_ms = display_started.elapsed().as_secs_f64() * 1000.0;
-    stats.contains_video = display_list_contains_video(&display_list, &session.assets);
+    stats.contains_video = annotated_display_tree.root.subtree_contains_time_variant;
 
-    Ok((display_tree, display_list, stats))
+    Ok((annotated_display_tree, stats))
 }

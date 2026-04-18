@@ -152,7 +152,7 @@ impl<'a> SkiaBackend<'a> {
 
         let subtree_cache = self.subtree_snapshot_cache.clone();
         if let Some(cache) = subtree_cache {
-            if let Some(key) = node.paint_fingerprint {
+            if let Some(key) = node.snapshot_fingerprint {
                 if let Some(snapshot) = cache.borrow().get(&key).cloned() {
                     if let Some(profile) = self.profile.as_deref_mut() {
                         profile.subtree_snapshot_cache_hits += 1;

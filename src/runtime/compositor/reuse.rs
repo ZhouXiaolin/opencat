@@ -5,8 +5,13 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum StableNodeReuse {
+    /// 足够便宜的叶子，直接重画比 record picture 更划算。
     DirectLeaf,
-    ItemLeaf,
+    /// 稳定的 Bitmap / Lucide 叶子，由 `ItemPictureCache` 跨帧复用。
+    ItemPictureLeaf,
+    /// 稳定的 Text 叶子，由 `TextSnapshotCache` 跨帧复用。
+    TextSnapshotLeaf,
+    /// 稳定的非叶子子树，由 `SubtreeSnapshotCache` 跨帧复用。
     SubtreeSnapshot,
 }
 
@@ -27,9 +32,8 @@ pub(crate) fn analyze_stable_node_reuse(
 
     match &node.item {
         DisplayItem::Rect(_) => StableNodeReuse::DirectLeaf,
-        DisplayItem::Text(_) | DisplayItem::Bitmap(_) | DisplayItem::Lucide(_) => {
-            StableNodeReuse::ItemLeaf
-        }
+        DisplayItem::Text(_) => StableNodeReuse::TextSnapshotLeaf,
+        DisplayItem::Bitmap(_) | DisplayItem::Lucide(_) => StableNodeReuse::ItemPictureLeaf,
         DisplayItem::DrawScript(_) => StableNodeReuse::DirectLeaf,
     }
 }
@@ -156,7 +160,7 @@ mod tests {
     }
 
     #[test]
-    fn text_leaf_prefers_item_leaf_reuse() {
+    fn text_leaf_prefers_text_snapshot_leaf_reuse() {
         let mut analysis = DisplayAnalysisTable::default();
         analysis.insert(
             AnnotatedNodeHandle(0),
@@ -183,8 +187,60 @@ mod tests {
 
         assert_eq!(
             analyze_stable_node_reuse(&display_tree, AnnotatedNodeHandle(0)),
-            StableNodeReuse::ItemLeaf
+            StableNodeReuse::TextSnapshotLeaf
         );
+    }
+
+    #[test]
+    fn bitmap_leaf_prefers_item_picture_leaf_reuse() {
+        use crate::display::list::{BitmapDisplayItem, BitmapPaintStyle};
+        use crate::resource::assets::AssetsMap;
+        use crate::style::ObjectFit;
+
+        let mut assets = AssetsMap::new();
+        let asset_id = assets.register_dimensions(std::path::Path::new("/tmp/x.png"), 10, 10);
+
+        let mut analysis = DisplayAnalysisTable::default();
+        analysis.insert(
+            AnnotatedNodeHandle(0),
+            DisplayNodeAnalysis {
+                paint_variance: PaintVariance::Stable,
+                subtree_contains_time_variant: false,
+                paint_fingerprint: Some(1),
+                snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 3, secondary: 3 }),
+            },
+        );
+        let display_tree = tree(
+            vec![node(
+                DisplayItem::Bitmap(BitmapDisplayItem {
+                    bounds: rect_bounds(),
+                    asset_id,
+                    width: 10,
+                    height: 10,
+                    video_timing: None,
+                    object_fit: ObjectFit::Fill,
+                    paint: BitmapPaintStyle {
+                        background: None,
+                        border_radius: BorderRadius::default(),
+                        border_width: None,
+                        border_color: None,
+                        blur_sigma: None,
+                        box_shadow: None,
+                        inset_shadow: None,
+                        drop_shadow: None,
+                    },
+                }),
+                Vec::new(),
+            )],
+            analysis,
+        );
+
+        assert_eq!(
+            analyze_stable_node_reuse(&display_tree, AnnotatedNodeHandle(0)),
+            StableNodeReuse::ItemPictureLeaf
+        );
+
+        let _ = &assets;
     }
 
     #[test]

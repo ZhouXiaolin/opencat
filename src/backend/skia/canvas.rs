@@ -9,21 +9,18 @@ use skia_safe::{
 };
 
 use crate::{
-    display::cache_key::text_snapshot_cache_key,
     display::list::{
         BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayList, DisplayRect, DisplayTransform,
         DrawScriptDisplayItem, LucideDisplayItem, RectDisplayItem, TextDisplayItem,
     },
-    display::{
-        cache_key::subtree_snapshot_cache_key,
-        tree::{DisplayNode, DisplayTree},
-    },
+    display::tree::{DisplayNode, DisplayTree},
     frame_ctx::FrameCtx,
     resource::{
         assets::AssetsMap,
         bitmap_source::{BitmapSourceKind, bitmap_source_kind},
         media::{MediaContext, VideoFrameRequest},
     },
+    runtime::fingerprint::text_paint_fingerprint,
     runtime::profile::BackendProfile,
     scene::script::{
         CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
@@ -155,7 +152,7 @@ impl<'a> SkiaBackend<'a> {
 
         let subtree_cache = self.subtree_snapshot_cache.clone();
         if let Some(cache) = subtree_cache {
-            if let Some(key) = subtree_snapshot_cache_key(node, self.assets) {
+            if let Some(key) = node.paint_fingerprint {
                 if let Some(snapshot) = cache.borrow().get(&key).cloned() {
                     if let Some(profile) = self.profile.as_deref_mut() {
                         profile.subtree_snapshot_cache_hits += 1;
@@ -696,7 +693,7 @@ fn draw_text(
     text: &TextDisplayItem,
     text_snapshot_cache: &RefCell<HashMap<u64, Picture>>,
 ) -> Result<TextDrawStats> {
-    let cache_key = text_snapshot_cache_key(text);
+    let cache_key = text_paint_fingerprint(text);
     if let Some(snapshot) = text_snapshot_cache.borrow().get(&cache_key).cloned() {
         let draw_started = Instant::now();
         canvas.save();

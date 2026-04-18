@@ -232,7 +232,7 @@ pub(crate) fn build_scene_display_list_with_slot(
     stats.layout_pass = layout_pass;
 
     let display_started = Instant::now();
-    let display_tree = build_display_tree(&element_root, &layout_tree)?;
+    let display_tree = build_display_tree(&element_root, &layout_tree, &session.assets)?;
     let display_list = build_display_list_from_tree(&display_tree);
     stats.display_ms = display_started.elapsed().as_secs_f64() * 1000.0;
     stats.contains_video = display_list_contains_video(&display_list, &session.assets);

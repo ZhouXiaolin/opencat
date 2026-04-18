@@ -1,5 +1,6 @@
 pub(crate) mod audio;
 pub(crate) mod backend_object;
+pub(crate) mod fingerprint;
 pub(crate) mod frame_view;
 pub(crate) mod pipeline;
 pub(crate) mod policy;

@@ -11,14 +11,17 @@ use crate::{
     },
     element::tree::{ElementKind, ElementNode},
     layout::tree::{LayoutNode, LayoutTree},
+    resource::assets::AssetsMap,
+    runtime::fingerprint::{self, PaintVariance},
 };
 
 pub fn build_display_tree(
     element_root: &ElementNode,
     layout_tree: &LayoutTree,
+    assets: &AssetsMap,
 ) -> Result<DisplayTree> {
     Ok(DisplayTree {
-        root: build_display_node(element_root, &layout_tree.root)?,
+        root: build_display_node(element_root, &layout_tree.root, assets)?,
     })
 }
 
@@ -26,8 +29,9 @@ pub fn build_display_tree(
 pub fn build_display_list(
     element_root: &ElementNode,
     layout_tree: &LayoutTree,
+    assets: &AssetsMap,
 ) -> Result<DisplayList> {
-    let tree = build_display_tree(element_root, layout_tree)?;
+    let tree = build_display_tree(element_root, layout_tree, assets)?;
     Ok(build_display_list_from_tree(&tree))
 }
 
@@ -37,7 +41,11 @@ pub fn build_display_list_from_tree(tree: &DisplayTree) -> DisplayList {
     list
 }
 
-fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<DisplayNode> {
+fn build_display_node(
+    element: &ElementNode,
+    layout: &LayoutNode,
+    assets: &AssetsMap,
+) -> Result<DisplayNode> {
     if element.children.len() != layout.children.len() {
         return Err(anyhow!(
             "element/layout child count mismatch while building display tree"
@@ -58,7 +66,19 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
         .collect::<Vec<_>>();
     child_pairs.sort_by_key(|(child, _)| child.style.layout.z_index);
 
-    Ok(DisplayNode {
+    let item = display_item_for_node(element, bounds);
+    let children = child_pairs
+        .into_iter()
+        .map(|(child, child_layout)| build_display_node(child, child_layout, assets))
+        .collect::<Result<Vec<_>>>()?;
+
+    let paint_variance = fingerprint::classify_paint(&item, assets);
+    let subtree_contains_time_variant = matches!(paint_variance, PaintVariance::TimeVariant)
+        || children
+            .iter()
+            .any(|child| child.subtree_contains_time_variant);
+
+    let mut node = DisplayNode {
         transform: DisplayTransform {
             translation_x: layout.rect.x,
             translation_y: layout.rect.y,
@@ -71,12 +91,19 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
             bounds,
             border_radius: element.style.visual.border_radius,
         }),
-        item: display_item_for_node(element, bounds),
-        children: child_pairs
-            .into_iter()
-            .map(|(child, child_layout)| build_display_node(child, child_layout))
-            .collect::<Result<Vec<_>>>()?,
-    })
+        item,
+        children,
+        paint_variance,
+        subtree_contains_time_variant,
+        paint_fingerprint: None,
+    };
+
+    // 只在整棵子树都是 Stable 时才计算 paint_fingerprint。
+    if !subtree_contains_time_variant {
+        node.paint_fingerprint = fingerprint::subtree_paint_fingerprint(&node, assets);
+    }
+
+    Ok(node)
 }
 
 fn push_display_node_commands(node: &DisplayNode, list: &mut DisplayList) {
@@ -254,7 +281,7 @@ mod tests {
             ),
         };
 
-        let list = build_display_list(&resolved, &layout_tree).expect("display list should build");
+        let list = build_display_list(&resolved, &layout_tree, &assets).expect("display list should build");
         let bitmap = list
             .commands
             .iter()
@@ -267,7 +294,7 @@ mod tests {
             .expect("bitmap draw item should exist");
 
         assert_eq!(bitmap.object_fit, ObjectFit::Cover);
-        assert_eq!(bitmap.paint.border_radius, 0.0);
+        assert_eq!(bitmap.paint.border_radius, crate::style::BorderRadius::default());
     }
 
     #[test]
@@ -324,7 +351,7 @@ mod tests {
             ),
         };
 
-        let list = build_display_list(&resolved, &layout_tree).expect("display list should build");
+        let list = build_display_list(&resolved, &layout_tree, &assets).expect("display list should build");
         let texts = list
             .commands
             .iter()
@@ -380,14 +407,22 @@ mod tests {
             ),
         };
 
-        let list = build_display_list(&resolved, &layout_tree).expect("display list should build");
+        let list = build_display_list(&resolved, &layout_tree, &assets).expect("display list should build");
         let clip = list.commands.iter().find_map(|command| match command {
             DisplayCommand::Clip { clip } => Some(clip),
             _ => None,
         });
 
         assert!(clip.is_some());
-        assert_eq!(clip.expect("clip command should exist").border_radius, 12.0);
+        assert_eq!(
+            clip.expect("clip command should exist").border_radius,
+            crate::style::BorderRadius {
+                top_left: 12.0,
+                top_right: 12.0,
+                bottom_right: 12.0,
+                bottom_left: 12.0,
+            }
+        );
     }
 
     #[test]
@@ -444,7 +479,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree, &assets).expect("display tree should build");
         let texts = tree
             .root
             .children
@@ -502,7 +537,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree, &assets).expect("display tree should build");
         let DisplayItem::Lucide(lucide) = &tree.root.children[0].item else {
             panic!("expected lucide item");
         };
@@ -547,7 +582,7 @@ mod tests {
             ),
         };
 
-        let err = build_display_tree(&resolved, &layout_tree).expect_err("expected mismatch");
+        let err = build_display_tree(&resolved, &layout_tree, &assets).expect_err("expected mismatch");
         assert!(err.to_string().contains("child count mismatch"));
     }
 }

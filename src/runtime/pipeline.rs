@@ -236,7 +236,7 @@ pub(crate) fn build_scene_display_list_with_slot(
         stats.layout_pass.structure_rebuild,
     );
     stats.display_ms = display_started.elapsed().as_secs_f64() * 1000.0;
-    stats.contains_video = annotated_display_tree.root.subtree_contains_time_variant;
+    stats.contains_video = annotated_display_tree.contains_time_variant();
 
     Ok((annotated_display_tree, stats))
 }

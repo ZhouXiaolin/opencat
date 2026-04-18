@@ -16,7 +16,8 @@ impl SceneRenderPlan {
     pub(crate) fn from_scene(scene_stats: &SceneBuildStats) -> Self {
         let has_structural_change = scene_stats.layout_pass.structure_rebuild
             || scene_stats.layout_pass.layout_dirty_nodes > 0
-            || scene_stats.layout_pass.raster_dirty_nodes > 0;
+            || scene_stats.layout_pass.raster_dirty_nodes > 0
+            || scene_stats.layout_pass.composite_dirty_nodes > 0;
 
         let strategy = if scene_stats.contains_video {
             SceneRenderStrategy::LayeredScene

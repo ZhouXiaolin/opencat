@@ -113,6 +113,7 @@ impl Default for DrawScriptPaintState {
 
 pub struct SkiaBackend<'a> {
     canvas: &'a Canvas,
+    display_tree: &'a AnnotatedDisplayTree,
     assets: &'a AssetsMap,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
@@ -127,6 +128,7 @@ impl<'a> SkiaBackend<'a> {
         canvas: &'a Canvas,
         _width: i32,
         _height: i32,
+        display_tree: &'a AnnotatedDisplayTree,
         assets: &'a AssetsMap,
         image_cache: ImageCache,
         text_snapshot_cache: TextSnapshotCache,
@@ -137,6 +139,7 @@ impl<'a> SkiaBackend<'a> {
     ) -> Self {
         Self {
             canvas,
+            display_tree,
             assets,
             image_cache,
             text_snapshot_cache,
@@ -145,6 +148,24 @@ impl<'a> SkiaBackend<'a> {
             media_ctx,
             frame_ctx,
         }
+    }
+
+    fn node_paint_variance(&self, node: &AnnotatedDisplayNode) -> PaintVariance {
+        self.display_tree.analysis_for(node).paint_variance
+    }
+
+    fn node_snapshot_fingerprint(&self, node: &AnnotatedDisplayNode) -> Option<u64> {
+        self.display_tree.analysis_for(node).snapshot_fingerprint
+    }
+
+    fn node_subtree_contains_dynamic(&self, node: &AnnotatedDisplayNode) -> bool {
+        self.display_tree
+            .invalidation_for(node)
+            .subtree_contains_dynamic
+    }
+
+    fn node_composite_dirty(&self, node: &AnnotatedDisplayNode) -> bool {
+        self.display_tree.invalidation_for(node).composite_dirty
     }
 
     fn draw_display_children(&mut self, children: &[AnnotatedDisplayNode]) -> Result<()> {
@@ -190,7 +211,7 @@ impl<'a> SkiaBackend<'a> {
     fn draw_display_subtree_after_transform(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
         let subtree_cache = self.subtree_snapshot_cache.clone();
         if let Some(cache) = subtree_cache {
-            if let Some(key) = node.snapshot_fingerprint {
+            if let Some(key) = self.node_snapshot_fingerprint(node) {
                 if let Some(snapshot) = cache.borrow_mut().get_cloned(&key) {
                     record_backend_count(BackendCountMetric::SubtreeSnapshotCacheHit, 1);
                     self.draw_subtree_snapshot(node, &snapshot)?;
@@ -225,15 +246,15 @@ impl<'a> SkiaBackend<'a> {
     fn draw_display_subtree_static_only(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
         let draw = node.draw_composite_semantics();
         if draw.opacity <= 0.0
-            || node.paint_variance == PaintVariance::TimeVariant
-            || node.composite_dirty
+            || self.node_paint_variance(node) == PaintVariance::TimeVariant
+            || self.node_composite_dirty(node)
         {
             return Ok(());
         }
 
         self.canvas.save();
         apply_transform(self.canvas, draw.transform);
-        let result = if !node.subtree_contains_dynamic {
+        let result = if !self.node_subtree_contains_dynamic(node) {
             self.draw_display_subtree_after_transform(node)
         } else {
             self.with_display_layer(
@@ -253,13 +274,15 @@ impl<'a> SkiaBackend<'a> {
 
     fn draw_display_subtree_dynamic_only(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
         let draw = node.draw_composite_semantics();
-        if draw.opacity <= 0.0 || !node.subtree_contains_dynamic {
+        if draw.opacity <= 0.0 || !self.node_subtree_contains_dynamic(node) {
             return Ok(());
         }
 
         self.canvas.save();
         apply_transform(self.canvas, draw.transform);
-        let result = if node.paint_variance == PaintVariance::TimeVariant || node.composite_dirty {
+        let result = if self.node_paint_variance(node) == PaintVariance::TimeVariant
+            || self.node_composite_dirty(node)
+        {
             self.draw_display_subtree_contents(node)
         } else {
             self.with_display_layer(
@@ -450,6 +473,7 @@ impl<'a> SkiaBackend<'a> {
             recording_canvas,
             layer_bounds.width.max(1.0) as i32,
             layer_bounds.height.max(1.0) as i32,
+            self.display_tree,
             self.assets,
             self.image_cache.clone(),
             self.text_snapshot_cache.clone(),
@@ -575,6 +599,7 @@ pub(crate) fn draw_display_tree_cached<'a>(
         canvas,
         display_tree.root.transform.bounds.width as i32,
         display_tree.root.transform.bounds.height as i32,
+        display_tree,
         assets,
         image_cache,
         text_snapshot_cache,
@@ -601,6 +626,7 @@ pub(crate) fn draw_display_tree_dynamic_layered<'a>(
         canvas,
         display_tree.root.transform.bounds.width as i32,
         display_tree.root.transform.bounds.height as i32,
+        display_tree,
         assets,
         image_cache,
         text_snapshot_cache,
@@ -632,6 +658,7 @@ pub(crate) fn record_display_tree_snapshot<'a>(
         recording_canvas,
         width,
         height,
+        display_tree,
         assets,
         image_cache,
         text_snapshot_cache,
@@ -667,6 +694,7 @@ pub(crate) fn record_display_tree_static_skeleton<'a>(
         recording_canvas,
         width,
         height,
+        display_tree,
         assets,
         image_cache,
         text_snapshot_cache,

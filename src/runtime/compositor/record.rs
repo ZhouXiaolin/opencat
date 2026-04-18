@@ -13,7 +13,11 @@ pub(crate) fn record_layered_scene(
     render_engine: SharedRenderEngine,
     display_tree: &AnnotatedDisplayTree,
 ) -> Result<LayeredScene> {
-    let skeleton_fp = scene_static_skeleton_fingerprint(&display_tree.root);
+    let skeleton_fp = scene_static_skeleton_fingerprint(
+        &display_tree.root,
+        &display_tree.analysis,
+        &display_tree.invalidation,
+    );
     let static_cache = runtime.cache_registry.scene_static_picture_cache();
 
     let static_layer = if let Some(snapshot) = static_cache.borrow_mut().get_cloned(&skeleton_fp) {

@@ -622,7 +622,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_script_is_always_time_variant() {
+    fn draw_script_command_based_stability() {
         let assets = AssetsMap::new();
         let script_item = DisplayItem::DrawScript(DrawScriptDisplayItem {
             bounds: empty_bounds(),
@@ -630,11 +630,15 @@ mod tests {
             drop_shadow: None,
         });
 
+        // 命令序列空 → hash 稳定 → Stable
         assert_eq!(
             classify_paint(&script_item, &assets),
-            PaintVariance::TimeVariant
+            PaintVariance::Stable
         );
-        assert_eq!(item_paint_fingerprint(&script_item, &assets), None);
+        assert!(
+            item_paint_fingerprint(&script_item, &assets).is_some(),
+            "Stable DrawScript 必须有 paint fingerprint 作为 ItemPictureCache 的 key"
+        );
     }
 
     #[test]

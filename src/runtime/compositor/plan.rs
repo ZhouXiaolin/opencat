@@ -2,8 +2,7 @@ use crate::runtime::profile::SceneBuildStats;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SceneRenderStrategy {
-    DisplayTreeSnapshot,
-    LayeredScene,
+    OrderedScene,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,20 +18,17 @@ impl SceneRenderPlan {
             || scene_stats.layout_pass.raster_dirty_nodes > 0
             || scene_stats.layout_pass.composite_dirty_nodes > 0;
 
-        let strategy = if scene_stats.contains_video {
-            SceneRenderStrategy::LayeredScene
-        } else {
-            SceneRenderStrategy::DisplayTreeSnapshot
-        };
+        let strategy = SceneRenderStrategy::OrderedScene;
 
         Self {
             strategy,
-            allows_scene_snapshot_cache: !scene_stats.contains_video && !has_structural_change,
+            allows_scene_snapshot_cache: !scene_stats.contains_time_variant_paint
+                && !has_structural_change,
         }
     }
 
-    pub(crate) fn renders_layered_scene(self) -> bool {
-        self.strategy == SceneRenderStrategy::LayeredScene
+    pub(crate) fn renders_ordered_scene(self) -> bool {
+        self.strategy == SceneRenderStrategy::OrderedScene
     }
 }
 
@@ -46,19 +42,19 @@ mod tests {
     use crate::{layout::LayoutPassStats, runtime::profile::SceneBuildStats};
 
     #[test]
-    fn video_scene_uses_layered_strategy() {
+    fn time_variant_paint_scene_uses_ordered_scene() {
         let stats = SceneBuildStats {
-            contains_video: true,
+            contains_time_variant_paint: true,
             ..SceneBuildStats::default()
         };
 
         let plan = SceneRenderPlan::from_scene(&stats);
-        assert_eq!(plan.strategy, SceneRenderStrategy::LayeredScene);
+        assert_eq!(plan.strategy, SceneRenderStrategy::OrderedScene);
         assert!(!plan.allows_scene_snapshot_cache);
     }
 
     #[test]
-    fn composite_only_scene_uses_display_tree_snapshot() {
+    fn composite_only_scene_uses_ordered_scene() {
         let stats = SceneBuildStats {
             layout_pass: LayoutPassStats {
                 composite_dirty_nodes: 2,
@@ -68,16 +64,16 @@ mod tests {
         };
 
         let plan = SceneRenderPlan::from_scene(&stats);
-        assert_eq!(plan.strategy, SceneRenderStrategy::DisplayTreeSnapshot);
+        assert_eq!(plan.strategy, SceneRenderStrategy::OrderedScene);
         assert!(!plan.allows_scene_snapshot_cache);
     }
 
     #[test]
-    fn clean_scene_reuses_display_list_snapshot_cache() {
+    fn clean_scene_reuses_scene_snapshot_cache() {
         let stats = SceneBuildStats::default();
 
         let plan = SceneRenderPlan::from_scene(&stats);
-        assert_eq!(plan.strategy, SceneRenderStrategy::DisplayTreeSnapshot);
+        assert_eq!(plan.strategy, SceneRenderStrategy::OrderedScene);
         assert!(plan.allows_scene_snapshot_cache);
     }
 }

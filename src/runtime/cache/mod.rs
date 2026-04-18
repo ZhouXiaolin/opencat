@@ -6,14 +6,12 @@ use std::{cell::RefCell, rc::Rc};
 use skia_safe::{Image as SkiaImage, Picture};
 
 use crate::runtime::cache::lru::BoundedLruCache;
-use crate::runtime::render_engine::SceneSnapshot;
 
 pub(crate) type SharedLruCache<K, V> = Rc<RefCell<BoundedLruCache<K, V>>>;
 pub(crate) type ImageCache = SharedLruCache<String, Option<SkiaImage>>;
 pub(crate) type TextSnapshotCache = SharedLruCache<u64, Picture>;
 pub(crate) type SubtreeSnapshotCache = SharedLruCache<u64, Picture>;
 pub(crate) type ItemPictureCache = SharedLruCache<u64, Picture>;
-pub(crate) type SceneStaticPictureCache = SharedLruCache<u64, SceneSnapshot>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CacheCaps {
@@ -21,7 +19,6 @@ pub struct CacheCaps {
     pub text_snapshots: usize,
     pub subtree_snapshots: usize,
     pub item_pictures: usize,
-    pub scene_static_pictures: usize,
     pub video_frames: usize,
 }
 
@@ -32,7 +29,6 @@ impl Default for CacheCaps {
             text_snapshots: 256,
             subtree_snapshots: 256,
             item_pictures: 256,
-            scene_static_pictures: 256,
             video_frames: 64,
         }
     }
@@ -43,7 +39,6 @@ pub(crate) struct CacheRegistry {
     text_snapshot_cache: TextSnapshotCache,
     subtree_snapshot_cache: SubtreeSnapshotCache,
     item_picture_cache: ItemPictureCache,
-    scene_static_picture_cache: SceneStaticPictureCache,
 }
 
 impl CacheRegistry {
@@ -55,9 +50,6 @@ impl CacheRegistry {
                 caps.subtree_snapshots,
             ))),
             item_picture_cache: Rc::new(RefCell::new(BoundedLruCache::new(caps.item_pictures))),
-            scene_static_picture_cache: Rc::new(RefCell::new(BoundedLruCache::new(
-                caps.scene_static_pictures,
-            ))),
         }
     }
 
@@ -75,10 +67,6 @@ impl CacheRegistry {
 
     pub(crate) fn item_picture_cache(&self) -> ItemPictureCache {
         self.item_picture_cache.clone()
-    }
-
-    pub(crate) fn scene_static_picture_cache(&self) -> SceneStaticPictureCache {
-        self.scene_static_picture_cache.clone()
     }
 }
 

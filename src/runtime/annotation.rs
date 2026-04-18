@@ -70,10 +70,6 @@ impl AnnotatedDisplayTree {
         self.analysis.require(handle)
     }
 
-    pub fn invalidation(&self, handle: AnnotatedNodeHandle) -> DisplayNodeInvalidation {
-        self.invalidation.get(handle)
-    }
-
     pub fn key(&self, handle: AnnotatedNodeHandle) -> RenderNodeKey {
         self.keys[handle.0]
     }
@@ -216,7 +212,6 @@ fn annotate_display_node(
         handle,
         DisplayNodeInvalidation {
             composite_dirty: false,
-            subtree_contains_dynamic: subtree_contains_time_variant,
         },
     );
 

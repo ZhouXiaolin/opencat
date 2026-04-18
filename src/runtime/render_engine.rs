@@ -7,7 +7,7 @@ use crate::{
         annotation::AnnotatedDisplayTree,
         backend_object::BackendObject,
         cache::CacheRegistry,
-        compositor::DynamicLayer,
+        compositor::OrderedSceneProgram,
         frame_view::RenderFrameView,
         session::RenderSession,
         target::{RenderFrameViewKind, RenderTargetHandle},
@@ -53,22 +53,11 @@ pub(crate) trait RenderEngine: Send + Sync {
         runtime: &mut SceneRenderContext<'_>,
         display_tree: &AnnotatedDisplayTree,
     ) -> Result<SceneSnapshot>;
-    fn record_display_tree_static_snapshot(
+    fn draw_ordered_scene(
         &self,
         runtime: &mut SceneRenderContext<'_>,
         display_tree: &AnnotatedDisplayTree,
-    ) -> Result<SceneSnapshot>;
-    fn draw_dynamic_layer(
-        &self,
-        runtime: &mut SceneRenderContext<'_>,
-        display_tree: &AnnotatedDisplayTree,
-        layer: &DynamicLayer,
-        frame_view: RenderFrameView,
-    ) -> Result<()>;
-    fn draw_display_tree(
-        &self,
-        runtime: &mut SceneRenderContext<'_>,
-        display_tree: &AnnotatedDisplayTree,
+        ordered_scene: &OrderedSceneProgram,
         frame_view: RenderFrameView,
     ) -> Result<()>;
     fn draw_transition(

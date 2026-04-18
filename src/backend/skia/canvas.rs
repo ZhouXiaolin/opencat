@@ -935,6 +935,31 @@ pub(crate) fn resolve_subtree_snapshot_lookup(
     }
 }
 
+const SUBTREE_IMAGE_PROMOTION_HITS: usize = 3;
+
+fn transform_list_has_non_unit_scale(transforms: &[Transform]) -> bool {
+    transforms.iter().any(|transform| match *transform {
+        Transform::Scale(value)
+        | Transform::ScaleX(value)
+        | Transform::ScaleY(value) => (value - 1.0).abs() > f32::EPSILON,
+        _ => false,
+    })
+}
+
+fn should_promote_snapshot_to_image(
+    consecutive_hits: usize,
+    recorded_bounds: DisplayRect,
+    current_bounds: DisplayRect,
+    has_non_unit_scale: bool,
+) -> bool {
+    consecutive_hits >= SUBTREE_IMAGE_PROMOTION_HITS
+        && !has_non_unit_scale
+        && recorded_bounds.x.to_bits() == current_bounds.x.to_bits()
+        && recorded_bounds.y.to_bits() == current_bounds.y.to_bits()
+        && recorded_bounds.width.to_bits() == current_bounds.width.to_bits()
+        && recorded_bounds.height.to_bits() == current_bounds.height.to_bits()
+}
+
 fn should_cache_item_picture(item: &DisplayItem) -> bool {
     matches!(
         item,
@@ -2218,5 +2243,71 @@ mod resolve_tests {
             resolve_subtree_snapshot_lookup(fp, None),
             SubtreeSnapshotResolution::Miss,
         );
+    }
+}
+
+#[cfg(test)]
+mod promotion_tests {
+    use super::{
+        SUBTREE_IMAGE_PROMOTION_HITS, should_promote_snapshot_to_image,
+        transform_list_has_non_unit_scale,
+    };
+    use crate::{
+        display::list::DisplayRect,
+        style::Transform,
+    };
+
+    fn bounds(width: f32, height: f32) -> DisplayRect {
+        DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn promotion_requires_threshold_and_matching_bounds() {
+        let recorded = bounds(320.0, 180.0);
+        assert!(!should_promote_snapshot_to_image(
+            SUBTREE_IMAGE_PROMOTION_HITS - 1,
+            recorded,
+            recorded,
+            false,
+        ));
+        assert!(should_promote_snapshot_to_image(
+            SUBTREE_IMAGE_PROMOTION_HITS,
+            recorded,
+            recorded,
+            false,
+        ));
+    }
+
+    #[test]
+    fn promotion_rejects_scale_and_bounds_changes() {
+        let recorded = bounds(320.0, 180.0);
+        let resized = bounds(640.0, 360.0);
+        assert!(!should_promote_snapshot_to_image(
+            SUBTREE_IMAGE_PROMOTION_HITS,
+            recorded,
+            resized,
+            false,
+        ));
+        assert!(!should_promote_snapshot_to_image(
+            SUBTREE_IMAGE_PROMOTION_HITS,
+            recorded,
+            recorded,
+            true,
+        ));
+    }
+
+    #[test]
+    fn detects_non_unit_scale_transforms() {
+        assert!(!transform_list_has_non_unit_scale(&[]));
+        assert!(!transform_list_has_non_unit_scale(&[Transform::Scale(1.0)]));
+        assert!(transform_list_has_non_unit_scale(&[Transform::Scale(1.25)]));
+        assert!(transform_list_has_non_unit_scale(&[Transform::ScaleX(0.8)]));
+        assert!(transform_list_has_non_unit_scale(&[Transform::ScaleY(1.1)]));
+        assert!(!transform_list_has_non_unit_scale(&[Transform::TranslateX(20.0)]));
     }
 }

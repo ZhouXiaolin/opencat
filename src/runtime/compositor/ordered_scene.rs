@@ -31,6 +31,31 @@ impl OrderedSceneProgram {
     }
 }
 
+const SUBTREE_GRANULARITY_RATIO_THRESHOLD: f32 = 16.0;
+
+fn layer_area(bounds: crate::display::list::DisplayRect) -> f32 {
+    bounds.width.max(1.0) * bounds.height.max(1.0)
+}
+
+fn should_cache_subtree_at_parent_granularity(
+    display_tree: &AnnotatedDisplayTree,
+    handle: AnnotatedNodeHandle,
+) -> bool {
+    let children = display_tree.children(handle);
+    if children.is_empty() {
+        return false;
+    }
+
+    let parent_area = layer_area(display_tree.layer_bounds(handle));
+    let max_child_area = children
+        .iter()
+        .map(|&child| layer_area(display_tree.layer_bounds(child)))
+        .fold(0.0_f32, f32::max);
+
+    max_child_area <= 0.0
+        || (parent_area / max_child_area) <= SUBTREE_GRANULARITY_RATIO_THRESHOLD
+}
+
 fn build_scene_op(
     display_tree: &AnnotatedDisplayTree,
     handle: AnnotatedNodeHandle,
@@ -41,6 +66,7 @@ fn build_scene_op(
             analyze_stable_node_reuse(display_tree, handle),
             StableNodeReuse::SubtreeSnapshot
         )
+        && should_cache_subtree_at_parent_granularity(display_tree, handle)
     {
         return OrderedSceneOp::CachedSubtree { handle };
     }
@@ -386,6 +412,84 @@ mod tests {
                         children: Vec::new(),
                     },
                 ],
+            }
+        );
+    }
+
+    #[test]
+    fn large_parent_prefers_child_level_caching() {
+        let root = AnnotatedNodeHandle(0);
+        let child = AnnotatedNodeHandle(1);
+        let grandchild = AnnotatedNodeHandle(2);
+        let tree = AnnotatedDisplayTree {
+            root,
+            nodes: vec![
+                rect_node(vec![child]),
+                rect_node(vec![grandchild]),
+                rect_node(Vec::new()),
+            ],
+            keys: vec![RenderNodeKey(1), RenderNodeKey(2), RenderNodeKey(3)],
+            layer_bounds: vec![
+                DisplayRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1920.0,
+                    height: 1080.0,
+                },
+                DisplayRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 64.0,
+                    height: 64.0,
+                },
+                DisplayRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 64.0,
+                    height: 64.0,
+                },
+            ],
+            analysis: {
+                let mut table = DisplayAnalysisTable::default();
+                table.insert(
+                    root,
+                    DisplayNodeAnalysis {
+                        paint_variance: PaintVariance::Stable,
+                        subtree_contains_time_variant: false,
+                        paint_fingerprint: Some(11),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 12, secondary: 12 }),
+                    },
+                );
+                table.insert(
+                    child,
+                    DisplayNodeAnalysis {
+                        paint_variance: PaintVariance::Stable,
+                        subtree_contains_time_variant: false,
+                        paint_fingerprint: Some(21),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 22, secondary: 22 }),
+                    },
+                );
+                table.insert(
+                    grandchild,
+                    DisplayNodeAnalysis {
+                        paint_variance: PaintVariance::Stable,
+                        subtree_contains_time_variant: false,
+                        paint_fingerprint: Some(31),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 32, secondary: 32 }),
+                    },
+                );
+                table
+            },
+            invalidation: DisplayInvalidationTable::with_len(3),
+        };
+
+        let program = OrderedSceneProgram::build(&tree);
+        assert_eq!(
+            program.root,
+            OrderedSceneOp::LiveSubtree {
+                handle: root,
+                item_execution: LiveNodeItemExecution::Direct,
+                children: vec![OrderedSceneOp::CachedSubtree { handle: child }],
             }
         );
     }

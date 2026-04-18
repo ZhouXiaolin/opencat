@@ -16,34 +16,6 @@ pub struct DisplayRect {
     pub height: f32,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct DisplayList {
-    pub commands: Vec<DisplayCommand>,
-}
-
-impl DisplayList {
-    pub fn push(&mut self, command: DisplayCommand) {
-        self.commands.push(command);
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum DisplayCommand {
-    Save,
-    Restore,
-    SaveLayer { layer: DisplayLayer },
-    Clip { clip: DisplayClip },
-    ApplyTransform { transform: DisplayTransform },
-    Draw { item: DisplayItem },
-}
-
-#[derive(Clone, Debug)]
-pub struct DisplayLayer {
-    pub bounds: DisplayRect,
-    pub opacity: f32,
-    pub backdrop_blur_sigma: Option<f32>,
-}
-
 #[derive(Clone, Debug)]
 pub struct DisplayClip {
     pub bounds: DisplayRect,
@@ -140,6 +112,15 @@ pub struct LucideDisplayItem {
     pub paint: LucidePaintStyle,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct PictureSemantics {
+    pub record_bounds: DisplayRect,
+    pub record_translation_x: f32,
+    pub record_translation_y: f32,
+    pub draw_translation_x: f32,
+    pub draw_translation_y: f32,
+}
+
 impl DisplayRect {
     pub fn outset(self, left: f32, top: f32, right: f32, bottom: f32) -> Self {
         Self {
@@ -210,5 +191,21 @@ impl DisplayItem {
         }
 
         visual_bounds
+    }
+
+    pub fn picture_semantics(&self) -> PictureSemantics {
+        let visual_bounds = self.visual_bounds();
+        PictureSemantics {
+            record_bounds: DisplayRect {
+                x: 0.0,
+                y: 0.0,
+                width: visual_bounds.width.max(1.0),
+                height: visual_bounds.height.max(1.0),
+            },
+            record_translation_x: -visual_bounds.x,
+            record_translation_y: -visual_bounds.y,
+            draw_translation_x: visual_bounds.x,
+            draw_translation_y: visual_bounds.y,
+        }
     }
 }

@@ -7,8 +7,8 @@ use std::ffi::c_void;
 #[cfg(target_os = "macos")]
 use crate::runtime::surface::MetalEncodeBridge;
 use crate::{
-    display::{list::DisplayList, tree::DisplayTree},
     runtime::{
+        annotation::AnnotatedDisplayTree,
         frame_view::RenderFrameView,
         profile::backend_span,
         render_engine::{RenderEngine, SceneRenderContext, SceneSnapshot, SharedRenderEngine},
@@ -129,7 +129,7 @@ impl RenderEngine for SkiaRenderEngine {
     fn record_display_tree_snapshot(
         &self,
         runtime: &mut SceneRenderContext<'_>,
-        display_tree: &DisplayTree,
+        display_tree: &AnnotatedDisplayTree,
     ) -> Result<SceneSnapshot> {
         let snapshot = skia::record_display_tree_snapshot(
             display_tree,
@@ -149,7 +149,7 @@ impl RenderEngine for SkiaRenderEngine {
     fn record_display_tree_static_snapshot(
         &self,
         runtime: &mut SceneRenderContext<'_>,
-        display_tree: &DisplayTree,
+        display_tree: &AnnotatedDisplayTree,
     ) -> Result<SceneSnapshot> {
         let snapshot = skia::record_display_tree_static_skeleton(
             display_tree,
@@ -165,29 +165,10 @@ impl RenderEngine for SkiaRenderEngine {
         Ok(SceneSnapshot::new(SkiaSceneSnapshot { snapshot }))
     }
 
-    fn record_display_list_snapshot(
-        &self,
-        runtime: &mut SceneRenderContext<'_>,
-        display_list: &DisplayList,
-    ) -> Result<SceneSnapshot> {
-        let snapshot = skia::record_display_list_snapshot(
-            display_list,
-            runtime.width,
-            runtime.height,
-            runtime.assets,
-            runtime.cache_registry.image_cache(),
-            runtime.cache_registry.text_snapshot_cache(),
-            runtime.cache_registry.item_picture_cache(),
-            Some(&mut *runtime.media_ctx),
-            runtime.frame_ctx,
-        )?;
-        Ok(SceneSnapshot::new(SkiaSceneSnapshot { snapshot }))
-    }
-
     fn draw_display_tree_dynamic(
         &self,
         runtime: &mut SceneRenderContext<'_>,
-        display_tree: &DisplayTree,
+        display_tree: &AnnotatedDisplayTree,
         frame_view: RenderFrameView,
     ) -> Result<()> {
         let canvas = skia_canvas(frame_view)?;
@@ -207,7 +188,7 @@ impl RenderEngine for SkiaRenderEngine {
     fn draw_display_tree(
         &self,
         runtime: &mut SceneRenderContext<'_>,
-        display_tree: &DisplayTree,
+        display_tree: &AnnotatedDisplayTree,
         frame_view: RenderFrameView,
     ) -> Result<()> {
         let _profile_span = backend_span("display_tree_direct_draw");
@@ -224,29 +205,6 @@ impl RenderEngine for SkiaRenderEngine {
             runtime.frame_ctx,
         )?;
         Ok(())
-    }
-
-    fn draw_display_list(
-        &self,
-        runtime: &mut SceneRenderContext<'_>,
-        display_list: &DisplayList,
-        frame_view: RenderFrameView,
-    ) -> Result<()> {
-        let _profile_span = backend_span("display_list_direct_draw");
-        let canvas = skia_canvas(frame_view)?;
-        let mut backend = skia::SkiaBackend::new_with_cache(
-            canvas,
-            runtime.width,
-            runtime.height,
-            runtime.assets,
-            runtime.cache_registry.image_cache(),
-            runtime.cache_registry.text_snapshot_cache(),
-            runtime.cache_registry.item_picture_cache(),
-            None,
-            Some(&mut *runtime.media_ctx),
-            runtime.frame_ctx,
-        );
-        backend.execute(display_list)
     }
 
     fn draw_transition(

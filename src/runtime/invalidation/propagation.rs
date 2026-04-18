@@ -1,20 +1,20 @@
-use crate::{
-    display::tree::{DisplayNode, DisplayTree},
-    runtime::{
-        compositor::SceneSlot,
-        fingerprint::{CompositeSig, PaintVariance},
-    },
+use std::collections::HashMap;
+
+use crate::runtime::{
+    annotation::{AnnotatedDisplayNode, AnnotatedDisplayTree, RenderNodeKey},
+    compositor::SceneSlot,
+    fingerprint::{CompositeSig, PaintVariance},
 };
 
 #[derive(Default)]
 pub(crate) struct CompositeHistory {
-    scene: Vec<CompositeSig>,
-    transition_from: Vec<CompositeSig>,
-    transition_to: Vec<CompositeSig>,
+    scene: HashMap<RenderNodeKey, CompositeSig>,
+    transition_from: HashMap<RenderNodeKey, CompositeSig>,
+    transition_to: HashMap<RenderNodeKey, CompositeSig>,
 }
 
 impl CompositeHistory {
-    fn history_for_slot(&self, slot: SceneSlot) -> &[CompositeSig] {
+    fn history_for_slot(&self, slot: SceneSlot) -> &HashMap<RenderNodeKey, CompositeSig> {
         match slot {
             SceneSlot::Scene => &self.scene,
             SceneSlot::TransitionFrom => &self.transition_from,
@@ -22,7 +22,10 @@ impl CompositeHistory {
         }
     }
 
-    fn history_for_slot_mut(&mut self, slot: SceneSlot) -> &mut Vec<CompositeSig> {
+    fn history_for_slot_mut(
+        &mut self,
+        slot: SceneSlot,
+    ) -> &mut HashMap<RenderNodeKey, CompositeSig> {
         match slot {
             SceneSlot::Scene => &mut self.scene,
             SceneSlot::TransitionFrom => &mut self.transition_from,
@@ -34,40 +37,36 @@ impl CompositeHistory {
 pub(crate) fn mark_display_tree_composite_dirty(
     history: &mut CompositeHistory,
     slot: SceneSlot,
-    display_tree: &mut DisplayTree,
+    display_tree: &mut AnnotatedDisplayTree,
     structure_rebuild: bool,
 ) {
+    let empty = HashMap::new();
     let previous = if structure_rebuild {
-        &[][..]
+        &empty
     } else {
         history.history_for_slot(slot)
     };
-    let mut next = Vec::new();
-    let mut index = 0;
-    mark_display_node_composite_dirty(&mut display_tree.root, previous, &mut index, &mut next);
+    let mut next = HashMap::new();
+    mark_display_node_composite_dirty(&mut display_tree.root, previous, &mut next);
     *history.history_for_slot_mut(slot) = next;
 }
 
 fn mark_display_node_composite_dirty(
-    node: &mut DisplayNode,
-    previous: &[CompositeSig],
-    index: &mut usize,
-    next: &mut Vec<CompositeSig>,
+    node: &mut AnnotatedDisplayNode,
+    previous: &HashMap<RenderNodeKey, CompositeSig>,
+    next: &mut HashMap<RenderNodeKey, CompositeSig>,
 ) -> bool {
-    let current_index = *index;
-    *index += 1;
-
-    let current_sig = CompositeSig::from_node(node);
+    let current_sig = CompositeSig::from_annotated_node(node);
     let composite_dirty = previous
-        .get(current_index)
+        .get(&node.key)
         .is_some_and(|previous_sig| *previous_sig != current_sig);
-    next.push(current_sig);
+    next.insert(node.key, current_sig);
     node.composite_dirty = composite_dirty;
 
     let mut subtree_contains_dynamic =
         node.paint_variance == PaintVariance::TimeVariant || composite_dirty;
     for child in &mut node.children {
-        subtree_contains_dynamic |= mark_display_node_composite_dirty(child, previous, index, next);
+        subtree_contains_dynamic |= mark_display_node_composite_dirty(child, previous, next);
     }
     node.subtree_contains_dynamic = subtree_contains_dynamic;
     subtree_contains_dynamic

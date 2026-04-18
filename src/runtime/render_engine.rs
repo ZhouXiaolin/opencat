@@ -1,10 +1,10 @@
 use anyhow::Result;
 
 use crate::{
-    display::{list::DisplayList, tree::DisplayTree},
     frame_ctx::FrameCtx,
     resource::{assets::AssetsMap, media::MediaContext},
     runtime::{
+        annotation::AnnotatedDisplayTree,
         backend_object::BackendObject,
         cache::CacheRegistry,
         frame_view::RenderFrameView,
@@ -50,34 +50,23 @@ pub(crate) trait RenderEngine: Send + Sync {
     fn record_display_tree_snapshot(
         &self,
         runtime: &mut SceneRenderContext<'_>,
-        display_tree: &DisplayTree,
+        display_tree: &AnnotatedDisplayTree,
     ) -> Result<SceneSnapshot>;
     fn record_display_tree_static_snapshot(
         &self,
         runtime: &mut SceneRenderContext<'_>,
-        display_tree: &DisplayTree,
-    ) -> Result<SceneSnapshot>;
-    fn record_display_list_snapshot(
-        &self,
-        runtime: &mut SceneRenderContext<'_>,
-        display_list: &DisplayList,
+        display_tree: &AnnotatedDisplayTree,
     ) -> Result<SceneSnapshot>;
     fn draw_display_tree_dynamic(
         &self,
         runtime: &mut SceneRenderContext<'_>,
-        display_tree: &DisplayTree,
+        display_tree: &AnnotatedDisplayTree,
         frame_view: RenderFrameView,
     ) -> Result<()>;
     fn draw_display_tree(
         &self,
         runtime: &mut SceneRenderContext<'_>,
-        display_tree: &DisplayTree,
-        frame_view: RenderFrameView,
-    ) -> Result<()>;
-    fn draw_display_list(
-        &self,
-        runtime: &mut SceneRenderContext<'_>,
-        display_list: &DisplayList,
+        display_tree: &AnnotatedDisplayTree,
         frame_view: RenderFrameView,
     ) -> Result<()>;
     fn draw_transition(

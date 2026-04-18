@@ -1,7 +1,7 @@
 //! Paint、subtree snapshot 与 composite 三个独立维度的指纹。
 //!
-//! - [`subtree_paint_fingerprint`]：纯 paint 指纹。仅由"画什么"决定，不含任何 composite。
-//! - [`subtree_snapshot_fingerprint`]：subtree picture 缓存键。
+//! - [`annotated_subtree_paint_fingerprint`]：纯 paint 指纹。仅由"画什么"决定，不含任何 composite。
+//! - [`annotated_subtree_snapshot_fingerprint`]：subtree picture 缓存键。
 //!   不含当前节点自己的 composite，但递归包含所有后代 composite，因为后代会被烘焙进当前节点 picture。
 //! - [`composite_signature`]：每帧比对用的合成参数摘要（transform/opacity/blur），
 //!   **不进入缓存键**。
@@ -17,8 +17,9 @@ use std::{
 };
 
 use crate::{
-    display::{list::DisplayItem, tree::DisplayNode},
+    display::list::DisplayItem,
     resource::assets::AssetsMap,
+    runtime::annotation::{AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics},
 };
 
 use display_item::{ClipFp, DisplayItemFp, F32Hash, TextFp, item_is_time_variant};
@@ -34,6 +35,14 @@ pub enum PaintVariance {
 
 /// 合成参数摘要：transform、opacity、blur。
 ///
+/// 这里只放 draw-time 的摆放/合成语义：
+/// - translation / transforms
+/// - opacity
+/// - backdrop blur
+///
+/// 像 `clip` 这类会改变录制内容的语义仍然留在 snapshot / skeleton 指纹里，
+/// 不放进 composite dirty 判定。
+///
 /// **不进入缓存键**。每帧对同一节点比对，用来判断是否需要重新合成。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CompositeSig {
@@ -45,15 +54,19 @@ pub struct CompositeSig {
 }
 
 impl CompositeSig {
-    pub fn from_node(node: &DisplayNode) -> Self {
+    pub fn from_annotated_node(node: &AnnotatedDisplayNode) -> Self {
+        Self::from_draw_composite(&node.draw_composite_semantics())
+    }
+
+    fn from_draw_composite(draw: &DrawCompositeSemantics<'_>) -> Self {
         let mut transforms_hasher = DefaultHasher::new();
-        node.transform.transforms.hash(&mut transforms_hasher);
+        draw.transform.transforms.hash(&mut transforms_hasher);
         Self {
-            translation_x_bits: node.transform.translation_x.to_bits(),
-            translation_y_bits: node.transform.translation_y.to_bits(),
+            translation_x_bits: draw.transform.translation_x.to_bits(),
+            translation_y_bits: draw.transform.translation_y.to_bits(),
             transforms_hash: transforms_hasher.finish(),
-            opacity_bits: node.opacity.to_bits(),
-            backdrop_blur_bits: node.backdrop_blur_sigma.map(|v| v.to_bits()),
+            opacity_bits: draw.opacity.to_bits(),
+            backdrop_blur_bits: draw.backdrop_blur_sigma.map(|v| v.to_bits()),
         }
     }
 }
@@ -82,107 +95,114 @@ pub fn item_paint_fingerprint(item: &DisplayItem, assets: &AssetsMap) -> Option<
     Some(hasher.finish())
 }
 
-/// 计算子树 paint fingerprint。
-pub fn subtree_paint_fingerprint(node: &DisplayNode, assets: &AssetsMap) -> Option<u64> {
-    if node_contains_time_variant(node, assets) {
+/// 基于已注解节点计算子树 paint fingerprint。
+///
+/// 要求所有后代的 `paint_fingerprint` 已经自底向上填充完成。
+pub(crate) fn annotated_subtree_paint_fingerprint(node: &AnnotatedDisplayNode) -> Option<u64> {
+    if node.subtree_contains_time_variant {
         return None;
     }
     let mut hasher = DefaultHasher::new();
-    hash_subtree_paint(node, &mut hasher);
+    hash_node_recorded_paint(node, &mut hasher);
+    node.children.len().hash(&mut hasher);
+    for child in &node.children {
+        child
+            .paint_fingerprint
+            .expect("stable annotated child must carry paint_fingerprint")
+            .hash(&mut hasher);
+    }
     Some(hasher.finish())
 }
 
-/// 计算 subtree snapshot fingerprint。
-pub fn subtree_snapshot_fingerprint(node: &DisplayNode, assets: &AssetsMap) -> Option<u64> {
-    if node_contains_time_variant(node, assets) {
+/// 基于已注解节点计算 subtree snapshot fingerprint。
+///
+/// 要求所有后代的 `snapshot_fingerprint` 已经自底向上填充完成。
+pub(crate) fn annotated_subtree_snapshot_fingerprint(node: &AnnotatedDisplayNode) -> Option<u64> {
+    if node.subtree_contains_time_variant {
         return None;
     }
     let mut hasher = DefaultHasher::new();
-    hash_subtree_snapshot(node, &mut hasher);
+    hash_node_recorded_paint(node, &mut hasher);
+    node.children.len().hash(&mut hasher);
+    for child in &node.children {
+        hash_node_draw_time_composite(child, &mut hasher);
+        child
+            .snapshot_fingerprint
+            .expect("stable annotated child must carry snapshot_fingerprint")
+            .hash(&mut hasher);
+    }
     Some(hasher.finish())
 }
 
 /// 计算视频场景的静态骨架指纹。
-pub fn scene_static_skeleton_fingerprint(node: &DisplayNode) -> u64 {
+pub fn scene_static_skeleton_fingerprint(node: &AnnotatedDisplayNode) -> u64 {
     let mut hasher = DefaultHasher::new();
-    hash_scene_static_skeleton(node, &mut hasher);
+    hash_scene_static_skeleton(node, &mut hasher, true);
     hasher.finish()
-}
-
-fn node_contains_time_variant(node: &DisplayNode, assets: &AssetsMap) -> bool {
-    item_is_time_variant(&node.item, assets)
-        || node
-            .children
-            .iter()
-            .any(|child| node_contains_time_variant(child, assets))
-}
-
-fn hash_subtree_paint(node: &DisplayNode, hasher: &mut DefaultHasher) {
-    F32Hash(node.transform.bounds.width).hash(hasher);
-    F32Hash(node.transform.bounds.height).hash(hasher);
-    DisplayItemFp(&node.item).hash(hasher);
-    ClipFp(node.clip.as_ref()).hash(hasher);
-    node.children.len().hash(hasher);
-    for child in &node.children {
-        hash_subtree_paint(child, hasher);
-    }
-}
-
-fn hash_subtree_snapshot(node: &DisplayNode, hasher: &mut DefaultHasher) {
-    F32Hash(node.transform.bounds.width).hash(hasher);
-    F32Hash(node.transform.bounds.height).hash(hasher);
-    DisplayItemFp(&node.item).hash(hasher);
-    ClipFp(node.clip.as_ref()).hash(hasher);
-    node.children.len().hash(hasher);
-
-    for child in &node.children {
-        F32Hash(child.transform.translation_x).hash(hasher);
-        F32Hash(child.transform.translation_y).hash(hasher);
-        F32Hash(child.opacity).hash(hasher);
-        child.backdrop_blur_sigma.map(F32Hash).hash(hasher);
-        child.transform.transforms.hash(hasher);
-        hash_subtree_snapshot(child, hasher);
-    }
 }
 
 const TIME_VARIANT_SENTINEL: u64 = 0x5449_4d45_5641_5254;
 
-fn hash_scene_static_skeleton(node: &DisplayNode, hasher: &mut DefaultHasher) {
+fn hash_scene_static_skeleton(
+    node: &AnnotatedDisplayNode,
+    hasher: &mut DefaultHasher,
+    include_self_composite: bool,
+) {
     if node.paint_variance == PaintVariance::TimeVariant || node.composite_dirty {
         hash_time_variant_sentinel(node, hasher);
         return;
     }
 
-    F32Hash(node.transform.bounds.width).hash(hasher);
-    F32Hash(node.transform.bounds.height).hash(hasher);
-    DisplayItemFp(&node.item).hash(hasher);
-    ClipFp(node.clip.as_ref()).hash(hasher);
+    hash_node_recorded_paint(node, hasher);
+    if include_self_composite {
+        hash_node_draw_time_composite(node, hasher);
+    }
     node.children.len().hash(hasher);
 
     for child in &node.children {
         if child.subtree_contains_dynamic {
             hash_time_variant_sentinel(child, hasher);
         } else {
-            F32Hash(child.transform.translation_x).hash(hasher);
-            F32Hash(child.transform.translation_y).hash(hasher);
-            F32Hash(child.opacity).hash(hasher);
-            child.backdrop_blur_sigma.map(F32Hash).hash(hasher);
-            child.transform.transforms.hash(hasher);
-            hash_scene_static_skeleton(child, hasher);
+            hash_node_draw_time_composite(child, hasher);
+            if let Some(snapshot_fingerprint) = child.snapshot_fingerprint {
+                snapshot_fingerprint.hash(hasher);
+            } else {
+                hash_scene_static_skeleton(child, hasher, false);
+            }
         }
     }
 }
 
-fn hash_time_variant_sentinel(node: &DisplayNode, hasher: &mut DefaultHasher) {
+fn hash_time_variant_sentinel(node: &AnnotatedDisplayNode, hasher: &mut DefaultHasher) {
     TIME_VARIANT_SENTINEL.hash(hasher);
-    F32Hash(node.transform.bounds.width).hash(hasher);
-    F32Hash(node.transform.bounds.height).hash(hasher);
-    ClipFp(node.clip.as_ref()).hash(hasher);
-    F32Hash(node.transform.translation_x).hash(hasher);
-    F32Hash(node.transform.translation_y).hash(hasher);
-    F32Hash(node.opacity).hash(hasher);
-    node.backdrop_blur_sigma.map(F32Hash).hash(hasher);
-    node.transform.transforms.hash(hasher);
+    hash_node_recorded_paint(node, hasher);
+    hash_node_draw_time_composite(node, hasher);
+}
+
+fn hash_node_recorded_paint(node: &AnnotatedDisplayNode, hasher: &mut DefaultHasher) {
+    hash_recorded_semantics(&node.recorded_semantics(), hasher);
+}
+
+fn hash_node_draw_time_composite(node: &AnnotatedDisplayNode, hasher: &mut DefaultHasher) {
+    hash_draw_composite_semantics(&node.draw_composite_semantics(), hasher);
+}
+
+fn hash_recorded_semantics(semantics: &RecordedNodeSemantics<'_>, hasher: &mut DefaultHasher) {
+    F32Hash(semantics.bounds.width).hash(hasher);
+    F32Hash(semantics.bounds.height).hash(hasher);
+    DisplayItemFp(semantics.item).hash(hasher);
+    ClipFp(semantics.clip).hash(hasher);
+}
+
+fn hash_draw_composite_semantics(
+    semantics: &DrawCompositeSemantics<'_>,
+    hasher: &mut DefaultHasher,
+) {
+    F32Hash(semantics.transform.translation_x).hash(hasher);
+    F32Hash(semantics.transform.translation_y).hash(hasher);
+    F32Hash(semantics.opacity).hash(hasher);
+    semantics.backdrop_blur_sigma.map(F32Hash).hash(hasher);
+    semantics.transform.transforms.hash(hasher);
 }
 
 fn calculate_hash(value: &impl Hash) -> u64 {
@@ -195,16 +215,42 @@ fn calculate_hash(value: &impl Hash) -> u64 {
 mod tests {
     use super::*;
     use crate::{
-        display::{
-            list::{
-                BitmapDisplayItem, BitmapPaintStyle, DisplayItem, DisplayRect, DisplayTransform,
-                RectDisplayItem, RectPaintStyle,
-            },
-            tree::DisplayNode,
+        display::list::{
+            BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
+            DisplayTransform, RectDisplayItem, RectPaintStyle,
         },
         resource::assets::AssetsMap,
+        runtime::annotation::RenderNodeKey,
         style::{BorderRadius, ObjectFit, Transform},
     };
+
+    struct AnnotatedRectConfig {
+        key: RenderNodeKey,
+        transform: DisplayTransform,
+        opacity: f32,
+        backdrop_blur_sigma: Option<f32>,
+        clip: Option<DisplayClip>,
+        paint_variance: PaintVariance,
+        composite_dirty: bool,
+        children: Vec<AnnotatedDisplayNode>,
+        background: Option<crate::style::BackgroundFill>,
+    }
+
+    impl Default for AnnotatedRectConfig {
+        fn default() -> Self {
+            Self {
+                key: RenderNodeKey(1),
+                transform: rect_transform(0.0, 0.0),
+                opacity: 1.0,
+                backdrop_blur_sigma: None,
+                clip: None,
+                paint_variance: PaintVariance::Stable,
+                composite_dirty: false,
+                children: Vec::new(),
+                background: None,
+            }
+        }
+    }
 
     fn empty_bounds() -> DisplayRect {
         DisplayRect {
@@ -215,21 +261,26 @@ mod tests {
         }
     }
 
-    fn rect_node(translation_x: f32, translation_y: f32, opacity: f32) -> DisplayNode {
-        DisplayNode {
-            transform: DisplayTransform {
-                translation_x,
-                translation_y,
-                bounds: empty_bounds(),
-                transforms: Vec::new(),
-            },
-            opacity,
-            backdrop_blur_sigma: None,
-            clip: None,
+    fn rect_transform(translation_x: f32, translation_y: f32) -> DisplayTransform {
+        DisplayTransform {
+            translation_x,
+            translation_y,
+            bounds: empty_bounds(),
+            transforms: Vec::new(),
+        }
+    }
+
+    fn annotated_rect_node(config: AnnotatedRectConfig) -> AnnotatedDisplayNode {
+        AnnotatedDisplayNode {
+            key: config.key,
+            transform: config.transform,
+            opacity: config.opacity,
+            backdrop_blur_sigma: config.backdrop_blur_sigma,
+            clip: config.clip,
             item: DisplayItem::Rect(RectDisplayItem {
                 bounds: empty_bounds(),
                 paint: RectPaintStyle {
-                    background: None,
+                    background: config.background,
                     border_radius: BorderRadius::default(),
                     border_width: None,
                     border_color: None,
@@ -239,82 +290,139 @@ mod tests {
                     drop_shadow: None,
                 },
             }),
-            children: Vec::new(),
-            snapshot_fingerprint: None,
-            paint_variance: PaintVariance::Stable,
-            composite_dirty: false,
+            children: config.children,
+            paint_variance: config.paint_variance,
+            composite_dirty: config.composite_dirty,
             subtree_contains_time_variant: false,
             subtree_contains_dynamic: false,
+            paint_fingerprint: None,
+            snapshot_fingerprint: None,
         }
+    }
+
+    fn finalize_annotated_node(mut node: AnnotatedDisplayNode) -> AnnotatedDisplayNode {
+        node.children = node
+            .children
+            .into_iter()
+            .map(finalize_annotated_node)
+            .collect();
+        node.subtree_contains_time_variant =
+            matches!(node.paint_variance, PaintVariance::TimeVariant)
+                || node
+                    .children
+                    .iter()
+                    .any(|child| child.subtree_contains_time_variant);
+        node.subtree_contains_dynamic = node.composite_dirty
+            || node.subtree_contains_time_variant
+            || node
+                .children
+                .iter()
+                .any(|child| child.subtree_contains_dynamic);
+        if !node.subtree_contains_time_variant {
+            node.paint_fingerprint = annotated_subtree_paint_fingerprint(&node);
+            node.snapshot_fingerprint = annotated_subtree_snapshot_fingerprint(&node);
+        }
+        node
     }
 
     #[test]
     fn paint_fingerprint_is_invariant_under_translation() {
-        let assets = AssetsMap::new();
-        let a = rect_node(10.0, 20.0, 1.0);
-        let b = rect_node(50.0, 80.0, 1.0);
-        let fp_a = subtree_paint_fingerprint(&a, &assets);
-        let fp_b = subtree_paint_fingerprint(&b, &assets);
+        let a = finalize_annotated_node(annotated_rect_node(AnnotatedRectConfig {
+            transform: rect_transform(10.0, 20.0),
+            ..Default::default()
+        }));
+        let b = finalize_annotated_node(annotated_rect_node(AnnotatedRectConfig {
+            transform: rect_transform(50.0, 80.0),
+            ..Default::default()
+        }));
+        let fp_a = a.paint_fingerprint;
+        let fp_b = b.paint_fingerprint;
         assert_eq!(fp_a, fp_b, "translation must not affect paint fingerprint");
         assert!(fp_a.is_some());
     }
 
     #[test]
     fn paint_fingerprint_is_invariant_under_opacity() {
-        let assets = AssetsMap::new();
-        let a = rect_node(0.0, 0.0, 1.0);
-        let b = rect_node(0.0, 0.0, 0.3);
-        let fp_a = subtree_paint_fingerprint(&a, &assets);
-        let fp_b = subtree_paint_fingerprint(&b, &assets);
+        let a = finalize_annotated_node(annotated_rect_node(AnnotatedRectConfig::default()));
+        let b = finalize_annotated_node(annotated_rect_node(AnnotatedRectConfig {
+            opacity: 0.3,
+            ..Default::default()
+        }));
+        let fp_a = a.paint_fingerprint;
+        let fp_b = b.paint_fingerprint;
         assert_eq!(fp_a, fp_b, "opacity must not affect paint fingerprint");
     }
 
     #[test]
     fn paint_fingerprint_is_invariant_under_transforms() {
-        let assets = AssetsMap::new();
-        let mut a = rect_node(0.0, 0.0, 1.0);
-        let mut b = rect_node(0.0, 0.0, 1.0);
-        a.transform.transforms = vec![Transform::Scale(1.0)];
-        b.transform.transforms = vec![Transform::Scale(2.0)];
-        let fp_a = subtree_paint_fingerprint(&a, &assets);
-        let fp_b = subtree_paint_fingerprint(&b, &assets);
+        let mut transform_a = rect_transform(0.0, 0.0);
+        transform_a.transforms = vec![Transform::Scale(1.0)];
+        let mut transform_b = rect_transform(0.0, 0.0);
+        transform_b.transforms = vec![Transform::Scale(2.0)];
+        let a = finalize_annotated_node(annotated_rect_node(AnnotatedRectConfig {
+            transform: transform_a,
+            ..Default::default()
+        }));
+        let b = finalize_annotated_node(annotated_rect_node(AnnotatedRectConfig {
+            transform: transform_b,
+            ..Default::default()
+        }));
+        let fp_a = a.paint_fingerprint;
+        let fp_b = b.paint_fingerprint;
         assert_eq!(fp_a, fp_b, "transforms must not affect paint fingerprint");
     }
 
     #[test]
     fn paint_fingerprint_changes_with_paint_content() {
-        let assets = AssetsMap::new();
-        let a = rect_node(0.0, 0.0, 1.0);
-        let mut b = rect_node(0.0, 0.0, 1.0);
-        if let DisplayItem::Rect(ref mut r) = b.item {
-            r.paint.background = Some(crate::style::BackgroundFill::Solid(
+        let a = finalize_annotated_node(annotated_rect_node(AnnotatedRectConfig::default()));
+        let b = finalize_annotated_node(annotated_rect_node(AnnotatedRectConfig {
+            background: Some(crate::style::BackgroundFill::Solid(
                 crate::style::ColorToken::Red,
-            ));
-        }
-        let fp_a = subtree_paint_fingerprint(&a, &assets);
-        let fp_b = subtree_paint_fingerprint(&b, &assets);
+            )),
+            ..Default::default()
+        }));
+        let fp_a = a.paint_fingerprint;
+        let fp_b = b.paint_fingerprint;
         assert_ne!(fp_a, fp_b, "different paint content must differ");
     }
 
     #[test]
-    fn composite_signature_tracks_translation_and_opacity() {
-        let a = rect_node(10.0, 20.0, 1.0);
-        let b = rect_node(50.0, 80.0, 0.5);
-        let sig_a = CompositeSig::from_node(&a);
-        let sig_b = CompositeSig::from_node(&b);
+    fn composite_signature_tracks_all_draw_time_composite_semantics() {
+        let a = annotated_rect_node(AnnotatedRectConfig {
+            transform: rect_transform(10.0, 20.0),
+            opacity: 1.0,
+            ..Default::default()
+        });
+        let mut transform_b = rect_transform(10.0, 20.0);
+        transform_b.transforms = vec![Transform::Scale(1.25)];
+        let b = annotated_rect_node(AnnotatedRectConfig {
+            transform: transform_b,
+            opacity: 0.5,
+            backdrop_blur_sigma: Some(6.0),
+            ..Default::default()
+        });
+        let sig_a = CompositeSig::from_annotated_node(&a);
+        let sig_b = CompositeSig::from_annotated_node(&b);
         assert_ne!(sig_a, sig_b);
     }
 
     #[test]
     fn snapshot_fingerprint_ignores_current_node_transform() {
-        let assets = AssetsMap::new();
-        let mut a = rect_node(0.0, 0.0, 1.0);
-        let mut b = rect_node(0.0, 0.0, 1.0);
-        a.transform.transforms = vec![Transform::Scale(1.0)];
-        b.transform.transforms = vec![Transform::Scale(2.0)];
+        let mut transform_a = rect_transform(0.0, 0.0);
+        transform_a.transforms = vec![Transform::Scale(1.0)];
+        let mut transform_b = rect_transform(0.0, 0.0);
+        transform_b.transforms = vec![Transform::Scale(2.0)];
+        let a = finalize_annotated_node(annotated_rect_node(AnnotatedRectConfig {
+            transform: transform_a,
+            ..Default::default()
+        }));
+        let b = finalize_annotated_node(annotated_rect_node(AnnotatedRectConfig {
+            transform: transform_b,
+            ..Default::default()
+        }));
 
-        let fp_a = subtree_snapshot_fingerprint(&a, &assets);
-        let fp_b = subtree_snapshot_fingerprint(&b, &assets);
+        let fp_a = a.snapshot_fingerprint;
+        let fp_b = b.snapshot_fingerprint;
         assert_eq!(
             fp_a, fp_b,
             "current node transform is applied outside its snapshot and must not bust the key"
@@ -323,21 +431,63 @@ mod tests {
 
     #[test]
     fn snapshot_fingerprint_tracks_descendant_transform_changes() {
-        let assets = AssetsMap::new();
-        let mut a = rect_node(0.0, 0.0, 1.0);
-        let mut b = rect_node(0.0, 0.0, 1.0);
-        let mut child_a = rect_node(0.0, 0.0, 1.0);
-        let mut child_b = rect_node(0.0, 0.0, 1.0);
-        child_a.transform.transforms = vec![Transform::Scale(1.0)];
-        child_b.transform.transforms = vec![Transform::Scale(2.0)];
+        let mut a = annotated_rect_node(AnnotatedRectConfig::default());
+        let mut b = annotated_rect_node(AnnotatedRectConfig::default());
+        let mut child_transform_a = rect_transform(0.0, 0.0);
+        child_transform_a.transforms = vec![Transform::Scale(1.0)];
+        let mut child_transform_b = rect_transform(0.0, 0.0);
+        child_transform_b.transforms = vec![Transform::Scale(2.0)];
+        let child_a = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(2),
+            transform: child_transform_a,
+            ..Default::default()
+        });
+        let child_b = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(2),
+            transform: child_transform_b,
+            ..Default::default()
+        });
         a.children.push(child_a);
         b.children.push(child_b);
+        let a = finalize_annotated_node(a);
+        let b = finalize_annotated_node(b);
 
-        let fp_a = subtree_snapshot_fingerprint(&a, &assets);
-        let fp_b = subtree_snapshot_fingerprint(&b, &assets);
+        let fp_a = a.snapshot_fingerprint;
+        let fp_b = b.snapshot_fingerprint;
         assert_ne!(
             fp_a, fp_b,
             "descendant transform is baked into the parent snapshot and must affect the key"
+        );
+    }
+
+    #[test]
+    fn snapshot_fingerprint_tracks_clip_that_changes_recorded_subtree() {
+        let child = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(2),
+            transform: rect_transform(12.0, 0.0),
+            ..Default::default()
+        });
+        let a = finalize_annotated_node(annotated_rect_node(AnnotatedRectConfig {
+            children: vec![child.clone()],
+            ..Default::default()
+        }));
+        let b = finalize_annotated_node(annotated_rect_node(AnnotatedRectConfig {
+            clip: Some(DisplayClip {
+                bounds: empty_bounds(),
+                border_radius: BorderRadius {
+                    top_left: 8.0,
+                    top_right: 8.0,
+                    bottom_right: 8.0,
+                    bottom_left: 8.0,
+                },
+            }),
+            children: vec![child],
+            ..Default::default()
+        }));
+
+        assert_ne!(
+            a.snapshot_fingerprint, b.snapshot_fingerprint,
+            "clip changes recorded subtree contents and must affect snapshot fingerprint"
         );
     }
 
@@ -373,26 +523,42 @@ mod tests {
 
     #[test]
     fn scene_static_skeleton_fingerprint_ignores_time_variant_paint_but_tracks_composite() {
-        let mut a = rect_node(0.0, 0.0, 1.0);
-        let mut b = rect_node(0.0, 0.0, 1.0);
-        let mut c = rect_node(0.0, 0.0, 1.0);
+        let mut a = annotated_rect_node(AnnotatedRectConfig::default());
+        let mut b = annotated_rect_node(AnnotatedRectConfig::default());
+        let mut c = annotated_rect_node(AnnotatedRectConfig::default());
 
-        let mut dynamic_a = rect_node(10.0, 20.0, 0.9);
+        let mut dynamic_a = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(2),
+            transform: rect_transform(10.0, 20.0),
+            opacity: 0.9,
+            ..Default::default()
+        });
         dynamic_a.paint_variance = PaintVariance::TimeVariant;
         dynamic_a.subtree_contains_time_variant = true;
+        dynamic_a.subtree_contains_dynamic = true;
 
-        let mut dynamic_b = rect_node(10.0, 20.0, 0.9);
+        let mut dynamic_b = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(2),
+            transform: rect_transform(10.0, 20.0),
+            opacity: 0.9,
+            background: Some(crate::style::BackgroundFill::Solid(
+                crate::style::ColorToken::Red,
+            )),
+            ..Default::default()
+        });
         dynamic_b.paint_variance = PaintVariance::TimeVariant;
         dynamic_b.subtree_contains_time_variant = true;
-        if let DisplayItem::Rect(ref mut rect) = dynamic_b.item {
-            rect.paint.background = Some(crate::style::BackgroundFill::Solid(
-                crate::style::ColorToken::Red,
-            ));
-        }
+        dynamic_b.subtree_contains_dynamic = true;
 
-        let mut dynamic_c = rect_node(30.0, 20.0, 0.9);
+        let mut dynamic_c = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(2),
+            transform: rect_transform(30.0, 20.0),
+            opacity: 0.9,
+            ..Default::default()
+        });
         dynamic_c.paint_variance = PaintVariance::TimeVariant;
         dynamic_c.subtree_contains_time_variant = true;
+        dynamic_c.subtree_contains_dynamic = true;
 
         a.children.push(dynamic_a);
         b.children.push(dynamic_b);
@@ -407,6 +573,23 @@ mod tests {
             scene_static_skeleton_fingerprint(&a),
             scene_static_skeleton_fingerprint(&c),
             "dynamic subtree composite must affect the static skeleton fingerprint"
+        );
+    }
+
+    #[test]
+    fn scene_static_skeleton_fingerprint_tracks_root_composite_even_after_it_settles() {
+        let a = annotated_rect_node(AnnotatedRectConfig::default());
+        let b = annotated_rect_node(AnnotatedRectConfig {
+            transform: rect_transform(24.0, 12.0),
+            opacity: 0.6,
+            backdrop_blur_sigma: Some(8.0),
+            ..Default::default()
+        });
+
+        assert_ne!(
+            scene_static_skeleton_fingerprint(&a),
+            scene_static_skeleton_fingerprint(&b),
+            "scene-static key must include root composite because the cached scene picture bakes it in"
         );
     }
 }

@@ -10,16 +10,16 @@ use skia_safe::{
 
 use crate::{
     display::list::{
-        BitmapDisplayItem, DisplayCommand, DisplayItem, DisplayList, DisplayRect, DisplayTransform,
-        DrawScriptDisplayItem, LucideDisplayItem, RectDisplayItem, TextDisplayItem,
+        BitmapDisplayItem, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem,
+        LucideDisplayItem, RectDisplayItem, TextDisplayItem,
     },
-    display::tree::{DisplayNode, DisplayTree},
     frame_ctx::FrameCtx,
     resource::{
         assets::AssetsMap,
         bitmap_source::{BitmapSourceKind, bitmap_source_kind},
         media::{MediaContext, VideoFrameRequest},
     },
+    runtime::annotation::{AnnotatedDisplayNode, AnnotatedDisplayTree, RecordedNodeSemantics},
     runtime::cache::{ImageCache, ItemPictureCache, SubtreeSnapshotCache, TextSnapshotCache},
     runtime::fingerprint::{PaintVariance, item_paint_fingerprint, text_paint_fingerprint},
     runtime::profile::{
@@ -63,6 +63,13 @@ struct ItemPictureDrawStats {
     draw_ms: f64,
     cache_hits: usize,
     cache_misses: usize,
+}
+
+#[derive(Clone, Copy)]
+struct TextSnapshotPlacement {
+    record_bounds: DisplayRect,
+    draw_translation_x: f32,
+    draw_translation_y: f32,
 }
 
 #[derive(Clone)]
@@ -140,47 +147,47 @@ impl<'a> SkiaBackend<'a> {
         }
     }
 
-    pub fn execute(&mut self, list: &DisplayList) -> Result<()> {
-        for command in &list.commands {
-            self.execute_command(command)?;
-        }
-        Ok(())
-    }
-
-    fn draw_display_children(&mut self, children: &[DisplayNode]) -> Result<()> {
+    fn draw_display_children(&mut self, children: &[AnnotatedDisplayNode]) -> Result<()> {
         for child in children {
             self.draw_display_subtree(child)?;
         }
         Ok(())
     }
 
-    fn draw_display_children_static_only(&mut self, children: &[DisplayNode]) -> Result<()> {
+    fn draw_display_children_static_only(
+        &mut self,
+        children: &[AnnotatedDisplayNode],
+    ) -> Result<()> {
         for child in children {
             self.draw_display_subtree_static_only(child)?;
         }
         Ok(())
     }
 
-    fn draw_display_children_dynamic_only(&mut self, children: &[DisplayNode]) -> Result<()> {
+    fn draw_display_children_dynamic_only(
+        &mut self,
+        children: &[AnnotatedDisplayNode],
+    ) -> Result<()> {
         for child in children {
             self.draw_display_subtree_dynamic_only(child)?;
         }
         Ok(())
     }
 
-    fn draw_display_subtree(&mut self, node: &DisplayNode) -> Result<()> {
-        if node.opacity <= 0.0 {
+    fn draw_display_subtree(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
+        let draw = node.draw_composite_semantics();
+        if draw.opacity <= 0.0 {
             return Ok(());
         }
 
         self.canvas.save();
-        apply_transform(self.canvas, &node.transform);
+        apply_transform(self.canvas, draw.transform);
         let result = self.draw_display_subtree_after_transform(node);
         self.canvas.restore();
         result
     }
 
-    fn draw_display_subtree_after_transform(&mut self, node: &DisplayNode) -> Result<()> {
+    fn draw_display_subtree_after_transform(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
         let subtree_cache = self.subtree_snapshot_cache.clone();
         if let Some(cache) = subtree_cache {
             if let Some(key) = node.snapshot_fingerprint {
@@ -201,23 +208,23 @@ impl<'a> SkiaBackend<'a> {
         self.draw_display_subtree_contents(node)
     }
 
-    fn draw_display_subtree_contents(&mut self, node: &DisplayNode) -> Result<()> {
-        self.with_display_opacity(node.opacity, node.layer_bounds(), |backend| {
-            backend.draw_display_item(&node.item)?;
-            if let Some(clip) = &node.clip {
-                backend.canvas.save();
-                clip_bounds(backend.canvas, clip.bounds, clip.border_radius);
-                backend.draw_display_children(&node.children)?;
-                backend.canvas.restore();
-                Ok(())
-            } else {
-                backend.draw_display_children(&node.children)
-            }
-        })
+    fn draw_display_subtree_contents(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
+        let draw = node.draw_composite_semantics();
+        self.with_display_layer(
+            draw.opacity,
+            draw.backdrop_blur_sigma,
+            node.layer_bounds(),
+            |backend| {
+                backend.draw_recorded_node_contents(node.recorded_semantics(), |backend| {
+                    backend.draw_display_children(&node.children)
+                })
+            },
+        )
     }
 
-    fn draw_display_subtree_static_only(&mut self, node: &DisplayNode) -> Result<()> {
-        if node.opacity <= 0.0
+    fn draw_display_subtree_static_only(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
+        let draw = node.draw_composite_semantics();
+        if draw.opacity <= 0.0
             || node.paint_variance == PaintVariance::TimeVariant
             || node.composite_dirty
         {
@@ -225,48 +232,46 @@ impl<'a> SkiaBackend<'a> {
         }
 
         self.canvas.save();
-        apply_transform(self.canvas, &node.transform);
+        apply_transform(self.canvas, draw.transform);
         let result = if !node.subtree_contains_dynamic {
             self.draw_display_subtree_after_transform(node)
         } else {
-            self.with_display_opacity(node.opacity, node.layer_bounds(), |backend| {
-                backend.draw_display_item(&node.item)?;
-                if let Some(clip) = &node.clip {
-                    backend.canvas.save();
-                    clip_bounds(backend.canvas, clip.bounds, clip.border_radius);
-                    backend.draw_display_children_static_only(&node.children)?;
-                    backend.canvas.restore();
-                    Ok(())
-                } else {
-                    backend.draw_display_children_static_only(&node.children)
-                }
-            })
+            self.with_display_layer(
+                draw.opacity,
+                draw.backdrop_blur_sigma,
+                node.layer_bounds(),
+                |backend| {
+                    backend.draw_recorded_node_contents(node.recorded_semantics(), |backend| {
+                        backend.draw_display_children_static_only(&node.children)
+                    })
+                },
+            )
         };
         self.canvas.restore();
         result
     }
 
-    fn draw_display_subtree_dynamic_only(&mut self, node: &DisplayNode) -> Result<()> {
-        if node.opacity <= 0.0 || !node.subtree_contains_dynamic {
+    fn draw_display_subtree_dynamic_only(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
+        let draw = node.draw_composite_semantics();
+        if draw.opacity <= 0.0 || !node.subtree_contains_dynamic {
             return Ok(());
         }
 
         self.canvas.save();
-        apply_transform(self.canvas, &node.transform);
+        apply_transform(self.canvas, draw.transform);
         let result = if node.paint_variance == PaintVariance::TimeVariant || node.composite_dirty {
             self.draw_display_subtree_contents(node)
         } else {
-            self.with_display_opacity(node.opacity, node.layer_bounds(), |backend| {
-                if let Some(clip) = &node.clip {
-                    backend.canvas.save();
-                    clip_bounds(backend.canvas, clip.bounds, clip.border_radius);
-                    backend.draw_display_children_dynamic_only(&node.children)?;
-                    backend.canvas.restore();
-                    Ok(())
-                } else {
-                    backend.draw_display_children_dynamic_only(&node.children)
-                }
-            })
+            self.with_display_layer(
+                draw.opacity,
+                draw.backdrop_blur_sigma,
+                node.layer_bounds(),
+                |backend| {
+                    backend.with_recorded_clip(node.recorded_semantics(), |backend| {
+                        backend.draw_display_children_dynamic_only(&node.children)
+                    })
+                },
+            )
         };
         self.canvas.restore();
         result
@@ -434,7 +439,7 @@ impl<'a> SkiaBackend<'a> {
         Ok(())
     }
 
-    fn record_cached_subtree_snapshot(&mut self, node: &DisplayNode) -> Result<Picture> {
+    fn record_cached_subtree_snapshot(&mut self, node: &AnnotatedDisplayNode) -> Result<Picture> {
         let _profile_span = backend_span("subtree_snapshot_record");
         let started = Instant::now();
         let layer_bounds = node.layer_bounds();
@@ -453,15 +458,9 @@ impl<'a> SkiaBackend<'a> {
             None,
             self.frame_ctx,
         );
-        backend.draw_display_item(&node.item)?;
-        if let Some(clip) = &node.clip {
-            backend.canvas.save();
-            clip_bounds(backend.canvas, clip.bounds, clip.border_radius);
-            backend.draw_display_children(&node.children)?;
-            backend.canvas.restore();
-        } else {
-            backend.draw_display_children(&node.children)?;
-        }
+        backend.draw_recorded_node_contents(node.recorded_semantics(), |backend| {
+            backend.draw_display_children(&node.children)
+        })?;
         let snapshot = recorder
             .finish_recording_as_picture(None)
             .ok_or_else(|| anyhow!("failed to record subtree snapshot"))?;
@@ -469,28 +468,86 @@ impl<'a> SkiaBackend<'a> {
         Ok(snapshot)
     }
 
-    fn draw_subtree_snapshot(&mut self, node: &DisplayNode, snapshot: &Picture) -> Result<()> {
-        self.with_display_opacity(node.opacity, node.layer_bounds(), |backend| {
-            let _profile_span = backend_span("subtree_snapshot_draw");
-            let started = Instant::now();
-            backend.canvas.draw_picture(snapshot, None, None);
-            record_backend_elapsed(BackendDurationMetric::SubtreeSnapshotDraw, started);
-            Ok(())
-        })
+    fn draw_subtree_snapshot(
+        &mut self,
+        node: &AnnotatedDisplayNode,
+        snapshot: &Picture,
+    ) -> Result<()> {
+        let draw = node.draw_composite_semantics();
+        self.with_display_layer(
+            draw.opacity,
+            draw.backdrop_blur_sigma,
+            node.layer_bounds(),
+            |backend| {
+                let _profile_span = backend_span("subtree_snapshot_draw");
+                let started = Instant::now();
+                backend.canvas.draw_picture(snapshot, None, None);
+                record_backend_elapsed(BackendDurationMetric::SubtreeSnapshotDraw, started);
+                Ok(())
+            },
+        )
     }
 
-    fn with_display_opacity<T>(
+    fn draw_recorded_node_contents(
+        &mut self,
+        recorded: RecordedNodeSemantics<'_>,
+        draw_children: impl FnOnce(&mut Self) -> Result<()>,
+    ) -> Result<()> {
+        self.draw_display_item(recorded.item)?;
+        self.with_recorded_clip(recorded, draw_children)
+    }
+
+    fn with_recorded_clip<T>(
+        &mut self,
+        recorded: RecordedNodeSemantics<'_>,
+        draw: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        if let Some(clip) = recorded.clip {
+            self.canvas.save();
+            clip_bounds(self.canvas, clip.bounds, clip.border_radius);
+            let result = draw(self);
+            self.canvas.restore();
+            result
+        } else {
+            draw(self)
+        }
+    }
+
+    fn with_display_layer<T>(
         &mut self,
         opacity: f32,
+        backdrop_blur_sigma: Option<f32>,
         bounds: DisplayRect,
         draw: impl FnOnce(&mut Self) -> Result<T>,
     ) -> Result<T> {
-        let uses_layer = opacity < 1.0;
+        let backdrop_blur_sigma = backdrop_blur_sigma.filter(|sigma| *sigma > 0.0);
+        let uses_layer = opacity < 1.0 || backdrop_blur_sigma.is_some();
         if uses_layer {
             record_backend_count(BackendCountMetric::SaveLayer, 1);
-            let alpha = (opacity * 255.0).round() as u32;
-            self.canvas
-                .save_layer_alpha(layout_rect_to_skia(bounds), alpha);
+            let bounds = layout_rect_to_skia(bounds);
+            if let Some(sigma) = backdrop_blur_sigma {
+                let alpha = (opacity * 255.0).round() as u32;
+                let mut paint = Paint::default();
+                paint.set_alpha(alpha as u8);
+                let backdrop = image_filters::blur(
+                    (sigma, sigma),
+                    TileMode::Clamp,
+                    None,
+                    None::<skia_safe::image_filters::CropRect>,
+                );
+                if let Some(backdrop) = backdrop {
+                    let rec = SaveLayerRec::default()
+                        .bounds(&bounds)
+                        .paint(&paint)
+                        .backdrop(&backdrop);
+                    self.canvas.save_layer(&rec);
+                } else {
+                    self.canvas.save_layer_alpha(bounds, alpha);
+                }
+            } else {
+                let alpha = (opacity * 255.0).round() as u32;
+                self.canvas.save_layer_alpha(bounds, alpha);
+            }
         }
 
         let result = draw(self);
@@ -501,90 +558,10 @@ impl<'a> SkiaBackend<'a> {
 
         result
     }
-
-    fn execute_command(&mut self, command: &DisplayCommand) -> Result<()> {
-        match command {
-            DisplayCommand::Save => {
-                self.canvas.save();
-            }
-            DisplayCommand::Restore => {
-                self.canvas.restore();
-            }
-            DisplayCommand::SaveLayer { layer } => {
-                record_backend_count(BackendCountMetric::SaveLayer, 1);
-                let bounds = layout_rect_to_skia(layer.bounds);
-                if let Some(sigma) = layer.backdrop_blur_sigma.filter(|s| *s > 0.0) {
-                    let alpha = (layer.opacity * 255.0).round() as u32;
-                    let mut paint = Paint::default();
-                    paint.set_alpha(alpha as u8);
-                    let backdrop = image_filters::blur(
-                        (sigma, sigma),
-                        TileMode::Clamp,
-                        None,
-                        None::<skia_safe::image_filters::CropRect>,
-                    );
-                    if let Some(backdrop) = backdrop {
-                        let rec = SaveLayerRec::default()
-                            .bounds(&bounds)
-                            .paint(&paint)
-                            .backdrop(&backdrop);
-                        self.canvas.save_layer(&rec);
-                    } else {
-                        self.canvas.save_layer_alpha(bounds, alpha);
-                    }
-                } else {
-                    let alpha = (layer.opacity * 255.0).round() as u32;
-                    self.canvas.save_layer_alpha(bounds, alpha);
-                }
-            }
-            DisplayCommand::Clip { clip } => {
-                clip_bounds(self.canvas, clip.bounds, clip.border_radius);
-            }
-            DisplayCommand::ApplyTransform { transform } => {
-                apply_transform(self.canvas, transform);
-            }
-            DisplayCommand::Draw { item } => self.draw_display_item(item)?,
-        }
-        Ok(())
-    }
-}
-
-pub(crate) fn record_display_list_snapshot<'a>(
-    list: &DisplayList,
-    width: i32,
-    height: i32,
-    assets: &'a AssetsMap,
-    image_cache: ImageCache,
-    text_snapshot_cache: TextSnapshotCache,
-    item_picture_cache: ItemPictureCache,
-    media_ctx: Option<&'a mut MediaContext>,
-    frame_ctx: &'a FrameCtx,
-) -> Result<Picture> {
-    let _profile_span = backend_span("display_list_snapshot_record");
-    let bounds = Rect::from_xywh(0.0, 0.0, width as f32, height as f32);
-    let mut recorder = PictureRecorder::new();
-    let recording_canvas = recorder.begin_recording(bounds, false);
-    let mut backend = SkiaBackend::new_with_cache(
-        recording_canvas,
-        width,
-        height,
-        assets,
-        image_cache,
-        text_snapshot_cache,
-        item_picture_cache,
-        None,
-        media_ctx,
-        frame_ctx,
-    );
-    backend.execute(list)?;
-    let snapshot = recorder
-        .finish_recording_as_picture(None)
-        .ok_or_else(|| anyhow!("failed to record display list snapshot"))?;
-    Ok(snapshot)
 }
 
 pub(crate) fn draw_display_tree_cached<'a>(
-    display_tree: &DisplayTree,
+    display_tree: &AnnotatedDisplayTree,
     canvas: &'a Canvas,
     assets: &'a AssetsMap,
     image_cache: ImageCache,
@@ -610,7 +587,7 @@ pub(crate) fn draw_display_tree_cached<'a>(
 }
 
 pub(crate) fn draw_display_tree_dynamic_layered<'a>(
-    display_tree: &DisplayTree,
+    display_tree: &AnnotatedDisplayTree,
     canvas: &'a Canvas,
     assets: &'a AssetsMap,
     image_cache: ImageCache,
@@ -636,7 +613,7 @@ pub(crate) fn draw_display_tree_dynamic_layered<'a>(
 }
 
 pub(crate) fn record_display_tree_snapshot<'a>(
-    display_tree: &DisplayTree,
+    display_tree: &AnnotatedDisplayTree,
     width: i32,
     height: i32,
     assets: &'a AssetsMap,
@@ -671,7 +648,7 @@ pub(crate) fn record_display_tree_snapshot<'a>(
 }
 
 pub(crate) fn record_display_tree_static_skeleton<'a>(
-    display_tree: &DisplayTree,
+    display_tree: &AnnotatedDisplayTree,
     width: i32,
     height: i32,
     assets: &'a AssetsMap,
@@ -868,11 +845,12 @@ fn draw_text(
     text: &TextDisplayItem,
     text_snapshot_cache: &TextSnapshotCache,
 ) -> Result<TextDrawStats> {
+    let placement = text_snapshot_placement(text);
     let cache_key = text_paint_fingerprint(text);
     if let Some(snapshot) = text_snapshot_cache.borrow_mut().get_cloned(&cache_key) {
         let draw_started = Instant::now();
         canvas.save();
-        canvas.translate((text.bounds.x, text.bounds.y));
+        canvas.translate((placement.draw_translation_x, placement.draw_translation_y));
         canvas.draw_picture(&snapshot, None, None);
         canvas.restore();
         Ok(TextDrawStats {
@@ -894,7 +872,7 @@ fn draw_text(
 
         let draw_started = Instant::now();
         canvas.save();
-        canvas.translate((text.bounds.x, text.bounds.y));
+        canvas.translate((placement.draw_translation_x, placement.draw_translation_y));
         canvas.draw_picture(&snapshot, None, None);
         canvas.restore();
         Ok(TextDrawStats {
@@ -924,11 +902,11 @@ fn draw_item_picture_cached(
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
 ) -> Result<ItemPictureDrawStats> {
-    let visual_bounds = item.visual_bounds();
+    let semantics = item.picture_semantics();
     if let Some(snapshot) = item_picture_cache.borrow_mut().get_cloned(&cache_key) {
         let draw_started = Instant::now();
         canvas.save();
-        canvas.translate((visual_bounds.x, visual_bounds.y));
+        canvas.translate((semantics.draw_translation_x, semantics.draw_translation_y));
         canvas.draw_picture(&snapshot, None, None);
         canvas.restore();
         return Ok(ItemPictureDrawStats {
@@ -958,7 +936,7 @@ fn draw_item_picture_cached(
 
     let draw_started = Instant::now();
     canvas.save();
-    canvas.translate((visual_bounds.x, visual_bounds.y));
+    canvas.translate((semantics.draw_translation_x, semantics.draw_translation_y));
     canvas.draw_picture(&snapshot, None, None);
     canvas.restore();
     Ok(ItemPictureDrawStats {
@@ -977,16 +955,19 @@ fn record_item_picture(
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
 ) -> Result<Picture> {
-    let visual_bounds = item.visual_bounds();
+    let semantics = item.picture_semantics();
     let bounds = Rect::from_xywh(
-        0.0,
-        0.0,
-        visual_bounds.width.max(1.0),
-        visual_bounds.height.max(1.0),
+        semantics.record_bounds.x,
+        semantics.record_bounds.y,
+        semantics.record_bounds.width,
+        semantics.record_bounds.height,
     );
     let mut recorder = PictureRecorder::new();
     let recording_canvas = recorder.begin_recording(bounds, false);
-    recording_canvas.translate((-visual_bounds.x, -visual_bounds.y));
+    recording_canvas.translate((
+        semantics.record_translation_x,
+        semantics.record_translation_y,
+    ));
     draw_display_item_direct(
         recording_canvas,
         item,
@@ -1065,9 +1046,13 @@ fn draw_display_item_direct(
 }
 
 fn record_text_snapshot(text: &TextDisplayItem) -> Result<Picture> {
-    let width = text.bounds.width.max(1.0);
-    let height = text.bounds.height.max(1.0);
-    let bounds = Rect::from_xywh(0.0, 0.0, width, height);
+    let placement = text_snapshot_placement(text);
+    let bounds = Rect::from_xywh(
+        placement.record_bounds.x,
+        placement.record_bounds.y,
+        placement.record_bounds.width,
+        placement.record_bounds.height,
+    );
     let mut recorder = PictureRecorder::new();
     let recording_canvas = recorder.begin_recording(bounds, false);
     skia_text::draw_text(
@@ -1082,6 +1067,19 @@ fn record_text_snapshot(text: &TextDisplayItem) -> Result<Picture> {
     recorder
         .finish_recording_as_picture(None)
         .ok_or_else(|| anyhow!("failed to record text snapshot"))
+}
+
+fn text_snapshot_placement(text: &TextDisplayItem) -> TextSnapshotPlacement {
+    TextSnapshotPlacement {
+        record_bounds: DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: text.bounds.width.max(1.0),
+            height: text.bounds.height.max(1.0),
+        },
+        draw_translation_x: text.bounds.x,
+        draw_translation_y: text.bounds.y,
+    }
 }
 
 fn draw_bitmap(

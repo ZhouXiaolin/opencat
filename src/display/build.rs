@@ -3,49 +3,28 @@ use anyhow::{Result, anyhow};
 use crate::{
     display::{
         list::{
-            BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayCommand, DisplayItem,
-            DisplayLayer, DisplayList, DisplayRect, DisplayTransform, DrawScriptDisplayItem,
-            LucideDisplayItem, LucidePaintStyle, RectDisplayItem, RectPaintStyle, TextDisplayItem,
+            BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
+            DisplayTransform, DrawScriptDisplayItem, LucideDisplayItem, LucidePaintStyle,
+            RectDisplayItem, RectPaintStyle, TextDisplayItem,
         },
         tree::{DisplayNode, DisplayTree},
     },
     element::tree::{ElementKind, ElementNode},
     layout::tree::{LayoutNode, LayoutTree},
     resource::assets::AssetsMap,
-    runtime::fingerprint::{self, PaintVariance},
 };
 
 pub fn build_display_tree(
     element_root: &ElementNode,
     layout_tree: &LayoutTree,
-    assets: &AssetsMap,
+    _assets: &AssetsMap,
 ) -> Result<DisplayTree> {
     Ok(DisplayTree {
-        root: build_display_node(element_root, &layout_tree.root, assets)?,
+        root: build_display_node(element_root, &layout_tree.root)?,
     })
 }
 
-#[cfg(test)]
-pub fn build_display_list(
-    element_root: &ElementNode,
-    layout_tree: &LayoutTree,
-    assets: &AssetsMap,
-) -> Result<DisplayList> {
-    let tree = build_display_tree(element_root, layout_tree, assets)?;
-    Ok(build_display_list_from_tree(&tree))
-}
-
-pub fn build_display_list_from_tree(tree: &DisplayTree) -> DisplayList {
-    let mut list = DisplayList::default();
-    push_display_node_commands(&tree.root, &mut list);
-    list
-}
-
-fn build_display_node(
-    element: &ElementNode,
-    layout: &LayoutNode,
-    assets: &AssetsMap,
-) -> Result<DisplayNode> {
+fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<DisplayNode> {
     if element.children.len() != layout.children.len() {
         return Err(anyhow!(
             "element/layout child count mismatch while building display tree"
@@ -69,22 +48,17 @@ fn build_display_node(
     let item = display_item_for_node(element, bounds);
     let children = child_pairs
         .into_iter()
-        .map(|(child, child_layout)| build_display_node(child, child_layout, assets))
+        .map(|(child, child_layout)| build_display_node(child, child_layout))
         .collect::<Result<Vec<_>>>()?;
 
-    let paint_variance = fingerprint::classify_paint(&item, assets);
-    let subtree_contains_time_variant = matches!(paint_variance, PaintVariance::TimeVariant)
-        || children
-            .iter()
-            .any(|child| child.subtree_contains_time_variant);
-
-    let mut node = DisplayNode {
+    Ok(DisplayNode {
         transform: DisplayTransform {
             translation_x: layout.rect.x,
             translation_y: layout.rect.y,
             bounds,
             transforms: element.style.visual.transforms.clone(),
         },
+        element_id: element.id,
         opacity: element.style.visual.opacity,
         backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
         clip: element.style.visual.clip_contents.then_some(DisplayClip {
@@ -93,63 +67,7 @@ fn build_display_node(
         }),
         item,
         children,
-        paint_variance,
-        composite_dirty: false,
-        subtree_contains_time_variant,
-        subtree_contains_dynamic: subtree_contains_time_variant,
-        snapshot_fingerprint: None,
-    };
-
-    // 只在整棵子树都是 Stable 时才计算 subtree snapshot fingerprint。
-    if !subtree_contains_time_variant {
-        node.snapshot_fingerprint = fingerprint::subtree_snapshot_fingerprint(&node, assets);
-    }
-
-    Ok(node)
-}
-
-fn push_display_node_commands(node: &DisplayNode, list: &mut DisplayList) {
-    if node.opacity <= 0.0 {
-        return;
-    }
-
-    list.push(DisplayCommand::Save);
-    list.push(DisplayCommand::ApplyTransform {
-        transform: node.transform.clone(),
-    });
-
-    if node.opacity < 1.0 || node.backdrop_blur_sigma.is_some() {
-        list.push(DisplayCommand::SaveLayer {
-            layer: DisplayLayer {
-                bounds: node.layer_bounds(),
-                opacity: node.opacity,
-                backdrop_blur_sigma: node.backdrop_blur_sigma,
-            },
-        });
-    }
-
-    list.push(DisplayCommand::Draw {
-        item: node.item.clone(),
-    });
-
-    if let Some(clip) = &node.clip {
-        list.push(DisplayCommand::Save);
-        list.push(DisplayCommand::Clip { clip: clip.clone() });
-    }
-
-    for child in &node.children {
-        push_display_node_commands(child, list);
-    }
-
-    if node.clip.is_some() {
-        list.push(DisplayCommand::Restore);
-    }
-
-    if node.opacity < 1.0 || node.backdrop_blur_sigma.is_some() {
-        list.push(DisplayCommand::Restore);
-    }
-
-    list.push(DisplayCommand::Restore);
+    })
 }
 
 fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayItem {
@@ -215,18 +133,19 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
 
 #[cfg(test)]
 mod tests {
-    use super::{build_display_list, build_display_tree};
+    use super::build_display_tree;
     use crate::{
         FrameCtx,
         element::resolve::resolve_ui_tree,
         parse,
         resource::assets::AssetsMap,
         resource::media::MediaContext,
+        runtime::annotation::annotate_display_tree,
         scene::primitives::{div, lucide},
         style::{ColorToken, ObjectFit},
     };
     use crate::{
-        display::list::{DisplayCommand, DisplayItem},
+        display::list::DisplayItem,
         layout::tree::{LayoutNode, LayoutRect, LayoutTree},
     };
 
@@ -283,18 +202,11 @@ mod tests {
             ),
         };
 
-        let list = build_display_list(&resolved, &layout_tree, &assets)
-            .expect("display list should build");
-        let bitmap = list
-            .commands
-            .iter()
-            .find_map(|command| match command {
-                DisplayCommand::Draw {
-                    item: DisplayItem::Bitmap(bitmap),
-                } => Some(bitmap),
-                _ => None,
-            })
-            .expect("bitmap draw item should exist");
+        let tree = build_display_tree(&resolved, &layout_tree, &assets)
+            .expect("display tree should build");
+        let DisplayItem::Bitmap(bitmap) = &tree.root.children[0].item else {
+            panic!("expected bitmap draw item");
+        };
 
         assert_eq!(bitmap.object_fit, ObjectFit::Cover);
         assert_eq!(
@@ -304,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn display_list_sorts_children_by_z_index_for_painting() {
+    fn display_tree_sorts_children_by_z_index_for_painting() {
         let frame_ctx = FrameCtx {
             frame: 0,
             fps: 30,
@@ -357,15 +269,14 @@ mod tests {
             ),
         };
 
-        let list = build_display_list(&resolved, &layout_tree, &assets)
-            .expect("display list should build");
-        let texts = list
-            .commands
+        let tree = build_display_tree(&resolved, &layout_tree, &assets)
+            .expect("display tree should build");
+        let texts = tree
+            .root
+            .children
             .iter()
-            .filter_map(|command| match command {
-                DisplayCommand::Draw {
-                    item: DisplayItem::Text(text),
-                } => Some(text.text.as_str()),
+            .filter_map(|node| match &node.item {
+                DisplayItem::Text(text) => Some(text.text.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -374,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn display_list_emits_clip_commands_for_overflow_hidden_nodes() {
+    fn display_tree_keeps_clip_for_overflow_hidden_nodes() {
         let frame_ctx = FrameCtx {
             frame: 0,
             fps: 30,
@@ -414,13 +325,9 @@ mod tests {
             ),
         };
 
-        let list = build_display_list(&resolved, &layout_tree, &assets)
-            .expect("display list should build");
-        let clip = list.commands.iter().find_map(|command| match command {
-            DisplayCommand::Clip { clip } => Some(clip),
-            _ => None,
-        });
-
+        let tree = build_display_tree(&resolved, &layout_tree, &assets)
+            .expect("display tree should build");
+        let clip = tree.root.clip.as_ref();
         assert!(clip.is_some());
         assert_eq!(
             clip.expect("clip command should exist").border_radius,
@@ -500,6 +407,86 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(texts, vec!["early", "late"]);
+    }
+
+    #[test]
+    fn build_display_tree_annotates_paint_and_snapshot_fingerprints_separately() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 100,
+            height: 100,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let parsed = crate::parse(
+            r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"child","parentId":"root","type":"div","className":"w-[10px] h-[10px] bg-red-500"}"#,
+        )
+        .expect("jsonl should parse");
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+
+        let layout_a = LayoutTree {
+            root: simple_layout(
+                "root",
+                LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+                vec![simple_layout(
+                    "child",
+                    LayoutRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 10.0,
+                        height: 10.0,
+                    },
+                    Vec::new(),
+                )],
+            ),
+        };
+        let layout_b = LayoutTree {
+            root: simple_layout(
+                "root",
+                LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+                vec![simple_layout(
+                    "child",
+                    LayoutRect {
+                        x: 24.0,
+                        y: 12.0,
+                        width: 10.0,
+                        height: 10.0,
+                    },
+                    Vec::new(),
+                )],
+            ),
+        };
+
+        let tree_a =
+            build_display_tree(&resolved, &layout_a, &assets).expect("display tree should build");
+        let tree_b =
+            build_display_tree(&resolved, &layout_b, &assets).expect("display tree should build");
+        let annotated_a = annotate_display_tree(&tree_a, &assets);
+        let annotated_b = annotate_display_tree(&tree_b, &assets);
+
+        let child_a = &annotated_a.root.children[0];
+        let child_b = &annotated_b.root.children[0];
+        assert_eq!(child_a.paint_fingerprint, child_b.paint_fingerprint);
+        assert_eq!(child_a.snapshot_fingerprint, child_b.snapshot_fingerprint);
+        assert_ne!(
+            annotated_a.root.snapshot_fingerprint,
+            annotated_b.root.snapshot_fingerprint
+        );
     }
 
     #[test]

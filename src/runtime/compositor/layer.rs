@@ -2,13 +2,11 @@ use std::time::Instant;
 
 use anyhow::Result;
 
-use crate::{
-    display::tree::DisplayTree,
-    runtime::{
-        frame_view::RenderFrameView,
-        profile::{BackendDurationMetric, backend_span, record_backend_elapsed},
-        render_engine::{SceneRenderContext, SceneSnapshot, SharedRenderEngine},
-    },
+use crate::runtime::{
+    annotation::AnnotatedDisplayTree,
+    frame_view::RenderFrameView,
+    profile::{BackendDurationMetric, backend_span, record_backend_elapsed},
+    render_engine::{SceneRenderContext, SceneSnapshot, SharedRenderEngine},
 };
 
 pub(crate) struct LayeredScene {
@@ -20,7 +18,7 @@ impl LayeredScene {
         &self,
         runtime: &mut SceneRenderContext<'_>,
         render_engine: SharedRenderEngine,
-        display_tree: &DisplayTree,
+        display_tree: &AnnotatedDisplayTree,
         frame_view: RenderFrameView,
     ) -> Result<()> {
         if let Some(static_layer) = &self.static_layer {

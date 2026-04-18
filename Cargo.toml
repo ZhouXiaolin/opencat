@@ -40,3 +40,5 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_Graphics_OpenGL",
     "Win32_System_LibraryLoader",
 ] }
+
+ahash = "0.8"

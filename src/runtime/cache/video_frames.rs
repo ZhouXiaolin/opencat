@@ -40,7 +40,14 @@ impl VideoFrameKey {
     }
 }
 
-fn quantize_pts(time_secs: f64) -> u64 {
+/// 将连续时间量化为 1/10000 秒精度的离散 tick。
+///
+/// 用于:
+/// - `VideoFrameCache` 的 key 量化(本文件)
+/// - `item_paint_fingerprint` 对 Video Bitmap 的 fingerprint 量化(`fingerprint/mod.rs`)
+///
+/// 两处**必须**共用同一函数,避免 fingerprint 与解码缓存对"同一帧"的判定错位。
+pub(crate) fn quantize_pts(time_secs: f64) -> u64 {
     (time_secs.max(0.0) * 10_000.0).round() as u64
 }
 

@@ -125,7 +125,7 @@ impl Hash for RectPaintFp<'_> {
     }
 }
 
-struct BitmapPaintFp<'a>(&'a crate::display::list::BitmapPaintStyle);
+pub(super) struct BitmapPaintFp<'a>(pub(super) &'a crate::display::list::BitmapPaintStyle);
 
 impl Hash for BitmapPaintFp<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -165,7 +165,7 @@ pub(super) fn item_is_time_variant(item: &DisplayItem, assets: &AssetsMap) -> bo
     }
 }
 
-fn bitmap_is_video(bitmap: &BitmapDisplayItem, assets: &AssetsMap) -> bool {
+pub(super) fn bitmap_is_video(bitmap: &BitmapDisplayItem, assets: &AssetsMap) -> bool {
     assets
         .path(&bitmap.asset_id)
         .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)

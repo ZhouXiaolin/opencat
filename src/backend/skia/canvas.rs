@@ -19,9 +19,12 @@ use crate::{
         bitmap_source::{BitmapSourceKind, bitmap_source_kind},
         media::{MediaContext, VideoFrameRequest},
     },
-    runtime::annotation::{AnnotatedDisplayNode, AnnotatedDisplayTree, RecordedNodeSemantics},
+    runtime::{
+        annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle, RecordedNodeSemantics},
+        compositor::DynamicLayer,
+        fingerprint::{CompositeSig, PaintVariance, item_paint_fingerprint, text_paint_fingerprint},
+    },
     runtime::cache::{ImageCache, ItemPictureCache, SubtreeSnapshotCache, TextSnapshotCache},
-    runtime::fingerprint::{PaintVariance, item_paint_fingerprint, text_paint_fingerprint},
     runtime::profile::{
         BackendCountMetric, BackendDurationMetric, backend_span, record_backend_count,
         record_backend_duration, record_backend_elapsed,
@@ -150,52 +153,42 @@ impl<'a> SkiaBackend<'a> {
         }
     }
 
-    fn node_paint_variance(&self, node: &AnnotatedDisplayNode) -> PaintVariance {
-        self.display_tree.analysis_for(node).paint_variance
+    fn node_paint_variance(&self, handle: AnnotatedNodeHandle) -> PaintVariance {
+        self.display_tree.analysis(handle).paint_variance
     }
 
-    fn node_snapshot_fingerprint(&self, node: &AnnotatedDisplayNode) -> Option<u64> {
-        self.display_tree.analysis_for(node).snapshot_fingerprint
+    fn node_snapshot_fingerprint(&self, handle: AnnotatedNodeHandle) -> Option<u64> {
+        self.display_tree.analysis(handle).snapshot_fingerprint
     }
 
-    fn node_subtree_contains_dynamic(&self, node: &AnnotatedDisplayNode) -> bool {
-        self.display_tree
-            .invalidation_for(node)
-            .subtree_contains_dynamic
+    fn node_subtree_contains_dynamic(&self, handle: AnnotatedNodeHandle) -> bool {
+        self.display_tree.invalidation(handle).subtree_contains_dynamic
     }
 
-    fn node_composite_dirty(&self, node: &AnnotatedDisplayNode) -> bool {
-        self.display_tree.invalidation_for(node).composite_dirty
+    fn node_composite_dirty(&self, handle: AnnotatedNodeHandle) -> bool {
+        self.display_tree.invalidation(handle).composite_dirty
     }
 
-    fn draw_display_children(&mut self, children: &[AnnotatedDisplayNode]) -> Result<()> {
-        for child in children {
-            self.draw_display_subtree(child)?;
+    fn draw_display_children(&mut self, children: &[AnnotatedNodeHandle]) -> Result<()> {
+        for &child_handle in children {
+            self.draw_display_subtree(child_handle)?;
         }
         Ok(())
     }
 
     fn draw_display_children_static_only(
         &mut self,
-        children: &[AnnotatedDisplayNode],
+        children: &[AnnotatedNodeHandle],
     ) -> Result<()> {
-        for child in children {
-            self.draw_display_subtree_static_only(child)?;
+        for &child_handle in children {
+            self.draw_display_subtree_static_only(child_handle)?;
         }
         Ok(())
     }
 
-    fn draw_display_children_dynamic_only(
-        &mut self,
-        children: &[AnnotatedDisplayNode],
-    ) -> Result<()> {
-        for child in children {
-            self.draw_display_subtree_dynamic_only(child)?;
-        }
-        Ok(())
-    }
-
-    fn draw_display_subtree(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
+    fn draw_display_subtree(&mut self, handle: AnnotatedNodeHandle) -> Result<()> {
+        let display_tree = self.display_tree;
+        let node = display_tree.node(handle);
         let draw = node.draw_composite_semantics();
         if draw.opacity <= 0.0 {
             return Ok(());
@@ -203,95 +196,158 @@ impl<'a> SkiaBackend<'a> {
 
         self.canvas.save();
         apply_transform(self.canvas, draw.transform);
-        let result = self.draw_display_subtree_after_transform(node);
+        let result = self.draw_display_subtree_after_transform(
+            handle,
+            draw.opacity,
+            draw.backdrop_blur_sigma,
+            display_tree.layer_bounds(handle),
+        );
         self.canvas.restore();
         result
     }
 
-    fn draw_display_subtree_after_transform(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
+    fn draw_dynamic_layer(&mut self, layer: &DynamicLayer) -> Result<()> {
+        if layer.opacity <= 0.0 {
+            return Ok(());
+        }
+
+        let node = self.display_tree.node(layer.root);
+        debug_assert_eq!(layer.composite, CompositeSig::from_annotated_node(node));
+
+        self.canvas.save();
+        apply_transform_chain(self.canvas, &layer.transform_chain);
+        let result = self.draw_dynamic_layer_after_transform(layer);
+        self.canvas.restore();
+        result
+    }
+
+    fn draw_display_subtree_after_transform(
+        &mut self,
+        handle: AnnotatedNodeHandle,
+        opacity: f32,
+        backdrop_blur_sigma: Option<f32>,
+        bounds: DisplayRect,
+    ) -> Result<()> {
         let subtree_cache = self.subtree_snapshot_cache.clone();
         if let Some(cache) = subtree_cache {
-            if let Some(key) = self.node_snapshot_fingerprint(node) {
+            if let Some(key) = self.node_snapshot_fingerprint(handle) {
                 if let Some(snapshot) = cache.borrow_mut().get_cloned(&key) {
                     record_backend_count(BackendCountMetric::SubtreeSnapshotCacheHit, 1);
-                    self.draw_subtree_snapshot(node, &snapshot)?;
+                    self.draw_subtree_snapshot(&snapshot, opacity, backdrop_blur_sigma, bounds)?;
                     return Ok(());
                 }
 
-                let snapshot = self.record_cached_subtree_snapshot(node)?;
+                let snapshot = self.record_cached_subtree_snapshot(handle)?;
                 cache.borrow_mut().insert(key, snapshot.clone());
                 record_backend_count(BackendCountMetric::SubtreeSnapshotCacheMiss, 1);
-                self.draw_subtree_snapshot(node, &snapshot)?;
+                self.draw_subtree_snapshot(&snapshot, opacity, backdrop_blur_sigma, bounds)?;
                 return Ok(());
             }
         }
 
-        self.draw_display_subtree_contents(node)
+        self.draw_display_subtree_contents(handle, opacity, backdrop_blur_sigma, bounds)
     }
 
-    fn draw_display_subtree_contents(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
-        let draw = node.draw_composite_semantics();
+    fn draw_dynamic_layer_after_transform(&mut self, layer: &DynamicLayer) -> Result<()> {
+        let subtree_cache = self.subtree_snapshot_cache.clone();
+        if let Some(cache) = subtree_cache {
+            if let Some(key) = self.node_snapshot_fingerprint(layer.root) {
+                if let Some(snapshot) = cache.borrow_mut().get_cloned(&key) {
+                    record_backend_count(BackendCountMetric::SubtreeSnapshotCacheHit, 1);
+                    self.draw_subtree_snapshot(
+                        &snapshot,
+                        layer.opacity,
+                        layer.backdrop_blur_sigma,
+                        layer.bounds,
+                    )?;
+                    return Ok(());
+                }
+
+                let snapshot = self.record_cached_subtree_snapshot(layer.root)?;
+                cache.borrow_mut().insert(key, snapshot.clone());
+                record_backend_count(BackendCountMetric::SubtreeSnapshotCacheMiss, 1);
+                self.draw_subtree_snapshot(
+                    &snapshot,
+                    layer.opacity,
+                    layer.backdrop_blur_sigma,
+                    layer.bounds,
+                )?;
+                return Ok(());
+            }
+        }
+
+        self.draw_dynamic_layer_contents(layer)
+    }
+
+    fn draw_display_subtree_contents(
+        &mut self,
+        handle: AnnotatedNodeHandle,
+        opacity: f32,
+        backdrop_blur_sigma: Option<f32>,
+        bounds: DisplayRect,
+    ) -> Result<()> {
+        let display_tree = self.display_tree;
+        let node = display_tree.node(handle);
         self.with_display_layer(
-            draw.opacity,
-            draw.backdrop_blur_sigma,
-            node.layer_bounds(),
+            opacity,
+            backdrop_blur_sigma,
+            bounds,
             |backend| {
                 backend.draw_recorded_node_contents(node.recorded_semantics(), |backend| {
-                    backend.draw_display_children(&node.children)
+                    backend.draw_display_children(display_tree.children(handle))
                 })
             },
         )
     }
 
-    fn draw_display_subtree_static_only(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
-        let draw = node.draw_composite_semantics();
-        if draw.opacity <= 0.0
-            || self.node_paint_variance(node) == PaintVariance::TimeVariant
-            || self.node_composite_dirty(node)
-        {
-            return Ok(());
-        }
-
-        self.canvas.save();
-        apply_transform(self.canvas, draw.transform);
-        let result = if !self.node_subtree_contains_dynamic(node) {
-            self.draw_display_subtree_after_transform(node)
-        } else {
-            self.with_display_layer(
-                draw.opacity,
-                draw.backdrop_blur_sigma,
-                node.layer_bounds(),
-                |backend| {
-                    backend.draw_recorded_node_contents(node.recorded_semantics(), |backend| {
-                        backend.draw_display_children_static_only(&node.children)
-                    })
-                },
-            )
+    fn draw_dynamic_layer_contents(&mut self, layer: &DynamicLayer) -> Result<()> {
+        let display_tree = self.display_tree;
+        let node = display_tree.node(layer.root);
+        let recorded = RecordedNodeSemantics {
+            bounds: node.transform.bounds,
+            item: &node.item,
+            clip: layer.clip.as_ref(),
         };
-        self.canvas.restore();
-        result
+        self.with_display_layer(
+            layer.opacity,
+            layer.backdrop_blur_sigma,
+            layer.bounds,
+            |backend| {
+                backend.draw_recorded_node_contents(recorded, |backend| {
+                    backend.draw_display_children(display_tree.children(layer.root))
+                })
+            },
+        )
     }
 
-    fn draw_display_subtree_dynamic_only(&mut self, node: &AnnotatedDisplayNode) -> Result<()> {
+    fn draw_display_subtree_static_only(&mut self, handle: AnnotatedNodeHandle) -> Result<()> {
+        let display_tree = self.display_tree;
+        let node = display_tree.node(handle);
         let draw = node.draw_composite_semantics();
-        if draw.opacity <= 0.0 || !self.node_subtree_contains_dynamic(node) {
+        if draw.opacity <= 0.0
+            || self.node_paint_variance(handle) == PaintVariance::TimeVariant
+            || self.node_composite_dirty(handle)
+        {
             return Ok(());
         }
 
         self.canvas.save();
         apply_transform(self.canvas, draw.transform);
-        let result = if self.node_paint_variance(node) == PaintVariance::TimeVariant
-            || self.node_composite_dirty(node)
-        {
-            self.draw_display_subtree_contents(node)
+        let result = if !self.node_subtree_contains_dynamic(handle) {
+            self.draw_display_subtree_after_transform(
+                handle,
+                draw.opacity,
+                draw.backdrop_blur_sigma,
+                display_tree.layer_bounds(handle),
+            )
         } else {
             self.with_display_layer(
                 draw.opacity,
                 draw.backdrop_blur_sigma,
-                node.layer_bounds(),
+                display_tree.layer_bounds(handle),
                 |backend| {
-                    backend.with_recorded_clip(node.recorded_semantics(), |backend| {
-                        backend.draw_display_children_dynamic_only(&node.children)
+                    backend.draw_recorded_node_contents(node.recorded_semantics(), |backend| {
+                        backend.draw_display_children_static_only(display_tree.children(handle))
                     })
                 },
             )
@@ -462,10 +518,12 @@ impl<'a> SkiaBackend<'a> {
         Ok(())
     }
 
-    fn record_cached_subtree_snapshot(&mut self, node: &AnnotatedDisplayNode) -> Result<Picture> {
+    fn record_cached_subtree_snapshot(&mut self, handle: AnnotatedNodeHandle) -> Result<Picture> {
         let _profile_span = backend_span("subtree_snapshot_record");
         let started = Instant::now();
-        let layer_bounds = node.layer_bounds();
+        let display_tree = self.display_tree;
+        let node = display_tree.node(handle);
+        let layer_bounds = display_tree.layer_bounds(handle);
         let bounds = layout_rect_to_skia(layer_bounds);
         let mut recorder = PictureRecorder::new();
         let recording_canvas = recorder.begin_recording(bounds, false);
@@ -483,7 +541,7 @@ impl<'a> SkiaBackend<'a> {
             self.frame_ctx,
         );
         backend.draw_recorded_node_contents(node.recorded_semantics(), |backend| {
-            backend.draw_display_children(&node.children)
+            backend.draw_display_children(display_tree.children(handle))
         })?;
         let snapshot = recorder
             .finish_recording_as_picture(None)
@@ -494,14 +552,15 @@ impl<'a> SkiaBackend<'a> {
 
     fn draw_subtree_snapshot(
         &mut self,
-        node: &AnnotatedDisplayNode,
         snapshot: &Picture,
+        opacity: f32,
+        backdrop_blur_sigma: Option<f32>,
+        bounds: DisplayRect,
     ) -> Result<()> {
-        let draw = node.draw_composite_semantics();
         self.with_display_layer(
-            draw.opacity,
-            draw.backdrop_blur_sigma,
-            node.layer_bounds(),
+            opacity,
+            backdrop_blur_sigma,
+            bounds,
             |backend| {
                 let _profile_span = backend_span("subtree_snapshot_draw");
                 let started = Instant::now();
@@ -595,10 +654,11 @@ pub(crate) fn draw_display_tree_cached<'a>(
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
 ) -> Result<()> {
+    let root = display_tree.root_node();
     let mut backend = SkiaBackend::new_with_cache(
         canvas,
-        display_tree.root.transform.bounds.width as i32,
-        display_tree.root.transform.bounds.height as i32,
+        root.transform.bounds.width as i32,
+        root.transform.bounds.height as i32,
         display_tree,
         assets,
         image_cache,
@@ -608,11 +668,12 @@ pub(crate) fn draw_display_tree_cached<'a>(
         media_ctx,
         frame_ctx,
     );
-    backend.draw_display_subtree(&display_tree.root)
+    backend.draw_display_subtree(display_tree.root)
 }
 
-pub(crate) fn draw_display_tree_dynamic_layered<'a>(
+pub(crate) fn draw_dynamic_layer_cached<'a>(
     display_tree: &AnnotatedDisplayTree,
+    layer: &DynamicLayer,
     canvas: &'a Canvas,
     assets: &'a AssetsMap,
     image_cache: ImageCache,
@@ -624,8 +685,8 @@ pub(crate) fn draw_display_tree_dynamic_layered<'a>(
 ) -> Result<()> {
     let mut backend = SkiaBackend::new_with_cache(
         canvas,
-        display_tree.root.transform.bounds.width as i32,
-        display_tree.root.transform.bounds.height as i32,
+        display_tree.root_node().transform.bounds.width as i32,
+        display_tree.root_node().transform.bounds.height as i32,
         display_tree,
         assets,
         image_cache,
@@ -635,7 +696,7 @@ pub(crate) fn draw_display_tree_dynamic_layered<'a>(
         media_ctx,
         frame_ctx,
     );
-    backend.draw_display_subtree_dynamic_only(&display_tree.root)
+    backend.draw_dynamic_layer(layer)
 }
 
 pub(crate) fn record_display_tree_snapshot<'a>(
@@ -667,7 +728,7 @@ pub(crate) fn record_display_tree_snapshot<'a>(
         media_ctx,
         frame_ctx,
     );
-    backend.draw_display_subtree(&display_tree.root)?;
+    backend.draw_display_subtree(display_tree.root)?;
     let snapshot = recorder
         .finish_recording_as_picture(None)
         .ok_or_else(|| anyhow!("failed to record display tree snapshot"))?;
@@ -703,7 +764,7 @@ pub(crate) fn record_display_tree_static_skeleton<'a>(
         None,
         frame_ctx,
     );
-    backend.draw_display_subtree_static_only(&display_tree.root)?;
+    backend.draw_display_subtree_static_only(display_tree.root)?;
     let snapshot = recorder
         .finish_recording_as_picture(None)
         .ok_or_else(|| anyhow!("failed to record display tree static skeleton"))?;
@@ -1985,6 +2046,12 @@ fn apply_transform(canvas: &Canvas, transform: &DisplayTransform) {
                 canvas.translate((-center_x, -center_y));
             }
         }
+    }
+}
+
+fn apply_transform_chain(canvas: &Canvas, transforms: &[DisplayTransform]) {
+    for transform in transforms {
+        apply_transform(canvas, transform);
     }
 }
 

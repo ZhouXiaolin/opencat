@@ -16,22 +16,27 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RenderNodeKey(pub u64);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct AnnotatedNodeHandle(pub usize);
+
 #[derive(Clone, Debug)]
 pub struct AnnotatedDisplayTree {
-    pub root: AnnotatedDisplayNode,
+    pub root: AnnotatedNodeHandle,
+    pub nodes: Vec<AnnotatedDisplayNode>,
+    pub keys: Vec<RenderNodeKey>,
+    pub layer_bounds: Vec<DisplayRect>,
     pub analysis: DisplayAnalysisTable,
     pub invalidation: DisplayInvalidationTable,
 }
 
 #[derive(Clone, Debug)]
 pub struct AnnotatedDisplayNode {
-    pub key: RenderNodeKey,
     pub transform: DisplayTransform,
     pub opacity: f32,
     pub backdrop_blur_sigma: Option<f32>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,
-    pub children: Vec<AnnotatedDisplayNode>,
+    pub children: Vec<AnnotatedNodeHandle>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -49,31 +54,40 @@ pub struct DrawCompositeSemantics<'a> {
 }
 
 impl AnnotatedDisplayTree {
-    pub fn analysis_for(&self, node: &AnnotatedDisplayNode) -> DisplayNodeAnalysis {
-        self.analysis.require(node.key)
+    pub fn root_node(&self) -> &AnnotatedDisplayNode {
+        self.node(self.root)
     }
 
-    pub fn invalidation_for(&self, node: &AnnotatedDisplayNode) -> DisplayNodeInvalidation {
-        self.invalidation.get(node.key)
+    pub fn node(&self, handle: AnnotatedNodeHandle) -> &AnnotatedDisplayNode {
+        &self.nodes[handle.0]
+    }
+
+    pub fn children(&self, handle: AnnotatedNodeHandle) -> &[AnnotatedNodeHandle] {
+        &self.node(handle).children
+    }
+
+    pub fn analysis(&self, handle: AnnotatedNodeHandle) -> DisplayNodeAnalysis {
+        self.analysis.require(handle)
+    }
+
+    pub fn invalidation(&self, handle: AnnotatedNodeHandle) -> DisplayNodeInvalidation {
+        self.invalidation.get(handle)
+    }
+
+    pub fn key(&self, handle: AnnotatedNodeHandle) -> RenderNodeKey {
+        self.keys[handle.0]
     }
 
     pub fn contains_time_variant(&self) -> bool {
-        self.analysis_for(&self.root).subtree_contains_time_variant
+        self.analysis(self.root).subtree_contains_time_variant
+    }
+
+    pub fn layer_bounds(&self, handle: AnnotatedNodeHandle) -> DisplayRect {
+        self.layer_bounds[handle.0]
     }
 }
 
 impl AnnotatedDisplayNode {
-    pub fn layer_bounds(&self) -> DisplayRect {
-        let mut bounds = self.item.visual_bounds();
-        for child in &self.children {
-            let child_bounds = child
-                .layer_bounds()
-                .translate(child.transform.translation_x, child.transform.translation_y);
-            bounds = bounds.union(child_bounds);
-        }
-        bounds
-    }
-
     pub fn recorded_semantics(&self) -> RecordedNodeSemantics<'_> {
         RecordedNodeSemantics {
             bounds: self.transform.bounds,
@@ -95,49 +109,61 @@ pub(crate) fn annotate_display_tree(
     display_tree: &DisplayTree,
     assets: &AssetsMap,
 ) -> AnnotatedDisplayTree {
-    let mut analysis = DisplayAnalysisTable::default();
-    let mut invalidation = DisplayInvalidationTable::default();
-    let (root, root_analysis) =
-        annotate_display_node(&display_tree.root, assets, &mut analysis, &mut invalidation);
-    analysis.insert(root.key, root_analysis);
-    invalidation.insert(
-        root.key,
-        DisplayNodeInvalidation {
-            composite_dirty: false,
-            subtree_contains_dynamic: root_analysis.subtree_contains_time_variant,
-        },
+    let node_count = count_display_nodes(&display_tree.root);
+    let mut nodes = Vec::with_capacity(node_count);
+    let mut keys = Vec::with_capacity(node_count);
+    let mut layer_bounds = Vec::with_capacity(node_count);
+    let mut analysis = DisplayAnalysisTable::with_capacity(node_count);
+    let mut invalidation = DisplayInvalidationTable::with_capacity(node_count);
+    let root = annotate_display_node(
+        &display_tree.root,
+        assets,
+        &mut nodes,
+        &mut keys,
+        &mut layer_bounds,
+        &mut analysis,
+        &mut invalidation,
     );
 
     AnnotatedDisplayTree {
         root,
+        nodes,
+        keys,
+        layer_bounds,
         analysis,
         invalidation,
     }
 }
 
+fn count_display_nodes(node: &DisplayNode) -> usize {
+    1 + node.children.iter().map(count_display_nodes).sum::<usize>()
+}
+
 fn annotate_display_node(
     node: &DisplayNode,
     assets: &AssetsMap,
+    nodes: &mut Vec<AnnotatedDisplayNode>,
+    keys: &mut Vec<RenderNodeKey>,
+    layer_bounds: &mut Vec<DisplayRect>,
     analysis: &mut DisplayAnalysisTable,
     invalidation: &mut DisplayInvalidationTable,
-) -> (AnnotatedDisplayNode, DisplayNodeAnalysis) {
+) -> AnnotatedNodeHandle {
     let mut children = Vec::with_capacity(node.children.len());
     for child in &node.children {
-        let (annotated_child, child_analysis) =
-            annotate_display_node(child, assets, analysis, invalidation);
-        invalidation.insert(
-            annotated_child.key,
-            DisplayNodeInvalidation {
-                composite_dirty: false,
-                subtree_contains_dynamic: child_analysis.subtree_contains_time_variant,
-            },
-        );
-        analysis.insert(annotated_child.key, child_analysis);
-        children.push(annotated_child);
+        children.push(annotate_display_node(
+            child,
+            assets,
+            nodes,
+            keys,
+            layer_bounds,
+            analysis,
+            invalidation,
+        ));
     }
 
+    let render_key = RenderNodeKey(node.element_id.0);
+    let handle = AnnotatedNodeHandle(nodes.len());
     let annotated = AnnotatedDisplayNode {
-        key: RenderNodeKey(node.element_id.0),
         transform: node.transform.clone(),
         opacity: node.opacity,
         backdrop_blur_sigma: node.backdrop_blur_sigma,
@@ -151,7 +177,7 @@ fn annotate_display_node(
         || annotated
             .children
             .iter()
-            .any(|child| analysis.require(child.key).subtree_contains_time_variant);
+            .any(|&child_handle| analysis.require(child_handle).subtree_contains_time_variant);
 
     let mut node_analysis = DisplayNodeAnalysis {
         paint_variance,
@@ -168,10 +194,31 @@ fn annotate_display_node(
         );
         node_analysis.snapshot_fingerprint = fingerprint::annotated_subtree_snapshot_fingerprint(
             &annotated,
+            nodes,
             analysis,
             subtree_contains_time_variant,
         );
     }
 
-    (annotated, node_analysis)
+    let mut node_layer_bounds = annotated.item.visual_bounds();
+    for &child_handle in &annotated.children {
+        let child = &nodes[child_handle.0];
+        let child_bounds = layer_bounds[child_handle.0]
+            .translate(child.transform.translation_x, child.transform.translation_y);
+        node_layer_bounds = node_layer_bounds.union(child_bounds);
+    }
+
+    keys.push(render_key);
+    nodes.push(annotated);
+    layer_bounds.push(node_layer_bounds);
+    analysis.insert(handle, node_analysis);
+    invalidation.insert(
+        handle,
+        DisplayNodeInvalidation {
+            composite_dirty: false,
+            subtree_contains_dynamic: subtree_contains_time_variant,
+        },
+    );
+
+    handle
 }

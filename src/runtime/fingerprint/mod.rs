@@ -20,8 +20,11 @@ use crate::{
     display::list::DisplayItem,
     resource::assets::AssetsMap,
     runtime::{
-        analysis::{DisplayAnalysisTable, DisplayInvalidationTable},
-        annotation::{AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics},
+        analysis::DisplayAnalysisTable,
+        annotation::{
+            AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle,
+            DrawCompositeSemantics, RecordedNodeSemantics,
+        },
     },
 };
 
@@ -112,9 +115,9 @@ pub(crate) fn annotated_subtree_paint_fingerprint(
     let mut hasher = DefaultHasher::new();
     hash_node_recorded_paint(node, &mut hasher);
     node.children.len().hash(&mut hasher);
-    for child in &node.children {
+    for &child_handle in &node.children {
         analysis
-            .require(child.key)
+            .require(child_handle)
             .paint_fingerprint
             .expect("stable annotated child must carry paint_fingerprint")
             .hash(&mut hasher);
@@ -127,6 +130,7 @@ pub(crate) fn annotated_subtree_paint_fingerprint(
 /// 要求所有后代的 `snapshot_fingerprint` 已经自底向上填充完成。
 pub(crate) fn annotated_subtree_snapshot_fingerprint(
     node: &AnnotatedDisplayNode,
+    nodes: &[AnnotatedDisplayNode],
     analysis: &DisplayAnalysisTable,
     subtree_contains_time_variant: bool,
 ) -> Option<u64> {
@@ -136,10 +140,11 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
     let mut hasher = DefaultHasher::new();
     hash_node_recorded_paint(node, &mut hasher);
     node.children.len().hash(&mut hasher);
-    for child in &node.children {
+    for &child_handle in &node.children {
+        let child = &nodes[child_handle.0];
         hash_node_draw_time_composite(child, &mut hasher);
         analysis
-            .require(child.key)
+            .require(child_handle)
             .snapshot_fingerprint
             .expect("stable annotated child must carry snapshot_fingerprint")
             .hash(&mut hasher);
@@ -148,27 +153,23 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
 }
 
 /// 计算视频场景的静态骨架指纹。
-pub fn scene_static_skeleton_fingerprint(
-    node: &AnnotatedDisplayNode,
-    analysis: &DisplayAnalysisTable,
-    invalidation: &DisplayInvalidationTable,
-) -> u64 {
+pub fn scene_static_skeleton_fingerprint(display_tree: &AnnotatedDisplayTree) -> u64 {
     let mut hasher = DefaultHasher::new();
-    hash_scene_static_skeleton(node, analysis, invalidation, &mut hasher, true);
+    hash_scene_static_skeleton(display_tree, display_tree.root, &mut hasher, true);
     hasher.finish()
 }
 
 const TIME_VARIANT_SENTINEL: u64 = 0x5449_4d45_5641_5254;
 
 fn hash_scene_static_skeleton(
-    node: &AnnotatedDisplayNode,
-    analysis: &DisplayAnalysisTable,
-    invalidation: &DisplayInvalidationTable,
+    display_tree: &AnnotatedDisplayTree,
+    handle: AnnotatedNodeHandle,
     hasher: &mut DefaultHasher,
     include_self_composite: bool,
 ) {
-    let node_analysis = analysis.require(node.key);
-    let node_invalidation = invalidation.get(node.key);
+    let node = display_tree.node(handle);
+    let node_analysis = display_tree.analysis(handle);
+    let node_invalidation = display_tree.invalidation(handle);
     if node_analysis.paint_variance == PaintVariance::TimeVariant
         || node_invalidation.composite_dirty
     {
@@ -182,9 +183,10 @@ fn hash_scene_static_skeleton(
     }
     node.children.len().hash(hasher);
 
-    for child in &node.children {
-        let child_analysis = analysis.require(child.key);
-        let child_invalidation = invalidation.get(child.key);
+    for &child_handle in &node.children {
+        let child = display_tree.node(child_handle);
+        let child_analysis = display_tree.analysis(child_handle);
+        let child_invalidation = display_tree.invalidation(child_handle);
         if child_invalidation.subtree_contains_dynamic {
             hash_time_variant_sentinel(child, hasher);
         } else {
@@ -192,7 +194,7 @@ fn hash_scene_static_skeleton(
             if let Some(snapshot_fingerprint) = child_analysis.snapshot_fingerprint {
                 snapshot_fingerprint.hash(hasher);
             } else {
-                hash_scene_static_skeleton(child, analysis, invalidation, hasher, false);
+                hash_scene_static_skeleton(display_tree, child_handle, hasher, false);
             }
         }
     }
@@ -253,7 +255,9 @@ mod tests {
                 DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
                 DisplayNodeInvalidation,
             },
-            annotation::{AnnotatedDisplayNode, AnnotatedDisplayTree, RenderNodeKey},
+            annotation::{
+                AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey,
+            },
         },
         style::{BorderRadius, ObjectFit, Transform},
     };
@@ -346,27 +350,35 @@ mod tests {
     impl TestAnnotatedNode {
         fn into_annotated_node(self) -> AnnotatedDisplayNode {
             AnnotatedDisplayNode {
-                key: self.key,
                 transform: self.transform,
                 opacity: self.opacity,
                 backdrop_blur_sigma: self.backdrop_blur_sigma,
                 clip: self.clip,
                 item: self.item,
-                children: self
-                    .children
-                    .into_iter()
-                    .map(TestAnnotatedNode::into_annotated_node)
-                    .collect(),
+                children: Vec::new(),
             }
         }
     }
 
     fn finalize_annotated_tree(node: TestAnnotatedNode) -> AnnotatedDisplayTree {
+        let mut nodes = Vec::new();
+        let mut keys = Vec::new();
+        let mut layer_bounds = Vec::new();
         let mut analysis = DisplayAnalysisTable::default();
         let mut invalidation = DisplayInvalidationTable::default();
-        let root = finalize_test_node(node, &mut analysis, &mut invalidation);
+        let root = finalize_test_node(
+            node,
+            &mut nodes,
+            &mut keys,
+            &mut layer_bounds,
+            &mut analysis,
+            &mut invalidation,
+        );
         AnnotatedDisplayTree {
             root,
+            nodes,
+            keys,
+            layer_bounds,
             analysis,
             invalidation,
         }
@@ -374,17 +386,20 @@ mod tests {
 
     fn finalize_test_node(
         node: TestAnnotatedNode,
+        nodes: &mut Vec<AnnotatedDisplayNode>,
+        keys: &mut Vec<RenderNodeKey>,
+        layer_bounds: &mut Vec<DisplayRect>,
         analysis: &mut DisplayAnalysisTable,
         invalidation: &mut DisplayInvalidationTable,
-    ) -> AnnotatedDisplayNode {
+    ) -> AnnotatedNodeHandle {
         let children = node
             .children
             .into_iter()
-            .map(|child| finalize_test_node(child, analysis, invalidation))
+            .map(|child| finalize_test_node(child, nodes, keys, layer_bounds, analysis, invalidation))
             .collect::<Vec<_>>();
 
+        let handle = AnnotatedNodeHandle(nodes.len());
         let annotated = AnnotatedDisplayNode {
-            key: node.key,
             transform: node.transform,
             opacity: node.opacity,
             backdrop_blur_sigma: node.backdrop_blur_sigma,
@@ -398,7 +413,7 @@ mod tests {
                 || annotated
                     .children
                     .iter()
-                    .any(|child| analysis.require(child.key).subtree_contains_time_variant);
+                    .any(|&child_handle| analysis.require(child_handle).subtree_contains_time_variant);
 
         let mut node_analysis = DisplayNodeAnalysis {
             paint_variance: node.paint_variance,
@@ -414,27 +429,37 @@ mod tests {
             );
             node_analysis.snapshot_fingerprint = annotated_subtree_snapshot_fingerprint(
                 &annotated,
+                nodes,
                 analysis,
                 subtree_contains_time_variant,
             );
         }
-        analysis.insert(annotated.key, node_analysis);
-
         let subtree_contains_dynamic = node.composite_dirty
             || subtree_contains_time_variant
             || annotated
                 .children
                 .iter()
-                .any(|child| invalidation.get(child.key).subtree_contains_dynamic);
+                .any(|&child_handle| invalidation.get(child_handle).subtree_contains_dynamic);
+        let mut node_layer_bounds = annotated.item.visual_bounds();
+        for &child_handle in &annotated.children {
+            let child = &nodes[child_handle.0];
+            let child_bounds = layer_bounds[child_handle.0]
+                .translate(child.transform.translation_x, child.transform.translation_y);
+            node_layer_bounds = node_layer_bounds.union(child_bounds);
+        }
+        keys.push(node.key);
+        nodes.push(annotated);
+        layer_bounds.push(node_layer_bounds);
+        analysis.insert(handle, node_analysis);
         invalidation.insert(
-            annotated.key,
+            handle,
             DisplayNodeInvalidation {
                 composite_dirty: node.composite_dirty,
                 subtree_contains_dynamic,
             },
         );
 
-        annotated
+        handle
     }
 
     #[test]
@@ -447,8 +472,8 @@ mod tests {
             transform: rect_transform(50.0, 80.0),
             ..Default::default()
         }));
-        let fp_a = a.analysis_for(&a.root).paint_fingerprint;
-        let fp_b = b.analysis_for(&b.root).paint_fingerprint;
+        let fp_a = a.analysis(a.root).paint_fingerprint;
+        let fp_b = b.analysis(b.root).paint_fingerprint;
         assert_eq!(fp_a, fp_b, "translation must not affect paint fingerprint");
         assert!(fp_a.is_some());
     }
@@ -460,8 +485,8 @@ mod tests {
             opacity: 0.3,
             ..Default::default()
         }));
-        let fp_a = a.analysis_for(&a.root).paint_fingerprint;
-        let fp_b = b.analysis_for(&b.root).paint_fingerprint;
+        let fp_a = a.analysis(a.root).paint_fingerprint;
+        let fp_b = b.analysis(b.root).paint_fingerprint;
         assert_eq!(fp_a, fp_b, "opacity must not affect paint fingerprint");
     }
 
@@ -479,8 +504,8 @@ mod tests {
             transform: transform_b,
             ..Default::default()
         }));
-        let fp_a = a.analysis_for(&a.root).paint_fingerprint;
-        let fp_b = b.analysis_for(&b.root).paint_fingerprint;
+        let fp_a = a.analysis(a.root).paint_fingerprint;
+        let fp_b = b.analysis(b.root).paint_fingerprint;
         assert_eq!(fp_a, fp_b, "transforms must not affect paint fingerprint");
     }
 
@@ -493,8 +518,8 @@ mod tests {
             )),
             ..Default::default()
         }));
-        let fp_a = a.analysis_for(&a.root).paint_fingerprint;
-        let fp_b = b.analysis_for(&b.root).paint_fingerprint;
+        let fp_a = a.analysis(a.root).paint_fingerprint;
+        let fp_b = b.analysis(b.root).paint_fingerprint;
         assert_ne!(fp_a, fp_b, "different paint content must differ");
     }
 
@@ -535,8 +560,8 @@ mod tests {
             ..Default::default()
         }));
 
-        let fp_a = a.analysis_for(&a.root).snapshot_fingerprint;
-        let fp_b = b.analysis_for(&b.root).snapshot_fingerprint;
+        let fp_a = a.analysis(a.root).snapshot_fingerprint;
+        let fp_b = b.analysis(b.root).snapshot_fingerprint;
         assert_eq!(
             fp_a, fp_b,
             "current node transform is applied outside its snapshot and must not bust the key"
@@ -566,8 +591,8 @@ mod tests {
         let a = finalize_annotated_tree(a);
         let b = finalize_annotated_tree(b);
 
-        let fp_a = a.analysis_for(&a.root).snapshot_fingerprint;
-        let fp_b = b.analysis_for(&b.root).snapshot_fingerprint;
+        let fp_a = a.analysis(a.root).snapshot_fingerprint;
+        let fp_b = b.analysis(b.root).snapshot_fingerprint;
         assert_ne!(
             fp_a, fp_b,
             "descendant transform is baked into the parent snapshot and must affect the key"
@@ -600,8 +625,8 @@ mod tests {
         }));
 
         assert_ne!(
-            a.analysis_for(&a.root).snapshot_fingerprint,
-            b.analysis_for(&b.root).snapshot_fingerprint,
+            a.analysis(a.root).snapshot_fingerprint,
+            b.analysis(b.root).snapshot_fingerprint,
             "clip changes recorded subtree contents and must affect snapshot fingerprint"
         );
     }
@@ -677,13 +702,13 @@ mod tests {
         let c = finalize_annotated_tree(c);
 
         assert_eq!(
-            scene_static_skeleton_fingerprint(&a.root, &a.analysis, &a.invalidation),
-            scene_static_skeleton_fingerprint(&b.root, &b.analysis, &b.invalidation),
+            scene_static_skeleton_fingerprint(&a),
+            scene_static_skeleton_fingerprint(&b),
             "dynamic subtree paint must not affect the static skeleton fingerprint"
         );
         assert_ne!(
-            scene_static_skeleton_fingerprint(&a.root, &a.analysis, &a.invalidation),
-            scene_static_skeleton_fingerprint(&c.root, &c.analysis, &c.invalidation),
+            scene_static_skeleton_fingerprint(&a),
+            scene_static_skeleton_fingerprint(&c),
             "dynamic subtree composite must affect the static skeleton fingerprint"
         );
     }
@@ -699,8 +724,8 @@ mod tests {
         }));
 
         assert_ne!(
-            scene_static_skeleton_fingerprint(&a.root, &a.analysis, &a.invalidation),
-            scene_static_skeleton_fingerprint(&b.root, &b.analysis, &b.invalidation),
+            scene_static_skeleton_fingerprint(&a),
+            scene_static_skeleton_fingerprint(&b),
             "scene-static key must include root composite because the cached scene picture bakes it in"
         );
     }

@@ -9,6 +9,7 @@ use crate::runtime::surface::MetalEncodeBridge;
 use crate::{
     runtime::{
         annotation::AnnotatedDisplayTree,
+        compositor::DynamicLayer,
         frame_view::RenderFrameView,
         profile::backend_span,
         render_engine::{RenderEngine, SceneRenderContext, SceneSnapshot, SharedRenderEngine},
@@ -165,15 +166,17 @@ impl RenderEngine for SkiaRenderEngine {
         Ok(SceneSnapshot::new(SkiaSceneSnapshot { snapshot }))
     }
 
-    fn draw_display_tree_dynamic(
+    fn draw_dynamic_layer(
         &self,
         runtime: &mut SceneRenderContext<'_>,
         display_tree: &AnnotatedDisplayTree,
+        layer: &DynamicLayer,
         frame_view: RenderFrameView,
     ) -> Result<()> {
         let canvas = skia_canvas(frame_view)?;
-        skia::draw_display_tree_dynamic_layered(
+        skia::draw_dynamic_layer_cached(
             display_tree,
+            layer,
             canvas,
             runtime.assets,
             runtime.cache_registry.image_cache(),

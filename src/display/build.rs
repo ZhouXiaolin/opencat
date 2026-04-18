@@ -481,11 +481,21 @@ mod tests {
 
         let child_a = &annotated_a.root.children[0];
         let child_b = &annotated_b.root.children[0];
-        assert_eq!(child_a.paint_fingerprint, child_b.paint_fingerprint);
-        assert_eq!(child_a.snapshot_fingerprint, child_b.snapshot_fingerprint);
+        assert_eq!(
+            annotated_a.analysis_for(child_a).paint_fingerprint,
+            annotated_b.analysis_for(child_b).paint_fingerprint
+        );
+        assert_eq!(
+            annotated_a.analysis_for(child_a).snapshot_fingerprint,
+            annotated_b.analysis_for(child_b).snapshot_fingerprint
+        );
         assert_ne!(
-            annotated_a.root.snapshot_fingerprint,
-            annotated_b.root.snapshot_fingerprint
+            annotated_a
+                .analysis_for(&annotated_a.root)
+                .snapshot_fingerprint,
+            annotated_b
+                .analysis_for(&annotated_b.root)
+                .snapshot_fingerprint
         );
     }
 

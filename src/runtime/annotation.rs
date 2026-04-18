@@ -4,7 +4,13 @@ use crate::{
         tree::{DisplayNode, DisplayTree},
     },
     resource::assets::AssetsMap,
-    runtime::fingerprint::{self, PaintVariance},
+    runtime::{
+        analysis::{
+            DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
+            DisplayNodeInvalidation,
+        },
+        fingerprint::{self, PaintVariance},
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -13,6 +19,8 @@ pub struct RenderNodeKey(pub u64);
 #[derive(Clone, Debug)]
 pub struct AnnotatedDisplayTree {
     pub root: AnnotatedDisplayNode,
+    pub analysis: DisplayAnalysisTable,
+    pub invalidation: DisplayInvalidationTable,
 }
 
 #[derive(Clone, Debug)]
@@ -24,12 +32,6 @@ pub struct AnnotatedDisplayNode {
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,
     pub children: Vec<AnnotatedDisplayNode>,
-    pub paint_variance: PaintVariance,
-    pub composite_dirty: bool,
-    pub subtree_contains_time_variant: bool,
-    pub subtree_contains_dynamic: bool,
-    pub paint_fingerprint: Option<u64>,
-    pub snapshot_fingerprint: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -44,6 +46,20 @@ pub struct DrawCompositeSemantics<'a> {
     pub transform: &'a DisplayTransform,
     pub opacity: f32,
     pub backdrop_blur_sigma: Option<f32>,
+}
+
+impl AnnotatedDisplayTree {
+    pub fn analysis_for(&self, node: &AnnotatedDisplayNode) -> DisplayNodeAnalysis {
+        self.analysis.require(node.key)
+    }
+
+    pub fn invalidation_for(&self, node: &AnnotatedDisplayNode) -> DisplayNodeInvalidation {
+        self.invalidation.get(node.key)
+    }
+
+    pub fn contains_time_variant(&self) -> bool {
+        self.analysis_for(&self.root).subtree_contains_time_variant
+    }
 }
 
 impl AnnotatedDisplayNode {
@@ -79,25 +95,48 @@ pub(crate) fn annotate_display_tree(
     display_tree: &DisplayTree,
     assets: &AssetsMap,
 ) -> AnnotatedDisplayTree {
+    let mut analysis = DisplayAnalysisTable::default();
+    let mut invalidation = DisplayInvalidationTable::default();
+    let (root, root_analysis) =
+        annotate_display_node(&display_tree.root, assets, &mut analysis, &mut invalidation);
+    analysis.insert(root.key, root_analysis);
+    invalidation.insert(
+        root.key,
+        DisplayNodeInvalidation {
+            composite_dirty: false,
+            subtree_contains_dynamic: root_analysis.subtree_contains_time_variant,
+        },
+    );
+
     AnnotatedDisplayTree {
-        root: annotate_display_node(&display_tree.root, assets),
+        root,
+        analysis,
+        invalidation,
     }
 }
 
-fn annotate_display_node(node: &DisplayNode, assets: &AssetsMap) -> AnnotatedDisplayNode {
-    let children = node
-        .children
-        .iter()
-        .map(|child| annotate_display_node(child, assets))
-        .collect::<Vec<_>>();
+fn annotate_display_node(
+    node: &DisplayNode,
+    assets: &AssetsMap,
+    analysis: &mut DisplayAnalysisTable,
+    invalidation: &mut DisplayInvalidationTable,
+) -> (AnnotatedDisplayNode, DisplayNodeAnalysis) {
+    let mut children = Vec::with_capacity(node.children.len());
+    for child in &node.children {
+        let (annotated_child, child_analysis) =
+            annotate_display_node(child, assets, analysis, invalidation);
+        invalidation.insert(
+            annotated_child.key,
+            DisplayNodeInvalidation {
+                composite_dirty: false,
+                subtree_contains_dynamic: child_analysis.subtree_contains_time_variant,
+            },
+        );
+        analysis.insert(annotated_child.key, child_analysis);
+        children.push(annotated_child);
+    }
 
-    let paint_variance = fingerprint::classify_paint(&node.item, assets);
-    let subtree_contains_time_variant = matches!(paint_variance, PaintVariance::TimeVariant)
-        || children
-            .iter()
-            .any(|child| child.subtree_contains_time_variant);
-
-    let mut annotated = AnnotatedDisplayNode {
+    let annotated = AnnotatedDisplayNode {
         key: RenderNodeKey(node.element_id.0),
         transform: node.transform.clone(),
         opacity: node.opacity,
@@ -105,19 +144,34 @@ fn annotate_display_node(node: &DisplayNode, assets: &AssetsMap) -> AnnotatedDis
         clip: node.clip.clone(),
         item: node.item.clone(),
         children,
+    };
+
+    let paint_variance = fingerprint::classify_paint(&node.item, assets);
+    let subtree_contains_time_variant = matches!(paint_variance, PaintVariance::TimeVariant)
+        || annotated
+            .children
+            .iter()
+            .any(|child| analysis.require(child.key).subtree_contains_time_variant);
+
+    let mut node_analysis = DisplayNodeAnalysis {
         paint_variance,
-        composite_dirty: false,
         subtree_contains_time_variant,
-        subtree_contains_dynamic: subtree_contains_time_variant,
         paint_fingerprint: None,
         snapshot_fingerprint: None,
     };
 
-    if !annotated.subtree_contains_time_variant {
-        annotated.paint_fingerprint = fingerprint::annotated_subtree_paint_fingerprint(&annotated);
-        annotated.snapshot_fingerprint =
-            fingerprint::annotated_subtree_snapshot_fingerprint(&annotated);
+    if !subtree_contains_time_variant {
+        node_analysis.paint_fingerprint = fingerprint::annotated_subtree_paint_fingerprint(
+            &annotated,
+            analysis,
+            subtree_contains_time_variant,
+        );
+        node_analysis.snapshot_fingerprint = fingerprint::annotated_subtree_snapshot_fingerprint(
+            &annotated,
+            analysis,
+            subtree_contains_time_variant,
+        );
     }
 
-    annotated
+    (annotated, node_analysis)
 }

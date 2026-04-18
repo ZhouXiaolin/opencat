@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::runtime::{
     analysis::{DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeInvalidation},
-    annotation::{AnnotatedDisplayNode, AnnotatedDisplayTree, RenderNodeKey},
+    annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey},
     compositor::SceneSlot,
     fingerprint::{CompositeSig, PaintVariance},
 };
@@ -48,9 +48,10 @@ pub(crate) fn mark_display_tree_composite_dirty(
         history.history_for_slot(slot)
     };
     let mut next = HashMap::new();
-    let mut invalidation = DisplayInvalidationTable::default();
+    let mut invalidation = DisplayInvalidationTable::with_len(display_tree.analysis.len());
     mark_display_node_composite_dirty(
-        &display_tree.root,
+        display_tree.root,
+        display_tree,
         &display_tree.analysis,
         &mut invalidation,
         previous,
@@ -61,27 +62,36 @@ pub(crate) fn mark_display_tree_composite_dirty(
 }
 
 fn mark_display_node_composite_dirty(
-    node: &AnnotatedDisplayNode,
+    handle: AnnotatedNodeHandle,
+    display_tree: &AnnotatedDisplayTree,
     analysis: &DisplayAnalysisTable,
     invalidation: &mut DisplayInvalidationTable,
     previous: &HashMap<RenderNodeKey, CompositeSig>,
     next: &mut HashMap<RenderNodeKey, CompositeSig>,
 ) -> bool {
+    let node = display_tree.node(handle);
+    let node_key = display_tree.key(handle);
     let current_sig = CompositeSig::from_annotated_node(node);
     let composite_dirty = previous
-        .get(&node.key)
+        .get(&node_key)
         .is_some_and(|previous_sig| *previous_sig != current_sig);
-    next.insert(node.key, current_sig);
+    next.insert(node_key, current_sig);
 
-    let node_analysis = analysis.require(node.key);
+    let node_analysis = analysis.require(handle);
     let mut subtree_contains_dynamic =
         node_analysis.paint_variance == PaintVariance::TimeVariant || composite_dirty;
-    for child in &node.children {
-        subtree_contains_dynamic |=
-            mark_display_node_composite_dirty(child, analysis, invalidation, previous, next);
+    for &child_handle in &node.children {
+        subtree_contains_dynamic |= mark_display_node_composite_dirty(
+            child_handle,
+            display_tree,
+            analysis,
+            invalidation,
+            previous,
+            next,
+        );
     }
     invalidation.insert(
-        node.key,
+        handle,
         DisplayNodeInvalidation {
             composite_dirty,
             subtree_contains_dynamic,

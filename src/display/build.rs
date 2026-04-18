@@ -479,23 +479,19 @@ mod tests {
         let annotated_a = annotate_display_tree(&tree_a, &assets);
         let annotated_b = annotate_display_tree(&tree_b, &assets);
 
-        let child_a = &annotated_a.root.children[0];
-        let child_b = &annotated_b.root.children[0];
+        let child_a = annotated_a.children(annotated_a.root)[0];
+        let child_b = annotated_b.children(annotated_b.root)[0];
         assert_eq!(
-            annotated_a.analysis_for(child_a).paint_fingerprint,
-            annotated_b.analysis_for(child_b).paint_fingerprint
+            annotated_a.analysis(child_a).paint_fingerprint,
+            annotated_b.analysis(child_b).paint_fingerprint
         );
         assert_eq!(
-            annotated_a.analysis_for(child_a).snapshot_fingerprint,
-            annotated_b.analysis_for(child_b).snapshot_fingerprint
+            annotated_a.analysis(child_a).snapshot_fingerprint,
+            annotated_b.analysis(child_b).snapshot_fingerprint
         );
         assert_ne!(
-            annotated_a
-                .analysis_for(&annotated_a.root)
-                .snapshot_fingerprint,
-            annotated_b
-                .analysis_for(&annotated_b.root)
-                .snapshot_fingerprint
+            annotated_a.analysis(annotated_a.root).snapshot_fingerprint,
+            annotated_b.analysis(annotated_b.root).snapshot_fingerprint
         );
     }
 

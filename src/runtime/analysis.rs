@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use crate::runtime::{annotation::RenderNodeKey, fingerprint::PaintVariance};
+use crate::runtime::{annotation::AnnotatedNodeHandle, fingerprint::PaintVariance};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DisplayNodeAnalysis {
@@ -18,35 +16,65 @@ pub struct DisplayNodeInvalidation {
 
 #[derive(Clone, Debug, Default)]
 pub struct DisplayAnalysisTable {
-    nodes: HashMap<RenderNodeKey, DisplayNodeAnalysis>,
+    nodes: Vec<DisplayNodeAnalysis>,
 }
 
 impl DisplayAnalysisTable {
-    pub fn insert(&mut self, key: RenderNodeKey, analysis: DisplayNodeAnalysis) {
-        self.nodes.insert(key, analysis);
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            nodes: Vec::with_capacity(capacity),
+        }
     }
 
-    pub fn get(&self, key: RenderNodeKey) -> Option<DisplayNodeAnalysis> {
-        self.nodes.get(&key).copied()
+    pub fn insert(&mut self, handle: AnnotatedNodeHandle, analysis: DisplayNodeAnalysis) {
+        if handle.0 == self.nodes.len() {
+            self.nodes.push(analysis);
+        } else {
+            self.nodes[handle.0] = analysis;
+        }
     }
 
-    pub fn require(&self, key: RenderNodeKey) -> DisplayNodeAnalysis {
-        self.get(key)
-            .unwrap_or_else(|| panic!("missing display analysis for node {:?}", key))
+    pub fn get(&self, handle: AnnotatedNodeHandle) -> Option<DisplayNodeAnalysis> {
+        self.nodes.get(handle.0).copied()
+    }
+
+    pub fn require(&self, handle: AnnotatedNodeHandle) -> DisplayNodeAnalysis {
+        self.get(handle)
+            .unwrap_or_else(|| panic!("missing display analysis for node {:?}", handle))
+    }
+
+    pub fn len(&self) -> usize {
+        self.nodes.len()
     }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct DisplayInvalidationTable {
-    nodes: HashMap<RenderNodeKey, DisplayNodeInvalidation>,
+    nodes: Vec<DisplayNodeInvalidation>,
 }
 
 impl DisplayInvalidationTable {
-    pub fn insert(&mut self, key: RenderNodeKey, invalidation: DisplayNodeInvalidation) {
-        self.nodes.insert(key, invalidation);
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            nodes: Vec::with_capacity(capacity),
+        }
     }
 
-    pub fn get(&self, key: RenderNodeKey) -> DisplayNodeInvalidation {
-        self.nodes.get(&key).copied().unwrap_or_default()
+    pub fn with_len(len: usize) -> Self {
+        Self {
+            nodes: vec![DisplayNodeInvalidation::default(); len],
+        }
+    }
+
+    pub fn insert(&mut self, handle: AnnotatedNodeHandle, invalidation: DisplayNodeInvalidation) {
+        if handle.0 == self.nodes.len() {
+            self.nodes.push(invalidation);
+        } else {
+            self.nodes[handle.0] = invalidation;
+        }
+    }
+
+    pub fn get(&self, handle: AnnotatedNodeHandle) -> DisplayNodeInvalidation {
+        self.nodes.get(handle.0).copied().unwrap_or_default()
     }
 }

@@ -617,7 +617,7 @@ impl<'a> SkiaBackend<'a> {
             self.frame_ctx,
         );
         let subtree = OrderedSceneProgram::build_subtree(display_tree, handle);
-        backend.draw_display_item(node.recorded_semantics().item)?;
+        backend.draw_display_item_with_execution(node.recorded_semantics().item, subtree.item_execution)?;
         backend.with_recorded_clip(node.recorded_semantics(), |backend| {
             for child in &subtree.children {
                 backend.draw_ordered_scene_op(child, false)?;

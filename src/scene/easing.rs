@@ -233,6 +233,47 @@ pub(crate) fn settle_time(config: &SpringConfig) -> f32 {
     -threshold.ln() / gamma
 }
 
+pub fn compute_progress(
+    current_frame: u32,
+    duration: u32,
+    delay: u32,
+    easing: &Easing,
+    clamp: bool,
+    repeat: i32,
+    yoyo: bool,
+    repeat_delay: u32,
+) -> f32 {
+    if current_frame <= delay {
+        return 0.0;
+    }
+    if duration == 0 {
+        return 1.0;
+    }
+    let elapsed = (current_frame - delay) as f32;
+    let cycle_len = duration as f32 + repeat_delay as f32;
+    let cycle_idx = (elapsed / cycle_len).floor() as i32;
+
+    if repeat >= 0 && cycle_idx > repeat {
+        return if yoyo && (repeat % 2 == 1) { 0.0 } else { 1.0 };
+    }
+
+    let in_cycle = elapsed - (cycle_idx as f32) * cycle_len;
+    if in_cycle >= duration as f32 {
+        return if !yoyo || cycle_idx % 2 == 0 {
+            1.0
+        } else {
+            0.0
+        };
+    }
+
+    let mut t = (in_cycle / duration as f32).clamp(0.0, 1.0);
+    if yoyo && (cycle_idx % 2 == 1) {
+        t = 1.0 - t;
+    }
+    let p = easing.apply(t);
+    if clamp { p.clamp(0.0, 1.0) } else { p }
+}
+
 pub fn animate_value(
     current_frame: u32,
     duration: u32,
@@ -241,18 +282,23 @@ pub fn animate_value(
     to: f32,
     easing: &Easing,
     clamp: bool,
+    repeat: i32,
+    yoyo: bool,
+    repeat_delay: u32,
 ) -> f32 {
     if current_frame <= delay {
         return from;
     }
-    let elapsed = (current_frame - delay) as f32;
-    let t = (elapsed / duration as f32).clamp(0.0, 1.0);
-    let progress = easing.apply(t);
-    let p = if clamp {
-        progress.clamp(0.0, 1.0)
-    } else {
-        progress
-    };
+    let p = compute_progress(
+        current_frame,
+        duration,
+        delay,
+        easing,
+        clamp,
+        repeat,
+        yoyo,
+        repeat_delay,
+    );
     from + (to - from) * p
 }
 
@@ -376,13 +422,13 @@ mod tests {
 
     #[test]
     fn animate_value_before_delay_returns_from() {
-        let result = animate_value(5, 20, 10, 0.0, 100.0, &Easing::Linear, false);
+        let result = animate_value(5, 20, 10, 0.0, 100.0, &Easing::Linear, false, 0, false, 0);
         assert!((result - 0.0).abs() < 1e-6);
     }
 
     #[test]
     fn animate_value_at_end_returns_to() {
-        let result = animate_value(30, 20, 10, 0.0, 100.0, &Easing::Linear, false);
+        let result = animate_value(30, 20, 10, 0.0, 100.0, &Easing::Linear, false, 0, false, 0);
         assert!((result - 100.0).abs() < 1e-6);
     }
 
@@ -544,5 +590,47 @@ mod tests {
         ));
         assert!(easing_from_name("steps()").is_none());
         assert!(easing_from_name("steps(abc)").is_none());
+    }
+
+    #[test]
+    fn animate_value_repeat_loops_back() {
+        let v0 = animate_value(0, 10, 0, 0.0, 100.0, &Easing::Linear, false, 2, false, 0);
+        let v5 = animate_value(5, 10, 0, 0.0, 100.0, &Easing::Linear, false, 2, false, 0);
+        let v15 = animate_value(15, 10, 0, 0.0, 100.0, &Easing::Linear, false, 2, false, 0);
+        let v25 = animate_value(25, 10, 0, 0.0, 100.0, &Easing::Linear, false, 2, false, 0);
+        let v40 = animate_value(40, 10, 0, 0.0, 100.0, &Easing::Linear, false, 2, false, 0);
+        assert!((v0 - 0.0).abs() < 1e-3);
+        assert!((v5 - 50.0).abs() < 1e-3);
+        assert!((v15 - 50.0).abs() < 1e-3);
+        assert!((v25 - 50.0).abs() < 1e-3);
+        assert!(
+            (v40 - 100.0).abs() < 1e-3,
+            "frame 40 past repeat=2, expect 100.0, got {v40}"
+        );
+    }
+
+    #[test]
+    fn animate_value_yoyo_reverses_alternate_cycles() {
+        let v5 = animate_value(5, 10, 0, 0.0, 100.0, &Easing::Linear, false, -1, true, 0);
+        let v15 = animate_value(15, 10, 0, 0.0, 100.0, &Easing::Linear, false, -1, true, 0);
+        let v25 = animate_value(25, 10, 0, 0.0, 100.0, &Easing::Linear, false, -1, true, 0);
+        assert!((v5 - 50.0).abs() < 1e-3);
+        assert!((v15 - 50.0).abs() < 1e-3, "cycle 1 reverse at half = 50");
+        assert!((v25 - 50.0).abs() < 1e-3, "cycle 2 forward at half = 50");
+    }
+
+    #[test]
+    fn animate_value_repeat_delay_holds_to() {
+        let v = animate_value(12, 10, 0, 0.0, 100.0, &Easing::Linear, false, -1, false, 5);
+        assert!(
+            (v - 100.0).abs() < 1e-3,
+            "in repeat_delay should hold `to`, got {v}"
+        );
+    }
+
+    #[test]
+    fn animate_value_no_repeat_matches_old_behavior() {
+        let v = animate_value(15, 10, 5, 0.0, 100.0, &Easing::Linear, false, 0, false, 0);
+        assert!((v - 100.0).abs() < 1e-3);
     }
 }

@@ -16,6 +16,9 @@ struct AnimateEntry {
     delay: u32,
     clamp: bool,
     easing: Easing,
+    repeat: i32,
+    yoyo: bool,
+    repeat_delay: u32,
 }
 
 #[derive(Default)]
@@ -35,8 +38,16 @@ pub(crate) fn install_animate_bindings<'js>(
         "__animate_create",
         Function::new(
             ctx.clone(),
-            move |duration: f32, delay: f32, clamp_flag: i32, easing_tag: String| -> i32 {
+            move |duration: f32,
+                  delay: f32,
+                  clamp_flag: i32,
+                  easing_tag: String,
+                  repeat: i32,
+                  yoyo_flag: i32,
+                  repeat_delay: f32|
+                  -> i32 {
                 let clamp = clamp_flag != 0;
+                let yoyo = yoyo_flag != 0;
 
                 let store = s.lock().unwrap();
                 let current_frame = store.current_frame;
@@ -49,16 +60,29 @@ pub(crate) fn install_animate_bindings<'js>(
                     duration as u32
                 };
                 let delay_u32 = delay as u32;
+                let repeat_delay_u32 = repeat_delay.max(0.0) as u32;
 
-                let t = if current_frame <= delay_u32 {
-                    0.0f32
+                let progress = crate::scene::easing::compute_progress(
+                    current_frame,
+                    duration_u32,
+                    delay_u32,
+                    &easing,
+                    clamp,
+                    repeat,
+                    yoyo,
+                    repeat_delay_u32,
+                );
+
+                let total_frames = if repeat >= 0 {
+                    duration_u32
+                        .saturating_mul(repeat as u32 + 1)
+                        .saturating_add(repeat_delay_u32.saturating_mul(repeat as u32))
                 } else {
-                    ((current_frame - delay_u32) as f32 / duration_u32 as f32).clamp(0.0, 1.0)
+                    u32::MAX
                 };
-
-                let progress = easing.apply(t);
-                let settled = t >= 1.0;
-                let settle_frame = delay_u32.saturating_add(duration_u32);
+                let settled =
+                    repeat >= 0 && current_frame >= delay_u32.saturating_add(total_frames);
+                let settle_frame = delay_u32.saturating_add(total_frames);
 
                 let mut animate_state = store.animate_state.lock().unwrap();
                 let handle = animate_state.next_id;
@@ -73,6 +97,9 @@ pub(crate) fn install_animate_bindings<'js>(
                         delay: delay_u32,
                         clamp,
                         easing,
+                        repeat,
+                        yoyo,
+                        repeat_delay: repeat_delay_u32,
                     },
                 );
 
@@ -100,6 +127,9 @@ pub(crate) fn install_animate_bindings<'js>(
                         to,
                         &entry.easing,
                         entry.clamp,
+                        entry.repeat,
+                        entry.yoyo,
+                        entry.repeat_delay,
                     )
                 } else {
                     from

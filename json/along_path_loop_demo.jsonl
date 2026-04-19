@@ -1,0 +1,3 @@
+{"width":1280,"height":720,"sceneFrames":150,"backgroundColor":"#0f172a","fps":30}
+{"id":"orbit","parentId":"composition","type":"div","className":"w-10 h-10 rounded-full bg-amber-400"}
+{"type":"script","parentId":"composition","src":"if (!ctx.__orbit) { ctx.__orbit = ctx.alongPath('M640 200 C940 200 940 540 640 540 C340 540 340 200 640 200 Z'); } var a = ctx.animate({ from:{t:0}, to:{t:1}, duration:150, easing:'linear', repeat:-1 }); var pos = ctx.__orbit.at(a.t); ctx.getNode('orbit').translateX(pos.x - 20).translateY(pos.y - 20);"}

@@ -11,10 +11,17 @@
 
 mod display_item;
 
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-};
+use std::hash::{Hash, Hasher};
+
+use rustc_hash::FxHasher;
+
+fn new_primary_hasher() -> FxHasher {
+    FxHasher::default()
+}
+
+fn new_secondary_hasher() -> ahash::AHasher {
+    ahash::AHasher::default()
+}
 
 use crate::{
     display::list::DisplayItem,
@@ -77,7 +84,7 @@ impl CompositeSig {
     }
 
     fn from_draw_composite(draw: &DrawCompositeSemantics<'_>) -> Self {
-        let mut transforms_hasher = DefaultHasher::new();
+        let mut transforms_hasher = new_primary_hasher();
         draw.transform.transforms.hash(&mut transforms_hasher);
         Self {
             translation_x_bits: draw.transform.translation_x.to_bits(),
@@ -122,14 +129,14 @@ pub fn item_paint_fingerprint(item: &DisplayItem, assets: &AssetsMap) -> Option<
     if item_is_time_variant(item, assets) {
         return None;
     }
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = new_primary_hasher();
     DisplayItemFp(item).hash(&mut hasher);
     Some(hasher.finish())
 }
 
 fn video_bitmap_quantized_fingerprint(bitmap: &crate::display::list::BitmapDisplayItem) -> u64 {
     use crate::runtime::cache::video_frames::quantize_pts;
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = new_primary_hasher();
     // Prefix marker:区分 video bitmap fingerprint 与非 video 的 hash 空间,避免碰撞。
     0xF0_u8.hash(&mut hasher);
     bitmap.asset_id.hash(&mut hasher);
@@ -158,7 +165,7 @@ pub(crate) fn annotated_subtree_paint_fingerprint(
     if subtree_contains_time_variant {
         return None;
     }
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = new_primary_hasher();
     hash_node_recorded_paint(node, &mut hasher);
     node.children.len().hash(&mut hasher);
     for &child_handle in &node.children {
@@ -184,8 +191,8 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
         return None;
     }
 
-    let mut primary = DefaultHasher::new();
-    let mut secondary = ahash::AHasher::default();
+    let mut primary = new_primary_hasher();
+    let mut secondary = new_secondary_hasher();
 
     hash_node_recorded_paint(node, &mut primary);
     hash_node_recorded_paint(node, &mut secondary);
@@ -239,7 +246,7 @@ fn hash_draw_composite_semantics<H: Hasher>(
 }
 
 fn calculate_hash(value: &impl Hash) -> u64 {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = new_primary_hasher();
     value.hash(&mut hasher);
     hasher.finish()
 }
@@ -686,8 +693,8 @@ mod tests {
     fn subtree_snapshot_fingerprint_primary_and_secondary_are_independent() {
         use std::hash::Hasher;
 
-        let mut primary = std::collections::hash_map::DefaultHasher::new();
-        let mut secondary = ahash::AHasher::default();
+        let mut primary = new_primary_hasher();
+        let mut secondary = new_secondary_hasher();
         primary.write_u64(0xdead_beef);
         secondary.write_u64(0xdead_beef);
 
@@ -700,6 +707,18 @@ mod tests {
             fp.primary, fp.secondary,
             "两个独立 hasher 在相同输入下必须产出不同结果"
         );
+    }
+
+    #[test]
+    fn primary_and_secondary_hashers_stay_independent() {
+        use std::hash::Hasher;
+
+        let mut primary = new_primary_hasher();
+        let mut secondary = new_secondary_hasher();
+        primary.write_u64(0xfeed_face);
+        secondary.write_u64(0xfeed_face);
+
+        assert_ne!(primary.finish(), secondary.finish());
     }
 
     #[test]

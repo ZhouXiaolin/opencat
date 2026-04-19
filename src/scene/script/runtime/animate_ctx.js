@@ -24,6 +24,62 @@
         return 'linear';
     }
 
+    function normalizeKeyframes(spec) {
+        if (!Array.isArray(spec)) {
+            throw new Error('keyframes value must be an array');
+        }
+        if (spec.length === 0) {
+            throw new Error('keyframes array cannot be empty');
+        }
+        var first = spec[0];
+        var isShorthand = typeof first === 'number';
+        var normalized;
+        if (isShorthand) {
+            var n = spec.length;
+            normalized = [];
+            for (var i = 0; i < n; i++) {
+                normalized.push({
+                    at: n === 1 ? 0 : i / (n - 1),
+                    value: Number(spec[i]),
+                    easing: null,
+                });
+            }
+        } else {
+            normalized = spec.map(function(kf) {
+                if (kf == null || typeof kf.at !== 'number' || typeof kf.value !== 'number') {
+                    throw new Error('keyframe entry requires numeric `at` and `value`');
+                }
+                return {
+                    at: kf.at,
+                    value: kf.value,
+                    easing: kf.easing != null ? resolveEasingTag(kf.easing) : null,
+                };
+            });
+            normalized.sort(function(a, b) { return a.at - b.at; });
+        }
+        return normalized;
+    }
+
+    function evaluateKeyframes(progress, kfs) {
+        var p = Math.max(0, Math.min(1, Number(progress)));
+        if (p <= kfs[0].at) { return kfs[0].value; }
+        var last = kfs[kfs.length - 1];
+        if (p >= last.at) { return last.value; }
+        for (var i = 0; i < kfs.length - 1; i++) {
+            var a = kfs[i];
+            var b = kfs[i + 1];
+            if (p >= a.at && p <= b.at) {
+                var span = b.at - a.at;
+                var localT = span > 0 ? (p - a.at) / span : 0;
+                if (b.easing) {
+                    localT = __easing_apply(b.easing, localT);
+                }
+                return a.value + (b.value - a.value) * localT;
+            }
+        }
+        return last.value;
+    }
+
     function parseAnimateOptions(opts) {
         var from = opts.from || {};
         var to = opts.to || {};
@@ -56,6 +112,17 @@
     ctx.animate = function(opts) {
         var parsed = parseAnimateOptions(opts);
 
+        var keyframesSpec = opts.keyframes || null;
+        var keyframesNormalized = null;
+        if (keyframesSpec) {
+            keyframesNormalized = {};
+            for (var kfKey in keyframesSpec) {
+                if (Object.prototype.hasOwnProperty.call(keyframesSpec, kfKey)) {
+                    keyframesNormalized[kfKey] = normalizeKeyframes(keyframesSpec[kfKey]);
+                }
+            }
+        }
+
         var keys = Object.keys(parsed.from);
         var toKeys = Object.keys(parsed.to);
         for (var ti = 0; ti < toKeys.length; ti++) {
@@ -75,6 +142,21 @@
         );
 
         var result = {};
+        if (keyframesNormalized) {
+            for (var kfKey2 in keyframesNormalized) {
+                if (Object.prototype.hasOwnProperty.call(keyframesNormalized, kfKey2)) {
+                    (function(key, kfs) {
+                        Object.defineProperty(result, key, {
+                            get: function() {
+                                var p = __animate_progress(handle);
+                                return evaluateKeyframes(p, kfs);
+                            },
+                            enumerable: true,
+                        });
+                    })(kfKey2, keyframesNormalized[kfKey2]);
+                }
+            }
+        }
         for (var ki = 0; ki < keys.length; ki++) {
             (function(key) {
                 var fromVal = parsed.from[key] !== undefined ? parsed.from[key] : 0;

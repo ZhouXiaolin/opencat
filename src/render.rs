@@ -147,13 +147,20 @@ fn render_png(
     output_path: impl AsRef<Path>,
     backend: RenderBackend,
 ) -> Result<()> {
-    let engine = render_registry::render_engine_for_backend(backend)?;
-    let mut session = RenderSession::with_render_engine(engine.clone());
-    let rgba = engine.render_frame_rgba(composition, 0, &mut session)?;
-    let image =
-        image::RgbaImage::from_raw(composition.width as u32, composition.height as u32, rgba)
-            .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
-    image.save(output_path)?;
+    let profile_config = crate::runtime::profile::ProfileConfig::from_env();
+    let (_, summary) = crate::runtime::profile::profile_render(&profile_config, || {
+        let engine = render_registry::render_engine_for_backend(backend)?;
+        let mut session = RenderSession::with_render_engine(engine.clone());
+        let rgba = engine.render_frame_rgba(composition, 0, &mut session)?;
+        let image =
+            image::RgbaImage::from_raw(composition.width as u32, composition.height as u32, rgba)
+                .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
+        image.save(&output_path)?;
+        Ok::<_, anyhow::Error>(())
+    })?;
+    if let Some(summary) = summary {
+        crate::runtime::profile::print_profile_summary(&summary, &profile_config)?;
+    }
     Ok(())
 }
 
@@ -165,26 +172,33 @@ fn render_mp4(
     on_video_frame_encoded: impl FnMut(u32, u32),
 ) -> Result<()> {
     let composition = composition.aligned_for_video_encoding();
-    let engine = render_registry::render_engine_for_backend(backend)?;
-    let mut session = RenderSession::with_render_engine(engine.clone());
-    session
-        .media_ctx
-        .set_video_preview_quality(VideoPreviewQuality::Exact);
-    let audio_track = build_audio_track(&composition, &mut session)?;
-    crate::codec::encode::encode_rgba_frames(
-        output_path,
-        composition.width as u32,
-        composition.height as u32,
-        composition.fps,
-        composition.frames,
-        config,
-        audio_track.as_ref(),
-        on_video_frame_encoded,
-        |frame_index| {
-            let rgba = engine.render_frame_rgba(&composition, frame_index, &mut session)?;
-            Ok(rgba)
-        },
-    )?;
+    let profile_config = crate::runtime::profile::ProfileConfig::from_env();
+    let (_, summary) = crate::runtime::profile::profile_render(&profile_config, move || {
+        let engine = render_registry::render_engine_for_backend(backend)?;
+        let mut session = RenderSession::with_render_engine(engine.clone());
+        session
+            .media_ctx
+            .set_video_preview_quality(VideoPreviewQuality::Exact);
+        let audio_track = build_audio_track(&composition, &mut session)?;
+        crate::codec::encode::encode_rgba_frames(
+            output_path.as_ref(),
+            composition.width as u32,
+            composition.height as u32,
+            composition.fps,
+            composition.frames,
+            config,
+            audio_track.as_ref(),
+            on_video_frame_encoded,
+            |frame_index| {
+                let rgba = engine.render_frame_rgba(&composition, frame_index, &mut session)?;
+                Ok(rgba)
+            },
+        )?;
+        Ok::<_, anyhow::Error>(())
+    })?;
+    if let Some(summary) = summary {
+        crate::runtime::profile::print_profile_summary(&summary, &profile_config)?;
+    }
     Ok(())
 }
 

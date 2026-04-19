@@ -320,6 +320,52 @@ Also exposes `progress`, `settled`, and `settleFrame` like `ctx.animate()`.
 
 Character counting uses `Array.from()`, so the effect is **grapheme-safe for CJK and emoji** — no broken surrogates.
 
+### ctx.alongPath(svgPath)
+
+Sample an SVG path string as a motion path. Returns a small object with `getLength()`, `at(t)`, and `dispose()`. `at(t)` takes `t in [0, 1]` and returns `{ x, y, angle }` -- `angle` is the path tangent in **degrees**, ready for `node.rotate()`.
+
+The SVG string is parsed once on creation; sampling is computed in Rust via Skia's `ContourMeasure`.
+
+```js
+// IMPORTANT: cache the measurer; do NOT rebuild it every frame
+if (!ctx.__along) {
+  ctx.__along = ctx.alongPath('M100 360 C400 80 880 640 1180 360');
+}
+
+var a = ctx.animate({
+  from: { t: 0 }, to: { t: 1 },
+  duration: 120, easing: 'ease-in-out',
+  repeat: -1, yoyo: true,
+});
+var pos = ctx.__along.at(a.t);
+ctx.getNode('ball')
+  .translateX(pos.x - 24)
+  .translateY(pos.y - 24)
+  .rotate(pos.angle);
+```
+
+**Supported SVG path commands** (uppercase = absolute, lowercase = relative):
+
+| Command | Meaning |
+|---|---|
+| `M x y` / `m dx dy` | Move to |
+| `L x y` / `l dx dy` | Line to |
+| `H x` / `h dx` | Horizontal line to |
+| `V y` / `v dy` | Vertical line to |
+| `C x1 y1 x2 y2 x y` | Cubic Bezier |
+| `S x2 y2 x y` | Smooth cubic Bezier |
+| `Q x1 y1 x y` | Quadratic Bezier |
+| `T x y` | Smooth quadratic Bezier |
+| `A rx ry x-axis-rot large sweep x y` | Elliptic arc |
+| `Z` / `z` | Close path |
+
+**Limitations:**
+
+- Only the **first contour** is sampled. If the path contains multiple `M` commands (multiple subpaths), subsequent ones are ignored.
+- The path is parsed only once at `ctx.alongPath()` time. To use a different path, create a new instance.
+- Always cache `alongPath` instances on `ctx.__yourKey` -- recreating per frame leaks Rust-side `ContourMeasure` until the script context is destroyed.
+- `dispose()` is optional but recommended for long-running compositions or when switching between many distinct paths.
+
 ### Easing
 
 | Preset | Effect |

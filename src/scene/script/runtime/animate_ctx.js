@@ -176,4 +176,88 @@
 
         return results;
     };
+
+    ctx.sequence = function(steps) {
+        if (!Array.isArray(steps)) {
+            throw new Error('ctx.sequence expects an array of steps');
+        }
+
+        var results = [];
+        var cursor = 0;
+
+        for (var si = 0; si < steps.length; si++) {
+            (function(step) {
+                var parsed = parseAnimateOptions(step);
+                var hasExplicitAt = step.at !== undefined && step.at !== null;
+                var startFrame = hasExplicitAt
+                    ? Number(step.at)
+                    : cursor + parsed.delay;
+
+                var handle = __animate_create(
+                    parsed.duration,
+                    startFrame,
+                    parsed.clamp ? 1 : 0,
+                    parsed.easingTag
+                );
+
+                var keys = Object.keys(parsed.from);
+                var toKeys = Object.keys(parsed.to);
+                for (var ti = 0; ti < toKeys.length; ti++) {
+                    if (!(toKeys[ti] in parsed.from)) {
+                        keys.push(toKeys[ti]);
+                    }
+                }
+
+                var item = {};
+                for (var ki = 0; ki < keys.length; ki++) {
+                    (function(key) {
+                        var fromVal = parsed.from[key] !== undefined ? parsed.from[key] : 0;
+                        var toVal = parsed.to[key] !== undefined ? parsed.to[key] : fromVal;
+                        var isColor = typeof fromVal === 'string' || typeof toVal === 'string';
+
+                        if (isColor) {
+                            Object.defineProperty(item, key, {
+                                get: function() {
+                                    return __animate_color(handle, key, String(fromVal), String(toVal));
+                                },
+                                enumerable: true,
+                            });
+                        } else {
+                            Object.defineProperty(item, key, {
+                                get: function() {
+                                    return __animate_value(handle, key, Number(fromVal), Number(toVal));
+                                },
+                                enumerable: true,
+                            });
+                        }
+                    })(keys[ki]);
+                }
+
+                Object.defineProperty(item, 'progress', {
+                    get: function() { return __animate_progress(handle); },
+                    enumerable: true,
+                });
+
+                Object.defineProperty(item, 'settled', {
+                    get: function() { return __animate_settled(handle); },
+                    enumerable: true,
+                });
+
+                Object.defineProperty(item, 'settleFrame', {
+                    get: function() { return __animate_settle_frame(handle); },
+                    enumerable: true,
+                });
+
+                if (!hasExplicitAt) {
+                    var endFrame = __animate_settle_frame(handle);
+                    var gap = step.gap !== undefined ? Number(step.gap) : 0;
+                    cursor = endFrame + gap;
+                }
+
+                results.push(item);
+            })(steps[si]);
+        }
+
+        return results;
+    };
 })();

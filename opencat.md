@@ -153,7 +153,7 @@ Most Tailwind classes work directly for layout, color, spacing, border radius, a
 
 | Avoid | Use instead |
 |------|-------------|
-| `transition-*` `animate-*` `duration-*` `ease-*` `delay-*` | `ctx.animate()` / `ctx.stagger()` |
+| `transition-*` `animate-*` `duration-*` `ease-*` `delay-*` | `ctx.animate()` / `ctx.stagger()` / `ctx.sequence()` |
 | `transform` `translate-*` `rotate-*` `scale-*` `skew-*` | `ctx.getNode(...).translateX()` / `translateY()` / `scale()` / `rotate()` / `skew()` |
 
 > Tailwind handles static styling. Scripts handle motion.
@@ -211,6 +211,53 @@ var anims = ctx.stagger(4, {
   easing: 'spring-gentle',
 });
 ```
+
+### ctx.sequence(steps)
+
+Declare a heterogeneous chain of animations. Each step advances an internal cursor so per-step `duration`, `easing`, `from`, and `to` can differ. This is the right tool when `ctx.stagger` (same animation, uniform gap) is not expressive enough — irregular timing, overlaps, or parallel branches.
+
+```js
+var seq = ctx.sequence([
+  { from: { opacity: 0, translateY: -20 }, to: { opacity: 1, translateY: 0 }, duration: 24, easing: 'spring-gentle' },
+  { from: { opacity: 0 }, to: { opacity: 1 }, duration: 18, gap: -6 },
+  { from: { scale: 0.8 }, to: { scale: 1 }, duration: 30, easing: 'spring-stiff' },
+]);
+
+ctx.getNode('title').opacity(seq[0].opacity).translateY(seq[0].translateY);
+ctx.getNode('subtitle').opacity(seq[1].opacity);
+ctx.getNode('cta').scale(seq[2].scale);
+```
+
+**Per-step fields**:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `from`, `to`, `duration`, `easing`, `clamp` | — | Same as `ctx.animate()` |
+| `delay` | `0` | Extra offset added to the cursor before this step starts |
+| `gap` | `0` | Advance the cursor by this many frames after this step ends. Negative to overlap with the next step. |
+| `at` | — | Absolute start frame. When set, this step ignores the cursor and **does not advance it**. Useful for parallel branches or pinned anchors. |
+
+Each returned item exposes the same getters as `ctx.animate()` (`progress`, `settled`, `settleFrame`, plus every animated key).
+
+**Parallel branches with `at`**:
+
+```js
+var seq = ctx.sequence([
+  { to: { opacity: 1 }, duration: 20 },
+  { to: { opacity: 1 }, duration: 30, at: 5 },
+  { to: { opacity: 1 }, duration: 10 },
+]);
+```
+
+Step 0 runs `0..20` and advances cursor to `20`. Step 1 is pinned at frame `5` (runs `5..35`) and the cursor is untouched. Step 2 starts from the cursor at `20` and runs `20..30`.
+
+**When to pick which**:
+
+| Use case | API |
+|----------|-----|
+| Single animation | `ctx.animate` |
+| N identical animations, uniform gap | `ctx.stagger` |
+| Heterogeneous steps, irregular gaps, overlaps, parallel branches | `ctx.sequence` |
 
 ### Easing
 

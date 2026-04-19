@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::{
-    BackendProfile, BackendProfileReport, BackendSpanAggregate, BackendSpanKey, FrameProfile,
+    BackendSpanKey, FrameProfile,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -58,6 +58,30 @@ impl RenderProfileAggregator {
     }
 
     pub(crate) fn record_span(&mut self, span: CompletedProfileSpan) {
+        match (span.target, span.name) {
+            ("render.pipeline", "frame_state") => {
+                self.frame_mut(span.frame).frame_state_ms += span.inclusive_ms;
+                return;
+            }
+            ("render.scene", "resolve_ui_tree") => {
+                self.frame_mut(span.frame).resolve_ms += span.inclusive_ms;
+                return;
+            }
+            ("render.scene", "compute_layout") => {
+                self.frame_mut(span.frame).layout_ms += span.inclusive_ms;
+                return;
+            }
+            ("render.scene", "build_display_tree") => {
+                self.frame_mut(span.frame).display_ms += span.inclusive_ms;
+                return;
+            }
+            ("render.transition", "draw_transition") => {
+                self.frame_mut(span.frame).transition_ms += span.inclusive_ms;
+                return;
+            }
+            _ => {}
+        }
+
         let frame = self.frame_mut(span.frame);
         if span.target == "render.backend" {
             let depth = usize::from(span.parent.is_some());
@@ -99,21 +123,117 @@ impl RenderProfileAggregator {
 
     pub(crate) fn record_count(&mut self, event: ProfileCountEvent) {
         let frame = self.frame_mut(event.frame);
-        match (event.target, event.kind, event.name, event.result) {
-            ("render.cache", "cache", "subtree_snapshot", "hit") => {
+        match (event.kind, event.name, event.result) {
+            ("cache", "subtree_snapshot", "hit") => {
                 frame.backend.subtree_snapshot_cache_hits += event.amount;
             }
-            ("render.cache", "cache", "subtree_snapshot", "miss") => {
+            ("cache", "subtree_snapshot", "miss") => {
                 frame.backend.subtree_snapshot_cache_misses += event.amount;
             }
-            ("render.draw", "draw", "rect", "count") => {
+            ("cache", "scene_snapshot", "hit") => {
+                frame.backend.scene_snapshot_cache_hits += event.amount;
+            }
+            ("cache", "scene_snapshot", "miss") => {
+                frame.backend.scene_snapshot_cache_misses += event.amount;
+            }
+            ("cache", "subtree_snapshot", "collision_rejected") => {
+                frame.backend.subtree_snapshot_collision_rejected += event.amount;
+            }
+            ("cache", "subtree_image", "hit") => {
+                frame.backend.subtree_image_cache_hits += event.amount;
+            }
+            ("cache", "subtree_image", "miss") => {
+                frame.backend.subtree_image_cache_misses += event.amount;
+            }
+            ("cache", "subtree_image", "promote") => {
+                frame.backend.subtree_image_promotions += event.amount;
+            }
+            ("cache", "text", "hit") => {
+                frame.backend.text_cache_hits += event.amount;
+            }
+            ("cache", "text", "miss") => {
+                frame.backend.text_cache_misses += event.amount;
+            }
+            ("cache", "item_picture", "hit") => {
+                frame.backend.item_picture_cache_hits += event.amount;
+            }
+            ("cache", "item_picture", "miss") => {
+                frame.backend.item_picture_cache_misses += event.amount;
+            }
+            ("cache", "image", "hit") => {
+                frame.backend.image_cache_hits += event.amount;
+            }
+            ("cache", "image", "miss") => {
+                frame.backend.image_cache_misses += event.amount;
+            }
+            ("cache", "video_frame", "hit") => {
+                frame.backend.video_frame_cache_hits += event.amount;
+            }
+            ("cache", "video_frame", "miss") => {
+                frame.backend.video_frame_cache_misses += event.amount;
+            }
+            ("cache", "video_frame", "decode") => {
+                frame.backend.video_frame_decodes += event.amount;
+            }
+            ("draw", "rect", "count") => {
                 frame.backend.draw_rect_count += event.amount;
             }
-            ("render.draw", "draw", "text", "count") => {
+            ("draw", "text", "count") => {
                 frame.backend.draw_text_count += event.amount;
             }
-            ("render.layer", "layer", "save_layer", "count") => {
+            ("draw", "bitmap", "count") => {
+                frame.backend.draw_bitmap_count += event.amount;
+            }
+            ("draw", "script", "count") => {
+                frame.backend.draw_script_count += event.amount;
+            }
+            ("layer", "save_layer", "count") => {
                 frame.backend.save_layer_count += event.amount;
+            }
+            ("eviction", "text", "count") => {
+                frame.backend.text_cache_evictions += event.amount;
+            }
+            ("repeat", "text", "count") => {
+                frame.backend.text_cache_record_repeats += event.amount;
+            }
+            ("utilization", "text", "count") => {
+                frame.backend.text_cache_capacity_utilization += event.amount;
+            }
+            ("eviction", "item_picture", "count") => {
+                frame.backend.item_picture_cache_evictions += event.amount;
+            }
+            ("repeat", "item_picture", "count") => {
+                frame.backend.item_picture_cache_record_repeats += event.amount;
+            }
+            ("utilization", "item_picture", "count") => {
+                frame.backend.item_picture_cache_capacity_utilization += event.amount;
+            }
+            ("eviction", "subtree_snapshot", "count") => {
+                frame.backend.subtree_snapshot_cache_evictions += event.amount;
+            }
+            ("repeat", "subtree_snapshot", "count") => {
+                frame.backend.subtree_snapshot_cache_record_repeats += event.amount;
+            }
+            ("utilization", "subtree_snapshot", "count") => {
+                frame.backend.subtree_snapshot_cache_capacity_utilization += event.amount;
+            }
+            ("eviction", "subtree_image", "count") => {
+                frame.backend.subtree_image_cache_evictions += event.amount;
+            }
+            ("repeat", "subtree_image", "count") => {
+                frame.backend.subtree_image_cache_record_repeats += event.amount;
+            }
+            ("utilization", "subtree_image", "count") => {
+                frame.backend.subtree_image_cache_capacity_utilization += event.amount;
+            }
+            ("eviction", "image", "count") => {
+                frame.backend.image_cache_evictions += event.amount;
+            }
+            ("repeat", "image", "count") => {
+                frame.backend.image_cache_record_repeats += event.amount;
+            }
+            ("utilization", "image", "count") => {
+                frame.backend.image_cache_capacity_utilization += event.amount;
             }
             _ => {}
         }
@@ -200,12 +320,30 @@ mod tests {
             result: "count",
             amount: 4,
         });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 3,
+            target: "render.cache",
+            kind: "cache",
+            name: "image",
+            result: "miss",
+            amount: 5,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 3,
+            target: "render.cache",
+            kind: "eviction",
+            name: "text",
+            result: "count",
+            amount: 2,
+        });
 
         let summary = aggregator.finish();
         let frame = summary.frames.get(&3).expect("frame summary should exist");
 
         assert_eq!(frame.backend.subtree_snapshot_cache_hits, 2);
         assert_eq!(frame.backend.draw_rect_count, 4);
+        assert_eq!(frame.backend.image_cache_misses, 5);
+        assert_eq!(frame.backend.text_cache_evictions, 2);
     }
 
     #[test]
@@ -221,5 +359,42 @@ mod tests {
 
         let summary = aggregator.finish();
         assert_eq!(summary.average_light_leak_transition_ms(), 6.0);
+    }
+
+    #[test]
+    fn pipeline_stage_spans_fill_stage_totals() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_span(CompletedProfileSpan {
+            frame: 5,
+            target: "render.pipeline",
+            name: "frame_state",
+            parent: Some("frame"),
+            inclusive_ms: 1.5,
+            exclusive_ms: 1.5,
+        });
+        aggregator.record_span(CompletedProfileSpan {
+            frame: 5,
+            target: "render.scene",
+            name: "resolve_ui_tree",
+            parent: Some("build_scene_display_list"),
+            inclusive_ms: 10.0,
+            exclusive_ms: 10.0,
+        });
+        aggregator.record_span(CompletedProfileSpan {
+            frame: 5,
+            target: "render.scene",
+            name: "compute_layout",
+            parent: Some("build_scene_display_list"),
+            inclusive_ms: 2.0,
+            exclusive_ms: 2.0,
+        });
+
+        let summary = aggregator.finish();
+        let frame = summary.frames.get(&5).expect("frame summary should exist");
+
+        assert_eq!(frame.frame_state_ms, 1.5);
+        assert_eq!(frame.resolve_ms, 10.0);
+        assert_eq!(frame.layout_ms, 2.0);
     }
 }

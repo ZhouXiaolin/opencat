@@ -338,7 +338,7 @@ fn run_case(case: CaseKind) -> anyhow::Result<()> {
         p95,
         wall_ms.len()
     );
-    session.print_profile_summary();
+    // session.print_profile_summary(); // TODO: restore with tracing-based profiler
     println!();
 
     Ok(())

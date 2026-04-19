@@ -7,6 +7,7 @@ use skia_safe::{
     canvas::{SaveLayerRec, SrcRectConstraint},
     gradient_shader, image_filters, images,
 };
+use tracing::{Level, event, span};
 
 use crate::{
     display::list::{
@@ -25,10 +26,6 @@ use crate::{
         fingerprint::{SubtreeSnapshotFingerprint, item_paint_fingerprint, text_paint_fingerprint},
     },
     runtime::cache::{CachedSubtreeImage, CachedSubtreeSnapshot, ImageCache, ItemPictureCache, SubtreeImageCache, SubtreeSnapshotCache, TextSnapshotCache},
-    runtime::profile::{
-        BackendCountMetric, BackendDurationMetric, backend_span, record_backend_count,
-        record_backend_duration, record_backend_elapsed,
-    },
     scene::script::{
         CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
         ScriptPointMode,
@@ -214,17 +211,17 @@ impl<'a> SkiaBackend<'a> {
 
             match lookup {
                 (SubtreeSnapshotResolution::Hit, Some(entry)) => {
-                    record_backend_count(BackendCountMetric::SubtreeSnapshotCacheHit, 1);
+                    event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot", result = "hit", amount = 1_u64);
 
                     // Image cache hit path
                     let cached_image = self.subtree_image_cache.as_ref()
                         .and_then(|ic| ic.borrow_mut().get_cloned(&fingerprint.primary))
                         .filter(|_| !has_non_unit_scale);
                     if let Some(cached) = cached_image {
-                        record_backend_count(BackendCountMetric::SubtreeImageCacheHit, 1);
+                        event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_image", result = "hit", amount = 1_u64);
                         return self.draw_subtree_image(&cached.image, opacity, backdrop_blur_sigma, bounds);
                     }
-                    record_backend_count(BackendCountMetric::SubtreeImageCacheMiss, 1);
+                    event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_image", result = "miss", amount = 1_u64);
 
                     // Increment consecutive hits and resolve render mode
                     let consecutive_hits = entry.consecutive_hits + 1;
@@ -248,12 +245,7 @@ impl<'a> SkiaBackend<'a> {
                             recorded_bounds: entry.recorded_bounds,
                         },
                     );
-                    record_cache_pressure(
-                        BackendCountMetric::SubtreeSnapshotCacheEvict,
-                        BackendCountMetric::SubtreeSnapshotCacheRecordRepeat,
-                        BackendCountMetric::SubtreeSnapshotCacheCapacityUtilization,
-                        &report,
-                    );
+                    record_cache_pressure("subtree_snapshot", &report);
 
                     match render_mode {
                         CachedSubtreeRenderMode::DrawImage => {
@@ -268,14 +260,9 @@ impl<'a> SkiaBackend<'a> {
                                     image: image.clone(),
                                     recorded_bounds: entry.recorded_bounds,
                                 });
-                                record_cache_pressure(
-                                    BackendCountMetric::SubtreeImageCacheEvict,
-                                    BackendCountMetric::SubtreeImageCacheRecordRepeat,
-                                    BackendCountMetric::SubtreeImageCacheCapacityUtilization,
-                                    &report,
-                                );
+                                record_cache_pressure("subtree_image", &report);
                             }
-                            record_backend_count(BackendCountMetric::SubtreeImagePromote, 1);
+                            event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_image", result = "promote", amount = 1_u64);
                             return self.draw_subtree_image(&image, opacity, backdrop_blur_sigma, bounds);
                         }
                         CachedSubtreeRenderMode::DrawPicture => {
@@ -284,7 +271,7 @@ impl<'a> SkiaBackend<'a> {
                     }
                 }
                 (SubtreeSnapshotResolution::CollisionRejected, _) => {
-                    record_backend_count(BackendCountMetric::SubtreeSnapshotCollisionRejected, 1);
+                    event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot", result = "collision_rejected", amount = 1_u64);
                 }
                 (SubtreeSnapshotResolution::Miss, _) => {}
                 (SubtreeSnapshotResolution::Hit, None) => {
@@ -302,13 +289,8 @@ impl<'a> SkiaBackend<'a> {
                     recorded_bounds: bounds,
                 },
             );
-            record_cache_pressure(
-                BackendCountMetric::SubtreeSnapshotCacheEvict,
-                BackendCountMetric::SubtreeSnapshotCacheRecordRepeat,
-                BackendCountMetric::SubtreeSnapshotCacheCapacityUtilization,
-                &report,
-            );
-            record_backend_count(BackendCountMetric::SubtreeSnapshotCacheMiss, 1);
+            record_cache_pressure("subtree_snapshot", &report);
+            event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot", result = "miss", amount = 1_u64);
             return self.draw_subtree_snapshot(&picture, opacity, backdrop_blur_sigma, bounds);
         }
 
@@ -433,18 +415,14 @@ impl<'a> SkiaBackend<'a> {
                 &mut self.media_ctx,
                 self.frame_ctx,
             )?;
-            record_backend_duration(BackendDurationMetric::ItemPictureRecord, stats.record_ms);
-            record_backend_duration(BackendDurationMetric::ItemPictureDraw, stats.draw_ms);
-            record_backend_count(BackendCountMetric::ItemPictureCacheHit, stats.cache_hits);
-            record_backend_count(BackendCountMetric::ItemPictureCacheMiss, stats.cache_misses);
+            event!(target: "render.cache", Level::TRACE, kind = "cache", name = "item_picture", result = "hit", amount = stats.cache_hits as u64);
+            event!(target: "render.cache", Level::TRACE, kind = "cache", name = "item_picture", result = "miss", amount = stats.cache_misses as u64);
             match item {
                 DisplayItem::Bitmap(_) => {
-                    record_backend_count(BackendCountMetric::DrawBitmap, 1);
-                    record_backend_duration(BackendDurationMetric::BitmapDraw, stats.draw_ms);
+                    event!(target: "render.draw", Level::TRACE, kind = "draw", name = "bitmap", result = "count", amount = 1_u64);
                 }
                 DisplayItem::DrawScript(_) => {
-                    record_backend_count(BackendCountMetric::DrawScript, 1);
-                    record_backend_duration(BackendDurationMetric::DrawScriptDraw, stats.draw_ms);
+                    event!(target: "render.draw", Level::TRACE, kind = "draw", name = "script", result = "count", amount = 1_u64);
                 }
                 DisplayItem::Lucide(_) => {}
                 DisplayItem::Rect(_) | DisplayItem::Text(_) => {}
@@ -456,7 +434,6 @@ impl<'a> SkiaBackend<'a> {
     }
 
     fn draw_display_item_frame_local_picture(&mut self, item: &DisplayItem) -> Result<()> {
-        let record_started = Instant::now();
         let snapshot = record_item_picture(
             item,
             self.assets,
@@ -465,22 +442,16 @@ impl<'a> SkiaBackend<'a> {
             &mut self.media_ctx,
             self.frame_ctx,
         )?;
-        let record_ms = record_started.elapsed().as_secs_f64() * 1000.0;
-        record_backend_duration(BackendDurationMetric::ItemPictureRecord, record_ms);
 
         let semantics = item.picture_semantics();
-        let draw_started = Instant::now();
         self.canvas.save();
         self.canvas
             .translate((semantics.draw_translation_x, semantics.draw_translation_y));
         self.canvas.draw_picture(&snapshot, None, None);
         self.canvas.restore();
-        let draw_ms = draw_started.elapsed().as_secs_f64() * 1000.0;
-        record_backend_duration(BackendDurationMetric::ItemPictureDraw, draw_ms);
 
         if matches!(item, DisplayItem::DrawScript(_)) {
-            record_backend_count(BackendCountMetric::DrawScript, 1);
-            record_backend_duration(BackendDurationMetric::DrawScriptDraw, record_ms + draw_ms);
+            event!(target: "render.draw", Level::TRACE, kind = "draw", name = "script", result = "count", amount = 1_u64);
         }
 
         Ok(())
@@ -489,7 +460,6 @@ impl<'a> SkiaBackend<'a> {
     fn draw_display_item_uncached(&mut self, item: &DisplayItem) -> Result<()> {
         match item {
             DisplayItem::Rect(rect) => {
-                let started = Instant::now();
                 if let Some(shadow) = rect.paint.box_shadow {
                     draw_box_shadow(self.canvas, rect.bounds, rect.paint.border_radius, shadow);
                 }
@@ -500,29 +470,18 @@ impl<'a> SkiaBackend<'a> {
                     })?;
                 }
                 draw_rect(self.canvas, rect);
-                record_backend_count(BackendCountMetric::DrawRect, 1);
-                record_backend_elapsed(BackendDurationMetric::RectDraw, started);
+                event!(target: "render.draw", Level::TRACE, kind = "draw", name = "rect", result = "count", amount = 1_u64);
             }
             DisplayItem::Text(text) => {
-                let started = Instant::now();
                 if let Some(shadow) = text.drop_shadow {
                     draw_item_drop_shadow(self.canvas, text.bounds, shadow, |canvas| {
                         draw_text(canvas, text, &self.text_snapshot_cache).map(|_| ())
                     })?;
                 }
                 let stats = draw_text(self.canvas, text, &self.text_snapshot_cache)?;
-                record_backend_count(BackendCountMetric::DrawText, 1);
-                record_backend_elapsed(BackendDurationMetric::TextDraw, started);
-                record_backend_duration(
-                    BackendDurationMetric::TextSnapshotRecord,
-                    stats.snapshot_record_ms,
-                );
-                record_backend_duration(
-                    BackendDurationMetric::TextSnapshotDraw,
-                    stats.snapshot_draw_ms,
-                );
-                record_backend_count(BackendCountMetric::TextCacheHit, stats.cache_hits);
-                record_backend_count(BackendCountMetric::TextCacheMiss, stats.cache_misses);
+                event!(target: "render.draw", Level::TRACE, kind = "draw", name = "text", result = "count", amount = 1_u64);
+                event!(target: "render.cache", Level::TRACE, kind = "cache", name = "text", result = "hit", amount = stats.cache_hits as u64);
+                event!(target: "render.cache", Level::TRACE, kind = "cache", name = "text", result = "miss", amount = stats.cache_misses as u64);
             }
             DisplayItem::Bitmap(bitmap) => {
                 if let Some(shadow) = bitmap.paint.box_shadow {
@@ -554,27 +513,14 @@ impl<'a> SkiaBackend<'a> {
                     &mut self.media_ctx,
                     self.frame_ctx,
                 )?;
-                record_backend_count(BackendCountMetric::DrawBitmap, 1);
-                record_backend_duration(BackendDurationMetric::BitmapDraw, stats.draw_ms);
-                record_backend_duration(BackendDurationMetric::ImageDecode, stats.image_decode_ms);
-                record_backend_duration(BackendDurationMetric::VideoDecode, stats.video_decode_ms);
-                record_backend_count(BackendCountMetric::ImageCacheHit, stats.image_cache_hits);
-                record_backend_count(BackendCountMetric::ImageCacheMiss, stats.image_cache_misses);
-                record_backend_count(
-                    BackendCountMetric::VideoFrameCacheHit,
-                    stats.video_frame_cache_hits,
-                );
-                record_backend_count(
-                    BackendCountMetric::VideoFrameCacheMiss,
-                    stats.video_frame_cache_misses,
-                );
-                record_backend_count(
-                    BackendCountMetric::VideoFrameDecode,
-                    stats.video_frame_decodes,
-                );
+                event!(target: "render.draw", Level::TRACE, kind = "draw", name = "bitmap", result = "count", amount = 1_u64);
+                event!(target: "render.cache", Level::TRACE, kind = "cache", name = "image", result = "hit", amount = stats.image_cache_hits as u64);
+                event!(target: "render.cache", Level::TRACE, kind = "cache", name = "image", result = "miss", amount = stats.image_cache_misses as u64);
+                event!(target: "render.cache", Level::TRACE, kind = "cache", name = "video_frame", result = "hit", amount = stats.video_frame_cache_hits as u64);
+                event!(target: "render.cache", Level::TRACE, kind = "cache", name = "video_frame", result = "miss", amount = stats.video_frame_cache_misses as u64);
+                event!(target: "render.cache", Level::TRACE, kind = "cache", name = "video_frame", result = "decode", amount = stats.video_frame_decodes as u64);
             }
             DisplayItem::DrawScript(script) => {
-                let started = Instant::now();
                 if let Some(shadow) = script.drop_shadow {
                     draw_item_drop_shadow(self.canvas, script.bounds, shadow, |canvas| {
                         draw_script_item(
@@ -595,8 +541,7 @@ impl<'a> SkiaBackend<'a> {
                     &mut self.media_ctx,
                     self.frame_ctx,
                 )?;
-                record_backend_count(BackendCountMetric::DrawScript, 1);
-                record_backend_elapsed(BackendDurationMetric::DrawScriptDraw, started);
+                event!(target: "render.draw", Level::TRACE, kind = "draw", name = "script", result = "count", amount = 1_u64);
             }
             DisplayItem::Lucide(lucide) => {
                 if let Some(shadow) = lucide.paint.drop_shadow {
@@ -612,8 +557,8 @@ impl<'a> SkiaBackend<'a> {
     }
 
     fn record_cached_subtree_snapshot(&mut self, handle: AnnotatedNodeHandle) -> Result<Picture> {
-        let _profile_span = backend_span("subtree_snapshot_record");
-        let started = Instant::now();
+        let profile_span = span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record");
+        let _profile_span = profile_span.enter();
         let display_tree = self.display_tree;
         let node = display_tree.node(handle);
         let layer_bounds = display_tree.layer_bounds(handle);
@@ -645,7 +590,6 @@ impl<'a> SkiaBackend<'a> {
         let snapshot = recorder
             .finish_recording_as_picture(None)
             .ok_or_else(|| anyhow!("failed to record subtree snapshot"))?;
-        record_backend_elapsed(BackendDurationMetric::SubtreeSnapshotRecord, started);
         Ok(snapshot)
     }
 
@@ -661,10 +605,9 @@ impl<'a> SkiaBackend<'a> {
             backdrop_blur_sigma,
             bounds,
             |backend| {
-                let _profile_span = backend_span("subtree_snapshot_draw");
-                let started = Instant::now();
+                let profile_span = span!(target: "render.backend", Level::TRACE, "subtree_snapshot_draw");
+                let _profile_span = profile_span.enter();
                 backend.canvas.draw_picture(snapshot, None, None);
-                record_backend_elapsed(BackendDurationMetric::SubtreeSnapshotDraw, started);
                 Ok(())
             },
         )
@@ -678,10 +621,9 @@ impl<'a> SkiaBackend<'a> {
         bounds: DisplayRect,
     ) -> Result<()> {
         self.with_display_layer(opacity, backdrop_blur_sigma, bounds, |backend| {
-            let _profile_span = backend_span("subtree_image_draw");
-            let started = Instant::now();
+            let profile_span = span!(target: "render.backend", Level::TRACE, "subtree_image_draw");
+            let _profile_span = profile_span.enter();
             backend.canvas.draw_image(image, (bounds.x, bounds.y), None);
-            record_backend_elapsed(BackendDurationMetric::SubtreeImageDraw, started);
             Ok(())
         })
     }
@@ -721,7 +663,7 @@ impl<'a> SkiaBackend<'a> {
         let backdrop_blur_sigma = backdrop_blur_sigma.filter(|sigma| *sigma > 0.0);
         let uses_layer = opacity < 1.0 || backdrop_blur_sigma.is_some();
         if uses_layer {
-            record_backend_count(BackendCountMetric::SaveLayer, 1);
+            event!(target: "render.layer", Level::TRACE, kind = "layer", name = "save_layer", result = "count", amount = 1_u64);
             let bounds = layout_rect_to_skia(bounds);
             if let Some(sigma) = backdrop_blur_sigma {
                 let alpha = (opacity * 255.0).round() as u32;
@@ -801,7 +743,8 @@ pub(crate) fn record_display_tree_snapshot<'a>(
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
 ) -> Result<Picture> {
-    let _profile_span = backend_span("display_tree_snapshot_record");
+    let profile_span = span!(target: "render.backend", Level::TRACE, "display_tree_snapshot_record");
+    let _profile_span = profile_span.enter();
     let bounds = Rect::from_xywh(0.0, 0.0, width as f32, height as f32);
     let mut recorder = PictureRecorder::new();
     let recording_canvas = recorder.begin_recording(bounds, false);
@@ -1012,12 +955,7 @@ fn draw_text(
         let report = text_snapshot_cache
             .borrow_mut()
             .insert(cache_key, snapshot.clone());
-        record_cache_pressure(
-            BackendCountMetric::TextCacheEvict,
-            BackendCountMetric::TextCacheRecordRepeat,
-            BackendCountMetric::TextCacheCapacityUtilization,
-            &report,
-        );
+        record_cache_pressure("text", &report);
 
         let draw_started = Instant::now();
         canvas.save();
@@ -1111,8 +1049,8 @@ fn record_subtree_snapshot_image(
     snapshot: &Picture,
     recorded_bounds: DisplayRect,
 ) -> Result<SkiaImage> {
-    let _profile_span = backend_span("subtree_image_rasterize");
-    let started = Instant::now();
+    let profile_span = span!(target: "render.backend", Level::TRACE, "subtree_image_rasterize");
+    let _profile_span = profile_span.enter();
     let width = recorded_bounds.width.max(1.0).round() as i32;
     let height = recorded_bounds.height.max(1.0).round() as i32;
     let mut surface = skia_safe::surfaces::raster_n32_premul((width, height))
@@ -1121,7 +1059,6 @@ fn record_subtree_snapshot_image(
     surface.canvas().translate((-recorded_bounds.x, -recorded_bounds.y));
     surface.canvas().draw_picture(snapshot, None, None);
     surface.canvas().restore();
-    record_backend_elapsed(BackendDurationMetric::SubtreeImageRasterize, started);
     Ok(surface.image_snapshot())
 }
 
@@ -1174,12 +1111,7 @@ fn draw_item_picture_cached(
     let report = item_picture_cache
         .borrow_mut()
         .insert(cache_key, snapshot.clone());
-    record_cache_pressure(
-        BackendCountMetric::ItemPictureCacheEvict,
-        BackendCountMetric::ItemPictureCacheRecordRepeat,
-        BackendCountMetric::ItemPictureCacheCapacityUtilization,
-        &report,
-    );
+    record_cache_pressure("item_picture", &report);
 
     let draw_started = Instant::now();
     canvas.save();
@@ -1413,12 +1345,7 @@ fn draw_bitmap(
             stats.image_decode_ms = decode_started.elapsed().as_secs_f64() * 1000.0;
             stats.image_cache_misses = 1;
             let report = cache.insert(key, Some(image.clone()));
-            record_cache_pressure(
-                BackendCountMetric::ImageCacheEvict,
-                BackendCountMetric::ImageCacheRecordRepeat,
-                BackendCountMetric::ImageCacheCapacityUtilization,
-                &report,
-            );
+            record_cache_pressure("image", &report);
             image
         }
     };
@@ -2116,12 +2043,7 @@ fn load_asset_image(
     let image = skia_safe::Image::from_encoded(data)
         .ok_or_else(|| anyhow!("failed to decode image asset: {}", path.display()))?;
     let report = cache.insert(key, Some(image.clone()));
-    record_cache_pressure(
-        BackendCountMetric::ImageCacheEvict,
-        BackendCountMetric::ImageCacheRecordRepeat,
-        BackendCountMetric::ImageCacheCapacityUtilization,
-        &report,
-    );
+    record_cache_pressure("image", &report);
     Ok(image)
 }
 
@@ -2384,18 +2306,16 @@ fn clip_bounds(canvas: &Canvas, bounds: DisplayRect, border_radius: crate::style
 }
 
 fn record_cache_pressure<K>(
-    evict_metric: BackendCountMetric,
-    repeat_metric: BackendCountMetric,
-    utilization_metric: BackendCountMetric,
+    cache_name: &'static str,
     report: &crate::runtime::cache::lru::CacheMutationReport<K>,
 ) {
     if !report.evicted.is_empty() {
-        record_backend_count(evict_metric, report.evicted.len());
+        event!(target: "render.cache", Level::TRACE, kind = "eviction", name = cache_name, result = "count", amount = report.evicted.len() as u64);
     }
     if report.replaced {
-        record_backend_count(repeat_metric, 1);
+        event!(target: "render.cache", Level::TRACE, kind = "repeat", name = cache_name, result = "count", amount = 1_u64);
     }
-    record_backend_count(utilization_metric, report.utilization);
+    event!(target: "render.cache", Level::TRACE, kind = "utilization", name = cache_name, result = "count", amount = report.utilization as u64);
 }
 
 fn cover_src_rect(src_width: f32, src_height: f32, dst: Rect) -> Rect {

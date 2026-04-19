@@ -1,4 +1,5 @@
 use std::sync::OnceLock;
+use tracing::{Level, span};
 
 use anyhow::{Result, anyhow};
 use skia_safe::{AlphaType, Canvas, ColorType, ImageInfo, Picture, image::CachingHint, surfaces};
@@ -11,7 +12,6 @@ use crate::{
         annotation::AnnotatedDisplayTree,
         compositor::OrderedSceneProgram,
         frame_view::RenderFrameView,
-        profile::backend_span,
         render_engine::{RenderEngine, SceneRenderContext, SceneSnapshot, SharedRenderEngine},
         session::RenderSession,
         target::{RenderFrameViewKind, RenderTargetHandle},
@@ -155,7 +155,8 @@ impl RenderEngine for SkiaRenderEngine {
         ordered_scene: &OrderedSceneProgram,
         frame_view: RenderFrameView,
     ) -> Result<()> {
-        let _profile_span = backend_span("display_tree_direct_draw");
+        let direct_draw_span = span!(target: "render.backend", Level::TRACE, "display_tree_direct_draw");
+        let _profile_span = direct_draw_span.enter();
         let canvas = skia_canvas(frame_view)?;
         skia::draw_ordered_scene_cached(
             display_tree,

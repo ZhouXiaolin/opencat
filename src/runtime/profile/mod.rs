@@ -93,6 +93,21 @@ pub struct BackendProfile {
     pub draw_bitmap_count: usize,
     pub draw_script_count: usize,
     pub save_layer_count: usize,
+    pub text_cache_evictions: usize,
+    pub text_cache_record_repeats: usize,
+    pub text_cache_capacity_utilization: usize,
+    pub item_picture_cache_evictions: usize,
+    pub item_picture_cache_record_repeats: usize,
+    pub item_picture_cache_capacity_utilization: usize,
+    pub subtree_snapshot_cache_evictions: usize,
+    pub subtree_snapshot_cache_record_repeats: usize,
+    pub subtree_snapshot_cache_capacity_utilization: usize,
+    pub subtree_image_cache_evictions: usize,
+    pub subtree_image_cache_record_repeats: usize,
+    pub subtree_image_cache_capacity_utilization: usize,
+    pub image_cache_evictions: usize,
+    pub image_cache_record_repeats: usize,
+    pub image_cache_capacity_utilization: usize,
 }
 
 impl BackendProfile {
@@ -155,6 +170,21 @@ impl BackendProfile {
             BackendCountMetric::DrawBitmap => self.draw_bitmap_count += amount,
             BackendCountMetric::DrawScript => self.draw_script_count += amount,
             BackendCountMetric::SaveLayer => self.save_layer_count += amount,
+            BackendCountMetric::TextCacheEvict => self.text_cache_evictions += amount,
+            BackendCountMetric::TextCacheRecordRepeat => self.text_cache_record_repeats += amount,
+            BackendCountMetric::TextCacheCapacityUtilization => self.text_cache_capacity_utilization += amount,
+            BackendCountMetric::ItemPictureCacheEvict => self.item_picture_cache_evictions += amount,
+            BackendCountMetric::ItemPictureCacheRecordRepeat => self.item_picture_cache_record_repeats += amount,
+            BackendCountMetric::ItemPictureCacheCapacityUtilization => self.item_picture_cache_capacity_utilization += amount,
+            BackendCountMetric::SubtreeSnapshotCacheEvict => self.subtree_snapshot_cache_evictions += amount,
+            BackendCountMetric::SubtreeSnapshotCacheRecordRepeat => self.subtree_snapshot_cache_record_repeats += amount,
+            BackendCountMetric::SubtreeSnapshotCacheCapacityUtilization => self.subtree_snapshot_cache_capacity_utilization += amount,
+            BackendCountMetric::SubtreeImageCacheEvict => self.subtree_image_cache_evictions += amount,
+            BackendCountMetric::SubtreeImageCacheRecordRepeat => self.subtree_image_cache_record_repeats += amount,
+            BackendCountMetric::SubtreeImageCacheCapacityUtilization => self.subtree_image_cache_capacity_utilization += amount,
+            BackendCountMetric::ImageCacheEvict => self.image_cache_evictions += amount,
+            BackendCountMetric::ImageCacheRecordRepeat => self.image_cache_record_repeats += amount,
+            BackendCountMetric::ImageCacheCapacityUtilization => self.image_cache_capacity_utilization += amount,
         }
     }
 }
@@ -311,6 +341,21 @@ impl FrameProfile {
         self.backend.draw_bitmap_count += profile.draw_bitmap_count;
         self.backend.draw_script_count += profile.draw_script_count;
         self.backend.save_layer_count += profile.save_layer_count;
+        self.backend.text_cache_evictions += profile.text_cache_evictions;
+        self.backend.text_cache_record_repeats += profile.text_cache_record_repeats;
+        self.backend.text_cache_capacity_utilization += profile.text_cache_capacity_utilization;
+        self.backend.item_picture_cache_evictions += profile.item_picture_cache_evictions;
+        self.backend.item_picture_cache_record_repeats += profile.item_picture_cache_record_repeats;
+        self.backend.item_picture_cache_capacity_utilization += profile.item_picture_cache_capacity_utilization;
+        self.backend.subtree_snapshot_cache_evictions += profile.subtree_snapshot_cache_evictions;
+        self.backend.subtree_snapshot_cache_record_repeats += profile.subtree_snapshot_cache_record_repeats;
+        self.backend.subtree_snapshot_cache_capacity_utilization += profile.subtree_snapshot_cache_capacity_utilization;
+        self.backend.subtree_image_cache_evictions += profile.subtree_image_cache_evictions;
+        self.backend.subtree_image_cache_record_repeats += profile.subtree_image_cache_record_repeats;
+        self.backend.subtree_image_cache_capacity_utilization += profile.subtree_image_cache_capacity_utilization;
+        self.backend.image_cache_evictions += profile.image_cache_evictions;
+        self.backend.image_cache_record_repeats += profile.image_cache_record_repeats;
+        self.backend.image_cache_capacity_utilization += profile.image_cache_capacity_utilization;
         for (key, aggregate) in &report.spans {
             self.backend_spans.entry(*key).or_default().merge(aggregate);
         }
@@ -433,6 +478,24 @@ impl RenderProfiler {
             average_usize(&self.frames, |frame| frame.backend.video_frame_cache_hits),
             average_usize(&self.frames, |frame| frame.backend.video_frame_cache_misses),
             average_usize(&self.frames, |frame| frame.backend.video_frame_decodes),
+        );
+        eprintln!(
+            "  cache pressure avg/frame: item_evict {:.2}, item_repeat {:.2}, item_util {:.2}, subtree_evict {:.2}, subtree_repeat {:.2}, subtree_util {:.2}, subtree_image_evict {:.2}, subtree_image_repeat {:.2}, subtree_image_util {:.2}, text_evict {:.2}, text_repeat {:.2}, text_util {:.2}, image_evict {:.2}, image_repeat {:.2}, image_util {:.2}",
+            average_usize(&self.frames, |frame| frame.backend.item_picture_cache_evictions),
+            average_usize(&self.frames, |frame| frame.backend.item_picture_cache_record_repeats),
+            average_usize(&self.frames, |frame| frame.backend.item_picture_cache_capacity_utilization),
+            average_usize(&self.frames, |frame| frame.backend.subtree_snapshot_cache_evictions),
+            average_usize(&self.frames, |frame| frame.backend.subtree_snapshot_cache_record_repeats),
+            average_usize(&self.frames, |frame| frame.backend.subtree_snapshot_cache_capacity_utilization),
+            average_usize(&self.frames, |frame| frame.backend.subtree_image_cache_evictions),
+            average_usize(&self.frames, |frame| frame.backend.subtree_image_cache_record_repeats),
+            average_usize(&self.frames, |frame| frame.backend.subtree_image_cache_capacity_utilization),
+            average_usize(&self.frames, |frame| frame.backend.text_cache_evictions),
+            average_usize(&self.frames, |frame| frame.backend.text_cache_record_repeats),
+            average_usize(&self.frames, |frame| frame.backend.text_cache_capacity_utilization),
+            average_usize(&self.frames, |frame| frame.backend.image_cache_evictions),
+            average_usize(&self.frames, |frame| frame.backend.image_cache_record_repeats),
+            average_usize(&self.frames, |frame| frame.backend.image_cache_capacity_utilization),
         );
         self.print_backend_span_summary();
     }
@@ -557,5 +620,17 @@ mod tests {
         assert_eq!(profile.subtree_image_cache_hits, 2);
         assert_eq!(profile.subtree_image_cache_misses, 1);
         assert_eq!(profile.subtree_image_promotions, 1);
+    }
+
+    #[test]
+    fn backend_profile_records_cache_pressure_metrics() {
+        let mut profile = BackendProfile::default();
+        profile.record_count(BackendCountMetric::ItemPictureCacheEvict, 2);
+        profile.record_count(BackendCountMetric::ItemPictureCacheRecordRepeat, 1);
+        profile.record_count(BackendCountMetric::ItemPictureCacheCapacityUtilization, 83);
+
+        assert_eq!(profile.item_picture_cache_evictions, 2);
+        assert_eq!(profile.item_picture_cache_record_repeats, 1);
+        assert_eq!(profile.item_picture_cache_capacity_utilization, 83);
     }
 }

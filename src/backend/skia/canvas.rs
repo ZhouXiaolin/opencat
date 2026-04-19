@@ -239,7 +239,7 @@ impl<'a> SkiaBackend<'a> {
                     );
 
                     // Update consecutive_hits in cache
-                    cache.borrow_mut().insert(
+                    let report = cache.borrow_mut().insert(
                         fingerprint.primary,
                         CachedSubtreeSnapshot {
                             picture: entry.picture.clone(),
@@ -247,6 +247,12 @@ impl<'a> SkiaBackend<'a> {
                             consecutive_hits,
                             recorded_bounds: entry.recorded_bounds,
                         },
+                    );
+                    record_cache_pressure(
+                        BackendCountMetric::SubtreeSnapshotCacheEvict,
+                        BackendCountMetric::SubtreeSnapshotCacheRecordRepeat,
+                        BackendCountMetric::SubtreeSnapshotCacheCapacityUtilization,
+                        &report,
                     );
 
                     match render_mode {
@@ -258,10 +264,16 @@ impl<'a> SkiaBackend<'a> {
                         CachedSubtreeRenderMode::PromoteToImage => {
                             let image = record_subtree_snapshot_image(&entry.picture, entry.recorded_bounds)?;
                             if let Some(image_cache) = &self.subtree_image_cache {
-                                image_cache.borrow_mut().insert(fingerprint.primary, CachedSubtreeImage {
+                                let report = image_cache.borrow_mut().insert(fingerprint.primary, CachedSubtreeImage {
                                     image: image.clone(),
                                     recorded_bounds: entry.recorded_bounds,
                                 });
+                                record_cache_pressure(
+                                    BackendCountMetric::SubtreeImageCacheEvict,
+                                    BackendCountMetric::SubtreeImageCacheRecordRepeat,
+                                    BackendCountMetric::SubtreeImageCacheCapacityUtilization,
+                                    &report,
+                                );
                             }
                             record_backend_count(BackendCountMetric::SubtreeImagePromote, 1);
                             return self.draw_subtree_image(&image, opacity, backdrop_blur_sigma, bounds);
@@ -281,7 +293,7 @@ impl<'a> SkiaBackend<'a> {
             }
 
             let picture = self.record_cached_subtree_snapshot(handle)?;
-            cache.borrow_mut().insert(
+            let report = cache.borrow_mut().insert(
                 fingerprint.primary,
                 CachedSubtreeSnapshot {
                     picture: picture.clone(),
@@ -289,6 +301,12 @@ impl<'a> SkiaBackend<'a> {
                     consecutive_hits: 0,
                     recorded_bounds: bounds,
                 },
+            );
+            record_cache_pressure(
+                BackendCountMetric::SubtreeSnapshotCacheEvict,
+                BackendCountMetric::SubtreeSnapshotCacheRecordRepeat,
+                BackendCountMetric::SubtreeSnapshotCacheCapacityUtilization,
+                &report,
             );
             record_backend_count(BackendCountMetric::SubtreeSnapshotCacheMiss, 1);
             return self.draw_subtree_snapshot(&picture, opacity, backdrop_blur_sigma, bounds);
@@ -991,9 +1009,15 @@ fn draw_text(
             let snapshot_record_ms = record_started.elapsed().as_secs_f64() * 1000.0;
             (snapshot, snapshot_record_ms)
         };
-        text_snapshot_cache
+        let report = text_snapshot_cache
             .borrow_mut()
             .insert(cache_key, snapshot.clone());
+        record_cache_pressure(
+            BackendCountMetric::TextCacheEvict,
+            BackendCountMetric::TextCacheRecordRepeat,
+            BackendCountMetric::TextCacheCapacityUtilization,
+            &report,
+        );
 
         let draw_started = Instant::now();
         canvas.save();
@@ -1147,9 +1171,15 @@ fn draw_item_picture_cached(
         let record_ms = record_started.elapsed().as_secs_f64() * 1000.0;
         (snapshot, record_ms)
     };
-    item_picture_cache
+    let report = item_picture_cache
         .borrow_mut()
         .insert(cache_key, snapshot.clone());
+    record_cache_pressure(
+        BackendCountMetric::ItemPictureCacheEvict,
+        BackendCountMetric::ItemPictureCacheRecordRepeat,
+        BackendCountMetric::ItemPictureCacheCapacityUtilization,
+        &report,
+    );
 
     let draw_started = Instant::now();
     canvas.save();
@@ -1382,7 +1412,13 @@ fn draw_bitmap(
                 .ok_or_else(|| anyhow!("failed to decode image asset: {}", path.display()))?;
             stats.image_decode_ms = decode_started.elapsed().as_secs_f64() * 1000.0;
             stats.image_cache_misses = 1;
-            cache.insert(key, Some(image.clone()));
+            let report = cache.insert(key, Some(image.clone()));
+            record_cache_pressure(
+                BackendCountMetric::ImageCacheEvict,
+                BackendCountMetric::ImageCacheRecordRepeat,
+                BackendCountMetric::ImageCacheCapacityUtilization,
+                &report,
+            );
             image
         }
     };
@@ -2079,7 +2115,13 @@ fn load_asset_image(
     let data = skia_safe::Data::new_copy(&encoded);
     let image = skia_safe::Image::from_encoded(data)
         .ok_or_else(|| anyhow!("failed to decode image asset: {}", path.display()))?;
-    cache.insert(key, Some(image.clone()));
+    let report = cache.insert(key, Some(image.clone()));
+    record_cache_pressure(
+        BackendCountMetric::ImageCacheEvict,
+        BackendCountMetric::ImageCacheRecordRepeat,
+        BackendCountMetric::ImageCacheCapacityUtilization,
+        &report,
+    );
     Ok(image)
 }
 
@@ -2339,6 +2381,21 @@ fn clip_bounds(canvas: &Canvas, bounds: DisplayRect, border_radius: crate::style
     } else {
         canvas.clip_rect(rect, ClipOp::Intersect, true);
     }
+}
+
+fn record_cache_pressure<K>(
+    evict_metric: BackendCountMetric,
+    repeat_metric: BackendCountMetric,
+    utilization_metric: BackendCountMetric,
+    report: &crate::runtime::cache::lru::CacheMutationReport<K>,
+) {
+    if !report.evicted.is_empty() {
+        record_backend_count(evict_metric, report.evicted.len());
+    }
+    if report.replaced {
+        record_backend_count(repeat_metric, 1);
+    }
+    record_backend_count(utilization_metric, report.utilization);
 }
 
 fn cover_src_rect(src_width: f32, src_height: f32, dst: Rect) -> Rect {

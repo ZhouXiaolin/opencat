@@ -54,6 +54,21 @@ pub(crate) enum BackendCountMetric {
     DrawBitmap,
     DrawScript,
     SaveLayer,
+    TextCacheEvict,
+    TextCacheRecordRepeat,
+    TextCacheCapacityUtilization,
+    ItemPictureCacheEvict,
+    ItemPictureCacheRecordRepeat,
+    ItemPictureCacheCapacityUtilization,
+    SubtreeSnapshotCacheEvict,
+    SubtreeSnapshotCacheRecordRepeat,
+    SubtreeSnapshotCacheCapacityUtilization,
+    SubtreeImageCacheEvict,
+    SubtreeImageCacheRecordRepeat,
+    SubtreeImageCacheCapacityUtilization,
+    ImageCacheEvict,
+    ImageCacheRecordRepeat,
+    ImageCacheCapacityUtilization,
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -151,7 +151,7 @@ pub(crate) fn install_animate_bindings<'js>(
                     let to_hsla = parse_color(&to);
                     match (from_hsla, to_hsla) {
                         (Some(f), Some(t)) => {
-                            let result = lerp_hsla(&f, &t, entry.progress);
+                            let result = lerp_hsla_clamped(&f, &t, entry.progress);
                             hsla_to_rgba_string(&result)
                         }
                         _ => from,
@@ -429,6 +429,10 @@ fn lerp_hsla(from: &HSLA, to: &HSLA, t: f32) -> HSLA {
     }
 }
 
+fn lerp_hsla_clamped(from: &HSLA, to: &HSLA, t: f32) -> HSLA {
+    lerp_hsla(from, to, t.clamp(0.0, 1.0))
+}
+
 fn hsla_to_rgba_string(hsla: &HSLA) -> String {
     let (r, g, b) = hsl_to_rgb(hsla.h, hsla.s, hsla.l);
     format!("rgba({},{},{},{:.2})", r, g, b, hsla.a)
@@ -495,7 +499,7 @@ pub(crate) fn random_from_seed(seed: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{HSLA, lerp_hsla, random_from_seed};
+    use super::{HSLA, lerp_hsla, lerp_hsla_clamped, random_from_seed};
 
     #[test]
     fn random_from_seed_is_deterministic() {
@@ -521,5 +525,25 @@ mod tests {
             r1 != r2 && r2 != r3,
             "expected distinct outputs for distinct seeds"
         );
+    }
+
+    #[test]
+    fn lerp_hsla_clamps_progress_for_color_path() {
+        let from = HSLA {
+            h: 0.0,
+            s: 1.0,
+            l: 0.5,
+            a: 1.0,
+        };
+        let to = HSLA {
+            h: 240.0,
+            s: 1.0,
+            l: 0.5,
+            a: 1.0,
+        };
+        let result = lerp_hsla_clamped(&from, &to, 1.5);
+        let expected = lerp_hsla(&from, &to, 1.0);
+        assert!((result.l - expected.l).abs() < 1e-6);
+        assert!((result.s - expected.s).abs() < 1e-6);
     }
 }

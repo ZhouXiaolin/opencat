@@ -205,6 +205,11 @@ pub(crate) fn install_animate_bindings<'js>(
         })?,
     )?;
 
+    globals.set(
+        "__util_random_seeded",
+        Function::new(ctx.clone(), |seed: f32| -> f32 { random_from_seed(seed) })?,
+    )?;
+
     Ok(())
 }
 
@@ -468,4 +473,53 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     let b = (hue_to_rgb(h_norm - 1.0 / 3.0) * 255.0).round() as u8;
 
     (r, g, b)
+}
+
+fn xorshift32(seed: u32) -> u32 {
+    let mut x = if seed == 0 { 0x9E3779B9 } else { seed };
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    x
+}
+
+pub(crate) fn random_from_seed(seed: f32) -> f32 {
+    let bits = if seed.is_finite() {
+        seed.to_bits()
+    } else {
+        1u32
+    };
+    let r = xorshift32(bits);
+    (r as f32) / (u32::MAX as f32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HSLA, lerp_hsla, random_from_seed};
+
+    #[test]
+    fn random_from_seed_is_deterministic() {
+        let a = random_from_seed(42.0);
+        let b = random_from_seed(42.0);
+        assert!((a - b).abs() < 1e-9);
+    }
+
+    #[test]
+    fn random_from_seed_is_in_unit_range() {
+        for s in [0.5_f32, 1.0, -3.14, 999.999] {
+            let r = random_from_seed(s);
+            assert!((0.0..=1.0).contains(&r), "seed {s} -> {r}");
+        }
+    }
+
+    #[test]
+    fn random_from_seed_distributes_across_seeds() {
+        let r1 = random_from_seed(1.0);
+        let r2 = random_from_seed(2.0);
+        let r3 = random_from_seed(3.0);
+        assert!(
+            r1 != r2 && r2 != r3,
+            "expected distinct outputs for distinct seeds"
+        );
+    }
 }

@@ -346,5 +346,16 @@
             var t = (Number(value) - iMin) / (iMax - iMin);
             return Number(outMin) + t * (Number(outMax) - Number(outMin));
         },
+        random: function(min, max, seed) {
+            var lo = Number(min);
+            var hi = Number(max);
+            if (seed === undefined || seed === null) {
+                return lo + Math.random() * (hi - lo);
+            }
+            return lo + __util_random_seeded(Number(seed)) * (hi - lo);
+        },
+        randomInt: function(min, max, seed) {
+            return Math.floor(this.random(Number(min), Number(max) + 1, seed));
+        },
     };
 })();

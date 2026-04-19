@@ -218,6 +218,82 @@ pub(crate) fn install_animate_bindings<'js>(
         })?,
     )?;
 
+    let s = store.clone();
+    globals.set(
+        "__along_path_create",
+        Function::new(
+            ctx.clone(),
+            move |svg: String| -> Result<i32, rquickjs::Error> {
+                let path = skia_safe::Path::from_svg(&svg).ok_or_else(|| {
+                    rquickjs::Error::new_from_js_message(
+                        "alongPath",
+                        "create",
+                        format!("invalid SVG path: `{svg}`"),
+                    )
+                })?;
+                let mut iter = skia_safe::ContourMeasureIter::new(&path, false, None);
+                let contour = iter.next().ok_or_else(|| {
+                    rquickjs::Error::new_from_js_message(
+                        "alongPath",
+                        "create",
+                        "SVG path has no measurable contours".to_string(),
+                    )
+                })?;
+                let store = s.lock().unwrap();
+                let mut state = store.path_measure_state.lock().unwrap();
+                let handle = state.next_id;
+                state.next_id += 1;
+                state.entries.insert(handle, PathMeasureEntry { contour });
+                Ok(handle)
+            },
+        )?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
+        "__along_path_length",
+        Function::new(ctx.clone(), move |handle: i32| -> f32 {
+            let store = s.lock().unwrap();
+            let state = store.path_measure_state.lock().unwrap();
+            state
+                .entries
+                .get(&handle)
+                .map(|e| e.contour.length())
+                .unwrap_or(0.0)
+        })?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
+        "__along_path_at",
+        Function::new(ctx.clone(), move |handle: i32, t: f32| -> Vec<f32> {
+            let store = s.lock().unwrap();
+            let state = store.path_measure_state.lock().unwrap();
+            let Some(entry) = state.entries.get(&handle) else {
+                return vec![0.0, 0.0, 0.0];
+            };
+            let len = entry.contour.length();
+            let clamped = t.clamp(0.0, 1.0);
+            match entry.contour.pos_tan(clamped * len) {
+                Some((p, v)) => {
+                    let angle_deg = v.y.atan2(v.x).to_degrees();
+                    vec![p.x, p.y, angle_deg]
+                }
+                None => vec![0.0, 0.0, 0.0],
+            }
+        })?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
+        "__along_path_dispose",
+        Function::new(ctx.clone(), move |handle: i32| {
+            let store = s.lock().unwrap();
+            let mut state = store.path_measure_state.lock().unwrap();
+            state.entries.remove(&handle);
+        })?,
+    )?;
+
     Ok(())
 }
 
@@ -574,5 +650,21 @@ mod tests {
             Easing::Steps(8)
         ));
         assert!(matches!(parse_easing_from_tag("unknown"), Easing::Linear));
+    }
+
+    #[test]
+    fn skia_can_parse_svg_path_and_measure() {
+        let path = skia_safe::Path::from_svg("M100 360 C400 80 880 640 1180 360")
+            .expect("Skia should parse the SVG path");
+        let mut iter = skia_safe::ContourMeasureIter::new(&path, false, None);
+        let contour = iter.next().expect("path should have at least one contour");
+        let len = contour.length();
+        assert!(len > 1000.0, "expected length > 1000 (rough), got {len}");
+        let (start, _) = contour.pos_tan(0.0).expect("pos_tan at 0 should exist");
+        assert!((start.x - 100.0).abs() < 1.0, "start.x = {}", start.x);
+        assert!((start.y - 360.0).abs() < 1.0, "start.y = {}", start.y);
+        let (end, _) = contour.pos_tan(len).expect("pos_tan at len should exist");
+        assert!((end.x - 1180.0).abs() < 1.0, "end.x = {}", end.x);
+        assert!((end.y - 360.0).abs() < 1.0, "end.y = {}", end.y);
     }
 }

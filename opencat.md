@@ -311,6 +311,31 @@ Cubic bezier:
 easing: [0.25, 0.1, 0.25, 1.0]
 ```
 
+### Animating Colors
+
+`ctx.animate()` automatically interpolates color values when `from` or `to` is a string. Colors are converted to HSLA, the hue is interpolated along the shortest arc (handling 360->0 wrap-around), and the result is fed back as an `rgba(...)` string compatible with `node.bg()`, `node.textColor()`, `node.borderColor()`, etc.
+
+```js
+var a = ctx.animate({
+  from: { bg: '#ef4444' },
+  to:   { bg: 'hsl(220, 90%, 55%)' },
+  duration: 60,
+  repeat: -1,
+  yoyo: true,
+});
+ctx.getNode('card').bg(a.bg);
+```
+
+Supported color literals (in `from` / `to`):
+
+- `#rgb` / `#rrggbb` / `#rrggbbaa`
+- `rgb(r, g, b)` / `rgba(r, g, b, a)`
+- `hsl(h, s%, l%)` / `hsla(h, s%, l%, a)`
+
+Colors are always clamped (`progress` outside `[0, 1]` from spring overshoot is normalised back into range), so spring easing won't push values out of the visible gamut.
+
+> Tailwind tokens like `'blue-500'` remain as discrete `node.bg(token)` calls — they are **not** interpolated. To animate, write the color as hex/rgb/hsl in `from` / `to`.
+
 ### Node API
 
 `ctx.getNode('id')` returns a chainable proxy object.

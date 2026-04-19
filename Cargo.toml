@@ -19,6 +19,8 @@ winit = "0.28.7"
 raw-window-handle = "0.5.2"
 ahash = "0.8"
 rustc-hash = "2.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 skia-safe = { version = "0.93.1", features = ["textlayout", "binary-cache", "gl"] }

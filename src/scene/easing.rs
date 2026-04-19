@@ -31,6 +31,7 @@ pub enum Easing {
     BounceIn,
     BounceOut,
     BounceInOut,
+    Steps(u32),
     CubicBezier(f32, f32, f32, f32),
     Spring(SpringConfig),
 }
@@ -56,6 +57,14 @@ impl Easing {
                     (1.0 - bounce_out(1.0 - 2.0 * t)) / 2.0
                 } else {
                     (1.0 + bounce_out(2.0 * t - 1.0)) / 2.0
+                }
+            }
+            Easing::Steps(n) => {
+                if *n == 0 {
+                    t
+                } else {
+                    let nf = *n as f32;
+                    if t >= 1.0 { 1.0 } else { (t * nf).floor() / nf }
                 }
             }
             Easing::CubicBezier(x1, y1, x2, y2) => cubic_bezier(t, *x1, *y1, *x2, *y2),
@@ -299,6 +308,10 @@ pub fn easing_from_name(name: &str) -> Option<Easing> {
         "bounce-in" | "bounce_in" => Some(Easing::BounceIn),
         "bounce-out" | "bounce_out" => Some(Easing::BounceOut),
         "bounce-in-out" | "bounce_in_out" => Some(Easing::BounceInOut),
+        s if s.starts_with("steps(") && s.ends_with(')') => {
+            let inner = &s[6..s.len() - 1];
+            inner.parse::<u32>().ok().map(Easing::Steps)
+        }
         "spring-default" | "spring_default" => Some(presets::SPRING_DEFAULT),
         "spring-gentle" | "spring_gentle" => Some(presets::SPRING_GENTLE),
         "spring-stiff" | "spring_stiff" => Some(presets::SPRING_STIFF),
@@ -501,5 +514,35 @@ mod tests {
             easing_from_name("bounce-in-out"),
             Some(Easing::BounceInOut)
         ));
+    }
+
+    #[test]
+    fn steps_easing_quantizes() {
+        let e = Easing::Steps(4);
+        assert!((e.apply(0.0) - 0.0).abs() < 1e-6);
+        assert!((e.apply(0.24) - 0.0).abs() < 1e-6);
+        assert!((e.apply(0.26) - 0.25).abs() < 1e-6);
+        assert!((e.apply(0.5) - 0.5).abs() < 1e-6);
+        assert!((e.apply(1.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn steps_easing_zero_falls_back_to_linear() {
+        let e = Easing::Steps(0);
+        assert!((e.apply(0.5) - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn steps_easing_via_name() {
+        assert!(matches!(
+            easing_from_name("steps(4)"),
+            Some(Easing::Steps(4))
+        ));
+        assert!(matches!(
+            easing_from_name("steps(1)"),
+            Some(Easing::Steps(1))
+        ));
+        assert!(easing_from_name("steps()").is_none());
+        assert!(easing_from_name("steps(abc)").is_none());
     }
 }

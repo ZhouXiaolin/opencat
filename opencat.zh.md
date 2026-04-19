@@ -198,6 +198,38 @@ node.opacity(anim.opacity).translateY(anim.translateY).scale(anim.scale);
 - `anim.settled`：弹簧是否已经稳定
 - `anim.settleFrame`：弹簧稳定的帧号
 
+### Keyframes（单动画多关键帧）
+
+当一个动画需要多于两个关键点时，用 `keyframes` 替代 `from`/`to`：
+
+```js
+// 简写：数值均匀分布在 [0, 1]
+var a = ctx.animate({
+  keyframes: { scale: [1, 1.4, 0.8, 1] },
+  duration: 60,
+});
+ctx.getNode('card').scale(a.scale);
+
+// 全写：显式 `at`（归一化到 [0, 1]）+ 可选的每段 easing
+var b = ctx.animate({
+  keyframes: {
+    rotate: [
+      { at: 0,   value: 0 },
+      { at: 0.5, value: 360, easing: 'back-out' },
+      { at: 1,   value: 0 }
+    ],
+  },
+  duration: 60,
+});
+ctx.getNode('logo').rotate(b.rotate);
+```
+
+注意事项：
+
+- keyframes 只支持**数值**（颜色 keyframes 暂不支持——颜色动画请用 `from`/`to`）。
+- `at` 归一化到 `[0, 1]`；`ctx.animate` 上的**外层** `easing`（以及 `repeat`/`yoyo`）先作用于 progress，然后 progress 再映射到每段的 easing。
+- `keyframes` 和 `from`/`to` 可以在同一个动画中共存，但两者都定义的 key 以 `keyframes` 为准。
+
 ### ctx.stagger(count, opts)
 
 和 `animate` 类似，但会为多个元素生成带交错延迟的动画。

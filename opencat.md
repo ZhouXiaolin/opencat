@@ -198,6 +198,38 @@ Additional fields:
 - `anim.settled`: whether a spring animation has settled
 - `anim.settleFrame`: the frame where the spring settled
 
+### Keyframes (multiple stops in a single animation)
+
+For a single animation that needs more than two stops, pass `keyframes` instead of `from`/`to`:
+
+```js
+// Shorthand: numeric values evenly spaced over [0, 1]
+var a = ctx.animate({
+  keyframes: { scale: [1, 1.4, 0.8, 1] },
+  duration: 60,
+});
+ctx.getNode('card').scale(a.scale);
+
+// Full form: explicit `at` (normalised time in [0, 1]) + optional per-segment easing
+var b = ctx.animate({
+  keyframes: {
+    rotate: [
+      { at: 0,   value: 0 },
+      { at: 0.5, value: 360, easing: 'back-out' },
+      { at: 1,   value: 0 }
+    ],
+  },
+  duration: 60,
+});
+ctx.getNode('logo').rotate(b.rotate);
+```
+
+Notes:
+
+- Only **numeric values** are supported in keyframes (color keyframes are not yet supported -- animate colour with `from`/`to`).
+- `at` is normalised to `[0, 1]`; the **outer** `easing` (and `repeat`/`yoyo`) on `ctx.animate` still applies first, then the resulting progress is mapped through the per-segment easing.
+- `keyframes` and `from`/`to` may co-exist on the same animation, but keys defined in both are taken from `keyframes`.
+
 ### ctx.stagger(count, opts)
 
 Like `animate`, but creates multiple animations with staggered delay.

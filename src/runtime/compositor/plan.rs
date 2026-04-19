@@ -1,13 +1,7 @@
 use crate::runtime::profile::SceneBuildStats;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SceneRenderStrategy {
-    OrderedScene,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SceneRenderPlan {
-    pub strategy: SceneRenderStrategy,
     pub allows_scene_snapshot_cache: bool,
 }
 
@@ -18,17 +12,10 @@ impl SceneRenderPlan {
             || scene_stats.layout_pass.raster_dirty_nodes > 0
             || scene_stats.layout_pass.composite_dirty_nodes > 0;
 
-        let strategy = SceneRenderStrategy::OrderedScene;
-
         Self {
-            strategy,
             allows_scene_snapshot_cache: !scene_stats.contains_time_variant_paint
                 && !has_structural_change,
         }
-    }
-
-    pub(crate) fn renders_ordered_scene(self) -> bool {
-        self.strategy == SceneRenderStrategy::OrderedScene
     }
 }
 
@@ -38,23 +25,27 @@ pub(crate) fn plan_for_scene(scene_stats: &SceneBuildStats) -> SceneRenderPlan {
 
 #[cfg(test)]
 mod tests {
-    use super::{SceneRenderPlan, SceneRenderStrategy};
+    use super::SceneRenderPlan;
     use crate::{layout::LayoutPassStats, runtime::profile::SceneBuildStats};
 
     #[test]
-    fn time_variant_paint_scene_uses_ordered_scene() {
+    fn time_variant_paint_scene_disables_scene_snapshot_cache() {
         let stats = SceneBuildStats {
             contains_time_variant_paint: true,
             ..SceneBuildStats::default()
         };
 
         let plan = SceneRenderPlan::from_scene(&stats);
-        assert_eq!(plan.strategy, SceneRenderStrategy::OrderedScene);
-        assert!(!plan.allows_scene_snapshot_cache);
+        assert_eq!(
+            plan,
+            SceneRenderPlan {
+                allows_scene_snapshot_cache: false,
+            }
+        );
     }
 
     #[test]
-    fn composite_only_scene_uses_ordered_scene() {
+    fn composite_only_scene_disables_scene_snapshot_cache() {
         let stats = SceneBuildStats {
             layout_pass: LayoutPassStats {
                 composite_dirty_nodes: 2,
@@ -64,8 +55,12 @@ mod tests {
         };
 
         let plan = SceneRenderPlan::from_scene(&stats);
-        assert_eq!(plan.strategy, SceneRenderStrategy::OrderedScene);
-        assert!(!plan.allows_scene_snapshot_cache);
+        assert_eq!(
+            plan,
+            SceneRenderPlan {
+                allows_scene_snapshot_cache: false,
+            }
+        );
     }
 
     #[test]
@@ -73,7 +68,11 @@ mod tests {
         let stats = SceneBuildStats::default();
 
         let plan = SceneRenderPlan::from_scene(&stats);
-        assert_eq!(plan.strategy, SceneRenderStrategy::OrderedScene);
-        assert!(plan.allows_scene_snapshot_cache);
+        assert_eq!(
+            plan,
+            SceneRenderPlan {
+                allows_scene_snapshot_cache: true,
+            }
+        );
     }
 }

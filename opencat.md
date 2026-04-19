@@ -198,6 +198,14 @@ Additional fields:
 - `anim.settled`: whether a spring animation has settled
 - `anim.settleFrame`: the frame where the spring settled
 
+**Repeat options:**
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `repeat` | `0` | Number of additional cycles after the first. `0` = play once, `N` = play N+1 times, `-1` = infinite |
+| `yoyo` | `false` | Reverse on alternate cycles (cycle 0 forward, cycle 1 backward, ...) |
+| `repeatDelay` | `0` | Frames to hold the end value before restarting each cycle |
+
 ### Keyframes (multiple stops in a single animation)
 
 For a single animation that needs more than two stops, pass `keyframes` instead of `from`/`to`:
@@ -371,6 +379,11 @@ ctx.getNode('ball')
 | Preset | Effect |
 |--------|--------|
 | `'linear'` | Constant speed |
+| `'ease'` / `'ease-in'` / `'ease-out'` / `'ease-in-out'` | Standard CSS-like cubic curves |
+| `'back-in'` / `'back-out'` / `'back-in-out'` | Slight overshoot (UI snap) |
+| `'elastic-in'` / `'elastic-out'` / `'elastic-in-out'` | Damped oscillation |
+| `'bounce-in'` / `'bounce-out'` / `'bounce-in-out'` | Ground-bounce style |
+| `'steps(N)'` | Quantised into N discrete steps (pixel/typewriter) |
 | `'spring-default'` | General spring |
 | `'spring-gentle'` | Soft spring |
 | `'spring-stiff'` | Stiffer spring |
@@ -413,6 +426,22 @@ Supported color literals (in `from` / `to`):
 Colors are always clamped (`progress` outside `[0, 1]` from spring overshoot is normalised back into range), so spring easing won't push values out of the visible gamut.
 
 > Tailwind tokens like `'blue-500'` remain as discrete `node.bg(token)` calls — they are **not** interpolated. To animate, write the color as hex/rgb/hsl in `from` / `to`.
+
+### ctx.utils
+
+Numeric helpers and **deterministic** random -- useful when you need reproducible random output across renders.
+
+```js
+ctx.utils.clamp(value, min, max);
+ctx.utils.snap(value, step);
+ctx.utils.wrap(value, min, max);                   // (value - min) wrapped into [min, max)
+ctx.utils.mapRange(value, inMin, inMax, outMin, outMax);
+
+ctx.utils.random(min, max, seed?);                 // [min, max)
+ctx.utils.randomInt(min, max, seed?);              // integer in [min, max]
+```
+
+> **Important:** When `seed` is omitted, `ctx.utils.random` falls back to `Math.random()` and produces **different output per render**, breaking determinism. **For video rendering, always pass a seed** (e.g. node id hash + frame slot).
 
 ### Node API
 

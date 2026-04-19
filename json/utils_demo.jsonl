@@ -1,0 +1,3 @@
+{"width":1280,"height":720,"sceneFrames":120,"backgroundColor":"#0f172a","fps":30}
+{"id":"box","parentId":"composition","type":"div","className":"w-32 h-32 bg-violet-500 rounded-2xl"}
+{"type":"script","parentId":"composition","src":"var x = ctx.utils.wrap(ctx.frame * 12, 0, 1100); var y = ctx.utils.snap(360 + Math.sin(ctx.frame * 0.1) * 200, 50); var s = ctx.utils.mapRange(ctx.frame, 0, 119, 0.5, 1.5); ctx.getNode('box').translateX(x).translateY(y).scale(s);"}

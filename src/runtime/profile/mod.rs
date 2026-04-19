@@ -1,5 +1,6 @@
 mod aggregator;
 mod layer;
+mod output;
 
 use std::collections::BTreeMap;
 
@@ -9,6 +10,7 @@ pub(crate) use aggregator::{
     CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator, RenderProfileSummary,
 };
 pub(crate) use layer::{ProfileConfig, ProfileOutputFormat, profile_render};
+pub(crate) use output::{print_profile_summary, render_profile_json, render_profile_text};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct BackendSpanKey {
@@ -31,7 +33,7 @@ impl BackendSpanAggregate {
         self.count += 1;
     }
 
-    fn merge(&mut self, other: &BackendSpanAggregate) {
+    pub(crate) fn merge(&mut self, other: &BackendSpanAggregate) {
         self.inclusive_ms += other.inclusive_ms;
         self.exclusive_ms += other.exclusive_ms;
         self.count += other.count;

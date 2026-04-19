@@ -28,6 +28,9 @@ pub enum Easing {
     ElasticIn,
     ElasticOut,
     ElasticInOut,
+    BounceIn,
+    BounceOut,
+    BounceInOut,
     CubicBezier(f32, f32, f32, f32),
     Spring(SpringConfig),
 }
@@ -46,6 +49,15 @@ impl Easing {
             Easing::ElasticIn => elastic_in(t),
             Easing::ElasticOut => elastic_out(t),
             Easing::ElasticInOut => elastic_in_out(t),
+            Easing::BounceIn => 1.0 - bounce_out(1.0 - t),
+            Easing::BounceOut => bounce_out(t),
+            Easing::BounceInOut => {
+                if t < 0.5 {
+                    (1.0 - bounce_out(1.0 - 2.0 * t)) / 2.0
+                } else {
+                    (1.0 + bounce_out(2.0 * t - 1.0)) / 2.0
+                }
+            }
             Easing::CubicBezier(x1, y1, x2, y2) => cubic_bezier(t, *x1, *y1, *x2, *y2),
             Easing::Spring(config) => spring_easing(t, config),
         }
@@ -117,6 +129,23 @@ fn elastic_in_out(t: f32) -> f32 {
         -(2.0_f32.powf(20.0 * t - 10.0)) * ((20.0 * t - 11.125) * c).sin() / 2.0
     } else {
         (2.0_f32.powf(-20.0 * t + 10.0)) * ((20.0 * t - 11.125) * c).sin() / 2.0 + 1.0
+    }
+}
+
+fn bounce_out(t: f32) -> f32 {
+    let n1 = 7.5625;
+    let d1 = 2.75;
+    if t < 1.0 / d1 {
+        n1 * t * t
+    } else if t < 2.0 / d1 {
+        let t = t - 1.5 / d1;
+        n1 * t * t + 0.75
+    } else if t < 2.5 / d1 {
+        let t = t - 2.25 / d1;
+        n1 * t * t + 0.9375
+    } else {
+        let t = t - 2.625 / d1;
+        n1 * t * t + 0.984375
     }
 }
 
@@ -267,6 +296,9 @@ pub fn easing_from_name(name: &str) -> Option<Easing> {
         "elastic-in" | "elastic_in" => Some(Easing::ElasticIn),
         "elastic-out" | "elastic_out" => Some(Easing::ElasticOut),
         "elastic-in-out" | "elastic_in_out" => Some(Easing::ElasticInOut),
+        "bounce-in" | "bounce_in" => Some(Easing::BounceIn),
+        "bounce-out" | "bounce_out" => Some(Easing::BounceOut),
+        "bounce-in-out" | "bounce_in_out" => Some(Easing::BounceInOut),
         "spring-default" | "spring_default" => Some(presets::SPRING_DEFAULT),
         "spring-gentle" | "spring_gentle" => Some(presets::SPRING_GENTLE),
         "spring-stiff" | "spring_stiff" => Some(presets::SPRING_STIFF),
@@ -435,6 +467,39 @@ mod tests {
         assert!(matches!(
             easing_from_name("elastic-in-out"),
             Some(Easing::ElasticInOut)
+        ));
+    }
+
+    #[test]
+    fn bounce_easings_boundaries() {
+        for e in &[Easing::BounceIn, Easing::BounceOut, Easing::BounceInOut] {
+            assert!((e.apply(0.0) - 0.0).abs() < 1e-4);
+            assert!((e.apply(1.0) - 1.0).abs() < 1e-4);
+            for i in 1..10 {
+                let t = i as f32 / 10.0;
+                let v = e.apply(t);
+                assert!(
+                    (0.0..=1.0).contains(&v),
+                    "{:?} at {t} = {v} out of range",
+                    e
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bounce_easings_via_name() {
+        assert!(matches!(
+            easing_from_name("bounce-in"),
+            Some(Easing::BounceIn)
+        ));
+        assert!(matches!(
+            easing_from_name("bounce-out"),
+            Some(Easing::BounceOut)
+        ));
+        assert!(matches!(
+            easing_from_name("bounce-in-out"),
+            Some(Easing::BounceInOut)
         ));
     }
 }

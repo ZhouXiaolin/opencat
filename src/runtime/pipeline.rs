@@ -40,6 +40,18 @@ pub(crate) fn render_frame_on_surface(
 
     let _mutations: Option<StyleMutations> = None;
 
+    let root_span = span!(
+        target: "render.pipeline",
+        Level::TRACE,
+        "frame",
+        frame = frame_index as u64,
+        fps = composition.fps as i64,
+        width = composition.width as i64,
+        height = composition.height as i64,
+        mode = tracing::field::Empty
+    );
+    let _root_guard = root_span.enter();
+
     let root = composition.root_node(&frame_ctx);
     let frame_state_span = span!(target: "render.pipeline", Level::TRACE, "frame_state");
     let frame_state = {
@@ -52,6 +64,7 @@ pub(crate) fn render_frame_on_surface(
             scene,
             script_frame_ctx,
         } => {
+            root_span.record("mode", "scene");
             let (annotated_display_tree, scene_stats) = build_scene_display_list_with_slot(
                 &scene,
                 &frame_ctx,
@@ -90,6 +103,7 @@ pub(crate) fn render_frame_on_surface(
             progress,
             kind,
         } => {
+            root_span.record("mode", "transition");
             let (from_annotated_tree, from_stats) = build_scene_display_list_with_slot(
                 &from,
                 &frame_ctx,

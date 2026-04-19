@@ -153,7 +153,10 @@ where
         ctx: Context<'_, S>,
     ) {
         let metadata = attrs.metadata();
-        let parent_id = attrs.parent().cloned();
+        let parent_id = attrs
+            .parent()
+            .cloned()
+            .or_else(|| ctx.current_span().id().cloned());
         let parent_name: Option<&'static str> = parent_id.as_ref().and_then(|pid| {
             ctx.span(pid).map(|span| span.metadata().name())
         });

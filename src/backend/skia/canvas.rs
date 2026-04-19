@@ -616,8 +616,13 @@ impl<'a> SkiaBackend<'a> {
             None,
             self.frame_ctx,
         );
-        backend.draw_recorded_node_contents(node.recorded_semantics(), |backend| {
-            backend.draw_display_children(display_tree.children(handle), false)
+        let subtree = OrderedSceneProgram::build_subtree(display_tree, handle);
+        backend.draw_display_item(node.recorded_semantics().item)?;
+        backend.with_recorded_clip(node.recorded_semantics(), |backend| {
+            for child in &subtree.children {
+                backend.draw_ordered_scene_op(child, false)?;
+            }
+            Ok(())
         })?;
         let snapshot = recorder
             .finish_recording_as_picture(None)

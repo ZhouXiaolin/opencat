@@ -12,6 +12,13 @@ pub(crate) struct OrderedSceneProgram {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct OrderedSubtreeProgram {
+    pub handle: AnnotatedNodeHandle,
+    pub item_execution: LiveNodeItemExecution,
+    pub children: Vec<OrderedSceneOp>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum OrderedSceneOp {
     LiveSubtree {
         handle: AnnotatedNodeHandle,
@@ -27,6 +34,21 @@ impl OrderedSceneProgram {
     pub(crate) fn build(display_tree: &AnnotatedDisplayTree) -> Self {
         Self {
             root: build_scene_op(display_tree, display_tree.root),
+        }
+    }
+
+    pub(crate) fn build_subtree(
+        display_tree: &AnnotatedDisplayTree,
+        handle: AnnotatedNodeHandle,
+    ) -> OrderedSubtreeProgram {
+        OrderedSubtreeProgram {
+            handle,
+            item_execution: analyze_live_node_item_execution(display_tree, handle),
+            children: display_tree
+                .children(handle)
+                .iter()
+                .map(|&child_handle| build_scene_op(display_tree, child_handle))
+                .collect(),
         }
     }
 }
@@ -413,6 +435,83 @@ mod tests {
                     },
                 ],
             }
+        );
+    }
+
+    #[test]
+    fn subtree_build_keeps_root_live_but_reuses_stable_children() {
+        let root = AnnotatedNodeHandle(0);
+        let stable_child = AnnotatedNodeHandle(1);
+        let stable_grandchild = AnnotatedNodeHandle(2);
+
+        let tree = AnnotatedDisplayTree {
+            root,
+            nodes: vec![
+                rect_node(vec![stable_child]),
+                rect_node(vec![stable_grandchild]),
+                rect_node(Vec::new()),
+            ],
+            keys: vec![RenderNodeKey(1), RenderNodeKey(2), RenderNodeKey(3)],
+            layer_bounds: vec![
+                DisplayRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1920.0,
+                    height: 1080.0,
+                },
+                DisplayRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 64.0,
+                    height: 64.0,
+                },
+                DisplayRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 64.0,
+                    height: 64.0,
+                },
+            ],
+            analysis: {
+                let mut table = DisplayAnalysisTable::default();
+                table.insert(
+                    root,
+                    DisplayNodeAnalysis {
+                        paint_variance: PaintVariance::Stable,
+                        subtree_contains_time_variant: false,
+                        paint_fingerprint: Some(11),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 12, secondary: 12 }),
+                    },
+                );
+                table.insert(
+                    stable_child,
+                    DisplayNodeAnalysis {
+                        paint_variance: PaintVariance::Stable,
+                        subtree_contains_time_variant: false,
+                        paint_fingerprint: Some(21),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 22, secondary: 22 }),
+                    },
+                );
+                table.insert(
+                    stable_grandchild,
+                    DisplayNodeAnalysis {
+                        paint_variance: PaintVariance::Stable,
+                        subtree_contains_time_variant: false,
+                        paint_fingerprint: Some(31),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 32, secondary: 32 }),
+                    },
+                );
+                table
+            },
+            invalidation: DisplayInvalidationTable::with_len(3),
+        };
+
+        let subtree = OrderedSceneProgram::build_subtree(&tree, root);
+        assert_eq!(subtree.handle, root);
+        assert_eq!(subtree.item_execution, LiveNodeItemExecution::Direct);
+        assert_eq!(
+            subtree.children,
+            vec![OrderedSceneOp::CachedSubtree { handle: stable_child }],
         );
     }
 

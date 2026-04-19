@@ -210,6 +210,14 @@ pub(crate) fn install_animate_bindings<'js>(
         Function::new(ctx.clone(), |seed: f32| -> f32 { random_from_seed(seed) })?,
     )?;
 
+    globals.set(
+        "__easing_apply",
+        Function::new(ctx.clone(), |tag: String, t: f32| -> f32 {
+            let easing = parse_easing_from_tag(&tag);
+            easing.apply(t)
+        })?,
+    )?;
+
     Ok(())
 }
 
@@ -499,7 +507,7 @@ pub(crate) fn random_from_seed(seed: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{HSLA, lerp_hsla, lerp_hsla_clamped, random_from_seed};
+    use super::{HSLA, lerp_hsla, lerp_hsla_clamped, parse_easing_from_tag, random_from_seed};
 
     #[test]
     fn random_from_seed_is_deterministic() {
@@ -545,5 +553,16 @@ mod tests {
         let expected = lerp_hsla(&from, &to, 1.0);
         assert!((result.l - expected.l).abs() < 1e-6);
         assert!((result.s - expected.s).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_easing_from_tag_handles_extended() {
+        use crate::scene::easing::Easing;
+        assert!(matches!(parse_easing_from_tag("back-out"), Easing::BackOut));
+        assert!(matches!(
+            parse_easing_from_tag("steps(8)"),
+            Easing::Steps(8)
+        ));
+        assert!(matches!(parse_easing_from_tag("unknown"), Easing::Linear));
     }
 }

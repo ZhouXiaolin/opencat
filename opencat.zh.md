@@ -244,6 +244,52 @@ var anims = ctx.stagger(4, {
 });
 ```
 
+### ctx.alongPath(svgPath)
+
+将 SVG path 字符串采样为运动路径。返回一个包含 `getLength()`、`at(t)` 和 `dispose()` 的对象。`at(t)` 接受 `t in [0, 1]` 并返回 `{ x, y, angle }`——`angle` 是路径切线角度，单位为**度**，可直接传给 `node.rotate()`。
+
+SVG 字符串在创建时解析一次；采样通过 Rust 侧 Skia 的 `ContourMeasure` 计算。
+
+```js
+// 重要：缓存 measurer；不要每帧重建
+if (!ctx.__along) {
+  ctx.__along = ctx.alongPath('M100 360 C400 80 880 640 1180 360');
+}
+
+var a = ctx.animate({
+  from: { t: 0 }, to: { t: 1 },
+  duration: 120, easing: 'ease-in-out',
+  repeat: -1, yoyo: true,
+});
+var pos = ctx.__along.at(a.t);
+ctx.getNode('ball')
+  .translateX(pos.x - 24)
+  .translateY(pos.y - 24)
+  .rotate(pos.angle);
+```
+
+**支持的 SVG path 命令**（大写 = 绝对，小写 = 相对）：
+
+| 命令 | 含义 |
+|---|---|
+| `M x y` / `m dx dy` | 移动到 |
+| `L x y` / `l dx dy` | 直线到 |
+| `H x` / `h dx` | 水平直线到 |
+| `V y` / `v dy` | 垂直直线到 |
+| `C x1 y1 x2 y2 x y` | 三次贝塞尔 |
+| `S x2 y2 x y` | 平滑三次贝塞尔 |
+| `Q x1 y1 x y` | 二次贝塞尔 |
+| `T x y` | 平滑二次贝塞尔 |
+| `A rx ry x-axis-rot large sweep x y` | 椭圆弧 |
+| `Z` / `z` | 闭合路径 |
+
+**限制：**
+
+- 只采样**第一条 contour**。如果路径包含多个 `M` 命令（多个子路径），后续的会被忽略。
+- 路径只在 `ctx.alongPath()` 调用时解析一次。要使用不同路径，需要创建新实例。
+- 始终将 `alongPath` 实例缓存到 `ctx.__yourKey`——每帧重建会泄漏 Rust 侧的 `ContourMeasure`，直到脚本上下文销毁。
+- `dispose()` 是可选的，但在长时间运行的 composition 或切换多条路径时推荐使用。
+
 ### Easing
 
 | 预设 | 效果 |

@@ -71,6 +71,19 @@ struct RuntimeMutationStore {
     path_measure_state: std::sync::Mutex<animate_api::PathMeasureState>,
 }
 
+impl RuntimeMutationStore {
+    fn reset_for_frame(&mut self, current_frame: u32) {
+        self.styles.clear();
+        self.canvases.clear();
+        self.current_frame = current_frame;
+        if let Ok(mut animate_state) = self.animate_state.lock() {
+            *animate_state = animate_api::AnimateState::default();
+        }
+        // Intentionally do NOT reset path_measure_state — SVG path handles are
+        // cached on `ctx.__foo` across frames and must remain valid.
+    }
+}
+
 type MutationStore = Arc<Mutex<RuntimeMutationStore>>;
 
 #[derive(Default)]
@@ -308,10 +321,7 @@ impl ScriptRunner {
                 .store
                 .lock()
                 .map_err(|_| anyhow!("script mutation store lock poisoned before execution"))?;
-            *store = RuntimeMutationStore {
-                current_frame: frame_ctx.current_frame,
-                ..Default::default()
-            };
+            store.reset_for_frame(frame_ctx.current_frame);
         }
 
         self.context.with(|ctx| {

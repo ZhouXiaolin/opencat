@@ -3,11 +3,32 @@ use std::{
     hash::Hash,
 };
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CacheMutationReport<K> {
+    pub evicted: Vec<K>,
+    pub replaced: bool,
+    pub total_weight: usize,
+    pub utilization: usize,
+}
+
+impl<K> Default for CacheMutationReport<K> {
+    fn default() -> Self {
+        Self {
+            evicted: Vec::new(),
+            replaced: false,
+            total_weight: 0,
+            utilization: 0,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct BoundedLruCache<K, V> {
     capacity: usize,
     map: HashMap<K, V>,
     order: VecDeque<K>,
+    weights: HashMap<K, usize>,
+    total_weight: usize,
 }
 
 impl<K, V> BoundedLruCache<K, V>
@@ -19,6 +40,8 @@ where
             capacity,
             map: HashMap::new(),
             order: VecDeque::new(),
+            weights: HashMap::new(),
+            total_weight: 0,
         }
     }
 
@@ -43,28 +66,85 @@ where
         Some(value)
     }
 
-    pub fn insert(&mut self, key: K, value: V) {
+    pub fn insert(&mut self, key: K, value: V) -> CacheMutationReport<K> {
+        self.insert_with_weight(key, value, 1)
+    }
+
+    pub fn insert_with_weight(&mut self, key: K, value: V, weight: usize) -> CacheMutationReport<K> {
         if self.capacity == 0 {
-            return;
+            return CacheMutationReport::default();
         }
 
+        let weight = weight.max(1);
         let key_for_order = key.clone();
-        let existed = self.map.insert(key, value).is_some();
+
+        // If replacing, subtract old weight first
+        let replaced = if let Some(old_weight) = self.weights.get(&key).copied() {
+            self.total_weight -= old_weight;
+            true
+        } else {
+            false
+        };
+
+        self.weights.insert(key.clone(), weight);
+        self.total_weight += weight;
+        self.map.insert(key, value);
         self.touch_owned(key_for_order);
 
-        if !existed {
-            self.evict_if_needed();
+        let evicted = if !replaced {
+            self.evict_if_needed()
+        } else {
+            Vec::new()
+        };
+
+        CacheMutationReport {
+            total_weight: self.total_weight,
+            utilization: if self.capacity > 0 {
+                self.map.len() * 100 / self.capacity
+            } else {
+                0
+            },
+            evicted,
+            replaced,
         }
     }
 
-    fn evict_if_needed(&mut self) {
+    pub fn total_weight(&self) -> usize {
+        self.total_weight
+    }
+
+    fn evict_if_needed(&mut self) -> Vec<K> {
+        let mut evicted = Vec::new();
         while self.map.len() > self.capacity {
-            if let Some(oldest) = self.order.pop_front() {
-                self.map.remove(&oldest);
+            // Find entry with lowest recency_rank / weight ratio
+            // (heavy + stale entries get evicted first)
+            let victim = self
+                .order
+                .iter()
+                .enumerate()
+                .min_by(|(rank_a, key_a), (rank_b, key_b)| {
+                    let weight_a = *self.weights.get(key_a).unwrap_or(&1);
+                    let weight_b = *self.weights.get(key_b).unwrap_or(&1);
+                    let score_a = (*rank_a as f64) / (weight_a as f64);
+                    let score_b = (*rank_b as f64) / (weight_b as f64);
+                    score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|(_, key)| key.clone());
+
+            if let Some(key) = victim {
+                if let Some(index) = self.order.iter().position(|k| k == &key) {
+                    self.order.remove(index);
+                }
+                if let Some(w) = self.weights.remove(&key) {
+                    self.total_weight -= w;
+                }
+                self.map.remove(&key);
+                evicted.push(key);
             } else {
                 break;
             }
         }
+        evicted
     }
 
     fn touch(&mut self, key: &K) {
@@ -121,5 +201,28 @@ mod tests {
 
         assert!(cache.is_empty());
         assert_eq!(cache.get_cloned(&"a"), None);
+    }
+
+    #[test]
+    fn heavier_entry_is_evicted_before_lighter_peer_when_capacity_is_exceeded() {
+        let mut cache = BoundedLruCache::new(2);
+        cache.insert_with_weight("heavy", 1, 32);
+        cache.insert_with_weight("light", 2, 1);
+        let report = cache.insert_with_weight("fresh", 3, 1);
+
+        assert_eq!(report.evicted, vec!["heavy"]);
+        assert_eq!(cache.get_cloned(&"heavy"), None);
+        assert_eq!(cache.get_cloned(&"light"), Some(2));
+        assert_eq!(cache.get_cloned(&"fresh"), Some(3));
+    }
+
+    #[test]
+    fn insert_report_exposes_total_weight_and_utilization() {
+        let mut cache = BoundedLruCache::new(4);
+        let report = cache.insert_with_weight("a", 1, 3);
+
+        assert_eq!(report.evicted, Vec::<&str>::new());
+        assert_eq!(report.total_weight, 3);
+        assert_eq!(report.utilization, 25);
     }
 }

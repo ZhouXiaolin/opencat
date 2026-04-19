@@ -32,6 +32,9 @@
         var easingTag = resolveEasingTag(opts.easing || 'linear');
         var isSpring = easingTag.indexOf('spring:') === 0;
         var clamp = opts.clamp || false;
+        var repeat = opts.repeat !== undefined ? Number(opts.repeat) : 0;
+        var yoyo = !!opts.yoyo;
+        var repeatDelay = opts.repeatDelay !== undefined ? Number(opts.repeatDelay) : 0;
 
         if (duration === undefined && !isSpring) {
             throw new Error('duration is required for non-spring easing');
@@ -44,6 +47,9 @@
             delay: delay,
             easingTag: easingTag,
             clamp: clamp,
+            repeat: repeat,
+            yoyo: yoyo,
+            repeatDelay: repeatDelay,
         };
     }
 
@@ -62,7 +68,10 @@
             parsed.duration,
             parsed.delay,
             parsed.clamp ? 1 : 0,
-            parsed.easingTag
+            parsed.easingTag,
+            parsed.repeat,
+            parsed.yoyo ? 1 : 0,
+            parsed.repeatDelay
         );
 
         var result = {};
@@ -127,7 +136,10 @@
                     parsed.duration,
                     parsed.delay + index * gap,
                     parsed.clamp ? 1 : 0,
-                    parsed.easingTag
+                    parsed.easingTag,
+                    parsed.repeat,
+                    parsed.yoyo ? 1 : 0,
+                    parsed.repeatDelay
                 );
 
                 var item = {};
@@ -197,7 +209,10 @@
                     parsed.duration,
                     startFrame,
                     parsed.clamp ? 1 : 0,
-                    parsed.easingTag
+                    parsed.easingTag,
+                    parsed.repeat,
+                    parsed.yoyo ? 1 : 0,
+                    parsed.repeatDelay
                 );
 
                 var keys = Object.keys(parsed.from);

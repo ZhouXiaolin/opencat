@@ -1,5 +1,5 @@
-use std::f32::consts::PI;
 use std::env;
+use std::f32::consts::PI;
 use std::path::PathBuf;
 
 use opencat::{
@@ -220,9 +220,7 @@ fn scene_one(ctx: &FrameCtx) -> Node {
                 .relative()
                 .w(640.0)
                 .h(580.0)
-                .child(
-                    video_shell(orbit, ctx, shell_mode),
-                )
+                .child(video_shell(orbit, ctx, shell_mode))
                 .child(
                     image()
                         .query("cat")

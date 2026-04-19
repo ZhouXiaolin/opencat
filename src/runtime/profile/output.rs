@@ -38,13 +38,21 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
             |frame| frame.slide_transition_ms,
             |frame| frame.slide_transition_frames,
         ),
-        summary.frames.values().map(|f| f.slide_transition_frames).sum::<usize>(),
+        summary
+            .frames
+            .values()
+            .map(|f| f.slide_transition_frames)
+            .sum::<usize>(),
         average_when_counted(
             summary,
             |frame| frame.light_leak_transition_ms,
             |frame| frame.light_leak_transition_frames,
         ),
-        summary.frames.values().map(|f| f.light_leak_transition_frames).sum::<usize>(),
+        summary
+            .frames
+            .values()
+            .map(|f| f.light_leak_transition_frames)
+            .sum::<usize>(),
     ));
     out.push_str(&format!(
         "  avg nodes/frame: reused {:.1}, layout_dirty {:.1}, raster_dirty {:.1}, composite_dirty {:.1}, structure_rebuilds {:.2}\n",

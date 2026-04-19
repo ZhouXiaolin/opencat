@@ -155,7 +155,8 @@ impl RenderEngine for SkiaRenderEngine {
         ordered_scene: &OrderedSceneProgram,
         frame_view: RenderFrameView,
     ) -> Result<()> {
-        let direct_draw_span = span!(target: "render.backend", Level::TRACE, "display_tree_direct_draw");
+        let direct_draw_span =
+            span!(target: "render.backend", Level::TRACE, "display_tree_direct_draw");
         let _profile_span = direct_draw_span.enter();
         let canvas = skia_canvas(frame_view)?;
         skia::draw_ordered_scene_cached(

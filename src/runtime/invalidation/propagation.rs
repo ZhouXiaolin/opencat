@@ -87,10 +87,5 @@ fn mark_display_node_composite_dirty(
             next,
         );
     }
-    invalidation.insert(
-        handle,
-        DisplayNodeInvalidation {
-            composite_dirty,
-        },
-    );
+    invalidation.insert(handle, DisplayNodeInvalidation { composite_dirty });
 }

@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::{
-    BackendSpanKey, FrameProfile,
-};
+use super::{BackendSpanKey, FrameProfile};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CompletedProfileSpan {
@@ -240,7 +238,9 @@ impl RenderProfileAggregator {
     }
 
     pub(crate) fn finish(self) -> RenderProfileSummary {
-        RenderProfileSummary { frames: self.frames }
+        RenderProfileSummary {
+            frames: self.frames,
+        }
     }
 }
 
@@ -273,10 +273,7 @@ mod tests {
         });
 
         let summary = aggregator.finish();
-        let frame = summary
-            .frames
-            .get(&12)
-            .expect("frame summary should exist");
+        let frame = summary.frames.get(&12).expect("frame summary should exist");
         let root = frame
             .backend_spans
             .get(&BackendSpanKey {

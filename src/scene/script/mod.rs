@@ -68,6 +68,7 @@ struct RuntimeMutationStore {
     canvases: HashMap<String, CanvasMutations>,
     current_frame: u32,
     animate_state: std::sync::Mutex<animate_api::AnimateState>,
+    path_measure_state: std::sync::Mutex<animate_api::PathMeasureState>,
 }
 
 type MutationStore = Arc<Mutex<RuntimeMutationStore>>;
@@ -1684,7 +1685,9 @@ mod tests {
             "caret should follow the partial string while typing"
         );
 
-        let settled = driver.run(10, 20, 10, 20, None).expect("frame 10 should run");
+        let settled = driver
+            .run(10, 20, 10, 20, None)
+            .expect("frame 10 should run");
         assert_eq!(
             settled.get("t").unwrap().text_content,
             Some("Hi".to_string()),

@@ -505,6 +505,16 @@ pub(crate) fn random_from_seed(seed: f32) -> f32 {
     (r as f32) / (u32::MAX as f32)
 }
 
+pub(crate) struct PathMeasureEntry {
+    pub contour: skia_safe::ContourMeasure,
+}
+
+#[derive(Default)]
+pub(crate) struct PathMeasureState {
+    pub next_id: i32,
+    pub entries: std::collections::HashMap<i32, PathMeasureEntry>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{HSLA, lerp_hsla, lerp_hsla_clamped, parse_easing_from_tag, random_from_seed};

@@ -1,5 +1,6 @@
 mod aggregator;
 mod bus;
+mod layer;
 
 use std::collections::BTreeMap;
 
@@ -13,6 +14,7 @@ pub(crate) use bus::{
     backend_span, record_backend_count, record_backend_duration, record_backend_elapsed,
     with_backend_profile_sink,
 };
+pub(crate) use layer::{ProfileConfig, ProfileOutputFormat, profile_render};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct BackendSpanKey {

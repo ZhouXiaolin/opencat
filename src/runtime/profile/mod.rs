@@ -1,9 +1,13 @@
+mod aggregator;
 mod bus;
 
 use std::collections::BTreeMap;
 
 use crate::layout::LayoutPassStats;
 
+pub(crate) use aggregator::{
+    CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator, RenderProfileSummary,
+};
 pub(crate) use bus::{
     BackendCountMetric, BackendDurationMetric, BackendProfileEvent, BackendProfileSink,
     backend_span, record_backend_count, record_backend_duration, record_backend_elapsed,
@@ -25,7 +29,7 @@ pub(crate) struct BackendSpanAggregate {
 }
 
 impl BackendSpanAggregate {
-    fn record(&mut self, inclusive_ms: f64, exclusive_ms: f64) {
+    pub(crate) fn record(&mut self, inclusive_ms: f64, exclusive_ms: f64) {
         self.inclusive_ms += inclusive_ms;
         self.exclusive_ms += exclusive_ms;
         self.count += 1;
@@ -262,7 +266,7 @@ pub(crate) struct SceneBuildStats {
     pub contains_time_variant_paint: bool,
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct FrameProfile {
     pub script_ms: f64,
     pub frame_state_ms: f64,

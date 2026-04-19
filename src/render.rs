@@ -154,7 +154,6 @@ fn render_png(
         image::RgbaImage::from_raw(composition.width as u32, composition.height as u32, rgba)
             .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
     image.save(output_path)?;
-    session.profiler.print_summary();
     Ok(())
 }
 
@@ -186,7 +185,6 @@ fn render_mp4(
             Ok(rgba)
         },
     )?;
-    session.profiler.print_summary();
     Ok(())
 }
 

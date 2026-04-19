@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use tracing::{Level, event, span};
 
 use crate::{
     frame_ctx::FrameCtx,
@@ -8,7 +9,6 @@ use crate::{
         cache::CacheRegistry,
         compositor::OrderedSceneProgram,
         frame_view::RenderFrameView,
-        profile::{BackendCountMetric, backend_span, record_backend_count},
         render_engine::{SceneRenderContext, SceneSnapshot, SharedRenderEngine},
     },
 };
@@ -52,7 +52,8 @@ pub(crate) fn render_scene_slot(
         resolve_scene_snapshot_for_slot(runtime, slot, display_tree, plan, require_scene_snapshot)?
     {
         if let Some(frame_view) = frame_view {
-            let _profile_span = backend_span("scene_snapshot_present");
+            let profile_span = span!(target: "render.backend", Level::TRACE, "scene_snapshot_present");
+            let _profile_span = profile_span.enter();
             engine.draw_scene_snapshot(&snapshot, frame_view)?;
             return Ok(None);
         }
@@ -85,13 +86,13 @@ fn resolve_scene_snapshot_for_slot(
     let engine = runtime.render_engine.clone();
     if plan.allows_scene_snapshot_cache {
         if let Some(snapshot) = runtime.scene_snapshots.scene_snapshot(slot) {
-            record_backend_count(BackendCountMetric::SceneSnapshotCacheHit, 1);
+            event!(target: "render.cache", Level::TRACE, kind = "cache", name = "scene_snapshot", result = "hit", amount = 1_u64);
             return Ok(Some(snapshot));
         }
 
         let mut render_context = runtime.render_context();
         let snapshot = engine.record_display_tree_snapshot(&mut render_context, display_tree)?;
-        record_backend_count(BackendCountMetric::SceneSnapshotCacheMiss, 1);
+        event!(target: "render.cache", Level::TRACE, kind = "cache", name = "scene_snapshot", result = "miss", amount = 1_u64);
         runtime
             .scene_snapshots
             .store_scene_snapshot(slot, Some(snapshot.clone()));

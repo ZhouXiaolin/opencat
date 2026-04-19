@@ -12,7 +12,7 @@ use tracing_subscriber::{
     Registry,
 };
 
-use super::{CompletedProfileSpan, RenderProfileAggregator, RenderProfileSummary};
+use super::{CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator, RenderProfileSummary};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProfileOutputFormat {
@@ -83,24 +83,61 @@ struct SpanFields {
     frame: Option<u32>,
 }
 
+#[derive(Default)]
+struct EventFields {
+    kind: Option<&'static str>,
+    name: Option<&'static str>,
+    result: Option<&'static str>,
+    amount: Option<usize>,
+}
+
 struct ProfileFieldVisitor<'a> {
     span_fields: Option<&'a mut SpanFields>,
+    event_fields: Option<&'a mut EventFields>,
 }
 
 impl tracing::field::Visit for ProfileFieldVisitor<'_> {
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        if field.name() == "frame" {
-            if let Some(span_fields) = self.span_fields.as_mut() {
-                span_fields.frame = Some(value as u32);
+        match field.name() {
+            "frame" => {
+                if let Some(span_fields) = self.span_fields.as_mut() {
+                    span_fields.frame = Some(value as u32);
+                }
             }
+            "amount" => {
+                if let Some(event_fields) = self.event_fields.as_mut() {
+                    event_fields.amount = Some(value as usize);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        let leaked: &'static str = Box::leak(value.to_string().into_boxed_str());
+        match field.name() {
+            "kind" => {
+                if let Some(event_fields) = self.event_fields.as_mut() {
+                    event_fields.kind = Some(leaked);
+                }
+            }
+            "name" => {
+                if let Some(event_fields) = self.event_fields.as_mut() {
+                    event_fields.name = Some(leaked);
+                }
+            }
+            "result" => {
+                if let Some(event_fields) = self.event_fields.as_mut() {
+                    event_fields.result = Some(leaked);
+                }
+            }
+            _ => {}
         }
     }
 
     fn record_i64(&mut self, _field: &tracing::field::Field, _value: i64) {}
 
     fn record_bool(&mut self, _field: &tracing::field::Field, _value: bool) {}
-
-    fn record_str(&mut self, _field: &tracing::field::Field, _value: &str) {}
 
     fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {}
 }
@@ -132,6 +169,7 @@ where
         let mut fields = SpanFields::default();
         let mut visitor = ProfileFieldVisitor {
             span_fields: Some(&mut fields),
+            event_fields: None,
         };
         attrs.record(&mut visitor);
 
@@ -180,6 +218,44 @@ where
             parent: state.parent,
             inclusive_ms,
             exclusive_ms,
+        });
+    }
+
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: Context<'_, S>,
+    ) {
+        let metadata = event.metadata();
+        if !matches!(metadata.target(), "render.cache" | "render.draw" | "render.layer") {
+            return;
+        }
+
+        let mut fields = EventFields::default();
+        let mut visitor = ProfileFieldVisitor {
+            span_fields: None,
+            event_fields: Some(&mut fields),
+        };
+        event.record(&mut visitor);
+
+        let Some(kind) = fields.kind else { return };
+        let Some(name) = fields.name else { return };
+        let Some(result) = fields.result else { return };
+
+        let mut shared = self.shared.lock().expect("profile state lock");
+        let frame = shared
+            .spans
+            .values()
+            .filter_map(|s| s.frame)
+            .last()
+            .unwrap_or(0);
+        shared.aggregator.record_count(ProfileCountEvent {
+            frame,
+            target: metadata.target(),
+            kind,
+            name,
+            result,
+            amount: fields.amount.unwrap_or(1),
         });
     }
 }
@@ -248,6 +324,51 @@ mod tests {
         })?;
 
         assert!(enabled_summary.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn tracing_layer_captures_backend_spans_and_events() -> anyhow::Result<()> {
+        use tracing::{Level, event, span};
+
+        let config = ProfileConfig {
+            enabled: true,
+            output_format: ProfileOutputFormat::Text,
+            emit_frame_records: false,
+        };
+        let (_, summary) = profile_render(&config, || {
+            let frame_span = span!(
+                target: "render.pipeline",
+                Level::TRACE,
+                "frame",
+                frame = 7_u64,
+                width = 1920_i64,
+                height = 1080_i64,
+                fps = 30_i64,
+                mode = "scene"
+            );
+            let _frame_guard = frame_span.enter();
+            let backend_span = span!(
+                target: "render.backend",
+                Level::TRACE,
+                "subtree_snapshot_record"
+            );
+            let _backend_guard = backend_span.enter();
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "subtree_snapshot",
+                result = "miss",
+                amount = 1_u64
+            );
+            Ok::<_, anyhow::Error>(())
+        })?;
+
+        let summary = summary.expect("summary should exist");
+        let frame = summary.frames.get(&7).expect("frame summary should exist");
+        assert!(frame.backend.subtree_snapshot_record_ms >= 0.0);
+        assert_eq!(frame.backend.subtree_snapshot_cache_misses, 1);
         Ok(())
     }
 }

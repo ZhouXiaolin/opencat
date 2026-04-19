@@ -9,7 +9,6 @@ use crate::{
         cache::{CacheCaps, CacheRegistry},
         compositor::{SceneSlot, SceneSnapshotCache},
         invalidation::CompositeHistory,
-        profile::RenderProfiler,
         render_engine::SharedRenderEngine,
         render_registry,
         text_engine::SharedTextEngine,
@@ -26,7 +25,6 @@ pub struct RenderSession {
     pub(crate) scene_layout: LayoutSession,
     pub(crate) transition_from_layout: LayoutSession,
     pub(crate) transition_to_layout: LayoutSession,
-    pub(crate) profiler: RenderProfiler,
     pub(crate) prepared_root_ptr: Option<usize>,
     pub(crate) audio_decode_cache: DecodedAudioCache,
     pub(crate) audio_interval_cache: AudioIntervalCache,
@@ -62,7 +60,6 @@ impl RenderSession {
             scene_layout: LayoutSession::new(),
             transition_from_layout: LayoutSession::new(),
             transition_to_layout: LayoutSession::new(),
-            profiler: RenderProfiler::default(),
             prepared_root_ptr: None,
             audio_decode_cache: DecodedAudioCache::default(),
             audio_interval_cache: AudioIntervalCache::default(),
@@ -70,10 +67,6 @@ impl RenderSession {
             render_engine,
             composite_history: CompositeHistory::default(),
         }
-    }
-
-    pub fn print_profile_summary(&self) {
-        self.profiler.print_summary();
     }
 
     pub fn set_video_preview_quality(&mut self, quality: VideoPreviewQuality) {

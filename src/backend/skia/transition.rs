@@ -1,12 +1,12 @@
-use std::{cell::RefCell, thread_local, time::Instant};
+use std::{cell::RefCell, thread_local};
 
 use anyhow::{Result, anyhow};
 use skia_safe::{
     AlphaType, Canvas, ColorType, Data, FilterMode, ImageInfo, Matrix, Paint, PathBuilder, Picture,
     RRect, Rect, RuntimeEffect, TileMode, runtime_effect::ChildPtr, surfaces,
 };
+use tracing::{Level, span};
 
-use crate::runtime::profile::{BackendDurationMetric, backend_span, record_backend_elapsed};
 use crate::scene::transition::{
     LightLeakTransition, SlideDirection, TransitionKind, WipeDirection,
 };
@@ -382,11 +382,9 @@ fn draw_light_leak_transition(
     let mask_scale = params.mask_scale.clamp(0.03125, 1.0);
     let mask_size = scaled_mask_size(width, height, mask_scale);
     let mask_image = {
-        let _mask_span = backend_span("light_leak_mask");
-        let mask_started = Instant::now();
-        let mask_image = render_light_leak_mask(progress, params, mask_size.0, mask_size.1)?;
-        record_backend_elapsed(BackendDurationMetric::LightLeakMask, mask_started);
-        mask_image
+        let mask_span = span!(target: "render.backend", Level::TRACE, "light_leak_mask");
+        let _mask_guard = mask_span.enter();
+        render_light_leak_mask(progress, params, mask_size.0, mask_size.1)?
     };
 
     let from_shader = from.to_shader(
@@ -422,12 +420,11 @@ fn draw_light_leak_transition(
         .ok_or_else(|| anyhow!("failed to create light leak composite shader"))?;
 
     {
-        let _composite_span = backend_span("light_leak_composite");
-        let composite_started = Instant::now();
+        let composite_span = span!(target: "render.backend", Level::TRACE, "light_leak_composite");
+        let _composite_guard = composite_span.enter();
         let mut paint = Paint::default();
         paint.set_shader(shader);
         canvas.draw_paint(&paint);
-        record_backend_elapsed(BackendDurationMetric::LightLeakComposite, composite_started);
     }
     Ok(())
 }

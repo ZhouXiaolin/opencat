@@ -22,6 +22,9 @@ pub enum Easing {
     EaseIn,
     EaseOut,
     EaseInOut,
+    BackIn,
+    BackOut,
+    BackInOut,
     CubicBezier(f32, f32, f32, f32),
     Spring(SpringConfig),
 }
@@ -34,6 +37,9 @@ impl Easing {
             Easing::EaseIn => cubic_bezier(t, 0.42, 0.0, 1.0, 1.0),
             Easing::EaseOut => cubic_bezier(t, 0.0, 0.0, 0.58, 1.0),
             Easing::EaseInOut => cubic_bezier(t, 0.42, 0.0, 0.58, 1.0),
+            Easing::BackIn => back_in(t, 1.70158),
+            Easing::BackOut => back_out(t, 1.70158),
+            Easing::BackInOut => back_in_out(t, 1.70158),
             Easing::CubicBezier(x1, y1, x2, y2) => cubic_bezier(t, *x1, *y1, *x2, *y2),
             Easing::Spring(config) => spring_easing(t, config),
         }
@@ -48,6 +54,26 @@ impl Easing {
 
     pub fn is_spring(&self) -> bool {
         matches!(self, Easing::Spring(_))
+    }
+}
+
+fn back_in(t: f32, s: f32) -> f32 {
+    t * t * ((s + 1.0) * t - s)
+}
+
+fn back_out(t: f32, s: f32) -> f32 {
+    let u = t - 1.0;
+    u * u * ((s + 1.0) * u + s) + 1.0
+}
+
+fn back_in_out(t: f32, s: f32) -> f32 {
+    let c = s * 1.525;
+    if t < 0.5 {
+        let u = 2.0 * t;
+        0.5 * (u * u * ((c + 1.0) * u - c))
+    } else {
+        let u = 2.0 * t - 2.0;
+        0.5 * (u * u * ((c + 1.0) * u + c) + 2.0)
     }
 }
 
@@ -192,6 +218,9 @@ pub fn easing_from_name(name: &str) -> Option<Easing> {
         "ease-in" | "ease_in" => Some(Easing::EaseIn),
         "ease-out" | "ease_out" => Some(Easing::EaseOut),
         "ease-in-out" | "ease_in_out" => Some(Easing::EaseInOut),
+        "back-in" | "back_in" => Some(Easing::BackIn),
+        "back-out" | "back_out" => Some(Easing::BackOut),
+        "back-in-out" | "back_in_out" => Some(Easing::BackInOut),
         "spring-default" | "spring_default" => Some(presets::SPRING_DEFAULT),
         "spring-gentle" | "spring_gentle" => Some(presets::SPRING_GENTLE),
         "spring-stiff" | "spring_stiff" => Some(presets::SPRING_STIFF),
@@ -306,5 +335,28 @@ mod tests {
         let dur = easing.default_duration(30.0);
         assert!(dur.is_some());
         assert!(dur.unwrap() > 0);
+    }
+
+    #[test]
+    fn back_easings_have_overshoot() {
+        let v = Easing::BackOut.apply(0.5);
+        assert!(v > 0.5, "BackOut at 0.5 should be > 0.5, got {v}");
+        assert!((Easing::BackOut.apply(0.0) - 0.0).abs() < 1e-4);
+        assert!((Easing::BackOut.apply(1.0) - 1.0).abs() < 1e-4);
+        let v = Easing::BackIn.apply(0.5);
+        assert!(v < 0.5, "BackIn at 0.5 should be < 0.5, got {v}");
+    }
+
+    #[test]
+    fn back_easings_via_name() {
+        assert!(matches!(easing_from_name("back-in"), Some(Easing::BackIn)));
+        assert!(matches!(
+            easing_from_name("back-out"),
+            Some(Easing::BackOut)
+        ));
+        assert!(matches!(
+            easing_from_name("back-in-out"),
+            Some(Easing::BackInOut)
+        ));
     }
 }

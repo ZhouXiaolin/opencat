@@ -259,6 +259,35 @@ Step 0 runs `0..20` and advances cursor to `20`. Step 1 is pinned at frame `5` (
 | N identical animations, uniform gap | `ctx.stagger` |
 | Heterogeneous steps, irregular gaps, overlaps, parallel branches | `ctx.sequence` |
 
+### ctx.typewriter(fullText, opts)
+
+Type out a string character by character, driven by an animation curve. Returns an object whose `text` getter produces the current substring for the given frame.
+
+```js
+var tw = ctx.typewriter('Hello OpenCat', {
+  duration: 30,
+  delay: 6,
+  easing: 'linear',
+  caret: '▍',
+});
+
+ctx.getNode('title').text(tw.text);
+```
+
+**Options**:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `duration` | — | Required. Frames from empty to full string. |
+| `delay` | `0` | Frames to wait before typing starts. |
+| `easing` | `'linear'` | Any easing supported by `ctx.animate()`. Non-linear varies typing speed. |
+| `clamp` | `true` | Prevents spring/bezier overshoot from producing out-of-range character counts. |
+| `caret` | `''` | String appended while typing is in progress. Disappears once the full text is revealed. |
+
+Also exposes `progress`, `settled`, and `settleFrame` like `ctx.animate()`.
+
+Character counting uses `Array.from()`, so the effect is **grapheme-safe for CJK and emoji** — no broken surrogates.
+
 ### Easing
 
 | Preset | Effect |
@@ -308,6 +337,9 @@ node.bg('blue-500').borderRadius(16).borderWidth(2).borderColor('gray-300');
 node.objectFit('cover').textColor('white').textSize(24).fontWeight('bold');
 node.textAlign('center').lineHeight(1.5).letterSpacing(1).shadow('lg');
 node.strokeWidth(2).strokeColor('gray-300').fillColor('blue-500');
+
+// Content (text nodes only — overrides the JSONL `text` field for the current frame)
+node.text('Hello world');
 ```
 
 ### Common Patterns

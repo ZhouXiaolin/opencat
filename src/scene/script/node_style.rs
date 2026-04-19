@@ -47,6 +47,7 @@ pub struct NodeStyleMutations {
     pub inset_shadow_color: Option<ColorToken>,
     pub drop_shadow: Option<crate::style::DropShadow>,
     pub drop_shadow_color: Option<ColorToken>,
+    pub text_content: Option<String>,
 }
 
 impl NodeStyleMutations {
@@ -405,6 +406,9 @@ pub(super) fn install_node_style_bindings<'js>(
         if let Some(color) = color_from_name(&v) {
             map.entry(id).or_default().drop_shadow_color = Some(color);
         }
+    });
+    set_style_binding!("__record_text_content", map, |id, v: String| {
+        map.entry(id).or_default().text_content = Some(v);
     });
 
     Ok(())

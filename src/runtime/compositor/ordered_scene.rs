@@ -74,8 +74,7 @@ fn should_cache_subtree_at_parent_granularity(
         .map(|&child| layer_area(display_tree.layer_bounds(child)))
         .fold(0.0_f32, f32::max);
 
-    max_child_area <= 0.0
-        || (parent_area / max_child_area) <= SUBTREE_GRANULARITY_RATIO_THRESHOLD
+    max_child_area <= 0.0 || (parent_area / max_child_area) <= SUBTREE_GRANULARITY_RATIO_THRESHOLD
 }
 
 fn build_scene_op(
@@ -119,7 +118,9 @@ mod tests {
                 DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
                 DisplayNodeInvalidation,
             },
-            annotation::{AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey},
+            annotation::{
+                AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey,
+            },
             compositor::LiveNodeItemExecution,
             fingerprint::{PaintVariance, SubtreeSnapshotFingerprint},
         },
@@ -179,7 +180,10 @@ mod tests {
                         paint_variance: PaintVariance::Stable,
                         subtree_contains_time_variant: false,
                         paint_fingerprint: Some(11),
-                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 22, secondary: 22 }),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                            primary: 22,
+                            secondary: 22,
+                        }),
                     },
                 );
                 table
@@ -224,7 +228,10 @@ mod tests {
                         paint_variance: PaintVariance::Stable,
                         subtree_contains_time_variant: false,
                         paint_fingerprint: Some(11),
-                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 22, secondary: 22 }),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                            primary: 22,
+                            secondary: 22,
+                        }),
                     },
                 );
                 table.insert(
@@ -233,7 +240,10 @@ mod tests {
                         paint_variance: PaintVariance::Stable,
                         subtree_contains_time_variant: false,
                         paint_fingerprint: Some(33),
-                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 44, secondary: 44 }),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                            primary: 44,
+                            secondary: 44,
+                        }),
                     },
                 );
                 table
@@ -293,7 +303,10 @@ mod tests {
                         paint_variance: PaintVariance::Stable,
                         subtree_contains_time_variant: false,
                         paint_fingerprint: Some(12),
-                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 13, secondary: 13 }),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                            primary: 13,
+                            secondary: 13,
+                        }),
                     },
                 );
                 table.insert(
@@ -369,12 +382,7 @@ mod tests {
                 RenderNodeKey(3),
                 RenderNodeKey(4),
             ],
-            layer_bounds: vec![
-                rect_bounds(),
-                rect_bounds(),
-                rect_bounds(),
-                rect_bounds(),
-            ],
+            layer_bounds: vec![rect_bounds(), rect_bounds(), rect_bounds(), rect_bounds()],
             analysis: {
                 let mut table = DisplayAnalysisTable::default();
                 table.insert(
@@ -392,7 +400,10 @@ mod tests {
                         paint_variance: PaintVariance::Stable,
                         subtree_contains_time_variant: false,
                         paint_fingerprint: Some(12),
-                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 13, secondary: 13 }),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                            primary: 13,
+                            secondary: 13,
+                        }),
                     },
                 );
                 table.insert(
@@ -401,7 +412,10 @@ mod tests {
                         paint_variance: PaintVariance::Stable,
                         subtree_contains_time_variant: false,
                         paint_fingerprint: Some(14),
-                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 15, secondary: 15 }),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                            primary: 15,
+                            secondary: 15,
+                        }),
                     },
                 );
                 table.insert(
@@ -480,7 +494,10 @@ mod tests {
                         paint_variance: PaintVariance::Stable,
                         subtree_contains_time_variant: false,
                         paint_fingerprint: Some(11),
-                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 12, secondary: 12 }),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                            primary: 12,
+                            secondary: 12,
+                        }),
                     },
                 );
                 table.insert(
@@ -489,7 +506,10 @@ mod tests {
                         paint_variance: PaintVariance::Stable,
                         subtree_contains_time_variant: false,
                         paint_fingerprint: Some(21),
-                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 22, secondary: 22 }),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                            primary: 22,
+                            secondary: 22,
+                        }),
                     },
                 );
                 table.insert(
@@ -498,7 +518,10 @@ mod tests {
                         paint_variance: PaintVariance::Stable,
                         subtree_contains_time_variant: false,
                         paint_fingerprint: Some(31),
-                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 32, secondary: 32 }),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                            primary: 32,
+                            secondary: 32,
+                        }),
                     },
                 );
                 table
@@ -511,7 +534,9 @@ mod tests {
         assert_eq!(subtree.item_execution, LiveNodeItemExecution::Direct);
         assert_eq!(
             subtree.children,
-            vec![OrderedSceneOp::CachedSubtree { handle: stable_child }],
+            vec![OrderedSceneOp::CachedSubtree {
+                handle: stable_child
+            }],
         );
     }
 
@@ -556,7 +581,10 @@ mod tests {
                         paint_variance: PaintVariance::Stable,
                         subtree_contains_time_variant: false,
                         paint_fingerprint: Some(11),
-                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 12, secondary: 12 }),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                            primary: 12,
+                            secondary: 12,
+                        }),
                     },
                 );
                 table.insert(
@@ -565,7 +593,10 @@ mod tests {
                         paint_variance: PaintVariance::Stable,
                         subtree_contains_time_variant: false,
                         paint_fingerprint: Some(21),
-                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 22, secondary: 22 }),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                            primary: 22,
+                            secondary: 22,
+                        }),
                     },
                 );
                 table.insert(
@@ -574,7 +605,10 @@ mod tests {
                         paint_variance: PaintVariance::Stable,
                         subtree_contains_time_variant: false,
                         paint_fingerprint: Some(31),
-                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint { primary: 32, secondary: 32 }),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                            primary: 32,
+                            secondary: 32,
+                        }),
                     },
                 );
                 table

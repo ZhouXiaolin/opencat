@@ -70,7 +70,12 @@ where
         self.insert_with_weight(key, value, 1)
     }
 
-    pub fn insert_with_weight(&mut self, key: K, value: V, weight: usize) -> CacheMutationReport<K> {
+    pub fn insert_with_weight(
+        &mut self,
+        key: K,
+        value: V,
+        weight: usize,
+    ) -> CacheMutationReport<K> {
         if self.capacity == 0 {
             return CacheMutationReport::default();
         }
@@ -127,7 +132,9 @@ where
                     let weight_b = *self.weights.get(key_b).unwrap_or(&1);
                     let score_a = (*rank_a as f64) / (weight_a as f64);
                     let score_b = (*rank_b as f64) / (weight_b as f64);
-                    score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+                    score_a
+                        .partial_cmp(&score_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .map(|(_, key)| key.clone());
 

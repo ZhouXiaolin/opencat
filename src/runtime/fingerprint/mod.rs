@@ -28,9 +28,7 @@ use crate::{
     resource::assets::AssetsMap,
     runtime::{
         analysis::DisplayAnalysisTable,
-        annotation::{
-            AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics,
-        },
+        annotation::{AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics},
     },
 };
 
@@ -405,7 +403,9 @@ mod tests {
         let children = node
             .children
             .into_iter()
-            .map(|child| finalize_test_node(child, nodes, keys, layer_bounds, analysis, invalidation))
+            .map(|child| {
+                finalize_test_node(child, nodes, keys, layer_bounds, analysis, invalidation)
+            })
             .collect::<Vec<_>>();
 
         let handle = AnnotatedNodeHandle(nodes.len());
@@ -420,10 +420,9 @@ mod tests {
 
         let subtree_contains_time_variant =
             matches!(node.paint_variance, PaintVariance::TimeVariant)
-                || annotated
-                    .children
-                    .iter()
-                    .any(|&child_handle| analysis.require(child_handle).subtree_contains_time_variant);
+                || annotated.children.iter().any(|&child_handle| {
+                    analysis.require(child_handle).subtree_contains_time_variant
+                });
 
         let mut node_analysis = DisplayNodeAnalysis {
             paint_variance: node.paint_variance,
@@ -679,10 +678,7 @@ mod tests {
         });
 
         // 命令序列空 → hash 稳定 → Stable
-        assert_eq!(
-            classify_paint(&script_item, &assets),
-            PaintVariance::Stable
-        );
+        assert_eq!(classify_paint(&script_item, &assets), PaintVariance::Stable);
         assert!(
             item_paint_fingerprint(&script_item, &assets).is_some(),
             "Stable DrawScript 必须有 paint fingerprint 作为 ItemPictureCache 的 key"
@@ -761,10 +757,7 @@ mod tests {
             fp_a, fp_b,
             "同一量化 pts(1/10000 秒精度)内两次采样必须 fingerprint 相同"
         );
-        assert_ne!(
-            fp_a, fp_c,
-            "跨量化边界的两次采样必须 fingerprint 不同"
-        );
+        assert_ne!(fp_a, fp_c, "跨量化边界的两次采样必须 fingerprint 不同");
     }
 
     #[test]
@@ -798,5 +791,4 @@ mod tests {
             "Video Bitmap 在子树层面仍是 TimeVariant,避免父子树 snapshot 误命中"
         );
     }
-
 }

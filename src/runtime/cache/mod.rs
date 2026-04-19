@@ -117,6 +117,9 @@ mod tests {
     fn cache_registry_exposes_subtree_image_cache() {
         let registry = CacheRegistry::default();
         let cache = registry.subtree_image_cache();
-        assert_eq!(cache.borrow().capacity(), CacheCaps::default().subtree_images);
+        assert_eq!(
+            cache.borrow().capacity(),
+            CacheCaps::default().subtree_images
+        );
     }
 }

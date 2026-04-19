@@ -20,12 +20,15 @@ use crate::{
         bitmap_source::{BitmapSourceKind, bitmap_source_kind},
         media::{MediaContext, VideoFrameRequest},
     },
+    runtime::cache::{
+        CachedSubtreeImage, CachedSubtreeSnapshot, ImageCache, ItemPictureCache, SubtreeImageCache,
+        SubtreeSnapshotCache, TextSnapshotCache,
+    },
     runtime::{
         annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle, RecordedNodeSemantics},
         compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram},
         fingerprint::{SubtreeSnapshotFingerprint, item_paint_fingerprint, text_paint_fingerprint},
     },
-    runtime::cache::{CachedSubtreeImage, CachedSubtreeSnapshot, ImageCache, ItemPictureCache, SubtreeImageCache, SubtreeSnapshotCache, TextSnapshotCache},
     scene::script::{
         CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
         ScriptPointMode,
@@ -153,18 +156,29 @@ impl<'a> SkiaBackend<'a> {
         }
     }
 
-    fn node_snapshot_fingerprint(&self, handle: AnnotatedNodeHandle) -> Option<SubtreeSnapshotFingerprint> {
+    fn node_snapshot_fingerprint(
+        &self,
+        handle: AnnotatedNodeHandle,
+    ) -> Option<SubtreeSnapshotFingerprint> {
         self.display_tree.analysis(handle).snapshot_fingerprint
     }
 
-    fn draw_display_children(&mut self, children: &[AnnotatedNodeHandle], ancestor_has_non_unit_scale: bool) -> Result<()> {
+    fn draw_display_children(
+        &mut self,
+        children: &[AnnotatedNodeHandle],
+        ancestor_has_non_unit_scale: bool,
+    ) -> Result<()> {
         for &child_handle in children {
             self.draw_display_subtree(child_handle, ancestor_has_non_unit_scale)?;
         }
         Ok(())
     }
 
-    fn draw_display_subtree(&mut self, handle: AnnotatedNodeHandle, ancestor_has_non_unit_scale: bool) -> Result<()> {
+    fn draw_display_subtree(
+        &mut self,
+        handle: AnnotatedNodeHandle,
+        ancestor_has_non_unit_scale: bool,
+    ) -> Result<()> {
         let display_tree = self.display_tree;
         let node = display_tree.node(handle);
         let draw = node.draw_composite_semantics();
@@ -214,19 +228,27 @@ impl<'a> SkiaBackend<'a> {
                     event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot", result = "hit", amount = 1_u64);
 
                     // Image cache hit path
-                    let cached_image = self.subtree_image_cache.as_ref()
+                    let cached_image = self
+                        .subtree_image_cache
+                        .as_ref()
                         .and_then(|ic| ic.borrow_mut().get_cloned(&fingerprint.primary))
                         .filter(|_| !has_non_unit_scale);
                     if let Some(cached) = cached_image {
                         event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_image", result = "hit", amount = 1_u64);
-                        return self.draw_subtree_image(&cached.image, opacity, backdrop_blur_sigma, bounds);
+                        return self.draw_subtree_image(
+                            &cached.image,
+                            opacity,
+                            backdrop_blur_sigma,
+                            bounds,
+                        );
                     }
                     event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_image", result = "miss", amount = 1_u64);
 
                     // Increment consecutive hits and resolve render mode
                     let consecutive_hits = entry.consecutive_hits + 1;
                     let render_mode = resolve_cached_subtree_render_mode(
-                        self.subtree_image_cache.as_ref()
+                        self.subtree_image_cache
+                            .as_ref()
                             .and_then(|ic| ic.borrow_mut().get_cloned(&fingerprint.primary))
                             .is_some(),
                         consecutive_hits,
@@ -251,22 +273,43 @@ impl<'a> SkiaBackend<'a> {
                         CachedSubtreeRenderMode::DrawImage => {
                             // Should not happen since we already checked for image above and
                             // didn't find one, but handle gracefully
-                            return self.draw_subtree_snapshot(&entry.picture, opacity, backdrop_blur_sigma, bounds);
+                            return self.draw_subtree_snapshot(
+                                &entry.picture,
+                                opacity,
+                                backdrop_blur_sigma,
+                                bounds,
+                            );
                         }
                         CachedSubtreeRenderMode::PromoteToImage => {
-                            let image = record_subtree_snapshot_image(&entry.picture, entry.recorded_bounds)?;
+                            let image = record_subtree_snapshot_image(
+                                &entry.picture,
+                                entry.recorded_bounds,
+                            )?;
                             if let Some(image_cache) = &self.subtree_image_cache {
-                                let report = image_cache.borrow_mut().insert(fingerprint.primary, CachedSubtreeImage {
-                                    image: image.clone(),
-                                    recorded_bounds: entry.recorded_bounds,
-                                });
+                                let report = image_cache.borrow_mut().insert(
+                                    fingerprint.primary,
+                                    CachedSubtreeImage {
+                                        image: image.clone(),
+                                        recorded_bounds: entry.recorded_bounds,
+                                    },
+                                );
                                 record_cache_pressure("subtree_image", &report);
                             }
                             event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_image", result = "promote", amount = 1_u64);
-                            return self.draw_subtree_image(&image, opacity, backdrop_blur_sigma, bounds);
+                            return self.draw_subtree_image(
+                                &image,
+                                opacity,
+                                backdrop_blur_sigma,
+                                bounds,
+                            );
                         }
                         CachedSubtreeRenderMode::DrawPicture => {
-                            return self.draw_subtree_snapshot(&entry.picture, opacity, backdrop_blur_sigma, bounds);
+                            return self.draw_subtree_snapshot(
+                                &entry.picture,
+                                opacity,
+                                backdrop_blur_sigma,
+                                bounds,
+                            );
                         }
                     }
                 }
@@ -306,30 +349,36 @@ impl<'a> SkiaBackend<'a> {
     ) -> Result<()> {
         let display_tree = self.display_tree;
         let node = display_tree.node(handle);
-        self.with_display_layer(
-            opacity,
-            backdrop_blur_sigma,
-            bounds,
-            |backend| {
-                backend.draw_recorded_node_contents(node.recorded_semantics(), |backend| {
-                    backend.draw_display_children(display_tree.children(handle), false)
-                })
-            },
-        )
+        self.with_display_layer(opacity, backdrop_blur_sigma, bounds, |backend| {
+            backend.draw_recorded_node_contents(node.recorded_semantics(), |backend| {
+                backend.draw_display_children(display_tree.children(handle), false)
+            })
+        })
     }
 
     fn draw_ordered_scene(&mut self, scene: &OrderedSceneProgram) -> Result<()> {
         self.draw_ordered_scene_op(&scene.root, false)
     }
 
-    fn draw_ordered_scene_op(&mut self, op: &OrderedSceneOp, ancestor_has_non_unit_scale: bool) -> Result<()> {
+    fn draw_ordered_scene_op(
+        &mut self,
+        op: &OrderedSceneOp,
+        ancestor_has_non_unit_scale: bool,
+    ) -> Result<()> {
         match op {
-            OrderedSceneOp::CachedSubtree { handle } => self.draw_display_subtree(*handle, ancestor_has_non_unit_scale),
+            OrderedSceneOp::CachedSubtree { handle } => {
+                self.draw_display_subtree(*handle, ancestor_has_non_unit_scale)
+            }
             OrderedSceneOp::LiveSubtree {
                 handle,
                 item_execution,
                 children,
-            } => self.draw_live_ordered_subtree(*handle, *item_execution, children, ancestor_has_non_unit_scale),
+            } => self.draw_live_ordered_subtree(
+                *handle,
+                *item_execution,
+                children,
+                ancestor_has_non_unit_scale,
+            ),
         }
     }
 
@@ -580,7 +629,10 @@ impl<'a> SkiaBackend<'a> {
             self.frame_ctx,
         );
         let subtree = OrderedSceneProgram::build_subtree(display_tree, handle);
-        backend.draw_display_item_with_execution(node.recorded_semantics().item, subtree.item_execution)?;
+        backend.draw_display_item_with_execution(
+            node.recorded_semantics().item,
+            subtree.item_execution,
+        )?;
         backend.with_recorded_clip(node.recorded_semantics(), |backend| {
             for child in &subtree.children {
                 backend.draw_ordered_scene_op(child, false)?;
@@ -600,17 +652,13 @@ impl<'a> SkiaBackend<'a> {
         backdrop_blur_sigma: Option<f32>,
         bounds: DisplayRect,
     ) -> Result<()> {
-        self.with_display_layer(
-            opacity,
-            backdrop_blur_sigma,
-            bounds,
-            |backend| {
-                let profile_span = span!(target: "render.backend", Level::TRACE, "subtree_snapshot_draw");
-                let _profile_span = profile_span.enter();
-                backend.canvas.draw_picture(snapshot, None, None);
-                Ok(())
-            },
-        )
+        self.with_display_layer(opacity, backdrop_blur_sigma, bounds, |backend| {
+            let profile_span =
+                span!(target: "render.backend", Level::TRACE, "subtree_snapshot_draw");
+            let _profile_span = profile_span.enter();
+            backend.canvas.draw_picture(snapshot, None, None);
+            Ok(())
+        })
     }
 
     fn draw_subtree_image(
@@ -743,7 +791,8 @@ pub(crate) fn record_display_tree_snapshot<'a>(
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
 ) -> Result<Picture> {
-    let profile_span = span!(target: "render.backend", Level::TRACE, "display_tree_snapshot_record");
+    let profile_span =
+        span!(target: "render.backend", Level::TRACE, "display_tree_snapshot_record");
     let _profile_span = profile_span.enter();
     let bounds = Rect::from_xywh(0.0, 0.0, width as f32, height as f32);
     let mut recorder = PictureRecorder::new();
@@ -1024,9 +1073,9 @@ fn resolve_cached_subtree_render_mode(
 
 fn transform_list_has_non_unit_scale(transforms: &[Transform]) -> bool {
     transforms.iter().any(|transform| match *transform {
-        Transform::Scale(value)
-        | Transform::ScaleX(value)
-        | Transform::ScaleY(value) => (value - 1.0).abs() > f32::EPSILON,
+        Transform::Scale(value) | Transform::ScaleX(value) | Transform::ScaleY(value) => {
+            (value - 1.0).abs() > f32::EPSILON
+        }
         _ => false,
     })
 }
@@ -1056,7 +1105,9 @@ fn record_subtree_snapshot_image(
     let mut surface = skia_safe::surfaces::raster_n32_premul((width, height))
         .ok_or_else(|| anyhow!("failed to create subtree image surface"))?;
     surface.canvas().save();
-    surface.canvas().translate((-recorded_bounds.x, -recorded_bounds.y));
+    surface
+        .canvas()
+        .translate((-recorded_bounds.x, -recorded_bounds.y));
     surface.canvas().draw_picture(snapshot, None, None);
     surface.canvas().restore();
     Ok(surface.image_snapshot())
@@ -2336,7 +2387,10 @@ mod resolve_tests {
 
     #[test]
     fn hit_returns_hit_when_secondary_matches() {
-        let fp = SubtreeSnapshotFingerprint { primary: 1, secondary: 100 };
+        let fp = SubtreeSnapshotFingerprint {
+            primary: 1,
+            secondary: 100,
+        };
         let cached_secondary = Some(100u64);
         assert_eq!(
             resolve_subtree_snapshot_lookup(fp, cached_secondary),
@@ -2346,7 +2400,10 @@ mod resolve_tests {
 
     #[test]
     fn collision_returns_reject_when_primary_same_but_secondary_differs() {
-        let fp = SubtreeSnapshotFingerprint { primary: 1, secondary: 100 };
+        let fp = SubtreeSnapshotFingerprint {
+            primary: 1,
+            secondary: 100,
+        };
         let cached_secondary = Some(999u64);
         assert_eq!(
             resolve_subtree_snapshot_lookup(fp, cached_secondary),
@@ -2356,7 +2413,10 @@ mod resolve_tests {
 
     #[test]
     fn miss_returns_miss_when_cache_has_nothing() {
-        let fp = SubtreeSnapshotFingerprint { primary: 1, secondary: 100 };
+        let fp = SubtreeSnapshotFingerprint {
+            primary: 1,
+            secondary: 100,
+        };
         assert_eq!(
             resolve_subtree_snapshot_lookup(fp, None),
             SubtreeSnapshotResolution::Miss,
@@ -2370,10 +2430,7 @@ mod promotion_tests {
         SUBTREE_IMAGE_PROMOTION_HITS, should_promote_snapshot_to_image,
         transform_list_has_non_unit_scale,
     };
-    use crate::{
-        display::list::DisplayRect,
-        style::Transform,
-    };
+    use crate::{display::list::DisplayRect, style::Transform};
 
     fn bounds(width: f32, height: f32) -> DisplayRect {
         DisplayRect {
@@ -2426,15 +2483,16 @@ mod promotion_tests {
         assert!(transform_list_has_non_unit_scale(&[Transform::Scale(1.25)]));
         assert!(transform_list_has_non_unit_scale(&[Transform::ScaleX(0.8)]));
         assert!(transform_list_has_non_unit_scale(&[Transform::ScaleY(1.1)]));
-        assert!(!transform_list_has_non_unit_scale(&[Transform::TranslateX(20.0)]));
+        assert!(!transform_list_has_non_unit_scale(&[
+            Transform::TranslateX(20.0)
+        ]));
     }
 }
 
 #[cfg(test)]
 mod materialization_tests {
     use super::{
-        CachedSubtreeRenderMode, SUBTREE_IMAGE_PROMOTION_HITS,
-        resolve_cached_subtree_render_mode,
+        CachedSubtreeRenderMode, SUBTREE_IMAGE_PROMOTION_HITS, resolve_cached_subtree_render_mode,
     };
     use crate::display::list::DisplayRect;
 

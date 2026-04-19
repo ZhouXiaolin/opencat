@@ -75,5 +75,4 @@ impl DisplayInvalidationTable {
             self.nodes[handle.0] = invalidation;
         }
     }
-
 }

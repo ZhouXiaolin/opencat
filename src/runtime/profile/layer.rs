@@ -7,12 +7,14 @@ use std::{
 use anyhow::Result;
 use tracing::{Id, Subscriber, dispatcher::Dispatch};
 use tracing_subscriber::{
+    Registry,
     layer::{Context, Layer, SubscriberExt},
     registry::LookupSpan,
-    Registry,
 };
 
-use super::{CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator, RenderProfileSummary};
+use super::{
+    CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator, RenderProfileSummary,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProfileOutputFormat {
@@ -146,20 +148,15 @@ impl<S> Layer<S> for RenderProfileLayer
 where
     S: Subscriber + for<'lookup> LookupSpan<'lookup>,
 {
-    fn on_new_span(
-        &self,
-        attrs: &tracing::span::Attributes<'_>,
-        id: &Id,
-        ctx: Context<'_, S>,
-    ) {
+    fn on_new_span(&self, attrs: &tracing::span::Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
         let metadata = attrs.metadata();
         let parent_id = attrs
             .parent()
             .cloned()
             .or_else(|| ctx.current_span().id().cloned());
-        let parent_name: Option<&'static str> = parent_id.as_ref().and_then(|pid| {
-            ctx.span(pid).map(|span| span.metadata().name())
-        });
+        let parent_name: Option<&'static str> = parent_id
+            .as_ref()
+            .and_then(|pid| ctx.span(pid).map(|span| span.metadata().name()));
         let inherited_frame = parent_id.as_ref().and_then(|pid| {
             self.shared
                 .lock()
@@ -182,18 +179,22 @@ where
             inherited_frame
         };
 
-        self.shared.lock().expect("profile state lock").spans.insert(
-            id.clone(),
-            SpanState {
-                name: metadata.name(),
-                target: metadata.target(),
-                parent: parent_name,
-                parent_id,
-                frame,
-                started: Instant::now(),
-                child_inclusive_ms: 0.0,
-            },
-        );
+        self.shared
+            .lock()
+            .expect("profile state lock")
+            .spans
+            .insert(
+                id.clone(),
+                SpanState {
+                    name: metadata.name(),
+                    target: metadata.target(),
+                    parent: parent_name,
+                    parent_id,
+                    frame,
+                    started: Instant::now(),
+                    child_inclusive_ms: 0.0,
+                },
+            );
     }
 
     fn on_close(&self, id: Id, _ctx: Context<'_, S>) {
@@ -224,13 +225,12 @@ where
         });
     }
 
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        _ctx: Context<'_, S>,
-    ) {
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
         let metadata = event.metadata();
-        if !matches!(metadata.target(), "render.cache" | "render.draw" | "render.layer") {
+        if !matches!(
+            metadata.target(),
+            "render.cache" | "render.draw" | "render.layer"
+        ) {
             return;
         }
 

@@ -52,7 +52,8 @@ pub(crate) fn render_scene_slot(
         resolve_scene_snapshot_for_slot(runtime, slot, display_tree, plan, require_scene_snapshot)?
     {
         if let Some(frame_view) = frame_view {
-            let profile_span = span!(target: "render.backend", Level::TRACE, "scene_snapshot_present");
+            let profile_span =
+                span!(target: "render.backend", Level::TRACE, "scene_snapshot_present");
             let _profile_span = profile_span.enter();
             engine.draw_scene_snapshot(&snapshot, frame_view)?;
             return Ok(None);
@@ -72,7 +73,12 @@ pub(crate) fn render_scene_slot(
 
     let mut render_context = runtime.render_context();
     let ordered_scene = OrderedSceneProgram::build(display_tree);
-    engine.draw_ordered_scene(&mut render_context, display_tree, &ordered_scene, frame_view)?;
+    engine.draw_ordered_scene(
+        &mut render_context,
+        display_tree,
+        &ordered_scene,
+        frame_view,
+    )?;
     Ok(None)
 }
 

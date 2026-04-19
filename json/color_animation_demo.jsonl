@@ -1,0 +1,5 @@
+{"width":1280,"height":720,"sceneFrames":90,"backgroundColor":"#0f172a","fps":30}
+{"id":"root","parentId":"composition","type":"div","className":"w-full h-full flex flex-col items-center justify-center gap-12"}
+{"id":"swatch","parentId":"root","type":"div","className":"w-72 h-72 rounded-3xl"}
+{"id":"label","parentId":"root","type":"text","text":"HSL color interpolation","className":"text-white text-3xl font-bold"}
+{"type":"script","parentId":"composition","src":"var a = ctx.animate({ from:{bg:'#ef4444'}, to:{bg:'#3b82f6'}, duration:60, easing:'ease-in-out', repeat:-1, yoyo:true }); ctx.getNode('swatch').bg(a.bg); var b = ctx.animate({ from:{textColor:'#ffffff'}, to:{textColor:'#fbbf24'}, duration:60, easing:'ease-in-out', repeat:-1, yoyo:true }); ctx.getNode('label').textColor(b.textColor);"}

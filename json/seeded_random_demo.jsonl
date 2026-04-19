@@ -1,0 +1,9 @@
+{"width":1280,"height":720,"sceneFrames":60,"backgroundColor":"#0f172a","fps":30}
+{"id":"grid","parentId":"composition","type":"div","className":"w-full h-full flex flex-wrap gap-4 p-8"}
+{"id":"d0","parentId":"grid","type":"div","className":"w-16 h-16 bg-cyan-400 rounded"}
+{"id":"d1","parentId":"grid","type":"div","className":"w-16 h-16 bg-cyan-400 rounded"}
+{"id":"d2","parentId":"grid","type":"div","className":"w-16 h-16 bg-cyan-400 rounded"}
+{"id":"d3","parentId":"grid","type":"div","className":"w-16 h-16 bg-cyan-400 rounded"}
+{"id":"d4","parentId":"grid","type":"div","className":"w-16 h-16 bg-cyan-400 rounded"}
+{"id":"d5","parentId":"grid","type":"div","className":"w-16 h-16 bg-cyan-400 rounded"}
+{"type":"script","parentId":"composition","src":"for (var i=0;i<6;i++){ var dx = ctx.utils.random(-100, 100, i+1); var dy = ctx.utils.random(-100, 100, (i+1)*7); ctx.getNode('d'+i).translateX(dx).translateY(dy); }"}

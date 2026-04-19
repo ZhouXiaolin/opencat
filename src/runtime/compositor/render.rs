@@ -71,7 +71,6 @@ pub(crate) fn render_scene_slot(
 
     let mut render_context = runtime.render_context();
     let ordered_scene = OrderedSceneProgram::build(display_tree);
-    debug_assert!(plan.renders_ordered_scene());
     engine.draw_ordered_scene(&mut render_context, display_tree, &ordered_scene, frame_view)?;
     Ok(None)
 }

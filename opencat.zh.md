@@ -198,6 +198,14 @@ node.opacity(anim.opacity).translateY(anim.translateY).scale(anim.scale);
 - `anim.settled`：弹簧是否已经稳定
 - `anim.settleFrame`：弹簧稳定的帧号
 
+**重复选项：**
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `repeat` | `0` | 首次播放后的额外循环次数。`0` = 播放一次，`N` = 播放 N+1 次，`-1` = 无限循环 |
+| `yoyo` | `false` | 交替周期反转（周期 0 正向，周期 1 反向，……） |
+| `repeatDelay` | `0` | 每次循环结束后保持终值的帧数 |
+
 ### Keyframes（单动画多关键帧）
 
 当一个动画需要多于两个关键点时，用 `keyframes` 替代 `from`/`to`：
@@ -295,6 +303,11 @@ ctx.getNode('ball')
 | 预设 | 效果 |
 |------|------|
 | `'linear'` | 匀速 |
+| `'ease'` / `'ease-in'` / `'ease-out'` / `'ease-in-out'` | 标准 CSS 三次曲线 |
+| `'back-in'` / `'back-out'` / `'back-in-out'` | 轻微过冲（UI 吸附效果） |
+| `'elastic-in'` / `'elastic-out'` / `'elastic-in-out'` | 阻尼振荡 |
+| `'bounce-in'` / `'bounce-out'` / `'bounce-in-out'` | 弹地效果 |
+| `'steps(N)'` | 量化为 N 个离散步进（像素/打字机） |
 | `'spring-default'` | 通用弹簧 |
 | `'spring-gentle'` | 柔和弹簧 |
 | `'spring-stiff'` | 更硬的弹簧 |
@@ -337,6 +350,22 @@ ctx.getNode('card').bg(a.bg);
 颜色总是会被 clamp（spring 超出 `[0, 1]` 的 progress 会被归一化回范围内），因此弹簧缓动不会把值推到可见色域之外。
 
 > Tailwind token 如 `'blue-500'` 仍然作为离散的 `node.bg(token)` 调用——它们**不会**被插值。要做颜色动画，请在 `from` / `to` 中用 hex/rgb/hsl 格式书写颜色。
+
+### ctx.utils
+
+数值工具和**确定性**随机——需要跨渲染输出可复现的随机值时非常有用。
+
+```js
+ctx.utils.clamp(value, min, max);
+ctx.utils.snap(value, step);
+ctx.utils.wrap(value, min, max);                   // (value - min) 包裹到 [min, max)
+ctx.utils.mapRange(value, inMin, inMax, outMin, outMax);
+
+ctx.utils.random(min, max, seed?);                 // [min, max)
+ctx.utils.randomInt(min, max, seed?);              // [min, max] 内的整数
+```
+
+> **重要：** 省略 `seed` 时，`ctx.utils.random` 回退到 `Math.random()`，**每次渲染输出不同**，会破坏确定性。**视频渲染时务必传入 seed**（例如节点 id 哈希 + 帧槽位）。
 
 ### 节点 API
 

@@ -1,6 +1,0 @@
-{"width":1280,"height":720,"sceneFrames":120,"backgroundColor":"#0f172a","fps":30}
-{"id":"root","parentId":"composition","type":"div","className":"w-full h-full flex items-center justify-center gap-16"}
-{"id":"once","parentId":"root","type":"div","className":"w-32 h-32 rounded-2xl bg-blue-500"}
-{"id":"loop","parentId":"root","type":"div","className":"w-32 h-32 rounded-2xl bg-emerald-500"}
-{"id":"yoyo","parentId":"root","type":"div","className":"w-32 h-32 rounded-2xl bg-rose-500"}
-{"type":"script","parentId":"composition","src":"var a = ctx.animate({ from:{scale:1}, to:{scale:1.4}, duration:30, easing:'spring-gentle' }); ctx.getNode('once').scale(a.scale); var b = ctx.animate({ from:{scale:1}, to:{scale:1.4}, duration:30, repeat:-1, repeatDelay:10, easing:'ease-in-out' }); ctx.getNode('loop').scale(b.scale); var c = ctx.animate({ from:{scale:1}, to:{scale:1.4}, duration:30, repeat:-1, yoyo:true, easing:'ease-in-out' }); ctx.getNode('yoyo').scale(c.scale);"}

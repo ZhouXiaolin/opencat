@@ -334,14 +334,14 @@ fn parse_easing_from_tag(tag: &str) -> Easing {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct HSLA {
-    h: f32,
-    s: f32,
-    l: f32,
-    a: f32,
+pub(super) struct HSLA {
+    pub h: f32,
+    pub s: f32,
+    pub l: f32,
+    pub a: f32,
 }
 
-fn parse_color(input: &str) -> Option<HSLA> {
+pub(super) fn parse_color(input: &str) -> Option<HSLA> {
     let s = input.trim();
 
     if let Some(rest) = s.strip_prefix('#') {
@@ -522,7 +522,7 @@ fn hsla_to_rgba_string(hsla: &HSLA) -> String {
     format!("rgba({},{},{},{:.2})", r, g, b, hsla.a)
 }
 
-fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
+pub(super) fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     if s.abs() < 1e-6 {
         let v = (l * 255.0).round() as u8;
         return (v, v, v);

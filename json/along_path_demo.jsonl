@@ -1,3 +1,0 @@
-{"width":1280,"height":720,"sceneFrames":120,"backgroundColor":"#0f172a","fps":30}
-{"id":"ball","parentId":"composition","type":"div","className":"w-12 h-12 rounded-full bg-rose-400"}
-{"type":"script","parentId":"composition","src":"if (!ctx.__along) { ctx.__along = ctx.alongPath('M100 360 C400 80 880 640 1180 360'); } var a = ctx.animate({ from:{t:0}, to:{t:1}, duration:120, easing:'ease-in-out', repeat:-1, yoyo:true }); var pos = ctx.__along.at(a.t); ctx.getNode('ball').translateX(pos.x - 24).translateY(pos.y - 24).rotate(pos.angle);"}

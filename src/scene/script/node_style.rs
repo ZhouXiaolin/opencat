@@ -169,7 +169,13 @@ impl NodeStyleMutations {
 }
 
 fn color_from_name(name: &str) -> Option<ColorToken> {
-    color_token_from_script_name(name)
+    if let Some(c) = color_token_from_script_name(name) {
+        return Some(c);
+    }
+    let hsla = super::animate_api::parse_color(name)?;
+    let (r, g, b) = super::animate_api::hsl_to_rgb(hsla.h, hsla.s, hsla.l);
+    let a = (hsla.a.clamp(0.0, 1.0) * 255.0).round() as u8;
+    Some(ColorToken::Custom(r, g, b, a))
 }
 
 pub(super) const NODE_STYLE_RUNTIME: &str = include_str!("runtime/node_style.js");

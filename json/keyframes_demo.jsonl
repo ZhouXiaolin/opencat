@@ -1,5 +1,0 @@
-{"width":1280,"height":720,"sceneFrames":90,"backgroundColor":"#0f172a","fps":30}
-{"id":"row","parentId":"composition","type":"div","className":"w-full h-full flex items-center justify-center gap-16"}
-{"id":"shorthand","parentId":"row","type":"div","className":"w-32 h-32 bg-emerald-500 rounded-2xl"}
-{"id":"full","parentId":"row","type":"div","className":"w-32 h-32 bg-rose-500 rounded-2xl"}
-{"type":"script","parentId":"composition","src":"var a = ctx.animate({ keyframes:{ scale:[1, 1.4, 0.8, 1] }, duration:60 }); ctx.getNode('shorthand').scale(a.scale); var b = ctx.animate({ keyframes:{ rotate:[ {at:0,value:0}, {at:0.5,value:360,easing:'back-out'}, {at:1,value:0} ] }, duration:60 }); ctx.getNode('full').rotate(b.rotate);"}

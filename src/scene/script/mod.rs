@@ -1448,4 +1448,138 @@ mod tests {
             sc
         );
     }
+
+    #[test]
+    fn script_driver_sequence_accumulates_cursor() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            const seq = ctx.sequence([
+                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 10, easing: 'linear' },
+                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 10, easing: 'linear' },
+            ]);
+            ctx.getNode("a").opacity(seq[0].opacity);
+            ctx.getNode("b").opacity(seq[1].opacity);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(10, 30, 10, 30, None).expect("script should run");
+        let a = mutations.get("a").expect("a mutation should exist");
+        let b = mutations.get("b").expect("b mutation should exist");
+
+        assert!(
+            (a.opacity.unwrap() - 1.0).abs() < 0.01,
+            "step 0 should be settled at frame 10, got {}",
+            a.opacity.unwrap()
+        );
+        assert!(
+            b.opacity.unwrap() < 0.05,
+            "step 1 should barely have started at frame 10, got {}",
+            b.opacity.unwrap()
+        );
+    }
+
+    #[test]
+    fn script_driver_sequence_respects_explicit_at_without_advancing_cursor() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            const seq = ctx.sequence([
+                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 10, easing: 'linear' },
+                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 20, easing: 'linear', at: 5 },
+                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 10, easing: 'linear' },
+            ]);
+            ctx.getNode("a").opacity(seq[0].opacity);
+            ctx.getNode("b").opacity(seq[1].opacity);
+            ctx.getNode("c").opacity(seq[2].opacity);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(20, 30, 20, 30, None).expect("script should run");
+        let a = mutations.get("a").expect("a mutation should exist");
+        let b = mutations.get("b").expect("b mutation should exist");
+        let c = mutations.get("c").expect("c mutation should exist");
+
+        assert!(
+            (a.opacity.unwrap() - 1.0).abs() < 0.01,
+            "step 0 should be settled at frame 20, got {}",
+            a.opacity.unwrap()
+        );
+        assert!(
+            (b.opacity.unwrap() - 0.75).abs() < 0.01,
+            "step 1 at=5 d=20 should be 0.75 at frame 20, got {}",
+            b.opacity.unwrap()
+        );
+        assert!(
+            (c.opacity.unwrap() - 1.0).abs() < 0.01,
+            "step 2 should start from cursor 10 and settle by frame 20, got {}",
+            c.opacity.unwrap()
+        );
+    }
+
+    #[test]
+    fn script_driver_sequence_negative_gap_overlaps() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            const seq = ctx.sequence([
+                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 10, easing: 'linear', gap: -4 },
+                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 10, easing: 'linear' },
+            ]);
+            ctx.getNode("a").opacity(seq[0].opacity);
+            ctx.getNode("b").opacity(seq[1].opacity);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(8, 30, 8, 30, None).expect("script should run");
+        let a = mutations.get("a").expect("a mutation should exist");
+        let b = mutations.get("b").expect("b mutation should exist");
+
+        assert!(
+            (a.opacity.unwrap() - 0.8).abs() < 0.01,
+            "step 0 should be 0.8 at frame 8, got {}",
+            a.opacity.unwrap()
+        );
+        assert!(
+            (b.opacity.unwrap() - 0.2).abs() < 0.01,
+            "step 1 should be 0.2 at frame 8 (started at frame 6 due to gap=-4), got {}",
+            b.opacity.unwrap()
+        );
+    }
+
+    #[test]
+    fn script_driver_sequence_per_step_duration_and_easing() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            const seq = ctx.sequence([
+                { from: { translateX: 0 }, to: { translateX: 100 }, duration: 20, easing: 'linear' },
+                { from: { translateY: 0 }, to: { translateY: 50 }, duration: 10, easing: 'ease-out' },
+            ]);
+            ctx.getNode("box").translateX(seq[0].translateX).translateY(seq[1].translateY);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(25, 30, 25, 30, None).expect("script should run");
+        let node = mutations.get("box").expect("box mutation should exist");
+
+        let tx = match &node.transforms[0] {
+            Transform::TranslateX(v) => *v,
+            _ => panic!("expected TranslateX"),
+        };
+        let ty = match &node.transforms[1] {
+            Transform::TranslateY(v) => *v,
+            _ => panic!("expected TranslateY"),
+        };
+        assert!(
+            (tx - 100.0).abs() < 0.01,
+            "step 0 (linear, 0..20) should be settled at frame 25, got {}",
+            tx
+        );
+        assert!(
+            ty > 25.0 && ty < 50.0,
+            "step 1 (ease-out, 20..30) at halfway should be between 25 and 50, got {}",
+            ty
+        );
+    }
 }

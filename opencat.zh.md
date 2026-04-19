@@ -235,6 +235,31 @@ easing: { spring: { stiffness: 120, damping: 12, mass: 0.9 } }
 easing: [0.25, 0.1, 0.25, 1.0]
 ```
 
+### 颜色动画
+
+`ctx.animate()` 会在 `from` 或 `to` 的值为字符串时自动对颜色进行插值。颜色会被转换为 HSLA，色相沿最短弧线插值（处理 360->0 环绕），结果以 `rgba(...)` 字符串返回，兼容 `node.bg()`、`node.textColor()`、`node.borderColor()` 等。
+
+```js
+var a = ctx.animate({
+  from: { bg: '#ef4444' },
+  to:   { bg: 'hsl(220, 90%, 55%)' },
+  duration: 60,
+  repeat: -1,
+  yoyo: true,
+});
+ctx.getNode('card').bg(a.bg);
+```
+
+支持的颜色字面量（用于 `from` / `to`）：
+
+- `#rgb` / `#rrggbb` / `#rrggbbaa`
+- `rgb(r, g, b)` / `rgba(r, g, b, a)`
+- `hsl(h, s%, l%)` / `hsla(h, s%, l%, a)`
+
+颜色总是会被 clamp（spring 超出 `[0, 1]` 的 progress 会被归一化回范围内），因此弹簧缓动不会把值推到可见色域之外。
+
+> Tailwind token 如 `'blue-500'` 仍然作为离散的 `node.bg(token)` 调用——它们**不会**被插值。要做颜色动画，请在 `from` / `to` 中用 hex/rgb/hsl 格式书写颜色。
+
 ### 节点 API
 
 `ctx.getNode('id')` 会返回一个可链式调用的代理对象。

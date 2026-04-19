@@ -179,10 +179,13 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style);
 
+        let content = text_content_from_stack(cx.mutation_stack, &style.id)
+            .unwrap_or_else(|| text.content().to_string());
+
         Ok(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Text(ElementText {
-                text: text.content().to_string(),
+                text: content,
                 text_style: computed.text,
             }),
             style: computed,
@@ -435,6 +438,13 @@ fn apply_canvas_mutation_stack(
     for mutations in stack {
         mutations.apply_to_canvas(commands, id);
     }
+}
+
+fn text_content_from_stack(stack: &[StyleMutations], id: &str) -> Option<String> {
+    stack
+        .iter()
+        .rev()
+        .find_map(|m| m.text_content_for(id).map(str::to_string))
 }
 
 fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> ComputedStyle {

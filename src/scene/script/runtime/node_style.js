@@ -50,6 +50,7 @@
             case 'insetShadowColor': __record_inset_shadow_color(id, String(args[0])); break;
             case 'dropShadow': __record_drop_shadow(id, String(args[0])); break;
             case 'dropShadowColor': __record_drop_shadow_color(id, String(args[0])); break;
+            case 'text': __record_text_content(id, String(args[0])); break;
         }
     }
 

@@ -54,6 +54,12 @@ impl StyleMutations {
             commands.extend(mutation.commands.iter().cloned());
         }
     }
+
+    pub fn text_content_for(&self, id: &str) -> Option<&str> {
+        self.mutations
+            .get(id)
+            .and_then(|m| m.text_content.as_deref())
+    }
 }
 
 #[derive(Default)]
@@ -1580,6 +1586,109 @@ mod tests {
             ty > 25.0 && ty < 50.0,
             "step 1 (ease-out, 20..30) at halfway should be between 25 and 50, got {}",
             ty
+        );
+    }
+
+    #[test]
+    fn script_driver_records_text_content_override() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.getNode("title").text("Hello");
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(0, 1, 0, 1, None).expect("script should run");
+        let title = mutations.get("title").expect("title mutation should exist");
+        assert_eq!(title.text_content, Some("Hello".to_string()));
+    }
+
+    #[test]
+    fn script_driver_typewriter_progresses_through_characters() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            var tw = ctx.typewriter("Hello", { duration: 10, easing: 'linear' });
+            ctx.getNode("title").text(tw.text);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(6, 30, 6, 30, None).expect("script should run");
+        let title = mutations.get("title").expect("title mutation should exist");
+        assert_eq!(title.text_content, Some("Hel".to_string()));
+    }
+
+    #[test]
+    fn script_driver_typewriter_start_and_end_bounds() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            var tw = ctx.typewriter("Cat", { duration: 6, easing: 'linear' });
+            ctx.getNode("t").text(tw.text);
+        "#,
+        )
+        .expect("script should compile");
+
+        let start = driver.run(0, 10, 0, 10, None).expect("frame 0 should run");
+        assert_eq!(
+            start.get("t").unwrap().text_content,
+            Some(String::new()),
+            "empty before any chars are revealed"
+        );
+
+        let end = driver.run(6, 10, 6, 10, None).expect("frame 6 should run");
+        assert_eq!(
+            end.get("t").unwrap().text_content,
+            Some("Cat".to_string()),
+            "full string at end of duration"
+        );
+
+        let past = driver
+            .run(20, 30, 20, 30, None)
+            .expect("frame 20 should run (clamped)");
+        assert_eq!(
+            past.get("t").unwrap().text_content,
+            Some("Cat".to_string()),
+            "clamped to full string past duration"
+        );
+    }
+
+    #[test]
+    fn script_driver_typewriter_grapheme_safe_for_cjk() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            var tw = ctx.typewriter("你好世界", { duration: 8, easing: 'linear' });
+            ctx.getNode("t").text(tw.text);
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(4, 30, 4, 30, None).expect("script should run");
+        let t = mutations.get("t").expect("t mutation should exist");
+        assert_eq!(t.text_content, Some("你好".to_string()));
+    }
+
+    #[test]
+    fn script_driver_typewriter_appends_caret_during_progress() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            var tw = ctx.typewriter("Hi", { duration: 4, easing: 'linear', caret: '|' });
+            ctx.getNode("t").text(tw.text);
+        "#,
+        )
+        .expect("script should compile");
+
+        let typing = driver.run(2, 10, 2, 10, None).expect("frame 2 should run");
+        assert_eq!(
+            typing.get("t").unwrap().text_content,
+            Some("H|".to_string()),
+            "caret should follow the partial string while typing"
+        );
+
+        let settled = driver.run(10, 20, 10, 20, None).expect("frame 10 should run");
+        assert_eq!(
+            settled.get("t").unwrap().text_content,
+            Some("Hi".to_string()),
+            "no caret once settled"
         );
     }
 }

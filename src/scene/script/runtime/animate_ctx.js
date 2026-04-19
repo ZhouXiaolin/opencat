@@ -260,4 +260,48 @@
 
         return results;
     };
+
+    ctx.typewriter = function(fullText, opts) {
+        if (!opts) {
+            throw new Error('ctx.typewriter requires an options object');
+        }
+        var full = String(fullText);
+        var chars = Array.from(full);
+        var total = chars.length;
+        var caret = opts.caret !== undefined ? String(opts.caret) : '';
+
+        var anim = ctx.animate({
+            from: { chars: 0 },
+            to:   { chars: total },
+            duration: opts.duration,
+            delay: opts.delay || 0,
+            easing: opts.easing || 'linear',
+            clamp: opts.clamp !== undefined ? opts.clamp : true,
+        });
+
+        var result = {};
+        Object.defineProperty(result, 'text', {
+            get: function() {
+                var n = Math.floor(anim.chars);
+                if (n <= 0) return '';
+                if (n >= total) return full;
+                return chars.slice(0, n).join('') + caret;
+            },
+            enumerable: true,
+        });
+        Object.defineProperty(result, 'progress', {
+            get: function() { return anim.progress; },
+            enumerable: true,
+        });
+        Object.defineProperty(result, 'settled', {
+            get: function() { return anim.settled; },
+            enumerable: true,
+        });
+        Object.defineProperty(result, 'settleFrame', {
+            get: function() { return anim.settleFrame; },
+            enumerable: true,
+        });
+
+        return result;
+    };
 })();

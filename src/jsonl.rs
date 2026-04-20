@@ -127,6 +127,18 @@ enum JsonLine {
         #[serde(rename = "maskScale")]
         mask_scale: Option<f32>,
     },
+    #[serde(rename = "layer")]
+    Layer { children: Vec<String> },
+    #[serde(rename = "caption")]
+    Caption {
+        id: String,
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        #[serde(rename = "className")]
+        class_name: Option<String>,
+        path: String,
+        duration: Option<u32>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -137,6 +149,7 @@ enum ParsedElementKind {
     Image { source: ImageSource },
     Icon { name: String },
     Video { path: PathBuf },
+    Caption { path: PathBuf },
 }
 
 #[derive(Debug, Clone)]
@@ -170,6 +183,11 @@ struct ParsedAudioElement {
     parent_id: Option<String>,
     duration: Option<u32>,
     source: AudioSource,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedLayerNode {
+    children: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -213,6 +231,7 @@ pub fn parse_with_base_dir(
     let mut scripts_by_parent: HashMap<String, Vec<String>> = HashMap::new();
     let mut elements: Vec<ParsedElement> = Vec::new();
     let mut timeline_entries = Vec::new();
+    let mut layer_root: Option<ParsedLayerNode> = None;
 
     for (line_index, line) in input.lines().enumerate() {
         let line = line.trim();
@@ -431,7 +450,61 @@ pub fn parse_with_base_dir(
                 hue_shift,
                 mask_scale,
             })),
+            JsonLine::Layer { children } => {
+                if children.is_empty() {
+                    anyhow::bail!("layer node requires at least one child");
+                }
+                if layer_root.is_some() {
+                    anyhow::bail!("only one layer node is allowed");
+                }
+                layer_root = Some(ParsedLayerNode { children });
+            }
+            JsonLine::Caption {
+                id,
+                parent_id,
+                class_name,
+                path,
+                duration,
+            } => {
+                let style = parse_class_name_with_context(
+                    class_name.as_deref().unwrap_or(""),
+                    &id,
+                    line_index + 1,
+                );
+                let resolved_path = if let Some(base_dir) = base_dir {
+                    base_dir.join(&path)
+                } else {
+                    PathBuf::from(path)
+                };
+                if parent_id.is_none() {
+                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
+                }
+                elements.push(ParsedElement {
+                    id,
+                    parent_id,
+                    duration,
+                    style,
+                    kind: ParsedElementKind::Caption {
+                        path: resolved_path,
+                    },
+                });
+            }
         }
+    }
+
+    // When a layer root is present, caption elements that are layer children
+    // should not participate in the timeline — they are overlays managed by
+    // the layer builder (Task 3). Filter them out of timeline_entries.
+    if let Some(layer) = &layer_root {
+        let is_caption = |id: &str| -> bool {
+            elements
+                .iter()
+                .any(|el| el.id == id && matches!(el.kind, ParsedElementKind::Caption { .. }))
+        };
+        timeline_entries.retain(|entry| match entry {
+            TimelineEntry::SequenceRoot { id } => !is_caption(id),
+            TimelineEntry::Transition(_) => true,
+        });
     }
 
     let has_timeline = timeline_entries
@@ -446,7 +519,21 @@ pub fn parse_with_base_dir(
         .into_iter()
         .map(|audio| resolve_audio_source(audio, &elements_by_id))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let (root, frames) = if has_timeline {
+    let (root, frames) = if let Some(layer) = &layer_root {
+        for child_id in &layer.children {
+            let found = elements
+                .iter()
+                .any(|el| el.id == *child_id && el.parent_id.is_none());
+            if !found {
+                anyhow::bail!("unknown layer child `{child_id}`");
+            }
+        }
+        if has_timeline {
+            build_timeline(&elements, &scripts_by_parent, &timeline_entries)?
+        } else {
+            (build_tree(&elements, &scripts_by_parent)?, frames)
+        }
+    } else if has_timeline {
         build_timeline(&elements, &scripts_by_parent, &timeline_entries)?
     } else {
         (build_tree(&elements, &scripts_by_parent)?, frames)
@@ -1325,6 +1412,33 @@ mod tests {
             &parsed.audio_sources[0].attach,
             AudioAttachment::Scene { scene_id } if scene_id == "scene-a"
         ));
+    }
+
+    #[test]
+    fn parser_accepts_layer_node_and_caption_overlay() {
+        let parsed = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
+{"id":"scene-a","parentId":null,"type":"div","className":"","duration":10}
+{"id":"scene-b","parentId":null,"type":"div","className":"","duration":10}
+{"type":"transition","from":"scene-a","to":"scene-b","effect":"fade","duration":5}
+{"id":"subs","parentId":null,"type":"caption","className":"absolute inset-x-0 bottom-[24px] text-center text-white","path":"sub.srt"}
+{"type":"layer","children":["scene-a","subs"]}"#,
+        )
+        .expect("layered jsonl should parse");
+
+        assert_eq!(parsed.frames, 25);
+    }
+
+    #[test]
+    fn parser_rejects_unknown_layer_child() {
+        let err = parse(
+            r#"{"id":"scene-a","parentId":null,"type":"div","className":"","duration":10}
+{"type":"layer","children":["missing-child"]}"#,
+        )
+        .err()
+        .expect("missing child should fail");
+
+        assert!(err.to_string().contains("unknown layer child"));
     }
 
     fn unique_test_dir(name: &str) -> PathBuf {

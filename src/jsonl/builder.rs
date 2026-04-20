@@ -227,6 +227,13 @@ fn build_node(
             video_node.style = style;
             Ok(Node::new(video_node))
         }
+        ParsedElementKind::Caption { .. } => {
+            // Caption node building will be implemented in Task 2.
+            // For now, treat as a div placeholder so parsing succeeds.
+            let mut caption_node = div();
+            caption_node.style = style;
+            Ok(Node::new(caption_node))
+        }
     }
 }
 

@@ -206,6 +206,33 @@ Additional fields:
 | `yoyo` | `false` | Reverse on alternate cycles (cycle 0 forward, cycle 1 backward, ...) |
 | `repeatDelay` | `0` | Frames to hold the end value before restarting each cycle |
 
+**Path animation:**
+
+Pass `path` (an SVG path string) instead of `from`/`to` to animate a node along a curve. The returned object exposes `x`, `y`, and `rotation` getters. The ContourMeasure is auto-cached; no manual caching needed.
+
+```js
+var a = ctx.animate({
+  path: 'M100 360 C400 80 880 640 1180 360',
+  orient: -90,              // angle offset from tangent (0 = along direction)
+  duration: 120,
+  easing: 'ease-in-out',
+  repeat: -1,
+  yoyo: true,
+});
+ctx.getNode('ball')
+  .position('absolute')
+  .left(a.x - 24)
+  .top(a.y - 24)
+  .rotate(a.rotation);
+```
+
+`path` uses the same timing system (`duration`, `delay`, `easing`, `repeat`, `yoyo`, `clamp`) as `from`/`to`. `path` and `from`/`to` can coexist on the same animation -- use `from`/`to` for properties like `opacity` or `scale` alongside path-driven position.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `path` | — | SVG path string (see supported commands below) |
+| `orient` | `0` | Rotation offset in degrees from path tangent. Use `-90` for upward-oriented shapes |
+
 ### Keyframes (multiple stops in a single animation)
 
 For a single animation that needs more than two stops, pass `keyframes` instead of `from`/`to`:
@@ -330,26 +357,19 @@ Character counting uses `Array.from()`, so the effect is **grapheme-safe for CJK
 
 ### ctx.alongPath(svgPath)
 
-Sample an SVG path string as a motion path. Returns a small object with `getLength()`, `at(t)`, and `dispose()`. `at(t)` takes `t in [0, 1]` and returns `{ x, y, angle }` -- `angle` is the path tangent in **degrees**, ready for `node.rotate()`.
+Low-level path sampler. For most cases, prefer the `path` option on `ctx.animate()` (see above) which handles caching and timing automatically.
+
+Returns a small object with `getLength()`, `at(t)`, and `dispose()`. `at(t)` takes `t in [0, 1]` and returns `{ x, y, angle }` -- `angle` is the path tangent in **degrees**.
 
 The SVG string is parsed once on creation; sampling is computed in Rust via Skia's `ContourMeasure`.
 
 ```js
-// IMPORTANT: cache the measurer; do NOT rebuild it every frame
+// Manual usage (advanced): cache the measurer yourself
 if (!ctx.__along) {
   ctx.__along = ctx.alongPath('M100 360 C400 80 880 640 1180 360');
 }
-
-var a = ctx.animate({
-  from: { t: 0 }, to: { t: 1 },
-  duration: 120, easing: 'ease-in-out',
-  repeat: -1, yoyo: true,
-});
-var pos = ctx.__along.at(a.t);
-ctx.getNode('ball')
-  .translateX(pos.x - 24)
-  .translateY(pos.y - 24)
-  .rotate(pos.angle);
+var pos = ctx.__along.at(0.5);
+// pos = { x: ..., y: ..., angle: ... }
 ```
 
 **Supported SVG path commands** (uppercase = absolute, lowercase = relative):

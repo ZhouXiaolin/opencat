@@ -206,6 +206,33 @@ node.opacity(anim.opacity).translateY(anim.translateY).scale(anim.scale);
 | `yoyo` | `false` | 交替周期反转（周期 0 正向，周期 1 反向，……） |
 | `repeatDelay` | `0` | 每次循环结束后保持终值的帧数 |
 
+**路径动画：**
+
+传入 `path`（SVG path 字符串）替代 `from`/`to`，让节点沿曲线运动。返回对象包含 `x`、`y`、`rotation` getter。ContourMeasure 自动缓存，无需手动管理。
+
+```js
+var a = ctx.animate({
+  path: 'M100 360 C400 80 880 640 1180 360',
+  orient: -90,              // 相对切线的角度偏移（0 = 沿运动方向）
+  duration: 120,
+  easing: 'ease-in-out',
+  repeat: -1,
+  yoyo: true,
+});
+ctx.getNode('ball')
+  .position('absolute')
+  .left(a.x - 24)
+  .top(a.y - 24)
+  .rotate(a.rotation);
+```
+
+`path` 使用与 `from`/`to` 相同的时间系统（`duration`、`delay`、`easing`、`repeat`、`yoyo`、`clamp`）。`path` 和 `from`/`to` 可在同一动画中共存——用 `from`/`to` 控制 `opacity`、`scale` 等属性，`path` 控制位置。
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `path` | — | SVG path 字符串（支持的命令见下方） |
+| `orient` | `0` | 相对路径切线的旋转偏移（度）。朝上的形状用 `-90` |
+
 ### Keyframes（单动画多关键帧）
 
 当一个动画需要多于两个关键点时，用 `keyframes` 替代 `from`/`to`：
@@ -254,22 +281,20 @@ var anims = ctx.stagger(4, {
 
 ### ctx.alongPath(svgPath)
 
-将 SVG path 字符串采样为运动路径。返回一个包含 `getLength()`、`at(t)` 和 `dispose()` 的对象。`at(t)` 接受 `t in [0, 1]` 并返回 `{ x, y, angle }`——`angle` 是路径切线角度，单位为**度**，可直接传给 `node.rotate()`。
+低层路径采样器。大多数场景下，推荐使用 `ctx.animate()` 的 `path` 选项（见上方），它自动处理缓存和时间控制。
+
+返回一个包含 `getLength()`、`at(t)` 和 `dispose()` 的对象。`at(t)` 接受 `t in [0, 1]` 并返回 `{ x, y, angle }`——`angle` 是路径切线角度，单位为**度**。
 
 SVG 字符串在创建时解析一次；采样通过 Rust 侧 Skia 的 `ContourMeasure` 计算。
 
 ```js
-// 重要：缓存 measurer；不要每帧重建
+// 手动使用（高级场景）：自行缓存 measurer
 if (!ctx.__along) {
   ctx.__along = ctx.alongPath('M100 360 C400 80 880 640 1180 360');
 }
-
-var a = ctx.animate({
-  from: { t: 0 }, to: { t: 1 },
-  duration: 120, easing: 'ease-in-out',
-  repeat: -1, yoyo: true,
-});
-var pos = ctx.__along.at(a.t);
+var pos = ctx.__along.at(0.5);
+// pos = { x: ..., y: ..., angle: ... }
+```
 ctx.getNode('ball')
   .translateX(pos.x - 24)
   .translateY(pos.y - 24)

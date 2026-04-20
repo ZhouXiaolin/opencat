@@ -59,19 +59,42 @@ pub(crate) fn render_frame_on_surface(
         frame_state_for_root(&root, &frame_ctx)
     };
 
+    render_frame_state(
+        &frame_state,
+        &frame_ctx,
+        session,
+        _mutations.as_ref(),
+        composition.width,
+        composition.height,
+        Some(frame_view),
+        false,
+    )?;
+    Ok(())
+}
+
+fn render_frame_state(
+    frame_state: &FrameState,
+    frame_ctx: &FrameCtx,
+    session: &mut RenderSession,
+    mutations: Option<&StyleMutations>,
+    width: i32,
+    height: i32,
+    frame_view: Option<RenderFrameView>,
+    require_snapshot: bool,
+) -> Result<Option<crate::runtime::render_engine::SceneSnapshot>> {
     match frame_state {
         FrameState::Scene {
             scene,
             script_frame_ctx,
         } => {
-            root_span.record("mode", "scene");
+            let slot = SceneSlot::root_scene();
             let (annotated_display_tree, scene_stats) = build_scene_display_list_with_slot(
-                &scene,
-                &frame_ctx,
-                &script_frame_ctx,
+                scene,
+                frame_ctx,
+                script_frame_ctx,
                 session,
-                _mutations.as_ref(),
-                SceneSlot::Scene,
+                mutations,
+                slot.clone(),
             )?;
             let snapshot_plan = plan_for_scene(&scene_stats);
 
@@ -81,19 +104,19 @@ pub(crate) fn render_frame_on_surface(
                 scene_snapshots: &mut session.scene_snapshots,
                 cache_registry: &session.cache_registry,
                 media_ctx: &mut session.media_ctx,
-                frame_ctx: &frame_ctx,
+                frame_ctx,
                 render_engine,
-                width: composition.width,
-                height: composition.height,
+                width,
+                height,
             };
             render_scene_slot(
                 &mut snapshot_runtime,
-                SceneSlot::Scene,
+                &slot,
                 &annotated_display_tree,
                 snapshot_plan,
-                false,
-                Some(frame_view),
-            )?;
+                require_snapshot,
+                frame_view,
+            )
         }
         FrameState::Transition {
             from,
@@ -103,22 +126,23 @@ pub(crate) fn render_frame_on_surface(
             progress,
             kind,
         } => {
-            root_span.record("mode", "transition");
+            let from_slot = SceneSlot::root_transition_from();
+            let to_slot = SceneSlot::root_transition_to();
             let (from_annotated_tree, from_stats) = build_scene_display_list_with_slot(
-                &from,
-                &frame_ctx,
-                &from_script_frame_ctx,
+                from,
+                frame_ctx,
+                from_script_frame_ctx,
                 session,
-                _mutations.as_ref(),
-                SceneSlot::TransitionFrom,
+                mutations,
+                from_slot.clone(),
             )?;
             let (to_annotated_tree, to_stats) = build_scene_display_list_with_slot(
-                &to,
-                &frame_ctx,
-                &to_script_frame_ctx,
+                to,
+                frame_ctx,
+                to_script_frame_ctx,
                 session,
-                _mutations.as_ref(),
-                SceneSlot::TransitionTo,
+                mutations,
+                to_slot.clone(),
             )?;
             let from_plan = plan_for_scene(&from_stats);
             let to_plan = plan_for_scene(&to_stats);
@@ -129,14 +153,14 @@ pub(crate) fn render_frame_on_surface(
                 scene_snapshots: &mut session.scene_snapshots,
                 cache_registry: &session.cache_registry,
                 media_ctx: &mut session.media_ctx,
-                frame_ctx: &frame_ctx,
+                frame_ctx,
                 render_engine,
-                width: composition.width,
-                height: composition.height,
+                width,
+                height,
             };
             let from_snapshot = render_scene_slot(
                 &mut snapshot_runtime,
-                SceneSlot::TransitionFrom,
+                &from_slot,
                 &from_annotated_tree,
                 from_plan,
                 true,
@@ -145,7 +169,7 @@ pub(crate) fn render_frame_on_surface(
             .expect("transition source scene snapshot should exist");
             let to_snapshot = render_scene_slot(
                 &mut snapshot_runtime,
-                SceneSlot::TransitionTo,
+                &to_slot,
                 &to_annotated_tree,
                 to_plan,
                 true,
@@ -165,20 +189,36 @@ pub(crate) fn render_frame_on_surface(
             );
             {
                 let _guard = transition_span.enter();
-                session.render_engine_handle().draw_transition(
+                if let Some(fv) = frame_view {
+                    session.render_engine_handle().draw_transition(
+                        fv,
+                        &from_snapshot,
+                        &to_snapshot,
+                        *progress,
+                        *kind,
+                        width,
+                        height,
+                    )?;
+                }
+            }
+            Ok(None)
+        }
+        FrameState::Layer { children } => {
+            for child in children.iter() {
+                render_frame_state(
+                    child,
+                    frame_ctx,
+                    session,
+                    mutations,
+                    width,
+                    height,
                     frame_view,
-                    &from_snapshot,
-                    &to_snapshot,
-                    progress,
-                    kind,
-                    composition.width,
-                    composition.height,
+                    require_snapshot,
                 )?;
             }
+            Ok(None)
         }
     }
-
-    Ok(())
 }
 
 pub(crate) fn build_scene_display_list_with_slot(
@@ -210,7 +250,7 @@ pub(crate) fn build_scene_display_list_with_slot(
         let _guard = layout_span.enter();
         let text_engine = session.text_engine_handle();
         session
-            .layout_session_mut(slot)
+            .layout_session_mut(slot.clone())
             .compute_layout_with_text_engine(&element_root, frame_ctx, text_engine.as_ref())?
     };
     stats.layout_pass = layout_pass;

@@ -3,6 +3,7 @@ use crate::{
     frame_ctx::ScriptFrameCtx,
     scene::{
         easing::Easing,
+        layer::LayerNode,
         node::{Node, NodeKind},
         primitives::div,
         transition::TransitionKind,
@@ -72,16 +73,30 @@ pub(crate) enum FrameState {
         progress: f32,
         kind: TransitionKind,
     },
+    Layer {
+        children: Vec<FrameState>,
+    },
 }
 
 pub(crate) fn frame_state_for_root(root: &Node, ctx: &FrameCtx) -> FrameState {
     match root.kind() {
         NodeKind::Component(component) => frame_state_for_root(&component.render(ctx), ctx),
         NodeKind::Timeline(timeline) => frame_state_for_timeline(timeline, ctx),
+        NodeKind::Layer(layer) => frame_state_for_layer(layer, ctx),
         _ => FrameState::Scene {
             scene: root.clone(),
             script_frame_ctx: ScriptFrameCtx::global(ctx),
         },
+    }
+}
+
+fn frame_state_for_layer(layer: &LayerNode, ctx: &FrameCtx) -> FrameState {
+    FrameState::Layer {
+        children: layer
+            .children_ref()
+            .iter()
+            .map(|child| frame_state_for_root(child, ctx))
+            .collect(),
     }
 }
 
@@ -202,6 +217,7 @@ mod tests {
         frame_ctx::FrameCtx,
         scene::{
             easing::Easing,
+            layer::LayerNode,
             primitives::div,
             transition::{slide, timeline},
         },
@@ -267,5 +283,65 @@ mod tests {
         assert_eq!(to_script_frame_ctx.total_frames, 120);
         assert_eq!(to_script_frame_ctx.current_frame, 0);
         assert_eq!(to_script_frame_ctx.scene_frames, 20);
+    }
+
+    #[test]
+    fn frame_state_wraps_mixed_layer_children() {
+        let root = LayerNode {
+            style: Default::default(),
+            children: vec![
+                div().id("scene-a").into(),
+                timeline()
+                    .sequence(10, div().id("scene-b").into())
+                    .transition(slide().timing(Easing::Linear, 5))
+                    .sequence(10, div().id("scene-c").into())
+                    .into(),
+                div().id("scene-d").into(),
+            ],
+        };
+        let root_node = crate::scene::node::Node::from(root);
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 60,
+        };
+
+        let state = super::frame_state_for_root(&root_node, &frame_ctx);
+        let FrameState::Layer { children } = state else {
+            panic!("expected layer frame state");
+        };
+        assert_eq!(children.len(), 3);
+
+        let FrameState::Scene { scene, .. } = &children[0] else {
+            panic!("expected scene for first child");
+        };
+        assert_eq!(scene.style_ref().id, "scene-a");
+
+        let FrameState::Scene { scene, .. } = &children[1] else {
+            panic!("expected scene for second child at frame 0");
+        };
+        assert_eq!(scene.style_ref().id, "scene-b");
+
+        let FrameState::Scene { scene, .. } = &children[2] else {
+            panic!("expected scene for third child");
+        };
+        assert_eq!(scene.style_ref().id, "scene-d");
+
+        let frame_ctx_transition = FrameCtx {
+            frame: 12,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 60,
+        };
+        let state_t = super::frame_state_for_root(&root_node, &frame_ctx_transition);
+        let FrameState::Layer { children } = state_t else {
+            panic!("expected layer frame state");
+        };
+        let FrameState::Transition { .. } = &children[1] else {
+            panic!("expected transition for second child at frame 12");
+        };
     }
 }

@@ -26,10 +26,11 @@ pub use runtime::audio::AudioBuffer;
 pub use runtime::target::{RenderFrameViewKind, RenderTargetHandle};
 pub use scene::composition::{AudioAttachment, Composition, CompositionAudioSource};
 pub use scene::easing::{Easing, SpringConfig, animate_value, easing_from_name};
+pub use scene::layer::{LayerNode, layer};
 pub use scene::node::{Node, NodeKind, component_node, component_node_with_duration};
 pub use scene::primitives::{
-    AudioSource, Canvas, CanvasAsset, Image, ImageSource, OpenverseQuery, canvas, div, image,
-    lucide, text, video,
+    AudioSource, Canvas, CanvasAsset, CaptionNode, Image, ImageSource, OpenverseQuery, SrtEntry,
+    canvas, caption, div, image, lucide, parse_srt, text, video,
 };
 pub use scene::script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use scene::transition::{

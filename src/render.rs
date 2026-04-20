@@ -242,6 +242,7 @@ mod tests {
         Composition, FrameCtx,
         scene::primitives::{canvas, div, image},
         style::ColorToken,
+        text,
     };
 
     fn write_test_png(path: &std::path::Path) {
@@ -661,5 +662,160 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&image_path);
+    }
+
+    #[test]
+    fn layered_caption_renders_above_timeline_transition() {
+        use crate::{Easing, SrtEntry, caption, fade, layer, timeline};
+
+        let composition = Composition::new("layered_caption")
+            .size(320, 180)
+            .fps(30)
+            .frames(25)
+            .root(move |_| {
+                layer()
+                    .child(
+                        timeline()
+                            .sequence(
+                                10,
+                                div()
+                                    .id("scene-a")
+                                    .bg(ColorToken::Black)
+                                    .child(text("A").id("a"))
+                                    .into(),
+                            )
+                            .transition(fade().timing(Easing::Linear, 5))
+                            .sequence(
+                                10,
+                                div()
+                                    .id("scene-b")
+                                    .bg(ColorToken::Black)
+                                    .child(text("B").id("b"))
+                                    .into(),
+                            ),
+                    )
+                    .child(
+                        div().id("overlay-root").child(
+                            caption()
+                                .id("subs")
+                                .path("sub.srt")
+                                .entries(vec![SrtEntry {
+                                    index: 1,
+                                    start_frame: 0,
+                                    end_frame: 25,
+                                    text: "Subtitle".into(),
+                                }])
+                                .text_color(ColorToken::White),
+                        ),
+                    )
+                    .into()
+            })
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let pixels =
+            render_frame_rgba(&composition, 12, &mut session).expect("frame should render");
+
+        assert!(
+            pixels.iter().any(|&byte| byte > 0),
+            "transition frame with caption overlay should not be blank"
+        );
+    }
+
+    #[test]
+    fn layered_single_scene_renders_bottom_scene_before_caption_overlay() {
+        use crate::{SrtEntry, caption, layer};
+
+        let composition = Composition::new("layered_single_scene_with_caption")
+            .size(64, 64)
+            .fps(30)
+            .frames(1)
+            .root(move |_| {
+                layer()
+                    .child(
+                        div()
+                            .id("scene")
+                            .w_full()
+                            .h_full()
+                            .bg(ColorToken::Blue500),
+                    )
+                    .child(
+                        caption()
+                            .id("subs")
+                            .path("sub.srt")
+                            .entries(vec![SrtEntry {
+                                index: 1,
+                                start_frame: 0,
+                                end_frame: 1,
+                                text: "Caption".into(),
+                            }])
+                            .absolute()
+                            .left(8.0)
+                            .top(8.0)
+                            .text_color(ColorToken::White),
+                    )
+                    .into()
+            })
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let pixels =
+            render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+
+        assert_eq!(
+            pixel_rgba(&pixels, 64, 32, 32),
+            [43, 127, 255, 255],
+            "bottom scene layer should remain visible beneath the caption overlay"
+        );
+    }
+
+    #[test]
+    fn layered_root_caption_without_active_entry_does_not_fail_rendering() {
+        use crate::{SrtEntry, caption, layer};
+
+        let composition = Composition::new("layered_inactive_root_caption")
+            .size(64, 64)
+            .fps(30)
+            .frames(60)
+            .root(move |_| {
+                layer()
+                    .child(
+                        div()
+                            .id("scene")
+                            .w_full()
+                            .h_full()
+                            .bg(ColorToken::Blue500),
+                    )
+                    .child(
+                        caption()
+                            .id("subs")
+                            .path("sub.srt")
+                            .entries(vec![SrtEntry {
+                                index: 1,
+                                start_frame: 30,
+                                end_frame: 60,
+                                text: "Later".into(),
+                            }])
+                            .absolute()
+                            .left(8.0)
+                            .top(8.0)
+                            .text_color(ColorToken::White),
+                    )
+                    .into()
+            })
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let pixels =
+            render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+
+        assert_eq!(
+            pixel_rgba(&pixels, 64, 32, 32),
+            [43, 127, 255, 255],
+            "inactive root caption layer should be skipped while the bottom scene still renders"
+        );
     }
 }

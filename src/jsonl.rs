@@ -14,7 +14,7 @@ use crate::style::NodeStyle;
 mod builder;
 pub(crate) mod tailwind;
 
-use builder::{build_timeline, build_tree, join_scripts};
+use builder::{build_layer_root, build_timeline, build_tree, join_scripts};
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "type")]
@@ -528,15 +528,20 @@ pub fn parse_with_base_dir(
                 anyhow::bail!("unknown layer child `{child_id}`");
             }
         }
-        if has_timeline {
-            build_timeline(&elements, &scripts_by_parent, &timeline_entries)?
-        } else {
-            (build_tree(&elements, &scripts_by_parent)?, frames)
-        }
+        build_layer_root(
+            &elements,
+            &scripts_by_parent,
+            &timeline_entries,
+            &layer.children,
+            fps as u32,
+        )?
     } else if has_timeline {
-        build_timeline(&elements, &scripts_by_parent, &timeline_entries)?
+        build_timeline(&elements, &scripts_by_parent, &timeline_entries, fps as u32)?
     } else {
-        (build_tree(&elements, &scripts_by_parent)?, frames)
+        (
+            build_tree(&elements, &scripts_by_parent, fps as u32)?,
+            frames,
+        )
     };
 
     Ok(ParsedComposition {
@@ -1415,6 +1420,51 @@ mod tests {
     }
 
     #[test]
+    fn parser_builds_layer_root_from_timeline_and_caption_children() {
+        let dir = unique_test_dir("layer_root");
+        std::fs::create_dir_all(&dir).unwrap();
+        let srt_path = dir.join("sub.srt");
+        std::fs::write(
+            &srt_path,
+            "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n2\n00:00:01,000 --> 00:00:02,000\nWorld\n",
+        )
+        .unwrap();
+
+        let srt_path_str = srt_path.to_string_lossy();
+        let jsonl = format!(
+            r#"{{"type":"composition","width":640,"height":360,"fps":30,"frames":999}}
+{{"id":"scene-a","parentId":null,"type":"div","className":"","duration":10}}
+{{"id":"scene-b","parentId":null,"type":"div","className":"","duration":10}}
+{{"type":"transition","from":"scene-a","to":"scene-b","effect":"fade","duration":5}}
+{{"id":"subs","parentId":null,"type":"caption","className":"absolute bottom-0 text-white","path":"{srt_path_str}"}}
+{{"type":"layer","children":["scene-a","subs"]}}"#,
+        );
+        let parsed = super::parse_with_base_dir(&jsonl, Some(&dir))
+            .expect("layered jsonl with timeline + caption should parse");
+
+        assert_eq!(parsed.frames, 25);
+
+        let root = &parsed.root;
+        let NodeKind::Layer(layer) = root.kind() else {
+            panic!("root should be a Layer");
+        };
+        assert_eq!(layer.children_ref().len(), 2);
+
+        let NodeKind::Timeline(tl) = layer.children_ref()[0].kind() else {
+            panic!("first layer child should be a Timeline");
+        };
+        assert_eq!(tl.duration_in_frames(), 25);
+
+        let NodeKind::Caption(caption_node) = layer.children_ref()[1].kind() else {
+            panic!("second layer child should be a Caption");
+        };
+        assert_eq!(caption_node.entries_ref().len(), 2);
+        assert_eq!(caption_node.active_text(0), Some("Hello"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn parser_accepts_layer_node_and_caption_overlay() {
         let parsed = parse(
             r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
@@ -1439,6 +1489,37 @@ mod tests {
         .expect("missing child should fail");
 
         assert!(err.to_string().contains("unknown layer child"));
+    }
+
+    #[test]
+    fn parser_resolves_caption_srt_path_relative_to_jsonl_file() {
+        let dir = unique_test_dir("caption_srt_relative");
+        std::fs::create_dir_all(&dir).unwrap();
+        let srt_path = dir.join("sub.srt");
+        let jsonl_path = dir.join("demo.jsonl");
+
+        std::fs::write(&srt_path, "1\n00:00:00,000 --> 00:00:01,000\nHello Layer\n").unwrap();
+        std::fs::write(
+            &jsonl_path,
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":30}
+{"id":"scene-a","parentId":null,"type":"div","className":"","duration":30}
+{"id":"subs","parentId":null,"type":"caption","className":"text-white","path":"sub.srt"}
+{"type":"layer","children":["scene-a","subs"]}"#,
+        )
+        .unwrap();
+
+        let parsed = parse_file(&jsonl_path).expect("jsonl should parse");
+        let NodeKind::Layer(layer) = parsed.root.kind() else {
+            panic!("root should be layer");
+        };
+        let NodeKind::Caption(caption_node) = layer.children_ref()[1].kind() else {
+            panic!("second layer child should be caption");
+        };
+
+        assert_eq!(caption_node.path_ref(), srt_path.as_path());
+        assert_eq!(caption_node.entries_ref()[0].text, "Hello Layer");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn unique_test_dir(name: &str) -> PathBuf {

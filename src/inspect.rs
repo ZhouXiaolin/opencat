@@ -86,7 +86,7 @@ pub fn collect_frame_layout_rects(
                 &frame_ctx,
                 &script_frame_ctx,
                 session,
-                SceneSlot::Scene,
+                SceneSlot::root_scene(),
                 FrameElementSlot::Scene,
                 &mut draw_order,
                 &mut rects,
@@ -104,7 +104,7 @@ pub fn collect_frame_layout_rects(
                 &frame_ctx,
                 &from_script_frame_ctx,
                 session,
-                SceneSlot::TransitionFrom,
+                SceneSlot::root_transition_from(),
                 FrameElementSlot::TransitionFrom,
                 &mut draw_order,
                 &mut rects,
@@ -114,11 +114,23 @@ pub fn collect_frame_layout_rects(
                 &frame_ctx,
                 &to_script_frame_ctx,
                 session,
-                SceneSlot::TransitionTo,
+                SceneSlot::root_transition_to(),
                 FrameElementSlot::TransitionTo,
                 &mut draw_order,
                 &mut rects,
             )?;
+        }
+        FrameState::Layer { children } => {
+            for (index, child) in children.iter().enumerate() {
+                collect_frame_state_rects(
+                    child,
+                    &frame_ctx,
+                    session,
+                    index,
+                    &mut draw_order,
+                    &mut rects,
+                )?;
+            }
         }
     }
 
@@ -169,6 +181,74 @@ fn collect_scene_rects(
     )
 }
 
+fn collect_frame_state_rects(
+    frame_state: &FrameState,
+    frame_ctx: &FrameCtx,
+    session: &mut RenderSession,
+    child_index: usize,
+    draw_order: &mut u32,
+    out: &mut Vec<FrameElementRect>,
+) -> Result<()> {
+    match frame_state {
+        FrameState::Scene {
+            scene,
+            script_frame_ctx,
+        } => {
+            collect_scene_rects(
+                scene,
+                frame_ctx,
+                script_frame_ctx,
+                session,
+                SceneSlot::child_scene(child_index),
+                FrameElementSlot::Scene,
+                draw_order,
+                out,
+            )?;
+        }
+        FrameState::Transition {
+            from,
+            to,
+            from_script_frame_ctx,
+            to_script_frame_ctx,
+            ..
+        } => {
+            collect_scene_rects(
+                from,
+                frame_ctx,
+                from_script_frame_ctx,
+                session,
+                SceneSlot::child_transition_from(child_index),
+                FrameElementSlot::TransitionFrom,
+                draw_order,
+                out,
+            )?;
+            collect_scene_rects(
+                to,
+                frame_ctx,
+                to_script_frame_ctx,
+                session,
+                SceneSlot::child_transition_to(child_index),
+                FrameElementSlot::TransitionTo,
+                draw_order,
+                out,
+            )?;
+        }
+        FrameState::Layer { children } => {
+            for (nested_index, child) in children.iter().enumerate() {
+                collect_frame_state_rects(
+                    child,
+                    frame_ctx,
+                    session,
+                    nested_index,
+                    draw_order,
+                    out,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn seed_asset_entries_for_inspect(
     node: &Node,
     frame_ctx: &FrameCtx,
@@ -205,7 +285,12 @@ fn seed_asset_entries_for_inspect(
                 }
             }
         }
-        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Video(_) => {}
+        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Video(_) | NodeKind::Caption(_) => {}
+        NodeKind::Layer(layer) => {
+            for child in layer.children_ref() {
+                seed_asset_entries_for_inspect(child, frame_ctx, assets);
+            }
+        }
     }
 }
 
@@ -392,6 +477,21 @@ fn collect_source_metadata(
                         collect_source_metadata(to, frame_ctx, out);
                     }
                 }
+            }
+        }
+        NodeKind::Caption(caption) => {
+            let entry = upsert_style_meta(caption.style_ref(), "caption", out);
+            if let Some(entry) = entry {
+                entry.text_content = caption
+                    .active_text(frame_ctx.frame)
+                    .map(|text| text.to_string());
+                entry.media_source = Some(caption.path_ref().to_string_lossy().to_string());
+            }
+        }
+        NodeKind::Layer(layer) => {
+            let _ = upsert_style_meta(layer.style_ref(), "layer", out);
+            for child in layer.children_ref() {
+                collect_source_metadata(child, frame_ctx, out);
             }
         }
     }

@@ -16,8 +16,9 @@ use crate::{
     },
     scene::script::{ScriptRuntimeCache, StyleMutations},
     scene::{
+        layer::LayerNode,
         node::{ComponentNode, NodeKind},
-        primitives::{Canvas, Div, Image, Lucide, Text, Video},
+        primitives::{Canvas, CaptionNode, Div, Image, Lucide, Text, Video},
     },
     style::LengthPercentageAuto,
     style::{NodeStyle, resolve_text_style},
@@ -90,7 +91,7 @@ pub(crate) fn resolve_ui_tree_with_script_cache(
         script_runtime,
         mutation_stack: &mut mutation_stack,
     };
-    resolve_node(node, &mut cx, media)
+    Ok(resolve_node_optional(node, &mut cx, media)?.unwrap_or_else(|| empty_root_div(&mut cx)))
 }
 
 fn resolve_node(
@@ -109,6 +110,46 @@ fn resolve_node(
         NodeKind::Timeline(_) => {
             unreachable!("timeline nodes must be resolved before UI tree construction")
         }
+        NodeKind::Caption(caption) => resolve_caption(caption, cx)?
+            .ok_or_else(|| anyhow::anyhow!("caption node has no active text for frame")),
+        NodeKind::Layer(layer) => resolve_layer_as_div(layer, cx, media),
+    }
+}
+
+fn resolve_node_optional(
+    node: &Node,
+    cx: &mut ResolveContext<'_>,
+    media: &mut MediaContext,
+) -> Result<Option<ElementNode>> {
+    match node.kind() {
+        NodeKind::Component(component) => resolve_component_optional(component, cx, media),
+        NodeKind::Caption(caption) => resolve_caption(caption, cx),
+        _ => resolve_node(node, cx, media).map(Some),
+    }
+}
+
+fn resolve_component_optional(
+    component: &ComponentNode,
+    cx: &mut ResolveContext<'_>,
+    media: &mut MediaContext,
+) -> Result<Option<ElementNode>> {
+    let pushed = push_script_scope(component.style_ref(), cx)?;
+    let resolved = component.render(cx.frame_ctx);
+    let result = resolve_node_optional(&resolved, cx, media);
+    if pushed {
+        cx.mutation_stack.pop();
+    }
+    result
+}
+
+fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
+    let mut style = NodeStyle::default();
+    style.id = "__empty_root".to_string();
+    ElementNode {
+        id: cx.ids.alloc(),
+        kind: ElementKind::Div(ElementDiv),
+        style: compute_style(&style, cx.inherited_style),
+        children: Vec::new(),
     }
 }
 
@@ -152,7 +193,9 @@ fn resolve_div(
                 script_runtime: &mut *cx.script_runtime,
                 mutation_stack: &mut *cx.mutation_stack,
             };
-            children.push(resolve_node(child, &mut child_cx, media)?);
+            if let Some(child) = resolve_node_optional(child, &mut child_cx, media)? {
+                children.push(child);
+            }
         }
 
         Ok(ElementNode {
@@ -190,6 +233,92 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
             }),
             style: computed,
             children: Vec::new(),
+        })
+    })();
+    if pushed {
+        cx.mutation_stack.pop();
+    }
+    result
+}
+
+fn resolve_caption(
+    caption: &CaptionNode,
+    cx: &mut ResolveContext<'_>,
+) -> Result<Option<ElementNode>> {
+    let pushed = push_script_scope(caption.style_ref(), cx)?;
+    let result = (|| {
+        let mut style = caption.style_ref().clone();
+        ensure!(
+            !style.id.is_empty(),
+            "node id is required for caption nodes before rendering"
+        );
+        apply_mutation_stack(&mut style, cx.mutation_stack);
+
+        let content = text_content_from_stack(cx.mutation_stack, &style.id).or_else(|| {
+            caption
+                .active_text(cx.frame_ctx.frame)
+                .map(|s| s.to_string())
+        });
+
+        let content = match content {
+            Some(content) => content,
+            None => return Ok(None),
+        };
+
+        let computed = compute_style(&style, cx.inherited_style);
+
+        Ok(Some(ElementNode {
+            id: cx.ids.alloc(),
+            kind: ElementKind::Text(ElementText {
+                text: content,
+                text_style: computed.text.clone(),
+            }),
+            style: computed,
+            children: Vec::new(),
+        }))
+    })();
+    if pushed {
+        cx.mutation_stack.pop();
+    }
+    result
+}
+
+fn resolve_layer_as_div(
+    layer: &LayerNode,
+    cx: &mut ResolveContext<'_>,
+    media: &mut MediaContext,
+) -> Result<ElementNode> {
+    let pushed = push_script_scope(layer.style_ref(), cx)?;
+    let result = (|| {
+        let mut style = layer.style_ref().clone();
+        ensure!(
+            !style.id.is_empty(),
+            "node id is required for layer nodes before rendering"
+        );
+        apply_mutation_stack(&mut style, cx.mutation_stack);
+        let computed = compute_style(&style, cx.inherited_style);
+        let inherited_style = InheritedStyle::for_child(&computed);
+        let mut children = Vec::new();
+        for child in layer.children_ref() {
+            let mut child_cx = ResolveContext {
+                frame_ctx: cx.frame_ctx,
+                script_frame_ctx: cx.script_frame_ctx,
+                ids: &mut *cx.ids,
+                inherited_style: &inherited_style,
+                assets: &mut *cx.assets,
+                script_runtime: &mut *cx.script_runtime,
+                mutation_stack: &mut *cx.mutation_stack,
+            };
+            if let Some(child) = resolve_node_optional(child, &mut child_cx, media)? {
+                children.push(child);
+            }
+        }
+
+        Ok(ElementNode {
+            id: cx.ids.alloc(),
+            kind: ElementKind::Div(ElementDiv),
+            style: computed,
+            children,
         })
     })();
     if pushed {
@@ -578,12 +707,11 @@ mod tests {
         frame_ctx::ScriptFrameCtx,
         resource::{assets::AssetsMap, media::MediaContext},
         scene::easing::Easing,
+        scene::layer::layer,
+        scene::primitives::{SrtEntry, caption, div, lucide, text},
         scene::script::ScriptRuntimeCache,
-        scene::{
-            primitives::{div, lucide, text},
-            time::{FrameState, frame_state_for_root},
-            transition::{slide, timeline},
-        },
+        scene::time::{FrameState, frame_state_for_root},
+        scene::transition::{slide, timeline},
     };
 
     #[test]
@@ -919,5 +1047,61 @@ mod tests {
             ScriptFrameCtx::for_segment(&frame_ctx, 15, 10)
         );
         assert_eq!(resolved.children[0].style.visual.opacity, 0.6);
+    }
+
+    #[test]
+    fn resolve_caption_omits_inactive_entry() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 90,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let entries = vec![SrtEntry {
+            index: 1,
+            start_frame: 30,
+            end_frame: 60,
+            text: "Hello".to_string(),
+        }];
+        let caption_node = caption().id("subs").path("test.srt").entries(entries);
+        let root = layer().id("root").child(caption_node);
+
+        let resolved = resolve_ui_tree(
+            &root.clone().into(),
+            &frame_ctx,
+            &mut media,
+            &mut assets,
+            None,
+        )
+        .expect("layer with inactive caption should resolve");
+
+        assert_eq!(
+            resolved.children.len(),
+            0,
+            "inactive caption should be omitted"
+        );
+
+        let frame_ctx_active = FrameCtx {
+            frame: 45,
+            ..frame_ctx
+        };
+        let resolved_active = resolve_ui_tree(
+            &root.into(),
+            &frame_ctx_active,
+            &mut media,
+            &mut assets,
+            None,
+        )
+        .expect("layer with active caption should resolve");
+
+        assert_eq!(resolved_active.children.len(), 1);
+        let ElementKind::Text(elem) = &resolved_active.children[0].kind else {
+            panic!("active caption should resolve to text");
+        };
+        assert_eq!(elem.text, "Hello");
     }
 }

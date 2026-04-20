@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     layout::LayoutSession,
     resource::{
@@ -22,9 +24,7 @@ pub struct RenderSession {
     pub(crate) scene_snapshots: SceneSnapshotCache,
     pub(crate) cache_registry: CacheRegistry,
     pub(crate) script_runtime: ScriptRuntimeCache,
-    pub(crate) scene_layout: LayoutSession,
-    pub(crate) transition_from_layout: LayoutSession,
-    pub(crate) transition_to_layout: LayoutSession,
+    pub(crate) layout_sessions: HashMap<SceneSlot, LayoutSession>,
     pub(crate) prepared_root_ptr: Option<usize>,
     pub(crate) audio_decode_cache: DecodedAudioCache,
     pub(crate) audio_interval_cache: AudioIntervalCache,
@@ -57,9 +57,7 @@ impl RenderSession {
             scene_snapshots: SceneSnapshotCache::new(),
             cache_registry: CacheRegistry::new(cache_caps),
             script_runtime: ScriptRuntimeCache::default(),
-            scene_layout: LayoutSession::new(),
-            transition_from_layout: LayoutSession::new(),
-            transition_to_layout: LayoutSession::new(),
+            layout_sessions: HashMap::new(),
             prepared_root_ptr: None,
             audio_decode_cache: DecodedAudioCache::default(),
             audio_interval_cache: AudioIntervalCache::default(),
@@ -74,11 +72,9 @@ impl RenderSession {
     }
 
     pub(crate) fn layout_session_mut(&mut self, slot: SceneSlot) -> &mut LayoutSession {
-        match slot {
-            SceneSlot::Scene => &mut self.scene_layout,
-            SceneSlot::TransitionFrom => &mut self.transition_from_layout,
-            SceneSlot::TransitionTo => &mut self.transition_to_layout,
-        }
+        self.layout_sessions
+            .entry(slot)
+            .or_insert_with(LayoutSession::new)
     }
 
     pub(crate) fn text_engine_handle(&self) -> SharedTextEngine {

@@ -230,10 +230,37 @@ fn composition_audio_cache_key(composition: &Composition) -> AudioIntervalCacheK
 }
 
 fn active_scene_ids(root: &crate::scene::node::Node, frame_ctx: &FrameCtx) -> HashSet<String> {
-    match frame_state_for_root(root, frame_ctx) {
-        FrameState::Scene { scene, .. } => HashSet::from([scene.style_ref().id.clone()]),
+    let mut out = HashSet::new();
+    collect_active_scene_ids(root, frame_ctx, &mut out);
+    out
+}
+
+fn collect_active_scene_ids(
+    root: &crate::scene::node::Node,
+    frame_ctx: &FrameCtx,
+    out: &mut HashSet<String>,
+) {
+    let state = frame_state_for_root(root, frame_ctx);
+    collect_active_scene_ids_from_state(&state, frame_ctx, out);
+}
+
+fn collect_active_scene_ids_from_state(
+    frame_state: &FrameState,
+    _frame_ctx: &FrameCtx,
+    out: &mut HashSet<String>,
+) {
+    match frame_state {
+        FrameState::Scene { scene, .. } => {
+            out.insert(scene.style_ref().id.clone());
+        }
         FrameState::Transition { from, to, .. } => {
-            HashSet::from([from.style_ref().id.clone(), to.style_ref().id.clone()])
+            out.insert(from.style_ref().id.clone());
+            out.insert(to.style_ref().id.clone());
+        }
+        FrameState::Layer { children } => {
+            for child in children {
+                collect_active_scene_ids_from_state(child, _frame_ctx, out);
+            }
         }
     }
 }

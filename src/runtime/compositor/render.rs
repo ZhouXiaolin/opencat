@@ -41,7 +41,7 @@ impl<'a> SceneRenderRuntime<'a> {
 
 pub(crate) fn render_scene_slot(
     runtime: &mut SceneRenderRuntime<'_>,
-    slot: SceneSlot,
+    slot: &SceneSlot,
     display_tree: &AnnotatedDisplayTree,
     plan: SceneRenderPlan,
     require_scene_snapshot: bool,
@@ -84,7 +84,7 @@ pub(crate) fn render_scene_slot(
 
 fn resolve_scene_snapshot_for_slot(
     runtime: &mut SceneRenderRuntime<'_>,
-    slot: SceneSlot,
+    slot: &SceneSlot,
     display_tree: &AnnotatedDisplayTree,
     plan: SceneRenderPlan,
     require_scene_snapshot: bool,
@@ -101,11 +101,13 @@ fn resolve_scene_snapshot_for_slot(
         event!(target: "render.cache", Level::TRACE, kind = "cache", name = "scene_snapshot", result = "miss", amount = 1_u64);
         runtime
             .scene_snapshots
-            .store_scene_snapshot(slot, Some(snapshot.clone()));
+            .store_scene_snapshot(slot.clone(), Some(snapshot.clone()));
         return Ok(Some(snapshot));
     }
 
-    runtime.scene_snapshots.store_scene_snapshot(slot, None);
+    runtime
+        .scene_snapshots
+        .store_scene_snapshot(slot.clone(), None);
     if !require_scene_snapshot {
         return Ok(None);
     }

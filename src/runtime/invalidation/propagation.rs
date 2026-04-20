@@ -9,29 +9,24 @@ use crate::runtime::{
 
 #[derive(Default)]
 pub(crate) struct CompositeHistory {
-    scene: HashMap<RenderNodeKey, CompositeSig>,
-    transition_from: HashMap<RenderNodeKey, CompositeSig>,
-    transition_to: HashMap<RenderNodeKey, CompositeSig>,
+    slots: HashMap<SceneSlot, HashMap<RenderNodeKey, CompositeSig>>,
 }
 
 impl CompositeHistory {
-    fn history_for_slot(&self, slot: SceneSlot) -> &HashMap<RenderNodeKey, CompositeSig> {
-        match slot {
-            SceneSlot::Scene => &self.scene,
-            SceneSlot::TransitionFrom => &self.transition_from,
-            SceneSlot::TransitionTo => &self.transition_to,
-        }
+    pub(crate) fn history_for_slot(
+        &self,
+        slot: &SceneSlot,
+    ) -> &HashMap<RenderNodeKey, CompositeSig> {
+        static EMPTY: std::sync::LazyLock<HashMap<RenderNodeKey, CompositeSig>> =
+            std::sync::LazyLock::new(HashMap::new);
+        self.slots.get(slot).unwrap_or(&EMPTY)
     }
 
-    fn history_for_slot_mut(
+    pub(crate) fn history_for_slot_mut(
         &mut self,
         slot: SceneSlot,
     ) -> &mut HashMap<RenderNodeKey, CompositeSig> {
-        match slot {
-            SceneSlot::Scene => &mut self.scene,
-            SceneSlot::TransitionFrom => &mut self.transition_from,
-            SceneSlot::TransitionTo => &mut self.transition_to,
-        }
+        self.slots.entry(slot).or_default()
     }
 }
 
@@ -45,7 +40,7 @@ pub(crate) fn mark_display_tree_composite_dirty(
     let previous = if structure_rebuild {
         &empty
     } else {
-        history.history_for_slot(slot)
+        history.history_for_slot(&slot)
     };
     let mut next = HashMap::new();
     let mut invalidation = DisplayInvalidationTable::with_len(display_tree.analysis.len());

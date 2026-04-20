@@ -18,11 +18,11 @@ OpenCat JSONL is a JSON Lines format for describing compositions, scene nodes, s
 
 `frames / fps` defines the total duration in seconds.
 
-### 1.2 Two Modes: Single Scene vs Multi Scene
+### 1.2 Three Root Organization Modes
 
 #### Single Scene
 
-There is one root node with `parentId: null`, and no transition. `composition.frames` must match that scene's `duration`.
+There is one root node with `parentId: null`, and no transition. `composition.frames` should match that scene's `duration`.
 
 ```text
 Timeline: [   scene1: 60 frames   ]
@@ -56,8 +56,45 @@ Constraint: composition.frames = 60 + 12 + 90 = 162
 **Key rules**:
 
 - Each scene owns its own node tree. Nodes are not shared across scenes.
-- `composition.frames = sum(all scene.duration) + sum(all transition.duration)`
+- Runtime total frames are derived from structure: `sum(all scene.duration) + sum(all transition.duration)`
 - Transitions are chained in order: `scene1 -> transition(scene1->scene2) -> scene2 -> ...`
+- Keep `composition.frames` consistent with the derived total for readability, even though the parser currently recomputes it in timeline mode.
+
+#### Layer Root (Parallel Compositing)
+
+Use `layer` when multiple root-level tracks must render at the same time, for example:
+
+- main visual timeline on layer 1
+- subtitles / captions on layer 2
+- persistent overlays that must survive scene transitions
+
+`layer` is a special top-level record. It is not a normal element node, so it does not use `id`, `parentId`, or `className`.
+
+```json
+{"type": "layer", "children": ["scene1", "subs"]}
+```
+
+**Key rules**:
+
+- Only one `layer` record is allowed in a composition.
+- `children` must reference root nodes (`parentId: null`).
+- Child order is bottom to top. The first child is rendered first, the last child is rendered on top.
+- A layer child may be:
+  - a single-scene root
+  - the first scene of a timeline chain
+  - a root `caption`
+- If a layer child is a timeline chain, reference only the chain starter. Later scenes that appear as transition targets are discovered automatically.
+- Runtime total frames are derived as the maximum visible span across all layer children. For a plain scene this is its `duration`; for a timeline child this is the full chain duration including transitions.
+
+Example: single scene on layer 1, caption on layer 2.
+
+```json
+{"type": "composition", "width": 1280, "height": 720, "fps": 30, "frames": 450}
+{"id": "scene1", "parentId": null, "type": "div", "className": "relative flex flex-col justify-between w-[1280px] h-[720px] bg-[#0b1020] px-[72px] py-[56px]", "duration": 450}
+{"id": "title", "parentId": "scene1", "type": "text", "className": "text-[56px] font-bold text-white", "text": "The Boys Recap"}
+{"id": "subs", "parentId": null, "type": "caption", "className": "absolute left-[64px] bottom-[40px] w-[1152px] px-[28px] py-[18px] rounded-[20px] bg-[#000000b8] text-[34px] leading-[44px] font-semibold text-center text-white", "path": "subtitles.utf8.srt"}
+{"type": "layer", "children": ["scene1", "subs"]}
+```
 
 ### 1.3 Element Nodes
 
@@ -69,6 +106,7 @@ Each element is one JSON line. Parent-child relationships are defined through `p
 {"id": "title", "parentId": "scene1", "type": "text", "className": "text-[24px] font-bold text-slate-900", "text": "Hello"}
 {"id": "hero", "parentId": "scene1", "type": "image", "className": "w-[300px] h-[200px] object-cover rounded-lg", "query": "mountain landscape"}
 {"id": "search", "parentId": "scene1", "type": "icon", "className": "w-[24px] h-[24px] text-slate-400", "icon": "search"}
+{"id": "subs", "parentId": "scene1", "type": "caption", "className": "absolute inset-x-[24px] bottom-[24px] text-center text-white", "path": "subtitles.utf8.srt"}
 ```
 
 **Type mapping**:
@@ -82,8 +120,34 @@ Each element is one JSON line. Parent-child relationships are defined through `p
 | `canvas` | `<canvas>` | requires a matching script |
 | `audio` | `<audio>` | `path` or `url` |
 | `video` | `<video>` | — |
+| `caption` | subtitle-driven text node | `path`: local SRT file |
 
-### 1.4 Script
+### 1.4 Caption
+
+`caption` is an SRT-driven text node. It behaves like a text node for styling and layout, but its displayed content is selected from subtitle entries based on the current global frame.
+
+```json
+{"id": "subs", "parentId": null, "type": "caption", "className": "absolute inset-x-[48px] bottom-[32px] text-center text-white", "path": "subtitles.utf8.srt"}
+```
+
+**Fields**:
+
+- `id`: required
+- `parentId`: optional. Use `null` for a root overlay layer, or attach it under a scene like any other node.
+- `className`: optional. Same Tailwind-style layout and text styling rules as `text`.
+- `path`: required. Local SRT file path.
+- `duration`: optional. Usually omitted; subtitle visibility is driven by SRT timestamps.
+
+**Current implementation details**:
+
+- `path` is resolved relative to the JSONL file location when the composition is loaded from disk with `parse_file(...)`.
+- SRT timestamps are converted to frames using `composition.fps`.
+- Caption visibility is global, not scene-local. A root caption inside a `layer` can continue across transitions.
+- The current loader reads subtitle files as UTF-8 text. UTF-16 / UTF-16LE / GBK subtitle files will not parse correctly.
+- Caption file read / parse failure currently degrades to an empty subtitle track instead of a hard parse error. If captions do not appear, check path and encoding first.
+- Caption content can still be overridden by scripts through `ctx.getNode('subs').text(...)` for the current frame.
+
+### 1.5 Script
 
 > **⚠️ `script.src` must not contain comments**
 
@@ -94,7 +158,7 @@ Scripts are attached to nodes and run on every frame.
 {"type": "script", "parentId": "scene1", "path": "scene1.js"}
 ```
 
-### 1.5 Transition
+### 1.6 Transition
 
 Transitions are only used in multi-scene mode. A transition describes the handoff between two scenes and consumes additional frames.
 
@@ -789,5 +853,10 @@ canvas.drawText('OpenCat', 16, 96, fill('#0f172a'), font);
 | Relying on `absolute` layout by default | Prefer flex layout; use `absolute` only for overlap or pinned edges |
 | Putting transform Tailwind classes in `className` | Use node transform APIs such as `translateX()`, `translateY()`, `scale()`, `rotate()`, and `skew()` |
 | `parentId` points to an invalid id | `parentId` must reference an existing node |
-| Frame count mismatch | `composition.frames == sum(scene.duration) + sum(transition.duration)` |
+| Expecting `layer` to accept `id` / `parentId` / `className` | `layer` is a special top-level record and only accepts `children` |
+| `layer.children` contains a non-root id | `layer.children` must reference root nodes (`parentId: null`) |
+| Listing every scene in a layered timeline chain | In `layer.children`, reference only the first scene of the chain |
+| Root `caption` without `layer`, but expecting it to persist across transitions | Put the main visuals and the root `caption` inside a `layer` |
+| `caption.path` points to a UTF-16 subtitle file | Convert the SRT to UTF-8 first; the current loader reads UTF-8 text |
+| Frame count mismatch in timeline mode | Runtime total is derived from `sum(scene.duration) + sum(transition.duration)` |
 | `"effect": "slide-left"` | Use separate fields: `"effect": "slide", "direction": "from_left"` |

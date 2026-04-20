@@ -37,21 +37,38 @@ pub(crate) fn ensure_assets_preloaded(
             frames: composition.frames,
         };
         let root = composition.root_node(&frame_ctx);
-        match frame_state_for_root(&root, &frame_ctx) {
-            FrameState::Scene { scene, .. } => {
-                collect_sources(&scene, &frame_ctx, &mut image_sources);
-            }
-            FrameState::Transition { from, to, .. } => {
-                collect_sources(&from, &frame_ctx, &mut image_sources);
-                collect_sources(&to, &frame_ctx, &mut image_sources);
-            }
-        }
+        collect_sources_from_frame_state(
+            &frame_state_for_root(&root, &frame_ctx),
+            &frame_ctx,
+            &mut image_sources,
+        );
     }
 
     session.assets.preload_image_sources(image_sources)?;
     session.assets.preload_audio_sources(audio_sources)?;
     session.prepared_root_ptr = Some(root_ptr);
     Ok(())
+}
+
+fn collect_sources_from_frame_state(
+    frame_state: &FrameState,
+    frame_ctx: &FrameCtx,
+    image_sources: &mut HashSet<ImageSource>,
+) {
+    match frame_state {
+        FrameState::Scene { scene, .. } => {
+            collect_sources(scene, frame_ctx, image_sources);
+        }
+        FrameState::Transition { from, to, .. } => {
+            collect_sources(from, frame_ctx, image_sources);
+            collect_sources(to, frame_ctx, image_sources);
+        }
+        FrameState::Layer { children } => {
+            for child in children {
+                collect_sources_from_frame_state(child, frame_ctx, image_sources);
+            }
+        }
+    }
 }
 
 pub(crate) fn collect_sources(
@@ -81,15 +98,16 @@ pub(crate) fn collect_sources(
                 image_sources.insert(image.source().clone());
             }
         }
-        NodeKind::Timeline(_) => match frame_state_for_root(node, frame_ctx) {
-            FrameState::Scene { scene, .. } => {
-                collect_sources(&scene, frame_ctx, image_sources);
+        NodeKind::Timeline(_) => collect_sources_from_frame_state(
+            &frame_state_for_root(node, frame_ctx),
+            frame_ctx,
+            image_sources,
+        ),
+        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Video(_) | NodeKind::Caption(_) => {}
+        NodeKind::Layer(layer) => {
+            for child in layer.children_ref() {
+                collect_sources(child, frame_ctx, image_sources);
             }
-            FrameState::Transition { from, to, .. } => {
-                collect_sources(&from, frame_ctx, image_sources);
-                collect_sources(&to, frame_ctx, image_sources);
-            }
-        },
-        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Video(_) => {}
+        }
     }
 }

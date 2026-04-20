@@ -112,6 +112,18 @@
     ctx.animate = function(opts) {
         var parsed = parseAnimateOptions(opts);
 
+        var pathHandle = null;
+        var pathOrient = 0;
+        if (opts.path) {
+            var svg = String(opts.path);
+            pathOrient = opts.orient !== undefined ? Number(opts.orient) : 0;
+            var cacheKey = '__ap_' + svg;
+            if (!ctx[cacheKey]) {
+                ctx[cacheKey] = __along_path_create(svg);
+            }
+            pathHandle = ctx[cacheKey];
+        }
+
         var keyframesSpec = opts.keyframes || null;
         var keyframesNormalized = null;
         if (keyframesSpec) {
@@ -156,6 +168,26 @@
                     })(kfKey2, keyframesNormalized[kfKey2]);
                 }
             }
+        }
+        if (pathHandle != null) {
+            var _sp = -1, _sa = null;
+            function _pathSample() {
+                var p = __animate_progress(handle);
+                if (p !== _sp) { _sa = __along_path_at(pathHandle, p); _sp = p; }
+                return _sa;
+            }
+            Object.defineProperty(result, 'x', {
+                get: function() { return _pathSample()[0]; },
+                enumerable: true,
+            });
+            Object.defineProperty(result, 'y', {
+                get: function() { return _pathSample()[1]; },
+                enumerable: true,
+            });
+            Object.defineProperty(result, 'rotation', {
+                get: function() { return _pathSample()[2] + pathOrient; },
+                enumerable: true,
+            });
         }
         for (var ki = 0; ki < keys.length; ki++) {
             (function(key) {

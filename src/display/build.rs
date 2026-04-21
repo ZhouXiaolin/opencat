@@ -5,7 +5,8 @@ use crate::{
         list::{
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
             DisplayTransform, DrawScriptDisplayItem, LucideDisplayItem, LucidePaintStyle,
-            RectDisplayItem, RectPaintStyle, TextDisplayItem,
+            RectDisplayItem, RectPaintStyle, TextDisplayItem, TimelineDisplayItem,
+            TimelineTransitionDisplay,
         },
         tree::{DisplayNode, DisplayTree},
     },
@@ -84,6 +85,26 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 inset_shadow: element.style.visual.inset_shadow,
                 drop_shadow: element.style.visual.drop_shadow,
             },
+        }),
+        ElementKind::Timeline(timeline) => DisplayItem::Timeline(TimelineDisplayItem {
+            bounds,
+            paint: RectPaintStyle {
+                background: element.style.visual.background,
+                border_radius: element.style.visual.border_radius,
+                border_width: element.style.visual.border_width,
+                border_color: element.style.visual.border_color,
+                blur_sigma: element.style.visual.blur_sigma,
+                box_shadow: element.style.visual.box_shadow,
+                inset_shadow: element.style.visual.inset_shadow,
+                drop_shadow: element.style.visual.drop_shadow,
+            },
+            transition: timeline
+                .transition
+                .as_ref()
+                .map(|transition| TimelineTransitionDisplay {
+                    progress: transition.progress,
+                    kind: transition.kind,
+                }),
         }),
         ElementKind::Text(text) => DisplayItem::Text(TextDisplayItem {
             bounds,

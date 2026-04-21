@@ -2,6 +2,7 @@ use crate::{
     resource::assets::AssetId,
     resource::media::VideoFrameTiming,
     scene::script::CanvasCommand,
+    scene::transition::TransitionKind,
     style::{
         BackgroundFill, BorderRadius, BoxShadow, ColorToken, ComputedTextStyle, DropShadow,
         InsetShadow, ObjectFit,
@@ -33,6 +34,7 @@ pub struct DisplayTransform {
 #[derive(Clone, Debug)]
 pub enum DisplayItem {
     Rect(RectDisplayItem),
+    Timeline(TimelineDisplayItem),
     Text(TextDisplayItem),
     Bitmap(BitmapDisplayItem),
     DrawScript(DrawScriptDisplayItem),
@@ -52,6 +54,19 @@ pub struct TextDisplayItem {
     pub style: ComputedTextStyle,
     pub allow_wrap: bool,
     pub drop_shadow: Option<DropShadow>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TimelineDisplayItem {
+    pub bounds: DisplayRect,
+    pub paint: RectPaintStyle,
+    pub transition: Option<TimelineTransitionDisplay>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TimelineTransitionDisplay {
+    pub progress: f32,
+    pub kind: TransitionKind,
 }
 
 #[derive(Clone, Debug)]
@@ -157,6 +172,7 @@ impl DisplayItem {
     pub fn bounds(&self) -> DisplayRect {
         match self {
             Self::Rect(rect) => rect.bounds,
+            Self::Timeline(timeline) => timeline.bounds,
             Self::Text(text) => text.bounds,
             Self::Bitmap(bitmap) => bitmap.bounds,
             Self::DrawScript(script) => script.bounds,
@@ -170,6 +186,7 @@ impl DisplayItem {
 
         let box_shadow = match self {
             Self::Rect(rect) => rect.paint.box_shadow,
+            Self::Timeline(timeline) => timeline.paint.box_shadow,
             Self::Bitmap(bitmap) => bitmap.paint.box_shadow,
             Self::Text(_) | Self::DrawScript(_) | Self::Lucide(_) => None,
         };
@@ -180,6 +197,7 @@ impl DisplayItem {
 
         let drop_shadow = match self {
             Self::Rect(rect) => rect.paint.drop_shadow,
+            Self::Timeline(timeline) => timeline.paint.drop_shadow,
             Self::Text(text) => text.drop_shadow,
             Self::Bitmap(bitmap) => bitmap.paint.drop_shadow,
             Self::DrawScript(script) => script.drop_shadow,

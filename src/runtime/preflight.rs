@@ -109,9 +109,7 @@ mod tests {
     use crate::{
         frame_ctx::FrameCtx,
         scene::{
-            node::NodeKind,
             primitives::{div, image},
-            time::frame_state_for_root,
             transition::timeline,
         },
     };

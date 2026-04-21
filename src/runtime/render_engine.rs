@@ -13,7 +13,7 @@ use crate::{
         target::{RenderFrameViewKind, RenderTargetHandle},
         text_engine::SharedTextEngine,
     },
-    scene::{composition::Composition, transition::TransitionKind},
+    scene::composition::Composition,
 };
 
 pub(crate) type SceneSnapshot = BackendObject;
@@ -59,16 +59,6 @@ pub(crate) trait RenderEngine: Send + Sync {
         display_tree: &AnnotatedDisplayTree,
         ordered_scene: &OrderedSceneProgram,
         frame_view: RenderFrameView,
-    ) -> Result<()>;
-    fn draw_transition(
-        &self,
-        frame_view: RenderFrameView,
-        from: &SceneSnapshot,
-        to: &SceneSnapshot,
-        progress: f32,
-        kind: TransitionKind,
-        width: i32,
-        height: i32,
     ) -> Result<()>;
 }
 pub(crate) type SharedRenderEngine = std::sync::Arc<dyn RenderEngine>;

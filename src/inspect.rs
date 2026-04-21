@@ -372,6 +372,7 @@ fn collect_rects_in_draw_order(
 fn fallback_kind_for_element(element: &ElementNode) -> &'static str {
     match element.kind {
         ElementKind::Div(_) => "div",
+        ElementKind::Timeline(_) => "timeline",
         ElementKind::Text(_) => "text",
         ElementKind::Bitmap(_) => "bitmap",
         ElementKind::Canvas(_) => "canvas",

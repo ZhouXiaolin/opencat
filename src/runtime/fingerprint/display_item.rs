@@ -42,6 +42,16 @@ impl Hash for DisplayItemFp<'_> {
                 F32Hash(rect.bounds.height).hash(state);
                 RectPaintFp(&rect.paint).hash(state);
             }
+            DisplayItem::Timeline(timeline) => {
+                5_u8.hash(state);
+                F32Hash(timeline.bounds.width).hash(state);
+                F32Hash(timeline.bounds.height).hash(state);
+                RectPaintFp(&timeline.paint).hash(state);
+                if let Some(transition) = timeline.transition.as_ref() {
+                    F32Hash(transition.progress).hash(state);
+                    hash_transition_kind(&transition.kind, state);
+                }
+            }
             DisplayItem::Text(text) => {
                 1_u8.hash(state);
                 text.text.hash(state);
@@ -77,6 +87,28 @@ impl Hash for DisplayItemFp<'_> {
                 F32Hash(lucide.bounds.height).hash(state);
             }
         }
+    }
+}
+
+fn hash_transition_kind<H: Hasher>(kind: &crate::scene::transition::TransitionKind, state: &mut H) {
+    match kind {
+        crate::scene::transition::TransitionKind::Slide(direction) => {
+            0_u8.hash(state);
+            std::mem::discriminant(direction).hash(state);
+        }
+        crate::scene::transition::TransitionKind::LightLeak(params) => {
+            1_u8.hash(state);
+            F32Hash(params.seed).hash(state);
+            F32Hash(params.hue_shift).hash(state);
+            F32Hash(params.mask_scale).hash(state);
+        }
+        crate::scene::transition::TransitionKind::Fade => 2_u8.hash(state),
+        crate::scene::transition::TransitionKind::Wipe(direction) => {
+            3_u8.hash(state);
+            std::mem::discriminant(direction).hash(state);
+        }
+        crate::scene::transition::TransitionKind::ClockWipe => 4_u8.hash(state),
+        crate::scene::transition::TransitionKind::Iris => 5_u8.hash(state),
     }
 }
 
@@ -156,6 +188,7 @@ impl Hash for LucidePaintFp<'_> {
 
 pub(super) fn item_is_time_variant(item: &DisplayItem, assets: &AssetsMap) -> bool {
     match item {
+        DisplayItem::Timeline(_) => true,
         DisplayItem::Bitmap(bitmap) => bitmap_is_video(bitmap, assets),
         // DrawScript 的命令序列本身就是纯数据;若脚本输出稳定,hash 稳定即可跨帧复用。
         // 若脚本每帧产出不同 commands(读取 time_secs 等),hash 每帧变 → ItemPictureCache
@@ -170,4 +203,46 @@ pub(super) fn bitmap_is_video(bitmap: &BitmapDisplayItem, assets: &AssetsMap) ->
         .path(&bitmap.asset_id)
         .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::item_is_time_variant;
+    use crate::{
+        display::list::{DisplayItem, DisplayRect, RectPaintStyle, TimelineDisplayItem},
+        resource::assets::AssetsMap,
+    };
+
+    fn bounds() -> DisplayRect {
+        DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+        }
+    }
+
+    #[test]
+    fn timeline_display_item_is_always_time_variant() {
+        let assets = AssetsMap::new();
+        let item = DisplayItem::Timeline(TimelineDisplayItem {
+            bounds: bounds(),
+            paint: RectPaintStyle {
+                background: None,
+                border_radius: crate::style::BorderRadius::default(),
+                border_width: None,
+                border_color: None,
+                blur_sigma: None,
+                box_shadow: None,
+                inset_shadow: None,
+                drop_shadow: None,
+            },
+            transition: None,
+        });
+
+        assert!(
+            item_is_time_variant(&item, &assets),
+            "timeline node itself should stay on the live path"
+        );
+    }
 }

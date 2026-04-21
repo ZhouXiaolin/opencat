@@ -1,0 +1,76 @@
+{"type":"composition","width":1280,"height":720,"fps":30,"frames":300}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px] bg-[#f7f7f3] overflow-hidden"}
+{"id":"guide-v","parentId":"root","type":"div","className":"absolute left-[640px] top-[0px] w-[2px] h-[720px] bg-black opacity-20"}
+{"id":"guide-h","parentId":"root","type":"div","className":"absolute left-[0px] top-[360px] w-[1280px] h-[2px] bg-black opacity-20"}
+{"id":"hero-tl","parentId":"root","type":"tl","className":"absolute left-[0px] top-[0px] w-[640px] h-[360px] overflow-hidden border-r-[6px] border-b-[6px] border-black rounded-br-[44px]"}
+{"id":"scene-a","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#ef4444]","duration":132}
+{"id":"scene-a-text","parentId":"scene-a","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"A"}
+{"id":"scene-b","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#2563eb]","duration":132}
+{"id":"scene-b-text","parentId":"scene-b","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"B"}
+{"type":"transition","parentId":"hero-tl","from":"scene-a","to":"scene-b","effect": "slide","duration":36}
+{"id":"tl-badge","parentId":"root","type":"div","className":"absolute left-[32px] top-[28px] px-[18px] py-[10px] rounded-full bg-white border-[2px] border-dashed border-black"}
+{"id":"tl-badge-text","parentId":"tl-badge","type":"text","className":"text-[12px] font-semibold text-black tracking-[2px]","text":"TIMELINE NODE"}
+{"id":"left-copy","parentId":"root","type":"div","className":"absolute left-[52px] top-[420px] flex flex-col gap-[18px] w-[500px]"}
+{"id":"left-kicker","parentId":"left-copy","type":"text","className":"text-[14px] font-semibold text-black tracking-[3px]","text":"LEFT TOP QUADRANT / TL"}
+{"id":"left-title-1","parentId":"left-copy","type":"text","className":"text-[72px] font-bold text-black leading-[0.92] tracking-[-4px]","text":"A to B"}
+{"id":"left-title-2","parentId":"left-copy","type":"text","className":"text-[72px] font-bold text-black leading-[0.92] tracking-[-4px]","text":"through iris"}
+{"id":"left-body","parentId":"left-copy","type":"text","className":"text-[24px] text-black leading-[1.25]","text":"The timeline stays a normal node. Only the time sequence lives inside it: scene, transition, scene."}
+{"id":"left-pill-row","parentId":"left-copy","type":"div","className":"flex flex-row gap-[12px]"}
+{"id":"left-pill-1","parentId":"left-pill-row","type":"div","className":"px-[16px] py-[10px] rounded-full bg-black"}
+{"id":"left-pill-1-text","parentId":"left-pill-1","type":"text","className":"text-[14px] font-semibold text-white tracking-[1px]","text":"10s"}
+{"id":"left-pill-2","parentId":"left-pill-row","type":"div","className":"px-[16px] py-[10px] rounded-full bg-black"}
+{"id":"left-pill-2-text","parentId":"left-pill-2","type":"text","className":"text-[14px] font-semibold text-white tracking-[1px]","text":"30 fps"}
+{"id":"left-pill-3","parentId":"left-pill-row","type":"div","className":"px-[16px] py-[10px] rounded-full bg-black"}
+{"id":"left-pill-3-text","parentId":"left-pill-3","type":"text","className":"text-[14px] font-semibold text-white tracking-[1px]","text":"300 frames"}
+{"id":"orb-stage","parentId":"root","type":"div","className":"absolute left-[668px] top-[24px] w-[588px] h-[672px]"}
+{"id":"orb-stage-label","parentId":"orb-stage","type":"text","className":"absolute left-[12px] top-[10px] text-[14px] font-semibold text-black tracking-[3px]","text":"COLORFUL CHARACTER BLOCKS"}
+{"id":"orb-1","parentId":"orb-stage","type":"div","className":"absolute left-[8px] top-[54px] w-[150px] h-[150px] rounded-full border-[4px] border-black bg-[#facc15] shadow-lg"}
+{"id":"orb-1-face","parentId":"orb-1","type":"div","className":"flex flex-col items-center justify-center w-full h-full gap-[12px]"}
+{"id":"orb-1-eyes","parentId":"orb-1-face","type":"div","className":"flex flex-row gap-[14px]"}
+{"id":"orb-1-eye-a","parentId":"orb-1-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
+{"id":"orb-1-eye-b","parentId":"orb-1-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
+{"id":"orb-1-mouth","parentId":"orb-1-face","type":"div","className":"w-[40px] h-[12px] rounded-full bg-black"}
+{"id":"orb-1-tag","parentId":"orb-1-face","type":"text","className":"text-[16px] font-semibold text-black tracking-[1px]","text":"POP"}
+{"id":"orb-2","parentId":"orb-stage","type":"div","className":"absolute left-[180px] top-[140px] w-[210px] h-[210px] rounded-full border-[4px] border-black bg-[#22c55e] shadow-lg"}
+{"id":"orb-2-face","parentId":"orb-2","type":"div","className":"flex flex-col items-center justify-center w-full h-full gap-[14px]"}
+{"id":"orb-2-eyes","parentId":"orb-2-face","type":"div","className":"flex flex-row gap-[16px]"}
+{"id":"orb-2-eye-a","parentId":"orb-2-eyes","type":"div","className":"w-[16px] h-[16px] rounded-full bg-black"}
+{"id":"orb-2-eye-b","parentId":"orb-2-eyes","type":"div","className":"w-[16px] h-[16px] rounded-full bg-black"}
+{"id":"orb-2-mouth","parentId":"orb-2-face","type":"div","className":"w-[54px] h-[14px] rounded-full bg-black"}
+{"id":"orb-2-tag","parentId":"orb-2-face","type":"text","className":"text-[18px] font-semibold text-black tracking-[1px]","text":"LOOP"}
+{"id":"orb-3","parentId":"orb-stage","type":"div","className":"absolute left-[394px] top-[42px] w-[170px] h-[170px] rounded-full border-[4px] border-black bg-[#38bdf8] shadow-lg"}
+{"id":"orb-3-face","parentId":"orb-3","type":"div","className":"flex flex-col items-center justify-center w-full h-full gap-[12px]"}
+{"id":"orb-3-eyes","parentId":"orb-3-face","type":"div","className":"flex flex-row gap-[14px]"}
+{"id":"orb-3-eye-a","parentId":"orb-3-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
+{"id":"orb-3-eye-b","parentId":"orb-3-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
+{"id":"orb-3-mouth","parentId":"orb-3-face","type":"div","className":"w-[44px] h-[12px] rounded-full bg-black"}
+{"id":"orb-3-tag","parentId":"orb-3-face","type":"text","className":"text-[16px] font-semibold text-black tracking-[1px]","text":"NODE"}
+{"id":"orb-4","parentId":"orb-stage","type":"div","className":"absolute left-[48px] top-[292px] w-[186px] h-[186px] rounded-full border-[4px] border-black bg-[#fb7185] shadow-lg"}
+{"id":"orb-4-face","parentId":"orb-4","type":"div","className":"flex flex-col items-center justify-center w-full h-full gap-[12px]"}
+{"id":"orb-4-eyes","parentId":"orb-4-face","type":"div","className":"flex flex-row gap-[14px]"}
+{"id":"orb-4-eye-a","parentId":"orb-4-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
+{"id":"orb-4-eye-b","parentId":"orb-4-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
+{"id":"orb-4-mouth","parentId":"orb-4-face","type":"div","className":"w-[48px] h-[12px] rounded-full bg-black"}
+{"id":"orb-4-tag","parentId":"orb-4-face","type":"text","className":"text-[16px] font-semibold text-black tracking-[1px]","text":"IRIS"}
+{"id":"orb-5","parentId":"orb-stage","type":"div","className":"absolute left-[286px] top-[334px] w-[230px] h-[230px] rounded-full border-[4px] border-black bg-[#a855f7] shadow-lg"}
+{"id":"orb-5-face","parentId":"orb-5","type":"div","className":"flex flex-col items-center justify-center w-full h-full gap-[16px]"}
+{"id":"orb-5-eyes","parentId":"orb-5-face","type":"div","className":"flex flex-row gap-[18px]"}
+{"id":"orb-5-eye-a","parentId":"orb-5-eyes","type":"div","className":"w-[16px] h-[16px] rounded-full bg-black"}
+{"id":"orb-5-eye-b","parentId":"orb-5-eyes","type":"div","className":"w-[16px] h-[16px] rounded-full bg-black"}
+{"id":"orb-5-mouth","parentId":"orb-5-face","type":"div","className":"w-[58px] h-[14px] rounded-full bg-black"}
+{"id":"orb-5-tag","parentId":"orb-5-face","type":"text","className":"text-[18px] font-semibold text-black tracking-[1px]","text":"PLAY"}
+{"id":"orb-6","parentId":"orb-stage","type":"div","className":"absolute left-[160px] top-[534px] w-[152px] h-[152px] rounded-full border-[4px] border-black bg-[#fb923c] shadow-lg"}
+{"id":"orb-6-face","parentId":"orb-6","type":"div","className":"flex flex-col items-center justify-center w-full h-full gap-[12px]"}
+{"id":"orb-6-eyes","parentId":"orb-6-face","type":"div","className":"flex flex-row gap-[14px]"}
+{"id":"orb-6-eye-a","parentId":"orb-6-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
+{"id":"orb-6-eye-b","parentId":"orb-6-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
+{"id":"orb-6-mouth","parentId":"orb-6-face","type":"div","className":"w-[40px] h-[12px] rounded-full bg-black"}
+{"id":"orb-6-tag","parentId":"orb-6-face","type":"text","className":"text-[16px] font-semibold text-black tracking-[1px]","text":"CAT"}
+{"id":"orb-7","parentId":"orb-stage","type":"div","className":"absolute left-[438px] top-[530px] w-[158px] h-[158px] rounded-full border-[4px] border-black bg-[#14b8a6] shadow-lg"}
+{"id":"orb-7-face","parentId":"orb-7","type":"div","className":"flex flex-col items-center justify-center w-full h-full gap-[12px]"}
+{"id":"orb-7-eyes","parentId":"orb-7-face","type":"div","className":"flex flex-row gap-[14px]"}
+{"id":"orb-7-eye-a","parentId":"orb-7-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
+{"id":"orb-7-eye-b","parentId":"orb-7-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
+{"id":"orb-7-mouth","parentId":"orb-7-face","type":"div","className":"w-[42px] h-[12px] rounded-full bg-black"}
+{"id":"orb-7-tag","parentId":"orb-7-face","type":"text","className":"text-[16px] font-semibold text-black tracking-[1px]","text":"FLOW"}
+{"type":"script","parentId":"root","src":"var ids=['orb-1','orb-2','orb-3','orb-4','orb-5','orb-6','orb-7']; var faceIds=['orb-1-face','orb-2-face','orb-3-face','orb-4-face','orb-5-face','orb-6-face','orb-7-face']; var labelIds=['orb-1-tag','orb-2-tag','orb-3-tag','orb-4-tag','orb-5-tag','orb-6-tag','orb-7-tag']; var entry=ctx.stagger(ids.length,{from:{opacity:0,scale:0.42,translateY:90},to:{opacity:1,scale:1,translateY:0},duration:42,gap:8,easing:'spring-wobbly'}); var driftCfg=[{tx0:-10,tx1:12,ty0:-14,ty1:10,sc0:0.98,sc1:1.04,rot0:-4,rot1:3,duration:88,delay:0,c0:'#facc15',c1:'#fb7185'},{tx0:-12,tx1:10,ty0:-18,ty1:14,sc0:0.95,sc1:1.06,rot0:-3,rot1:4,duration:96,delay:5,c0:'#22c55e',c1:'#4ade80'},{tx0:-8,tx1:14,ty0:-12,ty1:8,sc0:0.97,sc1:1.05,rot0:-5,rot1:5,duration:82,delay:9,c0:'#38bdf8',c1:'#60a5fa'},{tx0:-14,tx1:12,ty0:-16,ty1:12,sc0:0.96,sc1:1.05,rot0:-4,rot1:4,duration:92,delay:12,c0:'#fb7185',c1:'#f43f5e'},{tx0:-10,tx1:16,ty0:-12,ty1:14,sc0:0.95,sc1:1.07,rot0:-3,rot1:5,duration:98,delay:16,c0:'#a855f7',c1:'#c084fc'},{tx0:-12,tx1:10,ty0:-14,ty1:10,sc0:0.97,sc1:1.04,rot0:-5,rot1:4,duration:86,delay:20,c0:'#fb923c',c1:'#fdba74'},{tx0:-8,tx1:12,ty0:-16,ty1:12,sc0:0.96,sc1:1.05,rot0:-4,rot1:4,duration:90,delay:24,c0:'#14b8a6',c1:'#2dd4bf'}]; for (var i = 0; i < ids.length; i++) { var cfg = driftCfg[i]; var entryState = entry[i]; var drift = ctx.animate({from:{translateX:cfg.tx0,translateY:cfg.ty0,scale:cfg.sc0,rotate:cfg.rot0},to:{translateX:cfg.tx1,translateY:cfg.ty1,scale:cfg.sc1,rotate:cfg.rot1},duration:cfg.duration,delay:cfg.delay,easing:'ease-in-out',repeat:-1,yoyo:true}); var color = ctx.animate({from:{bg:cfg.c0},to:{bg:cfg.c1},duration:cfg.duration + 18,delay:cfg.delay,easing:'ease-in-out',repeat:-1,yoyo:true}); var faceFloat = ctx.animate({from:{translateY:-3,rotate:-1},to:{translateY:5,rotate:2},duration:54 + i * 4,delay:i * 3,easing:'ease-in-out',repeat:-1,yoyo:true}); var labelPulse = ctx.animate({from:{scale:0.96,opacity:0.75},to:{scale:1.06,opacity:1},duration:46 + i * 3,delay:i * 2,easing:'ease-in-out',repeat:-1,yoyo:true}); ctx.getNode(ids[i]).opacity(entryState.opacity).scale(entryState.scale * drift.scale).translateX(drift.translateX).translateY(entryState.translateY + drift.translateY).rotate(drift.rotate).bg(color.bg); ctx.getNode(faceIds[i]).translateY(faceFloat.translateY).rotate(faceFloat.rotate); ctx.getNode(labelIds[i]).scale(labelPulse.scale).opacity(labelPulse.opacity); }"}

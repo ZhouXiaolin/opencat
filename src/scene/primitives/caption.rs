@@ -162,9 +162,6 @@ mod tests {
         assert_eq!(node.active_text(273), Some("（前情提要）"));
         assert_eq!(node.active_text(299), Some("（前情提要）"));
         assert_eq!(node.active_text(300), None);
-        assert_eq!(
-            node.active_text(301),
-            Some("你说你会一直照顾我 你保证过的")
-        );
+        assert_eq!(node.active_text(301), Some("你说你会一直照顾我 你保证过的"));
     }
 }

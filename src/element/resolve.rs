@@ -228,7 +228,12 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     style.layout.margin_left = LengthPercentageAuto::Length(0.0);
     style.visual.background = None;
     style.visual.border_width = None;
+    style.visual.border_top_width = None;
+    style.visual.border_right_width = None;
+    style.visual.border_bottom_width = None;
+    style.visual.border_left_width = None;
     style.visual.border_color = None;
+    style.visual.border_style = None;
     style.visual.box_shadow = None;
     style.visual.inset_shadow = None;
     style.visual.drop_shadow = None;
@@ -764,7 +769,12 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
                 .or_else(|| style.bg_color.map(crate::style::BackgroundFill::Solid)),
             border_radius: style.border_radius.unwrap_or_default(),
             border_width: style.border_width,
+            border_top_width: style.border_top_width,
+            border_right_width: style.border_right_width,
+            border_bottom_width: style.border_bottom_width,
+            border_left_width: style.border_left_width,
             border_color: style.border_color,
+            border_style: style.border_style,
             blur_sigma: style.blur_sigma,
             backdrop_blur_sigma: style.backdrop_blur_sigma,
             object_fit: style.object_fit.unwrap_or_default(),

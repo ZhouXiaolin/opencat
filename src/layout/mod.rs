@@ -402,6 +402,30 @@ impl Hash for LayoutFingerprint<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         LayoutStyleFingerprint(&self.0.style.layout).hash(state);
         self.0.style.visual.border_width.map(F32Hash).hash(state);
+        self.0
+            .style
+            .visual
+            .border_top_width
+            .map(F32Hash)
+            .hash(state);
+        self.0
+            .style
+            .visual
+            .border_right_width
+            .map(F32Hash)
+            .hash(state);
+        self.0
+            .style
+            .visual
+            .border_bottom_width
+            .map(F32Hash)
+            .hash(state);
+        self.0
+            .style
+            .visual
+            .border_left_width
+            .map(F32Hash)
+            .hash(state);
 
         match &self.0.kind {
             ElementKind::Div(_) | ElementKind::Timeline(_) | ElementKind::Canvas(_) => {}
@@ -520,7 +544,12 @@ impl Hash for RasterVisualStyleFingerprint<'_> {
         style.background.hash(state);
         style.border_radius.hash(state);
         style.border_width.map(F32Hash).hash(state);
+        style.border_top_width.map(F32Hash).hash(state);
+        style.border_right_width.map(F32Hash).hash(state);
+        style.border_bottom_width.map(F32Hash).hash(state);
+        style.border_left_width.map(F32Hash).hash(state);
         style.border_color.hash(state);
+        style.border_style.hash(state);
         style.blur_sigma.map(F32Hash).hash(state);
         style.object_fit.hash(state);
         style.clip_contents.hash(state);
@@ -830,7 +859,27 @@ fn build_layout_tree(
 
 fn base_style(element: &ElementNode) -> Style {
     let layout = &element.style.layout;
-    let border_width = element.style.visual.border_width.unwrap_or(0.0);
+    let uniform_border = element.style.visual.border_width.unwrap_or(0.0);
+    let border_top = element
+        .style
+        .visual
+        .border_top_width
+        .unwrap_or(uniform_border);
+    let border_right = element
+        .style
+        .visual
+        .border_right_width
+        .unwrap_or(uniform_border);
+    let border_bottom = element
+        .style
+        .visual
+        .border_bottom_width
+        .unwrap_or(uniform_border);
+    let border_left = element
+        .style
+        .visual
+        .border_left_width
+        .unwrap_or(uniform_border);
     let mut style = Style {
         position: map_position(layout.position),
         inset: taffy::geometry::Rect {
@@ -854,10 +903,10 @@ fn base_style(element: &ElementNode) -> Style {
         justify_self: layout.justify_self.map(map_align_items_to_justify_self),
         aspect_ratio: layout.aspect_ratio,
         border: taffy::geometry::Rect {
-            left: taffy::style::LengthPercentage::length(border_width),
-            top: taffy::style::LengthPercentage::length(border_width),
-            right: taffy::style::LengthPercentage::length(border_width),
-            bottom: taffy::style::LengthPercentage::length(border_width),
+            left: taffy::style::LengthPercentage::length(border_left),
+            top: taffy::style::LengthPercentage::length(border_top),
+            right: taffy::style::LengthPercentage::length(border_right),
+            bottom: taffy::style::LengthPercentage::length(border_bottom),
         },
         ..Default::default()
     };

@@ -149,7 +149,12 @@ impl Hash for RectPaintFp<'_> {
         paint.background.hash(state);
         paint.border_radius.hash(state);
         paint.border_width.map(F32Hash).hash(state);
+        paint.border_top_width.map(F32Hash).hash(state);
+        paint.border_right_width.map(F32Hash).hash(state);
+        paint.border_bottom_width.map(F32Hash).hash(state);
+        paint.border_left_width.map(F32Hash).hash(state);
         paint.border_color.hash(state);
+        paint.border_style.hash(state);
         paint.blur_sigma.map(F32Hash).hash(state);
         paint.box_shadow.hash(state);
         paint.inset_shadow.hash(state);
@@ -165,7 +170,12 @@ impl Hash for BitmapPaintFp<'_> {
         paint.background.hash(state);
         paint.border_radius.hash(state);
         paint.border_width.map(F32Hash).hash(state);
+        paint.border_top_width.map(F32Hash).hash(state);
+        paint.border_right_width.map(F32Hash).hash(state);
+        paint.border_bottom_width.map(F32Hash).hash(state);
+        paint.border_left_width.map(F32Hash).hash(state);
         paint.border_color.hash(state);
+        paint.border_style.hash(state);
         paint.blur_sigma.map(F32Hash).hash(state);
         paint.box_shadow.hash(state);
         paint.inset_shadow.hash(state);
@@ -231,7 +241,12 @@ mod tests {
                 background: None,
                 border_radius: crate::style::BorderRadius::default(),
                 border_width: None,
+                border_top_width: None,
+                border_right_width: None,
+                border_bottom_width: None,
+                border_left_width: None,
                 border_color: None,
+                border_style: None,
                 blur_sigma: None,
                 box_shadow: None,
                 inset_shadow: None,

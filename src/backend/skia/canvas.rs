@@ -913,7 +913,12 @@ pub(crate) fn record_display_tree_snapshot<'a>(
 
 fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
     let style = &rect.paint;
-    if style.background.is_none() && style.border_width.is_none() && style.inset_shadow.is_none() {
+    let has_any_border = style.border_width.is_some()
+        || style.border_top_width.is_some()
+        || style.border_right_width.is_some()
+        || style.border_bottom_width.is_some()
+        || style.border_left_width.is_some();
+    if style.background.is_none() && !has_any_border && style.inset_shadow.is_none() {
         return;
     }
 
@@ -936,13 +941,6 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
         if let Some(shadow) = style.inset_shadow {
             draw_inset_shadow(canvas, bounds, style.border_radius, shadow);
         }
-
-        if let (Some(width), Some(color)) = (style.border_width, style.border_color) {
-            paint.set_color(skia_color(color));
-            paint.set_style(PaintStyle::Stroke);
-            paint.set_stroke_width(width);
-            canvas.draw_rrect(rrect, &paint);
-        }
     } else {
         if let Some(background) = style.background {
             apply_background_paint(&mut paint, background, rect);
@@ -952,14 +950,21 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
         if let Some(shadow) = style.inset_shadow {
             draw_inset_shadow(canvas, bounds, style.border_radius, shadow);
         }
-
-        if let (Some(width), Some(color)) = (style.border_width, style.border_color) {
-            paint.set_color(skia_color(color));
-            paint.set_style(PaintStyle::Stroke);
-            paint.set_stroke_width(width);
-            canvas.draw_rect(rect, &paint);
-        }
     }
+
+    draw_node_border(
+        canvas,
+        rect,
+        style.border_radius,
+        style.border_width,
+        style.border_top_width,
+        style.border_right_width,
+        style.border_bottom_width,
+        style.border_left_width,
+        style.border_color,
+        style.border_style,
+        style.blur_sigma,
+    );
 }
 
 fn spread_radius(
@@ -1567,21 +1572,19 @@ fn draw_bitmap(
         draw_inset_shadow(canvas, bitmap.bounds, bitmap.paint.border_radius, shadow);
     }
 
-    if let (Some(width), Some(color)) = (bitmap.paint.border_width, bitmap.paint.border_color) {
-        let mut border_paint = Paint::default();
-        border_paint.set_anti_alias(true);
-        apply_blur_effect(&mut border_paint, bitmap.paint.blur_sigma);
-        border_paint.set_color(skia_color(color));
-        border_paint.set_style(PaintStyle::Stroke);
-        border_paint.set_stroke_width(width);
-
-        if radii.iter().any(|&r| r > 0.0) {
-            let rrect = make_rrect(dst, bitmap.paint.border_radius);
-            canvas.draw_rrect(rrect, &border_paint);
-        } else {
-            canvas.draw_rect(dst, &border_paint);
-        }
-    }
+    draw_node_border(
+        canvas,
+        dst,
+        bitmap.paint.border_radius,
+        bitmap.paint.border_width,
+        bitmap.paint.border_top_width,
+        bitmap.paint.border_right_width,
+        bitmap.paint.border_bottom_width,
+        bitmap.paint.border_left_width,
+        bitmap.paint.border_color,
+        bitmap.paint.border_style,
+        bitmap.paint.blur_sigma,
+    );
 
     stats.draw_ms = draw_started.elapsed().as_secs_f64() * 1000.0;
     Ok(stats)
@@ -2245,6 +2248,280 @@ fn apply_blur_effect(paint: &mut Paint, blur_sigma: Option<f32>) {
 
     if let Some(mask_filter) = MaskFilter::blur(BlurStyle::Normal, sigma, false) {
         paint.set_mask_filter(mask_filter);
+    }
+}
+
+fn apply_border_dash_effect(
+    paint: &mut Paint,
+    width: f32,
+    border_style: crate::style::BorderStyle,
+) {
+    match border_style {
+        crate::style::BorderStyle::Solid => {}
+        crate::style::BorderStyle::Dashed => {
+            let unit = width.max(1.0) * 2.0;
+            if let Some(effect) = skia_safe::PathEffect::dash(&[unit, unit], 0.0) {
+                paint.set_path_effect(effect);
+            }
+        }
+        crate::style::BorderStyle::Dotted => {
+            paint.set_stroke_cap(skia_safe::paint::Cap::Round);
+            let gap = width.max(1.0) * 2.0;
+            if let Some(effect) = skia_safe::PathEffect::dash(&[0.0, gap], 0.0) {
+                paint.set_path_effect(effect);
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_node_border(
+    canvas: &Canvas,
+    rect: Rect,
+    radius: crate::style::BorderRadius,
+    border_width: Option<f32>,
+    border_top_width: Option<f32>,
+    border_right_width: Option<f32>,
+    border_bottom_width: Option<f32>,
+    border_left_width: Option<f32>,
+    border_color: Option<crate::style::ColorToken>,
+    border_style: Option<crate::style::BorderStyle>,
+    blur_sigma: Option<f32>,
+) {
+    let Some(color) = border_color else {
+        return;
+    };
+    let uniform = border_width.unwrap_or(0.0);
+    let top_w = border_top_width.unwrap_or(uniform);
+    let right_w = border_right_width.unwrap_or(uniform);
+    let bottom_w = border_bottom_width.unwrap_or(uniform);
+    let left_w = border_left_width.unwrap_or(uniform);
+    if top_w <= 0.0 && right_w <= 0.0 && bottom_w <= 0.0 && left_w <= 0.0 {
+        return;
+    }
+
+    let stroke_style = border_style.unwrap_or_default();
+    let skia_col = skia_color(color);
+
+    match stroke_style {
+        crate::style::BorderStyle::Solid => {
+            draw_border_fill_ring(
+                canvas, rect, radius, top_w, right_w, bottom_w, left_w, skia_col, blur_sigma,
+            );
+        }
+        crate::style::BorderStyle::Dashed | crate::style::BorderStyle::Dotted => {
+            draw_per_side_borders(
+                canvas,
+                rect,
+                radius,
+                top_w,
+                right_w,
+                bottom_w,
+                left_w,
+                skia_col,
+                stroke_style,
+                blur_sigma,
+            );
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_border_fill_ring(
+    canvas: &Canvas,
+    outer_rect: Rect,
+    outer_radius: crate::style::BorderRadius,
+    top_w: f32,
+    right_w: f32,
+    bottom_w: f32,
+    left_w: f32,
+    color: skia_safe::Color,
+    blur_sigma: Option<f32>,
+) {
+    let inner_left = outer_rect.left + left_w.max(0.0);
+    let inner_top = outer_rect.top + top_w.max(0.0);
+    let inner_right = outer_rect.right - right_w.max(0.0);
+    let inner_bottom = outer_rect.bottom - bottom_w.max(0.0);
+
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    apply_blur_effect(&mut paint, blur_sigma);
+    paint.set_color(color);
+    paint.set_style(PaintStyle::Fill);
+
+    let outer_rrect = make_rrect(outer_rect, outer_radius);
+
+    if inner_right <= inner_left || inner_bottom <= inner_top {
+        canvas.draw_rrect(outer_rrect, &paint);
+        return;
+    }
+
+    let inner_rect = Rect::from_ltrb(inner_left, inner_top, inner_right, inner_bottom);
+    let inner_radius = crate::style::BorderRadius {
+        top_left: (outer_radius.top_left - top_w.max(left_w)).max(0.0),
+        top_right: (outer_radius.top_right - top_w.max(right_w)).max(0.0),
+        bottom_right: (outer_radius.bottom_right - bottom_w.max(right_w)).max(0.0),
+        bottom_left: (outer_radius.bottom_left - bottom_w.max(left_w)).max(0.0),
+    };
+    let inner_rrect = make_rrect(inner_rect, inner_radius);
+
+    let mut builder = skia_safe::PathBuilder::new_with_fill_type(skia_safe::PathFillType::EvenOdd);
+    builder.add_rrect(outer_rrect, None::<skia_safe::PathDirection>, None::<usize>);
+    builder.add_rrect(inner_rrect, None::<skia_safe::PathDirection>, None::<usize>);
+    let path = builder.snapshot();
+    canvas.draw_path(&path, &paint);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_per_side_borders(
+    canvas: &Canvas,
+    rect: Rect,
+    radius: crate::style::BorderRadius,
+    top_w: f32,
+    right_w: f32,
+    bottom_w: f32,
+    left_w: f32,
+    color: skia_safe::Color,
+    border_style: crate::style::BorderStyle,
+    blur_sigma: Option<f32>,
+) {
+    let left = rect.left;
+    let top = rect.top;
+    let right = rect.right;
+    let bottom = rect.bottom;
+    let radii = effective_corner_radius(rect, radius);
+    let r_tl = radii[0];
+    let r_tr = radii[1];
+    let r_br = radii[2];
+    let r_bl = radii[3];
+
+    let build_paint = |width: f32| -> Paint {
+        let mut p = Paint::default();
+        p.set_anti_alias(true);
+        apply_blur_effect(&mut p, blur_sigma);
+        p.set_color(color);
+        p.set_style(PaintStyle::Stroke);
+        p.set_stroke_width(width);
+        p.set_stroke_cap(skia_safe::paint::Cap::Butt);
+        apply_border_dash_effect(&mut p, width, border_style);
+        p
+    };
+
+    let draw_segment = |x0: f32, y0: f32, x1: f32, y1: f32, width: f32| {
+        let mut builder = PathBuilder::new();
+        builder.move_to((x0, y0));
+        builder.line_to((x1, y1));
+        let path = builder.snapshot();
+        canvas.draw_path(&path, &build_paint(width));
+    };
+
+    if top_w > 0.0 {
+        let y = top + top_w / 2.0;
+        let x0 = if top_w == left_w && r_tl > 0.0 {
+            left + r_tl
+        } else if left_w > 0.0 {
+            left + left_w
+        } else {
+            left
+        };
+        let x1 = if top_w == right_w && r_tr > 0.0 {
+            right - r_tr
+        } else if right_w > 0.0 {
+            right - right_w
+        } else {
+            right
+        };
+        if x1 > x0 {
+            draw_segment(x0, y, x1, y, top_w);
+        }
+    }
+
+    if right_w > 0.0 {
+        let x = right - right_w / 2.0;
+        let y0 = if right_w == top_w && r_tr > 0.0 {
+            top + r_tr
+        } else if top_w > 0.0 {
+            top + top_w
+        } else {
+            top
+        };
+        let y1 = if right_w == bottom_w && r_br > 0.0 {
+            bottom - r_br
+        } else if bottom_w > 0.0 {
+            bottom - bottom_w
+        } else {
+            bottom
+        };
+        if y1 > y0 {
+            draw_segment(x, y0, x, y1, right_w);
+        }
+    }
+
+    if bottom_w > 0.0 {
+        let y = bottom - bottom_w / 2.0;
+        let x0 = if bottom_w == left_w && r_bl > 0.0 {
+            left + r_bl
+        } else if left_w > 0.0 {
+            left + left_w
+        } else {
+            left
+        };
+        let x1 = if bottom_w == right_w && r_br > 0.0 {
+            right - r_br
+        } else if right_w > 0.0 {
+            right - right_w
+        } else {
+            right
+        };
+        if x1 > x0 {
+            draw_segment(x0, y, x1, y, bottom_w);
+        }
+    }
+
+    if left_w > 0.0 {
+        let x = left + left_w / 2.0;
+        let y0 = if left_w == top_w && r_tl > 0.0 {
+            top + r_tl
+        } else if top_w > 0.0 {
+            top + top_w
+        } else {
+            top
+        };
+        let y1 = if left_w == bottom_w && r_bl > 0.0 {
+            bottom - r_bl
+        } else if bottom_w > 0.0 {
+            bottom - bottom_w
+        } else {
+            bottom
+        };
+        if y1 > y0 {
+            draw_segment(x, y0, x, y1, left_w);
+        }
+    }
+
+    let draw_corner_arc = |cx: f32, cy: f32, corner_r: f32, width: f32, start_deg: f32| {
+        let arc_r = (corner_r - width / 2.0).max(0.0);
+        if arc_r <= 0.0 {
+            return;
+        }
+        let arc_rect = Rect::from_xywh(cx - arc_r, cy - arc_r, 2.0 * arc_r, 2.0 * arc_r);
+        let mut builder = PathBuilder::new();
+        builder.arc_to(arc_rect, start_deg, 90.0, true);
+        let path = builder.snapshot();
+        canvas.draw_path(&path, &build_paint(width));
+    };
+
+    if r_tl > 0.0 && top_w > 0.0 && top_w == left_w {
+        draw_corner_arc(left + r_tl, top + r_tl, r_tl, top_w, 180.0);
+    }
+    if r_tr > 0.0 && top_w > 0.0 && top_w == right_w {
+        draw_corner_arc(right - r_tr, top + r_tr, r_tr, top_w, 270.0);
+    }
+    if r_br > 0.0 && bottom_w > 0.0 && bottom_w == right_w {
+        draw_corner_arc(right - r_br, bottom - r_br, r_br, bottom_w, 0.0);
+    }
+    if r_bl > 0.0 && bottom_w > 0.0 && bottom_w == left_w {
+        draw_corner_arc(left + r_bl, bottom - r_bl, r_bl, bottom_w, 90.0);
     }
 }
 

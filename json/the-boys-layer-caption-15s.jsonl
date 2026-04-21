@@ -1,9 +1,6 @@
-{"type":"composition","width":1280,"height":720,"fps":30,"frames":4500}
-{"id":"scene1","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px] bg-[#0b1020]","duration":4500}
-{"id":"orb","parentId":"scene1","type":"div","className":"absolute left-[892px] top-[84px] w-[240px] h-[240px] rounded-[999px] bg-[#2563eb66]"}
-{"id":"eyebrow","parentId":"scene1","type":"text","className":"absolute left-[72px] top-[64px] text-[24px] font-semibold text-[#93c5fd]","text":"LAYER 1 / SINGLE SCENE"}
-{"id":"headline","parentId":"scene1","type":"text","className":"absolute left-[72px] top-[112px] w-[760px] text-[64px] leading-[74px] font-bold text-white","text":"The Boys S05E03"}
-{"id":"subline","parentId":"scene1","type":"text","className":"absolute left-[72px] top-[286px] w-[760px] text-[28px] leading-[40px] text-[#cbd5e1]","text":"15-second caption overlay demo. Layer 1 keeps a single static scene while layer 2 reads subtitle timing from the external SRT file."}
-{"id":"meta","parentId":"scene1","type":"text","className":"absolute left-[72px] bottom-[132px] text-[22px] text-[#94a3b8]","text":"1280x720 | 30 fps | captions pinned to the bottom"}
-{"id":"subs","parentId":null,"type":"caption","className":"absolute left-[64px] bottom-[36px] w-[1152px] px-[28px] py-[18px] rounded-[20px] bg-[#000000b8] text-[34px] leading-[44px] font-semibold text-center text-white","path":"the-boys-s05e03.zh-CN.utf8.srt"}
-{"type":"layer","children":["scene1","subs"]}
+{"type":"composition","width":1280,"height":720,"fps":30,"frames":450}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px]"}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene1","parentId":"main-tl","type":"div","className":"relative flex flex-col justify-between w-full h-full bg-[#0b1020] px-[72px] py-[56px]","duration":450}
+{"id":"subline","parentId":"scene1","type":"text","className":"text-white","text":"Prime Video"}
+{"id":"subs","parentId":"root","type":"caption","className":"absolute left-[64px] bottom-[40px] w-[1152px] px-[28px] py-[18px] rounded-[20px] bg-[#000000b8] text-[34px] leading-[44px] font-semibold text-center text-white","path":"the-boys-s05e03.zh-CN.utf8.srt"}

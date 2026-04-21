@@ -60,40 +60,36 @@ Constraint: composition.frames = 60 + 12 + 90 = 162
 - Transitions are chained in order: `scene1 -> transition(scene1->scene2) -> scene2 -> ...`
 - Keep `composition.frames` consistent with the derived total for readability, even though the parser currently recomputes it in timeline mode.
 
-#### Layer Root (Parallel Compositing)
+#### Multi Scene via Explicit `tl`
 
-Use `layer` when multiple root-level tracks must render at the same time, for example:
-
-- main visual timeline on layer 1
-- subtitles / captions on layer 2
-- persistent overlays that must survive scene transitions
-
-`layer` is a special top-level record. It is not a normal element node, so it does not use `id`, `parentId`, or `className`.
+Use a `tl` node when you need a visual timeline with transitions alongside persistent overlays (captions, watermarks, etc.). Place the `tl` and the overlay as siblings inside a root `div`.
 
 ```json
-{"type": "layer", "children": ["scene1", "subs"]}
+{"type":"composition","width":390,"height":844,"fps":30,"frames":162}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[390px] h-[844px]"}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene1","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-white","duration":60}
+{"id":"scene2","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-slate-900","duration":90}
+{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"fade","duration":12}
 ```
 
 **Key rules**:
 
-- Only one `layer` record is allowed in a composition.
-- `children` must reference root nodes (`parentId: null`).
-- Child order is bottom to top. The first child is rendered first, the last child is rendered on top.
-- A layer child may be:
-  - a single-scene root
-  - the first scene of a timeline chain
-  - a root `caption`
-- If a layer child is a timeline chain, reference only the chain starter. Later scenes that appear as transition targets are discovered automatically.
-- Runtime total frames are derived as the maximum visible span across all layer children. For a plain scene this is its `duration`; for a timeline child this is the full chain duration including transitions.
+- `tl` is a container node. Its children are scenes and transitions that form a sequential timeline.
+- Place a `tl` and sibling overlays (e.g. `caption`) inside a shared root `div` to composite them in z-order (DOM order = render order).
+- `caption` as a sibling of `tl` renders above the timeline content and persists across scene transitions.
+- Runtime total frames for the `tl` are derived: `sum(all scene.duration) + sum(all transition.duration)`.
+- The root `div` frames (`composition.frames`) should match the longest track.
 
-Example: single scene on layer 1, caption on layer 2.
+Example: single scene + caption overlay.
 
 ```json
-{"type": "composition", "width": 1280, "height": 720, "fps": 30, "frames": 450}
-{"id": "scene1", "parentId": null, "type": "div", "className": "relative flex flex-col justify-between w-[1280px] h-[720px] bg-[#0b1020] px-[72px] py-[56px]", "duration": 450}
-{"id": "title", "parentId": "scene1", "type": "text", "className": "text-[56px] font-bold text-white", "text": "The Boys Recap"}
-{"id": "subs", "parentId": null, "type": "caption", "className": "absolute left-[64px] bottom-[40px] w-[1152px] px-[28px] py-[18px] rounded-[20px] bg-[#000000b8] text-[34px] leading-[44px] font-semibold text-center text-white", "path": "subtitles.utf8.srt"}
-{"type": "layer", "children": ["scene1", "subs"]}
+{"type":"composition","width":1280,"height":720,"fps":30,"frames":450}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px]"}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene1","parentId":"main-tl","type":"div","className":"relative flex flex-col justify-between w-full h-full bg-[#0b1020] px-[72px] py-[56px]","duration":450}
+{"id":"subline","parentId":"scene1","type":"text","className":"text-white","text":"Prime Video"}
+{"id":"subs","parentId":"root","type":"caption","className":"absolute left-[64px] bottom-[40px] w-[1152px] px-[28px] py-[18px] rounded-[20px] bg-[#000000b8] text-[34px] leading-[44px] font-semibold text-center text-white","path":"subtitles.utf8.srt"}
 ```
 
 ### 1.3 Element Nodes

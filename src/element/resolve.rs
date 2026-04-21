@@ -270,7 +270,7 @@ fn resolve_caption(
 
         let content = text_content_from_stack(cx.mutation_stack, &style.id).or_else(|| {
             caption
-                .active_text(cx.frame_ctx.frame)
+                .active_text(cx.script_frame_ctx.current_frame)
                 .map(|s| s.to_string())
         });
 
@@ -1016,6 +1016,63 @@ mod tests {
             ScriptFrameCtx::for_segment(&frame_ctx, 15, 10)
         );
         assert_eq!(resolved.children[0].style.visual.opacity, 0.6);
+    }
+
+    #[test]
+    fn resolve_caption_uses_scene_local_time_inside_timeline() {
+        let caption_node = caption()
+            .id("subs")
+            .path("sub.srt")
+            .entries(vec![
+                SrtEntry { index: 1, start_frame: 0, end_frame: 5, text: "Local A".into() },
+                SrtEntry { index: 2, start_frame: 5, end_frame: 10, text: "Local B".into() },
+            ]);
+        let root = timeline()
+            .sequence(10, div().id("scene-a").child(text("A").id("t")).into())
+            .sequence(10, div().id("scene-b").child(caption_node).into())
+            .into();
+        let frame_ctx = FrameCtx { frame: 17, fps: 30, width: 320, height: 180, frames: 20 };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let mut runtime = ScriptRuntimeCache::default();
+
+        let FrameState::Scene { scene, script_frame_ctx } = frame_state_for_root(&root, &frame_ctx) else {
+            panic!("expected scene frame");
+        };
+
+        let tree = resolve_ui_tree_with_script_cache(
+            &scene,
+            &frame_ctx,
+            &script_frame_ctx,
+            &mut media,
+            &mut assets,
+            None,
+            &mut runtime,
+        )
+        .expect("caption tree should resolve");
+
+        assert!(format!("{tree:?}").contains("Local B"));
+    }
+
+    #[test]
+    fn resolve_caption_falls_back_to_global_time_when_no_nearer_time_context_exists() {
+        let root = div().id("root").child(
+            caption()
+                .id("subs")
+                .path("sub.srt")
+                .entries(vec![
+                    SrtEntry { index: 1, start_frame: 0, end_frame: 5, text: "Global A".into() },
+                    SrtEntry { index: 2, start_frame: 5, end_frame: 10, text: "Global B".into() },
+                ]),
+        );
+        let frame_ctx = FrameCtx { frame: 7, fps: 30, width: 320, height: 180, frames: 10 };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let tree = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect("root caption should resolve from global time");
+
+        assert!(format!("{tree:?}").contains("Global B"));
     }
 
     #[test]

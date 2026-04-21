@@ -14,12 +14,7 @@ use crate::{
         profile::SceneBuildStats,
         session::RenderSession,
     },
-    scene::{
-        composition::Composition,
-        node::Node,
-        script::StyleMutations,
-        time::{FrameState, frame_state_for_root},
-    },
+    scene::{composition::Composition, node::Node, script::StyleMutations},
 };
 
 pub(crate) fn render_frame_on_surface(
@@ -53,157 +48,37 @@ pub(crate) fn render_frame_on_surface(
     let _root_guard = root_span.enter();
 
     let root = composition.root_node(&frame_ctx);
-    let frame_state_span = span!(target: "render.pipeline", Level::TRACE, "frame_state");
-    let frame_state = {
-        let _guard = frame_state_span.enter();
-        frame_state_for_root(&root, &frame_ctx)
-    };
-
-    render_frame_state(
-        &frame_state,
+    let slot = SceneSlot::root_scene();
+    let (annotated_display_tree, scene_stats) = build_scene_display_list_with_slot(
+        &root,
         &frame_ctx,
+        &ScriptFrameCtx::global(&frame_ctx),
         session,
         _mutations.as_ref(),
-        composition.width,
-        composition.height,
-        Some(frame_view),
+        slot.clone(),
+    )?;
+    let snapshot_plan = plan_for_scene(&scene_stats);
+
+    let render_engine = session.render_engine_handle();
+    let mut snapshot_runtime = SceneRenderRuntime {
+        assets: &session.assets,
+        scene_snapshots: &mut session.scene_snapshots,
+        cache_registry: &session.cache_registry,
+        media_ctx: &mut session.media_ctx,
+        frame_ctx: &frame_ctx,
+        render_engine,
+        width: composition.width,
+        height: composition.height,
+    };
+    render_scene_slot(
+        &mut snapshot_runtime,
+        &slot,
+        &annotated_display_tree,
+        snapshot_plan,
         false,
+        Some(frame_view),
     )?;
     Ok(())
-}
-
-fn render_frame_state(
-    frame_state: &FrameState,
-    frame_ctx: &FrameCtx,
-    session: &mut RenderSession,
-    mutations: Option<&StyleMutations>,
-    width: i32,
-    height: i32,
-    frame_view: Option<RenderFrameView>,
-    require_snapshot: bool,
-) -> Result<Option<crate::runtime::render_engine::SceneSnapshot>> {
-    match frame_state {
-        FrameState::Scene {
-            scene,
-            script_frame_ctx,
-        } => {
-            let slot = SceneSlot::root_scene();
-            let (annotated_display_tree, scene_stats) = build_scene_display_list_with_slot(
-                scene,
-                frame_ctx,
-                script_frame_ctx,
-                session,
-                mutations,
-                slot.clone(),
-            )?;
-            let snapshot_plan = plan_for_scene(&scene_stats);
-
-            let render_engine = session.render_engine_handle();
-            let mut snapshot_runtime = SceneRenderRuntime {
-                assets: &session.assets,
-                scene_snapshots: &mut session.scene_snapshots,
-                cache_registry: &session.cache_registry,
-                media_ctx: &mut session.media_ctx,
-                frame_ctx,
-                render_engine,
-                width,
-                height,
-            };
-            render_scene_slot(
-                &mut snapshot_runtime,
-                &slot,
-                &annotated_display_tree,
-                snapshot_plan,
-                require_snapshot,
-                frame_view,
-            )
-        }
-        FrameState::Transition {
-            from,
-            to,
-            from_script_frame_ctx,
-            to_script_frame_ctx,
-            progress,
-            kind,
-        } => {
-            let from_slot = SceneSlot::root_transition_from();
-            let to_slot = SceneSlot::root_transition_to();
-            let (from_annotated_tree, from_stats) = build_scene_display_list_with_slot(
-                from,
-                frame_ctx,
-                from_script_frame_ctx,
-                session,
-                mutations,
-                from_slot.clone(),
-            )?;
-            let (to_annotated_tree, to_stats) = build_scene_display_list_with_slot(
-                to,
-                frame_ctx,
-                to_script_frame_ctx,
-                session,
-                mutations,
-                to_slot.clone(),
-            )?;
-            let from_plan = plan_for_scene(&from_stats);
-            let to_plan = plan_for_scene(&to_stats);
-
-            let render_engine = session.render_engine_handle();
-            let mut snapshot_runtime = SceneRenderRuntime {
-                assets: &session.assets,
-                scene_snapshots: &mut session.scene_snapshots,
-                cache_registry: &session.cache_registry,
-                media_ctx: &mut session.media_ctx,
-                frame_ctx,
-                render_engine,
-                width,
-                height,
-            };
-            let from_snapshot = render_scene_slot(
-                &mut snapshot_runtime,
-                &from_slot,
-                &from_annotated_tree,
-                from_plan,
-                true,
-                None,
-            )?
-            .expect("transition source scene snapshot should exist");
-            let to_snapshot = render_scene_slot(
-                &mut snapshot_runtime,
-                &to_slot,
-                &to_annotated_tree,
-                to_plan,
-                true,
-                None,
-            )?
-            .expect("transition target scene snapshot should exist");
-
-            let transition_span = span!(
-                target: "render.transition",
-                Level::TRACE,
-                "draw_transition",
-                transition_kind = match kind {
-                    crate::scene::transition::TransitionKind::Slide(_) => "slide",
-                    crate::scene::transition::TransitionKind::LightLeak(_) => "light_leak",
-                    _ => "other",
-                }
-            );
-            {
-                let _guard = transition_span.enter();
-                if let Some(fv) = frame_view {
-                    session.render_engine_handle().draw_transition(
-                        fv,
-                        &from_snapshot,
-                        &to_snapshot,
-                        *progress,
-                        *kind,
-                        width,
-                        height,
-                    )?;
-                }
-            }
-            Ok(None)
-        }
-    }
 }
 
 pub(crate) fn build_scene_display_list_with_slot(

@@ -272,4 +272,3 @@ impl From<CaptionNode> for Node {
         Self::new(value)
     }
 }
-

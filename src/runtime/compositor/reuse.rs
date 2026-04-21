@@ -32,6 +32,7 @@ pub(crate) fn analyze_stable_node_reuse(
 
     match &node.item {
         DisplayItem::Rect(_) => StableNodeReuse::DirectLeaf,
+        DisplayItem::Timeline(_) => StableNodeReuse::DirectLeaf,
         DisplayItem::Text(_) => StableNodeReuse::TextSnapshotLeaf,
         DisplayItem::Bitmap(_) | DisplayItem::Lucide(_) => StableNodeReuse::ItemPictureLeaf,
         DisplayItem::DrawScript(_) => StableNodeReuse::DirectLeaf,
@@ -53,6 +54,7 @@ pub(crate) fn analyze_live_node_item_execution(
                 }
             }
         }
+        DisplayItem::Timeline(_) => LiveNodeItemExecution::Direct,
         DisplayItem::Rect(_)
         | DisplayItem::Text(_)
         | DisplayItem::Bitmap(_)

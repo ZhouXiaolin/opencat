@@ -673,7 +673,8 @@ mod tests {
             .fps(30)
             .frames(25)
             .root(move |_| {
-                div().id("root")
+                div()
+                    .id("root")
                     .child(
                         timeline()
                             .sequence(
@@ -732,14 +733,9 @@ mod tests {
             .fps(30)
             .frames(1)
             .root(move |_| {
-                div().id("root")
-                    .child(
-                        div()
-                            .id("scene")
-                            .w_full()
-                            .h_full()
-                            .bg(ColorToken::Blue500),
-                    )
+                div()
+                    .id("root")
+                    .child(div().id("scene").w_full().h_full().bg(ColorToken::Blue500))
                     .child(
                         caption()
                             .id("subs")
@@ -761,8 +757,7 @@ mod tests {
             .expect("composition should build");
 
         let mut session = RenderSession::new();
-        let pixels =
-            render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+        let pixels = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
 
         assert_eq!(
             pixel_rgba(&pixels, 64, 32, 32),
@@ -780,14 +775,9 @@ mod tests {
             .fps(30)
             .frames(60)
             .root(move |_| {
-                div().id("root")
-                    .child(
-                        div()
-                            .id("scene")
-                            .w_full()
-                            .h_full()
-                            .bg(ColorToken::Blue500),
-                    )
+                div()
+                    .id("root")
+                    .child(div().id("scene").w_full().h_full().bg(ColorToken::Blue500))
                     .child(
                         caption()
                             .id("subs")
@@ -809,8 +799,7 @@ mod tests {
             .expect("composition should build");
 
         let mut session = RenderSession::new();
-        let pixels =
-            render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+        let pixels = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
 
         assert_eq!(
             pixel_rgba(&pixels, 64, 32, 32),
@@ -872,5 +861,96 @@ mod tests {
             render_frame_rgba(&composition, 12, &mut session).expect("frame should render");
 
         assert!(pixels.iter().any(|&byte| byte > 0));
+    }
+
+    #[test]
+    fn nested_timeline_transition_renders_real_composite() {
+        use crate::scene::node::Node;
+        use crate::style::{LengthPercentageAuto, Position};
+        use crate::{Easing, fade, timeline};
+
+        let composition = Composition::new("nested_timeline_transition")
+            .size(80, 80)
+            .fps(30)
+            .frames(30)
+            .root(move |_| {
+                let mut tl_kind = Node::from(
+                    timeline()
+                        .sequence(10, div().id("scene-a").w_full().h_full().bg_red().into())
+                        .transition(fade().timing(Easing::Linear, 10))
+                        .sequence(10, div().id("scene-b").w_full().h_full().bg_blue().into()),
+                )
+                .kind()
+                .clone();
+                let tl_style = tl_kind.style_mut();
+                tl_style.id = "tl".into();
+                tl_style.position = Some(Position::Absolute);
+                tl_style.inset_left = Some(LengthPercentageAuto::Length(0.0));
+                tl_style.inset_top = Some(LengthPercentageAuto::Length(0.0));
+                tl_style.width = Some(80.0);
+                tl_style.height = Some(80.0);
+                tl_style.overflow_hidden = true;
+
+                div()
+                    .id("root")
+                    .w_full()
+                    .h_full()
+                    .bg_black()
+                    .child(Node::new(tl_kind))
+                    .into()
+            })
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let pixels =
+            render_frame_rgba(&composition, 15, &mut session).expect("frame should render");
+        let pixel = pixel_rgba(&pixels, 80, 40, 40);
+
+        assert!(
+            pixel[0] > 0 && pixel[2] > 0,
+            "transition pixel should contain both from/to colors, got {:?}",
+            pixel
+        );
+    }
+
+    #[test]
+    fn root_timeline_renders_without_root_transition_special_case() {
+        use crate::scene::node::Node;
+        use crate::{Easing, fade, timeline};
+
+        let composition = Composition::new("root_timeline_transition")
+            .size(80, 80)
+            .fps(30)
+            .frames(30)
+            .root(move |_| {
+                let mut tl_kind = Node::from(
+                    timeline()
+                        .sequence(10, div().id("scene-a").w_full().h_full().bg_red().into())
+                        .transition(fade().timing(Easing::Linear, 10))
+                        .sequence(10, div().id("scene-b").w_full().h_full().bg_blue().into()),
+                )
+                .kind()
+                .clone();
+                let tl_style = tl_kind.style_mut();
+                tl_style.id = "tl".into();
+                tl_style.width_full = true;
+                tl_style.height_full = true;
+                tl_style.overflow_hidden = true;
+                Node::new(tl_kind)
+            })
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let pixels =
+            render_frame_rgba(&composition, 15, &mut session).expect("frame should render");
+        let pixel = pixel_rgba(&pixels, 80, 40, 40);
+
+        assert!(
+            pixel[0] > 0 && pixel[2] > 0,
+            "root timeline transition should be composited by the tl node itself, got {:?}",
+            pixel
+        );
     }
 }

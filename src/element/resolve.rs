@@ -6,7 +6,7 @@ use crate::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
             ElementBitmap, ElementCanvas, ElementDiv, ElementId, ElementKind, ElementLucide,
-            ElementNode, ElementText,
+            ElementNode, ElementText, ElementTimeline, ElementTimelineTransition,
         },
     },
     frame_ctx::ScriptFrameCtx,
@@ -18,6 +18,7 @@ use crate::{
     scene::{
         node::{ComponentNode, NodeKind},
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Text, Video},
+        time::TimelineNode,
         time::{FrameState, frame_state_for_root},
     },
     style::LengthPercentageAuto,
@@ -107,26 +108,142 @@ fn resolve_node(
         NodeKind::Canvas(canvas) => resolve_canvas(canvas, cx),
         NodeKind::Text(text) => resolve_text(text, cx),
         NodeKind::Lucide(lucide) => resolve_lucide(lucide, cx),
-        NodeKind::Timeline(_) => {
-            let frame_state = frame_state_for_root(node, cx.frame_ctx);
-            resolve_frame_state(&frame_state, cx, media)
-        }
+        NodeKind::Timeline(timeline) => resolve_timeline(timeline, cx, media),
         NodeKind::Caption(caption) => resolve_caption(caption, cx)?
             .ok_or_else(|| anyhow::anyhow!("caption node has no active text for frame")),
     }
 }
 
-fn resolve_frame_state(
+fn resolve_frame_state_as_children(
     frame_state: &FrameState,
     cx: &mut ResolveContext<'_>,
     media: &mut MediaContext,
-) -> Result<ElementNode> {
+) -> Result<Vec<ElementNode>> {
     match frame_state {
-        FrameState::Scene { scene, .. } => resolve_node(scene, cx, media),
-        FrameState::Transition { from, to, .. } => {
-            let from_el = resolve_node(from, cx, media)?;
-            Ok(from_el)
+        FrameState::Scene {
+            scene,
+            script_frame_ctx,
+        } => {
+            let child = resolve_with_script_frame_ctx(scene, script_frame_ctx, cx, media)?;
+            Ok(vec![timeline_fill_wrapper(child, cx.ids.alloc())])
         }
+        FrameState::Transition { from, to, .. } => {
+            let (from_script_frame_ctx, to_script_frame_ctx) = match frame_state {
+                FrameState::Transition {
+                    from_script_frame_ctx,
+                    to_script_frame_ctx,
+                    ..
+                } => (from_script_frame_ctx, to_script_frame_ctx),
+                _ => unreachable!(),
+            };
+            let from_el = resolve_with_script_frame_ctx(from, from_script_frame_ctx, cx, media)?;
+            let to_el = resolve_with_script_frame_ctx(to, to_script_frame_ctx, cx, media)?;
+            Ok(vec![
+                timeline_fill_wrapper(from_el, cx.ids.alloc()),
+                timeline_fill_wrapper(to_el, cx.ids.alloc()),
+            ])
+        }
+    }
+}
+
+fn resolve_timeline(
+    timeline: &TimelineNode,
+    cx: &mut ResolveContext<'_>,
+    media: &mut MediaContext,
+) -> Result<ElementNode> {
+    let pushed = push_script_scope(timeline.style_ref(), cx)?;
+    let result = (|| {
+        let mut style = timeline.style_ref().clone();
+        if style.id.is_empty() {
+            style.id = format!("__timeline_{}", cx.ids.next);
+        }
+        apply_mutation_stack(&mut style, cx.mutation_stack);
+        let computed = compute_style(&style, cx.inherited_style);
+        let inherited_style = InheritedStyle::for_child(&computed);
+        let frame_state = frame_state_for_root(&Node::from(timeline.clone()), cx.frame_ctx);
+        let transition = match &frame_state {
+            FrameState::Transition { progress, kind, .. } => Some(ElementTimelineTransition {
+                progress: *progress,
+                kind: *kind,
+            }),
+            FrameState::Scene { .. } => None,
+        };
+        let mut child_cx = ResolveContext {
+            frame_ctx: cx.frame_ctx,
+            script_frame_ctx: cx.script_frame_ctx,
+            ids: &mut *cx.ids,
+            inherited_style: &inherited_style,
+            assets: &mut *cx.assets,
+            script_runtime: &mut *cx.script_runtime,
+            mutation_stack: &mut *cx.mutation_stack,
+        };
+        let children = resolve_frame_state_as_children(&frame_state, &mut child_cx, media)?;
+
+        Ok(ElementNode {
+            id: cx.ids.alloc(),
+            kind: ElementKind::Timeline(ElementTimeline { transition }),
+            style: computed,
+            children,
+        })
+    })();
+    if pushed {
+        cx.mutation_stack.pop();
+    }
+    result
+}
+
+fn resolve_with_script_frame_ctx(
+    node: &Node,
+    script_frame_ctx: &ScriptFrameCtx,
+    cx: &mut ResolveContext<'_>,
+    media: &mut MediaContext,
+) -> Result<ElementNode> {
+    let mut child_cx = ResolveContext {
+        frame_ctx: cx.frame_ctx,
+        script_frame_ctx,
+        ids: &mut *cx.ids,
+        inherited_style: cx.inherited_style,
+        assets: &mut *cx.assets,
+        script_runtime: &mut *cx.script_runtime,
+        mutation_stack: &mut *cx.mutation_stack,
+    };
+    resolve_node(node, &mut child_cx, media)
+}
+
+fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
+    let mut style = child.style.clone();
+    style.id = format!("{}::__timeline_fill", style.id);
+    style.layout.position = crate::scene::primitives::Position::Absolute;
+    style.layout.inset_left = Some(LengthPercentageAuto::Length(0.0));
+    style.layout.inset_top = Some(LengthPercentageAuto::Length(0.0));
+    style.layout.inset_right = Some(LengthPercentageAuto::Length(0.0));
+    style.layout.inset_bottom = Some(LengthPercentageAuto::Length(0.0));
+    style.layout.width = None;
+    style.layout.height = None;
+    style.layout.width_full = true;
+    style.layout.height_full = true;
+    style.layout.margin_top = LengthPercentageAuto::Length(0.0);
+    style.layout.margin_right = LengthPercentageAuto::Length(0.0);
+    style.layout.margin_bottom = LengthPercentageAuto::Length(0.0);
+    style.layout.margin_left = LengthPercentageAuto::Length(0.0);
+    style.visual.background = None;
+    style.visual.border_width = None;
+    style.visual.border_color = None;
+    style.visual.box_shadow = None;
+    style.visual.inset_shadow = None;
+    style.visual.drop_shadow = None;
+    style.visual.blur_sigma = None;
+    style.visual.backdrop_blur_sigma = None;
+    style.visual.border_radius = crate::style::BorderRadius::default();
+    style.visual.clip_contents = false;
+    style.visual.transforms.clear();
+    style.visual.opacity = 1.0;
+
+    ElementNode {
+        id,
+        kind: ElementKind::Div(ElementDiv),
+        style,
+        children: vec![child],
     }
 }
 
@@ -1020,23 +1137,40 @@ mod tests {
 
     #[test]
     fn resolve_caption_uses_scene_local_time_inside_timeline() {
-        let caption_node = caption()
-            .id("subs")
-            .path("sub.srt")
-            .entries(vec![
-                SrtEntry { index: 1, start_frame: 0, end_frame: 5, text: "Local A".into() },
-                SrtEntry { index: 2, start_frame: 5, end_frame: 10, text: "Local B".into() },
-            ]);
+        let caption_node = caption().id("subs").path("sub.srt").entries(vec![
+            SrtEntry {
+                index: 1,
+                start_frame: 0,
+                end_frame: 5,
+                text: "Local A".into(),
+            },
+            SrtEntry {
+                index: 2,
+                start_frame: 5,
+                end_frame: 10,
+                text: "Local B".into(),
+            },
+        ]);
         let root = timeline()
             .sequence(10, div().id("scene-a").child(text("A").id("t")).into())
             .sequence(10, div().id("scene-b").child(caption_node).into())
             .into();
-        let frame_ctx = FrameCtx { frame: 17, fps: 30, width: 320, height: 180, frames: 20 };
+        let frame_ctx = FrameCtx {
+            frame: 17,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 20,
+        };
         let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let mut runtime = ScriptRuntimeCache::default();
 
-        let FrameState::Scene { scene, script_frame_ctx } = frame_state_for_root(&root, &frame_ctx) else {
+        let FrameState::Scene {
+            scene,
+            script_frame_ctx,
+        } = frame_state_for_root(&root, &frame_ctx)
+        else {
             panic!("expected scene frame");
         };
 
@@ -1056,16 +1190,29 @@ mod tests {
 
     #[test]
     fn resolve_caption_falls_back_to_global_time_when_no_nearer_time_context_exists() {
-        let root = div().id("root").child(
-            caption()
-                .id("subs")
-                .path("sub.srt")
-                .entries(vec![
-                    SrtEntry { index: 1, start_frame: 0, end_frame: 5, text: "Global A".into() },
-                    SrtEntry { index: 2, start_frame: 5, end_frame: 10, text: "Global B".into() },
-                ]),
-        );
-        let frame_ctx = FrameCtx { frame: 7, fps: 30, width: 320, height: 180, frames: 10 };
+        let root = div()
+            .id("root")
+            .child(caption().id("subs").path("sub.srt").entries(vec![
+                SrtEntry {
+                    index: 1,
+                    start_frame: 0,
+                    end_frame: 5,
+                    text: "Global A".into(),
+                },
+                SrtEntry {
+                    index: 2,
+                    start_frame: 5,
+                    end_frame: 10,
+                    text: "Global B".into(),
+                },
+            ]));
+        let frame_ctx = FrameCtx {
+            frame: 7,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 10,
+        };
         let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 

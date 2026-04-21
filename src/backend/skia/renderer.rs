@@ -17,10 +17,10 @@ use crate::{
         target::{RenderFrameViewKind, RenderTargetHandle},
         text_engine::SharedTextEngine,
     },
-    scene::{composition::Composition, transition::TransitionKind},
+    scene::composition::Composition,
 };
 
-use super::{canvas as skia, text as skia_text, transition as skia_transition};
+use super::{canvas as skia, text as skia_text};
 
 enum SkiaFrameSurface {
     Raster,
@@ -173,28 +173,6 @@ impl RenderEngine for SkiaRenderEngine {
             runtime.frame_ctx,
         )?;
         Ok(())
-    }
-
-    fn draw_transition(
-        &self,
-        frame_view: RenderFrameView,
-        from: &SceneSnapshot,
-        to: &SceneSnapshot,
-        progress: f32,
-        kind: TransitionKind,
-        width: i32,
-        height: i32,
-    ) -> Result<()> {
-        let canvas = skia_canvas(frame_view)?;
-        skia_transition::draw_transition(
-            canvas,
-            skia_snapshot_picture(from)?,
-            skia_snapshot_picture(to)?,
-            progress,
-            kind,
-            width,
-            height,
-        )
     }
 }
 

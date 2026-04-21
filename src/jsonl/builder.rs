@@ -67,7 +67,13 @@ pub(super) fn build_tree_with_tl(
         .into_iter()
         .next()
         .ok_or_else(|| anyhow::anyhow!("no root element found"))?;
-    build_node_inner(root, &children_map, scripts_by_parent, transitions_by_tl, fps)
+    build_node_inner(
+        root,
+        &children_map,
+        scripts_by_parent,
+        transitions_by_tl,
+        fps,
+    )
 }
 
 fn build_node_inner(
@@ -160,10 +166,7 @@ fn build_node_inner(
 
             for (index, child_el) in children.iter().enumerate() {
                 let duration = child_el.duration.ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "timeline sequence `{}` is missing a duration",
-                        child_el.id
-                    )
+                    anyhow::anyhow!("timeline sequence `{}` is missing a duration", child_el.id)
                 })?;
                 let node = build_node_inner(
                     child_el,

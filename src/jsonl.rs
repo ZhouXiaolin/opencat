@@ -418,23 +418,21 @@ pub fn parse_with_base_dir(
                 seed,
                 hue_shift,
                 mask_scale,
-            } => {
-                transitions.push(ParsedTransition {
-                    parent_id,
-                    from,
-                    to,
-                    effect,
-                    duration,
-                    direction,
-                    timing,
-                    damping,
-                    stiffness,
-                    mass,
-                    seed,
-                    hue_shift,
-                    mask_scale,
-                })
-            }
+            } => transitions.push(ParsedTransition {
+                parent_id,
+                from,
+                to,
+                effect,
+                duration,
+                direction,
+                timing,
+                damping,
+                stiffness,
+                mass,
+                seed,
+                hue_shift,
+                mask_scale,
+            }),
             JsonLine::Tl {
                 id,
                 parent_id,

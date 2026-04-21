@@ -48,6 +48,7 @@ impl LayoutPassStats {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum CachedNodeKind {
     Div,
+    Timeline,
     Text,
     Bitmap,
     Canvas,
@@ -352,6 +353,7 @@ fn count_nodes(element: &ElementNode) -> usize {
 fn cached_node_kind(element: &ElementNode) -> CachedNodeKind {
     match &element.kind {
         ElementKind::Div(_) => CachedNodeKind::Div,
+        ElementKind::Timeline(_) => CachedNodeKind::Timeline,
         ElementKind::Text(_) => CachedNodeKind::Text,
         ElementKind::Bitmap(_) => CachedNodeKind::Bitmap,
         ElementKind::Canvas(_) => CachedNodeKind::Canvas,
@@ -402,7 +404,7 @@ impl Hash for LayoutFingerprint<'_> {
         self.0.style.visual.border_width.map(F32Hash).hash(state);
 
         match &self.0.kind {
-            ElementKind::Div(_) | ElementKind::Canvas(_) => {}
+            ElementKind::Div(_) | ElementKind::Timeline(_) | ElementKind::Canvas(_) => {}
             ElementKind::Text(text) => {
                 text.text.hash(state);
                 TextLayoutStyleFingerprint(&text.text_style).hash(state);
@@ -425,7 +427,7 @@ impl Hash for RasterFingerprint<'_> {
         RasterVisualStyleFingerprint(&self.0.style.visual).hash(state);
 
         match &self.0.kind {
-            ElementKind::Div(_) => {}
+            ElementKind::Div(_) | ElementKind::Timeline(_) => {}
             ElementKind::Text(text) => {
                 text.text.hash(state);
                 TextRasterStyleFingerprint(&text.text_style).hash(state);
@@ -587,7 +589,7 @@ fn text_measure_context_for_element(element: &ElementNode) -> Option<TextMeasure
 fn taffy_style_for_element(element: &ElementNode) -> Style {
     let layout = &element.style.layout;
     match &element.kind {
-        ElementKind::Div(_) => Style {
+        ElementKind::Div(_) | ElementKind::Timeline(_) => Style {
             display: if layout.is_grid {
                 taffy::prelude::Display::Grid
             } else if layout.is_flex {

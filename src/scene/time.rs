@@ -78,17 +78,10 @@ pub(crate) fn frame_state_for_root(root: &Node, ctx: &FrameCtx) -> FrameState {
     match root.kind() {
         NodeKind::Component(component) => frame_state_for_root(&component.render(ctx), ctx),
         NodeKind::Timeline(timeline) => frame_state_for_timeline(timeline, ctx),
-        NodeKind::Div(div) => {
-            if let [only_child] = div.children_ref() {
-                if matches!(only_child.kind(), NodeKind::Timeline(_)) {
-                    return frame_state_for_root(only_child, ctx);
-                }
-            }
-            FrameState::Scene {
-                scene: root.clone(),
-                script_frame_ctx: ScriptFrameCtx::global(ctx),
-            }
-        }
+        NodeKind::Div(_) => FrameState::Scene {
+            scene: root.clone(),
+            script_frame_ctx: ScriptFrameCtx::global(ctx),
+        },
         _ => FrameState::Scene {
             scene: root.clone(),
             script_frame_ctx: ScriptFrameCtx::global(ctx),
@@ -312,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn frame_state_delegates_single_timeline_child_root() {
+    fn frame_state_keeps_single_timeline_child_root_as_scene() {
         let root = div().id("root").child(
             timeline()
                 .sequence(10, div().id("scene-a").into())
@@ -329,10 +322,12 @@ mod tests {
         };
 
         let state = super::frame_state_for_root(&root.into(), &frame_ctx);
-        let FrameState::Transition { from, to, .. } = state else {
-            panic!("single timeline child root should resolve as transition");
+        let FrameState::Scene { scene, .. } = state else {
+            panic!("single timeline child root should remain a scene");
         };
-        assert_eq!(from.style_ref().id, "scene-a");
-        assert_eq!(to.style_ref().id, "scene-b");
+        let NodeKind::Div(scene_div) = scene.kind() else {
+            panic!("scene should remain a div");
+        };
+        assert_eq!(scene_div.children_ref().len(), 1);
     }
 }

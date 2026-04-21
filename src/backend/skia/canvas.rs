@@ -12,7 +12,7 @@ use tracing::{Level, event, span};
 use crate::{
     display::list::{
         BitmapDisplayItem, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem,
-        LucideDisplayItem, RectDisplayItem, TextDisplayItem,
+        LucideDisplayItem, RectDisplayItem, TextDisplayItem, TimelineDisplayItem,
     },
     frame_ctx::FrameCtx,
     resource::{
@@ -425,6 +425,19 @@ impl<'a> SkiaBackend<'a> {
     ) -> Result<()> {
         let display_tree = self.display_tree;
         let node = display_tree.node(handle);
+        if let DisplayItem::Timeline(timeline) = &node.item
+            && timeline.transition.is_some()
+        {
+            return self.draw_timeline_transition_subtree(
+                node.recorded_semantics(),
+                timeline,
+                opacity,
+                backdrop_blur_sigma,
+                bounds,
+                children,
+            );
+        }
+
         self.with_display_layer(opacity, backdrop_blur_sigma, bounds, |backend| {
             backend.draw_display_item_with_execution(&node.item, item_execution)?;
             backend.with_recorded_clip(node.recorded_semantics(), |backend| {
@@ -474,7 +487,7 @@ impl<'a> SkiaBackend<'a> {
                     event!(target: "render.draw", Level::TRACE, kind = "draw", name = "script", result = "count", amount = 1_u64);
                 }
                 DisplayItem::Lucide(_) => {}
-                DisplayItem::Rect(_) | DisplayItem::Text(_) => {}
+                DisplayItem::Rect(_) | DisplayItem::Timeline(_) | DisplayItem::Text(_) => {}
             }
             return Ok(());
         }
@@ -520,6 +533,10 @@ impl<'a> SkiaBackend<'a> {
                 }
                 draw_rect(self.canvas, rect);
                 event!(target: "render.draw", Level::TRACE, kind = "draw", name = "rect", result = "count", amount = 1_u64);
+            }
+            DisplayItem::Timeline(timeline) => {
+                draw_timeline_base(self.canvas, timeline)?;
+                event!(target: "render.draw", Level::TRACE, kind = "draw", name = "timeline", result = "count", amount = 1_u64);
             }
             DisplayItem::Text(text) => {
                 if let Some(shadow) = text.drop_shadow {
@@ -643,6 +660,82 @@ impl<'a> SkiaBackend<'a> {
             .finish_recording_as_picture(None)
             .ok_or_else(|| anyhow!("failed to record subtree snapshot"))?;
         Ok(snapshot)
+    }
+
+    fn record_ordered_scene_op_snapshot(&mut self, op: &OrderedSceneOp) -> Result<Picture> {
+        let handle = match op {
+            OrderedSceneOp::CachedSubtree { handle } => *handle,
+            OrderedSceneOp::LiveSubtree { handle, .. } => *handle,
+        };
+        let bounds = layout_rect_to_skia(self.display_tree.layer_bounds(handle));
+        let mut recorder = PictureRecorder::new();
+        let recording_canvas = recorder.begin_recording(bounds, false);
+        let mut backend = SkiaBackend::new_with_cache(
+            recording_canvas,
+            bounds.width().max(1.0) as i32,
+            bounds.height().max(1.0) as i32,
+            self.display_tree,
+            self.assets,
+            self.image_cache.clone(),
+            self.text_snapshot_cache.clone(),
+            self.item_picture_cache.clone(),
+            self.subtree_snapshot_cache.clone(),
+            self.subtree_image_cache.clone(),
+            None,
+            self.frame_ctx,
+        );
+        backend.draw_ordered_scene_op(op, false)?;
+        recorder
+            .finish_recording_as_picture(None)
+            .ok_or_else(|| anyhow!("failed to record ordered scene snapshot"))
+    }
+
+    fn draw_timeline_transition_subtree(
+        &mut self,
+        recorded: RecordedNodeSemantics<'_>,
+        timeline: &TimelineDisplayItem,
+        opacity: f32,
+        backdrop_blur_sigma: Option<f32>,
+        bounds: DisplayRect,
+        children: &[OrderedSceneOp],
+    ) -> Result<()> {
+        let Some(transition) = timeline.transition.as_ref() else {
+            unreachable!("timeline transition draw requires active transition metadata");
+        };
+        if children.len() != 2 {
+            return Err(anyhow!(
+                "timeline transition requires exactly 2 children, got {}",
+                children.len()
+            ));
+        }
+
+        self.with_display_layer(opacity, backdrop_blur_sigma, bounds, |backend| {
+            draw_timeline_base(backend.canvas, timeline)?;
+            backend.with_recorded_clip(recorded, |backend| {
+                let from_snapshot = backend.record_ordered_scene_op_snapshot(&children[0])?;
+                let to_snapshot = backend.record_ordered_scene_op_snapshot(&children[1])?;
+                let transition_span = span!(
+                    target: "render.transition",
+                    Level::TRACE,
+                    "draw_transition",
+                    transition_kind = match transition.kind {
+                        crate::scene::transition::TransitionKind::Slide(_) => "slide",
+                        crate::scene::transition::TransitionKind::LightLeak(_) => "light_leak",
+                        _ => "other",
+                    }
+                );
+                let _guard = transition_span.enter();
+                super::transition::draw_transition(
+                    backend.canvas,
+                    &from_snapshot,
+                    &to_snapshot,
+                    transition.progress,
+                    transition.kind,
+                    timeline.bounds.width.max(1.0) as i32,
+                    timeline.bounds.height.max(1.0) as i32,
+                )
+            })
+        })
     }
 
     fn draw_subtree_snapshot(
@@ -1234,6 +1327,9 @@ fn draw_display_item_direct(
             }
             draw_rect(canvas, rect);
         }
+        DisplayItem::Timeline(timeline) => {
+            draw_timeline_base(canvas, timeline)?;
+        }
         DisplayItem::Text(text) => {
             if let Some(shadow) = text.drop_shadow {
                 draw_item_drop_shadow(canvas, text.bounds, shadow, |canvas| {
@@ -1272,6 +1368,24 @@ fn draw_display_item_direct(
             draw_lucide(canvas, lucide);
         }
     }
+    Ok(())
+}
+
+fn draw_timeline_base(canvas: &Canvas, timeline: &TimelineDisplayItem) -> Result<()> {
+    let rect = RectDisplayItem {
+        bounds: timeline.bounds,
+        paint: timeline.paint.clone(),
+    };
+    if let Some(shadow) = rect.paint.box_shadow {
+        draw_box_shadow(canvas, rect.bounds, rect.paint.border_radius, shadow);
+    }
+    if let Some(shadow) = rect.paint.drop_shadow {
+        draw_item_drop_shadow(canvas, rect.bounds, shadow, |canvas| {
+            draw_rect(canvas, &rect);
+            Ok(())
+        })?;
+    }
+    draw_rect(canvas, &rect);
     Ok(())
 }
 

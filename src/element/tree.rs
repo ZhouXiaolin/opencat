@@ -1,5 +1,6 @@
 use crate::resource::{assets::AssetId, media::VideoFrameTiming};
 use crate::scene::script::CanvasCommand;
+use crate::scene::transition::TransitionKind;
 use crate::style::ComputedTextStyle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -16,6 +17,7 @@ pub struct ElementNode {
 #[derive(Clone, Debug)]
 pub enum ElementKind {
     Div(ElementDiv),
+    Timeline(ElementTimeline),
     Text(ElementText),
     Bitmap(ElementBitmap),
     Canvas(ElementCanvas),
@@ -24,6 +26,17 @@ pub enum ElementKind {
 
 #[derive(Clone, Debug, Default)]
 pub struct ElementDiv;
+
+#[derive(Clone, Debug)]
+pub struct ElementTimeline {
+    pub transition: Option<ElementTimelineTransition>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ElementTimelineTransition {
+    pub progress: f32,
+    pub kind: TransitionKind,
+}
 
 #[derive(Clone, Debug)]
 pub struct ElementText {

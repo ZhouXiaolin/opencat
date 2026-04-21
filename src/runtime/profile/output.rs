@@ -72,7 +72,7 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average(summary, |frame| frame.backend.light_leak_composite_ms),
     ));
     out.push_str(&format!(
-        "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, text_hit {:.2}, text_miss {:.2}, item_hit {:.2}, item_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, subtree_collision_rejected {:.2}, subtree_image_hit {:.2}, subtree_image_miss {:.2}, subtree_image_promote {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}\n",
+        "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, text_hit {:.2}, text_miss {:.2}, item_hit {:.2}, item_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, subtree_dirty_hit {:.2}, subtree_dirty_miss {:.2}, subtree_collision_rejected {:.2}, subtree_image_hit {:.2}, subtree_image_miss {:.2}, subtree_image_promote {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}\n",
         average_usize(summary, |frame| frame.backend.draw_rect_count),
         average_usize(summary, |frame| frame.backend.draw_text_count),
         average_usize(summary, |frame| frame.backend.draw_bitmap_count),
@@ -86,6 +86,8 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.backend.scene_snapshot_cache_misses),
         average_usize(summary, |frame| frame.backend.subtree_snapshot_cache_hits),
         average_usize(summary, |frame| frame.backend.subtree_snapshot_cache_misses),
+        average_usize(summary, |frame| frame.backend.subtree_snapshot_composite_dirty_hits),
+        average_usize(summary, |frame| frame.backend.subtree_snapshot_composite_dirty_misses),
         average_usize(summary, |frame| frame.backend.subtree_snapshot_collision_rejected),
         average_usize(summary, |frame| frame.backend.subtree_image_cache_hits),
         average_usize(summary, |frame| frame.backend.subtree_image_cache_misses),

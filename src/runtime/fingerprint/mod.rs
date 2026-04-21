@@ -27,7 +27,7 @@ use crate::{
     display::list::DisplayItem,
     resource::assets::AssetsMap,
     runtime::{
-        analysis::DisplayAnalysisTable,
+        analysis::{DisplayAnalysisTable, DisplayInvalidationTable},
         annotation::{AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics},
     },
 };
@@ -184,6 +184,35 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
         primary: primary.finish(),
         secondary: secondary.finish(),
     })
+}
+
+/// 子树（**不含** `node` 自身）中是否存在"本帧 composite 跨帧变化"的后代。
+///
+/// 读 `DisplayInvalidationTable.composite_dirty`——该字段由
+/// `mark_display_tree_composite_dirty` 在 pipeline 前段写入，比较前后帧同
+/// `RenderNodeKey` 的 `CompositeSig`（translation/transforms/opacity/backdrop_blur）。
+///
+/// 精准诊断：命中时 hit 几乎不可能为 dirty（key 相同是 composite 稳定的证据）；
+/// miss 里 dirty 的部分即"由子 composite 抖动导致的 fingerprint 抖动"，可被
+/// "composite-stable only" 新规则救回。非 dirty 的 miss 归因于首次出现或 paint 变化。
+pub(crate) fn subtree_has_dirty_descendant_composite(
+    node: &AnnotatedDisplayNode,
+    nodes: &[AnnotatedDisplayNode],
+    invalidation: &DisplayInvalidationTable,
+) -> bool {
+    for &child_handle in &node.children {
+        if invalidation
+            .get(child_handle)
+            .is_some_and(|inv| inv.composite_dirty)
+        {
+            return true;
+        }
+        let child = &nodes[child_handle.0];
+        if subtree_has_dirty_descendant_composite(child, nodes, invalidation) {
+            return true;
+        }
+    }
+    false
 }
 
 fn hash_node_recorded_paint<H: Hasher>(node: &AnnotatedDisplayNode, hasher: &mut H) {
@@ -452,6 +481,89 @@ mod tests {
         let fp_b = b.analysis(b.root).paint_fingerprint;
         assert_eq!(fp_a, fp_b, "translation must not affect paint fingerprint");
         assert!(fp_a.is_some());
+    }
+
+    #[test]
+    fn descendant_composite_dirty_detection_reads_invalidation_table() {
+        // 契约：`subtree_has_dirty_descendant_composite` 递归读 `DisplayInvalidationTable`
+        // 的 `composite_dirty` 字段。只返回"实际跨帧变化"的信号，不把"恒定非零 composite"
+        // 误判为 dirty。
+
+        // 1. 单节点、无后代 → false
+        let leaf = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig::default()));
+        assert!(
+            !subtree_has_dirty_descendant_composite(
+                leaf.root_node(),
+                &leaf.nodes,
+                &leaf.invalidation,
+            ),
+            "leaf with no descendants must be non-dirty"
+        );
+
+        // 2. 后代虽有非零 translation 但 composite_dirty=false（恒定位移）→ false
+        //    与之前的 non-identity 上界版本的关键差别。
+        let stable_translating_child = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(2),
+            transform: rect_transform(100.0, 200.0),
+            composite_dirty: false,
+            ..Default::default()
+        });
+        let stable = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
+            children: vec![stable_translating_child],
+            ..Default::default()
+        }));
+        assert!(
+            !subtree_has_dirty_descendant_composite(
+                stable.root_node(),
+                &stable.nodes,
+                &stable.invalidation,
+            ),
+            "constant non-zero translation must NOT be marked dirty"
+        );
+
+        // 3. 后代 composite_dirty=true → true
+        let dirty_child = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(2),
+            composite_dirty: true,
+            ..Default::default()
+        });
+        let dirty = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
+            children: vec![dirty_child],
+            ..Default::default()
+        }));
+        assert!(
+            subtree_has_dirty_descendant_composite(
+                dirty.root_node(),
+                &dirty.nodes,
+                &dirty.invalidation,
+            ),
+            "dirty direct descendant must be detected"
+        );
+
+        // 4. 深层 dirty 孙节点 → true（必须递归穿过 clean 的中间节点）
+        let dirty_grandchild = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(3),
+            composite_dirty: true,
+            ..Default::default()
+        });
+        let clean_middle = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(2),
+            composite_dirty: false,
+            children: vec![dirty_grandchild],
+            ..Default::default()
+        });
+        let deep = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
+            children: vec![clean_middle],
+            ..Default::default()
+        }));
+        assert!(
+            subtree_has_dirty_descendant_composite(
+                deep.root_node(),
+                &deep.nodes,
+                &deep.invalidation,
+            ),
+            "dirty grandchild must be detected via recursion through clean middle"
+        );
     }
 
     #[test]

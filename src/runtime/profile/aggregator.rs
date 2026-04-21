@@ -142,6 +142,12 @@ impl RenderProfileAggregator {
             ("cache", "subtree_snapshot", "collision_rejected") => {
                 frame.backend.subtree_snapshot_collision_rejected += event.amount;
             }
+            ("cache", "subtree_snapshot_composite_dirty", "hit") => {
+                frame.backend.subtree_snapshot_composite_dirty_hits += event.amount;
+            }
+            ("cache", "subtree_snapshot_composite_dirty", "miss") => {
+                frame.backend.subtree_snapshot_composite_dirty_misses += event.amount;
+            }
             ("cache", "subtree_image", "hit") => {
                 frame.backend.subtree_image_cache_hits += event.amount;
             }

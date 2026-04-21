@@ -25,7 +25,10 @@ use crate::{
     runtime::{
         annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle, RecordedNodeSemantics},
         compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram},
-        fingerprint::{SubtreeSnapshotFingerprint, item_paint_fingerprint, text_paint_fingerprint},
+        fingerprint::{
+            SubtreeSnapshotFingerprint, item_paint_fingerprint,
+            subtree_has_dirty_descendant_composite, text_paint_fingerprint,
+        },
     },
     scene::script::{
         CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
@@ -154,6 +157,17 @@ impl<'a> SkiaBackend<'a> {
         self.display_tree.analysis(handle).snapshot_fingerprint
     }
 
+    /// 诊断：判断一次 subtree_snapshot 查询的子树，是否含有 composite 跨帧变化的后代。
+    /// 读 `DisplayInvalidationTable`——`composite_dirty` 由 `mark_display_tree_composite_dirty`
+    /// 在 pipeline 前段比较前后帧 `CompositeSig` 得出。精准区分"恒定非零"与"每帧抖动"。
+    fn subtree_descendants_have_dirty_composite(&self, handle: AnnotatedNodeHandle) -> bool {
+        subtree_has_dirty_descendant_composite(
+            self.display_tree.node(handle),
+            &self.display_tree.nodes,
+            &self.display_tree.invalidation,
+        )
+    }
+
     fn draw_display_children(
         &mut self,
         children: &[AnnotatedNodeHandle],
@@ -217,6 +231,9 @@ impl<'a> SkiaBackend<'a> {
             match lookup {
                 (SubtreeSnapshotResolution::Hit, Some(entry)) => {
                     event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot", result = "hit", amount = 1_u64);
+                    if self.subtree_descendants_have_dirty_composite(handle) {
+                        event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot_composite_dirty", result = "hit", amount = 1_u64);
+                    }
 
                     // Image cache hit path
                     let cached_image = self
@@ -325,6 +342,9 @@ impl<'a> SkiaBackend<'a> {
             );
             record_cache_pressure("subtree_snapshot", &report);
             event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot", result = "miss", amount = 1_u64);
+            if self.subtree_descendants_have_dirty_composite(handle) {
+                event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot_composite_dirty", result = "miss", amount = 1_u64);
+            }
             return self.draw_subtree_snapshot(&picture, opacity, backdrop_blur_sigma, bounds);
         }
 
@@ -692,6 +712,9 @@ impl<'a> SkiaBackend<'a> {
                     );
                     record_cache_pressure("subtree_snapshot", &report);
                     event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot", result = "hit", amount = 1_u64);
+                    if self.subtree_descendants_have_dirty_composite(handle) {
+                        event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot_composite_dirty", result = "hit", amount = 1_u64);
+                    }
                     return Ok(entry.picture);
                 }
                 SubtreeSnapshotResolution::CollisionRejected => {
@@ -716,6 +739,9 @@ impl<'a> SkiaBackend<'a> {
             );
             record_cache_pressure("subtree_snapshot", &report);
             event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot", result = "miss", amount = 1_u64);
+            if self.subtree_descendants_have_dirty_composite(handle) {
+                event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot_composite_dirty", result = "miss", amount = 1_u64);
+            }
         }
 
         Ok(picture)

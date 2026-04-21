@@ -14,7 +14,7 @@ use crate::style::NodeStyle;
 mod builder;
 pub(crate) mod tailwind;
 
-use builder::{build_layer_root, build_timeline, build_tree, join_scripts};
+use builder::{build_timeline, build_tree, build_tree_with_tl, join_scripts};
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "type")]
@@ -112,6 +112,8 @@ enum JsonLine {
     },
     #[serde(rename = "transition")]
     Transition {
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
         from: String,
         to: String,
         effect: String,
@@ -127,8 +129,14 @@ enum JsonLine {
         #[serde(rename = "maskScale")]
         mask_scale: Option<f32>,
     },
-    #[serde(rename = "layer")]
-    Layer { children: Vec<String> },
+    #[serde(rename = "tl")]
+    Tl {
+        id: String,
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        #[serde(rename = "className")]
+        class_name: Option<String>,
+    },
     #[serde(rename = "caption")]
     Caption {
         id: String,
@@ -143,6 +151,7 @@ enum JsonLine {
 
 #[derive(Debug, Clone)]
 enum ParsedElementKind {
+    Timeline,
     Div,
     Text { content: String },
     Canvas,
@@ -163,6 +172,7 @@ struct ParsedElement {
 
 #[derive(Debug, Clone)]
 struct ParsedTransition {
+    parent_id: Option<String>,
     from: String,
     to: String,
     effect: String,
@@ -183,11 +193,6 @@ struct ParsedAudioElement {
     parent_id: Option<String>,
     duration: Option<u32>,
     source: AudioSource,
-}
-
-#[derive(Debug, Clone)]
-struct ParsedLayerNode {
-    children: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -231,7 +236,7 @@ pub fn parse_with_base_dir(
     let mut scripts_by_parent: HashMap<String, Vec<String>> = HashMap::new();
     let mut elements: Vec<ParsedElement> = Vec::new();
     let mut timeline_entries = Vec::new();
-    let mut layer_root: Option<ParsedLayerNode> = None;
+    let mut timeline_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for (line_index, line) in input.lines().enumerate() {
         let line = line.trim();
@@ -275,7 +280,7 @@ pub fn parse_with_base_dir(
                     &id,
                     line_index + 1,
                 );
-                if parent_id.is_none() {
+                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
                     timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
                 }
                 elements.push(ParsedElement {
@@ -298,7 +303,7 @@ pub fn parse_with_base_dir(
                     &id,
                     line_index + 1,
                 );
-                if parent_id.is_none() {
+                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
                     timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
                 }
                 elements.push(ParsedElement {
@@ -320,7 +325,7 @@ pub fn parse_with_base_dir(
                     &id,
                     line_index + 1,
                 );
-                if parent_id.is_none() {
+                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
                     timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
                 }
                 elements.push(ParsedElement {
@@ -348,7 +353,7 @@ pub fn parse_with_base_dir(
                     line_index + 1,
                 );
                 let source = parse_image_source(path, url, query, query_count, aspect_ratio)?;
-                if parent_id.is_none() {
+                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
                     timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
                 }
                 elements.push(ParsedElement {
@@ -387,7 +392,7 @@ pub fn parse_with_base_dir(
                     &id,
                     line_index + 1,
                 );
-                if parent_id.is_none() {
+                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
                     timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
                 }
                 elements.push(ParsedElement {
@@ -412,7 +417,7 @@ pub fn parse_with_base_dir(
                     &id,
                     line_index + 1,
                 );
-                if parent_id.is_none() {
+                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
                     timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
                 }
                 elements.push(ParsedElement {
@@ -424,6 +429,7 @@ pub fn parse_with_base_dir(
                 });
             }
             JsonLine::Transition {
+                parent_id,
                 from,
                 to,
                 effect,
@@ -436,28 +442,44 @@ pub fn parse_with_base_dir(
                 seed,
                 hue_shift,
                 mask_scale,
-            } => timeline_entries.push(TimelineEntry::Transition(ParsedTransition {
-                from,
-                to,
-                effect,
-                duration,
-                direction,
-                timing,
-                damping,
-                stiffness,
-                mass,
-                seed,
-                hue_shift,
-                mask_scale,
-            })),
-            JsonLine::Layer { children } => {
-                if children.is_empty() {
-                    anyhow::bail!("layer node requires at least one child");
+            } => {
+                if !timeline_ids.is_empty() && parent_id.is_none() {
+                    anyhow::bail!("transition requires parentId when using tl nodes");
                 }
-                if layer_root.is_some() {
-                    anyhow::bail!("only one layer node is allowed");
-                }
-                layer_root = Some(ParsedLayerNode { children });
+                timeline_entries.push(TimelineEntry::Transition(ParsedTransition {
+                    parent_id,
+                    from,
+                    to,
+                    effect,
+                    duration,
+                    direction,
+                    timing,
+                    damping,
+                    stiffness,
+                    mass,
+                    seed,
+                    hue_shift,
+                    mask_scale,
+                }))
+            }
+            JsonLine::Tl {
+                id,
+                parent_id,
+                class_name,
+            } => {
+                let style = parse_class_name_with_context(
+                    class_name.as_deref().unwrap_or(""),
+                    &id,
+                    line_index + 1,
+                );
+                timeline_ids.insert(id.clone());
+                elements.push(ParsedElement {
+                    id,
+                    parent_id,
+                    duration: None,
+                    style,
+                    kind: ParsedElementKind::Timeline,
+                });
             }
             JsonLine::Caption {
                 id,
@@ -476,7 +498,7 @@ pub fn parse_with_base_dir(
                 } else {
                     PathBuf::from(path)
                 };
-                if parent_id.is_none() {
+                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
                     timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
                 }
                 elements.push(ParsedElement {
@@ -492,25 +514,12 @@ pub fn parse_with_base_dir(
         }
     }
 
-    // When a layer root is present, caption elements that are layer children
-    // should not participate in the timeline — they are overlays managed by
-    // the layer builder (Task 3). Filter them out of timeline_entries.
-    if let Some(layer) = &layer_root {
-        let is_caption = |id: &str| -> bool {
-            elements
-                .iter()
-                .any(|el| el.id == id && matches!(el.kind, ParsedElementKind::Caption { .. }))
-        };
-        timeline_entries.retain(|entry| match entry {
-            TimelineEntry::SequenceRoot { id } => !is_caption(id),
-            TimelineEntry::Transition(_) => true,
-        });
-    }
-
-    let has_timeline = timeline_entries
-        .iter()
-        .any(|entry| matches!(entry, TimelineEntry::Transition(_)))
-        || elements.iter().filter(|el| el.parent_id.is_none()).count() > 1;
+    let has_explicit_tl = !timeline_ids.is_empty();
+    let has_legacy_timeline = !has_explicit_tl
+        && (timeline_entries
+            .iter()
+            .any(|entry| matches!(entry, TimelineEntry::Transition(_)))
+            || elements.iter().filter(|el| el.parent_id.is_none()).count() > 1);
     let elements_by_id = elements
         .iter()
         .map(|element| (element.id.as_str(), element))
@@ -519,23 +528,28 @@ pub fn parse_with_base_dir(
         .into_iter()
         .map(|audio| resolve_audio_source(audio, &elements_by_id))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let (root, frames) = if let Some(layer) = &layer_root {
-        for child_id in &layer.children {
-            let found = elements
-                .iter()
-                .any(|el| el.id == *child_id && el.parent_id.is_none());
-            if !found {
-                anyhow::bail!("unknown layer child `{child_id}`");
-            }
-        }
-        build_layer_root(
-            &elements,
-            &scripts_by_parent,
-            &timeline_entries,
-            &layer.children,
-            fps as u32,
-        )?
-    } else if has_timeline {
+    let (root, frames) = if has_explicit_tl {
+        let transitions_by_tl: HashMap<String, Vec<&ParsedTransition>> = timeline_entries
+            .iter()
+            .filter_map(|entry| match entry {
+                TimelineEntry::Transition(t) => Some(t),
+                _ => None,
+            })
+            .filter_map(|t| t.parent_id.as_ref().map(|pid| (pid.clone(), t)))
+            .fold(HashMap::new(), |mut acc, (pid, t)| {
+                acc.entry(pid).or_default().push(t);
+                acc
+            });
+        (
+            build_tree_with_tl(
+                &elements,
+                &scripts_by_parent,
+                &transitions_by_tl,
+                fps as u32,
+            )?,
+            frames,
+        )
+    } else if has_legacy_timeline {
         build_timeline(&elements, &scripts_by_parent, &timeline_entries, fps as u32)?
     } else {
         (
@@ -1420,106 +1434,49 @@ mod tests {
     }
 
     #[test]
-    fn parser_builds_layer_root_from_timeline_and_caption_children() {
-        let dir = unique_test_dir("layer_root");
-        std::fs::create_dir_all(&dir).unwrap();
-        let srt_path = dir.join("sub.srt");
-        std::fs::write(
-            &srt_path,
-            "1\n00:00:00,000 --> 00:00:01,000\nHello\n\n2\n00:00:01,000 --> 00:00:02,000\nWorld\n",
-        )
-        .unwrap();
-
-        let srt_path_str = srt_path.to_string_lossy();
-        let jsonl = format!(
-            r#"{{"type":"composition","width":640,"height":360,"fps":30,"frames":999}}
-{{"id":"scene-a","parentId":null,"type":"div","className":"","duration":10}}
-{{"id":"scene-b","parentId":null,"type":"div","className":"","duration":10}}
-{{"type":"transition","from":"scene-a","to":"scene-b","effect":"fade","duration":5}}
-{{"id":"subs","parentId":null,"type":"caption","className":"absolute bottom-0 text-white","path":"{srt_path_str}"}}
-{{"type":"layer","children":["scene-a","subs"]}}"#,
-        );
-        let parsed = super::parse_with_base_dir(&jsonl, Some(&dir))
-            .expect("layered jsonl with timeline + caption should parse");
-
-        assert_eq!(parsed.frames, 25);
-
-        let root = &parsed.root;
-        let NodeKind::Layer(layer) = root.kind() else {
-            panic!("root should be a Layer");
-        };
-        assert_eq!(layer.children_ref().len(), 2);
-
-        let NodeKind::Timeline(tl) = layer.children_ref()[0].kind() else {
-            panic!("first layer child should be a Timeline");
-        };
-        assert_eq!(tl.duration_in_frames(), 25);
-
-        let NodeKind::Caption(caption_node) = layer.children_ref()[1].kind() else {
-            panic!("second layer child should be a Caption");
-        };
-        assert_eq!(caption_node.entries_ref().len(), 2);
-        assert_eq!(caption_node.active_text(0), Some("Hello"));
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn parser_accepts_layer_node_and_caption_overlay() {
+    fn parser_accepts_explicit_tl_root_and_local_transition() {
         let parsed = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
-{"id":"scene-a","parentId":null,"type":"div","className":"","duration":10}
-{"id":"scene-b","parentId":null,"type":"div","className":"","duration":10}
-{"type":"transition","from":"scene-a","to":"scene-b","effect":"fade","duration":5}
-{"id":"subs","parentId":null,"type":"caption","className":"absolute inset-x-0 bottom-[24px] text-center text-white","path":"sub.srt"}
-{"type":"layer","children":["scene-a","subs"]}"#,
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":25}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":5}"#,
         )
-        .expect("layered jsonl should parse");
+        .expect("explicit tl jsonl should parse");
 
         assert_eq!(parsed.frames, 25);
+        assert!(matches!(parsed.root.kind(), NodeKind::Div(_)));
     }
 
     #[test]
-    fn parser_rejects_unknown_layer_child() {
+    fn parser_requires_transition_parent_id() {
         let err = parse(
-            r#"{"id":"scene-a","parentId":null,"type":"div","className":"","duration":10}
-{"type":"layer","children":["missing-child"]}"#,
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":25}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
+{"type":"transition","from":"scene-a","to":"scene-b","effect":"fade","duration":5}"#,
         )
         .err()
-        .expect("missing child should fail");
+        .expect("missing transition parentId should fail");
 
-        assert!(err.to_string().contains("unknown layer child"));
+        assert!(err.to_string().contains("parentId"));
     }
 
     #[test]
-    fn parser_resolves_caption_srt_path_relative_to_jsonl_file() {
-        let dir = unique_test_dir("caption_srt_relative");
-        std::fs::create_dir_all(&dir).unwrap();
-        let srt_path = dir.join("sub.srt");
-        let jsonl_path = dir.join("demo.jsonl");
-
-        std::fs::write(&srt_path, "1\n00:00:00,000 --> 00:00:01,000\nHello Layer\n").unwrap();
-        std::fs::write(
-            &jsonl_path,
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":30}
-{"id":"scene-a","parentId":null,"type":"div","className":"","duration":30}
-{"id":"subs","parentId":null,"type":"caption","className":"text-white","path":"sub.srt"}
+    fn parser_rejects_legacy_layer_records() {
+        let err = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
+{"id":"scene-a","parentId":null,"type":"div","className":"","duration":10}
+{"id":"subs","parentId":null,"type":"caption","className":"absolute","path":"sub.srt"}
 {"type":"layer","children":["scene-a","subs"]}"#,
         )
-        .unwrap();
+        .err()
+        .expect("legacy layer input should fail");
 
-        let parsed = parse_file(&jsonl_path).expect("jsonl should parse");
-        let NodeKind::Layer(layer) = parsed.root.kind() else {
-            panic!("root should be layer");
-        };
-        let NodeKind::Caption(caption_node) = layer.children_ref()[1].kind() else {
-            panic!("second layer child should be caption");
-        };
-
-        assert_eq!(caption_node.path_ref(), srt_path.as_path());
-        assert_eq!(caption_node.entries_ref()[0].text, "Hello Layer");
-
-        let _ = std::fs::remove_dir_all(&dir);
+        assert!(err.to_string().contains("layer"));
     }
 
     fn unique_test_dir(name: &str) -> PathBuf {

@@ -50,7 +50,25 @@ pub(super) fn build_tree(
         .into_iter()
         .next()
         .ok_or_else(|| anyhow::anyhow!("no root element found"))?;
-    build_node(root, &children_map, scripts_by_parent, fps)
+    build_node_inner(root, &children_map, scripts_by_parent, &HashMap::new(), fps)
+}
+
+pub(super) fn build_tree_with_tl(
+    elements: &[ParsedElement],
+    scripts_by_parent: &HashMap<String, Vec<String>>,
+    transitions_by_tl: &HashMap<String, Vec<&ParsedTransition>>,
+    fps: u32,
+) -> anyhow::Result<Node> {
+    let (children_map, roots) = index_elements(elements);
+    if roots.len() > 1 {
+        return Err(anyhow::anyhow!("multiple root elements found"));
+    }
+
+    let root = roots
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no root element found"))?;
+    build_node_inner(root, &children_map, scripts_by_parent, transitions_by_tl, fps)
 }
 
 pub(super) fn build_timeline(
@@ -132,7 +150,7 @@ pub(super) fn build_timeline(
         let duration = root
             .duration
             .ok_or_else(|| anyhow::anyhow!("timeline sequence `{id}` is missing a duration"))?;
-        let node = build_node(root, &children_map, scripts_by_parent, fps)?;
+        let node = build_node_inner(root, &children_map, scripts_by_parent, &HashMap::new(), fps)?;
         timeline_builder = timeline_builder.sequence(duration, node);
         frames += duration as i32;
 
@@ -148,10 +166,11 @@ pub(super) fn build_timeline(
     Ok((timeline_builder.into(), frames))
 }
 
-fn build_node(
+fn build_node_inner(
     el: &ParsedElement,
     children_map: &HashMap<&str, Vec<&ParsedElement>>,
     scripts_by_parent: &HashMap<String, Vec<String>>,
+    transitions_by_tl: &HashMap<String, Vec<&ParsedTransition>>,
     fps: u32,
 ) -> anyhow::Result<Node> {
     let mut style = el.style.clone();
@@ -164,13 +183,99 @@ fn build_node(
     }
 
     match &el.kind {
+        ParsedElementKind::Timeline => {
+            let sequence_children = children_map.get(el.id.as_str());
+            let transitions = transitions_by_tl.get(el.id.as_str());
+
+            if sequence_children.is_none() && transitions.is_none() {
+                let mut div_node = div();
+                div_node.style = style;
+                return Ok(Node::new(div_node));
+            }
+
+            let children = sequence_children.map(|c| c.as_slice()).unwrap_or(&[]);
+            let mut tl_builder = timeline();
+            let mut _total_frames = 0_i32;
+
+            let child_ids: Vec<&str> = children.iter().map(|c| c.id.as_str()).collect();
+            let child_positions: HashMap<&str, usize> = child_ids
+                .iter()
+                .enumerate()
+                .map(|(i, &id)| (id, i))
+                .collect();
+
+            let mut transitions_by_pair = HashMap::new();
+            if let Some(transitions) = transitions {
+                for t in transitions {
+                    let Some(&from_idx) = child_positions.get(t.from.as_str()) else {
+                        return Err(anyhow::anyhow!(
+                            "transition references missing sequence root `{}`",
+                            t.from
+                        ));
+                    };
+                    let Some(&to_idx) = child_positions.get(t.to.as_str()) else {
+                        return Err(anyhow::anyhow!(
+                            "transition references missing sequence root `{}`",
+                            t.to
+                        ));
+                    };
+                    if to_idx != from_idx + 1 {
+                        let next_id = child_ids.get(from_idx + 1).copied().unwrap_or("<end>");
+                        return Err(anyhow::anyhow!(
+                            "transition declares `{}` -> `{}`, but root order requires adjacent sequences `{}` -> `{}`",
+                            t.from,
+                            t.to,
+                            t.from,
+                            next_id
+                        ));
+                    }
+                    transitions_by_pair.insert((t.from.as_str(), t.to.as_str()), *t);
+                }
+            }
+
+            for (index, child_el) in children.iter().enumerate() {
+                let duration = child_el.duration.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "timeline sequence `{}` is missing a duration",
+                        child_el.id
+                    )
+                })?;
+                let node = build_node_inner(
+                    child_el,
+                    children_map,
+                    scripts_by_parent,
+                    transitions_by_tl,
+                    fps,
+                )?;
+                tl_builder = tl_builder.sequence(duration, node);
+                _total_frames += duration as i32;
+
+                let Some(&next_id) = child_ids.get(index + 1) else {
+                    continue;
+                };
+                if let Some(transition) = transitions_by_pair.get(&(child_el.id.as_str(), next_id))
+                {
+                    tl_builder = tl_builder.transition(build_transition(transition)?);
+                    _total_frames += transition.duration as i32;
+                }
+            }
+
+            let node: Node = tl_builder.into();
+            Ok(node)
+        }
         ParsedElementKind::Div => {
             let mut div_node = div();
             div_node.style = style;
 
             if let Some(children) = children_map.get(el.id.as_str()) {
                 for child in children {
-                    let child_node = build_node(child, children_map, scripts_by_parent, fps)?;
+                    let child_node = build_node_inner(
+                        child,
+                        children_map,
+                        scripts_by_parent,
+                        transitions_by_tl,
+                        fps,
+                    )?;
                     div_node = div_node.child(child_node);
                 }
             }
@@ -384,7 +489,7 @@ pub(super) fn build_layer_root(
             let root = roots_by_id
                 .get(child_id_str)
                 .ok_or_else(|| anyhow::anyhow!("layer child `{child_id}` not found in elements"))?;
-            let node = build_node(root, &children_map, scripts_by_parent, fps)?;
+            let node = build_node_inner(root, &children_map, scripts_by_parent, &HashMap::new(), fps)?;
             if let Some(dur) = root.duration {
                 total_frames = total_frames.max(dur as i32);
             }
@@ -460,7 +565,7 @@ fn build_chain_from_entries(
         let duration = root
             .duration
             .ok_or_else(|| anyhow::anyhow!("timeline sequence `{id}` is missing a duration"))?;
-        let node = build_node(root, children_map, scripts_by_parent, fps)?;
+        let node = build_node_inner(root, children_map, scripts_by_parent, &HashMap::new(), fps)?;
         timeline_builder = timeline_builder.sequence(duration, node);
         frames += duration as i32;
 

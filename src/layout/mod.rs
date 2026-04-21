@@ -1240,6 +1240,60 @@ mod tests {
     }
 
     #[test]
+    fn absolute_auto_width_container_does_not_wrap_text_descendant() {
+        // CSS `position: absolute` with `width: auto` resolves via shrink-to-fit:
+        // its width comes from its own content, not from the containing block.
+        // Therefore the inline-width constraint set on an ancestor (e.g. root's
+        // fixed width) must NOT leak into descendants of such a container.
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 1280,
+            height: 720,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let root = classed_div(
+            "root",
+            "relative w-[1280px] h-[720px]",
+            vec![
+                classed_div(
+                    "pill",
+                    "absolute left-[32px] top-[28px] px-[18px] py-[10px] rounded-full",
+                    vec![
+                        classed_text(
+                            "pill-text",
+                            "text-[12px] font-semibold tracking-[2px]",
+                            "TIMELINE NODE",
+                        )
+                        .into(),
+                    ],
+                )
+                .into(),
+            ],
+        )
+        .into();
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let measurer = RecordingTextMeasurer::default();
+
+        let _layout = compute_layout_with_text_engine(&resolved, &frame_ctx, &measurer)
+            .expect("layout should succeed");
+
+        let requests = measurer.requests_for("TIMELINE NODE");
+        assert!(
+            !requests.is_empty(),
+            "expected to record TIMELINE NODE measurement"
+        );
+        assert!(
+            requests.iter().all(|request| !request.allow_wrap),
+            "text inside absolute + auto-width container should be measured without wrap (CSS shrink-to-fit), got {:?}",
+            requests
+        );
+    }
+
+    #[test]
     fn layout_session_reuses_layout_for_paint_only_change() {
         let frame_ctx = FrameCtx {
             frame: 0,

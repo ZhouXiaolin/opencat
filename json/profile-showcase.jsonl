@@ -1,0 +1,90 @@
+{"type": "composition", "width": 1280, "height": 720, "fps": 30, "frames": 414}
+{"id": "root", "parentId": null, "type": "div", "className": "relative w-[1280px] h-[720px] bg-slate-950"}
+{"id": "main-tl", "parentId": "root", "type": "tl", "className": "absolute inset-0"}
+{"id": "scene1", "parentId": "main-tl", "type": "div", "className": "relative w-[1280px] h-[720px] bg-slate-950", "duration": 90}
+{"id": "s1-canvas", "parentId": "scene1", "type": "canvas", "className": "absolute inset-0 w-[1280px] h-[720px]"}
+{"type": "script", "parentId": "s1-canvas", "content": "const CK=ctx.CanvasKit;const c=ctx.getCanvas();const fill=(x)=>{const p=new CK.Paint();p.setStyle(CK.PaintStyle.Fill);p.setColor(CK.parseColorString(x));return p;};const stroke=(x,w)=>{const p=new CK.Paint();p.setStyle(CK.PaintStyle.Stroke);p.setColor(CK.parseColorString(x));p.setStrokeWidth(w);return p;};const t=ctx.frame/ctx.fps;c.clear();for(let i=0;i<8;i++){const y=80+i*80;const off=Math.sin(t*1.2+i*0.4)*30;c.drawLine(-40+off,y,1320+off,y,stroke('#38bdf833',1));}c.save();c.translate(960,360);c.rotate(t*12);for(let i=0;i<5;i++){c.drawCircle(0,0,60+i*30,stroke('#22d3ee44',2));}c.restore();c.drawCircle(960,360,20+Math.sin(t*3)*8,fill('#22d3ee'));"}
+{"id": "s1-copy", "parentId": "scene1", "type": "div", "className": "absolute left-[80px] top-[200px] flex flex-col gap-[22px] w-[720px]"}
+{"id": "s1-kicker", "parentId": "s1-copy", "type": "text", "className": "text-[22px] font-semibold tracking-[6px] text-cyan-300", "text": "PROFILE BENCHMARK"}
+{"id": "s1-title", "parentId": "s1-copy", "type": "text", "className": "text-[92px] font-bold text-white leading-[0.95]", "text": "Every surface at once"}
+{"id": "s1-desc", "parentId": "s1-copy", "type": "text", "className": "text-[22px] text-slate-400 leading-[1.5] w-[620px]", "text": "Four scenes exercise text, image, video, canvas, icons, transforms and script animations — a single golden sample for render profile comparisons."}
+{"id": "s1-chip-row", "parentId": "s1-copy", "type": "div", "className": "flex flex-row gap-[12px] pt-[14px]"}
+{"id": "s1-chip-1", "parentId": "s1-chip-row", "type": "div", "className": "flex flex-row items-center gap-[8px] px-[18px] py-[10px] rounded-full bg-slate-900 border border-slate-800"}
+{"id": "s1-chip-1-icon", "parentId": "s1-chip-1", "type": "icon", "className": "w-[16px] h-[16px] text-cyan-300", "icon": "type"}
+{"id": "s1-chip-1-text", "parentId": "s1-chip-1", "type": "text", "className": "text-[16px] font-semibold text-cyan-200", "text": "Text"}
+{"id": "s1-chip-2", "parentId": "s1-chip-row", "type": "div", "className": "flex flex-row items-center gap-[8px] px-[18px] py-[10px] rounded-full bg-slate-900 border border-slate-800"}
+{"id": "s1-chip-2-icon", "parentId": "s1-chip-2", "type": "icon", "className": "w-[16px] h-[16px] text-fuchsia-300", "icon": "image"}
+{"id": "s1-chip-2-text", "parentId": "s1-chip-2", "type": "text", "className": "text-[16px] font-semibold text-fuchsia-200", "text": "Image"}
+{"id": "s1-chip-3", "parentId": "s1-chip-row", "type": "div", "className": "flex flex-row items-center gap-[8px] px-[18px] py-[10px] rounded-full bg-slate-900 border border-slate-800"}
+{"id": "s1-chip-3-icon", "parentId": "s1-chip-3", "type": "icon", "className": "w-[16px] h-[16px] text-amber-300", "icon": "video"}
+{"id": "s1-chip-3-text", "parentId": "s1-chip-3", "type": "text", "className": "text-[16px] font-semibold text-amber-200", "text": "Video"}
+{"id": "s1-decor", "parentId": "scene1", "type": "div", "className": "absolute right-[80px] top-[120px] w-[360px] h-[480px] rounded-[32px] overflow-hidden border border-slate-800"}
+{"id": "s1-decor-img", "parentId": "s1-decor", "type": "image", "className": "w-[360px] h-[480px] object-cover", "path": "/Users/solaren/Resources/png/3.png"}
+{"type": "script", "parentId": "scene1", "content": "var stag=ctx.stagger(3,{from:{opacity:0,translateY:24},to:{opacity:1,translateY:0},gap:6,duration:24,easing:'spring-gentle'});['s1-kicker','s1-title','s1-desc'].forEach(function(id,i){var a=stag[i];ctx.getNode(id).opacity(a.opacity).translateY(a.translateY);});var chips=ctx.stagger(3,{from:{opacity:0,scale:0.7},to:{opacity:1,scale:1},gap:5,duration:20,easing:'spring-default'});['s1-chip-1','s1-chip-2','s1-chip-3'].forEach(function(id,i){var a=chips[i];ctx.getNode(id).opacity(a.opacity).scale(a.scale);});var decor=ctx.animate({from:{opacity:0,translateX:60},to:{opacity:1,translateX:0},duration:40,delay:6,easing:'spring-gentle'});ctx.getNode('s1-decor').opacity(decor.opacity).translateX(decor.translateX);"}
+{"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 18, "timing": "ease-in-out"}
+{"id": "scene2", "parentId": "main-tl", "type": "div", "className": "relative w-[1280px] h-[720px] bg-slate-100", "duration": 90}
+{"id": "s2-header", "parentId": "scene2", "type": "div", "className": "absolute left-[80px] top-[70px] flex flex-col gap-[10px]"}
+{"id": "s2-kicker", "parentId": "s2-header", "type": "text", "className": "text-[18px] font-semibold tracking-[5px] text-sky-600", "text": "SECTION / 02"}
+{"id": "s2-title", "parentId": "s2-header", "type": "text", "className": "text-[56px] font-bold text-slate-900 leading-tight", "text": "A grid of stable subtrees"}
+{"id": "s2-preview", "parentId": "scene2", "type": "div", "className": "absolute right-[80px] top-[70px] w-[320px] h-[180px] rounded-[20px] overflow-hidden border border-slate-300"}
+{"id": "s2-preview-video", "parentId": "s2-preview", "type": "video", "className": "w-[320px] h-[180px] object-cover", "path": "/Users/solaren/Resources/mp4/2.mp4"}
+{"id": "s2-grid", "parentId": "scene2", "type": "div", "className": "absolute left-[80px] top-[280px] grid grid-cols-3 gap-[22px] w-[1120px]"}
+{"id": "s2-card-1", "parentId": "s2-grid", "type": "div", "className": "flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200"}
+{"id": "s2-card-1-icon", "parentId": "s2-card-1", "type": "icon", "className": "w-[28px] h-[28px] text-cyan-500", "icon": "zap"}
+{"id": "s2-card-1-title", "parentId": "s2-card-1", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Fast paths"}
+{"id": "s2-card-1-body", "parentId": "s2-card-1", "type": "text", "className": "text-[14px] text-slate-500 leading-relaxed", "text": "Stable subtrees skip record."}
+{"id": "s2-card-2", "parentId": "s2-grid", "type": "div", "className": "flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200"}
+{"id": "s2-card-2-icon", "parentId": "s2-card-2", "type": "icon", "className": "w-[28px] h-[28px] text-rose-500", "icon": "layers"}
+{"id": "s2-card-2-title", "parentId": "s2-card-2", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Layered caches"}
+{"id": "s2-card-2-body", "parentId": "s2-card-2", "type": "text", "className": "text-[14px] text-slate-500 leading-relaxed", "text": "Picture + image tiers."}
+{"id": "s2-card-3", "parentId": "s2-grid", "type": "div", "className": "flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200"}
+{"id": "s2-card-3-icon", "parentId": "s2-card-3", "type": "icon", "className": "w-[28px] h-[28px] text-emerald-500", "icon": "gauge"}
+{"id": "s2-card-3-title", "parentId": "s2-card-3", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Measured"}
+{"id": "s2-card-3-body", "parentId": "s2-card-3", "type": "text", "className": "text-[14px] text-slate-500 leading-relaxed", "text": "Profile every transition."}
+{"id": "s2-card-4", "parentId": "s2-grid", "type": "div", "className": "flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200"}
+{"id": "s2-card-4-icon", "parentId": "s2-card-4", "type": "icon", "className": "w-[28px] h-[28px] text-amber-500", "icon": "sparkles"}
+{"id": "s2-card-4-title", "parentId": "s2-card-4", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Animated"}
+{"id": "s2-card-4-body", "parentId": "s2-card-4", "type": "text", "className": "text-[14px] text-slate-500 leading-relaxed", "text": "Script-driven motion."}
+{"id": "s2-card-5", "parentId": "s2-grid", "type": "div", "className": "flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200"}
+{"id": "s2-card-5-icon", "parentId": "s2-card-5", "type": "icon", "className": "w-[28px] h-[28px] text-violet-500", "icon": "shapes"}
+{"id": "s2-card-5-title", "parentId": "s2-card-5", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Canvas"}
+{"id": "s2-card-5-body", "parentId": "s2-card-5", "type": "text", "className": "text-[14px] text-slate-500 leading-relaxed", "text": "CanvasKit draw script."}
+{"id": "s2-card-6", "parentId": "s2-grid", "type": "div", "className": "flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200"}
+{"id": "s2-card-6-icon", "parentId": "s2-card-6", "type": "icon", "className": "w-[28px] h-[28px] text-teal-500", "icon": "move-3d"}
+{"id": "s2-card-6-title", "parentId": "s2-card-6", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Transforms"}
+{"id": "s2-card-6-body", "parentId": "s2-card-6", "type": "text", "className": "text-[14px] text-slate-500 leading-relaxed", "text": "Stack stays composited."}
+{"type": "script", "parentId": "scene2", "content": "var ids=['s2-card-1','s2-card-2','s2-card-3','s2-card-4','s2-card-5','s2-card-6'];var anims=ctx.stagger(6,{from:{opacity:0,translateY:30,scale:0.94},to:{opacity:1,translateY:0,scale:1},gap:4,duration:22,easing:'spring-default'});ids.forEach(function(id,i){var a=anims[i];ctx.getNode(id).opacity(a.opacity).translateY(a.translateY).scale(a.scale);});var head=ctx.animate({from:{opacity:0,translateX:-24},to:{opacity:1,translateX:0},duration:26,easing:'spring-gentle'});ctx.getNode('s2-header').opacity(head.opacity).translateX(head.translateX);var prev=ctx.animate({from:{opacity:0,scale:0.9},to:{opacity:1,scale:1},duration:28,delay:8,easing:'spring-default'});ctx.getNode('s2-preview').opacity(prev.opacity).scale(prev.scale);"}
+{"type": "transition", "parentId": "main-tl", "from": "scene2", "to": "scene3", "effect": "slide", "direction": "from_right", "duration": 18, "timing": "spring-default"}
+{"id": "scene3", "parentId": "main-tl", "type": "div", "className": "relative w-[1280px] h-[720px] bg-slate-900", "duration": 90}
+{"id": "s3-bg", "parentId": "scene3", "type": "image", "className": "absolute inset-0 w-[1280px] h-[720px] object-cover opacity-25", "path": "/Users/solaren/Resources/png/3.png"}
+{"id": "s3-video-shell", "parentId": "scene3", "type": "div", "className": "absolute left-[80px] top-[100px] w-[640px] h-[520px] rounded-[28px] overflow-hidden border border-slate-700"}
+{"id": "s3-video", "parentId": "s3-video-shell", "type": "video", "className": "w-[640px] h-[520px] object-cover", "path": "/Users/solaren/Resources/mp4/2.mp4"}
+{"id": "s3-right", "parentId": "scene3", "type": "div", "className": "absolute right-[80px] top-[110px] flex flex-col gap-[20px] w-[420px]"}
+{"id": "s3-kicker", "parentId": "s3-right", "type": "text", "className": "text-[18px] font-semibold tracking-[5px] text-amber-300", "text": "SECTION / 03"}
+{"id": "s3-title", "parentId": "s3-right", "type": "text", "className": "text-[56px] font-bold text-white leading-[1.0]", "text": "Video + image + text"}
+{"id": "s3-typewriter", "parentId": "s3-right", "type": "text", "className": "text-[18px] text-slate-300 leading-[1.5]", "text": ""}
+{"id": "s3-thumb", "parentId": "s3-right", "type": "div", "className": "flex flex-row gap-[12px] pt-[12px]"}
+{"id": "s3-thumb-a", "parentId": "s3-thumb", "type": "image", "className": "w-[120px] h-[120px] rounded-[16px] object-cover border border-slate-700", "path": "/Users/solaren/Resources/png/3.png"}
+{"id": "s3-thumb-b", "parentId": "s3-thumb", "type": "image", "className": "w-[120px] h-[120px] rounded-[16px] object-cover border border-slate-700", "path": "/Users/solaren/Resources/png/3.png"}
+{"id": "s3-thumb-c", "parentId": "s3-thumb", "type": "image", "className": "w-[120px] h-[120px] rounded-[16px] object-cover border border-slate-700", "path": "/Users/solaren/Resources/png/3.png"}
+{"type": "script", "parentId": "scene3", "content": "var tw=ctx.typewriter('Video plays live while the script overlay types this description frame by frame.',{duration:72,delay:6});ctx.getNode('s3-typewriter').text(tw);var shell=ctx.animate({keyframes:{rotate:[{at:0,value:-6},{at:0.5,value:4,easing:'ease-in-out'},{at:1,value:0}],scale:[1,1.02,1]},duration:90});ctx.getNode('s3-video-shell').rotate(shell.rotate).scale(shell.scale);var thumbs=ctx.stagger(3,{from:{opacity:0,translateY:20,scale:0.9},to:{opacity:1,translateY:0,scale:1},gap:4,duration:22,delay:24,easing:'spring-default'});['s3-thumb-a','s3-thumb-b','s3-thumb-c'].forEach(function(id,i){var a=thumbs[i];ctx.getNode(id).opacity(a.opacity).translateY(a.translateY).scale(a.scale);});var head=ctx.animate({from:{opacity:0,translateX:30},to:{opacity:1,translateX:0},duration:26,easing:'spring-gentle'});ctx.getNode('s3-kicker').opacity(head.opacity).translateX(head.translateX);ctx.getNode('s3-title').opacity(head.opacity).translateX(head.translateX);"}
+{"type": "transition", "parentId": "main-tl", "from": "scene3", "to": "scene4", "effect": "light_leak", "duration": 18, "seed": 5, "hueShift": 45}
+{"id": "scene4", "parentId": "main-tl", "type": "div", "className": "relative w-[1280px] h-[720px] bg-gradient-to-br from-indigo-950 to-slate-950", "duration": 90}
+{"id": "s4-orb", "parentId": "scene4", "type": "div", "className": "absolute left-[520px] top-[160px] w-[240px] h-[240px] rounded-full bg-fuchsia-500 opacity-40"}
+{"id": "s4-orb-inner", "parentId": "scene4", "type": "div", "className": "absolute left-[580px] top-[220px] w-[120px] h-[120px] rounded-full bg-cyan-300"}
+{"id": "s4-metrics", "parentId": "scene4", "type": "div", "className": "absolute left-[80px] bottom-[100px] flex flex-row gap-[22px] w-[1120px]"}
+{"id": "s4-metric-1", "parentId": "s4-metrics", "type": "div", "className": "flex flex-col gap-[8px] p-[22px] rounded-[20px] bg-slate-900 border border-slate-800 w-[360px]"}
+{"id": "s4-metric-1-icon", "parentId": "s4-metric-1", "type": "icon", "className": "w-[28px] h-[28px] text-cyan-300", "icon": "activity"}
+{"id": "s4-metric-1-value", "parentId": "s4-metric-1", "type": "text", "className": "text-[44px] font-bold text-white leading-none", "text": "4.8%"}
+{"id": "s4-metric-1-label", "parentId": "s4-metric-1", "type": "text", "className": "text-[16px] text-slate-400", "text": "subtree_snapshot_record ↓"}
+{"id": "s4-metric-2", "parentId": "s4-metrics", "type": "div", "className": "flex flex-col gap-[8px] p-[22px] rounded-[20px] bg-slate-900 border border-slate-800 w-[360px]"}
+{"id": "s4-metric-2-icon", "parentId": "s4-metric-2", "type": "icon", "className": "w-[28px] h-[28px] text-fuchsia-300", "icon": "layers"}
+{"id": "s4-metric-2-value", "parentId": "s4-metric-2", "type": "text", "className": "text-[44px] font-bold text-white leading-none", "text": "+10.7%"}
+{"id": "s4-metric-2-label", "parentId": "s4-metric-2", "type": "text", "className": "text-[16px] text-slate-400", "text": "subtree cache utilisation"}
+{"id": "s4-metric-3", "parentId": "s4-metrics", "type": "div", "className": "flex flex-col gap-[8px] p-[22px] rounded-[20px] bg-slate-900 border border-slate-800 w-[360px]"}
+{"id": "s4-metric-3-icon", "parentId": "s4-metric-3", "type": "icon", "className": "w-[28px] h-[28px] text-amber-300", "icon": "rocket"}
+{"id": "s4-metric-3-value", "parentId": "s4-metric-3", "type": "text", "className": "text-[44px] font-bold text-white leading-none", "text": "11.1"}
+{"id": "s4-metric-3-label", "parentId": "s4-metric-3", "type": "text", "className": "text-[16px] text-slate-400", "text": "effective fps"}
+{"id": "s4-title", "parentId": "scene4", "type": "text", "className": "absolute left-[80px] top-[110px] text-[68px] font-bold text-white leading-[1.0] w-[1120px]", "text": "Profile benchmark complete"}
+{"id": "s4-sub", "parentId": "scene4", "type": "text", "className": "absolute left-[80px] top-[220px] text-[22px] text-slate-400 leading-[1.4] w-[520px]", "text": "One golden sample. Every render surface. Compare before/after a change in a single run."}
+{"type": "script", "parentId": "scene4", "content": "var orb=ctx.animate({keyframes:{rotate:[{at:0,value:0},{at:1,value:360}],scale:[{at:0,value:0.8},{at:0.5,value:1.15,easing:'ease-in-out'},{at:1,value:0.95}]},duration:90});ctx.getNode('s4-orb').rotate(orb.rotate).scale(orb.scale);var orbIn=ctx.animate({keyframes:{rotate:[{at:0,value:0},{at:1,value:-540}],translateY:[0,-20,0,20,0]},duration:90});ctx.getNode('s4-orb-inner').rotate(orbIn.rotate).translateY(orbIn.translateY);var head=ctx.animate({from:{opacity:0,translateY:30},to:{opacity:1,translateY:0},duration:28,easing:'spring-gentle'});ctx.getNode('s4-title').opacity(head.opacity).translateY(head.translateY);ctx.getNode('s4-sub').opacity(head.opacity).translateY(head.translateY);var seq=ctx.sequence([{from:{opacity:0,translateY:30,scale:0.92},to:{opacity:1,translateY:0,scale:1},duration:20,easing:'spring-default'},{from:{opacity:0,translateY:30,scale:0.92},to:{opacity:1,translateY:0,scale:1},duration:20,easing:'spring-default',gap:-12},{from:{opacity:0,translateY:30,scale:0.92},to:{opacity:1,translateY:0,scale:1},duration:20,easing:'spring-default',gap:-12}]);var metIds=['s4-metric-1','s4-metric-2','s4-metric-3'];metIds.forEach(function(id,i){var a=seq[i];ctx.getNode(id).opacity(a.opacity).translateY(a.translateY).scale(a.scale);});"}

@@ -642,7 +642,7 @@ impl<'a> SkiaBackend<'a> {
             self.item_picture_cache.clone(),
             self.subtree_snapshot_cache.clone(),
             self.subtree_image_cache.clone(),
-            None,
+            self.media_ctx.as_deref_mut(),
             self.frame_ctx,
         );
         let subtree = OrderedSceneProgram::build_subtree(display_tree, handle);

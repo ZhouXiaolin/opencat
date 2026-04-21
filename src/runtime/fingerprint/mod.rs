@@ -32,9 +32,7 @@ use crate::{
     },
 };
 
-use display_item::{
-    BitmapPaintFp, ClipFp, DisplayItemFp, F32Hash, TextFp, bitmap_is_video, item_is_time_variant,
-};
+use display_item::{ClipFp, DisplayItemFp, F32Hash, TextFp, item_is_time_variant};
 
 /// subtree picture cache 的双 hash fingerprint。
 ///
@@ -111,45 +109,16 @@ pub fn text_paint_fingerprint(text: &crate::display::list::TextDisplayItem) -> u
 /// 计算单个 DisplayItem 的 paint fingerprint(作为 `ItemPictureCache` key)。
 ///
 /// 语义:
-/// - 非 video Bitmap 的 TimeVariant 项 → None(不进 cache)
-/// - Video Bitmap → Some(hash 中 pts 按 1/10000 秒量化),暂停段内多帧命中
+/// - TimeVariant 项(包含视频 Bitmap) → None(不进 cache)
+///   视频帧数据由下层 `video_frame_cache` 按 pts 做复用,Picture 层无需再缓存。
 /// - Stable 项 → Some(基于 `DisplayItemFp` 全量 hash)
-///
-/// 注:Video Bitmap 返回 Some 与 `classify_paint` 仍返回 TimeVariant **不矛盾**。
-/// Classify 用于决定子树级 paint_fingerprint 是否计算(TimeVariant 不计算),
-/// 本函数用于单节点 ItemPictureCache 命中决策 —— 两套机制独立。
 pub fn item_paint_fingerprint(item: &DisplayItem, assets: &AssetsMap) -> Option<u64> {
-    if let DisplayItem::Bitmap(bitmap) = item
-        && bitmap_is_video(bitmap, assets)
-    {
-        return Some(video_bitmap_quantized_fingerprint(bitmap));
-    }
     if item_is_time_variant(item, assets) {
         return None;
     }
     let mut hasher = new_primary_hasher();
     DisplayItemFp(item).hash(&mut hasher);
     Some(hasher.finish())
-}
-
-fn video_bitmap_quantized_fingerprint(bitmap: &crate::display::list::BitmapDisplayItem) -> u64 {
-    use crate::runtime::cache::video_frames::quantize_pts;
-    let mut hasher = new_primary_hasher();
-    // Prefix marker:区分 video bitmap fingerprint 与非 video 的 hash 空间,避免碰撞。
-    0xF0_u8.hash(&mut hasher);
-    bitmap.asset_id.hash(&mut hasher);
-    bitmap.width.hash(&mut hasher);
-    bitmap.height.hash(&mut hasher);
-    bitmap.object_fit.hash(&mut hasher);
-    F32Hash(bitmap.bounds.width).hash(&mut hasher);
-    F32Hash(bitmap.bounds.height).hash(&mut hasher);
-    BitmapPaintFp(&bitmap.paint).hash(&mut hasher);
-    if let Some(timing) = &bitmap.video_timing {
-        quantize_pts(timing.media_offset_secs).hash(&mut hasher);
-        timing.playback_rate.to_bits().hash(&mut hasher);
-        timing.looping.hash(&mut hasher);
-    }
-    hasher.finish()
 }
 
 /// 基于已注解节点计算子树 paint fingerprint。
@@ -670,11 +639,11 @@ mod tests {
             classify_paint(&bitmap_item, &assets),
             PaintVariance::TimeVariant
         );
-        // Video Bitmap 现在通过量化 fingerprint 进入 ItemPictureCache,
-        // 即使 video_timing 为 None(仍返回 Some,只是不 hash timing 字段)。
+        // 视频 Bitmap 不再进 ItemPictureCache —— 解码层的 video_frame_cache 已按
+        // pts 复用帧数据,Picture 层冻帧会破坏"视频视为变化"的设计原则。
         assert!(
-            item_paint_fingerprint(&bitmap_item, &assets).is_some(),
-            "video bitmap 必须有 paint fingerprint 以支持暂停段 ItemPictureCache 复用"
+            item_paint_fingerprint(&bitmap_item, &assets).is_none(),
+            "video bitmap 不应有 paint fingerprint,避免 ItemPictureCache 冻帧"
         );
     }
 
@@ -728,51 +697,43 @@ mod tests {
     }
 
     #[test]
-    fn video_bitmap_paint_fingerprint_stable_within_quantized_pts() {
+    fn video_bitmap_paint_fingerprint_is_none() {
         let mut assets = AssetsMap::new();
         let video_path = std::path::PathBuf::from("/tmp/fake.mp4");
         let asset_id = assets.register_dimensions(&video_path, 10, 10);
 
-        let make_item = |offset: f64| {
-            DisplayItem::Bitmap(BitmapDisplayItem {
-                bounds: empty_bounds(),
-                asset_id: asset_id.clone(),
-                width: 10,
-                height: 10,
-                video_timing: Some(crate::resource::media::VideoFrameTiming {
-                    media_offset_secs: offset,
-                    playback_rate: 1.0,
-                    looping: false,
-                }),
-                object_fit: ObjectFit::Fill,
-                paint: BitmapPaintStyle {
-                    background: None,
-                    border_radius: BorderRadius::default(),
-                    border_width: None,
-                    border_top_width: None,
-                    border_right_width: None,
-                    border_bottom_width: None,
-                    border_left_width: None,
-                    border_color: None,
-                    border_style: None,
-                    blur_sigma: None,
-                    box_shadow: None,
-                    inset_shadow: None,
-                    drop_shadow: None,
-                },
-            })
-        };
+        let item = DisplayItem::Bitmap(BitmapDisplayItem {
+            bounds: empty_bounds(),
+            asset_id,
+            width: 10,
+            height: 10,
+            video_timing: Some(crate::resource::media::VideoFrameTiming {
+                media_offset_secs: 1.234,
+                playback_rate: 1.0,
+                looping: false,
+            }),
+            object_fit: ObjectFit::Fill,
+            paint: BitmapPaintStyle {
+                background: None,
+                border_radius: BorderRadius::default(),
+                border_width: None,
+                border_top_width: None,
+                border_right_width: None,
+                border_bottom_width: None,
+                border_left_width: None,
+                border_color: None,
+                border_style: None,
+                blur_sigma: None,
+                box_shadow: None,
+                inset_shadow: None,
+                drop_shadow: None,
+            },
+        });
 
-        let fp_a = item_paint_fingerprint(&make_item(1.234_560_1), &assets);
-        let fp_b = item_paint_fingerprint(&make_item(1.234_560_2), &assets);
-        let fp_c = item_paint_fingerprint(&make_item(1.235_0), &assets);
-
-        assert!(fp_a.is_some(), "video bitmap 必须有 paint fingerprint");
-        assert_eq!(
-            fp_a, fp_b,
-            "同一量化 pts(1/10000 秒精度)内两次采样必须 fingerprint 相同"
+        assert!(
+            item_paint_fingerprint(&item, &assets).is_none(),
+            "视频 bitmap 绕过 ItemPictureCache,保证每帧重新走 draw_bitmap 解码路径"
         );
-        assert_ne!(fp_a, fp_c, "跨量化边界的两次采样必须 fingerprint 不同");
     }
 
     #[test]

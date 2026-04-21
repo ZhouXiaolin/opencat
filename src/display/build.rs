@@ -52,6 +52,36 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
         .map(|(child, child_layout)| build_display_node(child, child_layout))
         .collect::<Result<Vec<_>>>()?;
 
+    let visual = &element.style.visual;
+    let uniform_border = visual.border_width.unwrap_or(0.0);
+    let border_top_w = visual.border_top_width.unwrap_or(uniform_border);
+    let border_right_w = visual.border_right_width.unwrap_or(uniform_border);
+    let border_bottom_w = visual.border_bottom_width.unwrap_or(uniform_border);
+    let border_left_w = visual.border_left_width.unwrap_or(uniform_border);
+
+    let clip = if visual.clip_contents {
+        let inner_bounds = DisplayRect {
+            x: bounds.x + border_left_w,
+            y: bounds.y + border_top_w,
+            width: (bounds.width - border_left_w - border_right_w).max(0.0),
+            height: (bounds.height - border_top_w - border_bottom_w).max(0.0),
+        };
+        let outer_radius = visual.border_radius;
+        let inner_radius = crate::style::BorderRadius {
+            top_left: (outer_radius.top_left - border_top_w.max(border_left_w)).max(0.0),
+            top_right: (outer_radius.top_right - border_top_w.max(border_right_w)).max(0.0),
+            bottom_right: (outer_radius.bottom_right - border_bottom_w.max(border_right_w))
+                .max(0.0),
+            bottom_left: (outer_radius.bottom_left - border_bottom_w.max(border_left_w)).max(0.0),
+        };
+        Some(DisplayClip {
+            bounds: inner_bounds,
+            border_radius: inner_radius,
+        })
+    } else {
+        None
+    };
+
     Ok(DisplayNode {
         transform: DisplayTransform {
             translation_x: layout.rect.x,
@@ -62,10 +92,7 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
         element_id: element.id,
         opacity: element.style.visual.opacity,
         backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
-        clip: element.style.visual.clip_contents.then_some(DisplayClip {
-            bounds,
-            border_radius: element.style.visual.border_radius,
-        }),
+        clip,
         item,
         children,
     })
@@ -79,7 +106,12 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 background: element.style.visual.background,
                 border_radius: element.style.visual.border_radius,
                 border_width: element.style.visual.border_width,
+                border_top_width: element.style.visual.border_top_width,
+                border_right_width: element.style.visual.border_right_width,
+                border_bottom_width: element.style.visual.border_bottom_width,
+                border_left_width: element.style.visual.border_left_width,
                 border_color: element.style.visual.border_color,
+                border_style: element.style.visual.border_style,
                 blur_sigma: element.style.visual.blur_sigma,
                 box_shadow: element.style.visual.box_shadow,
                 inset_shadow: element.style.visual.inset_shadow,
@@ -92,7 +124,12 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 background: element.style.visual.background,
                 border_radius: element.style.visual.border_radius,
                 border_width: element.style.visual.border_width,
+                border_top_width: element.style.visual.border_top_width,
+                border_right_width: element.style.visual.border_right_width,
+                border_bottom_width: element.style.visual.border_bottom_width,
+                border_left_width: element.style.visual.border_left_width,
                 border_color: element.style.visual.border_color,
+                border_style: element.style.visual.border_style,
                 blur_sigma: element.style.visual.blur_sigma,
                 box_shadow: element.style.visual.box_shadow,
                 inset_shadow: element.style.visual.inset_shadow,
@@ -126,7 +163,12 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 background: element.style.visual.background,
                 border_radius: element.style.visual.border_radius,
                 border_width: element.style.visual.border_width,
+                border_top_width: element.style.visual.border_top_width,
+                border_right_width: element.style.visual.border_right_width,
+                border_bottom_width: element.style.visual.border_bottom_width,
+                border_left_width: element.style.visual.border_left_width,
                 border_color: element.style.visual.border_color,
+                border_style: element.style.visual.border_style,
                 blur_sigma: element.style.visual.blur_sigma,
                 box_shadow: element.style.visual.box_shadow,
                 inset_shadow: element.style.visual.inset_shadow,

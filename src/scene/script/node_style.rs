@@ -32,7 +32,12 @@ pub struct NodeStyleMutations {
     pub bg_color: Option<ColorToken>,
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
+    pub border_top_width: Option<f32>,
+    pub border_right_width: Option<f32>,
+    pub border_bottom_width: Option<f32>,
+    pub border_left_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    pub border_style: Option<crate::style::BorderStyle>,
     pub object_fit: Option<crate::style::ObjectFit>,
     pub transforms: Vec<Transform>,
     pub text_color: Option<ColorToken>,
@@ -120,8 +125,23 @@ impl NodeStyleMutations {
         if let Some(v) = self.border_width {
             style.border_width = Some(v);
         }
+        if let Some(v) = self.border_top_width {
+            style.border_top_width = Some(v);
+        }
+        if let Some(v) = self.border_right_width {
+            style.border_right_width = Some(v);
+        }
+        if let Some(v) = self.border_bottom_width {
+            style.border_bottom_width = Some(v);
+        }
+        if let Some(v) = self.border_left_width {
+            style.border_left_width = Some(v);
+        }
         if let Some(v) = self.border_color {
             style.border_color = Some(v);
+        }
+        if let Some(v) = self.border_style {
+            style.border_style = Some(v);
         }
         if let Some(v) = self.object_fit {
             style.object_fit = Some(v);
@@ -335,6 +355,29 @@ pub(super) fn install_node_style_bindings<'js>(
     });
     set_style_binding!("__record_border_width", map, |id, v: f32| {
         map.entry(id).or_default().border_width = Some(v);
+    });
+    set_style_binding!("__record_border_top_width", map, |id, v: f32| {
+        map.entry(id).or_default().border_top_width = Some(v);
+    });
+    set_style_binding!("__record_border_right_width", map, |id, v: f32| {
+        map.entry(id).or_default().border_right_width = Some(v);
+    });
+    set_style_binding!("__record_border_bottom_width", map, |id, v: f32| {
+        map.entry(id).or_default().border_bottom_width = Some(v);
+    });
+    set_style_binding!("__record_border_left_width", map, |id, v: f32| {
+        map.entry(id).or_default().border_left_width = Some(v);
+    });
+    set_style_binding!("__record_border_style", map, |id, v: String| {
+        let parsed = match v.as_str() {
+            "solid" => Some(crate::style::BorderStyle::Solid),
+            "dashed" => Some(crate::style::BorderStyle::Dashed),
+            "dotted" => Some(crate::style::BorderStyle::Dotted),
+            _ => None,
+        };
+        if let Some(bs) = parsed {
+            map.entry(id).or_default().border_style = Some(bs);
+        }
     });
     set_style_binding!("__record_border_color", map, |id, v: String| {
         if let Some(c) = color_from_name(&v) {

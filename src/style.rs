@@ -189,6 +189,15 @@ impl std::hash::Hash for BorderRadius {
     }
 }
 
+/// Border stroke style - Tailwind: border-solid / border-dashed / border-dotted
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum BorderStyle {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BoxShadowStyle {
     TwoXs,
@@ -564,7 +573,12 @@ pub struct NodeStyle {
     pub bg_gradient_direction: Option<GradientDirection>,
     pub border_radius: Option<BorderRadius>,
     pub border_width: Option<f32>,
+    pub border_top_width: Option<f32>,
+    pub border_right_width: Option<f32>,
+    pub border_bottom_width: Option<f32>,
+    pub border_left_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    pub border_style: Option<BorderStyle>,
     pub blur_sigma: Option<f32>,
     pub backdrop_blur_sigma: Option<f32>,
     pub object_fit: Option<ObjectFit>,
@@ -1221,6 +1235,31 @@ macro_rules! impl_node_style_api {
 
             pub fn border_color(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.border_color = Some(color);
+                self
+            }
+
+            pub fn border_top_w(mut self, width: f32) -> Self {
+                self.style.border_top_width = Some(width);
+                self
+            }
+
+            pub fn border_right_w(mut self, width: f32) -> Self {
+                self.style.border_right_width = Some(width);
+                self
+            }
+
+            pub fn border_bottom_w(mut self, width: f32) -> Self {
+                self.style.border_bottom_width = Some(width);
+                self
+            }
+
+            pub fn border_left_w(mut self, width: f32) -> Self {
+                self.style.border_left_width = Some(width);
+                self
+            }
+
+            pub fn border_style(mut self, style: $crate::style::BorderStyle) -> Self {
+                self.style.border_style = Some(style);
                 self
             }
 

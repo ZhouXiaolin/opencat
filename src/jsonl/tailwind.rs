@@ -186,6 +186,20 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
 }
 
 fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
+    if let Some(border_style) = match class {
+        "border-solid" => Some(crate::style::BorderStyle::Solid),
+        "border-dashed" => Some(crate::style::BorderStyle::Dashed),
+        "border-dotted" => Some(crate::style::BorderStyle::Dotted),
+        _ => None,
+    } {
+        style.border_style = Some(border_style);
+        return true;
+    }
+
+    if parse_directional_border_width(class, style) {
+        return true;
+    }
+
     if apply_shadow_value_rule(class, "shadow-[", ShadowValueTarget::Box, style)
         || apply_shadow_value_rule(class, "inset-shadow-[", ShadowValueTarget::Inset, style)
         || apply_shadow_value_rule(class, "drop-shadow-[", ShadowValueTarget::Drop, style)
@@ -1106,6 +1120,7 @@ fn resolve_rounded_size(size_str: &str) -> Option<f32> {
         .iter()
         .find(|(name, _)| *name == size_str)
         .map(|(_, v)| *v)
+        .or_else(|| parse_bracket_f32(size_str))
         .or_else(|| size_str.parse::<f32>().ok())
 }
 
@@ -1331,6 +1346,29 @@ fn parse_bracket_f32(value: &str) -> Option<f32> {
         .strip_suffix("px]")
         .or_else(|| value.strip_suffix(']'))
         .and_then(|value| value.parse::<f32>().ok())
+}
+
+fn parse_directional_border_width(class: &str, style: &mut NodeStyle) -> bool {
+    let sides: &[(&str, fn(&mut NodeStyle, f32))] = &[
+        ("border-t", |s, w| s.border_top_width = Some(w)),
+        ("border-r", |s, w| s.border_right_width = Some(w)),
+        ("border-b", |s, w| s.border_bottom_width = Some(w)),
+        ("border-l", |s, w| s.border_left_width = Some(w)),
+    ];
+    for (prefix, setter) in sides {
+        if class == *prefix {
+            setter(style, 1.0);
+            return true;
+        }
+        let Some(rest) = class.strip_prefix(prefix).and_then(|r| r.strip_prefix('-')) else {
+            continue;
+        };
+        if let Some(n) = parse_bracket_f32(rest).or_else(|| rest.parse::<f32>().ok()) {
+            setter(style, n);
+            return true;
+        }
+    }
+    false
 }
 
 fn parse_grid_line_value(value: &str) -> Option<i16> {

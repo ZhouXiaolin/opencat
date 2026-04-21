@@ -33,6 +33,11 @@
             case 'bg': __record_bg(id, String(args[0])); break;
             case 'borderRadius': __record_border_radius(id, args[0]); break;
             case 'borderWidth': __record_border_width(id, args[0]); break;
+            case 'borderTopWidth': __record_border_top_width(id, args[0]); break;
+            case 'borderRightWidth': __record_border_right_width(id, args[0]); break;
+            case 'borderBottomWidth': __record_border_bottom_width(id, args[0]); break;
+            case 'borderLeftWidth': __record_border_left_width(id, args[0]); break;
+            case 'borderStyle': __record_border_style(id, String(args[0])); break;
             case 'borderColor': __record_border_color(id, String(args[0])); break;
             case 'strokeWidth': __record_stroke_width(id, args[0]); break;
             case 'strokeColor': __record_stroke_color(id, String(args[0])); break;

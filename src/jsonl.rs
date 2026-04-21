@@ -908,6 +908,33 @@ mod tests {
     }
 
     #[test]
+    fn parser_maps_directional_border_widths_and_dashed_style() {
+        let style = parse_class_name(
+            "border-t-4 border-r-[6px] border-b-[6px] border-l-2 border-dashed rounded-br-[44px]",
+        );
+
+        assert_eq!(style.border_top_width, Some(4.0));
+        assert_eq!(style.border_right_width, Some(6.0));
+        assert_eq!(style.border_bottom_width, Some(6.0));
+        assert_eq!(style.border_left_width, Some(2.0));
+        assert_eq!(style.border_style, Some(crate::style::BorderStyle::Dashed));
+        let radius = style.border_radius.expect("expected border radius");
+        assert_eq!(radius.bottom_right, 44.0);
+        assert_eq!(radius.top_left, 0.0);
+    }
+
+    #[test]
+    fn parser_maps_bare_directional_border_and_dotted_style() {
+        let style = parse_class_name("border-r border-b border-dotted");
+
+        assert_eq!(style.border_right_width, Some(1.0));
+        assert_eq!(style.border_bottom_width, Some(1.0));
+        assert_eq!(style.border_top_width, None);
+        assert_eq!(style.border_left_width, None);
+        assert_eq!(style.border_style, Some(crate::style::BorderStyle::Dotted));
+    }
+
+    #[test]
     fn parser_maps_gradient_overflow_and_directional_spacing_classes() {
         let style = parse_class_name(
             "bg-gradient-to-r from-orange-500 to-amber-500 overflow-hidden mt-[4px] mb-[16px] pb-[20px]",

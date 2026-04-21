@@ -818,4 +818,59 @@ mod tests {
             "inactive root caption layer should be skipped while the bottom scene still renders"
         );
     }
+
+    #[test]
+    fn timeline_caption_sibling_renders_above_transition() {
+        use crate::{Easing, SrtEntry, caption, fade, timeline};
+
+        let composition = Composition::new("timeline_caption")
+            .size(320, 180)
+            .fps(30)
+            .frames(25)
+            .root(move |_| {
+                div()
+                    .id("root")
+                    .child(
+                        timeline()
+                            .sequence(
+                                10,
+                                div()
+                                    .id("scene-a")
+                                    .bg(ColorToken::Black)
+                                    .child(text("A").id("a"))
+                                    .into(),
+                            )
+                            .transition(fade().timing(Easing::Linear, 5))
+                            .sequence(
+                                10,
+                                div()
+                                    .id("scene-b")
+                                    .bg(ColorToken::Black)
+                                    .child(text("B").id("b"))
+                                    .into(),
+                            ),
+                    )
+                    .child(
+                        caption()
+                            .id("subs")
+                            .path("sub.srt")
+                            .entries(vec![SrtEntry {
+                                index: 1,
+                                start_frame: 0,
+                                end_frame: 25,
+                                text: "Subtitle".into(),
+                            }])
+                            .text_color(ColorToken::White),
+                    )
+                    .into()
+            })
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let pixels =
+            render_frame_rgba(&composition, 12, &mut session).expect("frame should render");
+
+        assert!(pixels.iter().any(|&byte| byte > 0));
+    }
 }

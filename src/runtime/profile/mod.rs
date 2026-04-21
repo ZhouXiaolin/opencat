@@ -10,7 +10,7 @@ pub(crate) use aggregator::{
     CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator, RenderProfileSummary,
 };
 pub(crate) use layer::{ProfileConfig, ProfileOutputFormat, profile_render};
-pub(crate) use output::{print_profile_summary, render_profile_json, render_profile_text};
+pub(crate) use output::print_profile_summary;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct BackendSpanKey {
@@ -42,16 +42,6 @@ impl BackendSpanAggregate {
 
 #[derive(Clone, Debug, Default)]
 pub struct BackendProfile {
-    pub rect_draw_ms: f64,
-    pub text_draw_ms: f64,
-    pub text_snapshot_record_ms: f64,
-    pub text_snapshot_draw_ms: f64,
-    pub item_picture_record_ms: f64,
-    pub item_picture_draw_ms: f64,
-    pub bitmap_draw_ms: f64,
-    pub draw_script_draw_ms: f64,
-    pub image_decode_ms: f64,
-    pub video_decode_ms: f64,
     pub subtree_snapshot_record_ms: f64,
     pub subtree_snapshot_draw_ms: f64,
     pub subtree_image_rasterize_ms: f64,

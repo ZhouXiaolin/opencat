@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
     BlurStyle, Canvas, ClipOp, Color4f, Data, Font, Image as SkiaImage, ImageInfo, MaskFilter,
@@ -44,9 +42,6 @@ use super::{
 };
 
 struct BitmapDrawStats {
-    draw_ms: f64,
-    image_decode_ms: f64,
-    video_decode_ms: f64,
     image_cache_hits: usize,
     image_cache_misses: usize,
     video_frame_cache_hits: usize,
@@ -55,15 +50,11 @@ struct BitmapDrawStats {
 }
 
 struct TextDrawStats {
-    snapshot_record_ms: f64,
-    snapshot_draw_ms: f64,
     cache_hits: usize,
     cache_misses: usize,
 }
 
 struct ItemPictureDrawStats {
-    record_ms: f64,
-    draw_ms: f64,
     cache_hits: usize,
     cache_misses: usize,
 }
@@ -463,6 +454,8 @@ impl<'a> SkiaBackend<'a> {
     }
 
     fn draw_display_item(&mut self, item: &DisplayItem) -> Result<()> {
+        let profile_span = span!(target: "render.backend", Level::TRACE, "draw_item");
+        let _profile_span = profile_span.enter();
         if should_cache_item_picture(item)
             && let Some(cache_key) = item_paint_fingerprint(item, self.assets)
         {
@@ -496,6 +489,9 @@ impl<'a> SkiaBackend<'a> {
     }
 
     fn draw_display_item_frame_local_picture(&mut self, item: &DisplayItem) -> Result<()> {
+        let profile_span =
+            span!(target: "render.backend", Level::TRACE, "draw_item_frame_local_picture");
+        let _profile_span = profile_span.enter();
         let snapshot = record_item_picture(
             item,
             self.assets,
@@ -1118,37 +1114,26 @@ fn draw_text(
     let placement = text_snapshot_placement(text);
     let cache_key = text_paint_fingerprint(text);
     if let Some(snapshot) = text_snapshot_cache.borrow_mut().get_cloned(&cache_key) {
-        let draw_started = Instant::now();
         canvas.save();
         canvas.translate((placement.draw_translation_x, placement.draw_translation_y));
         canvas.draw_picture(&snapshot, None, None);
         canvas.restore();
         Ok(TextDrawStats {
-            snapshot_record_ms: 0.0,
-            snapshot_draw_ms: draw_started.elapsed().as_secs_f64() * 1000.0,
             cache_hits: 1,
             cache_misses: 0,
         })
     } else {
-        let (snapshot, snapshot_record_ms) = {
-            let record_started = Instant::now();
-            let snapshot = record_text_snapshot(text)?;
-            let snapshot_record_ms = record_started.elapsed().as_secs_f64() * 1000.0;
-            (snapshot, snapshot_record_ms)
-        };
+        let snapshot = record_text_snapshot(text)?;
         let report = text_snapshot_cache
             .borrow_mut()
             .insert(cache_key, snapshot.clone());
         record_cache_pressure("text", &report);
 
-        let draw_started = Instant::now();
         canvas.save();
         canvas.translate((placement.draw_translation_x, placement.draw_translation_y));
         canvas.draw_picture(&snapshot, None, None);
         canvas.restore();
         Ok(TextDrawStats {
-            snapshot_record_ms,
-            snapshot_draw_ms: draw_started.elapsed().as_secs_f64() * 1000.0,
             cache_hits: 0,
             cache_misses: 1,
         })
@@ -1268,45 +1253,34 @@ fn draw_item_picture_cached(
 ) -> Result<ItemPictureDrawStats> {
     let semantics = item.picture_semantics();
     if let Some(snapshot) = item_picture_cache.borrow_mut().get_cloned(&cache_key) {
-        let draw_started = Instant::now();
         canvas.save();
         canvas.translate((semantics.draw_translation_x, semantics.draw_translation_y));
         canvas.draw_picture(&snapshot, None, None);
         canvas.restore();
         return Ok(ItemPictureDrawStats {
-            record_ms: 0.0,
-            draw_ms: draw_started.elapsed().as_secs_f64() * 1000.0,
             cache_hits: 1,
             cache_misses: 0,
         });
     }
 
-    let (snapshot, record_ms) = {
-        let record_started = Instant::now();
-        let snapshot = record_item_picture(
-            item,
-            assets,
-            image_cache,
-            text_snapshot_cache,
-            media_ctx,
-            frame_ctx,
-        )?;
-        let record_ms = record_started.elapsed().as_secs_f64() * 1000.0;
-        (snapshot, record_ms)
-    };
+    let snapshot = record_item_picture(
+        item,
+        assets,
+        image_cache,
+        text_snapshot_cache,
+        media_ctx,
+        frame_ctx,
+    )?;
     let report = item_picture_cache
         .borrow_mut()
         .insert(cache_key, snapshot.clone());
     record_cache_pressure("item_picture", &report);
 
-    let draw_started = Instant::now();
     canvas.save();
     canvas.translate((semantics.draw_translation_x, semantics.draw_translation_y));
     canvas.draw_picture(&snapshot, None, None);
     canvas.restore();
     Ok(ItemPictureDrawStats {
-        record_ms,
-        draw_ms: draw_started.elapsed().as_secs_f64() * 1000.0,
         cache_hits: 0,
         cache_misses: 1,
     })
@@ -1481,9 +1455,6 @@ fn draw_bitmap(
         .ok_or_else(|| anyhow!("missing asset path for {}", bitmap.asset_id.0))?;
 
     let mut stats = BitmapDrawStats {
-        draw_ms: 0.0,
-        image_decode_ms: 0.0,
-        video_decode_ms: 0.0,
         image_cache_hits: 0,
         image_cache_misses: 0,
         video_frame_cache_hits: 0,
@@ -1508,7 +1479,6 @@ fn draw_bitmap(
                     path.display()
                 )
             })?;
-        let decode_started = Instant::now();
         let video_bitmap = media
             .get_video_bitmap(path, request)
             .with_context(|| format!("failed to decode video frame: {}", path.display()))?;
@@ -1517,7 +1487,6 @@ fn draw_bitmap(
         } else {
             stats.video_frame_cache_misses = 1;
             stats.video_frame_decodes = 1;
-            stats.video_decode_ms = decode_started.elapsed().as_secs_f64() * 1000.0;
         }
         let info = ImageInfo::new(
             (video_bitmap.width as i32, video_bitmap.height as i32),
@@ -1543,13 +1512,11 @@ fn draw_bitmap(
             stats.image_cache_hits = 1;
             img
         } else {
-            let decode_started = Instant::now();
             let encoded = std::fs::read(path)
                 .with_context(|| format!("failed to read image asset: {}", path.display()))?;
             let data = skia_safe::Data::new_copy(&encoded);
             let image = skia_safe::Image::from_encoded(data)
                 .ok_or_else(|| anyhow!("failed to decode image asset: {}", path.display()))?;
-            stats.image_decode_ms = decode_started.elapsed().as_secs_f64() * 1000.0;
             stats.image_cache_misses = 1;
             let report = cache.insert(key, Some(image.clone()));
             record_cache_pressure("image", &report);
@@ -1557,7 +1524,6 @@ fn draw_bitmap(
         }
     };
 
-    let draw_started = Instant::now();
     let dst = layout_rect_to_skia(bitmap.bounds);
     let radii = effective_corner_radius(dst, bitmap.paint.border_radius);
     let mut paint = Paint::default();
@@ -1623,7 +1589,6 @@ fn draw_bitmap(
         bitmap.paint.blur_sigma,
     );
 
-    stats.draw_ms = draw_started.elapsed().as_secs_f64() * 1000.0;
     Ok(stats)
 }
 

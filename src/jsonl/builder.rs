@@ -8,7 +8,7 @@ use crate::scene::{
     transition::{Transition, clock_wipe, fade, iris, light_leak, slide, timeline, wipe},
 };
 
-use super::{ParsedElement, ParsedElementKind, ParsedTransition, TimelineEntry};
+use super::{ParsedElement, ParsedElementKind, ParsedTransition};
 
 pub(super) fn join_scripts(scripts: Vec<String>) -> Option<String> {
     if scripts.is_empty() {
@@ -70,101 +70,6 @@ pub(super) fn build_tree_with_tl(
     build_node_inner(root, &children_map, scripts_by_parent, transitions_by_tl, fps)
 }
 
-pub(super) fn build_timeline(
-    elements: &[ParsedElement],
-    scripts_by_parent: &HashMap<String, Vec<String>>,
-    entries: &[TimelineEntry],
-    fps: u32,
-) -> anyhow::Result<(Node, i32)> {
-    let (children_map, roots) = index_elements(elements);
-    let roots_by_id = roots
-        .into_iter()
-        .map(|root| (root.id.as_str(), root))
-        .collect::<HashMap<_, _>>();
-    let root_ids = entries
-        .iter()
-        .filter_map(|entry| match entry {
-            TimelineEntry::SequenceRoot { id } => Some(id.as_str()),
-            TimelineEntry::Transition(_) => None,
-        })
-        .collect::<Vec<_>>();
-    let root_positions = root_ids
-        .iter()
-        .enumerate()
-        .map(|(index, id)| (*id, index))
-        .collect::<HashMap<_, _>>();
-    let mut transitions_by_pair = HashMap::new();
-
-    for entry in entries {
-        let TimelineEntry::Transition(transition) = entry else {
-            continue;
-        };
-
-        let Some(&from_index) = root_positions.get(transition.from.as_str()) else {
-            return Err(anyhow::anyhow!(
-                "transition references missing sequence root `{}`",
-                transition.from
-            ));
-        };
-        let Some(&to_index) = root_positions.get(transition.to.as_str()) else {
-            return Err(anyhow::anyhow!(
-                "transition references missing sequence root `{}`",
-                transition.to
-            ));
-        };
-
-        if to_index != from_index + 1 {
-            let next_id = root_ids.get(from_index + 1).copied().unwrap_or("<end>");
-            return Err(anyhow::anyhow!(
-                "transition declares `{}` -> `{}`, but root order requires adjacent sequences `{}` -> `{}`",
-                transition.from,
-                transition.to,
-                transition.from,
-                next_id
-            ));
-        }
-
-        if transitions_by_pair
-            .insert(
-                (transition.from.as_str(), transition.to.as_str()),
-                transition,
-            )
-            .is_some()
-        {
-            return Err(anyhow::anyhow!(
-                "duplicate transition declared for `{}` -> `{}`",
-                transition.from,
-                transition.to
-            ));
-        }
-    }
-
-    let mut timeline_builder = timeline();
-    let mut frames = 0_i32;
-
-    for (index, id) in root_ids.iter().enumerate() {
-        let root = roots_by_id
-            .get(*id)
-            .ok_or_else(|| anyhow::anyhow!("sequence root `{id}` was not found"))?;
-        let duration = root
-            .duration
-            .ok_or_else(|| anyhow::anyhow!("timeline sequence `{id}` is missing a duration"))?;
-        let node = build_node_inner(root, &children_map, scripts_by_parent, &HashMap::new(), fps)?;
-        timeline_builder = timeline_builder.sequence(duration, node);
-        frames += duration as i32;
-
-        let Some(next_id) = root_ids.get(index + 1) else {
-            continue;
-        };
-        if let Some(transition) = transitions_by_pair.get(&(*id, *next_id)) {
-            timeline_builder = timeline_builder.transition(build_transition(transition)?);
-            frames += transition.duration as i32;
-        }
-    }
-
-    Ok((timeline_builder.into(), frames))
-}
-
 fn build_node_inner(
     el: &ParsedElement,
     children_map: &HashMap<&str, Vec<&ParsedElement>>,
@@ -185,16 +90,17 @@ fn build_node_inner(
         ParsedElementKind::Timeline => {
             let sequence_children = children_map.get(el.id.as_str());
             let transitions = transitions_by_tl.get(el.id.as_str());
+            let children = sequence_children.map(|c| c.as_slice()).unwrap_or(&[]);
+            let transitions = transitions.map(|t| t.as_slice()).unwrap_or(&[]);
 
-            if sequence_children.is_none() && transitions.is_none() {
-                let mut div_node = div();
-                div_node.style = style;
-                return Ok(Node::new(div_node));
+            if children.len() < 2 {
+                return Err(anyhow::anyhow!(
+                    "timeline `{}` must have at least two direct child scenes",
+                    el.id
+                ));
             }
 
-            let children = sequence_children.map(|c| c.as_slice()).unwrap_or(&[]);
             let mut tl_builder = timeline();
-            let mut _total_frames = 0_i32;
 
             let child_ids: Vec<&str> = children.iter().map(|c| c.id.as_str()).collect();
             let child_positions: HashMap<&str, usize> = child_ids
@@ -204,31 +110,51 @@ fn build_node_inner(
                 .collect();
 
             let mut transitions_by_pair = HashMap::new();
-            if let Some(transitions) = transitions {
-                for t in transitions {
-                    let Some(&from_idx) = child_positions.get(t.from.as_str()) else {
-                        return Err(anyhow::anyhow!(
-                            "transition `from` references `{}`, which is not a direct child of this timeline",
-                            t.from
-                        ));
-                    };
-                    let Some(&to_idx) = child_positions.get(t.to.as_str()) else {
-                        return Err(anyhow::anyhow!(
-                            "transition `to` references `{}`, which is not a direct child of this timeline",
-                            t.to
-                        ));
-                    };
-                    if to_idx != from_idx + 1 {
-                        let next_id = child_ids.get(from_idx + 1).copied().unwrap_or("<end>");
-                        return Err(anyhow::anyhow!(
-                            "transition `{}` -> `{}` is not between adjacent children (expected `{}` -> `{}`)",
-                            t.from,
-                            t.to,
-                            t.from,
-                            next_id
-                        ));
-                    }
-                    transitions_by_pair.insert((t.from.as_str(), t.to.as_str()), *t);
+            for t in transitions {
+                let Some(&from_idx) = child_positions.get(t.from.as_str()) else {
+                    return Err(anyhow::anyhow!(
+                        "transition `from` references `{}`, which is not a direct child of this timeline",
+                        t.from
+                    ));
+                };
+                let Some(&to_idx) = child_positions.get(t.to.as_str()) else {
+                    return Err(anyhow::anyhow!(
+                        "transition `to` references `{}`, which is not a direct child of this timeline",
+                        t.to
+                    ));
+                };
+                if to_idx != from_idx + 1 {
+                    let next_id = child_ids.get(from_idx + 1).copied().unwrap_or("<end>");
+                    return Err(anyhow::anyhow!(
+                        "transition `{}` -> `{}` is not between adjacent children (expected `{}` -> `{}`)",
+                        t.from,
+                        t.to,
+                        t.from,
+                        next_id
+                    ));
+                }
+                if transitions_by_pair
+                    .insert((t.from.as_str(), t.to.as_str()), *t)
+                    .is_some()
+                {
+                    return Err(anyhow::anyhow!(
+                        "duplicate transition declared for `{}` -> `{}`",
+                        t.from,
+                        t.to
+                    ));
+                }
+            }
+
+            for pair in child_ids.windows(2) {
+                let from_id = pair[0];
+                let to_id = pair[1];
+                if !transitions_by_pair.contains_key(&(from_id, to_id)) {
+                    return Err(anyhow::anyhow!(
+                        "timeline `{}` is missing transition between adjacent scenes `{}` -> `{}`",
+                        el.id,
+                        from_id,
+                        to_id
+                    ));
                 }
             }
 
@@ -247,7 +173,6 @@ fn build_node_inner(
                     fps,
                 )?;
                 tl_builder = tl_builder.sequence(duration, node);
-                _total_frames += duration as i32;
 
                 let Some(&next_id) = child_ids.get(index + 1) else {
                     continue;
@@ -255,12 +180,13 @@ fn build_node_inner(
                 if let Some(transition) = transitions_by_pair.get(&(child_el.id.as_str(), next_id))
                 {
                     tl_builder = tl_builder.transition(build_transition(transition)?);
-                    _total_frames += transition.duration as i32;
                 }
             }
 
-            let node: Node = tl_builder.into();
-            Ok(node)
+            let timeline_node: Node = tl_builder.into();
+            let mut kind = timeline_node.kind().clone();
+            *kind.style_mut() = style;
+            Ok(Node::new(kind))
         }
         ParsedElementKind::Div => {
             let mut div_node = div();

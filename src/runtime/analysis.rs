@@ -75,4 +75,8 @@ impl DisplayInvalidationTable {
             self.nodes[handle.0] = invalidation;
         }
     }
+
+    pub fn get(&self, handle: AnnotatedNodeHandle) -> Option<DisplayNodeInvalidation> {
+        self.nodes.get(handle.0).copied()
+    }
 }

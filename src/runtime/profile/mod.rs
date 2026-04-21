@@ -53,6 +53,12 @@ pub struct BackendProfile {
     pub subtree_snapshot_cache_hits: usize,
     pub subtree_snapshot_cache_misses: usize,
     pub subtree_snapshot_collision_rejected: usize,
+    /// 诊断：`hit` 中子树后代 composite 跨帧变化（`DisplayNodeInvalidation.composite_dirty`）
+    /// 的子集。期望值接近 0——fingerprint 稳定的反证是 hit 本身。
+    pub subtree_snapshot_composite_dirty_hits: usize,
+    /// 诊断：`miss` 中子树后代 composite 跨帧变化的子集——fingerprint 抖动的精准
+    /// 归因。"composite-stable only" 新规则能直接 bypass 这部分避免 cache 污染。
+    pub subtree_snapshot_composite_dirty_misses: usize,
     pub subtree_image_cache_hits: usize,
     pub subtree_image_cache_misses: usize,
     pub subtree_image_promotions: usize,

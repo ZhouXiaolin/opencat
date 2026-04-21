@@ -1,8 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::scene::{
     easing::{Easing, SpringConfig, easing_from_name},
-    layer::layer,
     node::Node,
     primitives::{ImageSource, canvas, caption, div, image, lucide, parse_srt, text, video},
     script::ScriptDriver,
@@ -209,20 +208,20 @@ fn build_node_inner(
                 for t in transitions {
                     let Some(&from_idx) = child_positions.get(t.from.as_str()) else {
                         return Err(anyhow::anyhow!(
-                            "transition references missing sequence root `{}`",
+                            "transition `from` references `{}`, which is not a direct child of this timeline",
                             t.from
                         ));
                     };
                     let Some(&to_idx) = child_positions.get(t.to.as_str()) else {
                         return Err(anyhow::anyhow!(
-                            "transition references missing sequence root `{}`",
+                            "transition `to` references `{}`, which is not a direct child of this timeline",
                             t.to
                         ));
                     };
                     if to_idx != from_idx + 1 {
                         let next_id = child_ids.get(from_idx + 1).copied().unwrap_or("<end>");
                         return Err(anyhow::anyhow!(
-                            "transition declares `{}` -> `{}`, but root order requires adjacent sequences `{}` -> `{}`",
+                            "transition `{}` -> `{}` is not between adjacent children (expected `{}` -> `{}`)",
                             t.from,
                             t.to,
                             t.from,
@@ -430,155 +429,6 @@ fn parse_transition_easing(transition: &ParsedTransition) -> anyhow::Result<Easi
             transition.timing.as_deref().unwrap_or("unknown")
         )
     })
-}
-
-pub(super) fn build_layer_root(
-    elements: &[ParsedElement],
-    scripts_by_parent: &HashMap<String, Vec<String>>,
-    timeline_entries: &[TimelineEntry],
-    layer_children: &[String],
-    fps: u32,
-) -> anyhow::Result<(Node, i32)> {
-    let (children_map, roots) = index_elements(elements);
-    let roots_by_id: HashMap<&str, &ParsedElement> =
-        roots.iter().map(|root| (root.id.as_str(), *root)).collect();
-
-    let transition_to: HashSet<&str> = timeline_entries
-        .iter()
-        .filter_map(|e| match e {
-            TimelineEntry::Transition(t) => Some(t.to.as_str()),
-            _ => None,
-        })
-        .collect();
-
-    let chain_starters: HashSet<&str> = timeline_entries
-        .iter()
-        .filter_map(|e| match e {
-            TimelineEntry::SequenceRoot { id } => {
-                let id_str = id.as_str();
-                if !transition_to.contains(id_str) {
-                    Some(id_str)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        })
-        .collect();
-
-    let mut layer_node = layer();
-    let mut total_frames = 0_i32;
-
-    for child_id in layer_children {
-        let child_id_str = child_id.as_str();
-
-        if chain_starters.contains(child_id_str) {
-            let chain_entries = trace_chain(child_id_str, timeline_entries);
-            let (timeline_node, chain_frames) = build_chain_from_entries(
-                &chain_entries,
-                &children_map,
-                &roots_by_id,
-                scripts_by_parent,
-                fps,
-            )?;
-            layer_node = layer_node.child(timeline_node);
-            total_frames = total_frames.max(chain_frames);
-        } else if transition_to.contains(child_id_str) {
-            continue;
-        } else {
-            let root = roots_by_id
-                .get(child_id_str)
-                .ok_or_else(|| anyhow::anyhow!("layer child `{child_id}` not found in elements"))?;
-            let node = build_node_inner(root, &children_map, scripts_by_parent, &HashMap::new(), fps)?;
-            if let Some(dur) = root.duration {
-                total_frames = total_frames.max(dur as i32);
-            }
-            layer_node = layer_node.child(node);
-        }
-    }
-
-    Ok((layer_node.into(), total_frames))
-}
-
-fn trace_chain<'a>(start_id: &str, entries: &'a [TimelineEntry]) -> Vec<&'a TimelineEntry> {
-    let transitions_by_from: HashMap<&str, &ParsedTransition> = entries
-        .iter()
-        .filter_map(|e| match e {
-            TimelineEntry::Transition(t) => Some((t.from.as_str(), t)),
-            _ => None,
-        })
-        .collect();
-
-    let mut chain = Vec::new();
-    let mut current = start_id.to_string();
-    loop {
-        chain.push(
-            entries
-                .iter()
-                .find(|e| matches!(e, TimelineEntry::SequenceRoot { id } if *id == current))
-                .unwrap(),
-        );
-        if let Some(t) = transitions_by_from.get(current.as_str()) {
-            chain.push(
-                entries
-                    .iter()
-                    .find(|e| matches!(e, TimelineEntry::Transition(pt) if pt.from == t.from && pt.to == t.to))
-                    .unwrap(),
-            );
-            current = t.to.clone();
-        } else {
-            break;
-        }
-    }
-    chain
-}
-
-fn build_chain_from_entries(
-    chain: &[&TimelineEntry],
-    children_map: &HashMap<&str, Vec<&ParsedElement>>,
-    roots_by_id: &HashMap<&str, &ParsedElement>,
-    scripts_by_parent: &HashMap<String, Vec<String>>,
-    fps: u32,
-) -> anyhow::Result<(Node, i32)> {
-    let mut transitions_by_pair: HashMap<(&str, &str), &ParsedTransition> = HashMap::new();
-    for entry in chain {
-        if let TimelineEntry::Transition(t) = entry {
-            transitions_by_pair.insert((t.from.as_str(), t.to.as_str()), t);
-        }
-    }
-
-    let chain_root_ids: Vec<&str> = chain
-        .iter()
-        .filter_map(|e| match e {
-            TimelineEntry::SequenceRoot { id } => Some(id.as_str()),
-            _ => None,
-        })
-        .collect();
-
-    let mut timeline_builder = timeline();
-    let mut frames = 0_i32;
-
-    for (index, id) in chain_root_ids.iter().enumerate() {
-        let root = roots_by_id
-            .get(id)
-            .ok_or_else(|| anyhow::anyhow!("sequence root `{id}` was not found"))?;
-        let duration = root
-            .duration
-            .ok_or_else(|| anyhow::anyhow!("timeline sequence `{id}` is missing a duration"))?;
-        let node = build_node_inner(root, children_map, scripts_by_parent, &HashMap::new(), fps)?;
-        timeline_builder = timeline_builder.sequence(duration, node);
-        frames += duration as i32;
-
-        let Some(next_id) = chain_root_ids.get(index + 1) else {
-            continue;
-        };
-        if let Some(transition) = transitions_by_pair.get(&(id, next_id)) {
-            timeline_builder = timeline_builder.transition(build_transition(transition)?);
-            frames += transition.duration as i32;
-        }
-    }
-
-    Ok((timeline_builder.into(), frames))
 }
 
 fn normalize_transition_name(value: &str) -> String {

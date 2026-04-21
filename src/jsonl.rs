@@ -1479,6 +1479,61 @@ mod tests {
         assert!(err.to_string().contains("layer"));
     }
 
+    #[test]
+    fn parser_builds_tl_node_from_direct_children() {
+        let parsed = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":25}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":5}"#,
+        )
+        .expect("tl jsonl should parse");
+
+        let NodeKind::Div(root) = parsed.root.kind() else {
+            panic!("root should be div");
+        };
+        let NodeKind::Timeline(tl) = root.children_ref()[0].kind() else {
+            panic!("child should be timeline");
+        };
+        assert_eq!(tl.duration_in_frames(), 25);
+    }
+
+    #[test]
+    fn parser_rejects_transition_that_targets_non_adjacent_tl_child() {
+        let err = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":35}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":35}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
+{"id":"scene-c","parentId":"main-tl","type":"div","className":"","duration":10}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-c","effect":"fade","duration":5}"#,
+        )
+        .err()
+        .expect("non-adjacent transition should fail");
+
+        assert!(err.to_string().contains("adjacent"));
+    }
+
+    #[test]
+    fn parser_rejects_transition_to_non_direct_tl_descendant() {
+        let err = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":25}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
+{"id":"nested","parentId":"scene-b","type":"div","className":"","duration":10}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"nested","effect":"fade","duration":5}"#,
+        )
+        .err()
+        .expect("transition to nested descendant should fail");
+
+        assert!(err.to_string().contains("direct child"));
+    }
+
     fn unique_test_dir(name: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)

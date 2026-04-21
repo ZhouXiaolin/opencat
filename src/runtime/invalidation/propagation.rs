@@ -3,36 +3,32 @@ use std::collections::HashMap;
 use crate::runtime::{
     analysis::{DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeInvalidation},
     annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey},
-    compositor::SceneSlot,
     fingerprint::CompositeSig,
 };
 
 #[derive(Default)]
 pub(crate) struct CompositeHistory {
-    slots: HashMap<SceneSlot, HashMap<RenderNodeKey, CompositeSig>>,
+    entries: HashMap<RenderNodeKey, CompositeSig>,
 }
 
 impl CompositeHistory {
-    pub(crate) fn history_for_slot(
-        &self,
-        slot: &SceneSlot,
-    ) -> &HashMap<RenderNodeKey, CompositeSig> {
+    pub(crate) fn history(&self) -> &HashMap<RenderNodeKey, CompositeSig> {
         static EMPTY: std::sync::LazyLock<HashMap<RenderNodeKey, CompositeSig>> =
             std::sync::LazyLock::new(HashMap::new);
-        self.slots.get(slot).unwrap_or(&EMPTY)
+        if self.entries.is_empty() {
+            &EMPTY
+        } else {
+            &self.entries
+        }
     }
 
-    pub(crate) fn history_for_slot_mut(
-        &mut self,
-        slot: SceneSlot,
-    ) -> &mut HashMap<RenderNodeKey, CompositeSig> {
-        self.slots.entry(slot).or_default()
+    pub(crate) fn history_mut(&mut self) -> &mut HashMap<RenderNodeKey, CompositeSig> {
+        &mut self.entries
     }
 }
 
 pub(crate) fn mark_display_tree_composite_dirty(
     history: &mut CompositeHistory,
-    slot: SceneSlot,
     display_tree: &mut AnnotatedDisplayTree,
     structure_rebuild: bool,
 ) {
@@ -40,7 +36,7 @@ pub(crate) fn mark_display_tree_composite_dirty(
     let previous = if structure_rebuild {
         &empty
     } else {
-        history.history_for_slot(&slot)
+        history.history()
     };
     let mut next = HashMap::new();
     let mut invalidation = DisplayInvalidationTable::with_len(display_tree.analysis.len());
@@ -53,7 +49,7 @@ pub(crate) fn mark_display_tree_composite_dirty(
         &mut next,
     );
     display_tree.invalidation = invalidation;
-    *history.history_for_slot_mut(slot) = next;
+    *history.history_mut() = next;
 }
 
 fn mark_display_node_composite_dirty(

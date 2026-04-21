@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-use super::{SceneRenderPlan, SceneSlot, SceneSnapshotCache};
+use super::{SceneRenderPlan, SceneSnapshotCache};
 
 pub(crate) struct SceneRenderRuntime<'a> {
     pub assets: &'a AssetsMap,
@@ -39,9 +39,8 @@ impl<'a> SceneRenderRuntime<'a> {
     }
 }
 
-pub(crate) fn render_scene_slot(
+pub(crate) fn render_scene(
     runtime: &mut SceneRenderRuntime<'_>,
-    slot: &SceneSlot,
     display_tree: &AnnotatedDisplayTree,
     plan: SceneRenderPlan,
     require_scene_snapshot: bool,
@@ -49,7 +48,7 @@ pub(crate) fn render_scene_slot(
 ) -> Result<Option<SceneSnapshot>> {
     let engine = runtime.render_engine.clone();
     if let Some(snapshot) =
-        resolve_scene_snapshot_for_slot(runtime, slot, display_tree, plan, require_scene_snapshot)?
+        resolve_scene_snapshot(runtime, display_tree, plan, require_scene_snapshot)?
     {
         if let Some(frame_view) = frame_view {
             let profile_span =
@@ -63,7 +62,7 @@ pub(crate) fn render_scene_slot(
 
     if require_scene_snapshot {
         return Err(anyhow!(
-            "scene snapshot is required for slot but no snapshot was produced"
+            "scene snapshot is required but no snapshot was produced"
         ));
     }
 
@@ -82,16 +81,15 @@ pub(crate) fn render_scene_slot(
     Ok(None)
 }
 
-fn resolve_scene_snapshot_for_slot(
+fn resolve_scene_snapshot(
     runtime: &mut SceneRenderRuntime<'_>,
-    slot: &SceneSlot,
     display_tree: &AnnotatedDisplayTree,
     plan: SceneRenderPlan,
     require_scene_snapshot: bool,
 ) -> Result<Option<SceneSnapshot>> {
     let engine = runtime.render_engine.clone();
     if plan.allows_scene_snapshot_cache {
-        if let Some(snapshot) = runtime.scene_snapshots.scene_snapshot(slot) {
+        if let Some(snapshot) = runtime.scene_snapshots.scene_snapshot() {
             event!(target: "render.cache", Level::TRACE, kind = "cache", name = "scene_snapshot", result = "hit", amount = 1_u64);
             return Ok(Some(snapshot));
         }
@@ -101,13 +99,11 @@ fn resolve_scene_snapshot_for_slot(
         event!(target: "render.cache", Level::TRACE, kind = "cache", name = "scene_snapshot", result = "miss", amount = 1_u64);
         runtime
             .scene_snapshots
-            .store_scene_snapshot(slot.clone(), Some(snapshot.clone()));
+            .store_scene_snapshot(Some(snapshot.clone()));
         return Ok(Some(snapshot));
     }
 
-    runtime
-        .scene_snapshots
-        .store_scene_snapshot(slot.clone(), None);
+    runtime.scene_snapshots.store_scene_snapshot(None);
     if !require_scene_snapshot {
         return Ok(None);
     }

@@ -10,11 +10,11 @@ use crate::{
     },
     frame_ctx::ScriptFrameCtx,
     layout::tree::LayoutNode,
-    runtime::{compositor::SceneSlot, session::RenderSession},
+    runtime::session::RenderSession,
     scene::{
         node::{Node, NodeKind},
         primitives::ImageSource,
-        time::{FrameState, TimelineSegment, frame_state_for_root},
+        time::TimelineSegment,
     },
     style::NodeStyle,
 };
@@ -30,20 +30,12 @@ pub struct FrameElementRect {
     pub depth: u32,
     pub draw_order: u32,
     pub parent_draw_order: Option<u32>,
-    pub slot: FrameElementSlot,
     pub kind: String,
     pub text_content: Option<String>,
     pub media_source: Option<String>,
     pub icon_name: Option<String>,
     pub script_source: Option<String>,
     pub canvas_command_count: Option<u32>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FrameElementSlot {
-    Scene,
-    TransitionFrom,
-    TransitionTo,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -70,57 +62,17 @@ pub fn collect_frame_layout_rects(
         frames: composition.frames.max(1),
     };
 
-    let root = composition.root_node(&frame_ctx);
-    let frame_state = frame_state_for_root(&root, &frame_ctx);
-
     let mut rects = Vec::new();
     let mut draw_order = 0_u32;
-
-    match frame_state {
-        FrameState::Scene {
-            scene,
-            script_frame_ctx,
-        } => {
-            collect_scene_rects(
-                &scene,
-                &frame_ctx,
-                &script_frame_ctx,
-                session,
-                SceneSlot::root_scene(),
-                FrameElementSlot::Scene,
-                &mut draw_order,
-                &mut rects,
-            )?;
-        }
-        FrameState::Transition {
-            from,
-            to,
-            from_script_frame_ctx,
-            to_script_frame_ctx,
-            ..
-        } => {
-            collect_scene_rects(
-                &from,
-                &frame_ctx,
-                &from_script_frame_ctx,
-                session,
-                SceneSlot::root_transition_from(),
-                FrameElementSlot::TransitionFrom,
-                &mut draw_order,
-                &mut rects,
-            )?;
-            collect_scene_rects(
-                &to,
-                &frame_ctx,
-                &to_script_frame_ctx,
-                session,
-                SceneSlot::root_transition_to(),
-                FrameElementSlot::TransitionTo,
-                &mut draw_order,
-                &mut rects,
-            )?;
-        }
-    }
+    let root = composition.root_node(&frame_ctx);
+    collect_scene_rects(
+        &root,
+        &frame_ctx,
+        &ScriptFrameCtx::global(&frame_ctx),
+        session,
+        &mut draw_order,
+        &mut rects,
+    )?;
     Ok(rects)
 }
 
@@ -129,8 +81,6 @@ fn collect_scene_rects(
     frame_ctx: &FrameCtx,
     script_frame_ctx: &ScriptFrameCtx,
     session: &mut RenderSession,
-    scene_slot: SceneSlot,
-    output_slot: FrameElementSlot,
     draw_order: &mut u32,
     out: &mut Vec<FrameElementRect>,
 ) -> Result<()> {
@@ -151,13 +101,12 @@ fn collect_scene_rects(
 
     let text_engine = session.text_engine_handle();
     let (layout_tree, _) = session
-        .layout_session_mut(scene_slot)
+        .layout_session_mut()
         .compute_layout_with_text_engine(&element_root, frame_ctx, text_engine.as_ref())?;
 
     collect_rects_in_draw_order(
         &element_root,
         &layout_tree.root,
-        output_slot,
         0.0,
         0.0,
         0,
@@ -166,62 +115,6 @@ fn collect_scene_rects(
         draw_order,
         out,
     )
-}
-
-fn collect_frame_state_rects(
-    frame_state: &FrameState,
-    frame_ctx: &FrameCtx,
-    session: &mut RenderSession,
-    child_index: usize,
-    draw_order: &mut u32,
-    out: &mut Vec<FrameElementRect>,
-) -> Result<()> {
-    match frame_state {
-        FrameState::Scene {
-            scene,
-            script_frame_ctx,
-        } => {
-            collect_scene_rects(
-                scene,
-                frame_ctx,
-                script_frame_ctx,
-                session,
-                SceneSlot::child_scene(child_index),
-                FrameElementSlot::Scene,
-                draw_order,
-                out,
-            )?;
-        }
-        FrameState::Transition {
-            from,
-            to,
-            from_script_frame_ctx,
-            to_script_frame_ctx,
-            ..
-        } => {
-            collect_scene_rects(
-                from,
-                frame_ctx,
-                from_script_frame_ctx,
-                session,
-                SceneSlot::child_transition_from(child_index),
-                FrameElementSlot::TransitionFrom,
-                draw_order,
-                out,
-            )?;
-            collect_scene_rects(
-                to,
-                frame_ctx,
-                to_script_frame_ctx,
-                session,
-                SceneSlot::child_transition_to(child_index),
-                FrameElementSlot::TransitionTo,
-                draw_order,
-                out,
-            )?;
-        }
-    }
-    Ok(())
 }
 
 fn seed_asset_entries_for_inspect(
@@ -267,7 +160,6 @@ fn seed_asset_entries_for_inspect(
 fn collect_rects_in_draw_order(
     element: &ElementNode,
     layout: &LayoutNode,
-    slot: FrameElementSlot,
     parent_x: f32,
     parent_y: f32,
     depth: u32,
@@ -323,7 +215,6 @@ fn collect_rects_in_draw_order(
             depth,
             draw_order: current_draw_order,
             parent_draw_order,
-            slot,
             kind,
             text_content,
             media_source,
@@ -355,7 +246,6 @@ fn collect_rects_in_draw_order(
         collect_rects_in_draw_order(
             child,
             child_layout,
-            slot,
             x,
             y,
             depth.saturating_add(1),

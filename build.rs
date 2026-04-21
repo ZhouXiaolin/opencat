@@ -800,8 +800,6 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("rounded-2xl", "ExactClassAction::BorderRadius(32.0)"),
         ("rounded-full", "ExactClassAction::BorderRadius(9999.0)"),
         ("border", "ExactClassAction::BorderWidth(1.0)"),
-        ("border-b", "ExactClassAction::BorderWidth(1.0)"),
-        ("border-t", "ExactClassAction::BorderWidth(1.0)"),
         ("overflow-hidden", "ExactClassAction::OverflowHidden"),
         ("pointer-events-none", "ExactClassAction::Noop"),
         ("inset-0", "ExactClassAction::InsetZero"),

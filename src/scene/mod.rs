@@ -1,6 +1,5 @@
 pub mod composition;
 pub mod easing;
-pub mod layer;
 pub mod node;
 pub mod primitives;
 pub mod script;

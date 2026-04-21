@@ -203,21 +203,6 @@ fn render_frame_state(
             }
             Ok(None)
         }
-        FrameState::Layer { children } => {
-            for child in children.iter() {
-                render_frame_state(
-                    child,
-                    frame_ctx,
-                    session,
-                    mutations,
-                    width,
-                    height,
-                    frame_view,
-                    require_snapshot,
-                )?;
-            }
-            Ok(None)
-        }
     }
 }
 

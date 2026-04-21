@@ -16,9 +16,9 @@ use crate::{
     },
     scene::script::{ScriptRuntimeCache, StyleMutations},
     scene::{
-        layer::LayerNode,
         node::{ComponentNode, NodeKind},
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Text, Video},
+        time::{FrameState, frame_state_for_root},
     },
     style::LengthPercentageAuto,
     style::{NodeStyle, resolve_text_style},
@@ -108,11 +108,25 @@ fn resolve_node(
         NodeKind::Text(text) => resolve_text(text, cx),
         NodeKind::Lucide(lucide) => resolve_lucide(lucide, cx),
         NodeKind::Timeline(_) => {
-            unreachable!("timeline nodes must be resolved before UI tree construction")
+            let frame_state = frame_state_for_root(node, cx.frame_ctx);
+            resolve_frame_state(&frame_state, cx, media)
         }
         NodeKind::Caption(caption) => resolve_caption(caption, cx)?
             .ok_or_else(|| anyhow::anyhow!("caption node has no active text for frame")),
-        NodeKind::Layer(layer) => resolve_layer_as_div(layer, cx, media),
+    }
+}
+
+fn resolve_frame_state(
+    frame_state: &FrameState,
+    cx: &mut ResolveContext<'_>,
+    media: &mut MediaContext,
+) -> Result<ElementNode> {
+    match frame_state {
+        FrameState::Scene { scene, .. } => resolve_node(scene, cx, media),
+        FrameState::Transition { from, to, .. } => {
+            let from_el = resolve_node(from, cx, media)?;
+            Ok(from_el)
+        }
     }
 }
 
@@ -276,50 +290,6 @@ fn resolve_caption(
             style: computed,
             children: Vec::new(),
         }))
-    })();
-    if pushed {
-        cx.mutation_stack.pop();
-    }
-    result
-}
-
-fn resolve_layer_as_div(
-    layer: &LayerNode,
-    cx: &mut ResolveContext<'_>,
-    media: &mut MediaContext,
-) -> Result<ElementNode> {
-    let pushed = push_script_scope(layer.style_ref(), cx)?;
-    let result = (|| {
-        let mut style = layer.style_ref().clone();
-        ensure!(
-            !style.id.is_empty(),
-            "node id is required for layer nodes before rendering"
-        );
-        apply_mutation_stack(&mut style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style);
-        let inherited_style = InheritedStyle::for_child(&computed);
-        let mut children = Vec::new();
-        for child in layer.children_ref() {
-            let mut child_cx = ResolveContext {
-                frame_ctx: cx.frame_ctx,
-                script_frame_ctx: cx.script_frame_ctx,
-                ids: &mut *cx.ids,
-                inherited_style: &inherited_style,
-                assets: &mut *cx.assets,
-                script_runtime: &mut *cx.script_runtime,
-                mutation_stack: &mut *cx.mutation_stack,
-            };
-            if let Some(child) = resolve_node_optional(child, &mut child_cx, media)? {
-                children.push(child);
-            }
-        }
-
-        Ok(ElementNode {
-            id: cx.ids.alloc(),
-            kind: ElementKind::Div(ElementDiv),
-            style: computed,
-            children,
-        })
     })();
     if pushed {
         cx.mutation_stack.pop();
@@ -707,7 +677,6 @@ mod tests {
         frame_ctx::ScriptFrameCtx,
         resource::{assets::AssetsMap, media::MediaContext},
         scene::easing::Easing,
-        scene::layer::layer,
         scene::primitives::{SrtEntry, caption, div, lucide, text},
         scene::script::ScriptRuntimeCache,
         scene::time::{FrameState, frame_state_for_root},
@@ -1068,7 +1037,7 @@ mod tests {
             text: "Hello".to_string(),
         }];
         let caption_node = caption().id("subs").path("test.srt").entries(entries);
-        let root = layer().id("root").child(caption_node);
+        let root = div().id("root").child(caption_node);
 
         let resolved = resolve_ui_tree(
             &root.clone().into(),
@@ -1077,7 +1046,7 @@ mod tests {
             &mut assets,
             None,
         )
-        .expect("layer with inactive caption should resolve");
+        .expect("div with inactive caption should resolve");
 
         assert_eq!(
             resolved.children.len(),

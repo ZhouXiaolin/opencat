@@ -63,11 +63,6 @@ fn collect_sources_from_frame_state(
             collect_sources(from, frame_ctx, image_sources);
             collect_sources(to, frame_ctx, image_sources);
         }
-        FrameState::Layer { children } => {
-            for child in children {
-                collect_sources_from_frame_state(child, frame_ctx, image_sources);
-            }
-        }
     }
 }
 
@@ -104,10 +99,42 @@ pub(crate) fn collect_sources(
             image_sources,
         ),
         NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Video(_) | NodeKind::Caption(_) => {}
-        NodeKind::Layer(layer) => {
-            for child in layer.children_ref() {
-                collect_sources(child, frame_ctx, image_sources);
-            }
-        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use crate::{
+        frame_ctx::FrameCtx,
+        scene::{
+            node::NodeKind,
+            primitives::{div, image},
+            time::frame_state_for_root,
+            transition::timeline,
+        },
+    };
+
+    use super::collect_sources;
+
+    #[test]
+    fn collect_sources_walks_div_children_without_layer_nodes() {
+        let root = div()
+            .id("root")
+            .child(image().id("hero").url("https://example.com/a.png"))
+            .child(timeline().sequence(10, div().id("scene-a").into()));
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 10,
+        };
+        let mut image_sources = HashSet::new();
+
+        collect_sources(&root.into(), &frame_ctx, &mut image_sources);
+
+        assert_eq!(image_sources.len(), 1);
     }
 }

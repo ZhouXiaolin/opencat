@@ -3,7 +3,6 @@ use std::sync::Arc;
 use crate::{
     frame_ctx::FrameCtx,
     scene::{
-        layer::LayerNode,
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Text, Video},
         script::ScriptDriver,
         time::TimelineNode,
@@ -57,7 +56,6 @@ pub enum NodeKind {
     Video(Video),
     Timeline(TimelineNode),
     Caption(CaptionNode),
-    Layer(LayerNode),
 }
 
 impl NodeKind {
@@ -72,7 +70,6 @@ impl NodeKind {
             Self::Video(node) => node.style_ref(),
             Self::Timeline(node) => node.style_ref(),
             Self::Caption(node) => node.style_ref(),
-            Self::Layer(node) => node.style_ref(),
         }
     }
 
@@ -80,7 +77,6 @@ impl NodeKind {
         match self {
             Self::Component(node) => node.duration_in_frames(ctx),
             Self::Div(node) => node.duration_in_frames(ctx),
-            Self::Layer(node) => node.duration_in_frames(ctx),
             Self::Timeline(node) => Some(node.duration_in_frames()),
             Self::Text(_)
             | Self::Canvas(_)
@@ -102,7 +98,6 @@ impl NodeKind {
             Self::Video(node) => &mut node.style,
             Self::Timeline(node) => &mut node.style,
             Self::Caption(node) => &mut node.style,
-            Self::Layer(node) => &mut node.style,
         }
     }
 }
@@ -224,12 +219,6 @@ impl From<CaptionNode> for NodeKind {
     }
 }
 
-impl From<LayerNode> for NodeKind {
-    fn from(value: LayerNode) -> Self {
-        Self::Layer(value)
-    }
-}
-
 impl From<ComponentNode> for Node {
     fn from(value: ComponentNode) -> Self {
         Self::new(value)
@@ -284,8 +273,3 @@ impl From<CaptionNode> for Node {
     }
 }
 
-impl From<LayerNode> for Node {
-    fn from(value: LayerNode) -> Self {
-        Self::new(value)
-    }
-}

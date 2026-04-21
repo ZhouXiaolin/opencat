@@ -120,20 +120,7 @@ pub fn collect_frame_layout_rects(
                 &mut rects,
             )?;
         }
-        FrameState::Layer { children } => {
-            for (index, child) in children.iter().enumerate() {
-                collect_frame_state_rects(
-                    child,
-                    &frame_ctx,
-                    session,
-                    index,
-                    &mut draw_order,
-                    &mut rects,
-                )?;
-            }
-        }
     }
-
     Ok(rects)
 }
 
@@ -233,18 +220,6 @@ fn collect_frame_state_rects(
                 out,
             )?;
         }
-        FrameState::Layer { children } => {
-            for (nested_index, child) in children.iter().enumerate() {
-                collect_frame_state_rects(
-                    child,
-                    frame_ctx,
-                    session,
-                    nested_index,
-                    draw_order,
-                    out,
-                )?;
-            }
-        }
     }
     Ok(())
 }
@@ -286,11 +261,6 @@ fn seed_asset_entries_for_inspect(
             }
         }
         NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Video(_) | NodeKind::Caption(_) => {}
-        NodeKind::Layer(layer) => {
-            for child in layer.children_ref() {
-                seed_asset_entries_for_inspect(child, frame_ctx, assets);
-            }
-        }
     }
 }
 
@@ -486,12 +456,6 @@ fn collect_source_metadata(
                     .active_text(frame_ctx.frame)
                     .map(|text| text.to_string());
                 entry.media_source = Some(caption.path_ref().to_string_lossy().to_string());
-            }
-        }
-        NodeKind::Layer(layer) => {
-            let _ = upsert_style_meta(layer.style_ref(), "layer", out);
-            for child in layer.children_ref() {
-                collect_source_metadata(child, frame_ctx, out);
             }
         }
     }

@@ -257,11 +257,6 @@ fn collect_active_scene_ids_from_state(
             out.insert(from.style_ref().id.clone());
             out.insert(to.style_ref().id.clone());
         }
-        FrameState::Layer { children } => {
-            for child in children {
-                collect_active_scene_ids_from_state(child, _frame_ctx, out);
-            }
-        }
     }
 }
 

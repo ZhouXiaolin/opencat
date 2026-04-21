@@ -666,14 +666,14 @@ mod tests {
 
     #[test]
     fn layered_caption_renders_above_timeline_transition() {
-        use crate::{Easing, SrtEntry, caption, fade, layer, timeline};
+        use crate::{Easing, SrtEntry, caption, div, fade, timeline};
 
         let composition = Composition::new("layered_caption")
             .size(320, 180)
             .fps(30)
             .frames(25)
             .root(move |_| {
-                layer()
+                div().id("root")
                     .child(
                         timeline()
                             .sequence(
@@ -725,14 +725,14 @@ mod tests {
 
     #[test]
     fn layered_single_scene_renders_bottom_scene_before_caption_overlay() {
-        use crate::{SrtEntry, caption, layer};
+        use crate::{SrtEntry, caption, div};
 
         let composition = Composition::new("layered_single_scene_with_caption")
             .size(64, 64)
             .fps(30)
             .frames(1)
             .root(move |_| {
-                layer()
+                div().id("root")
                     .child(
                         div()
                             .id("scene")
@@ -773,14 +773,14 @@ mod tests {
 
     #[test]
     fn layered_root_caption_without_active_entry_does_not_fail_rendering() {
-        use crate::{SrtEntry, caption, layer};
+        use crate::{SrtEntry, caption, div};
 
         let composition = Composition::new("layered_inactive_root_caption")
             .size(64, 64)
             .fps(30)
             .frames(60)
             .root(move |_| {
-                layer()
+                div().id("root")
                     .child(
                         div()
                             .id("scene")

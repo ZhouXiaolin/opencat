@@ -63,17 +63,7 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.structure_rebuilds),
     ));
     out.push_str(&format!(
-        "  backend avg ms/frame: rect {:.2}, text {:.2}, text_snapshot_record {:.2}, text_snapshot_draw {:.2}, item_picture_record {:.2}, item_picture_draw {:.2}, bitmap {:.2}, draw_script {:.2}, image_decode {:.2}, video_decode {:.2}, subtree_snapshot_record {:.2}, subtree_snapshot_draw {:.2}, subtree_image_rasterize {:.2}, subtree_image_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}\n",
-        average(summary, |frame| frame.backend.rect_draw_ms),
-        average(summary, |frame| frame.backend.text_draw_ms),
-        average(summary, |frame| frame.backend.text_snapshot_record_ms),
-        average(summary, |frame| frame.backend.text_snapshot_draw_ms),
-        average(summary, |frame| frame.backend.item_picture_record_ms),
-        average(summary, |frame| frame.backend.item_picture_draw_ms),
-        average(summary, |frame| frame.backend.bitmap_draw_ms),
-        average(summary, |frame| frame.backend.draw_script_draw_ms),
-        average(summary, |frame| frame.backend.image_decode_ms),
-        average(summary, |frame| frame.backend.video_decode_ms),
+        "  backend avg ms/frame: subtree_snapshot_record {:.2}, subtree_snapshot_draw {:.2}, subtree_image_rasterize {:.2}, subtree_image_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}\n",
         average(summary, |frame| frame.backend.subtree_snapshot_record_ms),
         average(summary, |frame| frame.backend.subtree_snapshot_draw_ms),
         average(summary, |frame| frame.backend.subtree_image_rasterize_ms),

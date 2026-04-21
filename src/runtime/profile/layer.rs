@@ -60,6 +60,11 @@ struct SpanState {
     frame: Option<u32>,
     started: Instant,
     child_inclusive_ms: f64,
+    /// 仅对 target == "render.backend" 的 span 有值；0 表示该 backend span 没有
+    /// render.backend 祖先（frame / transition 等上层不计入 backend 深度）。
+    backend_depth: Option<usize>,
+    /// 最近的 render.backend 祖先 span 的 name；仅对 backend span 本身有意义。
+    backend_parent: Option<&'static str>,
 }
 
 #[derive(Default)]
@@ -157,14 +162,6 @@ where
         let parent_name: Option<&'static str> = parent_id
             .as_ref()
             .and_then(|pid| ctx.span(pid).map(|span| span.metadata().name()));
-        let inherited_frame = parent_id.as_ref().and_then(|pid| {
-            self.shared
-                .lock()
-                .expect("profile state lock")
-                .spans
-                .get(pid)
-                .and_then(|state| state.frame)
-        });
 
         let mut fields = SpanFields::default();
         let mut visitor = ProfileFieldVisitor {
@@ -173,28 +170,55 @@ where
         };
         attrs.record(&mut visitor);
 
+        let is_backend = metadata.target() == "render.backend";
+        let mut shared = self.shared.lock().expect("profile state lock");
+
+        let inherited_frame = parent_id
+            .as_ref()
+            .and_then(|pid| shared.spans.get(pid).and_then(|state| state.frame));
+
+        // 只在 render.backend 子树内累积 depth；跨过 frame / transition 祖先。
+        let (backend_depth, backend_parent) = if is_backend {
+            let mut cursor = parent_id.clone();
+            let mut result: (Option<usize>, Option<&'static str>) = (Some(0), None);
+            while let Some(pid) = cursor {
+                match shared.spans.get(&pid) {
+                    Some(parent_state) if parent_state.target == "render.backend" => {
+                        let depth = parent_state.backend_depth.unwrap_or(0) + 1;
+                        result = (Some(depth), Some(parent_state.name));
+                        break;
+                    }
+                    Some(parent_state) => {
+                        cursor = parent_state.parent_id.clone();
+                    }
+                    None => break,
+                }
+            }
+            result
+        } else {
+            (None, None)
+        };
+
         let frame = if metadata.target() == "render.pipeline" && metadata.name() == "frame" {
             fields.frame.or(inherited_frame)
         } else {
             inherited_frame
         };
 
-        self.shared
-            .lock()
-            .expect("profile state lock")
-            .spans
-            .insert(
-                id.clone(),
-                SpanState {
-                    name: metadata.name(),
-                    target: metadata.target(),
-                    parent: parent_name,
-                    parent_id,
-                    frame,
-                    started: Instant::now(),
-                    child_inclusive_ms: 0.0,
-                },
-            );
+        shared.spans.insert(
+            id.clone(),
+            SpanState {
+                name: metadata.name(),
+                target: metadata.target(),
+                parent: parent_name,
+                parent_id,
+                frame,
+                started: Instant::now(),
+                child_inclusive_ms: 0.0,
+                backend_depth,
+                backend_parent,
+            },
+        );
     }
 
     fn on_close(&self, id: Id, _ctx: Context<'_, S>) {
@@ -215,13 +239,21 @@ where
         }
 
         let exclusive_ms = (inclusive_ms - state.child_inclusive_ms).max(0.0);
+        // backend span 只暴露 "最近的 backend 祖先" 作为语义 parent，避免把
+        // render.pipeline::frame 之类的非 backend 祖先混进聚合树。
+        let parent = if state.target == "render.backend" {
+            state.backend_parent
+        } else {
+            state.parent
+        };
         shared.aggregator.record_span(CompletedProfileSpan {
             frame,
             target: state.target,
             name: state.name,
-            parent: state.parent,
+            parent,
             inclusive_ms,
             exclusive_ms,
+            backend_depth: state.backend_depth,
         });
     }
 
@@ -280,9 +312,69 @@ pub(crate) fn profile_render<T>(
 
 #[cfg(test)]
 mod tests {
+    use super::super::BackendSpanKey;
     use super::{ProfileConfig, ProfileOutputFormat, profile_render};
     use anyhow::Result;
     use tracing::{Level, span};
+
+    #[test]
+    fn backend_span_depth_ignores_non_backend_ancestors() -> Result<()> {
+        // 契约：backend span 的 depth / parent 应该只在 render.backend 子树内计算。
+        // frame (render.pipeline) → display_tree_direct_draw (render.backend)
+        //                         → subtree_snapshot_record (render.backend)
+        //
+        // display_tree_direct_draw: depth=0, parent=None (跨过 "frame")
+        // subtree_snapshot_record:  depth=1, parent=Some("display_tree_direct_draw")
+        let config = ProfileConfig {
+            enabled: true,
+            output_format: ProfileOutputFormat::Text,
+            emit_frame_records: false,
+        };
+        let (_, summary) = profile_render(&config, || {
+            let frame = span!(
+                target: "render.pipeline",
+                Level::TRACE,
+                "frame",
+                frame = 0_u64,
+                width = 100_i64,
+                height = 100_i64,
+                fps = 30_i64,
+                mode = "scene"
+            );
+            let _frame_guard = frame.enter();
+
+            let outer =
+                span!(target: "render.backend", Level::TRACE, "display_tree_direct_draw");
+            let _outer_guard = outer.enter();
+
+            let inner =
+                span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record");
+            let _inner_guard = inner.enter();
+            Ok::<_, anyhow::Error>(())
+        })?;
+
+        let summary = summary.expect("summary should exist");
+        let frame = summary.frames.get(&0).expect("frame summary exists");
+        assert!(
+            frame.backend_spans.contains_key(&BackendSpanKey {
+                depth: 0,
+                parent: None,
+                name: "display_tree_direct_draw",
+            }),
+            "root backend span must not inherit `frame` as parent, spans = {:?}",
+            frame.backend_spans.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            frame.backend_spans.contains_key(&BackendSpanKey {
+                depth: 1,
+                parent: Some("display_tree_direct_draw"),
+                name: "subtree_snapshot_record",
+            }),
+            "nested backend span parent must be nearest backend ancestor, spans = {:?}",
+            frame.backend_spans.keys().collect::<Vec<_>>()
+        );
+        Ok(())
+    }
 
     #[test]
     fn profile_config_reads_env_flags() {

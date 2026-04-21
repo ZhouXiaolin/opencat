@@ -10,6 +10,9 @@ pub(crate) struct CompletedProfileSpan {
     pub parent: Option<&'static str>,
     pub inclusive_ms: f64,
     pub exclusive_ms: f64,
+    /// render.backend span tree 内的深度；非 backend span 为 None。
+    /// 0 表示该 backend span 没有 render.backend 祖先（frame / transition 祖先不算）。
+    pub backend_depth: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -82,7 +85,7 @@ impl RenderProfileAggregator {
 
         let frame = self.frame_mut(span.frame);
         if span.target == "render.backend" {
-            let depth = usize::from(span.parent.is_some());
+            let depth = span.backend_depth.unwrap_or(0);
             frame
                 .backend_spans
                 .entry(BackendSpanKey {
@@ -92,10 +95,12 @@ impl RenderProfileAggregator {
                 })
                 .or_default()
                 .record(span.inclusive_ms, span.exclusive_ms);
+            // 所有 root backend span（没有 render.backend 祖先）累加进 backend_ms。
+            // 嵌套 backend span 的 inclusive 已经被其 root 覆盖，不重复计入。
+            if depth == 0 {
+                frame.backend_ms += span.inclusive_ms;
+            }
             match span.name {
-                "display_tree_direct_draw" | "display_tree_snapshot_record" => {
-                    frame.backend_ms += span.inclusive_ms;
-                }
                 "subtree_snapshot_record" => {
                     frame.backend.subtree_snapshot_record_ms += span.inclusive_ms;
                 }
@@ -247,9 +252,52 @@ impl RenderProfileAggregator {
 #[cfg(test)]
 mod tests {
     use super::{
-        BackendSpanKey, CompletedProfileSpan, FrameProfile, ProfileCountEvent,
-        RenderProfileAggregator,
+        BackendSpanKey, CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator,
     };
+
+    #[test]
+    fn backend_ms_sums_all_root_backend_spans() {
+        // 契约：backend_ms 应该是 *所有* backend_depth == 0 的 render.backend span 的
+        // inclusive_ms 之和，不再局限于 display_tree_direct_draw / display_tree_snapshot_record
+        // 两个硬编码 name。嵌套 backend span 不重复计入（inclusive 已经被 root 包含）。
+        let mut aggregator = RenderProfileAggregator::default();
+        let frame_id = 1;
+
+        let roots = [
+            ("display_tree_direct_draw", 10.0_f64, 2.0_f64),
+            ("scene_snapshot_present", 5.0, 5.0),
+            ("light_leak_mask", 3.0, 3.0),
+        ];
+        for (name, inclusive, exclusive) in roots {
+            aggregator.record_span(CompletedProfileSpan {
+                frame: frame_id,
+                target: "render.backend",
+                name,
+                parent: None,
+                inclusive_ms: inclusive,
+                exclusive_ms: exclusive,
+                backend_depth: Some(0),
+            });
+        }
+
+        aggregator.record_span(CompletedProfileSpan {
+            frame: frame_id,
+            target: "render.backend",
+            name: "subtree_snapshot_record",
+            parent: Some("display_tree_direct_draw"),
+            inclusive_ms: 4.0,
+            exclusive_ms: 4.0,
+            backend_depth: Some(1),
+        });
+
+        let summary = aggregator.finish();
+        let frame = summary.frames.get(&frame_id).expect("frame must exist");
+        assert!(
+            (frame.backend_ms - 18.0).abs() < 1e-9,
+            "backend_ms = 10 + 5 + 3 = 18, got {}",
+            frame.backend_ms
+        );
+    }
 
     #[test]
     fn nested_backend_spans_produce_expected_tree_metrics() {
@@ -262,6 +310,7 @@ mod tests {
             parent: None,
             inclusive_ms: 80.0,
             exclusive_ms: 3.0,
+            backend_depth: Some(0),
         });
         aggregator.record_span(CompletedProfileSpan {
             frame: 12,
@@ -270,6 +319,7 @@ mod tests {
             parent: Some("display_tree_direct_draw"),
             inclusive_ms: 74.0,
             exclusive_ms: 71.0,
+            backend_depth: Some(1),
         });
 
         let summary = aggregator.finish();
@@ -369,6 +419,7 @@ mod tests {
             parent: Some("frame"),
             inclusive_ms: 1.5,
             exclusive_ms: 1.5,
+            backend_depth: None,
         });
         aggregator.record_span(CompletedProfileSpan {
             frame: 5,
@@ -377,6 +428,7 @@ mod tests {
             parent: Some("build_scene_display_list"),
             inclusive_ms: 10.0,
             exclusive_ms: 10.0,
+            backend_depth: None,
         });
         aggregator.record_span(CompletedProfileSpan {
             frame: 5,
@@ -385,6 +437,7 @@ mod tests {
             parent: Some("build_scene_display_list"),
             inclusive_ms: 2.0,
             exclusive_ms: 2.0,
+            backend_depth: None,
         });
 
         let summary = aggregator.finish();

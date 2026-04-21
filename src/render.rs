@@ -953,4 +953,95 @@ mod tests {
             pixel
         );
     }
+
+    #[test]
+    fn transition_subtree_snapshots_are_reused_across_transition_frames() {
+        use crate::scene::node::Node;
+        use crate::{Easing, fade, timeline};
+
+        let composition = Composition::new("transition_subtree_cache_reuse")
+            .size(32, 32)
+            .fps(30)
+            .frames(30)
+            .root(move |_| {
+                let mut tl_kind = Node::from(
+                    timeline()
+                        .sequence(
+                            10,
+                            div()
+                                .id("scene-a")
+                                .w_full()
+                                .h_full()
+                                .bg_red()
+                                .child(
+                                    div()
+                                        .id("inner-a")
+                                        .absolute()
+                                        .left(4.0)
+                                        .top(4.0)
+                                        .w(16.0)
+                                        .h(16.0)
+                                        .bg_white(),
+                                )
+                                .into(),
+                        )
+                        .transition(fade().timing(Easing::Linear, 10))
+                        .sequence(
+                            10,
+                            div()
+                                .id("scene-b")
+                                .w_full()
+                                .h_full()
+                                .bg_blue()
+                                .child(
+                                    div()
+                                        .id("inner-b")
+                                        .absolute()
+                                        .left(4.0)
+                                        .top(4.0)
+                                        .w(16.0)
+                                        .h(16.0)
+                                        .bg_black(),
+                                )
+                                .into(),
+                        ),
+                )
+                .kind()
+                .clone();
+                let tl_style = tl_kind.style_mut();
+                tl_style.id = "tl".into();
+                tl_style.width_full = true;
+                tl_style.height_full = true;
+                tl_style.overflow_hidden = true;
+                Node::new(tl_kind)
+            })
+            .build()
+            .expect("composition should build");
+
+        let mut session = RenderSession::new();
+        let _ = render_frame_rgba(&composition, 12, &mut session)
+            .expect("first transition frame should render");
+        let size_after_first = session
+            .cache_registry
+            .subtree_snapshot_cache()
+            .borrow()
+            .len();
+
+        let _ = render_frame_rgba(&composition, 13, &mut session)
+            .expect("second transition frame should render");
+        let size_after_second = session
+            .cache_registry
+            .subtree_snapshot_cache()
+            .borrow()
+            .len();
+
+        assert!(
+            size_after_first >= 2,
+            "first transition frame should populate cache for from and to scenes, got {size_after_first}"
+        );
+        assert_eq!(
+            size_after_first, size_after_second,
+            "consecutive transition frames should hit cache, not grow it"
+        );
+    }
 }

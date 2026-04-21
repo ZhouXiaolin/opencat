@@ -662,32 +662,67 @@ impl<'a> SkiaBackend<'a> {
         Ok(snapshot)
     }
 
-    fn record_ordered_scene_op_snapshot(&mut self, op: &OrderedSceneOp) -> Result<Picture> {
-        let handle = match op {
-            OrderedSceneOp::CachedSubtree { handle } => *handle,
-            OrderedSceneOp::LiveSubtree { handle, .. } => *handle,
-        };
-        let bounds = layout_rect_to_skia(self.display_tree.layer_bounds(handle));
-        let mut recorder = PictureRecorder::new();
-        let recording_canvas = recorder.begin_recording(bounds, false);
-        let mut backend = SkiaBackend::new_with_cache(
-            recording_canvas,
-            bounds.width().max(1.0) as i32,
-            bounds.height().max(1.0) as i32,
-            self.display_tree,
-            self.assets,
-            self.image_cache.clone(),
-            self.text_snapshot_cache.clone(),
-            self.item_picture_cache.clone(),
-            self.subtree_snapshot_cache.clone(),
-            self.subtree_image_cache.clone(),
-            None,
-            self.frame_ctx,
-        );
-        backend.draw_ordered_scene_op(op, false)?;
-        recorder
-            .finish_recording_as_picture(None)
-            .ok_or_else(|| anyhow!("failed to record ordered scene snapshot"))
+    /// 为 Timeline 转场合成录制一张独立的 from/to 子场景 `Picture`。
+    ///
+    /// 转场外壳的 `progress` 每帧变化，是 TimeVariant，**不进缓存**；
+    /// 而 from/to 子场景的 `frame_ctx` 在转场段内被 `frozen_script_frame_ctx`
+    /// 冻结，`snapshot_fingerprint` 跨帧稳定，可以命中 `SubtreeSnapshotCache`。
+    ///
+    /// 快路径：命中缓存时直接 clone 缓存里的 `Picture`，跳过一次 `PictureRecorder`
+    /// 的新建与 `finish_recording`。慢路径：录制后写入缓存，让后续转场帧复用。
+    fn acquire_transition_scene_picture(
+        &mut self,
+        handle: AnnotatedNodeHandle,
+    ) -> Result<Picture> {
+        let fingerprint = self.node_snapshot_fingerprint(handle);
+        let cache = self.subtree_snapshot_cache.clone();
+
+        if let (Some(cache), Some(fingerprint)) = (cache.as_ref(), fingerprint) {
+            let cached = cache.borrow_mut().get_cloned(&fingerprint.primary);
+            match resolve_subtree_snapshot_lookup(
+                fingerprint,
+                cached.as_ref().map(|entry| entry.secondary_fingerprint),
+            ) {
+                SubtreeSnapshotResolution::Hit => {
+                    let entry = cached.expect("Hit resolution requires cached entry");
+                    let report = cache.borrow_mut().insert(
+                        fingerprint.primary,
+                        CachedSubtreeSnapshot {
+                            picture: entry.picture.clone(),
+                            secondary_fingerprint: entry.secondary_fingerprint,
+                            consecutive_hits: entry.consecutive_hits + 1,
+                            recorded_bounds: entry.recorded_bounds,
+                        },
+                    );
+                    record_cache_pressure("subtree_snapshot", &report);
+                    event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot", result = "hit", amount = 1_u64);
+                    return Ok(entry.picture);
+                }
+                SubtreeSnapshotResolution::CollisionRejected => {
+                    event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot", result = "collision_rejected", amount = 1_u64);
+                }
+                SubtreeSnapshotResolution::Miss => {}
+            }
+        }
+
+        let picture = self.record_cached_subtree_snapshot(handle)?;
+
+        if let (Some(cache), Some(fingerprint)) = (cache.as_ref(), fingerprint) {
+            let bounds = self.display_tree.layer_bounds(handle);
+            let report = cache.borrow_mut().insert(
+                fingerprint.primary,
+                CachedSubtreeSnapshot {
+                    picture: picture.clone(),
+                    secondary_fingerprint: fingerprint.secondary,
+                    consecutive_hits: 0,
+                    recorded_bounds: bounds,
+                },
+            );
+            record_cache_pressure("subtree_snapshot", &report);
+            event!(target: "render.cache", Level::TRACE, kind = "cache", name = "subtree_snapshot", result = "miss", amount = 1_u64);
+        }
+
+        Ok(picture)
     }
 
     fn draw_timeline_transition_subtree(
@@ -712,8 +747,10 @@ impl<'a> SkiaBackend<'a> {
         self.with_display_layer(opacity, backdrop_blur_sigma, bounds, |backend| {
             draw_timeline_base(backend.canvas, timeline)?;
             backend.with_recorded_clip(recorded, |backend| {
-                let from_snapshot = backend.record_ordered_scene_op_snapshot(&children[0])?;
-                let to_snapshot = backend.record_ordered_scene_op_snapshot(&children[1])?;
+                let from_snapshot =
+                    backend.acquire_transition_scene_picture(children[0].handle())?;
+                let to_snapshot =
+                    backend.acquire_transition_scene_picture(children[1].handle())?;
                 let transition_span = span!(
                     target: "render.transition",
                     Level::TRACE,

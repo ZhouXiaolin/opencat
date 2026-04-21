@@ -30,6 +30,15 @@ pub(crate) enum OrderedSceneOp {
     },
 }
 
+impl OrderedSceneOp {
+    pub(crate) fn handle(&self) -> AnnotatedNodeHandle {
+        match self {
+            OrderedSceneOp::LiveSubtree { handle, .. } => *handle,
+            OrderedSceneOp::CachedSubtree { handle } => *handle,
+        }
+    }
+}
+
 impl OrderedSceneProgram {
     pub(crate) fn build(display_tree: &AnnotatedDisplayTree) -> Self {
         Self {

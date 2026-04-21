@@ -23,8 +23,19 @@ pub struct InheritedStyle {
 impl InheritedStyle {
     pub fn for_child(style: &ComputedStyle) -> Self {
         let mut text = style.text;
-        let parent_has_inline_constraint =
-            style.layout.width.is_some() || style.layout.width_full || style.text.wrap_text;
+        let container_has_definite_width =
+            style.layout.width.is_some() || style.layout.width_full;
+        // `position: absolute` with `width: auto` resolves via CSS shrink-to-fit —
+        // its width comes from its own content, not from the containing block.
+        // Inline-width constraints from ancestors must stop at such a boundary,
+        // otherwise `wrap_text` leaks past it and breaks shrink-to-fit for text.
+        let breaks_width_inheritance =
+            style.layout.position == Position::Absolute && !container_has_definite_width;
+        let parent_has_inline_constraint = if breaks_width_inheritance {
+            false
+        } else {
+            container_has_definite_width || style.text.wrap_text
+        };
         let parent_stacks_text_vertically = !style.layout.is_flex
             || ((style.layout.flex_direction == FlexDirection::Col
                 || style.layout.flex_direction == FlexDirection::ColReverse)

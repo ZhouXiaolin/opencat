@@ -1,6 +1,5 @@
 {"type":"composition","width":1280,"height":720,"fps":30,"frames":450}
 {"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px]"}
-{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
-{"id":"scene1","parentId":"main-tl","type":"div","className":"relative flex flex-col justify-between w-full h-full bg-[#0b1020] px-[72px] py-[56px]","duration":450}
+{"id":"scene1","parentId":"root","type":"div","className":"absolute inset-0 flex flex-col justify-between w-full h-full bg-[#0b1020] px-[72px] py-[56px]"}
 {"id":"subline","parentId":"scene1","type":"text","className":"text-white","text":"Prime Video"}
 {"id":"subs","parentId":"root","type":"caption","className":"absolute left-[64px] bottom-[40px] w-[1152px] px-[28px] py-[18px] rounded-[20px] bg-[#000000b8] text-[34px] leading-[44px] font-semibold text-center text-white","path":"the-boys-s05e03.zh-CN.utf8.srt"}

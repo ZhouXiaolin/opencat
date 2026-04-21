@@ -18,15 +18,15 @@ OpenCat JSONL 是用于描述 composition、场景节点、脚本和转场的 JS
 
 `frames / fps` 表示总时长（秒）。
 
-### 1.2 两种模式：单场景 vs 多场景
+### 1.2 两种组合方式
 
-#### 单场景
+#### 普通节点树
 
-只有一个 `parentId: null` 的根节点，没有转场。`composition.frames` 必须等于该场景的 `duration`。
+每个 composition 都只有一个 `parentId: null` 的根节点。单场景、静态叠层、字幕覆盖等不需要场景切换的情况，都应该使用普通节点树。
 
 ```text
-时间线：[   scene1: 60 帧   ]
-约束：composition.frames = scene1.duration
+树结构：root -> children
+约束：composition.frames = 目标播放时长
 ```
 
 ```json
@@ -35,29 +35,39 @@ OpenCat JSONL 是用于描述 composition、场景节点、脚本和转场的 JS
 {"id": "title", "parentId": "scene1", "type": "text", "className": "text-[24px] font-bold", "text": "Hello"}
 ```
 
-#### 多场景 + 转场
-
-可以有多个 `parentId: null` 的根节点。场景之间通过 `transition` 记录连接。每个场景都有自己独立的节点树。转场会额外消耗帧数，并在切换期间让两个场景发生重叠。
-
-```text
-时间线：[ scene1: 60 帧 ] [ fade: 12 帧 ] [ scene2: 90 帧 ]
-约束：composition.frames = 60 + 12 + 90 = 162
-```
+示例：单场景 + caption 叠层。
 
 ```json
-{"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 162}
-{"id": "scene1", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] bg-white", "duration": 60}
-{"id": "title", "parentId": "scene1", "type": "text", "className": "text-[24px] font-bold text-slate-900", "text": "Part 1"}
-{"id": "scene2", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] bg-slate-900", "duration": 90}
-{"id": "subtitle", "parentId": "scene2", "type": "text", "className": "text-[20px] font-semibold text-white", "text": "Part 2"}
-{"type": "transition", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 12}
+{"type":"composition","width":1280,"height":720,"fps":30,"frames":450}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px]"}
+{"id":"scene1","parentId":"root","type":"div","className":"absolute inset-0 flex flex-col justify-between w-full h-full bg-[#0b1020] px-[72px] py-[56px]"}
+{"id":"subline","parentId":"scene1","type":"text","className":"text-white","text":"Prime Video"}
+{"id":"subs","parentId":"root","type":"caption","className":"absolute left-[64px] bottom-[40px] w-[1152px] px-[28px] py-[18px] rounded-[20px] bg-[#000000b8] text-[34px] leading-[44px] font-semibold text-center text-white","path":"subtitles.utf8.srt"}
+```
+
+#### `tl` 时间线节点
+
+`tl` 是遵循 `NodeStyle` 的普通节点，只是它的内容是一段时间序列：场景、转场、场景、转场、场景。它只用于两个及以上直接子场景，并且每对相邻场景之间都必须显式声明转场。
+
+```json
+{"type":"composition","width":390,"height":844,"fps":30,"frames":162}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[390px] h-[844px]"}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene1","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-white","duration":60}
+{"id":"scene2","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-slate-900","duration":90}
+{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"fade","duration":12}
+{"id":"subs","parentId":"root","type":"caption","className":"absolute inset-x-[24px] bottom-[24px] text-center text-white","path":"subtitles.utf8.srt"}
 ```
 
 **关键规则**：
 
-- 每个场景有独立的节点树，节点不会跨场景共享
-- `composition.frames = sum(所有 scene.duration) + sum(所有 transition.duration)`
-- 转场按顺序连接：`scene1 -> transition(scene1->scene2) -> scene2 -> ...`
+- 多场景时间线必须显式声明 `tl`，不再支持多个根场景自动推断时间线
+- `tl` 本身保留自己的布局样式和脚本
+- 单场景不要包进 `tl`
+- `tl` 至少要有两个直接子场景，并且每对相邻场景都要有对应的 `transition`
+- `transition.parentId` 必填，且必须指向所属的 `tl`
+- 需要字幕、水印等长期叠层时，把 `tl` 和这些节点作为同一个父 `div` 的兄弟节点放置
+- `tl` 的运行时总帧数等于 `sum(scene.duration) + sum(transition.duration)`
 
 ### 1.3 元素节点
 
@@ -82,6 +92,8 @@ OpenCat JSONL 是用于描述 composition、场景节点、脚本和转场的 JS
 | `canvas` | `<canvas>` | 需要配套 script |
 | `audio` | `<audio>` | `path` 或 `url` |
 | `video` | `<video>` | — |
+| `tl` | 时间线节点 | 直接子节点必须是带 `duration` 的场景，且相邻场景必须有转场 |
+| `caption` | 字幕驱动文本节点 | `path`: 本地 SRT 文件 |
 
 ### 1.4 Script
 
@@ -96,10 +108,10 @@ OpenCat JSONL 是用于描述 composition、场景节点、脚本和转场的 JS
 
 ### 1.5 Transition
 
-转场只在多场景模式下使用。它描述两个场景之间的切换，并额外占用帧数。
+转场只在 `tl` 节点内部使用。它描述两个相邻场景之间的切换，并额外占用帧数。
 
 ```json
-{"type": "transition", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 12}
+{"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 12}
 ```
 
 **effect 类型**（`effect` 和 `direction` 是两个独立字段）：
@@ -128,14 +140,14 @@ OpenCat JSONL 是用于描述 composition、场景节点、脚本和转场的 JS
 | `"bezier:x1,y1,x2,y2"` | 三次贝塞尔 |
 
 ```json
-{"type": "transition", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 20, "timing": "ease-out"}
-{"type": "transition", "from": "scene1", "to": "scene2", "effect": "slide", "direction": "from_right", "duration": 15, "timing": "bezier:0.4,0,0.2,1"}
+{"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 20, "timing": "ease-out"}
+{"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "slide", "direction": "from_right", "duration": 15, "timing": "bezier:0.4,0,0.2,1"}
 ```
 
 也可以直接使用自定义弹簧参数：
 
 ```json
-{"type": "transition", "from": "scene1", "to": "scene2", "effect": "wipe", "direction": "from_right", "duration": 12, "damping": 10, "stiffness": 100, "mass": 1}
+{"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "wipe", "direction": "from_right", "duration": 12, "damping": 10, "stiffness": 100, "mass": 1}
 ```
 
 ---

@@ -18,15 +18,15 @@ OpenCat JSONL is a JSON Lines format for describing compositions, scene nodes, s
 
 `frames / fps` defines the total duration in seconds.
 
-### 1.2 Three Root Organization Modes
+### 1.2 Two Composition Patterns
 
-#### Single Scene
+#### Plain Node Tree
 
-There is one root node with `parentId: null`, and no transition. `composition.frames` should match that scene's `duration`.
+Every composition has exactly one root node with `parentId: null`. Use a plain node tree for single scenes, static overlays, and any composition that does not need scene-to-scene transitions.
 
 ```text
-Timeline: [   scene1: 60 frames   ]
-Constraint: composition.frames = scene1.duration
+Tree: root -> children
+Constraint: composition.frames = intended playback duration
 ```
 
 ```json
@@ -35,34 +35,19 @@ Constraint: composition.frames = scene1.duration
 {"id": "title", "parentId": "scene1", "type": "text", "className": "text-[24px] font-bold", "text": "Hello"}
 ```
 
-#### Multi Scene + Transition
-
-There can be multiple root nodes with `parentId: null`. Scenes are connected by `transition` records. Each scene has its own independent node tree. Transitions consume extra frames and overlap the two scenes during the handoff.
-
-```text
-Timeline: [ scene1: 60 frames ] [ fade: 12 frames ] [ scene2: 90 frames ]
-Constraint: composition.frames = 60 + 12 + 90 = 162
-```
+Example: single scene + caption overlay.
 
 ```json
-{"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 162}
-{"id": "scene1", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] bg-white", "duration": 60}
-{"id": "title", "parentId": "scene1", "type": "text", "className": "text-[24px] font-bold text-slate-900", "text": "Part 1"}
-{"id": "scene2", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] bg-slate-900", "duration": 90}
-{"id": "subtitle", "parentId": "scene2", "type": "text", "className": "text-[20px] font-semibold text-white", "text": "Part 2"}
-{"type": "transition", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 12}
+{"type":"composition","width":1280,"height":720,"fps":30,"frames":450}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px]"}
+{"id":"scene1","parentId":"root","type":"div","className":"absolute inset-0 flex flex-col justify-between w-full h-full bg-[#0b1020] px-[72px] py-[56px]"}
+{"id":"subline","parentId":"scene1","type":"text","className":"text-white","text":"Prime Video"}
+{"id":"subs","parentId":"root","type":"caption","className":"absolute left-[64px] bottom-[40px] w-[1152px] px-[28px] py-[18px] rounded-[20px] bg-[#000000b8] text-[34px] leading-[44px] font-semibold text-center text-white","path":"subtitles.utf8.srt"}
 ```
 
-**Key rules**:
+#### `tl` Timeline Node
 
-- Each scene owns its own node tree. Nodes are not shared across scenes.
-- Runtime total frames are derived from structure: `sum(all scene.duration) + sum(all transition.duration)`
-- Transitions are chained in order: `scene1 -> transition(scene1->scene2) -> scene2 -> ...`
-- Keep `composition.frames` consistent with the derived total for readability, even though the parser currently recomputes it in timeline mode.
-
-#### Multi Scene via Explicit `tl`
-
-Use a `tl` node when you need a visual timeline with transitions alongside persistent overlays (captions, watermarks, etc.). Place the `tl` and the overlay as siblings inside a root `div`.
+`tl` is a normal node that follows `NodeStyle`, but its content is a time sequence: scene, transition, scene, transition, scene. Use it only for two or more direct child scenes with transitions between every adjacent pair.
 
 ```json
 {"type":"composition","width":390,"height":844,"fps":30,"frames":162}
@@ -71,26 +56,19 @@ Use a `tl` node when you need a visual timeline with transitions alongside persi
 {"id":"scene1","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-white","duration":60}
 {"id":"scene2","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-slate-900","duration":90}
 {"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"fade","duration":12}
+{"id":"subs","parentId":"root","type":"caption","className":"absolute inset-x-[24px] bottom-[24px] text-center text-white","path":"subtitles.utf8.srt"}
 ```
 
 **Key rules**:
 
-- `tl` is a container node. Its children are scenes and transitions that form a sequential timeline.
-- Place a `tl` and sibling overlays (e.g. `caption`) inside a shared root `div` to composite them in z-order (DOM order = render order).
-- `caption` as a sibling of `tl` renders above the timeline content and persists across scene transitions.
+- `tl` must be explicitly declared as a node in the tree. Root-level multi-scene inference is not supported.
+- `tl` follows `NodeStyle`, so layout and scripts attached to the `tl` node itself are preserved.
+- `tl` is only for multi-scene playback. Do not wrap a single scene in `tl`.
+- A `tl` must have at least two direct child scenes, and every adjacent pair must have a matching `transition`.
+- `transition.parentId` is required and must reference the owning `tl` node.
+- Place `tl` and persistent overlays (for example `caption`) as siblings under a shared parent `div` when you need z-order compositing.
 - Runtime total frames for the `tl` are derived: `sum(all scene.duration) + sum(all transition.duration)`.
-- The root `div` frames (`composition.frames`) should match the longest track.
-
-Example: single scene + caption overlay.
-
-```json
-{"type":"composition","width":1280,"height":720,"fps":30,"frames":450}
-{"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px]"}
-{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
-{"id":"scene1","parentId":"main-tl","type":"div","className":"relative flex flex-col justify-between w-full h-full bg-[#0b1020] px-[72px] py-[56px]","duration":450}
-{"id":"subline","parentId":"scene1","type":"text","className":"text-white","text":"Prime Video"}
-{"id":"subs","parentId":"root","type":"caption","className":"absolute left-[64px] bottom-[40px] w-[1152px] px-[28px] py-[18px] rounded-[20px] bg-[#000000b8] text-[34px] leading-[44px] font-semibold text-center text-white","path":"subtitles.utf8.srt"}
-```
+- Keep `composition.frames` aligned with the effective playback duration of the composition.
 
 ### 1.3 Element Nodes
 
@@ -116,11 +94,12 @@ Each element is one JSON line. Parent-child relationships are defined through `p
 | `canvas` | `<canvas>` | requires a matching script |
 | `audio` | `<audio>` | `path` or `url` |
 | `video` | `<video>` | — |
+| `tl` | timeline node | direct children are timed scenes; adjacent pairs require transitions |
 | `caption` | subtitle-driven text node | `path`: local SRT file |
 
 ### 1.4 Caption
 
-`caption` is an SRT-driven text node. It behaves like a text node for styling and layout, but its displayed content is selected from subtitle entries based on the current global frame.
+`caption` is an SRT-driven text node. It behaves like a text node for styling and layout, but its displayed content is selected from subtitle entries using the nearest inherited time context.
 
 ```json
 {"id": "subs", "parentId": null, "type": "caption", "className": "absolute inset-x-[48px] bottom-[32px] text-center text-white", "path": "subtitles.utf8.srt"}
@@ -138,7 +117,7 @@ Each element is one JSON line. Parent-child relationships are defined through `p
 
 - `path` is resolved relative to the JSONL file location when the composition is loaded from disk with `parse_file(...)`.
 - SRT timestamps are converted to frames using `composition.fps`.
-- Caption visibility is global, not scene-local. A root caption can continue across transitions.
+- Inside a timeline scene, `caption` uses that scene's local frame context. Outside any nearer time context, it falls back to the global composition frame.
 - The current loader reads subtitle files as UTF-8 text. UTF-16 / UTF-16LE / GBK subtitle files will not parse correctly.
 - Caption file read / parse failure currently degrades to an empty subtitle track instead of a hard parse error. If captions do not appear, check path and encoding first.
 - Caption content can still be overridden by scripts through `ctx.getNode('subs').text(...)` for the current frame.
@@ -156,10 +135,10 @@ Scripts are attached to nodes and run on every frame.
 
 ### 1.6 Transition
 
-Transitions are only used in multi-scene mode. A transition describes the handoff between two scenes and consumes additional frames.
+Transitions are only used inside a `tl` node. A transition describes the handoff between two adjacent scenes and consumes additional frames.
 
 ```json
-{"type": "transition", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 12}
+{"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 12}
 ```
 
 **Effect types** (`effect` and `direction` are separate fields):
@@ -188,14 +167,14 @@ Transitions are only used in multi-scene mode. A transition describes the handof
 | `"bezier:x1,y1,x2,y2"` | Cubic bezier |
 
 ```json
-{"type": "transition", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 20, "timing": "ease-out"}
-{"type": "transition", "from": "scene1", "to": "scene2", "effect": "slide", "direction": "from_right", "duration": 15, "timing": "bezier:0.4,0,0.2,1"}
+{"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 20, "timing": "ease-out"}
+{"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "slide", "direction": "from_right", "duration": 15, "timing": "bezier:0.4,0,0.2,1"}
 ```
 
 Custom spring parameters can also be used directly through `damping`, `stiffness`, and `mass`:
 
 ```json
-{"type": "transition", "from": "scene1", "to": "scene2", "effect": "wipe", "direction": "from_right", "duration": 12, "damping": 10, "stiffness": 100, "mass": 1}
+{"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "wipe", "direction": "from_right", "duration": 12, "damping": 10, "stiffness": 100, "mass": 1}
 ```
 
 ---
@@ -850,8 +829,9 @@ canvas.drawText('OpenCat', 16, 96, fill('#0f172a'), font);
 | Putting transform Tailwind classes in `className` | Use node transform APIs such as `translateX()`, `translateY()`, `scale()`, `rotate()`, and `skew()` |
 | `parentId` points to an invalid id | `parentId` must reference an existing node |
 | Expecting a `layer` record type | The `layer` type has been removed; use `div` with `parentId: null` and arrange children under a `tl` node instead |
-| `layer.children` contains a non-root id | Use a `tl` (timeline) node with direct children instead of `layer.children` |
-| Listing every scene in a layered timeline chain | In a `tl` node, reference only the first scene of the chain |
+| Multiple root scenes plus root-level `transition` | Declare a `tl` node explicitly and move scenes under it |
+| Using `tl` for a single scene | Use a plain `div` tree; reserve `tl` for two or more scenes with transitions |
+| `tl` has scenes but no transition between adjacent pairs | Add the missing `transition`, or remove `tl` and use a plain tree |
 | Root `caption` without a parent `div`, but expecting it to persist across transitions | Put the main visuals and the root `caption` under a shared parent `div` |
 | `caption.path` points to a UTF-16 subtitle file | Convert the SRT to UTF-8 first; the current loader reads UTF-8 text |
 | Frame count mismatch in timeline mode | Runtime total is derived from `sum(scene.duration) + sum(transition.duration)` |

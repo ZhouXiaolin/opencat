@@ -1,5 +1,7 @@
 {"type": "composition", "width": 1920, "height": 1080, "fps": 30, "frames": 480}
-{"id": "scene1", "parentId": null, "type": "div", "className": "relative w-[1920px] h-[1080px] bg-slate-950", "duration": 54}
+{"id": "root", "parentId": null, "type": "div", "className": "relative w-[1920px] h-[1080px]"}
+{"id": "main-tl", "parentId": "root", "type": "tl", "className": "absolute inset-0"}
+{"id": "scene1", "parentId": "main-tl", "type": "div", "className": "relative w-[1920px] h-[1080px] bg-slate-950", "duration": 54}
 {"id": "s1-canvas", "parentId": "scene1", "type": "canvas", "className": "w-[1920px] h-[1080px]"}
 {"id": "s1-block-a", "parentId": "scene1", "type": "div", "className": "absolute left-[1210px] top-[70px] w-[360px] h-[250px] rounded-[76px] bg-cyan-400"}
 {"id": "s1-block-b", "parentId": "scene1", "type": "div", "className": "absolute left-[1490px] top-[250px] w-[250px] h-[430px] rounded-[68px] bg-fuchsia-500"}
@@ -25,8 +27,8 @@
 {"id": "s1-note-body", "parentId": "s1-note", "type": "text", "className": "text-[28px] text-white leading-snug", "text": "One authoring file. A very large visual result."}
 {"type": "script", "parentId": "s1-canvas", "path": "opencat-showcase-landscape/scene1_bg.js"}
 {"type": "script", "parentId": "scene1", "path": "opencat-showcase-landscape/scene1_anim.js"}
-{"type": "transition", "from": "scene1", "to": "scene2", "effect": "clock_wipe", "duration": 18, "timing": "ease-in-out"}
-{"id": "scene2", "parentId": null, "type": "div", "className": "relative w-[1920px] h-[1080px] bg-[#e8ddd0]", "duration": 96}
+{"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "clock_wipe", "duration": 18, "timing": "ease-in-out"}
+{"id": "scene2", "parentId": "main-tl", "type": "div", "className": "relative w-[1920px] h-[1080px] bg-[#e8ddd0]", "duration": 96}
 {"id": "s2-block-a", "parentId": "scene2", "type": "div", "className": "absolute left-[-80px] top-[180px] z-10 w-[280px] h-[280px] rounded-[72px] bg-cyan-300"}
 {"id": "s2-block-b", "parentId": "scene2", "type": "div", "className": "absolute left-[1580px] top-[40px] z-10 w-[260px] h-[400px] rounded-[70px] bg-amber-300"}
 {"id": "s2-block-c", "parentId": "scene2", "type": "div", "className": "absolute left-[1440px] top-[700px] z-10 w-[340px] h-[180px] rounded-[64px] bg-fuchsia-400"}
@@ -51,8 +53,8 @@
 {"id": "s2-tip-body", "parentId": "s2-tip", "type": "text", "className": "text-[28px] text-stone-950 leading-snug", "text": "Do not generate transform Tailwind classes. Let the scripts own translate, scale, rotate, and skew."}
 {"type": "script", "parentId": "s2-editor", "path": "opencat-showcase-landscape/scene2_editor.js"}
 {"type": "script", "parentId": "scene2", "path": "opencat-showcase-landscape/scene2_anim.js"}
-{"type": "transition", "from": "scene2", "to": "scene3", "effect": "wipe", "direction": "from_top_right", "duration": 18, "timing": "ease-in-out"}
-{"id": "scene3", "parentId": null, "type": "div", "className": "relative w-[1920px] h-[1080px] bg-slate-950", "duration": 120}
+{"type": "transition", "parentId": "main-tl", "from": "scene2", "to": "scene3", "effect": "wipe", "direction": "from_top_right", "duration": 18, "timing": "ease-in-out"}
+{"id": "scene3", "parentId": "main-tl", "type": "div", "className": "relative w-[1920px] h-[1080px] bg-slate-950", "duration": 120}
 {"id": "s3-canvas", "parentId": "scene3", "type": "canvas", "className": "w-[1920px] h-[1080px]"}
 {"id": "s3-block-a", "parentId": "scene3", "type": "div", "className": "absolute left-[1390px] top-[80px] w-[290px] h-[210px] rounded-[64px] bg-cyan-400"}
 {"id": "s3-block-b", "parentId": "scene3", "type": "div", "className": "absolute left-[1570px] top-[300px] w-[220px] h-[360px] rounded-[62px] bg-amber-300"}
@@ -72,8 +74,8 @@
 {"id": "s3-metric-3-body", "parentId": "s3-metric-3", "type": "text", "className": "text-[24px] text-slate-100 leading-snug", "text": "Paths, circles, lines, and text all come from the CanvasKit-style subset."}
 {"type": "script", "parentId": "s3-canvas", "path": "opencat-showcase-landscape/scene3_double_pendulum.js"}
 {"type": "script", "parentId": "scene3", "path": "opencat-showcase-landscape/scene3_anim.js"}
-{"type": "transition", "from": "scene3", "to": "scene4", "effect": "light_leak", "duration": 18, "seed": 4, "hueShift": 36}
-{"id": "scene4", "parentId": null, "type": "div", "className": "relative w-[1920px] h-[1080px] bg-[#f3ece2]", "duration": 78}
+{"type": "transition", "parentId": "main-tl", "from": "scene3", "to": "scene4", "effect": "light_leak", "duration": 18, "seed": 4, "hueShift": 36}
+{"id": "scene4", "parentId": "main-tl", "type": "div", "className": "relative w-[1920px] h-[1080px] bg-[#f3ece2]", "duration": 78}
 {"id": "s4-canvas", "parentId": "scene4", "type": "canvas", "className": "absolute z-0 w-[1920px] h-[1080px]"}
 {"id": "s4-block-a", "parentId": "scene4", "type": "div", "className": "absolute left-[30px] top-[150px] z-10 w-[280px] h-[280px] rounded-[74px] bg-cyan-400"}
 {"id": "s4-block-b", "parentId": "scene4", "type": "div", "className": "absolute left-[1530px] top-[90px] z-10 w-[270px] h-[360px] rounded-[68px] bg-orange-300"}
@@ -100,8 +102,8 @@
 {"id": "s4-card-4-body", "parentId": "s4-card-4", "type": "text", "className": "text-[24px] text-stone-600 leading-snug", "text": "The library stays central while companion tools help iterate and ship the final video."}
 {"type": "script", "parentId": "s4-canvas", "path": "opencat-showcase-landscape/scene4_bg.js"}
 {"type": "script", "parentId": "scene4", "path": "opencat-showcase-landscape/scene4_anim.js"}
-{"type": "transition", "from": "scene4", "to": "scene5", "effect": "slide", "direction": "from_left", "duration": 18, "timing": "spring-default"}
-{"id": "scene5", "parentId": null, "type": "div", "className": "relative w-[1920px] h-[1080px] bg-slate-950", "duration": 60}
+{"type": "transition", "parentId": "main-tl", "from": "scene4", "to": "scene5", "effect": "slide", "direction": "from_left", "duration": 18, "timing": "spring-default"}
+{"id": "scene5", "parentId": "main-tl", "type": "div", "className": "relative w-[1920px] h-[1080px] bg-slate-950", "duration": 60}
 {"id": "s5-canvas", "parentId": "scene5", "type": "canvas", "className": "w-[1920px] h-[1080px]"}
 {"id": "s5-block-a", "parentId": "scene5", "type": "div", "className": "absolute left-[1240px] top-[120px] w-[320px] h-[250px] rounded-[74px] bg-cyan-400"}
 {"id": "s5-block-b", "parentId": "scene5", "type": "div", "className": "absolute left-[1520px] top-[320px] w-[230px] h-[370px] rounded-[66px] bg-amber-300"}

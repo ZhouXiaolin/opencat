@@ -14,7 +14,7 @@ use crate::style::NodeStyle;
 mod builder;
 pub(crate) mod tailwind;
 
-use builder::{build_timeline, build_tree, build_tree_with_tl, join_scripts};
+use builder::{build_tree, build_tree_with_tl, join_scripts};
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "type")]
@@ -113,7 +113,7 @@ enum JsonLine {
     #[serde(rename = "transition")]
     Transition {
         #[serde(rename = "parentId")]
-        parent_id: Option<String>,
+        parent_id: String,
         from: String,
         to: String,
         effect: String,
@@ -172,7 +172,7 @@ struct ParsedElement {
 
 #[derive(Debug, Clone)]
 struct ParsedTransition {
-    parent_id: Option<String>,
+    parent_id: String,
     from: String,
     to: String,
     effect: String,
@@ -193,12 +193,6 @@ struct ParsedAudioElement {
     parent_id: Option<String>,
     duration: Option<u32>,
     source: AudioSource,
-}
-
-#[derive(Debug, Clone)]
-enum TimelineEntry {
-    SequenceRoot { id: String },
-    Transition(ParsedTransition),
 }
 
 pub struct ParsedComposition {
@@ -235,7 +229,7 @@ pub fn parse_with_base_dir(
     let mut audio_elements = Vec::new();
     let mut scripts_by_parent: HashMap<String, Vec<String>> = HashMap::new();
     let mut elements: Vec<ParsedElement> = Vec::new();
-    let mut timeline_entries = Vec::new();
+    let mut transitions = Vec::new();
     let mut timeline_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for (line_index, line) in input.lines().enumerate() {
@@ -280,9 +274,6 @@ pub fn parse_with_base_dir(
                     &id,
                     line_index + 1,
                 );
-                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
-                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
-                }
                 elements.push(ParsedElement {
                     id,
                     parent_id,
@@ -303,9 +294,6 @@ pub fn parse_with_base_dir(
                     &id,
                     line_index + 1,
                 );
-                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
-                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
-                }
                 elements.push(ParsedElement {
                     id,
                     parent_id,
@@ -325,9 +313,6 @@ pub fn parse_with_base_dir(
                     &id,
                     line_index + 1,
                 );
-                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
-                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
-                }
                 elements.push(ParsedElement {
                     id,
                     parent_id,
@@ -353,9 +338,6 @@ pub fn parse_with_base_dir(
                     line_index + 1,
                 );
                 let source = parse_image_source(path, url, query, query_count, aspect_ratio)?;
-                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
-                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
-                }
                 elements.push(ParsedElement {
                     id,
                     parent_id,
@@ -392,9 +374,6 @@ pub fn parse_with_base_dir(
                     &id,
                     line_index + 1,
                 );
-                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
-                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
-                }
                 elements.push(ParsedElement {
                     id,
                     parent_id,
@@ -417,9 +396,6 @@ pub fn parse_with_base_dir(
                     &id,
                     line_index + 1,
                 );
-                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
-                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
-                }
                 elements.push(ParsedElement {
                     id,
                     parent_id,
@@ -443,10 +419,7 @@ pub fn parse_with_base_dir(
                 hue_shift,
                 mask_scale,
             } => {
-                if !timeline_ids.is_empty() && parent_id.is_none() {
-                    anyhow::bail!("transition requires parentId when using tl nodes");
-                }
-                timeline_entries.push(TimelineEntry::Transition(ParsedTransition {
+                transitions.push(ParsedTransition {
                     parent_id,
                     from,
                     to,
@@ -460,7 +433,7 @@ pub fn parse_with_base_dir(
                     seed,
                     hue_shift,
                     mask_scale,
-                }))
+                })
             }
             JsonLine::Tl {
                 id,
@@ -498,9 +471,6 @@ pub fn parse_with_base_dir(
                 } else {
                     PathBuf::from(path)
                 };
-                if parent_id.as_ref().is_none_or(|pid| timeline_ids.contains(pid)) {
-                    timeline_entries.push(TimelineEntry::SequenceRoot { id: id.clone() });
-                }
                 elements.push(ParsedElement {
                     id,
                     parent_id,
@@ -515,11 +485,17 @@ pub fn parse_with_base_dir(
     }
 
     let has_explicit_tl = !timeline_ids.is_empty();
-    let has_legacy_timeline = !has_explicit_tl
-        && (timeline_entries
-            .iter()
-            .any(|entry| matches!(entry, TimelineEntry::Transition(_)))
-            || elements.iter().filter(|el| el.parent_id.is_none()).count() > 1);
+    if !has_explicit_tl && !transitions.is_empty() {
+        anyhow::bail!("transition records require an explicit tl parent");
+    }
+    for transition in &transitions {
+        if !timeline_ids.contains(transition.parent_id.as_str()) {
+            anyhow::bail!(
+                "transition parentId `{}` must reference a tl node",
+                transition.parent_id
+            );
+        }
+    }
     let elements_by_id = elements
         .iter()
         .map(|element| (element.id.as_str(), element))
@@ -529,15 +505,9 @@ pub fn parse_with_base_dir(
         .map(|audio| resolve_audio_source(audio, &elements_by_id))
         .collect::<anyhow::Result<Vec<_>>>()?;
     let (root, frames) = if has_explicit_tl {
-        let transitions_by_tl: HashMap<String, Vec<&ParsedTransition>> = timeline_entries
-            .iter()
-            .filter_map(|entry| match entry {
-                TimelineEntry::Transition(t) => Some(t),
-                _ => None,
-            })
-            .filter_map(|t| t.parent_id.as_ref().map(|pid| (pid.clone(), t)))
-            .fold(HashMap::new(), |mut acc, (pid, t)| {
-                acc.entry(pid).or_default().push(t);
+        let transitions_by_tl: HashMap<String, Vec<&ParsedTransition>> =
+            transitions.iter().fold(HashMap::new(), |mut acc, t| {
+                acc.entry(t.parent_id.clone()).or_default().push(t);
                 acc
             });
         (
@@ -549,8 +519,6 @@ pub fn parse_with_base_dir(
             )?,
             frames,
         )
-    } else if has_legacy_timeline {
-        build_timeline(&elements, &scripts_by_parent, &timeline_entries, fps as u32)?
     } else {
         (
             build_tree(&elements, &scripts_by_parent, fps as u32)?,
@@ -731,15 +699,10 @@ mod tests {
 
     use super::{parse, parse_class_name, parse_file};
     use crate::{
-        FrameCtx,
-        scene::{
-            composition::AudioAttachment,
-            node::NodeKind,
-            time::{FrameState, frame_state_for_root},
-        },
+        scene::{composition::AudioAttachment, node::NodeKind},
         style::{
             AlignItems, ColorToken, FlexDirection, FlexWrap, GradientDirection, JustifyContent,
-            LengthPercentageAuto, TextAlign,
+            LengthPercentageAuto, Position, TextAlign,
         },
     };
 
@@ -858,109 +821,59 @@ mod tests {
     }
 
     #[test]
-    fn parser_builds_timeline_from_root_sequences_and_transitions() {
-        let parsed = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
-{"id":"root-a","parentId":null,"type":"div","className":"","duration":10}
-{"type":"script","parentId":"root-a","src":"ctx.getNode('root-a').opacity(0.6);"}
-{"type":"transition","from":"root-a","to":"root-b","effect":"fade","duration":5}
-{"id":"root-b","parentId":null,"type":"div","className":"","duration":10}"#,
-        )
-        .expect("timeline jsonl should parse");
-
-        assert_eq!(parsed.frames, 25);
-        assert!(matches!(parsed.root.kind(), NodeKind::Timeline(_)));
-
-        let scene_frame = FrameCtx {
-            frame: 0,
-            fps: parsed.fps as u32,
-            width: parsed.width,
-            height: parsed.height,
-            frames: parsed.frames as u32,
-        };
-        let transition_frame = FrameCtx {
-            frame: 12,
-            ..scene_frame
-        };
-        let final_scene_frame = FrameCtx {
-            frame: 20,
-            ..scene_frame
-        };
-
-        match frame_state_for_root(&parsed.root, &scene_frame) {
-            FrameState::Scene { scene, .. } => {
-                assert_eq!(scene.style_ref().id, "root-a");
-                assert!(scene.style_ref().script_driver.is_some());
-            }
-            _ => panic!("frame 0 should resolve to the first sequence"),
-        }
-
-        match frame_state_for_root(&parsed.root, &transition_frame) {
-            FrameState::Transition { from, to, .. } => {
-                assert_eq!(from.style_ref().id, "root-a");
-                assert_eq!(to.style_ref().id, "root-b");
-            }
-            _ => panic!("frame 12 should resolve to the transition"),
-        }
-
-        match frame_state_for_root(&parsed.root, &final_scene_frame) {
-            FrameState::Scene { scene, .. } => {
-                assert_eq!(scene.style_ref().id, "root-b");
-            }
-            _ => panic!("frame 20 should resolve to the final sequence"),
-        }
-    }
-
-    #[test]
-    fn parser_allows_transition_records_outside_scene_boundaries() {
-        let parsed = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
-{"id":"root-a","parentId":null,"type":"div","className":"","duration":10}
-{"id":"root-b","parentId":null,"type":"div","className":"","duration":10}
-{"type":"transition","from":"root-a","to":"root-b","effect":"fade","duration":5}"#,
-        )
-        .expect("timeline jsonl should parse regardless of transition position");
-
-        assert_eq!(parsed.frames, 25);
-
-        let transition_frame = FrameCtx {
-            frame: 12,
-            fps: parsed.fps as u32,
-            width: parsed.width,
-            height: parsed.height,
-            frames: parsed.frames as u32,
-        };
-
-        match frame_state_for_root(&parsed.root, &transition_frame) {
-            FrameState::Transition { from, to, .. } => {
-                assert_eq!(from.style_ref().id, "root-a");
-                assert_eq!(to.style_ref().id, "root-b");
-            }
-            _ => panic!("frame 12 should resolve to the transition"),
-        }
-    }
-
-    #[test]
-    fn parser_rejects_non_adjacent_transition_pairs() {
+    fn parser_rejects_root_level_timeline_without_explicit_tl() {
         let err = parse(
             r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
 {"id":"root-a","parentId":null,"type":"div","className":"","duration":10}
-{"id":"root-b","parentId":null,"type":"div","className":"","duration":10}
-{"id":"root-c","parentId":null,"type":"div","className":"","duration":10}
-{"type":"transition","from":"root-a","to":"root-c","effect":"fade","duration":5}"#,
+{"type":"script","parentId":"root-a","src":"ctx.getNode('root-a').opacity(0.6);"}
+{"type":"transition","parentId":"main-tl","from":"root-a","to":"root-b","effect":"fade","duration":5}
+{"id":"root-b","parentId":null,"type":"div","className":"","duration":10}"#,
+        )
+        .err()
+        .expect("legacy root timeline should fail");
+
+        assert!(err.to_string().contains("tl"));
+    }
+
+    #[test]
+    fn parser_rejects_multiple_root_sequences_without_explicit_tl() {
+        let err = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
+{"id":"root-a","parentId":null,"type":"div","className":"","duration":10}
+{"id":"root-b","parentId":null,"type":"div","className":"","duration":10}"#,
+        )
+        .err()
+        .expect("multiple roots without tl should fail");
+
+        assert!(err.to_string().contains("multiple root"));
+    }
+
+    #[test]
+    fn parser_rejects_non_adjacent_tl_transition_pairs() {
+        let err = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":35}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":35}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
+{"id":"scene-c","parentId":"main-tl","type":"div","className":"","duration":10}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-c","effect":"fade","duration":5}"#,
         )
         .err()
         .expect("non-adjacent transitions should fail");
 
-        assert!(err.to_string().contains("adjacent sequences"));
+        assert!(err.to_string().contains("adjacent"));
     }
 
     #[test]
     fn parser_requires_sequence_duration_when_building_timeline() {
         let err = parse(
-            r#"{"id":"root-a","parentId":null,"type":"div","className":""}
-{"type":"transition","from":"root-a","to":"root-b","effect":"fade","duration":5}
-{"id":"root-b","parentId":null,"type":"div","className":"","duration":10}"#,
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":25}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene-a","parentId":"main-tl","type":"div","className":""}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":5}"#,
         )
         .err()
         .expect("timeline without durations should fail");
@@ -1485,6 +1398,7 @@ mod tests {
             r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
 {"id":"root","parentId":null,"type":"div","className":"relative","duration":25}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"type":"script","parentId":"main-tl","src":"ctx.getNode('main-tl').opacity(0.5);"}
 {"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
 {"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
 {"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":5}"#,
@@ -1498,6 +1412,9 @@ mod tests {
             panic!("child should be timeline");
         };
         assert_eq!(tl.duration_in_frames(), 25);
+        assert_eq!(tl.style_ref().id, "main-tl");
+        assert_eq!(tl.style_ref().position, Some(Position::Absolute));
+        assert!(tl.style_ref().script_driver.is_some());
     }
 
     #[test]
@@ -1532,6 +1449,35 @@ mod tests {
         .expect("transition to nested descendant should fail");
 
         assert!(err.to_string().contains("direct child"));
+    }
+
+    #[test]
+    fn parser_rejects_tl_with_single_scene_child() {
+        let err = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":10}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":10}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}"#,
+        )
+        .err()
+        .expect("single-scene tl should fail");
+
+        assert!(err.to_string().contains("at least two"));
+    }
+
+    #[test]
+    fn parser_rejects_tl_missing_transition_between_adjacent_children() {
+        let err = parse(
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":20}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":20}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}"#,
+        )
+        .err()
+        .expect("tl without transitions should fail");
+
+        assert!(err.to_string().contains("missing transition"));
     }
 
     fn unique_test_dir(name: &str) -> PathBuf {

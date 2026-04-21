@@ -129,7 +129,7 @@ Each element is one JSON line. Parent-child relationships are defined through `p
 **Fields**:
 
 - `id`: required
-- `parentId`: optional. Use `null` for a root overlay layer, or attach it under a scene like any other node.
+- `parentId`: optional. Use `null` for a root node, or attach it under a scene like any other node.
 - `className`: optional. Same Tailwind-style layout and text styling rules as `text`.
 - `path`: required. Local SRT file path.
 - `duration`: optional. Usually omitted; subtitle visibility is driven by SRT timestamps.
@@ -138,7 +138,7 @@ Each element is one JSON line. Parent-child relationships are defined through `p
 
 - `path` is resolved relative to the JSONL file location when the composition is loaded from disk with `parse_file(...)`.
 - SRT timestamps are converted to frames using `composition.fps`.
-- Caption visibility is global, not scene-local. A root caption inside a `layer` can continue across transitions.
+- Caption visibility is global, not scene-local. A root caption can continue across transitions.
 - The current loader reads subtitle files as UTF-8 text. UTF-16 / UTF-16LE / GBK subtitle files will not parse correctly.
 - Caption file read / parse failure currently degrades to an empty subtitle track instead of a hard parse error. If captions do not appear, check path and encoding first.
 - Caption content can still be overridden by scripts through `ctx.getNode('subs').text(...)` for the current frame.
@@ -849,10 +849,10 @@ canvas.drawText('OpenCat', 16, 96, fill('#0f172a'), font);
 | Relying on `absolute` layout by default | Prefer flex layout; use `absolute` only for overlap or pinned edges |
 | Putting transform Tailwind classes in `className` | Use node transform APIs such as `translateX()`, `translateY()`, `scale()`, `rotate()`, and `skew()` |
 | `parentId` points to an invalid id | `parentId` must reference an existing node |
-| Expecting `layer` to accept `id` / `parentId` / `className` | `layer` is a special top-level record and only accepts `children` |
-| `layer.children` contains a non-root id | `layer.children` must reference root nodes (`parentId: null`) |
-| Listing every scene in a layered timeline chain | In `layer.children`, reference only the first scene of the chain |
-| Root `caption` without `layer`, but expecting it to persist across transitions | Put the main visuals and the root `caption` inside a `layer` |
+| Expecting a `layer` record type | The `layer` type has been removed; use `div` with `parentId: null` and arrange children under a `tl` node instead |
+| `layer.children` contains a non-root id | Use a `tl` (timeline) node with direct children instead of `layer.children` |
+| Listing every scene in a layered timeline chain | In a `tl` node, reference only the first scene of the chain |
+| Root `caption` without a parent `div`, but expecting it to persist across transitions | Put the main visuals and the root `caption` under a shared parent `div` |
 | `caption.path` points to a UTF-16 subtitle file | Convert the SRT to UTF-8 first; the current loader reads UTF-8 text |
 | Frame count mismatch in timeline mode | Runtime total is derived from `sum(scene.duration) + sum(transition.duration)` |
 | `"effect": "slide-left"` | Use separate fields: `"effect": "slide", "direction": "from_left"` |

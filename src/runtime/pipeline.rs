@@ -7,7 +7,7 @@ use crate::{
     frame_ctx::{FrameCtx, ScriptFrameCtx},
     runtime::{
         annotation::{AnnotatedDisplayTree, annotate_display_tree},
-        compositor::{SceneRenderRuntime, SceneSlot, plan_for_scene, render_scene_slot},
+        compositor::{SceneRenderRuntime, plan_for_scene, render_scene},
         frame_view::RenderFrameView,
         invalidation::mark_display_tree_composite_dirty,
         preflight::ensure_assets_preloaded,
@@ -48,14 +48,12 @@ pub(crate) fn render_frame_on_surface(
     let _root_guard = root_span.enter();
 
     let root = composition.root_node(&frame_ctx);
-    let slot = SceneSlot::root_scene();
-    let (annotated_display_tree, scene_stats) = build_scene_display_list_with_slot(
+    let (annotated_display_tree, scene_stats) = build_scene_display_list(
         &root,
         &frame_ctx,
         &ScriptFrameCtx::global(&frame_ctx),
         session,
         _mutations.as_ref(),
-        slot.clone(),
     )?;
     let snapshot_plan = plan_for_scene(&scene_stats);
 
@@ -70,9 +68,8 @@ pub(crate) fn render_frame_on_surface(
         width: composition.width,
         height: composition.height,
     };
-    render_scene_slot(
+    render_scene(
         &mut snapshot_runtime,
-        &slot,
         &annotated_display_tree,
         snapshot_plan,
         false,
@@ -81,13 +78,12 @@ pub(crate) fn render_frame_on_surface(
     Ok(())
 }
 
-pub(crate) fn build_scene_display_list_with_slot(
+pub(crate) fn build_scene_display_list(
     scene: &Node,
     frame_ctx: &FrameCtx,
     script_frame_ctx: &ScriptFrameCtx,
     session: &mut RenderSession,
     mutations: Option<&StyleMutations>,
-    slot: SceneSlot,
 ) -> Result<(AnnotatedDisplayTree, SceneBuildStats)> {
     let mut stats = SceneBuildStats::default();
 
@@ -110,7 +106,7 @@ pub(crate) fn build_scene_display_list_with_slot(
         let _guard = layout_span.enter();
         let text_engine = session.text_engine_handle();
         session
-            .layout_session_mut(slot.clone())
+            .layout_session_mut()
             .compute_layout_with_text_engine(&element_root, frame_ctx, text_engine.as_ref())?
     };
     stats.layout_pass = layout_pass;
@@ -122,7 +118,6 @@ pub(crate) fn build_scene_display_list_with_slot(
         let mut annotated = annotate_display_tree(&display_tree, &session.assets);
         mark_display_tree_composite_dirty(
             session.composite_history_mut(),
-            slot,
             &mut annotated,
             stats.layout_pass.structure_rebuild,
         );

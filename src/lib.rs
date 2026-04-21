@@ -15,7 +15,7 @@ pub mod style;
 mod text;
 
 pub use frame_ctx::FrameCtx;
-pub use inspect::{FrameElementRect, FrameElementSlot, collect_frame_layout_rects};
+pub use inspect::{FrameElementRect, collect_frame_layout_rects};
 pub use jsonl::{ParsedComposition, parse, parse_file, parse_with_base_dir};
 pub use render::{
     EncodingConfig, Mp4Config, OutputFormat, RenderBackend, RenderSession, build_audio_track,

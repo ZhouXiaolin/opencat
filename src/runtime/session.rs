@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{
     layout::LayoutSession,
     resource::{
@@ -9,7 +7,7 @@ use crate::{
     runtime::{
         audio::{AudioIntervalCache, DecodedAudioCache},
         cache::{CacheCaps, CacheRegistry},
-        compositor::{SceneSlot, SceneSnapshotCache},
+        compositor::SceneSnapshotCache,
         invalidation::CompositeHistory,
         render_engine::SharedRenderEngine,
         render_registry,
@@ -24,7 +22,7 @@ pub struct RenderSession {
     pub(crate) scene_snapshots: SceneSnapshotCache,
     pub(crate) cache_registry: CacheRegistry,
     pub(crate) script_runtime: ScriptRuntimeCache,
-    pub(crate) layout_sessions: HashMap<SceneSlot, LayoutSession>,
+    pub(crate) layout_session: LayoutSession,
     pub(crate) prepared_root_ptr: Option<usize>,
     pub(crate) audio_decode_cache: DecodedAudioCache,
     pub(crate) audio_interval_cache: AudioIntervalCache,
@@ -57,7 +55,7 @@ impl RenderSession {
             scene_snapshots: SceneSnapshotCache::new(),
             cache_registry: CacheRegistry::new(cache_caps),
             script_runtime: ScriptRuntimeCache::default(),
-            layout_sessions: HashMap::new(),
+            layout_session: LayoutSession::new(),
             prepared_root_ptr: None,
             audio_decode_cache: DecodedAudioCache::default(),
             audio_interval_cache: AudioIntervalCache::default(),
@@ -71,10 +69,8 @@ impl RenderSession {
         self.media_ctx.set_video_preview_quality(quality);
     }
 
-    pub(crate) fn layout_session_mut(&mut self, slot: SceneSlot) -> &mut LayoutSession {
-        self.layout_sessions
-            .entry(slot)
-            .or_insert_with(LayoutSession::new)
+    pub(crate) fn layout_session_mut(&mut self) -> &mut LayoutSession {
+        &mut self.layout_session
     }
 
     pub(crate) fn text_engine_handle(&self) -> SharedTextEngine {

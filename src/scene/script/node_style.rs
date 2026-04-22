@@ -14,6 +14,52 @@ pub enum TextUnitGranularity {
     Word,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ScriptTextUnitMeta {
+    pub index: usize,
+    pub text: String,
+    pub start: usize,
+    pub end: usize,
+}
+
+pub(crate) fn describe_text_units(text: &str, granularity: TextUnitGranularity) -> Vec<ScriptTextUnitMeta> {
+    match granularity {
+        TextUnitGranularity::Grapheme => {
+            unicode_segmentation::UnicodeSegmentation::graphemes(text, true)
+                .scan(0usize, |offset, g| {
+                    let start = *offset;
+                    *offset += g.len();
+                    Some((start, *offset, g))
+                })
+                .enumerate()
+                .map(|(index, (start, end, g))| ScriptTextUnitMeta {
+                    index,
+                    text: g.to_string(),
+                    start,
+                    end,
+                })
+                .collect()
+        }
+        TextUnitGranularity::Word => {
+            unicode_segmentation::UnicodeSegmentation::split_word_bounds(text)
+                .filter(|s| !s.is_empty())
+                .scan(0usize, |offset, w| {
+                    let start = *offset;
+                    *offset += w.len();
+                    Some((start, *offset, w))
+                })
+                .enumerate()
+                .map(|(index, (start, end, w))| ScriptTextUnitMeta {
+                    index,
+                    text: w.to_string(),
+                    start,
+                    end,
+                })
+                .collect()
+        }
+    }
+}
+
 // opacity should be in [0.0, 1.0]; downstream rendering will clamp
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TextUnitOverride {
@@ -582,15 +628,14 @@ pub(super) fn install_node_style_bindings<'js>(
         )?;
     }
 
-    // Minimal stub: describes text units for a node by splitting into code points.
-    // Task 4 will replace this with proper grapheme/word segmentation.
+    // Describes text units using proper grapheme-cluster or word-boundary segmentation.
     {
         let s = store.clone();
         globals.set(
             "__text_units_describe",
             Function::new(
                 ctx.clone(),
-                move |ctx_inner: rquickjs::Ctx<'js>, id: String, _granularity: String| -> Result<rquickjs::Array<'js>, rquickjs::Error> {
+                move |ctx_inner: rquickjs::Ctx<'js>, id: String, granularity_str: String| -> Result<rquickjs::Array<'js>, rquickjs::Error> {
                     let text = {
                         let guard = s.lock().unwrap();
                         guard
@@ -606,19 +651,26 @@ pub(super) fn install_node_style_bindings<'js>(
                             })?
                     };
                     // guard dropped here
-                    let chars: Vec<char> = text.chars().collect();
+                    let granularity = match granularity_str.as_str() {
+                        "graphemes" => TextUnitGranularity::Grapheme,
+                        "words" => TextUnitGranularity::Word,
+                        _ => {
+                            return Err(rquickjs::Error::new_from_js_message(
+                                "granularity",
+                                "invalid value",
+                                "unknown granularity; expected 'graphemes' or 'words'",
+                            ));
+                        }
+                    };
+                    let units = describe_text_units(&text, granularity);
                     let result = rquickjs::Array::new(ctx_inner.clone())?;
-                    let mut byte_offset = 0usize;
-                    for (i, ch) in chars.iter().enumerate() {
-                        let start = byte_offset;
-                        let end = start + ch.len_utf8();
+                    for (i, unit) in units.iter().enumerate() {
                         let entry = rquickjs::Array::new(ctx_inner.clone())?;
-                        entry.set(0, i as f64)?;
-                        entry.set(1, ch.to_string())?;
-                        entry.set(2, start as f64)?;
-                        entry.set(3, end as f64)?;
+                        entry.set(0, unit.index as f64)?;
+                        entry.set(1, unit.text.clone())?;
+                        entry.set(2, unit.start as f64)?;
+                        entry.set(3, unit.end as f64)?;
                         result.set(i, entry)?;
-                        byte_offset = end;
                     }
                     Ok(result)
                 },

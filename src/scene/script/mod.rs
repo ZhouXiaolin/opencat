@@ -1851,4 +1851,30 @@ mod tests {
         // Vec is resized to max(index) + 1 = 3, not to the full text length
         assert_eq!(batch.overrides.len(), 3);
     }
+
+    #[test]
+    fn split_text_node_uses_grapheme_clusters_for_zwj_emoji() {
+        use super::node_style::{TextUnitGranularity, describe_text_units};
+        let units = describe_text_units("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}", TextUnitGranularity::Grapheme);
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].text, "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}");
+    }
+
+    #[test]
+    fn split_text_node_uses_grapheme_clusters_for_combining_marks() {
+        use super::node_style::{TextUnitGranularity, describe_text_units};
+        let units = describe_text_units("e\u{0301}", TextUnitGranularity::Grapheme);
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].text, "e\u{0301}");
+    }
+
+    #[test]
+    fn split_text_node_describes_words_from_resolved_text() {
+        use super::node_style::{TextUnitGranularity, describe_text_units};
+        let units = describe_text_units("Hello world", TextUnitGranularity::Word);
+        assert_eq!(
+            units.iter().map(|u| u.text.as_str()).collect::<Vec<_>>(),
+            vec!["Hello", " ", "world"]
+        );
+    }
 }

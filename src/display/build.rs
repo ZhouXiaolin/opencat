@@ -203,7 +203,7 @@ mod tests {
         parse,
         resource::assets::AssetsMap,
         resource::media::MediaContext,
-        runtime::annotation::annotate_display_tree,
+        runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
         scene::primitives::{div, lucide},
         style::{ColorToken, ObjectFit},
     };
@@ -539,8 +539,10 @@ mod tests {
             build_display_tree(&resolved, &layout_a, &assets).expect("display tree should build");
         let tree_b =
             build_display_tree(&resolved, &layout_b, &assets).expect("display tree should build");
-        let annotated_a = annotate_display_tree(&tree_a, &assets);
-        let annotated_b = annotate_display_tree(&tree_b, &assets);
+        let mut annotated_a = annotate_display_tree(&tree_a, &assets);
+        compute_display_tree_fingerprints(&mut annotated_a);
+        let mut annotated_b = annotate_display_tree(&tree_b, &assets);
+        compute_display_tree_fingerprints(&mut annotated_b);
 
         let child_a = annotated_a.children(annotated_a.root)[0];
         let child_b = annotated_b.children(annotated_b.root)[0];

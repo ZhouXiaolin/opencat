@@ -175,26 +175,12 @@ fn annotate_display_node(
             .iter()
             .any(|&child_handle| analysis.require(child_handle).subtree_contains_time_variant);
 
-    let mut node_analysis = DisplayNodeAnalysis {
+    let node_analysis = DisplayNodeAnalysis {
         paint_variance,
         subtree_contains_time_variant,
         paint_fingerprint: None,
         snapshot_fingerprint: None,
     };
-
-    if !subtree_contains_time_variant {
-        node_analysis.paint_fingerprint = fingerprint::annotated_subtree_paint_fingerprint(
-            &annotated,
-            analysis,
-            subtree_contains_time_variant,
-        );
-        node_analysis.snapshot_fingerprint = fingerprint::annotated_subtree_snapshot_fingerprint(
-            &annotated,
-            nodes,
-            analysis,
-            subtree_contains_time_variant,
-        );
-    }
 
     let mut node_layer_bounds = annotated.item.visual_bounds();
     for &child_handle in &annotated.children {
@@ -216,4 +202,43 @@ fn annotate_display_node(
     );
 
     handle
+}
+
+/// 在 `mark_display_tree_composite_dirty` 之后调用，自底向上填充 fingerprint。
+///
+/// annotation 阶段只建结构、分类 paint_variance / subtree_contains_time_variant；
+/// fingerprint 计算需要读 invalidation 表（由 mark_dirty 写入），
+/// 因此必须排在 mark_dirty 之后才能拿到真实的 `composite_dirty` 值。
+pub(crate) fn compute_display_tree_fingerprints(tree: &mut AnnotatedDisplayTree) {
+    let node_count = tree.nodes.len();
+    for handle_idx in 0..node_count {
+        let handle = AnnotatedNodeHandle(handle_idx);
+        let analysis = tree.analysis.require(handle);
+        if analysis.subtree_contains_time_variant {
+            continue;
+        }
+
+        let node = &tree.nodes[handle_idx];
+        let paint_fp = fingerprint::annotated_subtree_paint_fingerprint(
+            node,
+            &tree.analysis,
+            analysis.subtree_contains_time_variant,
+        );
+        let snapshot_fp = fingerprint::annotated_subtree_snapshot_fingerprint(
+            node,
+            &tree.nodes,
+            &tree.analysis,
+            &tree.invalidation,
+            analysis.subtree_contains_time_variant,
+        );
+
+        tree.analysis.insert(
+            handle,
+            DisplayNodeAnalysis {
+                paint_fingerprint: paint_fp,
+                snapshot_fingerprint: snapshot_fp,
+                ..analysis
+            },
+        );
+    }
 }

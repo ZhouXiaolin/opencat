@@ -1,0 +1,4 @@
+{"type":"composition","width":480,"height":240,"fps":30,"frames":48}
+{"id":"root","parentId":null,"type":"div","className":"w-[480px] h-[240px] bg-slate-950 flex items-center justify-center"}
+{"id":"title","parentId":"root","type":"text","className":"text-[48px] font-bold text-white","text":"Hello"}
+{"type":"script","parentId":"root","src":"var parts = ctx.splitTextNode('title', { granularity: 'graphemes' }); var anims = ctx.stagger(parts.length, { from: { opacity: 0, translateY: 24, scale: 0.92 }, to: { opacity: 1, translateY: 0, scale: 1 }, duration: 18, gap: 2, easing: 'spring-gentle' }); for (var i = 0; i < parts.length; i++) { parts[i].set({ opacity: anims[i].opacity, translateY: anims[i].translateY, scale: anims[i].scale }); }"}

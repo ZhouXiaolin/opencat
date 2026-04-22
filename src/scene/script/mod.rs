@@ -22,7 +22,7 @@ pub use canvas_api::{
     CanvasCommand, CanvasMutations, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
     ScriptPointMode,
 };
-pub use node_style::NodeStyleMutations;
+pub use node_style::{NodeStyleMutations, TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch};
 
 #[derive(Debug, Clone, Default)]
 pub struct StyleMutations {
@@ -1876,5 +1876,66 @@ mod tests {
             units.iter().map(|u| u.text.as_str()).collect::<Vec<_>>(),
             vec!["Hello", " ", "world"]
         );
+    }
+
+    #[test]
+    fn script_driver_split_text_node_stagger_grapheme_opacity() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.getNode("t").text("Cat");
+            var parts = ctx.splitTextNode("t", { granularity: "graphemes" });
+            var anims = ctx.stagger(parts.length, {
+                from: { opacity: 0, translateY: 18 },
+                to: { opacity: 1, translateY: 0 },
+                duration: 6,
+                gap: 2,
+                easing: "linear"
+            });
+            for (var i = 0; i < parts.length; i++) {
+                parts[i].set({
+                    opacity: anims[i].opacity,
+                    translateY: anims[i].translateY
+                });
+            }
+        "#,
+        )
+        .expect("script should compile");
+
+        let f0 = driver.run(0, 30, 0, 30, None).expect("frame 0");
+        let t0 = f0.get("t").expect("t mutation");
+        assert!(t0.text_unit_overrides.is_some());
+
+        let f10 = driver.run(10, 30, 10, 30, None).expect("frame 10");
+        let batch = f10
+            .get("t")
+            .expect("t mutation should exist")
+            .text_unit_overrides
+            .as_ref()
+            .expect("text unit overrides should exist");
+        assert_eq!(batch.overrides[0].opacity, Some(1.0));
+    }
+
+    #[test]
+    fn split_text_node_uses_post_text_content_value_as_source() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.getNode("t").text("Hello");
+            var parts = ctx.splitTextNode("t", { granularity: "graphemes" });
+            if (parts.length !== 5) {
+                throw new Error("expected 5 graphemes, got " + parts.length);
+            }
+            parts[0].set({ opacity: 0.2 });
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(0, 1, 0, 1, None).expect("script should run");
+        let batch = mutations
+            .get("t")
+            .expect("t mutation should exist")
+            .text_unit_overrides
+            .as_ref()
+            .expect("text unit overrides should exist");
+        assert_eq!(batch.overrides[0].opacity, Some(0.2));
     }
 }

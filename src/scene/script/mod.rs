@@ -1798,4 +1798,57 @@ mod tests {
             result.err()
         );
     }
+
+    #[test]
+    fn script_driver_records_text_unit_override_via_part_set() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.getNode("title").text("Hello");
+            var parts = ctx.splitTextNode("title", { granularity: "graphemes" });
+            if (parts.length !== 5) {
+                throw new Error("expected 5 parts, got " + parts.length);
+            }
+            if (parts[0].text !== "H") {
+                throw new Error("expected parts[0].text === 'H', got " + parts[0].text);
+            }
+            parts[0].set({ opacity: 0.5, translateX: 10, translateY: 20 });
+            parts[2].set({ scale: 1.5, rotation: 45 });
+        "#,
+        )
+        .expect("script should compile");
+
+        let result = driver.run(0, 1, 0, 1, None);
+        assert!(result.is_ok(), "splitTextNode + part.set should succeed: {:?}", result.err());
+
+        let mutations = &result.unwrap().mutations;
+        let node_mut = mutations.get("title").expect("should have mutations for 'title'");
+        let batch = node_mut
+            .text_unit_overrides
+            .as_ref()
+            .expect("should have text_unit_overrides");
+
+        use super::node_style::TextUnitGranularity;
+        assert!(matches!(batch.granularity, TextUnitGranularity::Grapheme));
+
+        // Index 0: opacity=0.5, translateX=10, translateY=20
+        let o0 = &batch.overrides[0];
+        assert_eq!(o0.opacity, Some(0.5));
+        assert_eq!(o0.translate_x, Some(10.0));
+        assert_eq!(o0.translate_y, Some(20.0));
+        assert_eq!(o0.scale, None);
+        assert_eq!(o0.rotation_deg, None);
+
+        // Index 1: default (not set)
+        let o1 = &batch.overrides[1];
+        assert_eq!(o1.opacity, None);
+
+        // Index 2: scale=1.5, rotation=45
+        let o2 = &batch.overrides[2];
+        assert_eq!(o2.opacity, None);
+        assert_eq!(o2.scale, Some(1.5));
+        assert_eq!(o2.rotation_deg, Some(45.0));
+
+        // Vec is resized to max(index) + 1 = 3, not to the full text length
+        assert_eq!(batch.overrides.len(), 3);
+    }
 }

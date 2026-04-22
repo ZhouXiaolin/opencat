@@ -494,4 +494,37 @@
             },
         };
     };
+
+    ctx.splitTextNode = function(nodeId, opts) {
+        if (!nodeId) {
+            throw new Error("ctx.splitTextNode requires a node id");
+        }
+        var options = opts || {};
+        var granularity = options.granularity || "graphemes";
+        var text = __text_source_get(String(nodeId));
+        if (typeof text !== "string") {
+            throw new Error("no resolved text source for node `" + nodeId + "`");
+        }
+
+        var parts = __text_units_describe(String(nodeId), granularity);
+        return parts.map(function(meta) {
+            var part = {
+                index: meta[0],
+                text: meta[1],
+                start: meta[2],
+                end: meta[3],
+                set: function(values) {
+                    values = values || {};
+                    __record_text_unit_override(
+                        String(nodeId),
+                        granularity,
+                        meta[0],
+                        values
+                    );
+                    return part;
+                }
+            };
+            return part;
+        });
+    };
 })();

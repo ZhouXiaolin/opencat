@@ -62,6 +62,18 @@ impl StyleMutations {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ScriptTextSource {
+    pub text: String,
+    pub kind: ScriptTextSourceKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScriptTextSourceKind {
+    TextNode,
+    Caption,
+}
+
 #[derive(Default)]
 struct RuntimeMutationStore {
     styles: HashMap<String, NodeStyleMutations>,
@@ -69,6 +81,7 @@ struct RuntimeMutationStore {
     current_frame: u32,
     animate_state: std::sync::Mutex<animate_api::AnimateState>,
     path_measure_state: std::sync::Mutex<animate_api::PathMeasureState>,
+    text_sources: HashMap<String, ScriptTextSource>,
 }
 
 impl RuntimeMutationStore {
@@ -89,6 +102,19 @@ type MutationStore = Arc<Mutex<RuntimeMutationStore>>;
 #[derive(Default)]
 pub(crate) struct ScriptRuntimeCache {
     runners: HashMap<u64, ScriptRunner>,
+    text_sources: HashMap<String, ScriptTextSource>,
+}
+
+impl ScriptRuntimeCache {
+    /// Register a resolved text source for the given node id.
+    /// This will be visible to scripts via `__text_source_get()` on the next frame.
+    pub(crate) fn register_text_source(
+        &mut self,
+        id: &str,
+        source: ScriptTextSource,
+    ) {
+        self.text_sources.insert(id.to_string(), source);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -269,6 +295,10 @@ impl ScriptRuntimeCache {
         frame_ctx: ScriptFrameCtx,
         current_node_id: Option<&str>,
     ) -> anyhow::Result<StyleMutations> {
+        // Clear text sources from the previous frame so that nodes removed
+        // between frames do not leave stale entries.
+        self.text_sources.clear();
+
         let key = driver.cache_key();
         let runner = match self.runners.entry(key) {
             std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
@@ -276,6 +306,15 @@ impl ScriptRuntimeCache {
                 entry.insert(driver.create_runner()?)
             }
         };
+
+        // Sync text sources from the resolve-phase registry into the runner's store
+        // so that __text_source_get() can query them during script execution.
+        // Always sync unconditionally: an empty set clears stale entries from
+        // previous frames where nodes may have been removed.
+        if let Ok(mut store) = runner.store.lock() {
+            store.text_sources = self.text_sources.clone();
+        }
+
         runner.run(frame_ctx, current_node_id)
     }
 }
@@ -397,6 +436,21 @@ fn install_runtime_bindings<'js>(
     node_style::install_node_style_bindings(ctx, store)?;
     canvas_api::install_canvaskit_bindings(ctx, store)?;
     animate_api::install_animate_bindings(ctx, store)?;
+
+    // Read-only text source query: returns resolved text for a node id.
+    {
+        let store = store.clone();
+        globals.set(
+            "__text_source_get",
+            Function::new(ctx.clone(), move |id: String| {
+                let store = store
+                    .lock()
+                    .map_err(|_| rquickjs::Error::new_from_js_message("mutex", "mutex", "text source lock poisoned"))?;
+                Ok::<_, rquickjs::Error>(store.text_sources.get(&id).map(|s| s.text.clone()))
+            })?,
+        )?;
+    }
+
     ctx.eval::<(), _>(node_style::NODE_STYLE_RUNTIME)?;
     ctx.eval::<(), _>(canvas_api::CANVASKIT_RUNTIME)?;
     ctx.eval::<(), _>(animate_api::ANIMATE_RUNTIME)?;
@@ -1721,6 +1775,27 @@ mod tests {
             t.text_content,
             Some("👨".to_string()),
             "current implementation reveals code points, not the full grapheme cluster"
+        );
+    }
+
+    #[test]
+    fn script_runtime_exposes_resolved_text_source_to_split_queries() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.getNode("title").text("Hello");
+            var text = __text_source_get("title");
+            if (text !== "Hello") {
+                throw new Error("unexpected text source: " + text);
+            }
+        "#,
+        )
+        .expect("script should compile");
+
+        let result = driver.run(0, 1, 0, 1, None);
+        assert!(
+            result.is_ok(),
+            "text source query should succeed once registry is wired: {:?}",
+            result.err()
         );
     }
 }

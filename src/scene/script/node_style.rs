@@ -456,9 +456,25 @@ pub(super) fn install_node_style_bindings<'js>(
             map.entry(id).or_default().drop_shadow_color = Some(color);
         }
     });
-    set_style_binding!("__record_text_content", map, |id, v: String| {
-        map.entry(id).or_default().text_content = Some(v);
-    });
+    // Text content binding also populates the script-visible text source registry
+    // so that __text_source_get() can query it within the same frame.
+    {
+        let s = store.clone();
+        globals.set(
+            "__record_text_content",
+            Function::new(ctx.clone(), move |id: String, v: String| {
+                let mut guard = s.lock().unwrap();
+                guard.styles.entry(id.clone()).or_default().text_content = Some(v.clone());
+                guard.text_sources.insert(
+                    id,
+                    super::ScriptTextSource {
+                        text: v,
+                        kind: super::ScriptTextSourceKind::TextNode,
+                    },
+                );
+            })?,
+        )?;
+    }
 
     Ok(())
 }

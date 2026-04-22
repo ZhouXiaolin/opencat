@@ -194,7 +194,15 @@ impl DisplayItem {
     }
 
     pub fn visual_bounds(&self) -> DisplayRect {
-        let bounds = self.bounds();
+        let bounds = match self {
+            Self::Text(text) => text.bounds.outset(
+                text.visual_expand_x,
+                text.visual_expand_y,
+                text.visual_expand_x,
+                text.visual_expand_y,
+            ),
+            _ => self.bounds(),
+        };
         let mut visual_bounds = bounds;
 
         let box_shadow = match self {
@@ -238,5 +246,43 @@ impl DisplayItem {
             draw_translation_x: visual_bounds.x,
             draw_translation_y: visual_bounds.y,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DisplayItem, DisplayRect, TextDisplayItem};
+    use crate::{
+        scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
+        style::ComputedTextStyle,
+    };
+
+    #[test]
+    fn text_visual_bounds_expand_for_unit_overrides() {
+        let item = DisplayItem::Text(TextDisplayItem {
+            bounds: DisplayRect {
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 24.0,
+            },
+            text: "Hello".into(),
+            style: ComputedTextStyle::default(),
+            allow_wrap: false,
+            drop_shadow: None,
+            text_unit_overrides: Some(TextUnitOverrideBatch {
+                granularity: TextUnitGranularity::Grapheme,
+                overrides: vec![TextUnitOverride {
+                    translate_y: Some(-12.0),
+                    ..Default::default()
+                }],
+            }),
+            visual_expand_x: 0.0,
+            visual_expand_y: 12.0,
+        });
+
+        let visual = item.visual_bounds();
+        assert!(visual.height > item.bounds().height);
+        assert!(visual.y < item.bounds().y);
     }
 }

@@ -1137,6 +1137,23 @@ fn draw_text(
     text: &TextDisplayItem,
     text_snapshot_cache: &TextSnapshotCache,
 ) -> Result<TextDrawStats> {
+    if let Some(batch) = text.text_unit_overrides.as_ref() {
+        skia_text::draw_text_with_unit_overrides(
+            canvas,
+            &text.text,
+            text.bounds.x,
+            text.bounds.y,
+            text.bounds.width,
+            text.allow_wrap,
+            &text.style,
+            batch,
+        );
+        return Ok(TextDrawStats {
+            cache_hits: 0,
+            cache_misses: 0,
+        });
+    }
+
     let placement = text_snapshot_placement(text);
     let cache_key = text_paint_fingerprint(text);
     if let Some(snapshot) = text_snapshot_cache.borrow_mut().get_cloned(&cache_key) {
@@ -1432,6 +1449,7 @@ fn draw_timeline_base(canvas: &Canvas, timeline: &TimelineDisplayItem) -> Result
 }
 
 fn record_text_snapshot(text: &TextDisplayItem) -> Result<Picture> {
+    debug_assert!(text.text_unit_overrides.is_none());
     let placement = text_snapshot_placement(text);
     let bounds = Rect::from_xywh(
         placement.record_bounds.x,
@@ -2955,5 +2973,79 @@ mod materialization_tests {
             resolve_cached_subtree_render_mode(true, 99, recorded, recorded, true),
             CachedSubtreeRenderMode::DrawPicture,
         );
+    }
+}
+
+#[cfg(test)]
+mod text_draw_tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use skia_safe::surfaces;
+
+    use super::draw_text;
+    use crate::{
+        display::list::{DisplayRect, TextDisplayItem},
+        runtime::cache::{TextSnapshotCache, lru::BoundedLruCache},
+        scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
+        style::ComputedTextStyle,
+    };
+
+    fn rect_bounds() -> DisplayRect {
+        DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 160.0,
+            height: 48.0,
+        }
+    }
+
+    #[test]
+    fn draw_text_with_unit_overrides_bypasses_text_snapshot_cache() {
+        let cache: TextSnapshotCache = Rc::new(RefCell::new(BoundedLruCache::new(8)));
+        let mut surface = surfaces::raster_n32_premul((256, 128)).expect("surface");
+
+        let plain = TextDisplayItem {
+            bounds: rect_bounds(),
+            text: "Hello".into(),
+            style: ComputedTextStyle::default(),
+            allow_wrap: false,
+            drop_shadow: None,
+            text_unit_overrides: None,
+            visual_expand_x: 0.0,
+            visual_expand_y: 0.0,
+        };
+        let plain_first = draw_text(surface.canvas(), &plain, &cache).expect("plain first draw");
+        let plain_second =
+            draw_text(surface.canvas(), &plain, &cache).expect("plain second draw");
+        assert_eq!(plain_first.cache_hits, 0);
+        assert_eq!(plain_first.cache_misses, 1);
+        assert_eq!(plain_second.cache_hits, 1);
+        assert_eq!(plain_second.cache_misses, 0);
+
+        let with_overrides = TextDisplayItem {
+            bounds: rect_bounds(),
+            text: "Hello".into(),
+            style: ComputedTextStyle::default(),
+            allow_wrap: false,
+            drop_shadow: None,
+            text_unit_overrides: Some(TextUnitOverrideBatch {
+                granularity: TextUnitGranularity::Grapheme,
+                overrides: vec![TextUnitOverride {
+                    opacity: Some(0.5),
+                    ..Default::default()
+                }],
+            }),
+            visual_expand_x: 0.0,
+            visual_expand_y: 0.0,
+        };
+        let override_first = draw_text(surface.canvas(), &with_overrides, &cache)
+            .expect("override first draw");
+        let override_second = draw_text(surface.canvas(), &with_overrides, &cache)
+            .expect("override second draw");
+        assert_eq!(override_first.cache_hits, 0);
+        assert_eq!(override_first.cache_misses, 0);
+        assert_eq!(override_second.cache_hits, 0);
+        assert_eq!(override_second.cache_misses, 0);
+        assert_eq!(cache.borrow().len(), 1);
     }
 }

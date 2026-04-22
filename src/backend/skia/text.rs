@@ -2,23 +2,28 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     hash::{Hash, Hasher},
+    ops::Range,
     sync::{Arc, OnceLock},
 };
 
 use skia_safe::{
-    Canvas, FontMgr, FontStyle, Typeface,
+    Canvas, FontMgr, FontStyle, Paint, PathBuilder, Rect, Typeface,
+    canvas::SaveLayerRec,
     font_style::{Slant, Weight, Width},
     textlayout::{
-        FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextAlign as ParagraphAlign,
-        TextStyle as ParagraphTextStyle, TypefaceFontProvider,
+        FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, RectHeightStyle,
+        RectWidthStyle, TextAlign as ParagraphAlign, TextStyle as ParagraphTextStyle,
+        TextBox, TypefaceFontProvider,
     },
 };
 
 use crate::{
     backend::skia::color::skia_color,
+    scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
     runtime::text_engine::{SharedTextEngine, TextEngine, TextMeasureRequest, TextMeasurement},
     style::{ComputedTextStyle, FontWeight, TextAlign, TextTransform},
 };
+use unicode_segmentation::UnicodeSegmentation;
 
 static EMOJI_FONT_DATA: &[u8] = include_bytes!("../../../assets/NotoColorEmoji.ttf");
 const UNBOUNDED_LAYOUT_WIDTH: f32 = 100_000.0;
@@ -86,6 +91,82 @@ pub(crate) fn draw_text(
     paragraph.paint(canvas, (left, top));
 }
 
+pub(crate) fn draw_text_with_unit_overrides(
+    canvas: &Canvas,
+    text: &str,
+    left: f32,
+    top: f32,
+    width: f32,
+    allow_wrap: bool,
+    style: &ComputedTextStyle,
+    batch: &TextUnitOverrideBatch,
+) {
+    let layout_width = if allow_wrap { width } else { f32::INFINITY };
+    let rendered_text = apply_text_transform(text, style.text_transform);
+    let paragraph = make_paragraph_from_text(&rendered_text, style, layout_width);
+    let units = describe_text_unit_ranges(&rendered_text, batch.granularity);
+
+    for (index, unit) in units.into_iter().enumerate() {
+        let override_value = batch
+            .overrides
+            .get(index)
+            .cloned()
+            .unwrap_or_else(TextUnitOverride::default);
+        let opacity = override_value.opacity.unwrap_or(1.0).clamp(0.0, 1.0);
+        if opacity <= 0.0 {
+            continue;
+        }
+
+        let boxes = paragraph.get_rects_for_range(
+            unit.start..unit.end,
+            RectHeightStyle::Max,
+            RectWidthStyle::Tight,
+        );
+        let Some((clip_path, unit_bounds)) = build_text_unit_clip(&boxes, left, top) else {
+            continue;
+        };
+
+        canvas.save();
+
+        let translate_x = override_value.translate_x.unwrap_or(0.0);
+        let translate_y = override_value.translate_y.unwrap_or(0.0);
+        if translate_x != 0.0 || translate_y != 0.0 {
+            canvas.translate((translate_x, translate_y));
+        }
+
+        let scale = override_value.scale.unwrap_or(1.0);
+        let rotation_deg = override_value.rotation_deg.unwrap_or(0.0);
+        if scale != 1.0 || rotation_deg != 0.0 {
+            let pivot_x = unit_bounds.center_x();
+            let pivot_y = unit_bounds.center_y();
+            canvas.translate((pivot_x, pivot_y));
+            if rotation_deg != 0.0 {
+                canvas.rotate(rotation_deg, None);
+            }
+            if scale != 1.0 {
+                canvas.scale((scale, scale));
+            }
+            canvas.translate((-pivot_x, -pivot_y));
+        }
+
+        canvas.clip_path(&clip_path, skia_safe::ClipOp::Intersect, true);
+
+        if opacity < 1.0 {
+            let mut paint = Paint::default();
+            paint.set_anti_alias(true);
+            paint.set_alpha((opacity * 255.0).round() as u8);
+            let layer = SaveLayerRec::default().bounds(&unit_bounds).paint(&paint);
+            canvas.save_layer(&layer);
+            paragraph.paint(canvas, (left, top));
+            canvas.restore();
+        } else {
+            paragraph.paint(canvas, (left, top));
+        }
+
+        canvas.restore();
+    }
+}
+
 fn get_emoji_typeface() -> Option<Typeface> {
     EMOJI_TYPEFACE.with(|cached| {
         let mut cached = cached.borrow_mut();
@@ -123,6 +204,10 @@ fn shared_font_collection() -> FontCollection {
 
 fn make_paragraph(text: &str, style: &ComputedTextStyle, max_width: f32) -> Paragraph {
     let text = apply_text_transform(text, style.text_transform);
+    make_paragraph_from_text(&text, style, max_width)
+}
+
+fn make_paragraph_from_text(text: &str, style: &ComputedTextStyle, max_width: f32) -> Paragraph {
     let mut text_style = ParagraphTextStyle::new();
     text_style.set_color(skia_color(style.color));
     text_style.set_font_size(style.text_px);
@@ -142,6 +227,46 @@ fn make_paragraph(text: &str, style: &ComputedTextStyle, max_width: f32) -> Para
     let mut paragraph = builder.build();
     paragraph.layout(normalize_width(max_width));
     paragraph
+}
+
+fn build_text_unit_clip(boxes: &[TextBox], left: f32, top: f32) -> Option<(skia_safe::Path, Rect)> {
+    let mut bounds: Option<Rect> = None;
+    let mut builder = PathBuilder::new();
+
+    for text_box in boxes {
+        let rect = text_box.rect.with_offset((left, top));
+        builder.add_rect(
+            rect,
+            None::<skia_safe::PathDirection>,
+            None::<usize>,
+        );
+        match &mut bounds {
+            Some(current) => current.join(rect),
+            None => bounds = Some(rect),
+        }
+    }
+
+    bounds.map(|bounds| (builder.snapshot(), bounds))
+}
+
+fn describe_text_unit_ranges(text: &str, granularity: TextUnitGranularity) -> Vec<Range<usize>> {
+    match granularity {
+        TextUnitGranularity::Grapheme => UnicodeSegmentation::graphemes(text, true)
+            .scan(0usize, |offset, grapheme| {
+                let start = *offset;
+                *offset += grapheme.len();
+                Some(start..*offset)
+            })
+            .collect(),
+        TextUnitGranularity::Word => UnicodeSegmentation::split_word_bounds(text)
+            .filter(|segment| !segment.is_empty())
+            .scan(0usize, |offset, segment| {
+                let start = *offset;
+                *offset += segment.len();
+                Some(start..*offset)
+            })
+            .collect(),
+    }
 }
 
 fn font_style(weight: FontWeight) -> FontStyle {

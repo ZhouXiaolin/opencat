@@ -1,7 +1,7 @@
 use crate::{
     resource::assets::AssetId,
     resource::media::VideoFrameTiming,
-    scene::script::CanvasCommand,
+    scene::script::{CanvasCommand, TextUnitOverrideBatch},
     scene::transition::TransitionKind,
     style::{
         BackgroundFill, BorderRadius, BorderStyle, BoxShadow, ColorToken, ComputedTextStyle,
@@ -54,6 +54,9 @@ pub struct TextDisplayItem {
     pub style: ComputedTextStyle,
     pub allow_wrap: bool,
     pub drop_shadow: Option<DropShadow>,
+    pub text_unit_overrides: Option<TextUnitOverrideBatch>,
+    pub visual_expand_x: f32,
+    pub visual_expand_y: f32,
 }
 
 #[derive(Clone, Debug)]

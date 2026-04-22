@@ -14,7 +14,7 @@ use crate::{
         assets::{AssetId, AssetsMap},
         media::MediaContext,
     },
-    scene::script::{ScriptRuntimeCache, StyleMutations},
+    scene::script::{ScriptRuntimeCache, StyleMutations, TextUnitOverrideBatch},
     scene::{
         node::{ComponentNode, NodeKind},
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Text, Video},
@@ -369,11 +369,14 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
             },
         );
 
+        let text_unit_overrides = merge_text_unit_overrides(cx.mutation_stack, &style.id);
+
         Ok(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Text(ElementText {
                 text: content,
                 text_style: computed.text,
+                text_unit_overrides,
             }),
             style: computed,
             children: Vec::new(),
@@ -419,11 +422,14 @@ fn resolve_caption(
 
         let computed = compute_style(&style, cx.inherited_style);
 
+        let text_unit_overrides = merge_text_unit_overrides(cx.mutation_stack, &style.id);
+
         Ok(Some(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Text(ElementText {
                 text: content,
                 text_style: computed.text.clone(),
+                text_unit_overrides,
             }),
             style: computed,
             children: Vec::new(),
@@ -684,6 +690,50 @@ fn text_content_from_stack(stack: &[StyleMutations], id: &str) -> Option<String>
         .find_map(|m| m.text_content_for(id).map(str::to_string))
 }
 
+fn merge_text_unit_overrides(
+    stack: &[StyleMutations],
+    id: &str,
+) -> Option<TextUnitOverrideBatch> {
+    use crate::scene::script::TextUnitOverride;
+    let mut merged: Option<TextUnitOverrideBatch> = None;
+    for layer in stack {
+        let Some(batch) = layer
+            .get(id)
+            .and_then(|m| m.text_unit_overrides.as_ref()) else {
+            continue;
+        };
+
+        match &mut merged {
+            None => merged = Some(batch.clone()),
+            Some(current) => {
+                assert_eq!(current.granularity, batch.granularity, "mixed text unit granularities for node `{id}`");
+                if batch.overrides.len() > current.overrides.len() {
+                    current.overrides.resize_with(batch.overrides.len(), TextUnitOverride::default);
+                }
+                for (index, incoming) in batch.overrides.iter().enumerate() {
+                    let slot = &mut current.overrides[index];
+                    if incoming.opacity.is_some() {
+                        slot.opacity = incoming.opacity;
+                    }
+                    if incoming.translate_x.is_some() {
+                        slot.translate_x = incoming.translate_x;
+                    }
+                    if incoming.translate_y.is_some() {
+                        slot.translate_y = incoming.translate_y;
+                    }
+                    if incoming.scale.is_some() {
+                        slot.scale = incoming.scale;
+                    }
+                    if incoming.rotation_deg.is_some() {
+                        slot.rotation_deg = incoming.rotation_deg;
+                    }
+                }
+            }
+        }
+    }
+    merged
+}
+
 fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> ComputedStyle {
     let text = resolve_text_style(&inherited_style.text, style);
     ComputedStyle {
@@ -813,7 +863,9 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_ui_tree, resolve_ui_tree_with_script_cache};
+    use super::{
+        merge_text_unit_overrides, resolve_ui_tree, resolve_ui_tree_with_script_cache,
+    };
     use crate::{
         FrameCtx,
         element::tree::ElementKind,
@@ -821,7 +873,10 @@ mod tests {
         resource::{assets::AssetsMap, media::MediaContext},
         scene::easing::Easing,
         scene::primitives::{SrtEntry, caption, div, lucide, text},
-        scene::script::ScriptRuntimeCache,
+        scene::script::{
+            NodeStyleMutations, ScriptRuntimeCache, StyleMutations, TextUnitGranularity,
+            TextUnitOverride, TextUnitOverrideBatch,
+        },
         scene::time::{FrameState, frame_state_for_root},
         scene::transition::{slide, timeline},
     };
@@ -1039,6 +1094,42 @@ mod tests {
             panic!("child should resolve to lucide element");
         };
         assert_eq!(icon.icon, "briefcase");
+    }
+
+    #[test]
+    fn text_unit_overrides_merge_per_field_across_stack_layers() {
+        let mut lower = NodeStyleMutations::default();
+        lower.text_unit_overrides = Some(TextUnitOverrideBatch {
+            granularity: TextUnitGranularity::Grapheme,
+            overrides: vec![TextUnitOverride {
+                translate_y: Some(-12.0),
+                ..Default::default()
+            }],
+        });
+
+        let mut upper = NodeStyleMutations::default();
+        upper.text_unit_overrides = Some(TextUnitOverrideBatch {
+            granularity: TextUnitGranularity::Grapheme,
+            overrides: vec![TextUnitOverride {
+                opacity: Some(0.5),
+                ..Default::default()
+            }],
+        });
+
+        let stack = vec![
+            StyleMutations {
+                mutations: [("t".to_string(), lower)].into_iter().collect(),
+                canvas_mutations: Default::default(),
+            },
+            StyleMutations {
+                mutations: [("t".to_string(), upper)].into_iter().collect(),
+                canvas_mutations: Default::default(),
+            },
+        ];
+
+        let merged = merge_text_unit_overrides(&stack, "t").expect("merged batch");
+        assert_eq!(merged.overrides[0].translate_y, Some(-12.0));
+        assert_eq!(merged.overrides[0].opacity, Some(0.5));
     }
 
     #[test]

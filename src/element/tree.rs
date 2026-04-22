@@ -1,5 +1,5 @@
 use crate::resource::{assets::AssetId, media::VideoFrameTiming};
-use crate::scene::script::CanvasCommand;
+use crate::scene::script::{CanvasCommand, TextUnitOverrideBatch};
 use crate::scene::transition::TransitionKind;
 use crate::style::ComputedTextStyle;
 
@@ -42,6 +42,7 @@ pub struct ElementTimelineTransition {
 pub struct ElementText {
     pub text: String,
     pub text_style: ComputedTextStyle,
+    pub text_unit_overrides: Option<TextUnitOverrideBatch>,
 }
 
 #[derive(Clone, Debug)]

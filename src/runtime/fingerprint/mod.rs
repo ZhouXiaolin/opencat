@@ -148,13 +148,20 @@ pub(crate) fn annotated_subtree_paint_fingerprint(
 /// 基于已注解节点计算 subtree snapshot fingerprint。
 ///
 /// 要求所有后代的 `snapshot_fingerprint` 已经自底向上填充完成。
+/// 若子树中存在 `composite_dirty` 的后代，返回 `None`——这些子树每帧 fingerprint 都在抖动，
+/// 入 cache 只会污染（一次性 key、consecutive_hits=0、永不再查）。
 pub(crate) fn annotated_subtree_snapshot_fingerprint(
     node: &AnnotatedDisplayNode,
     nodes: &[AnnotatedDisplayNode],
     analysis: &DisplayAnalysisTable,
+    invalidation: &DisplayInvalidationTable,
     subtree_contains_time_variant: bool,
 ) -> Option<SubtreeSnapshotFingerprint> {
     if subtree_contains_time_variant {
+        return None;
+    }
+
+    if subtree_has_dirty_descendant_composite(node, nodes, invalidation) {
         return None;
     }
 
@@ -443,6 +450,7 @@ mod tests {
                 &annotated,
                 nodes,
                 analysis,
+                invalidation,
                 subtree_contains_time_variant,
             );
         }
@@ -684,6 +692,65 @@ mod tests {
         assert_ne!(
             fp_a, fp_b,
             "descendant transform is baked into the parent snapshot and must affect the key"
+        );
+    }
+
+    #[test]
+    fn snapshot_fingerprint_returns_none_for_dirty_descendant() {
+        // 直接后代 composite_dirty → 父节点 snapshot_fingerprint = None
+        let dirty_child = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(2),
+            composite_dirty: true,
+            ..Default::default()
+        });
+        let tree = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
+            children: vec![dirty_child],
+            ..Default::default()
+        }));
+        assert!(
+            tree.analysis(tree.root).snapshot_fingerprint.is_none(),
+            "parent with dirty descendant must have no snapshot_fingerprint"
+        );
+        // paint fingerprint 不受 composite_dirty 影响
+        assert!(
+            tree.analysis(tree.root).paint_fingerprint.is_some(),
+            "paint fingerprint is independent of composite dirty"
+        );
+
+        // 深层 dirty 孙节点 → 所有祖先 snapshot_fingerprint = None
+        let dirty_grandchild = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(3),
+            composite_dirty: true,
+            ..Default::default()
+        });
+        let clean_middle = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(2),
+            composite_dirty: false,
+            children: vec![dirty_grandchild],
+            ..Default::default()
+        });
+        let deep = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
+            children: vec![clean_middle],
+            ..Default::default()
+        }));
+        assert!(
+            deep.analysis(deep.root).snapshot_fingerprint.is_none(),
+            "root with dirty grandchild must have no snapshot_fingerprint"
+        );
+
+        // clean 树 → snapshot_fingerprint = Some
+        let clean_child = annotated_rect_node(AnnotatedRectConfig {
+            key: RenderNodeKey(2),
+            composite_dirty: false,
+            ..Default::default()
+        });
+        let clean = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
+            children: vec![clean_child],
+            ..Default::default()
+        }));
+        assert!(
+            clean.analysis(clean.root).snapshot_fingerprint.is_some(),
+            "clean tree must have snapshot_fingerprint"
         );
     }
 

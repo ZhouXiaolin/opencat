@@ -6,7 +6,7 @@ use crate::{
     element::resolve::resolve_ui_tree_with_script_cache,
     frame_ctx::{FrameCtx, ScriptFrameCtx},
     runtime::{
-        annotation::{AnnotatedDisplayTree, annotate_display_tree},
+        annotation::{AnnotatedDisplayTree, annotate_display_tree, compute_display_tree_fingerprints},
         compositor::{SceneRenderRuntime, plan_for_scene, render_scene},
         frame_view::RenderFrameView,
         invalidation::mark_display_tree_composite_dirty,
@@ -121,6 +121,7 @@ pub(crate) fn build_scene_display_list(
             &mut annotated,
             stats.layout_pass.structure_rebuild,
         );
+        compute_display_tree_fingerprints(&mut annotated);
         annotated
     };
     stats.contains_time_variant_paint = annotated_display_tree.contains_time_variant();

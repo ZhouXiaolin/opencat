@@ -8,6 +8,28 @@ use super::{
     justify_content_from_name, object_fit_from_name, position_from_name, text_align_from_name,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextUnitGranularity {
+    Grapheme,
+    Word,
+}
+
+// opacity should be in [0.0, 1.0]; downstream rendering will clamp
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TextUnitOverride {
+    pub opacity: Option<f32>,
+    pub translate_x: Option<f32>,
+    pub translate_y: Option<f32>,
+    pub scale: Option<f32>,
+    pub rotation_deg: Option<f32>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextUnitOverrideBatch {
+    pub granularity: TextUnitGranularity,
+    pub overrides: Vec<TextUnitOverride>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct NodeStyleMutations {
     pub position: Option<crate::style::Position>,
@@ -53,9 +75,11 @@ pub struct NodeStyleMutations {
     pub drop_shadow: Option<crate::style::DropShadow>,
     pub drop_shadow_color: Option<ColorToken>,
     pub text_content: Option<String>,
+    pub text_unit_overrides: Option<TextUnitOverrideBatch>,
 }
 
 impl NodeStyleMutations {
+    // text_unit_overrides is NOT applied here — it flows through the resolve/display pipeline separately
     pub fn apply_to(&self, style: &mut crate::style::NodeStyle) {
         if let Some(v) = self.position {
             style.position = Some(v);
@@ -473,6 +497,132 @@ pub(super) fn install_node_style_bindings<'js>(
                     },
                 );
             })?,
+        )?;
+    }
+
+    // Record a per-unit (grapheme/word) visual override for a text node.
+    // Arguments: id, granularity ("graphemes"|"words"), index, values_object
+    // values_object keys: opacity, translateX, translateY, scale, rotation
+    {
+        let s = store.clone();
+        globals.set(
+            "__record_text_unit_override",
+            Function::new(
+                ctx.clone(),
+                move |id: String,
+                      granularity: String,
+                      index: u32,
+                      values: rquickjs::Object<'js>| -> Result<(), rquickjs::Error> {
+                    let index = index as usize;
+                    let gran = match granularity.as_str() {
+                        "graphemes" => TextUnitGranularity::Grapheme,
+                        "words" => TextUnitGranularity::Word,
+                        _ => {
+                            return Err(rquickjs::Error::new_from_js_message(
+                                "text",
+                                "granularity",
+                                "unsupported granularity",
+                            ));
+                        }
+                    };
+
+                    let opacity: Option<f64> = values.get("opacity").ok().flatten();
+                    let translate_x: Option<f64> = values.get("translateX").ok().flatten();
+                    let translate_y: Option<f64> = values.get("translateY").ok().flatten();
+                    let scale: Option<f64> = values.get("scale").ok().flatten();
+                    let rotation_deg: Option<f64> = values.get("rotation").ok().flatten();
+
+                    let mut guard = s.lock().unwrap();
+                    let mutations = guard.styles.entry(id).or_default();
+                    match &mut mutations.text_unit_overrides {
+                        Some(batch) => {
+                            if batch.granularity != gran {
+                                return Err(rquickjs::Error::new_from_js_message(
+                                    "text",
+                                    "granularity",
+                                    "mixed text unit granularities are not allowed in one node",
+                                ));
+                            }
+                            if index >= batch.overrides.len() {
+                                batch.overrides.resize_with(index + 1, TextUnitOverride::default);
+                            }
+                        }
+                        None => {
+                            let mut batch = TextUnitOverrideBatch {
+                                granularity: gran,
+                                overrides: Vec::new(),
+                            };
+                            batch.overrides.resize_with(index + 1, TextUnitOverride::default);
+                            mutations.text_unit_overrides = Some(batch);
+                        }
+                    }
+                    let entry = &mut mutations
+                        .text_unit_overrides
+                        .as_mut()
+                        .unwrap()
+                        .overrides[index];
+                    if let Some(v) = opacity {
+                        entry.opacity = Some(v as f32);
+                    }
+                    if let Some(v) = translate_x {
+                        entry.translate_x = Some(v as f32);
+                    }
+                    if let Some(v) = translate_y {
+                        entry.translate_y = Some(v as f32);
+                    }
+                    if let Some(v) = scale {
+                        entry.scale = Some(v as f32);
+                    }
+                    if let Some(v) = rotation_deg {
+                        entry.rotation_deg = Some(v as f32);
+                    }
+                    Ok(())
+                },
+            )?,
+        )?;
+    }
+
+    // Minimal stub: describes text units for a node by splitting into code points.
+    // Task 4 will replace this with proper grapheme/word segmentation.
+    {
+        let s = store.clone();
+        globals.set(
+            "__text_units_describe",
+            Function::new(
+                ctx.clone(),
+                move |ctx_inner: rquickjs::Ctx<'js>, id: String, _granularity: String| -> Result<rquickjs::Array<'js>, rquickjs::Error> {
+                    let text = {
+                        let guard = s.lock().unwrap();
+                        guard
+                            .text_sources
+                            .get(&id)
+                            .map(|src| src.text.clone())
+                            .ok_or_else(|| {
+                                rquickjs::Error::new_from_js_message(
+                                    "text",
+                                    "id",
+                                    "no text source found for node",
+                                )
+                            })?
+                    };
+                    // guard dropped here
+                    let chars: Vec<char> = text.chars().collect();
+                    let result = rquickjs::Array::new(ctx_inner.clone())?;
+                    let mut byte_offset = 0usize;
+                    for (i, ch) in chars.iter().enumerate() {
+                        let start = byte_offset;
+                        let end = start + ch.len_utf8();
+                        let entry = rquickjs::Array::new(ctx_inner.clone())?;
+                        entry.set(0, i as f64)?;
+                        entry.set(1, ch.to_string())?;
+                        entry.set(2, start as f64)?;
+                        entry.set(3, end as f64)?;
+                        result.set(i, entry)?;
+                        byte_offset = end;
+                    }
+                    Ok(result)
+                },
+            )?,
         )?;
     }
 

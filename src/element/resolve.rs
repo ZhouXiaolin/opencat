@@ -361,6 +361,14 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         let content = text_content_from_stack(cx.mutation_stack, &style.id)
             .unwrap_or_else(|| text.content().to_string());
 
+        cx.script_runtime.register_text_source(
+            &style.id,
+            crate::scene::script::ScriptTextSource {
+                text: content.clone(),
+                kind: crate::scene::script::ScriptTextSourceKind::TextNode,
+            },
+        );
+
         Ok(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Text(ElementText {
@@ -400,6 +408,14 @@ fn resolve_caption(
             Some(content) => content,
             None => return Ok(None),
         };
+
+        cx.script_runtime.register_text_source(
+            &style.id,
+            crate::scene::script::ScriptTextSource {
+                text: content.clone(),
+                kind: crate::scene::script::ScriptTextSourceKind::Caption,
+            },
+        );
 
         let computed = compute_style(&style, cx.inherited_style);
 

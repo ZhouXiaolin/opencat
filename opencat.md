@@ -392,7 +392,12 @@ ctx.getNode('title').text(tw.text);
 
 Also exposes `progress`, `settled`, and `settleFrame` like `ctx.animate()`.
 
-Character counting uses `Array.from()`, so the effect is **grapheme-safe for CJK and emoji** — no broken surrogates.
+Character counting currently uses `Array.from()`, so the effect is code-point based.
+This works well for ASCII, CJK, and many single-emoji cases, but it is not a full grapheme-cluster
+splitter for ZWJ emoji or combining-mark sequences.
+
+`ctx.typewriter()` is a content-replacement helper: it produces the current string for the frame and
+is typically applied via `ctx.getNode(id).text(tw.text)`.
 
 ### ctx.alongPath(svgPath)
 

@@ -1704,4 +1704,23 @@ mod tests {
             "no caret once settled"
         );
     }
+
+    #[test]
+    fn script_driver_typewriter_counts_code_points_not_graphemes() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            var tw = ctx.typewriter("👨‍👩‍👧‍👦", { duration: 7, easing: 'linear' });
+            ctx.getNode("t").text(tw.text);
+        "#,
+        )
+        .expect("script should compile");
+
+        let f1 = driver.run(1, 10, 1, 10, None).expect("frame 1 should run");
+        let t = f1.get("t").expect("t mutation should exist");
+        assert_eq!(
+            t.text_content,
+            Some("👨".to_string()),
+            "current implementation reveals code points, not the full grapheme cluster"
+        );
+    }
 }

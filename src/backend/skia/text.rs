@@ -104,7 +104,9 @@ pub(crate) fn draw_text_with_unit_overrides(
     let layout_width = if allow_wrap { width } else { f32::INFINITY };
     let rendered_text = apply_text_transform(text, style.text_transform);
     let paragraph = make_paragraph_from_text(&rendered_text, style, layout_width);
-    let units = describe_text_unit_ranges(&rendered_text, batch.granularity);
+    // Use the original (pre-transform) text for unit segmentation so that
+    // JS-side split indices align with the rendered units.
+    let units = describe_text_unit_ranges(text, batch.granularity);
 
     for (index, unit) in units.into_iter().enumerate() {
         let override_value = batch
@@ -155,7 +157,7 @@ pub(crate) fn draw_text_with_unit_overrides(
             let mut paint = Paint::default();
             paint.set_anti_alias(true);
             paint.set_alpha((opacity * 255.0).round() as u8);
-            let layer = SaveLayerRec::default().bounds(&unit_bounds).paint(&paint);
+            let layer = SaveLayerRec::default().paint(&paint);
             canvas.save_layer(&layer);
             paragraph.paint(canvas, (left, top));
             canvas.restore();

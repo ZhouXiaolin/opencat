@@ -214,6 +214,19 @@ Animations are declared in JavaScript. Scripts run on every frame and read inter
 
 For scene-local animation, prefer `ctx.currentFrame` and `ctx.sceneFrames`.
 
+### Design: Precise Mathematical Computation
+
+OpenCat's animation system is **functionally pure**: every animated value is computed as `value = f(current_frame)` through exact mathematical formulas. There is no internal tick loop, no accumulated state, and no non-deterministic drift.
+
+- **Interpolation**: linear `from + (to - from) * easing(progress)`
+- **Spring**: solved from physical parameters (`stiffness`, `damping`, `mass`) with exact settle-time detection
+- **Color**: HSLA space with shortest-path hue rotation (handles 360° wrap-around)
+- **Path**: Skia `ContourMeasure` for sub-pixel-accurate arc-length sampling
+
+Scripts are re-executed every frame. The pattern is: declare an animation → read its current value → write it to a node. Declarative `targets` support (see below) automates the write step without changing the underlying math.
+
+---
+
 ### ctx.animate(opts)
 
 Declare a `from -> to` animation. The returned object exposes animated values through getters.
@@ -236,6 +249,53 @@ Additional fields:
 - `anim.progress`: progress from `0` to `1`
 - `anim.settled`: whether a spring animation has settled
 - `anim.settleFrame`: the frame where the spring settled
+
+**Declarative `targets` (auto-apply):**
+
+Pass `targets` to have the animation values applied to nodes automatically on every frame. This eliminates the manual `node.property(anim.property)` boilerplate.
+
+```js
+ctx.animate({
+  targets: 'hero',
+  from: { opacity: 0, translateY: 40 },
+  to:   { opacity: 1, translateY: 0 },
+  duration: 30,
+  easing: 'spring-gentle',
+});
+```
+
+`targets` accepts:
+- A single node id: `targets: 'node1'`
+- An array of ids: `targets: ['node1', 'node2', 'node3']`
+- Split-text parts: `targets: ctx.splitTextNode('title', { granularity: 'graphemes' })`
+
+**`from`-only semantics:**
+
+If you only specify `from`, the animation infers `to` from identity defaults (`opacity: 1`, `translateX/Y: 0`, `scale: 1`, `rotation: 0`, etc.). This matches GSAP's `gsap.from()` behaviour.
+
+```js
+ctx.animate({
+  targets: 'box',
+  from: { opacity: 0, translateY: 24 },
+  duration: 20,
+});
+// Implicit to: { opacity: 1, translateY: 0 }
+```
+
+**Stagger via `ctx.animate`:**
+
+When `targets` is an array, pass `stagger` to offset each target's delay:
+
+```js
+ctx.animate({
+  targets: ['a', 'b', 'c', 'd'],
+  from: { opacity: 0, translateY: 20 },
+  to:   { opacity: 1, translateY: 0 },
+  duration: 18,
+  stagger: 3,
+  easing: 'spring-gentle',
+});
+```
 
 **Repeat options:**
 
@@ -306,7 +366,7 @@ Notes:
 
 ### ctx.stagger(count, opts)
 
-Like `animate`, but creates multiple animations with staggered delay.
+Like `animate`, but creates multiple animations with staggered delay. Still returns an array of value objects, but now also supports `targets` for declarative application.
 
 ```js
 var anims = ctx.stagger(4, {
@@ -315,6 +375,20 @@ var anims = ctx.stagger(4, {
   gap: 4,
   duration: 20,
   easing: 'spring-gentle',
+});
+```
+
+**With `targets`:**
+
+When `targets` is provided, `count` is inferred from the target list length and each target receives its own staggered animation:
+
+```js
+ctx.stagger(0, {
+  targets: ['a', 'b', 'c', 'd'],
+  from: { opacity: 0, scale: 0.9 },
+  to:   { opacity: 1, scale: 1 },
+  gap: 3,
+  duration: 18,
 });
 ```
 
@@ -359,11 +433,14 @@ Step 0 runs `0..20` and advances cursor to `20`. Step 1 is pinned at frame `5` (
 
 **When to pick which**:
 
-| Use case | API |
-|----------|-----|
-| Single animation | `ctx.animate` |
-| N identical animations, uniform gap | `ctx.stagger` |
-| Heterogeneous steps, irregular gaps, overlaps, parallel branches | `ctx.sequence` |
+| Use case | API | Notes |
+|----------|-----|-------|
+| Single animation, manual apply | `ctx.animate({ from, to })` | Returns value object; you call `node.prop(anim.prop)` |
+| Single animation, auto-apply | `ctx.animate({ targets, from, to })` | `targets` handles the `node.prop()` calls for you |
+| N identical animations, uniform gap, manual apply | `ctx.stagger(count, { from, to, gap })` | Returns array of value objects |
+| N identical animations, uniform gap, auto-apply | `ctx.stagger(0, { targets, from, to, gap })` | `count` inferred from `targets` length |
+| Text units (graphemes / words), auto-apply | `ctx.splitTextNode(id, opts).animate({...})` | Built-in stagger; no manual loop |
+| Heterogeneous steps, irregular gaps, overlaps, parallel branches | `ctx.sequence` | Per-step `duration`, `easing`, `at` |
 
 ### ctx.typewriter(fullText, opts)
 
@@ -398,6 +475,93 @@ splitter for ZWJ emoji or combining-mark sequences.
 
 `ctx.typewriter()` is a content-replacement helper: it produces the current string for the frame and
 is typically applied via `ctx.getNode(id).text(tw.text)`.
+
+---
+
+### Text Animation (`ctx.splitTextNode`)
+
+OpenCat splits text into **grapheme clusters** (not code points) through Rust-side `unicode-segmentation`. This means ZWJ emoji (👨‍👩‍👧‍👦) and combining marks (é) are treated as single units, matching visual perception.
+
+`ctx.splitTextNode` reads the **resolved text source** — the actual text that will be rendered this frame, after any `text_content` mutations have been applied. This prevents double-source drift.
+
+```js
+var parts = ctx.splitTextNode('title', { granularity: 'graphemes' });
+```
+
+Each `part` exposes:
+
+| Property | Description |
+|----------|-------------|
+| `index` | Unit index |
+| `text`  | Unit string |
+| `start` / `end` | Byte offsets in the source string |
+
+And one method:
+
+| Method | Description |
+|--------|-------------|
+| `part.set({ opacity, translateX, translateY, scale, rotation })` | Batch-write visual overrides for this unit |
+
+#### Declarative animation: `parts.animate(opts)`
+
+Instead of manual `for` loops, use the built-in `animate` method on the parts array:
+
+```js
+ctx.splitTextNode('title', { granularity: 'graphemes' }).animate({
+  from: { opacity: 0, translateY: 38, scale: 0.86 },
+  to:   { opacity: 1, translateY: 0,  scale: 1 },
+  duration: 22,
+  delay: 8,
+  stagger: 2,
+  easing: 'spring-wobbly',
+});
+```
+
+This is equivalent to `ctx.stagger(parts.length, { targets: parts, ... })` — exact same math, zero boilerplate.
+
+#### Reverting overrides: `parts.revert()`
+
+Clear all overrides on the node and restore default appearance:
+
+```js
+var parts = ctx.splitTextNode('title', { granularity: 'graphemes' });
+// ... animate ...
+parts.revert();
+```
+
+#### `words` granularity
+
+```js
+ctx.splitTextNode('title', { granularity: 'words' }).animate({
+  from: { opacity: 0, translateX: 18 },
+  to:   { opacity: 1, translateX: 0 },
+  duration: 20,
+  stagger: 5,
+});
+```
+
+Whitespace is preserved as part of the source text; word units include spaces so layout cadence remains natural.
+
+#### Text animation + content effects
+
+`text_content` mutations (typewriter, scramble) and `text_unit_overrides` (split text) operate on **two independent layers**:
+
+1. **Content layer** (`text_content`): changes the string that gets laid out
+2. **Unit style layer** (`text_unit_overrides`): changes visual properties of already-laid-out units
+
+They can coexist. The resolved text source is determined first, then split text reads that resolved source, then overrides are applied.
+
+```js
+ctx.getNode('title').text('Hello');        // content layer
+ctx.splitTextNode('title', { granularity: 'graphemes' }).animate({
+  from: { opacity: 0 },
+  to:   { opacity: 1 },
+  duration: 12,
+  stagger: 1,
+});                                         // unit style layer
+```
+
+---
 
 ### ctx.alongPath(svgPath)
 

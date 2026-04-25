@@ -145,7 +145,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
         }),
         ElementKind::Text(text) => {
             let (visual_expand_x, visual_expand_y) =
-                conservative_text_visual_expansion(text.text_unit_overrides.as_ref());
+                conservative_text_visual_expansion(text.text_unit_overrides.as_ref(), text.text_style.text_px);
             DisplayItem::Text(TextDisplayItem {
                 bounds,
                 text: text.text.clone(),
@@ -203,21 +203,23 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
 
 fn conservative_text_visual_expansion(
     batch: Option<&crate::scene::script::TextUnitOverrideBatch>,
+    text_px: f32,
 ) -> (f32, f32) {
     let Some(batch) = batch else { return (0.0, 0.0); };
     let mut max_x = 0.0_f32;
     let mut max_y = 0.0_f32;
+    let base = text_px.max(1.0);
     for unit in &batch.overrides {
         max_x = max_x.max(unit.translate_x.unwrap_or(0.0).abs());
         max_y = max_y.max(unit.translate_y.unwrap_or(0.0).abs());
         let scale = unit.scale.unwrap_or(1.0);
         if scale > 1.0 {
-            max_x = max_x.max((scale - 1.0) * 32.0);
-            max_y = max_y.max((scale - 1.0) * 32.0);
+            max_x = max_x.max((scale - 1.0) * base);
+            max_y = max_y.max((scale - 1.0) * base);
         }
         if unit.rotation_deg.unwrap_or(0.0) != 0.0 {
-            max_x = max_x.max(16.0);
-            max_y = max_y.max(16.0);
+            max_x = max_x.max(base * 0.5);
+            max_y = max_y.max(base * 0.5);
         }
     }
     (max_x.ceil(), max_y.ceil())

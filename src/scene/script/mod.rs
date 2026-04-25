@@ -106,6 +106,10 @@ pub(crate) struct ScriptRuntimeCache {
 }
 
 impl ScriptRuntimeCache {
+    pub(crate) fn clear_text_sources(&mut self) {
+        self.text_sources.clear();
+    }
+
     /// Register a resolved text source for the given node id.
     /// This will be visible to scripts via `__text_source_get()` on the next frame.
     pub(crate) fn register_text_source(
@@ -295,10 +299,6 @@ impl ScriptRuntimeCache {
         frame_ctx: ScriptFrameCtx,
         current_node_id: Option<&str>,
     ) -> anyhow::Result<StyleMutations> {
-        // Clear text sources from the previous frame so that nodes removed
-        // between frames do not leave stale entries.
-        self.text_sources.clear();
-
         let key = driver.cache_key();
         let runner = match self.runners.entry(key) {
             std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),

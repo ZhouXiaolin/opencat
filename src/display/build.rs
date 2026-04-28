@@ -4,7 +4,7 @@ use crate::{
     display::{
         list::{
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
-            DisplayTransform, DrawScriptDisplayItem, LucideDisplayItem, LucidePaintStyle,
+            DisplayTransform, DrawScriptDisplayItem, SvgPathDisplayItem, SvgPathPaintStyle,
             RectDisplayItem, RectPaintStyle, TextDisplayItem, TimelineDisplayItem,
             TimelineTransitionDisplay,
         },
@@ -187,16 +187,16 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
             commands: canvas.commands.clone(),
             drop_shadow: element.style.visual.drop_shadow,
         }),
-        ElementKind::Lucide(lucide) => DisplayItem::Lucide(LucideDisplayItem {
+        ElementKind::SvgPath(svg) => DisplayItem::SvgPath(SvgPathDisplayItem {
             bounds,
-            icon: lucide.icon.clone(),
-            paint: LucidePaintStyle {
-                foreground: element.style.text.color,
-                background: element.style.visual.background,
-                border_width: element.style.visual.border_width,
-                border_color: element.style.visual.border_color,
+            path_data: svg.path_data.clone(),
+            paint: SvgPathPaintStyle {
+                fill: element.style.visual.background,
+                stroke_width: element.style.visual.border_width,
+                stroke_color: element.style.visual.border_color,
                 drop_shadow: element.style.visual.drop_shadow,
             },
+            view_box: svg.view_box,
         }),
     }
 }
@@ -637,16 +637,16 @@ mod tests {
 
         let tree = build_display_tree(&resolved, &layout_tree, &assets)
             .expect("display tree should build");
-        let DisplayItem::Lucide(lucide) = &tree.root.children[0].item else {
-            panic!("expected lucide item");
+        let DisplayItem::SvgPath(svg) = &tree.root.children[0].item else {
+            panic!("expected svg path item");
         };
-        assert_eq!(lucide.paint.foreground, ColorToken::Blue);
-        assert_eq!(lucide.paint.border_color, Some(ColorToken::Blue));
-        assert_eq!(lucide.paint.border_width, Some(3.5));
+        assert_eq!(svg.paint.stroke_color, Some(ColorToken::Blue));
+        assert_eq!(svg.paint.stroke_width, Some(3.5));
         assert_eq!(
-            lucide.paint.background,
+            svg.paint.fill,
             Some(crate::style::BackgroundFill::Solid(ColorToken::Sky200))
         );
+        assert_eq!(svg.view_box, [0.0, 0.0, 24.0, 24.0]);
     }
 
     #[test]
@@ -684,5 +684,89 @@ mod tests {
         let err =
             build_display_tree(&resolved, &layout_tree, &assets).expect_err("expected mismatch");
         assert!(err.to_string().contains("child count mismatch"));
+    }
+
+    #[test]
+    fn display_tree_builds_path_visuals() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let root = div().id("root").child(
+            crate::scene::primitives::path("M0 0 L 100 0 L 50 100 Z")
+                .id("triangle")
+                .size(100.0, 100.0)
+                .bg(ColorToken::Red500)
+                .border_color(ColorToken::Blue)
+                .border_w(2.0),
+        );
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let layout_tree = LayoutTree {
+            root: simple_layout(
+                "root",
+                LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 320.0,
+                    height: 180.0,
+                },
+                vec![simple_layout(
+                    "triangle",
+                    LayoutRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 100.0,
+                        height: 100.0,
+                    },
+                    Vec::new(),
+                )],
+            ),
+        };
+
+        let tree = build_display_tree(&resolved, &layout_tree, &assets)
+            .expect("display tree should build");
+        let DisplayItem::SvgPath(svg) = &tree.root.children[0].item else {
+            panic!(
+                "expected svg path item, got {:?}",
+                tree.root.children[0].item
+            );
+        };
+        assert_eq!(svg.path_data, vec!["M0 0 L 100 0 L 50 100 Z"]);
+        assert_eq!(svg.paint.stroke_width, Some(2.0));
+        assert_eq!(svg.paint.stroke_color, Some(ColorToken::Blue));
+        assert_eq!(
+            svg.paint.fill,
+            Some(crate::style::BackgroundFill::Solid(ColorToken::Red500))
+        );
+    }
+
+    #[test]
+    fn lucide_node_resolves_to_svg_path_with_default_stroke() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let root = div().id("root").child(lucide("play").id("icon"));
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+
+        let child = &resolved.children[0];
+        let crate::element::tree::ElementKind::SvgPath(svg) = &child.kind else {
+            panic!("expected SvgPath element, got {:?}", child.kind);
+        };
+        assert!(!svg.path_data.is_empty());
+        assert_eq!(svg.view_box, [0.0, 0.0, 24.0, 24.0]);
+        assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
     }
 }

@@ -40,7 +40,7 @@ pub(crate) fn analyze_stable_node_reuse(
                 StableNodeReuse::TextSnapshotLeaf
             }
         }
-        DisplayItem::Bitmap(_) | DisplayItem::Lucide(_) => StableNodeReuse::ItemPictureLeaf,
+        DisplayItem::Bitmap(_) | DisplayItem::SvgPath(_) => StableNodeReuse::ItemPictureLeaf,
         DisplayItem::DrawScript(_) => StableNodeReuse::DirectLeaf,
     }
 }
@@ -64,7 +64,7 @@ pub(crate) fn analyze_live_node_item_execution(
         DisplayItem::Rect(_)
         | DisplayItem::Text(_)
         | DisplayItem::Bitmap(_)
-        | DisplayItem::Lucide(_) => LiveNodeItemExecution::Direct,
+        | DisplayItem::SvgPath(_) => LiveNodeItemExecution::Direct,
     }
 }
 

@@ -38,7 +38,7 @@ pub enum DisplayItem {
     Text(TextDisplayItem),
     Bitmap(BitmapDisplayItem),
     DrawScript(DrawScriptDisplayItem),
-    Lucide(LucideDisplayItem),
+    SvgPath(SvgPathDisplayItem),
 }
 
 #[derive(Clone, Debug)]
@@ -125,19 +125,19 @@ pub struct BitmapPaintStyle {
 }
 
 #[derive(Clone, Debug)]
-pub struct LucidePaintStyle {
-    pub foreground: ColorToken,
-    pub background: Option<BackgroundFill>,
-    pub border_width: Option<f32>,
-    pub border_color: Option<ColorToken>,
+pub struct SvgPathPaintStyle {
+    pub fill: Option<BackgroundFill>,
+    pub stroke_width: Option<f32>,
+    pub stroke_color: Option<ColorToken>,
     pub drop_shadow: Option<DropShadow>,
 }
 
 #[derive(Clone, Debug)]
-pub struct LucideDisplayItem {
+pub struct SvgPathDisplayItem {
     pub bounds: DisplayRect,
-    pub icon: String,
-    pub paint: LucidePaintStyle,
+    pub path_data: Vec<String>,
+    pub paint: SvgPathPaintStyle,
+    pub view_box: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -189,7 +189,7 @@ impl DisplayItem {
             Self::Text(text) => text.bounds,
             Self::Bitmap(bitmap) => bitmap.bounds,
             Self::DrawScript(script) => script.bounds,
-            Self::Lucide(lucide) => lucide.bounds,
+            Self::SvgPath(svg) => svg.bounds,
         }
     }
 
@@ -209,7 +209,7 @@ impl DisplayItem {
             Self::Rect(rect) => rect.paint.box_shadow,
             Self::Timeline(timeline) => timeline.paint.box_shadow,
             Self::Bitmap(bitmap) => bitmap.paint.box_shadow,
-            Self::Text(_) | Self::DrawScript(_) | Self::Lucide(_) => None,
+            Self::Text(_) | Self::DrawScript(_) | Self::SvgPath(_) => None,
         };
         if let Some(shadow) = box_shadow {
             let (left, top, right, bottom) = shadow.outsets();
@@ -222,7 +222,7 @@ impl DisplayItem {
             Self::Text(text) => text.drop_shadow,
             Self::Bitmap(bitmap) => bitmap.paint.drop_shadow,
             Self::DrawScript(script) => script.drop_shadow,
-            Self::Lucide(lucide) => lucide.paint.drop_shadow,
+            Self::SvgPath(svg) => svg.paint.drop_shadow,
         };
         if let Some(shadow) = drop_shadow {
             let (left, top, right, bottom) = shadow.outsets();

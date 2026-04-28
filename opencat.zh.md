@@ -300,7 +300,7 @@ easing: [0.25, 0.1, 0.25, 1.0]
 脚本通过 `script` 记录附着到节点。
 
 ```json
-{"type": "script", "parentId": "scene1", "src": "var node = ctx.getNode('title');\nvar anim = ctx.animate({from:{opacity:0},to:{opacity:1},duration:20,easing:'spring-gentle'});\nnode.opacity(anim.opacity);"}
+{"type": "script", "parentId": "scene1", "src": "ctx.animate({targets:'title',from:{opacity:0},to:{opacity:1},duration:20,easing:'spring-gentle'});"}
 {"type": "script", "parentId": "scene1", "path": "scene1.js"}
 ```
 
@@ -323,12 +323,26 @@ easing: [0.25, 0.1, 0.25, 1.0]
 
 场景局部动画优先使用 `ctx.currentFrame` 和 `ctx.sceneFrames`。
 
-### 6.2 ctx.animate(opts)
+### 6.2 设计：精确数学计算
 
-声明 `from → to` 动画。返回对象通过 getter 暴露动画值。
+OpenCat 的动画系统是**函数式纯的**：每个动画值通过精确数学公式 `value = f(current_frame)` 计算。没有内部 tick 循环，没有累积状态，没有非确定性漂移。
+
+- **插值**：线性 `from + (to - from) * easing(progress)`
+- **弹簧**：通过物理参数（`stiffness`、`damping`、`mass`）求解，带精确稳定时间检测
+- **颜色**：HSLA 空间的插值，最短弧线旋转（处理 360° 环绕）
+- **路径**：通过 Skia `ContourMeasure` 实现亚像素精确弧长采样
+
+脚本每帧重新执行。模式是：声明动画 → 读取当前值 → 写入节点。声明式 `targets`（见下文）自动完成写入步骤，不改变底层数学计算。
+
+---
+
+### 6.3 ctx.animate(opts)
+
+声明 `from → to` 动画。值通过 `targets` 自动应用到节点。
 
 ```js
-var anim = ctx.animate({
+ctx.animate({
+  targets: 'hero',
   from: { opacity: 0, translateY: 40, scale: 0.95 },
   to:   { opacity: 1, translateY: 0,  scale: 1 },
   duration: 30,
@@ -336,8 +350,6 @@ var anim = ctx.animate({
   easing: 'spring-gentle',
   clamp: false,
 });
-
-node.opacity(anim.opacity).translateY(anim.translateY).scale(anim.scale);
 ```
 
 返回对象的额外 getter：
@@ -346,6 +358,41 @@ node.opacity(anim.opacity).translateY(anim.translateY).scale(anim.scale);
 - `anim.settled`：弹簧是否已稳定
 - `anim.settleFrame`：弹簧稳定的帧
 
+`targets` 接受：
+- 单个节点 id：`targets: 'hero'`
+- id 数组：`targets: ['node1', 'node2', 'node3']`
+- 分割文本部件：`targets: ctx.splitTextNode('title', { granularity: 'graphemes' })`
+
+`targets` 是首选模式。需要完全手动控制时（联动运动、派生值），返回对象的 getter 仍可直接使用（见 §6.11）。
+
+**仅 `from` 语义：**
+
+如果只指定 `from`，动画从身份默认值推断 `to`（`opacity: 1`、`translateX/Y: 0`、`scale: 1`、`rotation: 0` 等）。匹配 GSAP 的 `gsap.from()` 行为。
+
+```js
+ctx.animate({
+  targets: 'box',
+  from: { opacity: 0, translateY: 24 },
+  duration: 20,
+});
+// 隐式 to: { opacity: 1, translateY: 0 }
+```
+
+**通过 `ctx.animate` 交错：**
+
+当 `targets` 是数组时，传入 `stagger` 偏移每个目标的延迟：
+
+```js
+ctx.animate({
+  targets: ['a', 'b', 'c', 'd'],
+  from: { opacity: 0, translateY: 20 },
+  to:   { opacity: 1, translateY: 0 },
+  duration: 18,
+  stagger: 3,
+  easing: 'spring-gentle',
+});
+```
+
 **重复选项：**
 
 | 字段 | 默认值 | 说明 |
@@ -353,6 +400,21 @@ node.opacity(anim.opacity).translateY(anim.translateY).scale(anim.scale);
 | `repeat` | `0` | 额外循环次数。`0` = 播放一次，`N` = N+1 次，`-1` = 无限 |
 | `yoyo` | `false` | 交替循环反向播放 |
 | `repeatDelay` | `0` | 每次循环重启前保持的帧数 |
+
+颜色属性（`bg`、`textColor`、`borderColor`）与数值属性的动画方式相同——自动进行 HSLA 最短路径插值：
+
+```js
+ctx.animate({
+  targets: 'card',
+  from: { bg: '#ef4444' },
+  to:   { bg: 'hsl(220, 90%, 55%)' },
+  duration: 60,
+  repeat: -1,
+  yoyo: true,
+});
+```
+
+支持的颜色字面量：`#rgb` / `#rrggbb` / `#rrggbbaa`、`rgb(r,g,b)` / `rgba(r,g,b,a)`、`hsl(h,s%,l%)` / `hsla(h,s%,l%,a)`。Tailwind 标记如 `'blue-500'` **不会**被插值——请在 `from`/`to` 中使用 hex/rgb/hsl。
 
 #### 路径动画
 
@@ -378,39 +440,24 @@ ctx.getNode('ball')
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
-| `path` | — | SVG 路径字符串 |
-| `orient` | `0` | 相对于路径切线的旋转偏移（度） |
+| `path` | — | SVG 路径字符串（支持的命令见下文） |
+| `orient` | `0` | 相对于路径切线的旋转偏移（度）。向上朝向的形状使用 `-90` |
 
-**支持的 SVG 路径命令**（大写 = 绝对，小写 = 相对）：
+#### 关键帧（单动画多停驻点）
 
-| 命令 | 含义 |
-|------|------|
-| `M x y` / `m dx dy` | 移动到 |
-| `L x y` / `l dx dy` | 直线到 |
-| `H x` / `h dx` | 水平线到 |
-| `V y` / `v dy` | 垂直线到 |
-| `C x1 y1 x2 y2 x y` | 三次贝塞尔 |
-| `S x2 y2 x y` | 平滑三次贝塞尔 |
-| `Q x1 y1 x y` | 二次贝塞尔 |
-| `T x y` | 平滑二次贝塞尔 |
-| `A rx ry x-axis-rot large sweep x y` | 椭圆弧 |
-| `Z` / `z` | 闭合路径 |
-
-仅采样**第一个轮廓**。多个 `M` 命令（子路径）的后续部分会被忽略。
-
-#### 关键帧
-
-超过两个停驻点时，使用 `keyframes` 代替 `from`/`to`：
+单个动画需要超过两个停驻点时，使用 `keyframes` 代替 `from`/`to`：
 
 ```js
-// 简写：均匀分布
-var a = ctx.animate({
+// 简写：均匀分布的数值
+ctx.animate({
+  targets: 'card',
   keyframes: { scale: [1, 1.4, 0.8, 1] },
   duration: 60,
 });
 
-// 完整形式：显式 `at` + 可选的分段缓动
-var b = ctx.animate({
+// 完整形式：显式 `at`（归一化时间 [0, 1]）+ 可选的分段缓动
+ctx.animate({
+  targets: 'logo',
   keyframes: {
     rotate: [
       { at: 0,   value: 0 },
@@ -425,12 +472,26 @@ var b = ctx.animate({
 说明：
 
 - 关键帧仅支持**数值**。不支持颜色关键帧——颜色动画请使用 `from`/`to`。
-- `at` 归一化到 `[0, 1]`。外层 `easing` 先生效，然后通过分段缓动映射结果。
+- `at` 归一化到 `[0, 1]`；外层 `easing`（和 `repeat`/`yoyo`）先生效，然后通过分段缓动映射结果。
 - `keyframes` 和 `from`/`to` 可共存；同时定义的键以 `keyframes` 为准。
 
-### 6.3 ctx.stagger(count, opts)
+### 6.4 ctx.stagger(count, opts)
 
-类似 `animate`，但创建多个交错延迟的动画。
+类似 `animate`，但创建多个交错动画。始终配合 `targets` 使用。
+
+```js
+ctx.stagger(0, {
+  targets: ['a', 'b', 'c', 'd'],
+  from: { opacity: 0, scale: 0.9 },
+  to:   { opacity: 1, scale: 1 },
+  gap: 3,
+  duration: 18,
+});
+```
+
+提供 `targets` 时，`count` 从目标列表长度推断，每个目标接收自己交错的动画。
+
+对于需要逐节点手动控制的情况，`ctx.stagger(count, opts)` 返回值对象数组：
 
 ```js
 var anims = ctx.stagger(4, {
@@ -442,9 +503,9 @@ var anims = ctx.stagger(4, {
 });
 ```
 
-### 6.4 ctx.sequence(steps)
+### 6.5 ctx.sequence(steps)
 
-异构动画链，支持逐步骤计时、重叠和平行分支。
+异构动画链。每个步骤推进内部光标，因此每个步骤的 `duration`、`easing`、`from`、`to` 可以不同。当 `ctx.stagger`（相同动画、统一间隔）不够灵活时使用——不规则计时、重叠或平行分支。
 
 ```js
 var seq = ctx.sequence([
@@ -465,7 +526,9 @@ ctx.getNode('cta').scale(seq[2].scale);
 | `from`、`to`、`duration`、`easing`、`clamp` | — | 同 `ctx.animate()` |
 | `delay` | `0` | 步骤开始前的额外偏移 |
 | `gap` | `0` | 步骤结束后推进光标的帧数。负值表示与下一步重叠。 |
-| `at` | — | 绝对起始帧。固定步骤位置，不推进光标。 |
+| `at` | — | 绝对起始帧。设置后忽略光标且**不推进光标**。用于平行分支或固定锚点。 |
+
+每个返回项暴露与 `ctx.animate()` 相同的 getter（`progress`、`settled`、`settleFrame`，以及每个动画键）。
 
 **使用 `at` 的平行分支：**
 
@@ -481,13 +544,15 @@ var seq = ctx.sequence([
 
 | 使用场景 | API |
 |----------|-----|
-| 单个动画 | `ctx.animate` |
-| N 个相同动画，均匀间隔 | `ctx.stagger` |
+| 单动画 | `ctx.animate({ targets, from, to })` |
+| N 个相同动画，均匀间隔 | `ctx.stagger(0, { targets, from, to, gap })` |
+| 文本单元（字素/词） | `ctx.splitTextNode(id, opts).animate({...})` |
 | 异构步骤、不规则间隔、重叠、平行分支 | `ctx.sequence` |
+| 逐节点手动控制（联动运动、派生值） | `ctx.animate({ from, to })` + `ctx.getNode()` |
 
-### 6.5 ctx.typewriter(fullText, opts)
+### 6.6 ctx.typewriter(fullText, opts)
 
-逐字符打出文本。
+由动画曲线驱动，逐字符打出文本。返回一个对象，其 `text` getter 为当前帧产生正确的子字符串。
 
 ```js
 var tw = ctx.typewriter('Hello OpenCat', {
@@ -496,60 +561,150 @@ var tw = ctx.typewriter('Hello OpenCat', {
   easing: 'linear',
   caret: '▍',
 });
+
 ctx.getNode('title').text(tw.text);
 ```
+
+**选项：**
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
 | `duration` | — | 必填。从空字符串到完整字符串的帧数。 |
 | `delay` | `0` | 开始打字前等待的帧数。 |
-| `easing` | `'linear'` | 任意缓动。非线性可改变打字速度。 |
-| `clamp` | `true` | 防止过冲产生超出范围的字符数。 |
-| `caret` | `''` | 打字过程中附加的字符。完成后消失。 |
+| `easing` | `'linear'` | `ctx.animate()` 支持的任何缓动。非线性可改变打字速度。 |
+| `clamp` | `true` | 防止弹簧/贝塞尔过冲产生超出范围的字符数。 |
+| `caret` | `''` | 打字过程中附加的字符串。完整文本显示后消失。 |
 
-字符计数使用 `Array.from()`——对 CJK 和 emoji 安全（不会产生断裂的代理对）。
+也暴露 `progress`、`settled` 和 `settleFrame`，同 `ctx.animate()`。
 
-### 6.6 ctx.alongPath(svgPath)
+字符计数当前使用 `Array.from()`，因此效果基于 code point。
+这对 ASCII、CJK 和许多单 emoji 情况适用良好，但不是 ZWJ emoji 或组合标记序列的完整字素簇分割器。
 
-底层路径采样器。大多数情况应使用 `ctx.animate({ path: ... })`，它会自动处理缓存和计时。
+`ctx.typewriter()` 是一个内容替换辅助工具：为当前帧生成当前字符串，
+通常通过 `ctx.getNode(id).text(tw.text)` 应用。
 
-返回 `{ getLength(), at(t), dispose() }`。`at(t)` 接受 `t in [0, 1]`，返回 `{ x, y, angle }`——`angle` 是路径切线角度（度）。
+---
+
+### 6.7 文本动画（`ctx.splitTextNode`）
+
+OpenCat 通过 Rust 端的 `unicode-segmentation` 将文本分割为**字素簇**（而非 code point）。这意味着 ZWJ emoji（👨‍👩‍👧‍👦）和组合标记（é）被视为单个单元，匹配视觉感知。
+
+`ctx.splitTextNode` 读取**解析后的文本源**——当前帧实际渲染的文本，在任何 `text_content` 变更已应用之后。这防止了双源漂移。
 
 ```js
+var parts = ctx.splitTextNode('title', { granularity: 'graphemes' });
+```
+
+每个 `part` 暴露：
+
+| 属性 | 说明 |
+|------|------|
+| `index` | 单元索引 |
+| `text` | 单元字符串 |
+| `start` / `end` | 源字符串中的字节偏移 |
+
+和一个方法：
+
+| 方法 | 说明 |
+|------|------|
+| `part.set({ opacity, translateX, translateY, scale, rotation })` | 批量写入此单元的视觉覆盖 |
+
+#### 声明式动画：`parts.animate(opts)`
+
+无需手动 `for` 循环，使用部件数组内置的 `animate` 方法：
+
+```js
+ctx.splitTextNode('title', { granularity: 'graphemes' }).animate({
+  from: { opacity: 0, translateY: 38, scale: 0.86 },
+  to:   { opacity: 1, translateY: 0,  scale: 1 },
+  duration: 22,
+  delay: 8,
+  stagger: 2,
+  easing: 'spring-wobbly',
+});
+```
+
+等同于 `ctx.stagger(parts.length, { targets: parts, ... })`——相同的数学计算，零样板代码。
+
+#### 恢复覆盖：`parts.revert()`
+
+清除节点上的所有覆盖并恢复默认外观：
+
+```js
+var parts = ctx.splitTextNode('title', { granularity: 'graphemes' });
+// ... 动画 ...
+parts.revert();
+```
+
+#### `words` 粒度
+
+```js
+ctx.splitTextNode('title', { granularity: 'words' }).animate({
+  from: { opacity: 0, translateX: 18 },
+  to:   { opacity: 1, translateX: 0 },
+  duration: 20,
+  stagger: 5,
+});
+```
+
+空白字符保留在源文本中；词单元包含空格，使布局节奏自然。
+
+#### 文本动画 + 内容效果
+
+`text_content` 变更（打字机、乱码）和 `text_unit_overrides`（分割文本）在**两个独立层**上操作：
+
+1. **内容层**（`text_content`）：更改被布局的字符串
+2. **单元样式层**（`text_unit_overrides`）：更改已布局单元的视觉属性
+
+它们可以共存。先确定解析后的文本源，然后分割文本读取该源，然后应用覆盖。
+
+```js
+ctx.getNode('title').text('Hello');        // 内容层
+ctx.splitTextNode('title', { granularity: 'graphemes' }).animate({
+  from: { opacity: 0 },
+  to:   { opacity: 1 },
+  duration: 12,
+  stagger: 1,
+});                                         // 单元样式层
+```
+
+---
+
+### 6.8 ctx.alongPath(svgPath)
+
+底层路径采样器。大多数情况应使用 `ctx.animate({ path: ... })`（见 6.3），它会自动处理缓存和计时。
+
+返回一个带有 `getLength()`、`at(t)` 和 `dispose()` 的小对象。`at(t)` 接受 `t in [0, 1]`，返回 `{ x, y, angle }`——`angle` 是路径切线角度（**度**）。
+
+SVG 字符串在创建时解析一次；采样通过 Rust 的 Skia `ContourMeasure` 计算。
+
+```js
+// 手动使用（高级）：自行缓存测量器
 if (!ctx.__along) {
   ctx.__along = ctx.alongPath('M100 360 C400 80 880 640 1180 360');
 }
 var pos = ctx.__along.at(0.5);
+// pos = { x: ..., y: ..., angle: ... }
 ```
 
-始终将实例缓存在 `ctx.__yourKey` 上。`dispose()` 可选，但推荐在长时间运行的合成中使用。
+**支持的 SVG 路径命令**（大写 = 绝对，小写 = 相对）：
 
-### 6.7 颜色动画
+| 命令 | 含义 |
+|------|------|
+| `M x y` / `m dx dy` | 移动到 |
+| `L x y` / `l dx dy` | 直线到 |
+| `H x` / `h dx` | 水平线到 |
+| `V y` / `v dy` | 垂直线到 |
+| `C x1 y1 x2 y2 x y` | 三次贝塞尔 |
+| `S x2 y2 x y` | 平滑三次贝塞尔 |
+| `Q x1 y1 x y` | 二次贝塞尔 |
+| `T x y` | 平滑二次贝塞尔 |
+| `A rx ry x-axis-rot large sweep x y` | 椭圆弧 |
+| `Z` / `z` | 闭合路径 |
 
-`ctx.animate()` 自动插值颜色值。颜色转换为 HSLA，沿最短弧插值（处理 360→0 环绕），返回 `rgba(...)`。
+仅采样**第一个轮廓**。多个 `M` 命令（子路径）的后续部分会被忽略。
 
-```js
-var a = ctx.animate({
-  from: { bg: '#ef4444' },
-  to:   { bg: 'hsl(220, 90%, 55%)' },
-  duration: 60,
-  repeat: -1,
-  yoyo: true,
-});
-ctx.getNode('card').bg(a.bg);
-```
-
-支持的颜色字面量：
-
-- `#rgb` / `#rrggbb` / `#rrggbbaa`
-- `rgb(r, g, b)` / `rgba(r, g, b, a)`
-- `hsl(h, s%, l%)` / `hsla(h, s%, l%, a)`
-
-颜色始终被钳制——弹簧过冲不会将值推出色域之外。
-
-> Tailwind 标记如 `'blue-500'` **不会**被插值。要动画颜色，请在 `from`/`to` 中写 hex/rgb/hsl 格式。
-
-### 6.8 ctx.utils
+### 6.9 ctx.utils
 
 数值工具和**确定性**随机数。
 
@@ -565,7 +720,7 @@ ctx.utils.randomInt(min, max, seed?);      // 整数 [min, max]
 
 > 省略 `seed` 时，`ctx.utils.random` 回退到 `Math.random()`，每次渲染产生**不同输出**。**视频渲染务必传入 seed。**
 
-### 6.9 Node API
+### 6.10 Node API
 
 `ctx.getNode('id')` 返回可链式调用的代理对象。
 
@@ -596,9 +751,21 @@ node.strokeWidth(2).strokeColor('gray-300').fillColor('blue-500');
 node.text('Hello world');
 ```
 
-### 6.10 常见模式
+### 6.11 常见模式
 
-**交错入场：**
+**交错入场（优先使用 `targets`）：**
+
+```js
+ctx.stagger(0, {
+  targets: ['card-1', 'card-2', 'card-3'],
+  from: { opacity: 0, translateY: 30, scale: 0.9 },
+  to:   { opacity: 1, translateY: 0,  scale: 1 },
+  gap: 4,
+  easing: { spring: { stiffness: 80, damping: 14, mass: 1 } },
+});
+```
+
+**逐节点手动控制**（每个项目自定义缓动）：
 
 ```js
 var items = ['card-1', 'card-2', 'card-3'];
@@ -626,7 +793,7 @@ ctx.getNode('subtitle')
   .translateY(hero.translateY * 0.6);
 ```
 
-**循环脉冲：**
+**循环脉冲（需要手动控制）：**
 
 ```js
 var icons = ['icon-a', 'icon-b', 'icon-c'];
@@ -635,25 +802,21 @@ var cycleLen = 30;
 var activeIndex = Math.floor((frame % (icons.length * cycleLen)) / cycleLen);
 var cycleStart = frame - (frame % cycleLen);
 
-var entrance = ctx.stagger(icons.length, {
-  from: { scale: 0.85, translateY: 18 }, to: { scale: 1, translateY: 0 },
+var entrance = ctx.stagger(0, {
+  targets: icons,
+  from: { scale: 0.85, translateY: 18 },
+  to: { scale: 1, translateY: 0 },
   gap: 4, easing: 'spring-default',
 });
 
-icons.forEach(function(id, i) {
-  var s = entrance[i].scale;
-  if (i === activeIndex) {
-    var pulse = ctx.animate({
-      from: { scale: 1 }, to: { scale: 1.08 },
-      duration: cycleLen, delay: cycleStart, easing: 'spring-wobbly',
-    });
-    s = pulse.scale;
-  }
-  ctx.getNode(id).scale(s);
+var pulse = ctx.animate({
+  targets: icons[activeIndex],
+  from: { scale: 1 }, to: { scale: 1.08 },
+  duration: cycleLen, delay: cycleStart, easing: 'spring-wobbly',
 });
 ```
 
-### 6.11 限制
+### 6.12 限制
 
 - 不要使用 `document`、`window`、`requestAnimationFrame` 或 `element.style`。
 - 仅通过 `ctx.getNode()` 访问节点。

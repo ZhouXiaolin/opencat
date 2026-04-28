@@ -80,6 +80,51 @@
         return last.value;
     }
 
+    var ANIM_DEFAULTS = {
+        'opacity': 1,
+        'translateX': 0,
+        'translateY': 0,
+        'scale': 1,
+        'scaleX': 1,
+        'scaleY': 1,
+        'rotation': 0,
+        'skewX': 0,
+        'skewY': 0,
+        'x': 0,
+        'y': 0,
+        'left': 0,
+        'top': 0,
+        'right': 0,
+        'bottom': 0,
+        'width': 0,
+        'height': 0,
+    };
+
+    var ANIM_KEY_TO_SETTER = {
+        'opacity': 'opacity',
+        'translateX': 'translateX',
+        'translateY': 'translateY',
+        'scale': 'scale',
+        'scaleX': 'scaleX',
+        'scaleY': 'scaleY',
+        'rotation': 'rotate',
+        'skewX': 'skewX',
+        'skewY': 'skewY',
+        'x': 'left',
+        'y': 'top',
+        'left': 'left',
+        'top': 'top',
+        'right': 'right',
+        'bottom': 'bottom',
+        'width': 'width',
+        'height': 'height',
+        'bg': 'bg',
+        'textColor': 'textColor',
+        'borderRadius': 'borderRadius',
+        'borderWidth': 'borderWidth',
+        'borderColor': 'borderColor',
+    };
+
     function parseAnimateOptions(opts) {
         var from = opts.from || {};
         var to = opts.to || {};
@@ -91,9 +136,28 @@
         var repeat = opts.repeat !== undefined ? Number(opts.repeat) : 0;
         var yoyo = !!opts.yoyo;
         var repeatDelay = opts.repeatDelay !== undefined ? Number(opts.repeatDelay) : 0;
+        var stagger = opts.stagger || 0;
 
         if (duration === undefined && !isSpring) {
             throw new Error('duration is required for non-spring easing');
+        }
+
+        // GSAP-like from-only semantics: if only `from` is given, infer `to`
+        // from identity defaults so the animation plays from the given state
+        // back to the natural resting state.
+        var fromKeys = Object.keys(from);
+        var toKeys = Object.keys(to);
+        var allKeys = fromKeys.slice();
+        for (var ti = 0; ti < toKeys.length; ti++) {
+            if (allKeys.indexOf(toKeys[ti]) === -1) {
+                allKeys.push(toKeys[ti]);
+            }
+        }
+        for (var ki = 0; ki < allKeys.length; ki++) {
+            var key = allKeys[ki];
+            if (!(key in to)) {
+                to[key] = ANIM_DEFAULTS[key] !== undefined ? ANIM_DEFAULTS[key] : 0;
+            }
         }
 
         return {
@@ -106,7 +170,39 @@
             repeat: repeat,
             yoyo: yoyo,
             repeatDelay: repeatDelay,
+            stagger: stagger,
+            targets: opts.targets || null,
         };
+    }
+
+    function normalizeTargets(targets) {
+        if (typeof targets === 'string') return [targets];
+        if (Array.isArray(targets)) return targets.slice();
+        if (targets && typeof targets.set === 'function') return [targets];
+        return [];
+    }
+
+    function applyTargets(targets, keys, result) {
+        var list = normalizeTargets(targets);
+        for (var i = 0; i < list.length; i++) {
+            var target = list[i];
+            var values = {};
+            for (var k = 0; k < keys.length; k++) {
+                var key = keys[k];
+                var setterKey = ANIM_KEY_TO_SETTER[key] || key;
+                values[setterKey] = result[key];
+            }
+            if (typeof target.set === 'function') {
+                target.set(values);
+            } else if (typeof target === 'string') {
+                var node = ctx.getNode(target);
+                for (var sk in values) {
+                    if (values[sk] !== undefined) {
+                        node[sk](values[sk]);
+                    }
+                }
+            }
+        }
     }
 
     ctx.animate = function(opts) {
@@ -228,6 +324,10 @@
             enumerable: true,
         });
 
+        if (parsed.targets) {
+            applyTargets(parsed.targets, keys, result);
+        }
+
         return result;
     };
 
@@ -241,6 +341,11 @@
             if (!(toKeys[ti] in parsed.from)) {
                 keys.push(toKeys[ti]);
             }
+        }
+
+        var targetList = normalizeTargets(parsed.targets);
+        if (targetList.length > 0) {
+            count = targetList.length;
         }
 
         var results = [];
@@ -298,6 +403,12 @@
 
                 results.push(item);
             })(i);
+        }
+
+        if (targetList.length > 0) {
+            for (var si = 0; si < targetList.length && si < results.length; si++) {
+                applyTargets([targetList[si]], keys, results[si]);
+            }
         }
 
         return results;
@@ -493,5 +604,74 @@
                 }
             },
         };
+    };
+
+    ctx.splitTextNode = function(nodeId, opts) {
+        if (!nodeId) {
+            throw new Error("ctx.splitTextNode requires a node id");
+        }
+        var options = opts || {};
+        var granularity = options.granularity || "graphemes";
+        var text = __text_source_get(String(nodeId));
+        if (typeof text !== "string") {
+            throw new Error("no resolved text source for node `" + nodeId + "`");
+        }
+
+        var parts = __text_units_describe(String(nodeId), granularity);
+        var partsArray = parts.map(function(meta) {
+            var part = {
+                index: meta[0],
+                text: meta[1],
+                start: meta[2],
+                end: meta[3],
+                set: function(values) {
+                    values = values || {};
+                    __record_text_unit_override(
+                        String(nodeId),
+                        granularity,
+                        meta[0],
+                        values
+                    );
+                    return part;
+                }
+            };
+            return part;
+        });
+
+        partsArray.animate = function(animOpts) {
+            animOpts = animOpts || {};
+            var anims = ctx.stagger(partsArray.length, {
+                from: animOpts.from,
+                to: animOpts.to,
+                duration: animOpts.duration,
+                delay: animOpts.delay,
+                gap: animOpts.stagger !== undefined ? animOpts.stagger : (animOpts.gap || 0),
+                easing: animOpts.easing,
+                clamp: animOpts.clamp,
+                repeat: animOpts.repeat,
+                yoyo: animOpts.yoyo,
+                repeatDelay: animOpts.repeatDelay,
+                targets: partsArray
+            });
+            return {
+                length: partsArray.length,
+                values: anims
+            };
+        };
+
+        partsArray.revert = function() {
+            for (var i = 0; i < partsArray.length; i++) {
+                partsArray[i].set({
+                    opacity: 1,
+                    translateX: 0,
+                    translateY: 0,
+                    scale: 1,
+                    rotation: 0
+                });
+            }
+            return partsArray;
+        };
+
+        return partsArray;
     };
 })();

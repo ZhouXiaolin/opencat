@@ -14,7 +14,7 @@ use crate::{
         assets::{AssetId, AssetsMap},
         media::MediaContext,
     },
-    scene::script::{ScriptRuntimeCache, StyleMutations},
+    scene::script::{ScriptRuntimeCache, StyleMutations, TextUnitOverrideBatch},
     scene::{
         node::{ComponentNode, NodeKind},
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Text, Video},
@@ -83,6 +83,7 @@ pub(crate) fn resolve_ui_tree_with_script_cache(
     if let Some(mutations) = mutations.filter(|mutations| !mutations.is_empty()) {
         mutation_stack.push(mutations.clone());
     }
+    script_runtime.clear_text_sources();
     let mut cx = ResolveContext {
         frame_ctx,
         script_frame_ctx,
@@ -151,7 +152,7 @@ fn resolve_timeline(
     cx: &mut ResolveContext<'_>,
     media: &mut MediaContext,
 ) -> Result<ElementNode> {
-    let pushed = push_script_scope(timeline.style_ref(), cx)?;
+    let pushed = push_script_scope_for_visible_subtree(timeline, timeline.style_ref(), cx)?;
     let result = (|| {
         let mut style = timeline.style_ref().clone();
         if style.id.is_empty() {
@@ -269,8 +270,19 @@ fn resolve_component_optional(
     cx: &mut ResolveContext<'_>,
     media: &mut MediaContext,
 ) -> Result<Option<ElementNode>> {
-    let pushed = push_script_scope(component.style_ref(), cx)?;
     let resolved = component.render(cx.frame_ctx);
+    let pushed = if component.style_ref().script_driver.is_some() {
+        seed_text_sources_for_visible_subtree(
+            &resolved,
+            cx.frame_ctx,
+            cx.script_frame_ctx,
+            cx.mutation_stack,
+            cx.script_runtime,
+        );
+        push_script_scope(component.style_ref(), cx)?
+    } else {
+        false
+    };
     let result = resolve_node_optional(&resolved, cx, media);
     if pushed {
         cx.mutation_stack.pop();
@@ -294,8 +306,19 @@ fn resolve_component(
     cx: &mut ResolveContext<'_>,
     media: &mut MediaContext,
 ) -> Result<ElementNode> {
-    let pushed = push_script_scope(component.style_ref(), cx)?;
     let resolved = component.render(cx.frame_ctx);
+    let pushed = if component.style_ref().script_driver.is_some() {
+        seed_text_sources_for_visible_subtree(
+            &resolved,
+            cx.frame_ctx,
+            cx.script_frame_ctx,
+            cx.mutation_stack,
+            cx.script_runtime,
+        );
+        push_script_scope(component.style_ref(), cx)?
+    } else {
+        false
+    };
     let result = resolve_node(&resolved, cx, media);
     if pushed {
         cx.mutation_stack.pop();
@@ -308,7 +331,7 @@ fn resolve_div(
     cx: &mut ResolveContext<'_>,
     media: &mut MediaContext,
 ) -> Result<ElementNode> {
-    let pushed = push_script_scope(div.style_ref(), cx)?;
+    let pushed = push_script_scope_for_visible_subtree(div, div.style_ref(), cx)?;
     let result = (|| {
         let mut style = div.style_ref().clone();
         ensure!(
@@ -348,7 +371,7 @@ fn resolve_div(
 }
 
 fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
-    let pushed = push_script_scope(text.style_ref(), cx)?;
+    let pushed = push_script_scope_for_visible_subtree(text, text.style_ref(), cx)?;
     let result = (|| {
         let mut style = text.style_ref().clone();
         ensure!(
@@ -361,11 +384,14 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         let content = text_content_from_stack(cx.mutation_stack, &style.id)
             .unwrap_or_else(|| text.content().to_string());
 
+        let text_unit_overrides = merge_text_unit_overrides(cx.mutation_stack, &style.id);
+
         Ok(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Text(ElementText {
                 text: content,
                 text_style: computed.text,
+                text_unit_overrides,
             }),
             style: computed,
             children: Vec::new(),
@@ -381,7 +407,7 @@ fn resolve_caption(
     caption: &CaptionNode,
     cx: &mut ResolveContext<'_>,
 ) -> Result<Option<ElementNode>> {
-    let pushed = push_script_scope(caption.style_ref(), cx)?;
+    let pushed = push_script_scope_for_visible_subtree(caption, caption.style_ref(), cx)?;
     let result = (|| {
         let mut style = caption.style_ref().clone();
         ensure!(
@@ -403,11 +429,14 @@ fn resolve_caption(
 
         let computed = compute_style(&style, cx.inherited_style);
 
+        let text_unit_overrides = merge_text_unit_overrides(cx.mutation_stack, &style.id);
+
         Ok(Some(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Text(ElementText {
                 text: content,
                 text_style: computed.text.clone(),
+                text_unit_overrides,
             }),
             style: computed,
             children: Vec::new(),
@@ -420,7 +449,7 @@ fn resolve_caption(
 }
 
 fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
-    let pushed = push_script_scope(canvas.style_ref(), cx)?;
+    let pushed = push_script_scope_for_visible_subtree(canvas, canvas.style_ref(), cx)?;
     let result = (|| {
         let mut style = canvas.style_ref().clone();
         ensure!(
@@ -456,7 +485,7 @@ fn resolve_video(
     cx: &mut ResolveContext<'_>,
     media: &mut MediaContext,
 ) -> Result<ElementNode> {
-    let pushed = push_script_scope(video.style_ref(), cx)?;
+    let pushed = push_script_scope_for_visible_subtree(video, video.style_ref(), cx)?;
     let result = (|| {
         let mut style = video.style_ref().clone();
         ensure!(
@@ -501,7 +530,7 @@ fn resolve_image(
     cx: &mut ResolveContext<'_>,
     _media: &mut MediaContext,
 ) -> Result<ElementNode> {
-    let pushed = push_script_scope(image.style_ref(), cx)?;
+    let pushed = push_script_scope_for_visible_subtree(image, image.style_ref(), cx)?;
     let result = (|| {
         let mut style = image.style_ref().clone();
         ensure!(
@@ -533,7 +562,7 @@ fn resolve_image(
 }
 
 fn resolve_lucide(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
-    let pushed = push_script_scope(lucide.style_ref(), cx)?;
+    let pushed = push_script_scope_for_visible_subtree(lucide, lucide.style_ref(), cx)?;
     let result = (|| {
         let mut style = lucide.style_ref().clone();
         ensure!(
@@ -644,6 +673,134 @@ fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<b
     Ok(true)
 }
 
+fn push_script_scope_for_visible_subtree<T>(
+    node: &T,
+    style: &NodeStyle,
+    cx: &mut ResolveContext<'_>,
+) -> Result<bool>
+where
+    T: Clone + Into<NodeKind>,
+{
+    if style.script_driver.is_none() {
+        return Ok(false);
+    }
+
+    let seeded = Node::new(node.clone());
+    seed_text_sources_for_visible_subtree(
+        &seeded,
+        cx.frame_ctx,
+        cx.script_frame_ctx,
+        cx.mutation_stack,
+        cx.script_runtime,
+    );
+    push_script_scope(style, cx)
+}
+
+fn seed_text_sources_for_visible_subtree(
+    node: &Node,
+    frame_ctx: &FrameCtx,
+    script_frame_ctx: &ScriptFrameCtx,
+    mutation_stack: &[StyleMutations],
+    script_runtime: &mut ScriptRuntimeCache,
+) {
+    match node.kind() {
+        NodeKind::Component(component) => {
+            let rendered = component.render(frame_ctx);
+            seed_text_sources_for_visible_subtree(
+                &rendered,
+                frame_ctx,
+                script_frame_ctx,
+                mutation_stack,
+                script_runtime,
+            );
+        }
+        NodeKind::Div(div) => {
+            for child in div.children_ref() {
+                seed_text_sources_for_visible_subtree(
+                    child,
+                    frame_ctx,
+                    script_frame_ctx,
+                    mutation_stack,
+                    script_runtime,
+                );
+            }
+        }
+        NodeKind::Text(text) => {
+            let id = &text.style_ref().id;
+            if id.is_empty() {
+                return;
+            }
+            let content =
+                text_content_from_stack(mutation_stack, id).unwrap_or_else(|| text.content().to_string());
+            script_runtime.register_text_source(
+                id,
+                crate::scene::script::ScriptTextSource {
+                    text: content,
+                    kind: crate::scene::script::ScriptTextSourceKind::TextNode,
+                },
+            );
+        }
+        NodeKind::Caption(caption) => {
+            let id = &caption.style_ref().id;
+            if id.is_empty() {
+                return;
+            }
+            let content = text_content_from_stack(mutation_stack, id).or_else(|| {
+                caption
+                    .active_text(script_frame_ctx.current_frame)
+                    .map(str::to_string)
+            });
+            if let Some(content) = content {
+                script_runtime.register_text_source(
+                    id,
+                    crate::scene::script::ScriptTextSource {
+                        text: content,
+                        kind: crate::scene::script::ScriptTextSourceKind::Caption,
+                    },
+                );
+            }
+        }
+        NodeKind::Timeline(timeline) => {
+            let frame_state = frame_state_for_root(&Node::from(timeline.clone()), frame_ctx);
+            match frame_state {
+                FrameState::Scene {
+                    scene,
+                    script_frame_ctx,
+                } => seed_text_sources_for_visible_subtree(
+                    &scene,
+                    frame_ctx,
+                    &script_frame_ctx,
+                    mutation_stack,
+                    script_runtime,
+                ),
+                FrameState::Transition {
+                    from,
+                    to,
+                    from_script_frame_ctx,
+                    to_script_frame_ctx,
+                    ..
+                } => {
+                    seed_text_sources_for_visible_subtree(
+                        &from,
+                        frame_ctx,
+                        &from_script_frame_ctx,
+                        mutation_stack,
+                        script_runtime,
+                    );
+                    seed_text_sources_for_visible_subtree(
+                        &to,
+                        frame_ctx,
+                        &to_script_frame_ctx,
+                        mutation_stack,
+                        script_runtime,
+                    );
+                }
+            }
+        }
+        NodeKind::Canvas(_) | NodeKind::Image(_) | NodeKind::Lucide(_) | NodeKind::Video(_) => {}
+    }
+}
+
 fn apply_mutation_stack(style: &mut NodeStyle, stack: &[StyleMutations]) {
     let id = style.id.clone();
     for mutations in stack {
@@ -666,6 +823,52 @@ fn text_content_from_stack(stack: &[StyleMutations], id: &str) -> Option<String>
         .iter()
         .rev()
         .find_map(|m| m.text_content_for(id).map(str::to_string))
+}
+
+fn merge_text_unit_overrides(
+    stack: &[StyleMutations],
+    id: &str,
+) -> Option<TextUnitOverrideBatch> {
+    use crate::scene::script::TextUnitOverride;
+    let mut merged: Option<TextUnitOverrideBatch> = None;
+    for layer in stack {
+        let Some(batch) = layer
+            .get(id)
+            .and_then(|m| m.text_unit_overrides.as_ref()) else {
+            continue;
+        };
+
+        match &mut merged {
+            None => merged = Some(batch.clone()),
+            Some(current) => {
+                if current.granularity != batch.granularity {
+                    return None;
+                }
+                if batch.overrides.len() > current.overrides.len() {
+                    current.overrides.resize_with(batch.overrides.len(), TextUnitOverride::default);
+                }
+                for (index, incoming) in batch.overrides.iter().enumerate() {
+                    let slot = &mut current.overrides[index];
+                    if incoming.opacity.is_some() {
+                        slot.opacity = incoming.opacity;
+                    }
+                    if incoming.translate_x.is_some() {
+                        slot.translate_x = incoming.translate_x;
+                    }
+                    if incoming.translate_y.is_some() {
+                        slot.translate_y = incoming.translate_y;
+                    }
+                    if incoming.scale.is_some() {
+                        slot.scale = incoming.scale;
+                    }
+                    if incoming.rotation_deg.is_some() {
+                        slot.rotation_deg = incoming.rotation_deg;
+                    }
+                }
+            }
+        }
+    }
+    merged
 }
 
 fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> ComputedStyle {
@@ -797,7 +1000,9 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_ui_tree, resolve_ui_tree_with_script_cache};
+    use super::{
+        merge_text_unit_overrides, resolve_ui_tree, resolve_ui_tree_with_script_cache,
+    };
     use crate::{
         FrameCtx,
         element::tree::ElementKind,
@@ -805,7 +1010,10 @@ mod tests {
         resource::{assets::AssetsMap, media::MediaContext},
         scene::easing::Easing,
         scene::primitives::{SrtEntry, caption, div, lucide, text},
-        scene::script::ScriptRuntimeCache,
+        scene::script::{
+            NodeStyleMutations, ScriptRuntimeCache, StyleMutations, TextUnitGranularity,
+            TextUnitOverride, TextUnitOverrideBatch,
+        },
         scene::time::{FrameState, frame_state_for_root},
         scene::transition::{slide, timeline},
     };
@@ -1026,6 +1234,42 @@ mod tests {
     }
 
     #[test]
+    fn text_unit_overrides_merge_per_field_across_stack_layers() {
+        let mut lower = NodeStyleMutations::default();
+        lower.text_unit_overrides = Some(TextUnitOverrideBatch {
+            granularity: TextUnitGranularity::Grapheme,
+            overrides: vec![TextUnitOverride {
+                translate_y: Some(-12.0),
+                ..Default::default()
+            }],
+        });
+
+        let mut upper = NodeStyleMutations::default();
+        upper.text_unit_overrides = Some(TextUnitOverrideBatch {
+            granularity: TextUnitGranularity::Grapheme,
+            overrides: vec![TextUnitOverride {
+                opacity: Some(0.5),
+                ..Default::default()
+            }],
+        });
+
+        let stack = vec![
+            StyleMutations {
+                mutations: [("t".to_string(), lower)].into_iter().collect(),
+                canvas_mutations: Default::default(),
+            },
+            StyleMutations {
+                mutations: [("t".to_string(), upper)].into_iter().collect(),
+                canvas_mutations: Default::default(),
+            },
+        ];
+
+        let merged = merge_text_unit_overrides(&stack, "t").expect("merged batch");
+        assert_eq!(merged.overrides[0].translate_y, Some(-12.0));
+        assert_eq!(merged.overrides[0].opacity, Some(0.5));
+    }
+
+    #[test]
     fn transition_scenes_keep_node_scripts_isolated() {
         let frame_ctx = FrameCtx {
             frame: 10,
@@ -1143,6 +1387,42 @@ mod tests {
             ScriptFrameCtx::for_segment(&frame_ctx, 15, 10)
         );
         assert_eq!(resolved.children[0].style.visual.opacity, 0.6);
+    }
+
+    #[test]
+    fn parent_script_can_split_descendant_text_before_child_resolution() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let root = div()
+            .id("root")
+            .script_source(
+                r#"
+                var parts = ctx.splitTextNode("title", { granularity: "graphemes" });
+                parts[0].set({ opacity: 0.2 });
+            "#,
+            )
+            .expect("script should compile")
+            .child(text("Hello").id("title"));
+
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+            .expect("parent script should see descendant text source");
+
+        let ElementKind::Text(text) = &resolved.children[0].kind else {
+            panic!("child should resolve to text");
+        };
+        let batch = text
+            .text_unit_overrides
+            .as_ref()
+            .expect("text unit overrides should exist");
+        assert_eq!(batch.overrides[0].opacity, Some(0.2));
     }
 
     #[test]

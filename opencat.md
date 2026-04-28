@@ -333,7 +333,20 @@ Scripts are attached to nodes via `script` records and run on every frame using 
 
 For scene-local animation, prefer `ctx.currentFrame` and `ctx.sceneFrames`.
 
-### 6.2 ctx.animate(opts)
+### Design: Precise Mathematical Computation
+
+OpenCat's animation system is **functionally pure**: every animated value is computed as `value = f(current_frame)` through exact mathematical formulas. There is no internal tick loop, no accumulated state, and no non-deterministic drift.
+
+- **Interpolation**: linear `from + (to - from) * easing(progress)`
+- **Spring**: solved from physical parameters (`stiffness`, `damping`, `mass`) with exact settle-time detection
+- **Color**: HSLA space with shortest-path hue rotation (handles 360° wrap-around)
+- **Path**: Skia `ContourMeasure` for sub-pixel-accurate arc-length sampling
+
+Scripts are re-executed every frame. The pattern is: declare an animation → read its current value → write it to a node. Declarative `targets` support (see below) automates the write step without changing the underlying math.
+
+---
+
+### ctx.animate(opts)
 
 Declare a `from → to` animation. The returned object exposes animated values through getters.
 
@@ -355,6 +368,53 @@ Additional getters on the returned object:
 - `anim.progress`: `0` → `1`
 - `anim.settled`: whether a spring has settled
 - `anim.settleFrame`: frame where the spring settled
+
+**Declarative `targets` (auto-apply):**
+
+Pass `targets` to have the animation values applied to nodes automatically on every frame. This eliminates the manual `node.property(anim.property)` boilerplate.
+
+```js
+ctx.animate({
+  targets: 'hero',
+  from: { opacity: 0, translateY: 40 },
+  to:   { opacity: 1, translateY: 0 },
+  duration: 30,
+  easing: 'spring-gentle',
+});
+```
+
+`targets` accepts:
+- A single node id: `targets: 'node1'`
+- An array of ids: `targets: ['node1', 'node2', 'node3']`
+- Split-text parts: `targets: ctx.splitTextNode('title', { granularity: 'graphemes' })`
+
+**`from`-only semantics:**
+
+If you only specify `from`, the animation infers `to` from identity defaults (`opacity: 1`, `translateX/Y: 0`, `scale: 1`, `rotation: 0`, etc.). This matches GSAP's `gsap.from()` behaviour.
+
+```js
+ctx.animate({
+  targets: 'box',
+  from: { opacity: 0, translateY: 24 },
+  duration: 20,
+});
+// Implicit to: { opacity: 1, translateY: 0 }
+```
+
+**Stagger via `ctx.animate`:**
+
+When `targets` is an array, pass `stagger` to offset each target's delay:
+
+```js
+ctx.animate({
+  targets: ['a', 'b', 'c', 'd'],
+  from: { opacity: 0, translateY: 20 },
+  to:   { opacity: 1, translateY: 0 },
+  duration: 18,
+  stagger: 3,
+  easing: 'spring-gentle',
+});
+```
 
 **Repeat options:**
 
@@ -388,8 +448,256 @@ ctx.getNode('ball')
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `path` | — | SVG path string |
-| `orient` | `0` | Rotation offset in degrees from path tangent |
+| `path` | — | SVG path string (see supported commands below) |
+| `orient` | `0` | Rotation offset in degrees from path tangent. Use `-90` for upward-oriented shapes |
+
+### Keyframes (multiple stops in a single animation)
+
+For a single animation that needs more than two stops, pass `keyframes` instead of `from`/`to`:
+
+```js
+// Shorthand: numeric values evenly spaced over [0, 1]
+var a = ctx.animate({
+  keyframes: { scale: [1, 1.4, 0.8, 1] },
+  duration: 60,
+});
+ctx.getNode('card').scale(a.scale);
+
+// Full form: explicit `at` (normalised time in [0, 1]) + optional per-segment easing
+var b = ctx.animate({
+  keyframes: {
+    rotate: [
+      { at: 0,   value: 0 },
+      { at: 0.5, value: 360, easing: 'back-out' },
+      { at: 1,   value: 0 }
+    ],
+  },
+  duration: 60,
+});
+ctx.getNode('logo').rotate(b.rotate);
+```
+
+Notes:
+
+- Only **numeric values** are supported in keyframes (color keyframes are not yet supported -- animate colour with `from`/`to`).
+- `at` is normalised to `[0, 1]`; the **outer** `easing` (and `repeat`/`yoyo`) on `ctx.animate` still applies first, then the resulting progress is mapped through the per-segment easing.
+- `keyframes` and `from`/`to` may co-exist on the same animation, but keys defined in both are taken from `keyframes`.
+
+### ctx.stagger(count, opts)
+
+Like `animate`, but creates multiple animations with staggered delay. Still returns an array of value objects, but now also supports `targets` for declarative application.
+
+```js
+var anims = ctx.stagger(4, {
+  from: { opacity: 0, translateY: 30 },
+  to:   { opacity: 1, translateY: 0 },
+  gap: 4,
+  duration: 20,
+  easing: 'spring-gentle',
+});
+```
+
+**With `targets`:**
+
+When `targets` is provided, `count` is inferred from the target list length and each target receives its own staggered animation:
+
+```js
+ctx.stagger(0, {
+  targets: ['a', 'b', 'c', 'd'],
+  from: { opacity: 0, scale: 0.9 },
+  to:   { opacity: 1, scale: 1 },
+  gap: 3,
+  duration: 18,
+});
+```
+
+### ctx.sequence(steps)
+
+Declare a heterogeneous chain of animations. Each step advances an internal cursor so per-step `duration`, `easing`, `from`, and `to` can differ. This is the right tool when `ctx.stagger` (same animation, uniform gap) is not expressive enough — irregular timing, overlaps, or parallel branches.
+
+```js
+var seq = ctx.sequence([
+  { from: { opacity: 0, translateY: -20 }, to: { opacity: 1, translateY: 0 }, duration: 24, easing: 'spring-gentle' },
+  { from: { opacity: 0 }, to: { opacity: 1 }, duration: 18, gap: -6 },
+  { from: { scale: 0.8 }, to: { scale: 1 }, duration: 30, easing: 'spring-stiff' },
+]);
+
+ctx.getNode('title').opacity(seq[0].opacity).translateY(seq[0].translateY);
+ctx.getNode('subtitle').opacity(seq[1].opacity);
+ctx.getNode('cta').scale(seq[2].scale);
+```
+
+**Per-step fields**:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `from`, `to`, `duration`, `easing`, `clamp` | — | Same as `ctx.animate()` |
+| `delay` | `0` | Extra offset added to the cursor before this step starts |
+| `gap` | `0` | Advance the cursor by this many frames after this step ends. Negative to overlap with the next step. |
+| `at` | — | Absolute start frame. When set, this step ignores the cursor and **does not advance it**. Useful for parallel branches or pinned anchors. |
+
+Each returned item exposes the same getters as `ctx.animate()` (`progress`, `settled`, `settleFrame`, plus every animated key).
+
+**Parallel branches with `at`**:
+
+```js
+var seq = ctx.sequence([
+  { to: { opacity: 1 }, duration: 20 },
+  { to: { opacity: 1 }, duration: 30, at: 5 },
+  { to: { opacity: 1 }, duration: 10 },
+]);
+```
+
+Step 0 runs `0..20` and advances cursor to `20`. Step 1 is pinned at frame `5` (runs `5..35`) and the cursor is untouched. Step 2 starts from the cursor at `20` and runs `20..30`.
+
+**When to pick which**:
+
+| Use case | API | Notes |
+|----------|-----|-------|
+| Single animation, manual apply | `ctx.animate({ from, to })` | Returns value object; you call `node.prop(anim.prop)` |
+| Single animation, auto-apply | `ctx.animate({ targets, from, to })` | `targets` handles the `node.prop()` calls for you |
+| N identical animations, uniform gap, manual apply | `ctx.stagger(count, { from, to, gap })` | Returns array of value objects |
+| N identical animations, uniform gap, auto-apply | `ctx.stagger(0, { targets, from, to, gap })` | `count` inferred from `targets` length |
+| Text units (graphemes / words), auto-apply | `ctx.splitTextNode(id, opts).animate({...})` | Built-in stagger; no manual loop |
+| Heterogeneous steps, irregular gaps, overlaps, parallel branches | `ctx.sequence` | Per-step `duration`, `easing`, `at` |
+
+### ctx.typewriter(fullText, opts)
+
+Type out a string character by character, driven by an animation curve. Returns an object whose `text` getter produces the current substring for the given frame.
+
+```js
+var tw = ctx.typewriter('Hello OpenCat', {
+  duration: 30,
+  delay: 6,
+  easing: 'linear',
+  caret: '▍',
+});
+
+ctx.getNode('title').text(tw.text);
+```
+
+**Options**:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `duration` | — | Required. Frames from empty to full string. |
+| `delay` | `0` | Frames to wait before typing starts. |
+| `easing` | `'linear'` | Any easing supported by `ctx.animate()`. Non-linear varies typing speed. |
+| `clamp` | `true` | Prevents spring/bezier overshoot from producing out-of-range character counts. |
+| `caret` | `''` | String appended while typing is in progress. Disappears once the full text is revealed. |
+
+Also exposes `progress`, `settled`, and `settleFrame` like `ctx.animate()`.
+
+Character counting currently uses `Array.from()`, so the effect is code-point based.
+This works well for ASCII, CJK, and many single-emoji cases, but it is not a full grapheme-cluster
+splitter for ZWJ emoji or combining-mark sequences.
+
+`ctx.typewriter()` is a content-replacement helper: it produces the current string for the frame and
+is typically applied via `ctx.getNode(id).text(tw.text)`.
+
+---
+
+### Text Animation (`ctx.splitTextNode`)
+
+OpenCat splits text into **grapheme clusters** (not code points) through Rust-side `unicode-segmentation`. This means ZWJ emoji (👨‍👩‍👧‍👦) and combining marks (é) are treated as single units, matching visual perception.
+
+`ctx.splitTextNode` reads the **resolved text source** — the actual text that will be rendered this frame, after any `text_content` mutations have been applied. This prevents double-source drift.
+
+```js
+var parts = ctx.splitTextNode('title', { granularity: 'graphemes' });
+```
+
+Each `part` exposes:
+
+| Property | Description |
+|----------|-------------|
+| `index` | Unit index |
+| `text`  | Unit string |
+| `start` / `end` | Byte offsets in the source string |
+
+And one method:
+
+| Method | Description |
+|--------|-------------|
+| `part.set({ opacity, translateX, translateY, scale, rotation })` | Batch-write visual overrides for this unit |
+
+#### Declarative animation: `parts.animate(opts)`
+
+Instead of manual `for` loops, use the built-in `animate` method on the parts array:
+
+```js
+ctx.splitTextNode('title', { granularity: 'graphemes' }).animate({
+  from: { opacity: 0, translateY: 38, scale: 0.86 },
+  to:   { opacity: 1, translateY: 0,  scale: 1 },
+  duration: 22,
+  delay: 8,
+  stagger: 2,
+  easing: 'spring-wobbly',
+});
+```
+
+This is equivalent to `ctx.stagger(parts.length, { targets: parts, ... })` — exact same math, zero boilerplate.
+
+#### Reverting overrides: `parts.revert()`
+
+Clear all overrides on the node and restore default appearance:
+
+```js
+var parts = ctx.splitTextNode('title', { granularity: 'graphemes' });
+// ... animate ...
+parts.revert();
+```
+
+#### `words` granularity
+
+```js
+ctx.splitTextNode('title', { granularity: 'words' }).animate({
+  from: { opacity: 0, translateX: 18 },
+  to:   { opacity: 1, translateX: 0 },
+  duration: 20,
+  stagger: 5,
+});
+```
+
+Whitespace is preserved as part of the source text; word units include spaces so layout cadence remains natural.
+
+#### Text animation + content effects
+
+`text_content` mutations (typewriter, scramble) and `text_unit_overrides` (split text) operate on **two independent layers**:
+
+1. **Content layer** (`text_content`): changes the string that gets laid out
+2. **Unit style layer** (`text_unit_overrides`): changes visual properties of already-laid-out units
+
+They can coexist. The resolved text source is determined first, then split text reads that resolved source, then overrides are applied.
+
+```js
+ctx.getNode('title').text('Hello');        // content layer
+ctx.splitTextNode('title', { granularity: 'graphemes' }).animate({
+  from: { opacity: 0 },
+  to:   { opacity: 1 },
+  duration: 12,
+  stagger: 1,
+});                                         // unit style layer
+```
+
+---
+
+### ctx.alongPath(svgPath)
+
+Low-level path sampler. For most cases, prefer the `path` option on `ctx.animate()` (see above) which handles caching and timing automatically.
+
+Returns a small object with `getLength()`, `at(t)`, and `dispose()`. `at(t)` takes `t in [0, 1]` and returns `{ x, y, angle }` -- `angle` is the path tangent in **degrees**.
+
+The SVG string is parsed once on creation; sampling is computed in Rust via Skia's `ContourMeasure`.
+
+```js
+// Manual usage (advanced): cache the measurer yourself
+if (!ctx.__along) {
+  ctx.__along = ctx.alongPath('M100 360 C400 80 880 640 1180 360');
+}
+var pos = ctx.__along.at(0.5);
+// pos = { x: ..., y: ..., angle: ... }
+```
 
 **Supported SVG path commands** (uppercase = absolute, lowercase = relative):
 

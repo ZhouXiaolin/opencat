@@ -250,6 +250,7 @@
         );
 
         var result = {};
+
         if (keyframesNormalized) {
             for (var kfKey2 in keyframesNormalized) {
                 if (Object.prototype.hasOwnProperty.call(keyframesNormalized, kfKey2)) {
@@ -264,26 +265,6 @@
                     })(kfKey2, keyframesNormalized[kfKey2]);
                 }
             }
-        }
-        if (pathHandle != null) {
-            var _sp = -1, _sa = null;
-            function _pathSample() {
-                var p = __animate_progress(handle);
-                if (p !== _sp) { _sa = __along_path_at(pathHandle, p); _sp = p; }
-                return _sa;
-            }
-            Object.defineProperty(result, 'x', {
-                get: function() { return _pathSample()[0]; },
-                enumerable: true,
-            });
-            Object.defineProperty(result, 'y', {
-                get: function() { return _pathSample()[1]; },
-                enumerable: true,
-            });
-            Object.defineProperty(result, 'rotation', {
-                get: function() { return _pathSample()[2] + pathOrient; },
-                enumerable: true,
-            });
         }
         for (var ki = 0; ki < keys.length; ki++) {
             (function(key) {
@@ -308,6 +289,45 @@
                 }
             })(keys[ki]);
         }
+        if (pathHandle != null) {
+            var _sp = -1, _sa = null;
+            function _pathSample() {
+                var p = __animate_progress(handle);
+                if (p !== _sp) { _sa = __along_path_at(pathHandle, p); _sp = p; }
+                return _sa;
+            }
+            Object.defineProperty(result, 'x', {
+                get: function() { return _pathSample()[0]; },
+                enumerable: true,
+            });
+            Object.defineProperty(result, 'y', {
+                get: function() { return _pathSample()[1]; },
+                enumerable: true,
+            });
+            Object.defineProperty(result, 'rotation', {
+                get: function() { return _pathSample()[2] + pathOrient; },
+                enumerable: true,
+            });
+        }
+
+        var allKeys = keys.slice();
+        if (pathHandle != null) {
+            var pathKeys = ['x', 'y', 'rotation'];
+            for (var pk = 0; pk < pathKeys.length; pk++) {
+                if (allKeys.indexOf(pathKeys[pk]) === -1) {
+                    allKeys.push(pathKeys[pk]);
+                }
+            }
+        }
+        if (keyframesNormalized) {
+            for (var kfKey3 in keyframesNormalized) {
+                if (Object.prototype.hasOwnProperty.call(keyframesNormalized, kfKey3)) {
+                    if (allKeys.indexOf(kfKey3) === -1) {
+                        allKeys.push(kfKey3);
+                    }
+                }
+            }
+        }
 
         Object.defineProperty(result, 'progress', {
             get: function() { return __animate_progress(handle); },
@@ -325,7 +345,7 @@
         });
 
         if (parsed.targets) {
-            applyTargets(parsed.targets, keys, result);
+            applyTargets(parsed.targets, allKeys, result);
         }
 
         return result;

@@ -585,6 +585,11 @@ pub struct NodeStyle {
     pub overflow_hidden: bool,
     pub transforms: Vec<Transform>,
 
+    // SVG / Path (Tailwind align: fill-*, stroke-*)
+    pub fill_color: Option<ColorToken>,
+    pub stroke_color: Option<ColorToken>,
+    pub stroke_width: Option<f32>,
+
     // Text
     pub text_color: Option<ColorToken>,
     pub text_px: Option<f32>,
@@ -1264,21 +1269,17 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn stroke_width(mut self, width: f32) -> Self {
-                self.style.border_width = Some(width.max(0.0));
+                self.style.stroke_width = Some(width.max(0.0));
                 self
             }
 
             pub fn stroke_color(mut self, color: $crate::style::ColorToken) -> Self {
-                self.style.border_color = Some(color);
+                self.style.stroke_color = Some(color);
                 self
             }
 
             pub fn fill_color(mut self, color: $crate::style::ColorToken) -> Self {
-                self.style.bg_color = Some(color);
-                self.style.bg_gradient_from = None;
-                self.style.bg_gradient_via = None;
-                self.style.bg_gradient_to = None;
-                self.style.bg_gradient_direction = None;
+                self.style.fill_color = Some(color);
                 self
             }
 

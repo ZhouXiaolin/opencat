@@ -544,9 +544,12 @@ mod tests {
         let mutations = driver.run(0, 1, 0, 1, None).expect("script should run");
         let icon = mutations.get("icon").expect("icon mutation should exist");
 
-        assert_eq!(icon.border_color, Some(ColorToken::Blue));
-        assert_eq!(icon.border_width, Some(3.0));
-        assert_eq!(icon.bg_color, Some(ColorToken::Sky200));
+        assert_eq!(icon.stroke_color, Some(ColorToken::Blue));
+        assert_eq!(icon.stroke_width, Some(3.0));
+        assert_eq!(icon.fill_color, Some(ColorToken::Sky200));
+        assert_eq!(icon.border_color, None);
+        assert_eq!(icon.border_width, None);
+        assert_eq!(icon.bg_color, None);
     }
 
     #[test]

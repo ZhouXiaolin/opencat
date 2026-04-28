@@ -191,9 +191,9 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
             bounds,
             path_data: svg.path_data.clone(),
             paint: SvgPathPaintStyle {
-                fill: element.style.visual.background,
-                stroke_width: element.style.visual.border_width,
-                stroke_color: element.style.visual.border_color,
+                fill: element.style.visual.fill,
+                stroke_width: element.style.visual.stroke_width,
+                stroke_color: element.style.visual.stroke_color,
                 drop_shadow: element.style.visual.drop_shadow,
             },
             view_box: svg.view_box,
@@ -606,10 +606,9 @@ mod tests {
             lucide("play")
                 .id("icon")
                 .size(24.0, 24.0)
-                .text_blue()
-                .border_color(ColorToken::Blue)
-                .border_w(3.5)
-                .bg(ColorToken::Sky200),
+                .stroke_color(ColorToken::Blue)
+                .stroke_width(3.5)
+                .fill_color(ColorToken::Sky200),
         );
         let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
             .expect("tree should resolve");
@@ -701,9 +700,9 @@ mod tests {
             crate::scene::primitives::path("M0 0 L 100 0 L 50 100 Z")
                 .id("triangle")
                 .size(100.0, 100.0)
-                .bg(ColorToken::Red500)
-                .border_color(ColorToken::Blue)
-                .border_w(2.0),
+                .fill_color(ColorToken::Red500)
+                .stroke_color(ColorToken::Blue)
+                .stroke_width(2.0),
         );
         let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
             .expect("tree should resolve");

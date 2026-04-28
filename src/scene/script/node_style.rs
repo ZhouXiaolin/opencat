@@ -98,6 +98,9 @@ pub struct NodeStyleMutations {
     pub flex_grow: Option<f32>,
     pub opacity: Option<f32>,
     pub bg_color: Option<ColorToken>,
+    pub fill_color: Option<ColorToken>,
+    pub stroke_color: Option<ColorToken>,
+    pub stroke_width: Option<f32>,
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
     pub border_top_width: Option<f32>,
@@ -188,6 +191,15 @@ impl NodeStyleMutations {
         }
         if let Some(v) = self.bg_color {
             style.bg_color = Some(v);
+        }
+        if let Some(v) = self.fill_color {
+            style.fill_color = Some(v);
+        }
+        if let Some(v) = self.stroke_color {
+            style.stroke_color = Some(v);
+        }
+        if let Some(v) = self.stroke_width {
+            style.stroke_width = Some(v);
         }
         if let Some(v) = self.border_radius {
             style.border_radius = Some(crate::style::BorderRadius::uniform(v));
@@ -455,16 +467,16 @@ pub(super) fn install_node_style_bindings<'js>(
         }
     });
     set_style_binding!("__record_stroke_width", map, |id, v: f32| {
-        map.entry(id).or_default().border_width = Some(v.max(0.0));
+        map.entry(id).or_default().stroke_width = Some(v.max(0.0));
     });
     set_style_binding!("__record_stroke_color", map, |id, v: String| {
         if let Some(c) = color_from_name(&v) {
-            map.entry(id).or_default().border_color = Some(c);
+            map.entry(id).or_default().stroke_color = Some(c);
         }
     });
     set_style_binding!("__record_fill_color", map, |id, v: String| {
         if let Some(c) = color_from_name(&v) {
-            map.entry(id).or_default().bg_color = Some(c);
+            map.entry(id).or_default().fill_color = Some(c);
         }
     });
     set_style_binding!("__record_object_fit", map, |id, v: String| {

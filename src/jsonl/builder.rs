@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::scene::{
     easing::{Easing, SpringConfig, easing_from_name},
     node::Node,
-    primitives::{ImageSource, canvas, caption, div, image, lucide, parse_srt, text, video},
+    primitives::{ImageSource, canvas, caption, div, image, lucide, parse_srt, path, text, video},
     script::ScriptDriver,
     transition::{Transition, clock_wipe, fade, iris, light_leak, slide, timeline, wipe},
 };
@@ -255,6 +255,11 @@ fn build_node_inner(
             let mut icon_node = lucide(name.clone());
             icon_node.style = style;
             Ok(Node::new(icon_node))
+        }
+        ParsedElementKind::Path { data } => {
+            let mut path_node = path(data);
+            path_node.style = style;
+            Ok(Node::new(path_node))
         }
         ParsedElementKind::Video { path } => {
             let mut video_node = video(path);

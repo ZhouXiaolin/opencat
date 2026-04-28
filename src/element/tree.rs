@@ -21,7 +21,7 @@ pub enum ElementKind {
     Text(ElementText),
     Bitmap(ElementBitmap),
     Canvas(ElementCanvas),
-    Lucide(ElementLucide),
+    SvgPath(ElementSvgPath),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -59,8 +59,10 @@ pub struct ElementCanvas {
 }
 
 #[derive(Clone, Debug)]
-pub struct ElementLucide {
-    pub icon: String,
+pub struct ElementSvgPath {
+    pub path_data: Vec<String>,
+    pub view_box: [f32; 4],
+    pub intrinsic_size: Option<(f32, f32)>,
 }
 
 impl ElementNode {}

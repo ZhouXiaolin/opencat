@@ -52,7 +52,7 @@ enum CachedNodeKind {
     Text,
     Bitmap,
     Canvas,
-    Lucide,
+    SvgPath,
 }
 
 struct CachedLayoutNode {
@@ -357,7 +357,7 @@ fn cached_node_kind(element: &ElementNode) -> CachedNodeKind {
         ElementKind::Text(_) => CachedNodeKind::Text,
         ElementKind::Bitmap(_) => CachedNodeKind::Bitmap,
         ElementKind::Canvas(_) => CachedNodeKind::Canvas,
-        ElementKind::Lucide(_) => CachedNodeKind::Lucide,
+        ElementKind::SvgPath(_) => CachedNodeKind::SvgPath,
     }
 }
 
@@ -437,8 +437,8 @@ impl Hash for LayoutFingerprint<'_> {
                 bitmap.width.hash(state);
                 bitmap.height.hash(state);
             }
-            ElementKind::Lucide(lucide) => {
-                lucide.icon.hash(state);
+            ElementKind::SvgPath(svg) => {
+                svg.intrinsic_size.map(|(w, h)| (F32Hash(w), F32Hash(h))).hash(state);
             }
         }
     }
@@ -465,9 +465,11 @@ impl Hash for RasterFingerprint<'_> {
             ElementKind::Canvas(canvas) => {
                 canvas.commands.hash(state);
             }
-            ElementKind::Lucide(lucide) => {
-                lucide.icon.hash(state);
-                self.0.style.text.color.hash(state);
+            ElementKind::SvgPath(svg) => {
+                for data in &svg.path_data {
+                    data.hash(state);
+                }
+                svg.view_box.map(F32Hash).hash(state);
             }
         }
     }
@@ -784,17 +786,20 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             },
             ..base_style(element)
         },
-        ElementKind::Lucide(_) => Style {
-            size: taffy::geometry::Size {
-                width: resolve_dimension(layout.width, layout.width_full, Dimension::length(24.0)),
-                height: resolve_dimension(
-                    layout.height,
-                    layout.height_full,
-                    Dimension::length(24.0),
-                ),
-            },
-            ..base_style(element)
-        },
+        ElementKind::SvgPath(svg) => {
+            if let Some((default_w, default_h)) = svg.intrinsic_size {
+                Style {
+                    size: taffy::geometry::Size {
+                        width: resolve_dimension(layout.width, layout.width_full, Dimension::length(default_w)),
+                        height: resolve_dimension(layout.height, layout.height_full, Dimension::length(default_h)),
+                    },
+                    ..base_style(element)
+                }
+            } else {
+                // Path: no default intrinsic size, same as Div
+                base_style(element)
+            }
+        }
     }
 }
 
@@ -1442,7 +1447,7 @@ mod tests {
     }
 
     #[test]
-    fn layout_session_marks_lucide_color_change_as_raster_dirty() {
+    fn layout_session_marks_lucide_path_change_as_raster_dirty() {
         let frame_ctx = FrameCtx {
             frame: 0,
             fps: 30,
@@ -1456,11 +1461,11 @@ mod tests {
 
         let first = div()
             .id("root")
-            .child(lucide("play").id("icon").size(24.0, 24.0).text_blue())
+            .child(lucide("play").id("icon").size(24.0, 24.0))
             .into();
         let second = div()
             .id("root")
-            .child(lucide("play").id("icon").size(24.0, 24.0).text_pink())
+            .child(lucide("pause").id("icon").size(24.0, 24.0))
             .into();
 
         let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)

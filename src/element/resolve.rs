@@ -5,7 +5,7 @@ use crate::{
     element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
-            ElementBitmap, ElementCanvas, ElementDiv, ElementId, ElementKind, ElementLucide,
+            ElementBitmap, ElementCanvas, ElementDiv, ElementId, ElementKind, ElementSvgPath,
             ElementNode, ElementText, ElementTimeline, ElementTimelineTransition,
         },
     },
@@ -17,7 +17,7 @@ use crate::{
     scene::script::{ScriptRuntimeCache, StyleMutations, TextUnitOverrideBatch},
     scene::{
         node::{ComponentNode, NodeKind},
-        primitives::{Canvas, CaptionNode, Div, Image, Lucide, Text, Video},
+        primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video},
         time::TimelineNode,
         time::{FrameState, frame_state_for_root},
     },
@@ -108,7 +108,8 @@ fn resolve_node(
         NodeKind::Div(div) => resolve_div(div, cx, media),
         NodeKind::Canvas(canvas) => resolve_canvas(canvas, cx),
         NodeKind::Text(text) => resolve_text(text, cx),
-        NodeKind::Lucide(lucide) => resolve_lucide(lucide, cx),
+        NodeKind::Lucide(lucide) => resolve_lucide_svg_path(lucide, cx),
+        NodeKind::Path(path) => resolve_path(path, cx),
         NodeKind::Timeline(timeline) => resolve_timeline(timeline, cx, media),
         NodeKind::Caption(caption) => resolve_caption(caption, cx)?
             .ok_or_else(|| anyhow::anyhow!("caption node has no active text for frame")),
@@ -561,7 +562,7 @@ fn resolve_image(
     result
 }
 
-fn resolve_lucide(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
+fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(lucide, lucide.style_ref(), cx)?;
     let result = (|| {
         let mut style = lucide.style_ref().clone();
@@ -572,12 +573,25 @@ fn resolve_lucide(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<Elemen
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let icon = normalize_lucide_icon_name(lucide.icon());
         ensure_valid_lucide_icon(icon)?;
+
+        // Lucide default stroke 2.0
+        if style.border_width.is_none() {
+            style.border_width = Some(2.0);
+        }
+
         let computed = compute_style(&style, cx.inherited_style);
+
+        let paths = crate::lucide_icons::lucide_icon_paths(icon)
+            .expect("already validated by ensure_valid_lucide_icon");
+        let path_data: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
+        let view_box = [0.0, 0.0, 24.0, 24.0]; // Lucide fixed 24x24
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
-            kind: ElementKind::Lucide(ElementLucide {
-                icon: icon.to_string(),
+            kind: ElementKind::SvgPath(ElementSvgPath {
+                path_data,
+                view_box,
+                intrinsic_size: Some((24.0, 24.0)),
             }),
             style: computed,
             children: Vec::new(),
@@ -587,6 +601,70 @@ fn resolve_lucide(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<Elemen
         cx.mutation_stack.pop();
     }
     result
+}
+
+fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
+    let pushed = push_script_scope_for_visible_subtree(path, path.style_ref(), cx)?;
+    let result = (|| {
+        let mut style = path.style_ref().clone();
+        ensure!(
+            !style.id.is_empty(),
+            "node id is required for path nodes before rendering"
+        );
+        ensure!(
+            !path.data().is_empty(),
+            "path data must not be empty"
+        );
+        apply_mutation_stack(&mut style, cx.mutation_stack);
+        let computed = compute_style(&style, cx.inherited_style);
+
+        let path_data = vec![path.data().to_string()];
+
+        // Compute view_box: parse path data bounding box
+        let view_box = compute_path_view_box(&path_data);
+
+        Ok(ElementNode {
+            id: cx.ids.alloc(),
+            kind: ElementKind::SvgPath(ElementSvgPath {
+                path_data,
+                view_box,
+                intrinsic_size: None,
+            }),
+            style: computed,
+            children: Vec::new(),
+        })
+    })();
+    if pushed {
+        cx.mutation_stack.pop();
+    }
+    result
+}
+
+fn compute_path_view_box(path_data: &[String]) -> [f32; 4] {
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    let mut has_any = false;
+
+    for data in path_data {
+        if let Some(path) = skia_safe::Path::from_svg(data) {
+            let bounds = path.bounds();
+            min_x = min_x.min(bounds.left());
+            min_y = min_y.min(bounds.top());
+            max_x = max_x.max(bounds.right());
+            max_y = max_y.max(bounds.bottom());
+            has_any = true;
+        }
+    }
+
+    if !has_any {
+        return [0.0, 0.0, 24.0, 24.0]; // fallback
+    }
+
+    let w = (max_x - min_x).max(1.0);
+    let h = (max_y - min_y).max(1.0);
+    [min_x, min_y, w, h]
 }
 
 fn normalize_lucide_icon_name(name: &str) -> &str {
@@ -797,7 +875,7 @@ fn seed_text_sources_for_visible_subtree(
                 }
             }
         }
-        NodeKind::Canvas(_) | NodeKind::Image(_) | NodeKind::Lucide(_) | NodeKind::Video(_) => {}
+        NodeKind::Canvas(_) | NodeKind::Image(_) | NodeKind::Lucide(_) | NodeKind::Path(_) | NodeKind::Video(_) => {}
     }
 }
 
@@ -1202,10 +1280,12 @@ mod tests {
         let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
             .expect("deprecated alias should resolve");
 
-        let ElementKind::Lucide(icon) = &resolved.children[0].kind else {
-            panic!("child should resolve to lucide element");
+        let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
+            panic!("child should resolve to svg path element");
         };
-        assert_eq!(icon.icon, "house");
+        let expected_paths = crate::lucide_icons::lucide_icon_paths("house").expect("house icon");
+        assert_eq!(svg.path_data, expected_paths);
+        assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
     }
 
     #[test]
@@ -1227,10 +1307,12 @@ mod tests {
         let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
             .expect("deprecated alias should resolve");
 
-        let ElementKind::Lucide(icon) = &resolved.children[0].kind else {
-            panic!("child should resolve to lucide element");
+        let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
+            panic!("child should resolve to svg path element");
         };
-        assert_eq!(icon.icon, "briefcase");
+        let expected_paths = crate::lucide_icons::lucide_icon_paths("briefcase").expect("briefcase icon");
+        assert_eq!(svg.path_data, expected_paths);
+        assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
     }
 
     #[test]

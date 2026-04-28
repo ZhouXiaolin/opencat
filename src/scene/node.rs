@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     frame_ctx::FrameCtx,
     scene::{
-        primitives::{Canvas, CaptionNode, Div, Image, Lucide, Text, Video},
+        primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video},
         script::ScriptDriver,
         time::TimelineNode,
     },
@@ -53,6 +53,7 @@ pub enum NodeKind {
     Text(Text),
     Image(Image),
     Lucide(Lucide),
+    Path(Path),
     Video(Video),
     Timeline(TimelineNode),
     Caption(CaptionNode),
@@ -67,6 +68,7 @@ impl NodeKind {
             Self::Text(node) => node.style_ref(),
             Self::Image(node) => node.style_ref(),
             Self::Lucide(node) => node.style_ref(),
+            Self::Path(node) => node.style_ref(),
             Self::Video(node) => node.style_ref(),
             Self::Timeline(node) => node.style_ref(),
             Self::Caption(node) => node.style_ref(),
@@ -82,6 +84,7 @@ impl NodeKind {
             | Self::Canvas(_)
             | Self::Image(_)
             | Self::Lucide(_)
+            | Self::Path(_)
             | Self::Video(_)
             | Self::Caption(_) => None,
         }
@@ -95,6 +98,7 @@ impl NodeKind {
             Self::Text(node) => &mut node.style,
             Self::Image(node) => &mut node.style,
             Self::Lucide(node) => &mut node.style,
+            Self::Path(node) => &mut node.style,
             Self::Video(node) => &mut node.style,
             Self::Timeline(node) => &mut node.style,
             Self::Caption(node) => &mut node.style,
@@ -201,6 +205,12 @@ impl From<Lucide> for NodeKind {
     }
 }
 
+impl From<Path> for NodeKind {
+    fn from(value: Path) -> Self {
+        Self::Path(value)
+    }
+}
+
 impl From<Video> for NodeKind {
     fn from(value: Video) -> Self {
         Self::Video(value)
@@ -251,6 +261,12 @@ impl From<Image> for Node {
 
 impl From<Lucide> for Node {
     fn from(value: Lucide) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Path> for Node {
+    fn from(value: Path) -> Self {
         Self::new(value)
     }
 }

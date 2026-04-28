@@ -574,9 +574,12 @@ fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Resu
         let icon = normalize_lucide_icon_name(lucide.icon());
         ensure_valid_lucide_icon(icon)?;
 
-        // Lucide default stroke 2.0
-        if style.border_width.is_none() {
-            style.border_width = Some(2.0);
+        // Lucide default stroke width 2.0, default stroke color Black
+        if style.stroke_width.is_none() {
+            style.stroke_width = Some(2.0);
+        }
+        if style.stroke_color.is_none() {
+            style.stroke_color = Some(crate::style::ColorToken::Black);
         }
 
         let computed = compute_style(&style, cx.inherited_style);
@@ -1048,6 +1051,9 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
                     },
                 )
                 .or_else(|| style.bg_color.map(crate::style::BackgroundFill::Solid)),
+            fill: style
+                .fill_color
+                .map(crate::style::BackgroundFill::Solid),
             border_radius: style.border_radius.unwrap_or_default(),
             border_width: style.border_width,
             border_top_width: style.border_top_width,
@@ -1055,6 +1061,8 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             border_bottom_width: style.border_bottom_width,
             border_left_width: style.border_left_width,
             border_color: style.border_color,
+            stroke_color: style.stroke_color,
+            stroke_width: style.stroke_width,
             border_style: style.border_style,
             blur_sigma: style.blur_sigma,
             backdrop_blur_sigma: style.backdrop_blur_sigma,

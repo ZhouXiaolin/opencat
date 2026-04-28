@@ -10,13 +10,13 @@
 {"id": "s1-desc", "parentId": "s1-copy", "type": "text", "className": "text-[22px] text-slate-400 leading-[1.5] w-[620px]", "text": "Four scenes exercise text, image, video, canvas, icons, transforms and script animations — a single golden sample for render profile comparisons."}
 {"id": "s1-chip-row", "parentId": "s1-copy", "type": "div", "className": "flex flex-row gap-[12px] pt-[14px]"}
 {"id": "s1-chip-1", "parentId": "s1-chip-row", "type": "div", "className": "flex flex-row items-center gap-[8px] px-[18px] py-[10px] rounded-full bg-slate-900 border border-slate-800"}
-{"id": "s1-chip-1-icon", "parentId": "s1-chip-1", "type": "icon", "className": "w-[16px] h-[16px] text-cyan-300", "icon": "type"}
+{"id": "s1-chip-1-icon", "parentId": "s1-chip-1", "type": "icon", "className": "w-[16px] h-[16px] stroke-cyan-300", "icon": "type"}
 {"id": "s1-chip-1-text", "parentId": "s1-chip-1", "type": "text", "className": "text-[16px] font-semibold text-cyan-200", "text": "Text"}
 {"id": "s1-chip-2", "parentId": "s1-chip-row", "type": "div", "className": "flex flex-row items-center gap-[8px] px-[18px] py-[10px] rounded-full bg-slate-900 border border-slate-800"}
-{"id": "s1-chip-2-icon", "parentId": "s1-chip-2", "type": "icon", "className": "w-[16px] h-[16px] text-fuchsia-300", "icon": "image"}
+{"id": "s1-chip-2-icon", "parentId": "s1-chip-2", "type": "icon", "className": "w-[16px] h-[16px] stroke-fuchsia-300", "icon": "image"}
 {"id": "s1-chip-2-text", "parentId": "s1-chip-2", "type": "text", "className": "text-[16px] font-semibold text-fuchsia-200", "text": "Image"}
 {"id": "s1-chip-3", "parentId": "s1-chip-row", "type": "div", "className": "flex flex-row items-center gap-[8px] px-[18px] py-[10px] rounded-full bg-slate-900 border border-slate-800"}
-{"id": "s1-chip-3-icon", "parentId": "s1-chip-3", "type": "icon", "className": "w-[16px] h-[16px] text-amber-300", "icon": "video"}
+{"id": "s1-chip-3-icon", "parentId": "s1-chip-3", "type": "icon", "className": "w-[16px] h-[16px] stroke-amber-300", "icon": "video"}
 {"id": "s1-chip-3-text", "parentId": "s1-chip-3", "type": "text", "className": "text-[16px] font-semibold text-amber-200", "text": "Video"}
 {"id": "s1-decor", "parentId": "scene1", "type": "div", "className": "absolute right-[80px] top-[120px] w-[360px] h-[480px] rounded-[32px] overflow-hidden border border-slate-800"}
 {"id": "s1-decor-img", "parentId": "s1-decor", "type": "image", "className": "w-[360px] h-[480px] object-cover", "path": "/Users/solaren/Resources/png/3.png"}
@@ -30,27 +30,27 @@
 {"id": "s2-preview-video", "parentId": "s2-preview", "type": "video", "className": "w-[320px] h-[180px] object-cover", "path": "/Users/solaren/Resources/mp4/2.mp4"}
 {"id": "s2-grid", "parentId": "scene2", "type": "div", "className": "absolute left-[80px] top-[280px] grid grid-cols-3 gap-[22px] w-[1120px]"}
 {"id": "s2-card-1", "parentId": "s2-grid", "type": "div", "className": "flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200"}
-{"id": "s2-card-1-icon", "parentId": "s2-card-1", "type": "icon", "className": "w-[28px] h-[28px] text-cyan-500", "icon": "zap"}
+{"id": "s2-card-1-icon", "parentId": "s2-card-1", "type": "icon", "className": "w-[28px] h-[28px] stroke-cyan-500", "icon": "zap"}
 {"id": "s2-card-1-title", "parentId": "s2-card-1", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Fast paths"}
 {"id": "s2-card-1-body", "parentId": "s2-card-1", "type": "text", "className": "text-[14px] text-slate-500 leading-relaxed", "text": "Stable subtrees skip record."}
 {"id": "s2-card-2", "parentId": "s2-grid", "type": "div", "className": "flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200"}
-{"id": "s2-card-2-icon", "parentId": "s2-card-2", "type": "icon", "className": "w-[28px] h-[28px] text-rose-500", "icon": "layers"}
+{"id": "s2-card-2-icon", "parentId": "s2-card-2", "type": "icon", "className": "w-[28px] h-[28px] stroke-rose-500", "icon": "layers"}
 {"id": "s2-card-2-title", "parentId": "s2-card-2", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Layered caches"}
 {"id": "s2-card-2-body", "parentId": "s2-card-2", "type": "text", "className": "text-[14px] text-slate-500 leading-relaxed", "text": "Picture + image tiers."}
 {"id": "s2-card-3", "parentId": "s2-grid", "type": "div", "className": "flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200"}
-{"id": "s2-card-3-icon", "parentId": "s2-card-3", "type": "icon", "className": "w-[28px] h-[28px] text-emerald-500", "icon": "gauge"}
+{"id": "s2-card-3-icon", "parentId": "s2-card-3", "type": "icon", "className": "w-[28px] h-[28px] stroke-emerald-500", "icon": "gauge"}
 {"id": "s2-card-3-title", "parentId": "s2-card-3", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Measured"}
 {"id": "s2-card-3-body", "parentId": "s2-card-3", "type": "text", "className": "text-[14px] text-slate-500 leading-relaxed", "text": "Profile every transition."}
 {"id": "s2-card-4", "parentId": "s2-grid", "type": "div", "className": "flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200"}
-{"id": "s2-card-4-icon", "parentId": "s2-card-4", "type": "icon", "className": "w-[28px] h-[28px] text-amber-500", "icon": "sparkles"}
+{"id": "s2-card-4-icon", "parentId": "s2-card-4", "type": "icon", "className": "w-[28px] h-[28px] stroke-amber-500", "icon": "sparkles"}
 {"id": "s2-card-4-title", "parentId": "s2-card-4", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Animated"}
 {"id": "s2-card-4-body", "parentId": "s2-card-4", "type": "text", "className": "text-[14px] text-slate-500 leading-relaxed", "text": "Script-driven motion."}
 {"id": "s2-card-5", "parentId": "s2-grid", "type": "div", "className": "flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200"}
-{"id": "s2-card-5-icon", "parentId": "s2-card-5", "type": "icon", "className": "w-[28px] h-[28px] text-violet-500", "icon": "shapes"}
+{"id": "s2-card-5-icon", "parentId": "s2-card-5", "type": "icon", "className": "w-[28px] h-[28px] stroke-violet-500", "icon": "shapes"}
 {"id": "s2-card-5-title", "parentId": "s2-card-5", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Canvas"}
 {"id": "s2-card-5-body", "parentId": "s2-card-5", "type": "text", "className": "text-[14px] text-slate-500 leading-relaxed", "text": "CanvasKit draw script."}
 {"id": "s2-card-6", "parentId": "s2-grid", "type": "div", "className": "flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200"}
-{"id": "s2-card-6-icon", "parentId": "s2-card-6", "type": "icon", "className": "w-[28px] h-[28px] text-teal-500", "icon": "move-3d"}
+{"id": "s2-card-6-icon", "parentId": "s2-card-6", "type": "icon", "className": "w-[28px] h-[28px] stroke-teal-500", "icon": "move-3d"}
 {"id": "s2-card-6-title", "parentId": "s2-card-6", "type": "text", "className": "text-[20px] font-semibold text-slate-900", "text": "Transforms"}
 {"id": "s2-card-6-body", "parentId": "s2-card-6", "type": "text", "className": "text-[14px] text-slate-500 leading-relaxed", "text": "Stack stays composited."}
 {"id": null, "parentId": "scene2", "type": "script", "content": "ctx.stagger(0,{targets:['s2-card-1','s2-card-2','s2-card-3','s2-card-4','s2-card-5','s2-card-6'],from:{opacity:0,translateY:30,scale:0.94},to:{opacity:1,translateY:0,scale:1},gap:4,duration:22,easing:'spring-default'});ctx.animate({targets:'s2-header',from:{opacity:0,translateX:-24},to:{opacity:1,translateX:0},duration:26,easing:'spring-gentle'});ctx.animate({targets:'s2-preview',from:{opacity:0,scale:0.9},to:{opacity:1,scale:1},duration:28,delay:8,easing:'spring-default'})"}
@@ -74,15 +74,15 @@
 {"id": "s4-orb-inner", "parentId": "scene4", "type": "div", "className": "absolute left-[580px] top-[220px] w-[120px] h-[120px] rounded-full bg-cyan-300"}
 {"id": "s4-metrics", "parentId": "scene4", "type": "div", "className": "absolute left-[80px] bottom-[100px] flex flex-row gap-[22px] w-[1120px]"}
 {"id": "s4-metric-1", "parentId": "s4-metrics", "type": "div", "className": "flex flex-col gap-[8px] p-[22px] rounded-[20px] bg-slate-900 border border-slate-800 w-[360px]"}
-{"id": "s4-metric-1-icon", "parentId": "s4-metric-1", "type": "icon", "className": "w-[28px] h-[28px] text-cyan-300", "icon": "activity"}
+{"id": "s4-metric-1-icon", "parentId": "s4-metric-1", "type": "icon", "className": "w-[28px] h-[28px] stroke-cyan-300", "icon": "activity"}
 {"id": "s4-metric-1-value", "parentId": "s4-metric-1", "type": "text", "className": "text-[44px] font-bold text-white leading-none", "text": "4.8%"}
 {"id": "s4-metric-1-label", "parentId": "s4-metric-1", "type": "text", "className": "text-[16px] text-slate-400", "text": "subtree_snapshot_record ↓"}
 {"id": "s4-metric-2", "parentId": "s4-metrics", "type": "div", "className": "flex flex-col gap-[8px] p-[22px] rounded-[20px] bg-slate-900 border border-slate-800 w-[360px]"}
-{"id": "s4-metric-2-icon", "parentId": "s4-metric-2", "type": "icon", "className": "w-[28px] h-[28px] text-fuchsia-300", "icon": "layers"}
+{"id": "s4-metric-2-icon", "parentId": "s4-metric-2", "type": "icon", "className": "w-[28px] h-[28px] stroke-fuchsia-300", "icon": "layers"}
 {"id": "s4-metric-2-value", "parentId": "s4-metric-2", "type": "text", "className": "text-[44px] font-bold text-white leading-none", "text": "+10.7%"}
 {"id": "s4-metric-2-label", "parentId": "s4-metric-2", "type": "text", "className": "text-[16px] text-slate-400", "text": "subtree cache utilisation"}
 {"id": "s4-metric-3", "parentId": "s4-metrics", "type": "div", "className": "flex flex-col gap-[8px] p-[22px] rounded-[20px] bg-slate-900 border border-slate-800 w-[360px]"}
-{"id": "s4-metric-3-icon", "parentId": "s4-metric-3", "type": "icon", "className": "w-[28px] h-[28px] text-amber-300", "icon": "rocket"}
+{"id": "s4-metric-3-icon", "parentId": "s4-metric-3", "type": "icon", "className": "w-[28px] h-[28px] stroke-amber-300", "icon": "rocket"}
 {"id": "s4-metric-3-value", "parentId": "s4-metric-3", "type": "text", "className": "text-[44px] font-bold text-white leading-none", "text": "11.1"}
 {"id": "s4-metric-3-label", "parentId": "s4-metric-3", "type": "text", "className": "text-[16px] text-slate-400", "text": "effective fps"}
 {"id": "s4-title", "parentId": "scene4", "type": "text", "className": "absolute left-[80px] top-[110px] text-[68px] font-bold text-white leading-[1.0] w-[1120px]", "text": "Profile benchmark complete"}

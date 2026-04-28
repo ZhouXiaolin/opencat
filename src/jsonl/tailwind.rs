@@ -522,6 +522,8 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
     if apply_bracket_hex_color_rule(class, "bg-[", ColorTarget::Bg, style)
         || apply_bracket_hex_color_rule(class, "text-[", ColorTarget::Text, style)
         || apply_bracket_hex_color_rule(class, "border-[", ColorTarget::Border, style)
+        || apply_bracket_hex_color_rule(class, "fill-[", ColorTarget::Fill, style)
+        || apply_bracket_hex_color_rule(class, "stroke-[", ColorTarget::Stroke, style)
     {
         return true;
     }
@@ -602,6 +604,25 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         .and_then(|value| value.parse::<f32>().ok())
     {
         style.border_width = Some(n);
+        return true;
+    }
+
+    // Tailwind stroke-width: stroke-0 | stroke-1 | stroke-2; stroke-[n] for arbitrary
+    if let Some(n) = parse_prefixed_bracket_f32(class, "stroke-[") {
+        style.stroke_width = Some(n);
+        return true;
+    }
+    if let Some(n) = class
+        .strip_prefix("stroke-")
+        .filter(|_| !class.starts_with("stroke-["))
+        .and_then(|value| match value {
+            "0" => Some(0.0),
+            "1" => Some(1.0),
+            "2" => Some(2.0),
+            _ => None,
+        })
+    {
+        style.stroke_width = Some(n);
         return true;
     }
 
@@ -708,6 +729,8 @@ enum ColorTarget {
     Bg,
     Text,
     Border,
+    Fill,
+    Stroke,
     GradientFrom,
     GradientVia,
     GradientTo,
@@ -1212,6 +1235,8 @@ fn apply_color_target(style: &mut NodeStyle, target: ColorTarget, value: ColorTo
         ColorTarget::Bg => style.bg_color = Some(value),
         ColorTarget::Text => style.text_color = Some(value),
         ColorTarget::Border => style.border_color = Some(value),
+        ColorTarget::Fill => style.fill_color = Some(value),
+        ColorTarget::Stroke => style.stroke_color = Some(value),
         ColorTarget::GradientFrom => style.bg_gradient_from = Some(value),
         ColorTarget::GradientVia => style.bg_gradient_via = Some(value),
         ColorTarget::GradientTo => style.bg_gradient_to = Some(value),

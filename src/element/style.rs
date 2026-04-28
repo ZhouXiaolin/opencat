@@ -100,6 +100,7 @@ pub struct ComputedLayoutStyle {
 pub struct ComputedVisualStyle {
     pub opacity: f32,
     pub background: Option<BackgroundFill>,
+    pub fill: Option<BackgroundFill>,
     pub border_radius: crate::style::BorderRadius,
     pub border_width: Option<f32>,
     pub border_top_width: Option<f32>,
@@ -107,6 +108,8 @@ pub struct ComputedVisualStyle {
     pub border_bottom_width: Option<f32>,
     pub border_left_width: Option<f32>,
     pub border_color: Option<crate::style::ColorToken>,
+    pub stroke_color: Option<crate::style::ColorToken>,
+    pub stroke_width: Option<f32>,
     pub border_style: Option<crate::style::BorderStyle>,
     pub blur_sigma: Option<f32>,
     pub backdrop_blur_sigma: Option<f32>,

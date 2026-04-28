@@ -787,17 +787,15 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             ..base_style(element)
         },
         ElementKind::SvgPath(svg) => {
-            if let Some((default_w, default_h)) = svg.intrinsic_size {
-                Style {
-                    size: taffy::geometry::Size {
-                        width: resolve_dimension(layout.width, layout.width_full, Dimension::length(default_w)),
-                        height: resolve_dimension(layout.height, layout.height_full, Dimension::length(default_h)),
-                    },
-                    ..base_style(element)
-                }
-            } else {
-                // Path: no default intrinsic size, same as Div
-                base_style(element)
+            let (default_w, default_h) = svg
+                .intrinsic_size
+                .unwrap_or((svg.view_box[2], svg.view_box[3]));
+            Style {
+                size: taffy::geometry::Size {
+                    width: resolve_dimension(layout.width, layout.width_full, Dimension::length(default_w)),
+                    height: resolve_dimension(layout.height, layout.height_full, Dimension::length(default_h)),
+                },
+                ..base_style(element)
             }
         }
     }

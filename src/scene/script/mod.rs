@@ -22,7 +22,7 @@ pub use canvas_api::{
     CanvasCommand, CanvasMutations, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
     ScriptPointMode,
 };
-pub use node_style::NodeStyleMutations;
+pub use node_style::{NodeStyleMutations, TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch};
 
 #[derive(Debug, Clone, Default)]
 pub struct StyleMutations {
@@ -62,6 +62,18 @@ impl StyleMutations {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ScriptTextSource {
+    pub text: String,
+    pub kind: ScriptTextSourceKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScriptTextSourceKind {
+    TextNode,
+    Caption,
+}
+
 #[derive(Default)]
 struct RuntimeMutationStore {
     styles: HashMap<String, NodeStyleMutations>,
@@ -69,6 +81,7 @@ struct RuntimeMutationStore {
     current_frame: u32,
     animate_state: std::sync::Mutex<animate_api::AnimateState>,
     path_measure_state: std::sync::Mutex<animate_api::PathMeasureState>,
+    text_sources: HashMap<String, ScriptTextSource>,
 }
 
 impl RuntimeMutationStore {
@@ -89,6 +102,23 @@ type MutationStore = Arc<Mutex<RuntimeMutationStore>>;
 #[derive(Default)]
 pub(crate) struct ScriptRuntimeCache {
     runners: HashMap<u64, ScriptRunner>,
+    text_sources: HashMap<String, ScriptTextSource>,
+}
+
+impl ScriptRuntimeCache {
+    pub(crate) fn clear_text_sources(&mut self) {
+        self.text_sources.clear();
+    }
+
+    /// Register a resolved text source for the given node id.
+    /// This will be visible to scripts via `__text_source_get()` on the next frame.
+    pub(crate) fn register_text_source(
+        &mut self,
+        id: &str,
+        source: ScriptTextSource,
+    ) {
+        self.text_sources.insert(id.to_string(), source);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -276,6 +306,15 @@ impl ScriptRuntimeCache {
                 entry.insert(driver.create_runner()?)
             }
         };
+
+        // Sync text sources from the resolve-phase registry into the runner's store
+        // so that __text_source_get() can query them during script execution.
+        // Always sync unconditionally: an empty set clears stale entries from
+        // previous frames where nodes may have been removed.
+        if let Ok(mut store) = runner.store.lock() {
+            store.text_sources = self.text_sources.clone();
+        }
+
         runner.run(frame_ctx, current_node_id)
     }
 }
@@ -397,6 +436,21 @@ fn install_runtime_bindings<'js>(
     node_style::install_node_style_bindings(ctx, store)?;
     canvas_api::install_canvaskit_bindings(ctx, store)?;
     animate_api::install_animate_bindings(ctx, store)?;
+
+    // Read-only text source query: returns resolved text for a node id.
+    {
+        let store = store.clone();
+        globals.set(
+            "__text_source_get",
+            Function::new(ctx.clone(), move |id: String| {
+                let store = store
+                    .lock()
+                    .map_err(|_| rquickjs::Error::new_from_js_message("mutex", "mutex", "text source lock poisoned"))?;
+                Ok::<_, rquickjs::Error>(store.text_sources.get(&id).map(|s| s.text.clone()))
+            })?,
+        )?;
+    }
+
     ctx.eval::<(), _>(node_style::NODE_STYLE_RUNTIME)?;
     ctx.eval::<(), _>(canvas_api::CANVASKIT_RUNTIME)?;
     ctx.eval::<(), _>(animate_api::ANIMATE_RUNTIME)?;
@@ -1703,5 +1757,185 @@ mod tests {
             Some("Hi".to_string()),
             "no caret once settled"
         );
+    }
+
+    #[test]
+    fn script_driver_typewriter_counts_code_points_not_graphemes() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            var tw = ctx.typewriter("👨‍👩‍👧‍👦", { duration: 7, easing: 'linear' });
+            ctx.getNode("t").text(tw.text);
+        "#,
+        )
+        .expect("script should compile");
+
+        let f1 = driver.run(1, 10, 1, 10, None).expect("frame 1 should run");
+        let t = f1.get("t").expect("t mutation should exist");
+        assert_eq!(
+            t.text_content,
+            Some("👨".to_string()),
+            "current implementation reveals code points, not the full grapheme cluster"
+        );
+    }
+
+    #[test]
+    fn script_runtime_exposes_resolved_text_source_to_split_queries() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.getNode("title").text("Hello");
+            var text = __text_source_get("title");
+            if (text !== "Hello") {
+                throw new Error("unexpected text source: " + text);
+            }
+        "#,
+        )
+        .expect("script should compile");
+
+        let result = driver.run(0, 1, 0, 1, None);
+        assert!(
+            result.is_ok(),
+            "text source query should succeed once registry is wired: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn script_driver_records_text_unit_override_via_part_set() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.getNode("title").text("Hello");
+            var parts = ctx.splitTextNode("title", { granularity: "graphemes" });
+            if (parts.length !== 5) {
+                throw new Error("expected 5 parts, got " + parts.length);
+            }
+            if (parts[0].text !== "H") {
+                throw new Error("expected parts[0].text === 'H', got " + parts[0].text);
+            }
+            parts[0].set({ opacity: 0.5, translateX: 10, translateY: 20 });
+            parts[2].set({ scale: 1.5, rotation: 45 });
+        "#,
+        )
+        .expect("script should compile");
+
+        let result = driver.run(0, 1, 0, 1, None);
+        assert!(result.is_ok(), "splitTextNode + part.set should succeed: {:?}", result.err());
+
+        let mutations = &result.unwrap().mutations;
+        let node_mut = mutations.get("title").expect("should have mutations for 'title'");
+        let batch = node_mut
+            .text_unit_overrides
+            .as_ref()
+            .expect("should have text_unit_overrides");
+
+        use super::node_style::TextUnitGranularity;
+        assert!(matches!(batch.granularity, TextUnitGranularity::Grapheme));
+
+        // Index 0: opacity=0.5, translateX=10, translateY=20
+        let o0 = &batch.overrides[0];
+        assert_eq!(o0.opacity, Some(0.5));
+        assert_eq!(o0.translate_x, Some(10.0));
+        assert_eq!(o0.translate_y, Some(20.0));
+        assert_eq!(o0.scale, None);
+        assert_eq!(o0.rotation_deg, None);
+
+        // Index 1: default (not set)
+        let o1 = &batch.overrides[1];
+        assert_eq!(o1.opacity, None);
+
+        // Index 2: scale=1.5, rotation=45
+        let o2 = &batch.overrides[2];
+        assert_eq!(o2.opacity, None);
+        assert_eq!(o2.scale, Some(1.5));
+        assert_eq!(o2.rotation_deg, Some(45.0));
+
+        // Vec is resized to max(index) + 1 = 3, not to the full text length
+        assert_eq!(batch.overrides.len(), 3);
+    }
+
+    #[test]
+    fn split_text_node_uses_grapheme_clusters_for_zwj_emoji() {
+        use super::node_style::{TextUnitGranularity, describe_text_units};
+        let units = describe_text_units("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}", TextUnitGranularity::Grapheme);
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].text, "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}");
+    }
+
+    #[test]
+    fn split_text_node_uses_grapheme_clusters_for_combining_marks() {
+        use super::node_style::{TextUnitGranularity, describe_text_units};
+        let units = describe_text_units("e\u{0301}", TextUnitGranularity::Grapheme);
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].text, "e\u{0301}");
+    }
+
+    #[test]
+    fn split_text_node_describes_words_from_resolved_text() {
+        use super::node_style::{TextUnitGranularity, describe_text_units};
+        let units = describe_text_units("Hello world", TextUnitGranularity::Word);
+        assert_eq!(
+            units.iter().map(|u| u.text.as_str()).collect::<Vec<_>>(),
+            vec!["Hello", " ", "world"]
+        );
+    }
+
+    #[test]
+    fn script_driver_split_text_node_stagger_grapheme_opacity() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.getNode("t").text("Cat");
+            var parts = ctx.splitTextNode("t", { granularity: "graphemes" });
+            var anims = ctx.stagger(parts.length, {
+                from: { opacity: 0, translateY: 18 },
+                to: { opacity: 1, translateY: 0 },
+                duration: 6,
+                gap: 2,
+                easing: "linear"
+            });
+            for (var i = 0; i < parts.length; i++) {
+                parts[i].set({
+                    opacity: anims[i].opacity,
+                    translateY: anims[i].translateY
+                });
+            }
+        "#,
+        )
+        .expect("script should compile");
+
+        let f0 = driver.run(0, 30, 0, 30, None).expect("frame 0");
+        let t0 = f0.get("t").expect("t mutation");
+        assert!(t0.text_unit_overrides.is_some());
+
+        let f10 = driver.run(10, 30, 10, 30, None).expect("frame 10");
+        let batch = f10
+            .get("t")
+            .expect("t mutation should exist")
+            .text_unit_overrides
+            .as_ref()
+            .expect("text unit overrides should exist");
+        assert_eq!(batch.overrides[0].opacity, Some(1.0));
+    }
+
+    #[test]
+    fn split_text_node_uses_post_text_content_value_as_source() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.getNode("t").text("Hello");
+            var parts = ctx.splitTextNode("t", { granularity: "graphemes" });
+            if (parts.length !== 5) {
+                throw new Error("expected 5 graphemes, got " + parts.length);
+            }
+            parts[0].set({ opacity: 0.2 });
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(0, 1, 0, 1, None).expect("script should run");
+        let batch = mutations
+            .get("t")
+            .expect("t mutation should exist")
+            .text_unit_overrides
+            .as_ref()
+            .expect("text unit overrides should exist");
+        assert_eq!(batch.overrides[0].opacity, Some(0.2));
     }
 }

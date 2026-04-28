@@ -33,7 +33,13 @@ pub(crate) fn analyze_stable_node_reuse(
     match &node.item {
         DisplayItem::Rect(_) => StableNodeReuse::DirectLeaf,
         DisplayItem::Timeline(_) => StableNodeReuse::DirectLeaf,
-        DisplayItem::Text(_) => StableNodeReuse::TextSnapshotLeaf,
+        DisplayItem::Text(text) => {
+            if text.text_unit_overrides.is_some() {
+                StableNodeReuse::DirectLeaf
+            } else {
+                StableNodeReuse::TextSnapshotLeaf
+            }
+        }
         DisplayItem::Bitmap(_) | DisplayItem::Lucide(_) => StableNodeReuse::ItemPictureLeaf,
         DisplayItem::DrawScript(_) => StableNodeReuse::DirectLeaf,
     }
@@ -206,6 +212,9 @@ mod tests {
                     style: ComputedTextStyle::default(),
                     allow_wrap: false,
                     drop_shadow: None,
+                    text_unit_overrides: None,
+                    visual_expand_x: 0.0,
+                    visual_expand_y: 0.0,
                 }),
                 Vec::new(),
             )],
@@ -215,6 +224,54 @@ mod tests {
         assert_eq!(
             analyze_stable_node_reuse(&display_tree, AnnotatedNodeHandle(0)),
             StableNodeReuse::TextSnapshotLeaf
+        );
+    }
+
+    #[test]
+    fn text_leaf_with_unit_overrides_prefers_direct_leaf_reuse() {
+        use crate::scene::script::{
+            TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch,
+        };
+
+        let mut analysis = DisplayAnalysisTable::default();
+        analysis.insert(
+            AnnotatedNodeHandle(0),
+            DisplayNodeAnalysis {
+                paint_variance: PaintVariance::Stable,
+                subtree_contains_time_variant: false,
+                paint_fingerprint: Some(1),
+                snapshot_fingerprint: Some(SubtreeSnapshotFingerprint {
+                    primary: 2,
+                    secondary: 2,
+                }),
+            },
+        );
+        let display_tree = tree(
+            vec![node(
+                DisplayItem::Text(TextDisplayItem {
+                    bounds: rect_bounds(),
+                    text: "Hello".into(),
+                    style: ComputedTextStyle::default(),
+                    allow_wrap: false,
+                    drop_shadow: None,
+                    text_unit_overrides: Some(TextUnitOverrideBatch {
+                        granularity: TextUnitGranularity::Grapheme,
+                        overrides: vec![TextUnitOverride {
+                            translate_y: Some(-12.0),
+                            ..Default::default()
+                        }],
+                    }),
+                    visual_expand_x: 0.0,
+                    visual_expand_y: 12.0,
+                }),
+                Vec::new(),
+            )],
+            analysis,
+        );
+
+        assert_eq!(
+            analyze_stable_node_reuse(&display_tree, AnnotatedNodeHandle(0)),
+            StableNodeReuse::DirectLeaf
         );
     }
 

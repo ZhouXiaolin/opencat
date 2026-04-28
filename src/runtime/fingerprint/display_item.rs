@@ -28,6 +28,19 @@ impl Hash for TextFp<'_> {
         F32Hash(self.0.bounds.width).hash(state);
         F32Hash(self.0.bounds.height).hash(state);
         self.0.drop_shadow.hash(state);
+        F32Hash(self.0.visual_expand_x).hash(state);
+        F32Hash(self.0.visual_expand_y).hash(state);
+        self.0.text_unit_overrides.is_some().hash(state);
+        if let Some(batch) = &self.0.text_unit_overrides {
+            std::mem::discriminant(&batch.granularity).hash(state);
+            for unit in &batch.overrides {
+                unit.opacity.map(f32::to_bits).hash(state);
+                unit.translate_x.map(f32::to_bits).hash(state);
+                unit.translate_y.map(f32::to_bits).hash(state);
+                unit.scale.map(f32::to_bits).hash(state);
+                unit.rotation_deg.map(f32::to_bits).hash(state);
+            }
+        }
     }
 }
 
@@ -54,12 +67,7 @@ impl Hash for DisplayItemFp<'_> {
             }
             DisplayItem::Text(text) => {
                 1_u8.hash(state);
-                text.text.hash(state);
-                TextStyleFp(&text.style).hash(state);
-                text.allow_wrap.hash(state);
-                text.drop_shadow.hash(state);
-                F32Hash(text.bounds.width).hash(state);
-                F32Hash(text.bounds.height).hash(state);
+                TextFp(text).hash(state);
             }
             DisplayItem::Bitmap(bitmap) => {
                 2_u8.hash(state);

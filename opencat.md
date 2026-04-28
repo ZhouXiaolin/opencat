@@ -1,33 +1,43 @@
 # OpenCat JSONL
 
-> **⚠️ Important format rules**
-> - **One JSON object per line**. Do not split a single JSON object across multiple lines.
-> - **Do not put comments inside script content**. Script code must stay clean.
+> **Format rules**
+> - **One JSON object per line.** Do not split a single JSON object across multiple lines.
+> - **No comments inside script content.** Script code must stay clean.
 
-OpenCat JSONL is a JSON Lines format for describing compositions, scene nodes, scripts, and transitions.
+OpenCat JSONL is a JSON Lines format for describing motion graphics compositions. Each line is a node declaration, script attachment, or metadata record. The runtime parses the file, builds a scene tree, and renders frames using Skia + Taffy + QuickJS.
 
 ---
 
-## 1. File Structure
+## 1. Composition Header
 
-### 1.1 Composition (first line, required)
+The first line must be a `composition` record.
 
 ```json
 {"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 180}
 ```
 
-`frames / fps` defines the total duration in seconds.
+| Field | Type | Description |
+|-------|------|-------------|
+| `width` | `i32` | Canvas width in pixels |
+| `height` | `i32` | Canvas height in pixels |
+| `fps` | `i32` | Frames per second |
+| `frames` | `i32` | Total frame count. `frames / fps` = duration in seconds. |
 
-### 1.2 Two Composition Patterns
+---
 
-#### Plain Node Tree
+## 2. Node Tree
 
-Every composition has exactly one root node with `parentId: null`. Use a plain node tree for single scenes, static overlays, and any composition that does not need scene-to-scene transitions.
+### 2.1 Parent-Child Relationships
 
-```text
-Tree: root -> children
-Constraint: composition.frames = intended playback duration
-```
+Every node (except `composition` and `script`/`transition`) has an `id` and a `parentId`. The tree is built from these links.
+
+- Exactly one root node must have `parentId: null`.
+- `parentId` must reference a previously declared `id`.
+- `script` and `transition` records have no `id`; they attach to their `parentId`.
+
+### 2.2 Plain Tree (Single Scene)
+
+For single scenes, static overlays, or any composition without scene-to-scene transitions.
 
 ```json
 {"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 60}
@@ -35,19 +45,9 @@ Constraint: composition.frames = intended playback duration
 {"id": "title", "parentId": "scene1", "type": "text", "className": "text-[24px] font-bold", "text": "Hello"}
 ```
 
-Example: single scene + caption overlay.
+### 2.3 Timeline (Multi-Scene with Transitions)
 
-```json
-{"type":"composition","width":1280,"height":720,"fps":30,"frames":450}
-{"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px]"}
-{"id":"scene1","parentId":"root","type":"div","className":"absolute inset-0 flex flex-col justify-between w-full h-full bg-[#0b1020] px-[72px] py-[56px]"}
-{"id":"subline","parentId":"scene1","type":"text","className":"text-white","text":"Prime Video"}
-{"id":"subs","parentId":"root","type":"caption","className":"absolute left-[64px] bottom-[40px] w-[1152px] px-[28px] py-[18px] rounded-[20px] bg-[#000000b8] text-[34px] leading-[44px] font-semibold text-center text-white","path":"subtitles.utf8.srt"}
-```
-
-#### `tl` Timeline Node
-
-`tl` is a normal node that follows `NodeStyle`, but its content is a time sequence: scene, transition, scene, transition, scene. Use it only for two or more direct child scenes with transitions between every adjacent pair.
+For two or more scenes with transitions between them.
 
 ```json
 {"type":"composition","width":390,"height":844,"fps":30,"frames":162}
@@ -56,92 +56,183 @@ Example: single scene + caption overlay.
 {"id":"scene1","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-white","duration":60}
 {"id":"scene2","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-slate-900","duration":90}
 {"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"fade","duration":12}
-{"id":"subs","parentId":"root","type":"caption","className":"absolute inset-x-[24px] bottom-[24px] text-center text-white","path":"subtitles.utf8.srt"}
 ```
 
-**Key rules**:
+Rules:
 
-- `tl` must be explicitly declared as a node in the tree. Root-level multi-scene inference is not supported.
-- `tl` follows `NodeStyle`, so layout and scripts attached to the `tl` node itself are preserved.
-- `tl` is only for multi-scene playback. Do not wrap a single scene in `tl`.
+- `tl` must be an explicit node in the tree. Root-level multi-scene inference is not supported.
+- `tl` follows `NodeStyle` — layout and scripts on the `tl` node itself are preserved.
 - A `tl` must have at least two direct child scenes, and every adjacent pair must have a matching `transition`.
+- `tl` has no `duration` field. Its total is derived: `sum(scene.duration) + sum(transition.duration)`.
 - `transition.parentId` is required and must reference the owning `tl` node.
-- Place `tl` and persistent overlays (for example `caption`) as siblings under a shared parent `div` when you need z-order compositing.
-- Runtime total frames for the `tl` are derived: `sum(all scene.duration) + sum(all transition.duration)`.
-- Keep `composition.frames` aligned with the effective playback duration of the composition.
+- Place `tl` and persistent overlays (e.g. `caption`) as siblings under a shared parent `div` for z-order compositing.
+- Keep `composition.frames` aligned with the derived total.
 
-### 1.3 Element Nodes
+---
 
-Each element is one JSON line. Parent-child relationships are defined through `parentId`.
+## 3. Node Types
 
-`className` uses Tailwind-style classes for layout and visual properties, similar to how you would style an HTML node with Tailwind.
+Every element is one JSON line. `className` uses Tailwind-style classes (see §5 Styling).
+
+### 3.1 `div`
+
+Container with flex layout. Equivalent to `<div>`.
 
 ```json
-{"id": "title", "parentId": "scene1", "type": "text", "className": "text-[24px] font-bold text-slate-900", "text": "Hello"}
+{"id": "box", "parentId": "root", "type": "div", "className": "flex flex-col items-center gap-4 p-6"}
+```
+
+No special fields beyond `id`, `parentId`, `className`, `duration`.
+
+### 3.2 `text`
+
+Text content node. Equivalent to `<span>` / `<p>`.
+
+```json
+{"id": "title", "parentId": "box", "type": "text", "className": "text-[24px] font-bold text-slate-900", "text": "Hello"}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `text` | yes | Text content string |
+
+### 3.3 `image`
+
+Image node. Equivalent to `<img>`.
+
+```json
 {"id": "hero", "parentId": "scene1", "type": "image", "className": "w-[300px] h-[200px] object-cover rounded-lg", "query": "mountain landscape"}
+```
+
+Specify exactly one image source:
+
+| Field | Description |
+|-------|-------------|
+| `path` | Local file path |
+| `url` | Remote URL |
+| `query` | Openverse search query (1-4 nouns) |
+
+When using `query`, optional fields:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `queryCount` | `1` | Number of images to fetch |
+| `aspectRatio` | — | Aspect ratio filter (e.g. `"square"`) |
+
+### 3.4 `icon`
+
+Lucide icon node. Uses kebab-case icon names.
+
+```json
 {"id": "search", "parentId": "scene1", "type": "icon", "className": "w-[24px] h-[24px] text-slate-400", "icon": "search"}
-{"id": "subs", "parentId": "scene1", "type": "caption", "className": "absolute inset-x-[24px] bottom-[24px] text-center text-white", "path": "subtitles.utf8.srt"}
 ```
 
-**Type mapping**:
+| Field | Required | Description |
+|-------|----------|-------------|
+| `icon` | yes | Lucide icon name in kebab-case |
 
-| type | HTML equivalent | Special fields |
-|------|-----------------|----------------|
-| `div` | `<div>` | — |
-| `text` | `<span>` / `<p>` | `text`: text content |
-| `image` | `<img>` | `query`: image search query (1-4 nouns) |
-| `icon` | Lucide icon | `icon`: icon name in kebab-case |
-| `canvas` | `<canvas>` | requires a matching script |
-| `audio` | `<audio>` | `path` or `url` |
-| `video` | `<video>` | — |
-| `tl` | timeline node | direct children are timed scenes; adjacent pairs require transitions |
-| `caption` | subtitle-driven text node | `path`: local SRT file |
+Color icons with `text-{color}`, not `bg-{color}`.
 
-### 1.4 Caption
+### 3.5 `canvas`
 
-`caption` is an SRT-driven text node. It behaves like a text node for styling and layout, but its displayed content is selected from subtitle entries using the nearest inherited time context.
+Canvas drawing surface. Requires a child `script` for drawing commands.
 
 ```json
-{"id": "subs", "parentId": null, "type": "caption", "className": "absolute inset-x-[48px] bottom-[32px] text-center text-white", "path": "subtitles.utf8.srt"}
+{"id": "chart", "parentId": "scene1", "type": "canvas", "className": "w-[300px] h-[200px]"}
+{"type": "script", "parentId": "chart", "src": "var CK = ctx.CanvasKit;\nvar canvas = ctx.getCanvas();\ncanvas.clear('#ffffff');"}
 ```
 
-**Fields**:
+See §6 Canvas API for the full drawing reference.
 
-- `id`: required
-- `parentId`: optional. Use `null` for a root node, or attach it under a scene like any other node.
-- `className`: optional. Same Tailwind-style layout and text styling rules as `text`.
-- `path`: required. Local SRT file path.
-- `duration`: optional. Usually omitted; subtitle visibility is driven by SRT timestamps.
+### 3.6 `audio`
 
-**Current implementation details**:
+Audio playback node. Equivalent to `<audio>`.
 
-- `path` is resolved relative to the JSONL file location when the composition is loaded from disk with `parse_file(...)`.
+```json
+{"id": "bgm", "parentId": "root", "type": "audio", "path": "/tmp/bgm.mp3"}
+{"id": "sfx", "parentId": "root", "type": "audio", "url": "https://example.com/sfx.mp3"}
+```
+
+Specify exactly one source: `path` (local) or `url` (remote).
+
+The `parentId` controls when the audio plays:
+- Attached under a scene node → plays during that scene.
+- `parentId: null` → plays for the entire composition (timeline-level).
+
+### 3.7 `video`
+
+Video playback node. Equivalent to `<video>`.
+
+```json
+{"id": "clip", "parentId": "scene1", "type": "video", "className": "w-full h-full object-cover", "path": "clip.mp4"}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `path` | yes | Local video file path |
+
+### 3.8 `caption`
+
+SRT-driven text node. Displayed content is selected from subtitle entries using the nearest inherited time context.
+
+```json
+{"id": "subs", "parentId": "root", "type": "caption", "className": "absolute inset-x-[48px] bottom-[32px] text-center text-white", "path": "subtitles.utf8.srt"}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `path` | yes | Local SRT file path |
+| `duration` | no | Usually omitted; visibility is driven by SRT timestamps |
+
+Implementation notes:
+
+- `path` is resolved relative to the JSONL file location when loaded with `parse_file(...)`.
 - SRT timestamps are converted to frames using `composition.fps`.
-- Inside a timeline scene, `caption` uses that scene's local frame context. Outside any nearer time context, it falls back to the global composition frame.
-- The current loader reads subtitle files as UTF-8 text. UTF-16 / UTF-16LE / GBK subtitle files will not parse correctly.
-- Caption file read / parse failure currently degrades to an empty subtitle track instead of a hard parse error. If captions do not appear, check path and encoding first.
-- Caption content can still be overridden by scripts through `ctx.getNode('subs').text(...)` for the current frame.
+- Inside a timeline scene, `caption` uses that scene's local frame context.
+- The loader reads subtitle files as UTF-8. UTF-16 / GBK files will not parse correctly.
+- Read/parse failure degrades to an empty subtitle track. If captions do not appear, check path and encoding first.
+- Caption content can be overridden per-frame by scripts: `ctx.getNode('subs').text(...)`.
 
-### 1.5 Script
+### 3.9 `tl`
 
-> **⚠️ `script.src` must not contain comments**
+Timeline container. See §2.3 for full specification.
 
-Scripts are attached to nodes and run on every frame.
+| Field | Description |
+|-------|-------------|
+| `id` | Required |
+| `parentId` | Parent node |
+| `className` | Tailwind styling |
 
-```json
-{"type": "script", "parentId": "scene1", "src": "var node = ctx.getNode('title');\nvar anim = ctx.animate({from:{opacity:0},to:{opacity:1},duration:20,easing:'spring-gentle'});\nnode.opacity(anim.opacity);"}
-{"type": "script", "parentId": "scene1", "path": "scene1.js"}
-```
+No `duration` field — the total is derived from child scenes and transitions.
 
-### 1.6 Transition
+### 3.10 `transition`
 
-Transitions are only used inside a `tl` node. A transition describes the handoff between two adjacent scenes and consumes additional frames.
+Transition between two adjacent scenes inside a `tl`. See §4 for full specification.
+
+---
+
+## 4. Transitions
+
+Transitions describe the handoff between two adjacent scenes inside a `tl` node. They consume additional frames.
 
 ```json
 {"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 12}
 ```
 
-**Effect types** (`effect` and `direction` are separate fields):
+| Field | Required | Description |
+|-------|----------|-------------|
+| `parentId` | yes | Must reference the owning `tl` node |
+| `from` | yes | Source scene id (must be a direct child of the `tl`) |
+| `to` | yes | Target scene id (must be adjacent to `from`) |
+| `effect` | yes | Effect name (see below) |
+| `duration` | yes | Transition duration in frames |
+| `direction` | no | Direction for `slide` / `wipe` effects |
+| `timing` | no | Easing name (default `"linear"`). See §5.1. |
+| `damping` | no | Custom spring damping |
+| `stiffness` | no | Custom spring stiffness |
+| `mass` | no | Custom spring mass |
+
+### Effect Types
 
 | effect | Description | direction (optional) |
 |--------|-------------|----------------------|
@@ -150,45 +241,28 @@ Transitions are only used inside a `tl` node. A transition describes the handoff
 | `wipe` | Wipe transition | `from_left` (default) / `from_right` / `from_top` / `from_bottom` / `from_top_left` / `from_top_right` / `from_bottom_left` / `from_bottom_right` |
 | `clock_wipe` | Clock wipe | — |
 | `iris` | Iris open/close | — |
-| `light_leak` | Light leak | — (`seed`, `hueShift`, `maskScale` are supported) |
+| `light_leak` | Light leak | — |
 
-**Timing control** (available for all effects):
+`light_leak` extra fields: `seed` (`f32`), `hueShift` (`f32`), `maskScale` (`f32`, range `0.03125`–`1.0`).
 
-`timing` uses the same easing names as `ctx.animate()`. The default is `"linear"`.
-
-| timing | Description |
-|--------|-------------|
-| `"linear"` (default) | Constant speed |
-| `"ease"` | CSS ease |
-| `"ease-in"` | Ease in |
-| `"ease-out"` | Ease out |
-| `"ease-in-out"` | Ease in and out |
-| `"spring-default"` / `"spring-gentle"` / … | Spring presets |
-| `"bezier:x1,y1,x2,y2"` | Cubic bezier |
+### Examples
 
 ```json
 {"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 20, "timing": "ease-out"}
 {"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "slide", "direction": "from_right", "duration": 15, "timing": "bezier:0.4,0,0.2,1"}
-```
-
-Custom spring parameters can also be used directly through `damping`, `stiffness`, and `mass`:
-
-```json
 {"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "wipe", "direction": "from_right", "duration": 12, "damping": 10, "stiffness": 100, "mass": 1}
 ```
 
 ---
 
-## 2. Styling (Tailwind)
+## 5. Styling (Tailwind)
 
-Most Tailwind classes work directly for layout, color, spacing, border radius, and related visual styling.
+`className` uses Tailwind-style classes for layout, color, spacing, border radius, and related visual properties.
 
-**Main restrictions**:
+**Restrictions:**
 
-- Do not use CSS animation classes
-- Do not generate transform-related Tailwind classes in `className`
-  - This includes classes such as `transform`, `translate-*`, `rotate-*`, `scale-*`, and `skew-*`
-  - Use the script node API instead for transforms
+- Do not use CSS animation classes (`transition-*`, `animate-*`, `duration-*`, `ease-*`, `delay-*`).
+- Do not use transform classes in `className` (`transform`, `translate-*`, `rotate-*`, `scale-*`, `skew-*`). Use the script Node API instead.
 
 | Avoid | Use instead |
 |------|-------------|
@@ -197,26 +271,71 @@ Most Tailwind classes work directly for layout, color, spacing, border radius, a
 
 > Tailwind handles static styling. Scripts handle motion.
 
+### 5.1 Easing Reference
+
+Easing names are shared by `ctx.animate()`, `ctx.sequence()` steps, and `transition.timing`.
+
+| Preset | Effect |
+|--------|--------|
+| `'linear'` | Constant speed |
+| `'ease'` / `'ease-in'` / `'ease-out'` / `'ease-in-out'` | Standard CSS-like cubic curves |
+| `'back-in'` / `'back-out'` / `'back-in-out'` | Slight overshoot (UI snap) |
+| `'elastic-in'` / `'elastic-out'` / `'elastic-in-out'` | Damped oscillation |
+| `'bounce-in'` / `'bounce-out'` / `'bounce-in-out'` | Ground-bounce style |
+| `'steps(N)'` | Quantised into N discrete steps |
+| `'spring-default'` | General spring |
+| `'spring-gentle'` | Soft spring |
+| `'spring-stiff'` | Stiffer spring |
+| `'spring-slow'` | Slower spring |
+| `'spring-wobbly'` | Wobbly spring |
+
+Custom spring (JS):
+
+```js
+easing: { spring: { stiffness: 120, damping: 12, mass: 0.9 } }
+```
+
+Cubic bezier (JS):
+
+```js
+easing: [0.25, 0.1, 0.25, 1.0]
+```
+
+Transition `timing` field also accepts a string form: `"bezier:0.4,0,0.2,1"`.
+
 ---
 
-## 3. Animation System
+## 6. Scripting
 
-Animations are declared in JavaScript. Scripts run on every frame and read interpolated animation values to drive node properties.
+Scripts are attached to nodes via `script` records and run on every frame using QuickJS.
 
-### Context
+```json
+{"type": "script", "parentId": "scene1", "src": "var node = ctx.getNode('title');\nvar anim = ctx.animate({from:{opacity:0},to:{opacity:1},duration:20,easing:'spring-gentle'});\nnode.opacity(anim.opacity);"}
+{"type": "script", "parentId": "scene1", "path": "scene1.js"}
+```
+
+| Field | Description |
+|-------|-------------|
+| `parentId` | Optional. Attach to a node scope, or omit for global scope. |
+| `src` | Inline JavaScript code |
+| `path` | External `.js` file path (resolved relative to the JSONL file) |
+
+`src` and `path` are mutually exclusive. Exactly one is required.
+
+### 6.1 Execution Context
 
 | Field | Description |
 |------|-------------|
 | `ctx.frame` | Global frame index |
 | `ctx.totalFrames` | Total frame count |
-| `ctx.currentFrame` | Frame index within the current scene (`0 -> sceneFrames - 1`) |
+| `ctx.currentFrame` | Frame index within the current scene (`0 → sceneFrames - 1`) |
 | `ctx.sceneFrames` | Frame count of the current scene |
 
 For scene-local animation, prefer `ctx.currentFrame` and `ctx.sceneFrames`.
 
-### ctx.animate(opts)
+### 6.2 ctx.animate(opts)
 
-Declare a `from -> to` animation. The returned object exposes animated values through getters.
+Declare a `from → to` animation. The returned object exposes animated values through getters.
 
 ```js
 var anim = ctx.animate({
@@ -231,28 +350,28 @@ var anim = ctx.animate({
 node.opacity(anim.opacity).translateY(anim.translateY).scale(anim.scale);
 ```
 
-Additional fields:
+Additional getters on the returned object:
 
-- `anim.progress`: progress from `0` to `1`
-- `anim.settled`: whether a spring animation has settled
-- `anim.settleFrame`: the frame where the spring settled
+- `anim.progress`: `0` → `1`
+- `anim.settled`: whether a spring has settled
+- `anim.settleFrame`: frame where the spring settled
 
 **Repeat options:**
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `repeat` | `0` | Number of additional cycles after the first. `0` = play once, `N` = play N+1 times, `-1` = infinite |
-| `yoyo` | `false` | Reverse on alternate cycles (cycle 0 forward, cycle 1 backward, ...) |
-| `repeatDelay` | `0` | Frames to hold the end value before restarting each cycle |
+| `repeat` | `0` | Additional cycles. `0` = once, `N` = N+1 times, `-1` = infinite |
+| `yoyo` | `false` | Reverse on alternate cycles |
+| `repeatDelay` | `0` | Frames to hold before restarting each cycle |
 
-**Path animation:**
+#### Path Animation
 
-Pass `path` (an SVG path string) instead of `from`/`to` to animate a node along a curve. The returned object exposes `x`, `y`, and `rotation` getters. The ContourMeasure is auto-cached; no manual caching needed.
+Pass `path` (SVG path string) instead of `from`/`to` to animate along a curve. Returns `x`, `y`, `rotation` getters.
 
 ```js
 var a = ctx.animate({
   path: 'M100 360 C400 80 880 640 1180 360',
-  orient: -90,              // angle offset from tangent (0 = along direction)
+  orient: -90,
   duration: 120,
   easing: 'ease-in-out',
   repeat: -1,
@@ -265,151 +384,12 @@ ctx.getNode('ball')
   .rotate(a.rotation);
 ```
 
-`path` uses the same timing system (`duration`, `delay`, `easing`, `repeat`, `yoyo`, `clamp`) as `from`/`to`. `path` and `from`/`to` can coexist on the same animation -- use `from`/`to` for properties like `opacity` or `scale` alongside path-driven position.
+`path` and `from`/`to` can coexist on the same animation — use `from`/`to` for properties like `opacity` alongside path-driven position.
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `path` | — | SVG path string (see supported commands below) |
-| `orient` | `0` | Rotation offset in degrees from path tangent. Use `-90` for upward-oriented shapes |
-
-### Keyframes (multiple stops in a single animation)
-
-For a single animation that needs more than two stops, pass `keyframes` instead of `from`/`to`:
-
-```js
-// Shorthand: numeric values evenly spaced over [0, 1]
-var a = ctx.animate({
-  keyframes: { scale: [1, 1.4, 0.8, 1] },
-  duration: 60,
-});
-ctx.getNode('card').scale(a.scale);
-
-// Full form: explicit `at` (normalised time in [0, 1]) + optional per-segment easing
-var b = ctx.animate({
-  keyframes: {
-    rotate: [
-      { at: 0,   value: 0 },
-      { at: 0.5, value: 360, easing: 'back-out' },
-      { at: 1,   value: 0 }
-    ],
-  },
-  duration: 60,
-});
-ctx.getNode('logo').rotate(b.rotate);
-```
-
-Notes:
-
-- Only **numeric values** are supported in keyframes (color keyframes are not yet supported -- animate colour with `from`/`to`).
-- `at` is normalised to `[0, 1]`; the **outer** `easing` (and `repeat`/`yoyo`) on `ctx.animate` still applies first, then the resulting progress is mapped through the per-segment easing.
-- `keyframes` and `from`/`to` may co-exist on the same animation, but keys defined in both are taken from `keyframes`.
-
-### ctx.stagger(count, opts)
-
-Like `animate`, but creates multiple animations with staggered delay.
-
-```js
-var anims = ctx.stagger(4, {
-  from: { opacity: 0, translateY: 30 },
-  to:   { opacity: 1, translateY: 0 },
-  gap: 4,
-  duration: 20,
-  easing: 'spring-gentle',
-});
-```
-
-### ctx.sequence(steps)
-
-Declare a heterogeneous chain of animations. Each step advances an internal cursor so per-step `duration`, `easing`, `from`, and `to` can differ. This is the right tool when `ctx.stagger` (same animation, uniform gap) is not expressive enough — irregular timing, overlaps, or parallel branches.
-
-```js
-var seq = ctx.sequence([
-  { from: { opacity: 0, translateY: -20 }, to: { opacity: 1, translateY: 0 }, duration: 24, easing: 'spring-gentle' },
-  { from: { opacity: 0 }, to: { opacity: 1 }, duration: 18, gap: -6 },
-  { from: { scale: 0.8 }, to: { scale: 1 }, duration: 30, easing: 'spring-stiff' },
-]);
-
-ctx.getNode('title').opacity(seq[0].opacity).translateY(seq[0].translateY);
-ctx.getNode('subtitle').opacity(seq[1].opacity);
-ctx.getNode('cta').scale(seq[2].scale);
-```
-
-**Per-step fields**:
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `from`, `to`, `duration`, `easing`, `clamp` | — | Same as `ctx.animate()` |
-| `delay` | `0` | Extra offset added to the cursor before this step starts |
-| `gap` | `0` | Advance the cursor by this many frames after this step ends. Negative to overlap with the next step. |
-| `at` | — | Absolute start frame. When set, this step ignores the cursor and **does not advance it**. Useful for parallel branches or pinned anchors. |
-
-Each returned item exposes the same getters as `ctx.animate()` (`progress`, `settled`, `settleFrame`, plus every animated key).
-
-**Parallel branches with `at`**:
-
-```js
-var seq = ctx.sequence([
-  { to: { opacity: 1 }, duration: 20 },
-  { to: { opacity: 1 }, duration: 30, at: 5 },
-  { to: { opacity: 1 }, duration: 10 },
-]);
-```
-
-Step 0 runs `0..20` and advances cursor to `20`. Step 1 is pinned at frame `5` (runs `5..35`) and the cursor is untouched. Step 2 starts from the cursor at `20` and runs `20..30`.
-
-**When to pick which**:
-
-| Use case | API |
-|----------|-----|
-| Single animation | `ctx.animate` |
-| N identical animations, uniform gap | `ctx.stagger` |
-| Heterogeneous steps, irregular gaps, overlaps, parallel branches | `ctx.sequence` |
-
-### ctx.typewriter(fullText, opts)
-
-Type out a string character by character, driven by an animation curve. Returns an object whose `text` getter produces the current substring for the given frame.
-
-```js
-var tw = ctx.typewriter('Hello OpenCat', {
-  duration: 30,
-  delay: 6,
-  easing: 'linear',
-  caret: '▍',
-});
-
-ctx.getNode('title').text(tw.text);
-```
-
-**Options**:
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `duration` | — | Required. Frames from empty to full string. |
-| `delay` | `0` | Frames to wait before typing starts. |
-| `easing` | `'linear'` | Any easing supported by `ctx.animate()`. Non-linear varies typing speed. |
-| `clamp` | `true` | Prevents spring/bezier overshoot from producing out-of-range character counts. |
-| `caret` | `''` | String appended while typing is in progress. Disappears once the full text is revealed. |
-
-Also exposes `progress`, `settled`, and `settleFrame` like `ctx.animate()`.
-
-Character counting uses `Array.from()`, so the effect is **grapheme-safe for CJK and emoji** — no broken surrogates.
-
-### ctx.alongPath(svgPath)
-
-Low-level path sampler. For most cases, prefer the `path` option on `ctx.animate()` (see above) which handles caching and timing automatically.
-
-Returns a small object with `getLength()`, `at(t)`, and `dispose()`. `at(t)` takes `t in [0, 1]` and returns `{ x, y, angle }` -- `angle` is the path tangent in **degrees**.
-
-The SVG string is parsed once on creation; sampling is computed in Rust via Skia's `ContourMeasure`.
-
-```js
-// Manual usage (advanced): cache the measurer yourself
-if (!ctx.__along) {
-  ctx.__along = ctx.alongPath('M100 360 C400 80 880 640 1180 360');
-}
-var pos = ctx.__along.at(0.5);
-// pos = { x: ..., y: ..., angle: ... }
-```
+| `path` | — | SVG path string |
+| `orient` | `0` | Rotation offset in degrees from path tangent |
 
 **Supported SVG path commands** (uppercase = absolute, lowercase = relative):
 
@@ -426,44 +406,137 @@ var pos = ctx.__along.at(0.5);
 | `A rx ry x-axis-rot large sweep x y` | Elliptic arc |
 | `Z` / `z` | Close path |
 
-**Limitations:**
+Only the **first contour** is sampled. Multiple `M` commands (subpaths) — subsequent ones are ignored.
 
-- Only the **first contour** is sampled. If the path contains multiple `M` commands (multiple subpaths), subsequent ones are ignored.
-- The path is parsed only once at `ctx.alongPath()` time. To use a different path, create a new instance.
-- Always cache `alongPath` instances on `ctx.__yourKey` -- recreating per frame leaks Rust-side `ContourMeasure` until the script context is destroyed.
-- `dispose()` is optional but recommended for long-running compositions or when switching between many distinct paths.
+#### Keyframes
 
-### Easing
-
-| Preset | Effect |
-|--------|--------|
-| `'linear'` | Constant speed |
-| `'ease'` / `'ease-in'` / `'ease-out'` / `'ease-in-out'` | Standard CSS-like cubic curves |
-| `'back-in'` / `'back-out'` / `'back-in-out'` | Slight overshoot (UI snap) |
-| `'elastic-in'` / `'elastic-out'` / `'elastic-in-out'` | Damped oscillation |
-| `'bounce-in'` / `'bounce-out'` / `'bounce-in-out'` | Ground-bounce style |
-| `'steps(N)'` | Quantised into N discrete steps (pixel/typewriter) |
-| `'spring-default'` | General spring |
-| `'spring-gentle'` | Soft spring |
-| `'spring-stiff'` | Stiffer spring |
-| `'spring-slow'` | Slower spring |
-| `'spring-wobbly'` | Wobbly spring |
-
-Custom spring:
+For more than two stops, use `keyframes` instead of `from`/`to`:
 
 ```js
-easing: { spring: { stiffness: 120, damping: 12, mass: 0.9 } }
+// Shorthand: evenly spaced
+var a = ctx.animate({
+  keyframes: { scale: [1, 1.4, 0.8, 1] },
+  duration: 60,
+});
+
+// Full form: explicit `at` + optional per-segment easing
+var b = ctx.animate({
+  keyframes: {
+    rotate: [
+      { at: 0,   value: 0 },
+      { at: 0.5, value: 360, easing: 'back-out' },
+      { at: 1,   value: 0 }
+    ],
+  },
+  duration: 60,
+});
 ```
 
-Cubic bezier:
+Notes:
+
+- Only **numeric values** in keyframes. Color keyframes are not supported — use `from`/`to` for color animation.
+- `at` is normalised to `[0, 1]`. The outer `easing` applies first, then per-segment easing maps the result.
+- `keyframes` and `from`/`to` may coexist; keys in both are taken from `keyframes`.
+
+### 6.3 ctx.stagger(count, opts)
+
+Like `animate`, but creates multiple animations with staggered delay.
 
 ```js
-easing: [0.25, 0.1, 0.25, 1.0]
+var anims = ctx.stagger(4, {
+  from: { opacity: 0, translateY: 30 },
+  to:   { opacity: 1, translateY: 0 },
+  gap: 4,
+  duration: 20,
+  easing: 'spring-gentle',
+});
 ```
 
-### Animating Colors
+### 6.4 ctx.sequence(steps)
 
-`ctx.animate()` automatically interpolates color values when `from` or `to` is a string. Colors are converted to HSLA, the hue is interpolated along the shortest arc (handling 360->0 wrap-around), and the result is fed back as an `rgba(...)` string compatible with `node.bg()`, `node.textColor()`, `node.borderColor()`, etc.
+Heterogeneous chain of animations with per-step timing, overlaps, and parallel branches.
+
+```js
+var seq = ctx.sequence([
+  { from: { opacity: 0, translateY: -20 }, to: { opacity: 1, translateY: 0 }, duration: 24, easing: 'spring-gentle' },
+  { from: { opacity: 0 }, to: { opacity: 1 }, duration: 18, gap: -6 },
+  { from: { scale: 0.8 }, to: { scale: 1 }, duration: 30, easing: 'spring-stiff' },
+]);
+
+ctx.getNode('title').opacity(seq[0].opacity).translateY(seq[0].translateY);
+ctx.getNode('subtitle').opacity(seq[1].opacity);
+ctx.getNode('cta').scale(seq[2].scale);
+```
+
+**Per-step fields:**
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `from`, `to`, `duration`, `easing`, `clamp` | — | Same as `ctx.animate()` |
+| `delay` | `0` | Extra offset before this step starts |
+| `gap` | `0` | Cursor advance after this step. Negative to overlap. |
+| `at` | — | Absolute start frame. Pins the step; does not advance the cursor. |
+
+**Parallel branches with `at`:**
+
+```js
+var seq = ctx.sequence([
+  { to: { opacity: 1 }, duration: 20 },       // runs 0..20, cursor → 20
+  { to: { opacity: 1 }, duration: 30, at: 5 }, // pinned at frame 5, cursor untouched
+  { to: { opacity: 1 }, duration: 10 },        // runs 20..30 (cursor is 20)
+]);
+```
+
+**When to pick which:**
+
+| Use case | API |
+|----------|-----|
+| Single animation | `ctx.animate` |
+| N identical animations, uniform gap | `ctx.stagger` |
+| Heterogeneous steps, irregular gaps, overlaps, parallel branches | `ctx.sequence` |
+
+### 6.5 ctx.typewriter(fullText, opts)
+
+Type out a string character by character.
+
+```js
+var tw = ctx.typewriter('Hello OpenCat', {
+  duration: 30,
+  delay: 6,
+  easing: 'linear',
+  caret: '▍',
+});
+ctx.getNode('title').text(tw.text);
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `duration` | — | Required. Frames from empty to full string. |
+| `delay` | `0` | Frames to wait before typing starts. |
+| `easing` | `'linear'` | Any easing. Non-linear varies typing speed. |
+| `clamp` | `true` | Prevents overshoot from producing out-of-range character counts. |
+| `caret` | `''` | Appended while typing. Disappears when complete. |
+
+Character counting uses `Array.from()` — grapheme-safe for CJK and emoji.
+
+### 6.6 ctx.alongPath(svgPath)
+
+Low-level path sampler. For most cases, prefer `ctx.animate({ path: ... })` which handles caching and timing automatically.
+
+Returns `{ getLength(), at(t), dispose() }`. `at(t)` takes `t in [0, 1]` and returns `{ x, y, angle }` — `angle` is the path tangent in degrees.
+
+```js
+if (!ctx.__along) {
+  ctx.__along = ctx.alongPath('M100 360 C400 80 880 640 1180 360');
+}
+var pos = ctx.__along.at(0.5);
+```
+
+Always cache instances on `ctx.__yourKey`. `dispose()` is optional but recommended for long-running compositions.
+
+### 6.7 Animating Colors
+
+`ctx.animate()` automatically interpolates color values. Colors are converted to HSLA, interpolated along the shortest arc (handling 360→0 wrap), and returned as `rgba(...)`.
 
 ```js
 var a = ctx.animate({
@@ -476,33 +549,33 @@ var a = ctx.animate({
 ctx.getNode('card').bg(a.bg);
 ```
 
-Supported color literals (in `from` / `to`):
+Supported color literals:
 
 - `#rgb` / `#rrggbb` / `#rrggbbaa`
 - `rgb(r, g, b)` / `rgba(r, g, b, a)`
 - `hsl(h, s%, l%)` / `hsla(h, s%, l%, a)`
 
-Colors are always clamped (`progress` outside `[0, 1]` from spring overshoot is normalised back into range), so spring easing won't push values out of the visible gamut.
+Colors are always clamped — spring overshoot won't push values out of gamut.
 
-> Tailwind tokens like `'blue-500'` remain as discrete `node.bg(token)` calls — they are **not** interpolated. To animate, write the color as hex/rgb/hsl in `from` / `to`.
+> Tailwind tokens like `'blue-500'` are **not** interpolated. To animate colors, write them as hex/rgb/hsl in `from` / `to`.
 
-### ctx.utils
+### 6.8 ctx.utils
 
-Numeric helpers and **deterministic** random -- useful when you need reproducible random output across renders.
+Numeric helpers and **deterministic** random.
 
 ```js
 ctx.utils.clamp(value, min, max);
 ctx.utils.snap(value, step);
-ctx.utils.wrap(value, min, max);                   // (value - min) wrapped into [min, max)
+ctx.utils.wrap(value, min, max);           // (value - min) wrapped into [min, max)
 ctx.utils.mapRange(value, inMin, inMax, outMin, outMax);
 
-ctx.utils.random(min, max, seed?);                 // [min, max)
-ctx.utils.randomInt(min, max, seed?);              // integer in [min, max]
+ctx.utils.random(min, max, seed?);         // [min, max)
+ctx.utils.randomInt(min, max, seed?);      // integer in [min, max]
 ```
 
-> **Important:** When `seed` is omitted, `ctx.utils.random` falls back to `Math.random()` and produces **different output per render**, breaking determinism. **For video rendering, always pass a seed** (e.g. node id hash + frame slot).
+> When `seed` is omitted, `ctx.utils.random` falls back to `Math.random()` and produces **different output per render**. **For video rendering, always pass a seed.**
 
-### Node API
+### 6.9 Node API
 
 `ctx.getNode('id')` returns a chainable proxy object.
 
@@ -533,9 +606,9 @@ node.strokeWidth(2).strokeColor('gray-300').fillColor('blue-500');
 node.text('Hello world');
 ```
 
-### Common Patterns
+### 6.10 Common Patterns
 
-**Staggered entrance**:
+**Staggered entrance:**
 
 ```js
 var items = ['card-1', 'card-2', 'card-3'];
@@ -550,7 +623,7 @@ items.forEach(function(id, i) {
 });
 ```
 
-**Linked motion**:
+**Linked motion:**
 
 ```js
 var hero = ctx.animate({
@@ -563,7 +636,7 @@ ctx.getNode('subtitle')
   .translateY(hero.translateY * 0.6);
 ```
 
-**Looping pulse**:
+**Looping pulse:**
 
 ```js
 var icons = ['icon-a', 'icon-b', 'icon-c'];
@@ -590,32 +663,27 @@ icons.forEach(function(id, i) {
 });
 ```
 
-### Restrictions
+### 6.11 Restrictions
 
-- Do not use `document`, `window`, `requestAnimationFrame`, or `element.style`
-- Access nodes only through `ctx.getNode()`
-- `duration` is required for non-spring easing
+- Do not use `document`, `window`, `requestAnimationFrame`, or `element.style`.
+- Access nodes only through `ctx.getNode()`.
+- `duration` is required for non-spring easing.
 
 ---
 
-## 4. Canvas (CanvasKit-style subset)
+## 7. Canvas API
 
-A `type: "canvas"` node behaves like a canvas surface, but only supports the CanvasKit subset currently exposed by OpenCat. The drawing script must be attached as a child script of that canvas node and is re-executed on every frame.
-
-```json
-{"id": "chart", "parentId": "scene1", "type": "canvas", "className": "w-[300px] h-[200px]"}
-{"type": "script", "parentId": "chart", "src": "var CK = ctx.CanvasKit;\nvar canvas = ctx.getCanvas();\ncanvas.clear('#ffffff');"}
-```
+A `canvas` node provides a CanvasKit-style drawing surface. The drawing script must be a child `script` of the canvas node and is re-executed on every frame.
 
 ### Entry Points
 
 | Object | Purpose |
 |--------|---------|
-| `ctx.CanvasKit` / `globalThis.CanvasKit` | CanvasKit-style helpers, constructors, and enums |
-| `ctx.getCanvas()` | Returns the drawing interface for the current canvas node |
-| `ctx.getImage(assetId)` | Returns an image handle for a host-provided asset id |
+| `ctx.CanvasKit` / `globalThis.CanvasKit` | Helpers, constructors, enums |
+| `ctx.getCanvas()` | Drawing interface for the current canvas node |
+| `ctx.getImage(assetId)` | Image handle for a host-provided asset id |
 
-### Supported CanvasKit Helpers
+### CanvasKit Helpers
 
 ```js
 var CK = ctx.CanvasKit;
@@ -649,9 +717,7 @@ CK.ClipOp.Intersect / Difference
 CK.PointMode.Points / Lines / Polygon
 ```
 
-### Supported `ctx.getCanvas()` Methods
-
-Methods are chainable unless noted otherwise.
+### Canvas Methods
 
 ```js
 var canvas = ctx.getCanvas();
@@ -701,11 +767,10 @@ canvas.drawImageRect(image, srcRect, destRect, paint?, fastSample?);
 canvas.drawText(text, x, y, paint, font);
 ```
 
-### `Paint` Support
+### Paint
 
 ```js
 var paint = new CK.Paint();
-
 paint.setStyle(CK.PaintStyle.Fill);
 paint.setColor(CK.parseColorString('#ff0000'));
 paint.setColorComponents(1, 0, 0, 1);
@@ -721,7 +786,7 @@ paint.setPathEffect(CK.PathEffect.MakeDash([10, 5], 0));
 
 Only dash path effects are currently supported.
 
-### `Path` Support
+### Path
 
 ```js
 var path = new CK.Path();
@@ -738,7 +803,7 @@ path.reset();
 path.rewind();
 ```
 
-### Text API Support
+### Text
 
 ```js
 var font = new CK.Font(null, 32);
@@ -754,11 +819,11 @@ canvas.drawText('Hello OpenCat', 40, 80, paint, font);
 
 Current constraints:
 
-- `typeface` must currently be `null`, which means the system default font
-- Custom font objects, `Typeface`, `FontMgr`, and font assets are not supported
-- `TextBlob` and `Paragraph` are not supported
+- `typeface` must be `null` (system default font).
+- Custom font objects, `Typeface`, `FontMgr`, and font assets are not supported.
+- `TextBlob` and `Paragraph` are not supported.
 
-### Image Resource Rules
+### Image Resources
 
 Canvas scripts must acquire images through `ctx.getImage(assetId)`. URLs, file paths, and arbitrary native image objects are not accepted.
 
@@ -772,14 +837,14 @@ canvas.drawImageRect(
 );
 ```
 
-### Current Explicit Limits
+### Limits
 
-- This is a CanvasKit subset, not full CanvasKit
-- `clipRect()`, `clipPath()`, and `clipRRect()` currently only support `CK.ClipOp.Intersect`
-- `drawColor()`, `drawColorInt()`, and `drawColorComponents()` currently only support `CK.BlendMode.SrcOver`
-- `PathEffect` currently only supports `MakeDash()`
-- Text drawing only supports the system default font
-- `ctx.getImage()` only accepts asset id handles
+- This is a CanvasKit subset, not full CanvasKit.
+- `clipRect()`, `clipPath()`, `clipRRect()` — only `CK.ClipOp.Intersect`.
+- `drawColor()`, `drawColorInt()`, `drawColorComponents()` — only `CK.BlendMode.SrcOver`.
+- `PathEffect` — only `MakeDash()`.
+- Text drawing — only system default font.
+- `ctx.getImage()` — only asset id handles.
 
 ### Recommended Template
 
@@ -817,7 +882,7 @@ canvas.drawText('OpenCat', 16, 96, fill('#0f172a'), font);
 
 ---
 
-## 5. Common Errors
+## Appendix: Common Errors
 
 | Wrong | Correct |
 |------|---------|

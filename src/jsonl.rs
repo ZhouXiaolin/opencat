@@ -234,7 +234,7 @@ pub fn parse_with_base_dir(
 
     for (line_index, line) in input.lines().enumerate() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with("//") {
+        if line.is_empty() {
             continue;
         }
 

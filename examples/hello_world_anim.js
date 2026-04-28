@@ -1,47 +1,25 @@
 (function() {
-  var title = ctx.getNode("showcase-title");
-  var subtitle = ctx.getNode("showcase-subtitle");
-
   var hero = ctx.animate({
+    targets: 'showcase-title',
     from: { opacity: 0, translateY: 40, scale: 0.95, rotate: -4 },
     to: { opacity: 1, translateY: 0, scale: 1, rotate: 0 },
     easing: 'spring-gentle',
   });
 
-  title
-    .opacity(hero.opacity)
-    .translateY(hero.translateY)
-    .scale(hero.scale)
-    .rotate(hero.rotate);
-
-  subtitle
+  // Linked motion: subtitle derives from hero values
+  ctx.getNode('showcase-subtitle')
     .opacity(Math.min(0.85, hero.opacity * 0.85))
     .translateY(hero.translateY * 0.6)
     .scale(0.98 + hero.scale * 0.03);
 })();
 
 (function() {
-  var cards = [
-    "card-play",
-    "card-heart",
-    "card-star",
-    "card-badge",
-    "card-bell",
-    "card-shield",
-  ];
-
-  var anims = ctx.stagger(cards.length, {
+  ctx.stagger(0, {
+    targets: ['card-play', 'card-heart', 'card-star', 'card-badge', 'card-bell', 'card-shield'],
     from: { opacity: 0, translateY: 30, scale: 0.9 },
     to: { opacity: 1, translateY: 0, scale: 1 },
     gap: 4,
     easing: { spring: { stiffness: 80, damping: 14, mass: 1 } },
-  });
-
-  cards.forEach(function(id, i) {
-    ctx.getNode(id)
-      .opacity(anims[i].opacity)
-      .translateY(anims[i].translateY)
-      .scale(anims[i].scale);
   });
 })();
 

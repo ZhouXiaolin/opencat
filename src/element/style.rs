@@ -118,4 +118,5 @@ pub struct ComputedVisualStyle {
     pub box_shadow: Option<BoxShadow>,
     pub inset_shadow: Option<InsetShadow>,
     pub drop_shadow: Option<DropShadow>,
+    pub svg_path: Option<String>,
 }

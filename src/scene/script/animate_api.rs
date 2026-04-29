@@ -5,6 +5,7 @@ use rquickjs::{Array, Function};
 use crate::scene::easing::{Easing, SpringConfig};
 
 use super::MutationStore;
+use super::morph_svg::MorphSvgEntry;
 
 pub(super) const ANIMATE_RUNTIME: &str = concat!(
     include_str!("runtime/animation/bootstrap.js"),
@@ -22,6 +23,8 @@ pub(super) const ANIMATE_RUNTIME: &str = concat!(
     include_str!("runtime/animation/plugins/split_text.js"),
     "\n",
     include_str!("runtime/animation/plugins/motion_path.js"),
+    "\n",
+    include_str!("runtime/animation/plugins/morph_svg.js"),
     "\n",
     include_str!("runtime/animation/plugins/utils.js"),
 );
@@ -220,6 +223,57 @@ pub(crate) fn install_animate_bindings<'js>(
                 .get(&handle)
                 .map(|e| e.settle_frame)
                 .unwrap_or(0)
+        })?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
+        "__morph_svg_create",
+        Function::new(
+            ctx.clone(),
+            move |from_svg: String, to_svg: String, grid_size: f32| -> i32 {
+                let store = s.lock().unwrap();
+                let mut state = store.morph_svg_state.lock().unwrap();
+                let handle = state.next_id;
+                state.next_id += 1;
+                state.entries.insert(
+                    handle,
+                    match MorphSvgEntry::new(&from_svg, &to_svg, grid_size as u32) {
+                        Some(entry) => entry,
+                        None => {
+                            state.next_id -= 1;
+                            return -1;
+                        }
+                    },
+                );
+                handle
+            },
+        )?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
+        "__morph_svg_sample",
+        Function::new(
+            ctx.clone(),
+            move |handle: i32, t: f32, tolerance: f32| -> String {
+                let store = s.lock().unwrap();
+                let state = store.morph_svg_state.lock().unwrap();
+                match state.entries.get(&handle) {
+                    Some(entry) => entry.sample(t, tolerance),
+                    None => String::new(),
+                }
+            },
+        )?,
+    )?;
+
+    let s = store.clone();
+    globals.set(
+        "__morph_svg_dispose",
+        Function::new(ctx.clone(), move |handle: i32| {
+            let store = s.lock().unwrap();
+            let mut state = store.morph_svg_state.lock().unwrap();
+            state.entries.remove(&handle);
         })?,
     )?;
 
@@ -649,6 +703,20 @@ impl PathMeasureEntry {
 pub(crate) struct PathMeasureState {
     pub next_id: i32,
     pub entries: std::collections::HashMap<i32, PathMeasureEntry>,
+}
+
+pub(crate) struct MorphSvgState {
+    pub next_id: i32,
+    pub entries: std::collections::HashMap<i32, MorphSvgEntry>,
+}
+
+impl Default for MorphSvgState {
+    fn default() -> Self {
+        Self {
+            next_id: 1,
+            entries: std::collections::HashMap::new(),
+        }
+    }
 }
 
 #[cfg(test)]

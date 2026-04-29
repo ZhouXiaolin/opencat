@@ -16,6 +16,7 @@ use crate::{
 
 mod animate_api;
 mod canvas_api;
+mod morph_svg;
 mod node_style;
 
 pub use canvas_api::{
@@ -83,6 +84,7 @@ struct RuntimeMutationStore {
     current_frame: u32,
     animate_state: std::sync::Mutex<animate_api::AnimateState>,
     path_measure_state: std::sync::Mutex<animate_api::PathMeasureState>,
+    morph_svg_state: std::sync::Mutex<animate_api::MorphSvgState>,
     text_sources: HashMap<String, ScriptTextSource>,
 }
 

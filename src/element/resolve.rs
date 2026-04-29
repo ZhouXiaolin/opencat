@@ -584,10 +584,17 @@ fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Resu
 
         let computed = compute_style(&style, cx.inherited_style);
 
-        let paths = crate::lucide_icons::lucide_icon_paths(icon)
-            .expect("already validated by ensure_valid_lucide_icon");
-        let path_data: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
-        let view_box = [0.0, 0.0, 24.0, 24.0]; // Lucide fixed 24x24
+        let (path_data, view_box) = if let Some(svg_path) = &computed.visual.svg_path {
+            let pd = vec![svg_path.clone()];
+            let vb = compute_path_view_box(&pd).unwrap_or([0.0, 0.0, 24.0, 24.0]);
+            (pd, vb)
+        } else {
+            let paths = crate::lucide_icons::lucide_icon_paths(icon)
+                .expect("already validated by ensure_valid_lucide_icon");
+            let pd: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
+            let vb = [0.0, 0.0, 24.0, 24.0];
+            (pd, vb)
+        };
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -618,10 +625,18 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style);
 
-        let path_data = vec![path.data().to_string()];
-
-        // Compute view_box: parse path data bounding box
-        let view_box = compute_path_view_box(&path_data)?;
+        let (path_data, view_box) = if let Some(svg_path) = &computed.visual.svg_path {
+            let pd = vec![svg_path.clone()];
+            let vb = compute_path_view_box(&pd).unwrap_or_else(|_| {
+                compute_path_view_box(&[path.data().to_string()])
+                    .unwrap_or([0.0, 0.0, 100.0, 100.0])
+            });
+            (pd, vb)
+        } else {
+            let pd = vec![path.data().to_string()];
+            let vb = compute_path_view_box(&pd)?;
+            (pd, vb)
+        };
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -1074,6 +1089,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             drop_shadow: style
                 .drop_shadow
                 .map(|shadow| shadow.with_color(style.drop_shadow_color.unwrap_or(shadow.color))),
+            svg_path: style.svg_path.clone(),
         },
         text,
         id: style.id.clone(),

@@ -1378,13 +1378,11 @@ mod tests {
     fn script_driver_animate_linear_opacity() {
         let driver = ScriptDriver::from_source(
             r#"
-            const s = ctx.animate({
-                from: { opacity: 0 },
-                to: { opacity: 1 },
+            ctx.fromTo("box", { opacity: 0 }, {
+                opacity: 1,
                 duration: 20,
-                easing: 'linear',
+                ease: 'linear',
             });
-            ctx.getNode("box").opacity(s.opacity);
         "#,
         )
         .expect("script should compile");
@@ -1399,13 +1397,11 @@ mod tests {
     fn script_driver_animate_ease_out_translate() {
         let driver = ScriptDriver::from_source(
             r#"
-            const s = ctx.animate({
-                from: { translateX: 0 },
-                to: { translateX: 100 },
+            ctx.fromTo("box", { x: 0 }, {
+                x: 100,
                 duration: 20,
-                easing: 'ease-out',
+                ease: 'ease-out',
             });
-            ctx.getNode("box").translateX(s.translateX);
         "#,
         )
         .expect("script should compile");
@@ -1424,12 +1420,10 @@ mod tests {
     fn script_driver_animate_spring_auto_duration() {
         let driver = ScriptDriver::from_source(
             r#"
-            const s = ctx.animate({
-                from: { opacity: 0 },
-                to: { opacity: 1 },
-                easing: 'spring-stiff',
+            ctx.fromTo("box", { opacity: 0 }, {
+                opacity: 1,
+                ease: 'spring.stiff',
             });
-            ctx.getNode("box").opacity(s.opacity);
         "#,
         )
         .expect("script should compile");
@@ -1444,14 +1438,12 @@ mod tests {
     fn script_driver_animate_settle_frame() {
         let driver = ScriptDriver::from_source(
             r#"
-            const s = ctx.animate({
-                from: { opacity: 0 },
-                to: { opacity: 1 },
+            ctx.fromTo("box", { opacity: 0 }, {
+                opacity: 1,
                 duration: 20,
                 delay: 5,
-                easing: 'linear',
+                ease: 'linear',
             });
-            ctx.getNode("box").opacity(s.opacity);
         "#,
         )
         .expect("script should compile");
@@ -1466,16 +1458,12 @@ mod tests {
     fn script_driver_stagger_animations() {
         let driver = ScriptDriver::from_source(
             r#"
-            const anims = ctx.stagger(3, {
-                from: { opacity: 0 },
-                to: { opacity: 1 },
+            ctx.fromTo(["a", "b", "c"], { opacity: 0 }, {
+                opacity: 1,
                 duration: 10,
-                gap: 5,
-                easing: 'linear',
+                stagger: 5,
+                ease: 'linear',
             });
-            ctx.getNode("a").opacity(anims[0].opacity);
-            ctx.getNode("b").opacity(anims[1].opacity);
-            ctx.getNode("c").opacity(anims[2].opacity);
         "#,
         )
         .expect("script should compile");
@@ -1500,13 +1488,11 @@ mod tests {
     fn script_driver_animate_custom_bezier() {
         let driver = ScriptDriver::from_source(
             r#"
-            const s = ctx.animate({
-                from: { scale: 0.5 },
-                to: { scale: 1.0 },
+            ctx.fromTo("box", { scale: 0.5 }, {
+                scale: 1.0,
                 duration: 20,
-                easing: [0.68, -0.6, 0.32, 1.6],
+                ease: [0.68, -0.6, 0.32, 1.6],
             });
-            ctx.getNode("box").scale(s.scale);
         "#,
         )
         .expect("script should compile");
@@ -1529,12 +1515,9 @@ mod tests {
     fn script_driver_sequence_accumulates_cursor() {
         let driver = ScriptDriver::from_source(
             r#"
-            const seq = ctx.sequence([
-                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 10, easing: 'linear' },
-                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 10, easing: 'linear' },
-            ]);
-            ctx.getNode("a").opacity(seq[0].opacity);
-            ctx.getNode("b").opacity(seq[1].opacity);
+            ctx.timeline()
+                .fromTo("a", { opacity: 0 }, { opacity: 1, duration: 10, ease: 'linear' })
+                .fromTo("b", { opacity: 0 }, { opacity: 1, duration: 10, ease: 'linear' });
         "#,
         )
         .expect("script should compile");
@@ -1559,14 +1542,10 @@ mod tests {
     fn script_driver_sequence_respects_explicit_at_without_advancing_cursor() {
         let driver = ScriptDriver::from_source(
             r#"
-            const seq = ctx.sequence([
-                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 10, easing: 'linear' },
-                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 20, easing: 'linear', at: 5 },
-                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 10, easing: 'linear' },
-            ]);
-            ctx.getNode("a").opacity(seq[0].opacity);
-            ctx.getNode("b").opacity(seq[1].opacity);
-            ctx.getNode("c").opacity(seq[2].opacity);
+            ctx.timeline()
+                .fromTo("a", { opacity: 0 }, { opacity: 1, duration: 10, ease: 'linear' })
+                .fromTo("b", { opacity: 0 }, { opacity: 1, duration: 20, ease: 'linear' }, 5)
+                .fromTo("c", { opacity: 0 }, { opacity: 1, duration: 10, ease: 'linear' });
         "#,
         )
         .expect("script should compile");
@@ -1597,12 +1576,9 @@ mod tests {
     fn script_driver_sequence_negative_gap_overlaps() {
         let driver = ScriptDriver::from_source(
             r#"
-            const seq = ctx.sequence([
-                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 10, easing: 'linear', gap: -4 },
-                { from: { opacity: 0 }, to: { opacity: 1 }, duration: 10, easing: 'linear' },
-            ]);
-            ctx.getNode("a").opacity(seq[0].opacity);
-            ctx.getNode("b").opacity(seq[1].opacity);
+            ctx.timeline()
+                .fromTo("a", { opacity: 0 }, { opacity: 1, duration: 10, ease: 'linear' })
+                .fromTo("b", { opacity: 0 }, { opacity: 1, duration: 10, ease: 'linear' }, "-=4");
         "#,
         )
         .expect("script should compile");
@@ -1627,11 +1603,9 @@ mod tests {
     fn script_driver_sequence_per_step_duration_and_easing() {
         let driver = ScriptDriver::from_source(
             r#"
-            const seq = ctx.sequence([
-                { from: { translateX: 0 }, to: { translateX: 100 }, duration: 20, easing: 'linear' },
-                { from: { translateY: 0 }, to: { translateY: 50 }, duration: 10, easing: 'ease-out' },
-            ]);
-            ctx.getNode("box").translateX(seq[0].translateX).translateY(seq[1].translateY);
+            ctx.timeline()
+                .fromTo("box", { x: 0 }, { x: 100, duration: 20, ease: 'linear' })
+                .fromTo("box", { y: 0 }, { y: 50, duration: 10, ease: 'ease-out' });
         "#,
         )
         .expect("script should compile");
@@ -1677,8 +1651,7 @@ mod tests {
     fn script_driver_typewriter_progresses_through_characters() {
         let driver = ScriptDriver::from_source(
             r#"
-            var tw = ctx.typewriter("Hello", { duration: 10, easing: 'linear' });
-            ctx.getNode("title").text(tw.text);
+            ctx.to("title", { text: "Hello", duration: 10, ease: 'linear' });
         "#,
         )
         .expect("script should compile");
@@ -1692,8 +1665,7 @@ mod tests {
     fn script_driver_typewriter_start_and_end_bounds() {
         let driver = ScriptDriver::from_source(
             r#"
-            var tw = ctx.typewriter("Cat", { duration: 6, easing: 'linear' });
-            ctx.getNode("t").text(tw.text);
+            ctx.to("t", { text: "Cat", duration: 6, ease: 'linear' });
         "#,
         )
         .expect("script should compile");
@@ -1726,8 +1698,7 @@ mod tests {
     fn script_driver_typewriter_grapheme_safe_for_cjk() {
         let driver = ScriptDriver::from_source(
             r#"
-            var tw = ctx.typewriter("你好世界", { duration: 8, easing: 'linear' });
-            ctx.getNode("t").text(tw.text);
+            ctx.to("t", { text: "你好世界", duration: 8, ease: 'linear' });
         "#,
         )
         .expect("script should compile");
@@ -1738,11 +1709,10 @@ mod tests {
     }
 
     #[test]
-    fn script_driver_typewriter_appends_caret_during_progress() {
+    fn script_driver_typewriter_does_not_append_caret() {
         let driver = ScriptDriver::from_source(
             r#"
-            var tw = ctx.typewriter("Hi", { duration: 4, easing: 'linear', caret: '|' });
-            ctx.getNode("t").text(tw.text);
+            ctx.to("t", { text: "Hi", duration: 4, ease: 'linear' });
         "#,
         )
         .expect("script should compile");
@@ -1750,8 +1720,8 @@ mod tests {
         let typing = driver.run(2, 10, 2, 10, None).expect("frame 2 should run");
         assert_eq!(
             typing.get("t").unwrap().text_content,
-            Some("H|".to_string()),
-            "caret should follow the partial string while typing"
+            Some("H".to_string()),
+            "text tween should expose only text content; caret is a separate visual concern"
         );
 
         let settled = driver
@@ -1765,11 +1735,10 @@ mod tests {
     }
 
     #[test]
-    fn script_driver_typewriter_counts_code_points_not_graphemes() {
+    fn script_driver_typewriter_uses_grapheme_clusters() {
         let driver = ScriptDriver::from_source(
             r#"
-            var tw = ctx.typewriter("👨‍👩‍👧‍👦", { duration: 7, easing: 'linear' });
-            ctx.getNode("t").text(tw.text);
+            ctx.to("t", { text: "👨‍👩‍👧‍👦", duration: 2, ease: 'linear' });
         "#,
         )
         .expect("script should compile");
@@ -1778,8 +1747,14 @@ mod tests {
         let t = f1.get("t").expect("t mutation should exist");
         assert_eq!(
             t.text_content,
-            Some("👨".to_string()),
-            "current implementation reveals code points, not the full grapheme cluster"
+            Some(String::new()),
+            "partial progress must not split a grapheme cluster"
+        );
+
+        let f2 = driver.run(2, 10, 2, 10, None).expect("frame 2 should run");
+        assert_eq!(
+            f2.get("t").unwrap().text_content,
+            Some("👨‍👩‍👧‍👦".to_string())
         );
     }
 
@@ -1809,7 +1784,7 @@ mod tests {
         let driver = ScriptDriver::from_source(
             r#"
             ctx.getNode("title").text("Hello");
-            var parts = ctx.splitTextNode("title", { granularity: "graphemes" });
+            var parts = ctx.splitText("title", { type: "chars" });
             if (parts.length !== 5) {
                 throw new Error("expected 5 parts, got " + parts.length);
             }
@@ -1825,7 +1800,7 @@ mod tests {
         let result = driver.run(0, 1, 0, 1, None);
         assert!(
             result.is_ok(),
-            "splitTextNode + part.set should succeed: {:?}",
+            "splitText + part.set should succeed: {:?}",
             result.err()
         );
 
@@ -1900,20 +1875,14 @@ mod tests {
         let driver = ScriptDriver::from_source(
             r#"
             ctx.getNode("t").text("Cat");
-            var parts = ctx.splitTextNode("t", { granularity: "graphemes" });
-            var anims = ctx.stagger(parts.length, {
-                from: { opacity: 0, translateY: 18 },
-                to: { opacity: 1, translateY: 0 },
+            var parts = ctx.splitText("t", { type: "chars" });
+            ctx.fromTo(parts, { opacity: 0, y: 18 }, {
+                opacity: 1,
+                y: 0,
                 duration: 6,
-                gap: 2,
-                easing: "linear"
+                stagger: 2,
+                ease: "linear"
             });
-            for (var i = 0; i < parts.length; i++) {
-                parts[i].set({
-                    opacity: anims[i].opacity,
-                    translateY: anims[i].translateY
-                });
-            }
         "#,
         )
         .expect("script should compile");
@@ -1937,7 +1906,7 @@ mod tests {
         let driver = ScriptDriver::from_source(
             r#"
             ctx.getNode("t").text("Hello");
-            var parts = ctx.splitTextNode("t", { granularity: "graphemes" });
+            var parts = ctx.splitText("t", { type: "chars" });
             if (parts.length !== 5) {
                 throw new Error("expected 5 graphemes, got " + parts.length);
             }

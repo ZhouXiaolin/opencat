@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rquickjs::Function;
+use rquickjs::{Array, Function};
 
 use crate::scene::easing::{Easing, SpringConfig};
 
@@ -208,6 +208,25 @@ pub(crate) fn install_animate_bindings<'js>(
     globals.set(
         "__util_random_seeded",
         Function::new(ctx.clone(), |seed: f32| -> f32 { random_from_seed(seed) })?,
+    )?;
+
+    globals.set(
+        "__text_graphemes",
+        Function::new(
+            ctx.clone(),
+            |ctx_inner: rquickjs::Ctx<'js>, text: String| -> Result<Array<'js>, rquickjs::Error> {
+                let result = Array::new(ctx_inner)?;
+                for (index, grapheme) in unicode_segmentation::UnicodeSegmentation::graphemes(
+                    text.as_str(),
+                    true,
+                )
+                .enumerate()
+                {
+                    result.set(index, grapheme.to_string())?;
+                }
+                Ok(result)
+            },
+        )?,
     )?;
 
     globals.set(

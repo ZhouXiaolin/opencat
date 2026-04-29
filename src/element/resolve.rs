@@ -1490,7 +1490,7 @@ mod tests {
             .id("root")
             .script_source(
                 r#"
-                var parts = ctx.splitTextNode("title", { granularity: "graphemes" });
+                var parts = ctx.splitText("title", { type: "chars" });
                 parts[0].set({ opacity: 0.2 });
             "#,
             )

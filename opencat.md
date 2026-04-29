@@ -587,7 +587,7 @@ var pos = ctx.__along.at(0.5);
 | `A rx ry x-axis-rot large sweep x y` | Elliptic arc |
 | `Z` / `z` | Close path |
 
-Only the **first contour** is sampled. Multiple `M` commands (subpaths) — subsequent ones are ignored.
+When the path contains multiple `M` commands (subpaths), they are **concatenated end-to-end** into a single unified path. A `t` of `0.0` samples the start of the first subpath and `1.0` samples the end of the last subpath.
 
 ### 6.9 ctx.utils
 

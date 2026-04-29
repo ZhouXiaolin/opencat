@@ -6,7 +6,25 @@ use crate::scene::easing::{Easing, SpringConfig};
 
 use super::MutationStore;
 
-pub(super) const ANIMATE_RUNTIME: &str = include_str!("runtime/animate_ctx.js");
+pub(super) const ANIMATE_RUNTIME: &str = concat!(
+    include_str!("runtime/animation/bootstrap.js"),
+    "\n",
+    include_str!("runtime/animation/core.js"),
+    "\n",
+    include_str!("runtime/animation/facade.js"),
+    "\n",
+    include_str!("runtime/animation/plugins/style_props.js"),
+    "\n",
+    include_str!("runtime/animation/plugins/color.js"),
+    "\n",
+    include_str!("runtime/animation/plugins/text.js"),
+    "\n",
+    include_str!("runtime/animation/plugins/split_text.js"),
+    "\n",
+    include_str!("runtime/animation/plugins/motion_path.js"),
+    "\n",
+    include_str!("runtime/animation/plugins/utils.js"),
+);
 
 struct AnimateEntry {
     progress: f32,
@@ -248,19 +266,27 @@ pub(crate) fn install_animate_bindings<'js>(
                         format!("invalid SVG path: `{svg}`"),
                     )
                 })?;
-                let mut iter = skia_safe::ContourMeasureIter::new(&path, false, None);
-                let contour = iter.next().ok_or_else(|| {
-                    rquickjs::Error::new_from_js_message(
+                let contours: Vec<_> =
+                    skia_safe::ContourMeasureIter::new(&path, false, None).collect();
+                if contours.is_empty() {
+                    return Err(rquickjs::Error::new_from_js_message(
                         "alongPath",
                         "create",
                         "SVG path has no measurable contours".to_string(),
-                    )
-                })?;
+                    ));
+                }
+                let total_length: f32 = contours.iter().map(|c| c.length()).sum();
                 let store = s.lock().unwrap();
                 let mut state = store.path_measure_state.lock().unwrap();
                 let handle = state.next_id;
                 state.next_id += 1;
-                state.entries.insert(handle, PathMeasureEntry { contour });
+                state.entries.insert(
+                    handle,
+                    PathMeasureEntry {
+                        contours,
+                        total_length,
+                    },
+                );
                 Ok(handle)
             },
         )?,
@@ -275,7 +301,7 @@ pub(crate) fn install_animate_bindings<'js>(
             state
                 .entries
                 .get(&handle)
-                .map(|e| e.contour.length())
+                .map(|e| e.total_length)
                 .unwrap_or(0.0)
         })?,
     )?;
@@ -289,15 +315,8 @@ pub(crate) fn install_animate_bindings<'js>(
             let Some(entry) = state.entries.get(&handle) else {
                 return vec![0.0, 0.0, 0.0];
             };
-            let len = entry.contour.length();
-            let clamped = t.clamp(0.0, 1.0);
-            match entry.contour.pos_tan(clamped * len) {
-                Some((p, v)) => {
-                    let angle_deg = v.y.atan2(v.x).to_degrees();
-                    vec![p.x, p.y, angle_deg]
-                }
-                None => vec![0.0, 0.0, 0.0],
-            }
+            let (x, y, angle) = entry.sample(t);
+            vec![x, y, angle]
         })?,
     )?;
 
@@ -599,7 +618,31 @@ pub(crate) fn random_from_seed(seed: f32) -> f32 {
 }
 
 pub(crate) struct PathMeasureEntry {
-    pub contour: skia_safe::ContourMeasure,
+    pub contours: Vec<skia_safe::ContourMeasure>,
+    pub total_length: f32,
+}
+
+impl PathMeasureEntry {
+    fn sample(&self, t: f32) -> (f32, f32, f32) {
+        if self.contours.is_empty() || self.total_length <= 0.0 {
+            return (0.0, 0.0, 0.0);
+        }
+        let target = t.clamp(0.0, 1.0) * self.total_length;
+        let mut accumulated = 0.0;
+        for contour in &self.contours {
+            let len = contour.length();
+            if accumulated + len >= target {
+                let local_t = ((target - accumulated) / len.max(f32::EPSILON)).clamp(0.0, 1.0);
+                if let Some((p, v)) = contour.pos_tan(local_t * len) {
+                    let angle_deg = v.y.atan2(v.x).to_degrees();
+                    return (p.x, p.y, angle_deg);
+                }
+                break;
+            }
+            accumulated += len;
+        }
+        (0.0, 0.0, 0.0)
+    }
 }
 
 #[derive(Default)]
@@ -610,7 +653,10 @@ pub(crate) struct PathMeasureState {
 
 #[cfg(test)]
 mod tests {
-    use super::{HSLA, lerp_hsla, lerp_hsla_clamped, parse_easing_from_tag, random_from_seed};
+    use super::{
+        HSLA, PathMeasureEntry, lerp_hsla, lerp_hsla_clamped, parse_easing_from_tag,
+        random_from_seed,
+    };
 
     #[test]
     fn random_from_seed_is_deterministic() {
@@ -673,8 +719,10 @@ mod tests {
     fn skia_can_parse_svg_path_and_measure() {
         let path = skia_safe::Path::from_svg("M100 360 C400 80 880 640 1180 360")
             .expect("Skia should parse the SVG path");
-        let mut iter = skia_safe::ContourMeasureIter::new(&path, false, None);
-        let contour = iter.next().expect("path should have at least one contour");
+        let contours: Vec<_> = skia_safe::ContourMeasureIter::new(&path, false, None).collect();
+        let contour = contours
+            .first()
+            .expect("path should have at least one contour");
         let len = contour.length();
         assert!(len > 1000.0, "expected length > 1000 (rough), got {len}");
         let (start, _) = contour.pos_tan(0.0).expect("pos_tan at 0 should exist");
@@ -683,5 +731,41 @@ mod tests {
         let (end, _) = contour.pos_tan(len).expect("pos_tan at len should exist");
         assert!((end.x - 1180.0).abs() < 1.0, "end.x = {}", end.x);
         assert!((end.y - 360.0).abs() < 1.0, "end.y = {}", end.y);
+    }
+
+    #[test]
+    fn multi_contour_path_samples_across_subpaths() {
+        let contours: Vec<_> = skia_safe::ContourMeasureIter::new(
+            &skia_safe::Path::from_svg("M0 0 L100 0 M100 100 L200 100").unwrap(),
+            false,
+            None,
+        )
+        .collect();
+        assert_eq!(contours.len(), 2);
+        let total_length: f32 = contours.iter().map(|c| c.length()).sum();
+        let entry = PathMeasureEntry {
+            contours,
+            total_length,
+        };
+
+        let (x0, y0, _) = entry.sample(0.0);
+        assert!(
+            (x0 - 0.0).abs() < 1.0,
+            "start of first contour x=0, got {x0}"
+        );
+        assert!(
+            (y0 - 0.0).abs() < 1.0,
+            "start of first contour y=0, got {y0}"
+        );
+
+        let (x1, y1, _) = entry.sample(1.0);
+        assert!(
+            (x1 - 200.0).abs() < 1.0,
+            "end of last contour x=200, got {x1}"
+        );
+        assert!(
+            (y1 - 100.0).abs() < 1.0,
+            "end of last contour y=100, got {y1}"
+        );
     }
 }

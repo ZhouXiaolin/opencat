@@ -1394,6 +1394,82 @@ mod tests {
     }
 
     #[test]
+    fn script_driver_animation_plugin_registers_custom_property() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.registerPlugin({
+                name: 'pulse-plugin',
+                properties: {
+                    pulse: {
+                        defaultValue: 0,
+                        interpolate: 'number',
+                        apply: function(target, value) {
+                            target.node.scale(1 + value);
+                        },
+                    },
+                },
+            });
+
+            ctx.fromTo("box", { pulse: 0 }, {
+                pulse: 0.5,
+                duration: 10,
+                ease: 'linear',
+            });
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(5, 20, 5, 20, None).expect("script should run");
+        let node = mutations.get("box").expect("box mutation should exist");
+
+        let scale = match &node.transforms[0] {
+            Transform::Scale(v) => *v,
+            _ => panic!("expected Scale from custom animation plugin"),
+        };
+        assert!(
+            (scale - 1.25).abs() < 0.01,
+            "custom plugin should sample pulse=0.25 and apply scale=1.25, got {}",
+            scale
+        );
+    }
+
+    #[test]
+    fn script_driver_animation_plugins_report_installed_modules() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            var names = ctx.animation.plugins();
+            [
+                'style-props',
+                'color',
+                'text',
+                'split-text',
+                'motion-path',
+                'utils',
+            ].forEach(function(name) {
+                if (names.indexOf(name) === -1) {
+                    throw new Error('missing animation plugin: ' + name + ' in ' + names.join(','));
+                }
+            });
+
+            if (typeof ctx.splitText !== 'function') {
+                throw new Error('split-text plugin did not install ctx.splitText');
+            }
+            if (typeof ctx.alongPath !== 'function') {
+                throw new Error('motion-path plugin did not install ctx.alongPath');
+            }
+            if (typeof ctx.utils.random !== 'function') {
+                throw new Error('utils plugin did not install ctx.utils');
+            }
+        "#,
+        )
+        .expect("script should compile");
+
+        driver
+            .run(0, 1, 0, 1, None)
+            .expect("plugin module introspection should run");
+    }
+
+    #[test]
     fn script_driver_animate_ease_out_translate() {
         let driver = ScriptDriver::from_source(
             r#"
@@ -1534,6 +1610,33 @@ mod tests {
         assert!(
             b.opacity.unwrap() < 0.05,
             "step 1 should barely have started at frame 10, got {}",
+            b.opacity.unwrap()
+        );
+    }
+
+    #[test]
+    fn script_driver_timeline_supports_previous_start_position() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.timeline()
+                .fromTo("a", { opacity: 0 }, { opacity: 1, duration: 10, ease: 'linear' })
+                .fromTo("b", { opacity: 0 }, { opacity: 1, duration: 20, ease: 'linear' }, "<");
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(5, 30, 5, 30, None).expect("script should run");
+        let a = mutations.get("a").expect("a mutation should exist");
+        let b = mutations.get("b").expect("b mutation should exist");
+
+        assert!(
+            (a.opacity.unwrap() - 0.5).abs() < 0.01,
+            "first tween should be halfway at frame 5, got {}",
+            a.opacity.unwrap()
+        );
+        assert!(
+            (b.opacity.unwrap() - 0.25).abs() < 0.01,
+            "`<` should align second tween with previous start, got {}",
             b.opacity.unwrap()
         );
     }

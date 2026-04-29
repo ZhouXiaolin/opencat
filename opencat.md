@@ -328,9 +328,9 @@ Transition `timing` field also accepts a string form: `"bezier:0.4,0,0.2,1"`.
 
 ---
 
-## 6. Scripting
+## 6. Animation System
 
-Scripts are attached to nodes via `script` records and run on every frame using QuickJS.
+Animation scripts are attached to nodes via `script` records and run on every frame using QuickJS.
 
 ```json
 {"type": "script", "parentId": "scene1", "src": "ctx.fromTo('title',{opacity:0},{opacity:1,duration:20,ease:'spring.gentle'});"}
@@ -345,7 +345,7 @@ Scripts are attached to nodes via `script` records and run on every frame using 
 
 `src` and `path` are mutually exclusive. Exactly one is required.
 
-### 6.1 Execution Context
+Execution context:
 
 | Field | Description |
 |------|-------------|
@@ -354,9 +354,7 @@ Scripts are attached to nodes via `script` records and run on every frame using 
 | `ctx.currentFrame` | Frame index within the current scene (`0 → sceneFrames - 1`) |
 | `ctx.sceneFrames` | Frame count of the current scene |
 
-For scene-local animation, prefer `ctx.currentFrame` and `ctx.sceneFrames`.
-
-### 6.2 Design: Precise Mathematical Computation
+### 6.1 Design Philosophy
 
 OpenCat's animation system is **functionally pure**: every animated value is computed as `value = f(current_frame)` through exact mathematical formulas. There is no internal tick loop, no accumulated state, and no non-deterministic drift.
 
@@ -369,18 +367,16 @@ Scripts are re-executed every frame. The GSAP-like API declares tweens and timel
 
 ---
 
-### 6.3 GSAP-Style Tween API
-
-The public animation API is intentionally small:
+### 6.2 Syntax: Tween API
 
 ```js
-ctx.set(targets, vars);
-ctx.to(targets, vars);
-ctx.from(targets, vars);
-ctx.fromTo(targets, fromVars, toVars);
+ctx.set(targets, vars);                // Set immediately, no animation
+ctx.to(targets, vars);                 // Animate from current to target
+ctx.from(targets, vars);               // Animate from initial to current
+ctx.fromTo(targets, fromVars, toVars); // Full control over start and end
 ```
 
-`targets` accepts a node id, an array of node ids, or `ctx.splitText(...)` parts. The API shape follows GSAP, but each call is sampled from the current frame and remains deterministic.
+`targets` accepts a node id, an array of node ids, or `ctx.splitText(...)` parts.
 
 ```js
 ctx.fromTo('hero',
@@ -389,7 +385,7 @@ ctx.fromTo('hero',
 );
 ```
 
-Common property aliases:
+**Property aliases:**
 
 | Property | Applies to |
 |----------|------------|
@@ -398,6 +394,9 @@ Common property aliases:
 | `scale`, `scaleX`, `scaleY` | Transform scale |
 | `rotate`, `rotation` | Rotation in degrees |
 | `skewX`, `skewY` | Skew in degrees |
+| `path` | Motion-path animation channel; samples SVG path data into `x`, `y`, and `rotation` |
+| `orient` | Rotation offset in degrees for `path` animation |
+| `svgPath`, `d` | SVG path morphing channel; rewrites a `path` node's path data |
 | `left`, `top`, `right`, `bottom`, `width`, `height` | Layout dimensions |
 | `backgroundColor`, `bg` | Background color |
 | `color`, `textColor` | Text color |
@@ -405,7 +404,7 @@ Common property aliases:
 | `fillColor`, `strokeColor`, `strokeWidth` | SVG/icon/path paint |
 | `text` | Text content layer, revealed with grapheme-safe typewriter semantics |
 
-Timing fields live in the destination vars:
+**Timing fields:**
 
 | Field | Default | Description |
 |-------|---------|-------------|
@@ -417,14 +416,61 @@ Timing fields live in the destination vars:
 | `repeatDelay` | `0` | Hold between repeated cycles |
 | `stagger` | `0` | Per-target delay offset for arrays or split-text parts |
 
-Returned tween objects expose `progress`, `settled`, `settleFrame`, `values`, and each sampled property directly:
+**Return value:** Tween objects expose `progress`, `settled`, `settleFrame`, `values`, and each sampled property directly:
 
 ```js
 var hero = ctx.fromTo('title', { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 20 });
 ctx.getNode('subtitle').opacity(hero.opacity * 0.8).translateY(hero.y * 0.5);
 ```
 
-### 6.4 Colors, Paths, And Keyframes
+---
+
+### 6.3 Syntax: ctx.timeline
+
+`ctx.timeline()` provides GSAP-style choreography:
+
+```js
+ctx.timeline({ defaults: { duration: 18, ease: 'spring.gentle' } })
+  .from('title', { opacity: 0, y: 30 })
+  .from('subtitle', { opacity: 0, y: 18 }, '-=8')
+  .fromTo('cta', { scale: 0.8 }, { scale: 1, duration: 24 }, '+=6');
+```
+
+**Position arguments:**
+
+| Position | Meaning |
+|----------|---------|
+| omitted | Start at the current timeline cursor |
+| number | Absolute frame in the timeline |
+| `'+=N'` | N frames after the cursor |
+| `'-=N'` | N frames before the cursor |
+| label | Label registered by `addLabel(name, position)` |
+
+Explicit positions do not advance the cursor. This is useful for parallel branches.
+
+---
+
+### 6.4 Easing System
+
+Easing names are shared by all Tween API methods and `transition.timing`. See §5.1 for the full easing reference table.
+
+Custom spring:
+
+```js
+ease: { spring: { stiffness: 120, damping: 12, mass: 0.9 } }
+```
+
+Cubic bezier:
+
+```js
+ease: [0.25, 0.1, 0.25, 1.0]
+```
+
+Transition `timing` field also accepts: `"bezier:0.4,0,0.2,1"`.
+
+---
+
+### 6.5 Plugin: Color Interpolation
 
 Color properties are interpolated in HSLA space with shortest-path hue rotation:
 
@@ -435,29 +481,26 @@ ctx.fromTo('card',
 );
 ```
 
-Supported color literals: `#rgb` / `#rrggbb` / `#rrggbbaa`, `rgb(...)` / `rgba(...)`, `hsl(...)` / `hsla(...)`. Tailwind color tokens are not interpolated; use explicit color literals in tweens.
+Supported literals: `#rgb` / `#rrggbb` / `#rrggbbaa`, `rgb(...)` / `rgba(...)`, `hsl(...)` / `hsla(...)`.
 
-Path animation:
+> Tailwind color tokens are not interpolated; use explicit color literals in tweens.
 
-```js
-ctx.to('rocket', {
-  path: 'M100 360 C400 80 880 640 1180 360',
-  orient: -90,
-  duration: 120,
-  ease: 'ease-in-out',
-  repeat: -1,
-  yoyo: true,
-});
-```
+---
 
-Keyframes:
+### 6.6 Plugin: Keyframes
+
+Shorthand form (evenly distributed):
 
 ```js
 ctx.to('card', {
   keyframes: { scale: [1, 1.4, 0.8, 1] },
   duration: 60,
 });
+```
 
+Full form (per-keyframe easing):
+
+```js
 ctx.to('logo', {
   keyframes: {
     rotate: [
@@ -472,105 +515,30 @@ ctx.to('logo', {
 
 Only numeric keyframes are supported. For color keyframes, chain separate color tweens or use `fromTo`.
 
-### 6.5 ctx.timeline(opts)
-
-`ctx.timeline()` provides GSAP-style choreography while still compiling down to exact per-frame tween sampling.
-
-```js
-ctx.timeline({ defaults: { duration: 18, ease: 'spring.gentle' } })
-  .from('title', { opacity: 0, y: 30 })
-  .from('subtitle', { opacity: 0, y: 18 }, '-=8')
-  .fromTo('cta', { scale: 0.8 }, { scale: 1, duration: 24 }, '+=6');
-```
-
-Position arguments:
-
-| Position | Meaning |
-|----------|---------|
-| omitted | Start at the current timeline cursor |
-| number | Absolute frame in the timeline |
-| `'+=N'` | N frames after the cursor |
-| `'-=N'` | N frames before the cursor |
-| label | Label registered by `addLabel(name, position)` |
-
-Explicit positions do not advance the cursor. This is useful for parallel branches.
-
-### 6.6 Text Content Animation
-
-Text content is animated through the normal tween API:
-
-```js
-ctx.to('title', {
-  text: 'Hello OpenCat',
-  duration: 30,
-  delay: 6,
-  ease: 'linear',
-});
-```
-
-The `text` channel reveals content by grapheme cluster, not JavaScript code point. ZWJ emoji and combining marks are not split mid-cluster.
-
-### 6.7 Text Unit Animation (`ctx.splitText`)
-
-`ctx.splitText(id, { type })` reads the resolved text source for the frame, then returns visual units that can be animated with the same tween API.
-
-```js
-var chars = ctx.splitText('title', { type: 'chars' });
-ctx.from(chars, {
-  opacity: 0,
-  y: 38,
-  scale: 0.86,
-  duration: 22,
-  stagger: 2,
-  ease: 'spring.wobbly',
-});
-```
-
-Supported `type` values:
-
-| Type | Meaning |
-|------|---------|
-| `'chars'` | Grapheme clusters |
-| `'words'` | Unicode word-boundary units for whitespace-separated text; CJK text falls back to `chars` |
-| `'lines'` | Reserved for layout-derived line ranges; not implemented yet |
-
-Each part exposes `index`, `text`, `start`, `end`, and `part.set({ opacity, x, y, scale, rotate })`.
-
-Text animation has two independent layers:
-
-1. **Content layer**: `ctx.to('title', { text: ... })` changes the string that gets laid out.
-2. **Unit style layer**: `ctx.splitText(...); ctx.from(parts, ...)` changes visual properties of laid-out units.
-
-They can coexist in the same frame:
-
-```js
-ctx.set('title', { text: 'Hello' });
-ctx.from(ctx.splitText('title', { type: 'chars' }), {
-  opacity: 0,
-  y: 12,
-  duration: 12,
-  stagger: 1,
-});
-```
-
 ---
 
-### 6.8 ctx.alongPath(svgPath)
+### 6.7 Plugin: Path Animation
 
-Low-level path sampler. For most cases, prefer the `path` option on `ctx.to()` (see above) which handles caching and timing automatically.
-
-Returns a small object with `getLength()`, `at(t)`, and `dispose()`. `at(t)` takes `t in [0, 1]` and returns `{ x, y, angle }` -- `angle` is the path tangent in **degrees**.
-
-The SVG string is parsed once on creation; sampling is computed in Rust via Skia's `ContourMeasure`.
+Motion path animation is built into `ctx.to()` / `ctx.from()` / `ctx.fromTo()` via the `path` option. The runtime parses the SVG path, caches the measurer, and samples position/rotation each frame.
 
 ```js
-// Manual usage (advanced): cache the measurer yourself
-if (!ctx.__along) {
-  ctx.__along = ctx.alongPath('M100 360 C400 80 880 640 1180 360');
-}
-var pos = ctx.__along.at(0.5);
-// pos = { x: ..., y: ..., angle: ... }
+ctx.to('rocket', {
+  path: 'M100 360 C400 80 880 640 1180 360',
+  orient: -90,
+  duration: 120,
+  ease: 'ease-in-out',
+  repeat: -1,
+  yoyo: true,
+});
 ```
+
+Semantics:
+
+- `path` accepts an SVG path data string.
+- Progress `0 → 1` maps to arc length from start to end.
+- The target receives `x`, `y`, and `rotation` samples.
+- `rotation` follows the tangent angle; `orient` adds a constant degree offset.
+- Multiple `M` subpaths are concatenated end-to-end.
 
 **Supported SVG path commands** (uppercase = absolute, lowercase = relative):
 
@@ -587,27 +555,111 @@ var pos = ctx.__along.at(0.5);
 | `A rx ry x-axis-rot large sweep x y` | Elliptic arc |
 | `Z` / `z` | Close path |
 
-When the path contains multiple `M` commands (subpaths), they are **concatenated end-to-end** into a single unified path. A `t` of `0.0` samples the start of the first subpath and `1.0` samples the end of the last subpath.
+---
 
-### 6.9 ctx.utils
+### 6.8 Plugin: SVG Path Morphing
 
-Numeric helpers and **deterministic** random.
+Path morphing changes the geometry of a `type: "path"` node by interpolating one SVG path data string into another. Unlike path animation (moving along a path), this rewrites the node's shape data.
+
+```js
+ctx.fromTo('blob',
+  { d: 'M55 0 L110 95 L0 95 Z' },
+  { d: 'M55 95 L110 0 L0 0 Z', duration: 45, ease: 'ease-in-out' }
+);
+```
+
+- `svgPath` is the canonical property; `d` is its alias.
+- Target must be a `type: "path"` node.
+- `from` and `to` must be valid SVG path data strings accepted by Skia.
+- Intermediate frames generated by arc-length resampling and point correspondence.
+- Open paths stay open; closed paths stay closed.
+- Best for coherent silhouettes, icons, blobs, strokes.
+
+---
+
+### 6.9 Plugin: Text Content Animation
+
+Text content is animated through the normal tween API, revealed by grapheme cluster:
+
+```js
+ctx.to('title', {
+  text: 'Hello OpenCat',
+  duration: 30,
+  delay: 6,
+  ease: 'linear',
+});
+```
+
+ZWJ emoji and combining marks are not split mid-cluster.
+
+---
+
+### 6.10 Plugin: Text Unit Animation (splitText)
+
+`ctx.splitText(id, { type })` reads the resolved text source and returns animatable visual units:
+
+```js
+var chars = ctx.splitText('title', { type: 'chars' });
+ctx.from(chars, {
+  opacity: 0,
+  y: 38,
+  scale: 0.86,
+  duration: 22,
+  stagger: 2,
+  ease: 'spring.wobbly',
+});
+```
+
+Supported types:
+
+| Type | Meaning |
+|------|---------|
+| `'chars'` | Grapheme clusters |
+| `'words'` | Unicode word-boundary units; CJK falls back to `chars` |
+| `'lines'` | Reserved for layout-derived line ranges |
+
+Each part exposes `index`, `text`, `start`, `end`, and `part.set({ opacity, x, y, scale, rotate })`.
+
+Two independent layers:
+
+1. **Content layer**: `ctx.to('title', { text: ... })` changes the string.
+2. **Unit style layer**: `ctx.splitText(...); ctx.from(parts, ...)` changes visual properties.
+
+Coexisting in the same frame:
+
+```js
+ctx.set('title', { text: 'Hello' });
+ctx.from(ctx.splitText('title', { type: 'chars' }), {
+  opacity: 0,
+  y: 12,
+  duration: 12,
+  stagger: 1,
+});
+```
+
+---
+
+### 6.11 ctx.utils
+
+Numeric helpers and **deterministic** random:
 
 ```js
 ctx.utils.clamp(value, min, max);
 ctx.utils.snap(value, step);
-ctx.utils.wrap(value, min, max);           // (value - min) wrapped into [min, max)
+ctx.utils.wrap(value, min, max);
 ctx.utils.mapRange(value, inMin, inMax, outMin, outMax);
 
-ctx.utils.random(min, max, seed?);         // [min, max)
-ctx.utils.randomInt(min, max, seed?);      // integer in [min, max]
+ctx.utils.random(min, max, seed?);
+ctx.utils.randomInt(min, max, seed?);
 ```
 
-> When `seed` is omitted, `ctx.utils.random` falls back to `Math.random()` and produces **different output per render**. **For video rendering, always pass a seed.**
+> When `seed` is omitted, falls back to `Math.random()`. **For video rendering, always pass a seed.**
 
-### 6.10 Node API
+---
 
-`ctx.getNode('id')` returns a chainable proxy object.
+### 6.12 Node API
+
+`ctx.getNode('id')` returns a chainable proxy object:
 
 ```js
 // Transform
@@ -631,30 +683,31 @@ node.bg('blue-500').borderRadius(16).borderWidth(2).borderColor('gray-300');
 node.objectFit('cover').textColor('white').textSize(24).fontWeight('bold');
 node.textAlign('center').lineHeight(1.5).letterSpacing(1).shadow('lg');
 node.strokeWidth(2).strokeColor('gray-300').fillColor('blue-500');
+node.svgPath('M0 0 L100 0 L50 100 Z');
 
-// Content (text nodes only — overrides the JSONL `text` field for the current frame)
+// Content (text nodes only — overrides JSONL `text` field)
 node.text('Hello world');
 ```
 
-### 6.11 Common Patterns
+---
 
-**Staggered entrance (prefer `targets`):**
+### 6.13 Common Patterns
+
+**Staggered entrance:**
 
 ```js
 ctx.fromTo(
   ['card-1', 'card-2', 'card-3'],
   { opacity: 0, y: 30, scale: 0.9 },
   {
-    opacity: 1,
-    y: 0,
-    scale: 1,
+    opacity: 1, y: 0, scale: 1,
     stagger: 4,
     ease: { spring: { stiffness: 80, damping: 14, mass: 1 } },
   }
 );
 ```
 
-**Per-node manual control** (for custom easing per item):
+**Per-node manual control:**
 
 ```js
 var items = ['card-1', 'card-2', 'card-3'];
@@ -679,7 +732,7 @@ ctx.getNode('subtitle')
   .translateY(hero.y * 0.6);
 ```
 
-**Looping pulse (manual control required):**
+**Looping pulse:**
 
 ```js
 var icons = ['icon-a', 'icon-b', 'icon-c'];
@@ -688,7 +741,7 @@ var cycleLen = 30;
 var activeIndex = Math.floor((frame % (icons.length * cycleLen)) / cycleLen);
 var cycleStart = frame - (frame % cycleLen);
 
-var entrance = ctx.fromTo(icons,
+ctx.fromTo(icons,
   { scale: 0.85, y: 18 },
   { scale: 1, y: 0, stagger: 4, ease: 'spring.default' }
 );
@@ -699,11 +752,14 @@ ctx.fromTo(icons[activeIndex],
 );
 ```
 
-### 6.12 Restrictions
+---
+
+### 6.14 Restrictions
 
 - Do not use `document`, `window`, `requestAnimationFrame`, or `element.style`.
 - Access nodes only through `ctx.getNode()`.
 - `duration` is required for non-spring easing.
+- Do not use CSS animation classes (`transition-*`, `animate-*`, `duration-*`, `ease-*`, `delay-*`) or transform classes (`transform`, `translate-*`, `rotate-*`, `scale-*`, `skew-*`) in `className`.
 
 ---
 

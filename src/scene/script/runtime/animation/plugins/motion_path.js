@@ -5,30 +5,6 @@
         name: 'motion-path',
         specialOptions: ['path', 'orient'],
 
-        install: function() {
-            ctx.alongPath = function(svgPath) {
-                var svg = String(svgPath);
-                var handle = __along_path_create(svg);
-                var len = __along_path_length(handle);
-                return {
-                    getLength: function() { return len; },
-                    at: function(t) {
-                        if (handle == null) {
-                            throw new Error('alongPath result has been disposed');
-                        }
-                        var arr = __along_path_at(handle, Number(t));
-                        return { x: arr[0], y: arr[1], angle: arr[2] };
-                    },
-                    dispose: function() {
-                        if (handle != null) {
-                            __along_path_dispose(handle);
-                            handle = null;
-                        }
-                    },
-                };
-            };
-        },
-
         augmentTween: function(tween) {
             if (!(tween.timing.path || tween.toVars.path)) {
                 return;

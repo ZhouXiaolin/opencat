@@ -147,6 +147,16 @@ enum JsonLine {
         path: String,
         duration: Option<u32>,
     },
+    #[serde(rename = "path")]
+    Path {
+        id: String,
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        #[serde(rename = "className")]
+        class_name: Option<String>,
+        d: String,
+        duration: Option<u32>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -157,6 +167,7 @@ enum ParsedElementKind {
     Canvas,
     Image { source: ImageSource },
     Icon { name: String },
+    Path { data: String },
     Video { path: PathBuf },
     Caption { path: PathBuf },
 }
@@ -477,6 +488,26 @@ pub fn parse_with_base_dir(
                     kind: ParsedElementKind::Caption {
                         path: resolved_path,
                     },
+                });
+            }
+            JsonLine::Path {
+                id,
+                parent_id,
+                class_name,
+                d,
+                duration,
+            } => {
+                let style = parse_class_name_with_context(
+                    class_name.as_deref().unwrap_or(""),
+                    &id,
+                    line_index + 1,
+                );
+                elements.push(ParsedElement {
+                    id,
+                    parent_id,
+                    duration,
+                    style,
+                    kind: ParsedElementKind::Path { data: d },
                 });
             }
         }
@@ -905,6 +936,37 @@ mod tests {
         assert_eq!(style.text_color, Some(ColorToken::White));
         assert_eq!(style.border_width, Some(3.0));
         assert_eq!(style.border_color, Some(ColorToken::Blue));
+    }
+
+    #[test]
+    fn parser_maps_fill_and_stroke_classes_to_dedicated_fields() {
+        let style = parse_class_name("fill-emerald-400 stroke-rose-500 stroke-2");
+
+        assert_eq!(style.fill_color, Some(ColorToken::Emerald400));
+        assert_eq!(style.stroke_color, Some(ColorToken::Rose500));
+        assert_eq!(style.stroke_width, Some(2.0));
+    }
+
+    #[test]
+    fn parser_maps_fill_and_stroke_bracket_syntax() {
+        let style = parse_class_name("fill-[#ff0000] stroke-[#00ff00] stroke-[3]");
+
+        assert_eq!(style.fill_color, Some(ColorToken::Custom(255, 0, 0, 255)));
+        assert_eq!(style.stroke_color, Some(ColorToken::Custom(0, 255, 0, 255)));
+        assert_eq!(style.stroke_width, Some(3.0));
+    }
+
+    #[test]
+    fn parser_accepts_only_tailwind_stroke_width_tokens() {
+        let style = parse_class_name("stroke-0 stroke-1 stroke-2");
+        // stroke-2 wins (last one)
+        assert_eq!(style.stroke_width, Some(2.0));
+
+        // stroke-3, stroke-4 等非标准值不应匹配为宽度
+        let style = parse_class_name("stroke-3 stroke-4");
+        // stroke-4 would be parsed by color prefix rule — but "4" is not a valid color name
+        // so stroke_width stays None
+        assert_eq!(style.stroke_width, None);
     }
 
     #[test]
@@ -1503,6 +1565,20 @@ mod tests {
         .expect("tl without transitions should fail");
 
         assert!(err.to_string().contains("missing transition"));
+    }
+
+    #[test]
+    fn path_jsonl_parses_and_resolves_path_nodes() {
+        let input = r#"{"type":"composition","width":1280,"height":720,"fps":30,"frames":90}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px] bg-slate-950"}
+{"id":"card","parentId":"root","type":"div","className":"flex items-center justify-center"}
+{"id":"tri","parentId":"card","type":"path","className":"w-[120px] h-[104px] fill-cyan-500 stroke-cyan-200 stroke-2","d":"M0 0 L120 0 L60 104 Z"}
+{"id":"star","parentId":"card","type":"path","className":"w-[100px] h-[95px] fill-amber-400","d":"M50 0 L62 35 L98 35 L68 57 L79 91 L50 70 L21 91 L32 57 L2 35 L38 35 Z"}"#;
+
+        let parsed = parse(input).expect("path jsonl should parse");
+        assert_eq!(parsed.width, 1280);
+        assert_eq!(parsed.fps, 30);
+        assert_eq!(parsed.frames, 90);
     }
 
     fn unique_test_dir(name: &str) -> PathBuf {

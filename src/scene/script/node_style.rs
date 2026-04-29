@@ -22,7 +22,10 @@ pub(crate) struct ScriptTextUnitMeta {
     pub end: usize,
 }
 
-pub(crate) fn describe_text_units(text: &str, granularity: TextUnitGranularity) -> Vec<ScriptTextUnitMeta> {
+pub(crate) fn describe_text_units(
+    text: &str,
+    granularity: TextUnitGranularity,
+) -> Vec<ScriptTextUnitMeta> {
     match granularity {
         TextUnitGranularity::Grapheme => {
             unicode_segmentation::UnicodeSegmentation::graphemes(text, true)
@@ -98,6 +101,9 @@ pub struct NodeStyleMutations {
     pub flex_grow: Option<f32>,
     pub opacity: Option<f32>,
     pub bg_color: Option<ColorToken>,
+    pub fill_color: Option<ColorToken>,
+    pub stroke_color: Option<ColorToken>,
+    pub stroke_width: Option<f32>,
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
     pub border_top_width: Option<f32>,
@@ -188,6 +194,15 @@ impl NodeStyleMutations {
         }
         if let Some(v) = self.bg_color {
             style.bg_color = Some(v);
+        }
+        if let Some(v) = self.fill_color {
+            style.fill_color = Some(v);
+        }
+        if let Some(v) = self.stroke_color {
+            style.stroke_color = Some(v);
+        }
+        if let Some(v) = self.stroke_width {
+            style.stroke_width = Some(v);
         }
         if let Some(v) = self.border_radius {
             style.border_radius = Some(crate::style::BorderRadius::uniform(v));
@@ -455,16 +470,16 @@ pub(super) fn install_node_style_bindings<'js>(
         }
     });
     set_style_binding!("__record_stroke_width", map, |id, v: f32| {
-        map.entry(id).or_default().border_width = Some(v.max(0.0));
+        map.entry(id).or_default().stroke_width = Some(v.max(0.0));
     });
     set_style_binding!("__record_stroke_color", map, |id, v: String| {
         if let Some(c) = color_from_name(&v) {
-            map.entry(id).or_default().border_color = Some(c);
+            map.entry(id).or_default().stroke_color = Some(c);
         }
     });
     set_style_binding!("__record_fill_color", map, |id, v: String| {
         if let Some(c) = color_from_name(&v) {
-            map.entry(id).or_default().bg_color = Some(c);
+            map.entry(id).or_default().fill_color = Some(c);
         }
     });
     set_style_binding!("__record_object_fit", map, |id, v: String| {
@@ -558,7 +573,8 @@ pub(super) fn install_node_style_bindings<'js>(
                 move |id: String,
                       granularity: String,
                       index: u32,
-                      values: rquickjs::Object<'js>| -> Result<(), rquickjs::Error> {
+                      values: rquickjs::Object<'js>|
+                      -> Result<(), rquickjs::Error> {
                     let index = index as usize;
                     let gran = match granularity.as_str() {
                         "graphemes" => TextUnitGranularity::Grapheme,
@@ -590,7 +606,9 @@ pub(super) fn install_node_style_bindings<'js>(
                                 ));
                             }
                             if index >= batch.overrides.len() {
-                                batch.overrides.resize_with(index + 1, TextUnitOverride::default);
+                                batch
+                                    .overrides
+                                    .resize_with(index + 1, TextUnitOverride::default);
                             }
                         }
                         None => {
@@ -598,15 +616,14 @@ pub(super) fn install_node_style_bindings<'js>(
                                 granularity: gran,
                                 overrides: Vec::new(),
                             };
-                            batch.overrides.resize_with(index + 1, TextUnitOverride::default);
+                            batch
+                                .overrides
+                                .resize_with(index + 1, TextUnitOverride::default);
                             mutations.text_unit_overrides = Some(batch);
                         }
                     }
-                    let entry = &mut mutations
-                        .text_unit_overrides
-                        .as_mut()
-                        .unwrap()
-                        .overrides[index];
+                    let entry =
+                        &mut mutations.text_unit_overrides.as_mut().unwrap().overrides[index];
                     if let Some(v) = opacity {
                         entry.opacity = Some(v as f32);
                     }
@@ -635,7 +652,10 @@ pub(super) fn install_node_style_bindings<'js>(
             "__text_units_describe",
             Function::new(
                 ctx.clone(),
-                move |ctx_inner: rquickjs::Ctx<'js>, id: String, granularity_str: String| -> Result<rquickjs::Array<'js>, rquickjs::Error> {
+                move |ctx_inner: rquickjs::Ctx<'js>,
+                      id: String,
+                      granularity_str: String|
+                      -> Result<rquickjs::Array<'js>, rquickjs::Error> {
                     let text = {
                         let guard = s.lock().unwrap();
                         guard

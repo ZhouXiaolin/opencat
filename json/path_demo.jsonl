@@ -1,0 +1,30 @@
+{"type":"composition","width":1280,"height":720,"fps":30,"frames":90}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px] bg-slate-950 p-8 flex flex-col gap-6"}
+{"id":"header","parentId":"root","type":"div","className":"flex flex-col items-center gap-1"}
+{"id":"title","parentId":"header","type":"text","className":"text-[28px] font-bold text-white","text":"SVG Path Node"}
+{"id":"desc","parentId":"header","type":"text","className":"text-[14px] text-slate-400","text":"type: path · fill-* · stroke-*"}
+{"id":"grid","parentId":"root","type":"div","className":"flex flex-1 gap-6"}
+{"id":"col1","parentId":"grid","type":"div","className":"flex flex-col flex-1 gap-4"}
+{"id":"c1-card","parentId":"col1","type":"div","className":"flex-1 bg-slate-900 rounded-2xl flex items-center justify-center"}
+{"id":"c1-title","parentId":"c1-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"fill + stroke"}
+{"id":"c1-tri","parentId":"c1-card","type":"path","className":"w-[120px] h-[104px] fill-cyan-500 stroke-cyan-200 stroke-1","d":"M0 0 L120 0 L60 104 Z"}
+{"id":"c2-card","parentId":"col1","type":"div","className":"flex-1 bg-slate-900 rounded-2xl flex items-center justify-center"}
+{"id":"c2-title","parentId":"c2-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"stroke only · rounded cap"}
+{"id":"c2-arc","parentId":"c2-card","type":"path","className":"w-[180px] h-[100px] stroke-rose-400 stroke-[4]","d":"M10 95 Q90 5 170 95"}
+{"id":"col2","parentId":"grid","type":"div","className":"flex flex-col flex-1 gap-4"}
+{"id":"c3-card","parentId":"col2","type":"div","className":"flex-1 bg-slate-900 rounded-2xl flex items-center justify-center"}
+{"id":"c3-title","parentId":"c3-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"fill only"}
+{"id":"c3-star","parentId":"c3-card","type":"path","className":"w-[120px] h-[114px] fill-amber-400","d":"M60 0 L75 40 L117 40 L83 65 L95 106 L60 84 L25 106 L37 65 L3 40 L45 40 Z"}
+{"id":"c4-card","parentId":"col2","type":"div","className":"flex-1 bg-slate-900 rounded-2xl flex items-center justify-center"}
+{"id":"c4-title","parentId":"c4-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"fill + stroke · multiple paths"}
+{"id":"c4-group","parentId":"c4-card","type":"div","className":"flex items-center gap-3"}
+{"id":"c4-a","parentId":"c4-group","type":"path","className":"w-[60px] h-[60px] fill-emerald-500 stroke-emerald-300 stroke-1","d":"M30 0 L60 30 L30 60 L0 30 Z"}
+{"id":"c4-b","parentId":"c4-group","type":"path","className":"w-[60px] h-[60px] fill-fuchsia-500 stroke-fuchsia-300 stroke-1","d":"M0 0 L60 0 L60 60 L0 60 Z"}
+{"id":"c4-c","parentId":"c4-group","type":"path","className":"w-[60px] h-[60px] fill-sky-500 stroke-sky-300 stroke-1","d":"M30 0 Q60 30 30 60 Q0 30 30 0 Z"}
+{"id":"col3","parentId":"grid","type":"div","className":"flex flex-col flex-1 gap-4"}
+{"id":"c5-card","parentId":"col3","type":"div","className":"flex-1 bg-slate-900 rounded-2xl flex items-center justify-center"}
+{"id":"c5-title","parentId":"c5-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"arbitrary stroke width"}
+{"id":"c5-ring","parentId":"c5-card","type":"path","className":"w-[120px] h-[120px] stroke-violet-400 stroke-[8]","d":"M60 5 A55 55 0 1 1 59 5"}
+{"id":"c6-card","parentId":"col3","type":"div","className":"flex-1 bg-slate-900 rounded-2xl flex items-center justify-center"}
+{"id":"c6-title","parentId":"c6-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"bracket color"}
+{"id":"c6-cross","parentId":"c6-card","type":"path","className":"w-[120px] h-[120px] stroke-[#f97316] stroke-[3]","d":"M10 10 L110 110 M110 10 L10 110"}

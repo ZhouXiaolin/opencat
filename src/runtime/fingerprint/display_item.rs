@@ -87,12 +87,15 @@ impl Hash for DisplayItemFp<'_> {
                 F32Hash(script.bounds.width).hash(state);
                 F32Hash(script.bounds.height).hash(state);
             }
-            DisplayItem::Lucide(lucide) => {
+            DisplayItem::SvgPath(svg) => {
                 4_u8.hash(state);
-                lucide.icon.hash(state);
-                LucidePaintFp(&lucide.paint).hash(state);
-                F32Hash(lucide.bounds.width).hash(state);
-                F32Hash(lucide.bounds.height).hash(state);
+                for data in &svg.path_data {
+                    data.hash(state);
+                }
+                svg.view_box.map(F32Hash).hash(state);
+                SvgPathPaintFp(&svg.paint).hash(state);
+                F32Hash(svg.bounds.width).hash(state);
+                F32Hash(svg.bounds.height).hash(state);
             }
         }
     }
@@ -191,15 +194,14 @@ impl Hash for BitmapPaintFp<'_> {
     }
 }
 
-struct LucidePaintFp<'a>(&'a crate::display::list::LucidePaintStyle);
+struct SvgPathPaintFp<'a>(&'a crate::display::list::SvgPathPaintStyle);
 
-impl Hash for LucidePaintFp<'_> {
+impl Hash for SvgPathPaintFp<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let paint = self.0;
-        paint.foreground.hash(state);
-        paint.background.hash(state);
-        paint.border_width.map(F32Hash).hash(state);
-        paint.border_color.hash(state);
+        paint.fill.hash(state);
+        paint.stroke_width.map(F32Hash).hash(state);
+        paint.stroke_color.hash(state);
         paint.drop_shadow.hash(state);
     }
 }
@@ -212,7 +214,7 @@ pub(super) fn item_is_time_variant(item: &DisplayItem, assets: &AssetsMap) -> bo
         // 若脚本每帧产出不同 commands(读取 time_secs 等),hash 每帧变 → ItemPictureCache
         // 自然 miss,行为正确。无需静态分析脚本内容。
         DisplayItem::DrawScript(_) => false,
-        DisplayItem::Rect(_) | DisplayItem::Text(_) | DisplayItem::Lucide(_) => false,
+        DisplayItem::Rect(_) | DisplayItem::Text(_) | DisplayItem::SvgPath(_) => false,
     }
 }
 

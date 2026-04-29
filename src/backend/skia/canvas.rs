@@ -10,7 +10,7 @@ use tracing::{Level, event, span};
 use crate::{
     display::list::{
         BitmapDisplayItem, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem,
-        LucideDisplayItem, RectDisplayItem, TextDisplayItem, TimelineDisplayItem,
+        RectDisplayItem, SvgPathDisplayItem, TextDisplayItem, TimelineDisplayItem,
     },
     frame_ctx::FrameCtx,
     resource::{
@@ -499,7 +499,7 @@ impl<'a> SkiaBackend<'a> {
                 DisplayItem::DrawScript(_) => {
                     event!(target: "render.draw", Level::TRACE, kind = "draw", name = "script", result = "count", amount = 1_u64);
                 }
-                DisplayItem::Lucide(_) => {}
+                DisplayItem::SvgPath(_) => {}
                 DisplayItem::Rect(_) | DisplayItem::Timeline(_) | DisplayItem::Text(_) => {}
             }
             return Ok(());
@@ -625,14 +625,14 @@ impl<'a> SkiaBackend<'a> {
                 )?;
                 event!(target: "render.draw", Level::TRACE, kind = "draw", name = "script", result = "count", amount = 1_u64);
             }
-            DisplayItem::Lucide(lucide) => {
-                if let Some(shadow) = lucide.paint.drop_shadow {
-                    draw_item_drop_shadow(self.canvas, lucide.bounds, shadow, |canvas| {
-                        draw_lucide(canvas, lucide);
+            DisplayItem::SvgPath(svg) => {
+                if let Some(shadow) = svg.paint.drop_shadow {
+                    draw_item_drop_shadow(self.canvas, svg.bounds, shadow, |canvas| {
+                        draw_svg_path(canvas, svg);
                         Ok(())
                     })?;
                 }
-                draw_lucide(self.canvas, lucide);
+                draw_svg_path(self.canvas, svg);
             }
         }
         Ok(())
@@ -686,10 +686,7 @@ impl<'a> SkiaBackend<'a> {
     ///
     /// 快路径：命中缓存时直接 clone 缓存里的 `Picture`，跳过一次 `PictureRecorder`
     /// 的新建与 `finish_recording`。慢路径：录制后写入缓存，让后续转场帧复用。
-    fn acquire_transition_scene_picture(
-        &mut self,
-        handle: AnnotatedNodeHandle,
-    ) -> Result<Picture> {
+    fn acquire_transition_scene_picture(&mut self, handle: AnnotatedNodeHandle) -> Result<Picture> {
         let fingerprint = self.node_snapshot_fingerprint(handle);
         let cache = self.subtree_snapshot_cache.clone();
 
@@ -771,8 +768,7 @@ impl<'a> SkiaBackend<'a> {
             backend.with_recorded_clip(recorded, |backend| {
                 let from_snapshot =
                     backend.acquire_transition_scene_picture(children[0].handle())?;
-                let to_snapshot =
-                    backend.acquire_transition_scene_picture(children[1].handle())?;
+                let to_snapshot = backend.acquire_transition_scene_picture(children[1].handle())?;
                 let transition_span = span!(
                     target: "render.transition",
                     Level::TRACE,
@@ -1279,7 +1275,7 @@ fn record_subtree_snapshot_image(
 fn should_cache_item_picture(item: &DisplayItem) -> bool {
     matches!(
         item,
-        DisplayItem::Bitmap(_) | DisplayItem::DrawScript(_) | DisplayItem::Lucide(_)
+        DisplayItem::Bitmap(_) | DisplayItem::DrawScript(_) | DisplayItem::SvgPath(_)
     )
 }
 
@@ -1417,14 +1413,14 @@ fn draw_display_item_direct(
             }
             draw_script_item(canvas, script, assets, image_cache, media_ctx, frame_ctx)?;
         }
-        DisplayItem::Lucide(lucide) => {
-            if let Some(shadow) = lucide.paint.drop_shadow {
-                draw_item_drop_shadow(canvas, lucide.bounds, shadow, |canvas| {
-                    draw_lucide(canvas, lucide);
+        DisplayItem::SvgPath(svg) => {
+            if let Some(shadow) = svg.paint.drop_shadow {
+                draw_item_drop_shadow(canvas, svg.bounds, shadow, |canvas| {
+                    draw_svg_path(canvas, svg);
                     Ok(())
                 })?;
             }
-            draw_lucide(canvas, lucide);
+            draw_svg_path(canvas, svg);
         }
     }
     Ok(())
@@ -2657,22 +2653,17 @@ fn fitted_rect(src_width: f32, src_height: f32, dst: Rect, cover: bool) -> Rect 
     Rect::from_xywh(x, y, width, height)
 }
 
-fn draw_lucide(canvas: &Canvas, item: &LucideDisplayItem) {
-    let Some(paths) = crate::lucide_icons::lucide_icon_paths(&item.icon) else {
-        return;
-    };
-
+fn draw_svg_path(canvas: &Canvas, item: &SvgPathDisplayItem) {
     let dst = layout_rect_to_skia(item.bounds);
-    let scale = (dst.width() / 24.0).min(dst.height() / 24.0);
+
+    let scale_x = dst.width() / item.view_box[2];
+    let scale_y = dst.height() / item.view_box[3];
+    let scale = scale_x.min(scale_y);
     if scale <= 0.0 {
         return;
     }
-    let draw_width = 24.0 * scale;
-    let draw_height = 24.0 * scale;
-    let offset_x = (dst.width() - draw_width) / 2.0;
-    let offset_y = (dst.height() - draw_height) / 2.0;
 
-    let fill_paint = item.paint.background.map(|color| {
+    let fill_paint = item.paint.fill.map(|color| {
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         apply_background_paint(&mut paint, color, dst);
@@ -2680,35 +2671,38 @@ fn draw_lucide(canvas: &Canvas, item: &LucideDisplayItem) {
         paint
     });
 
-    let stroke_width = match item.paint.border_width {
-        Some(width) if width > 0.0 => Some(width),
-        Some(_) => None,
-        None => Some(2.0),
-    };
-    let stroke_color = item.paint.border_color.unwrap_or(item.paint.foreground);
-
-    let stroke_paint = stroke_width.map(|width| {
+    let stroke_paint = item.paint.stroke_width.and_then(|width| {
+        if width <= 0.0 {
+            return None;
+        }
+        let stroke_color = item.paint.stroke_color?;
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         paint.set_color(skia_color(stroke_color));
         paint.set_style(PaintStyle::Stroke);
-        paint.set_stroke_width(width / scale);
+        paint.set_stroke_width(width);
         paint.set_stroke_cap(skia_safe::paint::Cap::Round);
         paint.set_stroke_join(skia_safe::paint::Join::Round);
-        paint
+        Some(paint)
     });
 
     canvas.save();
+
+    let draw_w = item.view_box[2] * scale;
+    let draw_h = item.view_box[3] * scale;
+    let offset_x = (dst.width() - draw_w) / 2.0;
+    let offset_y = (dst.height() - draw_h) / 2.0;
     canvas.translate((dst.left() + offset_x, dst.top() + offset_y));
     canvas.scale((scale, scale));
+    canvas.translate((-item.view_box[0], -item.view_box[1]));
 
-    for path_data in paths {
+    for path_data in &item.path_data {
         if let Some(path) = skia_safe::Path::from_svg(path_data) {
-            if let Some(fill_paint) = fill_paint.as_ref() {
-                canvas.draw_path(&path, fill_paint);
+            if let Some(ref paint) = fill_paint {
+                canvas.draw_path(&path, paint);
             }
-            if let Some(stroke_paint) = stroke_paint.as_ref() {
-                canvas.draw_path(&path, stroke_paint);
+            if let Some(ref paint) = stroke_paint {
+                canvas.draw_path(&path, paint);
             }
         }
     }
@@ -3015,8 +3009,7 @@ mod text_draw_tests {
             visual_expand_y: 0.0,
         };
         let plain_first = draw_text(surface.canvas(), &plain, &cache).expect("plain first draw");
-        let plain_second =
-            draw_text(surface.canvas(), &plain, &cache).expect("plain second draw");
+        let plain_second = draw_text(surface.canvas(), &plain, &cache).expect("plain second draw");
         assert_eq!(plain_first.cache_hits, 0);
         assert_eq!(plain_first.cache_misses, 1);
         assert_eq!(plain_second.cache_hits, 1);
@@ -3038,10 +3031,10 @@ mod text_draw_tests {
             visual_expand_x: 0.0,
             visual_expand_y: 0.0,
         };
-        let override_first = draw_text(surface.canvas(), &with_overrides, &cache)
-            .expect("override first draw");
-        let override_second = draw_text(surface.canvas(), &with_overrides, &cache)
-            .expect("override second draw");
+        let override_first =
+            draw_text(surface.canvas(), &with_overrides, &cache).expect("override first draw");
+        let override_second =
+            draw_text(surface.canvas(), &with_overrides, &cache).expect("override second draw");
         assert_eq!(override_first.cache_hits, 0);
         assert_eq!(override_first.cache_misses, 0);
         assert_eq!(override_second.cache_hits, 0);

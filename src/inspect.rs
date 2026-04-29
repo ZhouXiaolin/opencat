@@ -153,7 +153,11 @@ fn seed_asset_entries_for_inspect(
                 }
             }
         }
-        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Video(_) | NodeKind::Caption(_) => {}
+        NodeKind::Text(_)
+        | NodeKind::Lucide(_)
+        | NodeKind::Path(_)
+        | NodeKind::Video(_)
+        | NodeKind::Caption(_) => {}
     }
 }
 
@@ -193,10 +197,7 @@ fn collect_rects_in_draw_order(
     let media_source = source_meta.and_then(|meta| meta.media_source.clone());
     let icon_name = source_meta
         .and_then(|meta| meta.icon_name.clone())
-        .or_else(|| match &element.kind {
-            ElementKind::Lucide(icon) => Some(icon.icon.clone()),
-            _ => None,
-        });
+        .or_else(|| None);
     let script_source = source_meta.and_then(|meta| meta.script_source.clone());
     let canvas_command_count = match &element.kind {
         ElementKind::Canvas(canvas) => Some(canvas.commands.len() as u32),
@@ -266,7 +267,7 @@ fn fallback_kind_for_element(element: &ElementNode) -> &'static str {
         ElementKind::Text(_) => "text",
         ElementKind::Bitmap(_) => "bitmap",
         ElementKind::Canvas(_) => "canvas",
-        ElementKind::Lucide(_) => "lucide",
+        ElementKind::SvgPath(_) => "svg-path",
     }
 }
 
@@ -319,6 +320,9 @@ fn collect_source_metadata(
             if let Some(entry) = entry {
                 entry.icon_name = Some(icon.icon().to_string());
             }
+        }
+        NodeKind::Path(path) => {
+            upsert_style_meta(path.style_ref(), "path", out);
         }
         NodeKind::Video(video) => {
             let entry = upsert_style_meta(video.style_ref(), "video", out);

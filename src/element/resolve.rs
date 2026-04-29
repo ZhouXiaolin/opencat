@@ -5,8 +5,8 @@ use crate::{
     element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
-            ElementBitmap, ElementCanvas, ElementDiv, ElementId, ElementKind, ElementSvgPath,
-            ElementNode, ElementText, ElementTimeline, ElementTimelineTransition,
+            ElementBitmap, ElementCanvas, ElementDiv, ElementId, ElementKind, ElementNode,
+            ElementSvgPath, ElementText, ElementTimeline, ElementTimelineTransition,
         },
     },
     frame_ctx::ScriptFrameCtx,
@@ -614,17 +614,14 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
             !style.id.is_empty(),
             "node id is required for path nodes before rendering"
         );
-        ensure!(
-            !path.data().is_empty(),
-            "path data must not be empty"
-        );
+        ensure!(!path.data().is_empty(), "path data must not be empty");
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style);
 
         let path_data = vec![path.data().to_string()];
 
         // Compute view_box: parse path data bounding box
-        let view_box = compute_path_view_box(&path_data);
+        let view_box = compute_path_view_box(&path_data)?;
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -643,7 +640,7 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
     result
 }
 
-fn compute_path_view_box(path_data: &[String]) -> [f32; 4] {
+fn compute_path_view_box(path_data: &[String]) -> Result<[f32; 4]> {
     let mut min_x = f32::MAX;
     let mut min_y = f32::MAX;
     let mut max_x = f32::NEG_INFINITY;
@@ -651,23 +648,23 @@ fn compute_path_view_box(path_data: &[String]) -> [f32; 4] {
     let mut has_any = false;
 
     for data in path_data {
-        if let Some(path) = skia_safe::Path::from_svg(data) {
-            let bounds = path.bounds();
-            min_x = min_x.min(bounds.left());
-            min_y = min_y.min(bounds.top());
-            max_x = max_x.max(bounds.right());
-            max_y = max_y.max(bounds.bottom());
-            has_any = true;
-        }
+        let path = skia_safe::Path::from_svg(data)
+            .ok_or_else(|| anyhow::anyhow!("invalid SVG path data"))?;
+        let bounds = path.bounds();
+        min_x = min_x.min(bounds.left());
+        min_y = min_y.min(bounds.top());
+        max_x = max_x.max(bounds.right());
+        max_y = max_y.max(bounds.bottom());
+        has_any = true;
     }
 
     if !has_any {
-        return [0.0, 0.0, 24.0, 24.0]; // fallback
+        return Ok([0.0, 0.0, 24.0, 24.0]);
     }
 
     let w = (max_x - min_x).max(1.0);
     let h = (max_y - min_y).max(1.0);
-    [min_x, min_y, w, h]
+    Ok([min_x, min_y, w, h])
 }
 
 fn normalize_lucide_icon_name(name: &str) -> &str {
@@ -811,8 +808,8 @@ fn seed_text_sources_for_visible_subtree(
             if id.is_empty() {
                 return;
             }
-            let content =
-                text_content_from_stack(mutation_stack, id).unwrap_or_else(|| text.content().to_string());
+            let content = text_content_from_stack(mutation_stack, id)
+                .unwrap_or_else(|| text.content().to_string());
             script_runtime.register_text_source(
                 id,
                 crate::scene::script::ScriptTextSource {
@@ -878,7 +875,11 @@ fn seed_text_sources_for_visible_subtree(
                 }
             }
         }
-        NodeKind::Canvas(_) | NodeKind::Image(_) | NodeKind::Lucide(_) | NodeKind::Path(_) | NodeKind::Video(_) => {}
+        NodeKind::Canvas(_)
+        | NodeKind::Image(_)
+        | NodeKind::Lucide(_)
+        | NodeKind::Path(_)
+        | NodeKind::Video(_) => {}
     }
 }
 
@@ -906,16 +907,11 @@ fn text_content_from_stack(stack: &[StyleMutations], id: &str) -> Option<String>
         .find_map(|m| m.text_content_for(id).map(str::to_string))
 }
 
-fn merge_text_unit_overrides(
-    stack: &[StyleMutations],
-    id: &str,
-) -> Option<TextUnitOverrideBatch> {
+fn merge_text_unit_overrides(stack: &[StyleMutations], id: &str) -> Option<TextUnitOverrideBatch> {
     use crate::scene::script::TextUnitOverride;
     let mut merged: Option<TextUnitOverrideBatch> = None;
     for layer in stack {
-        let Some(batch) = layer
-            .get(id)
-            .and_then(|m| m.text_unit_overrides.as_ref()) else {
+        let Some(batch) = layer.get(id).and_then(|m| m.text_unit_overrides.as_ref()) else {
             continue;
         };
 
@@ -926,7 +922,9 @@ fn merge_text_unit_overrides(
                     return None;
                 }
                 if batch.overrides.len() > current.overrides.len() {
-                    current.overrides.resize_with(batch.overrides.len(), TextUnitOverride::default);
+                    current
+                        .overrides
+                        .resize_with(batch.overrides.len(), TextUnitOverride::default);
                 }
                 for (index, incoming) in batch.overrides.iter().enumerate() {
                     let slot = &mut current.overrides[index];
@@ -1051,9 +1049,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
                     },
                 )
                 .or_else(|| style.bg_color.map(crate::style::BackgroundFill::Solid)),
-            fill: style
-                .fill_color
-                .map(crate::style::BackgroundFill::Solid),
+            fill: style.fill_color.map(crate::style::BackgroundFill::Solid),
             border_radius: style.border_radius.unwrap_or_default(),
             border_width: style.border_width,
             border_top_width: style.border_top_width,
@@ -1086,9 +1082,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        merge_text_unit_overrides, resolve_ui_tree, resolve_ui_tree_with_script_cache,
-    };
+    use super::{merge_text_unit_overrides, resolve_ui_tree, resolve_ui_tree_with_script_cache};
     use crate::{
         FrameCtx,
         element::tree::ElementKind,
@@ -1318,7 +1312,8 @@ mod tests {
         let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
             panic!("child should resolve to svg path element");
         };
-        let expected_paths = crate::lucide_icons::lucide_icon_paths("briefcase").expect("briefcase icon");
+        let expected_paths =
+            crate::lucide_icons::lucide_icon_paths("briefcase").expect("briefcase icon");
         assert_eq!(svg.path_data, expected_paths);
         assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
     }

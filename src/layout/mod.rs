@@ -438,7 +438,9 @@ impl Hash for LayoutFingerprint<'_> {
                 bitmap.height.hash(state);
             }
             ElementKind::SvgPath(svg) => {
-                svg.intrinsic_size.map(|(w, h)| (F32Hash(w), F32Hash(h))).hash(state);
+                svg.intrinsic_size
+                    .map(|(w, h)| (F32Hash(w), F32Hash(h)))
+                    .hash(state);
             }
         }
     }
@@ -544,6 +546,7 @@ impl Hash for RasterVisualStyleFingerprint<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let style = self.0;
         style.background.hash(state);
+        style.fill.hash(state);
         style.border_radius.hash(state);
         style.border_width.map(F32Hash).hash(state);
         style.border_top_width.map(F32Hash).hash(state);
@@ -551,6 +554,8 @@ impl Hash for RasterVisualStyleFingerprint<'_> {
         style.border_bottom_width.map(F32Hash).hash(state);
         style.border_left_width.map(F32Hash).hash(state);
         style.border_color.hash(state);
+        style.stroke_color.hash(state);
+        style.stroke_width.map(F32Hash).hash(state);
         style.border_style.hash(state);
         style.blur_sigma.map(F32Hash).hash(state);
         style.object_fit.hash(state);
@@ -787,13 +792,14 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             ..base_style(element)
         },
         ElementKind::SvgPath(svg) => {
-            let (default_w, default_h) = svg
+            let default_size = svg
                 .intrinsic_size
-                .unwrap_or((svg.view_box[2], svg.view_box[3]));
+                .map(|(w, h)| (Dimension::length(w), Dimension::length(h)))
+                .unwrap_or((Dimension::auto(), Dimension::auto()));
             Style {
                 size: taffy::geometry::Size {
-                    width: resolve_dimension(layout.width, layout.width_full, Dimension::length(default_w)),
-                    height: resolve_dimension(layout.height, layout.height_full, Dimension::length(default_h)),
+                    width: resolve_dimension(layout.width, layout.width_full, default_size.0),
+                    height: resolve_dimension(layout.height, layout.height_full, default_size.1),
                 },
                 ..base_style(element)
             }
@@ -1025,8 +1031,8 @@ mod tests {
         element::resolve::resolve_ui_tree,
         jsonl::tailwind::parse_class_name,
         resource::{assets::AssetsMap, media::MediaContext},
-        scene::primitives::{div, lucide, text},
-        style::ComputedTextStyle,
+        scene::primitives::{div, lucide, path, text},
+        style::{ColorToken, ComputedTextStyle},
         text::{TextMeasureRequest, TextMeasurement, TextMeasurer},
     };
     use taffy::{AvailableSpace, geometry::Size};
@@ -1442,6 +1448,103 @@ mod tests {
         assert_eq!(second_stats.layout_dirty_nodes, 0);
         assert_eq!(second_stats.raster_dirty_nodes, 0);
         assert!(second_stats.composite_dirty_nodes >= 1);
+    }
+
+    #[test]
+    fn svg_path_layout_uses_icon_intrinsic_size_only() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+
+        let icon_root = classed_div(
+            "root",
+            "w-full h-full flex items-start",
+            vec![lucide("play").id("icon").into()],
+        )
+        .into();
+        let path_root = classed_div(
+            "root",
+            "w-full h-full flex items-start",
+            vec![path("M0 0 L120 0 L60 100 Z").id("shape").into()],
+        )
+        .into();
+
+        let icon_resolved = resolve_ui_tree(&icon_root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("icon tree should resolve");
+        let path_resolved = resolve_ui_tree(&path_root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("path tree should resolve");
+
+        let mut session = LayoutSession::new();
+        let (icon_layout, _) = session
+            .compute_layout(&icon_resolved, &frame_ctx)
+            .expect("icon layout should succeed");
+        let mut session = LayoutSession::new();
+        let (path_layout, _) = session
+            .compute_layout(&path_resolved, &frame_ctx)
+            .expect("path layout should succeed");
+
+        assert_eq!(icon_layout.root.children[0].rect.width, 24.0);
+        assert_eq!(icon_layout.root.children[0].rect.height, 24.0);
+        assert_eq!(path_layout.root.children[0].rect.width, 0.0);
+        assert_eq!(path_layout.root.children[0].rect.height, 0.0);
+    }
+
+    #[test]
+    fn layout_session_marks_svg_paint_change_as_raster_dirty() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let mut session = LayoutSession::new();
+
+        let first = div()
+            .id("root")
+            .child(
+                path("M0 0 L100 0 L50 100 Z")
+                    .id("shape")
+                    .size(100.0, 100.0)
+                    .fill_color(ColorToken::Red500)
+                    .stroke_color(ColorToken::Blue)
+                    .stroke_width(1.0),
+            )
+            .into();
+        let second = div()
+            .id("root")
+            .child(
+                path("M0 0 L100 0 L50 100 Z")
+                    .id("shape")
+                    .size(100.0, 100.0)
+                    .fill_color(ColorToken::Emerald500)
+                    .stroke_color(ColorToken::Rose500)
+                    .stroke_width(3.0),
+            )
+            .into();
+
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+            .expect("first tree should resolve");
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+            .expect("second tree should resolve");
+
+        session
+            .compute_layout(&first_resolved, &frame_ctx)
+            .expect("first layout should succeed");
+        let (_, second_stats) = session
+            .compute_layout(&second_resolved, &frame_ctx)
+            .expect("second layout should succeed");
+
+        assert_eq!(second_stats.layout_dirty_nodes, 0);
+        assert!(second_stats.raster_dirty_nodes >= 1);
     }
 
     #[test]

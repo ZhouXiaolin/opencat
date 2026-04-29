@@ -257,9 +257,7 @@ impl RenderProfileAggregator {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        BackendSpanKey, CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator,
-    };
+    use super::{BackendSpanKey, CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator};
 
     #[test]
     fn backend_ms_sums_all_root_backend_spans() {

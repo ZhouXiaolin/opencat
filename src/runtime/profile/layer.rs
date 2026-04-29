@@ -343,12 +343,10 @@ mod tests {
             );
             let _frame_guard = frame.enter();
 
-            let outer =
-                span!(target: "render.backend", Level::TRACE, "display_tree_direct_draw");
+            let outer = span!(target: "render.backend", Level::TRACE, "display_tree_direct_draw");
             let _outer_guard = outer.enter();
 
-            let inner =
-                span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record");
+            let inner = span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record");
             let _inner_guard = inner.enter();
             Ok::<_, anyhow::Error>(())
         })?;

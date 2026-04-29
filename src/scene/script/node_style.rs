@@ -22,7 +22,10 @@ pub(crate) struct ScriptTextUnitMeta {
     pub end: usize,
 }
 
-pub(crate) fn describe_text_units(text: &str, granularity: TextUnitGranularity) -> Vec<ScriptTextUnitMeta> {
+pub(crate) fn describe_text_units(
+    text: &str,
+    granularity: TextUnitGranularity,
+) -> Vec<ScriptTextUnitMeta> {
     match granularity {
         TextUnitGranularity::Grapheme => {
             unicode_segmentation::UnicodeSegmentation::graphemes(text, true)
@@ -570,7 +573,8 @@ pub(super) fn install_node_style_bindings<'js>(
                 move |id: String,
                       granularity: String,
                       index: u32,
-                      values: rquickjs::Object<'js>| -> Result<(), rquickjs::Error> {
+                      values: rquickjs::Object<'js>|
+                      -> Result<(), rquickjs::Error> {
                     let index = index as usize;
                     let gran = match granularity.as_str() {
                         "graphemes" => TextUnitGranularity::Grapheme,
@@ -602,7 +606,9 @@ pub(super) fn install_node_style_bindings<'js>(
                                 ));
                             }
                             if index >= batch.overrides.len() {
-                                batch.overrides.resize_with(index + 1, TextUnitOverride::default);
+                                batch
+                                    .overrides
+                                    .resize_with(index + 1, TextUnitOverride::default);
                             }
                         }
                         None => {
@@ -610,15 +616,14 @@ pub(super) fn install_node_style_bindings<'js>(
                                 granularity: gran,
                                 overrides: Vec::new(),
                             };
-                            batch.overrides.resize_with(index + 1, TextUnitOverride::default);
+                            batch
+                                .overrides
+                                .resize_with(index + 1, TextUnitOverride::default);
                             mutations.text_unit_overrides = Some(batch);
                         }
                     }
-                    let entry = &mut mutations
-                        .text_unit_overrides
-                        .as_mut()
-                        .unwrap()
-                        .overrides[index];
+                    let entry =
+                        &mut mutations.text_unit_overrides.as_mut().unwrap().overrides[index];
                     if let Some(v) = opacity {
                         entry.opacity = Some(v as f32);
                     }
@@ -647,7 +652,10 @@ pub(super) fn install_node_style_bindings<'js>(
             "__text_units_describe",
             Function::new(
                 ctx.clone(),
-                move |ctx_inner: rquickjs::Ctx<'js>, id: String, granularity_str: String| -> Result<rquickjs::Array<'js>, rquickjs::Error> {
+                move |ctx_inner: rquickjs::Ctx<'js>,
+                      id: String,
+                      granularity_str: String|
+                      -> Result<rquickjs::Array<'js>, rquickjs::Error> {
                     let text = {
                         let guard = s.lock().unwrap();
                         guard

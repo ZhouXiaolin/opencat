@@ -229,9 +229,7 @@ mod tests {
 
     #[test]
     fn text_leaf_with_unit_overrides_prefers_direct_leaf_reuse() {
-        use crate::scene::script::{
-            TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch,
-        };
+        use crate::scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch};
 
         let mut analysis = DisplayAnalysisTable::default();
         analysis.insert(

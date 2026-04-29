@@ -21,13 +21,16 @@ fn main() -> anyhow::Result<()> {
         .map(|value| value.parse::<u32>())
         .transpose()?
         .unwrap_or(120);
-    let out_path = std::env::args().nth(3).map(PathBuf::from).unwrap_or_else(|| {
-        let stem = std::path::Path::new(&jsonl_path)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("composition");
-        PathBuf::from(format!("out/profile-{stem}.mp4"))
-    });
+    let out_path = std::env::args()
+        .nth(3)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let stem = std::path::Path::new(&jsonl_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("composition");
+            PathBuf::from(format!("out/profile-{stem}.mp4"))
+        });
 
     // 强制开启 profile 聚合。render_mp4 内部会构造 ProfileConfig::from_env() 并
     // 在结束时 print_profile_summary 到 stderr。

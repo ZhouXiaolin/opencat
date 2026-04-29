@@ -151,6 +151,7 @@ pub struct NodeStyleMutations {
     pub drop_shadow_color: Option<ColorToken>,
     pub text_content: Option<String>,
     pub text_unit_overrides: Option<TextUnitOverrideBatch>,
+    pub svg_path: Option<String>,
 }
 
 impl NodeStyleMutations {
@@ -292,6 +293,9 @@ impl NodeStyleMutations {
         }
         if let Some(v) = self.drop_shadow_color {
             style.drop_shadow_color = Some(v);
+        }
+        if let Some(v) = &self.svg_path {
+            style.svg_path = Some(v.clone());
         }
     }
 }
@@ -718,6 +722,18 @@ pub(super) fn install_node_style_bindings<'js>(
                     Ok(result)
                 },
             )?,
+        )?;
+    }
+
+    // SVG path data override (used by morph-svg animation)
+    {
+        let s = store.clone();
+        globals.set(
+            "__record_svg_path",
+            Function::new(ctx.clone(), move |id: String, v: String| {
+                let mut guard = s.lock().unwrap();
+                guard.styles.entry(id).or_default().svg_path = Some(v);
+            })?,
         )?;
     }
 

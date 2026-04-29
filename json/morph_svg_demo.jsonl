@@ -1,28 +1,28 @@
 {"type":"composition","width":1280,"height":720,"fps":30,"frames":180}
 {"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px] bg-slate-950 p-6 flex flex-col gap-5"}
 {"id":"header","parentId":"root","type":"div","className":"flex flex-col items-center gap-1"}
-{"id":"title","parentId":"header","type":"text","className":"text-[28px] font-bold text-white","text":"morphSVG · Path Correspondence Morph"}
-{"id":"desc","parentId":"header","type":"text","className":"text-[14px] text-slate-400","text":"arc-length resampling · multi-subpath support · open and closed contours"}
+{"id":"title","parentId":"header","type":"text","className":"text-[28px] font-bold text-white","text":"morphSVG · Single-Contour Path Morph"}
+{"id":"desc","parentId":"header","type":"text","className":"text-[14px] text-slate-400","text":"arc-length resampling · open→open · closed→closed · one contour only"}
 {"id":"grid","parentId":"root","type":"div","className":"flex flex-1 gap-5"}
 {"id":"col1","parentId":"grid","type":"div","className":"flex flex-col flex-1 gap-5"}
 {"id":"c1-card","parentId":"col1","type":"div","className":"flex-1 bg-slate-900 rounded-2xl flex flex-col items-center justify-center gap-2"}
-{"id":"c1-lbl","parentId":"c1-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"open path ↔ closed triangle"}
+{"id":"c1-lbl","parentId":"c1-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"open wave ↔ open arch"}
 {"id":"c1-path","parentId":"c1-card","type":"path","className":"w-[110px] h-[96px] fill-none stroke-cyan-200 stroke-[4]","d":"M0 78 C24 12 46 12 55 48 C64 84 86 84 110 18"}
 {"id":"c2-card","parentId":"col1","type":"div","className":"flex-1 bg-slate-900 rounded-2xl flex flex-col items-center justify-center gap-2"}
-{"id":"c2-lbl","parentId":"c2-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"closed diamond ↔ two subpaths"}
+{"id":"c2-lbl","parentId":"c2-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"closed diamond ↔ closed square"}
 {"id":"c2-path","parentId":"c2-card","type":"path","className":"w-[110px] h-[110px] fill-rose-400 stroke-rose-200 stroke-[0.5]","d":"M55 0 L110 55 L55 110 L0 55 Z"}
 {"id":"col2","parentId":"grid","type":"div","className":"flex flex-col flex-1 gap-5"}
 {"id":"c3-card","parentId":"col2","type":"div","className":"flex-1 bg-slate-900 rounded-2xl flex flex-col items-center justify-center gap-2"}
-{"id":"c3-lbl","parentId":"c3-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"three subpaths ↔ closed hexagon"}
-{"id":"c3-path","parentId":"c3-card","type":"path","className":"w-[110px] h-[110px] fill-amber-400 stroke-amber-200 stroke-[0.5]","d":"M8 8 L42 8 L42 42 L8 42 Z M68 8 L102 8 L102 42 L68 42 Z M38 68 L72 68 L72 102 L38 102 Z"}
+{"id":"c3-lbl","parentId":"c3-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"closed star ↔ closed hexagon"}
+{"id":"c3-path","parentId":"c3-card","type":"path","className":"w-[110px] h-[110px] fill-amber-400 stroke-amber-200 stroke-[0.5]","d":"M55 0 L69 37 L110 37 L77 60 L88 100 L55 78 L22 100 L33 60 L0 37 L41 37 Z"}
 {"id":"c4-card","parentId":"col2","type":"div","className":"flex-1 bg-slate-900 rounded-2xl flex flex-col items-center justify-center gap-2"}
-{"id":"c4-lbl","parentId":"c4-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"two open subpaths ↔ one open path"}
-{"id":"c4-path","parentId":"c4-card","type":"path","className":"w-[110px] h-[110px] fill-none stroke-emerald-200 stroke-[4]","d":"M8 30 C28 8 48 8 55 30 M55 80 C62 102 82 102 102 80"}
+{"id":"c4-lbl","parentId":"c4-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"open smile ↔ open swoop"}
+{"id":"c4-path","parentId":"c4-card","type":"path","className":"w-[110px] h-[110px] fill-none stroke-emerald-200 stroke-[4]","d":"M8 70 C28 95 82 95 102 70"}
 {"id":"col3","parentId":"grid","type":"div","className":"flex flex-col flex-1 gap-5"}
 {"id":"c5-card","parentId":"col3","type":"div","className":"flex-1 bg-slate-900 rounded-2xl flex flex-col items-center justify-center gap-2"}
-{"id":"c5-lbl","parentId":"c5-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"single closed ↔ nested subpaths"}
+{"id":"c5-lbl","parentId":"c5-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"closed box ↔ closed rounded blob"}
 {"id":"c5-path","parentId":"c5-card","type":"path","className":"w-[110px] h-[110px] fill-violet-400 stroke-violet-200 stroke-[0.5]","d":"M0 0 L110 0 L110 110 L0 110 Z"}
 {"id":"c6-card","parentId":"col3","type":"div","className":"flex-1 bg-slate-900 rounded-2xl flex flex-col items-center justify-center gap-2"}
-{"id":"c6-lbl","parentId":"c6-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"open path ↔ multi closed"}
+{"id":"c6-lbl","parentId":"c6-card","type":"text","className":"absolute left-4 top-4 text-[12px] text-slate-400 font-mono","text":"open ribbon ↔ open bend"}
 {"id":"c6-path","parentId":"c6-card","type":"path","className":"w-[110px] h-[110px] fill-none stroke-fuchsia-200 stroke-[4]","d":"M6 90 C24 16 46 16 55 55 C64 94 86 94 104 20"}
-{"type":"script","parentId":"root","src":"ctx.fromTo('c1-path',{morphSVG:'M0 78 C24 12 46 12 55 48 C64 84 86 84 110 18'},{morphSVG:'M55 0 L110 95 L0 95 Z',duration:56,ease:'ease-in-out',repeat:-1,yoyo:true});ctx.fromTo('c2-path',{morphSVG:'M55 0 L110 55 L55 110 L0 55 Z'},{morphSVG:'M10 20 L48 20 L48 58 L10 58 Z M62 52 L100 52 L100 90 L62 90 Z',duration:60,ease:'ease-in-out',repeat:-1,yoyo:true,delay:4});ctx.fromTo('c3-path',{morphSVG:'M8 8 L42 8 L42 42 L8 42 Z M68 8 L102 8 L102 42 L68 42 Z M38 68 L72 68 L72 102 L38 102 Z'},{morphSVG:'M55 0 L110 28 L110 82 L55 110 L0 82 L0 28 Z',duration:64,ease:'ease-in-out',repeat:-1,yoyo:true,delay:8});ctx.fromTo('c4-path',{morphSVG:'M8 30 C28 8 48 8 55 30 M55 80 C62 102 82 102 102 80'},{morphSVG:'M8 55 C32 8 78 102 102 55',duration:52,ease:'ease-in-out',repeat:-1,yoyo:true,delay:12});ctx.fromTo('c5-path',{morphSVG:'M0 0 L110 0 L110 110 L0 110 Z'},{morphSVG:'M10 10 L100 10 L100 100 L10 100 Z M35 35 L75 35 L75 75 L35 75 Z',duration:58,ease:'ease-in-out',repeat:-1,yoyo:true,delay:16});ctx.fromTo('c6-path',{morphSVG:'M6 90 C24 16 46 16 55 55 C64 94 86 94 104 20'},{morphSVG:'M14 14 L48 14 L48 48 L14 48 Z M62 14 L96 14 L96 48 L62 48 Z M38 62 L72 62 L72 96 L38 96 Z',duration:66,ease:'ease-in-out',repeat:-1,yoyo:true,delay:20});"}
+{"type":"script","parentId":"root","src":"ctx.fromTo('c1-path',{morphSVG:'M0 78 C24 12 46 12 55 48 C64 84 86 84 110 18'},{morphSVG:'M0 64 C24 20 86 20 110 64',duration:56,ease:'ease-in-out',repeat:-1,yoyo:true});ctx.fromTo('c2-path',{morphSVG:'M55 0 L110 55 L55 110 L0 55 Z'},{morphSVG:'M12 12 L98 12 L98 98 L12 98 Z',duration:60,ease:'ease-in-out',repeat:-1,yoyo:true,delay:4});ctx.fromTo('c3-path',{morphSVG:'M55 0 L69 37 L110 37 L77 60 L88 100 L55 78 L22 100 L33 60 L0 37 L41 37 Z'},{morphSVG:'M55 0 L110 28 L110 82 L55 110 L0 82 L0 28 Z',duration:64,ease:'ease-in-out',repeat:-1,yoyo:true,delay:8});ctx.fromTo('c4-path',{morphSVG:'M8 70 C28 95 82 95 102 70'},{morphSVG:'M8 55 C32 8 78 102 102 55',duration:52,ease:'ease-in-out',repeat:-1,yoyo:true,delay:12});ctx.fromTo('c5-path',{morphSVG:'M0 0 L110 0 L110 110 L0 110 Z'},{morphSVG:'M18 8 C46 -4 88 12 102 42 C116 72 86 116 50 104 C14 92 -8 40 18 8 Z',duration:58,ease:'ease-in-out',repeat:-1,yoyo:true,delay:16});ctx.fromTo('c6-path',{morphSVG:'M6 90 C24 16 46 16 55 55 C64 94 86 94 104 20'},{morphSVG:'M6 32 C30 78 72 12 104 68',duration:66,ease:'ease-in-out',repeat:-1,yoyo:true,delay:20});"}

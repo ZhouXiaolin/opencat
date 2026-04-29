@@ -590,12 +590,11 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
-    if let Some(n) = class
-        .strip_prefix("rounded-")
-        .and_then(|value| value.parse::<f32>().ok())
-    {
-        style.border_radius = Some(crate::style::BorderRadius::uniform(n));
-        return true;
+    if let Some(value) = class.strip_prefix("rounded-") {
+        if let Some(n) = resolve_rounded_size(value) {
+            style.border_radius = Some(crate::style::BorderRadius::uniform(n));
+            return true;
+        }
     }
 
     if let Some(n) = class

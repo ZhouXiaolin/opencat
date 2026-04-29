@@ -1,22 +1,13 @@
 // Path morphing by arc-length resampling and point correspondence.
 //
-// This keeps the runtime contract of the morph-svg plugin, but avoids the
-// SDF/marching-squares reconstruction path. The tradeoff is intentional:
-// output paths are cubic-only, but interpolation is deterministic, cheap, and
-// preserves one coherent contour through the whole animation.
+// The supported contract is intentionally narrow: one open contour may morph
+// only to one open contour, and one closed contour may morph only to one closed
+// contour. Different topology is rejected instead of approximated.
 
 #[derive(Clone, Copy, Debug)]
 struct Point {
     x: f32,
     y: f32,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct Bounds {
-    left: f32,
-    top: f32,
-    right: f32,
-    bottom: f32,
 }
 
 struct MorphContour {
@@ -26,9 +17,7 @@ struct MorphContour {
 }
 
 pub(crate) struct MorphSvgEntry {
-    from_svg: String,
-    to_svg: String,
-    contours: Vec<MorphContour>,
+    contour: MorphContour,
 }
 
 impl MorphSvgEntry {
@@ -36,57 +25,39 @@ impl MorphSvgEntry {
         let count = sample_count.clamp(8, 2048) as usize;
         let path_a = skia_safe::Path::from_svg(from_svg)?;
         let path_b = skia_safe::Path::from_svg(to_svg)?;
+        let contour = build_contour(&path_a, &path_b, count)?;
 
-        let contours = build_contours(&path_a, &path_b, count)?;
-
-        Some(Self {
-            from_svg: from_svg.to_string(),
-            to_svg: to_svg.to_string(),
-            contours,
-        })
+        Some(Self { contour })
     }
 
     pub fn sample(&self, t: f32, tolerance: f32) -> String {
         let t = t.clamp(0.0, 1.0);
-        if t <= 0.0 {
-            return self.from_svg.clone();
-        }
-        if t >= 1.0 {
-            return self.to_svg.clone();
-        }
+        let mut points: Vec<Point> = self
+            .contour
+            .from
+            .iter()
+            .zip(self.contour.to.iter())
+            .map(|(a, b)| Point {
+                x: a.x + (b.x - a.x) * t,
+                y: a.y + (b.y - a.y) * t,
+            })
+            .collect();
 
         let tolerance = tolerance.max(0.0);
-        let mut sampled = Vec::with_capacity(self.contours.len());
-        for contour in &self.contours {
-            let mut points: Vec<Point> = contour
-                .from
-                .iter()
-                .zip(contour.to.iter())
-                .map(|(a, b)| Point {
-                    x: a.x + (b.x - a.x) * t,
-                    y: a.y + (b.y - a.y) * t,
-                })
-                .collect();
-
-            if tolerance > 0.0 {
-                points = if contour.closed {
-                    rdp_simplify_closed(&points, tolerance)
-                } else {
-                    rdp_simplify_open(&points, tolerance)
-                };
-            }
-
-            let min_points = if contour.closed { 3 } else { 2 };
-            if points.len() >= min_points {
-                sampled.push((points, contour.closed));
-            }
+        if tolerance > 0.0 {
+            points = if self.contour.closed {
+                rdp_simplify_closed(&points, tolerance)
+            } else {
+                rdp_simplify_open(&points, tolerance)
+            };
         }
 
-        if sampled.is_empty() {
+        let min_points = if self.contour.closed { 3 } else { 2 };
+        if points.len() < min_points {
             return String::new();
         }
 
-        contours_to_svg(&sampled)
+        contour_to_svg(&points, self.contour.closed)
     }
 }
 
@@ -94,76 +65,42 @@ struct MeasuredContour {
     measure: skia_safe::ContourMeasure,
     length: f32,
     closed: bool,
-    centroid: Point,
-    bounds: Bounds,
-    area: f32,
-    preview: Vec<Point>,
 }
 
-#[derive(Clone, Copy)]
-struct MatchPair {
-    from: Option<usize>,
-    to: Option<usize>,
-}
-
-fn build_contours(
+fn build_contour(
     from_path: &skia_safe::Path,
     to_path: &skia_safe::Path,
     sample_count: usize,
-) -> Option<Vec<MorphContour>> {
-    let from = measure_contours(from_path);
-    let to = measure_contours(to_path);
-    if from.is_empty() || to.is_empty() {
+) -> Option<MorphContour> {
+    let from = single_contour(from_path)?;
+    let to = single_contour(to_path)?;
+    if from.closed != to.closed {
         return None;
     }
 
-    let pairs = match_contours(&from, &to);
-    let avg_lengths: Vec<f32> = pairs
-        .iter()
-        .map(|pair| average_pair_length(pair, &from, &to))
-        .collect();
-    let total_avg_length = avg_lengths.iter().sum::<f32>().max(1.0);
+    let closed = from.closed;
+    let min_points = if closed { 3 } else { 2 };
+    let count = sample_count.max(min_points);
+    let from_points = sample_contour(&from, count, closed)?;
+    let to_points = align_points(&from_points, sample_contour(&to, count, closed)?, closed);
 
-    let mut result = Vec::with_capacity(pairs.len());
-    for (pair, avg_length) in pairs.iter().zip(avg_lengths.iter()) {
-        let from_contour = pair.from.and_then(|idx| from.get(idx));
-        let to_contour = pair.to.and_then(|idx| to.get(idx));
-        let closed = from_contour.map(|c| c.closed).unwrap_or(false)
-            && to_contour.map(|c| c.closed).unwrap_or(false);
-        let min_points = if closed { 3 } else { 2 };
-        let pair_samples = ((sample_count as f32 * *avg_length / total_avg_length).round()
-            as usize)
-            .clamp(min_points, sample_count.max(min_points));
-
-        let mut from_points = from_contour
-            .and_then(|c| sample_contour(c, pair_samples, closed))
-            .unwrap_or_default();
-        let mut to_points = to_contour
-            .and_then(|c| sample_contour(c, pair_samples, closed))
-            .unwrap_or_default();
-
-        if from_points.is_empty() && !to_points.is_empty() {
-            from_points = collapsed_points(centroid(&to_points), to_points.len());
-        }
-        if to_points.is_empty() && !from_points.is_empty() {
-            to_points = collapsed_points(centroid(&from_points), from_points.len());
-        }
-        if from_points.is_empty() || to_points.is_empty() {
-            continue;
-        }
-
-        let to_points = align_points(&from_points, to_points, closed);
-        result.push(MorphContour {
-            from: from_points,
-            to: to_points,
-            closed,
-        });
+    if from_points.len() < min_points || to_points.len() < min_points {
+        return None;
     }
 
-    if result.is_empty() {
-        None
+    Some(MorphContour {
+        from: from_points,
+        to: to_points,
+        closed,
+    })
+}
+
+fn single_contour(path: &skia_safe::Path) -> Option<MeasuredContour> {
+    let mut contours = measure_contours(path);
+    if contours.len() == 1 {
+        contours.pop()
     } else {
-        Some(result)
+        None
     }
 }
 
@@ -174,203 +111,16 @@ fn measure_contours(path: &skia_safe::Path) -> Vec<MeasuredContour> {
             if !length.is_finite() || length <= f32::EPSILON {
                 return None;
             }
-            let closed = measure.is_closed();
-            let preview = sample_measure(&measure, length, 32, closed)?;
             Some(MeasuredContour {
-                centroid: centroid(&preview),
-                bounds: bounds_of(&preview),
-                area: signed_area(&preview).abs(),
-                closed,
+                closed: measure.is_closed(),
                 length,
                 measure,
-                preview,
             })
         })
         .collect()
 }
 
-fn match_contours(from: &[MeasuredContour], to: &[MeasuredContour]) -> Vec<MatchPair> {
-    if to.len() <= 18 {
-        optimal_match_contours(from, to)
-    } else {
-        greedy_match_contours(from, to)
-    }
-}
-
-fn optimal_match_contours(from: &[MeasuredContour], to: &[MeasuredContour]) -> Vec<MatchPair> {
-    let states = 1usize << to.len();
-    let mut dp = vec![f32::INFINITY; states];
-    let mut plans = vec![Vec::<MatchPair>::new(); states];
-    dp[0] = 0.0;
-
-    for (from_idx, from_contour) in from.iter().enumerate() {
-        let mut next = vec![f32::INFINITY; states];
-        let mut next_plans = vec![Vec::<MatchPair>::new(); states];
-
-        for mask in 0..states {
-            if !dp[mask].is_finite() {
-                continue;
-            }
-
-            let skip_cost = dp[mask] + unmatched_cost(from_contour);
-            if skip_cost < next[mask] {
-                next[mask] = skip_cost;
-                next_plans[mask] = plans[mask].clone();
-                next_plans[mask].push(MatchPair {
-                    from: Some(from_idx),
-                    to: None,
-                });
-            }
-
-            for (to_idx, to_contour) in to.iter().enumerate() {
-                let bit = 1usize << to_idx;
-                if mask & bit != 0 {
-                    continue;
-                }
-                let next_mask = mask | bit;
-                let pair_cost = dp[mask] + contour_pair_cost(from_contour, to_contour);
-                if pair_cost < next[next_mask] {
-                    next[next_mask] = pair_cost;
-                    next_plans[next_mask] = plans[mask].clone();
-                    next_plans[next_mask].push(MatchPair {
-                        from: Some(from_idx),
-                        to: Some(to_idx),
-                    });
-                }
-            }
-        }
-
-        dp = next;
-        plans = next_plans;
-    }
-
-    let mut best_cost = f32::INFINITY;
-    let mut best_plan = Vec::new();
-    for mask in 0..states {
-        if !dp[mask].is_finite() {
-            continue;
-        }
-        let mut cost = dp[mask];
-        let mut plan = plans[mask].clone();
-        for (to_idx, to_contour) in to.iter().enumerate() {
-            if mask & (1usize << to_idx) == 0 {
-                cost += unmatched_cost(to_contour);
-                plan.push(MatchPair {
-                    from: None,
-                    to: Some(to_idx),
-                });
-            }
-        }
-        if cost < best_cost {
-            best_cost = cost;
-            best_plan = plan;
-        }
-    }
-
-    best_plan
-}
-
-fn greedy_match_contours(from: &[MeasuredContour], to: &[MeasuredContour]) -> Vec<MatchPair> {
-    let mut edges = Vec::new();
-    for (from_idx, from_contour) in from.iter().enumerate() {
-        for (to_idx, to_contour) in to.iter().enumerate() {
-            edges.push((
-                contour_pair_cost(from_contour, to_contour),
-                from_idx,
-                to_idx,
-            ));
-        }
-    }
-    edges.sort_by(|a, b| a.0.total_cmp(&b.0));
-
-    let mut used_from = vec![false; from.len()];
-    let mut used_to = vec![false; to.len()];
-    let mut pairs = Vec::new();
-    for (cost, from_idx, to_idx) in edges {
-        if used_from[from_idx] || used_to[to_idx] {
-            continue;
-        }
-        if cost > unmatched_cost(&from[from_idx]) + unmatched_cost(&to[to_idx]) {
-            continue;
-        }
-        used_from[from_idx] = true;
-        used_to[to_idx] = true;
-        pairs.push(MatchPair {
-            from: Some(from_idx),
-            to: Some(to_idx),
-        });
-    }
-
-    for (idx, used) in used_from.iter().enumerate() {
-        if !used {
-            pairs.push(MatchPair {
-                from: Some(idx),
-                to: None,
-            });
-        }
-    }
-    for (idx, used) in used_to.iter().enumerate() {
-        if !used {
-            pairs.push(MatchPair {
-                from: None,
-                to: Some(idx),
-            });
-        }
-    }
-    pairs
-}
-
-fn contour_pair_cost(a: &MeasuredContour, b: &MeasuredContour) -> f32 {
-    let bounds = union_bounds(a.bounds, b.bounds);
-    let diag = bounds_diagonal(bounds).max(1.0);
-    let centroid_cost = distance_sq(a.centroid, b.centroid).sqrt() / diag;
-    let length_cost = (a.length.max(1.0) / b.length.max(1.0)).ln().abs();
-    let area_cost = (a.area.max(1.0) / b.area.max(1.0)).ln().abs();
-    let bounds_cost = bounds_difference(a.bounds, b.bounds) / diag;
-    let shape_cost = correspondence_error(
-        &a.preview,
-        &align_points(&a.preview, b.preview.clone(), a.closed && b.closed),
-    )
-    .sqrt()
-        / diag;
-    let closed_cost = if a.closed == b.closed { 0.0 } else { 1.5 };
-
-    centroid_cost * 2.0
-        + shape_cost * 2.5
-        + length_cost * 0.75
-        + area_cost * 0.35
-        + bounds_cost * 0.75
-        + closed_cost
-}
-
-fn unmatched_cost(contour: &MeasuredContour) -> f32 {
-    3.0 + if contour.closed { 0.35 } else { 0.0 } + contour.length.max(1.0).ln() * 0.05
-}
-
-fn average_pair_length(pair: &MatchPair, from: &[MeasuredContour], to: &[MeasuredContour]) -> f32 {
-    let from_len = pair
-        .from
-        .and_then(|idx| from.get(idx))
-        .map(|c| c.length)
-        .unwrap_or(0.0);
-    let to_len = pair
-        .to
-        .and_then(|idx| to.get(idx))
-        .map(|c| c.length)
-        .unwrap_or(0.0);
-    ((from_len + to_len) * 0.5).max(1.0)
-}
-
 fn sample_contour(contour: &MeasuredContour, count: usize, closed: bool) -> Option<Vec<Point>> {
-    sample_measure(&contour.measure, contour.length, count, closed)
-}
-
-fn sample_measure(
-    measure: &skia_safe::ContourMeasure,
-    length: f32,
-    count: usize,
-    closed: bool,
-) -> Option<Vec<Point>> {
     let mut points = Vec::with_capacity(count);
     for i in 0..count {
         let progress = if closed {
@@ -378,7 +128,7 @@ fn sample_measure(
         } else {
             i as f32 / (count.saturating_sub(1).max(1)) as f32
         };
-        let (p, _) = measure.pos_tan(length * progress)?;
+        let (p, _) = contour.measure.pos_tan(contour.length * progress)?;
         points.push(Point { x: p.x, y: p.y });
     }
 
@@ -395,7 +145,7 @@ fn align_points(reference: &[Point], candidate: Vec<Point>, closed: bool) -> Vec
     } else {
         candidate.clone()
     };
-    let mut reversed = candidate.clone();
+    let mut reversed = candidate;
     reversed.reverse();
     let reverse = if closed {
         best_cyclic_shift(reference, &reversed)
@@ -408,81 +158,6 @@ fn align_points(reference: &[Point], candidate: Vec<Point>, closed: bool) -> Vec
     } else {
         forward
     }
-}
-
-fn collapsed_points(point: Point, count: usize) -> Vec<Point> {
-    vec![point; count]
-}
-
-fn centroid(points: &[Point]) -> Point {
-    let mut x = 0.0;
-    let mut y = 0.0;
-    for point in points {
-        x += point.x;
-        y += point.y;
-    }
-    let n = points.len().max(1) as f32;
-    Point { x: x / n, y: y / n }
-}
-
-fn bounds_of(points: &[Point]) -> Bounds {
-    let mut bounds = Bounds {
-        left: f32::INFINITY,
-        top: f32::INFINITY,
-        right: f32::NEG_INFINITY,
-        bottom: f32::NEG_INFINITY,
-    };
-    for point in points {
-        bounds.left = bounds.left.min(point.x);
-        bounds.top = bounds.top.min(point.y);
-        bounds.right = bounds.right.max(point.x);
-        bounds.bottom = bounds.bottom.max(point.y);
-    }
-    bounds
-}
-
-fn union_bounds(a: Bounds, b: Bounds) -> Bounds {
-    Bounds {
-        left: a.left.min(b.left),
-        top: a.top.min(b.top),
-        right: a.right.max(b.right),
-        bottom: a.bottom.max(b.bottom),
-    }
-}
-
-fn bounds_diagonal(bounds: Bounds) -> f32 {
-    let w = (bounds.right - bounds.left).max(0.0);
-    let h = (bounds.bottom - bounds.top).max(0.0);
-    (w * w + h * h).sqrt()
-}
-
-fn bounds_difference(a: Bounds, b: Bounds) -> f32 {
-    let aw = (a.right - a.left).max(1.0);
-    let ah = (a.bottom - a.top).max(1.0);
-    let bw = (b.right - b.left).max(1.0);
-    let bh = (b.bottom - b.top).max(1.0);
-    let center_a = Point {
-        x: (a.left + a.right) * 0.5,
-        y: (a.top + a.bottom) * 0.5,
-    };
-    let center_b = Point {
-        x: (b.left + b.right) * 0.5,
-        y: (b.top + b.bottom) * 0.5,
-    };
-    distance_sq(center_a, center_b).sqrt() + (aw - bw).abs() + (ah - bh).abs()
-}
-
-fn signed_area(points: &[Point]) -> f32 {
-    if points.len() < 3 {
-        return 0.0;
-    }
-    let mut area = 0.0;
-    for i in 0..points.len() {
-        let a = points[i];
-        let b = points[(i + 1) % points.len()];
-        area += a.x * b.y - b.x * a.y;
-    }
-    area * 0.5
 }
 
 fn best_cyclic_shift(reference: &[Point], points: &[Point]) -> Vec<Point> {
@@ -620,13 +295,11 @@ fn perpendicular_distance(p: Point, a: Point, b: Point) -> f32 {
     distance_sq(p, proj).sqrt()
 }
 
-fn contours_to_svg(contours: &[(Vec<Point>, bool)]) -> String {
+fn contour_to_svg(points: &[Point], closed: bool) -> String {
     let mut segs = Vec::new();
-    for (points, closed) in contours {
-        append_cubic_contour(&mut segs, points, *closed);
-        if *closed {
-            segs.push("Z".to_string());
-        }
+    append_cubic_contour(&mut segs, points, closed);
+    if closed {
+        segs.push("Z".to_string());
     }
     segs.join(" ")
 }
@@ -685,12 +358,8 @@ mod tests {
         let entry = MorphSvgEntry::new("M55 0 L110 95 L0 95 Z", "M55 95 L110 0 L0 0 Z", 128)
             .expect("should create entry from valid paths");
         let result = entry.sample(0.0, 0.5);
-        assert!(!result.is_empty(), "sample at t=0 should not be empty");
-        assert!(
-            skia_safe::Path::from_svg(&result).is_some(),
-            "sample output should be valid SVG path: {:?}",
-            result
-        );
+        assert_ne!(result, "M55 0 L110 95 L0 95 Z");
+        assert!(skia_safe::Path::from_svg(&result).is_some());
     }
 
     #[test]
@@ -698,8 +367,29 @@ mod tests {
         let entry = MorphSvgEntry::new("M55 0 L110 95 L0 95 Z", "M55 95 L110 0 L0 0 Z", 128)
             .expect("should create entry");
         let result = entry.sample(1.0, 0.5);
-        assert!(!result.is_empty(), "sample at t=1 should not be empty");
+        assert_ne!(result, "M55 95 L110 0 L0 0 Z");
         assert!(skia_safe::Path::from_svg(&result).is_some());
+    }
+
+    #[test]
+    fn morph_endpoint_stays_on_resampled_track() {
+        let to_svg = "M55 0 L110 28 L110 82 L55 110 L0 82 L0 28 Z";
+        let entry = MorphSvgEntry::new(
+            "M55 0 L69 37 L110 37 L77 60 L88 100 L55 78 L22 100 L33 60 L0 37 L41 37 Z",
+            to_svg,
+            128,
+        )
+        .expect("should create entry");
+
+        let at_end = entry.sample(1.0, 0.0);
+        let near_end = entry.sample(0.9999, 0.0);
+
+        assert_ne!(at_end, to_svg);
+        assert!(skia_safe::Path::from_svg(&at_end).is_some());
+        assert!(skia_safe::Path::from_svg(&near_end).is_some());
+        assert_eq!(at_end.matches('M').count(), 1);
+        assert_eq!(at_end.matches('Z').count(), 1);
+        assert_eq!(at_end.matches('C').count(), near_end.matches('C').count());
     }
 
     #[test]
@@ -720,25 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn morph_star_to_hex_produces_single_contour() {
-        let entry = MorphSvgEntry::new(
-            "M55 0 L69 37 L110 37 L77 60 L88 100 L55 78 L22 100 L33 60 L0 37 L41 37 Z",
-            "M55 0 L110 28 L110 82 L55 110 L0 82 L0 28 Z",
-            128,
-        )
-        .expect("should create entry");
-        let result = entry.sample(0.5, 0.5);
-        assert!(!result.is_empty());
-        assert!(skia_safe::Path::from_svg(&result).is_some());
-        assert_eq!(
-            result.matches(|c| c == 'M').count(),
-            1,
-            "should have exactly one contour"
-        );
-    }
-
-    #[test]
-    fn morph_reversed_paths_do_not_collapse() {
+    fn morph_reversed_closed_paths_do_not_collapse() {
         let entry = MorphSvgEntry::new(
             "M0 0 L100 0 L100 100 L0 100 Z",
             "M0 0 L0 100 L100 100 L100 0 Z",
@@ -748,6 +420,8 @@ mod tests {
         let result = entry.sample(0.5, 0.1);
         assert!(!result.is_empty());
         assert!(skia_safe::Path::from_svg(&result).is_some());
+        assert_eq!(result.matches('M').count(), 1);
+        assert_eq!(result.matches('Z').count(), 1);
     }
 
     #[test]
@@ -772,58 +446,33 @@ mod tests {
     }
 
     #[test]
-    fn morph_multiple_subpaths_preserves_multiple_contours() {
-        let entry = MorphSvgEntry::new(
-            "M0 0 L40 0 L40 40 L0 40 Z M80 0 L120 0 L120 40 L80 40 Z",
-            "M10 10 L50 10 L50 50 L10 50 Z M90 10 L130 10 L130 50 L90 50 Z",
-            96,
-        )
-        .expect("should morph multiple closed subpaths");
-        let result = entry.sample(0.5, 0.25);
-        assert!(!result.is_empty());
-        assert!(skia_safe::Path::from_svg(&result).is_some());
-        assert_eq!(result.matches('M').count(), 2);
-        assert_eq!(result.matches('Z').count(), 2);
-    }
-
-    #[test]
-    fn morph_mismatched_subpath_counts_fades_missing_contour_from_centroid() {
-        let entry = MorphSvgEntry::new(
-            "M0 0 L100 0",
-            "M0 0 L100 0 M40 40 L60 40 L60 60 L40 60 Z",
-            96,
-        )
-        .expect("should tolerate mismatched contour counts");
-        let result = entry.sample(0.5, 0.25);
-        assert!(!result.is_empty());
-        assert!(skia_safe::Path::from_svg(&result).is_some());
-        assert_eq!(result.matches('M').count(), 2);
-    }
-
-    #[test]
-    fn matching_uses_geometry_instead_of_subpath_order() {
-        let from_path =
-            skia_safe::Path::from_svg("M0 0 L30 0 L30 30 L0 30 Z M80 0 L110 0 L110 30 L80 30 Z")
-                .unwrap();
-        let to_path =
-            skia_safe::Path::from_svg("M82 2 L112 2 L112 32 L82 32 Z M2 2 L32 2 L32 32 L2 32 Z")
-                .unwrap();
-
-        let from = measure_contours(&from_path);
-        let to = measure_contours(&to_path);
-        let pairs = match_contours(&from, &to);
-        let matched: Vec<(usize, usize)> = pairs
-            .iter()
-            .filter_map(|pair| pair.from.zip(pair.to))
-            .collect();
-
+    fn rejects_multiple_subpaths() {
         assert!(
-            matched.contains(&(0, 1)),
-            "left contour should match left target"
+            MorphSvgEntry::new(
+                "M0 0 L40 0 L40 40 L0 40 Z M80 0 L120 0 L120 40 L80 40 Z",
+                "M10 10 L50 10 L50 50 L10 50 Z M90 10 L130 10 L130 50 L90 50 Z",
+                96,
+            )
+            .is_none()
         );
+    }
+
+    #[test]
+    fn rejects_mismatched_subpath_counts() {
         assert!(
-            matched.contains(&(1, 0)),
-            "right contour should match right target"
+            MorphSvgEntry::new(
+                "M0 0 L100 0",
+                "M0 0 L100 0 M40 40 L60 40 L60 60 L40 60 Z",
+                96,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn rejects_open_to_closed() {
+        assert!(
+            MorphSvgEntry::new("M0 0 C30 60 70 -60 100 0", "M0 0 L100 0 L50 80 Z", 64,).is_none()
         );
     }
 }

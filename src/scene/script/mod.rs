@@ -1752,10 +1752,7 @@ mod tests {
         );
 
         let f2 = driver.run(2, 10, 2, 10, None).expect("frame 2 should run");
-        assert_eq!(
-            f2.get("t").unwrap().text_content,
-            Some("👨‍👩‍👧‍👦".to_string())
-        );
+        assert_eq!(f2.get("t").unwrap().text_content, Some("👨‍👩‍👧‍👦".to_string()));
     }
 
     #[test]
@@ -1867,6 +1864,16 @@ mod tests {
         assert_eq!(
             units.iter().map(|u| u.text.as_str()).collect::<Vec<_>>(),
             vec!["Hello", " ", "world"]
+        );
+    }
+
+    #[test]
+    fn split_text_node_words_falls_back_to_graphemes_for_cjk() {
+        use super::node_style::{TextUnitGranularity, describe_text_units};
+        let units = describe_text_units("你好世界", TextUnitGranularity::Word);
+        assert_eq!(
+            units.iter().map(|u| u.text.as_str()).collect::<Vec<_>>(),
+            vec!["你", "好", "世", "界"]
         );
     }
 

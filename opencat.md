@@ -531,7 +531,7 @@ Supported `type` values:
 | Type | Meaning |
 |------|---------|
 | `'chars'` | Grapheme clusters |
-| `'words'` | Unicode word-boundary units, including whitespace |
+| `'words'` | Unicode word-boundary units for whitespace-separated text; CJK text falls back to `chars` |
 | `'lines'` | Reserved for layout-derived line ranges; not implemented yet |
 
 Each part exposes `index`, `text`, `start`, `end`, and `part.set({ opacity, x, y, scale, rotate })`.

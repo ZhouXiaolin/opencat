@@ -249,22 +249,49 @@ fn build_text_unit_clip(boxes: &[TextBox], left: f32, top: f32) -> Option<(skia_
 
 fn describe_text_unit_ranges(text: &str, granularity: TextUnitGranularity) -> Vec<Range<usize>> {
     match granularity {
-        TextUnitGranularity::Grapheme => UnicodeSegmentation::graphemes(text, true)
-            .scan(0usize, |offset, grapheme| {
-                let start = *offset;
-                *offset += grapheme.len();
-                Some(start..*offset)
-            })
-            .collect(),
-        TextUnitGranularity::Word => UnicodeSegmentation::split_word_bounds(text)
-            .filter(|segment| !segment.is_empty())
-            .scan(0usize, |offset, segment| {
-                let start = *offset;
-                *offset += segment.len();
-                Some(start..*offset)
-            })
-            .collect(),
+        TextUnitGranularity::Grapheme => describe_grapheme_ranges(text),
+        TextUnitGranularity::Word => {
+            if contains_cjk(text) {
+                return describe_grapheme_ranges(text);
+            }
+            UnicodeSegmentation::split_word_bounds(text)
+                .filter(|segment| !segment.is_empty())
+                .scan(0usize, |offset, segment| {
+                    let start = *offset;
+                    *offset += segment.len();
+                    Some(start..*offset)
+                })
+                .collect()
+        }
     }
+}
+
+fn describe_grapheme_ranges(text: &str) -> Vec<Range<usize>> {
+    UnicodeSegmentation::graphemes(text, true)
+        .scan(0usize, |offset, grapheme| {
+            let start = *offset;
+            *offset += grapheme.len();
+            Some(start..*offset)
+        })
+        .collect()
+}
+
+fn contains_cjk(text: &str) -> bool {
+    text.chars().any(|ch| {
+        matches!(
+            ch as u32,
+            0x3400..=0x4DBF
+                | 0x4E00..=0x9FFF
+                | 0xF900..=0xFAFF
+                | 0x20000..=0x2A6DF
+                | 0x2A700..=0x2B73F
+                | 0x2B740..=0x2B81F
+                | 0x2B820..=0x2CEAF
+                | 0x3040..=0x309F
+                | 0x30A0..=0x30FF
+                | 0xAC00..=0xD7AF
+        )
+    })
 }
 
 fn font_style(weight: FontWeight) -> FontStyle {

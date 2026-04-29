@@ -680,6 +680,7 @@ fn generate_tailwind_jsonl_rules() -> String {
             "object-fill",
             "ExactClassAction::ObjectFit(ObjectFit::Fill)",
         ),
+        ("font-mono", "ExactClassAction::Noop"),
         (
             "font-light",
             "ExactClassAction::FontWeight(FontWeight::Light)",
@@ -827,6 +828,7 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("flex-shrink-0", "ExactClassAction::FlexShrink(0.0)"),
         ("flex-1", "ExactClassAction::FlexGrow(1.0)"),
         ("grow", "ExactClassAction::FlexGrow(1.0)"),
+        ("flex-grow", "ExactClassAction::FlexGrow(1.0)"),
         ("text-left", "ExactClassAction::TextAlign(TextAlign::Left)"),
         (
             "text-center",

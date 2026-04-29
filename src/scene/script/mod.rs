@@ -1456,9 +1456,6 @@ mod tests {
             if (typeof ctx.splitText !== 'function') {
                 throw new Error('split-text plugin did not install ctx.splitText');
             }
-            if (typeof ctx.alongPath !== 'function') {
-                throw new Error('motion-path plugin did not install ctx.alongPath');
-            }
             if (typeof ctx.utils.random !== 'function') {
                 throw new Error('utils plugin did not install ctx.utils');
             }

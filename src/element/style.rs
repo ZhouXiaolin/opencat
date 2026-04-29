@@ -23,8 +23,7 @@ pub struct InheritedStyle {
 impl InheritedStyle {
     pub fn for_child(style: &ComputedStyle) -> Self {
         let mut text = style.text;
-        let container_has_definite_width =
-            style.layout.width.is_some() || style.layout.width_full;
+        let container_has_definite_width = style.layout.width.is_some() || style.layout.width_full;
         // `position: absolute` with `width: auto` resolves via CSS shrink-to-fit —
         // its width comes from its own content, not from the containing block.
         // Inline-width constraints from ancestors must stop at such a boundary,

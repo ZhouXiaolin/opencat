@@ -4,8 +4,8 @@ use crate::{
     display::{
         list::{
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
-            DisplayTransform, DrawScriptDisplayItem, SvgPathDisplayItem, SvgPathPaintStyle,
-            RectDisplayItem, RectPaintStyle, TextDisplayItem, TimelineDisplayItem,
+            DisplayTransform, DrawScriptDisplayItem, RectDisplayItem, RectPaintStyle,
+            SvgPathDisplayItem, SvgPathPaintStyle, TextDisplayItem, TimelineDisplayItem,
             TimelineTransitionDisplay,
         },
         tree::{DisplayNode, DisplayTree},
@@ -144,8 +144,10 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 }),
         }),
         ElementKind::Text(text) => {
-            let (visual_expand_x, visual_expand_y) =
-                conservative_text_visual_expansion(text.text_unit_overrides.as_ref(), text.text_style.text_px);
+            let (visual_expand_x, visual_expand_y) = conservative_text_visual_expansion(
+                text.text_unit_overrides.as_ref(),
+                text.text_style.text_px,
+            );
             DisplayItem::Text(TextDisplayItem {
                 bounds,
                 text: text.text.clone(),
@@ -205,7 +207,9 @@ fn conservative_text_visual_expansion(
     batch: Option<&crate::scene::script::TextUnitOverrideBatch>,
     text_px: f32,
 ) -> (f32, f32) {
-    let Some(batch) = batch else { return (0.0, 0.0); };
+    let Some(batch) = batch else {
+        return (0.0, 0.0);
+    };
     let mut max_x = 0.0_f32;
     let mut max_y = 0.0_f32;
     let base = text_px.max(1.0);

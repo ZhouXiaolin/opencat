@@ -92,6 +92,7 @@ impl Hash for DisplayItemFp<'_> {
                 for data in &svg.path_data {
                     data.hash(state);
                 }
+                svg.view_box.map(F32Hash).hash(state);
                 SvgPathPaintFp(&svg.paint).hash(state);
                 F32Hash(svg.bounds.width).hash(state);
                 F32Hash(svg.bounds.height).hash(state);

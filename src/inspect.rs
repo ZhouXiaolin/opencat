@@ -153,7 +153,11 @@ fn seed_asset_entries_for_inspect(
                 }
             }
         }
-        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Path(_) | NodeKind::Video(_) | NodeKind::Caption(_) => {}
+        NodeKind::Text(_)
+        | NodeKind::Lucide(_)
+        | NodeKind::Path(_)
+        | NodeKind::Video(_)
+        | NodeKind::Caption(_) => {}
     }
 }
 

@@ -22,7 +22,9 @@ pub use canvas_api::{
     CanvasCommand, CanvasMutations, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
     ScriptPointMode,
 };
-pub use node_style::{NodeStyleMutations, TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch};
+pub use node_style::{
+    NodeStyleMutations, TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct StyleMutations {
@@ -112,11 +114,7 @@ impl ScriptRuntimeCache {
 
     /// Register a resolved text source for the given node id.
     /// This will be visible to scripts via `__text_source_get()` on the next frame.
-    pub(crate) fn register_text_source(
-        &mut self,
-        id: &str,
-        source: ScriptTextSource,
-    ) {
+    pub(crate) fn register_text_source(&mut self, id: &str, source: ScriptTextSource) {
         self.text_sources.insert(id.to_string(), source);
     }
 }
@@ -443,9 +441,13 @@ fn install_runtime_bindings<'js>(
         globals.set(
             "__text_source_get",
             Function::new(ctx.clone(), move |id: String| {
-                let store = store
-                    .lock()
-                    .map_err(|_| rquickjs::Error::new_from_js_message("mutex", "mutex", "text source lock poisoned"))?;
+                let store = store.lock().map_err(|_| {
+                    rquickjs::Error::new_from_js_message(
+                        "mutex",
+                        "mutex",
+                        "text source lock poisoned",
+                    )
+                })?;
                 Ok::<_, rquickjs::Error>(store.text_sources.get(&id).map(|s| s.text.clone()))
             })?,
         )?;
@@ -1821,10 +1823,16 @@ mod tests {
         .expect("script should compile");
 
         let result = driver.run(0, 1, 0, 1, None);
-        assert!(result.is_ok(), "splitTextNode + part.set should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "splitTextNode + part.set should succeed: {:?}",
+            result.err()
+        );
 
         let mutations = &result.unwrap().mutations;
-        let node_mut = mutations.get("title").expect("should have mutations for 'title'");
+        let node_mut = mutations
+            .get("title")
+            .expect("should have mutations for 'title'");
         let batch = node_mut
             .text_unit_overrides
             .as_ref()
@@ -1858,9 +1866,15 @@ mod tests {
     #[test]
     fn split_text_node_uses_grapheme_clusters_for_zwj_emoji() {
         use super::node_style::{TextUnitGranularity, describe_text_units};
-        let units = describe_text_units("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}", TextUnitGranularity::Grapheme);
+        let units = describe_text_units(
+            "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}",
+            TextUnitGranularity::Grapheme,
+        );
         assert_eq!(units.len(), 1);
-        assert_eq!(units[0].text, "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}");
+        assert_eq!(
+            units[0].text,
+            "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}"
+        );
     }
 
     #[test]

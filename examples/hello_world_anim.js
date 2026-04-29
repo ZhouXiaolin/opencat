@@ -1,44 +1,59 @@
 (function() {
-  var hero = ctx.animate({
-    targets: 'showcase-title',
-    from: { opacity: 0, translateY: 40, scale: 0.95, rotate: -4 },
-    to: { opacity: 1, translateY: 0, scale: 1, rotate: 0 },
-    easing: 'spring-gentle',
+  var hero = ctx.fromTo('showcase-title', {
+    opacity: 0,
+    y: 40,
+    scale: 0.95,
+    rotate: -4,
+  }, {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    rotate: 0,
+    ease: 'spring.gentle',
   });
 
-  // Linked motion: subtitle derives from hero values
+  // Linked motion: subtitle derives from hero values.
   ctx.getNode('showcase-subtitle')
     .opacity(Math.min(0.85, hero.opacity * 0.85))
-    .translateY(hero.translateY * 0.6)
+    .translateY(hero.y * 0.6)
     .scale(0.98 + hero.scale * 0.03);
 })();
 
 (function() {
-  ctx.stagger(0, {
-    targets: ['card-play', 'card-heart', 'card-star', 'card-badge', 'card-bell', 'card-shield'],
-    from: { opacity: 0, translateY: 30, scale: 0.9 },
-    to: { opacity: 1, translateY: 0, scale: 1 },
-    gap: 4,
-    easing: { spring: { stiffness: 80, damping: 14, mass: 1 } },
-  });
+  ctx.fromTo(
+    ['card-play', 'card-heart', 'card-star', 'card-badge', 'card-bell', 'card-shield'],
+    { opacity: 0, y: 30, scale: 0.9 },
+    {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      stagger: 4,
+      ease: { spring: { stiffness: 80, damping: 14, mass: 1 } },
+    }
+  );
 })();
 
 (function() {
   var icons = [
-    "icon-play",
-    "icon-heart",
-    "icon-star",
-    "icon-badge",
-    "icon-bell",
-    "icon-shield",
+    'icon-play',
+    'icon-heart',
+    'icon-star',
+    'icon-badge',
+    'icon-bell',
+    'icon-shield',
   ];
   var frame = ctx.frame;
 
-  var entrance = ctx.stagger(icons.length, {
-    from: { scale: 0.85, translateY: 18, rotate: -10 },
-    to: { scale: 1, translateY: 0, rotate: 0 },
-    gap: 4,
-    easing: { spring: { stiffness: 120, damping: 12, mass: 0.9 } },
+  var entrance = ctx.fromTo(icons, {
+    scale: 0.85,
+    y: 18,
+    rotate: -10,
+  }, {
+    scale: 1,
+    y: 0,
+    rotate: 0,
+    stagger: 4,
+    ease: { spring: { stiffness: 120, damping: 12, mass: 0.9 } },
   });
 
   var cycleLen = 30;
@@ -49,19 +64,24 @@
 
   icons.forEach(function(id, i) {
     var s = entrance[i].scale;
-    var ty = entrance[i].translateY;
+    var ty = entrance[i].y;
     var r = entrance[i].rotate;
 
     if (i === activeIndex) {
-      var pulse = ctx.animate({
-        from: { scale: 1, translateY: 0, rotate: 0 },
-        to: { scale: 1.08, translateY: -6, rotate: 6 },
+      var pulse = ctx.fromTo(id, {
+        scale: 1,
+        y: 0,
+        rotate: 0,
+      }, {
+        scale: 1.08,
+        y: -6,
+        rotate: 6,
         duration: cycleLen,
         delay: cycleStart,
-        easing: 'spring-wobbly',
+        ease: 'spring.wobbly',
       });
       s = pulse.scale;
-      ty = pulse.translateY;
+      ty = pulse.y;
       r = pulse.rotate;
     }
 
@@ -73,35 +93,45 @@
 })();
 
 (function() {
-  var ids = ["card-play-tag", "card-heart-tag"];
+  var ids = ['card-play-tag', 'card-heart-tag'];
   var frame = ctx.frame;
   var focusIndex = Math.floor((frame % 120) / 60);
   var otherIndex = 1 - focusIndex;
   var cycleStart = Math.floor(frame / 60) * 60;
 
-  var enter = ctx.animate({
-    from: { opacity: 0, translateY: -12, scale: 0.9 },
-    to: { opacity: 1, translateY: 0, scale: 1 },
+  var enter = ctx.fromTo(ids[focusIndex], {
+    opacity: 0,
+    y: -12,
+    scale: 0.9,
+  }, {
+    opacity: 1,
+    y: 0,
+    scale: 1,
     duration: 20,
     delay: cycleStart,
-    easing: { spring: { stiffness: 90, damping: 14, mass: 1 } },
+    ease: { spring: { stiffness: 90, damping: 14, mass: 1 } },
   });
 
-  var leave = ctx.animate({
-    from: { opacity: 1, translateY: 0, scale: 1 },
-    to: { opacity: 0, translateY: 12, scale: 0.9 },
+  var leave = ctx.fromTo(ids[otherIndex], {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+  }, {
+    opacity: 0,
+    y: 12,
+    scale: 0.9,
     duration: 20,
     delay: cycleStart,
-    easing: { spring: { stiffness: 90, damping: 14, mass: 1 } },
+    ease: { spring: { stiffness: 90, damping: 14, mass: 1 } },
   });
 
   ctx.getNode(ids[focusIndex])
     .opacity(enter.opacity)
-    .translateY(enter.translateY)
+    .translateY(enter.y)
     .scale(enter.scale);
 
   ctx.getNode(ids[otherIndex])
     .opacity(leave.opacity)
-    .translateY(leave.translateY)
+    .translateY(leave.y)
     .scale(leave.scale);
 })();

@@ -30,15 +30,7 @@ uiFont.setEdging(CK.FontEdging.SubpixelAntiAlias);
 
 const message = "Canvas text API is live. This line is being typed on the Skia backend at 30 fps.";
 const maxTypedFrames = 240;
-const typing = ctx.animate({
-    from: { chars: 0 },
-    to: { chars: message.length },
-    duration: maxTypedFrames,
-    easing: 'linear',
-    clamp: true,
-});
-
-const visibleCount = Math.max(0, Math.min(message.length, Math.floor(typing.chars)));
+const visibleCount = Math.max(0, Math.min(message.length, Math.floor(message.length * ctx.utils.clamp(ctx.frame / maxTypedFrames, 0, 1))));
 const visible = message.slice(0, visibleCount);
 const caretBlink = (ctx.frame % 20) < 10;
 const caretX = 84 + headlineFont.measureText(visible);

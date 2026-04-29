@@ -289,14 +289,14 @@ Transitions describe the handoff between two adjacent scenes inside a `tl` node.
 
 | Avoid | Use instead |
 |------|-------------|
-| `transition-*` `animate-*` `duration-*` `ease-*` `delay-*` | `ctx.animate()` / `ctx.stagger()` / `ctx.sequence()` |
+| `transition-*` `animate-*` `duration-*` `ease-*` `delay-*` | `ctx.to()` / `ctx.from()` / `ctx.fromTo()` / `ctx.timeline()` |
 | `transform` `translate-*` `rotate-*` `scale-*` `skew-*` | `ctx.getNode(...).translateX()` / `translateY()` / `scale()` / `rotate()` / `skew()` |
 
 > Tailwind handles static styling. Scripts handle motion.
 
 ### 5.1 Easing Reference
 
-Easing names are shared by `ctx.animate()`, `ctx.sequence()` steps, and `transition.timing`.
+Easing names are shared by `ctx.to()` / `ctx.from()` / `ctx.fromTo()` / `ctx.timeline()` and `transition.timing`.
 
 | Preset | Effect |
 |--------|--------|
@@ -306,22 +306,22 @@ Easing names are shared by `ctx.animate()`, `ctx.sequence()` steps, and `transit
 | `'elastic-in'` / `'elastic-out'` / `'elastic-in-out'` | Damped oscillation |
 | `'bounce-in'` / `'bounce-out'` / `'bounce-in-out'` | Ground-bounce style |
 | `'steps(N)'` | Quantised into N discrete steps |
-| `'spring-default'` | General spring |
-| `'spring-gentle'` | Soft spring |
-| `'spring-stiff'` | Stiffer spring |
-| `'spring-slow'` | Slower spring |
-| `'spring-wobbly'` | Wobbly spring |
+| `'spring.default'` / `'spring-default'` | General spring |
+| `'spring.gentle'` / `'spring-gentle'` | Soft spring |
+| `'spring.stiff'` / `'spring-stiff'` | Stiffer spring |
+| `'spring.slow'` / `'spring-slow'` | Slower spring |
+| `'spring.wobbly'` / `'spring-wobbly'` | Wobbly spring |
 
 Custom spring (JS):
 
 ```js
-easing: { spring: { stiffness: 120, damping: 12, mass: 0.9 } }
+ease: { spring: { stiffness: 120, damping: 12, mass: 0.9 } }
 ```
 
 Cubic bezier (JS):
 
 ```js
-easing: [0.25, 0.1, 0.25, 1.0]
+ease: [0.25, 0.1, 0.25, 1.0]
 ```
 
 Transition `timing` field also accepts a string form: `"bezier:0.4,0,0.2,1"`.
@@ -333,7 +333,7 @@ Transition `timing` field also accepts a string form: `"bezier:0.4,0,0.2,1"`.
 Scripts are attached to nodes via `script` records and run on every frame using QuickJS.
 
 ```json
-{"type": "script", "parentId": "scene1", "src": "ctx.animate({targets:'title',from:{opacity:0},to:{opacity:1},duration:20,easing:'spring-gentle'});"}
+{"type": "script", "parentId": "scene1", "src": "ctx.fromTo('title',{opacity:0},{opacity:1,duration:20,ease:'spring.gentle'});"}
 {"type": "script", "parentId": "scene1", "path": "scene1.js"}
 ```
 
@@ -365,350 +365,199 @@ OpenCat's animation system is **functionally pure**: every animated value is com
 - **Color**: HSLA space with shortest-path hue rotation (handles 360° wrap-around)
 - **Path**: Skia `ContourMeasure` for sub-pixel-accurate arc-length sampling
 
-Scripts are re-executed every frame. The pattern is: declare an animation → read its current value → write it to a node. Declarative `targets` support (see below) automates the write step without changing the underlying math.
+Scripts are re-executed every frame. The GSAP-like API declares tweens and timelines, but the runtime still samples them as pure functions of the current frame.
 
 ---
 
-### 6.3 ctx.animate(opts)
+### 6.3 GSAP-Style Tween API
 
-Declare a `from → to` animation. Values are applied to nodes automatically via `targets`.
-
-```js
-ctx.animate({
-  targets: 'hero',
-  from: { opacity: 0, translateY: 40, scale: 0.95 },
-  to:   { opacity: 1, translateY: 0,  scale: 1 },
-  duration: 30,
-  delay: 0,
-  easing: 'spring-gentle',
-  clamp: false,
-});
-```
-
-Additional getters on the returned object:
-
-- `anim.progress`: `0` → `1`
-- `anim.settled`: whether a spring has settled
-- `anim.settleFrame`: frame where the spring settled
-
-`targets` accepts:
-- A single node id: `targets: 'hero'`
-- An array of ids: `targets: ['node1', 'node2', 'node3']`
-- Split-text parts: `targets: ctx.splitTextNode('title', { granularity: 'graphemes' })`
-
-`targets` is the preferred pattern. For cases where you need full manual control (linked motion, derived values), the returned object's getters can still be used directly (see §6.11).
-
-**`from`-only semantics:**
-
-If you only specify `from`, the animation infers `to` from identity defaults (`opacity: 1`, `translateX/Y: 0`, `scale: 1`, `rotation: 0`, etc.). This matches GSAP's `gsap.from()` behaviour.
+The public animation API is intentionally small:
 
 ```js
-ctx.animate({
-  targets: 'box',
-  from: { opacity: 0, translateY: 24 },
-  duration: 20,
-});
-// Implicit to: { opacity: 1, translateY: 0 }
+ctx.set(targets, vars);
+ctx.to(targets, vars);
+ctx.from(targets, vars);
+ctx.fromTo(targets, fromVars, toVars);
 ```
 
-**Stagger via `ctx.animate`:**
-
-When `targets` is an array, pass `stagger` to offset each target's delay:
+`targets` accepts a node id, an array of node ids, or `ctx.splitText(...)` parts. The API shape follows GSAP, but each call is sampled from the current frame and remains deterministic.
 
 ```js
-ctx.animate({
-  targets: ['a', 'b', 'c', 'd'],
-  from: { opacity: 0, translateY: 20 },
-  to:   { opacity: 1, translateY: 0 },
-  duration: 18,
-  stagger: 3,
-  easing: 'spring-gentle',
-});
+ctx.fromTo('hero',
+  { opacity: 0, y: 40, scale: 0.95 },
+  { opacity: 1, y: 0, scale: 1, duration: 30, ease: 'spring.gentle' }
+);
 ```
 
-**Repeat options:**
+Common property aliases:
+
+| Property | Applies to |
+|----------|------------|
+| `opacity` | Visual opacity |
+| `x`, `y` | `translateX`, `translateY` |
+| `scale`, `scaleX`, `scaleY` | Transform scale |
+| `rotate`, `rotation` | Rotation in degrees |
+| `skewX`, `skewY` | Skew in degrees |
+| `left`, `top`, `right`, `bottom`, `width`, `height` | Layout dimensions |
+| `backgroundColor`, `bg` | Background color |
+| `color`, `textColor` | Text color |
+| `borderColor`, `borderRadius`, `borderWidth` | Border style |
+| `fillColor`, `strokeColor`, `strokeWidth` | SVG/icon/path paint |
+| `text` | Text content layer, revealed with grapheme-safe typewriter semantics |
+
+Timing fields live in the destination vars:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `repeat` | `0` | Additional cycles. `0` = once, `N` = N+1 times, `-1` = infinite |
-| `yoyo` | `false` | Reverse on alternate cycles |
-| `repeatDelay` | `0` | Frames to hold before restarting each cycle |
+| `duration` | required for non-spring | Duration in frames |
+| `delay` | `0` | Start offset in frames |
+| `ease` / `easing` | `'linear'` | Easing name, bezier array, or spring object |
+| `repeat` | `0` | Additional cycles. `-1` = infinite |
+| `yoyo` | `false` | Reverse alternate cycles |
+| `repeatDelay` | `0` | Hold between repeated cycles |
+| `stagger` | `0` | Per-target delay offset for arrays or split-text parts |
 
-Color properties (`bg`, `textColor`, `borderColor`) are animated the same as numeric properties — HSLA shortest-path interpolation is automatic:
+Returned tween objects expose `progress`, `settled`, `settleFrame`, `values`, and each sampled property directly:
 
 ```js
-ctx.animate({
-  targets: 'card',
-  from: { bg: '#ef4444' },
-  to:   { bg: 'hsl(220, 90%, 55%)' },
-  duration: 60,
-  repeat: -1,
-  yoyo: true,
-});
+var hero = ctx.fromTo('title', { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 20 });
+ctx.getNode('subtitle').opacity(hero.opacity * 0.8).translateY(hero.y * 0.5);
 ```
 
-Supported color literals: `#rgb` / `#rrggbb` / `#rrggbbaa`, `rgb(r,g,b)` / `rgba(r,g,b,a)`, `hsl(h,s%,l%)` / `hsla(h,s%,l%,a)`. Tailwind tokens like `'blue-500'` are not interpolated — use hex/rgb/hsl in `from`/`to`.
+### 6.4 Colors, Paths, And Keyframes
 
-#### Path Animation
-
-Pass `path` (SVG path string) instead of `from`/`to` to animate along a curve. Returns `x`, `y`, `rotation` getters.
+Color properties are interpolated in HSLA space with shortest-path hue rotation:
 
 ```js
-var a = ctx.animate({
+ctx.fromTo('card',
+  { backgroundColor: '#ef4444' },
+  { backgroundColor: 'hsl(220, 90%, 55%)', duration: 60, repeat: -1, yoyo: true }
+);
+```
+
+Supported color literals: `#rgb` / `#rrggbb` / `#rrggbbaa`, `rgb(...)` / `rgba(...)`, `hsl(...)` / `hsla(...)`. Tailwind color tokens are not interpolated; use explicit color literals in tweens.
+
+Path animation:
+
+```js
+ctx.to('rocket', {
   path: 'M100 360 C400 80 880 640 1180 360',
   orient: -90,
   duration: 120,
-  easing: 'ease-in-out',
+  ease: 'ease-in-out',
   repeat: -1,
   yoyo: true,
 });
-ctx.getNode('ball')
-  .position('absolute')
-  .left(a.x - 24)
-  .top(a.y - 24)
-  .rotate(a.rotation);
 ```
 
-`path` and `from`/`to` can coexist on the same animation — use `from`/`to` for properties like `opacity` alongside path-driven position.
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `path` | — | SVG path string (see supported commands below) |
-| `orient` | `0` | Rotation offset in degrees from path tangent. Use `-90` for upward-oriented shapes |
-
-#### Keyframes (multiple stops in a single animation)
-
-For a single animation that needs more than two stops, pass `keyframes` instead of `from`/`to`:
+Keyframes:
 
 ```js
-// Shorthand: numeric values evenly spaced over [0, 1]
-ctx.animate({
-  targets: 'card',
+ctx.to('card', {
   keyframes: { scale: [1, 1.4, 0.8, 1] },
   duration: 60,
 });
 
-// Full form: explicit `at` (normalised time in [0, 1]) + optional per-segment easing
-ctx.animate({
-  targets: 'logo',
+ctx.to('logo', {
   keyframes: {
     rotate: [
-      { at: 0,   value: 0 },
+      { at: 0, value: 0 },
       { at: 0.5, value: 360, easing: 'back-out' },
-      { at: 1,   value: 0 }
+      { at: 1, value: 0 }
     ],
   },
   duration: 60,
 });
 ```
 
-Notes:
+Only numeric keyframes are supported. For color keyframes, chain separate color tweens or use `fromTo`.
 
-- Only **numeric values** are supported in keyframes (color keyframes are not yet supported -- animate colour with `from`/`to`).
-- `at` is normalised to `[0, 1]`; the **outer** `easing` (and `repeat`/`yoyo`) on `ctx.animate` still applies first, then the resulting progress is mapped through the per-segment easing.
-- `keyframes` and `from`/`to` may co-exist on the same animation, but keys defined in both are taken from `keyframes`.
+### 6.5 ctx.timeline(opts)
 
-### 6.4 ctx.stagger(count, opts)
-
-Like `animate`, but creates multiple staggered animations. Always use with `targets`.
+`ctx.timeline()` provides GSAP-style choreography while still compiling down to exact per-frame tween sampling.
 
 ```js
-ctx.stagger(0, {
-  targets: ['a', 'b', 'c', 'd'],
-  from: { opacity: 0, scale: 0.9 },
-  to:   { opacity: 1, scale: 1 },
-  gap: 3,
-  duration: 18,
-});
+ctx.timeline({ defaults: { duration: 18, ease: 'spring.gentle' } })
+  .from('title', { opacity: 0, y: 30 })
+  .from('subtitle', { opacity: 0, y: 18 }, '-=8')
+  .fromTo('cta', { scale: 0.8 }, { scale: 1, duration: 24 }, '+=6');
 ```
 
-When `targets` is provided, `count` is inferred from the target list length and each target receives its own staggered animation.
+Position arguments:
 
-For cases requiring per-node manual control, `ctx.stagger(count, opts)` returns an array of value objects:
+| Position | Meaning |
+|----------|---------|
+| omitted | Start at the current timeline cursor |
+| number | Absolute frame in the timeline |
+| `'+=N'` | N frames after the cursor |
+| `'-=N'` | N frames before the cursor |
+| label | Label registered by `addLabel(name, position)` |
 
-```js
-var anims = ctx.stagger(4, {
-  from: { opacity: 0, translateY: 30 },
-  to:   { opacity: 1, translateY: 0 },
-  gap: 4,
-  duration: 20,
-  easing: 'spring-gentle',
-});
-```
+Explicit positions do not advance the cursor. This is useful for parallel branches.
 
-### 6.5 ctx.sequence(steps)
+### 6.6 Text Content Animation
 
-Declare a heterogeneous chain of animations. Each step advances an internal cursor so per-step `duration`, `easing`, `from`, and `to` can differ. This is the right tool when `ctx.stagger` (same animation, uniform gap) is not expressive enough — irregular timing, overlaps, or parallel branches.
+Text content is animated through the normal tween API:
 
 ```js
-var seq = ctx.sequence([
-  { from: { opacity: 0, translateY: -20 }, to: { opacity: 1, translateY: 0 }, duration: 24, easing: 'spring-gentle' },
-  { from: { opacity: 0 }, to: { opacity: 1 }, duration: 18, gap: -6 },
-  { from: { scale: 0.8 }, to: { scale: 1 }, duration: 30, easing: 'spring-stiff' },
-]);
-
-ctx.getNode('title').opacity(seq[0].opacity).translateY(seq[0].translateY);
-ctx.getNode('subtitle').opacity(seq[1].opacity);
-ctx.getNode('cta').scale(seq[2].scale);
-```
-
-**Per-step fields**:
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `from`, `to`, `duration`, `easing`, `clamp` | — | Same as `ctx.animate()` |
-| `delay` | `0` | Extra offset added to the cursor before this step starts |
-| `gap` | `0` | Advance the cursor by this many frames after this step ends. Negative to overlap with the next step. |
-| `at` | — | Absolute start frame. When set, this step ignores the cursor and **does not advance it**. Useful for parallel branches or pinned anchors. |
-
-Each returned item exposes the same getters as `ctx.animate()` (`progress`, `settled`, `settleFrame`, plus every animated key).
-
-**Parallel branches with `at`**:
-
-```js
-var seq = ctx.sequence([
-  { to: { opacity: 1 }, duration: 20 },
-  { to: { opacity: 1 }, duration: 30, at: 5 },
-  { to: { opacity: 1 }, duration: 10 },
-]);
-```
-
-Step 0 runs `0..20` and advances cursor to `20`. Step 1 is pinned at frame `5` (runs `5..35`) and the cursor is untouched. Step 2 starts from the cursor at `20` and runs `20..30`.
-
-**When to pick which**:
-
-| Use case | API |
-|----------|-----|
-| Single animation | `ctx.animate({ targets, from, to })` |
-| N identical animations, uniform gap | `ctx.stagger(0, { targets, from, to, gap })` |
-| Text units (graphemes / words) | `ctx.splitTextNode(id, opts).animate({...})` |
-| Heterogeneous steps, irregular gaps, overlaps, parallel branches | `ctx.sequence` |
-| Per-node manual control (linked motion, derived values) | `ctx.animate({ from, to })` + `ctx.getNode()` |
-
-### 6.6 ctx.typewriter(fullText, opts)
-
-Type out a string character by character, driven by an animation curve. Returns an object whose `text` getter produces the current substring for the given frame.
-
-```js
-var tw = ctx.typewriter('Hello OpenCat', {
+ctx.to('title', {
+  text: 'Hello OpenCat',
   duration: 30,
   delay: 6,
-  easing: 'linear',
-  caret: '▍',
+  ease: 'linear',
 });
-
-ctx.getNode('title').text(tw.text);
 ```
 
-**Options**:
+The `text` channel reveals content by grapheme cluster, not JavaScript code point. ZWJ emoji and combining marks are not split mid-cluster.
 
-| Field | Default | Description |
-|-------|---------|-------------|
-| `duration` | — | Required. Frames from empty to full string. |
-| `delay` | `0` | Frames to wait before typing starts. |
-| `easing` | `'linear'` | Any easing supported by `ctx.animate()`. Non-linear varies typing speed. |
-| `clamp` | `true` | Prevents spring/bezier overshoot from producing out-of-range character counts. |
-| `caret` | `''` | String appended while typing is in progress. Disappears once the full text is revealed. |
+### 6.7 Text Unit Animation (`ctx.splitText`)
 
-Also exposes `progress`, `settled`, and `settleFrame` like `ctx.animate()`.
-
-Character counting currently uses `Array.from()`, so the effect is code-point based.
-This works well for ASCII, CJK, and many single-emoji cases, but it is not a full grapheme-cluster
-splitter for ZWJ emoji or combining-mark sequences.
-
-`ctx.typewriter()` is a content-replacement helper: it produces the current string for the frame and
-is typically applied via `ctx.getNode(id).text(tw.text)`.
-
----
-
-### 6.7 Text Animation (`ctx.splitTextNode`)
-
-OpenCat splits text into **grapheme clusters** (not code points) through Rust-side `unicode-segmentation`. This means ZWJ emoji (👨‍👩‍👧‍👦) and combining marks (é) are treated as single units, matching visual perception.
-
-`ctx.splitTextNode` reads the **resolved text source** — the actual text that will be rendered this frame, after any `text_content` mutations have been applied. This prevents double-source drift.
+`ctx.splitText(id, { type })` reads the resolved text source for the frame, then returns visual units that can be animated with the same tween API.
 
 ```js
-var parts = ctx.splitTextNode('title', { granularity: 'graphemes' });
-```
-
-Each `part` exposes:
-
-| Property | Description |
-|----------|-------------|
-| `index` | Unit index |
-| `text`  | Unit string |
-| `start` / `end` | Byte offsets in the source string |
-
-And one method:
-
-| Method | Description |
-|--------|-------------|
-| `part.set({ opacity, translateX, translateY, scale, rotation })` | Batch-write visual overrides for this unit |
-
-#### Declarative animation: `parts.animate(opts)`
-
-Instead of manual `for` loops, use the built-in `animate` method on the parts array:
-
-```js
-ctx.splitTextNode('title', { granularity: 'graphemes' }).animate({
-  from: { opacity: 0, translateY: 38, scale: 0.86 },
-  to:   { opacity: 1, translateY: 0,  scale: 1 },
+var chars = ctx.splitText('title', { type: 'chars' });
+ctx.from(chars, {
+  opacity: 0,
+  y: 38,
+  scale: 0.86,
   duration: 22,
-  delay: 8,
   stagger: 2,
-  easing: 'spring-wobbly',
+  ease: 'spring.wobbly',
 });
 ```
 
-This is equivalent to `ctx.stagger(parts.length, { targets: parts, ... })` — exact same math, zero boilerplate.
+Supported `type` values:
 
-#### Reverting overrides: `parts.revert()`
+| Type | Meaning |
+|------|---------|
+| `'chars'` | Grapheme clusters |
+| `'words'` | Unicode word-boundary units, including whitespace |
+| `'lines'` | Reserved for layout-derived line ranges; not implemented yet |
 
-Clear all overrides on the node and restore default appearance:
+Each part exposes `index`, `text`, `start`, `end`, and `part.set({ opacity, x, y, scale, rotate })`.
 
-```js
-var parts = ctx.splitTextNode('title', { granularity: 'graphemes' });
-// ... animate ...
-parts.revert();
-```
+Text animation has two independent layers:
 
-#### `words` granularity
+1. **Content layer**: `ctx.to('title', { text: ... })` changes the string that gets laid out.
+2. **Unit style layer**: `ctx.splitText(...); ctx.from(parts, ...)` changes visual properties of laid-out units.
 
-```js
-ctx.splitTextNode('title', { granularity: 'words' }).animate({
-  from: { opacity: 0, translateX: 18 },
-  to:   { opacity: 1, translateX: 0 },
-  duration: 20,
-  stagger: 5,
-});
-```
-
-Whitespace is preserved as part of the source text; word units include spaces so layout cadence remains natural.
-
-#### Text animation + content effects
-
-`text_content` mutations (typewriter, scramble) and `text_unit_overrides` (split text) operate on **two independent layers**:
-
-1. **Content layer** (`text_content`): changes the string that gets laid out
-2. **Unit style layer** (`text_unit_overrides`): changes visual properties of already-laid-out units
-
-They can coexist. The resolved text source is determined first, then split text reads that resolved source, then overrides are applied.
+They can coexist in the same frame:
 
 ```js
-ctx.getNode('title').text('Hello');        // content layer
-ctx.splitTextNode('title', { granularity: 'graphemes' }).animate({
-  from: { opacity: 0 },
-  to:   { opacity: 1 },
+ctx.set('title', { text: 'Hello' });
+ctx.from(ctx.splitText('title', { type: 'chars' }), {
+  opacity: 0,
+  y: 12,
   duration: 12,
   stagger: 1,
-});                                         // unit style layer
+});
 ```
 
 ---
 
 ### 6.8 ctx.alongPath(svgPath)
 
-Low-level path sampler. For most cases, prefer the `path` option on `ctx.animate()` (see above) which handles caching and timing automatically.
+Low-level path sampler. For most cases, prefer the `path` option on `ctx.to()` (see above) which handles caching and timing automatically.
 
 Returns a small object with `getLength()`, `at(t)`, and `dispose()`. `at(t)` takes `t in [0, 1]` and returns `{ x, y, angle }` -- `angle` is the path tangent in **degrees**.
 
@@ -792,41 +641,42 @@ node.text('Hello world');
 **Staggered entrance (prefer `targets`):**
 
 ```js
-ctx.stagger(0, {
-  targets: ['card-1', 'card-2', 'card-3'],
-  from: { opacity: 0, translateY: 30, scale: 0.9 },
-  to:   { opacity: 1, translateY: 0,  scale: 1 },
-  gap: 4,
-  easing: { spring: { stiffness: 80, damping: 14, mass: 1 } },
-});
+ctx.fromTo(
+  ['card-1', 'card-2', 'card-3'],
+  { opacity: 0, y: 30, scale: 0.9 },
+  {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    stagger: 4,
+    ease: { spring: { stiffness: 80, damping: 14, mass: 1 } },
+  }
+);
 ```
 
 **Per-node manual control** (for custom easing per item):
 
 ```js
 var items = ['card-1', 'card-2', 'card-3'];
-var anims = ctx.stagger(items.length, {
-  from: { opacity: 0, translateY: 30, scale: 0.9 },
-  to:   { opacity: 1, translateY: 0,  scale: 1 },
-  gap: 4,
-  easing: { spring: { stiffness: 80, damping: 14, mass: 1 } },
-});
+var anims = ctx.fromTo(items,
+  { opacity: 0, y: 30, scale: 0.9 },
+  { opacity: 1, y: 0, scale: 1, stagger: 4, ease: 'spring.gentle' }
+);
 items.forEach(function(id, i) {
-  ctx.getNode(id).opacity(anims[i].opacity).translateY(anims[i].translateY).scale(anims[i].scale);
+  ctx.getNode(id).opacity(anims[i].opacity).translateY(anims[i].y).scale(anims[i].scale);
 });
 ```
 
 **Linked motion:**
 
 ```js
-var hero = ctx.animate({
-  from: { opacity: 0, translateY: 40 },
-  to:   { opacity: 1, translateY: 0 },
-  easing: 'spring-gentle',
-});
+var hero = ctx.fromTo('title',
+  { opacity: 0, y: 40 },
+  { opacity: 1, y: 0, duration: 20, ease: 'spring.gentle' }
+);
 ctx.getNode('subtitle')
   .opacity(Math.min(0.85, hero.opacity * 0.85))
-  .translateY(hero.translateY * 0.6);
+  .translateY(hero.y * 0.6);
 ```
 
 **Looping pulse (manual control required):**
@@ -838,18 +688,15 @@ var cycleLen = 30;
 var activeIndex = Math.floor((frame % (icons.length * cycleLen)) / cycleLen);
 var cycleStart = frame - (frame % cycleLen);
 
-var entrance = ctx.stagger(0, {
-  targets: icons,
-  from: { scale: 0.85, translateY: 18 },
-  to: { scale: 1, translateY: 0 },
-  gap: 4, easing: 'spring-default',
-});
+var entrance = ctx.fromTo(icons,
+  { scale: 0.85, y: 18 },
+  { scale: 1, y: 0, stagger: 4, ease: 'spring.default' }
+);
 
-var pulse = ctx.animate({
-  targets: icons[activeIndex],
-  from: { scale: 1 }, to: { scale: 1.08 },
-  duration: cycleLen, delay: cycleStart, easing: 'spring-wobbly',
-});
+ctx.fromTo(icons[activeIndex],
+  { scale: 1 },
+  { scale: 1.08, duration: cycleLen, delay: cycleStart, ease: 'spring.wobbly' }
+);
 ```
 
 ### 6.12 Restrictions

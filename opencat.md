@@ -124,16 +124,39 @@ When using `query`, optional fields:
 Lucide icon node. Uses kebab-case icon names.
 
 ```json
-{"id": "search", "parentId": "scene1", "type": "icon", "className": "w-[24px] h-[24px] text-slate-400", "icon": "search"}
+{"id": "search", "parentId": "scene1", "type": "icon", "className": "w-[24px] h-[24px] stroke-slate-400", "icon": "search"}
 ```
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `icon` | yes | Lucide icon name in kebab-case |
 
-Color icons with `text-{color}`, not `bg-{color}`.
+Use standard SVG Tailwind utilities:
+- `stroke-{color}` / `stroke-[#hex]` — icon stroke color (default Black)
+- `stroke-0` / `stroke-1` / `stroke-2` — icon stroke width (default 2)
+- `stroke-[n]` — arbitrary stroke width
+- `fill-{color}` / `fill-[#hex]` — icon fill (default none)
 
-### 3.5 `canvas`
+### 3.5 `path`
+
+SVG path node. Renders one or more SVG path data strings using dedicated fill/stroke styling.
+
+```json
+{"id": "triangle", "parentId": "scene1", "type": "path", "className": "w-[100px] h-[100px] fill-red-500 stroke-blue stroke-2", "d": "M0 0 L100 0 L50 100 Z"}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `d` | yes | SVG path data string |
+
+Styled with the same SVG Tailwind utilities as `icon`:
+- `fill-{color}` / `fill-[#hex]` — fill color (default none)
+- `stroke-{color}` / `stroke-[#hex]` — stroke color (default none)
+- `stroke-0` / `stroke-1` / `stroke-2` / `stroke-[n]` — stroke width
+
+Unlike `icon`, `path` has no default intrinsic size — set `w`/`h` via `className` or use layout.
+
+### 3.6 `canvas`
 
 Canvas drawing surface. Requires a child `script` for drawing commands.
 
@@ -144,7 +167,7 @@ Canvas drawing surface. Requires a child `script` for drawing commands.
 
 See §6 Canvas API for the full drawing reference.
 
-### 3.6 `audio`
+### 3.7 `audio`
 
 Audio playback node. Equivalent to `<audio>`.
 
@@ -159,7 +182,7 @@ The `parentId` controls when the audio plays:
 - Attached under a scene node → plays during that scene.
 - `parentId: null` → plays for the entire composition (timeline-level).
 
-### 3.7 `video`
+### 3.8 `video`
 
 Video playback node. Equivalent to `<video>`.
 
@@ -171,7 +194,7 @@ Video playback node. Equivalent to `<video>`.
 |-------|----------|-------------|
 | `path` | yes | Local video file path |
 
-### 3.8 `caption`
+### 3.9 `caption`
 
 SRT-driven text node. Displayed content is selected from subtitle entries using the nearest inherited time context.
 
@@ -193,7 +216,7 @@ Implementation notes:
 - Read/parse failure degrades to an empty subtitle track. If captions do not appear, check path and encoding first.
 - Caption content can be overridden per-frame by scripts: `ctx.getNode('subs').text(...)`.
 
-### 3.9 `tl`
+### 3.10 `tl`
 
 Timeline container. See §2.3 for full specification.
 
@@ -205,7 +228,7 @@ Timeline container. See §2.3 for full specification.
 
 No `duration` field — the total is derived from child scenes and transitions.
 
-### 3.10 `transition`
+### 3.11 `transition`
 
 Transition between two adjacent scenes inside a `tl`. See §4 for full specification.
 
@@ -1053,7 +1076,7 @@ canvas.drawText('OpenCat', 16, 96, fill('#0f172a'), font);
 | Wrong | Correct |
 |------|---------|
 | `type: "div"` with a `text` field | Only `type: "text"` accepts `text` |
-| Coloring icons with `bg-{color}` | Use `text-{color}` for icons |
+| Coloring icons/paths with `bg-{color}` | Use `fill-{color}` for SVG fill, `stroke-{color}` for SVG stroke |
 | `id` contains "icon" but `type: "div"` | Use `type: "icon"` with a Lucide icon name |
 | Image `query` contains adjectives | Use only 1-4 nouns |
 | Relying on `absolute` layout by default | Prefer flex layout; use `absolute` only for overlap or pinned edges |

@@ -6,7 +6,9 @@ use crate::{
     element::resolve::resolve_ui_tree_with_script_cache,
     frame_ctx::{FrameCtx, ScriptFrameCtx},
     runtime::{
-        annotation::{AnnotatedDisplayTree, annotate_display_tree, compute_display_tree_fingerprints},
+        annotation::{
+            AnnotatedDisplayTree, annotate_display_tree, compute_display_tree_fingerprints,
+        },
         compositor::{SceneRenderRuntime, plan_for_scene, render_scene},
         frame_view::RenderFrameView,
         invalidation::mark_display_tree_composite_dirty,

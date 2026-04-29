@@ -4,6 +4,7 @@ mod caption;
 mod div;
 mod image;
 mod lucide;
+mod path;
 mod text;
 mod video;
 
@@ -14,5 +15,6 @@ pub use caption::{CaptionNode, SrtEntry, caption, parse_srt};
 pub use div::{Div, div};
 pub use image::{Image, ImageSource, OpenverseQuery, image};
 pub use lucide::{Lucide, lucide};
+pub use path::{Path, path};
 pub use text::{Text, text};
 pub use video::{Video, video};

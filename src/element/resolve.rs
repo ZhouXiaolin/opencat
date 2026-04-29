@@ -5,8 +5,8 @@ use crate::{
     element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
-            ElementBitmap, ElementCanvas, ElementDiv, ElementId, ElementKind, ElementLucide,
-            ElementNode, ElementText, ElementTimeline, ElementTimelineTransition,
+            ElementBitmap, ElementCanvas, ElementDiv, ElementId, ElementKind, ElementNode,
+            ElementSvgPath, ElementText, ElementTimeline, ElementTimelineTransition,
         },
     },
     frame_ctx::ScriptFrameCtx,
@@ -17,7 +17,7 @@ use crate::{
     scene::script::{ScriptRuntimeCache, StyleMutations, TextUnitOverrideBatch},
     scene::{
         node::{ComponentNode, NodeKind},
-        primitives::{Canvas, CaptionNode, Div, Image, Lucide, Text, Video},
+        primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video},
         time::TimelineNode,
         time::{FrameState, frame_state_for_root},
     },
@@ -108,7 +108,8 @@ fn resolve_node(
         NodeKind::Div(div) => resolve_div(div, cx, media),
         NodeKind::Canvas(canvas) => resolve_canvas(canvas, cx),
         NodeKind::Text(text) => resolve_text(text, cx),
-        NodeKind::Lucide(lucide) => resolve_lucide(lucide, cx),
+        NodeKind::Lucide(lucide) => resolve_lucide_svg_path(lucide, cx),
+        NodeKind::Path(path) => resolve_path(path, cx),
         NodeKind::Timeline(timeline) => resolve_timeline(timeline, cx, media),
         NodeKind::Caption(caption) => resolve_caption(caption, cx)?
             .ok_or_else(|| anyhow::anyhow!("caption node has no active text for frame")),
@@ -561,7 +562,7 @@ fn resolve_image(
     result
 }
 
-fn resolve_lucide(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
+fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(lucide, lucide.style_ref(), cx)?;
     let result = (|| {
         let mut style = lucide.style_ref().clone();
@@ -572,12 +573,28 @@ fn resolve_lucide(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<Elemen
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let icon = normalize_lucide_icon_name(lucide.icon());
         ensure_valid_lucide_icon(icon)?;
+
+        // Lucide default stroke width 2.0, default stroke color Black
+        if style.stroke_width.is_none() {
+            style.stroke_width = Some(2.0);
+        }
+        if style.stroke_color.is_none() {
+            style.stroke_color = Some(crate::style::ColorToken::Black);
+        }
+
         let computed = compute_style(&style, cx.inherited_style);
+
+        let paths = crate::lucide_icons::lucide_icon_paths(icon)
+            .expect("already validated by ensure_valid_lucide_icon");
+        let path_data: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
+        let view_box = [0.0, 0.0, 24.0, 24.0]; // Lucide fixed 24x24
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
-            kind: ElementKind::Lucide(ElementLucide {
-                icon: icon.to_string(),
+            kind: ElementKind::SvgPath(ElementSvgPath {
+                path_data,
+                view_box,
+                intrinsic_size: Some((24.0, 24.0)),
             }),
             style: computed,
             children: Vec::new(),
@@ -587,6 +604,67 @@ fn resolve_lucide(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<Elemen
         cx.mutation_stack.pop();
     }
     result
+}
+
+fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
+    let pushed = push_script_scope_for_visible_subtree(path, path.style_ref(), cx)?;
+    let result = (|| {
+        let mut style = path.style_ref().clone();
+        ensure!(
+            !style.id.is_empty(),
+            "node id is required for path nodes before rendering"
+        );
+        ensure!(!path.data().is_empty(), "path data must not be empty");
+        apply_mutation_stack(&mut style, cx.mutation_stack);
+        let computed = compute_style(&style, cx.inherited_style);
+
+        let path_data = vec![path.data().to_string()];
+
+        // Compute view_box: parse path data bounding box
+        let view_box = compute_path_view_box(&path_data)?;
+
+        Ok(ElementNode {
+            id: cx.ids.alloc(),
+            kind: ElementKind::SvgPath(ElementSvgPath {
+                path_data,
+                view_box,
+                intrinsic_size: None,
+            }),
+            style: computed,
+            children: Vec::new(),
+        })
+    })();
+    if pushed {
+        cx.mutation_stack.pop();
+    }
+    result
+}
+
+fn compute_path_view_box(path_data: &[String]) -> Result<[f32; 4]> {
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    let mut has_any = false;
+
+    for data in path_data {
+        let path = skia_safe::Path::from_svg(data)
+            .ok_or_else(|| anyhow::anyhow!("invalid SVG path data"))?;
+        let bounds = path.bounds();
+        min_x = min_x.min(bounds.left());
+        min_y = min_y.min(bounds.top());
+        max_x = max_x.max(bounds.right());
+        max_y = max_y.max(bounds.bottom());
+        has_any = true;
+    }
+
+    if !has_any {
+        return Ok([0.0, 0.0, 24.0, 24.0]);
+    }
+
+    let w = (max_x - min_x).max(1.0);
+    let h = (max_y - min_y).max(1.0);
+    Ok([min_x, min_y, w, h])
 }
 
 fn normalize_lucide_icon_name(name: &str) -> &str {
@@ -730,8 +808,8 @@ fn seed_text_sources_for_visible_subtree(
             if id.is_empty() {
                 return;
             }
-            let content =
-                text_content_from_stack(mutation_stack, id).unwrap_or_else(|| text.content().to_string());
+            let content = text_content_from_stack(mutation_stack, id)
+                .unwrap_or_else(|| text.content().to_string());
             script_runtime.register_text_source(
                 id,
                 crate::scene::script::ScriptTextSource {
@@ -797,7 +875,11 @@ fn seed_text_sources_for_visible_subtree(
                 }
             }
         }
-        NodeKind::Canvas(_) | NodeKind::Image(_) | NodeKind::Lucide(_) | NodeKind::Video(_) => {}
+        NodeKind::Canvas(_)
+        | NodeKind::Image(_)
+        | NodeKind::Lucide(_)
+        | NodeKind::Path(_)
+        | NodeKind::Video(_) => {}
     }
 }
 
@@ -825,16 +907,11 @@ fn text_content_from_stack(stack: &[StyleMutations], id: &str) -> Option<String>
         .find_map(|m| m.text_content_for(id).map(str::to_string))
 }
 
-fn merge_text_unit_overrides(
-    stack: &[StyleMutations],
-    id: &str,
-) -> Option<TextUnitOverrideBatch> {
+fn merge_text_unit_overrides(stack: &[StyleMutations], id: &str) -> Option<TextUnitOverrideBatch> {
     use crate::scene::script::TextUnitOverride;
     let mut merged: Option<TextUnitOverrideBatch> = None;
     for layer in stack {
-        let Some(batch) = layer
-            .get(id)
-            .and_then(|m| m.text_unit_overrides.as_ref()) else {
+        let Some(batch) = layer.get(id).and_then(|m| m.text_unit_overrides.as_ref()) else {
             continue;
         };
 
@@ -845,7 +922,9 @@ fn merge_text_unit_overrides(
                     return None;
                 }
                 if batch.overrides.len() > current.overrides.len() {
-                    current.overrides.resize_with(batch.overrides.len(), TextUnitOverride::default);
+                    current
+                        .overrides
+                        .resize_with(batch.overrides.len(), TextUnitOverride::default);
                 }
                 for (index, incoming) in batch.overrides.iter().enumerate() {
                     let slot = &mut current.overrides[index];
@@ -970,6 +1049,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
                     },
                 )
                 .or_else(|| style.bg_color.map(crate::style::BackgroundFill::Solid)),
+            fill: style.fill_color.map(crate::style::BackgroundFill::Solid),
             border_radius: style.border_radius.unwrap_or_default(),
             border_width: style.border_width,
             border_top_width: style.border_top_width,
@@ -977,6 +1057,8 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             border_bottom_width: style.border_bottom_width,
             border_left_width: style.border_left_width,
             border_color: style.border_color,
+            stroke_color: style.stroke_color,
+            stroke_width: style.stroke_width,
             border_style: style.border_style,
             blur_sigma: style.blur_sigma,
             backdrop_blur_sigma: style.backdrop_blur_sigma,
@@ -1000,9 +1082,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        merge_text_unit_overrides, resolve_ui_tree, resolve_ui_tree_with_script_cache,
-    };
+    use super::{merge_text_unit_overrides, resolve_ui_tree, resolve_ui_tree_with_script_cache};
     use crate::{
         FrameCtx,
         element::tree::ElementKind,
@@ -1202,10 +1282,12 @@ mod tests {
         let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
             .expect("deprecated alias should resolve");
 
-        let ElementKind::Lucide(icon) = &resolved.children[0].kind else {
-            panic!("child should resolve to lucide element");
+        let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
+            panic!("child should resolve to svg path element");
         };
-        assert_eq!(icon.icon, "house");
+        let expected_paths = crate::lucide_icons::lucide_icon_paths("house").expect("house icon");
+        assert_eq!(svg.path_data, expected_paths);
+        assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
     }
 
     #[test]
@@ -1227,10 +1309,13 @@ mod tests {
         let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
             .expect("deprecated alias should resolve");
 
-        let ElementKind::Lucide(icon) = &resolved.children[0].kind else {
-            panic!("child should resolve to lucide element");
+        let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
+            panic!("child should resolve to svg path element");
         };
-        assert_eq!(icon.icon, "briefcase");
+        let expected_paths =
+            crate::lucide_icons::lucide_icon_paths("briefcase").expect("briefcase icon");
+        assert_eq!(svg.path_data, expected_paths);
+        assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
     }
 
     #[test]

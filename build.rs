@@ -1082,6 +1082,8 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("bg-", "Bg"),
         ("text-", "Text"),
         ("border-", "Border"),
+        ("fill-", "Fill"),
+        ("stroke-", "Stroke"),
         ("from-", "GradientFrom"),
         ("via-", "GradientVia"),
         ("to-", "GradientTo"),

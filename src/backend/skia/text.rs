@@ -12,15 +12,15 @@ use skia_safe::{
     font_style::{Slant, Weight, Width},
     textlayout::{
         FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, RectHeightStyle,
-        RectWidthStyle, TextAlign as ParagraphAlign, TextStyle as ParagraphTextStyle,
-        TextBox, TypefaceFontProvider,
+        RectWidthStyle, TextAlign as ParagraphAlign, TextBox, TextStyle as ParagraphTextStyle,
+        TypefaceFontProvider,
     },
 };
 
 use crate::{
     backend::skia::color::skia_color,
-    scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
     runtime::text_engine::{SharedTextEngine, TextEngine, TextMeasureRequest, TextMeasurement},
+    scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
     style::{ComputedTextStyle, FontWeight, TextAlign, TextTransform},
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -237,11 +237,7 @@ fn build_text_unit_clip(boxes: &[TextBox], left: f32, top: f32) -> Option<(skia_
 
     for text_box in boxes {
         let rect = text_box.rect.with_offset((left, top));
-        builder.add_rect(
-            rect,
-            None::<skia_safe::PathDirection>,
-            None::<usize>,
-        );
+        builder.add_rect(rect, None::<skia_safe::PathDirection>, None::<usize>);
         match &mut bounds {
             Some(current) => current.join(rect),
             None => bounds = Some(rect),

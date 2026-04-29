@@ -98,7 +98,11 @@ pub(crate) fn collect_sources(
             frame_ctx,
             image_sources,
         ),
-        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Video(_) | NodeKind::Caption(_) => {}
+        NodeKind::Text(_)
+        | NodeKind::Lucide(_)
+        | NodeKind::Path(_)
+        | NodeKind::Video(_)
+        | NodeKind::Caption(_) => {}
     }
 }
 

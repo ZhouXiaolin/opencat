@@ -387,7 +387,7 @@ ctx.fromTo('hero',
 | `skewX`, `skewY` | 倾斜角度（度） |
 | `path` | 运动路径动画通道；将 SVG 路径数据采样为 `x`、`y` 和 `rotation` |
 | `orient` | `path` 动画的旋转偏移（度） |
-| `svgPath`, `d` | SVG 路径变形通道；重写 `path` 节点的路径数据 |
+| `morphSVG`, `d` | SVG 路径变形通道；重写 `path` 节点的路径数据 |
 | `left`, `top`, `right`, `bottom`, `width`, `height` | 布局尺寸 |
 | `backgroundColor`, `bg` | 背景颜色 |
 | `color`, `textColor` | 文本颜色 |
@@ -544,7 +544,7 @@ ctx.fromTo('blob',
 );
 ```
 
-- `svgPath` 是标准属性名，`d` 是其别名。
+- `morphSVG` 是标准属性名，`d` 是其别名。
 - 目标必须为 `type: "path"` 节点。
 - `from` 和 `to` 必须是 Skia 接受的合法 SVG path data。
 - 中间帧通过弧长重采样和点对应关系生成。
@@ -660,7 +660,7 @@ node.bg('blue-500').borderRadius(16).borderWidth(2).borderColor('gray-300');
 node.objectFit('cover').textColor('white').textSize(24).fontWeight('bold');
 node.textAlign('center').lineHeight(1.5).letterSpacing(1).shadow('lg');
 node.strokeWidth(2).strokeColor('gray-300').fillColor('blue-500');
-node.svgPath('M0 0 L100 0 L50 100 Z');
+node.morphSVG('M0 0 L100 0 L50 100 Z');
 
 // 内容（仅文本节点 — 覆盖 JSONL `text` 字段）
 node.text('Hello world');

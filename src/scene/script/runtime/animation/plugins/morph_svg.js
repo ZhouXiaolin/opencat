@@ -4,7 +4,7 @@
     runtime.animation.registerPlugin({
         name: 'morph-svg',
         properties: {
-            svgPath: {
+            morphSVG: {
                 defaultValue: '',
                 aliases: ['d'],
                 prepare: function(ctx) {
@@ -24,7 +24,7 @@
                 },
                 apply: function(target, value) {
                     if (target.node) {
-                        target.node.svgPath(value);
+                        target.node.morphSVG(value);
                     }
                 },
             },

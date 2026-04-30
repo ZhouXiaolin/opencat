@@ -381,6 +381,8 @@ impl ScriptRunner {
                 frame_ctx.scene_frames
             );
             map_js_result(run_fn.call::<(), ()>(()), &ctx, &error_context)?;
+            let flush_fn: Function<'_> = ctx_obj.get("__flushTimelines")?;
+            map_js_result(flush_fn.call::<(), ()>(()), &ctx, &error_context)?;
             Ok::<_, anyhow::Error>(())
         })?;
 
@@ -1603,9 +1605,7 @@ mod tests {
         )
         .expect("script should compile");
 
-        let mutations = driver
-            .run(5, 100, 5, 30, None)
-            .expect("script should run");
+        let mutations = driver.run(5, 100, 5, 30, None).expect("script should run");
 
         let a = mutations.get("a").expect("a mutation should exist");
         let b = mutations.get("b").expect("b mutation should exist");
@@ -1714,6 +1714,91 @@ mod tests {
     }
 
     #[test]
+    fn script_driver_timeline_future_from_step_holds_initial_values() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.timeline({ defaults: { duration: 10, ease: 'linear' } })
+                .from("a", { opacity: 0, x: -30 })
+                .from("b", { opacity: 0, x: -30 })
+                .from("c", { opacity: 0, x: -30 });
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(5, 40, 5, 40, None).expect("script should run");
+        let a = mutations.get("a").expect("a mutation should exist");
+        let b = mutations.get("b").expect("b mutation should exist");
+        let c = mutations.get("c").expect("c mutation should exist");
+
+        assert!(
+            (a.opacity.unwrap() - 0.5).abs() < 0.01,
+            "active step should interpolate opacity, got {}",
+            a.opacity.unwrap()
+        );
+        assert_eq!(
+            b.opacity,
+            Some(0.0),
+            "future step should hold from opacity before it starts"
+        );
+        assert_eq!(
+            c.opacity,
+            Some(0.0),
+            "future step should hold from opacity before it starts"
+        );
+
+        let bx = match &b.transforms[0] {
+            Transform::TranslateX(v) => *v,
+            _ => panic!("expected b TranslateX"),
+        };
+        let cx = match &c.transforms[0] {
+            Transform::TranslateX(v) => *v,
+            _ => panic!("expected c TranslateX"),
+        };
+        assert_eq!(bx, -30.0);
+        assert_eq!(cx, -30.0);
+    }
+
+    #[test]
+    fn script_driver_timeline_relative_cursor_positions_advance_sequence() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.timeline({ defaults: { duration: 10, ease: 'linear' } })
+                .fromTo("a", { opacity: 0 }, { opacity: 1 })
+                .fromTo("b", { opacity: 0 }, { opacity: 1 }, "+=3")
+                .fromTo("c", { opacity: 0 }, { opacity: 1 }, "+=3");
+        "#,
+        )
+        .expect("script should compile");
+
+        let before_c = driver
+            .run(25, 50, 25, 50, None)
+            .expect("script should run");
+        let b = before_c.get("b").expect("b mutation should exist");
+        let c = before_c.get("c").expect("c mutation should exist");
+
+        assert!(
+            (b.opacity.unwrap() - 1.0).abs() < 0.01,
+            "b should be settled before c starts, got {}",
+            b.opacity.unwrap()
+        );
+        assert_eq!(
+            c.opacity,
+            Some(0.0),
+            "c should still hold its from opacity before its delayed start"
+        );
+
+        let during_c = driver
+            .run(31, 50, 31, 50, None)
+            .expect("script should run");
+        let c = during_c.get("c").expect("c mutation should exist");
+        assert!(
+            c.opacity.unwrap() > 0.0 && c.opacity.unwrap() < 1.0,
+            "c should animate after the second relative delay, got {}",
+            c.opacity.unwrap()
+        );
+    }
+
+    #[test]
     fn script_driver_timeline_supports_previous_start_position() {
         let driver = ScriptDriver::from_source(
             r#"
@@ -1741,7 +1826,7 @@ mod tests {
     }
 
     #[test]
-    fn script_driver_sequence_respects_explicit_at_without_advancing_cursor() {
+    fn script_driver_sequence_absolute_position_extends_timeline_end() {
         let driver = ScriptDriver::from_source(
             r#"
             ctx.timeline()
@@ -1752,7 +1837,9 @@ mod tests {
         )
         .expect("script should compile");
 
-        let mutations = driver.run(20, 30, 20, 30, None).expect("script should run");
+        let mutations = driver
+            .run(20, 100, 20, 100, None)
+            .expect("script should run");
         let a = mutations.get("a").expect("a mutation should exist");
         let b = mutations.get("b").expect("b mutation should exist");
         let c = mutations.get("c").expect("c mutation should exist");
@@ -1767,9 +1854,19 @@ mod tests {
             "step 1 at=5 d=20 should be 0.75 at frame 20, got {}",
             b.opacity.unwrap()
         );
+        assert_eq!(
+            c.opacity,
+            Some(0.0),
+            "step 2 should not start before the timeline end at frame 25"
+        );
+
+        let later = driver
+            .run(30, 100, 30, 100, None)
+            .expect("script should run");
+        let c = later.get("c").expect("c mutation should exist");
         assert!(
-            (c.opacity.unwrap() - 1.0).abs() < 0.01,
-            "step 2 should start from cursor 10 and settle by frame 20, got {}",
+            (c.opacity.unwrap() - 0.5).abs() < 0.01,
+            "step 2 should start from the timeline end at frame 25, got {}",
             c.opacity.unwrap()
         );
     }
@@ -1798,6 +1895,58 @@ mod tests {
             (b.opacity.unwrap() - 0.2).abs() < 0.01,
             "step 1 should be 0.2 at frame 8 (started at frame 6 due to gap=-4), got {}",
             b.opacity.unwrap()
+        );
+    }
+
+    #[test]
+    fn script_driver_timeline_supports_previous_anchor_shorthand_offsets() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.timeline()
+                .fromTo("a", { opacity: 0 }, { opacity: 1, duration: 10, ease: 'linear' })
+                .fromTo("b", { opacity: 0 }, { opacity: 1, duration: 10, ease: 'linear' }, "<3")
+                .fromTo("c", { opacity: 0 }, { opacity: 1, duration: 10, ease: 'linear' }, ">-2");
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver.run(8, 30, 8, 30, None).expect("script should run");
+        let b = mutations.get("b").expect("b mutation should exist");
+        let c = mutations.get("c").expect("c mutation should exist");
+
+        assert!(
+            (b.opacity.unwrap() - 0.5).abs() < 0.01,
+            "`<3` should start 3 frames after previous start, got {}",
+            b.opacity.unwrap()
+        );
+        assert_eq!(
+            c.opacity,
+            Some(0.0),
+            "`>-2` should not start before frame 11 in this sequence"
+        );
+    }
+
+    #[test]
+    fn script_driver_timeline_scales_to_scene_frames_when_oversized() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.timeline()
+                .fromTo("a", { opacity: 0 }, { opacity: 1, duration: 20, ease: 'linear' })
+                .fromTo("b", { opacity: 0 }, { opacity: 1, duration: 20, ease: 'linear' })
+                .fromTo("c", { opacity: 0 }, { opacity: 1, duration: 20, ease: 'linear' });
+        "#,
+        )
+        .expect("script should compile");
+
+        let last_frame = driver
+            .run(30, 100, 30, 30, None)
+            .expect("script should run");
+        let c = last_frame.get("c").expect("c mutation should exist");
+
+        assert!(
+            (c.opacity.unwrap() - 1.0).abs() < 0.01,
+            "oversized timeline should fit the current scene and finish by its last frame, got {}",
+            c.opacity.unwrap()
         );
     }
 

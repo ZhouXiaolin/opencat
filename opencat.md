@@ -491,14 +491,17 @@ ctx.timeline({ defaults: { duration: 18, ease: 'spring.gentle' } })
 | number | Absolute frame in the timeline |
 | `'+=N'` | N frames after the cursor |
 | `'-=N'` | N frames before the cursor |
+| `'<'` / `'>'` | Start/end of the previously inserted child |
+| `'<N'` / `'>-N'` | Offset from the previous child start/end |
 | label | Label registered by `addLabel(name, position)` |
-
-Explicit positions do not advance the cursor. This is useful for parallel branches.
 
 Timeline semantics:
 
-- Tweens without an explicit position start at the current cursor and advance it by their duration.
-- Future tweens do not apply their `from` values before their start frame.
+- The cursor is the current end of the timeline. Every inserted child updates it to `max(cursor, child_end)`.
+- Tweens without an explicit position start at the current cursor.
+- `'+=N'` and `'-=N'` are relative to the current timeline end, matching GSAP's position parameter model.
+- Future `from` / `fromTo` tweens hold their `from` values before their start frame unless an earlier active tween already owns the same target property.
+- If a timeline's declared end exceeds `ctx.sceneFrames`, OpenCat scales its timeline sampling to fit the current scene. This reduces JSONL frame-count drift from truncating the tail of a scene animation.
 - Overlapping tweens are applied in declaration order; later tweens may overwrite the same property on the same target.
 
 ---

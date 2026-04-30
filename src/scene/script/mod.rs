@@ -1869,6 +1869,32 @@ mod tests {
     }
 
     #[test]
+    fn script_driver_typewriter_supports_cursor_option() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.to("t", { text: "Hi", cursor: "|", cursorBlink: false, duration: 4, ease: 'linear' });
+        "#,
+        )
+        .expect("script should compile");
+
+        let typing = driver.run(2, 10, 2, 10, None).expect("frame 2 should run");
+        assert_eq!(
+            typing.get("t").unwrap().text_content,
+            Some("H|".to_string()),
+            "cursor should be appended while typewriter tween is active"
+        );
+
+        let settled = driver
+            .run(10, 20, 10, 20, None)
+            .expect("frame 10 should run");
+        assert_eq!(
+            settled.get("t").unwrap().text_content,
+            Some("Hi".to_string()),
+            "cursor should disappear after typewriter tween settles"
+        );
+    }
+
+    #[test]
     fn script_driver_typewriter_uses_grapheme_clusters() {
         let driver = ScriptDriver::from_source(
             r#"

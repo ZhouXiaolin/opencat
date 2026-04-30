@@ -1,27 +1,378 @@
-{"type":"composition","width":1280,"height":720,"fps":30,"frames":300}
+{"type":"composition","width":1280,"height":720,"fps":30,"frames":4135}
 {"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px] bg-[#f7f7f3] overflow-hidden"}
 {"id":"guide-v","parentId":"root","type":"div","className":"absolute left-[640px] top-[0px] w-[2px] h-[720px] bg-black opacity-20"}
 {"id":"guide-h","parentId":"root","type":"div","className":"absolute left-[0px] top-[360px] w-[1280px] h-[2px] bg-black opacity-20"}
 {"id":"hero-tl","parentId":"root","type":"tl","className":"absolute left-[0px] top-[0px] w-[640px] h-[360px] overflow-hidden border-r-[6px] border-b-[6px] border-black rounded-br-[44px]"}
-{"id":"scene-a","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#ef4444]","duration":132}
-{"id":"scene-a-text","parentId":"scene-a","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"A"}
-{"id":"scene-b","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#2563eb]","duration":132}
-{"id":"scene-b-text","parentId":"scene-b","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"B"}
-{"type":"transition","parentId":"hero-tl","from":"scene-a","to":"scene-b","effect": "slide","duration":36}
+{"id":"scene-1","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d74242]","duration":5}
+{"id":"scene-1-text","parentId":"scene-1","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"1"}
+{"id":"scene-2","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d76d]","duration":5}
+{"id":"scene-2-text","parentId":"scene-2","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"2"}
+{"id":"scene-3","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#9942d7]","duration":5}
+{"id":"scene-3-text","parentId":"scene-3","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"3"}
+{"id":"scene-4","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7c442]","duration":5}
+{"id":"scene-4-text","parentId":"scene-4","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"4"}
+{"id":"scene-5","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42bed7]","duration":5}
+{"id":"scene-5-text","parentId":"scene-5","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"5"}
+{"id":"scene-6","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d74292]","duration":5}
+{"id":"scene-6-text","parentId":"scene-6","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"6"}
+{"id":"scene-7","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#67d742]","duration":5}
+{"id":"scene-7-text","parentId":"scene-7","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"7"}
+{"id":"scene-8","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#4842d7]","duration":5}
+{"id":"scene-8-text","parentId":"scene-8","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"8"}
+{"id":"scene-9","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d77442]","duration":5}
+{"id":"scene-9-text","parentId":"scene-9","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"9"}
+{"id":"scene-10","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d79f]","duration":5}
+{"id":"scene-10-text","parentId":"scene-10","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"10"}
+{"id":"scene-11","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#cb42d7]","duration":5}
+{"id":"scene-11-text","parentId":"scene-11","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"11"}
+{"id":"scene-12","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#b8d742]","duration":5}
+{"id":"scene-12-text","parentId":"scene-12","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"12"}
+{"id":"scene-13","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#428cd7]","duration":5}
+{"id":"scene-13-text","parentId":"scene-13","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"13"}
+{"id":"scene-14","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d74260]","duration":5}
+{"id":"scene-14-text","parentId":"scene-14","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"14"}
+{"id":"scene-15","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d74e]","duration":5}
+{"id":"scene-15-text","parentId":"scene-15","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"15"}
+{"id":"scene-16","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#7a42d7]","duration":5}
+{"id":"scene-16-text","parentId":"scene-16","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"16"}
+{"id":"scene-17","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7a542]","duration":5}
+{"id":"scene-17-text","parentId":"scene-17","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"17"}
+{"id":"scene-18","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d7d1]","duration":5}
+{"id":"scene-18-text","parentId":"scene-18","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"18"}
+{"id":"scene-19","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d742b1]","duration":5}
+{"id":"scene-19-text","parentId":"scene-19","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"19"}
+{"id":"scene-20","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#86d742]","duration":5}
+{"id":"scene-20-text","parentId":"scene-20","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"20"}
+{"id":"scene-21","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#425ad7]","duration":5}
+{"id":"scene-21-text","parentId":"scene-21","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"21"}
+{"id":"scene-22","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d75542]","duration":5}
+{"id":"scene-22-text","parentId":"scene-22","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"22"}
+{"id":"scene-23","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d780]","duration":5}
+{"id":"scene-23-text","parentId":"scene-23","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"23"}
+{"id":"scene-24","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#ac42d7]","duration":5}
+{"id":"scene-24-text","parentId":"scene-24","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"24"}
+{"id":"scene-25","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d6d742]","duration":5}
+{"id":"scene-25-text","parentId":"scene-25","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"25"}
+{"id":"scene-26","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42abd7]","duration":5}
+{"id":"scene-26-text","parentId":"scene-26","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"26"}
+{"id":"scene-27","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7427f]","duration":5}
+{"id":"scene-27-text","parentId":"scene-27","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"27"}
+{"id":"scene-28","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#54d742]","duration":5}
+{"id":"scene-28-text","parentId":"scene-28","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"28"}
+{"id":"scene-29","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#5b42d7]","duration":5}
+{"id":"scene-29-text","parentId":"scene-29","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"29"}
+{"id":"scene-30","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d78742]","duration":5}
+{"id":"scene-30-text","parentId":"scene-30","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"30"}
+{"id":"scene-31","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d7b2]","duration":5}
+{"id":"scene-31-text","parentId":"scene-31","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"31"}
+{"id":"scene-32","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d742d0]","duration":5}
+{"id":"scene-32-text","parentId":"scene-32","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"32"}
+{"id":"scene-33","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#a4d742]","duration":5}
+{"id":"scene-33-text","parentId":"scene-33","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"33"}
+{"id":"scene-34","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#4279d7]","duration":5}
+{"id":"scene-34-text","parentId":"scene-34","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"34"}
+{"id":"scene-35","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7424d]","duration":5}
+{"id":"scene-35-text","parentId":"scene-35","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"35"}
+{"id":"scene-36","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d761]","duration":5}
+{"id":"scene-36-text","parentId":"scene-36","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"36"}
+{"id":"scene-37","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#8d42d7]","duration":5}
+{"id":"scene-37-text","parentId":"scene-37","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"37"}
+{"id":"scene-38","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7b842]","duration":5}
+{"id":"scene-38-text","parentId":"scene-38","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"38"}
+{"id":"scene-39","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42cad7]","duration":5}
+{"id":"scene-39-text","parentId":"scene-39","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"39"}
+{"id":"scene-40","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7429e]","duration":5}
+{"id":"scene-40-text","parentId":"scene-40","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"40"}
+{"id":"scene-41","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#73d742]","duration":5}
+{"id":"scene-41-text","parentId":"scene-41","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"41"}
+{"id":"scene-42","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#4247d7]","duration":5}
+{"id":"scene-42-text","parentId":"scene-42","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"42"}
+{"id":"scene-43","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d76842]","duration":5}
+{"id":"scene-43-text","parentId":"scene-43","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"43"}
+{"id":"scene-44","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d793]","duration":5}
+{"id":"scene-44-text","parentId":"scene-44","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"44"}
+{"id":"scene-45","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#bf42d7]","duration":5}
+{"id":"scene-45-text","parentId":"scene-45","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"45"}
+{"id":"scene-46","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#c3d742]","duration":5}
+{"id":"scene-46-text","parentId":"scene-46","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"46"}
+{"id":"scene-47","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#4298d7]","duration":5}
+{"id":"scene-47-text","parentId":"scene-47","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"47"}
+{"id":"scene-48","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7426c]","duration":5}
+{"id":"scene-48-text","parentId":"scene-48","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"48"}
+{"id":"scene-49","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d743]","duration":5}
+{"id":"scene-49-text","parentId":"scene-49","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"49"}
+{"id":"scene-50","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#6e42d7]","duration":5}
+{"id":"scene-50-text","parentId":"scene-50","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"50"}
+{"id":"scene-51","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d79a42]","duration":5}
+{"id":"scene-51-text","parentId":"scene-51","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"51"}
+{"id":"scene-52","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d7c5]","duration":5}
+{"id":"scene-52-text","parentId":"scene-52","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"52"}
+{"id":"scene-53","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d742bd]","duration":5}
+{"id":"scene-53-text","parentId":"scene-53","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"53"}
+{"id":"scene-54","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#91d742]","duration":5}
+{"id":"scene-54-text","parentId":"scene-54","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"54"}
+{"id":"scene-55","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#4266d7]","duration":5}
+{"id":"scene-55-text","parentId":"scene-55","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"55"}
+{"id":"scene-56","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d74942]","duration":5}
+{"id":"scene-56-text","parentId":"scene-56","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"56"}
+{"id":"scene-57","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d775]","duration":5}
+{"id":"scene-57-text","parentId":"scene-57","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"57"}
+{"id":"scene-58","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#a042d7]","duration":5}
+{"id":"scene-58-text","parentId":"scene-58","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"58"}
+{"id":"scene-59","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7cc42]","duration":5}
+{"id":"scene-59-text","parentId":"scene-59","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"59"}
+{"id":"scene-60","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42b7d7]","duration":5}
+{"id":"scene-60-text","parentId":"scene-60","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"60"}
+{"id":"scene-61","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7428b]","duration":5}
+{"id":"scene-61-text","parentId":"scene-61","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"61"}
+{"id":"scene-62","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#60d742]","duration":5}
+{"id":"scene-62-text","parentId":"scene-62","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"62"}
+{"id":"scene-63","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#4f42d7]","duration":5}
+{"id":"scene-63-text","parentId":"scene-63","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"63"}
+{"id":"scene-64","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d77b42]","duration":5}
+{"id":"scene-64-text","parentId":"scene-64","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"64"}
+{"id":"scene-65","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d7a6]","duration":5}
+{"id":"scene-65-text","parentId":"scene-65","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"65"}
+{"id":"scene-66","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d242d7]","duration":5}
+{"id":"scene-66-text","parentId":"scene-66","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"66"}
+{"id":"scene-67","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#b0d742]","duration":5}
+{"id":"scene-67-text","parentId":"scene-67","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"67"}
+{"id":"scene-68","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#4285d7]","duration":5}
+{"id":"scene-68-text","parentId":"scene-68","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"68"}
+{"id":"scene-69","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d74259]","duration":5}
+{"id":"scene-69-text","parentId":"scene-69","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"69"}
+{"id":"scene-70","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d756]","duration":5}
+{"id":"scene-70-text","parentId":"scene-70","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"70"}
+{"id":"scene-71","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#8142d7]","duration":5}
+{"id":"scene-71-text","parentId":"scene-71","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"71"}
+{"id":"scene-72","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7ad42]","duration":5}
+{"id":"scene-72-text","parentId":"scene-72","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"72"}
+{"id":"scene-73","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d5d7]","duration":5}
+{"id":"scene-73-text","parentId":"scene-73","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"73"}
+{"id":"scene-74","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d742aa]","duration":5}
+{"id":"scene-74-text","parentId":"scene-74","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"74"}
+{"id":"scene-75","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#7ed742]","duration":5}
+{"id":"scene-75-text","parentId":"scene-75","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"75"}
+{"id":"scene-76","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#4253d7]","duration":5}
+{"id":"scene-76-text","parentId":"scene-76","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"76"}
+{"id":"scene-77","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d75c42]","duration":5}
+{"id":"scene-77-text","parentId":"scene-77","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"77"}
+{"id":"scene-78","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d788]","duration":5}
+{"id":"scene-78-text","parentId":"scene-78","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"78"}
+{"id":"scene-79","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#b342d7]","duration":5}
+{"id":"scene-79-text","parentId":"scene-79","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"79"}
+{"id":"scene-80","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#cfd742]","duration":5}
+{"id":"scene-80-text","parentId":"scene-80","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"80"}
+{"id":"scene-81","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42a4d7]","duration":5}
+{"id":"scene-81-text","parentId":"scene-81","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"81"}
+{"id":"scene-82","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d74278]","duration":5}
+{"id":"scene-82-text","parentId":"scene-82","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"82"}
+{"id":"scene-83","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#4cd742]","duration":5}
+{"id":"scene-83-text","parentId":"scene-83","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"83"}
+{"id":"scene-84","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#6242d7]","duration":5}
+{"id":"scene-84-text","parentId":"scene-84","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"84"}
+{"id":"scene-85","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d78e42]","duration":5}
+{"id":"scene-85-text","parentId":"scene-85","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"85"}
+{"id":"scene-86","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d7b9]","duration":5}
+{"id":"scene-86-text","parentId":"scene-86","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"86"}
+{"id":"scene-87","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d742c9]","duration":5}
+{"id":"scene-87-text","parentId":"scene-87","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"87"}
+{"id":"scene-88","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#9dd742]","duration":5}
+{"id":"scene-88-text","parentId":"scene-88","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"88"}
+{"id":"scene-89","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#4272d7]","duration":5}
+{"id":"scene-89-text","parentId":"scene-89","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"89"}
+{"id":"scene-90","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d74246]","duration":5}
+{"id":"scene-90-text","parentId":"scene-90","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"90"}
+{"id":"scene-91","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d769]","duration":5}
+{"id":"scene-91-text","parentId":"scene-91","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"91"}
+{"id":"scene-92","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#9442d7]","duration":5}
+{"id":"scene-92-text","parentId":"scene-92","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"92"}
+{"id":"scene-93","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7c042]","duration":5}
+{"id":"scene-93-text","parentId":"scene-93","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"93"}
+{"id":"scene-94","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42c2d7]","duration":5}
+{"id":"scene-94-text","parentId":"scene-94","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"94"}
+{"id":"scene-95","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d74297]","duration":5}
+{"id":"scene-95-text","parentId":"scene-95","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"95"}
+{"id":"scene-96","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#6bd742]","duration":5}
+{"id":"scene-96-text","parentId":"scene-96","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"96"}
+{"id":"scene-97","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#4442d7]","duration":5}
+{"id":"scene-97-text","parentId":"scene-97","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"97"}
+{"id":"scene-98","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d76f42]","duration":5}
+{"id":"scene-98-text","parentId":"scene-98","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"98"}
+{"id":"scene-99","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d79b]","duration":5}
+{"id":"scene-99-text","parentId":"scene-99","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"99"}
+{"id":"scene-100","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#c642d7]","duration":5}
+{"id":"scene-100-text","parentId":"scene-100","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"100"}
+{"id":"scene-101","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#bcd742]","duration":5}
+{"id":"scene-101-text","parentId":"scene-101","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"101"}
+{"id":"scene-102","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#4290d7]","duration":5}
+{"id":"scene-102-text","parentId":"scene-102","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"102"}
+{"id":"scene-103","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d74265]","duration":5}
+{"id":"scene-103-text","parentId":"scene-103","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"103"}
+{"id":"scene-104","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d74a]","duration":5}
+{"id":"scene-104-text","parentId":"scene-104","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"104"}
+{"id":"scene-105","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#7542d7]","duration":5}
+{"id":"scene-105-text","parentId":"scene-105","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"105"}
+{"id":"scene-106","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7a142]","duration":5}
+{"id":"scene-106-text","parentId":"scene-106","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"106"}
+{"id":"scene-107","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d7cd]","duration":5}
+{"id":"scene-107-text","parentId":"scene-107","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"107"}
+{"id":"scene-108","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d742b6]","duration":5}
+{"id":"scene-108-text","parentId":"scene-108","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"108"}
+{"id":"scene-109","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#8ad742]","duration":5}
+{"id":"scene-109-text","parentId":"scene-109","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"109"}
+{"id":"scene-110","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#425fd7]","duration":5}
+{"id":"scene-110-text","parentId":"scene-110","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"110"}
+{"id":"scene-111","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d75042]","duration":5}
+{"id":"scene-111-text","parentId":"scene-111","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"111"}
+{"id":"scene-112","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d77c]","duration":5}
+{"id":"scene-112-text","parentId":"scene-112","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"112"}
+{"id":"scene-113","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#a742d7]","duration":5}
+{"id":"scene-113-text","parentId":"scene-113","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"113"}
+{"id":"scene-114","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d7d342]","duration":5}
+{"id":"scene-114-text","parentId":"scene-114","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"114"}
+{"id":"scene-115","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#42afd7]","duration":5}
+{"id":"scene-115-text","parentId":"scene-115","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"115"}
+{"id":"scene-116","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d74284]","duration":5}
+{"id":"scene-116-text","parentId":"scene-116","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"116"}
+{"id":"scene-117","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#58d742]","duration":5}
+{"id":"scene-117-text","parentId":"scene-117","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"117"}
+{"id":"scene-118","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#5742d7]","duration":5}
+{"id":"scene-118-text","parentId":"scene-118","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"118"}
+{"id":"scene-119","parentId":"hero-tl","type":"div","className":"relative w-[640px] h-[360px] flex items-center justify-center bg-[#d78242]","duration":5}
+{"id":"scene-119-text","parentId":"scene-119","type":"text","className":"text-[172px] font-bold text-white leading-none tracking-[-10px]","text":"119"}
+{"type":"transition","parentId":"hero-tl","from":"scene-1","to":"scene-2","effect":"AdvancedMosaic","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-2","to":"scene-3","effect":"BlockDissolve","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-3","to":"scene-4","effect":"BookFlip","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-4","to":"scene-5","effect":"Bounce","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-5","to":"scene-6","effect":"BowTieHorizontal","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-6","to":"scene-7","effect":"BowTieVertical","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-7","to":"scene-8","effect":"BowTieWithParameter","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-8","to":"scene-9","effect":"Box","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-9","to":"scene-10","effect":"ButterflyWaveScrawler","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-10","to":"scene-11","effect":"CircleCrop","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-11","to":"scene-12","effect":"ColourDistance","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-12","to":"scene-13","effect":"CrazyParametricFun","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-13","to":"scene-14","effect":"CrossZoom","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-14","to":"scene-15","effect":"DefocusBlur","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-15","to":"scene-16","effect":"Directional","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-16","to":"scene-17","effect":"DirectionalScaled","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-17","to":"scene-18","effect":"DoomScreenTransition","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-18","to":"scene-19","effect":"Dreamy","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-19","to":"scene-20","effect":"DreamyZoom","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-20","to":"scene-21","effect":"EdgeTransition","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-21","to":"scene-22","effect":"FilmBurn","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-22","to":"scene-23","effect":"Fold","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-23","to":"scene-24","effect":"GlitchDisplace","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-24","to":"scene-25","effect":"GlitchMemories","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-25","to":"scene-26","effect":"GridFlip","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-26","to":"scene-27","effect":"HSVfade","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-27","to":"scene-28","effect":"HorizontalClose","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-28","to":"scene-29","effect":"HorizontalOpen","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-29","to":"scene-30","effect":"InvertedPageCurl","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-30","to":"scene-31","effect":"LeftRight","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-31","to":"scene-32","effect":"LinearBlur","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-32","to":"scene-33","effect":"Mosaic","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-33","to":"scene-34","effect":"Overexposure","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-34","to":"scene-35","effect":"PolkaDotsCurtain","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-35","to":"scene-36","effect":"PuzzleRight","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-36","to":"scene-37","effect":"Radial","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-37","to":"scene-38","effect":"Rectangle","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-38","to":"scene-39","effect":"RectangleCrop","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-39","to":"scene-40","effect":"Rolls","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-40","to":"scene-41","effect":"RotateScaleVanish","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-41","to":"scene-42","effect":"SimpleFlip","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-42","to":"scene-43","effect":"SimpleZoom","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-43","to":"scene-44","effect":"SimpleZoomOut","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-44","to":"scene-45","effect":"Slides","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-45","to":"scene-46","effect":"StarWipe","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-46","to":"scene-47","effect":"StaticFade","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-47","to":"scene-48","effect":"StereoViewer","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-48","to":"scene-49","effect":"Swirl","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-49","to":"scene-50","effect":"TVStatic","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-50","to":"scene-51","effect":"TilesWave","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-51","to":"scene-52","effect":"TopBottom","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-52","to":"scene-53","effect":"VerticalClose","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-53","to":"scene-54","effect":"VerticalOpen","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-54","to":"scene-55","effect":"WaterDrop","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-55","to":"scene-56","effect":"ZoomInCircles","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-56","to":"scene-57","effect":"ZoomLeftWipe","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-57","to":"scene-58","effect":"ZoomRigthWipe","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-58","to":"scene-59","effect":"angular","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-59","to":"scene-60","effect":"burn","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-60","to":"scene-61","effect":"burn0","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-61","to":"scene-62","effect":"cannabisleaf","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-62","to":"scene-63","effect":"chessboard","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-63","to":"scene-64","effect":"circle","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-64","to":"scene-65","effect":"circleopen","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-65","to":"scene-66","effect":"colorphase","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-66","to":"scene-67","effect":"coord-from-in","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-67","to":"scene-68","effect":"crosshatch","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-68","to":"scene-69","effect":"crosswarp","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-69","to":"scene-70","effect":"cube","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-70","to":"scene-71","effect":"directional-easing","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-71","to":"scene-72","effect":"directionalwarp","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-72","to":"scene-73","effect":"directionalwipe","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-73","to":"scene-74","effect":"dissolve","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-74","to":"scene-75","effect":"doorway","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-75","to":"scene-76","effect":"fade","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-76","to":"scene-77","effect":"fadecolor","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-77","to":"scene-78","effect":"fadegrayscale","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-78","to":"scene-79","effect":"flyeye","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-79","to":"scene-80","effect":"fragment","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-80","to":"scene-81","effect":"heart","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-81","to":"scene-82","effect":"hexagonalize","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-82","to":"scene-83","effect":"kaleidoscope","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-83","to":"scene-84","effect":"luminance_melt","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-84","to":"scene-85","effect":"morph","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-85","to":"scene-86","effect":"mosaic_transition","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-86","to":"scene-87","effect":"multiply_blend","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-87","to":"scene-88","effect":"parametric_glitch","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-88","to":"scene-89","effect":"perlin","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-89","to":"scene-90","effect":"pinwheel","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-90","to":"scene-91","effect":"pixelize","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-91","to":"scene-92","effect":"polar_function","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-92","to":"scene-93","effect":"powerKaleido","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-93","to":"scene-94","effect":"randomNoisex","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-94","to":"scene-95","effect":"randomsquares","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-95","to":"scene-96","effect":"ripple","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-96","to":"scene-97","effect":"rotateTransition","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-97","to":"scene-98","effect":"rotate_scale_fade","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-98","to":"scene-99","effect":"scale-in","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-99","to":"scene-100","effect":"splitSlideInHorizontal","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-100","to":"scene-101","effect":"splitSlideInOutHorizontal","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-101","to":"scene-102","effect":"splitSlideInOutVertical","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-102","to":"scene-103","effect":"splitSlideInVertical","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-103","to":"scene-104","effect":"splitSlideOutHorizontal","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-104","to":"scene-105","effect":"splitSlideOutVertical","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-105","to":"scene-106","effect":"squareswire","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-106","to":"scene-107","effect":"squeeze","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-107","to":"scene-108","effect":"static_wipe","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-108","to":"scene-109","effect":"swap","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-109","to":"scene-110","effect":"tangentMotionBlur","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-110","to":"scene-111","effect":"undulatingBurnOut","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-111","to":"scene-112","effect":"wind","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-112","to":"scene-113","effect":"windowblinds","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-113","to":"scene-114","effect":"windowslice","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-114","to":"scene-115","effect":"wipeDown","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-115","to":"scene-116","effect":"wipeLeft","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-116","to":"scene-117","effect":"wipeRight","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-117","to":"scene-118","effect":"wipeUp","duration":30}
+{"type":"transition","parentId":"hero-tl","from":"scene-118","to":"scene-119","effect":"x_axis_translation","duration":30}
 {"id":"tl-badge","parentId":"root","type":"div","className":"absolute left-[32px] top-[28px] px-[18px] py-[10px] rounded-full bg-white border-[2px] border-dashed border-black"}
 {"id":"tl-badge-text","parentId":"tl-badge","type":"text","className":"text-[12px] font-semibold text-black tracking-[2px]","text":"TIMELINE NODE"}
 {"id":"left-copy","parentId":"root","type":"div","className":"absolute left-[52px] top-[420px] flex flex-col gap-[18px] w-[500px]"}
 {"id":"left-kicker","parentId":"left-copy","type":"text","className":"text-[14px] font-semibold text-black tracking-[3px]","text":"LEFT TOP QUADRANT / TL"}
-{"id":"left-title-1","parentId":"left-copy","type":"text","className":"text-[72px] font-bold text-black leading-[0.92] tracking-[-4px]","text":"A to B"}
-{"id":"left-title-2","parentId":"left-copy","type":"text","className":"text-[72px] font-bold text-black leading-[0.92] tracking-[-4px]","text":"through iris"}
-{"id":"left-body","parentId":"left-copy","type":"text","className":"text-[24px] text-black leading-[1.25]","text":"The timeline stays a normal node. Only the time sequence lives inside it: scene, transition, scene."}
+{"id":"left-title-1","parentId":"left-copy","type":"text","className":"text-[72px] font-bold text-black leading-[0.92] tracking-[-4px]","text":"1 to 119"}
+{"id":"left-title-2","parentId":"left-copy","type":"text","className":"text-[72px] font-bold text-black leading-[0.92] tracking-[-4px]","text":"via GLTransition"}
+{"id":"left-body","parentId":"left-copy","type":"text","className":"text-[24px] text-black leading-[1.25]","text":"Each cut reads its GLSL by name from gltransition.json, bakes defaultParams into SKSL, then samples from/to runtime shaders."}
 {"id":"left-pill-row","parentId":"left-copy","type":"div","className":"flex flex-row gap-[12px]"}
 {"id":"left-pill-1","parentId":"left-pill-row","type":"div","className":"px-[16px] py-[10px] rounded-full bg-black"}
-{"id":"left-pill-1-text","parentId":"left-pill-1","type":"text","className":"text-[14px] font-semibold text-white tracking-[1px]","text":"10s"}
+{"id":"left-pill-1-text","parentId":"left-pill-1","type":"text","className":"text-[14px] font-semibold text-white tracking-[1px]","text":"138s"}
 {"id":"left-pill-2","parentId":"left-pill-row","type":"div","className":"px-[16px] py-[10px] rounded-full bg-black"}
 {"id":"left-pill-2-text","parentId":"left-pill-2","type":"text","className":"text-[14px] font-semibold text-white tracking-[1px]","text":"30 fps"}
 {"id":"left-pill-3","parentId":"left-pill-row","type":"div","className":"px-[16px] py-[10px] rounded-full bg-black"}
-{"id":"left-pill-3-text","parentId":"left-pill-3","type":"text","className":"text-[14px] font-semibold text-white tracking-[1px]","text":"300 frames"}
+{"id":"left-pill-3-text","parentId":"left-pill-3","type":"text","className":"text-[14px] font-semibold text-white tracking-[1px]","text":"1-119"}
 {"id":"orb-stage","parentId":"root","type":"div","className":"absolute left-[668px] top-[24px] w-[588px] h-[672px]"}
 {"id":"orb-stage-label","parentId":"orb-stage","type":"text","className":"absolute left-[12px] top-[10px] text-[14px] font-semibold text-black tracking-[3px]","text":"COLORFUL CHARACTER BLOCKS"}
 {"id":"orb-1","parentId":"orb-stage","type":"div","className":"absolute left-[8px] top-[54px] w-[150px] h-[150px] rounded-full border-[4px] border-black bg-[#facc15] shadow-lg"}
@@ -32,10 +383,10 @@
 {"id":"orb-1-mouth","parentId":"orb-1-face","type":"div","className":"w-[40px] h-[12px] rounded-full bg-black"}
 {"id":"orb-1-tag","parentId":"orb-1-face","type":"text","className":"text-[16px] font-semibold text-black tracking-[1px]","text":"POP"}
 {"id":"orb-2","parentId":"orb-stage","type":"div","className":"absolute left-[180px] top-[140px] w-[210px] h-[210px] rounded-full border-[4px] border-black bg-[#22c55e] shadow-lg"}
-{"id":"orb-2-face","parentId":"orb-2","type":"div","className":"flex flex-col items-center justify-center w-full h-full gap-[14px]"}
-{"id":"orb-2-eyes","parentId":"orb-2-face","type":"div","className":"flex flex-row gap-[16px]"}
-{"id":"orb-2-eye-a","parentId":"orb-2-eyes","type":"div","className":"w-[16px] h-[16px] rounded-full bg-black"}
-{"id":"orb-2-eye-b","parentId":"orb-2-eyes","type":"div","className":"w-[16px] h-[16px] rounded-full bg-black"}
+{"id":"orb-2-face","parentId":"orb-2","type":"div","className":"flex flex-col items-center justify-center w-full h-full gap-[12px]"}
+{"id":"orb-2-eyes","parentId":"orb-2-face","type":"div","className":"flex flex-row gap-[14px]"}
+{"id":"orb-2-eye-a","parentId":"orb-2-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
+{"id":"orb-2-eye-b","parentId":"orb-2-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
 {"id":"orb-2-mouth","parentId":"orb-2-face","type":"div","className":"w-[54px] h-[14px] rounded-full bg-black"}
 {"id":"orb-2-tag","parentId":"orb-2-face","type":"text","className":"text-[18px] font-semibold text-black tracking-[1px]","text":"LOOP"}
 {"id":"orb-3","parentId":"orb-stage","type":"div","className":"absolute left-[394px] top-[42px] w-[170px] h-[170px] rounded-full border-[4px] border-black bg-[#38bdf8] shadow-lg"}
@@ -53,10 +404,10 @@
 {"id":"orb-4-mouth","parentId":"orb-4-face","type":"div","className":"w-[48px] h-[12px] rounded-full bg-black"}
 {"id":"orb-4-tag","parentId":"orb-4-face","type":"text","className":"text-[16px] font-semibold text-black tracking-[1px]","text":"IRIS"}
 {"id":"orb-5","parentId":"orb-stage","type":"div","className":"absolute left-[286px] top-[334px] w-[230px] h-[230px] rounded-full border-[4px] border-black bg-[#a855f7] shadow-lg"}
-{"id":"orb-5-face","parentId":"orb-5","type":"div","className":"flex flex-col items-center justify-center w-full h-full gap-[16px]"}
-{"id":"orb-5-eyes","parentId":"orb-5-face","type":"div","className":"flex flex-row gap-[18px]"}
-{"id":"orb-5-eye-a","parentId":"orb-5-eyes","type":"div","className":"w-[16px] h-[16px] rounded-full bg-black"}
-{"id":"orb-5-eye-b","parentId":"orb-5-eyes","type":"div","className":"w-[16px] h-[16px] rounded-full bg-black"}
+{"id":"orb-5-face","parentId":"orb-5","type":"div","className":"flex flex-col items-center justify-center w-full h-full gap-[12px]"}
+{"id":"orb-5-eyes","parentId":"orb-5-face","type":"div","className":"flex flex-row gap-[14px]"}
+{"id":"orb-5-eye-a","parentId":"orb-5-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
+{"id":"orb-5-eye-b","parentId":"orb-5-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
 {"id":"orb-5-mouth","parentId":"orb-5-face","type":"div","className":"w-[58px] h-[14px] rounded-full bg-black"}
 {"id":"orb-5-tag","parentId":"orb-5-face","type":"text","className":"text-[18px] font-semibold text-black tracking-[1px]","text":"PLAY"}
 {"id":"orb-6","parentId":"orb-stage","type":"div","className":"absolute left-[160px] top-[534px] w-[152px] h-[152px] rounded-full border-[4px] border-black bg-[#fb923c] shadow-lg"}
@@ -73,4 +424,4 @@
 {"id":"orb-7-eye-b","parentId":"orb-7-eyes","type":"div","className":"w-[14px] h-[14px] rounded-full bg-black"}
 {"id":"orb-7-mouth","parentId":"orb-7-face","type":"div","className":"w-[42px] h-[12px] rounded-full bg-black"}
 {"id":"orb-7-tag","parentId":"orb-7-face","type":"text","className":"text-[16px] font-semibold text-black tracking-[1px]","text":"FLOW"}
-{"type":"script","parentId":"root","src":"var ids=['orb-1','orb-2','orb-3','orb-4','orb-5','orb-6','orb-7'];var faceIds=['orb-1-face','orb-2-face','orb-3-face','orb-4-face','orb-5-face','orb-6-face','orb-7-face'];var labelIds=['orb-1-tag','orb-2-tag','orb-3-tag','orb-4-tag','orb-5-tag','orb-6-tag','orb-7-tag'];var entry=ctx.fromTo(ids,{opacity:0,scale:0.42,y:90},{opacity:1,scale:1,y:0,duration:42,stagger:8,ease:'spring.wobbly'});var driftCfg=[{tx0:-10,tx1:12,ty0:-14,ty1:10,sc0:0.98,sc1:1.04,rot0:-4,rot1:3,duration:88,delay:0,c0:'#facc15',c1:'#fb7185'},{tx0:-12,tx1:10,ty0:-18,ty1:14,sc0:0.95,sc1:1.06,rot0:-3,rot1:4,duration:96,delay:5,c0:'#22c55e',c1:'#4ade80'},{tx0:-8,tx1:14,ty0:-12,ty1:8,sc0:0.97,sc1:1.05,rot0:-5,rot1:5,duration:82,delay:9,c0:'#38bdf8',c1:'#60a5fa'},{tx0:-14,tx1:12,ty0:-16,ty1:12,sc0:0.96,sc1:1.05,rot0:-4,rot1:4,duration:92,delay:12,c0:'#fb7185',c1:'#f43f5e'},{tx0:-10,tx1:16,ty0:-12,ty1:14,sc0:0.95,sc1:1.07,rot0:-3,rot1:5,duration:98,delay:16,c0:'#a855f7',c1:'#c084fc'},{tx0:-12,tx1:10,ty0:-14,ty1:10,sc0:0.97,sc1:1.04,rot0:-5,rot1:4,duration:86,delay:20,c0:'#fb923c',c1:'#fdba74'},{tx0:-8,tx1:12,ty0:-16,ty1:12,sc0:0.96,sc1:1.05,rot0:-4,rot1:4,duration:90,delay:24,c0:'#14b8a6',c1:'#2dd4bf'}];for(var i=0;i<ids.length;i++){var cfg=driftCfg[i];var entryState=entry[i];var drift=ctx.fromTo(ids[i],{x:cfg.tx0,y:cfg.ty0,scale:cfg.sc0,rotate:cfg.rot0},{x:cfg.tx1,y:cfg.ty1,scale:cfg.sc1,rotate:cfg.rot1,duration:cfg.duration,delay:cfg.delay,ease:'ease-in-out',repeat:-1,yoyo:true});var color=ctx.fromTo(ids[i],{bg:cfg.c0},{bg:cfg.c1,duration:cfg.duration+18,delay:cfg.delay,ease:'ease-in-out',repeat:-1,yoyo:true});var faceFloat=ctx.fromTo(faceIds[i],{y:-3,rotate:-1},{y:5,rotate:2,duration:54+i*4,delay:i*3,ease:'ease-in-out',repeat:-1,yoyo:true});var labelPulse=ctx.fromTo(labelIds[i],{scale:0.96,opacity:0.75},{scale:1.06,opacity:1,duration:46+i*3,delay:i*2,ease:'ease-in-out',repeat:-1,yoyo:true});ctx.getNode(ids[i]).opacity(entryState.opacity).scale(entryState.scale*drift.scale).translateX(drift.x).translateY(entryState.y+drift.y).rotate(drift.rotate).bg(color.bg);ctx.getNode(faceIds[i]).translateY(faceFloat.y).rotate(faceFloat.rotate);ctx.getNode(labelIds[i]).scale(labelPulse.scale).opacity(labelPulse.opacity);}"}
+{"type":"script","parentId":"root","src":"var ids=['orb-1','orb-2','orb-3','orb-4','orb-5','orb-6','orb-7'];var faceIds=['orb-1-face','orb-2-face','orb-3-face','orb-4-face','orb-5-face','orb-6-face','orb-7-face'];var labelIds=['orb-1-tag','orb-2-tag','orb-3-tag','orb-4-tag','orb-5-tag','orb-6-tag','orb-7-tag'];var entry=ctx.fromTo(ids,{opacity:0,scale:0.42,y:90},{opacity:1,scale:1,y:0,duration:42,stagger:8,ease:'spring.wobbly'});var driftCfg=[{tx0:-10,tx1:12,ty0:-14,ty1:10,sc0:0.98,sc1:1.04,rot0:-4,rot1:3,duration:88,delay:0,c0:'#facc15',c1:'#fb7185'},{tx0:-12,tx1:10,ty0:-18,ty1:14,sc0:0.95,sc1:1.06,rot0:-3,rot1:4,duration:96,delay:5,c0:'#22c55e',c1:'#4ade80'},{tx0:-8,tx1:14,ty0:-12,ty1:8,sc0:0.97,sc1:1.05,rot0:-5,rot1:5,duration:82,delay:9,c0:'#38bdf8',c1:'#60a5fa'},{tx0:-14,tx1:12,ty0:-16,ty1:12,sc0:0.96,sc1:1.05,rot0:-4,rot1:4,duration:92,delay:12,c0:'#fb7185',c1:'#f43f5e'},{tx0:-10,tx1:16,ty0:-12,ty1:14,sc0:0.95,sc1:1.07,rot0:-3,rot1:5,duration:98,delay:16,c0:'#a855f7',c1:'#c084fc'},{tx0:-12,tx1:10,ty0:-14,ty1:10,sc0:0.97,sc1:1.04,rot0:-5,rot1:4,duration:86,delay:20,c0:'#fb923c',c1:'#fdba74'},{tx0:-8,tx1:12,ty0:-16,ty1:12,sc0:0.96,sc1:1.05,rot0:-4,rot1:4,duration:90,delay:24,c0:'#14b8a6',c1:'#2dd4bf'}];for(var i=0;i<ids.length;i++){var cfg=driftCfg[i];var entryState=entry[i];var drift=ctx.fromTo(ids[i],{x:cfg.tx0,y:cfg.ty0,scale:cfg.sc0,rotate:cfg.rot0},{x:cfg.tx1,y:cfg.ty1,scale:cfg.sc1,rotate:cfg.rot1,duration:cfg.duration,delay:cfg.delay,ease:'ease-in-out',repeat:-1,yoyo:true});var color=ctx.fromTo(ids[i],{bg:cfg.c0},{bg:cfg.c1,duration:cfg.duration+18,delay:cfg.delay,ease:'ease-in-out',repeat:-1,yoyo:true});var faceFloat=ctx.fromTo(faceIds[i],{y:-3,rotate:-1},{y:5,rotate:2,duration:54+i*4,delay:i*3,ease:'ease-in-out',repeat:-1,yoyo:true});var labelPulse=ctx.fromTo(labelIds[i],{scale:0.96,opacity:0.75},{scale:1.06,opacity:1,duration:46+i*3,delay:i*2,ease:'ease-in-out',repeat:-1,yoyo:true});ctx.getNode(ids[i]).opacity(entryState.opacity).scale(entryState.scale).y(entryState.y);}"}

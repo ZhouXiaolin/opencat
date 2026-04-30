@@ -33,7 +33,7 @@ pub use scene::primitives::{
 };
 pub use scene::script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use scene::transition::{
-    ClockWipeBuilder, FadeBuilder, IrisBuilder, SlideBuilder, SlideDirection, Timeline,
-    TransitionKind, WipeBuilder, WipeDirection, clock_wipe, fade, iris, light_leak, slide,
-    timeline, wipe,
+    ClockWipeBuilder, FadeBuilder, GlTransition, GlTransitionBuilder, IrisBuilder, SlideBuilder,
+    SlideDirection, Timeline, TransitionKind, WipeBuilder, WipeDirection, clock_wipe, fade,
+    gl_transition, iris, light_leak, slide, timeline, wipe,
 };

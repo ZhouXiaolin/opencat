@@ -150,7 +150,7 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
                             *duration_in_frames,
                             easing,
                         ),
-                        kind: *kind,
+                        kind: kind.clone(),
                     };
                 }
             }

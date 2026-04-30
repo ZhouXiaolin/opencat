@@ -113,13 +113,17 @@ fn hash_transition_kind<H: Hasher>(kind: &crate::scene::transition::TransitionKi
             F32Hash(params.hue_shift).hash(state);
             F32Hash(params.mask_scale).hash(state);
         }
-        crate::scene::transition::TransitionKind::Fade => 2_u8.hash(state),
+        crate::scene::transition::TransitionKind::Gl(effect) => {
+            2_u8.hash(state);
+            effect.name.hash(state);
+        }
+        crate::scene::transition::TransitionKind::Fade => 3_u8.hash(state),
         crate::scene::transition::TransitionKind::Wipe(direction) => {
-            3_u8.hash(state);
+            4_u8.hash(state);
             std::mem::discriminant(direction).hash(state);
         }
-        crate::scene::transition::TransitionKind::ClockWipe => 4_u8.hash(state),
-        crate::scene::transition::TransitionKind::Iris => 5_u8.hash(state),
+        crate::scene::transition::TransitionKind::ClockWipe => 5_u8.hash(state),
+        crate::scene::transition::TransitionKind::Iris => 6_u8.hash(state),
     }
 }
 

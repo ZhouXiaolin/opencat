@@ -46,6 +46,7 @@
             yoyo: true,
             repeatDelay: true,
             stagger: true,
+            __skipSceneFit: true,
             keyframes: true,
             at: true,
         },

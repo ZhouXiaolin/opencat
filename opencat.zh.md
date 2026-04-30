@@ -435,9 +435,18 @@ ctx.timeline({ defaults: { duration: 18, ease: 'spring.gentle' } })
 | 数字 | 时间线中的绝对帧数 |
 | `'+=N'` | 光标之后 N 帧 |
 | `'-=N'` | 光标之前 N 帧 |
+| `'<'` / `'>'` | 上一个 child 的开始 / 结束 |
+| `'<N'` / `'>-N'` | 相对上一个 child 开始 / 结束的偏移 |
 | label | 由 `addLabel(name, position)` 注册的标签 |
 
-显式位置不会推进光标。这对于并行分支很有用。
+时间线语义：
+
+- 光标表示当前时间线末尾。每插入一个 child，都会更新为 `max(cursor, child_end)`。
+- 省略位置参数的 tween 从当前光标开始。
+- `'+=N'` 和 `'-=N'` 相对当前时间线末尾，和 GSAP 的 position parameter 模型一致。
+- 未来的 `from` / `fromTo` tween 在开始前保持 `from` 值，除非同一目标属性已经被更早的活跃 tween 接管。
+- 如果声明出的时间线总长超过 `ctx.sceneFrames`，OpenCat 会把该 timeline 的采样缩放进当前场景，降低 JSONL 帧数生成偏差导致尾部动画被截断的风险。
+- 重叠 tween 按声明顺序应用；后声明的 tween 可能覆盖同一目标的同一属性。
 
 ---
 

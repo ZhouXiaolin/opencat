@@ -386,7 +386,7 @@
     function applyTween(targets, fromVars, toVars, timing) {
         var list = normalizeTargets(targets);
         var stagger = timing && timing.stagger !== undefined ? Number(timing.stagger) : 0;
-        if (list.length > 1 && stagger > 0) {
+        if (list.length > 1 && stagger > 0 && !(timing && timing.__skipSceneFit)) {
             var sceneFrames = Number(ctx.sceneFrames || ctx.totalFrames || 0);
             var delay = Number((timing && timing.delay) || 0);
             var duration = Number((timing && timing.duration) || 0);

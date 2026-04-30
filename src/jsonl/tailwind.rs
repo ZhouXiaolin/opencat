@@ -200,6 +200,11 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
+    if class == "fill-none" {
+        style.fill_color = Some(ColorToken::Transparent);
+        return true;
+    }
+
     if apply_shadow_value_rule(class, "shadow-[", ShadowValueTarget::Box, style)
         || apply_shadow_value_rule(class, "inset-shadow-[", ShadowValueTarget::Inset, style)
         || apply_shadow_value_rule(class, "drop-shadow-[", ShadowValueTarget::Drop, style)
@@ -1715,5 +1720,12 @@ mod tests {
         assert_eq!(drop_shadow.offset_y, 4.0);
         assert!((drop_shadow.blur_sigma - 2.0).abs() < f32::EPSILON);
         assert_eq!(drop_shadow.color, ColorToken::Custom(0, 0, 0, 102));
+    }
+
+    #[test]
+    fn parses_fill_none_as_transparent_fill() {
+        let style = parse_class_name("fill-none");
+
+        assert_eq!(style.fill_color, Some(ColorToken::Transparent));
     }
 }

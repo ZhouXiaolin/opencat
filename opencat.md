@@ -365,6 +365,28 @@ OpenCat's animation system is **functionally pure**: every animated value is com
 
 Scripts are re-executed every frame. The GSAP-like API declares tweens and timelines, but the runtime still samples them as pure functions of the current frame.
 
+#### Animation Contract
+
+OpenCat exposes one animation authoring language to JSONL scripts: the GSAP-style `ctx.set()` / `ctx.to()` / `ctx.from()` / `ctx.fromTo()` / `ctx.timeline()` API. Animation examples and user-authored JSONL should prefer declarative tween calls over imperative per-target loops.
+
+Layer responsibilities:
+
+- **Public script API**: Provides the GSAP-style syntax surface. Scripts declare what should animate, not how each frame mutates state.
+- **Animation core**: Owns target normalization, timeline cursor semantics, position arguments, delays, stagger, easing, repeat/yoyo, function-based values, interpolation, and per-frame sampling.
+- **Plugins**: Register target types or animatable properties only. A plugin should make its capability usable through the same GSAP-style tween API.
+- **Rendering/cache layer**: Must preserve animated plugin output across frames; animation-driven property layers must not be frozen by stable subtree caches.
+
+Plugin rule:
+
+> Once an animation feature is implemented as a plugin, it must be driveable through the normal GSAP-style tween API from JSONL scripts. JSONL authors should not need to write `for` loops just to animate every plugin-produced target.
+
+Text animation has two independent layers:
+
+1. **Content layer**: `ctx.to('title', { text: ... })` changes the resolved string. This is used for typewriter-style text reveal.
+2. **Unit property layer**: `ctx.splitText(...); ctx.fromTo(parts, ...)` keeps the resolved string intact, splits it into visual units, and animates unit properties such as `opacity`, `x`, `y`, `scale`, and `rotate`.
+
+These layers may be combined in the same frame, but they should remain conceptually separate: content tweens change text; split-text tweens change how existing text units are drawn.
+
 ---
 
 ### 6.2 Syntax: Tween API
@@ -384,6 +406,30 @@ ctx.fromTo('hero',
   { opacity: 1, y: 0, scale: 1, duration: 30, ease: 'spring.gentle' }
 );
 ```
+
+Property values may be literals or functions. Function-based values are evaluated once per target before interpolation:
+
+```js
+ctx.fromTo(ctx.splitText('title', { type: 'chars' }), {
+  opacity: 0,
+  x: function(index, target) { return index % 2 === 0 ? -80 : 80; },
+  y: function(index) { return index * 6; },
+}, {
+  opacity: 1,
+  x: 0,
+  y: 0,
+  duration: 30,
+  stagger: 2,
+  ease: 'spring.gentle',
+});
+```
+
+Function arguments:
+
+| Argument | Description |
+|----------|-------------|
+| `index` | Target index after normalization |
+| `target` | Raw target. For split-text parts this includes `index`, `text`, `start`, and `end`. |
 
 **Property aliases:**
 
@@ -447,6 +493,12 @@ ctx.timeline({ defaults: { duration: 18, ease: 'spring.gentle' } })
 | label | Label registered by `addLabel(name, position)` |
 
 Explicit positions do not advance the cursor. This is useful for parallel branches.
+
+Timeline semantics:
+
+- Tweens without an explicit position start at the current cursor and advance it by their duration.
+- Future tweens do not apply their `from` values before their start frame.
+- Overlapping tweens are applied in declaration order; later tweens may overwrite the same property on the same target.
 
 ---
 
@@ -603,8 +655,7 @@ ZWJ emoji and combining marks are not split mid-cluster.
 `ctx.splitText(id, { type })` reads the resolved text source and returns animatable visual units:
 
 ```js
-var chars = ctx.splitText('title', { type: 'chars' });
-ctx.from(chars, {
+ctx.from(ctx.splitText('title', { type: 'chars' }), {
   opacity: 0,
   y: 38,
   scale: 0.86,
@@ -622,7 +673,7 @@ Supported types:
 | `'words'` | Unicode word-boundary units; CJK falls back to `chars` |
 | `'lines'` | Reserved for layout-derived line ranges |
 
-Each part exposes `index`, `text`, `start`, `end`, and `part.set({ opacity, x, y, scale, rotate })`.
+Each part exposes `index`, `text`, `start`, and `end`. Parts are valid tween targets, so ordinary GSAP-style calls should be used for animation. A low-level `part.set({ opacity, x, y, scale, rotate })` exists for plugin/core use, but JSONL authoring should prefer `ctx.to()` / `ctx.from()` / `ctx.fromTo()`.
 
 Two independent layers:
 
@@ -638,6 +689,42 @@ ctx.from(ctx.splitText('title', { type: 'chars' }), {
   y: 12,
   duration: 12,
   stagger: 1,
+});
+```
+
+Directional char/word animation should use function-based values instead of manual loops:
+
+```js
+var dirs = [[-220, -120], [0, -180], [220, -120], [-220, 120], [220, 120]];
+
+ctx.fromTo(ctx.splitText('headline', { type: 'chars' }), {
+  opacity: 0,
+  x: function(i) { return dirs[i % dirs.length][0]; },
+  y: function(i) { return dirs[i % dirs.length][1]; },
+  scale: 0.8,
+  rotate: function(i) { return i % 2 === 0 ? -14 : 14; },
+}, {
+  opacity: 1,
+  x: 0,
+  y: 0,
+  scale: 1,
+  rotate: 0,
+  duration: 48,
+  stagger: 2,
+  ease: 'spring.gentle',
+});
+
+ctx.fromTo(ctx.splitText('headlineWords', { type: 'words' }), {
+  opacity: function(i, part) { return part.text.trim() === '' ? 1 : 0; },
+  x: function(i) { return i % 2 === 0 ? -260 : 260; },
+  y: function(i) { return i % 2 === 0 ? -80 : 80; },
+}, {
+  opacity: 1,
+  x: 0,
+  y: 0,
+  duration: 56,
+  stagger: 6,
+  ease: 'spring.gentle',
 });
 ```
 

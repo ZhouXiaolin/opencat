@@ -167,6 +167,17 @@
         return undefined;
     }
 
+    function resolveVarValue(value, target, targetIndex) {
+        if (typeof value === 'function') {
+            return value(targetIndex || 0, target ? target.raw : undefined);
+        }
+        return value;
+    }
+
+    function getVarForTarget(vars, track, target, targetIndex) {
+        return resolveVarValue(getVar(vars, track), target, targetIndex);
+    }
+
     function hasVar(vars, track) {
         vars = vars || {};
         if (hasOwn(vars, track.inputName) || hasOwn(vars, track.name)) return true;
@@ -235,7 +246,7 @@
         };
     }
 
-    function createTween(target, fromVars, toVars, timing) {
+    function createTween(target, fromVars, toVars, timing, targetIndex) {
         timing = timing || {};
         fromVars = fromVars || {};
         toVars = toVars || {};
@@ -289,10 +300,15 @@
             var track = tweenContext.tracks[i];
             var descriptor = track.descriptor;
             var toVal = hasVar(toVars, track)
-                ? getVar(toVars, track)
-                : getDescriptorDefault(descriptor, target, track.name, getVar(fromVars, track));
+                ? getVarForTarget(toVars, track, target, targetIndex)
+                : getDescriptorDefault(
+                    descriptor,
+                    target,
+                    track.name,
+                    getVarForTarget(fromVars, track, target, targetIndex)
+                );
             var fromVal = hasVar(fromVars, track)
-                ? getVar(fromVars, track)
+                ? getVarForTarget(fromVars, track, target, targetIndex)
                 : getDescriptorDefault(descriptor, target, track.name, toVal);
 
             if (track.prepared == null && typeof descriptor.prepare === 'function') {
@@ -375,7 +391,7 @@
             var localTiming = copyOwn(timing, {
                 delay: Number((timing && timing.delay) || 0) + i * stagger,
             });
-            var tween = createTween(createTarget(list[i]), fromVars, toVars, localTiming);
+            var tween = createTween(createTarget(list[i]), fromVars, toVars, localTiming, i);
             results.push(tween);
         }
         return list.length === 1 ? results[0] : results;

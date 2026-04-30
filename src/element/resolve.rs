@@ -958,6 +958,9 @@ fn merge_text_unit_overrides(stack: &[StyleMutations], id: &str) -> Option<TextU
                     if incoming.rotation_deg.is_some() {
                         slot.rotation_deg = incoming.rotation_deg;
                     }
+                    if incoming.color.is_some() {
+                        slot.color = incoming.color;
+                    }
                 }
             }
         }
@@ -1341,6 +1344,7 @@ mod tests {
             granularity: TextUnitGranularity::Grapheme,
             overrides: vec![TextUnitOverride {
                 translate_y: Some(-12.0),
+                color: Some(crate::style::ColorToken::Cyan400),
                 ..Default::default()
             }],
         });
@@ -1368,6 +1372,10 @@ mod tests {
         let merged = merge_text_unit_overrides(&stack, "t").expect("merged batch");
         assert_eq!(merged.overrides[0].translate_y, Some(-12.0));
         assert_eq!(merged.overrides[0].opacity, Some(0.5));
+        assert_eq!(
+            merged.overrides[0].color,
+            Some(crate::style::ColorToken::Cyan400)
+        );
     }
 
     #[test]

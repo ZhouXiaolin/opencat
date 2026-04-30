@@ -94,6 +94,7 @@ pub struct TextUnitOverride {
     pub translate_y: Option<f32>,
     pub scale: Option<f32>,
     pub rotation_deg: Option<f32>,
+    pub color: Option<ColorToken>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -590,7 +591,7 @@ pub(super) fn install_node_style_bindings<'js>(
 
     // Record a per-unit (grapheme/word) visual override for a text node.
     // Arguments: id, granularity ("graphemes"|"words"), index, values_object
-    // values_object keys: opacity, translateX, translateY, scale, rotation
+    // values_object keys: opacity, translateX, translateY, scale, rotation, color/textColor
     {
         let s = store.clone();
         globals.set(
@@ -620,6 +621,11 @@ pub(super) fn install_node_style_bindings<'js>(
                     let translate_y: Option<f64> = values.get("translateY").ok().flatten();
                     let scale: Option<f64> = values.get("scale").ok().flatten();
                     let rotation_deg: Option<f64> = values.get("rotation").ok().flatten();
+                    let color: Option<String> = values
+                        .get("textColor")
+                        .ok()
+                        .flatten()
+                        .or_else(|| values.get("color").ok().flatten());
 
                     let mut guard = s.lock().unwrap();
                     let mutations = guard.styles.entry(id).or_default();
@@ -665,6 +671,9 @@ pub(super) fn install_node_style_bindings<'js>(
                     }
                     if let Some(v) = rotation_deg {
                         entry.rotation_deg = Some(v as f32);
+                    }
+                    if let Some(v) = color.and_then(|value| color_from_name(&value)) {
+                        entry.color = Some(v);
                     }
                     Ok(())
                 },

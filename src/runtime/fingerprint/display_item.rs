@@ -39,6 +39,7 @@ impl Hash for TextFp<'_> {
                 unit.translate_y.map(f32::to_bits).hash(state);
                 unit.scale.map(f32::to_bits).hash(state);
                 unit.rotation_deg.map(f32::to_bits).hash(state);
+                unit.color.hash(state);
             }
         }
     }

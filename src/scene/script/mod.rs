@@ -1939,7 +1939,7 @@ mod tests {
     #[test]
     fn script_driver_records_text_unit_override_via_part_set() {
         let driver = ScriptDriver::from_source(
-            r#"
+            r##"
             ctx.getNode("title").text("Hello");
             var parts = ctx.splitText("title", { type: "chars" });
             if (parts.length !== 5) {
@@ -1949,8 +1949,9 @@ mod tests {
                 throw new Error("expected parts[0].text === 'H', got " + parts[0].text);
             }
             parts[0].set({ opacity: 0.5, translateX: 10, translateY: 20 });
+            parts[1].set({ color: "#FFFFFF" });
             parts[2].set({ scale: 1.5, rotation: 45 });
-        "#,
+        "##,
         )
         .expect("script should compile");
 
@@ -1984,6 +1985,10 @@ mod tests {
         // Index 1: default (not set)
         let o1 = &batch.overrides[1];
         assert_eq!(o1.opacity, None);
+        assert_eq!(
+            o1.color,
+            Some(crate::style::ColorToken::Custom(255, 255, 255, 255))
+        );
 
         // Index 2: scale=1.5, rotation=45
         let o2 = &batch.overrides[2];
@@ -1993,6 +1998,43 @@ mod tests {
 
         // Vec is resized to max(index) + 1 = 3, not to the full text length
         assert_eq!(batch.overrides.len(), 3);
+    }
+
+    #[test]
+    fn script_driver_split_text_color_animation_targets_parts() {
+        let driver = ScriptDriver::from_source(
+            r##"
+            ctx.getNode("title").text("Hi");
+            ctx.fromTo(
+                ctx.splitText("title", { type: "chars" }),
+                { color: "#D946EF" },
+                { color: "#FFFFFF", duration: 10, ease: "linear" }
+            );
+        "##,
+        )
+        .expect("script should compile");
+
+        let result = driver.run(0, 1, 0, 1, None);
+        assert!(
+            result.is_ok(),
+            "splitText color animation should target text units: {:?}",
+            result.err()
+        );
+
+        let mutations = &result.unwrap().mutations;
+        let batch = mutations
+            .get("title")
+            .and_then(|node| node.text_unit_overrides.as_ref())
+            .expect("splitText color animation should record text unit overrides");
+        assert_eq!(batch.overrides.len(), 2);
+        assert_eq!(
+            batch.overrides[0].color,
+            Some(crate::style::ColorToken::Custom(217, 70, 239, 255))
+        );
+        assert_eq!(
+            batch.overrides[1].color,
+            Some(crate::style::ColorToken::Custom(217, 70, 239, 255))
+        );
     }
 
     #[test]

@@ -1,0 +1,5 @@
+{"type":"composition","width":390,"height":844,"fps":30,"frames":120}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[390px] h-[844px] bg-slate-950 overflow-hidden"}
+{"id":"title","parentId":"root","type":"text","className":"absolute top-[330px] w-full text-center text-[48px] font-bold text-white","text":"COLOR FLOW"}
+{"id":"subtitle","parentId":"root","type":"text","className":"absolute top-[400px] w-full text-center text-sm text-white/50","text":"splitText per-character color tween"}
+{"type":"script","parentId":"root","src":"ctx.fromTo(ctx.splitText('title',{type:'chars'}),{opacity:0,y:56,scale:1.8,color:function(i){var colors=['#22D3EE','#D946EF','#34D399','#FACC15'];return colors[i%colors.length];}},{opacity:1,y:0,scale:1,color:function(i){var colors=['#FACC15','#34D399','#22D3EE','#D946EF'];return colors[i%colors.length];},duration:44,stagger:3,ease:'spring.stiff'});ctx.fromTo('subtitle',{opacity:0,y:12},{opacity:1,y:0,duration:24,delay:46,ease:'ease-out'})"}

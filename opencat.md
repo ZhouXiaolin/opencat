@@ -286,6 +286,7 @@ Transitions describe the handoff between two adjacent scenes inside a `tl` node.
 
 - Do not use CSS animation classes (`transition-*`, `animate-*`, `duration-*`, `ease-*`, `delay-*`).
 - Do not use transform classes in `className` (`transform`, `translate-*`, `rotate-*`, `scale-*`, `skew-*`). Use the script Node API instead.
+- `justify-center` / `items-center` must be paired with `flex` / `flex-row` / `flex-col`. Without `display: flex` these classes are no-ops.
 
 | Avoid | Use instead |
 |------|-------------|

@@ -9,10 +9,17 @@
                 return toValue;
             },
             apply: function(target, value) {
-                if (!target.node) {
-                    throw new Error('color animation requires a node target');
+                if (target.node) {
+                    target.node[nodeSetter](value);
+                    return;
                 }
-                target.node[nodeSetter](value);
+                if (target.set) {
+                    var values = {};
+                    values[aliases && aliases.indexOf('color') !== -1 ? 'color' : nodeSetter] = value;
+                    target.set(values);
+                    return;
+                }
+                throw new Error('color animation requires a node target');
             },
         };
     }

@@ -49,6 +49,8 @@
                                     case 'scale': mapped.scale = values[key]; break;
                                     case 'rotate':
                                     case 'rotation': mapped.rotation = values[key]; break;
+                                    case 'color':
+                                    case 'textColor': mapped.textColor = values[key]; break;
                                     default:
                                         throw new Error('unsupported splitText property `' + key + '`');
                                 }

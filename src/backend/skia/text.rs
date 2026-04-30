@@ -9,12 +9,12 @@ use std::{
 use skia_safe::{
     Canvas, FontMgr, FontStyle, Paint, PathBuilder, Rect, Typeface,
     font_style::{Slant, Weight, Width},
+    surfaces,
     textlayout::{
         FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, RectHeightStyle,
         RectWidthStyle, TextAlign as ParagraphAlign, TextBox, TextStyle as ParagraphTextStyle,
         TypefaceFontProvider,
     },
-    surfaces,
 };
 
 use crate::{
@@ -140,7 +140,15 @@ pub(crate) fn draw_text_with_unit_overrides(
         unit_canvas.save();
         unit_canvas.translate((-unit_bounds.left, -unit_bounds.top));
         unit_canvas.clip_path(&clip_path, skia_safe::ClipOp::Intersect, true);
-        paragraph.paint(unit_canvas, (left, top));
+        if let Some(color) = override_value.color {
+            let mut unit_style = *style;
+            unit_style.color = color;
+            let unit_paragraph =
+                make_paragraph_from_text(&rendered_text, &unit_style, layout_width);
+            unit_paragraph.paint(unit_canvas, (left, top));
+        } else {
+            paragraph.paint(unit_canvas, (left, top));
+        }
         unit_canvas.restore();
 
         let image = unit_surface.image_snapshot();

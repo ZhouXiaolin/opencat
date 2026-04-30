@@ -2,7 +2,7 @@
 
 > **Tailwind 写布局，GSAP 调动画，CanvasKit 画图形——底层是 Rust + Skia 原生渲染，不跑浏览器。**
 
-OpenCat 是一个 **纯 Rust 原生** 的动画合成引擎——**类似 [Remotion](https://remotion.dev) 用 React 写视频，但 OpenCat 不跑浏览器、不依赖 Node.js**。它把 Skia 渲染、Taffy 布局、QuickJS 脚本和 FFmpeg 编码焊成一个独立的 Rust 二进制。一行命令或几行 JSONL，就能生成一段带转场、动画、字幕和音频的 MP4 视频。
+OpenCat 是一个 **纯 Rust 原生** 的程序化视频合成引擎——**类似 [Remotion](https://remotion.dev) 用 React 写视频，但 OpenCat 不跑浏览器、不依赖 Node.js**。它把 Skia 渲染、Taffy 布局、QuickJS 脚本和 FFmpeg 编码焊成一个独立的 Rust 二进制。一行命令或几行 JSONL，就能生成一段带转场、动画、字幕和音频的 MP4 视频。
 
 https://github.com/user-attachments/assets/dfe6e104-691a-4775-94a3-7cf7105f1e2e
 

@@ -1,42 +1,55 @@
-{"type":"composition","width":390,"height":844,"fps":30,"frames":240}
-{"id":"root","parentId":null,"type":"div","className":"relative w-[390px] h-[844px] bg-slate-950 overflow-hidden"}
+{"type":"composition","width":390,"height":844,"fps":30,"frames":250}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[390px] h-[844px]"}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
-{"id":"scene1","parentId":"main-tl","type":"div","className":"absolute inset-0 bg-slate-950","duration":72}
-{"id":"s1-icon-left","parentId":"scene1","type":"icon","className":"absolute top-[80px] left-[30px] w-[20px] h-[20px] stroke-cyan-400/50","icon":"zap"}
-{"id":"s1-icon-right","parentId":"scene1","type":"icon","className":"absolute top-[80px] right-[30px] w-[20px] h-[20px] stroke-fuchsia-500/50","icon":"sparkles"}
-{"id":"s1-orbit-ring","parentId":"scene1","type":"div","className":"absolute w-[220px] h-[220px] top-[220px] left-[85px] rounded-full border border-dashed border-cyan-400/25"}
-{"id":"s1-orbit-ring-2","parentId":"scene1","type":"div","className":"absolute w-[150px] h-[150px] top-[255px] left-[120px] rounded-full border border-dashed border-fuchsia-500/20"}
-{"id":"s1-title","parentId":"scene1","type":"text","className":"absolute top-[330px] w-full text-center text-[52px] font-bold text-white","text":"OPENCAT"}
-{"id":"s1-subtitle1","parentId":"scene1","type":"text","className":"absolute top-[404px] w-full text-center text-base text-cyan-400/80","text":"Motion Graphics"}
-{"id":"s1-subtitle2","parentId":"scene1","type":"text","className":"absolute top-[428px] w-full text-center text-base text-cyan-400/80","text":"Engine"}
-{"type":"script","parentId":"scene1","src":"ctx.fromTo(['s1-icon-left','s1-icon-right'],{opacity:0,x:function(i){return i===0?-120:120;}},{opacity:1,x:0,duration:24,ease:'spring.stiff'});ctx.getNode('s1-orbit-ring').rotate(ctx.currentFrame*1.8);ctx.getNode('s1-orbit-ring-2').rotate(-ctx.currentFrame*2.5);ctx.fromTo(ctx.splitText('s1-title',{type:'chars'}),{opacity:0,scale:2.5,x:function(i){return(i%2===0?-1:1)*240;},y:function(i){return i<4?-160:160;}},{opacity:1,scale:1,x:0,y:0,duration:48,stagger:3,ease:'spring.stiff'});ctx.fromTo('s1-subtitle1',{opacity:0,y:12},{opacity:1,y:0,duration:20,delay:38,ease:'ease-out'});ctx.fromTo('s1-subtitle2',{opacity:0,y:12},{opacity:1,y:0,duration:20,delay:44,ease:'ease-out'})"}
-{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"light_leak","duration":15,"timing":"ease-out","seed":42,"hueShift":0.3,"maskScale":0.5}
-{"id":"scene2","parentId":"main-tl","type":"div","className":"absolute inset-0 bg-slate-950","duration":78}
-{"id":"s2-energy-bar","parentId":"scene2","type":"div","className":"absolute top-[60px] left-[20px] w-[350px] h-[4px] rounded-full bg-cyan-400"}
-{"id":"s2-energy-label","parentId":"scene2","type":"text","className":"absolute top-[72px] left-[20px] text-[10px] font-semibold uppercase text-white/40","text":"Capabilities"}
-{"id":"s2-cards-row","parentId":"scene2","type":"div","className":"absolute top-[110px] left-[16px] right-[16px] flex flex-row justify-between"}
-{"id":"s2-card1","parentId":"s2-cards-row","type":"div","className":"w-[108px] bg-slate-800/60 rounded-xl border border-slate-700/50 flex flex-col items-center gap-2 pt-5 pb-4"}
-{"id":"s2-card1-icon","parentId":"s2-card1","type":"icon","className":"w-[28px] h-[28px] stroke-fuchsia-500","icon":"zap"}
-{"id":"s2-card1-title","parentId":"s2-card1","type":"text","className":"text-sm font-semibold text-fuchsia-500","text":"Elastic"}
-{"id":"s2-card1-desc","parentId":"s2-card1","type":"text","className":"text-xs text-white/50 text-center px-2","text":"Spring animations"}
-{"id":"s2-card2","parentId":"s2-cards-row","type":"div","className":"w-[108px] bg-slate-800/60 rounded-xl border border-slate-700/50 flex flex-col items-center gap-2 pt-5 pb-4"}
-{"id":"s2-card2-icon","parentId":"s2-card2","type":"icon","className":"w-[28px] h-[28px] stroke-emerald-400","icon":"sparkles"}
-{"id":"s2-card2-title","parentId":"s2-card2","type":"text","className":"text-sm font-semibold text-emerald-400","text":"Particle"}
-{"id":"s2-card2-desc","parentId":"s2-card2","type":"text","className":"text-xs text-white/50 text-center px-2","text":"Canvas system"}
-{"id":"s2-card3","parentId":"s2-cards-row","type":"div","className":"w-[108px] bg-slate-800/60 rounded-xl border border-slate-700/50 flex flex-col items-center gap-2 pt-5 pb-4"}
-{"id":"s2-card3-icon","parentId":"s2-card3","type":"icon","className":"w-[28px] h-[28px] stroke-cyan-400","icon":"layers"}
-{"id":"s2-card3-title","parentId":"s2-card3","type":"text","className":"text-sm font-semibold text-cyan-400","text":"Seamless"}
-{"id":"s2-card3-desc","parentId":"s2-card3","type":"text","className":"text-xs text-white/50 text-center px-2","text":"Transitions"}
-{"id":"s2-bottom","parentId":"scene2","type":"div","className":"absolute bottom-[60px] left-[20px] right-[20px] flex flex-row items-center justify-center gap-3"}
-{"id":"s2-dot1","parentId":"s2-bottom","type":"div","className":"w-[6px] h-[6px] rounded-full bg-cyan-400/60"}
-{"id":"s2-dot2","parentId":"s2-bottom","type":"div","className":"w-[6px] h-[6px] rounded-full bg-fuchsia-500/60"}
-{"id":"s2-dot3","parentId":"s2-bottom","type":"div","className":"w-[6px] h-[6px] rounded-full bg-emerald-400/60"}
-{"type":"script","parentId":"scene2","src":"ctx.fromTo('s2-energy-bar',{width:0},{width:350,duration:22,ease:'ease-out'});ctx.fromTo(['s2-card1','s2-card2','s2-card3'],{opacity:0,y:40,scale:0.9},{opacity:1,y:0,scale:1,stagger:5,duration:22,ease:'spring.stiff'});ctx.fromTo(['s2-card1-title','s2-card1-desc','s2-card2-title','s2-card2-desc','s2-card3-title','s2-card3-desc'],{opacity:0},{opacity:1,duration:12,stagger:3,delay:20,ease:'ease-out'});ctx.fromTo(['s2-dot1','s2-dot2','s2-dot3'],{scale:0,opacity:0},{scale:1,opacity:0.6,duration:10,stagger:6,delay:40,ease:'spring.gentle'})"}
-{"type":"transition","parentId":"main-tl","from":"scene2","to":"scene3","effect":"slide","direction":"from_right","duration":15,"timing":"ease-out"}
-{"id":"scene3","parentId":"main-tl","type":"div","className":"absolute inset-0 bg-slate-950","duration":60}
-{"id":"s3-icon","parentId":"scene3","type":"icon","className":"absolute top-[160px] left-[175px] w-[40px] h-[40px] stroke-cyan-400","icon":"rocket"}
-{"id":"s3-title1","parentId":"scene3","type":"text","className":"absolute top-[280px] w-full text-center text-[44px] font-bold text-white","text":"CREATE"}
-{"id":"s3-title2","parentId":"scene3","type":"text","className":"absolute top-[340px] w-full text-center text-[44px] font-bold text-white","text":"THE FUTURE"}
-{"id":"s3-cta","parentId":"scene3","type":"div","className":"absolute top-[440px] left-[60px] right-[60px] h-[52px] bg-cyan-400 rounded-xl flex items-center justify-center shadow-md"}
-{"id":"s3-cta-text","parentId":"s3-cta","type":"text","className":"text-base font-bold text-slate-950","text":"Start Building"}
-{"type":"script","parentId":"scene3","src":"ctx.fromTo('s3-icon',{opacity:0,y:120},{opacity:1,y:0,duration:24,ease:'spring.stiff'});ctx.fromTo(ctx.splitText('s3-title1',{type:'chars'}),{opacity:0,scale:2,x:function(i){return(i%2===0?-1:1)*200;},color:'#D946EF'},{opacity:1,scale:1,x:0,color:'#FFFFFF',duration:30,stagger:2,ease:'spring.stiff'});ctx.fromTo(ctx.splitText('s3-title2',{type:'chars'}),{opacity:0,y:60,color:'#22D3EE'},{opacity:1,y:0,color:'#34D399',duration:24,stagger:2,delay:16,ease:'spring.stiff'});ctx.fromTo('s3-cta',{opacity:0,scale:0.85},{opacity:1,scale:1,duration:20,delay:36,ease:'spring.gentle'})"}
+{"id":"scene1","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-slate-950 justify-center items-center relative","duration":70}
+{"id":"s1-ring1","parentId":"scene1","type":"path","className":"absolute w-[280px] h-[280px] stroke-cyan-400/40 stroke-[1.5] fill-none top-[282px] left-[55px]","d":"M10 140 A130 130 0 1 1 270 140 A130 130 0 1 1 10 140"}
+{"id":"s1-ring2","parentId":"scene1","type":"path","className":"absolute w-[320px] h-[320px] stroke-fuchsia-500/30 stroke-1 fill-none top-[262px] left-[35px]","d":"M10 160 A150 150 0 1 1 310 160 A150 150 0 1 1 10 160"}
+{"id":"s1-title","parentId":"scene1","type":"text","className":"text-[52px] font-bold text-cyan-400","text":"OPENCAT"}
+{"id":"s1-slogan","parentId":"scene1","type":"text","className":"text-[22px] font-semibold text-emerald-400 mt-6","text":"原生之力"}
+{"id":"s1-badge","parentId":"scene1","type":"text","className":"text-xs text-slate-400 mt-3","text":"Rust 原生视频合成引擎"}
+{"id":"s1-particles","parentId":"scene1","type":"div","className":"absolute inset-0"}
+{"id":"s1p1","parentId":"s1-particles","type":"div","className":"absolute w-[4px] h-[4px] bg-cyan-400/80 rounded-full top-[100px] left-[60px]"}
+{"id":"s1p2","parentId":"s1-particles","type":"div","className":"absolute w-[3px] h-[3px] bg-fuchsia-500/70 rounded-full top-[180px] left-[310px]"}
+{"id":"s1p3","parentId":"s1-particles","type":"div","className":"absolute w-[5px] h-[5px] bg-emerald-400/60 rounded-full top-[380px] left-[70px]"}
+{"id":"s1p4","parentId":"s1-particles","type":"div","className":"absolute w-[3px] h-[3px] bg-cyan-400/60 rounded-full top-[520px] left-[290px]"}
+{"id":"s1p5","parentId":"s1-particles","type":"div","className":"absolute w-[4px] h-[4px] bg-fuchsia-500/50 rounded-full top-[280px] left-[40px]"}
+{"id":"s1p6","parentId":"s1-particles","type":"div","className":"absolute w-[3px] h-[3px] bg-emerald-400/70 rounded-full top-[130px] left-[250px]"}
+{"id":"s1p7","parentId":"s1-particles","type":"div","className":"absolute w-[2px] h-[2px] bg-cyan-400/50 rounded-full top-[620px] left-[330px]"}
+{"id":"s1p8","parentId":"s1-particles","type":"div","className":"absolute w-[4px] h-[4px] bg-fuchsia-500/60 rounded-full top-[680px] left-[140px]"}
+{"id":"s1p9","parentId":"s1-particles","type":"div","className":"absolute w-[3px] h-[3px] bg-emerald-400/50 rounded-full top-[470px] left-[330px]"}
+{"id":"s1p10","parentId":"s1-particles","type":"div","className":"absolute w-[2px] h-[2px] bg-cyan-400/40 rounded-full top-[60px] left-[200px]"}
+{"id":"scene2","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-slate-950 justify-center items-center","duration":90}
+{"id":"s2-title","parentId":"scene2","type":"text","className":"text-[10px] font-semibold text-cyan-400/70 uppercase tracking-[0.15em] mb-10","text":"CAPABILITIES"}
+{"id":"s2-card1","parentId":"scene2","type":"div","className":"flex flex-row items-center gap-4 w-[320px] bg-slate-800/70 rounded-xl border border-slate-700/50 p-4 mb-5"}
+{"id":"s2c1-icon","parentId":"s2-card1","type":"icon","className":"w-[36px] h-[36px] stroke-cyan-400 stroke-[1.5] flex-shrink-0","icon":"zap"}
+{"id":"s2c1-text","parentId":"s2-card1","type":"div","className":"flex flex-col gap-1"}
+{"id":"s2c1-title","parentId":"s2c1-text","type":"text","className":"text-base font-semibold text-white","text":"Native Render"}
+{"id":"s2c1-desc","parentId":"s2c1-text","type":"text","className":"text-xs text-slate-400","text":"Skia GPU 加速，不跑浏览器"}
+{"id":"s2-card2","parentId":"scene2","type":"div","className":"flex flex-row items-center gap-4 w-[320px] bg-slate-800/70 rounded-xl border border-slate-700/50 p-4 mb-5"}
+{"id":"s2c2-icon","parentId":"s2-card2","type":"icon","className":"w-[36px] h-[36px] stroke-fuchsia-500 stroke-[1.5] flex-shrink-0","icon":"layers"}
+{"id":"s2c2-text","parentId":"s2-card2","type":"div","className":"flex flex-col gap-1"}
+{"id":"s2c2-title","parentId":"s2c2-text","type":"text","className":"text-base font-semibold text-white","text":"Smart Animation"}
+{"id":"s2c2-desc","parentId":"s2c2-text","type":"text","className":"text-xs text-slate-400","text":"GSAP 风格 API 弹簧动画"}
+{"id":"s2-card3","parentId":"scene2","type":"div","className":"flex flex-row items-center gap-4 w-[320px] bg-slate-800/70 rounded-xl border border-slate-700/50 p-4"}
+{"id":"s2c3-icon","parentId":"s2-card3","type":"icon","className":"w-[36px] h-[36px] stroke-emerald-400 stroke-[1.5] flex-shrink-0","icon":"rocket"}
+{"id":"s2c3-text","parentId":"s2-card3","type":"div","className":"flex flex-col gap-1"}
+{"id":"s2c3-title","parentId":"s2c3-text","type":"text","className":"text-base font-semibold text-white","text":"Zero Setup"}
+{"id":"s2c3-desc","parentId":"s2c3-text","type":"text","className":"text-xs text-slate-400","text":"一行命令，JSONL 直出 MP4"}
+{"id":"scene3","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-slate-950 justify-center items-center relative","duration":60}
+{"id":"s3-line1","parentId":"scene3","type":"text","className":"text-[32px] font-bold text-white text-center","text":"从想法到画面"}
+{"id":"s3-line2","parentId":"scene3","type":"text","className":"text-[20px] font-semibold text-cyan-400 mt-5","text":"一行 JSONL 就够了"}
+{"id":"s3-tagline","parentId":"scene3","type":"text","className":"absolute text-xs text-slate-500 bottom-[40px] left-0 w-full text-center","text":"OPENCAT · Rust 原生视频合成引擎"}
+{"id":"s3-particles","parentId":"scene3","type":"div","className":"absolute inset-0"}
+{"id":"s3p1","parentId":"s3-particles","type":"div","className":"absolute w-[3px] h-[3px] bg-cyan-400/50 rounded-full top-[80px] left-[70px]"}
+{"id":"s3p2","parentId":"s3-particles","type":"div","className":"absolute w-[4px] h-[4px] bg-fuchsia-500/40 rounded-full top-[280px] left-[310px]"}
+{"id":"s3p3","parentId":"s3-particles","type":"div","className":"absolute w-[2px] h-[2px] bg-emerald-400/50 rounded-full top-[500px] left-[90px]"}
+{"id":"s3p4","parentId":"s3-particles","type":"div","className":"absolute w-[3px] h-[3px] bg-cyan-400/40 rounded-full top-[680px] left-[290px]"}
+{"id":"s3p5","parentId":"s3-particles","type":"div","className":"absolute w-[4px] h-[4px] bg-fuchsia-500/40 rounded-full top-[160px] left-[240px]"}
+{"id":"s3p6","parentId":"s3-particles","type":"div","className":"absolute w-[3px] h-[3px] bg-emerald-400/40 rounded-full top-[720px] left-[170px]"}
+{"id":"s3p7","parentId":"s3-particles","type":"div","className":"absolute w-[2px] h-[2px] bg-cyan-400/30 rounded-full top-[400px] left-[330px]"}
+{"id":"s3p8","parentId":"s3-particles","type":"div","className":"absolute w-[4px] h-[4px] bg-fuchsia-500/30 rounded-full top-[100px] left-[320px]"}
+{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"iris","duration":15}
+{"type":"transition","parentId":"main-tl","from":"scene2","to":"scene3","effect":"slide","direction":"from_right","duration":15}
+{"type":"script","parentId":"scene1","src":"ctx.fromTo('s1-title',{opacity:0,scale:0.5},{opacity:1,scale:1,duration:24,ease:'spring.stiff'});ctx.fromTo('s1-slogan',{opacity:0,y:30},{opacity:1,y:0,duration:20,ease:'spring.gentle',delay:30});ctx.fromTo('s1-badge',{opacity:0},{opacity:1,duration:15,delay:46});var f=ctx.frame;var rf=Math.min(1,Math.max(0,(f-6)/14));ctx.getNode('s1-ring1').opacity(rf*0.4).rotate(f*2.5);ctx.getNode('s1-ring2').opacity(rf*0.3).rotate(f*-2);var pt=['s1p1','s1p2','s1p3','s1p4','s1p5','s1p6','s1p7','s1p8','s1p9','s1p10'];for(var i=0;i<pt.length;i++){var n=ctx.getNode(pt[i]);var prog=Math.min(1,Math.max(0,(f-8-i*2)/12));var floatY=Math.sin(f*0.04+i*1.5)*6;n.opacity(prog*(0.4+0.3*Math.sin(f*0.06+i*1.2))).translateY(floatY);}"}
+{"type":"script","parentId":"scene2","src":"ctx.fromTo('s2-title',{opacity:0,y:-10},{opacity:1,y:0,duration:18,ease:'spring.gentle'});ctx.fromTo(['s2-card1','s2-card2','s2-card3'],{opacity:0,y:30,scale:0.95},{opacity:1,y:0,scale:1,stagger:6,duration:24,ease:'spring.stiff'});ctx.fromTo(['s2c1-icon','s2c2-icon','s2c3-icon'],{scale:0.5,rotate:-20},{scale:1,rotate:0,stagger:6,duration:22,ease:'spring.wobbly',delay:8});"}
+{"type":"script","parentId":"scene3","src":"ctx.fromTo(ctx.splitText('s3-line1',{type:'chars'}),{opacity:0,scale:0.3,x:function(i){return i%2===0?-80:80;},y:function(i){return i%2===0?-30:30;},rotate:function(i){return i%2===0?15:-15;}},{opacity:1,scale:1,x:0,y:0,rotate:0,duration:22,stagger:2,ease:'spring.gentle'});ctx.fromTo(ctx.splitText('s3-line2',{type:'chars'}),{opacity:0,x:function(i){return i%2===0?-50:50;}},{opacity:1,x:0,duration:18,stagger:5,ease:'spring.gentle',delay:26});ctx.fromTo('s3-tagline',{opacity:0},{opacity:0.5,duration:20,delay:42});var f=ctx.frame;var sp=['s3p1','s3p2','s3p3','s3p4','s3p5','s3p6','s3p7','s3p8'];for(var i=0;i<sp.length;i++){var n=ctx.getNode(sp[i]);var fadeOut=Math.max(0,1-Math.max(0,f-48)/12);n.opacity(fadeOut*(0.3+0.2*Math.sin(f*0.04+i*1.8)));}"}

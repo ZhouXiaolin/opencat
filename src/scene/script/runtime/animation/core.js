@@ -386,6 +386,15 @@
     function applyTween(targets, fromVars, toVars, timing) {
         var list = normalizeTargets(targets);
         var stagger = timing && timing.stagger !== undefined ? Number(timing.stagger) : 0;
+        if (list.length > 1 && stagger > 0) {
+            var sceneFrames = Number(ctx.sceneFrames || ctx.totalFrames || 0);
+            var delay = Number((timing && timing.delay) || 0);
+            var duration = Number((timing && timing.duration) || 0);
+            var available = sceneFrames - delay - duration;
+            if (sceneFrames > 0 && available >= 0) {
+                stagger = Math.min(stagger, available / (list.length - 1));
+            }
+        }
         var results = [];
         for (var i = 0; i < list.length; i++) {
             var localTiming = copyOwn(timing, {

@@ -1560,6 +1560,74 @@ mod tests {
     }
 
     #[test]
+    fn script_driver_stagger_defaults_to_scene_fit() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.fromTo(["a", "b", "c", "d"], { opacity: 0 }, {
+                opacity: 1,
+                duration: 10,
+                delay: 5,
+                stagger: 10,
+                ease: 'linear',
+            });
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(25, 100, 25, 30, None)
+            .expect("script should run");
+
+        let d = mutations.get("d").expect("d mutation should exist");
+        let d_opacity = d.opacity.unwrap();
+
+        assert!(
+            d_opacity > 0.4,
+            "stagger should be compressed to fit within the scene; d opacity={}",
+            d_opacity
+        );
+    }
+
+    #[test]
+    fn script_driver_stagger_keeps_user_value_when_it_fits_scene() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.fromTo(["a", "b", "c"], { opacity: 0 }, {
+                opacity: 1,
+                duration: 10,
+                delay: 0,
+                stagger: 5,
+                ease: 'linear',
+            });
+        "#,
+        )
+        .expect("script should compile");
+
+        let mutations = driver
+            .run(5, 100, 5, 30, None)
+            .expect("script should run");
+
+        let a = mutations.get("a").expect("a mutation should exist");
+        let b = mutations.get("b").expect("b mutation should exist");
+        let c = mutations.get("c").expect("c mutation should exist");
+
+        assert!(
+            a.opacity.unwrap() > 0.4,
+            "a should have progressed at frame 5"
+        );
+        assert_eq!(
+            b.opacity,
+            Some(0.0),
+            "b should start exactly at frame 5 if stagger remains 5"
+        );
+        assert_eq!(
+            c.opacity,
+            Some(0.0),
+            "c should not start before frame 10 if stagger remains 5"
+        );
+    }
+
+    #[test]
     fn script_driver_animate_custom_bezier() {
         let driver = ScriptDriver::from_source(
             r#"

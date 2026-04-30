@@ -128,13 +128,15 @@
             var positionValue = hasExplicitPosition ? (pos != null ? pos : varsForTiming.at) : null;
             var start = parsePosition(positionValue, state);
             var mergedTiming = core.splitTiming(copyOwn(defaults, varsForTiming), baseDelay + start);
-            var result = core.applyTween(targets, fromVars, copyOwn(defaults, toVars), mergedTiming);
             var duration = mergedTiming.duration !== undefined ? Number(mergedTiming.duration) : 0;
             if (!hasExplicitPosition) {
                 state.cursor = Math.max(state.cursor, start + duration);
             }
             recordChild(start, duration);
-            return result;
+            if (ctx.currentFrame < baseDelay + start) {
+                return null;
+            }
+            return core.applyTween(targets, fromVars, copyOwn(defaults, toVars), mergedTiming);
         }
 
         var api = {

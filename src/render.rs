@@ -262,6 +262,25 @@ mod tests {
         ]
     }
 
+    fn has_bright_pixel_in_rect(
+        frame: &[u8],
+        width: usize,
+        left: usize,
+        top: usize,
+        rect_width: usize,
+        rect_height: usize,
+    ) -> bool {
+        for y in top..top + rect_height {
+            for x in left..left + rect_width {
+                let px = pixel_rgba(frame, width, x, y);
+                if px[0] > 180 && px[1] > 180 && px[2] > 180 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     #[test]
     fn subtree_cache_does_not_apply_node_opacity_twice() {
         let scene = div()
@@ -304,6 +323,40 @@ mod tests {
             (120..=136).contains(&second_pixel[0]),
             "frame 1 should be roughly 50% white, got {:?}",
             second_pixel
+        );
+    }
+
+    #[test]
+    fn split_text_gsap_api_renders_text_property_layer() {
+        let parsed = crate::parse_file("json/split_text_demo.jsonl").expect("parse");
+        let root = if let Some(script) = parsed.script.as_deref() {
+            if script.trim().is_empty() {
+                parsed.root
+            } else {
+                let driver = crate::ScriptDriver::from_source(script).expect("script");
+                parsed.root.script_driver(driver)
+            }
+        } else {
+            parsed.root
+        };
+        let composition = Composition::new("split_text_property_layer")
+            .size(parsed.width, parsed.height)
+            .fps(parsed.fps as u32)
+            .frames(parsed.frames as u32)
+            .root(move |_ctx| root.clone())
+            .build()
+            .expect("composition");
+
+        let mut session = RenderSession::new();
+        let frame = render_frame_rgba(&composition, 100, &mut session).expect("frame should render");
+
+        assert!(
+            has_bright_pixel_in_rect(&frame, parsed.width as usize, 120, 330, 420, 130),
+            "chars text should be visible after splitText property-layer animation settles"
+        );
+        assert!(
+            has_bright_pixel_in_rect(&frame, parsed.width as usize, 760, 330, 420, 130),
+            "words text should be visible after splitText property-layer animation settles"
         );
     }
 

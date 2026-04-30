@@ -3042,4 +3042,41 @@ mod text_draw_tests {
         assert_eq!(override_second.cache_misses, 0);
         assert_eq!(cache.borrow().len(), 1);
     }
+
+    #[test]
+    fn draw_text_with_unit_overrides_renders_visible_pixels() {
+        let cache: TextSnapshotCache = Rc::new(RefCell::new(BoundedLruCache::new(8)));
+        let mut surface = surfaces::raster_n32_premul((256, 128)).expect("surface");
+        surface.canvas().clear(skia_safe::Color::TRANSPARENT);
+
+        let item = TextDisplayItem {
+            bounds: rect_bounds(),
+            text: "Hello".into(),
+            style: ComputedTextStyle::default(),
+            allow_wrap: false,
+            drop_shadow: None,
+            text_unit_overrides: Some(TextUnitOverrideBatch {
+                granularity: TextUnitGranularity::Grapheme,
+                overrides: vec![TextUnitOverride {
+                    opacity: Some(1.0),
+                    ..Default::default()
+                }],
+            }),
+            visual_expand_x: 0.0,
+            visual_expand_y: 0.0,
+        };
+
+        draw_text(surface.canvas(), &item, &cache).expect("override text should draw");
+        let image = surface.image_snapshot();
+        let pixels = image
+            .peek_pixels()
+            .expect("raster image should expose pixels");
+        let has_visible_pixel = pixels
+            .bytes()
+            .expect("pixels should expose bytes")
+            .chunks_exact(4)
+            .any(|px| px[3] > 0);
+
+        assert!(has_visible_pixel, "text unit override draw should produce visible pixels");
+    }
 }

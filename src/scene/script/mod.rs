@@ -1614,6 +1614,38 @@ mod tests {
     }
 
     #[test]
+    fn script_driver_sequence_future_step_does_not_override_same_property() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.timeline()
+                .fromTo("box", { opacity: 0 }, { opacity: 1, duration: 10, ease: 'linear' })
+                .fromTo("box", { opacity: 1 }, { opacity: 0, duration: 10, ease: 'linear' });
+        "#,
+        )
+        .expect("script should compile");
+
+        let first_step = driver
+            .run(5, 20, 5, 20, None)
+            .expect("first step should run");
+        let box_node = first_step.get("box").expect("box mutation should exist");
+        assert!(
+            (box_node.opacity.unwrap() - 0.5).abs() < 0.01,
+            "future step should not force opacity to its from-value before it starts, got {}",
+            box_node.opacity.unwrap()
+        );
+
+        let second_step = driver
+            .run(15, 20, 15, 20, None)
+            .expect("second step should run");
+        let box_node = second_step.get("box").expect("box mutation should exist");
+        assert!(
+            (box_node.opacity.unwrap() - 0.5).abs() < 0.01,
+            "second step should animate from the first step's end value, got {}",
+            box_node.opacity.unwrap()
+        );
+    }
+
+    #[test]
     fn script_driver_timeline_supports_previous_start_position() {
         let driver = ScriptDriver::from_source(
             r#"
@@ -2008,6 +2040,37 @@ mod tests {
             .as_ref()
             .expect("text unit overrides should exist");
         assert_eq!(batch.overrides[0].opacity, Some(1.0));
+    }
+
+    #[test]
+    fn script_driver_split_text_supports_function_based_values() {
+        let driver = ScriptDriver::from_source(
+            r#"
+            ctx.getNode("t").text("Cat");
+            var parts = ctx.splitText("t", { type: "chars" });
+            ctx.fromTo(parts, {
+                opacity: 0,
+                x: function(i) { return i === 0 ? -30 : 30; },
+            }, {
+                opacity: 1,
+                x: 0,
+                duration: 10,
+                stagger: 2,
+                ease: "linear"
+            });
+        "#,
+        )
+        .expect("script should compile");
+
+        let f0 = driver.run(0, 30, 0, 30, None).expect("frame 0");
+        let batch = f0
+            .get("t")
+            .expect("t mutation should exist")
+            .text_unit_overrides
+            .as_ref()
+            .expect("text unit overrides should exist");
+        assert_eq!(batch.overrides[0].translate_x, Some(-30.0));
+        assert_eq!(batch.overrides[1].translate_x, Some(30.0));
     }
 
     #[test]

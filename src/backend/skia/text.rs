@@ -8,13 +8,13 @@ use std::{
 
 use skia_safe::{
     Canvas, FontMgr, FontStyle, Paint, PathBuilder, Rect, Typeface,
-    canvas::SaveLayerRec,
     font_style::{Slant, Weight, Width},
     textlayout::{
         FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, RectHeightStyle,
         RectWidthStyle, TextAlign as ParagraphAlign, TextBox, TextStyle as ParagraphTextStyle,
         TypefaceFontProvider,
     },
+    surfaces,
 };
 
 use crate::{
@@ -128,43 +128,45 @@ pub(crate) fn draw_text_with_unit_overrides(
             continue;
         };
 
-        canvas.save();
+        let Some(mut unit_surface) = surfaces::raster_n32_premul((
+            unit_bounds.width().ceil().max(1.0) as i32,
+            unit_bounds.height().ceil().max(1.0) as i32,
+        )) else {
+            continue;
+        };
+
+        let unit_canvas = unit_surface.canvas();
+        unit_canvas.clear(skia_safe::Color::TRANSPARENT);
+        unit_canvas.save();
+        unit_canvas.translate((-unit_bounds.left, -unit_bounds.top));
+        unit_canvas.clip_path(&clip_path, skia_safe::ClipOp::Intersect, true);
+        paragraph.paint(unit_canvas, (left, top));
+        unit_canvas.restore();
+
+        let image = unit_surface.image_snapshot();
+        let mut paint = Paint::default();
+        paint.set_anti_alias(true);
+        if opacity < 1.0 {
+            paint.set_alpha((opacity * 255.0).round() as u8);
+        }
 
         let translate_x = override_value.translate_x.unwrap_or(0.0);
         let translate_y = override_value.translate_y.unwrap_or(0.0);
-        if translate_x != 0.0 || translate_y != 0.0 {
-            canvas.translate((translate_x, translate_y));
-        }
-
         let scale = override_value.scale.unwrap_or(1.0);
         let rotation_deg = override_value.rotation_deg.unwrap_or(0.0);
-        if scale != 1.0 || rotation_deg != 0.0 {
-            let pivot_x = unit_bounds.center_x();
-            let pivot_y = unit_bounds.center_y();
-            canvas.translate((pivot_x, pivot_y));
-            if rotation_deg != 0.0 {
-                canvas.rotate(rotation_deg, None);
-            }
-            if scale != 1.0 {
-                canvas.scale((scale, scale));
-            }
-            canvas.translate((-pivot_x, -pivot_y));
+        let pivot_x = unit_bounds.center_x();
+        let pivot_y = unit_bounds.center_y();
+
+        canvas.save();
+        canvas.translate((pivot_x + translate_x, pivot_y + translate_y));
+        if rotation_deg != 0.0 {
+            canvas.rotate(rotation_deg, None);
         }
-
-        canvas.clip_path(&clip_path, skia_safe::ClipOp::Intersect, true);
-
-        if opacity < 1.0 {
-            let mut paint = Paint::default();
-            paint.set_anti_alias(true);
-            paint.set_alpha((opacity * 255.0).round() as u8);
-            let layer = SaveLayerRec::default().paint(&paint);
-            canvas.save_layer(&layer);
-            paragraph.paint(canvas, (left, top));
-            canvas.restore();
-        } else {
-            paragraph.paint(canvas, (left, top));
+        if scale != 1.0 {
+            canvas.scale((scale, scale));
         }
-
+        canvas.translate((-pivot_x, -pivot_y));
+        canvas.draw_image(image, (unit_bounds.left, unit_bounds.top), Some(&paint));
         canvas.restore();
     }
 }

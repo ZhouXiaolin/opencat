@@ -218,7 +218,8 @@ pub(super) fn item_is_time_variant(item: &DisplayItem, assets: &AssetsMap) -> bo
         // 若脚本每帧产出不同 commands(读取 time_secs 等),hash 每帧变 → ItemPictureCache
         // 自然 miss,行为正确。无需静态分析脚本内容。
         DisplayItem::DrawScript(_) => false,
-        DisplayItem::Rect(_) | DisplayItem::Text(_) | DisplayItem::SvgPath(_) => false,
+        DisplayItem::Text(text) => text.text_unit_overrides.is_some(),
+        DisplayItem::Rect(_) | DisplayItem::SvgPath(_) => false,
     }
 }
 

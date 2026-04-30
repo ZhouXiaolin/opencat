@@ -12,7 +12,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rquickjs = { version = "0.11.0", features = ["futures"] }
 num_cpus = "1.17.0"
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls", "socks"] }
 dirs = "6.0.0"
 tokio = { version = "1.51.0", features = ["rt-multi-thread", "fs"] }
 winit = "0.28.7"

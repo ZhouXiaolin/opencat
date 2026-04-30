@@ -1,107 +1,155 @@
 # OpenCat
 
-OpenCat 是一个用于构建和渲染基于时间轴的视觉作品的 Rust 工具包。
-它结合了声明式场景模型、基于 JSONL 的交换格式、布局引擎以及用于生成动画输出的渲染流水线。
+> **Tailwind 写布局，GSAP 调动画，CanvasKit 画图形——底层是 Rust + Skia 原生渲染，不跑浏览器。**
+
+OpenCat 是一个 **纯 Rust 原生** 的动画合成引擎——**类似 [Remotion](https://remotion.dev) 用 React 写视频，但 OpenCat 不跑浏览器、不依赖 Node.js**。它把 Skia 渲染、Taffy 布局、QuickJS 脚本和 FFmpeg 编码焊成一个独立的 Rust 二进制。一行命令或几行 JSONL，就能生成一段带转场、动画、字幕和音频的 MP4 视频。
 
 https://github.com/user-attachments/assets/dfe6e104-691a-4775-94a3-7cf7105f1e2e
 
-该项目结构如下：
 
-- `opencat` 库：核心 API，负责解析、场景构建、布局、渲染、音频和运行时支持。
-- `opencat-player`：用于预览 JSONL 作品的桌面播放器。
-- `parse_json`：一个小型的命令行工具（CLI），用于解析 JSONL 作品并将其渲染为 `out/parsed.mp4`。
-- `examples/`：独立演示和实验。
+---
 
-## 主要概念
+## 设计动机
 
-OpenCat 的设计围绕以下核心支柱展开：
+程序化视频生成并非新概念，但现有方案都存在结构性妥协：
 
-- **声明式场景图 (Declarative Scene Graph)**: 使用节点树结构描述视觉元素。支持多种基本类型（如 `div`, `text`, `image`, `video`, `canvas` 等），并通过父子关系构建复杂的视觉组合。
-- **基于 Taffy 的布局引擎**: 集成了 [Taffy](https://github.com/DioxusLabs/taffy) 布局库，支持类似 Tailwind CSS 的样式定义。这使得开发者可以使用熟悉的 Web 开发模式（如 Flexbox 和 Grid）来处理视频帧的自动布局。
-- **确定性动画系统 (Deterministic Animation System)**: 动画是函数式的，每一帧的状态都由 `value = f(frame)` 唯一确定。通过 JavaScript 脚本驱动，支持弹簧动画 (Spring)、贝塞尔曲线 (Bezier) 和关键帧动画，确保渲染结果在不同环境下的完全一致性。
-- **高性能渲染流水线**: 采用 [Skia](https://skia.org/) 作为底层渲染引擎。支持硬件加速、高效的资源缓存管理以及多线程渲染，能够快速生成高质量的 RGBA 帧或 MP4 视频。
-- **JSONL 交换格式**: 提供了一种轻量级的 JSON Lines 格式用于描述整个作品。这种格式易于机器生成和解析，非常适合作为不同工具链之间的中间表示。
-- **集成音频处理**: 内置音频引擎，支持多轨道音频合成、音视频同步渲染，并能自动处理场景过渡时的音频衔接。
+- **SaaS 平台**（Runway、Pika 等）：黑盒渲染，不可控，批量生成成本高昂，无法嵌入自有管线。
+- **浏览器方案**（Remotion 等）：复用 Web 生态是聪明的选择，但渲染层被浏览器框死——Puppeteer 截图意味着每次渲染都要拉起一个 Chromium 进程，GPU 调用受限，内存开销大，多核空转。
+- **脚本拼凑**（Python + FFmpeg）：灵活但简陋，每一帧的编排、动效、字幕同步、音频混音都需要手搓，缺乏统一的抽象层。
+
+**OpenCat 的思路**：提供一个声明式的 JSONL 格式作为视频的描述语言，底层用 Rust 原生渲染引擎直接输出 MP4。没有浏览器，没有运行时依赖，没有黑盒。AI 模型生成 JSONL，OpenCat 渲染成视频——接入成本最低，部署上限最高。
+
+---
+
+## 和 Remotion 对比
+
+如果你听说过 [Remotion](https://remotion.dev)——那个用 React 写视频的工具——OpenCat 目标相似，但技术路线截然不同：
+
+| 对比项 | Remotion | OpenCat ⬅️ |
+|--------|----------|-----------|
+| **渲染方式** | React → Puppeteer → headless Chrome 逐帧渲染后捕获 | **JSONL → Skia 原生渲染，无中间层** |
+| **运行时** | Node.js + Chrome（约 500MB） | **无需安装任何运行时** |
+| **描述格式** | React JSX / TypeScript | **JSONL（纯数据描述，AI / 程序化生成友好）** |
+| **帧开销** | 每帧需完成完整浏览器布局→绘制→合成→像素读取 | **直接调 Skia 绘制到内存，无浏览器流程** |
+| **确定性** | 受字体回退、GPU 驱动、抗锯齿算法等因素影响 | **动画函数式求值；软件后端输出跨机器字节一致** |
+| **硬件利用** | 并行渲染需启动多个 Chrome 实例，内存随并发线性增长 | **原生多线程 + 直接 GPU 调用，资源用满为止** |
+| **许可证** | 公司 4 人以上需付费 | **MIT** |
+| **启动耗时** | 数秒（Node 初始化 + Chrome 启动） | **毫秒级** |
+
+**本质差异**：Remotion 复用 Web 生态，在浏览器中渲染每一帧后捕获输出。OpenCat 提供了一套声明式 JSONL 格式，由 Rust 原生引擎直接渲染——同样的程序化视频生成目标，一个选择了 Web 兼容性，一个选择了原生性能与部署灵活性。
+
+---
+
+## 核心特色
+
+| 能力 | 说明 |
+|------|------|
+| **熟悉的 API 表层** | Tailwind 式 className 写样式，GSAP 风格 API 做动效，CanvasKit 子集画图形——Web 开发者零学习成本切入 |
+| **Rust 原生内核** | Skia 硬件加速渲染（macOS Metal / Windows OpenGL），Taffy Flexbox/Grid 布局引擎，QuickJS 轻量脚本运行时。没有浏览器，没有 Node.js，没有虚拟机 |
+| **确定性动画** | 动画系统是函数式的：`value = f(frame)`。软件后端输出跨机器字节一致，适合 AI 训练数据管线 |
+| **JSONL 交换格式** | 每行一个 JSON 对象，AI 易生成、易 diff、易版本控制 |
+| **多场景时间线** | 多场景编排 + 转场 + 持久化叠加层（如字幕不随转场消失） |
+| **内置转场** | fade / slide / wipe / clock_wipe / iris / light_leak，支持自定义 GLSL |
+| **字幕引擎** | SRT 解析，场景内时间线对齐，跨场景持久化显示 |
+| **音频混音** | 多轨道音频，场景级挂载，自动混音输出 |
+| **GSAP 级动画能力** | 弹簧 / 贝塞尔 / 关键帧 / splitText 逐字逐词 / SVG 路径动画 / 路径变形 / 打字机效果 |
+| **Canvas 绘图** | CanvasKit 子集 API，支持程序化矢量绘图与贴图渲染 |
+| **Lucide 图标库** | 2000+ 开箱即用图标，写 kebab-case 名称即可引用 |
+
+---
+
+## 一句话看懂技术堆栈
+
+```
+JSONL ──→ Taffy 布局 ──→ Skia 渲染 ──→ FFmpeg 编码 → MP4
+              ↑
+         QuickJS 动画脚本
+```
+
+每一层都是独立的 Rust crate，没有隐形的运行时依赖。
+
+---
+
+## 快速开始
+
+```bash
+# 看个演示效果
+cargo run --bin parse_json -- json/opencat-project-showcase-landscape.jsonl
+
+# 或者用桌面播放器看实时预览（macOS / Windows）
+cargo run --bin opencat-player -- path/to/input.jsonl
+
+# 跑个 Hello World 示例
+cargo run --example hello_world
+```
+
+---
+
+## 一个例子抵过千言万语
+
+```jsonl
+{"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 150}
+{"id": "scene1", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] bg-slate-50 justify-center items-center gap-8", "duration": 150}
+{"id": "title", "parentId": "scene1", "type": "text", "className": "text-[28px] font-bold text-slate-900", "text": "你好，OpenCat"}
+{"id": "subtitle", "parentId": "scene1", "type": "text", "className": "text-[14px] text-slate-500", "text": "Rust 原生的动画合成"}
+{"type": "script", "parentId": "scene1", "src": "ctx.fromTo('title',{opacity:0,y:30},{opacity:1,y:0,duration:20,ease:'spring.gentle'});ctx.fromTo('subtitle',{opacity:0},{opacity:1,duration:30,delay:10});"}
+```
+
+> **注意**：`className` 只做静态布局，动效全走脚本。别往 className 里塞 transform、transition、animate——那是脚本的地盘。
+
+---
 
 ## 项目布局
 
 ```text
-src/lib.rs                 核心库
-src/bin/opencat-player.rs  桌面播放器
-src/bin/parse_json.rs      命令行渲染器
-examples/                  示例程序
+src/
+├── lib.rs               # 公共 API 出口
+├── backend/skia/        # Skia 渲染后端（Metal / GL / Software）
+├── bin/
+│   ├── opencat-player   # 桌面预览播放器
+│   └── parse_json       # CLI 渲染器（JSONL → MP4）
+├── codec/               # FFmpeg 编码 / 解码
+├── element/             # 元素树类型和解析
+├── jsonl/               # JSONL 解析 + 场景树构建
+├── layout/              # Taffy Flexbox/Grid 布局
+├── render.rs            # 高层渲染接口
+├── resource/            # 资源管理（图片、媒体）
+├── runtime/             # 运行时：JS 引擎、音频、缓存、合成器
+├── scene/               # 场景图：节点、合成、缓动、转场
+└── style.rs             # 样式系统（颜色、阴影、Tailwind 解析）
 ```
 
-## 快速开始
+---
 
-生成展示视频：
+## 适合谁用？
 
-```bash
-cargo run --bin parse_json -- json/opencat-project-showcase-landscape.jsonl
-```
+- **AI 视频管线开发者**：让模型生成 JSONL 而不是直接操纵像素
+- **程序化动画 / 动态设计作者**：需要确定性 GPU 加速渲染，不想要浏览器层
+- **后端 / 基础设施团队**：需要可嵌入自有管线的轻量渲染方案，不想维护 Node.js + Chrome 环境
+- **短视频批量生产者**：模板化视频生成，换数据 = 换 JSONL
 
-运行桌面播放器：
+## 正在进行中
 
-```bash
-cargo run --bin opencat-player -- path/to/input.jsonl
-```
+- **可视化编辑器**：目前通过 JSONL 描述画面，GUI 编辑工具在规划中
+- **实时预览**：命令行渲染 + 播放器的工作流已可用；设计时即时预览体验仍在迭代
+- **更丰富的特效库**：核心转场和动效能力已就绪，更多预设效果持续开发中
 
-从命令行渲染 JSONL 文件：
+---
 
-```bash
-cargo run --bin parse_json -- path/to/input.jsonl
-```
+## 当前限制
 
-运行示例：
+- 播放器目前仅支持 macOS 和 Windows
+- 构建依赖本地图形库和 FFmpeg
+- CanvasKit 是子集实现，非完整版
+- 详细的 JSONL 格式参考请见 [`opencat.md`](opencat.md)
 
-```bash
-cargo run --example hello_world
-```
-
-## 支持的元素类型
-
-OpenCat 支持多种 JSONL 元素类型，对应不同的渲染组件：
-
-| 类型 | HTML 等效项 | 特殊字段 |
-|------|-----------------|----------------|
-| `div` | `<div>` | — |
-| `text` | `<span>` / `<p>` | `text`: 文本内容 |
-| `image` | `<img>` | `query`: 图像搜索查询（1-4 个名词） |
-| `icon` | Lucide 图标 | `icon`: 连字符格式（kebab-case）的图标名称 |
-| `canvas` | `<canvas>` | 需要匹配的脚本 |
-| `audio` | `<audio>` | `path` 或 `url` |
-| `video` | `<video>` | — |
-| `script` | 脚本节点 | `src`: 内联脚本代码; `path`: 外部 JS 文件路径 |
-| `tl` | 时间轴节点 | 直接子级为定时场景；相邻对需要过渡 |
-| `caption` | 字幕驱动文本节点 | `path`: 本地 SRT 文件 |
-
-script支持canvaskit的子集以及对节点的属性修改
-
-示例
-```jsonl
-{"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 150}
-{"id": "scene1", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] bg-slate-50 justify-center items-center gap-8", "duration": 150}
-{"id": "title", "parentId": "scene1", "type": "text", "className": "text-[28px] font-bold text-slate-900", "text": "ctx.timeline"}
-{"id": "subtitle", "parentId": "scene1", "type": "text", "className": "text-[14px] text-slate-500", "text": "heterogeneous choreography"}
-{"id": "grid", "parentId": "scene1", "type": "div", "className": "flex flex-col gap-5"}
-{"id": "row1", "parentId": "grid", "type": "div", "className": "flex gap-5"}
-{"id": "block-1", "parentId": "row1", "type": "div", "className": "w-[90px] h-[90px] rounded-2xl bg-rose-500 shadow-lg"}
-{"id": "block-2", "parentId": "row1", "type": "div", "className": "w-[90px] h-[90px] rounded-2xl bg-amber-500 shadow-lg"}
-{"id": "block-3", "parentId": "row1", "type": "div", "className": "w-[90px] h-[90px] rounded-2xl bg-emerald-500 shadow-lg"}
-{"id": "row2", "parentId": "grid", "type": "div", "className": "flex gap-5"}
-{"id": "block-4", "parentId": "row2", "type": "div", "className": "w-[90px] h-[90px] rounded-2xl bg-sky-500 shadow-lg"}
-{"id": "block-5", "parentId": "row2", "type": "div", "className": "w-[90px] h-[90px] rounded-2xl bg-indigo-500 shadow-lg"}
-{"id": "block-6", "parentId": "row2", "type": "div", "className": "w-[90px] h-[90px] rounded-2xl bg-fuchsia-500 shadow-lg"}
-{"type": "script", "parentId": "scene1", "src": "ctx.to('title',{text:'ctx.timeline',duration:22,ease:'linear'});ctx.timeline().fromTo('title',{opacity:0,y:-15},{opacity:1,y:0,duration:12,ease:'spring.gentle'}).fromTo('subtitle',{opacity:0},{opacity:1,duration:10,ease:'linear'}).fromTo('block-1',{opacity:0,x:-120},{opacity:1,x:0,duration:18,ease:'linear'}).fromTo('block-2',{opacity:0,scale:0.6},{opacity:1,scale:1,duration:22,ease:'spring.gentle'},'-=8').fromTo('block-3',{opacity:0,y:-80},{opacity:1,y:0,duration:20,ease:'ease-out'}).fromTo('block-4',{opacity:0,rotate:-180},{opacity:1,rotate:0,duration:30,ease:'spring.stiff'},32).fromTo('block-5',{opacity:0,y:80},{opacity:1,y:0,duration:24,ease:'spring.default'}).fromTo('block-6',{opacity:0,scale:0},{opacity:1,scale:1,duration:28,ease:'spring.wobbly'});"}
-```
-## 注意事项
-
-- 播放器目前支持 macOS 和 Windows。
-- 部分构建目标需要本地图形库和 FFmpeg 依赖。
-- JSONL 格式参考和相关设计说明请参阅 `opencat.md`。
+---
 
 ## 社区支持
-- Linux.do 社区：https://linux.do/
+
+- 问题反馈 / 讨论 → [Linux.do 社区](https://linux.do/)
+- 发现 bug 或有想法 → [提 Issue](https://github.com/ZhouXiaolin/opencat/issues)
 
 ## 许可证
+
 MIT License

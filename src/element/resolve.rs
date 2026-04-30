@@ -166,7 +166,7 @@ fn resolve_timeline(
         let transition = match &frame_state {
             FrameState::Transition { progress, kind, .. } => Some(ElementTimelineTransition {
                 progress: *progress,
-                kind: *kind,
+                kind: kind.clone(),
             }),
             FrameState::Scene { .. } => None,
         };

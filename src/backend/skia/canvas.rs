@@ -776,6 +776,7 @@ impl<'a> SkiaBackend<'a> {
                     transition_kind = match transition.kind {
                         crate::scene::transition::TransitionKind::Slide(_) => "slide",
                         crate::scene::transition::TransitionKind::LightLeak(_) => "light_leak",
+                        crate::scene::transition::TransitionKind::Gl(_) => "gltransition",
                         _ => "other",
                     }
                 );
@@ -785,7 +786,7 @@ impl<'a> SkiaBackend<'a> {
                     &from_snapshot,
                     &to_snapshot,
                     transition.progress,
-                    transition.kind,
+                    transition.kind.clone(),
                     timeline.bounds.width.max(1.0) as i32,
                     timeline.bounds.height.max(1.0) as i32,
                 )

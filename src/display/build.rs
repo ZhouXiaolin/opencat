@@ -140,7 +140,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 .as_ref()
                 .map(|transition| TimelineTransitionDisplay {
                     progress: transition.progress,
-                    kind: transition.kind,
+                    kind: transition.kind.clone(),
                 }),
         }),
         ElementKind::Text(text) => {

@@ -5,7 +5,9 @@ use crate::scene::{
     node::Node,
     primitives::{ImageSource, canvas, caption, div, image, lucide, parse_srt, path, text, video},
     script::ScriptDriver,
-    transition::{Transition, clock_wipe, fade, iris, light_leak, slide, timeline, wipe},
+    transition::{
+        Transition, clock_wipe, fade, gl_transition, iris, light_leak, slide, timeline, wipe,
+    },
 };
 
 use super::{ParsedElement, ParsedElementKind, ParsedTransition};
@@ -328,10 +330,7 @@ fn build_transition(transition: &ParsedTransition) -> anyhow::Result<Transition>
             }
             Ok(builder.timing(easing, duration))
         }
-        _ => Err(anyhow::anyhow!(
-            "unsupported transition effect `{}`",
-            transition.effect
-        )),
+        _ => Ok(gl_transition(transition.effect.clone()).timing(easing, duration)),
     }
 }
 

@@ -4,10 +4,11 @@ use crate::scene::{
     time::{TimelineNode, TimelineSegment},
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum TransitionKind {
     Slide(SlideDirection),
     LightLeak(LightLeakTransition),
+    Gl(GlTransition),
     Fade,
     Wipe(WipeDirection),
     ClockWipe,
@@ -52,10 +53,11 @@ pub struct Transition {
     duration_in_frames: u32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Presentation {
     Slide(SlideDirection),
     LightLeak(LightLeakTransition),
+    Gl(GlTransition),
     Fade,
     Wipe(WipeDirection),
     ClockWipe,
@@ -69,11 +71,21 @@ pub struct LightLeakTransition {
     pub mask_scale: f32,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct GlTransition {
+    pub name: String,
+}
+
 #[derive(Clone, Copy)]
 pub struct LightLeakBuilder {
     seed: f32,
     hue_shift: f32,
     mask_scale: f32,
+}
+
+#[derive(Clone)]
+pub struct GlTransitionBuilder {
+    name: String,
 }
 
 #[derive(Clone, Copy)]
@@ -189,11 +201,12 @@ impl Transition {
     }
 
     fn kind(&self) -> TransitionKind {
-        match self.presentation {
-            Presentation::Slide(dir) => TransitionKind::Slide(dir),
-            Presentation::LightLeak(params) => TransitionKind::LightLeak(params),
+        match &self.presentation {
+            Presentation::Slide(dir) => TransitionKind::Slide(*dir),
+            Presentation::LightLeak(params) => TransitionKind::LightLeak(*params),
+            Presentation::Gl(effect) => TransitionKind::Gl(effect.clone()),
             Presentation::Fade => TransitionKind::Fade,
-            Presentation::Wipe(dir) => TransitionKind::Wipe(dir),
+            Presentation::Wipe(dir) => TransitionKind::Wipe(*dir),
             Presentation::ClockWipe => TransitionKind::ClockWipe,
             Presentation::Iris => TransitionKind::Iris,
         }
@@ -337,6 +350,16 @@ impl LightLeakBuilder {
     }
 }
 
+impl GlTransitionBuilder {
+    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
+        Transition {
+            presentation: Presentation::Gl(GlTransition { name: self.name }),
+            easing,
+            duration_in_frames,
+        }
+    }
+}
+
 pub fn slide() -> SlideBuilder {
     SlideBuilder {
         direction: SlideDirection::FromLeft,
@@ -367,6 +390,10 @@ pub fn light_leak() -> LightLeakBuilder {
         hue_shift: 0.0,
         mask_scale: 0.25,
     }
+}
+
+pub fn gl_transition(name: impl Into<String>) -> GlTransitionBuilder {
+    GlTransitionBuilder { name: name.into() }
 }
 
 pub fn timeline() -> Timeline {

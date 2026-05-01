@@ -65,6 +65,8 @@ struct SpanState {
     backend_depth: Option<usize>,
     /// 最近的 render.backend 祖先 span 的 name；仅对 backend span 本身有意义。
     backend_parent: Option<&'static str>,
+    /// 仅对 render.transition::draw_transition span 有意义；其他 span 为 None。
+    transition_kind: Option<&'static str>,
 }
 
 #[derive(Default)]
@@ -88,6 +90,7 @@ impl RenderProfileLayer {
 #[derive(Default)]
 struct SpanFields {
     frame: Option<u32>,
+    transition_kind: Option<&'static str>,
 }
 
 #[derive(Default)]
@@ -136,6 +139,11 @@ impl tracing::field::Visit for ProfileFieldVisitor<'_> {
             "result" => {
                 if let Some(event_fields) = self.event_fields.as_mut() {
                     event_fields.result = Some(leaked);
+                }
+            }
+            "transition_kind" => {
+                if let Some(span_fields) = self.span_fields.as_mut() {
+                    span_fields.transition_kind = Some(leaked);
                 }
             }
             _ => {}
@@ -217,6 +225,7 @@ where
                 child_inclusive_ms: 0.0,
                 backend_depth,
                 backend_parent,
+                transition_kind: fields.transition_kind,
             },
         );
     }
@@ -254,6 +263,7 @@ where
             inclusive_ms,
             exclusive_ms,
             backend_depth: state.backend_depth,
+            transition_kind: state.transition_kind,
         });
     }
 
@@ -462,6 +472,55 @@ mod tests {
         let frame = summary.frames.get(&7).expect("frame summary should exist");
         assert!(frame.backend.subtree_snapshot_record_ms >= 0.0);
         assert_eq!(frame.backend.subtree_snapshot_cache_misses, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn tracing_layer_propagates_transition_kind() -> anyhow::Result<()> {
+        use tracing::{Level, span};
+
+        // 端到端契约：在 render.transition::draw_transition span 上挂 transition_kind 字段，
+        // ProfileLayer 必须把它带进 CompletedProfileSpan，最终落到对应 frame 字段。
+        // canvas.rs::draw_timeline_transition_subtree 是该 span 的实际发布点。
+        let config = ProfileConfig {
+            enabled: true,
+            output_format: ProfileOutputFormat::Text,
+            emit_frame_records: false,
+        };
+        let (_, summary) = profile_render(&config, || {
+            let frame_span = span!(
+                target: "render.pipeline",
+                Level::TRACE,
+                "frame",
+                frame = 21_u64,
+                width = 1280_i64,
+                height = 720_i64,
+                fps = 30_i64,
+                mode = "scene"
+            );
+            let _frame_guard = frame_span.enter();
+            let transition_span = span!(
+                target: "render.transition",
+                Level::TRACE,
+                "draw_transition",
+                transition_kind = "light_leak"
+            );
+            let _t_guard = transition_span.enter();
+            Ok::<_, anyhow::Error>(())
+        })?;
+
+        let summary = summary.expect("summary should exist");
+        let frame = summary.frames.get(&21).expect("frame summary should exist");
+        assert_eq!(
+            frame.light_leak_transition_frames, 1,
+            "light_leak transition span should bump the active-frame count"
+        );
+        assert!(
+            frame.light_leak_transition_ms > 0.0,
+            "light_leak transition span should record positive ms, got {}",
+            frame.light_leak_transition_ms
+        );
+        assert!(frame.transition_ms >= frame.light_leak_transition_ms);
         Ok(())
     }
 }

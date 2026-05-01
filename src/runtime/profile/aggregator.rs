@@ -13,6 +13,9 @@ pub(crate) struct CompletedProfileSpan {
     /// render.backend span tree 内的深度；非 backend span 为 None。
     /// 0 表示该 backend span 没有 render.backend 祖先（frame / transition 祖先不算）。
     pub backend_depth: Option<usize>,
+    /// 仅对 render.transition::draw_transition span 有意义；其他 span 为 None。
+    /// 取值与 canvas.rs 中 transition_kind 字段一致："slide" | "light_leak" | "gltransition" | "other"。
+    pub transition_kind: Option<&'static str>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -77,7 +80,19 @@ impl RenderProfileAggregator {
                 return;
             }
             ("render.transition", "draw_transition") => {
-                self.frame_mut(span.frame).transition_ms += span.inclusive_ms;
+                let frame_state = self.frame_mut(span.frame);
+                frame_state.transition_ms += span.inclusive_ms;
+                match span.transition_kind {
+                    Some("slide") => {
+                        frame_state.slide_transition_ms += span.inclusive_ms;
+                        frame_state.slide_transition_frames += 1;
+                    }
+                    Some("light_leak") => {
+                        frame_state.light_leak_transition_ms += span.inclusive_ms;
+                        frame_state.light_leak_transition_frames += 1;
+                    }
+                    _ => {}
+                }
                 return;
             }
             _ => {}
@@ -281,6 +296,7 @@ mod tests {
                 inclusive_ms: inclusive,
                 exclusive_ms: exclusive,
                 backend_depth: Some(0),
+                transition_kind: None,
             });
         }
 
@@ -292,6 +308,7 @@ mod tests {
             inclusive_ms: 4.0,
             exclusive_ms: 4.0,
             backend_depth: Some(1),
+            transition_kind: None,
         });
 
         let summary = aggregator.finish();
@@ -315,6 +332,7 @@ mod tests {
             inclusive_ms: 80.0,
             exclusive_ms: 3.0,
             backend_depth: Some(0),
+            transition_kind: None,
         });
         aggregator.record_span(CompletedProfileSpan {
             frame: 12,
@@ -324,6 +342,7 @@ mod tests {
             inclusive_ms: 74.0,
             exclusive_ms: 71.0,
             backend_depth: Some(1),
+            transition_kind: None,
         });
 
         let summary = aggregator.finish();
@@ -424,6 +443,7 @@ mod tests {
             inclusive_ms: 1.5,
             exclusive_ms: 1.5,
             backend_depth: None,
+            transition_kind: None,
         });
         aggregator.record_span(CompletedProfileSpan {
             frame: 5,
@@ -433,6 +453,7 @@ mod tests {
             inclusive_ms: 10.0,
             exclusive_ms: 10.0,
             backend_depth: None,
+            transition_kind: None,
         });
         aggregator.record_span(CompletedProfileSpan {
             frame: 5,
@@ -442,6 +463,7 @@ mod tests {
             inclusive_ms: 2.0,
             exclusive_ms: 2.0,
             backend_depth: None,
+            transition_kind: None,
         });
 
         let summary = aggregator.finish();
@@ -450,5 +472,78 @@ mod tests {
         assert_eq!(frame.frame_state_ms, 1.5);
         assert_eq!(frame.resolve_ms, 10.0);
         assert_eq!(frame.layout_ms, 2.0);
+    }
+
+    #[test]
+    fn transition_span_writes_per_kind_breakdown() {
+        // 契约：render.transition::draw_transition span 必须按 transition_kind 拆分到
+        // slide_transition_* / light_leak_transition_* 字段；同时 transition_ms 总和不变。
+        // 这是修复"transition avg ms/active-frame: ... 0 frames"bug 的核心写入路径。
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_span(CompletedProfileSpan {
+            frame: 100,
+            target: "render.transition",
+            name: "draw_transition",
+            parent: Some("frame"),
+            inclusive_ms: 12.5,
+            exclusive_ms: 12.5,
+            backend_depth: None,
+            transition_kind: Some("slide"),
+        });
+        aggregator.record_span(CompletedProfileSpan {
+            frame: 101,
+            target: "render.transition",
+            name: "draw_transition",
+            parent: Some("frame"),
+            inclusive_ms: 30.0,
+            exclusive_ms: 30.0,
+            backend_depth: None,
+            transition_kind: Some("light_leak"),
+        });
+        aggregator.record_span(CompletedProfileSpan {
+            frame: 101,
+            target: "render.transition",
+            name: "draw_transition",
+            parent: Some("frame"),
+            inclusive_ms: 20.0,
+            exclusive_ms: 20.0,
+            backend_depth: None,
+            transition_kind: Some("light_leak"),
+        });
+        // "other" / fade / 未知 kind 不拆分，但仍计入总 transition_ms。
+        aggregator.record_span(CompletedProfileSpan {
+            frame: 102,
+            target: "render.transition",
+            name: "draw_transition",
+            parent: Some("frame"),
+            inclusive_ms: 5.0,
+            exclusive_ms: 5.0,
+            backend_depth: None,
+            transition_kind: Some("other"),
+        });
+
+        let summary = aggregator.finish();
+
+        let slide_frame = summary.frames.get(&100).expect("slide frame exists");
+        assert_eq!(slide_frame.slide_transition_ms, 12.5);
+        assert_eq!(slide_frame.slide_transition_frames, 1);
+        assert_eq!(slide_frame.light_leak_transition_ms, 0.0);
+        assert_eq!(slide_frame.light_leak_transition_frames, 0);
+        assert_eq!(slide_frame.transition_ms, 12.5);
+
+        let leak_frame = summary.frames.get(&101).expect("light_leak frame exists");
+        assert_eq!(leak_frame.light_leak_transition_ms, 50.0);
+        assert_eq!(leak_frame.light_leak_transition_frames, 2);
+        assert_eq!(leak_frame.slide_transition_frames, 0);
+        assert_eq!(leak_frame.transition_ms, 50.0);
+
+        let other_frame = summary.frames.get(&102).expect("other frame exists");
+        assert_eq!(other_frame.transition_ms, 5.0);
+        assert_eq!(other_frame.slide_transition_frames, 0);
+        assert_eq!(other_frame.light_leak_transition_frames, 0);
+
+        // average_light_leak_transition_ms 应基于真实计数：50.0 / 2 = 25.0
+        assert!((summary.average_light_leak_transition_ms() - 25.0).abs() < 1e-9);
     }
 }

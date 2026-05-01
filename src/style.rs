@@ -512,6 +512,9 @@ pub struct NodeStyle {
 
     // Size
     pub width: Option<f32>,
+    /// 任意百分比宽度，对应 Tailwind 的 `w-[N%]`。
+    /// 注意：当前仅实现了 width 维度，`height_percent` 暂未引入——
+    /// 容器高度通常由 content 或 `h-full` 决定，按需求驱动添加。
     pub width_percent: Option<f32>,
     pub height: Option<f32>,
     pub max_width: Option<f32>,

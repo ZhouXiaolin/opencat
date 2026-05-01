@@ -348,7 +348,8 @@ mod tests {
             .expect("composition");
 
         let mut session = RenderSession::new();
-        let frame = render_frame_rgba(&composition, 100, &mut session).expect("frame should render");
+        let frame =
+            render_frame_rgba(&composition, 100, &mut session).expect("frame should render");
 
         assert!(
             has_bright_pixel_in_rect(&frame, parsed.width as usize, 120, 330, 420, 130),

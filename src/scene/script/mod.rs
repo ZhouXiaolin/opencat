@@ -1770,9 +1770,7 @@ mod tests {
         )
         .expect("script should compile");
 
-        let before_c = driver
-            .run(25, 50, 25, 50, None)
-            .expect("script should run");
+        let before_c = driver.run(25, 50, 25, 50, None).expect("script should run");
         let b = before_c.get("b").expect("b mutation should exist");
         let c = before_c.get("c").expect("c mutation should exist");
 
@@ -1787,9 +1785,7 @@ mod tests {
             "c should still hold its from opacity before its delayed start"
         );
 
-        let during_c = driver
-            .run(31, 50, 31, 50, None)
-            .expect("script should run");
+        let during_c = driver.run(31, 50, 31, 50, None).expect("script should run");
         let c = during_c.get("c").expect("c mutation should exist");
         assert!(
             c.opacity.unwrap() > 0.0 && c.opacity.unwrap() < 1.0,

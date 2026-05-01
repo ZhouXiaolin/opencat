@@ -479,6 +479,9 @@ impl<'a> SkiaBackend<'a> {
         if should_cache_item_picture(item)
             && let Some(cache_key) = item_paint_fingerprint(item, self.assets)
         {
+            let cached_span =
+                span!(target: "render.backend", Level::TRACE, "draw_item_cached");
+            let _cached_guard = cached_span.enter();
             let stats = draw_item_picture_cached(
                 self.canvas,
                 item,
@@ -538,6 +541,9 @@ impl<'a> SkiaBackend<'a> {
     fn draw_display_item_uncached(&mut self, item: &DisplayItem) -> Result<()> {
         match item {
             DisplayItem::Rect(rect) => {
+                let kind_span =
+                    span!(target: "render.backend", Level::TRACE, "draw_item_rect");
+                let _kind_guard = kind_span.enter();
                 if let Some(shadow) = rect.paint.box_shadow {
                     draw_box_shadow(self.canvas, rect.bounds, rect.paint.border_radius, shadow);
                 }
@@ -551,10 +557,16 @@ impl<'a> SkiaBackend<'a> {
                 event!(target: "render.draw", Level::TRACE, kind = "draw", name = "rect", result = "count", amount = 1_u64);
             }
             DisplayItem::Timeline(timeline) => {
+                let kind_span =
+                    span!(target: "render.backend", Level::TRACE, "draw_item_timeline");
+                let _kind_guard = kind_span.enter();
                 draw_timeline_base(self.canvas, timeline)?;
                 event!(target: "render.draw", Level::TRACE, kind = "draw", name = "timeline", result = "count", amount = 1_u64);
             }
             DisplayItem::Text(text) => {
+                let kind_span =
+                    span!(target: "render.backend", Level::TRACE, "draw_item_text");
+                let _kind_guard = kind_span.enter();
                 if let Some(shadow) = text.drop_shadow {
                     draw_item_drop_shadow(self.canvas, text.bounds, shadow, |canvas| {
                         draw_text(canvas, text, &self.text_snapshot_cache).map(|_| ())
@@ -566,6 +578,9 @@ impl<'a> SkiaBackend<'a> {
                 event!(target: "render.cache", Level::TRACE, kind = "cache", name = "text", result = "miss", amount = stats.cache_misses as u64);
             }
             DisplayItem::Bitmap(bitmap) => {
+                let kind_span =
+                    span!(target: "render.backend", Level::TRACE, "draw_item_bitmap");
+                let _kind_guard = kind_span.enter();
                 if let Some(shadow) = bitmap.paint.box_shadow {
                     draw_box_shadow(
                         self.canvas,
@@ -603,6 +618,9 @@ impl<'a> SkiaBackend<'a> {
                 event!(target: "render.cache", Level::TRACE, kind = "cache", name = "video_frame", result = "decode", amount = stats.video_frame_decodes as u64);
             }
             DisplayItem::DrawScript(script) => {
+                let kind_span =
+                    span!(target: "render.backend", Level::TRACE, "draw_item_script");
+                let _kind_guard = kind_span.enter();
                 if let Some(shadow) = script.drop_shadow {
                     draw_item_drop_shadow(self.canvas, script.bounds, shadow, |canvas| {
                         draw_script_item(
@@ -626,6 +644,9 @@ impl<'a> SkiaBackend<'a> {
                 event!(target: "render.draw", Level::TRACE, kind = "draw", name = "script", result = "count", amount = 1_u64);
             }
             DisplayItem::SvgPath(svg) => {
+                let kind_span =
+                    span!(target: "render.backend", Level::TRACE, "draw_item_svg");
+                let _kind_guard = kind_span.enter();
                 if let Some(shadow) = svg.paint.drop_shadow {
                     draw_item_drop_shadow(self.canvas, svg.bounds, shadow, |canvas| {
                         draw_svg_path(canvas, svg);

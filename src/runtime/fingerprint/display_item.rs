@@ -25,6 +25,7 @@ impl Hash for TextFp<'_> {
         self.0.text.hash(state);
         TextStyleFp(&self.0.style).hash(state);
         self.0.allow_wrap.hash(state);
+        self.0.truncate.hash(state);
         F32Hash(self.0.bounds.width).hash(state);
         F32Hash(self.0.bounds.height).hash(state);
         self.0.drop_shadow.hash(state);
@@ -154,6 +155,7 @@ impl Hash for TextStyleFp<'_> {
         F32Hash(style.line_height).hash(state);
         style.line_height_px.map(F32Hash).hash(state);
         style.text_transform.hash(state);
+        style.line_through.hash(state);
     }
 }
 

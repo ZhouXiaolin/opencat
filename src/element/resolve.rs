@@ -978,6 +978,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             inset_right: style.inset_right,
             inset_bottom: style.inset_bottom,
             width: style.width,
+            width_percent: style.width_percent,
             height: style.height,
             max_width: style.max_width,
             width_full: style.width_full,
@@ -1051,6 +1052,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             flex_grow: style.flex_grow.unwrap_or(0.0),
             flex_shrink: style.flex_shrink,
             z_index: style.z_index.unwrap_or(0),
+            truncate: style.truncate,
         },
         visual: ComputedVisualStyle {
             opacity: style.opacity.unwrap_or(1.0),

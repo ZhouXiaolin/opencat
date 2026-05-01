@@ -23,7 +23,9 @@ pub struct InheritedStyle {
 impl InheritedStyle {
     pub fn for_child(style: &ComputedStyle) -> Self {
         let mut text = style.text;
-        let container_has_definite_width = style.layout.width.is_some() || style.layout.width_full;
+        let container_has_definite_width = style.layout.width.is_some()
+            || style.layout.width_percent.is_some()
+            || style.layout.width_full;
         // `position: absolute` with `width: auto` resolves via CSS shrink-to-fit —
         // its width comes from its own content, not from the containing block.
         // Inline-width constraints from ancestors must stop at such a boundary,
@@ -52,6 +54,7 @@ pub struct ComputedLayoutStyle {
     pub inset_right: Option<LengthPercentageAuto>,
     pub inset_bottom: Option<LengthPercentageAuto>,
     pub width: Option<f32>,
+    pub width_percent: Option<f32>,
     pub height: Option<f32>,
     pub max_width: Option<f32>,
     pub width_full: bool,
@@ -93,6 +96,7 @@ pub struct ComputedLayoutStyle {
     pub flex_grow: f32,
     pub flex_shrink: Option<f32>,
     pub z_index: i32,
+    pub truncate: bool,
 }
 
 #[derive(Clone, Debug)]

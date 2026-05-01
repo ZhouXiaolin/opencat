@@ -512,6 +512,7 @@ pub struct NodeStyle {
 
     // Size
     pub width: Option<f32>,
+    pub width_percent: Option<f32>,
     pub height: Option<f32>,
     pub max_width: Option<f32>,
     pub width_full: bool,
@@ -583,6 +584,7 @@ pub struct NodeStyle {
     pub backdrop_blur_sigma: Option<f32>,
     pub object_fit: Option<ObjectFit>,
     pub overflow_hidden: bool,
+    pub truncate: bool,
     pub transforms: Vec<Transform>,
 
     // SVG / Path (Tailwind align: fill-*, stroke-*)
@@ -601,6 +603,7 @@ pub struct NodeStyle {
     pub line_height: Option<f32>,
     pub line_height_px: Option<f32>,
     pub text_transform: Option<TextTransform>,
+    pub line_through: bool,
 
     // Shadow
     pub box_shadow: Option<BoxShadow>,
@@ -628,6 +631,7 @@ pub struct ComputedTextStyle {
     pub line_height_px: Option<f32>,
     pub text_transform: TextTransform,
     pub wrap_text: bool,
+    pub line_through: bool,
 }
 
 impl std::hash::Hash for ComputedTextStyle {
@@ -641,6 +645,7 @@ impl std::hash::Hash for ComputedTextStyle {
         self.line_height_px.map(f32::to_bits).hash(state);
         self.text_transform.hash(state);
         self.wrap_text.hash(state);
+        self.line_through.hash(state);
     }
 }
 
@@ -656,6 +661,7 @@ impl Default for ComputedTextStyle {
             line_height_px: None,
             text_transform: TextTransform::None,
             wrap_text: false,
+            line_through: false,
         }
     }
 }
@@ -684,6 +690,7 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
         line_height_px,
         text_transform: style.text_transform.unwrap_or(parent.text_transform),
         wrap_text: parent.wrap_text,
+        line_through: style.line_through,
     }
 }
 

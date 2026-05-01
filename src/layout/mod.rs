@@ -496,6 +496,7 @@ impl Hash for LayoutStyleFingerprint<'_> {
         style.inset_right.hash(state);
         style.inset_bottom.hash(state);
         style.width.map(F32Hash).hash(state);
+        style.width_percent.map(F32Hash).hash(state);
         style.height.map(F32Hash).hash(state);
         style.max_width.map(F32Hash).hash(state);
         style.width_full.hash(state);
@@ -537,6 +538,7 @@ impl Hash for LayoutStyleFingerprint<'_> {
         F32Hash(style.flex_grow).hash(state);
         style.flex_shrink.map(F32Hash).hash(state);
         style.z_index.hash(state);
+        style.truncate.hash(state);
     }
 }
 
@@ -591,6 +593,7 @@ impl Hash for TextRasterStyleFingerprint<'_> {
         style.line_height_px.map(F32Hash).hash(state);
         style.text_transform.hash(state);
         style.wrap_text.hash(state);
+        style.line_through.hash(state);
     }
 }
 
@@ -614,9 +617,11 @@ fn text_measure_context_for_element(element: &ElementNode) -> Option<TextMeasure
         ElementKind::Text(text) => Some(TextMeasureContext {
             text: text.text.clone(),
             style: text.text_style,
-            allow_wrap: element.style.text.wrap_text
-                || element.style.layout.width.is_some()
-                || element.style.layout.width_full,
+            allow_wrap: !element.style.layout.truncate
+                && (element.style.text.wrap_text
+                    || element.style.layout.width.is_some()
+                    || element.style.layout.width_percent.is_some()
+                    || element.style.layout.width_full),
         }),
         _ => None,
     }
@@ -698,12 +703,23 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             },
             size: match layout.position {
                 Position::Absolute => taffy::geometry::Size {
-                    width: resolve_dimension(layout.width, layout.width_full, Dimension::auto()),
-                    height: resolve_dimension(layout.height, layout.height_full, Dimension::auto()),
+                    width: resolve_dimension(
+                        layout.width,
+                        layout.width_percent,
+                        layout.width_full,
+                        Dimension::auto(),
+                    ),
+                    height: resolve_dimension(
+                        layout.height,
+                        None,
+                        layout.height_full,
+                        Dimension::auto(),
+                    ),
                 },
                 Position::Relative => taffy::geometry::Size {
                     width: resolve_dimension(
                         layout.width,
+                        layout.width_percent,
                         layout.width_full,
                         if layout.auto_size {
                             Dimension::auto()
@@ -713,6 +729,7 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     ),
                     height: resolve_dimension(
                         layout.height,
+                        None,
                         layout.height_full,
                         if layout.auto_size {
                             Dimension::auto()
@@ -741,8 +758,18 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
         },
         ElementKind::Text(_) => Style {
             size: taffy::geometry::Size {
-                width: resolve_dimension(layout.width, layout.width_full, Dimension::auto()),
-                height: resolve_dimension(layout.height, layout.height_full, Dimension::auto()),
+                width: resolve_dimension(
+                    layout.width,
+                    layout.width_percent,
+                    layout.width_full,
+                    Dimension::auto(),
+                ),
+                height: resolve_dimension(
+                    layout.height,
+                    None,
+                    layout.height_full,
+                    Dimension::auto(),
+                ),
             },
             ..base_style(element)
         },
@@ -750,11 +777,13 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             size: taffy::geometry::Size {
                 width: resolve_dimension(
                     layout.width,
+                    layout.width_percent,
                     layout.width_full,
                     Dimension::length(bitmap.width as f32),
                 ),
                 height: resolve_dimension(
                     layout.height,
+                    None,
                     layout.height_full,
                     Dimension::length(bitmap.height as f32),
                 ),
@@ -765,12 +794,23 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             display: taffy::prelude::Display::Block,
             size: match layout.position {
                 Position::Absolute => taffy::geometry::Size {
-                    width: resolve_dimension(layout.width, layout.width_full, Dimension::auto()),
-                    height: resolve_dimension(layout.height, layout.height_full, Dimension::auto()),
+                    width: resolve_dimension(
+                        layout.width,
+                        layout.width_percent,
+                        layout.width_full,
+                        Dimension::auto(),
+                    ),
+                    height: resolve_dimension(
+                        layout.height,
+                        None,
+                        layout.height_full,
+                        Dimension::auto(),
+                    ),
                 },
                 Position::Relative => taffy::geometry::Size {
                     width: resolve_dimension(
                         layout.width,
+                        layout.width_percent,
                         layout.width_full,
                         if layout.auto_size {
                             Dimension::auto()
@@ -780,6 +820,7 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     ),
                     height: resolve_dimension(
                         layout.height,
+                        None,
                         layout.height_full,
                         if layout.auto_size {
                             Dimension::auto()
@@ -798,8 +839,18 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                 .unwrap_or((Dimension::auto(), Dimension::auto()));
             Style {
                 size: taffy::geometry::Size {
-                    width: resolve_dimension(layout.width, layout.width_full, default_size.0),
-                    height: resolve_dimension(layout.height, layout.height_full, default_size.1),
+                    width: resolve_dimension(
+                        layout.width,
+                        layout.width_percent,
+                        layout.width_full,
+                        default_size.0,
+                    ),
+                    height: resolve_dimension(
+                        layout.height,
+                        None,
+                        layout.height_full,
+                        default_size.1,
+                    ),
                 },
                 ..base_style(element)
             }
@@ -945,9 +996,16 @@ fn resolve_dimension_value(value: LengthPercentageAuto) -> Dimension {
     }
 }
 
-fn resolve_dimension(value: Option<f32>, full: bool, fallback: Dimension) -> Dimension {
+fn resolve_dimension(
+    value: Option<f32>,
+    percent: Option<f32>,
+    full: bool,
+    fallback: Dimension,
+) -> Dimension {
     if full {
         Dimension::percent(1.0)
+    } else if let Some(pct) = percent {
+        Dimension::percent(pct)
     } else {
         value.map(Dimension::length).unwrap_or(fallback)
     }
@@ -1303,6 +1361,99 @@ mod tests {
     }
 
     #[test]
+    fn percent_width_text_passes_constrained_width_to_text_measurement() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 240,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let root = classed_div(
+            "root",
+            "w-[200px] h-full",
+            vec![
+                classed_text(
+                    "headline",
+                    "w-[50%] text-[16px]",
+                    "Percent constrained copy",
+                )
+                .into(),
+            ],
+        )
+        .into();
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let measurer = RecordingTextMeasurer::default();
+
+        let _layout = compute_layout_with_text_engine(&resolved, &frame_ctx, &measurer)
+            .expect("layout should succeed");
+
+        let requests = measurer.requests_for("Percent constrained copy");
+        assert!(
+            !requests.is_empty(),
+            "expected to record percent-width text measurement"
+        );
+        assert!(
+            requests.iter().all(|request| request.allow_wrap),
+            "percent-width text should measure with wrapping enabled, got {:?}",
+            requests
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|request| (request.max_width - 100.0).abs() < 0.5),
+            "expected text to measure against 50% of 200px parent, got {:?}",
+            requests
+        );
+    }
+
+    #[test]
+    fn truncate_text_measures_as_single_line_even_with_definite_width() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 240,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let root = classed_div(
+            "root",
+            "w-[200px] h-full",
+            vec![
+                classed_text(
+                    "headline",
+                    "w-[80px] truncate text-[16px]",
+                    "Long copy that should remain one measured line",
+                )
+                .into(),
+            ],
+        )
+        .into();
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let measurer = RecordingTextMeasurer::default();
+
+        let _layout = compute_layout_with_text_engine(&resolved, &frame_ctx, &measurer)
+            .expect("layout should succeed");
+
+        let requests = measurer.requests_for("Long copy that should remain one measured line");
+        assert!(
+            !requests.is_empty(),
+            "expected to record truncate text measurement"
+        );
+        assert!(
+            requests.iter().all(|request| !request.allow_wrap),
+            "truncate text should measure as single-line text, got {:?}",
+            requests
+        );
+    }
+
+    #[test]
     fn layout_session_reuses_layout_for_paint_only_change() {
         let frame_ctx = FrameCtx {
             frame: 0,
@@ -1374,6 +1525,97 @@ mod tests {
             .expect("second layout should succeed");
 
         assert!(second_stats.layout_dirty_nodes >= 1);
+    }
+
+    #[test]
+    fn layout_session_marks_truncate_change_as_layout_dirty() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let mut session = LayoutSession::new();
+
+        let first = classed_div(
+            "root",
+            "w-full h-full",
+            vec![classed_text("label", "w-[80px]", "A long changing label").into()],
+        )
+        .into();
+        let second = classed_div(
+            "root",
+            "w-full h-full",
+            vec![classed_text("label", "w-[80px] truncate", "A long changing label").into()],
+        )
+        .into();
+
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+            .expect("first tree should resolve");
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+            .expect("second tree should resolve");
+
+        session
+            .compute_layout(&first_resolved, &frame_ctx)
+            .expect("first layout should succeed");
+        let (_, second_stats) = session
+            .compute_layout(&second_resolved, &frame_ctx)
+            .expect("second layout should succeed");
+
+        assert!(
+            second_stats.layout_dirty_nodes >= 1,
+            "truncate changes text measurement semantics and must dirty layout, got {:?}",
+            second_stats
+        );
+    }
+
+    #[test]
+    fn layout_session_marks_line_through_change_as_raster_dirty() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let mut session = LayoutSession::new();
+
+        let first = classed_div(
+            "root",
+            "w-full h-full",
+            vec![classed_text("label", "text-[16px]", "$25.00").into()],
+        )
+        .into();
+        let second = classed_div(
+            "root",
+            "w-full h-full",
+            vec![classed_text("label", "text-[16px] line-through", "$25.00").into()],
+        )
+        .into();
+
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+            .expect("first tree should resolve");
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+            .expect("second tree should resolve");
+
+        session
+            .compute_layout(&first_resolved, &frame_ctx)
+            .expect("first layout should succeed");
+        let (_, second_stats) = session
+            .compute_layout(&second_resolved, &frame_ctx)
+            .expect("second layout should succeed");
+
+        assert_eq!(second_stats.layout_dirty_nodes, 0);
+        assert!(
+            second_stats.raster_dirty_nodes >= 1,
+            "line-through only changes text raster output, got {:?}",
+            second_stats
+        );
     }
 
     #[test]

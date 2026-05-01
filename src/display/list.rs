@@ -53,6 +53,7 @@ pub struct TextDisplayItem {
     pub text: String,
     pub style: ComputedTextStyle,
     pub allow_wrap: bool,
+    pub truncate: bool,
     pub drop_shadow: Option<DropShadow>,
     pub text_unit_overrides: Option<TextUnitOverrideBatch>,
     pub visual_expand_x: f32,
@@ -269,6 +270,7 @@ mod tests {
             text: "Hello".into(),
             style: ComputedTextStyle::default(),
             allow_wrap: false,
+            truncate: false,
             drop_shadow: None,
             text_unit_overrides: Some(TextUnitOverrideBatch {
                 granularity: TextUnitGranularity::Grapheme,

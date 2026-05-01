@@ -211,6 +211,7 @@ mod tests {
                     text: "Hello".into(),
                     style: ComputedTextStyle::default(),
                     allow_wrap: false,
+                    truncate: false,
                     drop_shadow: None,
                     text_unit_overrides: None,
                     visual_expand_x: 0.0,
@@ -251,6 +252,7 @@ mod tests {
                     text: "Hello".into(),
                     style: ComputedTextStyle::default(),
                     allow_wrap: false,
+                    truncate: false,
                     drop_shadow: None,
                     text_unit_overrides: Some(TextUnitOverrideBatch {
                         granularity: TextUnitGranularity::Grapheme,

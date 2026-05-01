@@ -1454,6 +1454,46 @@ mod tests {
     }
 
     #[test]
+    fn percent_width_text_under_indefinite_parent_still_resolves_layout() {
+        // 回归测试：父容器没有 definite width 时，子元素的 `w-[N%]` 不应让
+        // layout 崩溃或让文本测量丢失。Taffy 对 indefinite parent 的 percent
+        // 解析会回退（具体值由 Taffy 决定），这里只固化"必须能成功 layout 且
+        // 至少记录到一次测量请求、且 wrap 仍然被允许"这三条契约。
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 240,
+            frames: 1,
+        };
+        let mut media = MediaContext::new();
+        let mut assets = AssetsMap::new();
+        let root = classed_div(
+            "root",
+            "h-full",
+            vec![classed_text("headline", "w-[50%] text-[16px]", "Indefinite parent copy").into()],
+        )
+        .into();
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+            .expect("tree should resolve");
+        let measurer = RecordingTextMeasurer::default();
+
+        let _layout = compute_layout_with_text_engine(&resolved, &frame_ctx, &measurer)
+            .expect("layout should succeed even when parent width is indefinite");
+
+        let requests = measurer.requests_for("Indefinite parent copy");
+        assert!(
+            !requests.is_empty(),
+            "expected at least one measurement request under indefinite parent"
+        );
+        assert!(
+            requests.iter().all(|request| request.allow_wrap),
+            "percent-width text should still allow wrap under indefinite parent, got {:?}",
+            requests
+        );
+    }
+
+    #[test]
     fn layout_session_reuses_layout_for_paint_only_change() {
         let frame_ctx = FrameCtx {
             frame: 0,

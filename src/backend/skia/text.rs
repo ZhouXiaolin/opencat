@@ -90,8 +90,10 @@ pub(crate) fn draw_text(
     let rendered_text = apply_text_transform(text, style.text_transform);
     let layout_width = if truncate {
         if !width.is_finite() || width <= 0.0 {
+            // truncate 模式下容器宽度无效（NaN/0/负值）：单行省略后不会有任何可见像素，
+            // 也无法构造 clip_rect，直接 bail-out 比交给 Skia 处理更安全。
             return;
-        };
+        }
         width
     } else if allow_wrap {
         width
@@ -258,7 +260,7 @@ fn make_paragraph_from_text(text: &str, style: &ComputedTextStyle, max_width: f3
 
     let mut builder = ParagraphBuilder::new(&paragraph_style, shared_font_collection());
     builder.push_style(&text_style);
-    builder.add_text(&text);
+    builder.add_text(text);
 
     let mut paragraph = builder.build();
     paragraph.layout(normalize_width(max_width));
@@ -276,7 +278,7 @@ fn make_truncated_paragraph(text: &str, style: &ComputedTextStyle, max_width: f3
 
     let mut builder = ParagraphBuilder::new(&paragraph_style, shared_font_collection());
     builder.push_style(&text_style);
-    builder.add_text(&text);
+    builder.add_text(text);
 
     let mut paragraph = builder.build();
     paragraph.layout(normalize_width(max_width));

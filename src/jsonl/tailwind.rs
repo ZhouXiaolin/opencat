@@ -167,6 +167,7 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         ExactClassAction::TextAlign(value) => style.text_align = Some(value),
         ExactClassAction::WidthFull => {
             style.width = None;
+            style.width_percent = None;
             style.width_full = true;
         }
         ExactClassAction::HeightFull => {
@@ -1149,13 +1150,18 @@ fn apply_bracket_percent_rule(class: &str, prefix: &str, style: &mut NodeStyle) 
     else {
         return false;
     };
-    if let Ok(percent) = value.parse::<f32>() {
-        style.width_percent = Some(percent / 100.0);
-        style.width = None;
-        style.width_full = false;
-        return true;
+    let Ok(percent) = value.parse::<f32>() else {
+        return false;
+    };
+    // Tailwind 允许任意百分比字面量（含 >100%），但传给 Taffy 前必须是有限值。
+    // CSS 浏览器对负 width 的处理是按 0 渲染，这里保持一致以兼容 Tailwind 输入。
+    if !percent.is_finite() {
+        return false;
     }
-    false
+    style.width_percent = Some((percent / 100.0).max(0.0));
+    style.width = None;
+    style.width_full = false;
+    true
 }
 
 const ROUNDED_SIZE_MAP: &[(&str, f32)] = &[
@@ -1225,6 +1231,7 @@ fn apply_f32_target(style: &mut NodeStyle, target: F32Target, value: f32) {
         F32Target::MinHeight => style.min_height = Some(LengthPercentageAuto::Length(value)),
         F32Target::Width => {
             style.width = Some(value);
+            style.width_percent = None;
             style.width_full = false;
         }
         F32Target::Height => {
@@ -1762,6 +1769,85 @@ mod tests {
         let style = parse_class_name("w-[65%]");
 
         assert_eq!(style.width_percent, Some(0.65));
+        assert_eq!(style.width, None);
+        assert!(!style.width_full);
+    }
+
+    #[test]
+    fn arbitrary_percent_width_allows_values_above_one_hundred() {
+        let style = parse_class_name("w-[150%]");
+
+        assert_eq!(style.width_percent, Some(1.5));
+    }
+
+    #[test]
+    fn arbitrary_percent_width_clamps_negative_to_zero() {
+        // Tailwind 允许 `w-[-10%]` 字面量，CSS 浏览器对负宽度按 0 渲染。
+        // 引擎需要保证传给 Taffy 的百分比非负，故 clamp 而非拒绝。
+        let style = parse_class_name("w-[-10%]");
+
+        assert_eq!(style.width_percent, Some(0.0));
+        assert_eq!(style.width, None);
+        assert!(!style.width_full);
+    }
+
+    #[test]
+    fn arbitrary_percent_width_rejects_non_finite_values() {
+        for class in ["w-[NaN%]", "w-[inf%]", "w-[-inf%]"] {
+            let style = parse_class_name(class);
+            assert!(
+                style.width_percent.is_none(),
+                "{class} 应被忽略，得到 {:?}",
+                style.width_percent,
+            );
+        }
+    }
+
+    #[test]
+    fn arbitrary_percent_width_rejects_malformed_input() {
+        for class in ["w-[%]", "w-[abc%]", "w-[]"] {
+            let style = parse_class_name(class);
+            assert!(
+                style.width_percent.is_none(),
+                "{class} 应被忽略，得到 {:?}",
+                style.width_percent,
+            );
+        }
+    }
+
+    #[test]
+    fn later_arbitrary_width_overrides_prior_percent() {
+        // 模拟 Tailwind 的 last-class-wins 语义：后写的 `w-[200px]` 必须完全覆盖 `w-[50%]`。
+        let style = parse_class_name("w-[50%] w-[200px]");
+
+        assert_eq!(style.width, Some(200.0));
+        assert_eq!(style.width_percent, None);
+        assert!(!style.width_full);
+    }
+
+    #[test]
+    fn later_width_full_overrides_prior_percent() {
+        let style = parse_class_name("w-[50%] w-full");
+
+        assert!(style.width_full);
+        assert_eq!(style.width_percent, None);
+        assert_eq!(style.width, None);
+    }
+
+    #[test]
+    fn later_percent_overrides_prior_width_full() {
+        let style = parse_class_name("w-full w-[50%]");
+
+        assert_eq!(style.width_percent, Some(0.5));
+        assert!(!style.width_full);
+        assert_eq!(style.width, None);
+    }
+
+    #[test]
+    fn later_percent_overrides_prior_arbitrary_width() {
+        let style = parse_class_name("w-[200px] w-[50%]");
+
+        assert_eq!(style.width_percent, Some(0.5));
         assert_eq!(style.width, None);
         assert!(!style.width_full);
     }

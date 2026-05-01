@@ -696,11 +696,7 @@ fn find_matching_paren(s: &str, start: usize) -> Option<usize> {
         }
         i += 1;
     }
-    if depth == 0 {
-        Some(i - 1)
-    } else {
-        None
-    }
+    if depth == 0 { Some(i - 1) } else { None }
 }
 
 fn split_args(s: &str) -> Vec<String> {
@@ -942,9 +938,7 @@ fn replace_transition_uniforms(
             .unwrap_or(ty);
         let value = if let Some(v) = default_params.get(name) {
             default_param_to_sksl(ty, v).ok_or_else(|| {
-                anyhow!(
-                    "GLTransition parameter `{name}` has unsupported default value `{v}`"
-                )
+                anyhow!("GLTransition parameter `{name}` has unsupported default value `{v}`")
             })?
         } else if let Some(inline_val) = &inline_default {
             let glsl_to_sksl = |s: &str| -> String {

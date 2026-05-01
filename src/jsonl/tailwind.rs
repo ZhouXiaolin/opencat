@@ -148,6 +148,11 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         ExactClassAction::BorderWidth(value) => style.border_width = Some(value),
         ExactClassAction::BackdropBlurSigma(value) => style.backdrop_blur_sigma = Some(value),
         ExactClassAction::OverflowHidden => style.overflow_hidden = true,
+        ExactClassAction::Truncate => {
+            style.overflow_hidden = true;
+            style.truncate = true;
+        }
+        ExactClassAction::LineThrough => style.line_through = true,
         ExactClassAction::Noop => {}
         ExactClassAction::InsetZero => {
             let zero = LengthPercentageAuto::length(0.0);
@@ -545,6 +550,10 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
+    if apply_bracket_percent_rule(class, "w-[", style) {
+        return true;
+    }
+
     if apply_bracket_f32_rule(class, BRACKET_F32_RULES, style) {
         return true;
     }
@@ -780,6 +789,8 @@ enum ExactClassAction {
     BorderRadius(f32),
     BorderWidth(f32),
     OverflowHidden,
+    Truncate,
+    LineThrough,
     Noop,
     InsetZero,
     BgGradientDirection(GradientDirection),
@@ -1128,6 +1139,23 @@ fn apply_bracket_line_height_rule(class: &str, style: &mut NodeStyle) -> bool {
 
 fn parse_prefixed_bracket_f32(class: &str, prefix: &str) -> Option<f32> {
     class.strip_prefix(prefix).and_then(parse_bracket_f32)
+}
+
+fn apply_bracket_percent_rule(class: &str, prefix: &str, style: &mut NodeStyle) -> bool {
+    let Some(value) = class
+        .strip_prefix(prefix)
+        .and_then(|v| v.strip_suffix(']'))
+        .and_then(|v| v.strip_suffix('%'))
+    else {
+        return false;
+    };
+    if let Ok(percent) = value.parse::<f32>() {
+        style.width_percent = Some(percent / 100.0);
+        style.width = None;
+        style.width_full = false;
+        return true;
+    }
+    false
 }
 
 const ROUNDED_SIZE_MAP: &[(&str, f32)] = &[
@@ -1727,5 +1755,14 @@ mod tests {
         let style = parse_class_name("fill-none");
 
         assert_eq!(style.fill_color, Some(ColorToken::Transparent));
+    }
+
+    #[test]
+    fn parses_arbitrary_percent_width() {
+        let style = parse_class_name("w-[65%]");
+
+        assert_eq!(style.width_percent, Some(0.65));
+        assert_eq!(style.width, None);
+        assert!(!style.width_full);
     }
 }

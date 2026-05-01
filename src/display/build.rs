@@ -152,9 +152,12 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 bounds,
                 text: text.text.clone(),
                 style: text.text_style,
-                allow_wrap: element.style.text.wrap_text
-                    || element.style.layout.width.is_some()
-                    || element.style.layout.width_full,
+                allow_wrap: !element.style.layout.truncate
+                    && (element.style.text.wrap_text
+                        || element.style.layout.width.is_some()
+                        || element.style.layout.width_percent.is_some()
+                        || element.style.layout.width_full),
+                truncate: element.style.layout.truncate,
                 drop_shadow: element.style.visual.drop_shadow,
                 text_unit_overrides: text.text_unit_overrides.clone(),
                 visual_expand_x,

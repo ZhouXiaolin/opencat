@@ -1464,6 +1464,7 @@ fn record_text_snapshot(text: &TextDisplayItem) -> Result<Picture> {
         text.bounds.width,
         text.allow_wrap,
         &text.style,
+        text.truncate,
     );
     recorder
         .finish_recording_as_picture(None)
@@ -3004,6 +3005,7 @@ mod text_draw_tests {
             text: "Hello".into(),
             style: ComputedTextStyle::default(),
             allow_wrap: false,
+            truncate: false,
             drop_shadow: None,
             text_unit_overrides: None,
             visual_expand_x: 0.0,
@@ -3021,6 +3023,7 @@ mod text_draw_tests {
             text: "Hello".into(),
             style: ComputedTextStyle::default(),
             allow_wrap: false,
+            truncate: false,
             drop_shadow: None,
             text_unit_overrides: Some(TextUnitOverrideBatch {
                 granularity: TextUnitGranularity::Grapheme,
@@ -3054,6 +3057,7 @@ mod text_draw_tests {
             text: "Hello".into(),
             style: ComputedTextStyle::default(),
             allow_wrap: false,
+            truncate: false,
             drop_shadow: None,
             text_unit_overrides: Some(TextUnitOverrideBatch {
                 granularity: TextUnitGranularity::Grapheme,
@@ -3077,6 +3081,9 @@ mod text_draw_tests {
             .chunks_exact(4)
             .any(|px| px[3] > 0);
 
-        assert!(has_visible_pixel, "text unit override draw should produce visible pixels");
+        assert!(
+            has_visible_pixel,
+            "text unit override draw should produce visible pixels"
+        );
     }
 }

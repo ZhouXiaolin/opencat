@@ -12,8 +12,8 @@ use skia_safe::{
     surfaces,
     textlayout::{
         FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, RectHeightStyle,
-        RectWidthStyle, TextAlign as ParagraphAlign, TextBox, TextStyle as ParagraphTextStyle,
-        TypefaceFontProvider,
+        RectWidthStyle, TextAlign as ParagraphAlign, TextBox, TextDecoration,
+        TextStyle as ParagraphTextStyle, TypefaceFontProvider,
     },
 };
 
@@ -85,10 +85,40 @@ pub(crate) fn draw_text(
     width: f32,
     allow_wrap: bool,
     style: &ComputedTextStyle,
+    truncate: bool,
 ) {
-    let layout_width = if allow_wrap { width } else { f32::INFINITY };
-    let paragraph = make_paragraph(text, style, layout_width);
+    let rendered_text = apply_text_transform(text, style.text_transform);
+    let layout_width = if truncate {
+        if !width.is_finite() || width <= 0.0 {
+            return;
+        };
+        width
+    } else if allow_wrap {
+        width
+    } else {
+        f32::INFINITY
+    };
+
+    let paragraph = if truncate {
+        make_truncated_paragraph(&rendered_text, style, layout_width)
+    } else {
+        make_paragraph_from_text(&rendered_text, style, layout_width)
+    };
+
+    if truncate {
+        canvas.save();
+        canvas.clip_rect(
+            Rect::from_xywh(left, top, width, paragraph.height()),
+            None,
+            None,
+        );
+    }
+
     paragraph.paint(canvas, (left, top));
+
+    if truncate {
+        canvas.restore();
+    }
 }
 
 pub(crate) fn draw_text_with_unit_overrides(
@@ -220,13 +250,7 @@ fn make_paragraph(text: &str, style: &ComputedTextStyle, max_width: f32) -> Para
 }
 
 fn make_paragraph_from_text(text: &str, style: &ComputedTextStyle, max_width: f32) -> Paragraph {
-    let mut text_style = ParagraphTextStyle::new();
-    text_style.set_color(skia_color(style.color));
-    text_style.set_font_size(style.text_px);
-    text_style.set_font_style(font_style(style.font_weight));
-    text_style.set_letter_spacing(style.letter_spacing);
-    text_style.set_height(style.resolved_line_height_px() / style.text_px);
-    text_style.set_height_override(true);
+    let text_style = paragraph_text_style(style);
 
     let mut paragraph_style = ParagraphStyle::new();
     paragraph_style.set_text_align(paragraph_align(style.text_align));
@@ -239,6 +263,39 @@ fn make_paragraph_from_text(text: &str, style: &ComputedTextStyle, max_width: f3
     let mut paragraph = builder.build();
     paragraph.layout(normalize_width(max_width));
     paragraph
+}
+
+fn make_truncated_paragraph(text: &str, style: &ComputedTextStyle, max_width: f32) -> Paragraph {
+    let text_style = paragraph_text_style(style);
+
+    let mut paragraph_style = ParagraphStyle::new();
+    paragraph_style.set_text_align(paragraph_align(style.text_align));
+    paragraph_style.set_text_style(&text_style);
+    paragraph_style.set_ellipsis("…");
+    paragraph_style.set_max_lines(1);
+
+    let mut builder = ParagraphBuilder::new(&paragraph_style, shared_font_collection());
+    builder.push_style(&text_style);
+    builder.add_text(&text);
+
+    let mut paragraph = builder.build();
+    paragraph.layout(normalize_width(max_width));
+    paragraph
+}
+
+fn paragraph_text_style(style: &ComputedTextStyle) -> ParagraphTextStyle {
+    let mut text_style = ParagraphTextStyle::new();
+    text_style.set_color(skia_color(style.color));
+    text_style.set_font_size(style.text_px);
+    text_style.set_font_style(font_style(style.font_weight));
+    text_style.set_letter_spacing(style.letter_spacing);
+    text_style.set_height(style.resolved_line_height_px() / style.text_px);
+    text_style.set_height_override(true);
+    if style.line_through {
+        text_style.set_decoration_type(TextDecoration::LINE_THROUGH);
+        text_style.set_decoration_color(skia_color(style.color));
+    }
+    text_style
 }
 
 fn build_text_unit_clip(boxes: &[TextBox], left: f32, top: f32) -> Option<(skia_safe::Path, Rect)> {

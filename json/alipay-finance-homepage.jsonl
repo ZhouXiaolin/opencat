@@ -1,0 +1,133 @@
+{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
+{"id":"page","parentId":null,"type":"div","className":"relative w-[390px] h-[844px] bg-blue-50","duration":180}
+{"id":"bg-layer","parentId":"page","type":"div","className":"absolute inset-0 overflow-hidden"}
+{"id":"bg-c1","parentId":"bg-layer","type":"div","className":"absolute w-[280px] h-[280px] rounded-full bg-blue-300 opacity-15 top-[-100px] right-[-70px]"}
+{"id":"bg-c2","parentId":"bg-layer","type":"div","className":"absolute w-[160px] h-[160px] rounded-full bg-sky-300 opacity-15 top-[180px] left-[-60px]"}
+{"id":"bg-c3","parentId":"bg-layer","type":"div","className":"absolute w-[80px] h-[80px] rounded-full bg-blue-200 opacity-20 bottom-[280px] right-[-20px]"}
+{"id":"d-star-1","parentId":"page","type":"icon","className":"absolute top-[165px] left-[190px] w-[10px] h-[10px] fill-blue-400 stroke-blue-400","icon":"star"}
+{"id":"d-star-2","parentId":"page","type":"icon","className":"absolute top-[330px] left-[310px] w-[8px] h-[8px] fill-sky-400 stroke-sky-400","icon":"star"}
+{"id":"d-star-3","parentId":"page","type":"icon","className":"absolute top-[420px] left-[40px] w-[7px] h-[7px] fill-blue-300 stroke-blue-300","icon":"star"}
+{"id":"float-hongbao","parentId":"page","type":"div","className":"absolute top-[235px] right-[18px] w-[40px] h-[40px] rounded-full bg-red-500 shadow-md flex items-center justify-center"}
+{"id":"float-hongbao-ico","parentId":"float-hongbao","type":"icon","className":"w-[20px] h-[20px] stroke-white","icon":"gift"}
+{"id":"float-hongbao-lbl","parentId":"float-hongbao","type":"div","className":"absolute -top-[4px] -right-[4px] w-[18px] h-[18px] rounded-full bg-red-600 flex items-center justify-center"}
+{"id":"float-hongbao-num","parentId":"float-hongbao-lbl","type":"text","className":"text-[9px] font-bold text-white","text":"3"}
+{"id":"main","parentId":"page","type":"div","className":"flex flex-col w-full h-full px-[16px] pt-[8px]"}
+{"id":"top-bar","parentId":"main","type":"div","className":"flex flex-row items-center justify-between h-[44px]"}
+{"id":"search-wrap","parentId":"top-bar","type":"div","className":"flex flex-row flex-1 items-center h-[36px] px-[14px] rounded-full bg-white shadow-sm border border-gray-100"}
+{"id":"srch-ico","parentId":"search-wrap","type":"icon","className":"w-[16px] h-[16px] stroke-blue-400","icon":"search"}
+{"id":"srch-txt","parentId":"search-wrap","type":"text","className":"ml-[8px] text-[13px] text-gray-400 flex-1","text":"搜索 转账/理财/缴费"}
+{"id":"srch-cam","parentId":"search-wrap","type":"icon","className":"w-[16px] h-[16px] stroke-gray-400","icon":"camera"}
+{"id":"top-weather","parentId":"top-bar","type":"div","className":"flex flex-row items-center ml-[14px] gap-[4px]"}
+{"id":"top-wthr-ico","parentId":"top-weather","type":"icon","className":"w-[20px] h-[20px] stroke-blue-500","icon":"sun"}
+{"id":"top-wthr-txt","parentId":"top-weather","type":"text","className":"text-[13px] font-medium text-gray-600","text":"24°"}
+{"id":"top-msg","parentId":"top-bar","type":"icon","className":"ml-[12px] w-[22px] h-[22px] stroke-gray-500","icon":"message-circle"}
+{"id":"core-pay","parentId":"main","type":"div","className":"flex flex-row justify-between mt-[18px]"}
+{"id":"pay-1","parentId":"core-pay","type":"div","className":"flex flex-col items-center w-[78px] gap-[6px]"}
+{"id":"pay-1-bg","parentId":"pay-1","type":"div","className":"w-[52px] h-[52px] rounded-2xl bg-blue-100 flex items-center justify-center"}
+{"id":"pay-1-ico","parentId":"pay-1-bg","type":"icon","className":"w-[24px] h-[24px] stroke-blue-600","icon":"scan-line"}
+{"id":"pay-1-txt","parentId":"pay-1","type":"text","className":"text-[11px] font-medium text-gray-600","text":"扫一扫"}
+{"id":"pay-2","parentId":"core-pay","type":"div","className":"flex flex-col items-center w-[78px] gap-[6px]"}
+{"id":"pay-2-bg","parentId":"pay-2","type":"div","className":"w-[52px] h-[52px] rounded-2xl bg-blue-100 flex items-center justify-center"}
+{"id":"pay-2-ico","parentId":"pay-2-bg","type":"icon","className":"w-[24px] h-[24px] stroke-blue-600","icon":"qr-code"}
+{"id":"pay-2-txt","parentId":"pay-2","type":"text","className":"text-[11px] font-medium text-gray-600","text":"付款码"}
+{"id":"pay-3","parentId":"core-pay","type":"div","className":"flex flex-col items-center w-[78px] gap-[6px]"}
+{"id":"pay-3-bg","parentId":"pay-3","type":"div","className":"w-[52px] h-[52px] rounded-2xl bg-blue-100 flex items-center justify-center"}
+{"id":"pay-3-ico","parentId":"pay-3-bg","type":"icon","className":"w-[24px] h-[24px] stroke-blue-600","icon":"bus"}
+{"id":"pay-3-txt","parentId":"pay-3","type":"text","className":"text-[11px] font-medium text-gray-600","text":"出行"}
+{"id":"pay-4","parentId":"core-pay","type":"div","className":"flex flex-col items-center w-[78px] gap-[6px]"}
+{"id":"pay-4-bg","parentId":"pay-4","type":"div","className":"w-[52px] h-[52px] rounded-2xl bg-blue-100 flex items-center justify-center"}
+{"id":"pay-4-ico","parentId":"pay-4-bg","type":"icon","className":"w-[24px] h-[24px] stroke-blue-600","icon":"wallet"}
+{"id":"pay-4-txt","parentId":"pay-4","type":"text","className":"text-[11px] font-medium text-gray-600","text":"卡包"}
+{"id":"finance-card","parentId":"main","type":"div","className":"flex flex-row mt-[16px] rounded-xl bg-white shadow-sm overflow-hidden"}
+{"id":"yuebao","parentId":"finance-card","type":"div","className":"flex-1 flex flex-col p-[14px]"}
+{"id":"yuebao-title","parentId":"yuebao","type":"div","className":"flex flex-row items-center gap-[4px]"}
+{"id":"yuebao-ico","parentId":"yuebao-title","type":"icon","className":"w-[14px] h-[14px] fill-green-500 stroke-green-500","icon":"circle-dollar-sign"}
+{"id":"yuebao-txt","parentId":"yuebao-title","type":"text","className":"text-[11px] text-gray-500","text":"余额宝"}
+{"id":"yuebao-num","parentId":"yuebao","type":"text","className":"mt-[6px] text-[22px] font-bold text-green-500","text":"¥12,846.53"}
+{"id":"yuebao-sub","parentId":"yuebao","type":"text","className":"mt-[2px] text-[10px] text-green-400","text":"累计收益 +¥346.20"}
+{"id":"card-divider","parentId":"finance-card","type":"div","className":"w-[1px] bg-gray-100"}
+{"id":"huabei","parentId":"finance-card","type":"div","className":"flex-1 flex flex-col p-[14px]"}
+{"id":"huabei-title","parentId":"huabei","type":"div","className":"flex flex-row items-center gap-[4px]"}
+{"id":"huabei-ico","parentId":"huabei-title","type":"icon","className":"w-[14px] h-[14px] stroke-blue-500","icon":"credit-card"}
+{"id":"huabei-txt","parentId":"huabei-title","type":"text","className":"text-[11px] text-gray-500","text":"花呗"}
+{"id":"huabei-num","parentId":"huabei","type":"text","className":"mt-[6px] text-[22px] font-bold text-blue-500","text":"¥8,000.00"}
+{"id":"huabei-sub","parentId":"huabei","type":"text","className":"mt-[2px] text-[10px] text-gray-400","text":"可用额度  >"}
+{"id":"promo-banner","parentId":"main","type":"div","className":"flex flex-col mt-[14px] p-[16px] rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 shadow-sm"}
+{"id":"promo-title","parentId":"promo-banner","type":"div","className":"flex flex-row items-center gap-[6px]"}
+{"id":"promo-icon","parentId":"promo-title","type":"icon","className":"w-[18px] h-[18px] stroke-yellow-300 fill-yellow-300","icon":"target"}
+{"id":"promo-txt","parentId":"promo-title","type":"text","className":"text-[15px] font-bold text-white","text":"积分大作战"}
+{"id":"promo-desc","parentId":"promo-banner","type":"text","className":"mt-[4px] text-[11px] text-indigo-200","text":"每日签到赚积分 兑好礼"}
+{"id":"promo-progress-track","parentId":"promo-banner","type":"div","className":"mt-[10px] w-full h-[6px] rounded-full bg-white/20"}
+{"id":"promo-progress-fill","parentId":"promo-progress-track","type":"div","className":"w-[65%] h-full rounded-full bg-white"}
+{"id":"promo-info","parentId":"promo-banner","type":"div","className":"flex flex-row items-center justify-between mt-[6px]"}
+{"id":"promo-points","parentId":"promo-info","type":"text","className":"text-[10px] text-indigo-200","text":"已兑换 1,280 积分"}
+{"id":"promo-cta","parentId":"promo-info","type":"text","className":"text-[10px] font-medium text-white","text":"立即签到 >"}
+{"id":"life-title","parentId":"main","type":"div","className":"flex flex-row items-center mt-[16px]"}
+{"id":"life-txt","parentId":"life-title","type":"text","className":"text-[15px] font-bold text-gray-900","text":"生活服务"}
+{"id":"life-more","parentId":"life-title","type":"text","className":"ml-auto text-[12px] text-gray-400","text":"更多 >"}
+{"id":"life-grid","parentId":"main","type":"div","className":"flex flex-row flex-wrap mt-[12px] gap-x-[8px] gap-y-[16px]"}
+{"id":"svc-1","parentId":"life-grid","type":"div","className":"flex flex-col items-center w-[110px] gap-[6px]"}
+{"id":"svc-1-bg","parentId":"svc-1","type":"div","className":"w-[40px] h-[40px] rounded-xl bg-red-500 flex items-center justify-center"}
+{"id":"svc-1-ico","parentId":"svc-1-bg","type":"icon","className":"w-[20px] h-[20px] stroke-white","icon":"shopping-bag"}
+{"id":"svc-1-txt","parentId":"svc-1","type":"text","className":"text-[11px] font-medium text-gray-600","text":"外卖"}
+{"id":"svc-2","parentId":"life-grid","type":"div","className":"flex flex-col items-center w-[110px] gap-[6px]"}
+{"id":"svc-2-bg","parentId":"svc-2","type":"div","className":"w-[40px] h-[40px] rounded-xl bg-blue-500 flex items-center justify-center"}
+{"id":"svc-2-ico","parentId":"svc-2-bg","type":"icon","className":"w-[20px] h-[20px] stroke-white","icon":"building-2"}
+{"id":"svc-2-txt","parentId":"svc-2","type":"text","className":"text-[11px] font-medium text-gray-600","text":"酒店"}
+{"id":"svc-3","parentId":"life-grid","type":"div","className":"flex flex-col items-center w-[110px] gap-[6px]"}
+{"id":"svc-3-bg","parentId":"svc-3","type":"div","className":"w-[40px] h-[40px] rounded-xl bg-purple-500 flex items-center justify-center"}
+{"id":"svc-3-ico","parentId":"svc-3-bg","type":"icon","className":"w-[20px] h-[20px] stroke-white","icon":"film"}
+{"id":"svc-3-txt","parentId":"svc-3","type":"text","className":"text-[11px] font-medium text-gray-600","text":"电影"}
+{"id":"svc-4","parentId":"life-grid","type":"div","className":"flex flex-col items-center w-[110px] gap-[6px]"}
+{"id":"svc-4-bg","parentId":"svc-4","type":"div","className":"w-[40px] h-[40px] rounded-xl bg-green-500 flex items-center justify-center"}
+{"id":"svc-4-ico","parentId":"svc-4-bg","type":"icon","className":"w-[20px] h-[20px] stroke-white","icon":"crown"}
+{"id":"svc-4-txt","parentId":"svc-4","type":"text","className":"text-[11px] font-medium text-gray-600","text":"火车票"}
+{"id":"svc-5","parentId":"life-grid","type":"div","className":"flex flex-col items-center w-[110px] gap-[6px]"}
+{"id":"svc-5-bg","parentId":"svc-5","type":"div","className":"w-[40px] h-[40px] rounded-xl bg-orange-500 flex items-center justify-center"}
+{"id":"svc-5-ico","parentId":"svc-5-bg","type":"icon","className":"w-[20px] h-[20px] stroke-white","icon":"file-text"}
+{"id":"svc-5-txt","parentId":"svc-5","type":"text","className":"text-[11px] font-medium text-gray-600","text":"缴费"}
+{"id":"svc-6","parentId":"life-grid","type":"div","className":"flex flex-col items-center w-[110px] gap-[6px]"}
+{"id":"svc-6-bg","parentId":"svc-6","type":"div","className":"w-[40px] h-[40px] rounded-xl bg-teal-500 flex items-center justify-center"}
+{"id":"svc-6-ico","parentId":"svc-6-bg","type":"icon","className":"w-[20px] h-[20px] stroke-white","icon":"stethoscope"}
+{"id":"svc-6-txt","parentId":"svc-6","type":"text","className":"text-[11px] font-medium text-gray-600","text":"医疗"}
+{"id":"svc-7","parentId":"life-grid","type":"div","className":"flex flex-col items-center w-[110px] gap-[6px]"}
+{"id":"svc-7-bg","parentId":"svc-7","type":"div","className":"w-[40px] h-[40px] rounded-xl bg-indigo-500 flex items-center justify-center"}
+{"id":"svc-7-ico","parentId":"svc-7-bg","type":"icon","className":"w-[20px] h-[20px] stroke-white","icon":"smartphone"}
+{"id":"svc-7-txt","parentId":"svc-7","type":"text","className":"text-[11px] font-medium text-gray-600","text":"话费"}
+{"id":"svc-8","parentId":"life-grid","type":"div","className":"flex flex-col items-center w-[110px] gap-[6px]"}
+{"id":"svc-8-bg","parentId":"svc-8","type":"div","className":"w-[40px] h-[40px] rounded-xl bg-emerald-500 flex items-center justify-center"}
+{"id":"svc-8-ico","parentId":"svc-8-bg","type":"icon","className":"w-[20px] h-[20px] stroke-white","icon":"leaf"}
+{"id":"svc-8-txt","parentId":"svc-8","type":"text","className":"text-[11px] font-medium text-gray-600","text":"蚂蚁森林"}
+{"id":"rec-section","parentId":"main","type":"div","className":"flex flex-col mt-[14px] gap-[10px]"}
+{"id":"rec-title","parentId":"rec-section","type":"div","className":"flex flex-row items-center"}
+{"id":"rec-fire","parentId":"rec-title","type":"icon","className":"w-[16px] h-[16px] stroke-orange-500 fill-orange-500","icon":"flame"}
+{"id":"rec-txt","parentId":"rec-title","type":"text","className":"ml-[6px] text-[15px] font-bold text-gray-900","text":"为你推荐"}
+{"id":"rec-more","parentId":"rec-title","type":"text","className":"ml-auto text-[12px] text-gray-400","text":"更多 >"}
+{"id":"rec-cards","parentId":"rec-section","type":"div","className":"flex flex-row gap-[10px]"}
+{"id":"rec-card-1","parentId":"rec-cards","type":"div","className":"flex-1 flex flex-col p-[12px] rounded-xl bg-white shadow-sm border border-gray-50"}
+{"id":"rec-card-1-type","parentId":"rec-card-1","type":"text","className":"text-[10px] text-gray-400","text":"基金"}
+{"id":"rec-card-1-name","parentId":"rec-card-1","type":"text","className":"mt-[4px] text-[13px] font-semibold text-gray-900","text":"天弘优选混合"}
+{"id":"rec-card-1-rate","parentId":"rec-card-1","type":"div","className":"flex flex-row items-baseline gap-[1px] mt-[6px]"}
+{"id":"rec-card-1-up","parentId":"rec-card-1-rate","type":"icon","className":"w-[10px] h-[10px] stroke-green-500","icon":"trending-up"}
+{"id":"rec-card-1-pct","parentId":"rec-card-1-rate","type":"text","className":"text-[16px] font-bold text-green-500","text":"+5.68%"}
+{"id":"rec-card-1-lbl","parentId":"rec-card-1","type":"text","className":"mt-[2px] text-[10px] text-gray-400","text":"近一年收益"}
+{"id":"rec-card-2","parentId":"rec-cards","type":"div","className":"flex-1 flex flex-col p-[12px] rounded-xl bg-white shadow-sm border border-gray-50"}
+{"id":"rec-card-2-type","parentId":"rec-card-2","type":"text","className":"text-[10px] text-gray-400","text":"黄金"}
+{"id":"rec-card-2-name","parentId":"rec-card-2","type":"text","className":"mt-[4px] text-[13px] font-semibold text-gray-900","text":"博时黄金ETF"}
+{"id":"rec-card-2-rate","parentId":"rec-card-2","type":"div","className":"flex flex-row items-baseline gap-[1px] mt-[6px]"}
+{"id":"rec-card-2-up","parentId":"rec-card-2-rate","type":"icon","className":"w-[10px] h-[10px] stroke-amber-500","icon":"trending-up"}
+{"id":"rec-card-2-pct","parentId":"rec-card-2-rate","type":"text","className":"text-[16px] font-bold text-amber-500","text":"+2.34%"}
+{"id":"rec-card-2-lbl","parentId":"rec-card-2","type":"text","className":"mt-[2px] text-[10px] text-gray-400","text":"低门槛投资"}
+{"id":"tab-bar","parentId":"page","type":"div","className":"absolute bottom-0 w-full h-[56px] flex flex-row items-center justify-around bg-white border-t border-gray-100 shadow-lg"}
+{"id":"tab-1","parentId":"tab-bar","type":"div","className":"flex flex-col items-center gap-[2px]"}
+{"id":"tab-1-ico","parentId":"tab-1","type":"icon","className":"w-[22px] h-[22px] stroke-blue-500 fill-blue-500","icon":"home"}
+{"id":"tab-1-txt","parentId":"tab-1","type":"text","className":"text-[10px] font-medium text-blue-500","text":"首页"}
+{"id":"tab-2","parentId":"tab-bar","type":"div","className":"flex flex-col items-center gap-[2px]"}
+{"id":"tab-2-ico","parentId":"tab-2","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"trending-up"}
+{"id":"tab-2-txt","parentId":"tab-2","type":"text","className":"text-[10px] text-gray-400","text":"理财"}
+{"id":"tab-3","parentId":"tab-bar","type":"div","className":"flex flex-col items-center gap-[2px]"}
+{"id":"tab-3-ico","parentId":"tab-3","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"star"}
+{"id":"tab-3-txt","parentId":"tab-3","type":"text","className":"text-[10px] text-gray-400","text":"口碑"}
+{"id":"tab-4","parentId":"tab-bar","type":"div","className":"flex flex-col items-center gap-[2px]"}
+{"id":"tab-4-ico","parentId":"tab-4","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"user"}
+{"id":"tab-4-txt","parentId":"tab-4","type":"text","className":"text-[10px] text-gray-400","text":"我的"}

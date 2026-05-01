@@ -425,16 +425,18 @@ fn draw_light_leak_transition(
         render_light_leak_mask(progress, params, mask_size.0, mask_size.1)?
     };
 
+    let from_matrix = picture_shader_local_matrix(from);
+    let to_matrix = picture_shader_local_matrix(to);
     let from_shader = from.to_shader(
         None,
         FilterMode::Linear,
-        Option::<&Matrix>::None,
+        Some(&from_matrix),
         Option::<&Rect>::None,
     );
     let to_shader = to.to_shader(
         None,
         FilterMode::Linear,
-        Option::<&Matrix>::None,
+        Some(&to_matrix),
         Option::<&Rect>::None,
     );
 
@@ -476,16 +478,18 @@ fn draw_gl_transition(
     width: i32,
     height: i32,
 ) -> Result<()> {
+    let from_matrix = picture_shader_local_matrix(from);
+    let to_matrix = picture_shader_local_matrix(to);
     let from_shader = from.to_shader(
         None,
         FilterMode::Linear,
-        Option::<&Matrix>::None,
+        Some(&from_matrix),
         Option::<&Rect>::None,
     );
     let to_shader = to.to_shader(
         None,
         FilterMode::Linear,
-        Option::<&Matrix>::None,
+        Some(&to_matrix),
         Option::<&Rect>::None,
     );
 
@@ -499,6 +503,11 @@ fn draw_gl_transition(
     paint.set_shader(shader);
     canvas.draw_paint(&paint);
     Ok(())
+}
+
+fn picture_shader_local_matrix(picture: &Picture) -> Matrix {
+    let cull = picture.cull_rect();
+    Matrix::translate((cull.left(), cull.top()))
 }
 
 fn render_light_leak_mask(

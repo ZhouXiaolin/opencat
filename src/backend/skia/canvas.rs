@@ -649,8 +649,8 @@ impl<'a> SkiaBackend<'a> {
         let recording_canvas = recorder.begin_recording(bounds, false);
         let mut backend = SkiaBackend::new_with_cache(
             recording_canvas,
-            layer_bounds.width.max(1.0) as i32,
-            layer_bounds.height.max(1.0) as i32,
+            layer_bounds.width.max(1.0).round() as i32,
+            layer_bounds.height.max(1.0).round() as i32,
             self.display_tree,
             self.assets,
             self.image_cache.clone(),
@@ -787,8 +787,8 @@ impl<'a> SkiaBackend<'a> {
                     &to_snapshot,
                     transition.progress,
                     transition.kind.clone(),
-                    timeline.bounds.width.max(1.0) as i32,
-                    timeline.bounds.height.max(1.0) as i32,
+                    timeline.bounds.width.max(1.0).round() as i32,
+                    timeline.bounds.height.max(1.0).round() as i32,
                 )
             })
         })

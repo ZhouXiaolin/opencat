@@ -880,6 +880,7 @@ impl<'a> SkiaBackend<'a> {
     ) -> Result<T> {
         let backdrop_blur_sigma = backdrop_blur_sigma.filter(|sigma| *sigma > 0.0);
         let uses_layer = opacity < 1.0 || backdrop_blur_sigma.is_some();
+        let mut has_backdrop_clip = false;
         if uses_layer {
             event!(target: "render.layer", Level::TRACE, kind = "layer", name = "save_layer", result = "count", amount = 1_u64);
             let bounds = layout_rect_to_skia(bounds);
@@ -894,6 +895,9 @@ impl<'a> SkiaBackend<'a> {
                     None::<skia_safe::image_filters::CropRect>,
                 );
                 if let Some(backdrop) = backdrop {
+                    self.canvas.save();
+                    self.canvas.clip_rect(bounds, None, false);
+                    has_backdrop_clip = true;
                     let rec = SaveLayerRec::default()
                         .bounds(&bounds)
                         .paint(&paint)
@@ -912,6 +916,9 @@ impl<'a> SkiaBackend<'a> {
 
         if uses_layer {
             self.canvas.restore();
+            if has_backdrop_clip {
+                self.canvas.restore();
+            }
         }
 
         result
@@ -2739,6 +2746,14 @@ fn draw_svg_path(canvas: &Canvas, item: &SvgPathDisplayItem) {
         paint.set_stroke_width(width);
         paint.set_stroke_cap(skia_safe::paint::Cap::Round);
         paint.set_stroke_join(skia_safe::paint::Join::Round);
+        if let Some(dash_len) = item.paint.stroke_dasharray {
+            if dash_len > 0.0 {
+                let offset = item.paint.stroke_dashoffset.unwrap_or(0.0);
+                if let Some(effect) = skia_safe::PathEffect::dash(&[dash_len, dash_len], offset) {
+                    paint.set_path_effect(effect);
+                }
+            }
+        }
         Some(paint)
     });
 

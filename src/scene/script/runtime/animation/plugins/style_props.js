@@ -43,6 +43,8 @@
             borderRadius: makeStyleProperty('borderRadius', 'borderRadius', 0),
             borderWidth: makeStyleProperty('borderWidth', 'borderWidth', 0),
             strokeWidth: makeStyleProperty('strokeWidth', 'strokeWidth', 0),
+            strokeDasharray: makeStyleProperty('strokeDasharray', 'strokeDasharray', 0),
+            strokeDashoffset: makeStyleProperty('strokeDashoffset', 'strokeDashoffset', 0),
             textSize: makeStyleProperty('textSize', 'textSize', 0),
             letterSpacing: makeStyleProperty('letterSpacing', 'letterSpacing', 0),
             lineHeight: makeStyleProperty('lineHeight', 'lineHeight', 0),

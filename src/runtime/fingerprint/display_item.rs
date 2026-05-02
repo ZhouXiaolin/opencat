@@ -210,6 +210,8 @@ impl Hash for SvgPathPaintFp<'_> {
         paint.stroke_width.map(F32Hash).hash(state);
         paint.stroke_color.hash(state);
         paint.drop_shadow.hash(state);
+        paint.stroke_dasharray.map(F32Hash).hash(state);
+        paint.stroke_dashoffset.map(F32Hash).hash(state);
     }
 }
 

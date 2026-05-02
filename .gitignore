@@ -5,3 +5,4 @@ out/
 .qwen
 codedb.snapshot
 .alma-snapshots
+.trae

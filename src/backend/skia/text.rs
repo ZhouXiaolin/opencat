@@ -88,23 +88,25 @@ pub(crate) fn draw_text(
     truncate: bool,
 ) {
     let rendered_text = apply_text_transform(text, style.text_transform);
-    let layout_width = if truncate {
-        if !width.is_finite() || width <= 0.0 {
-            // truncate 模式下容器宽度无效（NaN/0/负值）：单行省略后不会有任何可见像素，
-            // 也无法构造 clip_rect，直接 bail-out 比交给 Skia 处理更安全。
-            return;
-        }
-        width
-    } else if allow_wrap {
-        width
-    } else {
-        f32::INFINITY
-    };
+    if truncate && (!width.is_finite() || width <= 0.0) {
+        // truncate 模式下容器宽度无效（NaN/0/负值）：单行省略后不会有任何可见像素，
+        // 也无法构造 clip_rect，直接 bail-out 比交给 Skia 处理更安全。
+        return;
+    }
 
     let paragraph = if truncate {
-        make_truncated_paragraph(&rendered_text, style, layout_width)
+        // truncate：layout 在容器宽内单行省略，对齐沿用 style.text_align。
+        make_truncated_paragraph(&rendered_text, style, width)
+    } else if allow_wrap {
+        // 显式给了宽度（或 wrap_text / w-full）：在该宽度内自由换行，
+        // text-align 相对于该宽度生效，与浏览器行为一致。
+        make_paragraph_from_text(&rendered_text, style, width)
     } else {
-        make_paragraph_from_text(&rendered_text, style, layout_width)
+        // 没指定宽度（shrink-to-fit）：浏览器里 box 宽 = 文本自然宽，
+        // text-align 在该 box 内是无效果的。
+        // 所以这里用 INFINITY 让 paragraph 不换行（避免 FP 边界处误换行），
+        // 同时把 text-align 覆盖为 Left，让文字从 (left, top) 起画。
+        make_paragraph_with_align(&rendered_text, style, f32::INFINITY, TextAlign::Left)
     };
 
     if truncate {
@@ -133,9 +135,25 @@ pub(crate) fn draw_text_with_unit_overrides(
     style: &ComputedTextStyle,
     batch: &TextUnitOverrideBatch,
 ) {
-    let layout_width = if allow_wrap { width } else { f32::INFINITY };
+    // 与 draw_text 同理：
+    //   * allow_wrap=true：在容器宽度内排版，text-align 生效（贴合浏览器）。
+    //   * allow_wrap=false：shrink-to-fit 盒，文本宽度 = 自然宽度，
+    //     text-align 在浏览器里就没有视觉效果，这里用 INFINITY 避免 FP 边界换行，
+    //     同时强制 left 对齐让文字从 (left, top) 起画。
     let rendered_text = apply_text_transform(text, style.text_transform);
-    let paragraph = make_paragraph_from_text(&rendered_text, style, layout_width);
+    let make_unit_paragraph = |paragraph_style: &ComputedTextStyle| {
+        if allow_wrap {
+            make_paragraph_from_text(&rendered_text, paragraph_style, width)
+        } else {
+            make_paragraph_with_align(
+                &rendered_text,
+                paragraph_style,
+                f32::INFINITY,
+                TextAlign::Left,
+            )
+        }
+    };
+    let paragraph = make_unit_paragraph(style);
     // Use the original (pre-transform) text for unit segmentation so that
     // JS-side split indices align with the rendered units.
     let units = describe_text_unit_ranges(text, batch.granularity);
@@ -175,8 +193,7 @@ pub(crate) fn draw_text_with_unit_overrides(
         if let Some(color) = override_value.color {
             let mut unit_style = *style;
             unit_style.color = color;
-            let unit_paragraph =
-                make_paragraph_from_text(&rendered_text, &unit_style, layout_width);
+            let unit_paragraph = make_unit_paragraph(&unit_style);
             unit_paragraph.paint(unit_canvas, (left, top));
         } else {
             paragraph.paint(unit_canvas, (left, top));
@@ -252,10 +269,19 @@ fn make_paragraph(text: &str, style: &ComputedTextStyle, max_width: f32) -> Para
 }
 
 fn make_paragraph_from_text(text: &str, style: &ComputedTextStyle, max_width: f32) -> Paragraph {
+    make_paragraph_with_align(text, style, max_width, style.text_align)
+}
+
+fn make_paragraph_with_align(
+    text: &str,
+    style: &ComputedTextStyle,
+    max_width: f32,
+    align: TextAlign,
+) -> Paragraph {
     let text_style = paragraph_text_style(style);
 
     let mut paragraph_style = ParagraphStyle::new();
-    paragraph_style.set_text_align(paragraph_align(style.text_align));
+    paragraph_style.set_text_align(paragraph_align(align));
     paragraph_style.set_text_style(&text_style);
 
     let mut builder = ParagraphBuilder::new(&paragraph_style, shared_font_collection());

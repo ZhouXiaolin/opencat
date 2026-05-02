@@ -1,0 +1,93 @@
+{"type":"composition","width":1920,"height":1080,"fps":30,"frames":1263}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[1920px] h-[1080px] overflow-hidden bg-[#020617]"}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+
+{"id":"scene1","parentId":"main-tl","type":"div","className":"w-full h-full flex flex-col items-center justify-center bg-[#020617]","duration":210}
+{"id":"s1-bg","parentId":"scene1","type":"canvas","className":"absolute inset-0 w-full h-full pointer-events-none"}
+{"type":"script","parentId":"s1-bg","path":"s1-canvas.js"}
+{"id":"s1-ghost","parentId":"scene1","type":"text","className":"absolute top-[120px] text-[200px] font-bold text-slate-400/15 tracking-[0.15em] pointer-events-none select-none","text":"KEPLER"}
+{"id":"s1-title","parentId":"scene1","type":"text","className":"text-[80px] font-bold text-white text-center tracking-[-0.02em]","text":"开普勒行星三定律"}
+{"id":"s1-subtitle","parentId":"scene1","type":"text","className":"text-[24px] text-slate-300 text-center mt-[24px]","text":"Johannes Kepler · 1571-1630"}
+{"id":"s1-hairline","parentId":"scene1","type":"div","className":"w-[480px] border-t border-slate-700/50 mt-[48px]"}
+{"type":"script","parentId":"scene1","src":"ctx.timeline().from(ctx.splitText('s1-title',{type:'chars'}),{y:50,scale:0.95,duration:22,stagger:3,ease:'spring.gentle'},0).from('s1-subtitle',{y:20,duration:20,ease:'ease-out'},'-=4').from('s1-hairline',{scaleX:0,duration:22,ease:'back-out'},14);"}
+
+{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"fade","duration":15,"timing":"ease-in-out"}
+
+{"id":"scene2","parentId":"main-tl","type":"div","className":"w-full h-full flex flex-row items-center justify-between p-[80px] bg-[#020617]","duration":270}
+{"id":"s2-visual","parentId":"scene2","type":"div","className":"flex-shrink-0 flex items-center justify-center w-[780px] h-[680px]"}
+{"id":"s2-canvas","parentId":"s2-visual","type":"canvas","className":"w-[780px] h-[680px]"}
+{"type":"script","parentId":"s2-canvas","path":"s2-canvas.js"}
+{"id":"s2-text","parentId":"scene2","type":"div","className":"flex flex-col justify-center gap-[32px] w-[680px]"}
+{"id":"s2-title","parentId":"s2-text","type":"text","className":"text-[56px] font-bold text-white","text":"第一定律：椭圆轨道"}
+{"id":"s2-body","parentId":"s2-text","type":"text","className":"text-[28px] text-slate-300 leading-relaxed","text":"行星沿椭圆轨道绕太阳运行，太阳位于椭圆的一个焦点上。否定了自古希腊以来的正圆轨道说。"}
+{"id":"s2-tags","parentId":"s2-text","type":"div","className":"flex flex-row gap-[40px] mt-[8px]"}
+{"id":"s2-tag-sun","parentId":"s2-tags","type":"text","className":"text-[22px] text-amber-400 font-bold flex items-center gap-[8px]","text":"⊙ 太阳 (焦点)"}
+{"id":"s2-tag-focus","parentId":"s2-tags","type":"text","className":"text-[22px] text-slate-300 flex items-center gap-[8px]","text":"+ 另一焦点 (空)"}
+{"type":"script","parentId":"scene2","src":"ctx.timeline().from('s2-title',{opacity:0,x:40,duration:18,ease:'ease-out'},6).from('s2-body',{opacity:0,y:24,duration:20,ease:'ease-out'},'-=4').from(['s2-tag-sun','s2-tag-focus'],{opacity:0,y:16,duration:15,stagger:4,ease:'ease-out'},'-=4');"}
+
+{"type":"transition","parentId":"main-tl","from":"scene2","to":"scene3","effect":"light_leak","duration":18,"timing":"ease-in-out","seed":42}
+
+{"id":"scene3","parentId":"main-tl","type":"div","className":"w-full h-full flex flex-row items-center justify-between p-[80px] bg-[#020617]","duration":270}
+{"id":"s3-visual","parentId":"scene3","type":"div","className":"flex-shrink-0 flex items-center justify-center w-[780px] h-[680px]"}
+{"id":"s3-canvas","parentId":"s3-visual","type":"canvas","className":"w-[780px] h-[680px]"}
+{"type":"script","parentId":"s3-canvas","path":"s3-canvas.js"}
+{"id":"s3-text","parentId":"scene3","type":"div","className":"flex flex-col justify-center gap-[28px] w-[680px]"}
+{"id":"s3-title","parentId":"s3-text","type":"text","className":"text-[56px] font-bold text-white","text":"第二定律：面积定律"}
+{"id":"s3-body","parentId":"s3-text","type":"text","className":"text-[28px] text-slate-300 leading-relaxed","text":"行星与太阳的连线在相等时间内扫过相等面积。行星在近日点运动更快，在远日点更慢。"}
+{"id":"s3-tags","parentId":"s3-text","type":"div","className":"flex flex-row gap-[40px] mt-[8px]"}
+{"id":"s3-tag-peri","parentId":"s3-tags","type":"text","className":"text-[22px] text-amber-400 font-bold","text":"▲ 近日点 · 快"}
+{"id":"s3-tag-aph","parentId":"s3-tags","type":"text","className":"text-[22px] text-cyan-400","text":"▼ 远日点 · 慢"}
+{"id":"s3-equal-label","parentId":"s3-text","type":"text","className":"text-[24px] text-cyan-400 font-mono text-center mt-[8px]","text":"面积₁ = 面积₂"}
+{"type":"script","parentId":"scene3","src":"ctx.timeline().from('s3-title',{opacity:0,y:-20,duration:18,ease:'ease-out'},6).from('s3-body',{opacity:0,y:24,duration:20,ease:'ease-out'},'-=4').from(['s3-tag-peri','s3-tag-aph'],{opacity:0,y:16,duration:15,stagger:4,ease:'ease-out'},'-=4').from('s3-equal-label',{opacity:0,scale:0.85,duration:22,ease:'spring.gentle'},'-=4');"}
+
+{"type":"transition","parentId":"main-tl","from":"scene3","to":"scene4","effect":"slide","direction":"from_left","duration":12,"timing":"ease-out"}
+
+{"id":"scene4","parentId":"main-tl","type":"div","className":"w-full h-full flex flex-row items-center p-[80px] gap-[60px] bg-[#020617]","duration":270}
+{"id":"s4-bg","parentId":"scene4","type":"canvas","className":"absolute inset-0 w-full h-full pointer-events-none"}
+{"type":"script","parentId":"s4-bg","path":"stars-bg.js"}
+{"id":"s4-formula-panel","parentId":"scene4","type":"div","className":"flex flex-col items-center justify-center gap-[24px] flex-1"}
+{"id":"s4-title","parentId":"s4-formula-panel","type":"text","className":"text-[56px] font-bold text-white","text":"第三定律：周期定律"}
+{"id":"s4-formula","parentId":"s4-formula-panel","type":"text","className":"text-[96px] font-bold font-mono text-white tracking-[0.05em]","text":"T² ∝ a³"}
+{"id":"s4-formula-sub","parentId":"s4-formula-panel","type":"text","className":"text-[26px] text-slate-300","text":"轨道周期平方 ∝ 半长轴立方"}
+{"id":"s4-data-panel","parentId":"scene4","type":"div","className":"flex flex-col justify-center gap-[16px] w-[640px]"}
+{"id":"s4-table","parentId":"s4-data-panel","type":"div","className":"flex flex-col gap-[12px]"}
+{"id":"s4-hdr","parentId":"s4-table","type":"div","className":"flex flex-row border-b border-slate-700/50 pb-[12px] text-[22px] font-bold text-slate-400"}
+{"id":"s4-hc1","parentId":"s4-hdr","type":"text","className":"w-[160px]","text":"行星"}
+{"id":"s4-hc2","parentId":"s4-hdr","type":"text","className":"w-[140px] text-right tabular-nums","text":"a (AU)"}
+{"id":"s4-hc3","parentId":"s4-hdr","type":"text","className":"w-[140px] text-right tabular-nums","text":"T (年)"}
+{"id":"s4-hc4","parentId":"s4-hdr","type":"text","className":"w-[140px] text-right tabular-nums text-cyan-400","text":"T²/a³"}
+{"id":"s4-r1","parentId":"s4-table","type":"div","className":"flex flex-row text-[22px] text-white"}
+{"id":"s4-r1c1","parentId":"s4-r1","type":"text","className":"w-[160px]","text":"水星"}
+{"id":"s4-r1c2","parentId":"s4-r1","type":"text","className":"w-[140px] text-right tabular-nums","text":"0.387"}
+{"id":"s4-r1c3","parentId":"s4-r1","type":"text","className":"w-[140px] text-right tabular-nums","text":"0.241"}
+{"id":"s4-r1c4","parentId":"s4-r1","type":"text","className":"w-[140px] text-right tabular-nums text-cyan-400","text":"1.002"}
+{"id":"s4-r2","parentId":"s4-table","type":"div","className":"flex flex-row text-[22px] text-white"}
+{"id":"s4-r2c1","parentId":"s4-r2","type":"text","className":"w-[160px]","text":"金星"}
+{"id":"s4-r2c2","parentId":"s4-r2","type":"text","className":"w-[140px] text-right tabular-nums","text":"0.723"}
+{"id":"s4-r2c3","parentId":"s4-r2","type":"text","className":"w-[140px] text-right tabular-nums","text":"0.615"}
+{"id":"s4-r2c4","parentId":"s4-r2","type":"text","className":"w-[140px] text-right tabular-nums text-cyan-400","text":"1.001"}
+{"id":"s4-r3","parentId":"s4-table","type":"div","className":"flex flex-row text-[22px] text-white"}
+{"id":"s4-r3c1","parentId":"s4-r3","type":"text","className":"w-[160px]","text":"地球"}
+{"id":"s4-r3c2","parentId":"s4-r3","type":"text","className":"w-[140px] text-right tabular-nums","text":"1.000"}
+{"id":"s4-r3c3","parentId":"s4-r3","type":"text","className":"w-[140px] text-right tabular-nums","text":"1.000"}
+{"id":"s4-r3c4","parentId":"s4-r3","type":"text","className":"w-[140px] text-right tabular-nums text-cyan-400","text":"1.000"}
+{"id":"s4-r4","parentId":"s4-table","type":"div","className":"flex flex-row text-[22px] text-white"}
+{"id":"s4-r4c1","parentId":"s4-r4","type":"text","className":"w-[160px]","text":"火星"}
+{"id":"s4-r4c2","parentId":"s4-r4","type":"text","className":"w-[140px] text-right tabular-nums","text":"1.524"}
+{"id":"s4-r4c3","parentId":"s4-r4","type":"text","className":"w-[140px] text-right tabular-nums","text":"1.881"}
+{"id":"s4-r4c4","parentId":"s4-r4","type":"text","className":"w-[140px] text-right tabular-nums text-cyan-400","text":"1.000"}
+{"id":"s4-body","parentId":"s4-data-panel","type":"text","className":"text-[24px] text-slate-400 mt-[4px]","text":"比值 T²/a³ ≈ 1 —— 所有行星遵守同一规律"}
+{"type":"script","parentId":"scene4","src":"var rws=['s4-r1','s4-r2','s4-r3','s4-r4'];ctx.timeline().from('s4-title',{opacity:0,x:40,duration:18,ease:'ease-out'},6).from(ctx.splitText('s4-formula',{type:'chars'}),{opacity:0,scale:0.7,duration:24,stagger:2,ease:'spring.gentle'},'-=4').from('s4-formula-sub',{opacity:0,y:16,duration:18,ease:'ease-out'},'-=4').from(rws,{opacity:0,y:30,duration:16,stagger:5,ease:'ease-out'},'-=4').from('s4-body',{opacity:0,y:16,duration:18,ease:'ease-out'},'-=4');"}
+
+{"type":"transition","parentId":"main-tl","from":"scene4","to":"scene5","effect":"fade","duration":18,"timing":"ease-in-out"}
+
+{"id":"scene5","parentId":"main-tl","type":"div","className":"w-full h-full flex flex-col items-center justify-center bg-[#020617]","duration":180}
+{"id":"s5-bg","parentId":"scene5","type":"canvas","className":"absolute inset-0 w-full h-full pointer-events-none"}
+{"type":"script","parentId":"s5-bg","path":"stars-bg.js"}
+{"id":"s5-cards","parentId":"scene5","type":"div","className":"flex flex-row gap-[48px]"}
+{"id":"s5-card1","parentId":"s5-cards","type":"text","className":"text-[32px] font-bold text-white text-center w-[320px] p-[32px] bg-slate-900/50 border border-slate-700/30","text":"① 椭圆轨道"}
+{"id":"s5-card2","parentId":"s5-cards","type":"text","className":"text-[32px] font-bold text-white text-center w-[320px] p-[32px] bg-slate-900/50 border border-slate-700/30","text":"② 面积相等"}
+{"id":"s5-card3","parentId":"s5-cards","type":"text","className":"text-[32px] font-bold text-white text-center w-[320px] p-[32px] bg-slate-900/50 border border-slate-700/30","text":"③ T² ∝ a³"}
+{"id":"s5-conclusion","parentId":"scene5","type":"text","className":"text-[48px] font-bold text-white text-center mt-[48px]","text":"牛顿万有引力的基石"}
+{"id":"s5-attribution","parentId":"scene5","type":"text","className":"text-[22px] text-slate-400 text-center mt-[16px]","text":"Johannes Kepler · 1609-1619"}
+{"type":"script","parentId":"scene5","src":"var tl=ctx.timeline();tl.from(['s5-card1','s5-card2','s5-card3'],{opacity:0,x:-60,duration:22,stagger:8,ease:'ease-out'},9);tl.from('s5-conclusion',{opacity:0,y:30,duration:24,ease:'ease-out'},'-=4');tl.from('s5-attribution',{opacity:0,y:16,duration:18,ease:'ease-out'},'-=4');tl.to(['s5-card1','s5-card2','s5-card3','s5-conclusion','s5-attribution'],{opacity:0,duration:24,ease:'ease-in'},ctx.sceneFrames-24);"}

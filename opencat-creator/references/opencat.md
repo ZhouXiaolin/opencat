@@ -265,8 +265,25 @@ Transitions describe the handoff between two adjacent scenes inside a `tl` node.
 | `clock_wipe` | Clock wipe | — |
 | `iris` | Iris open/close | — |
 | `light_leak` | Light leak | — |
+| `gl_transition` | GLSL runtime shader | — |
 
 `light_leak` extra fields: `seed` (`f32`), `hueShift` (`f32`), `maskScale` (`f32`, range `0.03125`–`1.0`).
+
+### GL Transition
+
+Any unrecognized `effect` name falls through to `gl_transition` mode. The name is used to look up a GLSL shader in `gltransition.json`, which is compiled to a Skia runtime effect at build time.
+
+```json
+{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"crosswarp","duration":15}
+```
+
+Parameters are passed as extra JSON fields:
+
+```json
+{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"Bounce","duration":20,"shadow_colour":[0,0,0,0.6],"shadow_height":0.075,"bounces":3}
+```
+
+See [GL Transitions Reference](gl-transitions.md) for all available effect names, parameters, and type mapping.
 
 ### Examples
 
@@ -341,10 +358,10 @@ Animation scripts are attached to nodes via `script` records and run on every fr
 | Field | Description |
 |-------|-------------|
 | `parentId` | Optional. Attach to a node scope, or omit for global scope. |
-| `src` | Inline JavaScript code |
+| `src` / `content` | Inline JavaScript code (`content` is a legacy alias for `src`) |
 | `path` | External `.js` file path (resolved relative to the JSONL file) |
 
-`src` and `path` are mutually exclusive. Exactly one is required.
+`src`/`content` and `path` are mutually exclusive. Exactly one is required.
 
 Execution context:
 

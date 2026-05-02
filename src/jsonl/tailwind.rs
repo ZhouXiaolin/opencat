@@ -535,6 +535,9 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         || apply_bracket_hex_color_rule(class, "border-[", ColorTarget::Border, style)
         || apply_bracket_hex_color_rule(class, "fill-[", ColorTarget::Fill, style)
         || apply_bracket_hex_color_rule(class, "stroke-[", ColorTarget::Stroke, style)
+        || apply_bracket_hex_color_rule(class, "from-[", ColorTarget::GradientFrom, style)
+        || apply_bracket_hex_color_rule(class, "via-[", ColorTarget::GradientVia, style)
+        || apply_bracket_hex_color_rule(class, "to-[", ColorTarget::GradientTo, style)
     {
         return true;
     }
@@ -1058,7 +1061,7 @@ fn apply_bracket_hex_color_rule(
     else {
         return false;
     };
-    let Some(color) = color_from_hex(value) else {
+    let Some(color) = parse_any_color_value(value) else {
         return false;
     };
     apply_color_target(style, target, color);
@@ -1664,8 +1667,13 @@ fn parse_fraction(value: &str) -> Option<f32> {
 }
 
 fn color_from_hex(value: &str) -> Option<ColorToken> {
-    let hex = value.strip_prefix('#')?;
-    let (r, g, b, a) = match hex.len() {
+    let (hex_part, opacity_suffix) = match value.rsplit_once('/') {
+        Some((hex, suffix)) => (hex, Some(suffix)),
+        None => (value, None),
+    };
+
+    let hex = hex_part.strip_prefix('#')?;
+    let (r, g, b, mut a) = match hex.len() {
         3 => {
             let r = parse_hex_nibble(hex.as_bytes()[0])?;
             let g = parse_hex_nibble(hex.as_bytes()[1])?;
@@ -1687,6 +1695,12 @@ fn color_from_hex(value: &str) -> Option<ColorToken> {
         }
         _ => return None,
     };
+
+    if let Some(suffix) = opacity_suffix {
+        let opacity_percent = suffix.parse::<f32>().ok()?;
+        let opacity = (opacity_percent / 100.0).clamp(0.0, 1.0);
+        a = ((a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+    }
 
     Some(ColorToken::Custom(r, g, b, a))
 }
@@ -1850,5 +1864,63 @@ mod tests {
         assert_eq!(style.width_percent, Some(0.5));
         assert_eq!(style.width, None);
         assert!(!style.width_full);
+    }
+
+    #[test]
+    fn parses_bracket_hex_colors() {
+        let style = parse_class_name("bg-[#ff0000] text-[#00ff00] border-[#0000ff]");
+
+        assert_eq!(style.bg_color, Some(ColorToken::Custom(255, 0, 0, 255)));
+        assert_eq!(style.text_color, Some(ColorToken::Custom(0, 255, 0, 255)));
+        assert_eq!(style.border_color, Some(ColorToken::Custom(0, 0, 255, 255)));
+    }
+
+    #[test]
+    fn parses_short_and_alpha_hex() {
+        let short = parse_class_name("bg-[#f00]");
+        assert_eq!(short.bg_color, Some(ColorToken::Custom(255, 0, 0, 255)));
+
+        let alpha = parse_class_name("bg-[#ff000080]");
+        assert_eq!(alpha.bg_color, Some(ColorToken::Custom(255, 0, 0, 128)));
+    }
+
+    #[test]
+    fn parses_hex_with_opacity_modifier() {
+        let style = parse_class_name("bg-[#ff0000/50]");
+        let (r, g, b, a) = style.bg_color.unwrap().rgba();
+        assert_eq!((r, g, b), (255, 0, 0));
+        assert_eq!(a, 128);
+    }
+
+    #[test]
+    fn parses_gradient_hex_colors() {
+        let style = parse_class_name("from-[#ff0000] via-[#00ff00] to-[#0000ff]");
+
+        assert_eq!(
+            style.bg_gradient_from,
+            Some(ColorToken::Custom(255, 0, 0, 255))
+        );
+        assert_eq!(
+            style.bg_gradient_via,
+            Some(ColorToken::Custom(0, 255, 0, 255))
+        );
+        assert_eq!(
+            style.bg_gradient_to,
+            Some(ColorToken::Custom(0, 0, 255, 255))
+        );
+    }
+
+    #[test]
+    fn text_bracket_still_works_for_font_size() {
+        let style = parse_class_name("text-[12px]");
+        assert_eq!(style.text_px, Some(12.0));
+        assert_eq!(style.text_color, None);
+    }
+
+    #[test]
+    fn border_bracket_still_works_for_width() {
+        let style = parse_class_name("border-[2px]");
+        assert_eq!(style.border_width, Some(2.0));
+        assert_eq!(style.border_color, None);
     }
 }

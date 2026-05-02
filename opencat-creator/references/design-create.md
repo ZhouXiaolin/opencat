@@ -1,6 +1,6 @@
 # Design Create
 
-当项目没有 `design.md` 时，通过对话引导用户确定视觉身份，最终生成 `design.md`。替代 hyperframes 的浏览器 Design Picker，改为 AI 对话流程。
+当项目没有 `design.md` 时，通过对话引导用户确定视觉身份，最终生成 `design.md`。放在当前项目文件夹中
 
 ---
 
@@ -127,6 +127,8 @@
 ```yaml
 ---
 name: [项目名]
+description: [设计风格描述]
+keywords: [关键词(多个用逗号隔开)]
 colors:
   primary: "#0a0a0a"       # → slate-950
   on-primary: "#e2e8f0"    # → slate-200

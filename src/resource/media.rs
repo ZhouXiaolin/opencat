@@ -49,6 +49,41 @@ pub struct VideoFrameRequest {
     pub composition_time_secs: f64,
     pub timing: VideoFrameTiming,
     pub quality: VideoPreviewQuality,
+    /// Caller's desired output size in pixels. `MediaContext` quantizes and
+    /// clamps this against the source resolution; the decoder/cache trust the
+    /// already-normalized value.
+    pub target_size: Option<(u32, u32)>,
+}
+
+/// Bucket size for `target_size`. Keeping target sizes on a 16-pixel grid bounds
+/// the number of distinct sws scaling contexts and cache entries we generate
+/// for an animation that drifts continuously across sizes.
+pub(crate) const TARGET_SIZE_ALIGN: u32 = 16;
+
+/// Normalize a caller-requested size against the actual source video.
+///
+/// Returns `None` when the request would scale to source resolution or larger
+/// (decode at native size, no sws scale). Otherwise returns a 16-pixel-aligned
+/// bucket clamped to the source dimensions.
+pub(crate) fn quantize_target_size(
+    requested: Option<(u32, u32)>,
+    info: &VideoInfo,
+) -> Option<(u32, u32)> {
+    let (tw, th) = requested?;
+    if tw >= info.width && th >= info.height {
+        return None;
+    }
+    let bucket = |v: u32, max: u32| -> u32 {
+        let aligned = v.div_ceil(TARGET_SIZE_ALIGN) * TARGET_SIZE_ALIGN;
+        aligned.clamp(TARGET_SIZE_ALIGN, max)
+    };
+    let qw = bucket(tw, info.width);
+    let qh = bucket(th, info.height);
+    if qw >= info.width && qh >= info.height {
+        None
+    } else {
+        Some((qw, qh))
+    }
 }
 
 impl VideoFrameRequest {
@@ -113,18 +148,23 @@ impl MediaContext {
         &mut self,
         path: &Path,
         request: VideoFrameRequest,
-    ) -> Result<(Arc<Vec<u8>>, bool)> {
+    ) -> Result<(Arc<Vec<u8>>, u32, u32, bool)> {
         let info = self.video_info(path)?;
         let target_time_secs = request.resolve_time_secs(&info);
-        if let Some(cached) = self.video_frame_cache.get(path, target_time_secs) {
-            return Ok((cached, true));
+        let scale_target = quantize_target_size(request.target_size, &info);
+        let (out_w, out_h) = scale_target.unwrap_or((info.width, info.height));
+        if let Some(cached) = self
+            .video_frame_cache
+            .get(path, target_time_secs, scale_target)
+        {
+            return Ok((cached, out_w, out_h, true));
         }
         let data = self
             .videos
-            .get_frame(path, target_time_secs, request.quality)?;
+            .get_frame(path, target_time_secs, request.quality, scale_target)?;
         self.video_frame_cache
-            .insert(path, target_time_secs, data.clone());
-        Ok((data, false))
+            .insert(path, target_time_secs, scale_target, data.clone());
+        Ok((data, out_w, out_h, false))
     }
 
     pub fn video_info(&mut self, path: &Path) -> Result<VideoInfo> {
@@ -136,12 +176,11 @@ impl MediaContext {
         path: &Path,
         request: VideoFrameRequest,
     ) -> Result<VideoBitmap> {
-        let (data, frame_cache_hit) = self.get_video_frame(path, request)?;
-        let info = self.video_info(path)?;
+        let (data, width, height, frame_cache_hit) = self.get_video_frame(path, request)?;
         Ok(VideoBitmap {
             data,
-            width: info.width,
-            height: info.height,
+            width,
+            height,
             frame_cache_hit,
         })
     }
@@ -191,7 +230,9 @@ fn clamp_video_time(time_secs: f64, duration_secs: Option<f64>) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{VideoFrameRequest, VideoFrameTiming, VideoInfo, VideoPreviewQuality};
+    use super::{
+        VideoFrameRequest, VideoFrameTiming, VideoInfo, VideoPreviewQuality, quantize_target_size,
+    };
 
     #[test]
     fn video_frame_request_applies_media_offset_and_rate() {
@@ -208,6 +249,7 @@ mod tests {
                 looping: false,
             },
             quality: VideoPreviewQuality::Exact,
+            target_size: None,
         };
 
         assert!((request.resolve_time_secs(&info) - 2.5).abs() < 1e-6);
@@ -228,9 +270,57 @@ mod tests {
                 looping: true,
             },
             quality: VideoPreviewQuality::Scrubbing,
+            target_size: None,
         };
 
         assert!((request.resolve_time_secs(&info) - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn quantize_target_size_returns_none_when_at_or_above_source() {
+        let info = VideoInfo {
+            width: 1920,
+            height: 1080,
+            duration_secs: None,
+        };
+        assert_eq!(quantize_target_size(None, &info), None);
+        assert_eq!(quantize_target_size(Some((1920, 1080)), &info), None);
+        assert_eq!(quantize_target_size(Some((4000, 4000)), &info), None);
+    }
+
+    #[test]
+    fn quantize_target_size_buckets_to_16_pixel_grid() {
+        let info = VideoInfo {
+            width: 1920,
+            height: 1080,
+            duration_secs: None,
+        };
+        // 320x180 -> already aligned
+        assert_eq!(
+            quantize_target_size(Some((320, 180)), &info),
+            Some((320, 192))
+        );
+        // 321x181 rounds up to next 16 boundary
+        assert_eq!(
+            quantize_target_size(Some((321, 181)), &info),
+            Some((336, 192))
+        );
+        // values below the alignment floor get clamped to 16
+        assert_eq!(quantize_target_size(Some((4, 4)), &info), Some((16, 16)));
+    }
+
+    #[test]
+    fn quantize_target_size_clamps_to_source_resolution() {
+        let info = VideoInfo {
+            width: 100,
+            height: 100,
+            duration_secs: None,
+        };
+        // Above source on one axis but below on the other -> still scale, clamped
+        assert_eq!(
+            quantize_target_size(Some((50, 200)), &info),
+            Some((64, 100))
+        );
     }
 }
 

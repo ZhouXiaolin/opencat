@@ -1517,6 +1517,8 @@ fn draw_bitmap(
         .path(&bitmap.asset_id)
         .ok_or_else(|| anyhow!("missing asset path for {}", bitmap.asset_id.0))?;
 
+    let dst = layout_rect_to_skia(bitmap.bounds);
+
     let mut stats = BitmapDrawStats {
         image_cache_hits: 0,
         image_cache_misses: 0,
@@ -1529,12 +1531,18 @@ fn draw_bitmap(
         let media = media_ctx
             .as_deref_mut()
             .ok_or_else(|| anyhow!("video asset requires media context: {}", path.display()))?;
+        let target_size = video_frame_target_size(
+            media.video_info(path)?,
+            dst,
+            bitmap.object_fit,
+        );
         let request = bitmap
             .video_timing
             .map(|timing| VideoFrameRequest {
                 composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps as f64,
                 timing,
                 quality: media.video_preview_quality(),
+                target_size,
             })
             .ok_or_else(|| {
                 anyhow!(
@@ -1587,14 +1595,13 @@ fn draw_bitmap(
         }
     };
 
-    let dst = layout_rect_to_skia(bitmap.bounds);
     let radii = effective_corner_radius(dst, bitmap.paint.border_radius);
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     apply_blur_effect(&mut paint, bitmap.paint.blur_sigma);
 
-    let src_width = bitmap.width as f32;
-    let src_height = bitmap.height as f32;
+    let src_width = image.width() as f32;
+    let src_height = image.height() as f32;
 
     if let Some(color) = bitmap.paint.background {
         let mut background_paint = Paint::default();
@@ -1653,6 +1660,31 @@ fn draw_bitmap(
     );
 
     Ok(stats)
+}
+
+fn video_frame_target_size(
+    info: crate::resource::media::VideoInfo,
+    dst: Rect,
+    object_fit: ObjectFit,
+) -> Option<(u32, u32)> {
+    let dst_w = dst.width().ceil() as u32;
+    let dst_h = dst.height().ceil() as u32;
+    if dst_w == 0 || dst_h == 0 {
+        return None;
+    }
+    let (tw, th) = match object_fit {
+        ObjectFit::Fill => (dst_w, dst_h),
+        ObjectFit::Contain => {
+            let fitted = fitted_rect(info.width as f32, info.height as f32, dst, false);
+            (fitted.width().ceil() as u32, fitted.height().ceil() as u32)
+        }
+        ObjectFit::Cover => {
+            let fitted = fitted_rect(info.width as f32, info.height as f32, dst, true);
+            (fitted.width().ceil() as u32, fitted.height().ceil() as u32)
+        }
+    };
+    // MediaContext::quantize_target_size handles bucketing and source-clamp.
+    Some((tw, th))
 }
 
 fn draw_script_item(
@@ -2241,6 +2273,7 @@ fn load_asset_image(
             composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps as f64,
             timing: crate::resource::media::VideoFrameTiming::default(),
             quality: media.video_preview_quality(),
+            target_size: None,
         };
         let video_bitmap = media
             .get_video_bitmap(path, request)

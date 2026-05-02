@@ -179,6 +179,7 @@ fn render_mp4(
         session
             .media_ctx
             .set_video_preview_quality(VideoPreviewQuality::Exact);
+
         let audio_track = build_audio_track(&composition, &mut session)?;
         crate::codec::encode::encode_rgba_frames(
             output_path.as_ref(),

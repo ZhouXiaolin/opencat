@@ -3,6 +3,11 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Maximum number of distinct sws scaling contexts kept per decoder. Together
+/// with `quantize_target_size` (16px buckets) this keeps memory bounded even
+/// when target sizes drift over an animation.
+const MAX_SCALERS_PER_DECODER: usize = 4;
+
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg_next::threading::{Config, Type};
@@ -53,7 +58,8 @@ struct VideoDecoder {
     path: PathBuf,
     input: format::context::Input,
     decoder: ffmpeg::decoder::Video,
-    scaler: ScalingContext,
+    scalers: VecDeque<((u32, u32), ScalingContext)>,
+    source_format: Pixel,
     stream_index: usize,
     time_base: ffmpeg::util::rational::Rational,
     width: u32,
@@ -61,7 +67,11 @@ struct VideoDecoder {
     duration_secs: Option<f64>,
     keyframe_pts_secs: Vec<f64>,
     current_pts_secs: f64,
+    current_size: Option<(u32, u32)>,
     current_frame: Option<Arc<Vec<u8>>>,
+    /// Last decoded source frame (pre-scale). Kept so that a same-time-but-
+    /// different-size request can re-run sws without re-decoding.
+    current_source: Option<ffmpeg::frame::Video>,
     eof: bool,
 }
 
@@ -108,21 +118,27 @@ impl VideoDecoder {
             .checked_mul(time_base.numerator() as i64)
             .map(|duration_ticks| duration_ticks as f64 / time_base.denominator() as f64);
         let keyframe_pts_secs = collect_video_keyframe_pts_secs(path, stream_index, time_base)?;
-        let scaler = ScalingContext::get(
-            decoder.format(),
-            width,
-            height,
-            Pixel::RGBA,
-            width,
-            height,
-            ScalingFlags::BILINEAR,
-        )?;
+        let source_format = decoder.format();
+        let mut scalers = VecDeque::with_capacity(MAX_SCALERS_PER_DECODER);
+        scalers.push_back((
+            (width, height),
+            ScalingContext::get(
+                source_format,
+                width,
+                height,
+                Pixel::RGBA,
+                width,
+                height,
+                ScalingFlags::BILINEAR,
+            )?,
+        ));
 
         Ok(Self {
             path: path.to_path_buf(),
             input,
             decoder,
-            scaler,
+            scalers,
+            source_format,
             stream_index,
             time_base,
             width,
@@ -130,7 +146,9 @@ impl VideoDecoder {
             duration_secs,
             keyframe_pts_secs,
             current_pts_secs: -1.0,
+            current_size: None,
             current_frame: None,
+            current_source: None,
             eof: false,
         })
     }
@@ -147,19 +165,38 @@ impl VideoDecoder {
         &mut self,
         target_secs: f64,
         quality: crate::resource::media::VideoPreviewQuality,
+        target_size: Option<(u32, u32)>,
     ) -> Result<Arc<Vec<u8>>> {
-        if self.current_frame.is_some() && (self.current_pts_secs - target_secs).abs() < 1e-6 {
+        let resolved_size = target_size.unwrap_or((self.width, self.height));
+        let same_time = self.current_frame.is_some()
+            && (self.current_pts_secs - target_secs).abs() < 1e-6;
+        let same_size = self.current_size == Some(resolved_size);
+        if same_time && same_size {
             return Ok(self
                 .current_frame
                 .clone()
                 .expect("current frame should exist"));
         }
 
+        // Same time, different size: re-scale the cached source frame in place
+        // (no decode work). This is the common path when a video is shown at
+        // multiple sizes in the same composition frame, or when a preceding
+        // path decoded the frame at source resolution.
+        if same_time && !same_size {
+            if let Some(source) = self.current_source.clone() {
+                self.update_scaled_frame(&source, self.current_pts_secs, target_size)?;
+                return Ok(self
+                    .current_frame
+                    .clone()
+                    .expect("scaled frame just produced"));
+            }
+        }
+
         if self.should_seek_to_target(target_secs, quality) {
             self.seek_to_time(target_secs)?;
         }
 
-        self.decode_forward(target_secs)?;
+        self.decode_forward(target_secs, target_size)?;
         self.current_frame
             .clone()
             .ok_or_else(|| anyhow!("failed to decode frame at {:.3}s", target_secs))
@@ -209,12 +246,18 @@ impl VideoDecoder {
 
         self.decoder.flush();
         self.current_pts_secs = -1.0;
+        self.current_size = None;
         self.current_frame = None;
+        self.current_source = None;
         self.eof = false;
         Ok(())
     }
 
-    fn decode_forward(&mut self, target_secs: f64) -> Result<()> {
+    fn decode_forward(
+        &mut self,
+        target_secs: f64,
+        target_size: Option<(u32, u32)>,
+    ) -> Result<()> {
         if self.eof {
             return Ok(());
         }
@@ -224,14 +267,14 @@ impl VideoDecoder {
             let Some(packet) = packet else { break };
 
             self.decoder.send_packet(&packet)?;
-            if self.receive_until(target_secs)? {
+            if self.receive_until(target_secs, target_size)? {
                 return Ok(());
             }
         }
 
         self.eof = true;
         self.decoder.send_eof()?;
-        self.receive_until(target_secs)?;
+        self.receive_until(target_secs, target_size)?;
         Ok(())
     }
 
@@ -244,7 +287,11 @@ impl VideoDecoder {
         None
     }
 
-    fn receive_until(&mut self, target_secs: f64) -> Result<bool> {
+    fn receive_until(
+        &mut self,
+        target_secs: f64,
+        target_size: Option<(u32, u32)>,
+    ) -> Result<bool> {
         let mut frame = ffmpeg::frame::Video::empty();
         let mut selected_frame: Option<ffmpeg::frame::Video> = None;
         let mut selected_pts_secs = -1.0;
@@ -264,18 +311,73 @@ impl VideoDecoder {
         }
 
         if let Some(frame) = selected_frame.as_ref() {
-            self.update_current_frame(frame, selected_pts_secs)?;
+            self.update_current_frame(frame, selected_pts_secs, target_size)?;
         }
 
         Ok(reached_target)
     }
 
-    fn update_current_frame(&mut self, frame: &ffmpeg::frame::Video, pts_secs: f64) -> Result<()> {
-        let mut rgba = ffmpeg::frame::Video::new(Pixel::RGBA, self.width, self.height);
-        self.scaler.run(frame, &mut rgba)?;
+    fn update_current_frame(
+        &mut self,
+        frame: &ffmpeg::frame::Video,
+        pts_secs: f64,
+        target_size: Option<(u32, u32)>,
+    ) -> Result<()> {
+        self.current_source = Some(frame.clone());
+        self.update_scaled_frame(frame, pts_secs, target_size)
+    }
+
+    fn update_scaled_frame(
+        &mut self,
+        frame: &ffmpeg::frame::Video,
+        pts_secs: f64,
+        target_size: Option<(u32, u32)>,
+    ) -> Result<()> {
+        let (out_w, out_h) = target_size.unwrap_or((self.width, self.height));
+
+        let scaler = self.scaler_for(out_w, out_h)?;
+        let mut rgba = ffmpeg::frame::Video::new(Pixel::RGBA, out_w, out_h);
+        scaler.run(frame, &mut rgba)?;
         self.current_pts_secs = pts_secs;
-        self.current_frame = Some(Arc::new(pack_rgba(&rgba, self.width, self.height)));
+        self.current_size = Some((out_w, out_h));
+        self.current_frame = Some(Arc::new(pack_rgba(&rgba, out_w, out_h)));
         Ok(())
+    }
+
+    fn scaler_for(&mut self, out_w: u32, out_h: u32) -> Result<&mut ScalingContext> {
+        if let Some(idx) = self
+            .scalers
+            .iter()
+            .position(|(size, _)| *size == (out_w, out_h))
+        {
+            // LRU touch: move to back.
+            if idx + 1 != self.scalers.len() {
+                let entry = self
+                    .scalers
+                    .remove(idx)
+                    .expect("index validated above");
+                self.scalers.push_back(entry);
+            }
+        } else {
+            let scaler = ScalingContext::get(
+                self.source_format,
+                self.width,
+                self.height,
+                Pixel::RGBA,
+                out_w,
+                out_h,
+                ScalingFlags::BILINEAR,
+            )?;
+            if self.scalers.len() >= MAX_SCALERS_PER_DECODER {
+                self.scalers.pop_front();
+            }
+            self.scalers.push_back(((out_w, out_h), scaler));
+        }
+        Ok(&mut self
+            .scalers
+            .back_mut()
+            .expect("scaler just pushed")
+            .1)
     }
 }
 
@@ -368,6 +470,7 @@ impl VideoDecodeCache {
         path: &Path,
         target_time_secs: f64,
         quality: crate::resource::media::VideoPreviewQuality,
+        target_size: Option<(u32, u32)>,
     ) -> Result<Arc<Vec<u8>>> {
         let path_buf = path.to_path_buf();
         let decoders = self.decoders.entry(path_buf).or_default();
@@ -386,7 +489,7 @@ impl VideoDecodeCache {
             DecoderLaneSelection::OpenNew => VideoDecoder::open(path)?,
         };
 
-        let frame = decoder.get_frame_at_time(target_time_secs, quality)?;
+        let frame = decoder.get_frame_at_time(target_time_secs, quality, target_size)?;
         decoders.push_back(decoder);
         Ok(frame)
     }

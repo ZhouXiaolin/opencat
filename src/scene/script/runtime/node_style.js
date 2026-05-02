@@ -56,6 +56,8 @@
             case 'dropShadow': __record_drop_shadow(id, String(args[0])); break;
             case 'dropShadowColor': __record_drop_shadow_color(id, String(args[0])); break;
             case 'text': __record_text_content(id, String(args[0])); break;
+            case 'strokeDasharray': __record_stroke_dasharray(id, args[0]); break;
+            case 'strokeDashoffset': __record_stroke_dashoffset(id, args[0]); break;
             case 'morphSVG': __record_svg_path(id, String(args[0])); break;
         }
     }

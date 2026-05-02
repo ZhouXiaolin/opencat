@@ -131,6 +131,8 @@ pub struct SvgPathPaintStyle {
     pub stroke_width: Option<f32>,
     pub stroke_color: Option<ColorToken>,
     pub drop_shadow: Option<DropShadow>,
+    pub stroke_dasharray: Option<f32>,
+    pub stroke_dashoffset: Option<f32>,
 }
 
 #[derive(Clone, Debug)]

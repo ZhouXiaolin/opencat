@@ -128,6 +128,8 @@ pub struct NodeStyleMutations {
     pub fill_color: Option<ColorToken>,
     pub stroke_color: Option<ColorToken>,
     pub stroke_width: Option<f32>,
+    pub stroke_dasharray: Option<f32>,
+    pub stroke_dashoffset: Option<f32>,
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
     pub border_top_width: Option<f32>,
@@ -228,6 +230,12 @@ impl NodeStyleMutations {
         }
         if let Some(v) = self.stroke_width {
             style.stroke_width = Some(v);
+        }
+        if let Some(v) = self.stroke_dasharray {
+            style.stroke_dasharray = Some(v);
+        }
+        if let Some(v) = self.stroke_dashoffset {
+            style.stroke_dashoffset = Some(v);
         }
         if let Some(v) = self.border_radius {
             style.border_radius = Some(crate::style::BorderRadius::uniform(v));
@@ -499,6 +507,12 @@ pub(super) fn install_node_style_bindings<'js>(
     });
     set_style_binding!("__record_stroke_width", map, |id, v: f32| {
         map.entry(id).or_default().stroke_width = Some(v.max(0.0));
+    });
+    set_style_binding!("__record_stroke_dasharray", map, |id, v: f32| {
+        map.entry(id).or_default().stroke_dasharray = Some(v.max(0.0));
+    });
+    set_style_binding!("__record_stroke_dashoffset", map, |id, v: f32| {
+        map.entry(id).or_default().stroke_dashoffset = Some(v);
     });
     set_style_binding!("__record_stroke_color", map, |id, v: String| {
         if let Some(c) = color_from_name(&v) {

@@ -1079,6 +1079,8 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             border_color: style.border_color,
             stroke_color: style.stroke_color,
             stroke_width: style.stroke_width,
+            stroke_dasharray: style.stroke_dasharray,
+            stroke_dashoffset: style.stroke_dashoffset,
             border_style: style.border_style,
             blur_sigma: style.blur_sigma,
             backdrop_blur_sigma: style.backdrop_blur_sigma,

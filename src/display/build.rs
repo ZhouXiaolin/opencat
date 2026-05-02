@@ -200,6 +200,8 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 stroke_width: element.style.visual.stroke_width,
                 stroke_color: element.style.visual.stroke_color,
                 drop_shadow: element.style.visual.drop_shadow,
+                stroke_dasharray: element.style.visual.stroke_dasharray,
+                stroke_dashoffset: element.style.visual.stroke_dashoffset,
             },
             view_box: svg.view_box,
         }),

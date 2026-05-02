@@ -80,11 +80,11 @@
 
 ## 输出
 
-将扩展后的 prompt 写入 `.opencat/expanded-prompt.md`。
+将扩展后的 prompt 写入 `expanded-prompt.md`。
 
 告知用户：
 
-> "我已将你的需求扩展为完整的制作方案。查看：`.opencat/expanded-prompt.md`
+> "我已将你的需求扩展为完整的制作方案。查看：`expanded-prompt.md`
 >
 > 包含 [N] 个场景，共 [X] 秒（[Y] 帧@30fps）及具体视觉元素、转场和节奏。如有需要可修改，然后告诉我继续。"
 

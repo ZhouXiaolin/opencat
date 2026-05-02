@@ -594,6 +594,8 @@ pub struct NodeStyle {
     pub fill_color: Option<ColorToken>,
     pub stroke_color: Option<ColorToken>,
     pub stroke_width: Option<f32>,
+    pub stroke_dasharray: Option<f32>,
+    pub stroke_dashoffset: Option<f32>,
     pub svg_path: Option<String>,
 
     // Text

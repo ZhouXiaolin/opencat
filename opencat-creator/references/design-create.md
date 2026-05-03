@@ -120,7 +120,7 @@
 
 ### 第 6 步：生成 design.md
 
-将以上所有选择合并为一个 `design.md` 文件。
+生成一个 `design.md` 文件，必须遵守如下格式
 
 **格式：** YAML frontmatter + Markdown 正文。
 

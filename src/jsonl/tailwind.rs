@@ -1055,17 +1055,38 @@ fn apply_bracket_hex_color_rule(
     target: ColorTarget,
     style: &mut NodeStyle,
 ) -> bool {
-    let Some(value) = class
-        .strip_prefix(prefix)
-        .and_then(|value| value.strip_suffix(']'))
-    else {
+    let Some(rest) = class.strip_prefix(prefix) else {
         return false;
     };
-    let Some(color) = parse_any_color_value(value) else {
+    // 支持两种形式:
+    //   1) `bg-[#ffaa00]`            — 值以 `]` 结尾
+    //   2) `bg-[#ffaa00]/40`         — `]` 之后跟 `/<percent>` 透明度修饰符
+    let Some(close_idx) = rest.find(']') else {
         return false;
     };
+    let value = &rest[..close_idx];
+    let suffix = &rest[close_idx + 1..];
+    let Some(mut color) = parse_any_color_value(value) else {
+        return false;
+    };
+    if !suffix.is_empty() {
+        let Some(opacity_str) = suffix.strip_prefix('/') else {
+            return false;
+        };
+        let Ok(opacity_percent) = opacity_str.parse::<f32>() else {
+            return false;
+        };
+        color = apply_opacity_modifier(color, opacity_percent);
+    }
     apply_color_target(style, target, color);
     true
+}
+
+fn apply_opacity_modifier(color: ColorToken, opacity_percent: f32) -> ColorToken {
+    let opacity = (opacity_percent / 100.0).clamp(0.0, 1.0);
+    let (r, g, b, a) = color.rgba();
+    let alpha = ((a as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+    ColorToken::Custom(r, g, b, alpha)
 }
 
 fn apply_bracket_color_rule(
@@ -1890,6 +1911,42 @@ mod tests {
         let (r, g, b, a) = style.bg_color.unwrap().rgba();
         assert_eq!((r, g, b), (255, 0, 0));
         assert_eq!(a, 128);
+    }
+
+    #[test]
+    fn parses_bracket_hex_with_external_opacity_modifier() {
+        // Tailwind v4 同时支持 `bg-[#hex]/N` 这种「中括号外」写法。
+        let style = parse_class_name("bg-[#06b6d4]/40 text-[#f59e0b]/60 border-[#475569]/30");
+
+        let (r, g, b, a) = style.bg_color.unwrap().rgba();
+        assert_eq!((r, g, b), (0x06, 0xb6, 0xd4));
+        assert_eq!(a, 102); // 255 * 0.4 ≈ 102
+
+        let (r, g, b, a) = style.text_color.unwrap().rgba();
+        assert_eq!((r, g, b), (0xf5, 0x9e, 0x0b));
+        assert_eq!(a, 153); // 255 * 0.6 = 153
+
+        let (r, g, b, a) = style.border_color.unwrap().rgba();
+        assert_eq!((r, g, b), (0x47, 0x55, 0x69));
+        assert_eq!(a, 77); // 255 * 0.3 = 76.5 → 77
+    }
+
+    #[test]
+    fn parses_tracking_widest_and_tighter() {
+        let widest = parse_class_name("tracking-widest");
+        assert_eq!(widest.letter_spacing, Some(2.0));
+
+        let tighter = parse_class_name("tracking-tighter");
+        assert_eq!(tighter.letter_spacing, Some(-1.0));
+    }
+
+    #[test]
+    fn select_and_italic_classes_are_silently_accepted() {
+        // 这些类不影响布局/绘制，但需要被解析器接受以避免噪声告警。
+        let style = parse_class_name("select-none italic not-italic");
+        // 没有副作用即视为通过；下面的断言确保没有意外写入字段。
+        assert!(style.text_color.is_none());
+        assert!(style.bg_color.is_none());
     }
 
     #[test]

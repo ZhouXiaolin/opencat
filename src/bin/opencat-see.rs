@@ -1,6 +1,6 @@
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn main() {
-    eprintln!("opencat-player 目前仅支持 macOS / Windows");
+    eprintln!("opencat-see 目前仅支持 macOS / Windows");
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -730,7 +730,7 @@ mod app {
     pub fn run() -> Result<()> {
         let input_path = std::env::args()
             .nth(1)
-            .ok_or_else(|| anyhow!("usage: cargo run --bin opencat-player -- <input.jsonl>"))?;
+            .ok_or_else(|| anyhow!("usage: opencat-see <input.jsonl>"))?;
         let parsed = parse_file(&input_path).context("failed to parse JSONL composition")?;
         let has_audio = !parsed.audio_sources.is_empty();
         let mut root = parsed.root;
@@ -753,7 +753,7 @@ mod app {
 
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new()
-            .with_title("OpenCat Player")
+            .with_title("OpenCat See")
             .with_inner_size(LogicalSize::new(parsed.width as f64, parsed.height as f64))
             .with_resizable(false)
             .build(&event_loop)

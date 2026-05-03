@@ -805,6 +805,13 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("truncate", "ExactClassAction::Truncate"),
         ("line-through", "ExactClassAction::LineThrough"),
         ("pointer-events-none", "ExactClassAction::Noop"),
+        // 选区 / 字体样式：渲染器目前不区分这些表现，但作为合法 Tailwind 输入需要静默接受。
+        ("select-none", "ExactClassAction::Noop"),
+        ("select-auto", "ExactClassAction::Noop"),
+        ("select-text", "ExactClassAction::Noop"),
+        ("select-all", "ExactClassAction::Noop"),
+        ("italic", "ExactClassAction::Noop"),
+        ("not-italic", "ExactClassAction::Noop"),
         ("inset-0", "ExactClassAction::InsetZero"),
         (
             "bg-gradient-to-r",
@@ -856,10 +863,12 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("leading-normal", "ExactClassAction::LineHeight(1.5)"),
         ("leading-relaxed", "ExactClassAction::LineHeight(1.625)"),
         ("leading-loose", "ExactClassAction::LineHeight(2.0)"),
+        ("tracking-tighter", "ExactClassAction::LetterSpacing(-1.0)"),
         ("tracking-tight", "ExactClassAction::LetterSpacing(-0.5)"),
         ("tracking-normal", "ExactClassAction::LetterSpacing(0.0)"),
         ("tracking-wide", "ExactClassAction::LetterSpacing(0.5)"),
         ("tracking-wider", "ExactClassAction::LetterSpacing(1.0)"),
+        ("tracking-widest", "ExactClassAction::LetterSpacing(2.0)"),
         (
             "uppercase",
             "ExactClassAction::TextTransform(TextTransform::Uppercase)",

@@ -1,10 +1,10 @@
 use rquickjs::Function;
 
-use crate::style::{ColorToken, LengthPercentageAuto, Transform, color_token_from_script_name};
+use crate::style::{ColorToken, FontWeight, LengthPercentageAuto, Transform, color_token_from_script_name};
 
 use super::{
     MutationStore, align_items_from_name, box_shadow_from_name, drop_shadow_from_name,
-    flex_direction_from_name, font_weight_from_name, inset_shadow_from_name,
+    flex_direction_from_name, inset_shadow_from_name,
     justify_content_from_name, object_fit_from_name, position_from_name, text_align_from_name,
 };
 
@@ -537,10 +537,8 @@ pub(super) fn install_node_style_bindings<'js>(
     set_style_binding!("__record_text_size", map, |id, v: f32| {
         map.entry(id).or_default().text_px = Some(v);
     });
-    set_style_binding!("__record_font_weight", map, |id, v: String| {
-        if let Some(fw) = font_weight_from_name(&v) {
-            map.entry(id).or_default().font_weight = Some(fw);
-        }
+    set_style_binding!("__record_font_weight", map, |id, v: f64| {
+        map.entry(id).or_default().font_weight = Some(FontWeight(v as u16));
     });
     set_style_binding!("__record_letter_spacing", map, |id, v: f32| {
         map.entry(id).or_default().letter_spacing = Some(v);

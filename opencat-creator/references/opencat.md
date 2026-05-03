@@ -71,7 +71,12 @@ OpenCat JSONL 是一种 JSON Lines 格式，用于描述动态图形合成。每
 
 ### 3.1 `div`
 
-容器，带 flex 布局。等价于 `<div>`。
+容器。等价于 HTML `<div>`，**默认 `display: block`**。className 含 `flex` / `flex-row` / `flex-col` 时切换为 Flex；含 `grid` 时切换为 Grid。
+
+布局硬性规则（Tailwind 对齐）：
+
+- **优先使用 flex**。容器应以 `flex flex-col` / `flex items-center justify-center` 等起手，通过 gap / items / justify 排版子元素。
+- **`absolute` 必须显式坐标**。任何 `absolute` 元素必须至少包含 `top` / `left` / `right` / `bottom` / `inset-X` 之一（含 `inset-0`）。Taffy 不实现 CSS 的 absolute static position fallback——inset 全 auto 的 `absolute` 元素会塞到容器内容区左上 `(0, 0)`，多个 absolute 元素会完全重叠。
 
 ```json
 {"id": "box", "parentId": "root", "type": "div", "className": "flex flex-col items-center gap-4 p-6"}

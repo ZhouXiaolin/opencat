@@ -611,10 +611,7 @@
                 }
                 const normalized = intervals.map((value) => {
                     const n = toFiniteNumber(value);
-                    if (n <= 0) {
-                        throw new Error('MakeDash intervals must be positive');
-                    }
-                    return n;
+                    return n > 0 ? n : 1e-6;
                 });
                 return {
                     __opencatPathEffect: true,

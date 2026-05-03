@@ -45,7 +45,7 @@
             case 'objectFit': __record_object_fit(id, String(args[0])); break;
             case 'textColor': __record_text_color(id, String(args[0])); break;
             case 'textSize': __record_text_size(id, args[0]); break;
-            case 'fontWeight': __record_font_weight(id, String(args[0])); break;
+            case 'fontWeight': __record_font_weight(id, Number(args[0])); break;
             case 'letterSpacing': __record_letter_spacing(id, args[0]); break;
             case 'textAlign': __record_text_align(id, String(args[0])); break;
             case 'lineHeight': __record_line_height(id, args[0]); break;

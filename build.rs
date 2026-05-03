@@ -682,24 +682,40 @@ fn generate_tailwind_jsonl_rules() -> String {
         ),
         ("font-mono", "ExactClassAction::Noop"),
         (
+            "font-thin",
+            "ExactClassAction::FontWeight(FontWeight(100))",
+        ),
+        (
+            "font-extralight",
+            "ExactClassAction::FontWeight(FontWeight(200))",
+        ),
+        (
             "font-light",
-            "ExactClassAction::FontWeight(FontWeight::Light)",
+            "ExactClassAction::FontWeight(FontWeight(300))",
         ),
         (
             "font-normal",
-            "ExactClassAction::FontWeight(FontWeight::Normal)",
+            "ExactClassAction::FontWeight(FontWeight(400))",
         ),
         (
             "font-medium",
-            "ExactClassAction::FontWeight(FontWeight::Medium)",
+            "ExactClassAction::FontWeight(FontWeight(500))",
         ),
         (
             "font-semibold",
-            "ExactClassAction::FontWeight(FontWeight::SemiBold)",
+            "ExactClassAction::FontWeight(FontWeight(600))",
         ),
         (
             "font-bold",
-            "ExactClassAction::FontWeight(FontWeight::Bold)",
+            "ExactClassAction::FontWeight(FontWeight(700))",
+        ),
+        (
+            "font-extrabold",
+            "ExactClassAction::FontWeight(FontWeight(800))",
+        ),
+        (
+            "font-black",
+            "ExactClassAction::FontWeight(FontWeight(900))",
         ),
         ("shadow-none", "ExactClassAction::ClearBoxShadow"),
         (

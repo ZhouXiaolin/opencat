@@ -74,10 +74,10 @@ JSONL ──→ Taffy 布局 ──→ Skia 渲染 ──→ FFmpeg 编码 → M
 
 ```bash
 # 看个演示效果
-cargo run --bin parse_json -- json/opencat-project-showcase-landscape.jsonl
+cargo run --bin opencat -- json/opencat-project-showcase-landscape.jsonl
 
 # 或者用桌面播放器看实时预览（macOS / Windows）
-cargo run --bin opencat-player -- path/to/input.jsonl
+cargo run --bin opencat-see -- path/to/input.jsonl
 
 # 跑个 Hello World 示例
 cargo run --example hello_world
@@ -106,8 +106,8 @@ src/
 ├── lib.rs               # 公共 API 出口
 ├── backend/skia/        # Skia 渲染后端（Metal / GL / Software）
 ├── bin/
-│   ├── opencat-player   # 桌面预览播放器
-│   └── parse_json       # CLI 渲染器（JSONL → MP4）
+│   ├── opencat-see       # 桌面预览播放器
+│   └── opencat           # CLI 渲染器（JSONL → MP4）
 ├── codec/               # FFmpeg 编码 / 解码
 ├── element/             # 元素树类型和解析
 ├── jsonl/               # JSONL 解析 + 场景树构建

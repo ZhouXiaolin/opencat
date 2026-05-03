@@ -145,13 +145,14 @@ pub enum ObjectFit {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
-pub enum FontWeight {
-    Light,
-    #[default]
-    Normal,
-    Medium,
-    SemiBold,
-    Bold,
+pub struct FontWeight(pub u16);
+
+impl FontWeight {
+    pub const LIGHT: Self = Self(300);
+    pub const NORMAL: Self = Self(400);
+    pub const MEDIUM: Self = Self(500);
+    pub const SEMIBOLD: Self = Self(600);
+    pub const BOLD: Self = Self(700);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
@@ -659,7 +660,7 @@ impl Default for ComputedTextStyle {
         Self {
             color: ColorToken::Black,
             text_px: 16.0,
-            font_weight: FontWeight::Normal,
+            font_weight: FontWeight::NORMAL,
             letter_spacing: 0.0,
             text_align: TextAlign::Left,
             line_height: 1.5,
@@ -1337,23 +1338,23 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn font_normal(self) -> Self {
-                self.font_weight($crate::style::FontWeight::Normal)
+                self.font_weight($crate::style::FontWeight::NORMAL)
             }
 
             pub fn font_light(self) -> Self {
-                self.font_weight($crate::style::FontWeight::Light)
+                self.font_weight($crate::style::FontWeight::LIGHT)
             }
 
             pub fn font_medium(self) -> Self {
-                self.font_weight($crate::style::FontWeight::Medium)
+                self.font_weight($crate::style::FontWeight::MEDIUM)
             }
 
             pub fn font_semibold(self) -> Self {
-                self.font_weight($crate::style::FontWeight::SemiBold)
+                self.font_weight($crate::style::FontWeight::SEMIBOLD)
             }
 
             pub fn font_bold(self) -> Self {
-                self.font_weight($crate::style::FontWeight::Bold)
+                self.font_weight($crate::style::FontWeight::BOLD)
             }
 
             pub fn text_transform(mut self, transform: $crate::style::TextTransform) -> Self {

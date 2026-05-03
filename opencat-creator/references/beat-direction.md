@@ -67,15 +67,25 @@
 | 发布预告（10-20s） | SLAM-proof-SLAM-hold |
 | 品牌短片（20-45s） | drift-build-PEAK-drift-resolve |
 
-## 动效参数参考
+## 转场时长参考
 
-OpenCat ctx API 参数速查：
+按场景在叙事中的位置选择转场帧数：
 
-| 参数 | 说明 |
-|------|------|
-| `duration` | 帧数。@30fps 时 0.5s = 15f |
-| `ease` | `'ease-out'`、`'ease-in'`、`'ease-in-out'`、`'back-out'`、`'elastic-out'`、`'linear'` 等 |
-| `stagger` | 帧数。@30fps 时 0.15s = 4f |
-| `x` / `y` | 像素值 |
-| `scale` | 缩放倍数 |
-| `opacity` | 0-1 |
+| 位置 | Duration（帧） |
+|------|---------------|
+| 开场 | 12-18 |
+| 相关点之间 | 9 |
+| 主题变化 | 9-12 |
+| 高潮/揭示 | 5-9 |
+| 放松 | 15-21 |
+| 结尾 | 18-30 |
+
+## 能量 → Timing
+
+转场缓动与能量的匹配：
+
+| 能量 | Duration（帧） | Timing |
+|------|---------------|--------|
+| **平静** | 15-24 | `'ease-in-out'` |
+| **中等** | 9-15 | `'ease-out'` |
+| **高能** | 5-9 | `'linear'` |

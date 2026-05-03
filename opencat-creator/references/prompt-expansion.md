@@ -27,7 +27,6 @@
 
 - `design.md`（如果存在）— 提取品牌色、情绪、约束
 - [visual-styles.md](visual-styles.md) 或 [house-style.md](house-style.md) — 背景层规则、色彩、动效
-- [transitions.md](transitions.md) — 转场选择
 
 ---
 
@@ -52,7 +51,7 @@
 
 - 视差层
 - 微动效要求
-- 转场风格
+- 转场风格（只需声明意图，如"这里需要高能量的转场"，具体 effect 到实现阶段选）
 - 能量匹配到 mood
 
 ### 4. 逐场景拍点
@@ -66,7 +65,7 @@
   - High：SLAMS、CRASHES、PUNCHES
   - Medium：CASCADE、SLIDES、DROPS
   - Low：floats、types on、COUNTS UP
-- **退场转场** — 具体 effect 和 duration
+- **退场转场意图** — 如"快速硬切"或"缓慢溶解"，具体 effect 到实现阶段选
 
 ### 5. 复用视觉主题
 
@@ -89,16 +88,3 @@
 > 包含 [N] 个场景，共 [X] 秒（[Y] 帧@30fps）及具体视觉元素、转场和节奏。如有需要可修改，然后告诉我继续。"
 
 在用户批准之前，不要进入构建阶段。
-
----
-
-## 动效参数参考
-
-| 参数 | 说明 |
-|------|------|
-| `duration` | 帧数。@30fps 时 0.5s = 15f |
-| `ease` | `'ease-out'`、`'ease-in'`、`'ease-in-out'`、`'back-out'`、`'elastic-out'`、`'linear'` 等 |
-| `stagger` | 帧数。@30fps 时 0.15s = 4f |
-| `x` / `y` | 像素值 |
-| `scale` | 缩放倍数 |
-| `opacity` | 0-1 |

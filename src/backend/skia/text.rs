@@ -390,14 +390,7 @@ fn contains_cjk(text: &str) -> bool {
 }
 
 fn font_style(weight: FontWeight) -> FontStyle {
-    let weight = match weight {
-        FontWeight::Light => 300,
-        FontWeight::Normal => 400,
-        FontWeight::Medium => 500,
-        FontWeight::SemiBold => 600,
-        FontWeight::Bold => 700,
-    };
-    FontStyle::new(Weight::from(weight), Width::NORMAL, Slant::Upright)
+    FontStyle::new(Weight::from(weight.0 as i32), Width::NORMAL, Slant::Upright)
 }
 
 fn paragraph_align(align: TextAlign) -> ParagraphAlign {

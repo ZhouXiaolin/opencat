@@ -183,17 +183,6 @@ fn object_fit_from_name(name: &str) -> Option<ObjectFit> {
     }
 }
 
-fn font_weight_from_name(name: &str) -> Option<FontWeight> {
-    match name {
-        "light" => Some(FontWeight::Light),
-        "normal" => Some(FontWeight::Normal),
-        "medium" => Some(FontWeight::Medium),
-        "semibold" => Some(FontWeight::SemiBold),
-        "bold" => Some(FontWeight::Bold),
-        _ => None,
-    }
-}
-
 fn box_shadow_from_name(name: &str) -> Option<BoxShadow> {
     match name {
         "2xs" => Some(BoxShadow::from_style(BoxShadowStyle::TwoXs)),

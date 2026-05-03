@@ -1198,7 +1198,7 @@ mod tests {
         );
         assert_eq!(
             resolved.children[0].style.text.font_weight,
-            crate::style::FontWeight::Bold
+            crate::style::FontWeight::BOLD
         );
         assert_eq!(resolved.children[0].style.text.line_height, 1.8);
         assert_eq!(

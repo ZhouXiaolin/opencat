@@ -702,6 +702,17 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
+    // font-[N] — arbitrary numeric font weight (e.g. font-[350], font-[700])
+    if let Some(value) = class
+        .strip_prefix("font-[")
+        .and_then(|v| v.strip_suffix(']'))
+    {
+        if let Ok(weight) = value.parse::<u16>() {
+            style.font_weight = Some(FontWeight(weight));
+            return true;
+        }
+    }
+
     false
 }
 

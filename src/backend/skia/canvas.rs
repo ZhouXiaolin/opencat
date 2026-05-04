@@ -19,15 +19,15 @@ use crate::{
         media::{MediaContext, VideoFrameRequest},
     },
     runtime::cache::{
-        CachedSubtreeImage, CachedSubtreeSnapshot, ImageCache, ItemPictureCache, SubtreeImageCache,
-        SubtreeSnapshotCache, TextSnapshotCache,
+        CachedSubtreeImage, CachedSubtreeSnapshot, GlyphImageCache, GlyphPathCache, ImageCache,
+        ItemPictureCache, SubtreeImageCache, SubtreeSnapshotCache,
     },
     runtime::{
         annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle, RecordedNodeSemantics},
         compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram},
         fingerprint::{
             SubtreeSnapshotFingerprint, item_paint_fingerprint,
-            subtree_has_dirty_descendant_composite, text_paint_fingerprint,
+            subtree_has_dirty_descendant_composite,
         },
     },
     scene::script::{
@@ -52,21 +52,9 @@ struct BitmapDrawStats {
     video_frame_decodes: usize,
 }
 
-struct TextDrawStats {
-    cache_hits: usize,
-    cache_misses: usize,
-}
-
 struct ItemPictureDrawStats {
     cache_hits: usize,
     cache_misses: usize,
-}
-
-#[derive(Clone, Copy)]
-struct TextSnapshotPlacement {
-    record_bounds: DisplayRect,
-    draw_translation_x: f32,
-    draw_translation_y: f32,
 }
 
 #[derive(Clone)]
@@ -115,7 +103,8 @@ pub struct SkiaBackend<'a> {
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     image_cache: ImageCache,
-    text_snapshot_cache: TextSnapshotCache,
+    glyph_path_cache: GlyphPathCache,
+    glyph_image_cache: GlyphImageCache,
     item_picture_cache: ItemPictureCache,
     subtree_snapshot_cache: Option<SubtreeSnapshotCache>,
     subtree_image_cache: Option<SubtreeImageCache>,
@@ -129,7 +118,8 @@ impl<'a> SkiaBackend<'a> {
         display_tree: &'a AnnotatedDisplayTree,
         assets: &'a AssetsMap,
         image_cache: ImageCache,
-        text_snapshot_cache: TextSnapshotCache,
+        glyph_path_cache: GlyphPathCache,
+        glyph_image_cache: GlyphImageCache,
         item_picture_cache: ItemPictureCache,
         subtree_snapshot_cache: Option<SubtreeSnapshotCache>,
         subtree_image_cache: Option<SubtreeImageCache>,
@@ -141,7 +131,8 @@ impl<'a> SkiaBackend<'a> {
             display_tree,
             assets,
             image_cache,
-            text_snapshot_cache,
+            glyph_path_cache,
+            glyph_image_cache,
             item_picture_cache,
             subtree_snapshot_cache,
             subtree_image_cache,
@@ -488,7 +479,8 @@ impl<'a> SkiaBackend<'a> {
                 cache_key,
                 self.assets,
                 &self.image_cache,
-                &self.text_snapshot_cache,
+                &self.glyph_path_cache,
+                &self.glyph_image_cache,
                 &self.item_picture_cache,
                 &mut self.media_ctx,
                 self.frame_ctx,
@@ -519,7 +511,8 @@ impl<'a> SkiaBackend<'a> {
             item,
             self.assets,
             &self.image_cache,
-            &self.text_snapshot_cache,
+            &self.glyph_path_cache,
+            &self.glyph_image_cache,
             &mut self.media_ctx,
             self.frame_ctx,
         )?;
@@ -569,13 +562,12 @@ impl<'a> SkiaBackend<'a> {
                 let _kind_guard = kind_span.enter();
                 if let Some(shadow) = text.drop_shadow {
                     draw_item_drop_shadow(self.canvas, text.bounds, shadow, |canvas| {
-                        draw_text(canvas, text, &self.text_snapshot_cache).map(|_| ())
+                        draw_text(canvas, text, &self.glyph_path_cache, &self.glyph_image_cache);
+                        Ok(())
                     })?;
                 }
-                let stats = draw_text(self.canvas, text, &self.text_snapshot_cache)?;
+                draw_text(self.canvas, text, &self.glyph_path_cache, &self.glyph_image_cache);
                 event!(target: "render.draw", Level::TRACE, kind = "draw", name = "text", result = "count", amount = 1_u64);
-                event!(target: "render.cache", Level::TRACE, kind = "cache", name = "text", result = "hit", amount = stats.cache_hits as u64);
-                event!(target: "render.cache", Level::TRACE, kind = "cache", name = "text", result = "miss", amount = stats.cache_misses as u64);
             }
             DisplayItem::Bitmap(bitmap) => {
                 let kind_span =
@@ -675,7 +667,8 @@ impl<'a> SkiaBackend<'a> {
             self.display_tree,
             self.assets,
             self.image_cache.clone(),
-            self.text_snapshot_cache.clone(),
+            self.glyph_path_cache.clone(),
+            self.glyph_image_cache.clone(),
             self.item_picture_cache.clone(),
             self.subtree_snapshot_cache.clone(),
             self.subtree_image_cache.clone(),
@@ -931,7 +924,8 @@ pub(crate) fn draw_ordered_scene_cached<'a>(
     canvas: &'a Canvas,
     assets: &'a AssetsMap,
     image_cache: ImageCache,
-    text_snapshot_cache: TextSnapshotCache,
+    glyph_path_cache: GlyphPathCache,
+    glyph_image_cache: GlyphImageCache,
     item_picture_cache: ItemPictureCache,
     subtree_snapshot_cache: SubtreeSnapshotCache,
     subtree_image_cache: SubtreeImageCache,
@@ -945,7 +939,8 @@ pub(crate) fn draw_ordered_scene_cached<'a>(
         display_tree,
         assets,
         image_cache,
-        text_snapshot_cache,
+        glyph_path_cache,
+        glyph_image_cache,
         item_picture_cache,
         Some(subtree_snapshot_cache),
         Some(subtree_image_cache),
@@ -961,7 +956,8 @@ pub(crate) fn record_display_tree_snapshot<'a>(
     height: i32,
     assets: &'a AssetsMap,
     image_cache: ImageCache,
-    text_snapshot_cache: TextSnapshotCache,
+    glyph_path_cache: GlyphPathCache,
+    glyph_image_cache: GlyphImageCache,
     item_picture_cache: ItemPictureCache,
     subtree_snapshot_cache: SubtreeSnapshotCache,
     subtree_image_cache: SubtreeImageCache,
@@ -981,7 +977,8 @@ pub(crate) fn record_display_tree_snapshot<'a>(
         display_tree,
         assets,
         image_cache,
-        text_snapshot_cache,
+        glyph_path_cache.clone(),
+        glyph_image_cache.clone(),
         item_picture_cache,
         Some(subtree_snapshot_cache),
         Some(subtree_image_cache),
@@ -1160,8 +1157,9 @@ fn draw_item_drop_shadow(
 fn draw_text(
     canvas: &Canvas,
     text: &TextDisplayItem,
-    text_snapshot_cache: &TextSnapshotCache,
-) -> Result<TextDrawStats> {
+    glyph_path_cache: &GlyphPathCache,
+    glyph_image_cache: &GlyphImageCache,
+) {
     if let Some(batch) = text.text_unit_overrides.as_ref() {
         skia_text::draw_text_with_unit_overrides(
             canvas,
@@ -1172,39 +1170,22 @@ fn draw_text(
             text.allow_wrap,
             &text.style,
             batch,
+            glyph_path_cache,
+            glyph_image_cache,
         );
-        return Ok(TextDrawStats {
-            cache_hits: 0,
-            cache_misses: 0,
-        });
-    }
-
-    let placement = text_snapshot_placement(text);
-    let cache_key = text_paint_fingerprint(text);
-    if let Some(snapshot) = text_snapshot_cache.borrow_mut().get_cloned(&cache_key) {
-        canvas.save();
-        canvas.translate((placement.draw_translation_x, placement.draw_translation_y));
-        canvas.draw_picture(&snapshot, None, None);
-        canvas.restore();
-        Ok(TextDrawStats {
-            cache_hits: 1,
-            cache_misses: 0,
-        })
     } else {
-        let snapshot = record_text_snapshot(text)?;
-        let report = text_snapshot_cache
-            .borrow_mut()
-            .insert(cache_key, snapshot.clone());
-        record_cache_pressure("text", &report);
-
-        canvas.save();
-        canvas.translate((placement.draw_translation_x, placement.draw_translation_y));
-        canvas.draw_picture(&snapshot, None, None);
-        canvas.restore();
-        Ok(TextDrawStats {
-            cache_hits: 0,
-            cache_misses: 1,
-        })
+        skia_text::draw_text(
+            canvas,
+            &text.text,
+            text.bounds.x,
+            text.bounds.y,
+            text.bounds.width,
+            text.allow_wrap,
+            &text.style,
+            text.truncate,
+            glyph_path_cache,
+            glyph_image_cache,
+        );
     }
 }
 
@@ -1314,7 +1295,8 @@ fn draw_item_picture_cached(
     cache_key: u64,
     assets: &AssetsMap,
     image_cache: &ImageCache,
-    text_snapshot_cache: &TextSnapshotCache,
+    glyph_path_cache: &GlyphPathCache,
+    glyph_image_cache: &GlyphImageCache,
     item_picture_cache: &ItemPictureCache,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
@@ -1335,7 +1317,8 @@ fn draw_item_picture_cached(
         item,
         assets,
         image_cache,
-        text_snapshot_cache,
+        glyph_path_cache,
+        glyph_image_cache,
         media_ctx,
         frame_ctx,
     )?;
@@ -1358,7 +1341,8 @@ fn record_item_picture(
     item: &DisplayItem,
     assets: &AssetsMap,
     image_cache: &ImageCache,
-    text_snapshot_cache: &TextSnapshotCache,
+    glyph_path_cache: &GlyphPathCache,
+    glyph_image_cache: &GlyphImageCache,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
 ) -> Result<Picture> {
@@ -1380,7 +1364,8 @@ fn record_item_picture(
         item,
         assets,
         image_cache,
-        text_snapshot_cache,
+        glyph_path_cache,
+        glyph_image_cache,
         media_ctx,
         frame_ctx,
     )?;
@@ -1394,7 +1379,8 @@ fn draw_display_item_direct(
     item: &DisplayItem,
     assets: &AssetsMap,
     image_cache: &ImageCache,
-    text_snapshot_cache: &TextSnapshotCache,
+    glyph_path_cache: &GlyphPathCache,
+    glyph_image_cache: &GlyphImageCache,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
 ) -> Result<()> {
@@ -1417,10 +1403,11 @@ fn draw_display_item_direct(
         DisplayItem::Text(text) => {
             if let Some(shadow) = text.drop_shadow {
                 draw_item_drop_shadow(canvas, text.bounds, shadow, |canvas| {
-                    draw_text(canvas, text, text_snapshot_cache).map(|_| ())
+                    draw_text(canvas, text, glyph_path_cache, glyph_image_cache);
+                    Ok(())
                 })?;
             }
-            let _ = draw_text(canvas, text, text_snapshot_cache)?;
+            draw_text(canvas, text, glyph_path_cache, glyph_image_cache);
         }
         DisplayItem::Bitmap(bitmap) => {
             if let Some(shadow) = bitmap.paint.box_shadow {
@@ -1471,45 +1458,6 @@ fn draw_timeline_base(canvas: &Canvas, timeline: &TimelineDisplayItem) -> Result
     }
     draw_rect(canvas, &rect);
     Ok(())
-}
-
-fn record_text_snapshot(text: &TextDisplayItem) -> Result<Picture> {
-    debug_assert!(text.text_unit_overrides.is_none());
-    let placement = text_snapshot_placement(text);
-    let bounds = Rect::from_xywh(
-        placement.record_bounds.x,
-        placement.record_bounds.y,
-        placement.record_bounds.width,
-        placement.record_bounds.height,
-    );
-    let mut recorder = PictureRecorder::new();
-    let recording_canvas = recorder.begin_recording(bounds, false);
-    skia_text::draw_text(
-        recording_canvas,
-        &text.text,
-        0.0,
-        0.0,
-        text.bounds.width,
-        text.allow_wrap,
-        &text.style,
-        text.truncate,
-    );
-    recorder
-        .finish_recording_as_picture(None)
-        .ok_or_else(|| anyhow!("failed to record text snapshot"))
-}
-
-fn text_snapshot_placement(text: &TextDisplayItem) -> TextSnapshotPlacement {
-    TextSnapshotPlacement {
-        record_bounds: DisplayRect {
-            x: 0.0,
-            y: 0.0,
-            width: text.bounds.width.max(1.0),
-            height: text.bounds.height.max(1.0),
-        },
-        draw_translation_x: text.bounds.x,
-        draw_translation_y: text.bounds.y,
-    }
 }
 
 fn draw_bitmap(
@@ -3050,7 +2998,7 @@ mod text_draw_tests {
     use super::draw_text;
     use crate::{
         display::list::{DisplayRect, TextDisplayItem},
-        runtime::cache::{TextSnapshotCache, lru::BoundedLruCache},
+        runtime::cache::{GlyphImageCache, GlyphPathCache, lru::BoundedLruCache},
         scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
         style::ComputedTextStyle,
     };
@@ -3065,9 +3013,13 @@ mod text_draw_tests {
     }
 
     #[test]
-    fn draw_text_with_unit_overrides_bypasses_text_snapshot_cache() {
-        let cache: TextSnapshotCache = Rc::new(RefCell::new(BoundedLruCache::new(8)));
+    fn draw_text_renders_plain_text() {
+        let path_cache: GlyphPathCache =
+            Rc::new(RefCell::new(BoundedLruCache::new(4096)));
+        let image_cache: GlyphImageCache =
+            Rc::new(RefCell::new(BoundedLruCache::new(1024)));
         let mut surface = surfaces::raster_n32_premul((256, 128)).expect("surface");
+        surface.canvas().clear(skia_safe::Color::TRANSPARENT);
 
         let plain = TextDisplayItem {
             bounds: rect_bounds(),
@@ -3080,44 +3032,25 @@ mod text_draw_tests {
             visual_expand_x: 0.0,
             visual_expand_y: 0.0,
         };
-        let plain_first = draw_text(surface.canvas(), &plain, &cache).expect("plain first draw");
-        let plain_second = draw_text(surface.canvas(), &plain, &cache).expect("plain second draw");
-        assert_eq!(plain_first.cache_hits, 0);
-        assert_eq!(plain_first.cache_misses, 1);
-        assert_eq!(plain_second.cache_hits, 1);
-        assert_eq!(plain_second.cache_misses, 0);
 
-        let with_overrides = TextDisplayItem {
-            bounds: rect_bounds(),
-            text: "Hello".into(),
-            style: ComputedTextStyle::default(),
-            allow_wrap: false,
-            truncate: false,
-            drop_shadow: None,
-            text_unit_overrides: Some(TextUnitOverrideBatch {
-                granularity: TextUnitGranularity::Grapheme,
-                overrides: vec![TextUnitOverride {
-                    opacity: Some(0.5),
-                    ..Default::default()
-                }],
-            }),
-            visual_expand_x: 0.0,
-            visual_expand_y: 0.0,
-        };
-        let override_first =
-            draw_text(surface.canvas(), &with_overrides, &cache).expect("override first draw");
-        let override_second =
-            draw_text(surface.canvas(), &with_overrides, &cache).expect("override second draw");
-        assert_eq!(override_first.cache_hits, 0);
-        assert_eq!(override_first.cache_misses, 0);
-        assert_eq!(override_second.cache_hits, 0);
-        assert_eq!(override_second.cache_misses, 0);
-        assert_eq!(cache.borrow().len(), 1);
+        draw_text(surface.canvas(), &plain, &path_cache, &image_cache);
+
+        let image = surface.image_snapshot();
+        let pixels = image.peek_pixels().expect("raster image should expose pixels");
+        let has_visible = pixels
+            .bytes()
+            .expect("pixels should expose bytes")
+            .chunks_exact(4)
+            .any(|px| px[3] > 0);
+        assert!(has_visible, "plain text draw should produce visible pixels");
     }
 
     #[test]
     fn draw_text_with_unit_overrides_renders_visible_pixels() {
-        let cache: TextSnapshotCache = Rc::new(RefCell::new(BoundedLruCache::new(8)));
+        let path_cache: GlyphPathCache =
+            Rc::new(RefCell::new(BoundedLruCache::new(4096)));
+        let image_cache: GlyphImageCache =
+            Rc::new(RefCell::new(BoundedLruCache::new(1024)));
         let mut surface = surfaces::raster_n32_premul((256, 128)).expect("surface");
         surface.canvas().clear(skia_safe::Color::TRANSPARENT);
 
@@ -3139,7 +3072,7 @@ mod text_draw_tests {
             visual_expand_y: 0.0,
         };
 
-        draw_text(surface.canvas(), &item, &cache).expect("override text should draw");
+        draw_text(surface.canvas(), &item, &path_cache, &image_cache);
         let image = surface.image_snapshot();
         let pixels = image
             .peek_pixels()

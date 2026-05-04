@@ -1,0 +1,70 @@
+{"type":"composition","width":1920,"height":1080,"fps":30,"frames":180}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[1920px] h-[1080px] bg-slate-950"}
+{"id":"col1","parentId":"root","type":"div","className":"absolute left-[40px] top-[40px] flex flex-col gap-[8px] w-[440px]"}
+{"id":"col2","parentId":"root","type":"div","className":"absolute left-[520px] top-[40px] flex flex-col gap-[8px] w-[440px]"}
+{"id":"col3","parentId":"root","type":"div","className":"absolute left-[1000px] top-[40px] flex flex-col gap-[8px] w-[440px]"}
+{"id":"col4","parentId":"root","type":"div","className":"absolute left-[1480px] top-[40px] flex flex-col gap-[8px] w-[400px]"}
+{"id":"sec-header","parentId":"root","type":"text","className":"absolute left-[40px] top-[5px] text-[13px] font-semibold text-slate-500 tracking-[3px]","text":"TEXT CACHE BENCHMARK — 180 frames"}
+{"id":"t1","parentId":"col1","type":"text","className":"text-[32px] font-bold text-white","text":"The quick brown fox jumps over the lazy dog"}
+{"id":"t2","parentId":"col1","type":"text","className":"text-[28px] font-semibold text-cyan-300","text":"The quick brown fox jumps over the lazy dog"}
+{"id":"t3","parentId":"col1","type":"text","className":"text-[24px] font-medium text-fuchsia-300","text":"The quick brown fox jumps over the lazy dog"}
+{"id":"t4","parentId":"col1","type":"text","className":"text-[20px] font-normal text-amber-300","text":"The quick brown fox jumps over the lazy dog"}
+{"id":"t5","parentId":"col1","type":"text","className":"text-[18px] font-light text-emerald-300","text":"The quick brown fox jumps over the lazy dog"}
+{"id":"t6","parentId":"col1","type":"text","className":"text-[32px] font-bold text-rose-300","text":"Pack my box with five dozen liquor jugs"}
+{"id":"t7","parentId":"col1","type":"text","className":"text-[28px] font-semibold text-sky-300","text":"Pack my box with five dozen liquor jugs"}
+{"id":"t8","parentId":"col1","type":"text","className":"text-[24px] font-medium text-violet-300","text":"Pack my box with five dozen liquor jugs"}
+{"id":"t9","parentId":"col1","type":"text","className":"text-[20px] font-normal text-teal-300","text":"Pack my box with five dozen liquor jugs"}
+{"id":"t10","parentId":"col1","type":"text","className":"text-[18px] font-light text-yellow-300","text":"Pack my box with five dozen liquor jugs"}
+{"id":"t11","parentId":"col2","type":"text","className":"text-[48px] font-bold text-white","text":"Hello World"}
+{"id":"t12","parentId":"col2","type":"text","className":"text-[44px] font-bold text-cyan-400","text":"Hello World"}
+{"id":"t13","parentId":"col2","type":"text","className":"text-[40px] font-bold text-fuchsia-400","text":"Hello World"}
+{"id":"t14","parentId":"col2","type":"text","className":"text-[36px] font-bold text-amber-400","text":"Hello World"}
+{"id":"t15","parentId":"col2","type":"text","className":"text-[32px] font-bold text-emerald-400","text":"Hello World"}
+{"id":"t16","parentId":"col2","type":"text","className":"text-[28px] font-bold text-rose-400","text":"Hello World"}
+{"id":"t17","parentId":"col2","type":"text","className":"text-[24px] font-bold text-sky-400","text":"Hello World"}
+{"id":"t18","parentId":"col2","type":"text","className":"text-[20px] font-bold text-violet-400","text":"Hello World"}
+{"id":"cn1","parentId":"col2","type":"text","className":"text-[32px] font-bold text-white","text":"你好世界"}
+{"id":"cn2","parentId":"col2","type":"text","className":"text-[28px] font-semibold text-cyan-300","text":"你好世界"}
+{"id":"cn3","parentId":"col2","type":"text","className":"text-[24px] font-medium text-fuchsia-300","text":"你好世界"}
+{"id":"cn4","parentId":"col2","type":"text","className":"text-[20px] font-normal text-amber-300","text":"你好世界"}
+{"id":"t19","parentId":"col3","type":"text","className":"text-[24px] font-bold text-white leading-snug w-[440px]","text":"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."}
+{"id":"t20","parentId":"col3","type":"text","className":"text-[24px] font-bold text-cyan-300 leading-snug w-[440px]","text":"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."}
+{"id":"t21","parentId":"col3","type":"text","className":"text-[24px] font-bold text-fuchsia-300 leading-snug w-[440px]","text":"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."}
+{"id":"t22","parentId":"col3","type":"text","className":"text-[24px] font-bold text-amber-300 leading-snug w-[440px]","text":"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."}
+{"id":"t23","parentId":"col3","type":"text","className":"text-[24px] font-bold text-emerald-300 leading-snug w-[440px]","text":"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."}
+{"id":"t24","parentId":"col3","type":"text","className":"text-[24px] font-bold text-rose-300 leading-snug w-[440px]","text":"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."}
+{"id":"cn5","parentId":"col3","type":"text","className":"text-[22px] font-bold text-white leading-relaxed w-[440px]","text":"春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。"}
+{"id":"cn6","parentId":"col3","type":"text","className":"text-[22px] font-bold text-cyan-300 leading-relaxed w-[440px]","text":"春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。"}
+{"id":"cn7","parentId":"col3","type":"text","className":"text-[22px] font-bold text-fuchsia-300 leading-relaxed w-[440px]","text":"春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。"}
+{"id":"cn8","parentId":"col3","type":"text","className":"text-[22px] font-bold text-amber-300 leading-relaxed w-[440px]","text":"春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。"}
+{"id":"t25","parentId":"col4","type":"text","className":"text-[14px] font-semibold text-slate-400","text":"ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
+{"id":"t26","parentId":"col4","type":"text","className":"text-[14px] font-semibold text-cyan-400","text":"ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
+{"id":"t27","parentId":"col4","type":"text","className":"text-[14px] font-semibold text-fuchsia-400","text":"ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
+{"id":"t28","parentId":"col4","type":"text","className":"text-[14px] font-semibold text-amber-400","text":"ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
+{"id":"t29","parentId":"col4","type":"text","className":"text-[14px] font-semibold text-emerald-400","text":"ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
+{"id":"t30","parentId":"col4","type":"text","className":"text-[14px] font-semibold text-rose-400","text":"ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
+{"id":"t31","parentId":"col4","type":"text","className":"text-[14px] font-semibold text-sky-400","text":"abcdefghijklmnopqrstuvwxyz"}
+{"id":"t32","parentId":"col4","type":"text","className":"text-[14px] font-semibold text-violet-400","text":"abcdefghijklmnopqrstuvwxyz"}
+{"id":"t33","parentId":"col4","type":"text","className":"text-[14px] font-semibold text-teal-400","text":"abcdefghijklmnopqrstuvwxyz"}
+{"id":"t34","parentId":"col4","type":"text","className":"text-[14px] font-semibold text-yellow-400","text":"abcdefghijklmnopqrstuvwxyz"}
+{"id":"t35","parentId":"col4","type":"text","className":"text-[14px] font-semibold text-orange-400","text":"abcdefghijklmnopqrstuvwxyz"}
+{"id":"t36","parentId":"col4","type":"text","className":"text-[12px] font-mono text-slate-500","text":"0123456789 !@#$%^&*()_+-=[]{}|;:',.<>?/"}
+{"id":"t37","parentId":"col4","type":"text","className":"text-[12px] font-mono text-cyan-500","text":"0123456789 !@#$%^&*()_+-=[]{}|;:',.<>?/"}
+{"id":"t38","parentId":"col4","type":"text","className":"text-[12px] font-mono text-fuchsia-500","text":"0123456789 !@#$%^&*()_+-=[]{}|;:',.<>?/"}
+{"id":"t39","parentId":"col4","type":"text","className":"text-[12px] font-mono text-amber-500","text":"0123456789 !@#$%^&*()_+-=[]{}|;:',.<>?/"}
+{"id":"num1","parentId":"col4","type":"text","className":"text-[20px] font-bold text-white","text":"42"}
+{"id":"num2","parentId":"col4","type":"text","className":"text-[20px] font-bold text-cyan-300","text":"42"}
+{"id":"num3","parentId":"col4","type":"text","className":"text-[20px] font-bold text-fuchsia-300","text":"42"}
+{"id":"num4","parentId":"col4","type":"text","className":"text-[20px] font-bold text-amber-300","text":"42"}
+{"id":"num5","parentId":"col4","type":"text","className":"text-[20px] font-bold text-emerald-300","text":"42"}
+{"id":"bottom-bar","parentId":"root","type":"div","className":"absolute left-[40px] bottom-[40px] flex flex-row gap-[16px] items-end"}
+{"id":"bb1","parentId":"bottom-bar","type":"text","className":"text-[14px] font-semibold text-slate-500","text":"same text, different color — glyph paths should be reusable"}
+{"id":"bb2","parentId":"bottom-bar","type":"text","className":"text-[14px] font-semibold text-cyan-500","text":"same text, different color — glyph paths should be reusable"}
+{"id":"bb3","parentId":"bottom-bar","type":"text","className":"text-[14px] font-semibold text-fuchsia-500","text":"same text, different color — glyph paths should be reusable"}
+{"id":"bb4","parentId":"bottom-bar","type":"text","className":"text-[14px] font-semibold text-amber-500","text":"same text, different color — glyph paths should be reusable"}
+{"id":"overlay","parentId":"root","type":"div","className":"absolute right-[40px] bottom-[40px] flex flex-col gap-[6px] items-end"}
+{"id":"ov1","parentId":"overlay","type":"text","className":"text-[16px] font-semibold text-slate-400","text":"Benchmark: 50+ text elements"}
+{"id":"ov2","parentId":"overlay","type":"text","className":"text-[16px] font-semibold text-slate-400","text":"Repeated glyphs × colors × sizes"}
+{"id":"ov3","parentId":"overlay","type":"text","className":"text-[16px] font-semibold text-slate-400","text":"中英文混合 · Mixed script"}
+{"type":"script","parentId":"root","content":"ctx.fromTo('sec-header',{opacity:0,y:-8},{opacity:1,y:0,duration:20,ease:'spring.gentle'});ctx.timeline().fromTo('t1',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'}).fromTo('t2',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t3',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t4',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t5',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t6',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t7',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t8',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t9',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t10',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t11',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'}).fromTo('t12',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t13',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t14',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t15',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t16',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t17',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t18',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('cn1',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'}).fromTo('cn2',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('cn3',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('cn4',{opacity:0,x:-20},{opacity:1,x:0,duration:16,ease:'spring.default'},'-=12').fromTo('t19',{opacity:0,y:-16},{opacity:1,y:0,duration:16,ease:'spring.default'}).fromTo('t20',{opacity:0,y:-16},{opacity:1,y:0,duration:16,ease:'spring.default'},'-=12').fromTo('t21',{opacity:0,y:-16},{opacity:1,y:0,duration:16,ease:'spring.default'},'-=12').fromTo('t22',{opacity:0,y:-16},{opacity:1,y:0,duration:16,ease:'spring.default'},'-=12').fromTo('t23',{opacity:0,y:-16},{opacity:1,y:0,duration:16,ease:'spring.default'},'-=12').fromTo('t24',{opacity:0,y:-16},{opacity:1,y:0,duration:16,ease:'spring.default'},'-=12').fromTo('cn5',{opacity:0,y:-16},{opacity:1,y:0,duration:16,ease:'spring.default'}).fromTo('cn6',{opacity:0,y:-16},{opacity:1,y:0,duration:16,ease:'spring.default'},'-=12').fromTo('cn7',{opacity:0,y:-16},{opacity:1,y:0,duration:16,ease:'spring.default'},'-=12').fromTo('cn8',{opacity:0,y:-16},{opacity:1,y:0,duration:16,ease:'spring.default'},'-=12').fromTo('t25',{opacity:0},{opacity:1,duration:12}).fromTo('t26',{opacity:0},{opacity:1,duration:12}).fromTo('t27',{opacity:0},{opacity:1,duration:12}).fromTo('t28',{opacity:0},{opacity:1,duration:12}).fromTo('t29',{opacity:0},{opacity:1,duration:12}).fromTo('t30',{opacity:0},{opacity:1,duration:12}).fromTo('t31',{opacity:0},{opacity:1,duration:12}).fromTo('t32',{opacity:0},{opacity:1,duration:12}).fromTo('t33',{opacity:0},{opacity:1,duration:12}).fromTo('t34',{opacity:0},{opacity:1,duration:12}).fromTo('t35',{opacity:0},{opacity:1,duration:12}).fromTo('t36',{opacity:0},{opacity:1,duration:12}).fromTo('t37',{opacity:0},{opacity:1,duration:12}).fromTo('t38',{opacity:0},{opacity:1,duration:12}).fromTo('t39',{opacity:0},{opacity:1,duration:12}).fromTo('num1',{opacity:0},{opacity:1,duration:12}).fromTo('num2',{opacity:0},{opacity:1,duration:12}).fromTo('num3',{opacity:0},{opacity:1,duration:12}).fromTo('num4',{opacity:0},{opacity:1,duration:12}).fromTo('num5',{opacity:0},{opacity:1,duration:12});ctx.fromTo(['bb1','bb2','bb3','bb4'],{opacity:0,y:12},{opacity:1,y:0,stagger:3,duration:18,delay:30,ease:'spring.default'});ctx.fromTo(['ov1','ov2','ov3'],{opacity:0,x:12},{opacity:1,x:0,stagger:4,duration:16,delay:36,ease:'spring.default'});"}
+

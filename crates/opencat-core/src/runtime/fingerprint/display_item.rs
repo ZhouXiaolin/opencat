@@ -1,8 +1,8 @@
 use std::hash::{Hash, Hasher};
 
 use crate::{
-    core::display::list::{BitmapDisplayItem, DisplayClip, DisplayItem, TextDisplayItem},
-    core::style::ComputedTextStyle,
+    display::list::{BitmapDisplayItem, DisplayClip, DisplayItem, TextDisplayItem},
+    style::ComputedTextStyle,
 };
 
 #[derive(Clone, Copy)]

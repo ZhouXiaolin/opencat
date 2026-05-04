@@ -1,13 +1,13 @@
 use crate::{
-    core::frame_ctx::FrameCtx,
-    core::frame_ctx::ScriptFrameCtx,
-    core::scene::{
+    frame_ctx::FrameCtx,
+    frame_ctx::ScriptFrameCtx,
+    scene::{
         easing::Easing,
         node::{Node, NodeKind},
         primitives::div,
         transition::TransitionKind,
     },
-    core::style::NodeStyle,
+    style::NodeStyle,
 };
 
 #[derive(Clone)]
@@ -203,8 +203,8 @@ fn transition_progress(frame: u32, duration_in_frames: u32, easing: &Easing) -> 
 mod tests {
     use super::FrameState;
     use crate::{
-        core::frame_ctx::FrameCtx,
-        core::scene::{
+        frame_ctx::FrameCtx,
+        scene::{
             easing::Easing,
             node::NodeKind,
             primitives::{caption, div},

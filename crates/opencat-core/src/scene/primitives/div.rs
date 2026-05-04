@@ -1,6 +1,6 @@
 use crate::{
     FrameCtx, Node,
-    core::style::{ColorToken, NodeStyle, impl_node_style_api},
+    style::{ColorToken, NodeStyle, impl_node_style_api},
 };
 
 /// A container node with flex layout support.

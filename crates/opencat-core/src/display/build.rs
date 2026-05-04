@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 
 use crate::{
-    core::display::{
+    display::{
         list::{
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
             DisplayTransform, DrawScriptDisplayItem, RectDisplayItem, RectPaintStyle,
@@ -10,8 +10,8 @@ use crate::{
         },
         tree::{DisplayNode, DisplayTree},
     },
-    core::element::tree::{ElementKind, ElementNode},
-    core::layout::tree::{LayoutNode, LayoutTree},
+    element::tree::{ElementKind, ElementNode},
+    layout::tree::{LayoutNode, LayoutTree},
 };
 
 pub fn build_display_tree(
@@ -237,17 +237,17 @@ mod tests {
     use super::build_display_tree;
     use crate::{
         FrameCtx,
-        core::element::resolve::resolve_ui_tree,
+        element::resolve::resolve_ui_tree,
         parse,
-        core::resource::asset_catalog::AssetCatalog,
-        core::runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
-        core::scene::primitives::{div, lucide},
-        core::style::{ColorToken, ObjectFit},
-        core::test_support::MockScriptHost,
+        resource::asset_catalog::AssetCatalog,
+        runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
+        scene::primitives::{div, lucide},
+        style::{ColorToken, ObjectFit},
+        test_support::MockScriptHost,
     };
     use crate::{
-        core::display::list::DisplayItem,
-        core::layout::tree::{LayoutNode, LayoutRect, LayoutTree},
+        display::list::DisplayItem,
+        layout::tree::{LayoutNode, LayoutRect, LayoutTree},
     };
 
     fn simple_layout(id: &str, rect: LayoutRect, children: Vec<LayoutNode>) -> LayoutNode {

@@ -1,9 +1,9 @@
 use crate::{
-    core::display::{
+    display::{
         list::{DisplayClip, DisplayItem, DisplayRect, DisplayTransform},
         tree::{DisplayNode, DisplayTree},
     },
-    core::runtime::{
+    runtime::{
         analysis::{
             DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
             DisplayNodeInvalidation,

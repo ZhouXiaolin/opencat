@@ -24,8 +24,8 @@ fn new_secondary_hasher() -> ahash::AHasher {
 }
 
 use crate::{
-    core::display::list::DisplayItem,
-    core::runtime::{
+    display::list::DisplayItem,
+    runtime::{
         analysis::{DisplayAnalysisTable, DisplayInvalidationTable},
         annotation::{AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics},
     },
@@ -246,12 +246,12 @@ fn hash_draw_composite_semantics<H: Hasher>(
 mod tests {
     use super::*;
     use crate::{
-        core::display::list::{
+        display::list::{
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
             DisplayTransform, DrawScriptDisplayItem, RectDisplayItem, RectPaintStyle,
         },
-        core::resource::asset_catalog::AssetId,
-        core::runtime::{
+        resource::asset_catalog::AssetId,
+        runtime::{
             analysis::{
                 DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
                 DisplayNodeInvalidation,
@@ -260,7 +260,7 @@ mod tests {
                 AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey,
             },
         },
-        core::style::{BorderRadius, ObjectFit, Transform},
+        style::{BorderRadius, ObjectFit, Transform},
     };
 
     struct AnnotatedRectConfig {

@@ -117,11 +117,11 @@ fn build_scene_op(
 mod tests {
     use super::{OrderedSceneOp, OrderedSceneProgram};
     use crate::{
-        core::display::list::{
+        display::list::{
             DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem, RectDisplayItem,
             RectPaintStyle,
         },
-        core::runtime::{
+        runtime::{
             analysis::{
                 DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
                 DisplayNodeInvalidation,
@@ -132,7 +132,7 @@ mod tests {
             compositor::LiveNodeItemExecution,
             fingerprint::{PaintVariance, SubtreeSnapshotFingerprint},
         },
-        core::style::BorderRadius,
+        style::BorderRadius,
     };
 
     fn rect_bounds() -> DisplayRect {

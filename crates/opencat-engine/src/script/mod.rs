@@ -1,4 +1,3 @@
-#![cfg(feature = "host-default")]
 pub mod bindings;
 
 #[cfg(test)]

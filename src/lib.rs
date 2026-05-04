@@ -14,6 +14,10 @@ pub mod scene;
 pub mod style;
 pub mod text;
 
+pub mod core;
+#[cfg(feature = "host-default")]
+pub mod host;
+
 pub use frame_ctx::FrameCtx;
 pub use inspect::{FrameElementRect, collect_frame_layout_rects};
 pub use jsonl::{ParsedComposition, parse, parse_file, parse_with_base_dir};

@@ -2256,33 +2256,19 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 name = "opencat"
 version = "0.1.0"
 dependencies = [
- "ahash",
  "anyhow",
  "cocoa",
  "core-graphics-types",
- "cosmic-text",
  "dirs",
- "ffmpeg-next",
- "fontdb",
  "foreign-types 0.5.0",
- "image",
  "metal",
- "num_cpus",
  "objc",
  "opencat-core",
+ "opencat-engine",
  "raw-window-handle",
- "reqwest",
  "rodio",
- "rquickjs",
- "rustc-hash 2.1.1",
- "serde",
- "serde_json",
- "skia-safe",
- "taffy",
- "tokio",
  "tracing",
  "tracing-subscriber",
- "unicode-segmentation",
  "windows-sys 0.61.2",
  "winit",
 ]
@@ -2304,6 +2290,36 @@ dependencies = [
  "taffy",
  "tracing",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "opencat-engine"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "core-graphics-types",
+ "cosmic-text",
+ "dirs",
+ "ffmpeg-next",
+ "fontdb",
+ "foreign-types 0.5.0",
+ "image",
+ "metal",
+ "num_cpus",
+ "opencat-core",
+ "reqwest",
+ "rquickjs",
+ "rustc-hash 2.1.1",
+ "serde",
+ "serde_json",
+ "skia-safe",
+ "taffy",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-segmentation",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

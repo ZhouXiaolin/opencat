@@ -654,8 +654,9 @@ fn compile_tailwind_css(fixture: &LayoutFixture) -> Result<String> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
         .parent()
+        .and_then(|p| p.parent())
         .ok_or_else(|| anyhow!("failed to find repository root from CARGO_MANIFEST_DIR"))?;
-    let script_path = manifest_dir.join("testsupport/compile_tailwind_css.mjs");
+    let script_path = repo_root.join("testsupport/compile_tailwind_css.mjs");
 
     let output = Command::new("node")
         .arg(script_path)
@@ -1203,7 +1204,7 @@ fn generated_layout_coverage_fixtures() -> Result<Vec<LayoutFixture>> {
 
 fn generated_layout_coverage_report() -> Result<GeneratedCoverageReport> {
     let source = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("testsupport/utilities.test.ts"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().join("testsupport/utilities.test.ts"),
     )
     .context("failed to read testsupport/utilities.test.ts")?;
 

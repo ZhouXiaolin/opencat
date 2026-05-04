@@ -12,6 +12,7 @@ use serde::Deserialize;
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinSet;
 
+use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 use crate::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
 
 const OPENVERSE_IMAGES_ENDPOINT: &str = "https://api.openverse.org/v1/images/";
@@ -25,6 +26,7 @@ pub struct AssetId(pub String);
 
 pub struct AssetsMap {
     entries: HashMap<AssetId, AssetEntry>,
+    video_info_meta: HashMap<AssetId, VideoInfoMeta>,
     cache_dir: PathBuf,
     openverse_token: Option<String>,
     preload_runtime: Option<Runtime>,
@@ -105,6 +107,7 @@ impl AssetsMap {
             .join("assets");
         Self {
             entries: HashMap::new(),
+            video_info_meta: HashMap::new(),
             cache_dir,
             openverse_token: None,
             preload_runtime: None,
@@ -313,6 +316,16 @@ impl AssetsMap {
             .get(id)
             .map(|e| (e.width, e.height))
             .unwrap_or((0, 0))
+    }
+
+    pub fn register_video_info(&mut self, path: &Path, info: VideoInfoMeta) -> AssetId {
+        let id = self.register_dimensions(path, info.width, info.height);
+        self.video_info_meta.insert(id.clone(), info);
+        id
+    }
+
+    pub fn video_info_meta(&self, id: &AssetId) -> Option<VideoInfoMeta> {
+        self.video_info_meta.get(id).copied()
     }
 
     pub fn path(&self, id: &AssetId) -> Option<&Path> {
@@ -624,4 +637,31 @@ fn stable_hash(value: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
+}
+
+impl ResourceCatalog for AssetsMap {
+    fn resolve_image(&mut self, src: &ImageSource) -> Result<AssetId> {
+        self.register_image_source(src)
+    }
+
+    fn resolve_audio(&mut self, src: &AudioSource) -> Result<AssetId> {
+        self.register_audio_source(src)
+    }
+
+    fn register_dimensions(&mut self, locator: &str, width: u32, height: u32) -> AssetId {
+        let path = std::path::Path::new(locator);
+        AssetsMap::register_dimensions(self, path, width, height)
+    }
+
+    fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()> {
+        AssetsMap::alias(self, alias, target)
+    }
+
+    fn dimensions(&self, id: &AssetId) -> (u32, u32) {
+        AssetsMap::dimensions(self, id)
+    }
+
+    fn video_info(&self, id: &AssetId) -> Option<VideoInfoMeta> {
+        self.video_info_meta(id)
+    }
 }

@@ -1,8 +1,10 @@
 use anyhow::Result;
 
+use opencat_core::frame_ctx::FrameCtx;
+use opencat_core::resource::asset_catalog::AssetCatalog;
+use opencat_core::scene::composition::Composition;
+
 use crate::{
-    core::frame_ctx::FrameCtx,
-    core::resource::asset_catalog::AssetCatalog,
     host::resource::media::MediaContext,
     runtime::{
         annotation::AnnotatedDisplayTree,
@@ -13,7 +15,6 @@ use crate::{
         session::RenderSession,
         target::{RenderFrameViewKind, RenderTargetHandle},
     },
-    core::scene::composition::Composition,
 };
 
 pub(crate) type SceneSnapshot = BackendObject;

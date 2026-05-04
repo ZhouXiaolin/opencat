@@ -14,10 +14,12 @@ use skia_safe::gpu::{self, backend_render_targets, mtl};
 use skia_safe::{AlphaType, ColorType, ImageInfo};
 
 #[cfg(target_os = "macos")]
+use opencat_core::scene::composition::Composition;
+
+#[cfg(target_os = "macos")]
 use crate::{
     render::{RenderSession, render_frame_to_target},
     runtime::target::{RenderFrameViewKind, RenderTargetHandle},
-    core::scene::composition::Composition,
 };
 
 #[cfg(target_os = "macos")]

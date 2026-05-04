@@ -1,13 +1,13 @@
 use rquickjs::Function;
 
-use crate::core::style::{ColorToken, FontWeight, Transform, color_token_from_script_name};
+use opencat_core::style::{ColorToken, FontWeight, Transform, color_token_from_script_name};
 
 use crate::host::script::{
     MutationStore, align_items_from_name, box_shadow_from_name, drop_shadow_from_name,
     flex_direction_from_name, inset_shadow_from_name,
     justify_content_from_name, object_fit_from_name, position_from_name, text_align_from_name,
 };
-use crate::core::scene::script::mutations::{
+use opencat_core::scene::script::mutations::{
     TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch,
 };
 
@@ -266,9 +266,9 @@ pub(crate) fn install_node_style_bindings<'js>(
     });
     set_style_binding!("__record_border_style", map, |id, v: String| {
         let parsed = match v.as_str() {
-            "solid" => Some(crate::core::style::BorderStyle::Solid),
-            "dashed" => Some(crate::core::style::BorderStyle::Dashed),
-            "dotted" => Some(crate::core::style::BorderStyle::Dotted),
+            "solid" => Some(opencat_core::style::BorderStyle::Solid),
+            "dashed" => Some(opencat_core::style::BorderStyle::Dashed),
+            "dotted" => Some(opencat_core::style::BorderStyle::Dotted),
             _ => None,
         };
         if let Some(bs) = parsed {
@@ -367,9 +367,9 @@ pub(crate) fn install_node_style_bindings<'js>(
                 guard.styles.entry(id.clone()).or_default().text_content = Some(v.clone());
                 guard.text_sources.insert(
                     id,
-                    crate::core::scene::script::ScriptTextSource {
+                    opencat_core::scene::script::ScriptTextSource {
                         text: v,
-                        kind: crate::core::scene::script::ScriptTextSourceKind::TextNode,
+                        kind: opencat_core::scene::script::ScriptTextSourceKind::TextNode,
                     },
                 );
             })?,

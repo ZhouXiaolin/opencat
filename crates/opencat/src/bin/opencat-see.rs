@@ -768,7 +768,7 @@ mod app {
 
         let frame_duration = Duration::from_secs_f64(1.0 / fps as f64);
         if let Err(error) =
-            composition.render_frame_with_target(0, &mut session, &mut render_target)
+            opencat::render_frame_with_target(&composition, 0, &mut session, &mut render_target)
         {
             return Err(anyhow!("failed to render warmup frame: {error:#}"));
         }
@@ -804,7 +804,8 @@ mod app {
                         .as_ref()
                         .map(|playback| playback.frame_index(total_frames, fps))
                         .unwrap_or(fallback_frame_index);
-                    if let Err(error) = composition.render_frame_with_target(
+                    if let Err(error) = opencat::render_frame_with_target(
+                        &composition,
                         frame_index,
                         &mut session,
                         &mut render_target,

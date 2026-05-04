@@ -34,7 +34,7 @@ fn main() -> anyhow::Result<()> {
 
     let encode_config = EncodingConfig::mp4();
     std::fs::create_dir_all("out")?;
-    composition.render("out/parsed.mp4", &encode_config)?;
+    opencat::render::render(&composition, "out/parsed.mp4", &encode_config)?;
     println!("Rendered out/parsed.mp4");
 
     Ok(())

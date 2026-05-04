@@ -7,12 +7,12 @@ use crate::runtime::{
 };
 
 #[derive(Default)]
-pub(crate) struct CompositeHistory {
+pub struct CompositeHistory {
     entries: HashMap<RenderNodeKey, CompositeSig>,
 }
 
 impl CompositeHistory {
-    pub(crate) fn history(&self) -> &HashMap<RenderNodeKey, CompositeSig> {
+    pub fn history(&self) -> &HashMap<RenderNodeKey, CompositeSig> {
         static EMPTY: std::sync::LazyLock<HashMap<RenderNodeKey, CompositeSig>> =
             std::sync::LazyLock::new(HashMap::new);
         if self.entries.is_empty() {
@@ -22,12 +22,12 @@ impl CompositeHistory {
         }
     }
 
-    pub(crate) fn history_mut(&mut self) -> &mut HashMap<RenderNodeKey, CompositeSig> {
+    pub fn history_mut(&mut self) -> &mut HashMap<RenderNodeKey, CompositeSig> {
         &mut self.entries
     }
 }
 
-pub(crate) fn mark_display_tree_composite_dirty(
+pub fn mark_display_tree_composite_dirty(
     history: &mut CompositeHistory,
     display_tree: &mut AnnotatedDisplayTree,
     structure_rebuild: bool,

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{Result, anyhow};
 
-use crate::core::{
+use opencat_core::{
     element::{
         resolve::resolve_ui_tree_with_script_cache,
         tree::{ElementKind, ElementNode},

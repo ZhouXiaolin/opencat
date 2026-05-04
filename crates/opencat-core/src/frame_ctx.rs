@@ -8,15 +8,15 @@ pub struct FrameCtx {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ScriptFrameCtx {
-    pub(crate) frame: u32,
-    pub(crate) total_frames: u32,
-    pub(crate) current_frame: u32,
-    pub(crate) scene_frames: u32,
+pub struct ScriptFrameCtx {
+    pub frame: u32,
+    pub total_frames: u32,
+    pub current_frame: u32,
+    pub scene_frames: u32,
 }
 
 impl ScriptFrameCtx {
-    pub(crate) fn global(frame_ctx: &FrameCtx) -> Self {
+    pub fn global(frame_ctx: &FrameCtx) -> Self {
         Self {
             frame: frame_ctx.frame,
             total_frames: frame_ctx.frames,
@@ -25,7 +25,7 @@ impl ScriptFrameCtx {
         }
     }
 
-    pub(crate) fn for_segment(frame_ctx: &FrameCtx, start_frame: u32, scene_frames: u32) -> Self {
+    pub fn for_segment(frame_ctx: &FrameCtx, start_frame: u32, scene_frames: u32) -> Self {
         let max_local_frame = scene_frames.saturating_sub(1);
         let current_frame = frame_ctx
             .frame

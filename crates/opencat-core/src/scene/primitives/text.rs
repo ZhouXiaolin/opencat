@@ -14,6 +14,10 @@ impl Text {
     pub fn style_ref(&self) -> &NodeStyle {
         &self.style
     }
+
+    pub fn set_style(&mut self, style: NodeStyle) {
+        self.style = style;
+    }
 }
 
 pub fn text(content: impl Into<String>) -> Text {

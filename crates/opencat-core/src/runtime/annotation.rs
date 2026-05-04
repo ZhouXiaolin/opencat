@@ -100,7 +100,7 @@ impl AnnotatedDisplayNode {
     }
 }
 
-pub(crate) fn annotate_display_tree(
+pub fn annotate_display_tree(
     display_tree: &DisplayTree,
 ) -> AnnotatedDisplayTree {
     let node_count = count_display_nodes(&display_tree.root);
@@ -204,7 +204,7 @@ fn annotate_display_node(
 /// annotation 阶段只建结构、分类 paint_variance / subtree_contains_time_variant；
 /// fingerprint 计算需要读 invalidation 表（由 mark_dirty 写入），
 /// 因此必须排在 mark_dirty 之后才能拿到真实的 `composite_dirty` 值。
-pub(crate) fn compute_display_tree_fingerprints(tree: &mut AnnotatedDisplayTree) {
+pub fn compute_display_tree_fingerprints(tree: &mut AnnotatedDisplayTree) {
     let node_count = tree.nodes.len();
     for handle_idx in 0..node_count {
         let handle = AnnotatedNodeHandle(handle_idx);

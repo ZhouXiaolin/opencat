@@ -11,13 +11,13 @@ use crate::scene::{
 use crate::style::NodeStyle;
 
 mod builder;
-pub(crate) mod tailwind;
+pub mod tailwind;
 
 use builder::{build_tree, build_tree_with_tl, join_scripts};
 
 #[derive(Debug, Deserialize, Clone, Serialize)]
 #[serde(tag = "type")]
-pub(crate) enum JsonLine {
+pub enum JsonLine {
     #[serde(rename = "composition")]
     Composition {
         width: i32,
@@ -219,7 +219,7 @@ pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     parse_with_base_dir(input, None)
 }
 
-pub(crate) fn parse_with_base_dir(
+pub fn parse_with_base_dir(
     input: &str,
     base_dir: Option<&Path>,
 ) -> anyhow::Result<ParsedComposition> {

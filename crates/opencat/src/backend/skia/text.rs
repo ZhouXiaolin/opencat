@@ -11,16 +11,17 @@ use skia_safe::{
 };
 use tracing::{Level, event};
 
+use opencat_core::scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch};
+use opencat_core::style::{ComputedTextStyle, TextAlign, TextTransform};
+
 use crate::{
     backend::skia::color::skia_color,
     runtime::cache::{GlyphImageCache, GlyphPathCache},
-    core::scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
-    core::style::{ComputedTextStyle, TextAlign, TextTransform},
 };
 use unicode_segmentation::UnicodeSegmentation;
 
 thread_local! {
-    static FONT_DB: fontdb::Database = crate::core::text::default_font_db(&[]);
+    static FONT_DB: fontdb::Database = opencat_core::text::default_font_db(&[]);
     static FONT_SYSTEM: RefCell<Option<FontSystem>> = const { RefCell::new(None) };
     static SWASH_CACHE: RefCell<Option<SwashCache>> = const { RefCell::new(None) };
 }
@@ -564,7 +565,7 @@ fn ranges_overlap(a: Range<usize>, b: Range<usize>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::apply_text_transform;
-    use crate::core::style::TextTransform;
+    use opencat_core::style::TextTransform;
 
     #[test]
     fn textlayout_applies_uppercase_transform() {

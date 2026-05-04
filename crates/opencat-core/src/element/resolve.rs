@@ -10,7 +10,7 @@ use crate::{
         },
     },
     frame_ctx::ScriptFrameCtx,
-    resource::asset_catalog::AssetId,
+    resource::asset_id::AssetId,
     resource::catalog::{ResourceCatalog, VideoInfoMeta},
     scene::path_bounds::{DefaultPathBounds, PathBoundsComputer},
     scene::script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
@@ -1083,8 +1083,8 @@ mod tests {
     use crate::{
         FrameCtx,
         element::tree::ElementKind,
-        resource::asset_catalog::AssetCatalog,
         resource::catalog::VideoInfoMeta,
+        test_support::TestCatalog,
         scene::primitives::{SrtEntry, caption, div, lucide, text, video},
         scene::script::{
             NodeStyleMutations, StyleMutations, TextUnitGranularity,
@@ -1111,7 +1111,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetCatalog::new();
+        let mut assets = TestCatalog::new();
 
         let err = resolve(&div().into(), &frame_ctx, &mut assets)
             .expect_err("nodes without ids should fail during resolution");
@@ -1128,7 +1128,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetCatalog::new();
+        let mut assets = TestCatalog::new();
 
         let root = div()
             .id("root")
@@ -1165,7 +1165,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetCatalog::new();
+        let mut assets = TestCatalog::new();
 
         let root = div()
             .id("root")
@@ -1193,7 +1193,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetCatalog::new();
+        let mut assets = TestCatalog::new();
 
         let root = div()
             .id("root")
@@ -1218,7 +1218,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetCatalog::new();
+        let mut assets = TestCatalog::new();
 
         let root = div()
             .id("root")
@@ -1241,7 +1241,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetCatalog::new();
+        let mut assets = TestCatalog::new();
 
         let root = div()
             .id("root")
@@ -1267,7 +1267,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetCatalog::new();
+        let mut assets = TestCatalog::new();
 
         let root = div()
             .id("root")
@@ -1351,7 +1351,7 @@ mod tests {
             height: 180,
             frames: 10,
         };
-        let mut assets = AssetCatalog::new();
+        let mut assets = TestCatalog::new();
 
         let tree = resolve(&root.into(), &frame_ctx, &mut assets)
             .expect("root caption should resolve from global time");
@@ -1368,7 +1368,7 @@ mod tests {
             height: 180,
             frames: 90,
         };
-        let mut assets = AssetCatalog::new();
+        let mut assets = TestCatalog::new();
 
         let entries = vec![SrtEntry {
             index: 1,
@@ -1412,7 +1412,7 @@ mod tests {
 
     #[test]
     fn resolve_video_falls_back_to_zero_dimensions_when_catalog_lacks_video_info() {
-        let mut catalog = AssetCatalog::new();
+        let mut catalog = TestCatalog::new();
         let v = video("/no/such/video.mp4").id("v");
         let frame_ctx = FrameCtx {
             frame: 0,

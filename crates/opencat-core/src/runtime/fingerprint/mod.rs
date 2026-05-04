@@ -250,7 +250,7 @@ mod tests {
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
             DisplayTransform, DrawScriptDisplayItem, RectDisplayItem, RectPaintStyle,
         },
-        resource::asset_catalog::AssetId,
+        resource::asset_id::AssetId,
         runtime::{
             analysis::{
                 DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,

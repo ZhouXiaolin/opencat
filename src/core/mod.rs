@@ -1,5 +1,20 @@
-//! Core module — 永不依赖 host features，可在 wasm32 编译。
-//! 暴露 parse / collect_resource_requests / build_frame_display_tree
-//! 三个公共入口，及 ResourceCatalog / ScriptHost / FontProvider trait。
+pub mod display;
+pub mod element;
+pub mod frame_ctx;
+pub mod jsonl;
+pub mod layout;
+mod lucide_icons;
+pub mod resource;
+pub mod runtime;
+pub mod scene;
+pub mod style;
+pub mod text;
 
-// Phase 3 各 task 会逐步 pub mod 进来。
+pub use self::frame_ctx::FrameCtx;
+pub use self::jsonl::{ParsedComposition, parse};
+pub use self::resource::catalog::{ResourceCatalog, VideoInfoMeta};
+pub use self::resource::asset_catalog::{AssetCatalog, AssetId};
+pub use self::runtime::pipeline::build_frame_display_tree;
+pub use self::runtime::preflight_collect::{ResourceRequests, collect_resource_requests};
+pub use self::scene::script::{ScriptHost, ScriptDriverId};
+pub use self::text::{FontProvider, DefaultFontProvider};

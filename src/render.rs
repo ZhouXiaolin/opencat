@@ -14,7 +14,7 @@ use crate::{
         render_registry,
         target::RenderTargetHandle,
     },
-    scene::composition::Composition,
+    core::scene::composition::Composition,
 };
 
 pub use crate::codec::encode::Mp4Config;
@@ -241,8 +241,8 @@ mod tests {
     use super::{RenderSession, render_frame_rgba};
     use crate::{
         Composition, FrameCtx,
-        scene::primitives::{canvas, div, image},
-        style::ColorToken,
+        core::scene::primitives::{canvas, div, image},
+        core::style::ColorToken,
         text,
     };
 
@@ -920,8 +920,8 @@ mod tests {
 
     #[test]
     fn nested_timeline_transition_renders_real_composite() {
-        use crate::scene::node::Node;
-        use crate::style::{LengthPercentageAuto, Position};
+        use crate::core::scene::node::Node;
+        use crate::core::style::{LengthPercentageAuto, Position};
         use crate::{Easing, fade, timeline};
 
         let composition = Composition::new("nested_timeline_transition")
@@ -971,7 +971,7 @@ mod tests {
 
     #[test]
     fn root_timeline_renders_without_root_transition_special_case() {
-        use crate::scene::node::Node;
+        use crate::core::scene::node::Node;
         use crate::{Easing, fade, timeline};
 
         let composition = Composition::new("root_timeline_transition")
@@ -1011,7 +1011,7 @@ mod tests {
 
     #[test]
     fn transition_subtree_snapshots_are_reused_across_transition_frames() {
-        use crate::scene::node::Node;
+        use crate::core::scene::node::Node;
         use crate::{Easing, fade, timeline};
 
         let composition = Composition::new("transition_subtree_cache_reuse")

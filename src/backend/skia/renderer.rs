@@ -16,7 +16,7 @@ use crate::{
         session::RenderSession,
         target::{RenderFrameViewKind, RenderTargetHandle},
     },
-    scene::composition::Composition,
+    core::scene::composition::Composition,
 };
 
 use super::canvas as skia;
@@ -71,7 +71,7 @@ impl RenderEngine for SkiaRenderEngine {
         target.require_frame_view_kind(self.target_frame_view_kind())?;
         let frame_surface = target.begin_frame_surface(composition.width, composition.height)?;
         let frame_view = target.resolve_frame_view(frame_surface)?;
-        let render_result = crate::runtime::pipeline::render_frame_on_surface(
+        let render_result = crate::core::runtime::pipeline::render_frame_on_surface(
             composition,
             frame_index,
             session,
@@ -181,7 +181,7 @@ fn render_frame_rgba_raster(
         RenderFrameViewKind::DrawContext2D,
         surface.canvas() as *const _ as *mut c_void,
     )?;
-    crate::runtime::pipeline::render_frame_on_surface(
+    crate::core::runtime::pipeline::render_frame_on_surface(
         composition,
         frame_index,
         session,

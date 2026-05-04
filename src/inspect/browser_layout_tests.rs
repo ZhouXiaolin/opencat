@@ -36,8 +36,8 @@ use serde_json::{Value, json};
 use crate::{
     Composition, RenderSession, collect_frame_layout_rects,
     inspect::FrameElementRect,
-    jsonl::tailwind::parse_class_name,
-    scene::primitives::{div, text},
+    core::jsonl::tailwind::parse_class_name,
+    core::scene::primitives::{div, text},
 };
 
 #[test]

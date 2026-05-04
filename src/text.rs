@@ -101,15 +101,15 @@ mod tests {
 }
 
 // 兼容旧调用点的 type alias，迁移完成后删除
-pub(crate) type SharedTextMeasurer = Arc<dyn TextMeasurer>;
+pub type SharedTextMeasurer = Arc<dyn TextMeasurer>;
 
-pub(crate) struct TextMeasureRequest<'a> {
+pub struct TextMeasureRequest<'a> {
     pub text: &'a str,
     pub style: &'a ComputedTextStyle,
     pub max_width: f32,
     pub allow_wrap: bool,
 }
 
-pub(crate) trait TextMeasurer: Send + Sync {
+pub trait TextMeasurer: Send + Sync {
     fn measure(&self, request: &TextMeasureRequest<'_>) -> TextMeasurement;
 }

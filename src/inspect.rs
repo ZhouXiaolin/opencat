@@ -93,7 +93,6 @@ fn collect_scene_rects(
         scene,
         frame_ctx,
         script_frame_ctx,
-        &mut session.media_ctx,
         &mut session.assets,
         None,
         &mut session.script_runtime,

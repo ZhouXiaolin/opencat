@@ -1095,7 +1095,7 @@ mod tests {
         FrameCtx,
         element::resolve::resolve_ui_tree,
         jsonl::tailwind::parse_class_name,
-        resource::{assets::AssetsMap, media::MediaContext},
+        resource::assets::AssetsMap,
         scene::primitives::{div, lucide, path, text},
         style::{ColorToken, ComputedTextStyle},
     };
@@ -1160,7 +1160,6 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let root = classed_div(
             "root",
@@ -1178,7 +1177,7 @@ mod tests {
             ],
         )
         .into();
-        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
 
         let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
@@ -1205,7 +1204,6 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let root = classed_div(
             "root",
@@ -1234,7 +1232,7 @@ mod tests {
             ],
         )
         .into();
-        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
 
         let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
@@ -1265,7 +1263,6 @@ mod tests {
             height: 720,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let root = classed_div(
             "root",
@@ -1287,7 +1284,7 @@ mod tests {
             ],
         )
         .into();
-        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
 
         let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
@@ -1313,7 +1310,6 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let root = classed_div(
             "root",
@@ -1328,7 +1324,7 @@ mod tests {
             ],
         )
         .into();
-        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
 
         let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
@@ -1352,7 +1348,6 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let root = classed_div(
             "root",
@@ -1367,7 +1362,7 @@ mod tests {
             ],
         )
         .into();
-        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
 
         let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
@@ -1393,7 +1388,6 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let root = classed_div(
             "root",
@@ -1401,7 +1395,7 @@ mod tests {
             vec![classed_text("headline", "w-[50%] text-[16px]", "Indefinite parent copy").into()],
         )
         .into();
-        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
 
         let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
@@ -1424,7 +1418,6 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let mut session = LayoutSession::new();
 
@@ -1435,9 +1428,9 @@ mod tests {
             .child(text("A").id("label").text_red())
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
             .expect("second tree should resolve");
 
         let (_, first_stats) = session
@@ -1464,7 +1457,6 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let mut session = LayoutSession::new();
 
@@ -1474,9 +1466,9 @@ mod tests {
             .child(text("A").id("label").text_px(48.0))
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
             .expect("second tree should resolve");
 
         session
@@ -1498,7 +1490,6 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let mut session = LayoutSession::new();
 
@@ -1515,9 +1506,9 @@ mod tests {
         )
         .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
             .expect("second tree should resolve");
 
         session
@@ -1543,7 +1534,6 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let mut session = LayoutSession::new();
 
@@ -1560,9 +1550,9 @@ mod tests {
         )
         .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
             .expect("second tree should resolve");
 
         session
@@ -1589,7 +1579,6 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let mut session = LayoutSession::new();
 
@@ -1600,9 +1589,9 @@ mod tests {
             .child(text("A").id("label"))
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
             .expect("second tree should resolve");
 
         session
@@ -1626,7 +1615,6 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let mut session = LayoutSession::new();
 
@@ -1637,9 +1625,9 @@ mod tests {
             .child(text("A").id("label"))
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
             .expect("second tree should resolve");
 
         session
@@ -1663,7 +1651,6 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 
         let icon_root = classed_div(
@@ -1679,9 +1666,9 @@ mod tests {
         )
         .into();
 
-        let icon_resolved = resolve_ui_tree(&icon_root, &frame_ctx, &mut media, &mut assets, None)
+        let icon_resolved = resolve_ui_tree(&icon_root, &frame_ctx, &mut assets, None)
             .expect("icon tree should resolve");
-        let path_resolved = resolve_ui_tree(&path_root, &frame_ctx, &mut media, &mut assets, None)
+        let path_resolved = resolve_ui_tree(&path_root, &frame_ctx, &mut assets, None)
             .expect("path tree should resolve");
 
         let mut session = LayoutSession::new();
@@ -1708,7 +1695,6 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let mut session = LayoutSession::new();
 
@@ -1735,9 +1721,9 @@ mod tests {
             )
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
             .expect("second tree should resolve");
 
         session
@@ -1760,7 +1746,6 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let mut session = LayoutSession::new();
 
@@ -1773,9 +1758,9 @@ mod tests {
             .child(lucide("pause").id("icon").size(24.0, 24.0))
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut media, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut media, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
             .expect("second tree should resolve");
 
         session

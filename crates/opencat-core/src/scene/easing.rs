@@ -233,6 +233,7 @@ pub(crate) fn settle_time(config: &SpringConfig) -> f32 {
     -threshold.ln() / gamma
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn compute_progress(
     current_frame: u32,
     duration: u32,
@@ -274,6 +275,7 @@ pub fn compute_progress(
     if clamp { p.clamp(0.0, 1.0) } else { p }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn animate_value(
     current_frame: u32,
     duration: u32,

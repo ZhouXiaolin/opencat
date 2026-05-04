@@ -217,7 +217,7 @@ fn measure_node(
     let max_width = if text.allow_wrap {
         known_dimensions
             .width
-            .or_else(|| match available_space.width {
+            .or(match available_space.width {
                 AvailableSpace::Definite(width) => Some(width),
                 AvailableSpace::MinContent | AvailableSpace::MaxContent => None,
             })
@@ -649,12 +649,12 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             },
             grid_template_columns: layout.grid_template_columns.map_or_else(Vec::new, |cols| {
                 (0..cols)
-                    .map(|_| taffy::style::GridTemplateComponent::Single(flex(1.0)))
+                    .map(|_| taffy::style::GridTemplateComponent::Single(flex(1.0_f32)))
                     .collect()
             }),
             grid_template_rows: layout.grid_template_rows.map_or_else(Vec::new, |rows| {
                 (0..rows)
-                    .map(|_| taffy::style::GridTemplateComponent::Single(flex(1.0)))
+                    .map(|_| taffy::style::GridTemplateComponent::Single(flex(1.0_f32)))
                     .collect()
             }),
             grid_auto_flow: layout.grid_auto_flow.map_or_else(
@@ -686,7 +686,7 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                         min: taffy::style::MinTrackSizingFunction::AUTO,
                         max: MaxTrackSizingFunction::max_content(),
                     },
-                    crate::style::GridAutoRows::Fr => TrackSizingFunction::from_fr(1.0),
+                    crate::style::GridAutoRows::Fr => TrackSizingFunction::from_fr(1.0_f32),
                 }]
             }),
             justify_items: layout.justify_items.map(map_align_items_to_justify_items),
@@ -909,7 +909,7 @@ fn build_layout_tree(
 
     for ((_, element_child), taffy_child) in ordered_children(element)
         .into_iter()
-        .zip(taffy_children.into_iter())
+        .zip(taffy_children)
     {
         children.push(build_layout_tree(element_child, taffy, taffy_child)?);
     }

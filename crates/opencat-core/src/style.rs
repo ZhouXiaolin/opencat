@@ -295,7 +295,7 @@ impl BoxShadow {
             BoxShadowStyle::Xs => Self::new(0.0, 1.0, 2.0 / 6.0, 0.0, 0.05),
             BoxShadowStyle::Sm => Self::new(0.0, 1.0, 3.0 / 6.0, 0.0, 0.10),
             BoxShadowStyle::Base => Self::new(0.0, 1.0, 4.0 / 6.0, 0.0, 0.10),
-            BoxShadowStyle::Md => Self::new(0.0, 4.0, 6.0 / 6.0, 0.0, 0.10),
+            BoxShadowStyle::Md => Self::new(0.0, 4.0, 1.0, 0.0, 0.10),
             BoxShadowStyle::Lg => Self::new(0.0, 10.0, 15.0 / 6.0, 0.0, 0.10),
             BoxShadowStyle::Xl => Self::new(0.0, 20.0, 25.0 / 6.0, 0.0, 0.10),
             BoxShadowStyle::TwoXl => Self::new(0.0, 25.0, 50.0 / 6.0, 0.0, 0.18),

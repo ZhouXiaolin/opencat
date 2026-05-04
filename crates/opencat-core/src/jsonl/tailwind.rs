@@ -467,59 +467,56 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
     }
 
     // col-start-N / -col-start-N
-    if let Some(value) = class.strip_prefix("col-start-") {
-        if let Some(line) = parse_grid_line_value(value) {
-            style.col_start = Some(GridPlacement::Line(line));
-            return true;
-        }
+    if let Some(value) = class.strip_prefix("col-start-")
+        && let Some(line) = parse_grid_line_value(value)
+    {
+        style.col_start = Some(GridPlacement::Line(line));
+        return true;
     }
-    if let Some(value) = class.strip_prefix("-col-start-") {
-        if let Some(line) = parse_grid_line_value(value) {
-            style.col_start = Some(GridPlacement::Line(-line));
-            return true;
-        }
-    }
-
-    // col-end-N / -col-end-N
-    if let Some(value) = class.strip_prefix("col-end-") {
-        if let Some(line) = parse_grid_line_value(value) {
-            style.col_end = Some(GridPlacement::Line(line));
-            return true;
-        }
-    }
-    if let Some(value) = class.strip_prefix("-col-end-") {
-        if let Some(line) = parse_grid_line_value(value) {
-            style.col_end = Some(GridPlacement::Line(-line));
-            return true;
-        }
+    if let Some(value) = class.strip_prefix("-col-start-")
+        && let Some(line) = parse_grid_line_value(value)
+    {
+        style.col_start = Some(GridPlacement::Line(-line));
+        return true;
     }
 
-    // row-start-N / -row-start-N
-    if let Some(value) = class.strip_prefix("row-start-") {
-        if let Some(line) = parse_grid_line_value(value) {
-            style.row_start = Some(GridPlacement::Line(line));
-            return true;
-        }
+    if let Some(value) = class.strip_prefix("col-end-")
+        && let Some(line) = parse_grid_line_value(value)
+    {
+        style.col_end = Some(GridPlacement::Line(line));
+        return true;
     }
-    if let Some(value) = class.strip_prefix("-row-start-") {
-        if let Some(line) = parse_grid_line_value(value) {
-            style.row_start = Some(GridPlacement::Line(-line));
-            return true;
-        }
+    if let Some(value) = class.strip_prefix("-col-end-")
+        && let Some(line) = parse_grid_line_value(value)
+    {
+        style.col_end = Some(GridPlacement::Line(-line));
+        return true;
     }
 
-    // row-end-N / -row-end-N
-    if let Some(value) = class.strip_prefix("row-end-") {
-        if let Some(line) = parse_grid_line_value(value) {
-            style.row_end = Some(GridPlacement::Line(line));
-            return true;
-        }
+    if let Some(value) = class.strip_prefix("row-start-")
+        && let Some(line) = parse_grid_line_value(value)
+    {
+        style.row_start = Some(GridPlacement::Line(line));
+        return true;
     }
-    if let Some(value) = class.strip_prefix("-row-end-") {
-        if let Some(line) = parse_grid_line_value(value) {
-            style.row_end = Some(GridPlacement::Line(-line));
-            return true;
-        }
+    if let Some(value) = class.strip_prefix("-row-start-")
+        && let Some(line) = parse_grid_line_value(value)
+    {
+        style.row_start = Some(GridPlacement::Line(-line));
+        return true;
+    }
+
+    if let Some(value) = class.strip_prefix("row-end-")
+        && let Some(line) = parse_grid_line_value(value)
+    {
+        style.row_end = Some(GridPlacement::Line(line));
+        return true;
+    }
+    if let Some(value) = class.strip_prefix("-row-end-")
+        && let Some(line) = parse_grid_line_value(value)
+    {
+        style.row_end = Some(GridPlacement::Line(-line));
+        return true;
     }
 
     if parse_flex_shorthand_class(class, style) {
@@ -597,22 +594,21 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
     if let Some(after) = class
         .strip_prefix("text-")
         .filter(|_| !class.starts_with("text-["))
+        && let Some(n) = parse_tailwind_text_size(after)
     {
-        if let Some(n) = parse_tailwind_text_size(after) {
-            style.text_px = Some(n);
-            return true;
-        }
+        style.text_px = Some(n);
+        return true;
     }
 
     if apply_directional_rounded(class, style) {
         return true;
     }
 
-    if let Some(value) = class.strip_prefix("rounded-") {
-        if let Some(n) = resolve_rounded_size(value) {
-            style.border_radius = Some(crate::style::BorderRadius::uniform(n));
-            return true;
-        }
+    if let Some(value) = class.strip_prefix("rounded-")
+        && let Some(n) = resolve_rounded_size(value)
+    {
+        style.border_radius = Some(crate::style::BorderRadius::uniform(n));
+        return true;
     }
 
     if let Some(n) = class
@@ -706,11 +702,10 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
     if let Some(value) = class
         .strip_prefix("font-[")
         .and_then(|v| v.strip_suffix(']'))
+        && let Ok(weight) = value.parse::<u16>()
     {
-        if let Ok(weight) = value.parse::<u16>() {
-            style.font_weight = Some(FontWeight(weight));
-            return true;
-        }
+        style.font_weight = Some(FontWeight(weight));
+        return true;
     }
 
     false
@@ -863,11 +858,11 @@ fn apply_spacing_scale_rule(
     style: &mut NodeStyle,
 ) -> bool {
     for (prefix, target) in rules {
-        if let Some(value) = class.strip_prefix(prefix) {
-            if let Some(n) = parse_tailwind_spacing_token(value) {
-                apply_f32_target(style, *target, n);
-                return true;
-            }
+        if let Some(value) = class.strip_prefix(prefix)
+            && let Some(n) = parse_tailwind_spacing_token(value)
+        {
+            apply_f32_target(style, *target, n);
+            return true;
         }
     }
     false
@@ -879,11 +874,11 @@ fn apply_color_prefix_rule(
     style: &mut NodeStyle,
 ) -> bool {
     for (prefix, target) in rules {
-        if let Some(value) = class.strip_prefix(prefix) {
-            if let Some(color) = parse_color_token_with_opacity(value) {
-                apply_color_target(style, *target, color);
-                return true;
-            }
+        if let Some(value) = class.strip_prefix(prefix)
+            && let Some(color) = parse_color_token_with_opacity(value)
+        {
+            apply_color_target(style, *target, color);
+            return true;
         }
     }
     false
@@ -1349,13 +1344,11 @@ fn parse_rgb_function_color(value: &str) -> Option<ColorToken> {
         .and_then(|value| value.strip_suffix(')'))
     {
         (inner, true)
-    } else if let Some(inner) = lower
-        .strip_prefix("rgb(")
-        .and_then(|value| value.strip_suffix(')'))
-    {
-        (inner, false)
     } else {
-        return None;
+        let inner = lower
+            .strip_prefix("rgb(")
+            .and_then(|value| value.strip_suffix(')'))?;
+        (inner, false)
     };
 
     let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
@@ -1447,8 +1440,10 @@ fn parse_bracket_f32(value: &str) -> Option<f32> {
         .and_then(|value| value.parse::<f32>().ok())
 }
 
+type BorderSideSetter = fn(&mut NodeStyle, f32);
+
 fn parse_directional_border_width(class: &str, style: &mut NodeStyle) -> bool {
-    let sides: &[(&str, fn(&mut NodeStyle, f32))] = &[
+    let sides: &[(&str, BorderSideSetter)] = &[
         ("border-t", |s, w| s.border_top_width = Some(w)),
         ("border-r", |s, w| s.border_right_width = Some(w)),
         ("border-b", |s, w| s.border_bottom_width = Some(w)),
@@ -1548,11 +1543,11 @@ fn parse_grid_axis_shorthand_class(
         }
     }
 
-    if let Some(value) = class.strip_prefix(negative_axis_prefix) {
-        if let Some(line) = parse_grid_line_value(value) {
-            assign(GridPlacement::Line(-line), GridPlacement::Auto);
-            return true;
-        }
+    if let Some(value) = class.strip_prefix(negative_axis_prefix)
+        && let Some(line) = parse_grid_line_value(value)
+    {
+        assign(GridPlacement::Line(-line), GridPlacement::Auto);
+        return true;
     }
 
     false
@@ -1615,20 +1610,19 @@ fn parse_flex_shorthand_class(class: &str, style: &mut NodeStyle) -> bool {
         _ => {}
     }
 
-    if let Some(value) = class.strip_prefix("flex-[") {
-        if let Some(value) = value
+    if let Some(value) = class.strip_prefix("flex-[")
+        && let Some(value) = value
             .strip_suffix(']')
             .and_then(|value| value.parse::<f32>().ok())
-        {
-            style.flex_grow = Some(value);
-            style.flex_shrink = Some(1.0);
-            style.flex_basis = Some(LengthPercentageAuto::length(0.0));
-            return true;
-        }
+    {
+        style.flex_grow = Some(value);
+        style.flex_shrink = Some(1.0);
+        style.flex_basis = Some(LengthPercentageAuto::length(0.0));
+        return true;
     }
 
     if let Some(value) = class.strip_prefix("flex-") {
-        if let Some(value) = value.parse::<f32>().ok() {
+        if let Ok(value) = value.parse::<f32>() {
             style.flex_grow = Some(value);
             style.flex_shrink = Some(1.0);
             style.flex_basis = Some(LengthPercentageAuto::length(0.0));
@@ -1652,10 +1646,9 @@ fn parse_length_percentage_auto_class(
 ) -> Option<LengthPercentageAuto> {
     let (negative, value) = if let Some(value) = class.strip_prefix(negative_prefix) {
         (true, value)
-    } else if let Some(value) = class.strip_prefix(positive_prefix) {
-        (false, value)
     } else {
-        return None;
+        let value = class.strip_prefix(positive_prefix)?;
+        (false, value)
     };
 
     parse_length_percentage_auto_value(value, negative)

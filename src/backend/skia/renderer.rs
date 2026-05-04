@@ -15,12 +15,11 @@ use crate::{
         render_engine::{RenderEngine, SceneRenderContext, SceneSnapshot, SharedRenderEngine},
         session::RenderSession,
         target::{RenderFrameViewKind, RenderTargetHandle},
-        text_engine::SharedTextEngine,
     },
     scene::composition::Composition,
 };
 
-use super::{canvas as skia, text as skia_text};
+use super::canvas as skia;
 
 enum SkiaFrameSurface {
     Raster,
@@ -29,7 +28,6 @@ enum SkiaFrameSurface {
 
 pub(crate) struct SkiaRenderEngine {
     frame_surface: SkiaFrameSurface,
-    text_engine: SharedTextEngine,
 }
 
 struct SkiaSceneSnapshot {
@@ -42,7 +40,6 @@ pub(crate) fn shared_raster_engine() -> SharedRenderEngine {
         .get_or_init(|| {
             std::sync::Arc::new(SkiaRenderEngine {
                 frame_surface: SkiaFrameSurface::Raster,
-                text_engine: skia_text::shared_text_engine(),
             }) as SharedRenderEngine
         })
         .clone()
@@ -54,7 +51,6 @@ pub(crate) fn shared_metal_engine() -> SharedRenderEngine {
         .get_or_init(|| {
             std::sync::Arc::new(SkiaRenderEngine {
                 frame_surface: SkiaFrameSurface::MetalOffscreen,
-                text_engine: skia_text::shared_text_engine(),
             }) as SharedRenderEngine
         })
         .clone()
@@ -63,10 +59,6 @@ pub(crate) fn shared_metal_engine() -> SharedRenderEngine {
 impl RenderEngine for SkiaRenderEngine {
     fn target_frame_view_kind(&self) -> RenderFrameViewKind {
         RenderFrameViewKind::DrawContext2D
-    }
-
-    fn text_engine(&self) -> SharedTextEngine {
-        self.text_engine.clone()
     }
 
     fn render_frame_to_target(

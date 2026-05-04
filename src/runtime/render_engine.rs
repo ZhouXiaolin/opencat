@@ -11,7 +11,6 @@ use crate::{
         frame_view::RenderFrameView,
         session::RenderSession,
         target::{RenderFrameViewKind, RenderTargetHandle},
-        text_engine::SharedTextEngine,
     },
     scene::composition::Composition,
 };
@@ -29,7 +28,6 @@ pub(crate) struct SceneRenderContext<'a> {
 
 pub(crate) trait RenderEngine: Send + Sync {
     fn target_frame_view_kind(&self) -> RenderFrameViewKind;
-    fn text_engine(&self) -> SharedTextEngine;
     fn render_frame_to_target(
         &self,
         composition: &Composition,

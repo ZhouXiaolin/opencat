@@ -90,7 +90,7 @@ impl NodeKind {
         }
     }
 
-    pub(crate) fn style_mut(&mut self) -> &mut NodeStyle {
+    pub fn style_mut(&mut self) -> &mut NodeStyle {
         match self {
             Self::Component(node) => &mut node.style,
             Self::Div(node) => &mut node.style,

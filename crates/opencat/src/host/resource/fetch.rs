@@ -10,15 +10,15 @@ use serde::Deserialize;
 use tokio::runtime::Builder;
 use tokio::task::JoinSet;
 
-use crate::core::resource::asset_catalog::{
+use opencat_core::resource::asset_catalog::{
     AssetEntry,
     asset_id_for_audio_url,
     asset_id_for_query, asset_id_for_url,
     cache_file_path, read_image_dimensions,
 };
-use crate::core::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
+use opencat_core::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
 
-pub use crate::core::resource::asset_catalog::{AssetCatalog, AssetId};
+pub use opencat_core::resource::asset_catalog::{AssetCatalog, AssetId};
 
 const OPENVERSE_IMAGES_ENDPOINT: &str = "https://api.openverse.org/v1/images/";
 const OPENVERSE_TOKEN_ENDPOINT: &str = "https://api.openverse.org/v1/auth_tokens/token/";

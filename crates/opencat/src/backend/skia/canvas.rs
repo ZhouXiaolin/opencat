@@ -7,17 +7,25 @@ use skia_safe::{
 };
 use tracing::{Level, event, span};
 
+use opencat_core::display::list::{
+    BitmapDisplayItem, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem,
+    RectDisplayItem, SvgPathDisplayItem, TextDisplayItem, TimelineDisplayItem,
+};
+use opencat_core::frame_ctx::FrameCtx;
+use opencat_core::resource::{
+    asset_catalog::AssetCatalog,
+    bitmap_source::{BitmapSourceKind, bitmap_source_kind},
+};
+use opencat_core::scene::script::{
+    CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
+    ScriptPointMode,
+};
+use opencat_core::style::{
+    BackgroundFill, BoxShadow, DropShadow, GradientDirection, InsetShadow, ObjectFit, Transform,
+};
+
 use crate::{
-    core::display::list::{
-        BitmapDisplayItem, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem,
-        RectDisplayItem, SvgPathDisplayItem, TextDisplayItem, TimelineDisplayItem,
-    },
-    core::frame_ctx::FrameCtx,
     host::resource::media::{MediaContext, VideoFrameRequest},
-    core::resource::{
-        asset_catalog::AssetCatalog,
-        bitmap_source::{BitmapSourceKind, bitmap_source_kind},
-    },
     runtime::cache::{
         CachedSubtreeImage, CachedSubtreeSnapshot, GlyphImageCache, GlyphPathCache, ImageCache,
         ItemPictureCache, SubtreeImageCache, SubtreeSnapshotCache,
@@ -29,13 +37,6 @@ use crate::{
             SubtreeSnapshotFingerprint, item_paint_fingerprint,
             subtree_has_dirty_descendant_composite,
         },
-    },
-    core::scene::script::{
-        CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
-        ScriptPointMode,
-    },
-    core::style::{
-        BackgroundFill, BoxShadow, DropShadow, GradientDirection, InsetShadow, ObjectFit, Transform,
     },
 };
 
@@ -788,9 +789,9 @@ impl<'a> SkiaBackend<'a> {
                     Level::TRACE,
                     "draw_transition",
                     transition_kind = match transition.kind {
-                        crate::core::scene::transition::TransitionKind::Slide(_) => "slide",
-                        crate::core::scene::transition::TransitionKind::LightLeak(_) => "light_leak",
-                        crate::core::scene::transition::TransitionKind::Gl(_) => "gltransition",
+                        opencat_core::scene::transition::TransitionKind::Slide(_) => "slide",
+                        opencat_core::scene::transition::TransitionKind::LightLeak(_) => "light_leak",
+                        opencat_core::scene::transition::TransitionKind::Gl(_) => "gltransition",
                         _ => "other",
                     }
                 );
@@ -1049,10 +1050,10 @@ fn draw_rect(canvas: &Canvas, rect: &RectDisplayItem) {
 }
 
 fn spread_radius(
-    border_radius: crate::core::style::BorderRadius,
+    border_radius: opencat_core::style::BorderRadius,
     spread: f32,
-) -> crate::core::style::BorderRadius {
-    crate::core::style::BorderRadius {
+) -> opencat_core::style::BorderRadius {
+    opencat_core::style::BorderRadius {
         top_left: (border_radius.top_left + spread).max(0.0),
         top_right: (border_radius.top_right + spread).max(0.0),
         bottom_right: (border_radius.bottom_right + spread).max(0.0),
@@ -1063,7 +1064,7 @@ fn spread_radius(
 fn draw_box_shadow(
     canvas: &Canvas,
     bounds: DisplayRect,
-    border_radius: crate::core::style::BorderRadius,
+    border_radius: opencat_core::style::BorderRadius,
     shadow: BoxShadow,
 ) {
     let shadow_bounds = if shadow.spread != 0.0 {
@@ -1095,7 +1096,7 @@ fn draw_box_shadow(
 fn draw_inset_shadow(
     canvas: &Canvas,
     bounds: DisplayRect,
-    border_radius: crate::core::style::BorderRadius,
+    border_radius: opencat_core::style::BorderRadius,
     shadow: InsetShadow,
 ) {
     let shadow_bounds = if shadow.spread != 0.0 {
@@ -1197,7 +1198,7 @@ pub(crate) enum SubtreeSnapshotResolution {
 }
 
 pub(crate) fn resolve_subtree_snapshot_lookup(
-    query_fingerprint: crate::core::runtime::fingerprint::SubtreeSnapshotFingerprint,
+    query_fingerprint: opencat_core::runtime::fingerprint::SubtreeSnapshotFingerprint,
     cached_secondary: Option<u64>,
 ) -> SubtreeSnapshotResolution {
     match cached_secondary {
@@ -1949,7 +1950,7 @@ fn draw_script_item(
                 object_fit,
             } => {
                 let image = load_asset_image(
-                    &crate::core::resource::asset_catalog::AssetId(asset_id.clone()),
+                    &opencat_core::resource::asset_catalog::AssetId(asset_id.clone()),
                     assets,
                     image_cache,
                     media_ctx,
@@ -2142,7 +2143,7 @@ fn draw_script_item(
                 anti_alias,
             } => {
                 let image = load_asset_image(
-                    &crate::core::resource::asset_catalog::AssetId(asset_id.clone()),
+                    &opencat_core::resource::asset_catalog::AssetId(asset_id.clone()),
                     assets,
                     image_cache,
                     media_ctx,
@@ -2210,7 +2211,7 @@ fn stroke_paint_for_draw_script(state: &DrawScriptPaintState) -> Paint {
 }
 
 fn load_asset_image(
-    asset_id: &crate::core::resource::asset_catalog::AssetId,
+    asset_id: &opencat_core::resource::asset_catalog::AssetId,
     assets: &AssetCatalog,
     image_cache: &ImageCache,
     media_ctx: &mut Option<&mut MediaContext>,
@@ -2226,7 +2227,7 @@ fn load_asset_image(
             .ok_or_else(|| anyhow!("video asset requires media context: {}", path.display()))?;
         let request = VideoFrameRequest {
             composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps as f64,
-            timing: crate::core::resource::types::VideoFrameTiming::default(),
+            timing: opencat_core::resource::types::VideoFrameTiming::default(),
             quality: media.video_preview_quality(),
             target_size: None,
         };
@@ -2268,7 +2269,7 @@ fn load_asset_image(
     Ok(image)
 }
 
-fn effective_corner_radius(rect: Rect, radius: crate::core::style::BorderRadius) -> [f32; 4] {
+fn effective_corner_radius(rect: Rect, radius: opencat_core::style::BorderRadius) -> [f32; 4] {
     let clamp = |r: f32| {
         if r <= 0.0 {
             return 0.0;
@@ -2283,7 +2284,7 @@ fn effective_corner_radius(rect: Rect, radius: crate::core::style::BorderRadius)
     ]
 }
 
-fn make_rrect(rect: Rect, radius: crate::core::style::BorderRadius) -> RRect {
+fn make_rrect(rect: Rect, radius: opencat_core::style::BorderRadius) -> RRect {
     let radii = effective_corner_radius(rect, radius);
     let points = [
         Point::from((radii[0], radii[0])),
@@ -2307,17 +2308,17 @@ fn apply_blur_effect(paint: &mut Paint, blur_sigma: Option<f32>) {
 fn apply_border_dash_effect(
     paint: &mut Paint,
     width: f32,
-    border_style: crate::core::style::BorderStyle,
+    border_style: opencat_core::style::BorderStyle,
 ) {
     match border_style {
-        crate::core::style::BorderStyle::Solid => {}
-        crate::core::style::BorderStyle::Dashed => {
+        opencat_core::style::BorderStyle::Solid => {}
+        opencat_core::style::BorderStyle::Dashed => {
             let unit = width.max(1.0) * 2.0;
             if let Some(effect) = skia_safe::PathEffect::dash(&[unit, unit], 0.0) {
                 paint.set_path_effect(effect);
             }
         }
-        crate::core::style::BorderStyle::Dotted => {
+        opencat_core::style::BorderStyle::Dotted => {
             paint.set_stroke_cap(skia_safe::paint::Cap::Round);
             let gap = width.max(1.0) * 2.0;
             if let Some(effect) = skia_safe::PathEffect::dash(&[0.0, gap], 0.0) {
@@ -2331,14 +2332,14 @@ fn apply_border_dash_effect(
 fn draw_node_border(
     canvas: &Canvas,
     rect: Rect,
-    radius: crate::core::style::BorderRadius,
+    radius: opencat_core::style::BorderRadius,
     border_width: Option<f32>,
     border_top_width: Option<f32>,
     border_right_width: Option<f32>,
     border_bottom_width: Option<f32>,
     border_left_width: Option<f32>,
-    border_color: Option<crate::core::style::ColorToken>,
-    border_style: Option<crate::core::style::BorderStyle>,
+    border_color: Option<opencat_core::style::ColorToken>,
+    border_style: Option<opencat_core::style::BorderStyle>,
     blur_sigma: Option<f32>,
 ) {
     let Some(color) = border_color else {
@@ -2357,12 +2358,12 @@ fn draw_node_border(
     let skia_col = skia_color(color);
 
     match stroke_style {
-        crate::core::style::BorderStyle::Solid => {
+        opencat_core::style::BorderStyle::Solid => {
             draw_border_fill_ring(
                 canvas, rect, radius, top_w, right_w, bottom_w, left_w, skia_col, blur_sigma,
             );
         }
-        crate::core::style::BorderStyle::Dashed | crate::core::style::BorderStyle::Dotted => {
+        opencat_core::style::BorderStyle::Dashed | opencat_core::style::BorderStyle::Dotted => {
             draw_per_side_borders(
                 canvas,
                 rect,
@@ -2383,7 +2384,7 @@ fn draw_node_border(
 fn draw_border_fill_ring(
     canvas: &Canvas,
     outer_rect: Rect,
-    outer_radius: crate::core::style::BorderRadius,
+    outer_radius: opencat_core::style::BorderRadius,
     top_w: f32,
     right_w: f32,
     bottom_w: f32,
@@ -2410,7 +2411,7 @@ fn draw_border_fill_ring(
     }
 
     let inner_rect = Rect::from_ltrb(inner_left, inner_top, inner_right, inner_bottom);
-    let inner_radius = crate::core::style::BorderRadius {
+    let inner_radius = opencat_core::style::BorderRadius {
         top_left: (outer_radius.top_left - top_w.max(left_w)).max(0.0),
         top_right: (outer_radius.top_right - top_w.max(right_w)).max(0.0),
         bottom_right: (outer_radius.bottom_right - bottom_w.max(right_w)).max(0.0),
@@ -2429,13 +2430,13 @@ fn draw_border_fill_ring(
 fn draw_per_side_borders(
     canvas: &Canvas,
     rect: Rect,
-    radius: crate::core::style::BorderRadius,
+    radius: opencat_core::style::BorderRadius,
     top_w: f32,
     right_w: f32,
     bottom_w: f32,
     left_w: f32,
     color: skia_safe::Color,
-    border_style: crate::core::style::BorderStyle,
+    border_style: opencat_core::style::BorderStyle,
     blur_sigma: Option<f32>,
 ) {
     let left = rect.left;
@@ -2785,7 +2786,7 @@ fn apply_background_paint(paint: &mut Paint, background: BackgroundFill, bounds:
     }
 }
 
-fn color4f_from_token(token: crate::core::style::ColorToken) -> Color4f {
+fn color4f_from_token(token: opencat_core::style::ColorToken) -> Color4f {
     let (r, g, b, a) = token.rgba();
     Color4f::new(
         r as f32 / 255.0,
@@ -2795,7 +2796,7 @@ fn color4f_from_token(token: crate::core::style::ColorToken) -> Color4f {
     )
 }
 
-fn clip_bounds(canvas: &Canvas, bounds: DisplayRect, border_radius: crate::core::style::BorderRadius) {
+fn clip_bounds(canvas: &Canvas, bounds: DisplayRect, border_radius: opencat_core::style::BorderRadius) {
     let rect = layout_rect_to_skia(bounds);
     let radii = effective_corner_radius(rect, border_radius);
     if radii.iter().any(|&r| r > 0.0) {
@@ -2833,7 +2834,7 @@ fn cover_src_rect(src_width: f32, src_height: f32, dst: Rect) -> Rect {
 #[cfg(test)]
 mod resolve_tests {
     use super::{SubtreeSnapshotResolution, resolve_subtree_snapshot_lookup};
-    use crate::core::runtime::fingerprint::SubtreeSnapshotFingerprint;
+    use opencat_core::runtime::fingerprint::SubtreeSnapshotFingerprint;
 
     #[test]
     fn hit_returns_hit_when_secondary_matches() {
@@ -2880,7 +2881,7 @@ mod promotion_tests {
         SUBTREE_IMAGE_PROMOTION_HITS, should_promote_snapshot_to_image,
         transform_list_has_non_unit_scale,
     };
-    use crate::{core::display::list::DisplayRect, core::style::Transform};
+    use opencat_core::{display::list::DisplayRect, style::Transform};
 
     fn bounds(width: f32, height: f32) -> DisplayRect {
         DisplayRect {
@@ -2944,7 +2945,7 @@ mod materialization_tests {
     use super::{
         CachedSubtreeRenderMode, SUBTREE_IMAGE_PROMOTION_HITS, resolve_cached_subtree_render_mode,
     };
-    use crate::core::display::list::DisplayRect;
+    use opencat_core::display::list::DisplayRect;
 
     fn bounds(width: f32, height: f32) -> DisplayRect {
         DisplayRect {
@@ -2996,12 +2997,10 @@ mod text_draw_tests {
     use skia_safe::surfaces;
 
     use super::draw_text;
-    use crate::{
-        core::display::list::{DisplayRect, TextDisplayItem},
-        runtime::cache::{GlyphImageCache, GlyphPathCache, lru::BoundedLruCache},
-        core::scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
-        core::style::ComputedTextStyle,
-    };
+    use opencat_core::display::list::{DisplayRect, TextDisplayItem};
+    use opencat_core::scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch};
+    use opencat_core::style::ComputedTextStyle;
+    use crate::runtime::cache::{GlyphImageCache, GlyphPathCache, lru::BoundedLruCache};
 
     fn rect_bounds() -> DisplayRect {
         DisplayRect {

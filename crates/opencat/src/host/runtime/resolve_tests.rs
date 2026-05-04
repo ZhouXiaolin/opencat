@@ -3,18 +3,17 @@
 
 #![cfg(test)]
 
-use crate::{
-    FrameCtx,
-    core::element::resolve::{resolve_ui_tree, resolve_ui_tree_with_script_cache},
-    core::element::tree::ElementKind,
-    core::frame_ctx::ScriptFrameCtx,
-    core::resource::asset_catalog::AssetCatalog,
-    core::scene::easing::Easing,
-    core::scene::path_bounds::DefaultPathBounds,
-    core::scene::primitives::{SrtEntry, caption, div, text},
-    core::scene::time::{FrameState, frame_state_for_root},
-    core::scene::transition::{slide, timeline},
-};
+use opencat_core::element::resolve::{resolve_ui_tree, resolve_ui_tree_with_script_cache};
+use opencat_core::element::tree::ElementKind;
+use opencat_core::frame_ctx::ScriptFrameCtx;
+use opencat_core::resource::asset_catalog::AssetCatalog;
+use opencat_core::scene::easing::Easing;
+use opencat_core::scene::path_bounds::DefaultPathBounds;
+use opencat_core::scene::primitives::{SrtEntry, caption, div, text};
+use opencat_core::scene::time::{FrameState, frame_state_for_root};
+use opencat_core::scene::transition::{slide, timeline};
+
+use crate::FrameCtx;
 
 use crate::host::script::ScriptRuntimeCache;
 

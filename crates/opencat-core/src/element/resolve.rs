@@ -68,7 +68,7 @@ pub fn resolve_ui_tree(
     )
 }
 
-pub(crate) fn resolve_ui_tree_with_script_cache(
+pub fn resolve_ui_tree_with_script_cache(
     node: &Node,
     frame_ctx: &FrameCtx,
     script_frame_ctx: &ScriptFrameCtx,

@@ -13,20 +13,20 @@ use crate::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
 pub struct AssetId(pub String);
 
 pub struct AssetCatalog {
-    pub(crate) entries: HashMap<AssetId, AssetEntry>,
-    pub(crate) video_info_meta: HashMap<AssetId, VideoInfoMeta>,
-    pub(crate) cache_dir: PathBuf,
-    pub(crate) openverse_token: Option<String>,
+    pub entries: HashMap<AssetId, AssetEntry>,
+    pub video_info_meta: HashMap<AssetId, VideoInfoMeta>,
+    pub cache_dir: PathBuf,
+    pub openverse_token: Option<String>,
 }
 
-pub(crate) struct AssetEntry {
+pub struct AssetEntry {
     path: PathBuf,
     width: u32,
     height: u32,
 }
 
 impl AssetEntry {
-    pub(crate) fn image(path: &Path) -> Self {
+    pub fn image(path: &Path) -> Self {
         let (width, height) = read_image_dimensions(path);
         Self {
             path: path.to_path_buf(),
@@ -35,7 +35,7 @@ impl AssetEntry {
         }
     }
 
-    pub(crate) fn audio(path: &Path) -> Self {
+    pub fn audio(path: &Path) -> Self {
         Self {
             path: path.to_path_buf(),
             width: 0,
@@ -43,7 +43,7 @@ impl AssetEntry {
         }
     }
 
-    pub(crate) fn with_dimensions(path: PathBuf, width: u32, height: u32) -> Self {
+    pub fn with_dimensions(path: PathBuf, width: u32, height: u32) -> Self {
         Self {
             path,
             width,
@@ -185,12 +185,12 @@ impl AssetCatalog {
         self.entries.get(id).map(|e| e.path.as_path())
     }
 
-    pub(crate) fn register_audio_path(&mut self, path: &Path) -> AssetId {
+    pub fn register_audio_path(&mut self, path: &Path) -> AssetId {
         let id = asset_id_for_audio_path(path);
         self.insert_entry_if_missing(id, || AssetEntry::audio(path))
     }
 
-    pub(crate) fn insert_entry_if_missing(
+    pub fn insert_entry_if_missing(
         &mut self,
         id: AssetId,
         build_entry: impl FnOnce() -> AssetEntry,
@@ -203,7 +203,7 @@ impl AssetCatalog {
         id
     }
 
-    pub(crate) fn push_missing_request<T>(
+    pub fn push_missing_request<T>(
         &self,
         id: &AssetId,
         requests: &mut Vec<T>,
@@ -214,7 +214,7 @@ impl AssetCatalog {
         }
     }
 
-    pub(crate) fn require_preloaded(
+    pub fn require_preloaded(
         &self,
         id: AssetId,
         missing_error: impl FnOnce() -> anyhow::Error,
@@ -225,7 +225,7 @@ impl AssetCatalog {
             .ok_or_else(missing_error)
     }
 
-    pub(crate) fn ensure_cache_dir(&self) -> Result<()> {
+    pub fn ensure_cache_dir(&self) -> Result<()> {
         fs::create_dir_all(&self.cache_dir).with_context(|| {
             format!(
                 "failed to create asset cache dir {}",

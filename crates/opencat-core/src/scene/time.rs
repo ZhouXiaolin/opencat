@@ -14,11 +14,11 @@ use crate::{
 pub struct TimelineNode {
     segments: Vec<TimelineSegment>,
     duration_in_frames: u32,
-    pub(crate) style: NodeStyle,
+    pub style: NodeStyle,
 }
 
 impl TimelineNode {
-    pub(crate) fn new(segments: Vec<TimelineSegment>, duration_in_frames: u32) -> Self {
+    pub fn new(segments: Vec<TimelineSegment>, duration_in_frames: u32) -> Self {
         Self {
             segments,
             duration_in_frames,
@@ -26,21 +26,21 @@ impl TimelineNode {
         }
     }
 
-    pub(crate) fn segments(&self) -> &[TimelineSegment] {
+    pub fn segments(&self) -> &[TimelineSegment] {
         &self.segments
     }
 
-    pub(crate) fn duration_in_frames(&self) -> u32 {
+    pub fn duration_in_frames(&self) -> u32 {
         self.duration_in_frames
     }
 
-    pub(crate) fn style_ref(&self) -> &NodeStyle {
+    pub fn style_ref(&self) -> &NodeStyle {
         &self.style
     }
 }
 
 #[derive(Clone)]
-pub(crate) enum TimelineSegment {
+pub enum TimelineSegment {
     Scene {
         start_frame: u32,
         duration_in_frames: u32,
@@ -59,7 +59,7 @@ pub(crate) enum TimelineSegment {
 }
 
 #[derive(Clone)]
-pub(crate) enum FrameState {
+pub enum FrameState {
     Scene {
         scene: Node,
         script_frame_ctx: ScriptFrameCtx,
@@ -74,7 +74,7 @@ pub(crate) enum FrameState {
     },
 }
 
-pub(crate) fn frame_state_for_root(root: &Node, ctx: &FrameCtx) -> FrameState {
+pub fn frame_state_for_root(root: &Node, ctx: &FrameCtx) -> FrameState {
     match root.kind() {
         NodeKind::Component(component) => frame_state_for_root(&component.render(ctx), ctx),
         NodeKind::Timeline(timeline) => frame_state_for_timeline(timeline, ctx),

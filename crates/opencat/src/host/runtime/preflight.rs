@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::core::runtime::preflight_collect::collect_resource_requests;
+use opencat_core::runtime::preflight_collect::collect_resource_requests;
 use crate::host::runtime::session::RenderSession;
-use crate::core::scene::composition::Composition;
+use opencat_core::scene::composition::Composition;
 
 pub(crate) fn ensure_assets_preloaded(
     composition: &Composition,

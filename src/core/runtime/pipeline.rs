@@ -13,9 +13,11 @@ use crate::{
         annotation::{
             AnnotatedDisplayTree, annotate_display_tree, compute_display_tree_fingerprints,
         },
+        invalidation::{CompositeHistory, mark_display_tree_composite_dirty},
+    },
+    host::runtime::{
         compositor::{SceneRenderRuntime, plan_for_scene, render_scene},
         frame_view::RenderFrameView,
-        invalidation::{CompositeHistory, mark_display_tree_composite_dirty},
         preflight::ensure_assets_preloaded,
         profile::SceneBuildStats,
         session::RenderSession,

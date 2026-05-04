@@ -14,7 +14,7 @@ use crate::{
         assets::AssetId,
         catalog::{ResourceCatalog, VideoInfoMeta},
     },
-    scene::script::{ScriptRuntimeCache, StyleMutations, TextUnitOverrideBatch},
+    scene::script::{ScriptHost, ScriptRuntimeCache, StyleMutations, TextUnitOverrideBatch},
     scene::{
         node::{ComponentNode, NodeKind},
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video},
@@ -740,8 +740,9 @@ fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<b
         return Ok(false);
     };
 
-    let mutations = cx.script_runtime.run(
-        driver,
+    let id = cx.script_runtime.install(driver.source())?;
+    let mutations = cx.script_runtime.run_by_id(
+        id,
         *cx.script_frame_ctx,
         (!style.id.is_empty()).then_some(style.id.as_str()),
     )?;

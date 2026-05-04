@@ -10,7 +10,7 @@ use crate::{
     frame_ctx::ScriptFrameCtx,
     style::{
         AlignItems, BoxShadow, BoxShadowStyle, DropShadow, DropShadowStyle, FlexDirection,
-        FontWeight, InsetShadow, InsetShadowStyle, JustifyContent, ObjectFit, Position, TextAlign,
+        InsetShadow, InsetShadowStyle, JustifyContent, ObjectFit, Position, TextAlign,
     },
 };
 
@@ -18,67 +18,11 @@ mod animate_api;
 mod canvas_api;
 pub mod host;
 mod morph_svg;
+pub mod mutations;
 mod node_style;
 
 pub use host::{ScriptDriverId, ScriptHost};
-
-pub use canvas_api::{
-    CanvasCommand, CanvasMutations, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
-    ScriptPointMode,
-};
-pub use node_style::{
-    NodeStyleMutations, TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch,
-};
-
-#[derive(Debug, Clone, Default)]
-pub struct StyleMutations {
-    pub mutations: HashMap<String, NodeStyleMutations>,
-    pub canvas_mutations: HashMap<String, CanvasMutations>,
-}
-
-impl StyleMutations {
-    pub fn get(&self, id: &str) -> Option<&NodeStyleMutations> {
-        self.mutations.get(id)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.mutations.is_empty() && self.canvas_mutations.is_empty()
-    }
-
-    pub fn apply_to_node(&self, node_style: &mut crate::style::NodeStyle, id: &str) {
-        if let Some(mutation) = self.mutations.get(id) {
-            mutation.apply_to(node_style);
-        }
-    }
-
-    pub fn get_canvas(&self, id: &str) -> Option<&CanvasMutations> {
-        self.canvas_mutations.get(id)
-    }
-
-    pub fn apply_to_canvas(&self, commands: &mut Vec<CanvasCommand>, id: &str) {
-        if let Some(mutation) = self.canvas_mutations.get(id) {
-            commands.extend(mutation.commands.iter().cloned());
-        }
-    }
-
-    pub fn text_content_for(&self, id: &str) -> Option<&str> {
-        self.mutations
-            .get(id)
-            .and_then(|m| m.text_content.as_deref())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ScriptTextSource {
-    pub text: String,
-    pub kind: ScriptTextSourceKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ScriptTextSourceKind {
-    TextNode,
-    Caption,
-}
+pub use mutations::*;
 
 #[derive(Default)]
 struct RuntimeMutationStore {
@@ -122,11 +66,22 @@ impl ScriptRuntimeCache {
     pub(crate) fn register_text_source(&mut self, id: &str, source: ScriptTextSource) {
         self.text_sources.insert(id.to_string(), source);
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct ScriptDriver {
-    source: String,
+    pub(crate) fn run_by_id(
+        &mut self,
+        id: ScriptDriverId,
+        frame_ctx: ScriptFrameCtx,
+        current_node_id: Option<&str>,
+    ) -> anyhow::Result<StyleMutations> {
+        let runner = self
+            .runners
+            .get_mut(&id.0)
+            .ok_or_else(|| anyhow!("script driver {} not installed", id.0))?;
+        if let Ok(mut store) = runner.store.lock() {
+            store.text_sources = self.text_sources.clone();
+        }
+        runner.run(frame_ctx, current_node_id)
+    }
 }
 
 pub(crate) struct ScriptRunner {
@@ -135,6 +90,32 @@ pub(crate) struct ScriptRunner {
     context: Context,
     store: MutationStore,
     _runtime: Runtime,
+}
+
+impl ScriptDriver {
+    pub(crate) fn create_runner(&self) -> anyhow::Result<ScriptRunner> {
+        ScriptRunner::new(&self.source)
+    }
+
+    pub fn run(
+        &self,
+        frame: u32,
+        total_frames: u32,
+        current_frame: u32,
+        scene_frames: u32,
+        current_node_id: Option<&str>,
+    ) -> anyhow::Result<StyleMutations> {
+        let mut runner = self.create_runner()?;
+        runner.run(
+            ScriptFrameCtx {
+                frame,
+                total_frames,
+                current_frame,
+                scene_frames,
+            },
+            current_node_id,
+        )
+    }
 }
 
 const RUN_FRAME_FN: &str = "__opencatRunFrame";
@@ -232,55 +213,6 @@ fn text_align_from_name(name: &str) -> Option<TextAlign> {
         "center" => Some(TextAlign::Center),
         "right" => Some(TextAlign::Right),
         _ => None,
-    }
-}
-
-impl ScriptDriver {
-    pub fn from_source(source: &str) -> anyhow::Result<Self> {
-        Ok(Self {
-            source: source.to_string(),
-        })
-    }
-
-    pub fn from_file(path: &str) -> anyhow::Result<Self> {
-        let source = std::fs::read_to_string(path)?;
-        Self::from_source(&source)
-    }
-
-    pub(crate) fn create_runner(&self) -> anyhow::Result<ScriptRunner> {
-        ScriptRunner::new(&self.source)
-    }
-
-    pub(crate) fn cache_key(&self) -> u64 {
-        use std::hash::{DefaultHasher, Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        self.source.hash(&mut hasher);
-        hasher.finish()
-    }
-
-    pub fn run(
-        &self,
-        frame: u32,
-        total_frames: u32,
-        current_frame: u32,
-        scene_frames: u32,
-        current_node_id: Option<&str>,
-    ) -> anyhow::Result<StyleMutations> {
-        let mut runner = self.create_runner()?;
-        runner.run(
-            ScriptFrameCtx {
-                frame,
-                total_frames,
-                current_frame,
-                scene_frames,
-            },
-            current_node_id,
-        )
-    }
-
-    pub fn source(&self) -> &str {
-        &self.source
     }
 }
 
@@ -2212,7 +2144,7 @@ mod tests {
             .as_ref()
             .expect("should have text_unit_overrides");
 
-        use super::node_style::TextUnitGranularity;
+        use super::TextUnitGranularity;
         assert!(matches!(batch.granularity, TextUnitGranularity::Grapheme));
 
         // Index 0: opacity=0.5, translateX=10, translateY=20
@@ -2280,7 +2212,8 @@ mod tests {
 
     #[test]
     fn split_text_node_uses_grapheme_clusters_for_zwj_emoji() {
-        use super::node_style::{TextUnitGranularity, describe_text_units};
+        use super::node_style::describe_text_units;
+        use super::TextUnitGranularity;
         let units = describe_text_units(
             "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}",
             TextUnitGranularity::Grapheme,
@@ -2294,7 +2227,8 @@ mod tests {
 
     #[test]
     fn split_text_node_uses_grapheme_clusters_for_combining_marks() {
-        use super::node_style::{TextUnitGranularity, describe_text_units};
+        use super::node_style::describe_text_units;
+        use super::TextUnitGranularity;
         let units = describe_text_units("e\u{0301}", TextUnitGranularity::Grapheme);
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].text, "e\u{0301}");
@@ -2302,7 +2236,8 @@ mod tests {
 
     #[test]
     fn split_text_node_describes_words_from_resolved_text() {
-        use super::node_style::{TextUnitGranularity, describe_text_units};
+        use super::node_style::describe_text_units;
+        use super::TextUnitGranularity;
         let units = describe_text_units("Hello world", TextUnitGranularity::Word);
         assert_eq!(
             units.iter().map(|u| u.text.as_str()).collect::<Vec<_>>(),
@@ -2312,7 +2247,8 @@ mod tests {
 
     #[test]
     fn split_text_node_words_falls_back_to_graphemes_for_cjk() {
-        use super::node_style::{TextUnitGranularity, describe_text_units};
+        use super::node_style::describe_text_units;
+        use super::TextUnitGranularity;
         let units = describe_text_units("你好世界", TextUnitGranularity::Word);
         assert_eq!(
             units.iter().map(|u| u.text.as_str()).collect::<Vec<_>>(),

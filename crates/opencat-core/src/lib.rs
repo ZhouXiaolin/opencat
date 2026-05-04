@@ -20,5 +20,6 @@ pub use self::jsonl::{ParsedComposition, parse};
 pub use self::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 pub use self::resource::asset_catalog::{AssetCatalog, AssetId};
 pub use self::runtime::preflight_collect::{ResourceRequests, collect_resource_requests};
-pub use self::scene::script::{ScriptHost, ScriptDriverId};
+pub use self::scene::script::{ScriptHost, ScriptDriver, ScriptDriverId};
+pub use self::scene::node::Node;
 pub use self::text::{FontProvider, DefaultFontProvider};

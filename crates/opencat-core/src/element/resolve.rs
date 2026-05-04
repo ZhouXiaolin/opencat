@@ -2,26 +2,26 @@ use anyhow::{Result, ensure};
 
 use crate::{
     FrameCtx, Node,
-    core::element::{
+    element::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
             ElementBitmap, ElementCanvas, ElementDiv, ElementId, ElementKind, ElementNode,
             ElementSvgPath, ElementText, ElementTimeline, ElementTimelineTransition,
         },
     },
-    core::frame_ctx::ScriptFrameCtx,
-    core::resource::asset_catalog::AssetId,
-    core::resource::catalog::{ResourceCatalog, VideoInfoMeta},
-    core::scene::path_bounds::{DefaultPathBounds, PathBoundsComputer},
-    core::scene::script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
-    core::scene::{
+    frame_ctx::ScriptFrameCtx,
+    resource::asset_catalog::AssetId,
+    resource::catalog::{ResourceCatalog, VideoInfoMeta},
+    scene::path_bounds::{DefaultPathBounds, PathBoundsComputer},
+    scene::script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
+    scene::{
         node::{ComponentNode, NodeKind},
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video},
         time::TimelineNode,
         time::{FrameState, frame_state_for_root},
     },
-    core::style::LengthPercentageAuto,
-    core::style::{NodeStyle, resolve_text_style},
+    style::LengthPercentageAuto,
+    style::{NodeStyle, resolve_text_style},
 };
 
 #[derive(Default)]
@@ -1082,15 +1082,15 @@ mod tests {
     use super::{merge_text_unit_overrides, resolve_ui_tree};
     use crate::{
         FrameCtx,
-        core::element::tree::ElementKind,
-        core::resource::asset_catalog::AssetCatalog,
-        core::resource::catalog::VideoInfoMeta,
-        core::scene::primitives::{SrtEntry, caption, div, lucide, text, video},
-        core::scene::script::{
+        element::tree::ElementKind,
+        resource::asset_catalog::AssetCatalog,
+        resource::catalog::VideoInfoMeta,
+        scene::primitives::{SrtEntry, caption, div, lucide, text, video},
+        scene::script::{
             NodeStyleMutations, StyleMutations, TextUnitGranularity,
             TextUnitOverride, TextUnitOverrideBatch,
         },
-        core::test_support::MockScriptHost,
+        test_support::MockScriptHost,
     };
 
     fn resolve(

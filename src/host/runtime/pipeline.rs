@@ -21,6 +21,7 @@ use crate::{
     host::runtime::{
         compositor::{SceneRenderRuntime, plan_for_scene, render_scene},
         frame_view::RenderFrameView,
+        path_bounds::default_host_path_bounds,
         preflight::ensure_assets_preloaded,
         profile::SceneBuildStats,
         session::RenderSession,
@@ -111,6 +112,7 @@ pub fn build_frame_display_tree(
         catalog,
         mutations,
         script_cache,
+        default_host_path_bounds(),
     )?;
 
     let (layout_tree, layout_pass) = layout_session

@@ -19,7 +19,7 @@ use crate::core::{
     style::NodeStyle,
 };
 
-use super::runtime::session::RenderSession;
+use super::runtime::{path_bounds::default_host_path_bounds, session::RenderSession};
 
 #[derive(Clone, Debug)]
 pub struct FrameElementRect {
@@ -98,6 +98,7 @@ fn collect_scene_rects(
         &mut session.assets,
         None,
         &mut session.script_runtime,
+        default_host_path_bounds(),
     )?;
 
     let font_db = session.font_db_handle();

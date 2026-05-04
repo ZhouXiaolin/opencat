@@ -1,6 +1,9 @@
 #![cfg(feature = "host-default")]
 pub mod bindings;
 
+#[cfg(test)]
+mod driver_tests;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

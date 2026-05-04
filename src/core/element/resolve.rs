@@ -12,6 +12,7 @@ use crate::{
     core::frame_ctx::ScriptFrameCtx,
     core::resource::asset_catalog::AssetId,
     core::resource::catalog::{ResourceCatalog, VideoInfoMeta},
+    core::scene::path_bounds::{DefaultPathBounds, PathBoundsComputer},
     core::scene::script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
     core::scene::{
         node::{ComponentNode, NodeKind},
@@ -42,9 +43,10 @@ struct ResolveContext<'a> {
     ids: &'a mut ElementIdAllocator,
     inherited_style: &'a InheritedStyle,
     assets: &'a mut dyn ResourceCatalog,
-    
+
     script_runtime: &'a mut dyn ScriptHost,
     mutation_stack: &'a mut Vec<StyleMutations>,
+    path_bounds: &'a dyn PathBoundsComputer,
 }
 
 pub fn resolve_ui_tree(
@@ -62,6 +64,7 @@ pub fn resolve_ui_tree(
         assets,
         mutations,
         script_runtime,
+        &DefaultPathBounds,
     )
 }
 
@@ -72,6 +75,7 @@ pub(crate) fn resolve_ui_tree_with_script_cache(
     assets: &mut dyn ResourceCatalog,
     mutations: Option<&StyleMutations>,
     script_runtime: &mut dyn ScriptHost,
+    path_bounds: &dyn PathBoundsComputer,
 ) -> Result<ElementNode> {
     let mut ids = ElementIdAllocator::default();
     let inherited_style = InheritedStyle::default();
@@ -86,9 +90,10 @@ pub(crate) fn resolve_ui_tree_with_script_cache(
         ids: &mut ids,
         inherited_style: &inherited_style,
         assets,
-        
+
         script_runtime,
         mutation_stack: &mut mutation_stack,
+        path_bounds,
     };
     Ok(resolve_node_optional(node, &mut cx)?.unwrap_or_else(|| empty_root_div(&mut cx)))
 }
@@ -167,9 +172,10 @@ fn resolve_timeline(
             ids: &mut *cx.ids,
             inherited_style: &inherited_style,
             assets: &mut *cx.assets,
-            
+
             script_runtime: &mut *cx.script_runtime,
             mutation_stack: &mut *cx.mutation_stack,
+            path_bounds: cx.path_bounds,
         };
         let children = resolve_frame_state_as_children(&frame_state, &mut child_cx)?;
 
@@ -197,9 +203,10 @@ fn resolve_with_script_frame_ctx(
         ids: &mut *cx.ids,
         inherited_style: cx.inherited_style,
         assets: &mut *cx.assets,
-        
+
         script_runtime: &mut *cx.script_runtime,
         mutation_stack: &mut *cx.mutation_stack,
+        path_bounds: cx.path_bounds,
     };
     resolve_node_optional(node, &mut child_cx)
         .map(|opt| opt.unwrap_or_else(|| empty_root_div(&mut child_cx)))
@@ -339,9 +346,10 @@ fn resolve_div(
                 ids: &mut *cx.ids,
                 inherited_style: &inherited_style,
                 assets: &mut *cx.assets,
-                
+
                 script_runtime: &mut *cx.script_runtime,
                 mutation_stack: &mut *cx.mutation_stack,
+                path_bounds: cx.path_bounds,
             };
             if let Some(child) = resolve_node_optional(child, &mut child_cx)? {
                 children.push(child);
@@ -574,7 +582,10 @@ fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Resu
 
         let (path_data, view_box) = if let Some(svg_path) = &computed.visual.svg_path {
             let pd = vec![svg_path.clone()];
-            let vb = compute_path_view_box(&pd).unwrap_or([0.0, 0.0, 24.0, 24.0]);
+            let vb = cx
+                .path_bounds
+                .compute_view_box(&pd)
+                .unwrap_or([0.0, 0.0, 24.0, 24.0]);
             (pd, vb)
         } else {
             let paths = crate::core::lucide_icons::lucide_icon_paths(icon)
@@ -615,14 +626,15 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
 
         let (path_data, view_box) = if let Some(svg_path) = &computed.visual.svg_path {
             let pd = vec![svg_path.clone()];
-            let vb = compute_path_view_box(&pd).unwrap_or_else(|_| {
-                compute_path_view_box(&[path.data().to_string()])
+            let vb = cx.path_bounds.compute_view_box(&pd).unwrap_or_else(|_| {
+                cx.path_bounds
+                    .compute_view_box(&[path.data().to_string()])
                     .unwrap_or([0.0, 0.0, 100.0, 100.0])
             });
             (pd, vb)
         } else {
             let pd = vec![path.data().to_string()];
-            let vb = compute_path_view_box(&pd)?;
+            let vb = cx.path_bounds.compute_view_box(&pd)?;
             (pd, vb)
         };
 
@@ -641,39 +653,6 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         cx.mutation_stack.pop();
     }
     result
-}
-
-#[cfg(feature = "host-backend-skia")]
-fn compute_path_view_box(path_data: &[String]) -> Result<[f32; 4]> {
-    let mut min_x = f32::MAX;
-    let mut min_y = f32::MAX;
-    let mut max_x = f32::NEG_INFINITY;
-    let mut max_y = f32::NEG_INFINITY;
-    let mut has_any = false;
-
-    for data in path_data {
-        let path = skia_safe::Path::from_svg(data)
-            .ok_or_else(|| anyhow::anyhow!("invalid SVG path data"))?;
-        let bounds = path.bounds();
-        min_x = min_x.min(bounds.left());
-        min_y = min_y.min(bounds.top());
-        max_x = max_x.max(bounds.right());
-        max_y = max_y.max(bounds.bottom());
-        has_any = true;
-    }
-
-    if !has_any {
-        return Ok([0.0, 0.0, 24.0, 24.0]);
-    }
-
-    let w = (max_x - min_x).max(1.0);
-    let h = (max_y - min_y).max(1.0);
-    Ok([min_x, min_y, w, h])
-}
-
-#[cfg(not(feature = "host-backend-skia"))]
-fn compute_path_view_box(_path_data: &[String]) -> Result<[f32; 4]> {
-    Ok([0.0, 0.0, 100.0, 100.0])
 }
 
 fn normalize_lucide_icon_name(name: &str) -> &str {
@@ -1100,25 +1079,19 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_text_unit_overrides, resolve_ui_tree, resolve_ui_tree_with_script_cache};
+    use super::{merge_text_unit_overrides, resolve_ui_tree};
     use crate::{
         FrameCtx,
         core::element::tree::ElementKind,
-        core::frame_ctx::ScriptFrameCtx,
         core::resource::asset_catalog::AssetCatalog,
         core::resource::catalog::VideoInfoMeta,
-        core::scene::easing::Easing,
         core::scene::primitives::{SrtEntry, caption, div, lucide, text, video},
         core::scene::script::{
             NodeStyleMutations, StyleMutations, TextUnitGranularity,
             TextUnitOverride, TextUnitOverrideBatch,
         },
-        core::scene::time::{FrameState, frame_state_for_root},
-        core::scene::transition::{slide, timeline},
         core::test_support::MockScriptHost,
     };
-    #[cfg(feature = "host-default")]
-    use crate::host::script::ScriptRuntimeCache;
 
     fn resolve(
         node: &crate::Node,
@@ -1144,37 +1117,6 @@ mod tests {
             .expect_err("nodes without ids should fail during resolution");
 
         assert!(err.to_string().contains("node id is required"));
-    }
-
-    #[cfg(feature = "host-default")]
-    #[test]
-    fn node_script_only_affects_its_own_subtree() {
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 1,
-        };
-        let mut assets = AssetCatalog::new();
-
-        let scene = div()
-            .id("root")
-            .child(
-                div()
-                    .id("animated")
-                    .script_source(r#"ctx.getNode("title").opacity(0.25);"#)
-                    .expect("script should compile")
-                    .child(text("A").id("title")),
-            )
-            .child(div().id("static").child(text("B").id("title")));
-
-        let mut script_runtime = ScriptRuntimeCache::default();
-        let resolved = resolve_ui_tree(&scene.into(), &frame_ctx, &mut assets, None, &mut script_runtime)
-            .expect("tree should resolve");
-
-        assert_eq!(resolved.children[0].children[0].style.visual.opacity, 0.25);
-        assert_eq!(resolved.children[1].children[0].style.visual.opacity, 1.0);
     }
 
     #[test]
@@ -1382,215 +1324,6 @@ mod tests {
             merged.overrides[0].color,
             Some(crate::core::style::ColorToken::Cyan400)
         );
-    }
-
-    
-    #[cfg(feature = "host-default")]
-    #[test]
-    fn transition_scenes_keep_node_scripts_isolated() {
-        let frame_ctx = FrameCtx {
-            frame: 10,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 30,
-        };
-        let mut assets = AssetCatalog::new();
-        let mut script_runtime = ScriptRuntimeCache::default();
-
-        let from_scene = div()
-            .id("scene-a")
-            .script_source(r#"ctx.getNode("title").opacity(0.2);"#)
-            .expect("script should compile")
-            .child(text("From").id("title"));
-        let to_scene = div()
-            .id("scene-b")
-            .script_source(r#"ctx.getNode("title").opacity(0.8);"#)
-            .expect("script should compile")
-            .child(text("To").id("title"));
-        let root = timeline()
-            .sequence(10, from_scene.into())
-            .transition(slide().timing(Easing::Linear, 10))
-            .sequence(10, to_scene.into())
-            .into();
-
-        let FrameState::Transition {
-            from,
-            to,
-            from_script_frame_ctx,
-            to_script_frame_ctx,
-            ..
-        } = frame_state_for_root(&root, &frame_ctx)
-        else {
-            panic!("expected transition frame");
-        };
-
-        let from_resolved = resolve_ui_tree_with_script_cache(
-            &from,
-            &frame_ctx,
-            &from_script_frame_ctx,
-            &mut assets,
-            None,
-            &mut script_runtime,
-        )
-        .expect("from scene should resolve");
-        let to_resolved = resolve_ui_tree_with_script_cache(
-            &to,
-            &frame_ctx,
-            &to_script_frame_ctx,
-            &mut assets,
-            None,
-            &mut script_runtime,
-        )
-        .expect("to scene should resolve");
-
-        assert_eq!(from_resolved.children[0].style.visual.opacity, 0.2);
-        assert_eq!(to_resolved.children[0].style.visual.opacity, 0.8);
-    }
-
-    
-    #[cfg(feature = "host-default")]
-    #[test]
-    fn timeline_scripts_receive_scene_local_frames() {
-        let frame_ctx = FrameCtx {
-            frame: 19,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 60,
-        };
-        let mut assets = AssetCatalog::new();
-        let mut script_runtime = ScriptRuntimeCache::default();
-
-        let scene = div()
-            .id("scene-b")
-            .script_source(
-                r#"ctx.getNode("title").opacity(ctx.currentFrame === 4 && ctx.sceneFrames === 10 ? 0.6 : 0.1);"#,
-            )
-            .expect("script should compile")
-            .child(text("B").id("title"));
-        let root = timeline()
-            .sequence(
-                10,
-                div().id("scene-a").child(text("A").id("a-title")).into(),
-            )
-            .transition(slide().timing(Easing::Linear, 5))
-            .sequence(10, scene.into())
-            .into();
-
-        let FrameState::Scene {
-            scene,
-            script_frame_ctx,
-        } = frame_state_for_root(&root, &frame_ctx)
-        else {
-            panic!("expected scene frame");
-        };
-
-        let resolved = resolve_ui_tree_with_script_cache(
-            &scene,
-            &frame_ctx,
-            &script_frame_ctx,
-            &mut assets,
-            None,
-            &mut script_runtime,
-        )
-        .expect("scene should resolve");
-
-        assert_eq!(
-            script_frame_ctx,
-            ScriptFrameCtx::for_segment(&frame_ctx, 15, 10)
-        );
-        assert_eq!(resolved.children[0].style.visual.opacity, 0.6);
-    }
-
-    #[cfg(feature = "host-default")]
-    #[test]
-    fn parent_script_can_split_descendant_text_before_child_resolution() {
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 1,
-        };
-        let mut assets = AssetCatalog::new();
-
-        let root = div()
-            .id("root")
-            .script_source(
-                r#"
-                var parts = ctx.splitText("title", { type: "chars" });
-                parts[0].set({ opacity: 0.2 });
-            "#,
-            )
-            .expect("script should compile")
-            .child(text("Hello").id("title"));
-
-        let mut script_runtime = ScriptRuntimeCache::default();
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None, &mut script_runtime)
-            .expect("parent script should see descendant text source");
-
-        let ElementKind::Text(text) = &resolved.children[0].kind else {
-            panic!("child should resolve to text");
-        };
-        let batch = text
-            .text_unit_overrides
-            .as_ref()
-            .expect("text unit overrides should exist");
-        assert_eq!(batch.overrides[0].opacity, Some(0.2));
-    }
-
-    
-    #[cfg(feature = "host-default")]
-    #[test]
-    fn resolve_caption_uses_scene_local_time_inside_timeline() {
-        let caption_node = caption().id("subs").path("sub.srt").entries(vec![
-            SrtEntry {
-                index: 1,
-                start_frame: 0,
-                end_frame: 5,
-                text: "Local A".into(),
-            },
-            SrtEntry {
-                index: 2,
-                start_frame: 5,
-                end_frame: 10,
-                text: "Local B".into(),
-            },
-        ]);
-        let root = timeline()
-            .sequence(10, div().id("scene-a").child(text("A").id("t")).into())
-            .sequence(10, div().id("scene-b").child(caption_node).into())
-            .into();
-        let frame_ctx = FrameCtx {
-            frame: 17,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 20,
-        };
-        let mut assets = AssetCatalog::new();
-        let mut runtime = ScriptRuntimeCache::default();
-
-        let FrameState::Scene {
-            scene,
-            script_frame_ctx,
-        } = frame_state_for_root(&root, &frame_ctx)
-        else {
-            panic!("expected scene frame");
-        };
-
-        let tree = resolve_ui_tree_with_script_cache(
-            &scene,
-            &frame_ctx,
-            &script_frame_ctx,
-            &mut assets,
-            None,
-            &mut runtime,
-        )
-        .expect("caption tree should resolve");
-
-        assert!(format!("{tree:?}").contains("Local B"));
     }
 
     #[test]

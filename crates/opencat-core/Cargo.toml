@@ -22,4 +22,5 @@ cosmic-text = "0.12"
 fontdb = "0.16"
 
 [features]
-# 故意不声明任何 feature，确保 core 完全纯净
+default = []
+test-support = []

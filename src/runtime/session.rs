@@ -30,7 +30,7 @@ pub struct RenderSession {
     pub(crate) audio_interval_cache: AudioIntervalCache,
     pub(crate) font_db: Arc<fontdb::Database>,
     pub(crate) render_engine: SharedRenderEngine,
-    composite_history: CompositeHistory,
+    pub(crate) composite_history: CompositeHistory,
 }
 
 impl RenderSession {

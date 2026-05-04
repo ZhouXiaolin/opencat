@@ -5,18 +5,24 @@ use crate::{
     display::build::build_display_tree,
     element::resolve::resolve_ui_tree_with_script_cache,
     frame_ctx::{FrameCtx, ScriptFrameCtx},
+    resource::catalog::ResourceCatalog,
     runtime::{
         annotation::{
             AnnotatedDisplayTree, annotate_display_tree, compute_display_tree_fingerprints,
         },
         compositor::{SceneRenderRuntime, plan_for_scene, render_scene},
         frame_view::RenderFrameView,
-        invalidation::mark_display_tree_composite_dirty,
+        invalidation::{CompositeHistory, mark_display_tree_composite_dirty},
         preflight::ensure_assets_preloaded,
         profile::SceneBuildStats,
         session::RenderSession,
     },
-    scene::{composition::Composition, node::Node, script::StyleMutations},
+    scene::{
+        composition::Composition,
+        node::Node,
+        script::{ScriptRuntimeCache, StyleMutations},
+    },
+    text::FontProvider,
 };
 
 pub(crate) fn render_frame_on_surface(
@@ -80,6 +86,45 @@ pub(crate) fn render_frame_on_surface(
     Ok(())
 }
 
+pub(crate) fn build_frame_display_tree(
+    scene: &Node,
+    frame_ctx: &FrameCtx,
+    script_frame_ctx: &ScriptFrameCtx,
+    catalog: &mut dyn ResourceCatalog,
+    fonts: &dyn FontProvider,
+    layout_session: &mut crate::layout::LayoutSession,
+    composite_history: &mut CompositeHistory,
+    script_cache: &mut ScriptRuntimeCache,
+    mutations: Option<&StyleMutations>,
+) -> Result<(AnnotatedDisplayTree, SceneBuildStats)> {
+    let mut stats = SceneBuildStats::default();
+
+    let element_root = resolve_ui_tree_with_script_cache(
+        scene,
+        frame_ctx,
+        script_frame_ctx,
+        catalog,
+        mutations,
+        script_cache,
+    )?;
+
+    let (layout_tree, layout_pass) = layout_session
+        .compute_layout_with_provider(&element_root, frame_ctx, fonts)?;
+    stats.layout_pass = layout_pass;
+
+    let display_tree = build_display_tree(&element_root, &layout_tree)?;
+    let mut annotated = annotate_display_tree(&display_tree);
+    mark_display_tree_composite_dirty(
+        composite_history,
+        &mut annotated,
+        layout_pass.structure_rebuild,
+    );
+    compute_display_tree_fingerprints(&mut annotated);
+    stats.contains_time_variant_paint = annotated.contains_time_variant();
+
+    Ok((annotated, stats))
+}
+
 pub(crate) fn build_scene_display_list(
     scene: &Node,
     frame_ctx: &FrameCtx,
@@ -87,45 +132,23 @@ pub(crate) fn build_scene_display_list(
     session: &mut RenderSession,
     mutations: Option<&StyleMutations>,
 ) -> Result<(AnnotatedDisplayTree, SceneBuildStats)> {
-    let mut stats = SceneBuildStats::default();
-
-    let resolve_span = span!(target: "render.scene", Level::TRACE, "resolve_ui_tree");
-    let element_root = {
-        let _guard = resolve_span.enter();
-        resolve_ui_tree_with_script_cache(
-            scene,
-            frame_ctx,
-            script_frame_ctx,
-            &mut session.assets,
-            mutations,
-            &mut session.script_runtime,
-        )?
-    };
-
-    let layout_span = span!(target: "render.scene", Level::TRACE, "compute_layout");
-    let (layout_tree, layout_pass) = {
-        let _guard = layout_span.enter();
-        let font_db = session.font_db_handle();
-        session
-            .layout_session_mut()
-            .compute_layout_with_font_db(&element_root, frame_ctx, font_db.as_ref())?
-    };
-    stats.layout_pass = layout_pass;
-
-    let display_span = span!(target: "render.scene", Level::TRACE, "build_display_tree");
-    let annotated_display_tree = {
-        let _guard = display_span.enter();
-        let display_tree = build_display_tree(&element_root, &layout_tree)?;
-        let mut annotated = annotate_display_tree(&display_tree);
-        mark_display_tree_composite_dirty(
-            session.composite_history_mut(),
-            &mut annotated,
-            stats.layout_pass.structure_rebuild,
-        );
-        compute_display_tree_fingerprints(&mut annotated);
-        annotated
-    };
-    stats.contains_time_variant_paint = annotated_display_tree.contains_time_variant();
-
-    Ok((annotated_display_tree, stats))
+    let provider = crate::text::DefaultFontProvider::from_arc(session.font_db.clone());
+    let RenderSession {
+        assets,
+        layout_session,
+        composite_history,
+        script_runtime,
+        ..
+    } = session;
+    build_frame_display_tree(
+        scene,
+        frame_ctx,
+        script_frame_ctx,
+        assets,
+        &provider,
+        layout_session,
+        composite_history,
+        script_runtime,
+        mutations,
+    )
 }

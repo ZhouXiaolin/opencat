@@ -1,4 +1,4 @@
-use crate::core::scene::{
+use crate::scene::{
     easing::Easing,
     node::Node,
     time::{TimelineNode, TimelineSegment},

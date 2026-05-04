@@ -2,7 +2,7 @@
 
 use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping};
 
-use crate::core::style::ComputedTextStyle;
+use crate::style::ComputedTextStyle;
 
 const NOTO_SANS_SC: &[u8] = include_bytes!("../../../assets/NotoSansSC-Regular.otf");
 const NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../../assets/NotoColorEmoji.ttf");
@@ -73,10 +73,10 @@ pub fn measure_text(
     }
 }
 
-fn apply_text_transform(text: &str, transform: crate::core::style::TextTransform) -> String {
+fn apply_text_transform(text: &str, transform: crate::style::TextTransform) -> String {
     match transform {
-        crate::core::style::TextTransform::None => text.to_string(),
-        crate::core::style::TextTransform::Uppercase => text.to_uppercase(),
+        crate::style::TextTransform::None => text.to_string(),
+        crate::style::TextTransform::Uppercase => text.to_uppercase(),
     }
 }
 
@@ -109,7 +109,7 @@ impl FontProvider for DefaultFontProvider {
 #[cfg(test)]
 mod tests {
     use super::{default_font_db, measure_text, DefaultFontProvider, FontProvider};
-    use crate::core::style::ComputedTextStyle;
+    use crate::style::ComputedTextStyle;
 
     #[test]
     fn cosmic_text_measures_short_english_text() {

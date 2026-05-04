@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use crate::core::frame_ctx::FrameCtx;
-use crate::core::scene::composition::Composition;
-use crate::core::scene::node::{Node, NodeKind};
-use crate::core::scene::primitives::{AudioSource, ImageSource};
-use crate::core::scene::time::{FrameState, frame_state_for_root};
+use crate::frame_ctx::FrameCtx;
+use crate::scene::composition::Composition;
+use crate::scene::node::{Node, NodeKind};
+use crate::scene::primitives::{AudioSource, ImageSource};
+use crate::scene::time::{FrameState, frame_state_for_root};
 
 #[derive(Default, Debug)]
 pub struct ResourceRequests {
@@ -104,7 +104,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::core::scene::{composition::Composition, primitives::{div, image, video}};
+    use crate::scene::{composition::Composition, primitives::{div, image, video}};
 
     #[test]
     fn collects_image_audio_video_distinctly() {

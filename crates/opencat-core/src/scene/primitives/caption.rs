@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 
-use crate::core::style::{NodeStyle, impl_node_style_api};
+use crate::style::{NodeStyle, impl_node_style_api};
 
 #[derive(Clone, Debug)]
 pub struct SrtEntry {

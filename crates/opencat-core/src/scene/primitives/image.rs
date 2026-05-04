@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::core::style::{NodeStyle, impl_node_style_api};
+use crate::style::{NodeStyle, impl_node_style_api};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OpenverseQuery {

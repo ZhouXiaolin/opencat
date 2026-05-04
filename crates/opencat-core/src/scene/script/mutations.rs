@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::core::style::{
+use crate::style::{
     BorderRadius, BorderStyle, BoxShadow, ColorToken, DropShadow, FlexDirection, FontWeight,
     InsetShadow, JustifyContent, LengthPercentageAuto, ObjectFit, Position, TextAlign, Transform,
 };
@@ -46,7 +46,7 @@ pub struct NodeStyleMutations {
     pub margin_y: Option<f32>,
     pub flex_direction: Option<FlexDirection>,
     pub justify_content: Option<JustifyContent>,
-    pub align_items: Option<crate::core::style::AlignItems>,
+    pub align_items: Option<crate::style::AlignItems>,
     pub gap: Option<f32>,
     pub flex_grow: Option<f32>,
     pub opacity: Option<f32>,
@@ -84,7 +84,7 @@ pub struct NodeStyleMutations {
 }
 
 impl NodeStyleMutations {
-    pub fn apply_to(&self, style: &mut crate::core::style::NodeStyle) {
+    pub fn apply_to(&self, style: &mut crate::style::NodeStyle) {
         if let Some(v) = self.position {
             style.position = Some(v);
         }
@@ -1036,7 +1036,7 @@ impl StyleMutations {
         self.mutations.is_empty() && self.canvas_mutations.is_empty()
     }
 
-    pub fn apply_to_node(&self, node_style: &mut crate::core::style::NodeStyle, id: &str) {
+    pub fn apply_to_node(&self, node_style: &mut crate::style::NodeStyle, id: &str) {
         if let Some(mutation) = self.mutations.get(id) {
             mutation.apply_to(node_style);
         }

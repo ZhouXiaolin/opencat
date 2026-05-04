@@ -164,7 +164,7 @@ impl VideoDecoder {
     fn get_frame_at_time(
         &mut self,
         target_secs: f64,
-        quality: crate::resource::media::VideoPreviewQuality,
+        quality: crate::host::resource::media::VideoPreviewQuality,
         target_size: Option<(u32, u32)>,
     ) -> Result<Arc<Vec<u8>>> {
         let resolved_size = target_size.unwrap_or((self.width, self.height));
@@ -212,7 +212,7 @@ impl VideoDecoder {
     fn should_seek_to_target(
         &self,
         target_secs: f64,
-        quality: crate::resource::media::VideoPreviewQuality,
+        quality: crate::host::resource::media::VideoPreviewQuality,
     ) -> bool {
         if self.current_frame.is_none() {
             return true;
@@ -224,9 +224,9 @@ impl VideoDecoder {
 
         let forward_delta = target_secs - self.current_pts_secs;
         let seek_threshold_secs = match quality {
-            crate::resource::media::VideoPreviewQuality::Scrubbing => 0.12,
-            crate::resource::media::VideoPreviewQuality::Realtime => 0.35,
-            crate::resource::media::VideoPreviewQuality::Exact => 1.5,
+            crate::host::resource::media::VideoPreviewQuality::Scrubbing => 0.12,
+            crate::host::resource::media::VideoPreviewQuality::Realtime => 0.35,
+            crate::host::resource::media::VideoPreviewQuality::Exact => 1.5,
         };
         forward_delta > seek_threshold_secs
     }
@@ -381,18 +381,18 @@ impl VideoDecoder {
     }
 }
 
-fn seek_threshold_secs(quality: crate::resource::media::VideoPreviewQuality) -> f64 {
+fn seek_threshold_secs(quality: crate::host::resource::media::VideoPreviewQuality) -> f64 {
     match quality {
-        crate::resource::media::VideoPreviewQuality::Scrubbing => 0.12,
-        crate::resource::media::VideoPreviewQuality::Realtime => 0.35,
-        crate::resource::media::VideoPreviewQuality::Exact => 1.5,
+        crate::host::resource::media::VideoPreviewQuality::Scrubbing => 0.12,
+        crate::host::resource::media::VideoPreviewQuality::Realtime => 0.35,
+        crate::host::resource::media::VideoPreviewQuality::Exact => 1.5,
     }
 }
 
 fn select_decoder_lane(
     cursors: &[DecoderCursor],
     target_secs: f64,
-    quality: crate::resource::media::VideoPreviewQuality,
+    quality: crate::host::resource::media::VideoPreviewQuality,
     max_lanes_per_asset: usize,
 ) -> DecoderLaneSelection {
     if cursors.is_empty() {
@@ -469,7 +469,7 @@ impl VideoDecodeCache {
         &mut self,
         path: &Path,
         target_time_secs: f64,
-        quality: crate::resource::media::VideoPreviewQuality,
+        quality: crate::host::resource::media::VideoPreviewQuality,
         target_size: Option<(u32, u32)>,
     ) -> Result<Arc<Vec<u8>>> {
         let path_buf = path.to_path_buf();
@@ -667,7 +667,7 @@ mod tests {
         DecoderCursor, DecoderLaneSelection, nearest_keyframe_before, seek_threshold_secs,
         select_decoder_lane,
     };
-    use crate::resource::media::VideoPreviewQuality;
+    use crate::host::resource::media::VideoPreviewQuality;
 
     #[test]
     fn nearest_keyframe_before_clamps_to_previous_anchor() {

@@ -1,6 +1,6 @@
 use crate::{
-    resource::assets::AssetId,
-    resource::media::VideoFrameTiming,
+    core::resource::asset_catalog::AssetId,
+    core::resource::types::VideoFrameTiming,
     core::scene::script::{CanvasCommand, TextUnitOverrideBatch},
     core::scene::transition::TransitionKind,
     core::style::{

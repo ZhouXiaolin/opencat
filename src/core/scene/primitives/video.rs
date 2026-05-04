@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::resource::media::VideoFrameTiming;
+use crate::core::resource::types::VideoFrameTiming;
 use crate::core::style::{NodeStyle, impl_node_style_api};
 
 #[derive(Clone)]

@@ -8,7 +8,7 @@ use anyhow::{Result, anyhow};
 use crate::{
     codec::decode::{AudioTrack, decode_audio_to_f32_stereo},
     core::frame_ctx::FrameCtx,
-    resource::assets::AssetsMap,
+    core::resource::asset_catalog::AssetCatalog,
     core::scene::{
         composition::{AudioAttachment, Composition, CompositionAudioSource},
         primitives::AudioSource,
@@ -65,7 +65,7 @@ impl AudioIntervalCache {
 
 pub(crate) fn build_audio_track(
     composition: &Composition,
-    assets: &mut AssetsMap,
+    assets: &mut AssetCatalog,
     decoded: &mut DecodedAudioCache,
     interval_cache: &mut AudioIntervalCache,
 ) -> Result<Option<AudioTrack>> {
@@ -102,7 +102,7 @@ pub(crate) fn build_audio_track(
 
 pub(crate) fn render_audio_chunk(
     composition: &Composition,
-    assets: &mut AssetsMap,
+    assets: &mut AssetCatalog,
     decoded: &mut DecodedAudioCache,
     interval_cache: &mut AudioIntervalCache,
     start_time_secs: f64,
@@ -268,7 +268,7 @@ pub(crate) struct DecodedAudioCache {
 impl DecodedAudioCache {
     fn get_or_decode<'a>(
         &'a mut self,
-        assets: &mut AssetsMap,
+        assets: &mut AssetCatalog,
         source: &AudioSource,
     ) -> Result<&'a AudioTrack> {
         if !self.decoded.contains_key(source) {
@@ -287,7 +287,7 @@ impl DecodedAudioCache {
 }
 
 fn render_audio_chunk_from_intervals(
-    assets: &mut AssetsMap,
+    assets: &mut AssetCatalog,
     intervals: &[AudioInterval],
     decoded: &mut DecodedAudioCache,
     start_sample_frame: usize,

@@ -2,3 +2,5 @@
 //! 承载 IO / ffmpeg / quickjs / skia / 系统字体 / RenderSession。
 
 #![cfg(feature = "host-default")]
+
+pub mod resource;

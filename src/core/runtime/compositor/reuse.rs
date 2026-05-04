@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn bitmap_leaf_prefers_item_picture_leaf_reuse() {
         use crate::core::display::list::{BitmapDisplayItem, BitmapPaintStyle};
-        use crate::resource::assets::AssetId;
+        use crate::core::resource::asset_catalog::AssetId;
         use crate::core::style::ObjectFit;
 
         let asset_id = AssetId("/tmp/x.png".into());

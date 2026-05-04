@@ -1,6 +1,6 @@
 use crate::{
-    core::display::list::DisplayItem,
-    core::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle},
+    display::list::DisplayItem,
+    runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,11 +75,11 @@ mod tests {
         analyze_stable_node_reuse,
     };
     use crate::{
-        core::display::list::{
+        display::list::{
             DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem, RectDisplayItem,
             RectPaintStyle, TextDisplayItem,
         },
-        core::runtime::{
+        runtime::{
             analysis::{
                 DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
                 DisplayNodeInvalidation,
@@ -89,7 +89,7 @@ mod tests {
             },
             fingerprint::{PaintVariance, SubtreeSnapshotFingerprint},
         },
-        core::style::{BorderRadius, ComputedTextStyle},
+        style::{BorderRadius, ComputedTextStyle},
     };
 
     fn rect_bounds() -> DisplayRect {

@@ -4,8 +4,8 @@ use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping};
 
 use crate::style::ComputedTextStyle;
 
-const NOTO_SANS_SC: &[u8] = include_bytes!("../../../assets/NotoSansSC-Regular.otf");
-const NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../../assets/NotoColorEmoji.ttf");
+const NOTO_SANS_SC: &[u8] = include_bytes!("../../../../assets/NotoSansSC-Regular.otf");
+const NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../../../assets/NotoColorEmoji.ttf");
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextMeasurement {

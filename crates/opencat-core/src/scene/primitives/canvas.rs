@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use crate::{
-    core::scene::primitives::{ImageSource, OpenverseQuery},
-    core::style::{NodeStyle, impl_node_style_api},
+    scene::primitives::{ImageSource, OpenverseQuery},
+    style::{NodeStyle, impl_node_style_api},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

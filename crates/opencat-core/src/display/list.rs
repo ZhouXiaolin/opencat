@@ -1,9 +1,9 @@
 use crate::{
-    core::resource::asset_catalog::AssetId,
-    core::resource::types::VideoFrameTiming,
-    core::scene::script::{CanvasCommand, TextUnitOverrideBatch},
-    core::scene::transition::TransitionKind,
-    core::style::{
+    resource::asset_catalog::AssetId,
+    resource::types::VideoFrameTiming,
+    scene::script::{CanvasCommand, TextUnitOverrideBatch},
+    scene::transition::TransitionKind,
+    style::{
         BackgroundFill, BorderRadius, BorderStyle, BoxShadow, ColorToken, ComputedTextStyle,
         DropShadow, InsetShadow, ObjectFit,
     },
@@ -256,8 +256,8 @@ impl DisplayItem {
 mod tests {
     use super::{DisplayItem, DisplayRect, TextDisplayItem};
     use crate::{
-        core::scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
-        core::style::ComputedTextStyle,
+        scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
+        style::ComputedTextStyle,
     };
 
     #[test]

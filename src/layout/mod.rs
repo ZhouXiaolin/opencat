@@ -181,7 +181,8 @@ pub fn compute_layout(root: &ElementNode, frame_ctx: &FrameCtx) -> Result<Layout
 
 #[cfg(test)]
 fn default_text_measurer() -> crate::text::SharedTextMeasurer {
-    crate::backend::skia::text::shared_text_engine()
+    use std::sync::Arc;
+    crate::text::shared_cosmic_text_measurer(Arc::new(crate::text::default_font_db(&[])))
 }
 
 #[cfg(test)]

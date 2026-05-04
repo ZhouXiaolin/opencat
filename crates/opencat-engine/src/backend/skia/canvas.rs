@@ -13,9 +13,9 @@ use opencat_core::display::list::{
 };
 use opencat_core::frame_ctx::FrameCtx;
 use opencat_core::resource::{
-    asset_catalog::AssetCatalog,
     bitmap_source::{BitmapSourceKind, bitmap_source_kind},
 };
+use crate::resource::asset_catalog::AssetCatalog;
 use opencat_core::scene::script::{
     CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
     ScriptPointMode,
@@ -1949,7 +1949,7 @@ fn draw_script_item(
                 object_fit,
             } => {
                 let image = load_asset_image(
-                    &opencat_core::resource::asset_catalog::AssetId(asset_id.clone()),
+                    &opencat_core::resource::asset_id::AssetId(asset_id.clone()),
                     assets,
                     image_cache,
                     media_ctx,
@@ -2142,7 +2142,7 @@ fn draw_script_item(
                 anti_alias,
             } => {
                 let image = load_asset_image(
-                    &opencat_core::resource::asset_catalog::AssetId(asset_id.clone()),
+                    &opencat_core::resource::asset_id::AssetId(asset_id.clone()),
                     assets,
                     image_cache,
                     media_ctx,
@@ -2210,7 +2210,7 @@ fn stroke_paint_for_draw_script(state: &DrawScriptPaintState) -> Paint {
 }
 
 fn load_asset_image(
-    asset_id: &opencat_core::resource::asset_catalog::AssetId,
+    asset_id: &opencat_core::resource::asset_id::AssetId,
     assets: &AssetCatalog,
     image_cache: &ImageCache,
     media_ctx: &mut Option<&mut MediaContext>,

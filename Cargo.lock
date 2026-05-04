@@ -2280,15 +2280,11 @@ dependencies = [
  "ahash",
  "anyhow",
  "cosmic-text",
- "dirs",
  "fontdb",
- "image",
- "num_cpus",
  "rustc-hash 2.1.1",
  "serde",
  "serde_json",
  "taffy",
- "tracing",
  "unicode-segmentation",
 ]
 

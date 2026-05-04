@@ -16,8 +16,11 @@ use crate::{
 
 mod animate_api;
 mod canvas_api;
+pub mod host;
 mod morph_svg;
 mod node_style;
+
+pub use host::{ScriptDriverId, ScriptHost};
 
 pub use canvas_api::{
     CanvasCommand, CanvasMutations, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
@@ -451,6 +454,42 @@ fn install_runtime_bindings<'js>(
     ctx.eval::<(), _>(animate_api::ANIMATE_RUNTIME)?;
 
     Ok(ctx_obj)
+}
+
+impl ScriptHost for ScriptRuntimeCache {
+    fn install(&mut self, source: &str) -> anyhow::Result<ScriptDriverId> {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut h = DefaultHasher::new();
+        source.hash(&mut h);
+        let key = h.finish();
+        if let std::collections::hash_map::Entry::Vacant(e) = self.runners.entry(key) {
+            e.insert(ScriptRunner::new(source)?);
+        }
+        Ok(ScriptDriverId(key))
+    }
+
+    fn register_text_source(&mut self, node_id: &str, source: ScriptTextSource) {
+        ScriptRuntimeCache::register_text_source(self, node_id, source);
+    }
+
+    fn clear_text_sources(&mut self) {
+        ScriptRuntimeCache::clear_text_sources(self);
+    }
+
+    fn run_frame(
+        &mut self,
+        driver: ScriptDriverId,
+        frame_ctx: &ScriptFrameCtx,
+    ) -> anyhow::Result<StyleMutations> {
+        let runner = self
+            .runners
+            .get_mut(&driver.0)
+            .ok_or_else(|| anyhow::anyhow!("script driver {} not installed", driver.0))?;
+        if let Ok(mut store) = runner.store.lock() {
+            store.text_sources = self.text_sources.clone();
+        }
+        runner.run(*frame_ctx, None)
+    }
 }
 
 #[cfg(test)]

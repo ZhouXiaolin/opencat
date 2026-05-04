@@ -2,22 +2,24 @@ use std::collections::HashMap;
 
 use anyhow::{Result, anyhow};
 
-use crate::{
-    Composition, FrameCtx,
-    core::element::{
+use crate::core::{
+    element::{
         resolve::resolve_ui_tree_with_script_cache,
         tree::{ElementKind, ElementNode},
     },
-    core::frame_ctx::ScriptFrameCtx,
-    core::layout::tree::LayoutNode,
-    runtime::session::RenderSession,
-    core::scene::{
+    frame_ctx::{FrameCtx, ScriptFrameCtx},
+    layout::tree::LayoutNode,
+    resource::asset_catalog::AssetCatalog,
+    scene::{
+        composition::Composition,
         node::{Node, NodeKind},
         primitives::ImageSource,
         time::TimelineSegment,
     },
-    core::style::NodeStyle,
+    style::NodeStyle,
 };
+
+use super::runtime::session::RenderSession;
 
 #[derive(Clone, Debug)]
 pub struct FrameElementRect {
@@ -119,7 +121,7 @@ fn collect_scene_rects(
 fn seed_asset_entries_for_inspect(
     node: &Node,
     frame_ctx: &FrameCtx,
-    assets: &mut crate::core::resource::asset_catalog::AssetCatalog,
+    assets: &mut AssetCatalog,
 ) {
     match node.kind() {
         NodeKind::Component(component) => {

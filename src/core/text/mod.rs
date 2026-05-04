@@ -4,8 +4,8 @@ use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping};
 
 use crate::core::style::ComputedTextStyle;
 
-const NOTO_SANS_SC: &[u8] = include_bytes!("../../assets/NotoSansSC-Regular.otf");
-const NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../assets/NotoColorEmoji.ttf");
+const NOTO_SANS_SC: &[u8] = include_bytes!("../../../assets/NotoSansSC-Regular.otf");
+const NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../../assets/NotoColorEmoji.ttf");
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextMeasurement {
@@ -13,12 +13,17 @@ pub struct TextMeasurement {
     pub height: f32,
 }
 
-/// 创建带内嵌字体的 fontdb::Database。
-/// `extra_font_dirs` 中每个目录会调用 `Database::load_fonts_dir`。
-pub fn default_font_db(extra_font_dirs: &[&str]) -> fontdb::Database {
+pub fn default_font_db_with_embedded_only() -> fontdb::Database {
     let mut db = fontdb::Database::new();
     db.load_font_data(NOTO_SANS_SC.to_vec());
     db.load_font_data(NOTO_COLOR_EMOJI.to_vec());
+    db
+}
+
+/// 创建带内嵌字体的 fontdb::Database。
+/// `extra_font_dirs` 中每个目录会调用 `Database::load_fonts_dir`。
+pub fn default_font_db(extra_font_dirs: &[&str]) -> fontdb::Database {
+    let mut db = default_font_db_with_embedded_only();
     for dir in extra_font_dirs {
         db.load_fonts_dir(dir);
     }
@@ -86,7 +91,7 @@ pub struct DefaultFontProvider {
 impl DefaultFontProvider {
     pub fn new() -> Self {
         Self {
-            db: std::sync::Arc::new(default_font_db(&[])),
+            db: std::sync::Arc::new(default_font_db_with_embedded_only()),
         }
     }
 

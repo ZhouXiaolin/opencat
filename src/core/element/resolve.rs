@@ -1,8 +1,5 @@
 use anyhow::{Result, ensure};
 
-#[cfg(feature = "host-default")]
-use crate::host::script::ScriptRuntimeCache;
-
 use crate::{
     FrameCtx, Node,
     core::element::{
@@ -45,19 +42,18 @@ struct ResolveContext<'a> {
     ids: &'a mut ElementIdAllocator,
     inherited_style: &'a InheritedStyle,
     assets: &'a mut dyn ResourceCatalog,
-    #[cfg(feature = "host-default")]
-    script_runtime: &'a mut ScriptRuntimeCache,
+    
+    script_runtime: &'a mut dyn ScriptHost,
     mutation_stack: &'a mut Vec<StyleMutations>,
 }
 
-#[cfg(feature = "host-default")]
 pub fn resolve_ui_tree(
     node: &Node,
     frame_ctx: &FrameCtx,
     assets: &mut dyn ResourceCatalog,
     mutations: Option<&StyleMutations>,
+    script_runtime: &mut dyn ScriptHost,
 ) -> Result<ElementNode> {
-    let mut script_runtime = ScriptRuntimeCache::default();
     let script_frame_ctx = ScriptFrameCtx::global(frame_ctx);
     resolve_ui_tree_with_script_cache(
         node,
@@ -65,18 +61,17 @@ pub fn resolve_ui_tree(
         &script_frame_ctx,
         assets,
         mutations,
-        &mut script_runtime,
+        script_runtime,
     )
 }
 
-#[cfg(feature = "host-default")]
 pub(crate) fn resolve_ui_tree_with_script_cache(
     node: &Node,
     frame_ctx: &FrameCtx,
     script_frame_ctx: &ScriptFrameCtx,
     assets: &mut dyn ResourceCatalog,
     mutations: Option<&StyleMutations>,
-    script_runtime: &mut ScriptRuntimeCache,
+    script_runtime: &mut dyn ScriptHost,
 ) -> Result<ElementNode> {
     let mut ids = ElementIdAllocator::default();
     let inherited_style = InheritedStyle::default();
@@ -91,14 +86,13 @@ pub(crate) fn resolve_ui_tree_with_script_cache(
         ids: &mut ids,
         inherited_style: &inherited_style,
         assets,
-        #[cfg(feature = "host-default")]
+        
         script_runtime,
         mutation_stack: &mut mutation_stack,
     };
     Ok(resolve_node_optional(node, &mut cx)?.unwrap_or_else(|| empty_root_div(&mut cx)))
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_node(
     node: &Node,
     cx: &mut ResolveContext<'_>,
@@ -118,7 +112,6 @@ fn resolve_node(
     }
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_frame_state_as_children(
     frame_state: &FrameState,
     cx: &mut ResolveContext<'_>,
@@ -150,7 +143,6 @@ fn resolve_frame_state_as_children(
     }
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_timeline(
     timeline: &TimelineNode,
     cx: &mut ResolveContext<'_>,
@@ -175,7 +167,7 @@ fn resolve_timeline(
             ids: &mut *cx.ids,
             inherited_style: &inherited_style,
             assets: &mut *cx.assets,
-            #[cfg(feature = "host-default")]
+            
             script_runtime: &mut *cx.script_runtime,
             mutation_stack: &mut *cx.mutation_stack,
         };
@@ -194,7 +186,6 @@ fn resolve_timeline(
     result
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_with_script_frame_ctx(
     node: &Node,
     script_frame_ctx: &ScriptFrameCtx,
@@ -206,7 +197,7 @@ fn resolve_with_script_frame_ctx(
         ids: &mut *cx.ids,
         inherited_style: cx.inherited_style,
         assets: &mut *cx.assets,
-        #[cfg(feature = "host-default")]
+        
         script_runtime: &mut *cx.script_runtime,
         mutation_stack: &mut *cx.mutation_stack,
     };
@@ -256,7 +247,6 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     }
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_node_optional(
     node: &Node,
     cx: &mut ResolveContext<'_>,
@@ -268,7 +258,6 @@ fn resolve_node_optional(
     }
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_component_optional(
     component: &ComponentNode,
     cx: &mut ResolveContext<'_>,
@@ -293,7 +282,6 @@ fn resolve_component_optional(
     result
 }
 
-#[cfg(feature = "host-default")]
 fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
     let mut style = NodeStyle::default();
     style.id = "__empty_root".to_string();
@@ -305,7 +293,6 @@ fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
     }
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_component(
     component: &ComponentNode,
     cx: &mut ResolveContext<'_>,
@@ -330,7 +317,6 @@ fn resolve_component(
     result
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_div(
     div: &Div,
     cx: &mut ResolveContext<'_>,
@@ -353,7 +339,7 @@ fn resolve_div(
                 ids: &mut *cx.ids,
                 inherited_style: &inherited_style,
                 assets: &mut *cx.assets,
-                #[cfg(feature = "host-default")]
+                
                 script_runtime: &mut *cx.script_runtime,
                 mutation_stack: &mut *cx.mutation_stack,
             };
@@ -375,7 +361,6 @@ fn resolve_div(
     result
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(text, text.style_ref(), cx)?;
     let result = (|| {
@@ -409,7 +394,6 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
     result
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_caption(
     caption: &CaptionNode,
     cx: &mut ResolveContext<'_>,
@@ -455,7 +439,6 @@ fn resolve_caption(
     result
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(canvas, canvas.style_ref(), cx)?;
     let result = (|| {
@@ -488,7 +471,6 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
     result
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_video(
     video: &Video,
     cx: &mut ResolveContext<'_>,
@@ -533,7 +515,6 @@ fn resolve_video(
     result
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_image(
     image: &Image,
     cx: &mut ResolveContext<'_>,
@@ -569,7 +550,6 @@ fn resolve_image(
     result
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(lucide, lucide.style_ref(), cx)?;
     let result = (|| {
@@ -621,7 +601,6 @@ fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Resu
     result
 }
 
-#[cfg(feature = "host-default")]
 fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(path, path.style_ref(), cx)?;
     let result = (|| {
@@ -664,7 +643,7 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
     result
 }
 
-#[cfg(feature = "host-default")]
+#[cfg(feature = "host-backend-skia")]
 fn compute_path_view_box(path_data: &[String]) -> Result<[f32; 4]> {
     let mut min_x = f32::MAX;
     let mut min_y = f32::MAX;
@@ -690,6 +669,11 @@ fn compute_path_view_box(path_data: &[String]) -> Result<[f32; 4]> {
     let w = (max_x - min_x).max(1.0);
     let h = (max_y - min_y).max(1.0);
     Ok([min_x, min_y, w, h])
+}
+
+#[cfg(not(feature = "host-backend-skia"))]
+fn compute_path_view_box(_path_data: &[String]) -> Result<[f32; 4]> {
+    Ok([0.0, 0.0, 100.0, 100.0])
 }
 
 fn normalize_lucide_icon_name(name: &str) -> &str {
@@ -758,16 +742,15 @@ fn levenshtein_distance(left: &str, right: &str) -> usize {
     prev[right_chars.len()]
 }
 
-#[cfg(feature = "host-default")]
 fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<bool> {
     let Some(driver) = style.script_driver.as_deref() else {
         return Ok(false);
     };
 
     let id = cx.script_runtime.install(&driver.source)?;
-    let mutations = cx.script_runtime.run_by_id(
+    let mutations = cx.script_runtime.run_frame(
         id,
-        *cx.script_frame_ctx,
+        cx.script_frame_ctx,
         (!style.id.is_empty()).then_some(style.id.as_str()),
     )?;
     if mutations.is_empty() {
@@ -778,7 +761,6 @@ fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<b
     Ok(true)
 }
 
-#[cfg(feature = "host-default")]
 fn push_script_scope_for_visible_subtree<T>(
     node: &T,
     style: &NodeStyle,
@@ -802,13 +784,12 @@ where
     push_script_scope(style, cx)
 }
 
-#[cfg(feature = "host-default")]
 fn seed_text_sources_for_visible_subtree(
     node: &Node,
     frame_ctx: &FrameCtx,
     script_frame_ctx: &ScriptFrameCtx,
     mutation_stack: &[StyleMutations],
-    script_runtime: &mut ScriptRuntimeCache,
+    script_runtime: &mut dyn ScriptHost,
 ) {
     match node.kind() {
         NodeKind::Component(component) => {
@@ -1117,12 +1098,13 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
     }
 }
 
-#[cfg(all(test, feature = "host-default"))]
+#[cfg(test)]
 mod tests {
-    use super::{merge_text_unit_overrides, resolve_ui_tree};
+    use super::{merge_text_unit_overrides, resolve_ui_tree, resolve_ui_tree_with_script_cache};
     use crate::{
         FrameCtx,
         core::element::tree::ElementKind,
+        core::frame_ctx::ScriptFrameCtx,
         core::resource::asset_catalog::AssetCatalog,
         core::resource::catalog::VideoInfoMeta,
         core::scene::easing::Easing,
@@ -1133,13 +1115,19 @@ mod tests {
         },
         core::scene::time::{FrameState, frame_state_for_root},
         core::scene::transition::{slide, timeline},
+        core::test_support::MockScriptHost,
     };
     #[cfg(feature = "host-default")]
-    use {
-        super::resolve_ui_tree_with_script_cache,
-        crate::core::frame_ctx::ScriptFrameCtx,
-        crate::host::script::ScriptRuntimeCache,
-    };
+    use crate::host::script::ScriptRuntimeCache;
+
+    fn resolve(
+        node: &crate::Node,
+        frame_ctx: &FrameCtx,
+        assets: &mut dyn crate::core::resource::catalog::ResourceCatalog,
+    ) -> anyhow::Result<super::ElementNode> {
+        let mut mock = MockScriptHost::default();
+        resolve_ui_tree(node, frame_ctx, assets, None, &mut mock)
+    }
 
     #[test]
     fn resolve_ui_tree_requires_explicit_node_id() {
@@ -1152,12 +1140,13 @@ mod tests {
         };
         let mut assets = AssetCatalog::new();
 
-        let err = resolve_ui_tree(&div().into(), &frame_ctx, &mut assets, None)
+        let err = resolve(&div().into(), &frame_ctx, &mut assets)
             .expect_err("nodes without ids should fail during resolution");
 
         assert!(err.to_string().contains("node id is required"));
     }
 
+    #[cfg(feature = "host-default")]
     #[test]
     fn node_script_only_affects_its_own_subtree() {
         let frame_ctx = FrameCtx {
@@ -1180,7 +1169,8 @@ mod tests {
             )
             .child(div().id("static").child(text("B").id("title")));
 
-        let resolved = resolve_ui_tree(&scene.into(), &frame_ctx, &mut assets, None)
+        let mut script_runtime = ScriptRuntimeCache::default();
+        let resolved = resolve_ui_tree(&scene.into(), &frame_ctx, &mut assets, None, &mut script_runtime)
             .expect("tree should resolve");
 
         assert_eq!(resolved.children[0].children[0].style.visual.opacity, 0.25);
@@ -1206,7 +1196,7 @@ mod tests {
             .child(text("A").id("label"))
             .child(lucide("play").id("icon").size(24.0, 24.0));
 
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
+        let resolved = resolve(&root.into(), &frame_ctx, &mut assets)
             .expect("tree should resolve");
 
         assert_eq!(
@@ -1243,7 +1233,7 @@ mod tests {
             .child(text("A").id("label"))
             .child(lucide("play").id("icon").size(24.0, 24.0));
 
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
+        let resolved = resolve(&root.into(), &frame_ctx, &mut assets)
             .expect("tree should resolve");
 
         assert_eq!(resolved.children[0].style.visual.background, None);
@@ -1269,7 +1259,7 @@ mod tests {
             .rotate_deg(12.0)
             .child(text("A").id("label"));
 
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
+        let resolved = resolve(&root.into(), &frame_ctx, &mut assets)
             .expect("tree should resolve");
 
         assert_eq!(resolved.style.visual.opacity, 0.4);
@@ -1292,7 +1282,7 @@ mod tests {
             .id("root")
             .child(lucide("pla").id("icon").size(24.0, 24.0));
 
-        let err = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
+        let err = resolve(&root.into(), &frame_ctx, &mut assets)
             .expect_err("unknown icon should fail during resolution");
 
         let message = err.to_string();
@@ -1315,7 +1305,7 @@ mod tests {
             .id("root")
             .child(lucide("home").id("icon").size(24.0, 24.0));
 
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
+        let resolved = resolve(&root.into(), &frame_ctx, &mut assets)
             .expect("deprecated alias should resolve");
 
         let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
@@ -1341,7 +1331,7 @@ mod tests {
             .id("root")
             .child(lucide("suitcase").id("icon").size(24.0, 24.0));
 
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
+        let resolved = resolve(&root.into(), &frame_ctx, &mut assets)
             .expect("deprecated alias should resolve");
 
         let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
@@ -1394,6 +1384,7 @@ mod tests {
         );
     }
 
+    
     #[cfg(feature = "host-default")]
     #[test]
     fn transition_scenes_keep_node_scripts_isolated() {
@@ -1457,6 +1448,7 @@ mod tests {
         assert_eq!(to_resolved.children[0].style.visual.opacity, 0.8);
     }
 
+    
     #[cfg(feature = "host-default")]
     #[test]
     fn timeline_scripts_receive_scene_local_frames() {
@@ -1511,6 +1503,7 @@ mod tests {
         assert_eq!(resolved.children[0].style.visual.opacity, 0.6);
     }
 
+    #[cfg(feature = "host-default")]
     #[test]
     fn parent_script_can_split_descendant_text_before_child_resolution() {
         let frame_ctx = FrameCtx {
@@ -1533,7 +1526,8 @@ mod tests {
             .expect("script should compile")
             .child(text("Hello").id("title"));
 
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
+        let mut script_runtime = ScriptRuntimeCache::default();
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None, &mut script_runtime)
             .expect("parent script should see descendant text source");
 
         let ElementKind::Text(text) = &resolved.children[0].kind else {
@@ -1546,6 +1540,7 @@ mod tests {
         assert_eq!(batch.overrides[0].opacity, Some(0.2));
     }
 
+    
     #[cfg(feature = "host-default")]
     #[test]
     fn resolve_caption_uses_scene_local_time_inside_timeline() {
@@ -1625,7 +1620,7 @@ mod tests {
         };
         let mut assets = AssetCatalog::new();
 
-        let tree = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
+        let tree = resolve(&root.into(), &frame_ctx, &mut assets)
             .expect("root caption should resolve from global time");
 
         assert!(format!("{tree:?}").contains("Global B"));
@@ -1651,11 +1646,10 @@ mod tests {
         let caption_node = caption().id("subs").path("test.srt").entries(entries);
         let root = div().id("root").child(caption_node);
 
-        let resolved = resolve_ui_tree(
+        let resolved = resolve(
             &root.clone().into(),
             &frame_ctx,
             &mut assets,
-            None,
         )
         .expect("div with inactive caption should resolve");
 
@@ -1669,11 +1663,10 @@ mod tests {
             frame: 45,
             ..frame_ctx
         };
-        let resolved_active = resolve_ui_tree(
+        let resolved_active = resolve(
             &root.into(),
             &frame_ctx_active,
             &mut assets,
-            None,
         )
         .expect("layer with active caption should resolve");
 
@@ -1695,7 +1688,7 @@ mod tests {
             height: 180,
             frames: 30,
         };
-        let element = resolve_ui_tree(&v.into(), &frame_ctx, &mut catalog, None).expect("resolve");
+        let element = resolve(&v.into(), &frame_ctx, &mut catalog).expect("resolve");
         if let ElementKind::Bitmap(b) = &element.kind {
             assert_eq!(b.width, 0);
             assert_eq!(b.height, 0);

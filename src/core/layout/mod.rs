@@ -1088,7 +1088,7 @@ fn map_align_content(value: JustifyContent) -> TaffyAlignContent {
     }
 }
 
-#[cfg(all(test, feature = "host-default"))]
+#[cfg(test)]
 mod tests {
     use super::{LayoutSession, TextMeasureContext, compute_layout_with_font_db_fn, default_font_db, measure_node};
     use crate::{
@@ -1098,6 +1098,7 @@ mod tests {
         core::resource::asset_catalog::AssetCatalog,
         core::scene::primitives::{div, lucide, path, text},
         core::style::{ColorToken, ComputedTextStyle},
+        core::test_support::MockScriptHost,
     };
     use taffy::{AvailableSpace, geometry::Size};
 
@@ -1177,7 +1178,7 @@ mod tests {
             ],
         )
         .into();
-        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None)
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("tree should resolve");
 
         let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
@@ -1232,7 +1233,7 @@ mod tests {
             ],
         )
         .into();
-        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None)
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("tree should resolve");
 
         let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
@@ -1284,7 +1285,7 @@ mod tests {
             ],
         )
         .into();
-        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None)
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("tree should resolve");
 
         let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
@@ -1324,7 +1325,7 @@ mod tests {
             ],
         )
         .into();
-        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None)
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("tree should resolve");
 
         let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
@@ -1362,7 +1363,7 @@ mod tests {
             ],
         )
         .into();
-        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None)
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("tree should resolve");
 
         let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
@@ -1395,7 +1396,7 @@ mod tests {
             vec![classed_text("headline", "w-[50%] text-[16px]", "Indefinite parent copy").into()],
         )
         .into();
-        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None)
+        let resolved = resolve_ui_tree(&root, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("tree should resolve");
 
         let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
@@ -1428,9 +1429,9 @@ mod tests {
             .child(text("A").id("label").text_red())
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("second tree should resolve");
 
         let (_, first_stats) = session
@@ -1466,9 +1467,9 @@ mod tests {
             .child(text("A").id("label").text_px(48.0))
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("second tree should resolve");
 
         session
@@ -1506,9 +1507,9 @@ mod tests {
         )
         .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("second tree should resolve");
 
         session
@@ -1550,9 +1551,9 @@ mod tests {
         )
         .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("second tree should resolve");
 
         session
@@ -1589,9 +1590,9 @@ mod tests {
             .child(text("A").id("label"))
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("second tree should resolve");
 
         session
@@ -1625,9 +1626,9 @@ mod tests {
             .child(text("A").id("label"))
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("second tree should resolve");
 
         session
@@ -1666,9 +1667,9 @@ mod tests {
         )
         .into();
 
-        let icon_resolved = resolve_ui_tree(&icon_root, &frame_ctx, &mut assets, None)
+        let icon_resolved = resolve_ui_tree(&icon_root, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("icon tree should resolve");
-        let path_resolved = resolve_ui_tree(&path_root, &frame_ctx, &mut assets, None)
+        let path_resolved = resolve_ui_tree(&path_root, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("path tree should resolve");
 
         let mut session = LayoutSession::new();
@@ -1721,9 +1722,9 @@ mod tests {
             )
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("second tree should resolve");
 
         session
@@ -1758,9 +1759,9 @@ mod tests {
             .child(lucide("pause").id("icon").size(24.0, 24.0))
             .into();
 
-        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None)
+        let first_resolved = resolve_ui_tree(&first, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None)
+        let second_resolved = resolve_ui_tree(&second, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
             .expect("second tree should resolve");
 
         session

@@ -410,6 +410,7 @@ impl ScriptHost for ScriptRuntimeCache {
         &mut self,
         driver: ScriptDriverId,
         frame_ctx: &ScriptFrameCtx,
+        current_node_id: Option<&str>,
     ) -> anyhow::Result<StyleMutations> {
         let runner = self
             .runners
@@ -418,6 +419,6 @@ impl ScriptHost for ScriptRuntimeCache {
         if let Ok(mut store) = runner.store.lock() {
             store.text_sources = self.text_sources.clone();
         }
-        runner.run(*frame_ctx, None)
+        runner.run(*frame_ctx, current_node_id)
     }
 }

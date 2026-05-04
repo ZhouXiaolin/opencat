@@ -1,9 +1,6 @@
-#[cfg(feature = "host-default")]
 use anyhow::Result;
-#[cfg(feature = "host-default")]
 use tracing::{Level, span};
 
-#[cfg(feature = "host-default")]
 use crate::{
     core::display::build::build_display_tree,
     core::element::resolve::resolve_ui_tree_with_script_cache,
@@ -15,6 +12,12 @@ use crate::{
         },
         invalidation::{CompositeHistory, mark_display_tree_composite_dirty},
     },
+    core::scene::{
+        composition::Composition,
+        node::Node,
+        script::{ScriptHost, StyleMutations},
+    },
+    core::text::FontProvider,
     host::runtime::{
         compositor::{SceneRenderRuntime, plan_for_scene, render_scene},
         frame_view::RenderFrameView,
@@ -22,16 +25,8 @@ use crate::{
         profile::SceneBuildStats,
         session::RenderSession,
     },
-    core::scene::{
-        composition::Composition,
-        node::Node,
-        script::StyleMutations,
-    },
-    core::text::FontProvider,
-    host::script::ScriptRuntimeCache,
 };
 
-#[cfg(feature = "host-default")]
 pub(crate) fn render_frame_on_surface(
     composition: &Composition,
     frame_index: u32,
@@ -70,7 +65,10 @@ pub(crate) fn render_frame_on_surface(
         session,
         _mutations.as_ref(),
     )?;
-    let snapshot_plan = plan_for_scene(&scene_stats);
+    let snapshot_plan = plan_for_scene(
+        &scene_stats.layout_pass,
+        scene_stats.contains_time_variant_paint,
+    );
 
     let render_engine = session.render_engine_handle();
     let mut snapshot_runtime = SceneRenderRuntime {
@@ -93,7 +91,6 @@ pub(crate) fn render_frame_on_surface(
     Ok(())
 }
 
-#[cfg(feature = "host-default")]
 pub fn build_frame_display_tree(
     scene: &Node,
     frame_ctx: &FrameCtx,
@@ -102,7 +99,7 @@ pub fn build_frame_display_tree(
     fonts: &dyn FontProvider,
     layout_session: &mut crate::core::layout::LayoutSession,
     composite_history: &mut CompositeHistory,
-    script_cache: &mut ScriptRuntimeCache,
+    script_cache: &mut dyn ScriptHost,
     mutations: Option<&StyleMutations>,
 ) -> Result<(AnnotatedDisplayTree, SceneBuildStats)> {
     let mut stats = SceneBuildStats::default();
@@ -133,7 +130,6 @@ pub fn build_frame_display_tree(
     Ok((annotated, stats))
 }
 
-#[cfg(feature = "host-default")]
 pub(crate) fn build_scene_display_list(
     scene: &Node,
     frame_ctx: &FrameCtx,

@@ -52,6 +52,7 @@ pub fn mark_display_tree_composite_dirty(
     *history.history_mut() = next;
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn mark_display_node_composite_dirty(
     handle: AnnotatedNodeHandle,
     display_tree: &AnnotatedDisplayTree,

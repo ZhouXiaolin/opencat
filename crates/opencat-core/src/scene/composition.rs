@@ -72,6 +72,7 @@ pub struct CompositionBuilder {
 }
 
 impl Composition {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(id: impl Into<String>) -> CompositionBuilder {
         CompositionBuilder {
             id: id.into(),

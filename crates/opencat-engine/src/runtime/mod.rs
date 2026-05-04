@@ -16,9 +16,3 @@ pub mod target;
 
 #[cfg(test)]
 mod resolve_tests;
-
-pub use opencat_core::runtime::analysis;
-pub use opencat_core::runtime::annotation;
-pub use opencat_core::runtime::fingerprint;
-pub use opencat_core::runtime::invalidation;
-pub use opencat_core::runtime::preflight_collect;

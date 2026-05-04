@@ -577,9 +577,9 @@ mod tests {
             build_display_tree(&resolved, &layout_a).expect("display tree should build");
         let tree_b =
             build_display_tree(&resolved, &layout_b).expect("display tree should build");
-        let mut annotated_a = annotate_display_tree(&tree_a, &assets);
+        let mut annotated_a = annotate_display_tree(&tree_a);
         compute_display_tree_fingerprints(&mut annotated_a);
-        let mut annotated_b = annotate_display_tree(&tree_b, &assets);
+        let mut annotated_b = annotate_display_tree(&tree_b);
         compute_display_tree_fingerprints(&mut annotated_b);
 
         let child_a = annotated_a.children(annotated_a.root)[0];

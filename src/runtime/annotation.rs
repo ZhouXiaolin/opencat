@@ -3,7 +3,6 @@ use crate::{
         list::{DisplayClip, DisplayItem, DisplayRect, DisplayTransform},
         tree::{DisplayNode, DisplayTree},
     },
-    resource::assets::AssetsMap,
     runtime::{
         analysis::{
             DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
@@ -103,7 +102,6 @@ impl AnnotatedDisplayNode {
 
 pub(crate) fn annotate_display_tree(
     display_tree: &DisplayTree,
-    assets: &AssetsMap,
 ) -> AnnotatedDisplayTree {
     let node_count = count_display_nodes(&display_tree.root);
     let mut nodes = Vec::with_capacity(node_count);
@@ -113,7 +111,6 @@ pub(crate) fn annotate_display_tree(
     let mut invalidation = DisplayInvalidationTable::with_capacity(node_count);
     let root = annotate_display_node(
         &display_tree.root,
-        assets,
         &mut nodes,
         &mut keys,
         &mut layer_bounds,
@@ -137,7 +134,6 @@ fn count_display_nodes(node: &DisplayNode) -> usize {
 
 fn annotate_display_node(
     node: &DisplayNode,
-    assets: &AssetsMap,
     nodes: &mut Vec<AnnotatedDisplayNode>,
     keys: &mut Vec<RenderNodeKey>,
     layer_bounds: &mut Vec<DisplayRect>,
@@ -148,7 +144,6 @@ fn annotate_display_node(
     for child in &node.children {
         children.push(annotate_display_node(
             child,
-            assets,
             nodes,
             keys,
             layer_bounds,
@@ -168,7 +163,7 @@ fn annotate_display_node(
         children,
     };
 
-    let paint_variance = fingerprint::classify_paint(&node.item, assets);
+    let paint_variance = fingerprint::classify_paint(&node.item);
     let subtree_contains_time_variant = matches!(paint_variance, PaintVariance::TimeVariant)
         || annotated
             .children

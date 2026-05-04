@@ -124,10 +124,12 @@ host-codec        = ["dep:ffmpeg-next"]
 host-script-quickjs = ["dep:rquickjs"]
 host-resource-net = ["dep:reqwest", "dep:tokio"]
 host-backend-skia = ["dep:skia-safe"]
-host-audio        = ["dep:rodio"]   # 仅 macos/windows
+host-audio        = []   # 仅触发 cfg(any(target_os="macos",target_os="windows")) 下的 rodio
 ```
 
 `src/host/` 整个模块在 `#[cfg(feature = "host-default")]` 下编译；子模块用更细 feature 控制。
+
+**`rodio` 的 target-cfg 处理**：现 `Cargo.toml` 已经把 `rodio` 写在 `[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]`。重构保持这一约束不变，仅在 `host-audio` feature 控制 audio host 模块是否编译；linux 上 `host-default` 包含 `host-audio` 但 `rodio` 不被拉入（target-cfg 优先），audio 模块需在 linux 下走静默 stub 实现（与现状一致）。
 
 **核心纯净度的硬性证明**：CI 增加一条 `cargo check --no-default-features --lib`，必须通过。
 
@@ -143,7 +145,9 @@ host-audio        = ["dep:rodio"]   # 仅 macos/windows
 pub trait ResourceCatalog {
     fn resolve_image(&mut self, src: &ImageSource) -> Result<AssetId>;
     fn resolve_audio(&mut self, src: &AudioSource) -> Result<AssetId>;
-    fn register_dimensions(&mut self, path: &Path, width: u32, height: u32) -> AssetId;
+    /// 给一段不透明的资源定位字符串注册尺寸。Native host 传 path.to_string_lossy()，
+    /// wasm host 传 blob URL 或自定义 scheme（"webasset://0001"）。
+    fn register_dimensions(&mut self, locator: &str, width: u32, height: u32) -> AssetId;
     fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()>;
     fn dimensions(&self, id: &AssetId) -> (u32, u32);
     fn video_info(&self, id: &AssetId) -> Option<VideoInfoMeta>;
@@ -159,16 +163,20 @@ pub struct VideoInfoMeta {
 
 **契约**：
 - `resolve_image / resolve_audio` 必须返回稳定 `AssetId`（同一 source 多次调用结果相等）。对 `Url` / `Query`：必须由 host 在 preflight 阶段已 preloaded，否则返回 `Err`。
-- `register_dimensions` 返回的 `AssetId` 由调用方决定 path → id 的映射，与现 `AssetsMap::register_dimensions` 行为一致。
+- `register_dimensions` 接受**不透明 `&str` locator**，不是 `&Path`。Native host 传 `path.to_string_lossy().as_ref()`；wasm host 传 blob URL 或自定义 scheme。该参数仅用于在 catalog 内构造稳定 `AssetId`，core 不解读它的语义。
+- `register_dimensions` 返回的 `AssetId` 与 native 现 `AssetsMap::register_dimensions(path, ...)` 在传 `path.to_string_lossy()` 时**逐字节相等**（保证迁移行为不变）。
 - `video_info` 在未 probe 的视频上返回 `None`；core 路径的代码必须能容忍 `None`（fallback 到 0×0，与现 `unwrap_or_else` 行为一致）。
-- **trait 内不出现 `&Path` 之外的 IO 类型，不出现 `Result<_, Box<dyn std::error::Error>>` 之外的错误**——错误类型用 `anyhow::Error`（已是 workspace 通用）。
+- 错误类型统一使用 `anyhow::Error`（已是 workspace 通用）。
 
 ### 4.2 `ScriptHost`（`core::scene::script::host`）
 
 ```rust
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ScriptDriverId(pub u64);
 
 pub trait ScriptHost {
+    /// host 内部对 source 字符串去重，返回稳定 driver id。
+    /// 同一 source 多次调用必须返回相等的 ScriptDriverId。
     fn install(&mut self, source: &str) -> Result<ScriptDriverId>;
     fn register_text_source(&mut self, node_id: &str, source: ScriptTextSource);
     fn clear_text_sources(&mut self);
@@ -181,10 +189,12 @@ pub trait ScriptHost {
 ```
 
 **契约**：
-- `install` 同一 source 字符串多次调用必须返回相同 `ScriptDriverId`（host 内部 cache 由 source hash 索引）。
+- `install` 同一 source 字符串多次调用必须返回相等的 `ScriptDriverId`。**ID 生成算法 host 自决**（不要求与现 quickjs 实现的 hash 算法一致），core 不感知该算法。
+- core 内部不缓存 `(source_string → ScriptDriverId)` 的映射；core 仅缓存 `(scene_node_id → ScriptDriverId)`，每次遇到一段 script source 都通过 `host.install(source)` 拿 id（host 的去重保证 id 稳定）。
 - `run_frame` 是 core 路径上**唯一**触发用户 JS 执行的入口。Core 不感知 quickjs / browser eval。
 - `StyleMutations`、`NodeStyleMutations`、`CanvasMutations`、`CanvasCommand` 等数据类型全部留在 core。
 - text source 注册由 element resolve 阶段触发（与现 `ScriptRuntimeCache::register_text_source` 时机一致）。
+- `run_frame` 返回 `Err` 时，core 必须把错误冒泡到 `build_frame_display_tree` 调用方；不静默吞错。
 
 ### 4.3 `FontProvider`（`core::text::provider`）
 
@@ -323,9 +333,30 @@ AnnotatedDisplayTree
 - `default_font_db(&[])`（含 IO 加载系统字体）搬到 `host::fonts`，作为 `DefaultFontProvider::new()` 的初始化。
 - core 内 layout 改为接 `&dyn FontProvider`。
 
-### 7.12 `jsonl::parse_file` IO
-- `parse_file(path)` 整体搬到 host（路径例如 `host::jsonl_io::parse_file`），内部读文件后调 `core::parse`。
-- `parse / parse_with_base_dir` 留 core；`parse_with_base_dir` 不读文件，只用 base_dir 拼脚本路径——把"读脚本文件"那行也搬去 host，core 内 `parse_with_base_dir` 改成 `parse_with_script_loader(text, &dyn Fn(&Path) -> Result<String>)` 或更简单：core 只吃 inline 脚本，外联脚本由 host 在调用前 inline 化。**采用后者**（更简单）：host 端 `parse_file` 在读完 jsonl 后，把所有 `JsonLine::Script { path: Some(...) }` 行内联化为 `src: Some(content)` 后再交给 core。
+### 7.12 `jsonl::parse_file` IO 与 script 内联化
+- `parse_file(path)` 整体搬到 host：`host::jsonl_io::parse_file(path)`。逻辑：
+  1. host 端 `fs::read_to_string` 读 jsonl。
+  2. host 端用 `serde_json` 逐行解析 `JsonLine`（`JsonLine` 仍在 core 内 pub 出来，让 host 复用 enum 定义；这不破坏 core 纯净度因为 `JsonLine` 只是 `serde_json` 反序列化结构，serde_json 在 core 已有依赖）。
+  3. 对每个 `JsonLine::Script { path: Some(p), src: None, .. }`，host `fs::read_to_string(base_dir.join(p))` 读出脚本内容，原地改写为 `JsonLine::Script { path: None, src: Some(content), .. }`。
+  4. host 把改写后的行**重新 serialize 回 jsonl 字符串**（per-line `serde_json::to_string`），交给 `core::parse(text)`。
+- core 侧 `parse / parse_with_base_dir`：删除 `parse_with_base_dir` 入口（它的语义已被 host 取代）；core 只暴露 `parse(text: &str)`，且 core 永不读文件。
+- **影响**：`JsonLine` 从 `enum JsonLine`（私有）改为 `pub(crate) enum JsonLine`，host 模块通过 `pub use crate::core::jsonl::JsonLine` 访问；为最小化改动，给 `JsonLine` 加 `#[derive(Serialize)]`（现仅 `Deserialize`）。
+- 顶层 re-export `pub use jsonl::{ParsedComposition, parse, parse_file, parse_with_base_dir}`：`parse_file` 改为指向 `host::jsonl_io::parse_file`；`parse_with_base_dir` 删除并加 deprecation 注释，建议下游切换到 `parse_file` 或 `parse`（实际现有代码只有 jsonl.rs 内部测试用 parse_with_base_dir，外部消费已用 parse_file）。
+
+### 7.13 `inspect.rs` 去 `&mut AssetsMap`
+- `collect_frame_layout_rects`（`src/inspect.rs:123`）签名从 `assets: &mut AssetsMap` 改为 `catalog: &mut dyn ResourceCatalog`。
+- 顶层 re-export `opencat::collect_frame_layout_rects` 路径不变。
+- inspect 内部所有 `assets.ensure_image_source_entry_for_inspect(...)` 等调用改为 trait 方法（spec §4.1 trait 需要相应增加 `ensure_for_inspect` 方法，或者把 inspect 用到的 catalog 维护逻辑降级为通用方法）。**决定**：在 `ResourceCatalog` trait 加一个 `register_for_inspect(src: &ImageSource)` 默认实现（通过 `resolve_image` 的"宽容版本"——失败时不报错而是 0×0 占位），统一 inspect 路径。
+
+### 7.14 测试 setup 大批量改写
+- 受影响文件：`src/layout/mod.rs:1082+`（约 16 处）、`src/runtime/compositor/reuse.rs:281`、`src/runtime/fingerprint/{mod,display_item}.rs` 内的测试块、`src/element/resolve.rs` 内的测试块。
+- 共同改造：每个测试函数顶部 `let mut assets = AssetsMap::new(); let mut media = MediaContext::new();` 替换为 `let mut catalog = AssetCatalog::new();`，调用点 `&mut media, &mut assets` 缩为 `&mut catalog`（resolve 已删 media 参数）；fonts 与 script 测试入参用 `MockFontProvider`（裸 `fontdb::Database`）和 `MockScriptHost`（无脚本测试传 `None`）。
+- 新增 `src/core/test_support.rs`（仅 `#[cfg(test)]` 编译）：暴露 `mock_font_provider() -> impl FontProvider` 与 `MockScriptHost::default()`，统一测试样板。
+- `MockScriptHost::run_frame` 返回空 `StyleMutations`，测试 `install` 返回单调递增 id 即可。
+
+### 7.15 audio 路径
+- `runtime::audio.rs::*`（含 `build_audio_track / render_audio_chunk`）整体搬到 `host::runtime::audio`。函数签名中 `assets: &mut AssetsMap` 改为 `catalog: &mut AssetCatalog`（host 持具体类型，不必走 trait——因为 audio decode 本身在 host 跑，ffmpeg 调用就在邻近模块）。
+- 顶层 re-export `pub use runtime::audio::AudioBuffer; pub use render::{build_audio_track, render_audio_chunk};` 路径不变。
 
 ## 8. 错误处理
 
@@ -347,15 +378,18 @@ AnnotatedDisplayTree
 - CI 指令：`cargo check --no-default-features --lib --tests`。
 
 ### 9.3 行为等价性
-- 重构前后用同一份 `examples/*.jsonl` 跑 `opencat` 输出 mp4，比较 PSNR ≥ 50 dB（实际目标是 bit-identical，因为没改任何渲染算法；阈值用于 codec 微小浮点误差兜底）。
-- 该比较脚本由 plan 阶段输出。
+- **基线**：在重构开始前的 commit（`git rev-parse HEAD` 锁定）上运行 `cargo run --release --bin opencat -- examples/timeline.jsonl --output /tmp/baseline.mp4 --frames 60`，留存 `/tmp/baseline.mp4`。
+- **回归比对**：重构每个里程碑（Step 2 / Step 4 / Step 6 / Step 7）完成后，用同一指令重新输出 `/tmp/after.mp4`，运行 `ffmpeg -i /tmp/baseline.mp4 -i /tmp/after.mp4 -lavfi psnr -f null -` 解析平均 PSNR。
+- **阈值**：每个 milestone 平均 PSNR ≥ 50 dB（阈值用于编码器浮点 jitter 兜底；预期得到 ≥ 60 dB 因为渲染算法未变）。
+- **Example 选取**：使用 `examples/timeline.jsonl`（含 div / image / video / text / canvas / script，覆盖所有节点 kind）；如 plan 阶段确认该 example 不存在或已废弃，由 plan 重新选定一个等价覆盖度的 example 并在 plan 文档锁定。
 
 ## 10. 兼容性与外部影响
 
 - **`opencat` / `opencat-see` binary**：路径不变，行为不变。
 - **examples/**：不需要改动，因为顶层 `opencat::*` re-export 保留。
 - **`opencat-creator/`**：不在本 spec 范围；如果它直接 `use opencat::resource::assets::AssetsMap;`，因为该路径仍存在（type alias）所以不破。
-- **Public API 兼容**：所有 `pub use` 在 `src/lib.rs` 头部的符号路径在默认 feature 下保持不变。
+- **Public API 兼容**：所有 `pub use` 在 `src/lib.rs` 头部的符号路径在默认 feature 下保持不变；唯一例外是 `parse_with_base_dir` 被废弃（标 `#[deprecated]`，仍 re-export 一个委托到 `parse(text, base_dir.unwrap())` 的兼容 wrapper，下游有迁移期）。
+- **`collect_frame_layout_rects` 签名变化**：`assets: &mut AssetsMap` → `catalog: &mut dyn ResourceCatalog`。`AssetsMap` 实现 `ResourceCatalog`，调用方传入相同变量编译可过，无源码改动；纯类型名差异（如下游用 `fn x(rects, assets: &mut AssetsMap)` 转发）需要本地修一行。
 
 ## 11. 风险与 Mitigation
 
@@ -366,6 +400,8 @@ AnnotatedDisplayTree
 | AssetCatalog 与 fetch 之间状态分裂导致 bug | 中 | 中 | fetch 函数全部签名为 `(&mut AssetCatalog, ...)`，状态变更点保持单一；新增 `core::resource::asset_catalog` 单元测试覆盖 register/alias/dimensions/video_info |
 | feature 切换破 macos 平台特定代码 | 中 | 中 | macos 的 `metal/cocoa/foreign-types/skia metal feature` 仍走 `host-backend-skia`；CI matrix 加 `--no-default-features` 一项即可暴露 |
 | `cargo check --no-default-features` 触发未预期的 transitive dep 拉入 | 低 | 低 | 第一次跑通后用 `cargo tree --no-default-features` 锁定核心依赖白名单（anyhow / serde / serde_json / taffy / cosmic-text / fontdb / ahash / rustc-hash / unicode-segmentation / tracing），写进 `tests/core_purity.rs` 注释 |
+| cfg(test) setup 大批量改写导致测试覆盖被悄悄缩小 | 中 | 中 | 每个被改的测试函数在迁移 commit 中**先**保持原有断言不变，仅改 setup 行；CI 增加一项 `cargo test -- --list \| wc -l` 前后比对，测试函数个数不能减少（除明确 spec 决定删除的） |
+| `JsonLine` 改为 `pub(crate)` + `Serialize` 引入跨边界耦合 | 低 | 低 | `JsonLine` 已经是 `serde` 派生结构，只是把 `Deserialize` 加上 `Serialize` 派生；core 与 host 都依赖 `serde_json` 无新增依赖 |
 
 ## 12. Out of Scope（明确不做）
 
@@ -382,5 +418,15 @@ AnnotatedDisplayTree
 2. `cargo test` 默认 features 全部通过。
 3. `cargo check --no-default-features --lib` 通过——core 完全切除 host 依赖仍可编译。
 4. `tests/core_purity.rs` 在 `--no-default-features` 下编译通过。
-5. 至少一个 jsonl example 用重构后的 `opencat` binary 渲染输出，与重构前 PSNR ≥ 50 dB。
-6. `src/host/` 目录下所有文件可以 `grep -r "opencat::core" src/host/ | wc -l` ≥ 5（host 显式依赖 core），反向 `grep -r "opencat::host" src/core/` 必须 = 0（core 不依赖 host）。
+5. `examples/timeline.jsonl`（或 plan 锁定的等价 example）用重构后 `opencat` binary 渲染输出，与 §9.3 留存的 baseline 平均 PSNR ≥ 50 dB。
+6. 反向依赖审查：在仓库根执行
+   ```
+   grep -rE "opencat::host|crate::host|super::host" src/core/ | wc -l   # 必须 == 0
+   grep -rE "opencat::core|crate::core|super::core" src/host/ | wc -l   # 必须 ≥ 5
+   ```
+   前者证明 core 不依赖 host；后者证明 host 实际使用了 core 公共 API。
+7. 反向依赖再审：`cargo check --no-default-features --lib` 通过同时，
+   ```
+   cargo tree --no-default-features --prefix none --edges normal | grep -E "ffmpeg-next|skia-safe|rquickjs|reqwest|tokio|rodio"
+   ```
+   输出为空（这些 host 专属依赖在 core-only 编译时不被拉入）。

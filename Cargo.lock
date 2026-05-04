@@ -2323,6 +2323,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "opencat-web"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "js-sys",
+ "opencat-core",
+ "tracing",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "openssl-probe"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

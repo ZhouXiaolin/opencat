@@ -121,6 +121,14 @@ src/
 
 ---
 
+### 验证 core 纯净度
+
+```bash
+./scripts/check_core_purity.sh
+```
+
+该脚本必须在每次 PR 前手动执行，确保 `src/core/` 不依赖任何 host-only 依赖。
+
 ## 适合谁用？
 
 - **AI 视频管线开发者**：让模型生成 JSONL 而不是直接操纵像素

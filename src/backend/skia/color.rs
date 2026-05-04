@@ -1,4 +1,4 @@
-use crate::{scene::script::ScriptColor, style::ColorToken};
+use crate::{core::scene::script::ScriptColor, core::style::ColorToken};
 
 pub(crate) fn skia_color(token: ColorToken) -> skia_safe::Color {
     let (r, g, b, a) = token.rgba();

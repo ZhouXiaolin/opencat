@@ -1,18 +1,19 @@
-pub(crate) mod analysis;
-pub(crate) mod annotation;
 pub(crate) mod audio;
 pub(crate) mod backend_object;
 pub(crate) mod cache;
 pub(crate) mod compositor;
-pub(crate) mod fingerprint;
 pub(crate) mod frame_view;
-pub(crate) mod invalidation;
-pub(crate) mod pipeline;
 pub(crate) mod preflight;
-pub mod preflight_collect;
 pub(crate) mod profile;
 pub(crate) mod render_engine;
 pub(crate) mod render_registry;
 pub mod session;
 pub(crate) mod surface;
 pub mod target;
+
+pub use crate::core::runtime::analysis;
+pub use crate::core::runtime::annotation;
+pub use crate::core::runtime::fingerprint;
+pub use crate::core::runtime::invalidation;
+pub use crate::core::runtime::pipeline;
+pub use crate::core::runtime::preflight_collect;

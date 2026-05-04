@@ -7,9 +7,9 @@ use anyhow::{Result, anyhow};
 
 use crate::{
     codec::decode::{AudioTrack, decode_audio_to_f32_stereo},
-    frame_ctx::FrameCtx,
+    core::frame_ctx::FrameCtx,
     resource::assets::AssetsMap,
-    scene::{
+    core::scene::{
         composition::{AudioAttachment, Composition, CompositionAudioSource},
         primitives::AudioSource,
         time::{FrameState, frame_state_for_root},
@@ -229,14 +229,14 @@ fn composition_audio_cache_key(composition: &Composition) -> AudioIntervalCacheK
     )
 }
 
-fn active_scene_ids(root: &crate::scene::node::Node, frame_ctx: &FrameCtx) -> HashSet<String> {
+fn active_scene_ids(root: &crate::core::scene::node::Node, frame_ctx: &FrameCtx) -> HashSet<String> {
     let mut out = HashSet::new();
     collect_active_scene_ids(root, frame_ctx, &mut out);
     out
 }
 
 fn collect_active_scene_ids(
-    root: &crate::scene::node::Node,
+    root: &crate::core::scene::node::Node,
     frame_ctx: &FrameCtx,
     out: &mut HashSet<String>,
 ) {

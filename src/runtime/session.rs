@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    layout::LayoutSession,
+    core::layout::LayoutSession,
     resource::{
         assets::AssetsMap,
         media::{MediaContext, VideoPreviewQuality},
@@ -14,8 +14,8 @@ use crate::{
         render_engine::SharedRenderEngine,
         render_registry,
     },
-    scene::script::ScriptRuntimeCache,
-    text::default_font_db,
+    core::scene::script::ScriptRuntimeCache,
+    core::text::default_font_db,
 };
 
 pub struct RenderSession {

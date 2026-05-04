@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::resource::catalog::VideoInfoMeta;
+use crate::core::resource::catalog::VideoInfoMeta;
 use crate::runtime::{preflight_collect::collect_resource_requests, session::RenderSession};
-use crate::scene::composition::Composition;
+use crate::core::scene::composition::Composition;
 
 pub(crate) fn ensure_assets_preloaded(
     composition: &Composition,

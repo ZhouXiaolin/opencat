@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use tracing::{Level, event, span};
 
 use crate::{
-    frame_ctx::FrameCtx,
+    core::frame_ctx::FrameCtx,
     resource::{assets::AssetsMap, media::MediaContext},
     runtime::{
         annotation::AnnotatedDisplayTree,

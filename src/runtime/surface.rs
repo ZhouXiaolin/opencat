@@ -17,7 +17,7 @@ use skia_safe::{AlphaType, ColorType, ImageInfo};
 use crate::{
     render::{RenderSession, render_frame_to_target},
     runtime::target::{RenderFrameViewKind, RenderTargetHandle},
-    scene::composition::Composition,
+    core::scene::composition::Composition,
 };
 
 #[cfg(target_os = "macos")]

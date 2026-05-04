@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::{
-    frame_ctx::FrameCtx,
+    core::frame_ctx::FrameCtx,
     resource::{assets::AssetsMap, media::MediaContext},
     runtime::{
         annotation::AnnotatedDisplayTree,
@@ -12,7 +12,7 @@ use crate::{
         session::RenderSession,
         target::{RenderFrameViewKind, RenderTargetHandle},
     },
-    scene::composition::Composition,
+    core::scene::composition::Composition,
 };
 
 pub(crate) type SceneSnapshot = BackendObject;

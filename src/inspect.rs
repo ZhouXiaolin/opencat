@@ -4,19 +4,19 @@ use anyhow::{Result, anyhow};
 
 use crate::{
     Composition, FrameCtx,
-    element::{
+    core::element::{
         resolve::resolve_ui_tree_with_script_cache,
         tree::{ElementKind, ElementNode},
     },
-    frame_ctx::ScriptFrameCtx,
-    layout::tree::LayoutNode,
+    core::frame_ctx::ScriptFrameCtx,
+    core::layout::tree::LayoutNode,
     runtime::session::RenderSession,
-    scene::{
+    core::scene::{
         node::{Node, NodeKind},
         primitives::ImageSource,
         time::TimelineSegment,
     },
-    style::NodeStyle,
+    core::style::NodeStyle,
 };
 
 #[derive(Clone, Debug)]

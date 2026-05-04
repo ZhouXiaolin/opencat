@@ -8,7 +8,7 @@ use skia_safe::{
 };
 use tracing::{Level, span};
 
-use crate::scene::transition::{
+use crate::core::scene::transition::{
     GlTransition, LightLeakTransition, SlideDirection, TransitionKind, WipeDirection,
 };
 
@@ -1194,7 +1194,7 @@ fn uniform_data<T>(value: &T) -> Data {
 #[cfg(test)]
 mod tests {
     use super::slide_offsets;
-    use crate::scene::transition::SlideDirection;
+    use crate::core::scene::transition::SlideDirection;
 
     #[test]
     fn slide_offsets_match_expected_directions() {

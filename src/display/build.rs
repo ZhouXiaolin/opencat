@@ -12,13 +12,11 @@ use crate::{
     },
     element::tree::{ElementKind, ElementNode},
     layout::tree::{LayoutNode, LayoutTree},
-    resource::assets::AssetsMap,
 };
 
 pub fn build_display_tree(
     element_root: &ElementNode,
     layout_tree: &LayoutTree,
-    _assets: &AssetsMap,
 ) -> Result<DisplayTree> {
     Ok(DisplayTree {
         root: build_display_node(element_root, &layout_tree.root)?,
@@ -305,7 +303,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree, &assets)
+        let tree = build_display_tree(&resolved, &layout_tree)
             .expect("display tree should build");
         let DisplayItem::Bitmap(bitmap) = &tree.root.children[0].item else {
             panic!("expected bitmap draw item");
@@ -372,7 +370,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree, &assets)
+        let tree = build_display_tree(&resolved, &layout_tree)
             .expect("display tree should build");
         let texts = tree
             .root
@@ -428,7 +426,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree, &assets)
+        let tree = build_display_tree(&resolved, &layout_tree)
             .expect("display tree should build");
         let clip = tree.root.clip.as_ref();
         assert!(clip.is_some());
@@ -497,7 +495,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree, &assets)
+        let tree = build_display_tree(&resolved, &layout_tree)
             .expect("display tree should build");
         let texts = tree
             .root
@@ -576,9 +574,9 @@ mod tests {
         };
 
         let tree_a =
-            build_display_tree(&resolved, &layout_a, &assets).expect("display tree should build");
+            build_display_tree(&resolved, &layout_a).expect("display tree should build");
         let tree_b =
-            build_display_tree(&resolved, &layout_b, &assets).expect("display tree should build");
+            build_display_tree(&resolved, &layout_b).expect("display tree should build");
         let mut annotated_a = annotate_display_tree(&tree_a, &assets);
         compute_display_tree_fingerprints(&mut annotated_a);
         let mut annotated_b = annotate_display_tree(&tree_b, &assets);
@@ -643,7 +641,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree, &assets)
+        let tree = build_display_tree(&resolved, &layout_tree)
             .expect("display tree should build");
         let DisplayItem::SvgPath(svg) = &tree.root.children[0].item else {
             panic!("expected svg path item");
@@ -690,7 +688,7 @@ mod tests {
         };
 
         let err =
-            build_display_tree(&resolved, &layout_tree, &assets).expect_err("expected mismatch");
+            build_display_tree(&resolved, &layout_tree).expect_err("expected mismatch");
         assert!(err.to_string().contains("child count mismatch"));
     }
 
@@ -737,7 +735,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree, &assets)
+        let tree = build_display_tree(&resolved, &layout_tree)
             .expect("display tree should build");
         let DisplayItem::SvgPath(svg) = &tree.root.children[0].item else {
             panic!(

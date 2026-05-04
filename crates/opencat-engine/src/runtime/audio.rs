@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Result, anyhow};
 
 use opencat_core::frame_ctx::FrameCtx;
-use opencat_core::resource::asset_catalog::AssetCatalog;
+use crate::resource::asset_catalog::AssetCatalog;
 use opencat_core::scene::{
     composition::{AudioAttachment, Composition, CompositionAudioSource},
     primitives::AudioSource,

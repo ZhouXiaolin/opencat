@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use opencat_core::frame_ctx::FrameCtx;
-use opencat_core::resource::asset_catalog::AssetCatalog;
+use crate::resource::asset_catalog::AssetCatalog;
 use opencat_core::scene::composition::Composition;
 
 use opencat_core::runtime::annotation::AnnotatedDisplayTree;

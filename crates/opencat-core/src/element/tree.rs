@@ -1,4 +1,4 @@
-use crate::resource::{asset_catalog::AssetId, types::VideoFrameTiming};
+use crate::resource::{asset_id::AssetId, types::VideoFrameTiming};
 use crate::scene::script::{CanvasCommand, TextUnitOverrideBatch};
 use crate::scene::transition::TransitionKind;
 use crate::style::ComputedTextStyle;

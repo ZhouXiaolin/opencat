@@ -11,8 +11,8 @@ use crate::{
     },
     frame_ctx::ScriptFrameCtx,
     resource::{
-        assets::{AssetId, AssetsMap},
-        media::MediaContext,
+        assets::AssetId,
+        catalog::{ResourceCatalog, VideoInfoMeta},
     },
     scene::script::{ScriptRuntimeCache, StyleMutations, TextUnitOverrideBatch},
     scene::{
@@ -43,7 +43,7 @@ struct ResolveContext<'a> {
     script_frame_ctx: &'a ScriptFrameCtx,
     ids: &'a mut ElementIdAllocator,
     inherited_style: &'a InheritedStyle,
-    assets: &'a mut AssetsMap,
+    assets: &'a mut dyn ResourceCatalog,
     script_runtime: &'a mut ScriptRuntimeCache,
     mutation_stack: &'a mut Vec<StyleMutations>,
 }
@@ -51,8 +51,7 @@ struct ResolveContext<'a> {
 pub fn resolve_ui_tree(
     node: &Node,
     frame_ctx: &FrameCtx,
-    media: &mut MediaContext,
-    assets: &mut AssetsMap,
+    assets: &mut dyn ResourceCatalog,
     mutations: Option<&StyleMutations>,
 ) -> Result<ElementNode> {
     let mut script_runtime = ScriptRuntimeCache::default();
@@ -61,7 +60,6 @@ pub fn resolve_ui_tree(
         node,
         frame_ctx,
         &script_frame_ctx,
-        media,
         assets,
         mutations,
         &mut script_runtime,
@@ -72,8 +70,7 @@ pub(crate) fn resolve_ui_tree_with_script_cache(
     node: &Node,
     frame_ctx: &FrameCtx,
     script_frame_ctx: &ScriptFrameCtx,
-    media: &mut MediaContext,
-    assets: &mut AssetsMap,
+    assets: &mut dyn ResourceCatalog,
     mutations: Option<&StyleMutations>,
     script_runtime: &mut ScriptRuntimeCache,
 ) -> Result<ElementNode> {
@@ -93,24 +90,23 @@ pub(crate) fn resolve_ui_tree_with_script_cache(
         script_runtime,
         mutation_stack: &mut mutation_stack,
     };
-    Ok(resolve_node_optional(node, &mut cx, media)?.unwrap_or_else(|| empty_root_div(&mut cx)))
+    Ok(resolve_node_optional(node, &mut cx)?.unwrap_or_else(|| empty_root_div(&mut cx)))
 }
 
 fn resolve_node(
     node: &Node,
     cx: &mut ResolveContext<'_>,
-    media: &mut MediaContext,
 ) -> Result<ElementNode> {
     match node.kind() {
-        NodeKind::Component(component) => resolve_component(component, cx, media),
-        NodeKind::Video(video) => resolve_video(video, cx, media),
-        NodeKind::Image(image) => resolve_image(image, cx, media),
-        NodeKind::Div(div) => resolve_div(div, cx, media),
+        NodeKind::Component(component) => resolve_component(component, cx),
+        NodeKind::Video(video) => resolve_video(video, cx),
+        NodeKind::Image(image) => resolve_image(image, cx),
+        NodeKind::Div(div) => resolve_div(div, cx),
         NodeKind::Canvas(canvas) => resolve_canvas(canvas, cx),
         NodeKind::Text(text) => resolve_text(text, cx),
         NodeKind::Lucide(lucide) => resolve_lucide_svg_path(lucide, cx),
         NodeKind::Path(path) => resolve_path(path, cx),
-        NodeKind::Timeline(timeline) => resolve_timeline(timeline, cx, media),
+        NodeKind::Timeline(timeline) => resolve_timeline(timeline, cx),
         NodeKind::Caption(caption) => resolve_caption(caption, cx)?
             .ok_or_else(|| anyhow::anyhow!("caption node has no active text for frame")),
     }
@@ -119,14 +115,13 @@ fn resolve_node(
 fn resolve_frame_state_as_children(
     frame_state: &FrameState,
     cx: &mut ResolveContext<'_>,
-    media: &mut MediaContext,
 ) -> Result<Vec<ElementNode>> {
     match frame_state {
         FrameState::Scene {
             scene,
             script_frame_ctx,
         } => {
-            let child = resolve_with_script_frame_ctx(scene, script_frame_ctx, cx, media)?;
+            let child = resolve_with_script_frame_ctx(scene, script_frame_ctx, cx)?;
             Ok(vec![timeline_fill_wrapper(child, cx.ids.alloc())])
         }
         FrameState::Transition { from, to, .. } => {
@@ -138,8 +133,8 @@ fn resolve_frame_state_as_children(
                 } => (from_script_frame_ctx, to_script_frame_ctx),
                 _ => unreachable!(),
             };
-            let from_el = resolve_with_script_frame_ctx(from, from_script_frame_ctx, cx, media)?;
-            let to_el = resolve_with_script_frame_ctx(to, to_script_frame_ctx, cx, media)?;
+            let from_el = resolve_with_script_frame_ctx(from, from_script_frame_ctx, cx)?;
+            let to_el = resolve_with_script_frame_ctx(to, to_script_frame_ctx, cx)?;
             Ok(vec![
                 timeline_fill_wrapper(from_el, cx.ids.alloc()),
                 timeline_fill_wrapper(to_el, cx.ids.alloc()),
@@ -151,7 +146,6 @@ fn resolve_frame_state_as_children(
 fn resolve_timeline(
     timeline: &TimelineNode,
     cx: &mut ResolveContext<'_>,
-    media: &mut MediaContext,
 ) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(timeline, timeline.style_ref(), cx)?;
     let result = (|| {
@@ -179,7 +173,7 @@ fn resolve_timeline(
             script_runtime: &mut *cx.script_runtime,
             mutation_stack: &mut *cx.mutation_stack,
         };
-        let children = resolve_frame_state_as_children(&frame_state, &mut child_cx, media)?;
+        let children = resolve_frame_state_as_children(&frame_state, &mut child_cx)?;
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -198,7 +192,6 @@ fn resolve_with_script_frame_ctx(
     node: &Node,
     script_frame_ctx: &ScriptFrameCtx,
     cx: &mut ResolveContext<'_>,
-    media: &mut MediaContext,
 ) -> Result<ElementNode> {
     let mut child_cx = ResolveContext {
         frame_ctx: cx.frame_ctx,
@@ -209,7 +202,7 @@ fn resolve_with_script_frame_ctx(
         script_runtime: &mut *cx.script_runtime,
         mutation_stack: &mut *cx.mutation_stack,
     };
-    resolve_node(node, &mut child_cx, media)
+    resolve_node(node, &mut child_cx)
 }
 
 fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
@@ -257,19 +250,17 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
 fn resolve_node_optional(
     node: &Node,
     cx: &mut ResolveContext<'_>,
-    media: &mut MediaContext,
 ) -> Result<Option<ElementNode>> {
     match node.kind() {
-        NodeKind::Component(component) => resolve_component_optional(component, cx, media),
+        NodeKind::Component(component) => resolve_component_optional(component, cx),
         NodeKind::Caption(caption) => resolve_caption(caption, cx),
-        _ => resolve_node(node, cx, media).map(Some),
+        _ => resolve_node(node, cx).map(Some),
     }
 }
 
 fn resolve_component_optional(
     component: &ComponentNode,
     cx: &mut ResolveContext<'_>,
-    media: &mut MediaContext,
 ) -> Result<Option<ElementNode>> {
     let resolved = component.render(cx.frame_ctx);
     let pushed = if component.style_ref().script_driver.is_some() {
@@ -284,7 +275,7 @@ fn resolve_component_optional(
     } else {
         false
     };
-    let result = resolve_node_optional(&resolved, cx, media);
+    let result = resolve_node_optional(&resolved, cx);
     if pushed {
         cx.mutation_stack.pop();
     }
@@ -305,7 +296,6 @@ fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
 fn resolve_component(
     component: &ComponentNode,
     cx: &mut ResolveContext<'_>,
-    media: &mut MediaContext,
 ) -> Result<ElementNode> {
     let resolved = component.render(cx.frame_ctx);
     let pushed = if component.style_ref().script_driver.is_some() {
@@ -320,7 +310,7 @@ fn resolve_component(
     } else {
         false
     };
-    let result = resolve_node(&resolved, cx, media);
+    let result = resolve_node(&resolved, cx);
     if pushed {
         cx.mutation_stack.pop();
     }
@@ -330,7 +320,6 @@ fn resolve_component(
 fn resolve_div(
     div: &Div,
     cx: &mut ResolveContext<'_>,
-    media: &mut MediaContext,
 ) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(div, div.style_ref(), cx)?;
     let result = (|| {
@@ -353,7 +342,7 @@ fn resolve_div(
                 script_runtime: &mut *cx.script_runtime,
                 mutation_stack: &mut *cx.mutation_stack,
             };
-            if let Some(child) = resolve_node_optional(child, &mut child_cx, media)? {
+            if let Some(child) = resolve_node_optional(child, &mut child_cx)? {
                 children.push(child);
             }
         }
@@ -461,7 +450,7 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
         let computed = compute_style(&style, cx.inherited_style);
 
         for asset in canvas.assets_ref() {
-            let target = cx.assets.register_image_source(&asset.source)?;
+            let target = cx.assets.resolve_image(&asset.source)?;
             cx.assets.alias(AssetId(asset.asset_id.clone()), &target)?;
         }
 
@@ -484,7 +473,6 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
 fn resolve_video(
     video: &Video,
     cx: &mut ResolveContext<'_>,
-    media: &mut MediaContext,
 ) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(video, video.style_ref(), cx)?;
     let result = (|| {
@@ -496,17 +484,17 @@ fn resolve_video(
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style);
 
-        let info = media.video_info(video.source()).unwrap_or_else(|_| {
-            crate::resource::media::VideoInfo {
-                width: 0,
-                height: 0,
-                duration_secs: None,
-            }
-        });
-
         let asset_id = cx
             .assets
-            .register_dimensions(video.source(), info.width, info.height);
+            .register_dimensions(&video.source().to_string_lossy(), 0, 0);
+        let info = cx.assets.video_info(&asset_id).unwrap_or(VideoInfoMeta {
+            width: 0,
+            height: 0,
+            duration_secs: None,
+        });
+        let asset_id = cx
+            .assets
+            .register_dimensions(&video.source().to_string_lossy(), info.width, info.height);
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -529,7 +517,6 @@ fn resolve_video(
 fn resolve_image(
     image: &Image,
     cx: &mut ResolveContext<'_>,
-    _media: &mut MediaContext,
 ) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(image, image.style_ref(), cx)?;
     let result = (|| {
@@ -541,7 +528,7 @@ fn resolve_image(
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style);
 
-        let asset_id = cx.assets.register_image_source(image.source())?;
+        let asset_id = cx.assets.resolve_image(image.source())?;
         let (width, height) = cx.assets.dimensions(&asset_id);
 
         Ok(ElementNode {
@@ -1110,9 +1097,9 @@ mod tests {
         FrameCtx,
         element::tree::ElementKind,
         frame_ctx::ScriptFrameCtx,
-        resource::{assets::AssetsMap, media::MediaContext},
+        resource::{assets::AssetsMap, catalog::VideoInfoMeta},
         scene::easing::Easing,
-        scene::primitives::{SrtEntry, caption, div, lucide, text},
+        scene::primitives::{SrtEntry, caption, div, lucide, text, video},
         scene::script::{
             NodeStyleMutations, ScriptRuntimeCache, StyleMutations, TextUnitGranularity,
             TextUnitOverride, TextUnitOverrideBatch,
@@ -1130,10 +1117,9 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 
-        let err = resolve_ui_tree(&div().into(), &frame_ctx, &mut media, &mut assets, None)
+        let err = resolve_ui_tree(&div().into(), &frame_ctx, &mut assets, None)
             .expect_err("nodes without ids should fail during resolution");
 
         assert!(err.to_string().contains("node id is required"));
@@ -1148,7 +1134,6 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 
         let scene = div()
@@ -1162,7 +1147,7 @@ mod tests {
             )
             .child(div().id("static").child(text("B").id("title")));
 
-        let resolved = resolve_ui_tree(&scene.into(), &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&scene.into(), &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
 
         assert_eq!(resolved.children[0].children[0].style.visual.opacity, 0.25);
@@ -1178,7 +1163,6 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 
         let root = div()
@@ -1189,7 +1173,7 @@ mod tests {
             .child(text("A").id("label"))
             .child(lucide("play").id("icon").size(24.0, 24.0));
 
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
 
         assert_eq!(
@@ -1216,7 +1200,6 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 
         let root = div()
@@ -1227,7 +1210,7 @@ mod tests {
             .child(text("A").id("label"))
             .child(lucide("play").id("icon").size(24.0, 24.0));
 
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
 
         assert_eq!(resolved.children[0].style.visual.background, None);
@@ -1245,7 +1228,6 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 
         let root = div()
@@ -1254,7 +1236,7 @@ mod tests {
             .rotate_deg(12.0)
             .child(text("A").id("label"));
 
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
 
         assert_eq!(resolved.style.visual.opacity, 0.4);
@@ -1271,14 +1253,13 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 
         let root = div()
             .id("root")
             .child(lucide("pla").id("icon").size(24.0, 24.0));
 
-        let err = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+        let err = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect_err("unknown icon should fail during resolution");
 
         let message = err.to_string();
@@ -1295,14 +1276,13 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 
         let root = div()
             .id("root")
             .child(lucide("home").id("icon").size(24.0, 24.0));
 
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect("deprecated alias should resolve");
 
         let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
@@ -1322,14 +1302,13 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 
         let root = div()
             .id("root")
             .child(lucide("suitcase").id("icon").size(24.0, 24.0));
 
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect("deprecated alias should resolve");
 
         let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
@@ -1391,7 +1370,6 @@ mod tests {
             height: 180,
             frames: 30,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let mut script_runtime = ScriptRuntimeCache::default();
 
@@ -1426,7 +1404,6 @@ mod tests {
             &from,
             &frame_ctx,
             &from_script_frame_ctx,
-            &mut media,
             &mut assets,
             None,
             &mut script_runtime,
@@ -1436,7 +1413,6 @@ mod tests {
             &to,
             &frame_ctx,
             &to_script_frame_ctx,
-            &mut media,
             &mut assets,
             None,
             &mut script_runtime,
@@ -1456,7 +1432,6 @@ mod tests {
             height: 180,
             frames: 60,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let mut script_runtime = ScriptRuntimeCache::default();
 
@@ -1488,7 +1463,6 @@ mod tests {
             &scene,
             &frame_ctx,
             &script_frame_ctx,
-            &mut media,
             &mut assets,
             None,
             &mut script_runtime,
@@ -1511,7 +1485,6 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 
         let root = div()
@@ -1525,7 +1498,7 @@ mod tests {
             .expect("script should compile")
             .child(text("Hello").id("title"));
 
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect("parent script should see descendant text source");
 
         let ElementKind::Text(text) = &resolved.children[0].kind else {
@@ -1565,7 +1538,6 @@ mod tests {
             height: 180,
             frames: 20,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let mut runtime = ScriptRuntimeCache::default();
 
@@ -1581,7 +1553,6 @@ mod tests {
             &scene,
             &frame_ctx,
             &script_frame_ctx,
-            &mut media,
             &mut assets,
             None,
             &mut runtime,
@@ -1616,10 +1587,9 @@ mod tests {
             height: 180,
             frames: 10,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 
-        let tree = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+        let tree = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect("root caption should resolve from global time");
 
         assert!(format!("{tree:?}").contains("Global B"));
@@ -1634,7 +1604,6 @@ mod tests {
             height: 180,
             frames: 90,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
 
         let entries = vec![SrtEntry {
@@ -1649,7 +1618,6 @@ mod tests {
         let resolved = resolve_ui_tree(
             &root.clone().into(),
             &frame_ctx,
-            &mut media,
             &mut assets,
             None,
         )
@@ -1668,7 +1636,6 @@ mod tests {
         let resolved_active = resolve_ui_tree(
             &root.into(),
             &frame_ctx_active,
-            &mut media,
             &mut assets,
             None,
         )
@@ -1679,5 +1646,26 @@ mod tests {
             panic!("active caption should resolve to text");
         };
         assert_eq!(elem.text, "Hello");
+    }
+
+    #[test]
+    fn resolve_video_falls_back_to_zero_dimensions_when_catalog_lacks_video_info() {
+        let mut catalog = AssetsMap::new();
+        let v = video("/no/such/video.mp4").id("v");
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 30,
+        };
+        let element = resolve_ui_tree(&v.into(), &frame_ctx, &mut catalog, None).expect("resolve");
+        if let ElementKind::Bitmap(b) = &element.kind {
+            assert_eq!(b.width, 0);
+            assert_eq!(b.height, 0);
+            assert!(b.video_timing.is_some());
+        } else {
+            panic!("expected Bitmap kind");
+        }
     }
 }

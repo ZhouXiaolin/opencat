@@ -240,7 +240,6 @@ mod tests {
         element::resolve::resolve_ui_tree,
         parse,
         resource::assets::AssetsMap,
-        resource::media::MediaContext,
         runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
         scene::primitives::{div, lucide},
         style::{ColorToken, ObjectFit},
@@ -267,7 +266,6 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let element = div()
             .id("root")
@@ -279,7 +277,7 @@ mod tests {
                     .cover(),
             )
             .into();
-        let resolved = resolve_ui_tree(&element, &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&element, &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
@@ -325,7 +323,6 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let parsed = crate::parse(
             r#"{"type":"composition","width":320,"height":180,"fps":30,"frames":1}
@@ -334,7 +331,7 @@ mod tests {
 {"id":"back","parentId":"root","type":"text","className":"text-[12px]","text":"back"}"#,
         )
         .expect("jsonl should parse");
-        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
@@ -394,7 +391,6 @@ mod tests {
             height: 40,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let element = div()
             .id("root")
@@ -402,7 +398,7 @@ mod tests {
             .overflow_hidden()
             .child(div().id("child"))
             .into();
-        let resolved = resolve_ui_tree(&element, &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&element, &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
@@ -450,7 +446,6 @@ mod tests {
             height: 100,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let parsed = crate::parse(
             r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
@@ -459,7 +454,7 @@ mod tests {
 {"id":"early","parentId":"root","type":"text","className":"text-[12px]","text":"early"}"#,
         )
         .expect("jsonl should parse");
-        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
@@ -519,7 +514,6 @@ mod tests {
             height: 100,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let parsed = crate::parse(
             r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
@@ -527,7 +521,7 @@ mod tests {
 {"id":"child","parentId":"root","type":"div","className":"w-[10px] h-[10px] bg-red-500"}"#,
         )
         .expect("jsonl should parse");
-        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
 
         let layout_a = LayoutTree {
@@ -607,7 +601,6 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let root = div().id("root").child(
             lucide("play")
@@ -617,7 +610,7 @@ mod tests {
                 .stroke_width(3.5)
                 .fill_color(ColorToken::Sky200),
         );
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
@@ -664,7 +657,6 @@ mod tests {
             height: 100,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let parsed = parse(
             r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
@@ -672,7 +664,7 @@ mod tests {
 {"id":"child","parentId":"root","type":"text","className":"text-[12px]","text":"A"}"#,
         )
         .expect("jsonl should parse");
-        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
@@ -701,7 +693,6 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let root = div().id("root").child(
             crate::scene::primitives::path("M0 0 L 100 0 L 50 100 Z")
@@ -711,7 +702,7 @@ mod tests {
                 .stroke_color(ColorToken::Blue)
                 .stroke_width(2.0),
         );
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
@@ -761,10 +752,9 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut media = MediaContext::new();
         let mut assets = AssetsMap::new();
         let root = div().id("root").child(lucide("play").id("icon"));
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut media, &mut assets, None)
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect("tree should resolve");
 
         let child = &resolved.children[0];

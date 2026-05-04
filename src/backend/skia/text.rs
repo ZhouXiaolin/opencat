@@ -19,7 +19,8 @@ use skia_safe::{
 
 use crate::{
     backend::skia::color::skia_color,
-    runtime::text_engine::{SharedTextEngine, TextEngine, TextMeasureRequest, TextMeasurement},
+    runtime::text_engine::SharedTextEngine,
+    text::{TextMeasureRequest, TextMeasurement, TextMeasurer as TextEngine},
     scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
     style::{ComputedTextStyle, FontWeight, TextAlign, TextTransform},
 };

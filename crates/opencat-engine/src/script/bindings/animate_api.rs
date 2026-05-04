@@ -4,8 +4,8 @@ use rquickjs::{Array, Function};
 
 use opencat_core::scene::easing::{Easing, SpringConfig};
 
-use crate::host::script::MutationStore;
-use crate::host::script::bindings::morph_svg::MorphSvgEntry;
+use crate::script::MutationStore;
+use crate::script::bindings::morph_svg::MorphSvgEntry;
 
 pub(crate) const ANIMATE_RUNTIME: &str = concat!(
     include_str!("../runtime/animation/bootstrap.js"),

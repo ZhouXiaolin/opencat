@@ -1,4 +1,4 @@
-use crate::host::runtime::render_engine::SceneSnapshot;
+use crate::runtime::render_engine::SceneSnapshot;
 
 pub struct SceneSnapshotCache {
     source: Option<SceneSnapshot>,

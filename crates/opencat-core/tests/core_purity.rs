@@ -1,13 +1,8 @@
-#![cfg(not(any(
-    feature = "host-codec",
-    feature = "host-script-quickjs",
-    feature = "host-resource-net",
-    feature = "host-backend-skia"
-)))]
+//! Workspace-level smoke test: opencat-core compiles standalone with zero host features.
 
 #[test]
 fn core_public_api_compiles() {
-    use opencat::core::{
+    use opencat_core::{
         FontProvider, ResourceCatalog, ScriptHost,
         collect_resource_requests, parse,
     };

@@ -4,18 +4,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "[1/4] cargo check --no-default-features --lib"
-cargo check --no-default-features --lib
+echo "[1/4] cargo check -p opencat-core --no-default-features --lib"
+cargo check -p opencat-core --no-default-features --lib
 
-echo "[2/4] cargo check --no-default-features --lib --tests"
-cargo check --no-default-features --lib --tests
+echo "[2/4] cargo check -p opencat-core --no-default-features --lib --tests"
+cargo check -p opencat-core --no-default-features --lib --tests
 
 echo "[3/4] core 不引 host (cargo check 已验证编译；下面列出所有引用供透明审计)"
-grep -rnE "opencat::host|crate::host|super::host" src/core/ || echo "  (no references found)"
+grep -rnE "opencat::host|crate::host|super::host" crates/opencat-core/src/ || echo "  (no references found)"
 echo "  所有引用必须位于 #[cfg(feature = \"host-default\")] 门控后方"
 
 echo "[4/4] cargo tree without host deps"
-forbidden=$(cargo tree --no-default-features --prefix none --edges normal 2>/dev/null | grep -E "ffmpeg-next|skia-safe|rquickjs|reqwest|tokio|rodio" || true)
+forbidden=$(cargo tree -p opencat-core --no-default-features --prefix none --edges normal 2>/dev/null | grep -E "ffmpeg-next|skia-safe|rquickjs|reqwest|tokio|rodio" || true)
 if [[ -n "$forbidden" ]]; then
   echo "FAIL: forbidden host deps in core build:"
   echo "$forbidden"

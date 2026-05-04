@@ -8,7 +8,7 @@ use opencat_core::element::tree::ElementKind;
 use opencat_core::frame_ctx::ScriptFrameCtx;
 use opencat_core::resource::asset_catalog::AssetCatalog;
 use opencat_core::scene::easing::Easing;
-use opencat_core::scene::path_bounds::DefaultPathBounds;
+use crate::runtime::path_bounds::SkiaPathBounds;
 use opencat_core::scene::primitives::{SrtEntry, caption, div, text};
 use opencat_core::scene::time::{FrameState, frame_state_for_root};
 use opencat_core::scene::transition::{slide, timeline};
@@ -93,7 +93,7 @@ fn transition_scenes_keep_node_scripts_isolated() {
         &mut assets,
         None,
         &mut script_runtime,
-        &DefaultPathBounds,
+        &SkiaPathBounds,
     )
     .expect("from scene should resolve");
     let to_resolved = resolve_ui_tree_with_script_cache(
@@ -103,7 +103,7 @@ fn transition_scenes_keep_node_scripts_isolated() {
         &mut assets,
         None,
         &mut script_runtime,
-        &DefaultPathBounds,
+        &SkiaPathBounds,
     )
     .expect("to scene should resolve");
 
@@ -154,7 +154,7 @@ fn timeline_scripts_receive_scene_local_frames() {
         &mut assets,
         None,
         &mut script_runtime,
-        &DefaultPathBounds,
+        &SkiaPathBounds,
     )
     .expect("scene should resolve");
 
@@ -246,7 +246,7 @@ fn resolve_caption_uses_scene_local_time_inside_timeline() {
         &mut assets,
         None,
         &mut runtime,
-        &DefaultPathBounds,
+        &SkiaPathBounds,
     )
     .expect("caption tree should resolve");
 

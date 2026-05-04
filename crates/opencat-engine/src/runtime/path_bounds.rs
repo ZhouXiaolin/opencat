@@ -1,15 +1,11 @@
 //! Host 侧 [`PathBoundsComputer`] 实现：使用 skia 解析 SVG path data 取真实包围盒。
-//!
-//! 当 `host-backend-skia` feature 关闭时，回退到 core 的 [`DefaultPathBounds`]。
 
 use anyhow::Result;
 
-use opencat_core::scene::path_bounds::{DefaultPathBounds, PathBoundsComputer};
+use opencat_core::scene::path_bounds::PathBoundsComputer;
 
-#[cfg(feature = "host-backend-skia")]
 pub struct SkiaPathBounds;
 
-#[cfg(feature = "host-backend-skia")]
 impl PathBoundsComputer for SkiaPathBounds {
     fn compute_view_box(&self, path_data: &[String]) -> Result<[f32; 4]> {
         let mut min_x = f32::MAX;
@@ -40,12 +36,6 @@ impl PathBoundsComputer for SkiaPathBounds {
 }
 
 /// 返回 host 默认的 path bounds 计算器。
-#[cfg(feature = "host-backend-skia")]
 pub fn default_host_path_bounds() -> &'static dyn PathBoundsComputer {
     &SkiaPathBounds
-}
-
-#[cfg(not(feature = "host-backend-skia"))]
-pub fn default_host_path_bounds() -> &'static dyn PathBoundsComputer {
-    &DefaultPathBounds
 }

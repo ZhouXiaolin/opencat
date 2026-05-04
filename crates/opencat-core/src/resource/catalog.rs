@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::core::resource::asset_catalog::AssetId;
-use crate::core::scene::primitives::{AudioSource, ImageSource};
+use crate::resource::asset_catalog::AssetId;
+use crate::scene::primitives::{AudioSource, ImageSource};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VideoInfoMeta {
@@ -22,8 +22,8 @@ pub trait ResourceCatalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::resource::asset_catalog::AssetCatalog;
-    use crate::core::scene::primitives::ImageSource;
+    use crate::resource::asset_catalog::AssetCatalog;
+    use crate::scene::primitives::ImageSource;
 
     #[test]
     fn assets_map_implements_resource_catalog_register_dimensions_returns_stable_id() {

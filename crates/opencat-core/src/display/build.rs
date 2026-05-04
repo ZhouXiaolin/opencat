@@ -65,7 +65,7 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
             height: (bounds.height - border_top_w - border_bottom_w).max(0.0),
         };
         let outer_radius = visual.border_radius;
-        let inner_radius = crate::core::style::BorderRadius {
+        let inner_radius = crate::style::BorderRadius {
             top_left: (outer_radius.top_left - border_top_w.max(border_left_w)).max(0.0),
             top_right: (outer_radius.top_right - border_top_w.max(border_right_w)).max(0.0),
             bottom_right: (outer_radius.bottom_right - border_bottom_w.max(border_right_w))
@@ -207,7 +207,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
 }
 
 fn conservative_text_visual_expansion(
-    batch: Option<&crate::core::scene::script::TextUnitOverrideBatch>,
+    batch: Option<&crate::scene::script::TextUnitOverrideBatch>,
     text_px: f32,
 ) -> (f32, f32) {
     let Some(batch) = batch else {
@@ -271,7 +271,7 @@ mod tests {
         let element = div()
             .id("root")
             .child(
-                crate::core::scene::primitives::image()
+                crate::scene::primitives::image()
                     .id("bitmap")
                     .path("/tmp/test-display-bitmap.png")
                     .size(2.0, 2.0)
@@ -311,7 +311,7 @@ mod tests {
         assert_eq!(bitmap.object_fit, ObjectFit::Cover);
         assert_eq!(
             bitmap.paint.border_radius,
-            crate::core::style::BorderRadius::default()
+            crate::style::BorderRadius::default()
         );
     }
 
@@ -429,7 +429,7 @@ mod tests {
         assert!(clip.is_some());
         assert_eq!(
             clip.expect("clip command should exist").border_radius,
-            crate::core::style::BorderRadius {
+            crate::style::BorderRadius {
                 top_left: 12.0,
                 top_right: 12.0,
                 bottom_right: 12.0,
@@ -644,7 +644,7 @@ mod tests {
         assert_eq!(svg.paint.stroke_width, Some(3.5));
         assert_eq!(
             svg.paint.fill,
-            Some(crate::core::style::BackgroundFill::Solid(ColorToken::Sky200))
+            Some(crate::style::BackgroundFill::Solid(ColorToken::Sky200))
         );
         assert_eq!(svg.view_box, [0.0, 0.0, 24.0, 24.0]);
     }
@@ -696,7 +696,7 @@ mod tests {
         };
         let mut assets = AssetCatalog::new();
         let root = div().id("root").child(
-            crate::core::scene::primitives::path("M0 0 L 100 0 L 50 100 Z")
+            crate::scene::primitives::path("M0 0 L 100 0 L 50 100 Z")
                 .id("triangle")
                 .size(100.0, 100.0)
                 .fill_color(ColorToken::Red500)
@@ -740,7 +740,7 @@ mod tests {
         assert_eq!(svg.paint.stroke_color, Some(ColorToken::Blue));
         assert_eq!(
             svg.paint.fill,
-            Some(crate::core::style::BackgroundFill::Solid(ColorToken::Red500))
+            Some(crate::style::BackgroundFill::Solid(ColorToken::Red500))
         );
     }
 
@@ -759,7 +759,7 @@ mod tests {
             .expect("tree should resolve");
 
         let child = &resolved.children[0];
-        let crate::core::element::tree::ElementKind::SvgPath(svg) = &child.kind else {
+        let crate::element::tree::ElementKind::SvgPath(svg) = &child.kind else {
             panic!("expected SvgPath element, got {:?}", child.kind);
         };
         assert!(!svg.path_data.is_empty());

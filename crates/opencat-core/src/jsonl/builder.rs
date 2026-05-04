@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::core::scene::{
+use crate::scene::{
     easing::{Easing, SpringConfig, easing_from_name},
     node::Node,
     primitives::{ImageSource, canvas, caption, div, image, lucide, parse_srt, path, text, video},

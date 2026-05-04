@@ -215,7 +215,7 @@ fn resolve_with_script_frame_ctx(
 fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     let mut style = child.style.clone();
     style.id = format!("{}::__timeline_fill", style.id);
-    style.layout.position = crate::core::scene::primitives::Position::Absolute;
+    style.layout.position = crate::scene::primitives::Position::Absolute;
     style.layout.inset_left = Some(LengthPercentageAuto::Length(0.0));
     style.layout.inset_top = Some(LengthPercentageAuto::Length(0.0));
     style.layout.inset_right = Some(LengthPercentageAuto::Length(0.0));
@@ -241,7 +241,7 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     style.visual.drop_shadow = None;
     style.visual.blur_sigma = None;
     style.visual.backdrop_blur_sigma = None;
-    style.visual.border_radius = crate::core::style::BorderRadius::default();
+    style.visual.border_radius = crate::style::BorderRadius::default();
     style.visual.clip_contents = false;
     style.visual.transforms.clear();
     style.visual.opacity = 1.0;
@@ -575,7 +575,7 @@ fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Resu
             style.stroke_width = Some(2.0);
         }
         if style.stroke_color.is_none() {
-            style.stroke_color = Some(crate::core::style::ColorToken::Black);
+            style.stroke_color = Some(crate::style::ColorToken::Black);
         }
 
         let computed = compute_style(&style, cx.inherited_style);
@@ -588,7 +588,7 @@ fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Resu
                 .unwrap_or([0.0, 0.0, 24.0, 24.0]);
             (pd, vb)
         } else {
-            let paths = crate::core::lucide_icons::lucide_icon_paths(icon)
+            let paths = crate::lucide_icons::lucide_icon_paths(icon)
                 .expect("already validated by ensure_valid_lucide_icon");
             let pd: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
             let vb = [0.0, 0.0, 24.0, 24.0];
@@ -666,7 +666,7 @@ fn normalize_lucide_icon_name(name: &str) -> &str {
 }
 
 fn ensure_valid_lucide_icon(name: &str) -> Result<()> {
-    if crate::core::lucide_icons::lucide_icon_paths(name).is_some() {
+    if crate::lucide_icons::lucide_icon_paths(name).is_some() {
         return Ok(());
     }
 
@@ -681,7 +681,7 @@ fn ensure_valid_lucide_icon(name: &str) -> Result<()> {
 }
 
 fn suggested_lucide_icons(name: &str) -> Vec<&'static str> {
-    let mut scored: Vec<(usize, &'static str)> = crate::core::lucide_icons::lucide_icon_names()
+    let mut scored: Vec<(usize, &'static str)> = crate::lucide_icons::lucide_icon_names()
         .iter()
         .map(|candidate| (levenshtein_distance(name, candidate), *candidate))
         .collect();
@@ -801,9 +801,9 @@ fn seed_text_sources_for_visible_subtree(
                 .unwrap_or_else(|| text.content().to_string());
             script_runtime.register_text_source(
                 id,
-                crate::core::scene::script::ScriptTextSource {
+                crate::scene::script::ScriptTextSource {
                     text: content,
-                    kind: crate::core::scene::script::ScriptTextSourceKind::TextNode,
+                    kind: crate::scene::script::ScriptTextSourceKind::TextNode,
                 },
             );
         }
@@ -820,9 +820,9 @@ fn seed_text_sources_for_visible_subtree(
             if let Some(content) = content {
                 script_runtime.register_text_source(
                     id,
-                    crate::core::scene::script::ScriptTextSource {
+                    crate::scene::script::ScriptTextSource {
                         text: content,
-                        kind: crate::core::scene::script::ScriptTextSourceKind::Caption,
+                        kind: crate::scene::script::ScriptTextSourceKind::Caption,
                     },
                 );
             }
@@ -880,7 +880,7 @@ fn apply_mutation_stack(style: &mut NodeStyle, stack: &[StyleMutations]) {
 }
 
 fn apply_canvas_mutation_stack(
-    commands: &mut Vec<crate::core::scene::script::CanvasCommand>,
+    commands: &mut Vec<crate::scene::script::CanvasCommand>,
     stack: &[StyleMutations],
     id: &str,
 ) {
@@ -897,7 +897,7 @@ fn text_content_from_stack(stack: &[StyleMutations], id: &str) -> Option<String>
 }
 
 fn merge_text_unit_overrides(stack: &[StyleMutations], id: &str) -> Option<TextUnitOverrideBatch> {
-    use crate::core::scene::script::TextUnitOverride;
+    use crate::scene::script::TextUnitOverride;
     let mut merged: Option<TextUnitOverrideBatch> = None;
     for layer in stack {
         let Some(batch) = layer.get(id).and_then(|m| m.text_unit_overrides.as_ref()) else {
@@ -1035,15 +1035,15 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
                 .zip(style.bg_gradient_from)
                 .zip(style.bg_gradient_to)
                 .map(
-                    |((direction, from), to)| crate::core::style::BackgroundFill::LinearGradient {
+                    |((direction, from), to)| crate::style::BackgroundFill::LinearGradient {
                         direction,
                         from,
                         via: style.bg_gradient_via,
                         to,
                     },
                 )
-                .or_else(|| style.bg_color.map(crate::core::style::BackgroundFill::Solid)),
-            fill: style.fill_color.map(crate::core::style::BackgroundFill::Solid),
+                .or_else(|| style.bg_color.map(crate::style::BackgroundFill::Solid)),
+            fill: style.fill_color.map(crate::style::BackgroundFill::Solid),
             border_radius: style.border_radius.unwrap_or_default(),
             border_width: style.border_width,
             border_top_width: style.border_top_width,
@@ -1096,7 +1096,7 @@ mod tests {
     fn resolve(
         node: &crate::Node,
         frame_ctx: &FrameCtx,
-        assets: &mut dyn crate::core::resource::catalog::ResourceCatalog,
+        assets: &mut dyn crate::resource::catalog::ResourceCatalog,
     ) -> anyhow::Result<super::ElementNode> {
         let mut mock = MockScriptHost::default();
         resolve_ui_tree(node, frame_ctx, assets, None, &mut mock)
@@ -1143,16 +1143,16 @@ mod tests {
 
         assert_eq!(
             resolved.children[0].style.text.color,
-            crate::core::style::ColorToken::Blue
+            crate::style::ColorToken::Blue
         );
         assert_eq!(
             resolved.children[0].style.text.font_weight,
-            crate::core::style::FontWeight::BOLD
+            crate::style::FontWeight::BOLD
         );
         assert_eq!(resolved.children[0].style.text.line_height, 1.8);
         assert_eq!(
             resolved.children[1].style.text.color,
-            crate::core::style::ColorToken::Blue
+            crate::style::ColorToken::Blue
         );
     }
 
@@ -1253,7 +1253,7 @@ mod tests {
         let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
             panic!("child should resolve to svg path element");
         };
-        let expected_paths = crate::core::lucide_icons::lucide_icon_paths("house").expect("house icon");
+        let expected_paths = crate::lucide_icons::lucide_icon_paths("house").expect("house icon");
         assert_eq!(svg.path_data, expected_paths);
         assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
     }
@@ -1280,7 +1280,7 @@ mod tests {
             panic!("child should resolve to svg path element");
         };
         let expected_paths =
-            crate::core::lucide_icons::lucide_icon_paths("briefcase").expect("briefcase icon");
+            crate::lucide_icons::lucide_icon_paths("briefcase").expect("briefcase icon");
         assert_eq!(svg.path_data, expected_paths);
         assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
     }
@@ -1292,7 +1292,7 @@ mod tests {
             granularity: TextUnitGranularity::Grapheme,
             overrides: vec![TextUnitOverride {
                 translate_y: Some(-12.0),
-                color: Some(crate::core::style::ColorToken::Cyan400),
+                color: Some(crate::style::ColorToken::Cyan400),
                 ..Default::default()
             }],
         });
@@ -1322,7 +1322,7 @@ mod tests {
         assert_eq!(merged.overrides[0].opacity, Some(0.5));
         assert_eq!(
             merged.overrides[0].color,
-            Some(crate::core::style::ColorToken::Cyan400)
+            Some(crate::style::ColorToken::Cyan400)
         );
     }
 

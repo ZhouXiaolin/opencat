@@ -1,5 +1,8 @@
+#[cfg(feature = "host-default")]
 pub mod backend;
+#[cfg(feature = "host-default")]
 pub mod codec;
+#[cfg(feature = "host-default")]
 pub mod render;
 pub mod core;
 #[cfg(feature = "host-default")]
@@ -23,6 +26,7 @@ pub use crate::host::inspect::{FrameElementRect, collect_frame_layout_rects};
 pub use crate::core::jsonl::{ParsedComposition, parse};
 #[cfg(feature = "host-default")]
 pub use crate::host::jsonl_io::{parse_file, parse_with_base_dir};
+#[cfg(feature = "host-default")]
 pub use render::{
     EncodingConfig, Mp4Config, OutputFormat, RenderBackend, RenderSession, build_audio_track,
     render_audio_chunk, render_frame_rgb, render_frame_rgba, render_frame_to_target,

@@ -1,5 +1,7 @@
+#[cfg(feature = "host-default")]
 use opencat::{Composition, EncodingConfig, ScriptDriver, parse_file};
 
+#[cfg(feature = "host-default")]
 fn main() -> anyhow::Result<()> {
     let path = if let Some(path) = std::env::args().nth(1) {
         path
@@ -36,4 +38,10 @@ fn main() -> anyhow::Result<()> {
     println!("Rendered out/parsed.mp4");
 
     Ok(())
+}
+
+#[cfg(not(feature = "host-default"))]
+fn main() {
+    eprintln!("opencat requires the host-default feature to be enabled");
+    std::process::exit(1);
 }

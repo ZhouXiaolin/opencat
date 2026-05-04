@@ -1,3 +1,4 @@
+#[cfg(feature = "host-default")]
 use crate::host::runtime::profile::SceneBuildStats;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -6,6 +7,7 @@ pub struct SceneRenderPlan {
 }
 
 impl SceneRenderPlan {
+    #[cfg(feature = "host-default")]
     pub fn from_scene(scene_stats: &SceneBuildStats) -> Self {
         let has_structural_change = scene_stats.layout_pass.structure_rebuild
             || scene_stats.layout_pass.layout_dirty_nodes > 0
@@ -19,14 +21,16 @@ impl SceneRenderPlan {
     }
 }
 
+#[cfg(feature = "host-default")]
 pub fn plan_for_scene(scene_stats: &SceneBuildStats) -> SceneRenderPlan {
     SceneRenderPlan::from_scene(scene_stats)
 }
 
+#[cfg(feature = "host-default")]
 #[cfg(test)]
 mod tests {
     use super::SceneRenderPlan;
-    use crate::{core::layout::LayoutPassStats, runtime::profile::SceneBuildStats};
+    use crate::runtime::profile::SceneBuildStats;
 
     #[test]
     fn time_variant_paint_scene_disables_scene_snapshot_cache() {
@@ -47,9 +51,9 @@ mod tests {
     #[test]
     fn composite_only_scene_disables_scene_snapshot_cache() {
         let stats = SceneBuildStats {
-            layout_pass: LayoutPassStats {
+            layout_pass: crate::core::layout::LayoutPassStats {
                 composite_dirty_nodes: 2,
-                ..LayoutPassStats::default()
+                ..crate::core::layout::LayoutPassStats::default()
             },
             ..SceneBuildStats::default()
         };

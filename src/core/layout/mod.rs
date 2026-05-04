@@ -1088,7 +1088,7 @@ fn map_align_content(value: JustifyContent) -> TaffyAlignContent {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "host-default"))]
 mod tests {
     use super::{LayoutSession, TextMeasureContext, compute_layout_with_font_db_fn, default_font_db, measure_node};
     use crate::{

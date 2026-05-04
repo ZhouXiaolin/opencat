@@ -3,7 +3,7 @@ use crate::{
         list::{DisplayClip, DisplayItem, DisplayRect, DisplayTransform},
         tree::{DisplayNode, DisplayTree},
     },
-    runtime::{
+    core::runtime::{
         analysis::{
             DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
             DisplayNodeInvalidation,

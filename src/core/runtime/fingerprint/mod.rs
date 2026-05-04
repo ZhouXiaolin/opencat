@@ -25,7 +25,7 @@ fn new_secondary_hasher() -> ahash::AHasher {
 
 use crate::{
     core::display::list::DisplayItem,
-    runtime::{
+    core::runtime::{
         analysis::{DisplayAnalysisTable, DisplayInvalidationTable},
         annotation::{AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics},
     },
@@ -251,7 +251,7 @@ mod tests {
             DisplayTransform, DrawScriptDisplayItem, RectDisplayItem, RectPaintStyle,
         },
         core::resource::asset_catalog::AssetId,
-        runtime::{
+        core::runtime::{
             analysis::{
                 DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
                 DisplayNodeInvalidation,

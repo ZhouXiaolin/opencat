@@ -4,3 +4,5 @@
 #![cfg(feature = "host-default")]
 
 pub mod resource;
+pub mod runtime;
+pub mod script;

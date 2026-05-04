@@ -2808,7 +2808,7 @@ fn clip_bounds(canvas: &Canvas, bounds: DisplayRect, border_radius: crate::core:
 
 fn record_cache_pressure<K>(
     cache_name: &'static str,
-    report: &crate::runtime::cache::lru::CacheMutationReport<K>,
+    report: &crate::host::runtime::cache::lru::CacheMutationReport<K>,
 ) {
     if !report.evicted.is_empty() {
         event!(target: "render.cache", Level::TRACE, kind = "eviction", name = cache_name, result = "count", amount = report.evicted.len() as u64);

@@ -6,19 +6,19 @@ use crate::core::runtime::{
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct OrderedSceneProgram {
+pub struct OrderedSceneProgram {
     pub root: OrderedSceneOp,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct OrderedSubtreeProgram {
+pub struct OrderedSubtreeProgram {
     pub handle: AnnotatedNodeHandle,
     pub item_execution: LiveNodeItemExecution,
     pub children: Vec<OrderedSceneOp>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum OrderedSceneOp {
+pub enum OrderedSceneOp {
     LiveSubtree {
         handle: AnnotatedNodeHandle,
         item_execution: LiveNodeItemExecution,
@@ -30,7 +30,7 @@ pub(crate) enum OrderedSceneOp {
 }
 
 impl OrderedSceneOp {
-    pub(crate) fn handle(&self) -> AnnotatedNodeHandle {
+    pub fn handle(&self) -> AnnotatedNodeHandle {
         match self {
             OrderedSceneOp::LiveSubtree { handle, .. } => *handle,
             OrderedSceneOp::CachedSubtree { handle } => *handle,
@@ -39,13 +39,13 @@ impl OrderedSceneOp {
 }
 
 impl OrderedSceneProgram {
-    pub(crate) fn build(display_tree: &AnnotatedDisplayTree) -> Self {
+    pub fn build(display_tree: &AnnotatedDisplayTree) -> Self {
         Self {
             root: build_scene_op(display_tree, display_tree.root),
         }
     }
 
-    pub(crate) fn build_subtree(
+    pub fn build_subtree(
         display_tree: &AnnotatedDisplayTree,
         handle: AnnotatedNodeHandle,
     ) -> OrderedSubtreeProgram {

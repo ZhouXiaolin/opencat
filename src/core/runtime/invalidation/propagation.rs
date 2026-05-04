@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::runtime::{
+use crate::core::runtime::{
     analysis::{DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeInvalidation},
     annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey},
     fingerprint::CompositeSig,

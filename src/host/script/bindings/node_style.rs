@@ -2,12 +2,12 @@ use rquickjs::Function;
 
 use crate::core::style::{ColorToken, FontWeight, Transform, color_token_from_script_name};
 
-use super::{
+use crate::host::script::{
     MutationStore, align_items_from_name, box_shadow_from_name, drop_shadow_from_name,
     flex_direction_from_name, inset_shadow_from_name,
     justify_content_from_name, object_fit_from_name, position_from_name, text_align_from_name,
 };
-use super::mutations::{
+use crate::core::scene::script::mutations::{
     TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch,
 };
 
@@ -94,9 +94,9 @@ fn color_from_name(name: &str) -> Option<ColorToken> {
     Some(ColorToken::Custom(r, g, b, a))
 }
 
-pub(super) const NODE_STYLE_RUNTIME: &str = include_str!("runtime/node_style.js");
+pub(crate) const NODE_STYLE_RUNTIME: &str = include_str!("../runtime/node_style.js");
 
-pub(super) fn install_node_style_bindings<'js>(
+pub(crate) fn install_node_style_bindings<'js>(
     ctx: &rquickjs::Ctx<'js>,
     store: &MutationStore,
 ) -> anyhow::Result<()> {
@@ -367,9 +367,9 @@ pub(super) fn install_node_style_bindings<'js>(
                 guard.styles.entry(id.clone()).or_default().text_content = Some(v.clone());
                 guard.text_sources.insert(
                     id,
-                    super::ScriptTextSource {
+                    crate::core::scene::script::ScriptTextSource {
                         text: v,
-                        kind: super::ScriptTextSourceKind::TextNode,
+                        kind: crate::core::scene::script::ScriptTextSourceKind::TextNode,
                     },
                 );
             })?,

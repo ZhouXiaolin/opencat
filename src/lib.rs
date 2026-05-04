@@ -2,11 +2,11 @@ pub mod backend;
 pub mod codec;
 pub mod inspect;
 pub mod render;
-pub mod runtime;
-
 pub mod core;
 #[cfg(feature = "host-default")]
 pub mod host;
+#[cfg(feature = "host-default")]
+pub mod runtime { pub use crate::host::runtime::*; }
 
 // Backward-compatible module re-exports
 pub use crate::core::display;
@@ -27,7 +27,9 @@ pub use render::{
 };
 #[cfg(feature = "host-default")]
 pub use crate::host::resource::media::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality};
+#[cfg(feature = "host-default")]
 pub use runtime::audio::AudioBuffer;
+#[cfg(feature = "host-default")]
 pub use runtime::target::{RenderFrameViewKind, RenderTargetHandle};
 pub use crate::core::scene::composition::{AudioAttachment, Composition, CompositionAudioSource};
 pub use crate::core::scene::easing::{Easing, SpringConfig, animate_value, easing_from_name};

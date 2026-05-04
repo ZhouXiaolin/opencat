@@ -4,7 +4,7 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum StableNodeReuse {
+pub enum StableNodeReuse {
     /// 足够便宜的叶子，直接重画比 record picture 更划算。
     DirectLeaf,
     /// 稳定的 Bitmap / Lucide 叶子，由 `ItemPictureCache` 跨帧复用。
@@ -16,12 +16,12 @@ pub(crate) enum StableNodeReuse {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum LiveNodeItemExecution {
+pub enum LiveNodeItemExecution {
     Direct,
     FrameLocalPicture,
 }
 
-pub(crate) fn analyze_stable_node_reuse(
+pub fn analyze_stable_node_reuse(
     display_tree: &AnnotatedDisplayTree,
     handle: AnnotatedNodeHandle,
 ) -> StableNodeReuse {
@@ -45,7 +45,7 @@ pub(crate) fn analyze_stable_node_reuse(
     }
 }
 
-pub(crate) fn analyze_live_node_item_execution(
+pub fn analyze_live_node_item_execution(
     display_tree: &AnnotatedDisplayTree,
     handle: AnnotatedNodeHandle,
 ) -> LiveNodeItemExecution {

@@ -6,7 +6,7 @@ use skia_safe::{AlphaType, Canvas, ColorType, ImageInfo, Picture, image::Caching
 use std::ffi::c_void;
 
 #[cfg(target_os = "macos")]
-use crate::runtime::surface::MetalEncodeBridge;
+use crate::host::runtime::surface::MetalEncodeBridge;
 use crate::{
     runtime::{
         annotation::AnnotatedDisplayTree,

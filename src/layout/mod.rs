@@ -151,6 +151,15 @@ impl LayoutSession {
         ))
     }
 
+    pub fn compute_layout_with_provider(
+        &mut self,
+        element_root: &ElementNode,
+        frame_ctx: &FrameCtx,
+        fonts: &dyn crate::text::FontProvider,
+    ) -> Result<(LayoutTree, LayoutPassStats)> {
+        self.compute_layout_with_font_db(element_root, frame_ctx, fonts.font_db())
+    }
+
     fn rebuild(
         &mut self,
         root: &ElementNode,

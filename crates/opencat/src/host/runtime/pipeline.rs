@@ -1,31 +1,30 @@
 use anyhow::Result;
 use tracing::{Level, span};
 
-use crate::{
-    core::display::build::build_display_tree,
-    core::element::resolve::resolve_ui_tree_with_script_cache,
-    core::frame_ctx::{FrameCtx, ScriptFrameCtx},
-    core::resource::catalog::ResourceCatalog,
-    core::runtime::{
-        annotation::{
-            AnnotatedDisplayTree, annotate_display_tree, compute_display_tree_fingerprints,
-        },
-        invalidation::{CompositeHistory, mark_display_tree_composite_dirty},
+use opencat_core::display::build::build_display_tree;
+use opencat_core::element::resolve::resolve_ui_tree_with_script_cache;
+use opencat_core::frame_ctx::{FrameCtx, ScriptFrameCtx};
+use opencat_core::resource::catalog::ResourceCatalog;
+use opencat_core::runtime::{
+    annotation::{
+        AnnotatedDisplayTree, annotate_display_tree, compute_display_tree_fingerprints,
     },
-    core::scene::{
-        composition::Composition,
-        node::Node,
-        script::{ScriptHost, StyleMutations},
-    },
-    core::text::FontProvider,
-    host::runtime::{
-        compositor::{SceneRenderRuntime, plan_for_scene, render_scene},
-        frame_view::RenderFrameView,
-        path_bounds::default_host_path_bounds,
-        preflight::ensure_assets_preloaded,
-        profile::SceneBuildStats,
-        session::RenderSession,
-    },
+    invalidation::{CompositeHistory, mark_display_tree_composite_dirty},
+};
+use opencat_core::scene::{
+    composition::Composition,
+    node::Node,
+    script::{ScriptHost, StyleMutations},
+};
+use opencat_core::text::FontProvider;
+
+use crate::host::runtime::{
+    compositor::{SceneRenderRuntime, plan_for_scene, render_scene},
+    frame_view::RenderFrameView,
+    path_bounds::default_host_path_bounds,
+    preflight::ensure_assets_preloaded,
+    profile::SceneBuildStats,
+    session::RenderSession,
 };
 
 pub(crate) fn render_frame_on_surface(
@@ -98,7 +97,7 @@ pub fn build_frame_display_tree(
     script_frame_ctx: &ScriptFrameCtx,
     catalog: &mut dyn ResourceCatalog,
     fonts: &dyn FontProvider,
-    layout_session: &mut crate::core::layout::LayoutSession,
+    layout_session: &mut opencat_core::layout::LayoutSession,
     composite_history: &mut CompositeHistory,
     script_cache: &mut dyn ScriptHost,
     mutations: Option<&StyleMutations>,
@@ -139,7 +138,7 @@ pub(crate) fn build_scene_display_list(
     session: &mut RenderSession,
     mutations: Option<&StyleMutations>,
 ) -> Result<(AnnotatedDisplayTree, SceneBuildStats)> {
-    let provider = crate::core::text::DefaultFontProvider::from_arc(session.font_db.clone());
+    let provider = opencat_core::text::DefaultFontProvider::from_arc(session.font_db.clone());
     let RenderSession {
         assets,
         layout_session,

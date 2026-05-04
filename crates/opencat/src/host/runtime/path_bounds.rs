@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 
-use crate::core::scene::path_bounds::{DefaultPathBounds, PathBoundsComputer};
+use opencat_core::scene::path_bounds::{DefaultPathBounds, PathBoundsComputer};
 
 #[cfg(feature = "host-backend-skia")]
 pub struct SkiaPathBounds;

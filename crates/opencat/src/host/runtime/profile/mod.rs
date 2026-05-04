@@ -4,7 +4,7 @@ mod output;
 
 use std::collections::BTreeMap;
 
-use crate::core::layout::LayoutPassStats;
+use opencat_core::layout::LayoutPassStats;
 
 pub(crate) use aggregator::{
     CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator, RenderProfileSummary,

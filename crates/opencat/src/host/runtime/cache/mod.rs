@@ -5,7 +5,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use skia_safe::{Image as SkiaImage, Picture};
 
-use crate::core::display::list::DisplayRect;
+use opencat_core::display::list::DisplayRect;
 use crate::host::runtime::cache::lru::BoundedLruCache;
 
 pub(crate) type SharedLruCache<K, V> = Rc<RefCell<BoundedLruCache<K, V>>>;

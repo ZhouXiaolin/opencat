@@ -14,8 +14,8 @@ use crate::{
         render_registry,
         target::RenderTargetHandle,
     },
-    core::scene::composition::Composition,
 };
+use opencat_core::scene::composition::Composition;
 
 pub use crate::codec::encode::Mp4Config;
 pub use crate::host::runtime::session::RenderSession;
@@ -55,61 +55,60 @@ impl EncodingConfig {
     }
 }
 
-impl Composition {
-    pub fn render(&self, output_path: impl AsRef<Path>, config: &EncodingConfig) -> Result<()> {
-        self.render_with_progress(output_path, config, |_, _| {})
-    }
+pub fn render(composition: &Composition, output_path: impl AsRef<Path>, config: &EncodingConfig) -> Result<()> {
+    render_with_progress(composition, output_path, config, |_, _| {})
+}
 
-    pub fn render_with_progress(
-        &self,
-        output_path: impl AsRef<Path>,
-        config: &EncodingConfig,
-        on_video_frame_encoded: impl FnMut(u32, u32),
-    ) -> Result<()> {
-        self.render_with_backend_progress(
+pub fn render_with_progress(
+    composition: &Composition,
+    output_path: impl AsRef<Path>,
+    config: &EncodingConfig,
+    on_video_frame_encoded: impl FnMut(u32, u32),
+) -> Result<()> {
+    render_with_backend_progress(
+        composition,
+        output_path,
+        config,
+        render_registry::default_render_backend(),
+        on_video_frame_encoded,
+    )
+}
+
+pub fn render_with_backend(
+    composition: &Composition,
+    output_path: impl AsRef<Path>,
+    config: &EncodingConfig,
+    backend: RenderBackend,
+) -> Result<()> {
+    render_with_backend_progress(composition, output_path, config, backend, |_, _| {})
+}
+
+pub fn render_with_backend_progress(
+    composition: &Composition,
+    output_path: impl AsRef<Path>,
+    config: &EncodingConfig,
+    backend: RenderBackend,
+    on_video_frame_encoded: impl FnMut(u32, u32),
+) -> Result<()> {
+    match &config.format {
+        OutputFormat::Mp4(mp4_config) => render_mp4(
+            composition,
             output_path,
-            config,
-            render_registry::default_render_backend(),
+            mp4_config,
+            backend,
             on_video_frame_encoded,
-        )
+        ),
+        OutputFormat::Png => render_png(composition, output_path, backend),
     }
+}
 
-    pub fn render_with_backend(
-        &self,
-        output_path: impl AsRef<Path>,
-        config: &EncodingConfig,
-        backend: RenderBackend,
-    ) -> Result<()> {
-        self.render_with_backend_progress(output_path, config, backend, |_, _| {})
-    }
-
-    pub fn render_with_backend_progress(
-        &self,
-        output_path: impl AsRef<Path>,
-        config: &EncodingConfig,
-        backend: RenderBackend,
-        on_video_frame_encoded: impl FnMut(u32, u32),
-    ) -> Result<()> {
-        match &config.format {
-            OutputFormat::Mp4(mp4_config) => render_mp4(
-                self,
-                output_path,
-                mp4_config,
-                backend,
-                on_video_frame_encoded,
-            ),
-            OutputFormat::Png => render_png(self, output_path, backend),
-        }
-    }
-
-    pub fn render_frame_with_target(
-        &self,
-        frame_index: u32,
-        session: &mut RenderSession,
-        target: &mut RenderTargetHandle,
-    ) -> Result<()> {
-        render_frame_to_target(self, frame_index, session, target)
-    }
+pub fn render_frame_with_target(
+    composition: &Composition,
+    frame_index: u32,
+    session: &mut RenderSession,
+    target: &mut RenderTargetHandle,
+) -> Result<()> {
+    render_frame_to_target(composition, frame_index, session, target)
 }
 
 pub fn build_audio_track(
@@ -239,12 +238,9 @@ pub fn render_frame_rgb(
 #[cfg(test)]
 mod tests {
     use super::{RenderSession, render_frame_rgba};
-    use crate::{
-        Composition, FrameCtx,
-        core::scene::primitives::{canvas, div, image},
-        core::style::ColorToken,
-        text,
-    };
+    use crate::{Composition, FrameCtx, text};
+    use opencat_core::scene::primitives::{canvas, div, image};
+    use opencat_core::style::ColorToken;
 
     fn write_test_png(path: &std::path::Path) {
         let mut image = image::RgbaImage::new(2, 1);
@@ -920,8 +916,8 @@ mod tests {
 
     #[test]
     fn nested_timeline_transition_renders_real_composite() {
-        use crate::core::scene::node::Node;
-        use crate::core::style::{LengthPercentageAuto, Position};
+        use opencat_core::scene::node::Node;
+        use opencat_core::style::{LengthPercentageAuto, Position};
         use crate::{Easing, fade, timeline};
 
         let composition = Composition::new("nested_timeline_transition")
@@ -971,7 +967,7 @@ mod tests {
 
     #[test]
     fn root_timeline_renders_without_root_transition_special_case() {
-        use crate::core::scene::node::Node;
+        use opencat_core::scene::node::Node;
         use crate::{Easing, fade, timeline};
 
         let composition = Composition::new("root_timeline_transition")
@@ -1011,7 +1007,7 @@ mod tests {
 
     #[test]
     fn transition_subtree_snapshots_are_reused_across_transition_frames() {
-        use crate::core::scene::node::Node;
+        use opencat_core::scene::node::Node;
         use crate::{Easing, fade, timeline};
 
         let composition = Composition::new("transition_subtree_cache_reuse")

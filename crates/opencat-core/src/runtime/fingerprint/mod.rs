@@ -196,7 +196,7 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
 /// 精准诊断：命中时 hit 几乎不可能为 dirty（key 相同是 composite 稳定的证据）；
 /// miss 里 dirty 的部分即"由子 composite 抖动导致的 fingerprint 抖动"，可被
 /// "composite-stable only" 新规则救回。非 dirty 的 miss 归因于首次出现或 paint 变化。
-pub(crate) fn subtree_has_dirty_descendant_composite(
+pub fn subtree_has_dirty_descendant_composite(
     node: &AnnotatedDisplayNode,
     nodes: &[AnnotatedDisplayNode],
     invalidation: &DisplayInvalidationTable,

@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+use opencat_core::layout::LayoutSession;
+use opencat_core::resource::asset_catalog::AssetCatalog;
+use opencat_core::text::default_font_db;
+
 use crate::{
-    core::layout::LayoutSession,
-    core::resource::asset_catalog::AssetCatalog,
     host::resource::media::{MediaContext, VideoPreviewQuality},
     runtime::{
         audio::{AudioIntervalCache, DecodedAudioCache},
@@ -13,7 +15,6 @@ use crate::{
         render_registry,
     },
     host::script::ScriptRuntimeCache,
-    core::text::default_font_db,
 };
 
 pub struct RenderSession {

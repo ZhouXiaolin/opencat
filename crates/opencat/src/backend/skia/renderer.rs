@@ -16,8 +16,8 @@ use crate::{
         session::RenderSession,
         target::{RenderFrameViewKind, RenderTargetHandle},
     },
-    core::scene::composition::Composition,
 };
+use opencat_core::scene::composition::Composition;
 
 use super::canvas as skia;
 

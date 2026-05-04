@@ -376,7 +376,7 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     output.push_str("    }\n");
     output.push_str("}\n\n");
     output.push_str(
-        "pub(crate) fn color_token_from_script_name(name: &str) -> Option<ColorToken> {\n",
+        "pub fn color_token_from_script_name(name: &str) -> Option<ColorToken> {\n",
     );
     output.push_str("    if name == \"primary\" {\n");
     output.push_str("        Some(ColorToken::Primary)\n");

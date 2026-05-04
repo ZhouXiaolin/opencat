@@ -1,7 +1,7 @@
 //! src/host/resource/probe.rs
 use std::path::Path;
 use anyhow::Result;
-use crate::core::resource::{AssetCatalog, catalog::VideoInfoMeta};
+use opencat_core::resource::{AssetCatalog, catalog::VideoInfoMeta};
 use crate::host::resource::media::MediaContext;
 
 pub fn probe_video(catalog: &mut AssetCatalog, path: &Path, media: &mut MediaContext) -> Result<VideoInfoMeta> {

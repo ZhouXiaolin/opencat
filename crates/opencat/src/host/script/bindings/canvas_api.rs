@@ -1,7 +1,7 @@
 use rquickjs::Function;
 
 use crate::host::script::MutationStore;
-use crate::core::scene::script::mutations::{
+use opencat_core::scene::script::mutations::{
     CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin, ScriptPointMode,
 };
 use crate::host::script::object_fit_from_name;
@@ -100,7 +100,7 @@ fn parse_rgb_function(value: &str) -> Option<ScriptColor> {
 }
 
 fn script_color_from_value(value: &str) -> Option<ScriptColor> {
-    let color = crate::core::style::color_token_from_script_name(value).map(|color| color.rgba());
+    let color = opencat_core::style::color_token_from_script_name(value).map(|color| color.rgba());
     if let Some((r, g, b, a)) = color {
         return Some(ScriptColor { r, g, b, a });
     }

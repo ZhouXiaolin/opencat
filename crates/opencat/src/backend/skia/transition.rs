@@ -8,7 +8,7 @@ use skia_safe::{
 };
 use tracing::{Level, span};
 
-use crate::core::scene::transition::{
+use opencat_core::scene::transition::{
     GlTransition, LightLeakTransition, SlideDirection, TransitionKind, WipeDirection,
 };
 
@@ -580,7 +580,7 @@ fn gl_transition_effect(effect: &GlTransition) -> Result<RuntimeEffect> {
 }
 
 fn gl_transition_source(name: &str) -> Result<GlTransitionSource> {
-    static GLTRANSITION_JSON: &str = include_str!("../../../gltransition.json");
+    static GLTRANSITION_JSON: &str = include_str!("../../../../../gltransition.json");
     static SOURCES_BY_NAME: OnceLock<Result<HashMap<String, GlTransitionSource>, String>> =
         OnceLock::new();
 
@@ -1194,7 +1194,7 @@ fn uniform_data<T>(value: &T) -> Data {
 #[cfg(test)]
 mod tests {
     use super::slide_offsets;
-    use crate::core::scene::transition::SlideDirection;
+    use opencat_core::scene::transition::SlideDirection;
 
     #[test]
     fn slide_offsets_match_expected_directions() {

@@ -91,7 +91,7 @@ impl LayoutSession {
         self.compute_layout_with_font_db(root, frame_ctx, &db)
     }
 
-    pub(crate) fn compute_layout_with_font_db(
+    pub fn compute_layout_with_font_db(
         &mut self,
         root: &ElementNode,
         frame_ctx: &FrameCtx,
@@ -193,7 +193,7 @@ fn default_font_db() -> fontdb::Database {
 }
 
 #[cfg(test)]
-pub(crate) fn compute_layout_with_font_db_fn(
+pub fn compute_layout_with_font_db_fn(
     root: &ElementNode,
     frame_ctx: &FrameCtx,
     font_db: &fontdb::Database,

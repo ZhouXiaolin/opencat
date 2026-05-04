@@ -1,13 +1,15 @@
+#[cfg(feature = "host-default")]
 use anyhow::Result;
+#[cfg(feature = "host-default")]
 use tracing::{Level, span};
 
+#[cfg(feature = "host-default")]
 use crate::{
     core::display::build::build_display_tree,
     core::element::resolve::resolve_ui_tree_with_script_cache,
     core::frame_ctx::{FrameCtx, ScriptFrameCtx},
     core::resource::catalog::ResourceCatalog,
-    host::script::ScriptRuntimeCache,
-    runtime::{
+    core::runtime::{
         annotation::{
             AnnotatedDisplayTree, annotate_display_tree, compute_display_tree_fingerprints,
         },
@@ -24,8 +26,10 @@ use crate::{
         script::StyleMutations,
     },
     core::text::FontProvider,
+    host::script::ScriptRuntimeCache,
 };
 
+#[cfg(feature = "host-default")]
 pub(crate) fn render_frame_on_surface(
     composition: &Composition,
     frame_index: u32,
@@ -87,6 +91,7 @@ pub(crate) fn render_frame_on_surface(
     Ok(())
 }
 
+#[cfg(feature = "host-default")]
 pub fn build_frame_display_tree(
     scene: &Node,
     frame_ctx: &FrameCtx,
@@ -126,6 +131,7 @@ pub fn build_frame_display_tree(
     Ok((annotated, stats))
 }
 
+#[cfg(feature = "host-default")]
 pub(crate) fn build_scene_display_list(
     scene: &Node,
     frame_ctx: &FrameCtx,

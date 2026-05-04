@@ -1,6 +1,6 @@
 use crate::{
     core::display::list::DisplayItem,
-    runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle},
+    core::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,7 +79,7 @@ mod tests {
             DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem, RectDisplayItem,
             RectPaintStyle, TextDisplayItem,
         },
-        runtime::{
+        core::runtime::{
             analysis::{
                 DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
                 DisplayNodeInvalidation,

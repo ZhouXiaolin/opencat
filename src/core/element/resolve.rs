@@ -45,10 +45,12 @@ struct ResolveContext<'a> {
     ids: &'a mut ElementIdAllocator,
     inherited_style: &'a InheritedStyle,
     assets: &'a mut dyn ResourceCatalog,
+    #[cfg(feature = "host-default")]
     script_runtime: &'a mut ScriptRuntimeCache,
     mutation_stack: &'a mut Vec<StyleMutations>,
 }
 
+#[cfg(feature = "host-default")]
 pub fn resolve_ui_tree(
     node: &Node,
     frame_ctx: &FrameCtx,
@@ -67,6 +69,7 @@ pub fn resolve_ui_tree(
     )
 }
 
+#[cfg(feature = "host-default")]
 pub(crate) fn resolve_ui_tree_with_script_cache(
     node: &Node,
     frame_ctx: &FrameCtx,
@@ -88,12 +91,14 @@ pub(crate) fn resolve_ui_tree_with_script_cache(
         ids: &mut ids,
         inherited_style: &inherited_style,
         assets,
+        #[cfg(feature = "host-default")]
         script_runtime,
         mutation_stack: &mut mutation_stack,
     };
     Ok(resolve_node_optional(node, &mut cx)?.unwrap_or_else(|| empty_root_div(&mut cx)))
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_node(
     node: &Node,
     cx: &mut ResolveContext<'_>,
@@ -113,6 +118,7 @@ fn resolve_node(
     }
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_frame_state_as_children(
     frame_state: &FrameState,
     cx: &mut ResolveContext<'_>,
@@ -144,6 +150,7 @@ fn resolve_frame_state_as_children(
     }
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_timeline(
     timeline: &TimelineNode,
     cx: &mut ResolveContext<'_>,
@@ -151,9 +158,6 @@ fn resolve_timeline(
     let pushed = push_script_scope_for_visible_subtree(timeline, timeline.style_ref(), cx)?;
     let result = (|| {
         let mut style = timeline.style_ref().clone();
-        if style.id.is_empty() {
-            style.id = format!("__timeline_{}", cx.ids.next);
-        }
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style);
         let inherited_style = InheritedStyle::for_child(&computed);
@@ -171,6 +175,7 @@ fn resolve_timeline(
             ids: &mut *cx.ids,
             inherited_style: &inherited_style,
             assets: &mut *cx.assets,
+            #[cfg(feature = "host-default")]
             script_runtime: &mut *cx.script_runtime,
             mutation_stack: &mut *cx.mutation_stack,
         };
@@ -189,6 +194,7 @@ fn resolve_timeline(
     result
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_with_script_frame_ctx(
     node: &Node,
     script_frame_ctx: &ScriptFrameCtx,
@@ -200,10 +206,12 @@ fn resolve_with_script_frame_ctx(
         ids: &mut *cx.ids,
         inherited_style: cx.inherited_style,
         assets: &mut *cx.assets,
+        #[cfg(feature = "host-default")]
         script_runtime: &mut *cx.script_runtime,
         mutation_stack: &mut *cx.mutation_stack,
     };
-    resolve_node(node, &mut child_cx)
+    resolve_node_optional(node, &mut child_cx)
+        .map(|opt| opt.unwrap_or_else(|| empty_root_div(&mut child_cx)))
 }
 
 fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
@@ -248,6 +256,7 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     }
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_node_optional(
     node: &Node,
     cx: &mut ResolveContext<'_>,
@@ -259,6 +268,7 @@ fn resolve_node_optional(
     }
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_component_optional(
     component: &ComponentNode,
     cx: &mut ResolveContext<'_>,
@@ -283,6 +293,7 @@ fn resolve_component_optional(
     result
 }
 
+#[cfg(feature = "host-default")]
 fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
     let mut style = NodeStyle::default();
     style.id = "__empty_root".to_string();
@@ -294,6 +305,7 @@ fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
     }
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_component(
     component: &ComponentNode,
     cx: &mut ResolveContext<'_>,
@@ -318,6 +330,7 @@ fn resolve_component(
     result
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_div(
     div: &Div,
     cx: &mut ResolveContext<'_>,
@@ -340,6 +353,7 @@ fn resolve_div(
                 ids: &mut *cx.ids,
                 inherited_style: &inherited_style,
                 assets: &mut *cx.assets,
+                #[cfg(feature = "host-default")]
                 script_runtime: &mut *cx.script_runtime,
                 mutation_stack: &mut *cx.mutation_stack,
             };
@@ -361,6 +375,7 @@ fn resolve_div(
     result
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(text, text.style_ref(), cx)?;
     let result = (|| {
@@ -394,6 +409,7 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
     result
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_caption(
     caption: &CaptionNode,
     cx: &mut ResolveContext<'_>,
@@ -439,6 +455,7 @@ fn resolve_caption(
     result
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(canvas, canvas.style_ref(), cx)?;
     let result = (|| {
@@ -471,6 +488,7 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
     result
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_video(
     video: &Video,
     cx: &mut ResolveContext<'_>,
@@ -515,6 +533,7 @@ fn resolve_video(
     result
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_image(
     image: &Image,
     cx: &mut ResolveContext<'_>,
@@ -550,6 +569,7 @@ fn resolve_image(
     result
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(lucide, lucide.style_ref(), cx)?;
     let result = (|| {
@@ -601,6 +621,7 @@ fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Resu
     result
 }
 
+#[cfg(feature = "host-default")]
 fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(path, path.style_ref(), cx)?;
     let result = (|| {
@@ -643,6 +664,7 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
     result
 }
 
+#[cfg(feature = "host-default")]
 fn compute_path_view_box(path_data: &[String]) -> Result<[f32; 4]> {
     let mut min_x = f32::MAX;
     let mut min_y = f32::MAX;
@@ -736,6 +758,7 @@ fn levenshtein_distance(left: &str, right: &str) -> usize {
     prev[right_chars.len()]
 }
 
+#[cfg(feature = "host-default")]
 fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<bool> {
     let Some(driver) = style.script_driver.as_deref() else {
         return Ok(false);
@@ -755,6 +778,7 @@ fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<b
     Ok(true)
 }
 
+#[cfg(feature = "host-default")]
 fn push_script_scope_for_visible_subtree<T>(
     node: &T,
     style: &NodeStyle,
@@ -778,6 +802,7 @@ where
     push_script_scope(style, cx)
 }
 
+#[cfg(feature = "host-default")]
 fn seed_text_sources_for_visible_subtree(
     node: &Node,
     frame_ctx: &FrameCtx,
@@ -1092,13 +1117,12 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "host-default"))]
 mod tests {
-    use super::{merge_text_unit_overrides, resolve_ui_tree, resolve_ui_tree_with_script_cache};
+    use super::{merge_text_unit_overrides, resolve_ui_tree};
     use crate::{
         FrameCtx,
         core::element::tree::ElementKind,
-        core::frame_ctx::ScriptFrameCtx,
         core::resource::asset_catalog::AssetCatalog,
         core::resource::catalog::VideoInfoMeta,
         core::scene::easing::Easing,
@@ -1107,9 +1131,14 @@ mod tests {
             NodeStyleMutations, StyleMutations, TextUnitGranularity,
             TextUnitOverride, TextUnitOverrideBatch,
         },
-        host::script::ScriptRuntimeCache,
         core::scene::time::{FrameState, frame_state_for_root},
         core::scene::transition::{slide, timeline},
+    };
+    #[cfg(feature = "host-default")]
+    use {
+        super::resolve_ui_tree_with_script_cache,
+        crate::core::frame_ctx::ScriptFrameCtx,
+        crate::host::script::ScriptRuntimeCache,
     };
 
     #[test]
@@ -1365,6 +1394,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "host-default")]
     #[test]
     fn transition_scenes_keep_node_scripts_isolated() {
         let frame_ctx = FrameCtx {
@@ -1427,6 +1457,7 @@ mod tests {
         assert_eq!(to_resolved.children[0].style.visual.opacity, 0.8);
     }
 
+    #[cfg(feature = "host-default")]
     #[test]
     fn timeline_scripts_receive_scene_local_frames() {
         let frame_ctx = FrameCtx {
@@ -1515,6 +1546,7 @@ mod tests {
         assert_eq!(batch.overrides[0].opacity, Some(0.2));
     }
 
+    #[cfg(feature = "host-default")]
     #[test]
     fn resolve_caption_uses_scene_local_time_inside_timeline() {
         let caption_node = caption().id("subs").path("sub.srt").entries(vec![

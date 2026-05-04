@@ -121,7 +121,7 @@ mod tests {
             DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem, RectDisplayItem,
             RectPaintStyle,
         },
-        runtime::{
+        core::runtime::{
             analysis::{
                 DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
                 DisplayNodeInvalidation,

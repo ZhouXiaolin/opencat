@@ -232,7 +232,7 @@ fn conservative_text_visual_expansion(
     (max_x.ceil(), max_y.ceil())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "host-default"))]
 mod tests {
     use super::build_display_tree;
     use crate::{
@@ -240,7 +240,7 @@ mod tests {
         core::element::resolve::resolve_ui_tree,
         parse,
         core::resource::asset_catalog::AssetCatalog,
-        runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
+        core::runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
         core::scene::primitives::{div, lucide},
         core::style::{ColorToken, ObjectFit},
     };

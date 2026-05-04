@@ -1,16 +1,12 @@
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
 use std::fs;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
-use crate::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct AssetId(pub String);
+use opencat_core::resource::asset_id::{AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, stable_hash};
+use opencat_core::resource::catalog::{ResourceCatalog, VideoInfoMeta};
+use opencat_core::scene::primitives::{AudioSource, ImageSource};
 
 pub struct AssetCatalog {
     pub entries: HashMap<AssetId, AssetEntry>,
@@ -251,7 +247,7 @@ impl ResourceCatalog for AssetCatalog {
     }
 
     fn register_dimensions(&mut self, locator: &str, width: u32, height: u32) -> AssetId {
-        let path = std::path::Path::new(locator);
+        let path = Path::new(locator);
         AssetCatalog::register_dimensions(self, path, width, height)
     }
 
@@ -268,25 +264,8 @@ impl ResourceCatalog for AssetCatalog {
     }
 }
 
-pub fn asset_id_for_url(url: &str) -> AssetId {
-    AssetId(format!("url:{url}"))
-}
-
 pub fn asset_id_for_audio_path(path: &Path) -> AssetId {
     AssetId(format!("audio:path:{}", path.to_string_lossy()))
-}
-
-pub fn asset_id_for_audio_url(url: &str) -> AssetId {
-    AssetId(format!("audio:url:{url}"))
-}
-
-pub fn asset_id_for_query(query: &OpenverseQuery) -> AssetId {
-    AssetId(format!(
-        "openverse:q={};count={};aspect_ratio={}",
-        query.query,
-        query.count,
-        query.aspect_ratio.as_deref().unwrap_or("")
-    ))
 }
 
 pub fn cache_file_path(cache_dir: &Path, id: &AssetId, extension: &str) -> PathBuf {
@@ -303,15 +282,10 @@ pub fn read_image_dimensions(path: &Path) -> (u32, u32) {
     (image.width(), image.height())
 }
 
-fn stable_hash(value: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    hasher.finish()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn register_returns_stable_id_for_same_path() {
@@ -393,31 +367,12 @@ mod tests {
     }
 
     #[test]
-    fn asset_id_for_url_is_deterministic() {
-        let id1 = asset_id_for_url("https://example.com/a.png");
-        let id2 = asset_id_for_url("https://example.com/a.png");
-        assert_eq!(id1, id2);
-    }
-
-    #[test]
-    fn asset_id_for_query_is_deterministic() {
-        let q = OpenverseQuery {
-            query: "cat".into(),
-            count: 3,
-            aspect_ratio: Some("wide".into()),
-        };
-        let id1 = asset_id_for_query(&q);
-        let id2 = asset_id_for_query(&q);
-        assert_eq!(id1, id2);
-    }
-
-    #[test]
     fn ensure_image_source_entry_for_inspect_inserts_placeholder_for_url() {
         let mut catalog = AssetCatalog::new();
         catalog.ensure_image_source_entry_for_inspect(&ImageSource::Url(
             "https://example.com/x.png".into(),
         ));
-        let id = asset_id_for_url("https://example.com/x.png");
+        let id = opencat_core::resource::asset_id::asset_id_for_url("https://example.com/x.png");
         assert_eq!(catalog.dimensions(&id), (0, 0));
         assert!(catalog.path(&id).is_some());
     }
@@ -425,13 +380,13 @@ mod tests {
     #[test]
     fn ensure_image_source_entry_for_inspect_inserts_placeholder_for_query() {
         let mut catalog = AssetCatalog::new();
-        let query = OpenverseQuery {
+        let query = opencat_core::scene::primitives::OpenverseQuery {
             query: "dog".into(),
             count: 1,
             aspect_ratio: None,
         };
         catalog.ensure_image_source_entry_for_inspect(&ImageSource::Query(query));
-        let qid = asset_id_for_query(&OpenverseQuery {
+        let qid = opencat_core::resource::asset_id::asset_id_for_query(&opencat_core::scene::primitives::OpenverseQuery {
             query: "dog".into(),
             count: 1,
             aspect_ratio: None,

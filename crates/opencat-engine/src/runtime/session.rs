@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use opencat_core::layout::LayoutSession;
-use opencat_core::resource::asset_catalog::AssetCatalog;
+use crate::resource::asset_catalog::AssetCatalog;
 use opencat_core::text::default_font_db;
 
 use opencat_core::runtime::invalidation::CompositeHistory;

@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use tracing::{Level, event, span};
 
 use opencat_core::frame_ctx::FrameCtx;
-use opencat_core::resource::asset_catalog::AssetCatalog;
+use crate::resource::asset_catalog::AssetCatalog;
 use opencat_core::runtime::annotation::AnnotatedDisplayTree;
 use opencat_core::runtime::compositor::OrderedSceneProgram;
 

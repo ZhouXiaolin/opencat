@@ -6,7 +6,7 @@
 use opencat_core::element::resolve::{resolve_ui_tree, resolve_ui_tree_with_script_cache};
 use opencat_core::element::tree::ElementKind;
 use opencat_core::frame_ctx::ScriptFrameCtx;
-use opencat_core::resource::asset_catalog::AssetCatalog;
+use crate::resource::asset_catalog::AssetCatalog;
 use opencat_core::scene::easing::Easing;
 use crate::runtime::path_bounds::SkiaPathBounds;
 use opencat_core::scene::primitives::{SrtEntry, caption, div, text};

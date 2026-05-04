@@ -9,7 +9,6 @@ use opencat_core::{
     },
     frame_ctx::{FrameCtx, ScriptFrameCtx},
     layout::tree::LayoutNode,
-    resource::asset_catalog::AssetCatalog,
     scene::{
         composition::Composition,
         node::{Node, NodeKind},
@@ -18,6 +17,8 @@ use opencat_core::{
     },
     style::NodeStyle,
 };
+
+use crate::resource::asset_catalog::AssetCatalog;
 
 use super::runtime::{path_bounds::default_host_path_bounds, session::RenderSession};
 

@@ -1,5 +1,5 @@
 use crate::{
-    resource::asset_catalog::AssetId,
+    resource::asset_id::AssetId,
     resource::types::VideoFrameTiming,
     scene::script::{CanvasCommand, TextUnitOverrideBatch},
     scene::transition::TransitionKind,

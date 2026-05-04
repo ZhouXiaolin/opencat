@@ -50,10 +50,9 @@ impl Canvas {
             .assets
             .iter_mut()
             .find(|asset| asset.asset_id == asset_id)
+            && let ImageSource::Query(query) = &mut asset.source
         {
-            if let ImageSource::Query(query) = &mut asset.source {
-                query.count = count.max(1);
-            }
+            query.count = count.max(1);
         }
         self
     }
@@ -63,10 +62,9 @@ impl Canvas {
             .assets
             .iter_mut()
             .find(|asset| asset.asset_id == asset_id)
+            && let ImageSource::Query(query) = &mut asset.source
         {
-            if let ImageSource::Query(query) = &mut asset.source {
-                query.aspect_ratio = Some(aspect_ratio.into());
-            }
+            query.aspect_ratio = Some(aspect_ratio.into());
         }
         self
     }

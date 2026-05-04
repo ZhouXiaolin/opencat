@@ -1192,7 +1192,7 @@ fn generate_lucide_icons(out_dir: &Path) -> Result<(), String> {
     for entry in entries {
         let entry = entry.map_err(|error| format!("failed to read dir entry: {error}"))?;
         let path = entry.path();
-        if path.extension().map_or(true, |ext| ext != "svg") {
+        if path.extension().is_none_or(|ext| ext != "svg") {
             continue;
         }
         let name = path
@@ -1216,7 +1216,7 @@ fn generate_lucide_icons(out_dir: &Path) -> Result<(), String> {
         let paths_literal = icon
             .paths
             .iter()
-            .map(|p| format!("\"{}\"", p.escape_default().to_string()))
+            .map(|p| format!("\"{}\"", p.escape_default()))
             .collect::<Vec<_>>()
             .join(", ");
         let _ = writeln!(

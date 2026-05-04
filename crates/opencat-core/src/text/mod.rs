@@ -100,6 +100,12 @@ impl DefaultFontProvider {
     }
 }
 
+impl Default for DefaultFontProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FontProvider for DefaultFontProvider {
     fn font_db(&self) -> &fontdb::Database {
         &self.db

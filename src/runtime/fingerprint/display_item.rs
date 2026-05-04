@@ -2,10 +2,6 @@ use std::hash::{Hash, Hasher};
 
 use crate::{
     display::list::{BitmapDisplayItem, DisplayClip, DisplayItem, TextDisplayItem},
-    resource::{
-        assets::AssetsMap,
-        bitmap_source::{BitmapSourceKind, bitmap_source_kind},
-    },
     style::ComputedTextStyle,
 };
 
@@ -215,33 +211,24 @@ impl Hash for SvgPathPaintFp<'_> {
     }
 }
 
-pub(super) fn item_is_time_variant(item: &DisplayItem, assets: &AssetsMap) -> bool {
+pub(super) fn item_is_time_variant(item: &DisplayItem) -> bool {
     match item {
         DisplayItem::Timeline(_) => true,
-        DisplayItem::Bitmap(bitmap) => bitmap_is_video(bitmap, assets),
-        // DrawScript 的命令序列本身就是纯数据;若脚本输出稳定,hash 稳定即可跨帧复用。
-        // 若脚本每帧产出不同 commands(读取 time_secs 等),hash 每帧变 → ItemPictureCache
-        // 自然 miss,行为正确。无需静态分析脚本内容。
+        DisplayItem::Bitmap(bitmap) => bitmap_is_video(bitmap),
         DisplayItem::DrawScript(_) => false,
         DisplayItem::Text(text) => text.text_unit_overrides.is_some(),
         DisplayItem::Rect(_) | DisplayItem::SvgPath(_) => false,
     }
 }
 
-pub(super) fn bitmap_is_video(bitmap: &BitmapDisplayItem, assets: &AssetsMap) -> bool {
-    assets
-        .path(&bitmap.asset_id)
-        .map(|path| bitmap_source_kind(path) == BitmapSourceKind::Video)
-        .unwrap_or(false)
+pub(super) fn bitmap_is_video(bitmap: &BitmapDisplayItem) -> bool {
+    bitmap.video_timing.is_some()
 }
 
 #[cfg(test)]
 mod tests {
     use super::item_is_time_variant;
-    use crate::{
-        display::list::{DisplayItem, DisplayRect, RectPaintStyle, TimelineDisplayItem},
-        resource::assets::AssetsMap,
-    };
+    use crate::display::list::{DisplayItem, DisplayRect, RectPaintStyle, TimelineDisplayItem};
 
     fn bounds() -> DisplayRect {
         DisplayRect {
@@ -254,7 +241,6 @@ mod tests {
 
     #[test]
     fn timeline_display_item_is_always_time_variant() {
-        let assets = AssetsMap::new();
         let item = DisplayItem::Timeline(TimelineDisplayItem {
             bounds: bounds(),
             paint: RectPaintStyle {
@@ -276,7 +262,7 @@ mod tests {
         });
 
         assert!(
-            item_is_time_variant(&item, &assets),
+            item_is_time_variant(&item),
             "timeline node itself should stay on the live path"
         );
     }

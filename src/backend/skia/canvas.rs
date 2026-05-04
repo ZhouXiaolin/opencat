@@ -468,7 +468,7 @@ impl<'a> SkiaBackend<'a> {
         let profile_span = span!(target: "render.backend", Level::TRACE, "draw_item");
         let _profile_span = profile_span.enter();
         if should_cache_item_picture(item)
-            && let Some(cache_key) = item_paint_fingerprint(item, self.assets)
+            && let Some(cache_key) = item_paint_fingerprint(item)
         {
             let cached_span =
                 span!(target: "render.backend", Level::TRACE, "draw_item_cached");

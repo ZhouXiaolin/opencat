@@ -25,7 +25,6 @@ fn new_secondary_hasher() -> ahash::AHasher {
 
 use crate::{
     display::list::DisplayItem,
-    resource::assets::AssetsMap,
     runtime::{
         analysis::{DisplayAnalysisTable, DisplayInvalidationTable},
         annotation::{AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics},
@@ -93,8 +92,8 @@ impl CompositeSig {
 }
 
 /// 判定单个 DisplayItem 的 paint variance。
-pub fn classify_paint(item: &DisplayItem, assets: &AssetsMap) -> PaintVariance {
-    if item_is_time_variant(item, assets) {
+pub fn classify_paint(item: &DisplayItem) -> PaintVariance {
+    if item_is_time_variant(item) {
         PaintVariance::TimeVariant
     } else {
         PaintVariance::Stable
@@ -107,8 +106,8 @@ pub fn classify_paint(item: &DisplayItem, assets: &AssetsMap) -> PaintVariance {
 /// - TimeVariant 项(包含视频 Bitmap) → None(不进 cache)
 ///   视频帧数据由下层 `video_frame_cache` 按 pts 做复用,Picture 层无需再缓存。
 /// - Stable 项 → Some(基于 `DisplayItemFp` 全量 hash)
-pub fn item_paint_fingerprint(item: &DisplayItem, assets: &AssetsMap) -> Option<u64> {
-    if item_is_time_variant(item, assets) {
+pub fn item_paint_fingerprint(item: &DisplayItem) -> Option<u64> {
+    if item_is_time_variant(item) {
         return None;
     }
     let mut hasher = new_primary_hasher();
@@ -251,7 +250,7 @@ mod tests {
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
             DisplayTransform, DrawScriptDisplayItem, RectDisplayItem, RectPaintStyle,
         },
-        resource::assets::AssetsMap,
+        resource::assets::AssetId,
         runtime::{
             analysis::{
                 DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
@@ -777,15 +776,13 @@ mod tests {
 
     #[test]
     fn bitmap_time_variant_for_video_asset() {
-        let mut assets = AssetsMap::new();
-        let video_path = std::path::PathBuf::from("/tmp/fake.mp4");
-        let asset_id = assets.register_dimensions(&video_path, 10, 10);
+        let asset_id = AssetId("/tmp/fake.mp4".into());
         let bitmap_item = DisplayItem::Bitmap(BitmapDisplayItem {
             bounds: empty_bounds(),
             asset_id,
             width: 10,
             height: 10,
-            video_timing: None,
+            video_timing: Some(crate::resource::media::VideoFrameTiming::default()),
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
                 background: None,
@@ -804,20 +801,19 @@ mod tests {
             },
         });
         assert_eq!(
-            classify_paint(&bitmap_item, &assets),
+            classify_paint(&bitmap_item),
             PaintVariance::TimeVariant
         );
         // 视频 Bitmap 不再进 ItemPictureCache —— 解码层的 video_frame_cache 已按
         // pts 复用帧数据,Picture 层冻帧会破坏"视频视为变化"的设计原则。
         assert!(
-            item_paint_fingerprint(&bitmap_item, &assets).is_none(),
+            item_paint_fingerprint(&bitmap_item).is_none(),
             "video bitmap 不应有 paint fingerprint,避免 ItemPictureCache 冻帧"
         );
     }
 
     #[test]
     fn draw_script_command_based_stability() {
-        let assets = AssetsMap::new();
         let script_item = DisplayItem::DrawScript(DrawScriptDisplayItem {
             bounds: empty_bounds(),
             commands: Vec::new(),
@@ -825,9 +821,9 @@ mod tests {
         });
 
         // 命令序列空 → hash 稳定 → Stable
-        assert_eq!(classify_paint(&script_item, &assets), PaintVariance::Stable);
+        assert_eq!(classify_paint(&script_item), PaintVariance::Stable);
         assert!(
-            item_paint_fingerprint(&script_item, &assets).is_some(),
+            item_paint_fingerprint(&script_item).is_some(),
             "Stable DrawScript 必须有 paint fingerprint 作为 ItemPictureCache 的 key"
         );
     }
@@ -866,9 +862,7 @@ mod tests {
 
     #[test]
     fn video_bitmap_paint_fingerprint_is_none() {
-        let mut assets = AssetsMap::new();
-        let video_path = std::path::PathBuf::from("/tmp/fake.mp4");
-        let asset_id = assets.register_dimensions(&video_path, 10, 10);
+        let asset_id = AssetId("/tmp/fake.mp4".into());
 
         let item = DisplayItem::Bitmap(BitmapDisplayItem {
             bounds: empty_bounds(),
@@ -899,16 +893,14 @@ mod tests {
         });
 
         assert!(
-            item_paint_fingerprint(&item, &assets).is_none(),
+            item_paint_fingerprint(&item).is_none(),
             "视频 bitmap 绕过 ItemPictureCache,保证每帧重新走 draw_bitmap 解码路径"
         );
     }
 
     #[test]
     fn video_bitmap_paint_variance_stays_time_variant() {
-        let mut assets = AssetsMap::new();
-        let video_path = std::path::PathBuf::from("/tmp/fake.mp4");
-        let asset_id = assets.register_dimensions(&video_path, 10, 10);
+        let asset_id = AssetId("/tmp/fake.mp4".into());
 
         let item = DisplayItem::Bitmap(BitmapDisplayItem {
             bounds: empty_bounds(),
@@ -935,7 +927,7 @@ mod tests {
         });
 
         assert_eq!(
-            classify_paint(&item, &assets),
+            classify_paint(&item),
             PaintVariance::TimeVariant,
             "Video Bitmap 在子树层面仍是 TimeVariant,避免父子树 snapshot 误命中"
         );

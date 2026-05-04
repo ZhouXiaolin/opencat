@@ -278,11 +278,10 @@ mod tests {
     #[test]
     fn bitmap_leaf_prefers_item_picture_leaf_reuse() {
         use crate::display::list::{BitmapDisplayItem, BitmapPaintStyle};
-        use crate::resource::assets::AssetsMap;
+        use crate::resource::assets::AssetId;
         use crate::style::ObjectFit;
 
-        let mut assets = AssetsMap::new();
-        let asset_id = assets.register_dimensions(std::path::Path::new("/tmp/x.png"), 10, 10);
+        let asset_id = AssetId("/tmp/x.png".into());
 
         let mut analysis = DisplayAnalysisTable::default();
         analysis.insert(
@@ -331,8 +330,6 @@ mod tests {
             analyze_stable_node_reuse(&display_tree, AnnotatedNodeHandle(0)),
             StableNodeReuse::ItemPictureLeaf
         );
-
-        let _ = &assets;
     }
 
     #[test]

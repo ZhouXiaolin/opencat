@@ -1095,7 +1095,7 @@ mod tests {
         FrameCtx,
         core::element::resolve::resolve_ui_tree,
         core::jsonl::tailwind::parse_class_name,
-        resource::assets::AssetsMap,
+        core::resource::asset_catalog::AssetCatalog,
         core::scene::primitives::{div, lucide, path, text},
         core::style::{ColorToken, ComputedTextStyle},
     };
@@ -1160,7 +1160,7 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let root = classed_div(
             "root",
             "w-full h-full p-[20px]",
@@ -1204,7 +1204,7 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let root = classed_div(
             "root",
             "w-full h-full p-[20px]",
@@ -1263,7 +1263,7 @@ mod tests {
             height: 720,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let root = classed_div(
             "root",
             "relative w-[1280px] h-[720px]",
@@ -1310,7 +1310,7 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let root = classed_div(
             "root",
             "w-[200px] h-full",
@@ -1348,7 +1348,7 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let root = classed_div(
             "root",
             "w-[200px] h-full",
@@ -1388,7 +1388,7 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let root = classed_div(
             "root",
             "h-full",
@@ -1418,7 +1418,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let mut session = LayoutSession::new();
 
         let first = div().id("root").child(text("A").id("label")).into();
@@ -1457,7 +1457,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let mut session = LayoutSession::new();
 
         let first = div().id("root").child(text("A").id("label")).into();
@@ -1490,7 +1490,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let mut session = LayoutSession::new();
 
         let first = classed_div(
@@ -1534,7 +1534,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let mut session = LayoutSession::new();
 
         let first = classed_div(
@@ -1579,7 +1579,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let mut session = LayoutSession::new();
 
         let first = div().id("root").child(text("A").id("label")).into();
@@ -1615,7 +1615,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let mut session = LayoutSession::new();
 
         let first = div().id("root").child(text("A").id("label")).into();
@@ -1651,7 +1651,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
 
         let icon_root = classed_div(
             "root",
@@ -1695,7 +1695,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let mut session = LayoutSession::new();
 
         let first = div()
@@ -1746,7 +1746,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let mut session = LayoutSession::new();
 
         let first = div()

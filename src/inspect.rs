@@ -119,7 +119,7 @@ fn collect_scene_rects(
 fn seed_asset_entries_for_inspect(
     node: &Node,
     frame_ctx: &FrameCtx,
-    assets: &mut crate::resource::assets::AssetsMap,
+    assets: &mut crate::core::resource::asset_catalog::AssetCatalog,
 ) {
     match node.kind() {
         NodeKind::Component(component) => {

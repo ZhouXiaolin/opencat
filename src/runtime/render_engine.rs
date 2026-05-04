@@ -2,7 +2,8 @@ use anyhow::Result;
 
 use crate::{
     core::frame_ctx::FrameCtx,
-    resource::{assets::AssetsMap, media::MediaContext},
+    core::resource::asset_catalog::AssetCatalog,
+    host::resource::media::MediaContext,
     runtime::{
         annotation::AnnotatedDisplayTree,
         backend_object::BackendObject,
@@ -18,7 +19,7 @@ use crate::{
 pub(crate) type SceneSnapshot = BackendObject;
 
 pub(crate) struct SceneRenderContext<'a> {
-    pub assets: &'a AssetsMap,
+    pub assets: &'a AssetCatalog,
     pub cache_registry: &'a CacheRegistry,
     pub media_ctx: &'a mut MediaContext,
     pub frame_ctx: &'a FrameCtx,

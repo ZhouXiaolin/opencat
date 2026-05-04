@@ -5,7 +5,7 @@ use crate::{
     core::display::build::build_display_tree,
     core::element::resolve::resolve_ui_tree_with_script_cache,
     core::frame_ctx::{FrameCtx, ScriptFrameCtx},
-    resource::catalog::ResourceCatalog,
+    core::resource::catalog::ResourceCatalog,
     runtime::{
         annotation::{
             AnnotatedDisplayTree, annotate_display_tree, compute_display_tree_fingerprints,

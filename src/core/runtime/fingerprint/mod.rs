@@ -250,7 +250,7 @@ mod tests {
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
             DisplayTransform, DrawScriptDisplayItem, RectDisplayItem, RectPaintStyle,
         },
-        resource::assets::AssetId,
+        core::resource::asset_catalog::AssetId,
         runtime::{
             analysis::{
                 DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
@@ -782,7 +782,7 @@ mod tests {
             asset_id,
             width: 10,
             height: 10,
-            video_timing: Some(crate::resource::media::VideoFrameTiming::default()),
+            video_timing: Some(crate::core::resource::types::VideoFrameTiming::default()),
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
                 background: None,
@@ -869,7 +869,7 @@ mod tests {
             asset_id,
             width: 10,
             height: 10,
-            video_timing: Some(crate::resource::media::VideoFrameTiming {
+            video_timing: Some(crate::core::resource::types::VideoFrameTiming {
                 media_offset_secs: 1.234,
                 playback_rate: 1.0,
                 looping: false,
@@ -907,7 +907,7 @@ mod tests {
             asset_id,
             width: 10,
             height: 10,
-            video_timing: Some(crate::resource::media::VideoFrameTiming::default()),
+            video_timing: Some(crate::core::resource::types::VideoFrameTiming::default()),
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
                 background: None,

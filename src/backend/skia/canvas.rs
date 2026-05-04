@@ -13,10 +13,10 @@ use crate::{
         RectDisplayItem, SvgPathDisplayItem, TextDisplayItem, TimelineDisplayItem,
     },
     core::frame_ctx::FrameCtx,
-    resource::{
-        assets::AssetsMap,
+    host::resource::media::{MediaContext, VideoFrameRequest},
+    core::resource::{
+        asset_catalog::AssetCatalog,
         bitmap_source::{BitmapSourceKind, bitmap_source_kind},
-        media::{MediaContext, VideoFrameRequest},
     },
     runtime::cache::{
         CachedSubtreeImage, CachedSubtreeSnapshot, GlyphImageCache, GlyphPathCache, ImageCache,
@@ -99,7 +99,7 @@ impl Default for DrawScriptPaintState {
 pub struct SkiaBackend<'a> {
     canvas: &'a Canvas,
     display_tree: &'a AnnotatedDisplayTree,
-    assets: &'a AssetsMap,
+    assets: &'a AssetCatalog,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     image_cache: ImageCache,
@@ -116,7 +116,7 @@ impl<'a> SkiaBackend<'a> {
         _width: i32,
         _height: i32,
         display_tree: &'a AnnotatedDisplayTree,
-        assets: &'a AssetsMap,
+        assets: &'a AssetCatalog,
         image_cache: ImageCache,
         glyph_path_cache: GlyphPathCache,
         glyph_image_cache: GlyphImageCache,
@@ -922,7 +922,7 @@ pub(crate) fn draw_ordered_scene_cached<'a>(
     display_tree: &AnnotatedDisplayTree,
     ordered_scene: &OrderedSceneProgram,
     canvas: &'a Canvas,
-    assets: &'a AssetsMap,
+    assets: &'a AssetCatalog,
     image_cache: ImageCache,
     glyph_path_cache: GlyphPathCache,
     glyph_image_cache: GlyphImageCache,
@@ -954,7 +954,7 @@ pub(crate) fn record_display_tree_snapshot<'a>(
     display_tree: &AnnotatedDisplayTree,
     width: i32,
     height: i32,
-    assets: &'a AssetsMap,
+    assets: &'a AssetCatalog,
     image_cache: ImageCache,
     glyph_path_cache: GlyphPathCache,
     glyph_image_cache: GlyphImageCache,
@@ -1293,7 +1293,7 @@ fn draw_item_picture_cached(
     canvas: &Canvas,
     item: &DisplayItem,
     cache_key: u64,
-    assets: &AssetsMap,
+    assets: &AssetCatalog,
     image_cache: &ImageCache,
     glyph_path_cache: &GlyphPathCache,
     glyph_image_cache: &GlyphImageCache,
@@ -1339,7 +1339,7 @@ fn draw_item_picture_cached(
 
 fn record_item_picture(
     item: &DisplayItem,
-    assets: &AssetsMap,
+    assets: &AssetCatalog,
     image_cache: &ImageCache,
     glyph_path_cache: &GlyphPathCache,
     glyph_image_cache: &GlyphImageCache,
@@ -1377,7 +1377,7 @@ fn record_item_picture(
 fn draw_display_item_direct(
     canvas: &Canvas,
     item: &DisplayItem,
-    assets: &AssetsMap,
+    assets: &AssetCatalog,
     image_cache: &ImageCache,
     glyph_path_cache: &GlyphPathCache,
     glyph_image_cache: &GlyphImageCache,
@@ -1463,7 +1463,7 @@ fn draw_timeline_base(canvas: &Canvas, timeline: &TimelineDisplayItem) -> Result
 fn draw_bitmap(
     canvas: &Canvas,
     bitmap: &BitmapDisplayItem,
-    assets: &AssetsMap,
+    assets: &AssetCatalog,
     image_cache: &ImageCache,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
@@ -1618,7 +1618,7 @@ fn draw_bitmap(
 }
 
 fn video_frame_target_size(
-    info: crate::resource::media::VideoInfo,
+    info: crate::codec::decode::VideoInfo,
     dst: Rect,
     object_fit: ObjectFit,
 ) -> Option<(u32, u32)> {
@@ -1645,7 +1645,7 @@ fn video_frame_target_size(
 fn draw_script_item(
     canvas: &Canvas,
     item: &DrawScriptDisplayItem,
-    assets: &AssetsMap,
+    assets: &AssetCatalog,
     image_cache: &ImageCache,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
@@ -1949,7 +1949,7 @@ fn draw_script_item(
                 object_fit,
             } => {
                 let image = load_asset_image(
-                    &crate::resource::assets::AssetId(asset_id.clone()),
+                    &crate::core::resource::asset_catalog::AssetId(asset_id.clone()),
                     assets,
                     image_cache,
                     media_ctx,
@@ -2142,7 +2142,7 @@ fn draw_script_item(
                 anti_alias,
             } => {
                 let image = load_asset_image(
-                    &crate::resource::assets::AssetId(asset_id.clone()),
+                    &crate::core::resource::asset_catalog::AssetId(asset_id.clone()),
                     assets,
                     image_cache,
                     media_ctx,
@@ -2210,8 +2210,8 @@ fn stroke_paint_for_draw_script(state: &DrawScriptPaintState) -> Paint {
 }
 
 fn load_asset_image(
-    asset_id: &crate::resource::assets::AssetId,
-    assets: &AssetsMap,
+    asset_id: &crate::core::resource::asset_catalog::AssetId,
+    assets: &AssetCatalog,
     image_cache: &ImageCache,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
@@ -2226,7 +2226,7 @@ fn load_asset_image(
             .ok_or_else(|| anyhow!("video asset requires media context: {}", path.display()))?;
         let request = VideoFrameRequest {
             composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps as f64,
-            timing: crate::resource::media::VideoFrameTiming::default(),
+            timing: crate::core::resource::types::VideoFrameTiming::default(),
             quality: media.video_preview_quality(),
             target_size: None,
         };

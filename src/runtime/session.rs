@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use crate::{
     core::layout::LayoutSession,
-    resource::{
-        assets::AssetsMap,
-        media::{MediaContext, VideoPreviewQuality},
-    },
+    core::resource::asset_catalog::AssetCatalog,
+    host::resource::media::{MediaContext, VideoPreviewQuality},
     runtime::{
         audio::{AudioIntervalCache, DecodedAudioCache},
         cache::{CacheCaps, CacheRegistry},
@@ -20,7 +18,7 @@ use crate::{
 
 pub struct RenderSession {
     pub(crate) media_ctx: MediaContext,
-    pub(crate) assets: AssetsMap,
+    pub(crate) assets: AssetCatalog,
     pub(crate) scene_snapshots: SceneSnapshotCache,
     pub(crate) cache_registry: CacheRegistry,
     pub(crate) script_runtime: ScriptRuntimeCache,
@@ -53,7 +51,7 @@ impl RenderSession {
         let font_db = Arc::new(default_font_db(&[]));
         Self {
             media_ctx: MediaContext::with_cache_caps(cache_caps),
-            assets: AssetsMap::new(),
+            assets: AssetCatalog::new(),
             scene_snapshots: SceneSnapshotCache::new(),
             cache_registry: CacheRegistry::new(cache_caps),
             script_runtime: ScriptRuntimeCache::default(),

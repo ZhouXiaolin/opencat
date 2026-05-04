@@ -239,7 +239,7 @@ mod tests {
         FrameCtx,
         core::element::resolve::resolve_ui_tree,
         parse,
-        resource::assets::AssetsMap,
+        core::resource::asset_catalog::AssetCatalog,
         runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
         core::scene::primitives::{div, lucide},
         core::style::{ColorToken, ObjectFit},
@@ -266,7 +266,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let element = div()
             .id("root")
             .child(
@@ -323,7 +323,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let parsed = crate::parse(
             r#"{"type":"composition","width":320,"height":180,"fps":30,"frames":1}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
@@ -391,7 +391,7 @@ mod tests {
             height: 40,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let element = div()
             .id("root")
             .rounded(12.0)
@@ -446,7 +446,7 @@ mod tests {
             height: 100,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let parsed = crate::parse(
             r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
@@ -514,7 +514,7 @@ mod tests {
             height: 100,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let parsed = crate::parse(
             r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
@@ -601,7 +601,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let root = div().id("root").child(
             lucide("play")
                 .id("icon")
@@ -657,7 +657,7 @@ mod tests {
             height: 100,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let parsed = parse(
             r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
@@ -693,7 +693,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let root = div().id("root").child(
             crate::core::scene::primitives::path("M0 0 L 100 0 L 50 100 Z")
                 .id("triangle")
@@ -752,7 +752,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let root = div().id("root").child(lucide("play").id("icon"));
         let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect("tree should resolve");

@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 
 use crate::{
     codec::decode::AudioTrack,
-    resource::media::VideoPreviewQuality,
+    host::resource::media::VideoPreviewQuality,
     runtime::{
         audio::{
             AudioBuffer, build_audio_track as build_runtime_audio_track,

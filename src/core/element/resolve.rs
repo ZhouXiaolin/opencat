@@ -10,10 +10,8 @@ use crate::{
         },
     },
     core::frame_ctx::ScriptFrameCtx,
-    resource::{
-        assets::AssetId,
-        catalog::{ResourceCatalog, VideoInfoMeta},
-    },
+    core::resource::asset_catalog::AssetId,
+    core::resource::catalog::{ResourceCatalog, VideoInfoMeta},
     core::scene::script::{ScriptHost, ScriptRuntimeCache, StyleMutations, TextUnitOverrideBatch},
     core::scene::{
         node::{ComponentNode, NodeKind},
@@ -1098,7 +1096,8 @@ mod tests {
         FrameCtx,
         core::element::tree::ElementKind,
         core::frame_ctx::ScriptFrameCtx,
-        resource::{assets::AssetsMap, catalog::VideoInfoMeta},
+        core::resource::asset_catalog::AssetCatalog,
+        core::resource::catalog::VideoInfoMeta,
         core::scene::easing::Easing,
         core::scene::primitives::{SrtEntry, caption, div, lucide, text, video},
         core::scene::script::{
@@ -1118,7 +1117,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
 
         let err = resolve_ui_tree(&div().into(), &frame_ctx, &mut assets, None)
             .expect_err("nodes without ids should fail during resolution");
@@ -1135,7 +1134,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
 
         let scene = div()
             .id("root")
@@ -1164,7 +1163,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
 
         let root = div()
             .id("root")
@@ -1201,7 +1200,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
 
         let root = div()
             .id("root")
@@ -1229,7 +1228,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
 
         let root = div()
             .id("root")
@@ -1254,7 +1253,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
 
         let root = div()
             .id("root")
@@ -1277,7 +1276,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
 
         let root = div()
             .id("root")
@@ -1303,7 +1302,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
 
         let root = div()
             .id("root")
@@ -1371,7 +1370,7 @@ mod tests {
             height: 180,
             frames: 30,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let mut script_runtime = ScriptRuntimeCache::default();
 
         let from_scene = div()
@@ -1433,7 +1432,7 @@ mod tests {
             height: 180,
             frames: 60,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let mut script_runtime = ScriptRuntimeCache::default();
 
         let scene = div()
@@ -1486,7 +1485,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
 
         let root = div()
             .id("root")
@@ -1539,7 +1538,7 @@ mod tests {
             height: 180,
             frames: 20,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
         let mut runtime = ScriptRuntimeCache::default();
 
         let FrameState::Scene {
@@ -1588,7 +1587,7 @@ mod tests {
             height: 180,
             frames: 10,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
 
         let tree = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None)
             .expect("root caption should resolve from global time");
@@ -1605,7 +1604,7 @@ mod tests {
             height: 180,
             frames: 90,
         };
-        let mut assets = AssetsMap::new();
+        let mut assets = AssetCatalog::new();
 
         let entries = vec![SrtEntry {
             index: 1,
@@ -1651,7 +1650,7 @@ mod tests {
 
     #[test]
     fn resolve_video_falls_back_to_zero_dimensions_when_catalog_lacks_video_info() {
-        let mut catalog = AssetsMap::new();
+        let mut catalog = AssetCatalog::new();
         let v = video("/no/such/video.mp4").id("v");
         let frame_ctx = FrameCtx {
             frame: 0,

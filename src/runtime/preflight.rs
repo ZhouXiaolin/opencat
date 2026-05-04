@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::core::resource::catalog::VideoInfoMeta;
 use crate::runtime::{preflight_collect::collect_resource_requests, session::RenderSession};
 use crate::core::scene::composition::Composition;
 
@@ -17,15 +16,11 @@ pub(crate) fn ensure_assets_preloaded(
 
     let req = collect_resource_requests(composition);
 
-    crate::resource::assets::preload_image_sources(&mut session.assets, req.image_sources)?;
-    crate::resource::assets::preload_audio_sources(&mut session.assets, req.audio_sources)?;
+    crate::host::resource::fetch::preload_image_sources(&mut session.assets, req.image_sources)?;
+    crate::host::resource::fetch::preload_audio_sources(&mut session.assets, req.audio_sources)?;
 
     for path in req.video_paths {
-        if let Ok(info) = session.media_ctx.video_info(&path) {
-            session
-                .assets
-                .register_video_info(&path, VideoInfoMeta::from(&info));
-        }
+        let _ = crate::host::resource::probe::probe_video(&mut session.assets, &path, &mut session.media_ctx);
     }
 
     session.prepared_root_ptr = Some(root_ptr);

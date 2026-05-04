@@ -9,6 +9,7 @@ pub(crate) mod frame_view;
 pub(crate) mod invalidation;
 pub(crate) mod pipeline;
 pub(crate) mod preflight;
+pub mod preflight_collect;
 pub(crate) mod profile;
 pub(crate) mod render_engine;
 pub(crate) mod render_registry;

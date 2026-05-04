@@ -1,9 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
-    hash::{Hash, Hasher},
     ops::Range,
-    sync::{Arc, OnceLock},
 };
 
 use skia_safe::{
@@ -19,8 +16,6 @@ use skia_safe::{
 
 use crate::{
     backend::skia::color::skia_color,
-    runtime::text_engine::SharedTextEngine,
-    text::{TextMeasureRequest, TextMeasurement, TextMeasurer as TextEngine},
     scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
     style::{ComputedTextStyle, FontWeight, TextAlign, TextTransform},
 };
@@ -30,52 +25,8 @@ static EMOJI_FONT_DATA: &[u8] = include_bytes!("../../../assets/NotoColorEmoji.t
 const UNBOUNDED_LAYOUT_WIDTH: f32 = 100_000.0;
 
 thread_local! {
-    static TEXT_MEASURE_CACHE: RefCell<HashMap<u64, (f32, f32)>> = RefCell::new(HashMap::new());
     static SHARED_FONT_COLLECTION: RefCell<Option<FontCollection>> = const { RefCell::new(None) };
     static EMOJI_TYPEFACE: RefCell<Option<Option<Typeface>>> = const { RefCell::new(None) };
-}
-
-pub(crate) struct SkiaTextEngine;
-
-pub fn shared_text_engine() -> SharedTextEngine {
-    static TEXT_ENGINE: OnceLock<SharedTextEngine> = OnceLock::new();
-    TEXT_ENGINE
-        .get_or_init(|| Arc::new(SkiaTextEngine) as SharedTextEngine)
-        .clone()
-}
-
-impl TextEngine for SkiaTextEngine {
-    fn measure(&self, request: &TextMeasureRequest<'_>) -> TextMeasurement {
-        let layout_width = if request.allow_wrap {
-            request.max_width
-        } else {
-            f32::INFINITY
-        };
-        let normalized_width = normalize_width(layout_width);
-        let cache_key = text_measure_cache_key(request.text, request.style, normalized_width);
-
-        if let Some(measured) =
-            TEXT_MEASURE_CACHE.with(|cache| cache.borrow().get(&cache_key).copied())
-        {
-            return TextMeasurement {
-                width: measured.0,
-                height: measured.1,
-            };
-        }
-
-        let paragraph = make_paragraph(request.text, request.style, normalized_width);
-        let measured = (
-            paragraph.longest_line().max(1.0),
-            paragraph.height().max(1.0),
-        );
-        TEXT_MEASURE_CACHE.with(|cache| {
-            cache.borrow_mut().insert(cache_key, measured);
-        });
-        TextMeasurement {
-            width: measured.0,
-            height: measured.1,
-        }
-    }
 }
 
 pub(crate) fn draw_text(
@@ -264,11 +215,6 @@ fn shared_font_collection() -> FontCollection {
     })
 }
 
-fn make_paragraph(text: &str, style: &ComputedTextStyle, max_width: f32) -> Paragraph {
-    let text = apply_text_transform(text, style.text_transform);
-    make_paragraph_from_text(&text, style, max_width)
-}
-
 fn make_paragraph_from_text(text: &str, style: &ComputedTextStyle, max_width: f32) -> Paragraph {
     make_paragraph_with_align(text, style, max_width, style.text_align)
 }
@@ -417,46 +363,10 @@ fn apply_text_transform(text: &str, transform: TextTransform) -> String {
     }
 }
 
-fn text_measure_cache_key(text: &str, style: &ComputedTextStyle, width: f32) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    apply_text_transform(text, style.text_transform).hash(&mut hasher);
-    style.color.hash(&mut hasher);
-    style.font_weight.hash(&mut hasher);
-    style.text_align.hash(&mut hasher);
-    style.text_px.to_bits().hash(&mut hasher);
-    style.letter_spacing.to_bits().hash(&mut hasher);
-    style.line_height.to_bits().hash(&mut hasher);
-    style.line_height_px.map(f32::to_bits).hash(&mut hasher);
-    style.text_transform.hash(&mut hasher);
-    width.to_bits().hash(&mut hasher);
-    hasher.finish()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{apply_text_transform, shared_text_engine};
-    use crate::{
-        runtime::text_engine::TextMeasureRequest,
-        style::{ComputedTextStyle, TextTransform},
-    };
-
-    #[test]
-    fn textlayout_wraps_long_cjk_text_in_narrow_width() {
-        let style = ComputedTextStyle::default();
-        let single_line_height = style.resolved_line_height_px();
-        let measured = shared_text_engine().measure(&TextMeasureRequest {
-            text: "这是一个没有空格但应该自动换行的很长中文句子",
-            style: &style,
-            max_width: 80.0,
-            allow_wrap: true,
-        });
-
-        assert!(
-            measured.height > single_line_height,
-            "expected narrow text layout to wrap into multiple lines, got height {}",
-            measured.height
-        );
-    }
+    use super::apply_text_transform;
+    use crate::style::TextTransform;
 
     #[test]
     fn textlayout_applies_uppercase_transform() {

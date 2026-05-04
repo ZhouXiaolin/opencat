@@ -8,7 +8,7 @@ mod path;
 mod text;
 mod video;
 
-pub use crate::core::style::{AlignItems, JustifyContent, Position};
+pub use crate::style::{AlignItems, JustifyContent, Position};
 pub use audio::AudioSource;
 pub use canvas::{Canvas, CanvasAsset, canvas};
 pub use caption::{CaptionNode, SrtEntry, caption, parse_srt};

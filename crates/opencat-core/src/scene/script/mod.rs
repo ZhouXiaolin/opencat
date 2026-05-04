@@ -4,7 +4,7 @@ pub mod mutations;
 pub use host::{ScriptDriverId, ScriptHost};
 pub use mutations::*;
 
-use crate::core::style::{
+use crate::style::{
     AlignItems, BoxShadow, BoxShadowStyle, DropShadow, DropShadowStyle, FlexDirection,
     InsetShadow, InsetShadowStyle, JustifyContent, ObjectFit, Position, TextAlign,
 };

@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::core::resource::catalog::{ResourceCatalog, VideoInfoMeta};
-use crate::core::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
+use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
+use crate::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AssetId(pub String);

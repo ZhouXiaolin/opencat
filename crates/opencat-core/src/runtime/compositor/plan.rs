@@ -1,4 +1,4 @@
-use crate::core::layout::LayoutPassStats;
+use crate::layout::LayoutPassStats;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SceneRenderPlan {
@@ -32,7 +32,7 @@ pub fn plan_for_scene(
 #[cfg(test)]
 mod tests {
     use super::SceneRenderPlan;
-    use crate::core::layout::LayoutPassStats;
+    use crate::layout::LayoutPassStats;
 
     #[test]
     fn time_variant_paint_scene_disables_scene_snapshot_cache() {

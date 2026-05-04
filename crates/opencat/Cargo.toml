@@ -3,15 +3,6 @@ name = "opencat"
 version.workspace = true
 edition.workspace = true
 
-[features]
-default = ["host-default"]
-host-default = ["host-codec", "host-script-quickjs", "host-resource-net", "host-backend-skia", "host-audio"]
-host-codec = ["opencat-engine/host-codec"]
-host-script-quickjs = ["opencat-engine/host-script-quickjs"]
-host-resource-net = ["opencat-engine/host-resource-net"]
-host-backend-skia = ["opencat-engine/host-backend-skia"]
-host-audio = ["opencat-engine/host-audio"]
-
 [dependencies]
 opencat-core = { path = "../opencat-core" }
 opencat-engine = { path = "../opencat-engine" }

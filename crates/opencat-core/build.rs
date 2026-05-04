@@ -3,8 +3,8 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const TAILWIND_THEME_COLORS_PATH: &str = "tailwind/theme-colors-v4.2.2.css";
-const LUCIDE_ICONS_DIR: &str = "lucide";
+const TAILWIND_THEME_COLORS_PATH: &str = "../../tailwind/theme-colors-v4.2.2.css";
+const LUCIDE_ICONS_DIR: &str = "../../lucide";
 
 #[derive(Clone, Copy)]
 struct Rgb {
@@ -406,27 +406,27 @@ fn indent_block(block: &str, level: usize) -> String {
 fn generate_inherent_impls(colors: &[GeneratedColor]) -> String {
     let mut output = String::new();
     for ty in [
-        "crate::core::scene::primitives::Div",
-        "crate::core::scene::primitives::Image",
-        "crate::core::scene::primitives::Text",
-        "crate::core::scene::primitives::Video",
-        "crate::core::scene::primitives::Lucide",
+        "crate::scene::primitives::Div",
+        "crate::scene::primitives::Image",
+        "crate::scene::primitives::Text",
+        "crate::scene::primitives::Video",
+        "crate::scene::primitives::Lucide",
     ] {
         let _ = writeln!(output, "impl {ty} {{");
         for color in colors {
             let _ = writeln!(
                 output,
-                "    pub fn bg_{}(self) -> Self {{ self.bg(crate::core::style::ColorToken::{}) }}",
+                "    pub fn bg_{}(self) -> Self {{ self.bg(crate::style::ColorToken::{}) }}",
                 color.method_suffix, color.variant
             );
             let _ = writeln!(
                 output,
-                "    pub fn text_{}(self) -> Self {{ self.text_color(crate::core::style::ColorToken::{}) }}",
+                "    pub fn text_{}(self) -> Self {{ self.text_color(crate::style::ColorToken::{}) }}",
                 color.method_suffix, color.variant
             );
             let _ = writeln!(
                 output,
-                "    pub fn border_{}(self) -> Self {{ self.border_color(crate::core::style::ColorToken::{}) }}",
+                "    pub fn border_{}(self) -> Self {{ self.border_color(crate::style::ColorToken::{}) }}",
                 color.method_suffix, color.variant
             );
         }

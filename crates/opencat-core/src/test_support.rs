@@ -1,5 +1,4 @@
 //! src/core/test_support.rs
-#![cfg(test)]
 
 use std::sync::Arc;
 

@@ -44,8 +44,8 @@ pub(crate) fn ensure_assets_preloaded(
         );
     }
 
-    session.assets.preload_image_sources(image_sources)?;
-    session.assets.preload_audio_sources(audio_sources)?;
+    crate::resource::assets::preload_image_sources(&mut session.assets, image_sources)?;
+    crate::resource::assets::preload_audio_sources(&mut session.assets, audio_sources)?;
     session.prepared_root_ptr = Some(root_ptr);
     Ok(())
 }

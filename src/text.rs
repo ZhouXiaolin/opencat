@@ -1,7 +1,5 @@
 //! 纯计算文本测量。不依赖 Skia/平台字体管理，用 cosmic-text + fontdb。
 
-use std::sync::Arc;
-
 use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping};
 
 use crate::style::ComputedTextStyle;
@@ -98,65 +96,4 @@ mod tests {
             measured.height
         );
     }
-
-    #[test]
-    fn cosmic_text_measurer_matches_function_output() {
-        use super::{TextMeasureRequest, TextMeasurer, shared_cosmic_text_measurer};
-        use std::sync::Arc;
-
-        let db = Arc::new(default_font_db(&[]));
-        let measurer = shared_cosmic_text_measurer(db.clone());
-        let style = ComputedTextStyle::default();
-        let req = TextMeasureRequest {
-            text: "测试 mixed text",
-            style: &style,
-            max_width: 100.0,
-            allow_wrap: true,
-        };
-        let via_trait = measurer.measure(&req);
-        let via_fn = measure_text("测试 mixed text", &style, 100.0, true, &db);
-        assert_eq!(via_trait, via_fn);
-    }
-}
-
-// 兼容旧调用点的 type alias，迁移完成后删除
-pub type SharedTextMeasurer = Arc<dyn TextMeasurer>;
-
-pub struct TextMeasureRequest<'a> {
-    pub text: &'a str,
-    pub style: &'a ComputedTextStyle,
-    pub max_width: f32,
-    pub allow_wrap: bool,
-}
-
-pub trait TextMeasurer: Send + Sync {
-    fn measure(&self, request: &TextMeasureRequest<'_>) -> TextMeasurement;
-}
-
-/// 把 `default_font_db()` 与 `measure_text()` 适配为 `TextMeasurer` trait
-/// 实现，便于现有调用点逐步切换。
-pub struct CosmicTextMeasurer {
-    font_db: Arc<fontdb::Database>,
-}
-
-impl CosmicTextMeasurer {
-    pub fn new(font_db: Arc<fontdb::Database>) -> Self {
-        Self { font_db }
-    }
-}
-
-impl TextMeasurer for CosmicTextMeasurer {
-    fn measure(&self, request: &TextMeasureRequest<'_>) -> TextMeasurement {
-        measure_text(
-            request.text,
-            request.style,
-            request.max_width,
-            request.allow_wrap,
-            &self.font_db,
-        )
-    }
-}
-
-pub fn shared_cosmic_text_measurer(font_db: Arc<fontdb::Database>) -> SharedTextMeasurer {
-    Arc::new(CosmicTextMeasurer::new(font_db)) as SharedTextMeasurer
 }

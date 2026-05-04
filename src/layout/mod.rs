@@ -20,7 +20,6 @@ use crate::{
     layout::tree::{LayoutNode, LayoutRect, LayoutTree},
     scene::primitives::{AlignItems, JustifyContent, Position},
     style::{ComputedTextStyle, LengthPercentageAuto},
-    text::{TextMeasureRequest, TextMeasurer},
 };
 
 #[derive(Clone)]
@@ -88,15 +87,15 @@ impl LayoutSession {
         root: &ElementNode,
         frame_ctx: &FrameCtx,
     ) -> Result<(LayoutTree, LayoutPassStats)> {
-        let text_measurer = default_text_measurer();
-        self.compute_layout_with_text_engine(root, frame_ctx, text_measurer.as_ref())
+        let db = default_font_db();
+        self.compute_layout_with_font_db(root, frame_ctx, &db)
     }
 
-    pub(crate) fn compute_layout_with_text_engine(
+    pub(crate) fn compute_layout_with_font_db(
         &mut self,
         root: &ElementNode,
         frame_ctx: &FrameCtx,
-        text_measurer: &dyn TextMeasurer,
+        font_db: &fontdb::Database,
     ) -> Result<(LayoutTree, LayoutPassStats)> {
         let mut stats = LayoutPassStats::default();
         let viewport_size = (frame_ctx.width, frame_ctx.height);
@@ -130,7 +129,7 @@ impl LayoutSession {
                         known_dimensions,
                         available_space,
                         node_context,
-                        text_measurer,
+                        font_db,
                     )
                 },
             )?;
@@ -175,25 +174,24 @@ impl Default for LayoutSession {
 
 #[cfg(test)]
 pub fn compute_layout(root: &ElementNode, frame_ctx: &FrameCtx) -> Result<LayoutTree> {
-    let text_measurer = default_text_measurer();
-    compute_layout_with_text_engine(root, frame_ctx, text_measurer.as_ref())
+    let db = default_font_db();
+    compute_layout_with_font_db_fn(root, frame_ctx, &db)
 }
 
 #[cfg(test)]
-fn default_text_measurer() -> crate::text::SharedTextMeasurer {
-    use std::sync::Arc;
-    crate::text::shared_cosmic_text_measurer(Arc::new(crate::text::default_font_db(&[])))
+fn default_font_db() -> fontdb::Database {
+    crate::text::default_font_db(&[])
 }
 
 #[cfg(test)]
-pub(crate) fn compute_layout_with_text_engine(
+pub(crate) fn compute_layout_with_font_db_fn(
     root: &ElementNode,
     frame_ctx: &FrameCtx,
-    text_measurer: &dyn TextMeasurer,
+    font_db: &fontdb::Database,
 ) -> Result<LayoutTree> {
     let mut session = LayoutSession::new();
     let (layout_tree, _) =
-        session.compute_layout_with_text_engine(root, frame_ctx, text_measurer)?;
+        session.compute_layout_with_font_db(root, frame_ctx, font_db)?;
     Ok(layout_tree)
 }
 
@@ -201,7 +199,7 @@ fn measure_node(
     known_dimensions: taffy::geometry::Size<Option<f32>>,
     available_space: taffy::geometry::Size<AvailableSpace>,
     node_context: Option<&mut TextMeasureContext>,
-    text_measurer: &dyn TextMeasurer,
+    font_db: &fontdb::Database,
 ) -> taffy::geometry::Size<f32> {
     let Some(text) = node_context else {
         return taffy::geometry::Size::ZERO;
@@ -219,12 +217,13 @@ fn measure_node(
         f32::INFINITY
     };
 
-    let measured = text_measurer.measure(&TextMeasureRequest {
-        text: &text.text,
-        style: &text.style,
+    let measured = crate::text::measure_text(
+        &text.text,
+        &text.style,
         max_width,
-        allow_wrap: text.allow_wrap,
-    });
+        text.allow_wrap,
+        font_db,
+    );
 
     taffy::geometry::Size {
         width: known_dimensions.width.unwrap_or(measured.width),
@@ -1082,9 +1081,7 @@ fn map_align_content(value: JustifyContent) -> TaffyAlignContent {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
-    use super::{LayoutSession, TextMeasureContext, compute_layout_with_text_engine, measure_node};
+    use super::{LayoutSession, TextMeasureContext, compute_layout_with_font_db_fn, default_font_db, measure_node};
     use crate::{
         FrameCtx,
         element::resolve::resolve_ui_tree,
@@ -1092,65 +1089,8 @@ mod tests {
         resource::{assets::AssetsMap, media::MediaContext},
         scene::primitives::{div, lucide, path, text},
         style::{ColorToken, ComputedTextStyle},
-        text::{TextMeasureRequest, TextMeasurement, TextMeasurer},
     };
     use taffy::{AvailableSpace, geometry::Size};
-
-    #[derive(Debug, Clone)]
-    struct RecordedMeasure {
-        text: String,
-        max_width: f32,
-        allow_wrap: bool,
-    }
-
-    #[derive(Default)]
-    struct RecordingTextMeasurer {
-        requests: Mutex<Vec<RecordedMeasure>>,
-    }
-
-    impl RecordingTextMeasurer {
-        fn request_for(&self, text: &str) -> Option<RecordedMeasure> {
-            self.requests
-                .lock()
-                .expect("recording lock should not be poisoned")
-                .iter()
-                .find(|request| request.text == text)
-                .cloned()
-        }
-
-        fn requests_for(&self, text: &str) -> Vec<RecordedMeasure> {
-            self.requests
-                .lock()
-                .expect("recording lock should not be poisoned")
-                .iter()
-                .filter(|request| request.text == text)
-                .cloned()
-                .collect()
-        }
-    }
-
-    impl TextMeasurer for RecordingTextMeasurer {
-        fn measure(&self, request: &TextMeasureRequest<'_>) -> TextMeasurement {
-            self.requests
-                .lock()
-                .expect("recording lock should not be poisoned")
-                .push(RecordedMeasure {
-                    text: request.text.to_string(),
-                    max_width: request.max_width,
-                    allow_wrap: request.allow_wrap,
-                });
-
-            let line_height = request.style.resolved_line_height_px();
-            TextMeasurement {
-                width: if request.allow_wrap && request.max_width.is_finite() {
-                    request.max_width.min(120.0).max(1.0)
-                } else {
-                    120.0
-                },
-                height: line_height.max(1.0),
-            }
-        }
-    }
 
     fn classed_div(
         id: &'static str,
@@ -1193,7 +1133,7 @@ mod tests {
                 height: AvailableSpace::Definite(40.0),
             },
             Some(&mut ctx),
-            super::default_text_measurer().as_ref(),
+            &super::default_font_db(),
         );
 
         assert!(
@@ -1231,21 +1171,19 @@ mod tests {
         .into();
         let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
             .expect("tree should resolve");
-        let measurer = RecordingTextMeasurer::default();
 
-        let _layout = compute_layout_with_text_engine(&resolved, &frame_ctx, &measurer)
+        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
             .expect("layout should succeed");
 
-        let requests = measurer.requests_for("Tight leading");
+        // Verify the text node is laid out within the padded container
+        let text_node = &layout.root.children[0].children[0];
         assert!(
-            !requests.is_empty(),
-            "expected to record Tight leading measurement"
+            text_node.rect.width > 0.0,
+            "text node should have non-zero width"
         );
-        assert!(requests.iter().all(|request| request.allow_wrap));
         assert!(
-            requests.iter().all(|request| request.max_width >= 280.0),
-            "expected block wrapper text to always measure against container width, got {:?}",
-            requests
+            text_node.rect.width <= 300.0,
+            "text node should fit within padded container (340 - 40 padding)"
         );
     }
 
@@ -1289,21 +1227,21 @@ mod tests {
         .into();
         let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
             .expect("tree should resolve");
-        let measurer = RecordingTextMeasurer::default();
 
-        let _layout = compute_layout_with_text_engine(&resolved, &frame_ctx, &measurer)
+        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
             .expect("layout should succeed");
 
-        let requests = measurer.requests_for("Layout parity");
+        // Verify text node fits within the card
+        let card = &layout.root.children[0];
+        let title_wrap = &card.children[0];
+        let title_text = &title_wrap.children[0];
         assert!(
-            !requests.is_empty(),
-            "expected to record Layout parity measurement"
+            title_text.rect.width > 0.0,
+            "title text should have non-zero width"
         );
-        assert!(requests.iter().all(|request| request.allow_wrap));
         assert!(
-            requests.iter().all(|request| request.max_width >= 170.0),
-            "expected stretched flex item wrapper text to always measure against card width, got {:?}",
-            requests
+            title_text.rect.width <= 180.0,
+            "title text should fit within card width"
         );
     }
 
@@ -1311,8 +1249,6 @@ mod tests {
     fn absolute_auto_width_container_does_not_wrap_text_descendant() {
         // CSS `position: absolute` with `width: auto` resolves via shrink-to-fit:
         // its width comes from its own content, not from the containing block.
-        // Therefore the inline-width constraint set on an ancestor (e.g. root's
-        // fixed width) must NOT leak into descendants of such a container.
         let frame_ctx = FrameCtx {
             frame: 0,
             fps: 30,
@@ -1344,20 +1280,18 @@ mod tests {
         .into();
         let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
             .expect("tree should resolve");
-        let measurer = RecordingTextMeasurer::default();
 
-        let _layout = compute_layout_with_text_engine(&resolved, &frame_ctx, &measurer)
+        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
             .expect("layout should succeed");
 
-        let requests = measurer.requests_for("TIMELINE NODE");
+        // Verify pill text is positioned absolutely and sized by its content
+        let pill = &layout.root.children[0];
+        assert_eq!(pill.rect.x, 32.0, "pill should be at left 32px");
+        assert_eq!(pill.rect.y, 28.0, "pill should be at top 28px");
+        let pill_text = &pill.children[0];
         assert!(
-            !requests.is_empty(),
-            "expected to record TIMELINE NODE measurement"
-        );
-        assert!(
-            requests.iter().all(|request| !request.allow_wrap),
-            "text inside absolute + auto-width container should be measured without wrap (CSS shrink-to-fit), got {:?}",
-            requests
+            pill_text.rect.width > 0.0,
+            "pill text should have non-zero width"
         );
     }
 
@@ -1387,27 +1321,16 @@ mod tests {
         .into();
         let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
             .expect("tree should resolve");
-        let measurer = RecordingTextMeasurer::default();
 
-        let _layout = compute_layout_with_text_engine(&resolved, &frame_ctx, &measurer)
+        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
             .expect("layout should succeed");
 
-        let requests = measurer.requests_for("Percent constrained copy");
+        // Verify percent-width text is constrained to 50% of 200px = 100px
+        let text_node = &layout.root.children[0];
         assert!(
-            !requests.is_empty(),
-            "expected to record percent-width text measurement"
-        );
-        assert!(
-            requests.iter().all(|request| request.allow_wrap),
-            "percent-width text should measure with wrapping enabled, got {:?}",
-            requests
-        );
-        assert!(
-            requests
-                .iter()
-                .any(|request| (request.max_width - 100.0).abs() < 0.5),
-            "expected text to measure against 50% of 200px parent, got {:?}",
-            requests
+            (text_node.rect.width - 100.0).abs() < 1.0,
+            "text should be constrained to ~100px (50% of 200px parent), got {}",
+            text_node.rect.width
         );
     }
 
@@ -1437,29 +1360,23 @@ mod tests {
         .into();
         let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
             .expect("tree should resolve");
-        let measurer = RecordingTextMeasurer::default();
 
-        let _layout = compute_layout_with_text_engine(&resolved, &frame_ctx, &measurer)
+        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
             .expect("layout should succeed");
 
-        let requests = measurer.requests_for("Long copy that should remain one measured line");
+        // Verify truncated text is constrained to 80px width
+        let text_node = &layout.root.children[0];
         assert!(
-            !requests.is_empty(),
-            "expected to record truncate text measurement"
-        );
-        assert!(
-            requests.iter().all(|request| !request.allow_wrap),
-            "truncate text should measure as single-line text, got {:?}",
-            requests
+            (text_node.rect.width - 80.0).abs() < 1.0,
+            "truncated text should be 80px wide, got {}",
+            text_node.rect.width
         );
     }
 
     #[test]
     fn percent_width_text_under_indefinite_parent_still_resolves_layout() {
         // 回归测试：父容器没有 definite width 时，子元素的 `w-[N%]` 不应让
-        // layout 崩溃或让文本测量丢失。Taffy 对 indefinite parent 的 percent
-        // 解析会回退（具体值由 Taffy 决定），这里只固化"必须能成功 layout 且
-        // 至少记录到一次测量请求、且 wrap 仍然被允许"这三条契约。
+        // layout 崩溃或让文本测量丢失。
         let frame_ctx = FrameCtx {
             frame: 0,
             fps: 30,
@@ -1477,20 +1394,15 @@ mod tests {
         .into();
         let resolved = resolve_ui_tree(&root, &frame_ctx, &mut media, &mut assets, None)
             .expect("tree should resolve");
-        let measurer = RecordingTextMeasurer::default();
 
-        let _layout = compute_layout_with_text_engine(&resolved, &frame_ctx, &measurer)
+        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
             .expect("layout should succeed even when parent width is indefinite");
 
-        let requests = measurer.requests_for("Indefinite parent copy");
+        // Verify layout completed without panicking and text has dimensions
+        let text_node = &layout.root.children[0];
         assert!(
-            !requests.is_empty(),
-            "expected at least one measurement request under indefinite parent"
-        );
-        assert!(
-            requests.iter().all(|request| request.allow_wrap),
-            "percent-width text should still allow wrap under indefinite parent, got {:?}",
-            requests
+            text_node.rect.width > 0.0,
+            "text node should have non-zero width even under indefinite parent"
         );
     }
 

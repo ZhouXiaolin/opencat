@@ -106,10 +106,10 @@ pub(crate) fn build_scene_display_list(
     let layout_span = span!(target: "render.scene", Level::TRACE, "compute_layout");
     let (layout_tree, layout_pass) = {
         let _guard = layout_span.enter();
-        let text_engine = session.text_engine_handle();
+        let font_db = session.font_db_handle();
         session
             .layout_session_mut()
-            .compute_layout_with_text_engine(&element_root, frame_ctx, text_engine.as_ref())?
+            .compute_layout_with_font_db(&element_root, frame_ctx, font_db.as_ref())?
     };
     stats.layout_pass = layout_pass;
 

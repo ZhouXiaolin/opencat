@@ -15,7 +15,7 @@ use crate::{
         render_registry,
     },
     scene::script::ScriptRuntimeCache,
-    text::{default_font_db, shared_cosmic_text_measurer, SharedTextMeasurer},
+    text::default_font_db,
 };
 
 pub struct RenderSession {
@@ -28,7 +28,6 @@ pub struct RenderSession {
     pub(crate) prepared_root_ptr: Option<usize>,
     pub(crate) audio_decode_cache: DecodedAudioCache,
     pub(crate) audio_interval_cache: AudioIntervalCache,
-    pub(crate) text_engine: SharedTextMeasurer,
     pub(crate) font_db: Arc<fontdb::Database>,
     pub(crate) render_engine: SharedRenderEngine,
     composite_history: CompositeHistory,
@@ -52,7 +51,6 @@ impl RenderSession {
         cache_caps: CacheCaps,
     ) -> Self {
         let font_db = Arc::new(default_font_db(&[]));
-        let text_engine = shared_cosmic_text_measurer(font_db.clone());
         Self {
             media_ctx: MediaContext::with_cache_caps(cache_caps),
             assets: AssetsMap::new(),
@@ -63,7 +61,6 @@ impl RenderSession {
             prepared_root_ptr: None,
             audio_decode_cache: DecodedAudioCache::default(),
             audio_interval_cache: AudioIntervalCache::default(),
-            text_engine,
             font_db,
             render_engine,
             composite_history: CompositeHistory::default(),
@@ -78,8 +75,8 @@ impl RenderSession {
         &mut self.layout_session
     }
 
-    pub(crate) fn text_engine_handle(&self) -> SharedTextMeasurer {
-        self.text_engine.clone()
+    pub(crate) fn font_db_handle(&self) -> Arc<fontdb::Database> {
+        self.font_db.clone()
     }
 
     pub(crate) fn render_engine_handle(&self) -> SharedRenderEngine {

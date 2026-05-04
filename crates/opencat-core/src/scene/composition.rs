@@ -3,8 +3,8 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 
 use crate::{
-    core::frame_ctx::FrameCtx,
-    core::scene::{node::Node, primitives::AudioSource},
+    frame_ctx::FrameCtx,
+    scene::{node::Node, primitives::AudioSource},
 };
 
 type RootComponent = dyn Fn(&FrameCtx) -> Node + Send + Sync;

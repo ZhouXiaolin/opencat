@@ -16,10 +16,10 @@ use taffy::{
 
 use crate::{
     FrameCtx,
-    core::element::tree::{ElementKind, ElementNode},
-    core::layout::tree::{LayoutNode, LayoutRect, LayoutTree},
-    core::scene::primitives::{AlignItems, JustifyContent, Position},
-    core::style::{ComputedTextStyle, LengthPercentageAuto},
+    element::tree::{ElementKind, ElementNode},
+    layout::tree::{LayoutNode, LayoutRect, LayoutTree},
+    scene::primitives::{AlignItems, JustifyContent, Position},
+    style::{ComputedTextStyle, LengthPercentageAuto},
 };
 
 #[derive(Clone)]
@@ -1093,12 +1093,12 @@ mod tests {
     use super::{LayoutSession, TextMeasureContext, compute_layout_with_font_db_fn, default_font_db, measure_node};
     use crate::{
         FrameCtx,
-        core::element::resolve::resolve_ui_tree,
-        core::jsonl::tailwind::parse_class_name,
-        core::resource::asset_catalog::AssetCatalog,
-        core::scene::primitives::{div, lucide, path, text},
-        core::style::{ColorToken, ComputedTextStyle},
-        core::test_support::MockScriptHost,
+        element::resolve::resolve_ui_tree,
+        jsonl::tailwind::parse_class_name,
+        resource::asset_catalog::AssetCatalog,
+        scene::primitives::{div, lucide, path, text},
+        style::{ColorToken, ComputedTextStyle},
+        test_support::MockScriptHost,
     };
     use taffy::{AvailableSpace, geometry::Size};
 

@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use crate::{
-    core::frame_ctx::FrameCtx,
-    core::scene::{
+    frame_ctx::FrameCtx,
+    scene::{
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video},
         script::ScriptDriver,
         time::TimelineNode,
     },
-    core::style::NodeStyle,
+    style::NodeStyle,
 };
 
 #[derive(Clone)]

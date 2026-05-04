@@ -698,8 +698,8 @@ fn parse_class_name_with_context(class_name: &str, node_id: &str, line_number: u
 mod tests {
     use super::{parse, parse_class_name};
     use crate::{
-        core::scene::{composition::AudioAttachment, node::NodeKind},
-        core::style::{
+        scene::{composition::AudioAttachment, node::NodeKind},
+        style::{
             AlignItems, ColorToken, FlexDirection, FlexWrap, GradientDirection, JustifyContent,
             LengthPercentageAuto, Position, TextAlign,
         },

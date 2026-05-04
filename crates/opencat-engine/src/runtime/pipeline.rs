@@ -18,7 +18,7 @@ use opencat_core::scene::{
 };
 use opencat_core::text::FontProvider;
 
-use crate::host::runtime::{
+use crate::runtime::{
     compositor::{SceneRenderRuntime, plan_for_scene, render_scene},
     frame_view::RenderFrameView,
     path_bounds::default_host_path_bounds,

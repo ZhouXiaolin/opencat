@@ -15,7 +15,7 @@ use opencat_core::scene::transition::{slide, timeline};
 
 use crate::FrameCtx;
 
-use crate::host::script::ScriptRuntimeCache;
+use crate::script::ScriptRuntimeCache;
 
 #[test]
 fn node_script_only_affects_its_own_subtree() {

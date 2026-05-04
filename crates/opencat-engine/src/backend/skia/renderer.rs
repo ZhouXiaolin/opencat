@@ -6,10 +6,10 @@ use skia_safe::{AlphaType, Canvas, ColorType, ImageInfo, Picture, image::Caching
 use std::ffi::c_void;
 
 #[cfg(target_os = "macos")]
-use crate::host::runtime::surface::MetalEncodeBridge;
+use crate::runtime::surface::MetalEncodeBridge;
+use opencat_core::runtime::annotation::AnnotatedDisplayTree;
 use crate::{
     runtime::{
-        annotation::AnnotatedDisplayTree,
         compositor::OrderedSceneProgram,
         frame_view::RenderFrameView,
         render_engine::{RenderEngine, SceneRenderContext, SceneSnapshot, SharedRenderEngine},
@@ -71,7 +71,7 @@ impl RenderEngine for SkiaRenderEngine {
         target.require_frame_view_kind(self.target_frame_view_kind())?;
         let frame_surface = target.begin_frame_surface(composition.width, composition.height)?;
         let frame_view = target.resolve_frame_view(frame_surface)?;
-        let render_result = crate::host::runtime::pipeline::render_frame_on_surface(
+        let render_result = crate::runtime::pipeline::render_frame_on_surface(
             composition,
             frame_index,
             session,
@@ -181,7 +181,7 @@ fn render_frame_rgba_raster(
         RenderFrameViewKind::DrawContext2D,
         surface.canvas() as *const _ as *mut c_void,
     )?;
-    crate::host::runtime::pipeline::render_frame_on_surface(
+    crate::runtime::pipeline::render_frame_on_surface(
         composition,
         frame_index,
         session,

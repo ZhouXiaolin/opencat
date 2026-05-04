@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use anyhow::{Result, anyhow};
 
-use crate::host::runtime::frame_view::RenderFrameView;
+use crate::runtime::frame_view::RenderFrameView;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderFrameViewKind {

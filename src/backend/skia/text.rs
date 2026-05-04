@@ -36,7 +36,7 @@ thread_local! {
 
 pub(crate) struct SkiaTextEngine;
 
-pub(crate) fn shared_text_engine() -> SharedTextEngine {
+pub fn shared_text_engine() -> SharedTextEngine {
     static TEXT_ENGINE: OnceLock<SharedTextEngine> = OnceLock::new();
     TEXT_ENGINE
         .get_or_init(|| Arc::new(SkiaTextEngine) as SharedTextEngine)

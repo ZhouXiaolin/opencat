@@ -4,17 +4,18 @@ use opencat_core::layout::LayoutSession;
 use opencat_core::resource::asset_catalog::AssetCatalog;
 use opencat_core::text::default_font_db;
 
+use opencat_core::runtime::invalidation::CompositeHistory;
+
 use crate::{
-    host::resource::media::{MediaContext, VideoPreviewQuality},
+    resource::media::{MediaContext, VideoPreviewQuality},
     runtime::{
         audio::{AudioIntervalCache, DecodedAudioCache},
         cache::{CacheCaps, CacheRegistry},
         compositor::SceneSnapshotCache,
-        invalidation::CompositeHistory,
         render_engine::SharedRenderEngine,
         render_registry,
     },
-    host::script::ScriptRuntimeCache,
+    script::ScriptRuntimeCache,
 };
 
 pub struct RenderSession {

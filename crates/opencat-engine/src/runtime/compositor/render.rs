@@ -7,8 +7,8 @@ use opencat_core::runtime::annotation::AnnotatedDisplayTree;
 use opencat_core::runtime::compositor::OrderedSceneProgram;
 
 use crate::{
-    host::resource::media::MediaContext,
-    host::runtime::{
+    resource::media::MediaContext,
+    runtime::{
         cache::CacheRegistry,
         frame_view::RenderFrameView,
         render_engine::{SceneRenderContext, SceneSnapshot, SharedRenderEngine},

@@ -34,11 +34,12 @@ use reqwest::Client;
 use serde_json::{Value, json};
 
 use crate::{
-    Composition, RenderSession, collect_frame_layout_rects,
-    inspect::FrameElementRect,
+    Composition, RenderSession,
     core::jsonl::tailwind::parse_class_name,
     core::scene::primitives::{div, text},
 };
+
+use super::{FrameElementRect, collect_frame_layout_rects};
 
 #[test]
 fn chromedriver_tailwind_layout_matches_taffy() -> Result<()> {

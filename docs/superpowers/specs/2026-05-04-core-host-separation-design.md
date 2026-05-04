@@ -83,10 +83,10 @@ src/
       preflight_collect.rs ← collect_resource_requests 的实现（树遍历）
       pipeline.rs          ← build_frame_display_tree 的实现
     frame_ctx.rs
-    inspect.rs
     lib.rs                 ← 暴露 core 公开 API
 
   host/                  ← 默认 feature 全开
+    inspect.rs           ← 现 src/inspect.rs（用于 IDE/debug 工具，依赖 AssetCatalog 具体类型）
     resource/
       asset_catalog.rs     ← struct AssetCatalog impl ResourceCatalog（含状态：HashMap）
       fetch.rs             ← preload_image_sources / preload_audio_sources（reqwest + tokio）
@@ -314,9 +314,10 @@ AnnotatedDisplayTree
 - core 路径上 `ScriptRuntimeCache` 改名为 `ScriptDriverCache { drivers: HashMap<u64, ScriptDriverId>, text_sources: HashMap<String, ScriptTextSource> }`，仅作为 driver id 缓存。
 
 ### 7.8 `runtime::fingerprint / annotation` 去 AssetsMap
-- `item_is_time_variant(item)` / `bitmap_is_video(bitmap)`：改用 `bitmap.video_timing.is_some()` 判断是否为视频。删掉 `assets: &AssetsMap` 参数。
+- `item_is_time_variant(item)` / `bitmap_is_video(bitmap)`：改用 `bitmap.video_timing.is_some()` 判断是否为视频。删掉 `assets: &AssetsMap` 参数。其它分支（`Timeline => true`、`Text => text_unit_overrides.is_some()`）不受影响。
 - `classify_paint(item)` / `item_paint_fingerprint(item)`：删 `assets: &AssetsMap` 参数。
-- `annotate_display_tree(tree)` / `compute_display_tree_fingerprints(tree)`：删 `assets: &AssetsMap` 参数。
+- `annotate_display_tree(tree)`：删 `assets: &AssetsMap` 参数（当前 `src/runtime/annotation.rs:104-106` 接 assets 并透传给 `classify_paint`）。
+- `compute_display_tree_fingerprints(tree)`：当前已经不接 assets（`src/runtime/annotation.rs:212` 仅接 `&mut AnnotatedDisplayTree`），无需改签名。
 - 调用方相应清理（`runtime::pipeline::build_scene_display_list` 内）。
 - 单元测试：原先 `let mut assets = AssetsMap::new(); ...` 的 setup 删除。
 
@@ -324,29 +325,38 @@ AnnotatedDisplayTree
 - core：`ordered_scene.rs / plan.rs / reuse.rs / slot.rs` 整体搬入 `core::runtime::compositor`。
 - host：`render.rs / mod.rs 内含 backend 的部分` 搬入 `host::runtime::compositor_render`。
 - `SceneSnapshotCache`（在 `compositor/mod.rs` 内）：因含 `Picture`，搬到 host。
+- **`SceneRenderContext` 与 `SceneRenderRuntime` 的 `assets` 字段类型变更**：当前 `src/runtime/render_engine.rs:20-27` 与 `src/runtime/compositor/render.rs:18-27` 持 `assets: &'a AssetsMap`。重构后这两个结构在 host 内部，字段类型保持具体类型（`&'a AssetCatalog`，`AssetsMap` 沿用为 type alias），不走 trait。后端 skia 通过 `runtime.assets.path(&asset_id)` 与 `.dimensions(...)` 拿渲染所需路径——这些方法在 `AssetCatalog` 上保留。
 
 ### 7.10 `runtime::cache / render_engine / render_registry / session / target / surface / profile / frame_view / backend_object / audio`
 - 全部搬到 `host::runtime::*`。无逻辑改动，只挪位置。
+- `render_engine.rs::SceneRenderContext` 字段 `assets` 类型见 §7.9 说明。
 
 ### 7.11 `text.rs` 与字体加载
 - `core::text::*`：保留所有 cosmic-text 包装。
 - `default_font_db(&[])`（含 IO 加载系统字体）搬到 `host::fonts`，作为 `DefaultFontProvider::new()` 的初始化。
 - core 内 layout 改为接 `&dyn FontProvider`。
+- **`fontdb` 在 core-only 下的可用性**：`fontdb` 是纯 Rust 无 IO（核心数据结构），在 `--no-default-features` 下可用。`src/text.rs::default_font_db` 当前用 `include_bytes!` 嵌入字体（无 IO），可保留在 core 用于测试桩；系统字体加载（`fontdb::Database::load_system_fonts()`）独占 host。
+- `src/layout/mod.rs` 当前在 `#[cfg(test)]` 块内调 `crate::text::default_font_db()`——这些测试在 `--no-default-features` 下仍能跑（已确认）。
 
-### 7.12 `jsonl::parse_file` IO 与 script 内联化
+### 7.12 `jsonl::parse_file / parse_with_base_dir` IO 与 script 内联化
 - `parse_file(path)` 整体搬到 host：`host::jsonl_io::parse_file(path)`。逻辑：
   1. host 端 `fs::read_to_string` 读 jsonl。
   2. host 端用 `serde_json` 逐行解析 `JsonLine`（`JsonLine` 仍在 core 内 pub 出来，让 host 复用 enum 定义；这不破坏 core 纯净度因为 `JsonLine` 只是 `serde_json` 反序列化结构，serde_json 在 core 已有依赖）。
   3. 对每个 `JsonLine::Script { path: Some(p), src: None, .. }`，host `fs::read_to_string(base_dir.join(p))` 读出脚本内容，原地改写为 `JsonLine::Script { path: None, src: Some(content), .. }`。
   4. host 把改写后的行**重新 serialize 回 jsonl 字符串**（per-line `serde_json::to_string`），交给 `core::parse(text)`。
-- core 侧 `parse / parse_with_base_dir`：删除 `parse_with_base_dir` 入口（它的语义已被 host 取代）；core 只暴露 `parse(text: &str)`，且 core 永不读文件。
-- **影响**：`JsonLine` 从 `enum JsonLine`（私有）改为 `pub(crate) enum JsonLine`，host 模块通过 `pub use crate::core::jsonl::JsonLine` 访问；为最小化改动，给 `JsonLine` 加 `#[derive(Serialize)]`（现仅 `Deserialize`）。
-- 顶层 re-export `pub use jsonl::{ParsedComposition, parse, parse_file, parse_with_base_dir}`：`parse_file` 改为指向 `host::jsonl_io::parse_file`；`parse_with_base_dir` 删除并加 deprecation 注释，建议下游切换到 `parse_file` 或 `parse`（实际现有代码只有 jsonl.rs 内部测试用 parse_with_base_dir，外部消费已用 parse_file）。
+- `parse_with_base_dir(text, base_dir)` 整体搬到 host：`host::jsonl_io::parse_with_base_dir(text, base_dir)`。逻辑同 `parse_file` 但跳过步骤 1（直接接收 text）。
+- core 侧 `parse / parse_with_base_dir`：删除 `parse_with_base_dir` 入口；core 只暴露 `parse(text: &str) -> Result<ParsedComposition>`，且 core 永不读文件。当 jsonl 中含 `JsonLine::Script { path: Some(_), src: None }` 时，core::parse **返回 `Err`**（明确告知调用方走 host::jsonl_io::parse_file/parse_with_base_dir）；当 `src: Some(_)` 时正常处理。
+- **影响**：`JsonLine` 从 `enum JsonLine`（私有）改为 `pub(crate) enum JsonLine`，host 模块通过 `pub(crate) use crate::core::jsonl::JsonLine` 访问；为最小化改动，给 `JsonLine` 加 `#[derive(Serialize)]`（现仅 `Deserialize`）。
+- 顶层 re-export `pub use jsonl::{ParsedComposition, parse, parse_file, parse_with_base_dir}`：在默认 features 下保留三个路径，`parse` 指向 `core::jsonl::parse`，`parse_file` 与 `parse_with_base_dir` 指向 `host::jsonl_io::*`。**没有 deprecation**，签名保持不变（已确认无外部源码调用 parse_with_base_dir，仅作为公共 API 保留）。
 
-### 7.13 `inspect.rs` 去 `&mut AssetsMap`
-- `collect_frame_layout_rects`（`src/inspect.rs:123`）签名从 `assets: &mut AssetsMap` 改为 `catalog: &mut dyn ResourceCatalog`。
-- 顶层 re-export `opencat::collect_frame_layout_rects` 路径不变。
-- inspect 内部所有 `assets.ensure_image_source_entry_for_inspect(...)` 等调用改为 trait 方法（spec §4.1 trait 需要相应增加 `ensure_for_inspect` 方法，或者把 inspect 用到的 catalog 维护逻辑降级为通用方法）。**决定**：在 `ResourceCatalog` trait 加一个 `register_for_inspect(src: &ImageSource)` 默认实现（通过 `resolve_image` 的"宽容版本"——失败时不报错而是 0×0 占位），统一 inspect 路径。
+### 7.13 `inspect.rs` 整体搬到 host
+- 整个 `src/inspect.rs` 搬到 `src/host/inspect.rs`。理由：`seed_asset_entries_for_inspect` 调用 `assets.ensure_image_source_entry_for_inspect(...)` 是"占位注册图像源以便几何检查"——这是 host 行为（用于 IDE / debug 工具），不应进 core trait。
+- `collect_frame_layout_rects` 与 `FrameElementRect` 维持当前签名 `assets: &mut AssetsMap`（host 持具体类型 `AssetCatalog`，type alias `AssetsMap = AssetCatalog` 沿用）。
+- 顶层 re-export `pub use inspect::{FrameElementRect, collect_frame_layout_rects}` 路径不变（在 host-default features 下成立；no-default-features 下整体不可见，符合 "inspect 是 host 工具" 的语义）。
+- `ResourceCatalog` trait **不**新增 `register_for_inspect` / `ensure_image_source_entry_for_inspect` 方法；`AssetCatalog` 上的这个具体方法保留，但仅供 host 内部 inspect 使用。
+
+### 7.13.1 §3.1 目录结构相应调整
+- 删除 `core/inspect.rs` 行；新增 `host/inspect.rs` 行。core 模块树不再有 inspect 节点。
 
 ### 7.14 测试 setup 大批量改写
 - 受影响文件：`src/layout/mod.rs:1082+`（约 16 处）、`src/runtime/compositor/reuse.rs:281`、`src/runtime/fingerprint/{mod,display_item}.rs` 内的测试块、`src/element/resolve.rs` 内的测试块。
@@ -357,6 +367,7 @@ AnnotatedDisplayTree
 ### 7.15 audio 路径
 - `runtime::audio.rs::*`（含 `build_audio_track / render_audio_chunk`）整体搬到 `host::runtime::audio`。函数签名中 `assets: &mut AssetsMap` 改为 `catalog: &mut AssetCatalog`（host 持具体类型，不必走 trait——因为 audio decode 本身在 host 跑，ffmpeg 调用就在邻近模块）。
 - 顶层 re-export `pub use runtime::audio::AudioBuffer; pub use render::{build_audio_track, render_audio_chunk};` 路径不变。
+- **Known tradeoff**：`DecodedAudioCache::get_or_decode`（`src/runtime/audio.rs:269-287`）调用 `assets.register_audio_source(source)` 与 `assets.path(&asset_id)`，其中 `path()` 不在 `ResourceCatalog` trait 上。本 spec 选择 audio 路径**不**走 trait（性能 + 简化），代价是未来 wasm host 若想替换 catalog 实现需要单独处理 audio 路径。**留待 wasm spec 解决**——届时把 audio 抽出 `AudioFrameSampler` trait（参考 video 帧采样模式），与本次重构解耦。
 
 ## 8. 错误处理
 
@@ -430,3 +441,31 @@ AnnotatedDisplayTree
    cargo tree --no-default-features --prefix none --edges normal | grep -E "ffmpeg-next|skia-safe|rquickjs|reqwest|tokio|rodio"
    ```
    输出为空（这些 host 专属依赖在 core-only 编译时不被拉入）。
+
+## 14. 执行 Phases（plan 阶段细化为 task 列表）
+
+按依赖拓扑分四阶段，每阶段独立可编译可测：
+
+### Phase 1 — Trait 与纯净度基线（建立验证机制）
+- 引入 `ResourceCatalog` / `ScriptHost` / `FontProvider` trait（位置可暂留 `src/resource/catalog.rs` 等，未做物理目录重组）。
+- `AssetsMap` 实现 `ResourceCatalog`；现 `ScriptRuntimeCache` 实现 `ScriptHost`；裸 `&fontdb::Database` wrapper 实现 `FontProvider`。
+- 添加 `Cargo.toml` features 骨架与 `tests/core_purity.rs` —— 此时未通过，作为 todo 跟踪。
+- §7.1（删冗余参数）+ §7.2（resolve 摆脱 MediaContext）+ §7.4（VideoInfoMeta）+ §7.8（fingerprint 去 AssetsMap）。
+
+### Phase 2 — 纯算法模块归位（不改文件位置，仅改依赖方向）
+- §7.3（AssetsMap 拆 IO）：`AssetCatalog` 与 `preload_*` 物理分文件，但仍位于 `src/resource/`。
+- §7.5（preflight 拆两半）+ §7.6（pipeline 拆两半）。
+- §7.7（script 拆 mutations / runner）。
+- 此阶段后，源码层面所有 trait 依赖反转完成；目录结构尚未重排。
+
+### Phase 3 — 物理目录重组
+- §7.9 / 7.10（compositor / runtime 分核心算法 vs backend）。
+- §7.11（text / fonts）+ §7.12（jsonl_io 搬 host）+ §7.13（inspect 搬 host）+ §7.15（audio 搬 host）。
+- 大批量 `git mv`，每个 mv 后 `cargo build` 验证。
+- §7.14（测试 setup 改写）随重组同步进行。
+
+### Phase 4 — 验收
+- features 切分定稿；`tests/core_purity.rs` 通过。
+- §13 的 6 / 7 两条审计指令通过。
+- §9.3 PSNR 比对通过。
+- CI 工作流文件（如存在 `.github/workflows/ci.yml`）添加 `--no-default-features` 检查作业；如不存在 GitHub Actions，则在 `Makefile`/`justfile` 或 README 添加本地验证脚本，**plan 阶段确认仓库当前 CI 设施位置后落定**。

@@ -26,6 +26,7 @@ ahash = "0.8"
 rustc-hash = "2.1"
 unicode-segmentation = "1.11"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
 num_cpus = "1.17.0"
 cosmic-text = "0.12"
 fontdb = "0.16"

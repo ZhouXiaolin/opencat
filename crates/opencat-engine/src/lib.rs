@@ -3,9 +3,12 @@
 
 #![cfg(feature = "host-default")]
 
+pub mod backend;
+pub mod codec;
 pub mod fonts;
 pub mod inspect;
 pub mod jsonl_io;
+pub mod render;
 pub mod resource;
 pub mod runtime;
 pub mod script;

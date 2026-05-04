@@ -1,10 +1,10 @@
 use rquickjs::Function;
 
-use crate::host::script::MutationStore;
+use crate::script::MutationStore;
 use opencat_core::scene::script::mutations::{
     CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin, ScriptPointMode,
 };
-use crate::host::script::object_fit_from_name;
+use crate::script::object_fit_from_name;
 
 fn line_cap_from_name(name: &str) -> Option<ScriptLineCap> {
     match name {

@@ -25,20 +25,19 @@ use opencat_core::style::{
 };
 
 use crate::{
-    host::resource::media::{MediaContext, VideoFrameRequest},
+    resource::media::{MediaContext, VideoFrameRequest},
     runtime::cache::{
         CachedSubtreeImage, CachedSubtreeSnapshot, GlyphImageCache, GlyphPathCache, ImageCache,
         ItemPictureCache, SubtreeImageCache, SubtreeSnapshotCache,
     },
-    runtime::{
-        annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle, RecordedNodeSemantics},
-        compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram},
-        fingerprint::{
-            SubtreeSnapshotFingerprint, item_paint_fingerprint,
-            subtree_has_dirty_descendant_composite,
-        },
-    },
 };
+
+use opencat_core::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle, RecordedNodeSemantics};
+use opencat_core::runtime::fingerprint::{
+    SubtreeSnapshotFingerprint, item_paint_fingerprint,
+    subtree_has_dirty_descendant_composite,
+};
+use crate::runtime::compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram};
 
 use super::{
     color::{script_color, skia_color},
@@ -2809,7 +2808,7 @@ fn clip_bounds(canvas: &Canvas, bounds: DisplayRect, border_radius: opencat_core
 
 fn record_cache_pressure<K>(
     cache_name: &'static str,
-    report: &crate::host::runtime::cache::lru::CacheMutationReport<K>,
+    report: &crate::runtime::cache::lru::CacheMutationReport<K>,
 ) {
     if !report.evicted.is_empty() {
         event!(target: "render.cache", Level::TRACE, kind = "eviction", name = cache_name, result = "count", amount = report.evicted.len() as u64);

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::host::runtime::profile::{
+use crate::runtime::profile::{
     BackendSpanAggregate, BackendSpanKey, FrameProfile, ProfileConfig, ProfileOutputFormat,
     RenderProfileSummary,
 };
@@ -280,7 +280,7 @@ fn append_backend_span_node(
 #[cfg(test)]
 mod tests {
     use super::{render_profile_json, render_profile_text};
-    use crate::host::runtime::profile::{BackendSpanAggregate, BackendSpanKey, RenderProfileSummary};
+    use crate::runtime::profile::{BackendSpanAggregate, BackendSpanKey, RenderProfileSummary};
 
     #[test]
     fn text_output_contains_expected_sections() {

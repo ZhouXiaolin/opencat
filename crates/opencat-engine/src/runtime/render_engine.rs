@@ -4,10 +4,11 @@ use opencat_core::frame_ctx::FrameCtx;
 use opencat_core::resource::asset_catalog::AssetCatalog;
 use opencat_core::scene::composition::Composition;
 
+use opencat_core::runtime::annotation::AnnotatedDisplayTree;
+
 use crate::{
-    host::resource::media::MediaContext,
+    resource::media::MediaContext,
     runtime::{
-        annotation::AnnotatedDisplayTree,
         backend_object::BackendObject,
         cache::CacheRegistry,
         compositor::OrderedSceneProgram,

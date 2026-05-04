@@ -75,9 +75,35 @@ fn apply_text_transform(text: &str, transform: crate::style::TextTransform) -> S
     }
 }
 
+pub trait FontProvider {
+    fn font_db(&self) -> &fontdb::Database;
+}
+
+pub struct DefaultFontProvider {
+    db: std::sync::Arc<fontdb::Database>,
+}
+
+impl DefaultFontProvider {
+    pub fn new() -> Self {
+        Self {
+            db: std::sync::Arc::new(default_font_db(&[])),
+        }
+    }
+
+    pub fn from_arc(db: std::sync::Arc<fontdb::Database>) -> Self {
+        Self { db }
+    }
+}
+
+impl FontProvider for DefaultFontProvider {
+    fn font_db(&self) -> &fontdb::Database {
+        &self.db
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{default_font_db, measure_text};
+    use super::{default_font_db, measure_text, DefaultFontProvider, FontProvider};
     use crate::style::ComputedTextStyle;
 
     #[test]
@@ -94,6 +120,16 @@ mod tests {
             measured.height >= style.resolved_line_height_px() - 0.5,
             "text height should be at least one line, got {}",
             measured.height
+        );
+    }
+
+    #[test]
+    fn default_font_provider_exposes_loaded_db() {
+        let p = DefaultFontProvider::new();
+        let count = p.font_db().faces().count();
+        assert!(
+            count >= 2,
+            "embedded NotoSansSC + NotoColorEmoji should be present, got {count}"
         );
     }
 }

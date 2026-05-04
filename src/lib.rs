@@ -12,7 +12,7 @@ pub mod resource;
 pub mod runtime;
 pub mod scene;
 pub mod style;
-mod text;
+pub mod text;
 
 pub use frame_ctx::FrameCtx;
 pub use inspect::{FrameElementRect, collect_frame_layout_rects};

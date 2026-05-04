@@ -32,7 +32,7 @@ use crate::{
     },
 };
 
-use display_item::{ClipFp, DisplayItemFp, F32Hash, TextFp, item_is_time_variant};
+use display_item::{ClipFp, DisplayItemFp, F32Hash, item_is_time_variant};
 
 /// subtree picture cache 的双 hash fingerprint。
 ///
@@ -99,11 +99,6 @@ pub fn classify_paint(item: &DisplayItem, assets: &AssetsMap) -> PaintVariance {
     } else {
         PaintVariance::Stable
     }
-}
-
-/// 计算文字项的 paint fingerprint。
-pub fn text_paint_fingerprint(text: &crate::display::list::TextDisplayItem) -> u64 {
-    calculate_hash(&TextFp(text))
 }
 
 /// 计算单个 DisplayItem 的 paint fingerprint(作为 `ItemPictureCache` key)。
@@ -246,12 +241,6 @@ fn hash_draw_composite_semantics<H: Hasher>(
     F32Hash(semantics.opacity).hash(hasher);
     semantics.backdrop_blur_sigma.map(F32Hash).hash(hasher);
     semantics.transform.transforms.hash(hasher);
-}
-
-fn calculate_hash(value: &impl Hash) -> u64 {
-    let mut hasher = new_primary_hasher();
-    value.hash(&mut hasher);
-    hasher.finish()
 }
 
 #[cfg(test)]

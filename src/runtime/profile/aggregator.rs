@@ -172,11 +172,17 @@ impl RenderProfileAggregator {
             ("cache", "subtree_image", "promote") => {
                 frame.backend.subtree_image_promotions += event.amount;
             }
-            ("cache", "text", "hit") => {
-                frame.backend.text_cache_hits += event.amount;
+            ("cache", "glyph_path", "hit") => {
+                frame.backend.glyph_path_cache_hits += event.amount;
             }
-            ("cache", "text", "miss") => {
-                frame.backend.text_cache_misses += event.amount;
+            ("cache", "glyph_path", "miss") => {
+                frame.backend.glyph_path_cache_misses += event.amount;
+            }
+            ("cache", "glyph_image", "hit") => {
+                frame.backend.glyph_image_cache_hits += event.amount;
+            }
+            ("cache", "glyph_image", "miss") => {
+                frame.backend.glyph_image_cache_misses += event.amount;
             }
             ("cache", "item_picture", "hit") => {
                 frame.backend.item_picture_cache_hits += event.amount;
@@ -214,14 +220,14 @@ impl RenderProfileAggregator {
             ("layer", "save_layer", "count") => {
                 frame.backend.save_layer_count += event.amount;
             }
-            ("eviction", "text", "count") => {
-                frame.backend.text_cache_evictions += event.amount;
+            ("eviction", "glyph_path", "count") => {
+                frame.backend.glyph_path_cache_evictions += event.amount;
             }
-            ("repeat", "text", "count") => {
-                frame.backend.text_cache_record_repeats += event.amount;
+            ("repeat", "glyph_path", "count") => {
+                frame.backend.glyph_path_cache_record_repeats += event.amount;
             }
-            ("utilization", "text", "count") => {
-                frame.backend.text_cache_capacity_utilization += event.amount;
+            ("utilization", "glyph_path", "count") => {
+                frame.backend.glyph_path_cache_capacity_utilization += event.amount;
             }
             ("eviction", "item_picture", "count") => {
                 frame.backend.item_picture_cache_evictions += event.amount;
@@ -402,7 +408,7 @@ mod tests {
             frame: 3,
             target: "render.cache",
             kind: "eviction",
-            name: "text",
+            name: "glyph_path",
             result: "count",
             amount: 2,
         });
@@ -413,7 +419,7 @@ mod tests {
         assert_eq!(frame.backend.subtree_snapshot_cache_hits, 2);
         assert_eq!(frame.backend.draw_rect_count, 4);
         assert_eq!(frame.backend.image_cache_misses, 5);
-        assert_eq!(frame.backend.text_cache_evictions, 2);
+        assert_eq!(frame.backend.glyph_path_cache_evictions, 2);
     }
 
     #[test]

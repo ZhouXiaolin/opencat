@@ -1,7 +1,5 @@
-//! opencat-engine — 默认 host features 全开的渲染引擎。
+//! opencat-engine — 桌面渲染引擎。
 //! 承载 IO / ffmpeg / quickjs / skia / 系统字体 / RenderSession。
-
-#![cfg(feature = "host-default")]
 
 pub mod backend;
 pub mod codec;

@@ -1,5 +1,3 @@
-#![cfg(feature = "host-default")]
-
 use std::sync::Arc;
 
 use opencat_core::text::{DefaultFontProvider, default_font_db_with_embedded_only};

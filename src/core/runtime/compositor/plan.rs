@@ -1,5 +1,4 @@
-#[cfg(feature = "host-default")]
-use crate::host::runtime::profile::SceneBuildStats;
+use crate::core::layout::LayoutPassStats;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SceneRenderPlan {
@@ -7,39 +6,37 @@ pub struct SceneRenderPlan {
 }
 
 impl SceneRenderPlan {
-    #[cfg(feature = "host-default")]
-    pub fn from_scene(scene_stats: &SceneBuildStats) -> Self {
-        let has_structural_change = scene_stats.layout_pass.structure_rebuild
-            || scene_stats.layout_pass.layout_dirty_nodes > 0
-            || scene_stats.layout_pass.raster_dirty_nodes > 0
-            || scene_stats.layout_pass.composite_dirty_nodes > 0;
+    pub fn from_layout_pass(
+        layout_pass: &LayoutPassStats,
+        contains_time_variant_paint: bool,
+    ) -> Self {
+        let has_structural_change = layout_pass.structure_rebuild
+            || layout_pass.layout_dirty_nodes > 0
+            || layout_pass.raster_dirty_nodes > 0
+            || layout_pass.composite_dirty_nodes > 0;
 
         Self {
-            allows_scene_snapshot_cache: !scene_stats.contains_time_variant_paint
+            allows_scene_snapshot_cache: !contains_time_variant_paint
                 && !has_structural_change,
         }
     }
 }
 
-#[cfg(feature = "host-default")]
-pub fn plan_for_scene(scene_stats: &SceneBuildStats) -> SceneRenderPlan {
-    SceneRenderPlan::from_scene(scene_stats)
+pub fn plan_for_scene(
+    layout_pass: &LayoutPassStats,
+    contains_time_variant_paint: bool,
+) -> SceneRenderPlan {
+    SceneRenderPlan::from_layout_pass(layout_pass, contains_time_variant_paint)
 }
 
-#[cfg(feature = "host-default")]
 #[cfg(test)]
 mod tests {
     use super::SceneRenderPlan;
-    use crate::runtime::profile::SceneBuildStats;
+    use crate::core::layout::LayoutPassStats;
 
     #[test]
     fn time_variant_paint_scene_disables_scene_snapshot_cache() {
-        let stats = SceneBuildStats {
-            contains_time_variant_paint: true,
-            ..SceneBuildStats::default()
-        };
-
-        let plan = SceneRenderPlan::from_scene(&stats);
+        let plan = SceneRenderPlan::from_layout_pass(&LayoutPassStats::default(), true);
         assert_eq!(
             plan,
             SceneRenderPlan {
@@ -50,15 +47,12 @@ mod tests {
 
     #[test]
     fn composite_only_scene_disables_scene_snapshot_cache() {
-        let stats = SceneBuildStats {
-            layout_pass: crate::core::layout::LayoutPassStats {
-                composite_dirty_nodes: 2,
-                ..crate::core::layout::LayoutPassStats::default()
-            },
-            ..SceneBuildStats::default()
+        let layout_pass = LayoutPassStats {
+            composite_dirty_nodes: 2,
+            ..LayoutPassStats::default()
         };
 
-        let plan = SceneRenderPlan::from_scene(&stats);
+        let plan = SceneRenderPlan::from_layout_pass(&layout_pass, false);
         assert_eq!(
             plan,
             SceneRenderPlan {
@@ -69,9 +63,7 @@ mod tests {
 
     #[test]
     fn clean_scene_reuses_scene_snapshot_cache() {
-        let stats = SceneBuildStats::default();
-
-        let plan = SceneRenderPlan::from_scene(&stats);
+        let plan = SceneRenderPlan::from_layout_pass(&LayoutPassStats::default(), false);
         assert_eq!(
             plan,
             SceneRenderPlan {

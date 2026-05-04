@@ -14,6 +14,7 @@ pub trait ScriptHost {
         &mut self,
         driver: ScriptDriverId,
         frame_ctx: &ScriptFrameCtx,
+        current_node_id: Option<&str>,
     ) -> Result<StyleMutations>;
 }
 

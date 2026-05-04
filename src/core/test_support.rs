@@ -40,6 +40,7 @@ impl crate::core::scene::script::ScriptHost for MockScriptHost {
         &mut self,
         _: crate::core::scene::script::ScriptDriverId,
         _: &crate::core::frame_ctx::ScriptFrameCtx,
+        _current_node_id: Option<&str>,
     ) -> anyhow::Result<crate::core::scene::script::StyleMutations> {
         Ok(crate::core::scene::script::StyleMutations::default())
     }

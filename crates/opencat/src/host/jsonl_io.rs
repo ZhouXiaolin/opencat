@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::core::jsonl::{JsonLine, ParsedComposition, parse};
+use opencat_core::jsonl::{JsonLine, ParsedComposition, parse};
 
 pub fn parse_file(path: impl AsRef<Path>) -> Result<ParsedComposition> {
     let path = path.as_ref();
@@ -63,7 +63,7 @@ mod tests {
     };
 
     use super::{parse_file, parse_with_base_dir};
-    use crate::core::jsonl::parse;
+    use opencat_core::jsonl::parse;
 
     #[test]
     fn resolves_script_path_relative_to_jsonl_file() {

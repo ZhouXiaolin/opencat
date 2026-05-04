@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rquickjs::{Array, Function};
 
-use crate::core::scene::easing::{Easing, SpringConfig};
+use opencat_core::scene::easing::{Easing, SpringConfig};
 
 use crate::host::script::MutationStore;
 use crate::host::script::bindings::morph_svg::MorphSvgEntry;
@@ -83,7 +83,7 @@ pub(crate) fn install_animate_bindings<'js>(
                 let delay_u32 = delay as u32;
                 let repeat_delay_u32 = repeat_delay.max(0.0) as u32;
 
-                let progress = crate::core::scene::easing::compute_progress(
+                let progress = opencat_core::scene::easing::compute_progress(
                     current_frame,
                     duration_u32,
                     delay_u32,
@@ -140,7 +140,7 @@ pub(crate) fn install_animate_bindings<'js>(
 
                 let animate_state = store.animate_state.lock().unwrap();
                 if let Some(entry) = animate_state.entries.get(&handle) {
-                    crate::core::scene::easing::animate_value(
+                    opencat_core::scene::easing::animate_value(
                         current_frame,
                         entry.duration,
                         entry.delay,
@@ -403,7 +403,7 @@ fn parse_easing_from_tag(tag: &str) -> Easing {
                     mass: parts[2].parse().unwrap_or(1.0),
                 })
             } else {
-                crate::core::scene::easing::easing_from_name(tag).unwrap_or(Easing::Linear)
+                opencat_core::scene::easing::easing_from_name(tag).unwrap_or(Easing::Linear)
             }
         }
         b if b.starts_with("bezier:") => {
@@ -419,7 +419,7 @@ fn parse_easing_from_tag(tag: &str) -> Easing {
                 Easing::Linear
             }
         }
-        _ => crate::core::scene::easing::easing_from_name(tag).unwrap_or(Easing::Linear),
+        _ => opencat_core::scene::easing::easing_from_name(tag).unwrap_or(Easing::Linear),
     }
 }
 
@@ -774,7 +774,7 @@ mod tests {
 
     #[test]
     fn parse_easing_from_tag_handles_extended() {
-        use crate::core::scene::easing::Easing;
+        use opencat_core::scene::easing::Easing;
         assert!(matches!(parse_easing_from_tag("back-out"), Easing::BackOut));
         assert!(matches!(
             parse_easing_from_tag("steps(8)"),

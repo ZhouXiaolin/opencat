@@ -11,11 +11,11 @@ use crate::style::{
 static UNSUPPORTED_TAILWIND_CLASSES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn parse_class_name(class_name: &str) -> NodeStyle {
+pub fn parse_class_name(class_name: &str) -> NodeStyle {
     parse_class_name_impl(class_name, None)
 }
 
-pub(crate) fn parse_class_name_with_context(
+pub fn parse_class_name_with_context(
     class_name: &str,
     node_id: &str,
     line_number: usize,

@@ -11,7 +11,7 @@ use crate::style::{
 
 #[derive(Clone, Debug, Default)]
 pub struct ScriptDriver {
-    pub(crate) source: String,
+    pub source: String,
 }
 
 impl ScriptDriver {
@@ -21,7 +21,7 @@ impl ScriptDriver {
         })
     }
 
-    pub(crate) fn cache_key(&self) -> u64 {
+    pub fn cache_key(&self) -> u64 {
         use std::hash::{DefaultHasher, Hash, Hasher};
         let mut h = DefaultHasher::new();
         self.source.hash(&mut h);

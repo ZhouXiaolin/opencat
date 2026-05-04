@@ -33,11 +33,9 @@ use anyhow::{Context, Result, anyhow, bail};
 use reqwest::Client;
 use serde_json::{Value, json};
 
-use crate::{
-    Composition, RenderSession,
-    core::jsonl::tailwind::parse_class_name,
-    core::scene::primitives::{div, text},
-};
+use crate::{Composition, RenderSession};
+use opencat_core::jsonl::tailwind::parse_class_name;
+use opencat_core::scene::primitives::{div, text};
 
 use super::{FrameElementRect, collect_frame_layout_rects};
 
@@ -804,15 +802,17 @@ impl FixtureNode {
         match &self.kind {
             FixtureNodeKind::Div => {
                 let mut node = div();
-                node.style = parse_class_name(self.class_name);
-                node.style.id = self.id.to_string();
-                node.children = self.children.iter().map(FixtureNode::to_node).collect();
+                let mut style = parse_class_name(self.class_name);
+                style.id = self.id.to_string();
+                node.set_style(style);
+                node.set_children(self.children.iter().map(FixtureNode::to_node).collect());
                 node.into()
             }
             FixtureNodeKind::Text(content) => {
                 let mut node = text(*content);
-                node.style = parse_class_name(self.class_name);
-                node.style.id = self.id.to_string();
+                let mut style = parse_class_name(self.class_name);
+                style.id = self.id.to_string();
+                node.set_style(style);
                 node.into()
             }
         }

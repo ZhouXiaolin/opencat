@@ -12,15 +12,13 @@ use rquickjs::{
     Context, Error as JsError, Exception, FromJs, Function, Object, Persistent, Runtime,
 };
 
-use crate::{
-    core::frame_ctx::ScriptFrameCtx,
-    core::scene::script::{
-        CanvasMutations, ScriptTextSource,
-    },
-    core::style::{
-        AlignItems, BoxShadow, BoxShadowStyle, DropShadow, DropShadowStyle, FlexDirection,
-        InsetShadow, InsetShadowStyle, JustifyContent, ObjectFit, Position, TextAlign,
-    },
+use opencat_core::frame_ctx::ScriptFrameCtx;
+use opencat_core::scene::script::{
+    CanvasMutations, ScriptTextSource,
+};
+use opencat_core::style::{
+    AlignItems, BoxShadow, BoxShadowStyle, DropShadow, DropShadowStyle, FlexDirection,
+    InsetShadow, InsetShadowStyle, JustifyContent, ObjectFit, Position, TextAlign,
 };
 
 use bindings::animate_api::{
@@ -28,7 +26,7 @@ use bindings::animate_api::{
 };
 use bindings::canvas_api;
 use bindings::node_style;
-use crate::core::scene::script::{
+use opencat_core::scene::script::{
     NodeStyleMutations, ScriptDriver, StyleMutations, ScriptDriverId,
     ScriptHost,
 };
@@ -97,30 +95,28 @@ pub(crate) struct ScriptRunner {
     _runtime: Runtime,
 }
 
-impl ScriptDriver {
-    pub(crate) fn create_runner(&self) -> anyhow::Result<ScriptRunner> {
-        ScriptRunner::new(&self.source)
-    }
+pub(crate) fn create_runner(driver: &opencat_core::ScriptDriver) -> anyhow::Result<ScriptRunner> {
+    ScriptRunner::new(&driver.source)
+}
 
-    pub fn run(
-        &self,
-        frame: u32,
-        total_frames: u32,
-        current_frame: u32,
-        scene_frames: u32,
-        current_node_id: Option<&str>,
-    ) -> anyhow::Result<StyleMutations> {
-        let mut runner = self.create_runner()?;
-        runner.run(
-            ScriptFrameCtx {
-                frame,
-                total_frames,
-                current_frame,
-                scene_frames,
-            },
-            current_node_id,
-        )
-    }
+pub fn run_driver(
+    driver: &opencat_core::ScriptDriver,
+    frame: u32,
+    total_frames: u32,
+    current_frame: u32,
+    scene_frames: u32,
+    current_node_id: Option<&str>,
+) -> anyhow::Result<StyleMutations> {
+    let mut runner = create_runner(driver)?;
+    runner.run(
+        ScriptFrameCtx {
+            frame,
+            total_frames,
+            current_frame,
+            scene_frames,
+        },
+        current_node_id,
+    )
 }
 
 const RUN_FRAME_FN: &str = "__opencatRunFrame";
@@ -232,7 +228,7 @@ impl ScriptRuntimeCache {
         let runner = match self.runners.entry(key) {
             std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
             std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(driver.create_runner()?)
+                entry.insert(create_runner(driver)?)
             }
         };
 

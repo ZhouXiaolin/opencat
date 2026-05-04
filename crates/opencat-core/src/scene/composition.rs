@@ -57,8 +57,8 @@ pub struct Composition {
     pub height: i32,
     pub fps: u32,
     pub frames: u32,
-    pub(crate) root: Arc<RootComponent>,
-    pub(crate) audio_sources: Arc<Vec<CompositionAudioSource>>,
+    pub root: Arc<RootComponent>,
+    pub audio_sources: Arc<Vec<CompositionAudioSource>>,
 }
 
 pub struct CompositionBuilder {
@@ -92,7 +92,7 @@ impl Composition {
         !self.audio_sources.is_empty()
     }
 
-    pub(crate) fn audio_sources(&self) -> &[CompositionAudioSource] {
+    pub fn audio_sources(&self) -> &[CompositionAudioSource] {
         self.audio_sources.as_ref()
     }
 

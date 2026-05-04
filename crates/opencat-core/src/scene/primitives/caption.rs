@@ -25,7 +25,7 @@ impl CaptionNode {
         self
     }
 
-    pub(crate) fn entries(mut self, entries: Vec<SrtEntry>) -> Self {
+    pub fn entries(mut self, entries: Vec<SrtEntry>) -> Self {
         self.entries = entries;
         self
     }

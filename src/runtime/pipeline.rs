@@ -116,7 +116,7 @@ pub(crate) fn build_scene_display_list(
     let display_span = span!(target: "render.scene", Level::TRACE, "build_display_tree");
     let annotated_display_tree = {
         let _guard = display_span.enter();
-        let display_tree = build_display_tree(&element_root, &layout_tree, &session.assets)?;
+        let display_tree = build_display_tree(&element_root, &layout_tree)?;
         let mut annotated = annotate_display_tree(&display_tree, &session.assets);
         mark_display_tree_composite_dirty(
             session.composite_history_mut(),

@@ -96,7 +96,7 @@ pub struct BackendProfile {
 }
 
 #[derive(Default)]
-pub(crate) struct SceneBuildStats {
+pub struct SceneBuildStats {
     pub resolve_ms: f64,
     pub layout_ms: f64,
     pub display_ms: f64,

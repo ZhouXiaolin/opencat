@@ -1,14 +1,15 @@
-pub(crate) mod audio;
-pub(crate) mod backend_object;
-pub(crate) mod cache;
-pub(crate) mod compositor;
-pub(crate) mod frame_view;
-pub(crate) mod preflight;
-pub(crate) mod profile;
-pub(crate) mod render_engine;
-pub(crate) mod render_registry;
+#![cfg(feature = "host-default")]
+pub mod audio;
+pub mod backend_object;
+pub mod cache;
+pub mod compositor;
+pub mod frame_view;
+pub mod preflight;
+pub mod profile;
+pub mod render_engine;
+pub mod render_registry;
 pub mod session;
-pub(crate) mod surface;
+pub mod surface;
 pub mod target;
 
 pub use crate::core::runtime::analysis;

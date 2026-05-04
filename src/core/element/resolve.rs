@@ -1,5 +1,8 @@
 use anyhow::{Result, ensure};
 
+#[cfg(feature = "host-default")]
+use crate::host::script::ScriptRuntimeCache;
+
 use crate::{
     FrameCtx, Node,
     core::element::{
@@ -12,7 +15,7 @@ use crate::{
     core::frame_ctx::ScriptFrameCtx,
     core::resource::asset_catalog::AssetId,
     core::resource::catalog::{ResourceCatalog, VideoInfoMeta},
-    core::scene::script::{ScriptHost, ScriptRuntimeCache, StyleMutations, TextUnitOverrideBatch},
+    core::scene::script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
     core::scene::{
         node::{ComponentNode, NodeKind},
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video},
@@ -738,7 +741,7 @@ fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<b
         return Ok(false);
     };
 
-    let id = cx.script_runtime.install(driver.source())?;
+    let id = cx.script_runtime.install(&driver.source)?;
     let mutations = cx.script_runtime.run_by_id(
         id,
         *cx.script_frame_ctx,
@@ -1101,9 +1104,10 @@ mod tests {
         core::scene::easing::Easing,
         core::scene::primitives::{SrtEntry, caption, div, lucide, text, video},
         core::scene::script::{
-            NodeStyleMutations, ScriptRuntimeCache, StyleMutations, TextUnitGranularity,
+            NodeStyleMutations, StyleMutations, TextUnitGranularity,
             TextUnitOverride, TextUnitOverrideBatch,
         },
+        host::script::ScriptRuntimeCache,
         core::scene::time::{FrameState, frame_state_for_root},
         core::scene::transition::{slide, timeline},
     };

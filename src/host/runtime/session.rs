@@ -12,7 +12,7 @@ use crate::{
         render_engine::SharedRenderEngine,
         render_registry,
     },
-    core::scene::script::ScriptRuntimeCache,
+    host::script::ScriptRuntimeCache,
     core::text::default_font_db,
 };
 

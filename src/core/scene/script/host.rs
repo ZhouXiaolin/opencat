@@ -20,7 +20,7 @@ pub trait ScriptHost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::scene::script::ScriptRuntimeCache;
+    use crate::host::script::ScriptRuntimeCache;
 
     #[test]
     fn script_runtime_cache_install_returns_stable_id() {

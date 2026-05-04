@@ -4,11 +4,11 @@ use tracing::{Level, event, span};
 use crate::{
     core::frame_ctx::FrameCtx,
     core::resource::asset_catalog::AssetCatalog,
+    core::runtime::annotation::AnnotatedDisplayTree,
+    core::runtime::compositor::OrderedSceneProgram,
     host::resource::media::MediaContext,
-    runtime::{
-        annotation::AnnotatedDisplayTree,
+    host::runtime::{
         cache::CacheRegistry,
-        compositor::OrderedSceneProgram,
         frame_view::RenderFrameView,
         render_engine::{SceneRenderContext, SceneSnapshot, SharedRenderEngine},
     },
@@ -16,7 +16,7 @@ use crate::{
 
 use super::{SceneRenderPlan, SceneSnapshotCache};
 
-pub(crate) struct SceneRenderRuntime<'a> {
+pub struct SceneRenderRuntime<'a> {
     pub assets: &'a AssetCatalog,
     pub scene_snapshots: &'a mut SceneSnapshotCache,
     pub cache_registry: &'a CacheRegistry,
@@ -40,7 +40,7 @@ impl<'a> SceneRenderRuntime<'a> {
     }
 }
 
-pub(crate) fn render_scene(
+pub fn render_scene(
     runtime: &mut SceneRenderRuntime<'_>,
     display_tree: &AnnotatedDisplayTree,
     plan: SceneRenderPlan,

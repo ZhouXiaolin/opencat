@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 use crate::{
     codec::decode::AudioTrack,
     host::resource::media::VideoPreviewQuality,
-    runtime::{
+    host::runtime::{
         audio::{
             AudioBuffer, build_audio_track as build_runtime_audio_track,
             render_audio_chunk as render_runtime_audio_chunk,
@@ -18,7 +18,7 @@ use crate::{
 };
 
 pub use crate::codec::encode::Mp4Config;
-pub use crate::runtime::session::RenderSession;
+pub use crate::host::runtime::session::RenderSession;
 
 pub enum OutputFormat {
     Mp4(Mp4Config),
@@ -147,8 +147,8 @@ fn render_png(
     output_path: impl AsRef<Path>,
     backend: RenderBackend,
 ) -> Result<()> {
-    let profile_config = crate::runtime::profile::ProfileConfig::from_env();
-    let (_, summary) = crate::runtime::profile::profile_render(&profile_config, || {
+    let profile_config = crate::host::runtime::profile::ProfileConfig::from_env();
+    let (_, summary) = crate::host::runtime::profile::profile_render(&profile_config, || {
         let engine = render_registry::render_engine_for_backend(backend)?;
         let mut session = RenderSession::with_render_engine(engine.clone());
         let rgba = engine.render_frame_rgba(composition, 0, &mut session)?;
@@ -159,7 +159,7 @@ fn render_png(
         Ok::<_, anyhow::Error>(())
     })?;
     if let Some(summary) = summary {
-        crate::runtime::profile::print_profile_summary(&summary, &profile_config)?;
+        crate::host::runtime::profile::print_profile_summary(&summary, &profile_config)?;
     }
     Ok(())
 }
@@ -172,8 +172,8 @@ fn render_mp4(
     on_video_frame_encoded: impl FnMut(u32, u32),
 ) -> Result<()> {
     let composition = composition.aligned_for_video_encoding();
-    let profile_config = crate::runtime::profile::ProfileConfig::from_env();
-    let (_, summary) = crate::runtime::profile::profile_render(&profile_config, move || {
+    let profile_config = crate::host::runtime::profile::ProfileConfig::from_env();
+    let (_, summary) = crate::host::runtime::profile::profile_render(&profile_config, move || {
         let engine = render_registry::render_engine_for_backend(backend)?;
         let mut session = RenderSession::with_render_engine(engine.clone());
         session
@@ -198,7 +198,7 @@ fn render_mp4(
         Ok::<_, anyhow::Error>(())
     })?;
     if let Some(summary) = summary {
-        crate::runtime::profile::print_profile_summary(&summary, &profile_config)?;
+        crate::host::runtime::profile::print_profile_summary(&summary, &profile_config)?;
     }
     Ok(())
 }

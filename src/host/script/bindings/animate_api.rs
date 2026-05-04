@@ -4,29 +4,29 @@ use rquickjs::{Array, Function};
 
 use crate::core::scene::easing::{Easing, SpringConfig};
 
-use super::MutationStore;
-use super::morph_svg::MorphSvgEntry;
+use crate::host::script::MutationStore;
+use crate::host::script::bindings::morph_svg::MorphSvgEntry;
 
-pub(super) const ANIMATE_RUNTIME: &str = concat!(
-    include_str!("runtime/animation/bootstrap.js"),
+pub(crate) const ANIMATE_RUNTIME: &str = concat!(
+    include_str!("../runtime/animation/bootstrap.js"),
     "\n",
-    include_str!("runtime/animation/core.js"),
+    include_str!("../runtime/animation/core.js"),
     "\n",
-    include_str!("runtime/animation/facade.js"),
+    include_str!("../runtime/animation/facade.js"),
     "\n",
-    include_str!("runtime/animation/plugins/style_props.js"),
+    include_str!("../runtime/animation/plugins/style_props.js"),
     "\n",
-    include_str!("runtime/animation/plugins/color.js"),
+    include_str!("../runtime/animation/plugins/color.js"),
     "\n",
-    include_str!("runtime/animation/plugins/text.js"),
+    include_str!("../runtime/animation/plugins/text.js"),
     "\n",
-    include_str!("runtime/animation/plugins/split_text.js"),
+    include_str!("../runtime/animation/plugins/split_text.js"),
     "\n",
-    include_str!("runtime/animation/plugins/motion_path.js"),
+    include_str!("../runtime/animation/plugins/motion_path.js"),
     "\n",
-    include_str!("runtime/animation/plugins/morph_svg.js"),
+    include_str!("../runtime/animation/plugins/morph_svg.js"),
     "\n",
-    include_str!("runtime/animation/plugins/utils.js"),
+    include_str!("../runtime/animation/plugins/utils.js"),
 );
 
 struct AnimateEntry {

@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use anyhow::{Result, anyhow};
 
-use crate::runtime::target::RenderFrameViewKind;
+use crate::host::runtime::target::RenderFrameViewKind;
 
 #[derive(Clone, Copy)]
 pub(crate) struct RenderFrameView {

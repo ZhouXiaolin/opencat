@@ -1,12 +1,12 @@
-use crate::runtime::profile::SceneBuildStats;
+use crate::host::runtime::profile::SceneBuildStats;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct SceneRenderPlan {
+pub struct SceneRenderPlan {
     pub allows_scene_snapshot_cache: bool,
 }
 
 impl SceneRenderPlan {
-    pub(crate) fn from_scene(scene_stats: &SceneBuildStats) -> Self {
+    pub fn from_scene(scene_stats: &SceneBuildStats) -> Self {
         let has_structural_change = scene_stats.layout_pass.structure_rebuild
             || scene_stats.layout_pass.layout_dirty_nodes > 0
             || scene_stats.layout_pass.raster_dirty_nodes > 0
@@ -19,7 +19,7 @@ impl SceneRenderPlan {
     }
 }
 
-pub(crate) fn plan_for_scene(scene_stats: &SceneBuildStats) -> SceneRenderPlan {
+pub fn plan_for_scene(scene_stats: &SceneBuildStats) -> SceneRenderPlan {
     SceneRenderPlan::from_scene(scene_stats)
 }
 

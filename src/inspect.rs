@@ -369,7 +369,7 @@ fn upsert_style_meta<'a>(
     entry.script_source = style
         .script_driver
         .as_ref()
-        .map(|driver| driver.source().to_string());
+        .map(|driver| driver.source.to_string());
     Some(entry)
 }
 

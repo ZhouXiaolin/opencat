@@ -6,6 +6,7 @@ use crate::{
     core::element::resolve::resolve_ui_tree_with_script_cache,
     core::frame_ctx::{FrameCtx, ScriptFrameCtx},
     core::resource::catalog::ResourceCatalog,
+    host::script::ScriptRuntimeCache,
     runtime::{
         annotation::{
             AnnotatedDisplayTree, annotate_display_tree, compute_display_tree_fingerprints,
@@ -20,7 +21,7 @@ use crate::{
     core::scene::{
         composition::Composition,
         node::Node,
-        script::{ScriptRuntimeCache, StyleMutations},
+        script::StyleMutations,
     },
     core::text::FontProvider,
 };

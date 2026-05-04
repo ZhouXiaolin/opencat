@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::runtime::cache::lru::BoundedLruCache;
+use crate::host::runtime::cache::lru::BoundedLruCache;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct VideoFrameKey {

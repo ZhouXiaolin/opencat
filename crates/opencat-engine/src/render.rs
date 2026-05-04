@@ -325,7 +325,13 @@ mod tests {
 
     #[test]
     fn split_text_gsap_api_renders_text_property_layer() {
-        let parsed = crate::parse_file("json/split_text_demo.jsonl").expect("parse");
+        let jsonl_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("json/split_text_demo.jsonl");
+        let parsed = crate::jsonl_io::parse_file(&jsonl_path).expect("parse");
         let root = if let Some(script) = parsed.script.as_deref() {
             if script.trim().is_empty() {
                 parsed.root

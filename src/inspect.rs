@@ -99,10 +99,10 @@ fn collect_scene_rects(
         &mut session.script_runtime,
     )?;
 
-    let text_engine = session.text_engine_handle();
+    let font_db = session.font_db_handle();
     let (layout_tree, _) = session
         .layout_session_mut()
-        .compute_layout_with_text_engine(&element_root, frame_ctx, text_engine.as_ref())?;
+        .compute_layout_with_font_db(&element_root, frame_ctx, font_db.as_ref())?;
 
     collect_rects_in_draw_order(
         &element_root,

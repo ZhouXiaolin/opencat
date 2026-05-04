@@ -15,4 +15,3 @@ pub(crate) mod render_registry;
 pub mod session;
 pub(crate) mod surface;
 pub mod target;
-pub(crate) mod text_engine;

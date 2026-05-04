@@ -28,7 +28,7 @@ pub struct DisplayTransform {
     pub translation_x: f32,
     pub translation_y: f32,
     pub bounds: DisplayRect,
-    pub transforms: Vec<crate::core::style::Transform>,
+    pub transforms: Vec<crate::style::Transform>,
 }
 
 #[derive(Clone, Debug)]

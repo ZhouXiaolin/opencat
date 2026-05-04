@@ -1,4 +1,4 @@
-use crate::core::runtime::{
+use crate::runtime::{
     annotation::AnnotatedNodeHandle,
     fingerprint::{PaintVariance, SubtreeSnapshotFingerprint},
 };

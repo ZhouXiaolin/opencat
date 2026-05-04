@@ -1,4 +1,4 @@
-use crate::core::runtime::{
+use crate::runtime::{
     annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle},
     compositor::{
         reuse::{LiveNodeItemExecution, StableNodeReuse, analyze_live_node_item_execution, analyze_stable_node_reuse},
@@ -63,7 +63,7 @@ impl OrderedSceneProgram {
 
 const SUBTREE_GRANULARITY_RATIO_THRESHOLD: f32 = 16.0;
 
-fn layer_area(bounds: crate::core::display::list::DisplayRect) -> f32 {
+fn layer_area(bounds: crate::display::list::DisplayRect) -> f32 {
     bounds.width.max(1.0) * bounds.height.max(1.0)
 }
 

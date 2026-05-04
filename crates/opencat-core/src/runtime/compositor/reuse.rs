@@ -54,8 +54,8 @@ pub fn analyze_live_node_item_execution(
             // Stable DrawScript 有 paint fingerprint → 交给 draw_display_item 走 ItemPictureCache。
             // TimeVariant 保留 FrameLocalPicture 兜底,避免给 cache 塞永远 miss 的短命 key。
             match display_tree.analysis(handle).paint_variance {
-                crate::core::runtime::fingerprint::PaintVariance::Stable => LiveNodeItemExecution::Direct,
-                crate::core::runtime::fingerprint::PaintVariance::TimeVariant => {
+                crate::runtime::fingerprint::PaintVariance::Stable => LiveNodeItemExecution::Direct,
+                crate::runtime::fingerprint::PaintVariance::TimeVariant => {
                     LiveNodeItemExecution::FrameLocalPicture
                 }
             }
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn text_leaf_with_unit_overrides_prefers_direct_leaf_reuse() {
-        use crate::core::scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch};
+        use crate::scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch};
 
         let mut analysis = DisplayAnalysisTable::default();
         analysis.insert(
@@ -277,9 +277,9 @@ mod tests {
 
     #[test]
     fn bitmap_leaf_prefers_item_picture_leaf_reuse() {
-        use crate::core::display::list::{BitmapDisplayItem, BitmapPaintStyle};
-        use crate::core::resource::asset_catalog::AssetId;
-        use crate::core::style::ObjectFit;
+        use crate::display::list::{BitmapDisplayItem, BitmapPaintStyle};
+        use crate::resource::asset_catalog::AssetId;
+        use crate::style::ObjectFit;
 
         let asset_id = AssetId("/tmp/x.png".into());
 

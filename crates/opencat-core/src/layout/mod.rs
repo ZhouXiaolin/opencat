@@ -155,7 +155,7 @@ impl LayoutSession {
         &mut self,
         element_root: &ElementNode,
         frame_ctx: &FrameCtx,
-        fonts: &dyn crate::core::text::FontProvider,
+        fonts: &dyn crate::text::FontProvider,
     ) -> Result<(LayoutTree, LayoutPassStats)> {
         self.compute_layout_with_font_db(element_root, frame_ctx, fonts.font_db())
     }
@@ -189,7 +189,7 @@ pub fn compute_layout(root: &ElementNode, frame_ctx: &FrameCtx) -> Result<Layout
 
 #[cfg(test)]
 fn default_font_db() -> fontdb::Database {
-    crate::core::text::default_font_db(&[])
+    crate::text::default_font_db(&[])
 }
 
 #[cfg(test)]
@@ -226,7 +226,7 @@ fn measure_node(
         f32::INFINITY
     };
 
-    let measured = crate::core::text::measure_text(
+    let measured = crate::text::measure_text(
         &text.text,
         &text.style,
         max_width,
@@ -494,7 +494,7 @@ impl Hash for CompositeFingerprint<'_> {
     }
 }
 
-struct LayoutStyleFingerprint<'a>(&'a crate::core::element::style::ComputedLayoutStyle);
+struct LayoutStyleFingerprint<'a>(&'a crate::element::style::ComputedLayoutStyle);
 
 impl Hash for LayoutStyleFingerprint<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -551,7 +551,7 @@ impl Hash for LayoutStyleFingerprint<'_> {
     }
 }
 
-struct RasterVisualStyleFingerprint<'a>(&'a crate::core::element::style::ComputedVisualStyle);
+struct RasterVisualStyleFingerprint<'a>(&'a crate::element::style::ComputedVisualStyle);
 
 impl Hash for RasterVisualStyleFingerprint<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -577,7 +577,7 @@ impl Hash for RasterVisualStyleFingerprint<'_> {
     }
 }
 
-struct CompositeVisualStyleFingerprint<'a>(&'a crate::core::element::style::ComputedVisualStyle);
+struct CompositeVisualStyleFingerprint<'a>(&'a crate::element::style::ComputedVisualStyle);
 
 impl Hash for CompositeVisualStyleFingerprint<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -660,10 +660,10 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             grid_auto_flow: layout.grid_auto_flow.map_or_else(
                 taffy::style::GridAutoFlow::default,
                 |flow| match flow {
-                    crate::core::style::GridAutoFlow::Row => taffy::style::GridAutoFlow::Row,
-                    crate::core::style::GridAutoFlow::Column => taffy::style::GridAutoFlow::Column,
-                    crate::core::style::GridAutoFlow::RowDense => taffy::style::GridAutoFlow::RowDense,
-                    crate::core::style::GridAutoFlow::ColumnDense => {
+                    crate::style::GridAutoFlow::Row => taffy::style::GridAutoFlow::Row,
+                    crate::style::GridAutoFlow::Column => taffy::style::GridAutoFlow::Column,
+                    crate::style::GridAutoFlow::RowDense => taffy::style::GridAutoFlow::RowDense,
+                    crate::style::GridAutoFlow::ColumnDense => {
                         taffy::style::GridAutoFlow::ColumnDense
                     }
                 },
@@ -671,22 +671,22 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             grid_auto_rows: layout.grid_auto_rows.map_or_else(Vec::new, |auto_rows| {
                 use taffy::style::MaxTrackSizingFunction;
                 vec![match auto_rows {
-                    crate::core::style::GridAutoRows::Auto => {
+                    crate::style::GridAutoRows::Auto => {
                         // auto = minmax(auto, auto)
                         taffy::geometry::MinMax {
                             min: taffy::style::MinTrackSizingFunction::AUTO,
                             max: MaxTrackSizingFunction::AUTO,
                         }
                     }
-                    crate::core::style::GridAutoRows::Min => taffy::geometry::MinMax {
+                    crate::style::GridAutoRows::Min => taffy::geometry::MinMax {
                         min: taffy::style::MinTrackSizingFunction::AUTO,
                         max: MaxTrackSizingFunction::min_content(),
                     },
-                    crate::core::style::GridAutoRows::Max => taffy::geometry::MinMax {
+                    crate::style::GridAutoRows::Max => taffy::geometry::MinMax {
                         min: taffy::style::MinTrackSizingFunction::AUTO,
                         max: MaxTrackSizingFunction::max_content(),
                     },
-                    crate::core::style::GridAutoRows::Fr => TrackSizingFunction::from_fr(1.0),
+                    crate::style::GridAutoRows::Fr => TrackSizingFunction::from_fr(1.0),
                 }]
             }),
             justify_items: layout.justify_items.map(map_align_items_to_justify_items),
@@ -702,9 +702,9 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             min_size: taffy::geometry::Size {
                 width: Dimension::auto(),
                 height: layout.min_height.map_or_else(Dimension::auto, |v| match v {
-                    crate::core::style::LengthPercentageAuto::Auto => Dimension::auto(),
-                    crate::core::style::LengthPercentageAuto::Length(px) => Dimension::length(px),
-                    crate::core::style::LengthPercentageAuto::Percent(pct) => {
+                    crate::style::LengthPercentageAuto::Auto => Dimension::auto(),
+                    crate::style::LengthPercentageAuto::Length(px) => Dimension::length(px),
+                    crate::style::LengthPercentageAuto::Percent(pct) => {
                         let resolved = if pct < 0.0 { 1.0 } else { pct };
                         Dimension::percent(resolved)
                     }
@@ -867,19 +867,19 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
     }
 }
 
-fn resolve_grid_placement(placement: crate::core::style::GridPlacement) -> taffy::style::GridPlacement {
+fn resolve_grid_placement(placement: crate::style::GridPlacement) -> taffy::style::GridPlacement {
     match placement {
-        crate::core::style::GridPlacement::Auto => taffy::style::GridPlacement::Auto,
-        crate::core::style::GridPlacement::Line(index) => {
+        crate::style::GridPlacement::Auto => taffy::style::GridPlacement::Auto,
+        crate::style::GridPlacement::Line(index) => {
             taffy::style::GridPlacement::from_line_index(index)
         }
-        crate::core::style::GridPlacement::Span(span_count) => span(span_count),
+        crate::style::GridPlacement::Span(span_count) => span(span_count),
     }
 }
 
 fn resolve_grid_axis_placement(
-    start: Option<crate::core::style::GridPlacement>,
-    end: Option<crate::core::style::GridPlacement>,
+    start: Option<crate::style::GridPlacement>,
+    end: Option<crate::style::GridPlacement>,
 ) -> taffy::geometry::Line<taffy::style::GridPlacement> {
     match (start, end) {
         (None, None) => taffy::geometry::Line::default(),
@@ -1020,22 +1020,22 @@ fn resolve_dimension(
     }
 }
 
-fn map_flex_direction(value: Option<crate::core::style::FlexDirection>) -> taffy::prelude::FlexDirection {
+fn map_flex_direction(value: Option<crate::style::FlexDirection>) -> taffy::prelude::FlexDirection {
     match value {
-        None | Some(crate::core::style::FlexDirection::Row) => taffy::prelude::FlexDirection::Row,
-        Some(crate::core::style::FlexDirection::Col) => taffy::prelude::FlexDirection::Column,
-        Some(crate::core::style::FlexDirection::RowReverse) => taffy::prelude::FlexDirection::RowReverse,
-        Some(crate::core::style::FlexDirection::ColReverse) => {
+        None | Some(crate::style::FlexDirection::Row) => taffy::prelude::FlexDirection::Row,
+        Some(crate::style::FlexDirection::Col) => taffy::prelude::FlexDirection::Column,
+        Some(crate::style::FlexDirection::RowReverse) => taffy::prelude::FlexDirection::RowReverse,
+        Some(crate::style::FlexDirection::ColReverse) => {
             taffy::prelude::FlexDirection::ColumnReverse
         }
     }
 }
 
-fn map_flex_wrap(value: crate::core::style::FlexWrap) -> taffy::prelude::FlexWrap {
+fn map_flex_wrap(value: crate::style::FlexWrap) -> taffy::prelude::FlexWrap {
     match value {
-        crate::core::style::FlexWrap::NoWrap => taffy::prelude::FlexWrap::NoWrap,
-        crate::core::style::FlexWrap::Wrap => taffy::prelude::FlexWrap::Wrap,
-        crate::core::style::FlexWrap::WrapReverse => taffy::prelude::FlexWrap::WrapReverse,
+        crate::style::FlexWrap::NoWrap => taffy::prelude::FlexWrap::NoWrap,
+        crate::style::FlexWrap::Wrap => taffy::prelude::FlexWrap::Wrap,
+        crate::style::FlexWrap::WrapReverse => taffy::prelude::FlexWrap::WrapReverse,
     }
 }
 
@@ -1106,7 +1106,7 @@ mod tests {
         id: &'static str,
         class_name: &'static str,
         children: Vec<crate::Node>,
-    ) -> crate::core::scene::primitives::Div {
+    ) -> crate::scene::primitives::Div {
         let mut node = div();
         node.style = parse_class_name(class_name);
         node.style.id = id.to_string();
@@ -1118,7 +1118,7 @@ mod tests {
         id: &'static str,
         class_name: &'static str,
         content: &'static str,
-    ) -> crate::core::scene::primitives::Text {
+    ) -> crate::scene::primitives::Text {
         let mut node = text(content);
         node.style = parse_class_name(class_name);
         node.style.id = id.to_string();

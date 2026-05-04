@@ -1,6 +1,6 @@
 use std::{hash::Hash, sync::Arc};
 
-use crate::core::scene::script::ScriptDriver;
+use crate::scene::script::ScriptDriver;
 
 include!(concat!(env!("OUT_DIR"), "/tailwind_color_items.rs"));
 
@@ -712,41 +712,41 @@ macro_rules! impl_node_style_api {
     ($ty:ty) => {
         impl $ty {
             // === Positioning ===
-            pub fn position(mut self, position: $crate::core::style::Position) -> Self {
+            pub fn position(mut self, position: $crate::style::Position) -> Self {
                 self.style.position = Some(position);
                 self
             }
 
             pub fn absolute(self) -> Self {
-                self.position($crate::core::style::Position::Absolute)
+                self.position($crate::style::Position::Absolute)
             }
 
             pub fn relative(self) -> Self {
-                self.position($crate::core::style::Position::Relative)
+                self.position($crate::style::Position::Relative)
             }
 
             pub fn left(mut self, value: f32) -> Self {
-                self.style.inset_left = Some($crate::core::style::LengthPercentageAuto::length(value));
+                self.style.inset_left = Some($crate::style::LengthPercentageAuto::length(value));
                 self
             }
 
             pub fn top(mut self, value: f32) -> Self {
-                self.style.inset_top = Some($crate::core::style::LengthPercentageAuto::length(value));
+                self.style.inset_top = Some($crate::style::LengthPercentageAuto::length(value));
                 self
             }
 
             pub fn right(mut self, value: f32) -> Self {
-                self.style.inset_right = Some($crate::core::style::LengthPercentageAuto::length(value));
+                self.style.inset_right = Some($crate::style::LengthPercentageAuto::length(value));
                 self
             }
 
             pub fn bottom(mut self, value: f32) -> Self {
-                self.style.inset_bottom = Some($crate::core::style::LengthPercentageAuto::length(value));
+                self.style.inset_bottom = Some($crate::style::LengthPercentageAuto::length(value));
                 self
             }
 
             pub fn inset(mut self, value: f32) -> Self {
-                let value = $crate::core::style::LengthPercentageAuto::length(value);
+                let value = $crate::style::LengthPercentageAuto::length(value);
                 self.style.inset_left = Some(value);
                 self.style.inset_top = Some(value);
                 self.style.inset_right = Some(value);
@@ -813,96 +813,96 @@ macro_rules! impl_node_style_api {
 
             // === Margin ===
             pub fn m(mut self, value: f32) -> Self {
-                self.style.margin = Some($crate::core::style::LengthPercentageAuto::Length(value));
+                self.style.margin = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn mx(mut self, value: f32) -> Self {
-                self.style.margin_x = Some($crate::core::style::LengthPercentageAuto::Length(value));
+                self.style.margin_x = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn my(mut self, value: f32) -> Self {
-                self.style.margin_y = Some($crate::core::style::LengthPercentageAuto::Length(value));
+                self.style.margin_y = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn mt(mut self, value: f32) -> Self {
-                self.style.margin_top = Some($crate::core::style::LengthPercentageAuto::Length(value));
+                self.style.margin_top = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn mb(mut self, value: f32) -> Self {
-                self.style.margin_bottom = Some($crate::core::style::LengthPercentageAuto::Length(value));
+                self.style.margin_bottom = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn ml(mut self, value: f32) -> Self {
-                self.style.margin_left = Some($crate::core::style::LengthPercentageAuto::Length(value));
+                self.style.margin_left = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn mr(mut self, value: f32) -> Self {
-                self.style.margin_right = Some($crate::core::style::LengthPercentageAuto::Length(value));
+                self.style.margin_right = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn mx_auto(mut self) -> Self {
-                self.style.margin_x = Some($crate::core::style::LengthPercentageAuto::Auto);
+                self.style.margin_x = Some($crate::style::LengthPercentageAuto::Auto);
                 self
             }
 
             pub fn my_auto(mut self) -> Self {
-                self.style.margin_y = Some($crate::core::style::LengthPercentageAuto::Auto);
+                self.style.margin_y = Some($crate::style::LengthPercentageAuto::Auto);
                 self
             }
 
             pub fn m_auto(mut self) -> Self {
-                self.style.margin = Some($crate::core::style::LengthPercentageAuto::Auto);
+                self.style.margin = Some($crate::style::LengthPercentageAuto::Auto);
                 self
             }
 
             pub fn ml_auto(mut self) -> Self {
-                self.style.margin_left = Some($crate::core::style::LengthPercentageAuto::Auto);
+                self.style.margin_left = Some($crate::style::LengthPercentageAuto::Auto);
                 self
             }
 
             pub fn mr_auto(mut self) -> Self {
-                self.style.margin_right = Some($crate::core::style::LengthPercentageAuto::Auto);
+                self.style.margin_right = Some($crate::style::LengthPercentageAuto::Auto);
                 self
             }
 
             pub fn mt_auto(mut self) -> Self {
-                self.style.margin_top = Some($crate::core::style::LengthPercentageAuto::Auto);
+                self.style.margin_top = Some($crate::style::LengthPercentageAuto::Auto);
                 self
             }
 
             pub fn mb_auto(mut self) -> Self {
-                self.style.margin_bottom = Some($crate::core::style::LengthPercentageAuto::Auto);
+                self.style.margin_bottom = Some($crate::style::LengthPercentageAuto::Auto);
                 self
             }
 
             // === Layout: Flex Direction ===
-            pub fn flex_direction(mut self, direction: $crate::core::style::FlexDirection) -> Self {
+            pub fn flex_direction(mut self, direction: $crate::style::FlexDirection) -> Self {
                 self.style.is_flex = true;
                 self.style.flex_direction = Some(direction);
                 self
             }
 
             pub fn flex_row(self) -> Self {
-                self.flex_direction($crate::core::style::FlexDirection::Row)
+                self.flex_direction($crate::style::FlexDirection::Row)
             }
 
             pub fn flex_col(self) -> Self {
-                self.flex_direction($crate::core::style::FlexDirection::Col)
+                self.flex_direction($crate::style::FlexDirection::Col)
             }
 
             pub fn flex_row_reverse(self) -> Self {
-                self.flex_direction($crate::core::style::FlexDirection::RowReverse)
+                self.flex_direction($crate::style::FlexDirection::RowReverse)
             }
 
             pub fn flex_col_reverse(self) -> Self {
-                self.flex_direction($crate::core::style::FlexDirection::ColReverse)
+                self.flex_direction($crate::style::FlexDirection::ColReverse)
             }
 
             pub fn flex(self) -> Self {
@@ -926,28 +926,28 @@ macro_rules! impl_node_style_api {
                 self
             }
 
-            pub fn grid_auto_flow(mut self, flow: $crate::core::style::GridAutoFlow) -> Self {
+            pub fn grid_auto_flow(mut self, flow: $crate::style::GridAutoFlow) -> Self {
                 self.style.grid_auto_flow = Some(flow);
                 self
             }
 
             pub fn col_start(mut self, line: i16) -> Self {
-                self.style.col_start = Some($crate::core::style::GridPlacement::Line(line));
+                self.style.col_start = Some($crate::style::GridPlacement::Line(line));
                 self
             }
 
             pub fn col_end(mut self, line: i16) -> Self {
-                self.style.col_end = Some($crate::core::style::GridPlacement::Line(line));
+                self.style.col_end = Some($crate::style::GridPlacement::Line(line));
                 self
             }
 
             pub fn row_start(mut self, line: i16) -> Self {
-                self.style.row_start = Some($crate::core::style::GridPlacement::Line(line));
+                self.style.row_start = Some($crate::style::GridPlacement::Line(line));
                 self
             }
 
             pub fn row_end(mut self, line: i16) -> Self {
-                self.style.row_end = Some($crate::core::style::GridPlacement::Line(line));
+                self.style.row_end = Some($crate::style::GridPlacement::Line(line));
                 self
             }
 
@@ -979,139 +979,139 @@ macro_rules! impl_node_style_api {
             // === Layout: Justify Content (main axis) ===
             pub fn justify_content(
                 mut self,
-                justify_content: $crate::core::style::JustifyContent,
+                justify_content: $crate::style::JustifyContent,
             ) -> Self {
                 self.style.justify_content = Some(justify_content);
                 self
             }
 
             pub fn justify_start(self) -> Self {
-                self.justify_content($crate::core::style::JustifyContent::Start)
+                self.justify_content($crate::style::JustifyContent::Start)
             }
 
             pub fn justify_center(self) -> Self {
-                self.justify_content($crate::core::style::JustifyContent::Center)
+                self.justify_content($crate::style::JustifyContent::Center)
             }
 
             pub fn justify_end(self) -> Self {
-                self.justify_content($crate::core::style::JustifyContent::End)
+                self.justify_content($crate::style::JustifyContent::End)
             }
 
             pub fn justify_between(self) -> Self {
-                self.justify_content($crate::core::style::JustifyContent::Between)
+                self.justify_content($crate::style::JustifyContent::Between)
             }
 
             pub fn justify_around(self) -> Self {
-                self.justify_content($crate::core::style::JustifyContent::Around)
+                self.justify_content($crate::style::JustifyContent::Around)
             }
 
             pub fn justify_evenly(self) -> Self {
-                self.justify_content($crate::core::style::JustifyContent::Evenly)
+                self.justify_content($crate::style::JustifyContent::Evenly)
             }
 
             pub fn justify_stretch(self) -> Self {
-                self.justify_content($crate::core::style::JustifyContent::Stretch)
+                self.justify_content($crate::style::JustifyContent::Stretch)
             }
 
-            pub fn align_content(mut self, align_content: $crate::core::style::JustifyContent) -> Self {
+            pub fn align_content(mut self, align_content: $crate::style::JustifyContent) -> Self {
                 self.style.align_content = Some(align_content);
                 self
             }
 
             pub fn content_start(self) -> Self {
-                self.align_content($crate::core::style::JustifyContent::Start)
+                self.align_content($crate::style::JustifyContent::Start)
             }
 
             pub fn content_center(self) -> Self {
-                self.align_content($crate::core::style::JustifyContent::Center)
+                self.align_content($crate::style::JustifyContent::Center)
             }
 
             pub fn content_end(self) -> Self {
-                self.align_content($crate::core::style::JustifyContent::End)
+                self.align_content($crate::style::JustifyContent::End)
             }
 
             pub fn content_between(self) -> Self {
-                self.align_content($crate::core::style::JustifyContent::Between)
+                self.align_content($crate::style::JustifyContent::Between)
             }
 
             pub fn content_around(self) -> Self {
-                self.align_content($crate::core::style::JustifyContent::Around)
+                self.align_content($crate::style::JustifyContent::Around)
             }
 
             pub fn content_evenly(self) -> Self {
-                self.align_content($crate::core::style::JustifyContent::Evenly)
+                self.align_content($crate::style::JustifyContent::Evenly)
             }
 
             pub fn content_stretch(self) -> Self {
-                self.align_content($crate::core::style::JustifyContent::Stretch)
+                self.align_content($crate::style::JustifyContent::Stretch)
             }
 
             // === Layout: Align Items (cross axis) ===
-            pub fn align_items(mut self, align_items: $crate::core::style::AlignItems) -> Self {
+            pub fn align_items(mut self, align_items: $crate::style::AlignItems) -> Self {
                 self.style.align_items = Some(align_items);
                 self
             }
 
             pub fn items_start(self) -> Self {
-                self.align_items($crate::core::style::AlignItems::Start)
+                self.align_items($crate::style::AlignItems::Start)
             }
 
             pub fn items_center(self) -> Self {
-                self.align_items($crate::core::style::AlignItems::Center)
+                self.align_items($crate::style::AlignItems::Center)
             }
 
             pub fn items_end(self) -> Self {
-                self.align_items($crate::core::style::AlignItems::End)
+                self.align_items($crate::style::AlignItems::End)
             }
 
             pub fn items_baseline(self) -> Self {
-                self.align_items($crate::core::style::AlignItems::Baseline)
+                self.align_items($crate::style::AlignItems::Baseline)
             }
 
             pub fn items_stretch(self) -> Self {
-                self.align_items($crate::core::style::AlignItems::Stretch)
+                self.align_items($crate::style::AlignItems::Stretch)
             }
 
-            pub fn align_self(mut self, align_self: $crate::core::style::AlignItems) -> Self {
+            pub fn align_self(mut self, align_self: $crate::style::AlignItems) -> Self {
                 self.style.align_self = Some(align_self);
                 self
             }
 
             pub fn self_start(self) -> Self {
-                self.align_self($crate::core::style::AlignItems::Start)
+                self.align_self($crate::style::AlignItems::Start)
             }
 
             pub fn self_center(self) -> Self {
-                self.align_self($crate::core::style::AlignItems::Center)
+                self.align_self($crate::style::AlignItems::Center)
             }
 
             pub fn self_end(self) -> Self {
-                self.align_self($crate::core::style::AlignItems::End)
+                self.align_self($crate::style::AlignItems::End)
             }
 
             pub fn self_baseline(self) -> Self {
-                self.align_self($crate::core::style::AlignItems::Baseline)
+                self.align_self($crate::style::AlignItems::Baseline)
             }
 
             pub fn self_stretch(self) -> Self {
-                self.align_self($crate::core::style::AlignItems::Stretch)
+                self.align_self($crate::style::AlignItems::Stretch)
             }
 
-            pub fn flex_wrap(mut self, flex_wrap: $crate::core::style::FlexWrap) -> Self {
+            pub fn flex_wrap(mut self, flex_wrap: $crate::style::FlexWrap) -> Self {
                 self.style.flex_wrap = Some(flex_wrap);
                 self
             }
 
             pub fn wrap(self) -> Self {
-                self.flex_wrap($crate::core::style::FlexWrap::Wrap)
+                self.flex_wrap($crate::style::FlexWrap::Wrap)
             }
 
             pub fn wrap_reverse(self) -> Self {
-                self.flex_wrap($crate::core::style::FlexWrap::WrapReverse)
+                self.flex_wrap($crate::style::FlexWrap::WrapReverse)
             }
 
             pub fn nowrap(self) -> Self {
-                self.flex_wrap($crate::core::style::FlexWrap::NoWrap)
+                self.flex_wrap($crate::style::FlexWrap::NoWrap)
             }
 
             // === Layout: Gap ===
@@ -1121,7 +1121,7 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn flex_basis(mut self, basis: f32) -> Self {
-                self.style.flex_basis = Some($crate::core::style::LengthPercentageAuto::length(basis));
+                self.style.flex_basis = Some($crate::style::LengthPercentageAuto::length(basis));
                 self
             }
 
@@ -1146,70 +1146,70 @@ macro_rules! impl_node_style_api {
                 self
             }
 
-            pub fn object_fit(mut self, fit: $crate::core::style::ObjectFit) -> Self {
+            pub fn object_fit(mut self, fit: $crate::style::ObjectFit) -> Self {
                 self.style.object_fit = Some(fit);
                 self
             }
 
             pub fn contain(self) -> Self {
-                self.object_fit($crate::core::style::ObjectFit::Contain)
+                self.object_fit($crate::style::ObjectFit::Contain)
             }
 
             pub fn cover(self) -> Self {
-                self.object_fit($crate::core::style::ObjectFit::Cover)
+                self.object_fit($crate::style::ObjectFit::Cover)
             }
 
             pub fn fill(self) -> Self {
-                self.object_fit($crate::core::style::ObjectFit::Fill)
+                self.object_fit($crate::style::ObjectFit::Fill)
             }
 
-            pub fn transform(mut self, transform: $crate::core::style::Transform) -> Self {
+            pub fn transform(mut self, transform: $crate::style::Transform) -> Self {
                 self.style.transforms.push(transform);
                 self
             }
 
             pub fn translate_x(self, value: f32) -> Self {
-                self.transform($crate::core::style::Transform::TranslateX(value))
+                self.transform($crate::style::Transform::TranslateX(value))
             }
 
             pub fn translate_y(self, value: f32) -> Self {
-                self.transform($crate::core::style::Transform::TranslateY(value))
+                self.transform($crate::style::Transform::TranslateY(value))
             }
 
             pub fn translate(self, x: f32, y: f32) -> Self {
-                self.transform($crate::core::style::Transform::Translate(x, y))
+                self.transform($crate::style::Transform::Translate(x, y))
             }
 
             pub fn scale(self, value: f32) -> Self {
-                self.transform($crate::core::style::Transform::Scale(value))
+                self.transform($crate::style::Transform::Scale(value))
             }
 
             pub fn scale_x(self, value: f32) -> Self {
-                self.transform($crate::core::style::Transform::ScaleX(value))
+                self.transform($crate::style::Transform::ScaleX(value))
             }
 
             pub fn scale_y(self, value: f32) -> Self {
-                self.transform($crate::core::style::Transform::ScaleY(value))
+                self.transform($crate::style::Transform::ScaleY(value))
             }
 
             pub fn rotate_deg(self, value: f32) -> Self {
-                self.transform($crate::core::style::Transform::RotateDeg(value))
+                self.transform($crate::style::Transform::RotateDeg(value))
             }
 
             pub fn skew_x_deg(self, value: f32) -> Self {
-                self.transform($crate::core::style::Transform::SkewXDeg(value))
+                self.transform($crate::style::Transform::SkewXDeg(value))
             }
 
             pub fn skew_y_deg(self, value: f32) -> Self {
-                self.transform($crate::core::style::Transform::SkewYDeg(value))
+                self.transform($crate::style::Transform::SkewYDeg(value))
             }
 
             pub fn skew_deg(self, x_deg: f32, y_deg: f32) -> Self {
-                self.transform($crate::core::style::Transform::SkewDeg(x_deg, y_deg))
+                self.transform($crate::style::Transform::SkewDeg(x_deg, y_deg))
             }
 
             pub fn rounded(mut self, radius: f32) -> Self {
-                self.style.border_radius = Some($crate::core::style::BorderRadius::uniform(radius));
+                self.style.border_radius = Some($crate::style::BorderRadius::uniform(radius));
                 self
             }
 
@@ -1252,7 +1252,7 @@ macro_rules! impl_node_style_api {
                 self
             }
 
-            pub fn border_color(mut self, color: $crate::core::style::ColorToken) -> Self {
+            pub fn border_color(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.border_color = Some(color);
                 self
             }
@@ -1277,7 +1277,7 @@ macro_rules! impl_node_style_api {
                 self
             }
 
-            pub fn border_style(mut self, style: $crate::core::style::BorderStyle) -> Self {
+            pub fn border_style(mut self, style: $crate::style::BorderStyle) -> Self {
                 self.style.border_style = Some(style);
                 self
             }
@@ -1287,18 +1287,18 @@ macro_rules! impl_node_style_api {
                 self
             }
 
-            pub fn stroke_color(mut self, color: $crate::core::style::ColorToken) -> Self {
+            pub fn stroke_color(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.stroke_color = Some(color);
                 self
             }
 
-            pub fn fill_color(mut self, color: $crate::core::style::ColorToken) -> Self {
+            pub fn fill_color(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.fill_color = Some(color);
                 self
             }
 
             // === Visual: Background Colors ===
-            pub fn bg(mut self, color: $crate::core::style::ColorToken) -> Self {
+            pub fn bg(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.bg_color = Some(color);
                 self.style.bg_gradient_from = None;
                 self.style.bg_gradient_via = None;
@@ -1308,7 +1308,7 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn bg_primary(self) -> Self {
-                self.bg($crate::core::style::ColorToken::Primary)
+                self.bg($crate::style::ColorToken::Primary)
             }
 
             pub fn overflow_hidden(mut self) -> Self {
@@ -1317,7 +1317,7 @@ macro_rules! impl_node_style_api {
             }
 
             // === Visual: Text Colors ===
-            pub fn text_color(mut self, color: $crate::core::style::ColorToken) -> Self {
+            pub fn text_color(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.text_color = Some(color);
                 self
             }
@@ -1328,111 +1328,111 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn text_primary(self) -> Self {
-                self.text_color($crate::core::style::ColorToken::Primary)
+                self.text_color($crate::style::ColorToken::Primary)
             }
 
             // === Font Weight ===
-            pub fn font_weight(mut self, weight: $crate::core::style::FontWeight) -> Self {
+            pub fn font_weight(mut self, weight: $crate::style::FontWeight) -> Self {
                 self.style.font_weight = Some(weight);
                 self
             }
 
             pub fn font_normal(self) -> Self {
-                self.font_weight($crate::core::style::FontWeight::NORMAL)
+                self.font_weight($crate::style::FontWeight::NORMAL)
             }
 
             pub fn font_light(self) -> Self {
-                self.font_weight($crate::core::style::FontWeight::LIGHT)
+                self.font_weight($crate::style::FontWeight::LIGHT)
             }
 
             pub fn font_medium(self) -> Self {
-                self.font_weight($crate::core::style::FontWeight::MEDIUM)
+                self.font_weight($crate::style::FontWeight::MEDIUM)
             }
 
             pub fn font_semibold(self) -> Self {
-                self.font_weight($crate::core::style::FontWeight::SEMIBOLD)
+                self.font_weight($crate::style::FontWeight::SEMIBOLD)
             }
 
             pub fn font_bold(self) -> Self {
-                self.font_weight($crate::core::style::FontWeight::BOLD)
+                self.font_weight($crate::style::FontWeight::BOLD)
             }
 
-            pub fn text_transform(mut self, transform: $crate::core::style::TextTransform) -> Self {
+            pub fn text_transform(mut self, transform: $crate::style::TextTransform) -> Self {
                 self.style.text_transform = Some(transform);
                 self
             }
 
             pub fn uppercase(self) -> Self {
-                self.text_transform($crate::core::style::TextTransform::Uppercase)
+                self.text_transform($crate::style::TextTransform::Uppercase)
             }
 
             // === Shadow ===
-            pub fn shadow(mut self, style: $crate::core::style::BoxShadowStyle) -> Self {
-                self.style.box_shadow = Some($crate::core::style::BoxShadow::from_style(style));
+            pub fn shadow(mut self, style: $crate::style::BoxShadowStyle) -> Self {
+                self.style.box_shadow = Some($crate::style::BoxShadow::from_style(style));
                 self
             }
 
             pub fn shadow_sm(self) -> Self {
-                self.shadow($crate::core::style::BoxShadowStyle::Sm)
+                self.shadow($crate::style::BoxShadowStyle::Sm)
             }
 
             pub fn shadow_md(self) -> Self {
-                self.shadow($crate::core::style::BoxShadowStyle::Md)
+                self.shadow($crate::style::BoxShadowStyle::Md)
             }
 
             pub fn shadow_lg(self) -> Self {
-                self.shadow($crate::core::style::BoxShadowStyle::Lg)
+                self.shadow($crate::style::BoxShadowStyle::Lg)
             }
 
             pub fn shadow_xl(self) -> Self {
-                self.shadow($crate::core::style::BoxShadowStyle::Xl)
+                self.shadow($crate::style::BoxShadowStyle::Xl)
             }
 
-            pub fn shadow_color(mut self, color: $crate::core::style::ColorToken) -> Self {
+            pub fn shadow_color(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.box_shadow_color = Some(color);
                 self
             }
 
-            pub fn inset_shadow(mut self, style: $crate::core::style::InsetShadowStyle) -> Self {
-                self.style.inset_shadow = Some($crate::core::style::InsetShadow::from_style(style));
+            pub fn inset_shadow(mut self, style: $crate::style::InsetShadowStyle) -> Self {
+                self.style.inset_shadow = Some($crate::style::InsetShadow::from_style(style));
                 self
             }
 
             pub fn inset_shadow_sm(self) -> Self {
-                self.inset_shadow($crate::core::style::InsetShadowStyle::Sm)
+                self.inset_shadow($crate::style::InsetShadowStyle::Sm)
             }
 
             pub fn inset_shadow_md(self) -> Self {
-                self.inset_shadow($crate::core::style::InsetShadowStyle::Md)
+                self.inset_shadow($crate::style::InsetShadowStyle::Md)
             }
 
-            pub fn inset_shadow_color(mut self, color: $crate::core::style::ColorToken) -> Self {
+            pub fn inset_shadow_color(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.inset_shadow_color = Some(color);
                 self
             }
 
-            pub fn drop_shadow(mut self, style: $crate::core::style::DropShadowStyle) -> Self {
-                self.style.drop_shadow = Some($crate::core::style::DropShadow::from_style(style));
+            pub fn drop_shadow(mut self, style: $crate::style::DropShadowStyle) -> Self {
+                self.style.drop_shadow = Some($crate::style::DropShadow::from_style(style));
                 self
             }
 
             pub fn drop_shadow_sm(self) -> Self {
-                self.drop_shadow($crate::core::style::DropShadowStyle::Sm)
+                self.drop_shadow($crate::style::DropShadowStyle::Sm)
             }
 
             pub fn drop_shadow_md(self) -> Self {
-                self.drop_shadow($crate::core::style::DropShadowStyle::Md)
+                self.drop_shadow($crate::style::DropShadowStyle::Md)
             }
 
             pub fn drop_shadow_lg(self) -> Self {
-                self.drop_shadow($crate::core::style::DropShadowStyle::Lg)
+                self.drop_shadow($crate::style::DropShadowStyle::Lg)
             }
 
             pub fn drop_shadow_xl(self) -> Self {
-                self.drop_shadow($crate::core::style::DropShadowStyle::Xl)
+                self.drop_shadow($crate::style::DropShadowStyle::Xl)
             }
 
-            pub fn drop_shadow_color(mut self, color: $crate::core::style::ColorToken) -> Self {
+            pub fn drop_shadow_color(mut self, color: $crate::style::ColorToken) -> Self {
                 self.style.drop_shadow_color = Some(color);
                 self
             }
@@ -1456,21 +1456,21 @@ macro_rules! impl_node_style_api {
             }
 
             // === Text Alignment ===
-            pub fn text_align(mut self, align: $crate::core::style::TextAlign) -> Self {
+            pub fn text_align(mut self, align: $crate::style::TextAlign) -> Self {
                 self.style.text_align = Some(align);
                 self
             }
 
             pub fn text_left(self) -> Self {
-                self.text_align($crate::core::style::TextAlign::Left)
+                self.text_align($crate::style::TextAlign::Left)
             }
 
             pub fn text_center(self) -> Self {
-                self.text_align($crate::core::style::TextAlign::Center)
+                self.text_align($crate::style::TextAlign::Center)
             }
 
             pub fn text_right(self) -> Self {
-                self.text_align($crate::core::style::TextAlign::Right)
+                self.text_align($crate::style::TextAlign::Right)
             }
 
             // === Line Height ===

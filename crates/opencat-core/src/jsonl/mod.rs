@@ -3,12 +3,12 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::scene::{
+use crate::scene::{
     composition::{AudioAttachment, CompositionAudioSource},
     node::Node,
     primitives::{AudioSource, ImageSource, OpenverseQuery},
 };
-use crate::core::style::NodeStyle;
+use crate::style::NodeStyle;
 
 mod builder;
 pub(crate) mod tailwind;
@@ -890,7 +890,7 @@ mod tests {
         assert_eq!(style.border_right_width, Some(6.0));
         assert_eq!(style.border_bottom_width, Some(6.0));
         assert_eq!(style.border_left_width, Some(2.0));
-        assert_eq!(style.border_style, Some(crate::core::style::BorderStyle::Dashed));
+        assert_eq!(style.border_style, Some(crate::style::BorderStyle::Dashed));
         let radius = style.border_radius.expect("expected border radius");
         assert_eq!(radius.bottom_right, 44.0);
         assert_eq!(radius.top_left, 0.0);
@@ -904,7 +904,7 @@ mod tests {
         assert_eq!(style.border_bottom_width, Some(1.0));
         assert_eq!(style.border_top_width, None);
         assert_eq!(style.border_left_width, None);
-        assert_eq!(style.border_style, Some(crate::core::style::BorderStyle::Dotted));
+        assert_eq!(style.border_style, Some(crate::style::BorderStyle::Dotted));
     }
 
     #[test]
@@ -1083,19 +1083,19 @@ mod tests {
             "absolute flex flex-col justify-evenly items-end grow shrink-0 w-full h-full object-cover overflow-hidden z-10",
         );
 
-        assert_eq!(style.position, Some(crate::core::style::Position::Absolute));
+        assert_eq!(style.position, Some(crate::style::Position::Absolute));
         assert!(style.is_flex);
-        assert_eq!(style.flex_direction, Some(crate::core::style::FlexDirection::Col));
+        assert_eq!(style.flex_direction, Some(crate::style::FlexDirection::Col));
         assert_eq!(
             style.justify_content,
-            Some(crate::core::style::JustifyContent::Evenly)
+            Some(crate::style::JustifyContent::Evenly)
         );
-        assert_eq!(style.align_items, Some(crate::core::style::AlignItems::End));
+        assert_eq!(style.align_items, Some(crate::style::AlignItems::End));
         assert_eq!(style.flex_grow, Some(1.0));
         assert_eq!(style.flex_shrink, Some(0.0));
         assert!(style.width_full);
         assert!(style.height_full);
-        assert_eq!(style.object_fit, Some(crate::core::style::ObjectFit::Cover));
+        assert_eq!(style.object_fit, Some(crate::style::ObjectFit::Cover));
         assert!(style.overflow_hidden);
         assert_eq!(style.z_index, Some(10));
     }
@@ -1192,7 +1192,7 @@ mod tests {
 
     #[test]
     fn parser_supports_margin_scales_brackets_and_negative_values() {
-        use crate::core::style::LengthPercentageAuto as LPA;
+        use crate::style::LengthPercentageAuto as LPA;
         let style = parse_class_name("m-2.5 -mx-4 mt-[6px] -mb-[8px] mr-99");
 
         assert_eq!(style.margin, Some(LPA::Length(10.0)));
@@ -1204,7 +1204,7 @@ mod tests {
 
     #[test]
     fn parser_maps_logical_margin_aliases_to_physical_edges() {
-        use crate::core::style::LengthPercentageAuto as LPA;
+        use crate::style::LengthPercentageAuto as LPA;
         let style = parse_class_name("ms-3 me-[10px] -mbs-2 mbe-1 -ml-[12px]");
 
         assert_eq!(style.margin_left, Some(LPA::Length(-12.0)));
@@ -1243,7 +1243,7 @@ mod tests {
 
     #[test]
     fn parser_supports_margin_auto_variants() {
-        use crate::core::style::LengthPercentageAuto as LPA;
+        use crate::style::LengthPercentageAuto as LPA;
 
         let style = parse_class_name("mx-auto");
         assert_eq!(style.margin_x, Some(LPA::Auto));

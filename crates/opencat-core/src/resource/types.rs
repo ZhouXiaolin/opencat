@@ -1,6 +1,6 @@
 //! 纯描述结构，无 ffmpeg / skia 依赖。
 
-use crate::core::resource::catalog::VideoInfoMeta;
+use crate::resource::catalog::VideoInfoMeta;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum VideoPreviewQuality {
@@ -78,7 +78,7 @@ fn clamp_video_time(time_secs: f64, duration_secs: Option<f64>) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::resource::catalog::VideoInfoMeta;
+    use crate::resource::catalog::VideoInfoMeta;
 
     #[test]
     fn video_frame_request_applies_media_offset_and_rate() {

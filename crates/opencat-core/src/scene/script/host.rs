@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::core::frame_ctx::ScriptFrameCtx;
-use crate::core::scene::script::{ScriptTextSource, StyleMutations};
+use crate::frame_ctx::ScriptFrameCtx;
+use crate::scene::script::{ScriptTextSource, StyleMutations};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ScriptDriverId(pub u64);
@@ -24,7 +24,7 @@ mod tests {
 
     #[test]
     fn install_returns_stable_id() {
-        use crate::core::test_support::MockScriptHost;
+        use crate::test_support::MockScriptHost;
         let mut host: Box<dyn ScriptHost> = Box::new(MockScriptHost::default());
         let id1 = host.install("ctx => {}").unwrap();
         let id2 = host.install("ctx => {}").unwrap();

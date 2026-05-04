@@ -272,7 +272,7 @@ mod tests {
         paint_variance: PaintVariance,
         composite_dirty: bool,
         children: Vec<TestAnnotatedNode>,
-        background: Option<crate::core::style::BackgroundFill>,
+        background: Option<crate::style::BackgroundFill>,
     }
 
     impl Default for AnnotatedRectConfig {
@@ -597,8 +597,8 @@ mod tests {
     fn paint_fingerprint_changes_with_paint_content() {
         let a = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig::default()));
         let b = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
-            background: Some(crate::core::style::BackgroundFill::Solid(
-                crate::core::style::ColorToken::Red,
+            background: Some(crate::style::BackgroundFill::Solid(
+                crate::style::ColorToken::Red,
             )),
             ..Default::default()
         }));
@@ -782,7 +782,7 @@ mod tests {
             asset_id,
             width: 10,
             height: 10,
-            video_timing: Some(crate::core::resource::types::VideoFrameTiming::default()),
+            video_timing: Some(crate::resource::types::VideoFrameTiming::default()),
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
                 background: None,
@@ -869,7 +869,7 @@ mod tests {
             asset_id,
             width: 10,
             height: 10,
-            video_timing: Some(crate::core::resource::types::VideoFrameTiming {
+            video_timing: Some(crate::resource::types::VideoFrameTiming {
                 media_offset_secs: 1.234,
                 playback_rate: 1.0,
                 looping: false,
@@ -907,7 +907,7 @@ mod tests {
             asset_id,
             width: 10,
             height: 10,
-            video_timing: Some(crate::core::resource::types::VideoFrameTiming::default()),
+            video_timing: Some(crate::resource::types::VideoFrameTiming::default()),
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
                 background: None,

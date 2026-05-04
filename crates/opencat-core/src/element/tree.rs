@@ -1,7 +1,7 @@
-use crate::core::resource::{asset_catalog::AssetId, types::VideoFrameTiming};
-use crate::core::scene::script::{CanvasCommand, TextUnitOverrideBatch};
-use crate::core::scene::transition::TransitionKind;
-use crate::core::style::ComputedTextStyle;
+use crate::resource::{asset_catalog::AssetId, types::VideoFrameTiming};
+use crate::scene::script::{CanvasCommand, TextUnitOverrideBatch};
+use crate::scene::transition::TransitionKind;
+use crate::style::ComputedTextStyle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ElementId(pub u64);

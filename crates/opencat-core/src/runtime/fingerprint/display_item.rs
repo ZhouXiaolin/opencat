@@ -99,29 +99,29 @@ impl Hash for DisplayItemFp<'_> {
     }
 }
 
-fn hash_transition_kind<H: Hasher>(kind: &crate::core::scene::transition::TransitionKind, state: &mut H) {
+fn hash_transition_kind<H: Hasher>(kind: &crate::scene::transition::TransitionKind, state: &mut H) {
     match kind {
-        crate::core::scene::transition::TransitionKind::Slide(direction) => {
+        crate::scene::transition::TransitionKind::Slide(direction) => {
             0_u8.hash(state);
             std::mem::discriminant(direction).hash(state);
         }
-        crate::core::scene::transition::TransitionKind::LightLeak(params) => {
+        crate::scene::transition::TransitionKind::LightLeak(params) => {
             1_u8.hash(state);
             F32Hash(params.seed).hash(state);
             F32Hash(params.hue_shift).hash(state);
             F32Hash(params.mask_scale).hash(state);
         }
-        crate::core::scene::transition::TransitionKind::Gl(effect) => {
+        crate::scene::transition::TransitionKind::Gl(effect) => {
             2_u8.hash(state);
             effect.name.hash(state);
         }
-        crate::core::scene::transition::TransitionKind::Fade => 3_u8.hash(state),
-        crate::core::scene::transition::TransitionKind::Wipe(direction) => {
+        crate::scene::transition::TransitionKind::Fade => 3_u8.hash(state),
+        crate::scene::transition::TransitionKind::Wipe(direction) => {
             4_u8.hash(state);
             std::mem::discriminant(direction).hash(state);
         }
-        crate::core::scene::transition::TransitionKind::ClockWipe => 5_u8.hash(state),
-        crate::core::scene::transition::TransitionKind::Iris => 6_u8.hash(state),
+        crate::scene::transition::TransitionKind::ClockWipe => 5_u8.hash(state),
+        crate::scene::transition::TransitionKind::Iris => 6_u8.hash(state),
     }
 }
 
@@ -155,7 +155,7 @@ impl Hash for TextStyleFp<'_> {
     }
 }
 
-struct RectPaintFp<'a>(&'a crate::core::display::list::RectPaintStyle);
+struct RectPaintFp<'a>(&'a crate::display::list::RectPaintStyle);
 
 impl Hash for RectPaintFp<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -176,7 +176,7 @@ impl Hash for RectPaintFp<'_> {
     }
 }
 
-pub(super) struct BitmapPaintFp<'a>(pub(super) &'a crate::core::display::list::BitmapPaintStyle);
+pub(super) struct BitmapPaintFp<'a>(pub(super) &'a crate::display::list::BitmapPaintStyle);
 
 impl Hash for BitmapPaintFp<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -197,7 +197,7 @@ impl Hash for BitmapPaintFp<'_> {
     }
 }
 
-struct SvgPathPaintFp<'a>(&'a crate::core::display::list::SvgPathPaintStyle);
+struct SvgPathPaintFp<'a>(&'a crate::display::list::SvgPathPaintStyle);
 
 impl Hash for SvgPathPaintFp<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -228,7 +228,7 @@ pub(super) fn bitmap_is_video(bitmap: &BitmapDisplayItem) -> bool {
 #[cfg(test)]
 mod tests {
     use super::item_is_time_variant;
-    use crate::core::display::list::{DisplayItem, DisplayRect, RectPaintStyle, TimelineDisplayItem};
+    use crate::display::list::{DisplayItem, DisplayRect, RectPaintStyle, TimelineDisplayItem};
 
     fn bounds() -> DisplayRect {
         DisplayRect {
@@ -245,7 +245,7 @@ mod tests {
             bounds: bounds(),
             paint: RectPaintStyle {
                 background: None,
-                border_radius: crate::core::style::BorderRadius::default(),
+                border_radius: crate::style::BorderRadius::default(),
                 border_width: None,
                 border_top_width: None,
                 border_right_width: None,

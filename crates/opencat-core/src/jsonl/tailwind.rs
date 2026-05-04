@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
-use crate::core::style::{
+use crate::style::{
     AlignItems, BoxShadow, BoxShadowStyle, ColorToken, DropShadow, DropShadowStyle, FlexDirection,
     FlexWrap, FontWeight, GradientDirection, GridAutoFlow, GridAutoRows, GridPlacement,
     InsetShadow, InsetShadowStyle, JustifyContent, LengthPercentageAuto, NodeStyle, ObjectFit,
@@ -143,7 +143,7 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         ExactClassAction::ClearInsetShadow => style.inset_shadow = None,
         ExactClassAction::ClearDropShadow => style.drop_shadow = None,
         ExactClassAction::BorderRadius(value) => {
-            style.border_radius = Some(crate::core::style::BorderRadius::uniform(value))
+            style.border_radius = Some(crate::style::BorderRadius::uniform(value))
         }
         ExactClassAction::BorderWidth(value) => style.border_width = Some(value),
         ExactClassAction::BackdropBlurSigma(value) => style.backdrop_blur_sigma = Some(value),
@@ -193,9 +193,9 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
 
 fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
     if let Some(border_style) = match class {
-        "border-solid" => Some(crate::core::style::BorderStyle::Solid),
-        "border-dashed" => Some(crate::core::style::BorderStyle::Dashed),
-        "border-dotted" => Some(crate::core::style::BorderStyle::Dotted),
+        "border-solid" => Some(crate::style::BorderStyle::Solid),
+        "border-dashed" => Some(crate::style::BorderStyle::Dashed),
+        "border-dotted" => Some(crate::style::BorderStyle::Dotted),
         _ => None,
     } {
         style.border_style = Some(border_style);
@@ -610,7 +610,7 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
 
     if let Some(value) = class.strip_prefix("rounded-") {
         if let Some(n) = resolve_rounded_size(value) {
-            style.border_radius = Some(crate::core::style::BorderRadius::uniform(n));
+            style.border_radius = Some(crate::style::BorderRadius::uniform(n));
             return true;
         }
     }
@@ -1239,7 +1239,7 @@ fn apply_directional_rounded(class: &str, style: &mut NodeStyle) -> bool {
             };
             let r = style
                 .border_radius
-                .get_or_insert_with(crate::core::style::BorderRadius::default);
+                .get_or_insert_with(crate::style::BorderRadius::default);
             if corners[0] {
                 r.top_left = value;
             }
@@ -1294,7 +1294,7 @@ fn apply_f32_target(style: &mut NodeStyle, target: F32Target, value: f32) {
         F32Target::MarginBottom => style.margin_bottom = Some(LengthPercentageAuto::Length(value)),
         F32Target::MarginLeft => style.margin_left = Some(LengthPercentageAuto::Length(value)),
         F32Target::BorderRadius => {
-            style.border_radius = Some(crate::core::style::BorderRadius::uniform(value))
+            style.border_radius = Some(crate::style::BorderRadius::uniform(value))
         }
         F32Target::BorderWidth => style.border_width = Some(value),
         F32Target::OpacityClamped => style.opacity = Some(value.clamp(0.0, 1.0)),
@@ -1764,7 +1764,7 @@ fn parse_aspect_ratio(value: &str) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::parse_class_name;
-    use crate::core::style::ColorToken;
+    use crate::style::ColorToken;
 
     #[test]
     fn parses_box_drop_and_inset_shadows_separately() {

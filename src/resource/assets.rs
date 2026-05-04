@@ -1,69 +1,30 @@
-use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
+//! 兼容别名 + 远程预加载入口；纯映射逻辑迁移到 asset_catalog.rs。
+
 use std::env;
-use std::fs;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use reqwest::header::CONTENT_TYPE;
 use serde::Deserialize;
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Builder;
 use tokio::task::JoinSet;
 
-use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
+use crate::resource::asset_catalog::{
+    AssetCatalog, AssetEntry,
+    asset_id_for_audio_url,
+    asset_id_for_query, asset_id_for_url,
+    cache_file_path, read_image_dimensions,
+};
 use crate::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
+
+pub use crate::resource::asset_catalog::{AssetCatalog as AssetsMap, AssetId};
 
 const OPENVERSE_IMAGES_ENDPOINT: &str = "https://api.openverse.org/v1/images/";
 const OPENVERSE_TOKEN_ENDPOINT: &str = "https://api.openverse.org/v1/auth_tokens/token/";
 const OPENVERSE_CLIENT_ID_ENV: &str = "OPENVERSE_CLIENT_ID";
 const OPENVERSE_CLIENT_SECRET_ENV: &str = "OPENVERSE_CLIENT_SECRET";
 const HTTP_USER_AGENT: &str = "OpenCat/0.1 (+https://github.com/solaren/opencat)";
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct AssetId(pub String);
-
-pub struct AssetsMap {
-    entries: HashMap<AssetId, AssetEntry>,
-    video_info_meta: HashMap<AssetId, VideoInfoMeta>,
-    cache_dir: PathBuf,
-    openverse_token: Option<String>,
-    preload_runtime: Option<Runtime>,
-}
-
-struct AssetEntry {
-    path: PathBuf,
-    width: u32,
-    height: u32,
-}
-
-impl AssetEntry {
-    fn image(path: &Path) -> Self {
-        let (width, height) = read_image_dimensions(path);
-        Self {
-            path: path.to_path_buf(),
-            width,
-            height,
-        }
-    }
-
-    fn audio(path: &Path) -> Self {
-        Self {
-            path: path.to_path_buf(),
-            width: 0,
-            height: 0,
-        }
-    }
-
-    fn with_dimensions(path: PathBuf, width: u32, height: u32) -> Self {
-        Self {
-            path,
-            width,
-            height,
-        }
-    }
-}
 
 #[derive(Clone)]
 struct RemoteAssetRequest {
@@ -99,303 +60,104 @@ struct OpenverseTokenResponse {
     access_token: String,
 }
 
-impl AssetsMap {
-    pub fn new() -> Self {
-        let cache_dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".opencat")
-            .join("assets");
-        Self {
-            entries: HashMap::new(),
-            video_info_meta: HashMap::new(),
-            cache_dir,
-            openverse_token: None,
-            preload_runtime: None,
-        }
-    }
+pub fn preload_image_sources<I>(catalog: &mut AssetCatalog, sources: I) -> Result<()>
+where
+    I: IntoIterator<Item = ImageSource>,
+{
+    let mut remote_requests = Vec::new();
 
-    pub fn register(&mut self, path: &Path) -> AssetId {
-        let id = AssetId(path.to_string_lossy().into_owned());
-        self.insert_entry_if_missing(id, || AssetEntry::image(path))
-    }
-
-    pub fn preload_image_sources<I>(&mut self, sources: I) -> Result<()>
-    where
-        I: IntoIterator<Item = ImageSource>,
-    {
-        let mut remote_requests = Vec::new();
-
-        for source in sources {
-            match source {
-                ImageSource::Unset => {
-                    return Err(anyhow!("image source is required before rendering"));
-                }
-                ImageSource::Path(path) => {
-                    self.register(&path);
-                }
-                ImageSource::Url(url) => {
-                    let id = asset_id_for_url(&url);
-                    self.push_missing_request(&id, &mut remote_requests, || RemoteAssetRequest {
-                        id: id.clone(),
-                        source: RemoteImageSource::Url(url),
-                    });
-                }
-                ImageSource::Query(query) => {
-                    let id = asset_id_for_query(&query);
-                    self.push_missing_request(&id, &mut remote_requests, || RemoteAssetRequest {
-                        id: id.clone(),
-                        source: RemoteImageSource::Query(query),
-                    });
-                }
-            }
-        }
-
-        if remote_requests.is_empty() {
-            return Ok(());
-        }
-
-        self.ensure_cache_dir()?;
-        let cache_dir = self.cache_dir.clone();
-        let existing_token = self.openverse_token.clone();
-        let token = {
-            let runtime = self.preload_runtime("asset")?;
-            runtime.block_on(fetch_openverse_token(existing_token))?
-        };
-        self.openverse_token = token.clone();
-
-        let prepared = {
-            let runtime = self.preload_runtime("asset")?;
-            runtime.block_on(preload_remote_requests(cache_dir, token, remote_requests))?
-        };
-
-        for (id, path, width, height) in prepared {
-            self.entries
-                .insert(id, AssetEntry::with_dimensions(path, width, height));
-        }
-
-        Ok(())
-    }
-
-    pub fn preload_audio_sources<I>(&mut self, sources: I) -> Result<()>
-    where
-        I: IntoIterator<Item = AudioSource>,
-    {
-        let mut remote_requests = Vec::new();
-
-        for source in sources {
-            match source {
-                AudioSource::Unset => {
-                    return Err(anyhow!("audio source is required before rendering"));
-                }
-                AudioSource::Path(path) => {
-                    self.register_audio_path(&path);
-                }
-                AudioSource::Url(url) => {
-                    let id = asset_id_for_audio_url(&url);
-                    self.push_missing_request(&id, &mut remote_requests, || RemoteAudioRequest {
-                        id: id.clone(),
-                        url,
-                    });
-                }
-            }
-        }
-
-        if remote_requests.is_empty() {
-            return Ok(());
-        }
-
-        self.ensure_cache_dir()?;
-        let cache_dir = self.cache_dir.clone();
-        let prepared = {
-            let runtime = self.preload_runtime("audio")?;
-            runtime.block_on(preload_remote_audio_requests(cache_dir, remote_requests))?
-        };
-
-        for (id, path) in prepared {
-            self.entries.insert(id, AssetEntry::audio(&path));
-        }
-
-        Ok(())
-    }
-
-    pub fn register_image_source(&mut self, source: &ImageSource) -> Result<AssetId> {
+    for source in sources {
         match source {
-            ImageSource::Unset => Err(anyhow!("image source is required before rendering")),
-            ImageSource::Path(path) => Ok(self.register(path)),
-            ImageSource::Url(url) => {
-                let id = asset_id_for_url(url);
-                self.require_preloaded(id, || {
-                    anyhow!("remote image source {url} was not preloaded before rendering")
-                })
+            ImageSource::Unset => {
+                return Err(anyhow!("image source is required before rendering"));
             }
-            ImageSource::Query(query) => {
-                let id = asset_id_for_query(query);
-                self.require_preloaded(id, || {
-                    anyhow!(
-                        "Openverse query {:?} was not preloaded before rendering",
-                        query.query
-                    )
-                })
-            }
-        }
-    }
-
-    pub fn ensure_image_source_entry_for_inspect(&mut self, source: &ImageSource) {
-        match source {
-            ImageSource::Unset => {}
             ImageSource::Path(path) => {
-                let _ = self.register(path);
+                catalog.register(&path);
             }
             ImageSource::Url(url) => {
-                let id = asset_id_for_url(url);
-                if self.entries.contains_key(&id) {
-                    return;
-                }
-                self.entries
-                    .insert(id, AssetEntry::with_dimensions(PathBuf::from(url), 0, 0));
+                let id = asset_id_for_url(&url);
+                catalog.push_missing_request(&id, &mut remote_requests, || RemoteAssetRequest {
+                    id: id.clone(),
+                    source: RemoteImageSource::Url(url.clone()),
+                });
             }
             ImageSource::Query(query) => {
-                let id = asset_id_for_query(query);
-                if self.entries.contains_key(&id) {
-                    return;
-                }
-                self.entries.insert(
-                    id,
-                    AssetEntry::with_dimensions(
-                        PathBuf::from(format!("openverse://{}", query.query)),
-                        0,
-                        0,
-                    ),
-                );
+                let id = asset_id_for_query(&query);
+                catalog.push_missing_request(&id, &mut remote_requests, || RemoteAssetRequest {
+                    id: id.clone(),
+                    source: RemoteImageSource::Query(query.clone()),
+                });
             }
         }
     }
 
-    pub fn register_audio_source(&mut self, source: &AudioSource) -> Result<AssetId> {
-        match source {
-            AudioSource::Unset => Err(anyhow!("audio source is required before rendering")),
-            AudioSource::Path(path) => Ok(self.register_audio_path(path)),
-            AudioSource::Url(url) => {
-                let id = asset_id_for_audio_url(url);
-                self.require_preloaded(id, || {
-                    anyhow!("remote audio source {url} was not preloaded before rendering")
-                })
-            }
-        }
+    if remote_requests.is_empty() {
+        return Ok(());
     }
 
-    pub fn register_dimensions(&mut self, path: &Path, width: u32, height: u32) -> AssetId {
-        let id = AssetId(path.to_string_lossy().into_owned());
-        self.insert_entry_if_missing(id, || {
-            AssetEntry::with_dimensions(path.to_path_buf(), width, height)
-        })
-    }
+    catalog.ensure_cache_dir()?;
+    let cache_dir = catalog.cache_dir.clone();
+    let existing_token = catalog.openverse_token.clone();
+    let rt = build_preload_runtime("asset")?;
+    let token = rt.block_on(fetch_openverse_token(existing_token))?;
+    catalog.openverse_token = token.clone();
 
-    pub fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()> {
-        if self.entries.contains_key(&alias) {
-            return Ok(());
-        }
+    let prepared = rt.block_on(preload_remote_requests(cache_dir, token, remote_requests))?;
 
-        let entry = self
+    for (id, path, width, height) in prepared {
+        catalog
             .entries
-            .get(target)
-            .ok_or_else(|| anyhow!("cannot alias missing asset {}", target.0))?;
-        self.entries.insert(
-            alias,
-            AssetEntry {
-                path: entry.path.clone(),
-                width: entry.width,
-                height: entry.height,
-            },
-        );
-        Ok(())
+            .insert(id, AssetEntry::with_dimensions(path, width, height));
     }
 
-    pub fn dimensions(&self, id: &AssetId) -> (u32, u32) {
-        self.entries
-            .get(id)
-            .map(|e| (e.width, e.height))
-            .unwrap_or((0, 0))
-    }
+    Ok(())
+}
 
-    pub fn register_video_info(&mut self, path: &Path, info: VideoInfoMeta) -> AssetId {
-        let id = self.register_dimensions(path, info.width, info.height);
-        self.video_info_meta.insert(id.clone(), info);
-        id
-    }
+pub fn preload_audio_sources<I>(catalog: &mut AssetCatalog, sources: I) -> Result<()>
+where
+    I: IntoIterator<Item = AudioSource>,
+{
+    let mut remote_requests = Vec::new();
 
-    pub fn video_info_meta(&self, id: &AssetId) -> Option<VideoInfoMeta> {
-        self.video_info_meta.get(id).copied()
-    }
-
-    pub fn path(&self, id: &AssetId) -> Option<&Path> {
-        self.entries.get(id).map(|e| e.path.as_path())
-    }
-
-    fn register_audio_path(&mut self, path: &Path) -> AssetId {
-        let id = asset_id_for_audio_path(path);
-        self.insert_entry_if_missing(id, || AssetEntry::audio(path))
-    }
-
-    fn insert_entry_if_missing(
-        &mut self,
-        id: AssetId,
-        build_entry: impl FnOnce() -> AssetEntry,
-    ) -> AssetId {
-        if self.entries.contains_key(&id) {
-            return id;
-        }
-
-        self.entries.insert(id.clone(), build_entry());
-        id
-    }
-
-    fn push_missing_request<T>(
-        &self,
-        id: &AssetId,
-        requests: &mut Vec<T>,
-        build_request: impl FnOnce() -> T,
-    ) {
-        if !self.entries.contains_key(id) {
-            requests.push(build_request());
+    for source in sources {
+        match source {
+            AudioSource::Unset => {
+                return Err(anyhow!("audio source is required before rendering"));
+            }
+            AudioSource::Path(path) => {
+                catalog.register_audio_path(&path);
+            }
+            AudioSource::Url(url) => {
+                let id = asset_id_for_audio_url(&url);
+                catalog.push_missing_request(&id, &mut remote_requests, || RemoteAudioRequest {
+                    id: id.clone(),
+                    url: url.clone(),
+                });
+            }
         }
     }
 
-    fn require_preloaded(
-        &self,
-        id: AssetId,
-        missing_error: impl FnOnce() -> anyhow::Error,
-    ) -> Result<AssetId> {
-        self.entries
-            .contains_key(&id)
-            .then_some(id)
-            .ok_or_else(missing_error)
+    if remote_requests.is_empty() {
+        return Ok(());
     }
 
-    fn ensure_cache_dir(&self) -> Result<()> {
-        fs::create_dir_all(&self.cache_dir).with_context(|| {
-            format!(
-                "failed to create asset cache dir {}",
-                self.cache_dir.display()
-            )
-        })
+    catalog.ensure_cache_dir()?;
+    let cache_dir = catalog.cache_dir.clone();
+    let rt = build_preload_runtime("audio")?;
+    let prepared = rt.block_on(preload_remote_audio_requests(cache_dir, remote_requests))?;
+
+    for (id, path) in prepared {
+        catalog.entries.insert(id, AssetEntry::audio(&path));
     }
 
-    fn build_preload_runtime(kind: &str) -> Result<Runtime> {
-        Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .with_context(|| format!("failed to build tokio runtime for {kind} preloading"))
-    }
+    Ok(())
+}
 
-    fn preload_runtime(&mut self, kind: &str) -> Result<&Runtime> {
-        if self.preload_runtime.is_none() {
-            self.preload_runtime = Some(Self::build_preload_runtime(kind)?);
-        }
-        self.preload_runtime
-            .as_ref()
-            .ok_or_else(|| anyhow!("failed to initialize tokio runtime for {kind} preloading"))
-    }
+fn build_preload_runtime(kind: &str) -> Result<tokio::runtime::Runtime> {
+    Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .with_context(|| format!("failed to build tokio runtime for {kind} preloading"))
 }
 
 async fn preload_remote_requests(
@@ -596,72 +358,4 @@ async fn download_to_cache(
     tokio::fs::write(path, &bytes)
         .await
         .with_context(|| format!("failed to write cached {asset_kind} {}", path.display()))
-}
-
-fn asset_id_for_url(url: &str) -> AssetId {
-    AssetId(format!("url:{url}"))
-}
-
-fn asset_id_for_audio_path(path: &Path) -> AssetId {
-    AssetId(format!("audio:path:{}", path.to_string_lossy()))
-}
-
-fn asset_id_for_audio_url(url: &str) -> AssetId {
-    AssetId(format!("audio:url:{url}"))
-}
-
-fn asset_id_for_query(query: &OpenverseQuery) -> AssetId {
-    AssetId(format!(
-        "openverse:q={};count={};aspect_ratio={}",
-        query.query,
-        query.count,
-        query.aspect_ratio.as_deref().unwrap_or("")
-    ))
-}
-
-fn cache_file_path(cache_dir: &Path, id: &AssetId, extension: &str) -> PathBuf {
-    cache_dir.join(format!("{:016x}.{extension}", stable_hash(&id.0)))
-}
-
-fn read_image_dimensions(path: &Path) -> (u32, u32) {
-    let Ok(bytes) = fs::read(path) else {
-        return (0, 0);
-    };
-    let Ok(image) = image::load_from_memory(&bytes) else {
-        return (0, 0);
-    };
-    (image.width(), image.height())
-}
-
-fn stable_hash(value: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    hasher.finish()
-}
-
-impl ResourceCatalog for AssetsMap {
-    fn resolve_image(&mut self, src: &ImageSource) -> Result<AssetId> {
-        self.register_image_source(src)
-    }
-
-    fn resolve_audio(&mut self, src: &AudioSource) -> Result<AssetId> {
-        self.register_audio_source(src)
-    }
-
-    fn register_dimensions(&mut self, locator: &str, width: u32, height: u32) -> AssetId {
-        let path = std::path::Path::new(locator);
-        AssetsMap::register_dimensions(self, path, width, height)
-    }
-
-    fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()> {
-        AssetsMap::alias(self, alias, target)
-    }
-
-    fn dimensions(&self, id: &AssetId) -> (u32, u32) {
-        AssetsMap::dimensions(self, id)
-    }
-
-    fn video_info(&self, id: &AssetId) -> Option<VideoInfoMeta> {
-        self.video_info_meta(id)
-    }
 }

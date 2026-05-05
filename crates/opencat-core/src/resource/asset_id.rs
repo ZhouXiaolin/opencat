@@ -3,7 +3,8 @@ use std::hash::{Hash, Hasher};
 
 use crate::scene::primitives::OpenverseQuery;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
 pub struct AssetId(pub String);
 
 pub fn asset_id_for_url(url: &str) -> AssetId {

@@ -3,7 +3,8 @@ use crate::scene::script::{CanvasCommand, TextUnitOverrideBatch};
 use crate::scene::transition::TransitionKind;
 use crate::style::ComputedTextStyle;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
 pub struct ElementId(pub u64);
 
 #[derive(Clone, Debug)]

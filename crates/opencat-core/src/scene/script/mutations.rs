@@ -7,13 +7,15 @@ use crate::style::{
 
 // ── Node style mutations ──────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum TextUnitGranularity {
     Grapheme,
     Word,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TextUnitOverride {
     pub opacity: Option<f32>,
     pub translate_x: Option<f32>,
@@ -23,7 +25,8 @@ pub struct TextUnitOverride {
     pub color: Option<ColorToken>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TextUnitOverrideBatch {
     pub granularity: TextUnitGranularity,
     pub overrides: Vec<TextUnitOverride>,
@@ -236,7 +239,8 @@ impl NodeStyleMutations {
 
 // ── Canvas mutations ──────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScriptColor {
     pub r: u8,
     pub g: u8,
@@ -244,35 +248,40 @@ pub struct ScriptColor {
     pub a: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ScriptLineCap {
     Butt,
     Round,
     Square,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ScriptLineJoin {
     Miter,
     Round,
     Bevel,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ScriptPointMode {
     Points,
     Lines,
     Polygon,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ScriptFontEdging {
     Alias,
     AntiAlias,
     SubpixelAntiAlias,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum CanvasCommand {
     Save,
     SaveLayer {

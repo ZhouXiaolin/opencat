@@ -344,12 +344,29 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     let mut output = String::new();
 
     output.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]\n");
-    output.push_str("#[serde(rename_all = \"camelCase\")]\n");
+    output.push_str("#[serde(rename_all = \"camelCase\", into = \"ColorRgba\")]\n");
     output.push_str("pub enum ColorToken {\n");
     output.push_str(&indent_block(&generate_variants(colors), 1));
     output.push_str("    Primary,\n");
     output.push_str("    Transparent,\n");
     output.push_str("    Custom(u8, u8, u8, u8),\n");
+    output.push_str("}\n\n");
+
+    output.push_str("/// Wire-format RGBA color used when serializing [`ColorToken`] to JSON\n");
+    output.push_str("/// (so JS/CanvasKit can consume it directly without enum-variant decoding).\n");
+    output.push_str("#[derive(Debug, Clone, Copy, serde::Serialize)]\n");
+    output.push_str("pub struct ColorRgba {\n");
+    output.push_str("    pub r: u8,\n");
+    output.push_str("    pub g: u8,\n");
+    output.push_str("    pub b: u8,\n");
+    output.push_str("    pub a: u8,\n");
+    output.push_str("}\n\n");
+
+    output.push_str("impl From<ColorToken> for ColorRgba {\n");
+    output.push_str("    fn from(token: ColorToken) -> Self {\n");
+    output.push_str("        let (r, g, b, a) = token.rgba();\n");
+    output.push_str("        Self { r, g, b, a }\n");
+    output.push_str("    }\n");
     output.push_str("}\n\n");
 
     output.push_str("impl ColorToken {\n");

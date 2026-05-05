@@ -1585,4 +1585,30 @@ mod tests {
             Some(ColorToken::Transparent)
         );
     }
+
+    #[test]
+    fn color_token_serializes_as_rgba_for_wire() {
+        let json = serde_json::to_string(&ColorToken::Red500).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(parsed.get("r").is_some(), "expected `r` field, got {json}");
+        assert!(parsed.get("g").is_some(), "expected `g` field");
+        assert!(parsed.get("b").is_some(), "expected `b` field");
+        assert!(parsed.get("a").is_some(), "expected `a` field");
+    }
+
+    #[test]
+    fn color_token_deserializes_from_camelcase_variant_name() {
+        let token: ColorToken = serde_json::from_str("\"red500\"").unwrap();
+        assert_eq!(token, ColorToken::Red500);
+
+        let token: ColorToken = serde_json::from_str("\"transparent\"").unwrap();
+        assert_eq!(token, ColorToken::Transparent);
+    }
+
+    #[test]
+    fn color_token_custom_variant_serializes_as_rgba() {
+        let token = ColorToken::Custom(10, 20, 30, 40);
+        let json = serde_json::to_string(&token).unwrap();
+        assert_eq!(json, r#"{"r":10,"g":20,"b":30,"a":40}"#);
+    }
 }

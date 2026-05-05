@@ -11,3 +11,4 @@
 
 pub mod recorder;
 pub mod runtime;
+pub mod text_units;

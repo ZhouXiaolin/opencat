@@ -7,6 +7,7 @@ pub mod frame_ctx;
 pub mod jsonl;
 pub mod layout;
 mod lucide_icons;
+pub mod platform;
 pub mod resource;
 pub mod runtime;
 pub mod scene;

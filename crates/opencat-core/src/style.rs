@@ -5,7 +5,8 @@ use crate::scene::script::ScriptDriver;
 include!(concat!(env!("OUT_DIR"), "/tailwind_color_items.rs"));
 
 /// Position mode - Tailwind: relative, absolute
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Position {
     #[default]
     Relative,
@@ -13,7 +14,8 @@ pub enum Position {
 }
 
 /// Flex direction - Tailwind: flex-row, flex-col
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum FlexDirection {
     #[default]
     Row,
@@ -22,7 +24,8 @@ pub enum FlexDirection {
     ColReverse,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum FlexWrap {
     #[default]
     NoWrap,
@@ -31,7 +34,8 @@ pub enum FlexWrap {
 }
 
 /// Main axis alignment - Tailwind: justify-*
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum JustifyContent {
     #[default]
     Start,
@@ -44,7 +48,8 @@ pub enum JustifyContent {
 }
 
 /// Cross axis alignment - Tailwind: items-*
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum AlignItems {
     Start,
     Center,
@@ -77,7 +82,8 @@ pub enum LengthPercentageAuto {
     Percent(f32),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum GridAutoFlow {
     #[default]
     Row,
@@ -86,7 +92,8 @@ pub enum GridAutoFlow {
     ColumnDense,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum GridAutoRows {
     Auto,
     Min,
@@ -94,7 +101,8 @@ pub enum GridAutoRows {
     Fr,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum GridPlacement {
     #[default]
     Auto,

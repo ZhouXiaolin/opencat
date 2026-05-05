@@ -130,6 +130,46 @@ async function loadFileList() {
   }
 }
 
+// --- Helpers ---
+
+/**
+ * 过滤掉 JSONL 中带有 `path` 字段的元素（本地文件路径，Web 端无法解析）
+ */
+function stripLocalPathElements(jsonlContent: string): string {
+  return jsonlContent
+    .split('\n')
+    .filter(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      try {
+        const obj = JSON.parse(trimmed);
+        return !obj.path;
+      } catch {
+        return true;
+      }
+    })
+    .join('\n');
+}
+
+/**
+ * 从 JSONL 中剥离 type: script 的元素（JS 已处理，避免 WASM 重复处理报错）
+ */
+function stripScriptElements(jsonlContent: string): string {
+  return jsonlContent
+    .split('\n')
+    .filter(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      try {
+        const obj = JSON.parse(trimmed);
+        return obj.type !== 'script';
+      } catch {
+        return true;
+      }
+    })
+    .join('\n');
+}
+
 // --- Resource Preloading ---
 
 async function preloadResources(jsonlContent: string): Promise<void> {
@@ -213,7 +253,7 @@ async function loadJsonl(file: JsonlFile) {
   try {
     const resp = await fetch(file.path);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    currentJsonlContent = await resp.text();
+    currentJsonlContent = stripLocalPathElements(await resp.text());
     currentFile = file;
 
     const comp = getCompositionInfo(currentJsonlContent);
@@ -320,7 +360,7 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   );
 
   for (const script of scriptElements) {
-    const source = (script.scriptSource || script.source || script.script || '') as string;
+    const source = (script.src || script.content || '') as string;
     if (source) {
       try {
         runScript(ctx, source);
@@ -334,8 +374,12 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   const mutationsJson = JSON.stringify(mutations);
   const resourceMetaJson = JSON.stringify(resourceMeta);
 
+  // Strip script elements from JSONL before WASM buildFrame,
+  // since JS already handled them and WASM may not recognize all script field names
+  const filteredJsonl = stripScriptElements(currentJsonlContent!);
+
   // Step 2: WASM build display tree
-  const result = buildFrame(currentJsonlContent!, frame, resourceMetaJson, mutationsJson);
+  const result = buildFrame(filteredJsonl, frame, resourceMetaJson, mutationsJson);
 
   // Step 3: Render via CanvasKit
   canvas.clear(CK.Color4f(0.06, 0.06, 0.09, 1.0));

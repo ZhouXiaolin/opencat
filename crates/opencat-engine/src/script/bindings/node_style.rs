@@ -94,7 +94,7 @@ fn color_from_name(name: &str) -> Option<ColorToken> {
     Some(ColorToken::Custom(r, g, b, a))
 }
 
-pub(crate) const NODE_STYLE_RUNTIME: &str = include_str!("../runtime/node_style.js");
+pub(crate) const NODE_STYLE_RUNTIME: &str = opencat_core::script::runtime::NODE_STYLE_RUNTIME;
 
 pub(crate) fn install_node_style_bindings<'js>(
     ctx: &rquickjs::Ctx<'js>,

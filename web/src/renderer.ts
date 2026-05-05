@@ -13,6 +13,10 @@ import type {
   BorderRadius,
   CanvasCommandJson,
   CompositionInfo,
+  DisplayTextGlyphs,
+  DisplayGlyphData,
+  DisplayGlyphCommand,
+  DropShadowJson,
 } from './types';
 
 let CanvasKit: any = null;
@@ -358,6 +362,88 @@ function drawRectItem(item: DisplayItemJson): void {
 // ── Text Item ──
 
 function drawTextItem(item: DisplayItemJson): void {
+  if (item.glyphs) {
+    drawTextWithGlyphs(item);
+    return;
+  }
+
+  // Fallback when no glyph data (uses CanvasKit default font)
+  drawTextWithCanvasKitFont(item);
+}
+
+/// Draw text using cosmic-text glyph rasterization data (paths + color images).
+/// This matches how the desktop engine renders text.
+function drawTextWithGlyphs(item: DisplayItemJson): void {
+  const { bounds, style, glyphs, dropShadow } = item;
+  if (!style || !glyphs) return;
+
+  // Canvas is already translated to the text element's position,
+  // so we draw glyphs directly at their layout coordinates.
+  const CK = CanvasKit;
+  const canvas = ckCanvas;
+
+  const textColor = style.color;
+  const fillPaint = new CK.Paint();
+  fillPaint.setStyle(CK.PaintStyle.Fill);
+  fillPaint.setAntiAlias(true);
+  fillPaint.setColor(
+    CK.Color4f(textColor.r / 255, textColor.g / 255, textColor.b / 255, textColor.a / 255),
+  );
+
+  // Build lookup map from cache_key -> glyph data
+  const glyphMap = new Map<number, DisplayGlyphData>();
+  for (const entry of glyphs.entries) {
+    glyphMap.set(entry.cacheKey, entry.data);
+  }
+
+  const textAlign = style.textAlign || 'left';
+
+  canvas.save();
+
+  for (const line of glyphs.lines) {
+    const xShift = computeTextXShift(line.width, bounds.width, textAlign);
+
+    for (const pos of line.positions) {
+      const glyphData = glyphMap.get(pos.cacheKey);
+      if (!glyphData) continue;
+
+      // pos.x: offset within the text area
+      // pos.y - line.y: glyph Y within its line (relative to line baseline)
+      const gx = pos.x + xShift;
+      const gy = pos.y - line.y;
+
+      canvas.save();
+      canvas.translate(gx, gy);
+
+      if (glyphData.kind === 'outline') {
+        const path = buildGlyphPath(glyphData.commands);
+        if (path) {
+          // Drop shadow
+          if (dropShadow) {
+            drawGlyphDropShadow(path, dropShadow);
+          }
+          canvas.drawPath(path, fillPaint);
+          path.delete();
+        }
+      } else if (glyphData.kind === 'colorImage') {
+        const { rgba, width, height, placementLeft, placementTop } = glyphData;
+        const image = buildColorImage(rgba, width, height);
+        if (image) {
+          canvas.drawImage(image, placementLeft, placementTop);
+          image.delete();
+        }
+      }
+
+      canvas.restore();
+    }
+  }
+
+  canvas.restore();
+  fillPaint.delete();
+}
+
+/// Fallback: draw text using CanvasKit's built-in font rendering.
+function drawTextWithCanvasKitFont(item: DisplayItemJson): void {
   const { bounds, text, style, dropShadow } = item;
   if (!text || !style) return;
 
@@ -400,16 +486,88 @@ function drawTextItem(item: DisplayItemJson): void {
   // Transform text
   const displayText = style.textTransform === 'uppercase' ? text.toUpperCase() : text;
 
-  ckCanvas.drawText(
-    displayText,
-    x,
-    bounds.y + fontSize,
-    textPaint,
-    font,
-  );
+  ckCanvas.drawText(displayText, x, bounds.y + fontSize, textPaint, font);
 
   textPaint.delete();
   font.delete();
+}
+
+// ── Glyph rendering helpers ──
+
+/// Build a CanvasKit Path from cosmic-text outline commands.
+/// Y coordinates are negated because cosmic-text uses Y-up
+/// (font space), while Skia/CanvasKit uses Y-down (screen space).
+function buildGlyphPath(commands: DisplayGlyphCommand[]): any {
+  const path = new CanvasKit.Path();
+  for (const cmd of commands) {
+    switch (cmd.type) {
+      case 'moveTo':
+        path.moveTo(cmd.x, -cmd.y);
+        break;
+      case 'lineTo':
+        path.lineTo(cmd.x, -cmd.y);
+        break;
+      case 'quadTo':
+        path.quadTo(cmd.cx, -cmd.cy, cmd.x, -cmd.y);
+        break;
+      case 'curveTo':
+        path.cubicTo(cmd.c1x, -cmd.c1y, cmd.c2x, -cmd.c2y, cmd.x, -cmd.y);
+        break;
+      case 'close':
+        path.close();
+        break;
+    }
+  }
+  return path;
+}
+
+/// Build a CanvasKit Image from raw RGBA pixel data (e.g., emoji glyphs).
+function buildColorImage(rgba: number[], width: number, height: number): any {
+  if (rgba.length === 0 || width === 0 || height === 0) return null;
+  const imageInfo: any = {
+    width,
+    height,
+    colorType: CanvasKit.ColorType.RGBA_8888,
+    alphaType: CanvasKit.AlphaType.Unpremul,
+    colorSpace: CanvasKit.ColorSpace.SRGB,
+  };
+  return CanvasKit.MakeImage(imageInfo, new Uint8Array(rgba), width * 4);
+}
+
+/// Draw a drop shadow for a glyph path.
+function drawGlyphDropShadow(path: any, shadow: DropShadowJson): void {
+  const CK = CanvasKit;
+  const paint = new CK.Paint();
+  const c = shadow.color;
+  paint.setColor(CK.Color4f(c.r / 255, c.g / 255, c.b / 255, c.a / 255));
+  paint.setStyle(CK.PaintStyle.Fill);
+  paint.setAntiAlias(true);
+  if (shadow.blurSigma > 0) {
+    paint.setMaskFilter(
+      CK.MaskFilter.MakeBlur(CK.BlurStyle.Normal, shadow.blurSigma, false),
+    );
+  }
+  ckCanvas.save();
+  ckCanvas.translate(shadow.offsetX || 0, shadow.offsetY || 0);
+  ckCanvas.drawPath(path, paint);
+  ckCanvas.restore();
+  paint.delete();
+}
+
+/// Compute horizontal shift for text alignment.
+function computeTextXShift(
+  lineWidth: number,
+  containerWidth: number,
+  align: string,
+): number {
+  switch (align) {
+    case 'center':
+      return (containerWidth - lineWidth) / 2;
+    case 'right':
+      return containerWidth - lineWidth;
+    default:
+      return 0;
+  }
 }
 
 // ── Bitmap Item ──

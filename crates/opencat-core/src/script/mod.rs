@@ -9,6 +9,7 @@
 //! (`__record_*`, `__canvas_*`, `__animate_*`) which are provided
 //! by the host environment.
 
+pub mod animate;
 pub mod recorder;
 pub mod runtime;
 pub mod text_units;

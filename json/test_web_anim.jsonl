@@ -1,0 +1,4 @@
+{"type": "composition", "width": 800, "height": 600, "fps": 30, "frames": 60}
+{"type": "div", "id": "root", "className": "w-full h-full bg-slate-900 flex items-center justify-center"}
+{"type": "text", "id": "title", "parentId": "root", "className": "text-white text-5xl font-bold", "text": "Animated"}
+{"type": "script", "parentId": "root", "scriptSource": "(function() { var hero = ctx.fromTo('title', {opacity: 0, y: 40}, {opacity: 1, y: 0}, {ease: 'spring.gentle'}); ctx.getNode('title').opacity(hero[0].opacity); })();"}

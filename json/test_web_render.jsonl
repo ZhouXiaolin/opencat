@@ -1,0 +1,4 @@
+{"type": "composition", "width": 800, "height": 600, "fps": 24, "frames": 24}
+{"type": "div", "id": "root", "className": "w-full h-full bg-slate-900 flex items-center justify-center"}
+{"type": "text", "id": "title", "parentId": "root", "className": "text-white text-4xl font-bold", "text": "Hello OpenCat Web!"}
+{"type": "script", "parentId": "root", "scriptSource": "(function() { ctx.getNode('title').opacity(ctx.frame / 24); })();"}

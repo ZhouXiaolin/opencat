@@ -1,7 +1,8 @@
 use wasm_bindgen::prelude::*;
 
 use opencat_core::display::build::build_display_tree;
-use opencat_core::display::tree::DisplayTree;
+use opencat_core::display::list::DisplayItem;
+use opencat_core::display::tree::{DisplayNode, DisplayTree};
 use opencat_core::element::resolve::resolve_ui_tree;
 use opencat_core::frame_ctx::FrameCtx;
 use opencat_core::jsonl::JsonLine;
@@ -9,6 +10,7 @@ use opencat_core::layout::LayoutSession;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::scene::script::PrecomputedScriptHost;
 use opencat_core::text;
+use opencat_core::text::{rasterization_to_display_glyphs, rasterize_glyphs};
 
 fn parse_composition_info(input: &str) -> Option<(i32, i32, i32, i32)> {
     for line in input.lines() {
@@ -186,7 +188,35 @@ fn build_frame_impl(
     let (layout_tree, _) = layout_session.compute_layout_with_font_db(&element_root, &frame_ctx, &font_db)?;
 
     // 7. Build display tree
-    let display_tree = build_display_tree(&element_root, &layout_tree)?;
+    let mut display_tree = build_display_tree(&element_root, &layout_tree)?;
+
+    // 8. Enrich text nodes with cosmic-text glyph rasterization data
+    enrich_text_with_glyphs(&mut display_tree);
 
     Ok(display_tree)
+}
+
+/// Walk the display tree and attach rasterized glyph data to every
+/// `TextDisplayItem` so the web renderer can draw text paths/images
+/// without needing its own font engine.
+fn enrich_text_with_glyphs(tree: &mut DisplayTree) {
+    enrich_node_with_glyphs(&mut tree.root);
+}
+
+fn enrich_node_with_glyphs(node: &mut DisplayNode) {
+    if let DisplayItem::Text(text_item) = &mut node.item
+        && text_item.glyphs.is_none()
+    {
+        let raster = rasterize_glyphs(
+            &text_item.text,
+            &text_item.style,
+            text_item.bounds.width,
+            text_item.allow_wrap,
+            text_item.truncate,
+        );
+        text_item.glyphs = Some(rasterization_to_display_glyphs(&raster));
+    }
+    for child in &mut node.children {
+        enrich_node_with_glyphs(child);
+    }
 }

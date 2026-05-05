@@ -160,6 +160,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 text_unit_overrides: text.text_unit_overrides.clone(),
                 visual_expand_x,
                 visual_expand_y,
+                glyphs: None,
             })
         }
         ElementKind::Bitmap(bitmap) => DisplayItem::Bitmap(BitmapDisplayItem {

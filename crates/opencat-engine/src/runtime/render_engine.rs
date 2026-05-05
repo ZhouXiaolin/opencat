@@ -9,7 +9,6 @@ use opencat_core::runtime::annotation::AnnotatedDisplayTree;
 use crate::{
     resource::media::MediaContext,
     runtime::{
-        backend_object::BackendObject,
         cache::CacheRegistry,
         compositor::OrderedSceneProgram,
         frame_view::RenderFrameView,
@@ -18,7 +17,7 @@ use crate::{
     },
 };
 
-pub(crate) type SceneSnapshot = BackendObject;
+pub(crate) type SceneSnapshot = skia_safe::Picture;
 
 pub(crate) struct SceneRenderContext<'a> {
     pub assets: &'a AssetCatalog,

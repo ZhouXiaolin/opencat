@@ -28,6 +28,13 @@ impl PrecomputedScriptHost {
     pub fn insert(&mut self, id: ScriptDriverId, mutations: StyleMutations) {
         self.mutations.insert(id, mutations);
     }
+
+    /// Build host from JSON string. Format matches StyleMutations serialization.
+    /// `{ "mutations": { "node-id": { "opacity": 0.5, ... } }, "canvasMutations": {} }`
+    pub fn from_json(json: &str) -> Result<Self> {
+        let mutations: StyleMutations = serde_json::from_str(json)?;
+        Ok(Self::from_single(mutations))
+    }
 }
 
 impl Default for PrecomputedScriptHost {
@@ -105,5 +112,15 @@ mod tests {
         let id = host.install("script").unwrap();
         host.run_frame(id, &Default::default(), None).unwrap();
         assert!(host.run_frame(id, &Default::default(), None).is_err());
+    }
+
+    #[test]
+    fn from_json_parses_and_returns_mutations() {
+        let json = r#"{"mutations":{"node1":{"opacity":0.5,"transforms":[]}},"canvasMutations":{}}"#;
+        let mut host = PrecomputedScriptHost::from_json(json).unwrap();
+        let id = host.install("test script").unwrap();
+        let result = host.run_frame(id, &Default::default(), None).unwrap();
+        let node_muts = result.mutations.get("node1").unwrap();
+        assert_eq!(node_muts.opacity, Some(0.5));
     }
 }

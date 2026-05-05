@@ -2323,11 +2323,12 @@ name = "opencat-web"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "js-sys",
+ "getrandom 0.3.4",
  "opencat-core",
+ "serde",
+ "serde_json",
  "tracing",
  "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]

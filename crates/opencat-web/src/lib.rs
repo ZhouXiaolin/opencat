@@ -1,8 +1,9 @@
 //! opencat-web — WASM/Web rendering target for opencat-core.
-//!
-//! 占位 crate，后续实现 Web 端的 RenderEngine。当前仅提供编译期可见的 API 形状。
 
 use opencat_core::scene::path_bounds::{DefaultPathBounds, PathBoundsComputer};
+
+#[cfg(target_arch = "wasm32")]
+mod wasm_entry;
 
 /// Web 渲染引擎占位：未来挂上 RenderEngine trait 实现。
 pub struct WebRenderEngine {

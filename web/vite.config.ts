@@ -14,41 +14,42 @@ function ensureCanvaskitWasm(): void {
   }
 }
 
-function serveJsonDir(): Plugin {
-  const jsonDir = resolve(__dirname, '..', 'json');
+function serveStaticDirs(basePath: string, dirs: { mount: string; path: string; mime?: Record<string, string> }[]): Plugin {
   return {
-    name: 'serve-json',
+    name: `serve-${basePath}`,
     configureServer(server) {
-      server.middlewares.use('/json', ((req: any, res: any, next: any) => {
-        const url = decodeURIComponent(req.url || '');
-        const filePath = resolve(jsonDir, url.slice(1));
-        if (filePath.startsWith(jsonDir) && fs.existsSync(filePath)) {
-          const stat = fs.statSync(filePath);
-          if (stat.isFile()) {
-            const ext = filePath.split('.').pop()?.toLowerCase();
-            const mime: Record<string, string> = {
-              jsonl: 'application/jsonl',
-              json: 'application/json',
-              js: 'application/javascript',
-            };
-            res.writeHead(200, {
-              'Content-Type': mime[ext || ''] || 'application/octet-stream',
-              'Content-Length': stat.size,
-              'Access-Control-Allow-Origin': '*',
-            });
-            fs.createReadStream(filePath).pipe(res);
-            return;
+      for (const { mount, path: dirPath, mime } of dirs) {
+        server.middlewares.use(mount, ((req: any, res: any, next: any) => {
+          const url = decodeURIComponent(req.url || '');
+          const filePath = resolve(dirPath, url.slice(1));
+          if (filePath.startsWith(dirPath) && fs.existsSync(filePath)) {
+            const stat = fs.statSync(filePath);
+            if (stat.isFile()) {
+              const ext = filePath.split('.').pop()?.toLowerCase();
+              const defaultMime: Record<string, string> = {
+                jsonl: 'application/jsonl',
+                json: 'application/json',
+                svg: 'image/svg+xml',
+              };
+              res.writeHead(200, {
+                'Content-Type': mime?.[ext || ''] || defaultMime[ext || ''] || 'application/octet-stream',
+                'Content-Length': stat.size,
+                'Access-Control-Allow-Origin': '*',
+              });
+              fs.createReadStream(filePath).pipe(res);
+              return;
+            }
+            if (stat.isDirectory()) {
+              const files = fs.readdirSync(filePath).filter(f => f.endsWith('.jsonl') || f.endsWith('.svg'));
+              res.writeHead(200, { 'Content-Type': 'text/html' });
+              const base = req.url.replace(/\/$/, '');
+              res.end(files.map(f => `<a href="${base}/${f}">${f}</a>`).join('\n'));
+              return;
+            }
           }
-          if (stat.isDirectory()) {
-            const files = fs.readdirSync(filePath).filter(f => f.endsWith('.jsonl'));
-            res.writeHead(200, { 'Content-Type': 'text/html' });
-            const base = req.url.replace(/\/$/, '');
-            res.end(files.map(f => `<a href="${base}/${f}">${f}</a>`).join('\n'));
-            return;
-          }
-        }
-        next();
-      }) as Connect.NextHandleFunction);
+          next();
+        }) as Connect.NextHandleFunction);
+      }
     },
   };
 }
@@ -61,7 +62,10 @@ export default defineConfig({
     },
   },
   plugins: [
-    serveJsonDir(),
+    serveStaticDirs('static', [
+      { mount: '/json', path: resolve(__dirname, '..', 'json') },
+      { mount: '/lucide', path: resolve(__dirname, '..', 'lucide') },
+    ]),
     {
       name: 'canvaskit-wasm',
       buildStart() {

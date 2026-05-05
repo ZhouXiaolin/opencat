@@ -343,7 +343,8 @@ fn generate_impls(colors: &[GeneratedColor]) -> String {
 fn generate_items(colors: &[GeneratedColor]) -> String {
     let mut output = String::new();
 
-    output.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]\n");
+    output.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]\n");
+    output.push_str("#[serde(rename_all = \"camelCase\")]\n");
     output.push_str("pub enum ColorToken {\n");
     output.push_str(&indent_block(&generate_variants(colors), 1));
     output.push_str("    Primary,\n");

@@ -843,11 +843,13 @@ interface NodeMutations {
   opacity?: number;
   width?: number;
   height?: number;
-  bgColor?: string;        // Rust: bg_color → camelCase bgColor
-  textColor?: string;      // Rust: text_color → camelCase textColor
-  textPx?: number;         // Rust: text_px → camelCase textPx
-  // Note: scale/translateY/rotate are NOT direct fields in Rust NodeStyleMutations.
-  // They are accumulated as Transform entries in the `transforms` array.
+  bgColor?: string;
+  textColor?: string;
+  textPx?: number;
+  // Temporary accumulators (flushed to transforms before serialization)
+  y?: number;
+  scale?: number;
+  rotate?: number;
   transforms?: TransformEntry[];
 }
 

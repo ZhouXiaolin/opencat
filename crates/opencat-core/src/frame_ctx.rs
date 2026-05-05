@@ -7,7 +7,7 @@ pub struct FrameCtx {
     pub frames: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ScriptFrameCtx {
     pub frame: u32,
     pub total_frames: u32,

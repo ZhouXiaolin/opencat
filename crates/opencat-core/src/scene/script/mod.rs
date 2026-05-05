@@ -47,7 +47,7 @@ pub enum ScriptTextSourceKind {
     Caption,
 }
 
-pub(crate) fn position_from_name(name: &str) -> Option<Position> {
+pub fn position_from_name(name: &str) -> Option<Position> {
     match name {
         "relative" => Some(Position::Relative),
         "absolute" => Some(Position::Absolute),
@@ -55,7 +55,7 @@ pub(crate) fn position_from_name(name: &str) -> Option<Position> {
     }
 }
 
-pub(crate) fn flex_direction_from_name(name: &str) -> Option<FlexDirection> {
+pub fn flex_direction_from_name(name: &str) -> Option<FlexDirection> {
     match name {
         "row" => Some(FlexDirection::Row),
         "col" | "column" => Some(FlexDirection::Col),
@@ -63,7 +63,7 @@ pub(crate) fn flex_direction_from_name(name: &str) -> Option<FlexDirection> {
     }
 }
 
-pub(crate) fn justify_content_from_name(name: &str) -> Option<JustifyContent> {
+pub fn justify_content_from_name(name: &str) -> Option<JustifyContent> {
     match name {
         "start" => Some(JustifyContent::Start),
         "center" => Some(JustifyContent::Center),
@@ -75,7 +75,7 @@ pub(crate) fn justify_content_from_name(name: &str) -> Option<JustifyContent> {
     }
 }
 
-pub(crate) fn align_items_from_name(name: &str) -> Option<AlignItems> {
+pub fn align_items_from_name(name: &str) -> Option<AlignItems> {
     match name {
         "start" => Some(AlignItems::Start),
         "center" => Some(AlignItems::Center),
@@ -85,7 +85,7 @@ pub(crate) fn align_items_from_name(name: &str) -> Option<AlignItems> {
     }
 }
 
-pub(crate) fn object_fit_from_name(name: &str) -> Option<ObjectFit> {
+pub fn object_fit_from_name(name: &str) -> Option<ObjectFit> {
     match name {
         "contain" => Some(ObjectFit::Contain),
         "cover" => Some(ObjectFit::Cover),
@@ -94,7 +94,7 @@ pub(crate) fn object_fit_from_name(name: &str) -> Option<ObjectFit> {
     }
 }
 
-pub(crate) fn box_shadow_from_name(name: &str) -> Option<BoxShadow> {
+pub fn box_shadow_from_name(name: &str) -> Option<BoxShadow> {
     match name {
         "2xs" => Some(BoxShadow::from_style(BoxShadowStyle::TwoXs)),
         "xs" => Some(BoxShadow::from_style(BoxShadowStyle::Xs)),
@@ -109,7 +109,7 @@ pub(crate) fn box_shadow_from_name(name: &str) -> Option<BoxShadow> {
     }
 }
 
-pub(crate) fn inset_shadow_from_name(name: &str) -> Option<InsetShadow> {
+pub fn inset_shadow_from_name(name: &str) -> Option<InsetShadow> {
     match name {
         "2xs" => Some(InsetShadow::from_style(InsetShadowStyle::TwoXs)),
         "xs" => Some(InsetShadow::from_style(InsetShadowStyle::Xs)),
@@ -120,7 +120,7 @@ pub(crate) fn inset_shadow_from_name(name: &str) -> Option<InsetShadow> {
     }
 }
 
-pub(crate) fn drop_shadow_from_name(name: &str) -> Option<DropShadow> {
+pub fn drop_shadow_from_name(name: &str) -> Option<DropShadow> {
     match name {
         "xs" => Some(DropShadow::from_style(DropShadowStyle::Xs)),
         "sm" => Some(DropShadow::from_style(DropShadowStyle::Sm)),
@@ -134,7 +134,7 @@ pub(crate) fn drop_shadow_from_name(name: &str) -> Option<DropShadow> {
     }
 }
 
-pub(crate) fn text_align_from_name(name: &str) -> Option<TextAlign> {
+pub fn text_align_from_name(name: &str) -> Option<TextAlign> {
     match name {
         "left" => Some(TextAlign::Left),
         "center" => Some(TextAlign::Center),

@@ -2,14 +2,16 @@
 
 use crate::resource::catalog::VideoInfoMeta;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum VideoPreviewQuality {
     Scrubbing,
     Realtime,
     Exact,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VideoFrameTiming {
     pub media_offset_secs: f64,
     pub playback_rate: f64,
@@ -34,7 +36,8 @@ impl Default for VideoFrameTiming {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VideoFrameRequest {
     pub composition_time_secs: f64,
     pub timing: VideoFrameTiming,

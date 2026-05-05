@@ -4,7 +4,8 @@ use crate::scene::{
     time::{TimelineNode, TimelineSegment},
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum TransitionKind {
     Slide(SlideDirection),
     LightLeak(LightLeakTransition),
@@ -15,7 +16,8 @@ pub enum TransitionKind {
     Iris,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum SlideDirection {
     FromLeft,
     FromRight,
@@ -23,7 +25,8 @@ pub enum SlideDirection {
     FromBottom,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum WipeDirection {
     FromLeft,
     FromTopLeft,
@@ -64,14 +67,16 @@ enum Presentation {
     Iris,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LightLeakTransition {
     pub seed: f32,
     pub hue_shift: f32,
     pub mask_scale: f32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GlTransition {
     pub name: String,
 }

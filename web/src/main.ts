@@ -339,7 +339,7 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
 
   // Step 3: Render via CanvasKit
   canvas.clear(CK.Color4f(0.06, 0.06, 0.09, 1.0));
-  drawDisplayTree(result.displayTree || result, comp, frame);
+  drawDisplayTree(result.root, comp, frame);
   surface.flush();
 
   // Update frame info

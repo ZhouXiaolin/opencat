@@ -32,7 +32,8 @@ pub struct TextUnitOverrideBatch {
     pub overrides: Vec<TextUnitOverride>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NodeStyleMutations {
     pub position: Option<Position>,
     pub inset_left: Option<f32>,
@@ -1023,14 +1024,16 @@ impl std::hash::Hash for CanvasCommand {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CanvasMutations {
     pub commands: Vec<CanvasCommand>,
 }
 
 // ── Style mutations collection ────────────────────────────────────
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StyleMutations {
     pub mutations: HashMap<String, NodeStyleMutations>,
     pub canvas_mutations: HashMap<String, CanvasMutations>,

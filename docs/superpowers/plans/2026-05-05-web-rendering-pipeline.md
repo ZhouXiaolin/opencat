@@ -308,7 +308,7 @@ rtk cargo build -p opencat-web --target wasm32-unknown-unknown
 - [ ] **Step 7: Commit**
 
 ```bash
-rtk git add crates/opencat-core/src/display/ crates/opencat-core/src/scene/ && rtk git commit -m "feat(core): add Serialize/Deserialize to display and script types"
+rtk git add crates/opencat-core/src/display/ crates/opencat-core/src/scene/ crates/opencat-core/src/element/tree.rs crates/opencat-core/src/resource/asset_id.rs crates/opencat-core/src/resource/types.rs && rtk git commit -m "feat(core): add Serialize/Deserialize to display and script types"
 ```
 
 ---
@@ -573,13 +573,18 @@ impl ScriptHost for PrecomputedScriptHost {
 
     fn run_frame(
         &mut self,
-        driver: ScriptDriverId,
+        _driver: ScriptDriverId,  // Ignored: JS side pre-computes all mutations
         _frame_ctx: &ScriptFrameCtx,
         _current_node_id: Option<&str>,
     ) -> Result<StyleMutations> {
+        // Always return the stored mutations, regardless of which driver called.
+        // In single-script mode, takes the first (and only) entry.
+        // Use mutable drain to consume (resolve_ui_tree calls run_frame once per frame).
         self.mutations
-            .remove(&driver)
-            .ok_or_else(|| anyhow!("no precomputed mutations for script driver {:?}", driver))
+            .drain()
+            .next()
+            .map(|(_, m)| m)
+            .ok_or_else(|| anyhow!("no precomputed mutations available"))
     }
 }
 ```
@@ -607,15 +612,19 @@ rtk cargo build -p opencat-core
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::script::{NodeStyleMutations, StyleMutations};
+    use crate::scene::script::{NodeStyleMutations, StyleMutations, ScriptHost};
     use std::collections::HashMap;
 
     #[test]
-    fn from_json_parses_mutations() {
+    fn from_json_parses_and_returns_mutations() {
         let json = r#"{"mutations":{"node1":{"opacity":0.5}},"canvas_mutations":{}}"#;
-        let host = PrecomputedScriptHost::from_json(json).unwrap();
-        let id = ScriptDriverId(0);
-        // Note: run_frame consumes with remove(), so test insertion separately
+        let mut host = PrecomputedScriptHost::from_json(json).unwrap();
+        // install is a no-op for ID tracking
+        let id = host.install("test script").unwrap();
+        // run_frame returns the stored mutations regardless of driver ID
+        let result = host.run_frame(id, &Default::default(), None).unwrap();
+        let node_muts = result.mutations.get("node1").unwrap();
+        assert_eq!(node_muts.opacity, Some(0.5));
     }
 
     #[test]
@@ -626,6 +635,16 @@ mod tests {
         assert_eq!(id1, id2);
         let id3 = host.install("var y = 2;").unwrap();
         assert_ne!(id1, id3);
+    }
+
+    #[test]
+    fn run_frame_with_no_mutations_returns_error() {
+        let mut host = PrecomputedScriptHost::from_single(StyleMutations::default());
+        let id = host.install("script").unwrap();
+        // First run_frame succeeds (takes the default mutations)
+        host.run_frame(id, &Default::default(), None).unwrap();
+        // Second run_frame fails (no more stored mutations)
+        assert!(host.run_frame(id, &Default::default(), None).is_err());
     }
 }
 ```
@@ -737,35 +756,29 @@ fn build_frame_impl(
 }
 ```
 
-- [ ] **Step 2: 检查 LayoutSession API**
-
-`LayoutSession::tree()` 是否暴露？需要确认。如果 `tree` 是 pub 的，直接用。如果 layout_tree 需要通过其他方式获取，需要检查。
-
-运行 `cargo doc -p opencat-core --no-deps` 或直接阅读 layout/mod.rs 来确认。
-
-有一种可能是 `compute_layout_with_font_db` 内部构建了 tree 并通过另一个方法返回。如果不存在 tree() 方法，可能需要用 `compute_layout_with_font_db_fn` 函数版。
+- [ ] **Step 2: 确认 ParsedComposition 和 LayoutSession API**
 
 ```bash
-rtk grep "pub fn tree\|pub.*layout_tree\|pub.*fn layout" crates/opencat-core/src/layout/mod.rs
+# 检查 ParsedComposition 字段 — 确认 parsed.frames/fps/width/height 是顶层字段
+rtk grep "pub struct ParsedComposition" crates/opencat-core/src/jsonl/mod.rs
+
+# 检查 LayoutSession 是否有 pub fn tree() 方法
+rtk grep "pub fn tree\|pub.*layout_tree" crates/opencat-core/src/layout/mod.rs
 ```
 
-- [ ] **Step 3: 添加 `compute_layout_with_font_db_fn` 备选方案**
+根据结果选择实现方式：
 
-如果 `LayoutSession.tree()` 不是 pub，则在 core 添加一个简单的自由函数来获取 layout result：
+- 如果 `ParsedComposition` 字段为 `composition: Composition` 嵌套结构，调整为 `parsed.composition.root_node()` 等。
+- 如果 `LayoutSession` 没有 `tree()` 方法，使用 fallback 函数 `compute_layout_with_font_db_fn`：
 
 ```rust
-// 临时在 wasm_entry.rs 中用 compute_layout_with_font_db_fn 替代
+// Fallback: use free function instead of LayoutSession
+let font_db = text::default_font_db_with_embedded_only();
 let layout_tree = opencat_core::layout::compute_layout_with_font_db_fn(
-    &element_root, &frame_ctx, &font_db
+    &element_root, &frame_ctx, &font_db,
 )?;
 let display_tree = build_display_tree(&element_root, &layout_tree)?;
 ```
-
-- [ ] **Step 4: 处理 ScriptHost install 调用**
-
-JSONL 解析后可能有 scripts，resolve_ui_tree 内部会调用 `script_host.install(source)`。如果脚本源码对应的 hash 不在 PrecomputedScriptHost 的 mutations map 中，`from_json` 只创建一个 ScriptDriverId(0) entry。需要让 JS 侧负责将所有脚本源码收集后，为每个脚本计算 hash 并批量注入 mutations。
-
-**简化方案**: 初始版本假设每个 frame JSONL 只有一个 script（最常见场景），`from_json` 默认 key 为 ScriptDriverId(0)。后续多脚本场景再扩展。
 
 - [ ] **Step 5: 构建 WASM**
 
@@ -820,31 +833,34 @@ rtk git add crates/opencat-web/src/wasm_entry.rs web/src/wasm.ts && rtk git comm
 // web/src/script-runtime.ts
 import {
   computeProgress,
-  animateValue,
-  animateColor,
   parseEasing,
-  getEasing,
   type SpringConfig,
 } from './animator';
 
-// ── Mutation types (match Rust StyleMutations) ──
+// ── Mutation types (match Rust NodeStyleMutations after camelCase serde) ──
 
 interface NodeMutations {
   opacity?: number;
-  translateX?: number;
-  translateY?: number;
-  scale?: number;
-  rotate?: number;
   width?: number;
   height?: number;
-  bgColor?: string;
-  textColor?: string;
-  fontSize?: number;
-  // ... more fields as needed
+  bgColor?: string;        // Rust: bg_color → camelCase bgColor
+  textColor?: string;      // Rust: text_color → camelCase textColor
+  textPx?: number;         // Rust: text_px → camelCase textPx
+  // Note: scale/translateY/rotate are NOT direct fields in Rust NodeStyleMutations.
+  // They are accumulated as Transform entries in the `transforms` array.
+  transforms?: TransformEntry[];
+}
+
+interface TransformEntry {
+  type: string;   // "translate", "scale", "rotate", etc.
+  x?: number;
+  y?: number;
+  value?: number;
 }
 
 interface CollectedMutations {
   mutations: Record<string, NodeMutations>;
+  canvas_mutations: Record<string, never>;  // Required by Rust StyleMutations
 }
 
 // ── AnimateResult (like Rust's AnimateEntry) ──
@@ -902,6 +918,8 @@ export class ScriptCtx {
     to: Record<string, number>,
     opts: AnimInput = {},
   ): AnimOutput[] {
+    // Design note: only properties in `to` are interpolated.
+    // Properties only in `from` are ignored (they don't define an animation target).
     const ids = Array.isArray(nodeIds) ? nodeIds : [nodeIds];
     const {
       duration = this.sceneFrames || this.totalFrames,
@@ -941,6 +959,11 @@ export class ScriptCtx {
   }
 
   collectMutations(): CollectedMutations {
+    // Flush transform accumulations
+    for (const nodeId of Object.keys(this.mutations)) {
+      const styler = new NodeStyler(this.mutations[nodeId]);
+      styler.flushTransforms();
+    }
     // Remove empty mutation entries
     const cleaned: Record<string, NodeMutations> = {};
     for (const [id, muts] of Object.entries(this.mutations)) {
@@ -948,7 +971,7 @@ export class ScriptCtx {
         cleaned[id] = muts;
       }
     }
-    return { mutations: cleaned };
+    return { mutations: cleaned, canvas_mutations: {} };
   }
 }
 ```
@@ -960,17 +983,29 @@ class NodeStyler {
   constructor(private node: NodeMutations) {}
 
   opacity(v: number): NodeStyler { this.node.opacity = v; return this; }
-  translateX(v: number): NodeStyler { this.node.translateX = v; return this; }
-  translateY(v: number): NodeStyler { this.node.translateY = v; return this; }
-  x(v: number): NodeStyler { this.node.translateX = v; return this; }
-  y(v: number): NodeStyler { this.node.translateY = v; return this; }
-  scale(v: number): NodeStyler { this.node.scale = v; return this; }
-  rotate(v: number): NodeStyler { this.node.rotate = v; return this; }
   width(v: number): NodeStyler { this.node.width = v; return this; }
   height(v: number): NodeStyler { this.node.height = v; return this; }
   bgColor(c: string): NodeStyler { this.node.bgColor = c; return this; }
   textColor(c: string): NodeStyler { this.node.textColor = c; return this; }
-  fontSize(px: number): NodeStyler { this.node.fontSize = px; return this; }
+  textPx(px: number): NodeStyler { this.node.textPx = px; return this; }
+
+  // Transform-based properties accumulate into `transforms` array (matches Rust Transform enum)
+  translateY(v: number): NodeStyler { this.node.y = v; return this; }
+  y(v: number): NodeStyler { this.node.y = v; return this; }
+  scale(v: number): NodeStyler { this.node.scale = v; return this; }
+  rotate(v: number): NodeStyler { this.node.rotate = v; return this; }
+
+  // Flatten transforms before serialization
+  private addTransform(t: TransformEntry): void {
+    if (!this.node.transforms) this.node.transforms = [];
+    this.node.transforms.push(t);
+  }
+
+  flushTransforms(): void {
+    if (this.node.scale !== undefined) { this.addTransform({ type: 'scale', value: this.node.scale }); delete this.node.scale; }
+    if (this.node.y !== undefined) { this.addTransform({ type: 'translateY', value: this.node.y }); delete this.node.y; }
+    if (this.node.rotate !== undefined) { this.addTransform({ type: 'rotate', value: this.node.rotate }); delete this.node.rotate; }
+  }
 }
 ```
 
@@ -1057,36 +1092,61 @@ async function preloadResources(jsonlContent: string): Promise<void> {
 替换 `drawFallbackFrame`:
 
 ```typescript
+import { drawDisplayTree } from './renderer';
+
 async function renderFrame(frame: number): Promise<void> {
   if (!currentJsonlContent || !currentComposition || !ckCanvas || !surface) return;
 
-  const comp = currentComposition;
-  const sceneFrames = comp.frames;
+  try {
+    const comp = currentComposition;
+    const sceneFrames = comp.frames;
 
-  // 1. Execute scripts
-  const ctx = createContext(frame + 1, comp.frames, sceneFrames);
-  // Note: scripts are embedded in JSONL as "script" lines
-  // For now, parse scripts from parsed result
-  const parsed = parseJsonl(currentJsonlContent);
-  const scriptElements = parsed.elements.filter(e => e.type === 'script');
-  
-  for (const script of scriptElements) {
-    if (script.scriptSource) {
-      runScript(ctx, script.scriptSource);
+    // 1. Execute scripts
+    const ctx = createContext(frame + 1, comp.frames, sceneFrames);
+    // Extract script sources from JSONL lines.
+    // parseJsonl wraps `parse_jsonl` which returns `{ composition, elements, elementCount }`.
+    // "script" elements have `scriptSource` field from the JSONL.
+    const parsed = parseJsonl(currentJsonlContent);
+    const scriptElements = (parsed.elements || []).filter(
+      (e: any) => e.type === 'script'
+    );
+
+    for (const script of scriptElements) {
+      // Script source may be in `source`, `scriptSource`, or `script` field
+      const source = script.scriptSource || script.source || script.script || '';
+      if (source) {
+        runScript(ctx, source);
+      }
     }
+
+    const mutations = ctx.collectMutations();
+    const mutationsJson = JSON.stringify(mutations);
+    const resourceMetaJson = JSON.stringify(resourceMeta);
+
+    // 2. WASM build display tree
+    const result = buildFrame(currentJsonlContent, frame, resourceMetaJson, mutationsJson);
+
+    // 3. Render via CanvasKit
+    ckCanvas.clear(CanvasKit.Color4f(0.06, 0.06, 0.09, 1.0));
+    drawDisplayTree(result, currentComposition, frame);
+    surface.flush();
+
+    // Update frame info
+    frameLabel.textContent = `${frame + 1} / ${comp.frames}`;
+    frameSlider.value = String(frame);
+  } catch (err) {
+    console.error('Render error:', err);
+    // Show error on canvas
+    ckCanvas.clear(CanvasKit.Color4f(0.1, 0.05, 0.05, 1.0));
+    const errorPaint = new CanvasKit.Paint();
+    errorPaint.setColor(CanvasKit.Color4f(1, 0.3, 0.3, 1.0));
+    ckCanvas.drawText(
+      `Render error: ${err}`,
+      12, 24, errorPaint,
+      new CanvasKit.Font(null, 14),
+    );
+    surface.flush();
   }
-  
-  const mutations = ctx.collectMutations();
-  const mutationsJson = JSON.stringify(mutations);
-  const resourceMetaJson = JSON.stringify(resourceMeta);
-
-  // 2. WASM build display tree
-  const result = buildFrame(currentJsonlContent, frame, resourceMetaJson, mutationsJson);
-
-  // 3. Render via CanvasKit
-  ckCanvas.clear(CanvasKit.Color4f(0.06, 0.06, 0.09, 1.0));
-  drawDisplayTree(result, currentComposition, frame);
-  surface.flush();
 }
 ```
 
@@ -1150,14 +1210,16 @@ cd web && npx vite --host
 
 - [ ] **Step 4: 验证 hello_world_anim.js 兼容性**
 
-创建使用 `ctx.fromTo()` 的测试 JSONL 确认 script-runtime 能执行现有的 `hello_world_anim.js` 风格脚本。
+创建使用 `ctx.fromTo()` 的测试 JSONL 确认 script-runtime 能执行现有的动画脚本风格。
 
 ```jsonl
 {"type": "composition", "width": 800, "height": 600, "fps": 30, "frames": 60}
 {"type": "div", "id": "root", "className": "w-full h-full bg-slate-900 flex items-center justify-center"}
 {"type": "text", "id": "title", "parentId": "root", "className": "text-white text-5xl font-bold", "text": "Animated"}
-{"type": "script", "parentId": "root", "scriptSource": "(function() { var hero = ctx.fromTo('title', {opacity: 0, y: 40}, {opacity: 1, y: 0, ease: 'spring.gentle'}); ctx.getNode('title').opacity(hero[0].opacity).y(hero[0].y); })();"}
+{"type": "script", "parentId": "root", "scriptSource": "(function() { var hero = ctx.fromTo('title', {opacity: 0, y: 40}, {opacity: 1, y: 0}, {ease: 'spring.gentle'}); ctx.getNode('title').opacity(hero[0].opacity); })();"}
 ```
+
+注意: `ease` 在第 4 参数 `opts` 中，不是第 3 参数的 `to` 对象中。
 
 - [ ] **Step 5: Commit**
 

@@ -13,3 +13,4 @@
 //! `Platform` 门面 trait（聚合 ScriptHost + VideoFrameProvider 等）属于 Phase C。
 
 pub mod backend;
+pub mod render_engine;

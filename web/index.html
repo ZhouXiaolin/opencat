@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenCat Web</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐱</text></svg>" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <h1>OpenCat <span class="subtitle">Web</span></h1>
+      <div id="file-list">
+        <p class="hint">Loading JSONL files...</p>
+      </div>
+      <div id="status-section">
+        <div id="wasm-status" class="status-badge">WASM loading...</div>
+        <div id="ck-status" class="status-badge">CanvasKit loading...</div>
+        <div id="ff-status" class="status-badge">FFmpeg idle</div>
+      </div>
+    </aside>
+    <main id="main">
+      <div id="preview-area">
+        <canvas id="preview-canvas"></canvas>
+        <div id="empty-state">
+          <p>Select a JSONL file from the sidebar</p>
+        </div>
+      </div>
+      <div id="info-bar">
+        <span id="file-info">No file selected</span>
+        <span id="frame-info"></span>
+        <span id="export-info"></span>
+      </div>
+      <div id="controls">
+        <button id="btn-first" title="First frame">⏮</button>
+        <button id="btn-prev" title="Previous frame">◀</button>
+        <button id="btn-play" title="Play/Pause">▶</button>
+        <button id="btn-next" title="Next frame">▶</button>
+        <button id="btn-last" title="Last frame">⏭</button>
+        <input type="range" id="frame-slider" min="0" max="0" value="0" />
+        <span id="frame-label">0 / 0</span>
+        <div class="separator"></div>
+        <button id="btn-export" title="Export MP4" class="export-btn">⬇ Export</button>
+        <button id="btn-export-png" title="Export current frame as PNG" class="export-btn">🖼 PNG</button>
+        <div id="export-progress" class="progress-bar hidden">
+          <div id="export-progress-fill" class="progress-fill"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

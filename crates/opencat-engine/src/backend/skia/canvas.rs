@@ -1242,7 +1242,7 @@ fn resolve_cached_subtree_render_mode(
 
 fn transform_list_has_non_unit_scale(transforms: &[Transform]) -> bool {
     transforms.iter().any(|transform| match *transform {
-        Transform::Scale(value) | Transform::ScaleX(value) | Transform::ScaleY(value) => {
+        Transform::Scale { value } | Transform::ScaleX { value } | Transform::ScaleY { value } => {
             (value - 1.0).abs() > f32::EPSILON
         }
         _ => false,
@@ -2590,44 +2590,44 @@ fn apply_transform(canvas: &Canvas, transform: &DisplayTransform) {
 
     for transform in transform.transforms.iter().rev() {
         match *transform {
-            Transform::TranslateX(x) => {
+            Transform::TranslateX { value: x } => {
                 canvas.translate((x, 0.0));
             }
-            Transform::TranslateY(y) => {
+            Transform::TranslateY { value: y } => {
                 canvas.translate((0.0, y));
             }
-            Transform::Translate(x, y) => {
+            Transform::Translate { x, y } => {
                 canvas.translate((x, y));
             }
-            Transform::Scale(value) => {
+            Transform::Scale { value } => {
                 canvas.translate((center_x, center_y));
                 canvas.scale((value, value));
                 canvas.translate((-center_x, -center_y));
             }
-            Transform::ScaleX(value) => {
+            Transform::ScaleX { value } => {
                 canvas.translate((center_x, center_y));
                 canvas.scale((value, 1.0));
                 canvas.translate((-center_x, -center_y));
             }
-            Transform::ScaleY(value) => {
+            Transform::ScaleY { value } => {
                 canvas.translate((center_x, center_y));
                 canvas.scale((1.0, value));
                 canvas.translate((-center_x, -center_y));
             }
-            Transform::RotateDeg(deg) => {
+            Transform::RotateDeg { value: deg } => {
                 canvas.rotate(deg, Some((center_x, center_y).into()));
             }
-            Transform::SkewXDeg(deg) => {
+            Transform::SkewXDeg { value: deg } => {
                 canvas.translate((center_x, center_y));
                 canvas.skew((deg.to_radians().tan(), 0.0));
                 canvas.translate((-center_x, -center_y));
             }
-            Transform::SkewYDeg(deg) => {
+            Transform::SkewYDeg { value: deg } => {
                 canvas.translate((center_x, center_y));
                 canvas.skew((0.0, deg.to_radians().tan()));
                 canvas.translate((-center_x, -center_y));
             }
-            Transform::SkewDeg(x_deg, y_deg) => {
+            Transform::SkewDeg { x: x_deg, y: y_deg } => {
                 canvas.translate((center_x, center_y));
                 canvas.skew((x_deg.to_radians().tan(), y_deg.to_radians().tan()));
                 canvas.translate((-center_x, -center_y));
@@ -2929,12 +2929,12 @@ mod promotion_tests {
     #[test]
     fn detects_non_unit_scale_transforms() {
         assert!(!transform_list_has_non_unit_scale(&[]));
-        assert!(!transform_list_has_non_unit_scale(&[Transform::Scale(1.0)]));
-        assert!(transform_list_has_non_unit_scale(&[Transform::Scale(1.25)]));
-        assert!(transform_list_has_non_unit_scale(&[Transform::ScaleX(0.8)]));
-        assert!(transform_list_has_non_unit_scale(&[Transform::ScaleY(1.1)]));
+        assert!(!transform_list_has_non_unit_scale(&[Transform::Scale { value: 1.0 }]));
+        assert!(transform_list_has_non_unit_scale(&[Transform::Scale { value: 1.25 }]));
+        assert!(transform_list_has_non_unit_scale(&[Transform::ScaleX { value: 0.8 }]));
+        assert!(transform_list_has_non_unit_scale(&[Transform::ScaleY { value: 1.1 }]));
         assert!(!transform_list_has_non_unit_scale(&[
-            Transform::TranslateX(20.0)
+            Transform::TranslateX { value: 20.0 }
         ]));
     }
 }

@@ -28,7 +28,7 @@ export interface TransformEntry {
 
 export interface CollectedMutations {
   mutations: Record<string, NodeMutations>;
-  canvas_mutations: Record<string, never>;  // Required by Rust StyleMutations
+  canvasMutations: Record<string, never>;  // Required by Rust StyleMutations (camelCase via serde rename_all)
 }
 
 export interface AnimInput {
@@ -130,7 +130,7 @@ export class ScriptCtx {
         cleaned[id] = muts;
       }
     }
-    return { mutations: cleaned, canvas_mutations: {} };
+    return { mutations: cleaned, canvasMutations: {} };
   }
 }
 

@@ -1,5 +1,4 @@
 pub mod audio;
-pub mod backend_object;
 pub mod cache;
 pub mod compositor;
 pub mod frame_view;

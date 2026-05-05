@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 use tracing::{Level, span};
 
 use anyhow::{Result, anyhow};
-use skia_safe::{AlphaType, Canvas, ColorType, ImageInfo, Picture, image::CachingHint, surfaces};
+use skia_safe::{AlphaType, Canvas, ColorType, ImageInfo, image::CachingHint, surfaces};
 use std::ffi::c_void;
 
 #[cfg(target_os = "macos")]
@@ -28,10 +28,6 @@ enum SkiaFrameSurface {
 
 pub(crate) struct SkiaRenderEngine {
     frame_surface: SkiaFrameSurface,
-}
-
-pub(crate) struct SkiaSceneSnapshot {
-    pub(crate) snapshot: Picture,
 }
 
 pub(crate) fn shared_raster_engine() -> SharedRenderEngine {
@@ -111,11 +107,10 @@ impl RenderEngine for SkiaRenderEngine {
         frame_view: RenderFrameView,
     ) -> Result<()> {
         let canvas = skia_canvas(frame_view)?;
-        let snapshot_picture = skia_snapshot_picture(snapshot)?;
-        if snapshot_picture.cull_rect().is_empty() {
+        if snapshot.cull_rect().is_empty() {
             return Err(anyhow!("scene snapshot has empty bounds"));
         }
-        canvas.draw_picture(snapshot_picture, None, None);
+        canvas.draw_picture(snapshot, None, None);
         Ok(())
     }
 
@@ -138,7 +133,7 @@ impl RenderEngine for SkiaRenderEngine {
             Some(&mut *runtime.media_ctx),
             runtime.frame_ctx,
         )?;
-        Ok(SceneSnapshot::new(SkiaSceneSnapshot { snapshot }))
+        Ok(snapshot)
     }
 
     fn draw_ordered_scene(
@@ -209,26 +204,6 @@ fn render_frame_rgba_raster(
     }
 
     Ok(rgba)
-}
-
-fn skia_snapshot_picture(snapshot: &SceneSnapshot) -> Result<&Picture> {
-    snapshot
-        .downcast_ref::<SkiaSceneSnapshot>()
-        .map(|snapshot| &snapshot.snapshot)
-        .ok_or_else(|| anyhow!("scene snapshot is not compatible with skia renderer"))
-}
-
-/// Extract the inner `Picture` from a `SceneSnapshot` (BackendObject wrapping SkiaSceneSnapshot).
-pub(crate) fn extract_picture(snapshot: &SceneSnapshot) -> Result<Picture> {
-    snapshot
-        .downcast_ref::<SkiaSceneSnapshot>()
-        .map(|s| s.snapshot.clone())
-        .ok_or_else(|| anyhow!("scene snapshot is not compatible with skia renderer"))
-}
-
-/// Wrap a `Picture` into a `SceneSnapshot` (BackendObject wrapping SkiaSceneSnapshot).
-pub(crate) fn wrap_snapshot(picture: Picture) -> SceneSnapshot {
-    SceneSnapshot::new(SkiaSceneSnapshot { snapshot: picture })
 }
 
 fn skia_canvas(frame_view: RenderFrameView) -> Result<&'static Canvas> {

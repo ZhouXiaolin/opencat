@@ -66,9 +66,9 @@ pub fn build_frame(
 4. 构建 `PrecomputedScriptHost`（从 mutations_json 注入）
 5. 组装 fonts: `fontdb::Database` 用内嵌字体（`default_font_db_with_embedded_only()` 已在 core 中存在）
 6. 调用 core 管线:
-   - `resolve_ui_tree(root, &frame_ctx, &mut catalog, None, &mut script_host)`
-   - `LayoutSession::default().compute_layout_with_font_db(root, &frame_ctx, &font_db)`
-   - `build_display_tree(resolved_root, &layout_tree)`
+   - `resolve_ui_tree(&root, &frame_ctx, &mut catalog, parent_composition: None, &mut script_host)`
+   - `LayoutSession::default().compute_layout_with_font_db(&element_root, &frame_ctx, &font_db)`
+   - `build_display_tree(&element_root, &layout_tree)`
 7. 序列化 DisplayTree 为 JSON 返回
 
 每帧新建 `LayoutSession`，不跨帧缓存（牺牲少量性能换简洁，后续可优化）。
@@ -158,8 +158,11 @@ pub struct PrecomputedScriptHost {
 
 impl ScriptHost for PrecomputedScriptHost {
     fn install(&mut self, source: &str) -> Result<ScriptDriverId> {
-        // 只记录 hash，不编译脚本
-        Ok(ScriptDriverId(hash(source)))
+        // 用 core 已使用的 DefaultHasher 做稳定 hash，不编译脚本
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut h = DefaultHasher::new();
+        source.hash(&mut h);
+        Ok(ScriptDriverId(h.finish()))
     }
 
     fn register_text_source(&mut self, node_id: &str, source: ScriptTextSource) {
@@ -203,13 +206,17 @@ pub struct ResourceMeta {
 pub enum ResourceKind { Image, Video, Audio }
 ```
 
+构造器 `HashMapResourceCatalog::from_json(json: &str)` 反序列化 resource_meta JSON，
+遍历每个 entry 调用 `register_dimensions()` 注册到 `asset_cache`。
+AssetId 由路径 hash 生成（`fxhash::hash64` 等同 `cache_key()` 使用的算法）。
+
 实现 `ResourceCatalog` trait 的全部方法：
 - `resolve_image(&mut self, src: &ImageSource)` — 将 ImageSource 路径映射为 AssetId
 - `resolve_audio(&mut self, src: &AudioSource)` — 将 AudioSource 路径映射为 AssetId
 - `register_dimensions(&mut self, locator, w, h)` — 注册并返回 AssetId
 - `alias(&mut self, alias, target)` — 建立别名
-- `dimensions(&self, id)` — 返回 (width, height)
-- `video_info(&self, id)` — 返回 `Option<VideoInfoMeta>`
+- `dimensions(&self, id)` — 返回 (width, height)，从 entries 查询
+- `video_info(&self, id)` — 返回 `Option<VideoInfoMeta>`，含 duration_secs
 
 ## 数据流
 
@@ -235,6 +242,38 @@ Frame N 渲染完整流程:
 10. JS: drawDisplayTree(displayTree) @ CanvasKit
 11. JS: surface.flush() → canvas 显示
 ```
+
+## 导出流程
+
+导出复用预览管线（WASM `build_frame` → CanvasKit 渲染），在 JS 侧串联 ffmpeg.wasm。
+
+### MP4 导出
+
+```
+1. 初始化 ffmpeg.wasm (已有 @ffmpeg/ffmpeg 依赖)
+2. 设置进度 UI (export progress bar)
+3. for frame N in 0..totalFrames:
+   a. 运行脚本 → mutations_json
+   b. wasm.build_frame(jsonl, N, resource_meta, mutations_json)
+   c. drawDisplayTree(displayTree) → surface.flush()
+   d. captureFramePixels(surface) → RGBA Uint8Array
+   e. ffmpeg.writeFrame(frameData, frameIndex)
+4. ffmpeg.finalize() → MP4 blob
+5. downloadMp4(blob)
+```
+
+ffmpeg.wasm 配置:
+- 输入: rawvideo, pixel_format=rgba, s=WxH, framerate=fps
+- 输出: libx264, crf=23, preset=medium, pixel_format=yuv420p
+- 不加载 ffmpeg.wasm 的音频能力（此阶段仅视频导出）
+
+### PNG 导帧
+
+单帧导出:
+1. 运行脚本 + build_frame + drawDisplayTree（与预览相同）
+2. surface.makeImageSnapshot() → CanvasKit Image
+3. image.encodeToBytes(CanvasKit.ImageFormat.PNG) → Uint8Array
+4. 触发 blob download
 
 ## 字体处理
 

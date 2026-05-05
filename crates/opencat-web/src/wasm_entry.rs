@@ -2,6 +2,21 @@ use wasm_bindgen::prelude::*;
 
 use opencat_core::jsonl::JsonLine;
 
+fn parse_composition_info(input: &str) -> Option<(i32, i32, i32, i32)> {
+    for line in input.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(JsonLine::Composition { width: w, height: h, fps: f, frames: fs }) =
+            serde_json::from_str(trimmed)
+        {
+            return Some((w, h, f, fs));
+        }
+    }
+    None
+}
+
 #[wasm_bindgen]
 pub fn parse_jsonl(input: &str) -> String {
     let mut composition: Option<serde_json::Value> = None;
@@ -44,31 +59,63 @@ pub fn parse_jsonl(input: &str) -> String {
 
 #[wasm_bindgen]
 pub fn get_composition_info(input: &str) -> String {
-    let mut width = 0i32;
-    let mut height = 0i32;
-    let mut fps = 0i32;
-    let mut frames = 0i32;
-
-    for line in input.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if let Ok(JsonLine::Composition { width: w, height: h, fps: f, frames: fs }) =
-            serde_json::from_str(trimmed)
-        {
-            width = w;
-            height = h;
-            fps = f;
-            frames = fs;
-            break;
-        }
-    }
+    let (width, height, fps, frames) = parse_composition_info(input).unwrap_or((0, 0, 0, 0));
 
     serde_json::json!({
         "width": width,
         "height": height,
         "fps": fps,
         "frames": frames
+    }).to_string()
+}
+
+/// Collect resource requests from JSONL input.
+/// Returns JSON with lists of required images, videos, audios, and icons.
+#[wasm_bindgen]
+pub fn collect_resources_json(input: &str) -> String {
+    let mut images: Vec<String> = Vec::new();
+    let mut videos: Vec<String> = Vec::new();
+    let mut audios: Vec<String> = Vec::new();
+    let mut icons: Vec<String> = Vec::new();
+
+    for line in input.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(parsed) = serde_json::from_str::<JsonLine>(trimmed) {
+            match parsed {
+                JsonLine::Image { path, url, .. } => {
+                    if let Some(p) = path {
+                        images.push(p);
+                    }
+                    if let Some(u) = url {
+                        images.push(u);
+                    }
+                }
+                JsonLine::Video { path, .. } => {
+                    videos.push(path);
+                }
+                JsonLine::Audio { path, url, .. } => {
+                    if let Some(p) = path {
+                        audios.push(p);
+                    }
+                    if let Some(u) = url {
+                        audios.push(u);
+                    }
+                }
+                JsonLine::Icon { icon, .. } => {
+                    icons.push(icon);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    serde_json::json!({
+        "images": images,
+        "videos": videos,
+        "audios": audios,
+        "icons": icons,
     }).to_string()
 }

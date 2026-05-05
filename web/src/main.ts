@@ -1,7 +1,21 @@
 import './style.css';
-import { initWasm, parseJsonl, getCompositionInfo } from './wasm';
-import { initCanvasKit, ensureSurface, drawFrame, disposeSurface } from './renderer';
-import { initFFmpeg, exportMp4, exportPngFrame, downloadMp4 } from './exporter';
+import { initWasm, parseJsonl, getCompositionInfo, collectResources } from './wasm';
+import {
+  initCanvasKit,
+  ensureSurface,
+  disposeSurface,
+  captureFramePixels,
+  getCanvasKit,
+  getCkCanvas,
+  getSurface,
+} from './renderer';
+import {
+  initFFmpeg as initFFmpegExport,
+  exportMp4,
+  exportPngFrame,
+  downloadMp4,
+} from './exporter';
+import { loadImages, setCanvasKit } from './resource';
 import type { CompositionInfo, JsonlFile } from './types';
 
 // --- State ---
@@ -50,6 +64,8 @@ async function boot() {
     ckStatusEl.textContent = 'CanvasKit ready';
     ckStatusEl.className = 'status-badge ready';
 
+    setCanvasKit(getCanvasKit());
+
     await loadFileList();
   } catch (err) {
     wasmStatusEl.textContent = `Bootstrap error: ${err}`;
@@ -92,11 +108,7 @@ async function loadFileList() {
     }
   } catch {
     fileListEl.innerHTML = '<p class="hint">Cannot list files. Try known files:</p>';
-    const knownFiles = [
-      'morph.jsonl',
-      'opencat-promo.jsonl',
-      'animation_showcase.jsonl',
-    ];
+    const knownFiles = ['morph.jsonl', 'opencat-promo.jsonl', 'animation_showcase.jsonl'];
     for (const name of knownFiles) {
       const item = document.createElement('div');
       item.className = 'file-item';
@@ -121,7 +133,6 @@ async function loadJsonl(file: JsonlFile) {
       return;
     }
 
-    const wasLoaded = currentComposition !== null;
     currentComposition = comp;
     currentFrame = 0;
 
@@ -129,7 +140,7 @@ async function loadJsonl(file: JsonlFile) {
     emptyStateEl.style.display = 'none';
     previewCanvas.style.display = 'block';
 
-    if (!wasLoaded) {
+    if (!previewCanvas.width) {
       const maxW = Math.min(comp.width, 780);
       const scale = maxW / comp.width;
       previewCanvas.width = comp.width;
@@ -152,6 +163,13 @@ async function loadJsonl(file: JsonlFile) {
     }
 
     ensureSurface(previewCanvas, comp.width, comp.height);
+
+    // Load resources
+    const resources = collectResources(currentJsonlContent);
+    if (resources.images.length > 0) {
+      await loadImages(resources);
+    }
+
     await renderFrameAsync(0);
   } catch (err) {
     fileInfoEl.textContent = `Error loading ${file.name}: ${err}`;
@@ -172,14 +190,15 @@ async function renderFrameAsync(frame: number) {
 
   renderPending = true;
   const comp = currentComposition;
+  ensureSurface(previewCanvas, comp.width, comp.height);
+
   const parsed = parseJsonl(currentJsonlContent);
   if (!parsed.composition) {
     renderPending = false;
     return;
   }
+  drawFallbackFrame(parsed, frame, comp);
 
-  ensureSurface(previewCanvas, comp.width, comp.height);
-  drawFrame(parsed, frame, comp);
   renderPending = false;
 
   if (renderQueuedFrame >= 0) {
@@ -187,6 +206,71 @@ async function renderFrameAsync(frame: number) {
     renderQueuedFrame = -1;
     renderFrameAsync(nextFrame);
   }
+}
+
+// --- Fallback renderer (when WASM buildDisplayTree not available) ---
+
+function drawFallbackFrame(
+  parsed: { composition: CompositionInfo | null; elements: any[]; elementCount: number },
+  frame: number,
+  comp: CompositionInfo,
+): void {
+  const CK = getCanvasKit();
+  const canvas = getCkCanvas();
+  const surf = getSurface();
+  if (!CK || !canvas || !surf) return;
+
+  const w = comp.width;
+  const h = comp.height;
+  canvas.clear(CK.Color4f(0.06, 0.06, 0.09, 1.0));
+
+  const font = new CK.Font(null, 14);
+  const textPaint = new CK.Paint();
+  textPaint.setColor(CK.Color4f(0.63, 0.63, 0.69, 1.0));
+
+  const info = `${comp.width}×${comp.height} @ ${comp.fps}fps — frame ${frame + 1}/${comp.frames}`;
+  canvas.drawText(info, 12, 22, textPaint, font);
+
+  const cx = w / 2;
+  const cy = h / 2;
+
+  const strokePaint = new CK.Paint();
+  strokePaint.setStyle(CK.PaintStyle.Stroke);
+  strokePaint.setColor(CK.Color4f(0.23, 0.23, 0.31, 1.0));
+  strokePaint.setStrokeWidth(1);
+  canvas.drawLine(cx - 20, cy, cx + 20, cy, strokePaint);
+  canvas.drawLine(cx, cy - 20, cx, cy + 20, strokePaint);
+
+  strokePaint.setColor(CK.Color4f(0.29, 0.29, 0.42, 1.0));
+  canvas.drawRect(CK.XYWHRect(1, 1, w - 1, h - 1), strokePaint);
+  strokePaint.delete();
+
+  const divCount = parsed.elements.filter((e: any) => e.type === 'div' || e.type === 'tl').length;
+  canvas.drawText(`${parsed.elementCount} elements (${divCount} div/text)`, 12, 44, textPaint, font);
+
+  for (const el of parsed.elements) {
+    if (el.type === 'div' || el.type === 'tl') {
+      const elPaint = new CK.Paint();
+      const hue = (hashCode(el.id || '') % 360) / 360;
+      elPaint.setColor(CK.Color4f(hue * 0.6 + 0.1, 0.4, 0.5, 0.08));
+      const rect = parseRect(el.className || '', w, h);
+      canvas.drawRect(CK.XYWHRect(rect.l, rect.t, rect.r - rect.l, rect.b - rect.t), elPaint);
+      elPaint.delete();
+    } else if (el.type === 'text' && el.text) {
+      const textSize = extractFontSize(el.className || '');
+      const tFont = new CK.Font(null, textSize);
+      const tPaint = new CK.Paint();
+      tPaint.setColor(CK.Color4f(0.88, 0.88, 0.94, 1.0));
+      canvas.drawText(el.text, 24, h / 2, tPaint, tFont);
+      tFont.delete();
+      tPaint.delete();
+    }
+  }
+
+  font.delete();
+  textPaint.delete();
+
+  surf.flush();
 }
 
 function updateFrameInfo() {
@@ -289,7 +373,7 @@ async function handleExport() {
   ffStatusEl.className = 'status-badge loading';
 
   try {
-    await initFFmpeg();
+    await initFFmpegExport();
     ffStatusEl.textContent = 'FFmpeg ready';
     ffStatusEl.className = 'status-badge ready';
 
@@ -334,7 +418,7 @@ async function handleExportPng() {
   ffStatusEl.className = 'status-badge loading';
 
   try {
-    await initFFmpeg();
+    await initFFmpegExport();
     ffStatusEl.textContent = 'FFmpeg ready';
     ffStatusEl.className = 'status-badge ready';
 
@@ -351,9 +435,42 @@ async function handleExportPng() {
 btnExport.addEventListener('click', handleExport);
 btnExportPng.addEventListener('click', handleExportPng);
 
+// --- Helpers (for fallback rendering) ---
+
+function hashCode(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash) + s.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash;
+}
+
+function parseRect(className: string, canvasW: number, canvasH: number): { l: number; t: number; r: number; b: number } {
+  let l = 0, t = 0, r = canvasW, b = canvasH;
+  const wMatch = className.match(/w-\[(\d+)px\]/);
+  const hMatch = className.match(/h-\[(\d+)px\]/);
+  const insetMatch = className.match(/inset-(\d+)/);
+  const leftMatch = className.match(/left-\[(\d+)px\]/);
+  const topMatch = className.match(/top-\[(\d+)px\]/);
+
+  if (wMatch) r = l + parseInt(wMatch[1]);
+  if (hMatch) b = t + parseInt(hMatch[1]);
+  if (leftMatch) { l = parseInt(leftMatch[1]); r = l + (wMatch ? parseInt(wMatch[1]) : canvasW - l); }
+  if (topMatch) { t = parseInt(topMatch[1]); b = t + (hMatch ? parseInt(hMatch[1]) : canvasH - t); }
+  if (insetMatch) { const v = parseInt(insetMatch[1]); l = v; t = v; r = canvasW - v; b = canvasH - v; }
+
+  return { l, t, r, b };
+}
+
+function extractFontSize(className: string): number {
+  const m = className.match(/text-\[(\d+)px\]/);
+  return m ? parseInt(m[1]) : 16;
+}
+
 // --- Init FFmpeg on idle after boot ---
 setTimeout(() => {
-  initFFmpeg().then(() => {
+  initFFmpegExport().then(() => {
     ffStatusEl.textContent = 'FFmpeg ready';
     ffStatusEl.className = 'status-badge ready';
   }).catch(() => {

@@ -577,9 +577,9 @@ mod tests {
     #[test]
     fn paint_fingerprint_is_invariant_under_transforms() {
         let mut transform_a = rect_transform(0.0, 0.0);
-        transform_a.transforms = vec![Transform::Scale(1.0)];
+        transform_a.transforms = vec![Transform::Scale { value: 1.0 }];
         let mut transform_b = rect_transform(0.0, 0.0);
-        transform_b.transforms = vec![Transform::Scale(2.0)];
+        transform_b.transforms = vec![Transform::Scale { value: 2.0 }];
         let a = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
             transform: transform_a,
             ..Default::default()
@@ -616,7 +616,7 @@ mod tests {
         })
         .into_annotated_node();
         let mut transform_b = rect_transform(10.0, 20.0);
-        transform_b.transforms = vec![Transform::Scale(1.25)];
+        transform_b.transforms = vec![Transform::Scale { value: 1.25 }];
         let b = annotated_rect_node(AnnotatedRectConfig {
             transform: transform_b,
             opacity: 0.5,
@@ -632,9 +632,9 @@ mod tests {
     #[test]
     fn snapshot_fingerprint_ignores_current_node_transform() {
         let mut transform_a = rect_transform(0.0, 0.0);
-        transform_a.transforms = vec![Transform::Scale(1.0)];
+        transform_a.transforms = vec![Transform::Scale { value: 1.0 }];
         let mut transform_b = rect_transform(0.0, 0.0);
-        transform_b.transforms = vec![Transform::Scale(2.0)];
+        transform_b.transforms = vec![Transform::Scale { value: 2.0 }];
         let a = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
             transform: transform_a,
             ..Default::default()
@@ -657,9 +657,9 @@ mod tests {
         let mut a = annotated_rect_node(AnnotatedRectConfig::default());
         let mut b = annotated_rect_node(AnnotatedRectConfig::default());
         let mut child_transform_a = rect_transform(0.0, 0.0);
-        child_transform_a.transforms = vec![Transform::Scale(1.0)];
+        child_transform_a.transforms = vec![Transform::Scale { value: 1.0 }];
         let mut child_transform_b = rect_transform(0.0, 0.0);
-        child_transform_b.transforms = vec![Transform::Scale(2.0)];
+        child_transform_b.transforms = vec![Transform::Scale { value: 2.0 }];
         let child_a = annotated_rect_node(AnnotatedRectConfig {
             key: RenderNodeKey(2),
             transform: child_transform_a,

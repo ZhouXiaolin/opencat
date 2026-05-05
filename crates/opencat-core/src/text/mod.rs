@@ -350,6 +350,92 @@ pub fn ranges_overlap(a: Range<usize>, b: Range<usize>) -> bool {
     a.start < b.end && b.start < a.end
 }
 
+// ── Conversion to display-list glyph types ──────────────────────────────────
+
+use crate::display::list::{
+    DisplayGlyphCommand, DisplayGlyphData, DisplayGlyphEntry, DisplayGlyphLine,
+    DisplayGlyphPosition, DisplayTextGlyphs,
+};
+
+/// Convert a `TextRasterization` into serializable display-list glyph data.
+pub fn rasterization_to_display_glyphs(raster: &TextRasterization) -> DisplayTextGlyphs {
+    let entries: Vec<DisplayGlyphEntry> = raster
+        .glyphs
+        .iter()
+        .map(|(key, data)| DisplayGlyphEntry {
+            cache_key: *key,
+            data: match data {
+                GlyphData::Outline(commands) => DisplayGlyphData::Outline {
+                    commands: commands.iter().map(convert_command).collect(),
+                },
+                GlyphData::ColorImage {
+                    rgba,
+                    width,
+                    height,
+                    placement_left,
+                    placement_top,
+                } => DisplayGlyphData::ColorImage {
+                    rgba: rgba.clone(),
+                    width: *width,
+                    height: *height,
+                    placement_left: *placement_left,
+                    placement_top: *placement_top,
+                },
+            },
+        })
+        .collect();
+
+    let lines: Vec<DisplayGlyphLine> = raster
+        .lines
+        .iter()
+        .map(|line| DisplayGlyphLine {
+            y: line.y,
+            width: line.width,
+            positions: line
+                .positions
+                .iter()
+                .map(|pos| DisplayGlyphPosition {
+                    cache_key: pos.cache_key,
+                    x: pos.x,
+                    y: pos.y,
+                    byte_start: pos.byte_range.start,
+                    byte_end: pos.byte_range.end,
+                })
+                .collect(),
+        })
+        .collect();
+
+    DisplayTextGlyphs { entries, lines }
+}
+
+fn convert_command(cmd: &cosmic_text::Command) -> DisplayGlyphCommand {
+    match cmd {
+        cosmic_text::Command::MoveTo(p) => DisplayGlyphCommand::MoveTo {
+            x: p.x,
+            y: p.y,
+        },
+        cosmic_text::Command::LineTo(p) => DisplayGlyphCommand::LineTo {
+            x: p.x,
+            y: p.y,
+        },
+        cosmic_text::Command::QuadTo(c, p) => DisplayGlyphCommand::QuadTo {
+            cx: c.x,
+            cy: c.y,
+            x: p.x,
+            y: p.y,
+        },
+        cosmic_text::Command::CurveTo(c1, c2, p) => DisplayGlyphCommand::CurveTo {
+            c1x: c1.x,
+            c1y: c1.y,
+            c2x: c2.x,
+            c2y: c2.y,
+            x: p.x,
+            y: p.y,
+        },
+        cosmic_text::Command::Close => DisplayGlyphCommand::Close,
+    }
+}
+
 // ── FontProvider trait ─────────────────────────────────────────────────────
 
 pub trait FontProvider {

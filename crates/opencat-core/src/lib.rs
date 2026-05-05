@@ -10,6 +10,7 @@ mod lucide_icons;
 pub mod resource;
 pub mod runtime;
 pub mod scene;
+pub mod script;
 pub mod style;
 pub mod text;
 

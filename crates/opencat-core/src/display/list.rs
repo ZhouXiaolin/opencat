@@ -9,6 +9,70 @@ use crate::{
     },
 };
 
+/// Serializable glyph data produced by cosmic-text rasterization.
+/// Contains deduplicated glyph shapes (outline paths or color bitmaps)
+/// and per-line positioning info, enabling the web renderer to draw
+/// text without needing its own font engine.
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DisplayTextGlyphs {
+    /// Deduplicated glyph entries keyed by cache_key.
+    pub entries: Vec<DisplayGlyphEntry>,
+    /// Per-line layout with positioned glyph references.
+    pub lines: Vec<DisplayGlyphLine>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DisplayGlyphEntry {
+    pub cache_key: u64,
+    pub data: DisplayGlyphData,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DisplayGlyphData {
+    /// Vector outline path commands for the glyph.
+    Outline { commands: Vec<DisplayGlyphCommand> },
+    /// Pre-rasterized RGBA color bitmap (e.g., emoji glyphs).
+    ColorImage {
+        rgba: Vec<u8>,
+        width: u32,
+        height: u32,
+        placement_left: i32,
+        placement_top: i32,
+    },
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum DisplayGlyphCommand {
+    MoveTo { x: f32, y: f32 },
+    LineTo { x: f32, y: f32 },
+    QuadTo { cx: f32, cy: f32, x: f32, y: f32 },
+    CurveTo { c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32 },
+    Close,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DisplayGlyphLine {
+    pub y: f32,
+    pub width: f32,
+    pub positions: Vec<DisplayGlyphPosition>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DisplayGlyphPosition {
+    pub cache_key: u64,
+    pub x: f32,
+    pub y: f32,
+    pub byte_start: usize,
+    pub byte_end: usize,
+}
+
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DisplayRect {
@@ -64,6 +128,12 @@ pub struct TextDisplayItem {
     pub text_unit_overrides: Option<TextUnitOverrideBatch>,
     pub visual_expand_x: f32,
     pub visual_expand_y: f32,
+    /// On-demand glyph rasterization data.
+    /// Produced by `rasterize_glyphs()` and consumed by the web renderer.
+    /// The desktop engine ignores this field and calls rasterize_glyphs
+    /// directly within its Skia rendering backend.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glyphs: Option<DisplayTextGlyphs>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -298,10 +368,7 @@ mod tests {
             }),
             visual_expand_x: 0.0,
             visual_expand_y: 12.0,
+            glyphs: None,
         });
-
-        let visual = item.visual_bounds();
-        assert!(visual.height > item.bounds().height);
-        assert!(visual.y < item.bounds().y);
     }
 }

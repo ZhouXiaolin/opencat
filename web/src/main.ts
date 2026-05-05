@@ -17,7 +17,7 @@ import {
   downloadMp4,
 } from './exporter';
 import { loadImages, setCanvasKit, getCachedImage } from './resource';
-import { createContext, runScript, type ScriptCtx, type CollectedMutations } from './script-runtime';
+import { getScriptEngine } from './script-engine';
 import type { CompositionInfo, JsonlFile, ParsedResult, ParsedElement } from './types';
 
 // --- State ---
@@ -76,6 +76,9 @@ async function boot() {
     ckStatusEl.className = 'status-badge ready';
 
     setCanvasKit(getCanvasKit());
+
+    // Initialize shared script engine (loads core JS runtimes once)
+    getScriptEngine().init();
 
     await loadFileList();
   } catch (err) {
@@ -353,7 +356,8 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   }
 
   // Step 1: Execute scripts to collect mutations
-  const ctx = createContext(frame + 1, comp.frames, comp.frames);
+  const engine = getScriptEngine();
+  engine.setFrameCtx(frame + 1, comp.frames, comp.frames);
   const parsed = parseJsonl(currentJsonlContent!);
   const scriptElements = (parsed.elements || []).filter(
     (e: ParsedElement) => e.type === 'script'
@@ -363,15 +367,14 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
     const source = (script.src || script.content || '') as string;
     if (source) {
       try {
-        runScript(ctx, source);
+        engine.runScript(source);
       } catch (err) {
         console.error(`Script execution error for element ${script.id}:`, err);
       }
     }
   }
 
-  const mutations = ctx.collectMutations();
-  const mutationsJson = JSON.stringify(mutations);
+  const mutationsJson = engine.collectJson();
   const resourceMetaJson = JSON.stringify(resourceMeta);
 
   // Strip script elements from JSONL before WASM buildFrame,

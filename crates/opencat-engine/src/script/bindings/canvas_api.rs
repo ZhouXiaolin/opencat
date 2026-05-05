@@ -136,7 +136,7 @@ fn script_color_from_value(value: &str) -> Option<ScriptColor> {
     Some(ScriptColor { r, g, b, a })
 }
 
-pub(crate) const CANVASKIT_RUNTIME: &str = include_str!("../runtime/canvas_api.js");
+pub(crate) const CANVASKIT_RUNTIME: &str = opencat_core::script::runtime::CANVAS_API_RUNTIME;
 
 pub(crate) fn install_canvaskit_bindings<'js>(
     ctx: &rquickjs::Ctx<'js>,

@@ -1,6 +1,14 @@
 use wasm_bindgen::prelude::*;
 
+use opencat_core::display::build::build_display_tree;
+use opencat_core::display::tree::DisplayTree;
+use opencat_core::element::resolve::resolve_ui_tree;
+use opencat_core::frame_ctx::FrameCtx;
 use opencat_core::jsonl::JsonLine;
+use opencat_core::layout::LayoutSession;
+use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
+use opencat_core::scene::script::PrecomputedScriptHost;
+use opencat_core::text;
 
 fn parse_composition_info(input: &str) -> Option<(i32, i32, i32, i32)> {
     for line in input.lines() {
@@ -118,4 +126,67 @@ pub fn collect_resources_json(input: &str) -> String {
         "audios": audios,
         "icons": icons,
     }).to_string()
+}
+
+/// Build display tree for a single frame.
+/// Returns: DisplayTree JSON or `{"error": "message"}` on failure
+#[wasm_bindgen]
+pub fn build_frame(
+    jsonl_input: &str,
+    frame: u32,
+    resource_meta: &str,
+    mutations_json: &str,
+) -> String {
+    match build_frame_impl(jsonl_input, frame, resource_meta, mutations_json) {
+        Ok(tree) => serde_json::to_string(&tree).unwrap_or_else(|e| {
+            format!(r#"{{"error":"serialization failed: {}"}}"#, e)
+        }),
+        Err(e) => format!(r#"{{"error":"{}"}}"#, e),
+    }
+}
+
+fn build_frame_impl(
+    jsonl_input: &str,
+    frame: u32,
+    resource_meta: &str,
+    mutations_json: &str,
+) -> anyhow::Result<DisplayTree> {
+    // 1. Parse JSONL
+    let parsed = opencat_core::jsonl::parse(jsonl_input)?;
+
+    let frame_ctx = FrameCtx {
+        frame,
+        frames: parsed.frames as u32,
+        fps: parsed.fps as u32,
+        width: parsed.width,
+        height: parsed.height,
+    };
+
+    // 2. Build resource catalog from JS-provided metadata
+    let mut catalog = HashMapResourceCatalog::from_json(resource_meta)?;
+
+    // 3. Build script host from JS-provided mutations
+    let mut script_host = PrecomputedScriptHost::from_json(mutations_json)?;
+
+    // 4. Get the scene node for this frame
+    let scene_node = parsed.root;
+
+    // 5. Resolve UI tree
+    let element_root = resolve_ui_tree(
+        &scene_node,
+        &frame_ctx,
+        &mut catalog,
+        None, // parent_composition
+        &mut script_host,
+    )?;
+
+    // 6. Compute layout
+    let font_db = text::default_font_db_with_embedded_only();
+    let mut layout_session = LayoutSession::default();
+    let (layout_tree, _) = layout_session.compute_layout_with_font_db(&element_root, &frame_ctx, &font_db)?;
+
+    // 7. Build display tree
+    let display_tree = build_display_tree(&element_root, &layout_tree)?;
+
+    Ok(display_tree)
 }

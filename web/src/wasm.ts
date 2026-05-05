@@ -5,6 +5,7 @@ type WasmModule = {
   parse_jsonl(input: string): string;
   get_composition_info(input: string): string;
   collect_resources_json(input: string): string;
+  build_frame(jsonl_input: string, frame: number, resource_meta: string, mutations_json: string): string;
 };
 
 let wasmModule: WasmModule | null = null;
@@ -42,4 +43,17 @@ export function collectResources(input: string): ResourceRequests {
   } catch {
     return { images: [], videos: [], audios: [], icons: [] };
   }
+}
+
+export function buildFrame(
+  jsonlInput: string,
+  frame: number,
+  resourceMeta: string,
+  mutationsJson: string,
+): any {
+  if (!wasmModule) throw new Error('WASM not initialized');
+  const json = wasmModule.build_frame(jsonlInput, frame, resourceMeta, mutationsJson);
+  const result = JSON.parse(json);
+  if (result.error) throw new Error(result.error);
+  return result;
 }

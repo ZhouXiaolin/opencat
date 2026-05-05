@@ -40,7 +40,7 @@ fn script_driver_exposes_global_and_scene_frame_fields() {
 
     assert_eq!(
         node.transforms,
-        vec![Transform::TranslateX(252.0), Transform::TranslateY(33.0)]
+        vec![Transform::TranslateX { value: 252.0 }, Transform::TranslateY { value: 33.0 }]
     );
 }
 
@@ -62,9 +62,9 @@ fn script_driver_preserves_transform_call_order() {
     assert_eq!(
         node.transforms,
         vec![
-            Transform::TranslateX(40.0),
-            Transform::RotateDeg(15.0),
-            Transform::Scale(1.2),
+            Transform::TranslateX { value: 40.0 },
+            Transform::RotateDeg { value: 15.0 },
+            Transform::Scale { value: 1.2 },
         ]
     );
 }

@@ -123,61 +123,61 @@ pub(crate) fn install_node_style_bindings<'js>(
         map.entry(id)
             .or_default()
             .transforms
-            .push(Transform::TranslateX(v));
+            .push(Transform::TranslateX { value: v });
     });
     set_style_binding!("__record_translate_y", map, |id, v: f32| {
         map.entry(id)
             .or_default()
             .transforms
-            .push(Transform::TranslateY(v));
+            .push(Transform::TranslateY { value: v });
     });
     set_style_binding!("__record_translate", map, |id, x: f32, y: f32| {
         map.entry(id)
             .or_default()
             .transforms
-            .push(Transform::Translate(x, y));
+            .push(Transform::Translate { x, y });
     });
     set_style_binding!("__record_scale", map, |id, v: f32| {
         map.entry(id)
             .or_default()
             .transforms
-            .push(Transform::Scale(v));
+            .push(Transform::Scale { value: v });
     });
     set_style_binding!("__record_scale_x", map, |id, v: f32| {
         map.entry(id)
             .or_default()
             .transforms
-            .push(Transform::ScaleX(v));
+            .push(Transform::ScaleX { value: v });
     });
     set_style_binding!("__record_scale_y", map, |id, v: f32| {
         map.entry(id)
             .or_default()
             .transforms
-            .push(Transform::ScaleY(v));
+            .push(Transform::ScaleY { value: v });
     });
     set_style_binding!("__record_rotate", map, |id, v: f32| {
         map.entry(id)
             .or_default()
             .transforms
-            .push(Transform::RotateDeg(v));
+            .push(Transform::RotateDeg { value: v });
     });
     set_style_binding!("__record_skew_x", map, |id, v: f32| {
         map.entry(id)
             .or_default()
             .transforms
-            .push(Transform::SkewXDeg(v));
+            .push(Transform::SkewXDeg { value: v });
     });
     set_style_binding!("__record_skew_y", map, |id, v: f32| {
         map.entry(id)
             .or_default()
             .transforms
-            .push(Transform::SkewYDeg(v));
+            .push(Transform::SkewYDeg { value: v });
     });
     set_style_binding!("__record_skew", map, |id, x_deg: f32, y_deg: f32| {
         map.entry(id)
             .or_default()
             .transforms
-            .push(Transform::SkewDeg(x_deg, y_deg));
+            .push(Transform::SkewDeg { x: x_deg, y: y_deg });
     });
     set_style_binding!("__record_position", map, |id, v: String| {
         if let Some(pos) = position_from_name(&v) {

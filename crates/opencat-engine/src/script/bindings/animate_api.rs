@@ -7,27 +7,7 @@ use opencat_core::scene::easing::{Easing, SpringConfig};
 use crate::script::MutationStore;
 use crate::script::bindings::morph_svg::MorphSvgEntry;
 
-pub(crate) const ANIMATE_RUNTIME: &str = concat!(
-    include_str!("../runtime/animation/bootstrap.js"),
-    "\n",
-    include_str!("../runtime/animation/core.js"),
-    "\n",
-    include_str!("../runtime/animation/facade.js"),
-    "\n",
-    include_str!("../runtime/animation/plugins/style_props.js"),
-    "\n",
-    include_str!("../runtime/animation/plugins/color.js"),
-    "\n",
-    include_str!("../runtime/animation/plugins/text.js"),
-    "\n",
-    include_str!("../runtime/animation/plugins/split_text.js"),
-    "\n",
-    include_str!("../runtime/animation/plugins/motion_path.js"),
-    "\n",
-    include_str!("../runtime/animation/plugins/morph_svg.js"),
-    "\n",
-    include_str!("../runtime/animation/plugins/utils.js"),
-);
+pub(crate) const ANIMATE_RUNTIME: &str = opencat_core::script::runtime::ANIMATION_RUNTIME;
 
 struct AnimateEntry {
     progress: f32,

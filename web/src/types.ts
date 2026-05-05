@@ -193,6 +193,7 @@ export interface DisplayItemJson {
   dropShadow?: DropShadowJson | null;
   visualExpandX?: number;
   visualExpandY?: number;
+  glyphs?: DisplayTextGlyphs;
   // Bitmap
   assetId?: string;
   width?: number;
@@ -221,7 +222,60 @@ export interface DisplayTreeResult {
   displayTree: DisplayNodeJson;
 }
 
-// ── Extended Element for layout computation ──
+// ── Glyph Rasterization Data (from cosmic-text) ──
+
+export interface DisplayTextGlyphs {
+  entries: DisplayGlyphEntry[];
+  lines: DisplayGlyphLine[];
+}
+
+export interface DisplayGlyphEntry {
+  cacheKey: number;
+  data: DisplayGlyphData;
+}
+
+export type DisplayGlyphData =
+  | {
+      kind: 'outline';
+      commands: DisplayGlyphCommand[];
+    }
+  | {
+      kind: 'colorImage';
+      rgba: number[];
+      width: number;
+      height: number;
+      placementLeft: number;
+      placementTop: number;
+    };
+
+export type DisplayGlyphCommand =
+  | { type: 'moveTo'; x: number; y: number }
+  | { type: 'lineTo'; x: number; y: number }
+  | { type: 'quadTo'; cx: number; cy: number; x: number; y: number }
+  | {
+      type: 'curveTo';
+      c1x: number;
+      c1y: number;
+      c2x: number;
+      c2y: number;
+      x: number;
+      y: number;
+    }
+  | { type: 'close' };
+
+export interface DisplayGlyphLine {
+  y: number;
+  width: number;
+  positions: DisplayGlyphPosition[];
+}
+
+export interface DisplayGlyphPosition {
+  cacheKey: number;
+  x: number;
+  y: number;
+  byteStart: number;
+  byteEnd: number;
+}
 
 export interface LayoutElement {
   id: string;

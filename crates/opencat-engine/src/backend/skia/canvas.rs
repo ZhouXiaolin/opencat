@@ -3029,6 +3029,7 @@ mod text_draw_tests {
             text_unit_overrides: None,
             visual_expand_x: 0.0,
             visual_expand_y: 0.0,
+            glyphs: None,
         };
 
         draw_text(surface.canvas(), &plain, &path_cache, &image_cache);
@@ -3068,6 +3069,7 @@ mod text_draw_tests {
             }),
             visual_expand_x: 0.0,
             visual_expand_y: 0.0,
+            glyphs: None,
         };
 
         draw_text(surface.canvas(), &item, &path_cache, &image_cache);

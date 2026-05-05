@@ -45,46 +45,84 @@ rtk git add crates/opencat-core/build.rs && rtk git commit -m "feat(core): add S
 **Files:**
 - Modify: `crates/opencat-core/src/style.rs`
 
-需要给以下类型加 `#[derive(Serialize, Deserialize)]`（serde 已是 core 的依赖）:
-- `BorderStyle` (line 194)
-- `BackgroundFill` + `GradientDirection` (line 430)
-- `Transform` (line 441)
-- `BorderRadius` (line 166)
-- `BoxShadow` (line 237)
-- `InsetShadow` (line 246)
-- `DropShadow` (line 255)
-- `ComputedTextStyle` (line 630)
-- `ObjectFit`
-- `FontWeight`
+需要给以下类型加 `#[derive(Serialize, Deserialize)]`（serde 已是 core 的依赖）。**保持所有已有的 derive（Debug, Clone, Copy, PartialEq, Eq, Hash 等），只追加 serde derive**：
 
-注意：`Transform` 已有手动 `Hash` impl，加 serde derive 不冲突。`TextAlign` 等需要 camelCase rename。
+| 类型 | 文件位置 | 需要注意 |
+|------|---------|---------|
+| `BorderStyle` | style.rs:194 | `#[serde(rename_all = "camelCase")]` |
+| `TextAlign` | style.rs:131 | camelCase |
+| `TextTransform` | style.rs:158 | camelCase |
+| `ObjectFit` | style.rs | camelCase |
+| `FontWeight` | style.rs:148 | newtype `FontWeight(pub u16)` — **必须加 `#[serde(transparent)]`** 否则序列化为数组 `[700]` 而非数字 `700` |
+| `GradientDirection` | style.rs | camelCase |
+| `BackgroundFill` | style.rs:430 | tagged enum — 见下方注解 |
+| `Transform` | style.rs:441 | tagged enum — 见下方注解 |
+| `BorderRadius` | style.rs:166 | camelCase |
+| `BoxShadow` | style.rs:237 | camelCase |
+| `InsetShadow` | style.rs:246 | camelCase |
+| `DropShadow` | style.rs:255 | camelCase |
+| `ComputedTextStyle` | style.rs:630 | camelCase；**保持 `Copy` derive** |
 
 - [ ] **Step 1: 逐一加 derive 宏**
 
-为每个类型加 `#[derive(serde::Serialize, serde::Deserialize)]` 和必要的 `#[serde(rename_all = "camelCase")]`。
-
-`ComputedTextStyle` 需要特殊处理——它是 `Clone, Debug`，需要改为 derive Serialize。serde 已经在 style.rs 通过 build.rs include 可用（因为 build.rs 生成的代码引用了 serde）。
-
-关键改动示例：
+**BackgroundFill** — `types.ts:90-97` 期望 `type: "solid"` 时字段叫 `color`（不是默认的 `value`）：
 
 ```rust
-// BorderStyle
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum BorderStyle { ... }
-
-// BackgroundFill
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
-pub enum BackgroundFill { ... }
+pub enum BackgroundFill {
+    #[serde(rename = "solid")]
+    Solid(#[serde(rename = "color")] ColorToken),
+    LinearGradient {
+        direction: GradientDirection,
+        from: ColorToken,
+        via: Option<ColorToken>,
+        to: ColorToken,
+    },
+}
+```
 
-// Transform - serde enum tag
+**Transform** — `types.ts:167-172` 期望 `{ type: "translate", x: ..., y: ... }`。tuple variant 字段需重命名避免默认的 `v0`/`v1`：
+
+```rust
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
-pub enum Transform { ... }
+pub enum Transform {
+    #[serde(rename = "translateX")]
+    TranslateX(#[serde(rename = "value")] f32),
+    #[serde(rename = "translateY")]
+    TranslateY(#[serde(rename = "value")] f32),
+    #[serde(rename = "translate")]
+    Translate(#[serde(rename = "x")] f32, #[serde(rename = "y")] f32),
+    #[serde(rename = "scale")]
+    Scale(#[serde(rename = "value")] f32),
+    #[serde(rename = "scaleX")]
+    ScaleX(#[serde(rename = "value")] f32),
+    #[serde(rename = "scaleY")]
+    ScaleY(#[serde(rename = "value")] f32),
+    #[serde(rename = "rotate")]
+    RotateDeg(#[serde(rename = "value")] f32),
+    #[serde(rename = "skewX")]
+    SkewXDeg(#[serde(rename = "value")] f32),
+    #[serde(rename = "skewY")]
+    SkewYDeg(#[serde(rename = "value")] f32),
+    #[serde(rename = "skew")]
+    SkewDeg(#[serde(rename = "x")] f32, #[serde(rename = "y")] f32),
+}
+```
 
-// ComputedTextStyle
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+**FontWeight** — 必须 transparent：
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct FontWeight(pub u16);
+```
+
+**ComputedTextStyle** — 保持 `Copy`：
+
+```rust
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComputedTextStyle { ... }
 ```
@@ -104,12 +142,15 @@ rtk git add crates/opencat-core/src/style.rs && rtk git commit -m "feat(core): a
 ### Task 1.3: 给 Display 类型加 Serialize
 
 **Files:**
-- Modify: `crates/opencat-core/src/display/list.rs`
-- Modify: `crates/opencat-core/src/display/tree.rs`
-- Modify: `crates/opencat-core/src/scene/script/mutations.rs` (CanvasCommand, ScriptColor, etc.)
-- Modify: `crates/opencat-core/src/scene/transition.rs` (TransitionKind)
+- Modify: `crates/opencat-core/src/display/list.rs` — DisplayRect, DisplayClip, DisplayTransform, DisplayItem + 所有子结构
+- Modify: `crates/opencat-core/src/display/tree.rs` — DisplayTree, DisplayNode
+- Modify: `crates/opencat-core/src/element/tree.rs` — ElementId (DisplayNode.element_id 字段的类型)
+- Modify: `crates/opencat-core/src/resource/asset_id.rs` — AssetId (BitmapDisplayItem.asset_id)
+- Modify: `crates/opencat-core/src/resource/types.rs` — VideoFrameTiming, VideoPreviewQuality
+- Modify: `crates/opencat-core/src/scene/script/mutations.rs` — CanvasCommand, ScriptColor, ScriptLineCap, ScriptLineJoin, ScriptPointMode, ScriptFontEdging, TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch
+- Modify: `crates/opencat-core/src/scene/transition.rs` — TransitionKind, SlideDirection, WipeDirection
 
-这是最大的序列化工作。需要添加 `Serialize, Deserialize` 到所有 display 类型。注意与 web/src/types.ts 的接口匹配（camelCase 命名）。
+需要添加 `Serialize, Deserialize` 到所有 display 类型。注意与 web/src/types.ts 的接口匹配（camelCase 命名）。
 
 - [ ] **Step 1: display/list.rs 所有类型加 Serialize**
 
@@ -176,12 +217,79 @@ CanvasCommand 已有手动 `Hash` impl，加 serde derive 不冲突。
 pub enum TransitionKind { ... }
 ```
 
-- [ ] **Step 5: TextUnitOverrideBatch 等也要加**
+- [ ] **Step 5: 所有 transitive 类型加 Serialize**
 
+逐一为以下文件加 Serialize/Deserialize：
+
+`crates/opencat-core/src/element/tree.rs` — ElementId:
 ```rust
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct ElementId(pub u64);
+```
+
+`crates/opencat-core/src/resource/asset_id.rs` — AssetId:
+```rust
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct AssetId(pub String);
+```
+
+`crates/opencat-core/src/resource/types.rs` — VideoFrameTiming, VideoPreviewQuality:
+```rust
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoFrameTiming { ... }
+
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VideoPreviewQuality { Scrubbing, Realtime, Exact }
+```
+
+`crates/opencat-core/src/scene/script/mutations.rs` — 除了 CanvasCommand 外的子类型:
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptColor { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScriptLineCap { Butt, Round, Square }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScriptLineJoin { Miter, Round, Bevel }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScriptPointMode { Points, Lines, Polygon }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScriptFontEdging { Alias, AntiAlias, SubpixelAntiAlias }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TextUnitGranularity { Grapheme, Word }
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextUnitOverride { ... }
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextUnitOverrideBatch { ... }
+```
+
+`crates/opencat-core/src/scene/transition.rs` — SlideDirection, WipeDirection:
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SlideDirection { Left, Right, Top, Bottom }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WipeDirection { ... }
 ```
 
 - [ ] **Step 6: 构建验证**
@@ -243,11 +351,10 @@ pub enum ResourceKind {
 }
 
 /// Catalog built from JS-preloaded resource metadata.
-/// AssetId is derived from the resource locator string hash.
+/// AssetId uses string keys matching resource locators.
 pub struct HashMapResourceCatalog {
     entries: HashMap<AssetId, ResourceMeta>,
     asset_cache: HashMap<String, AssetId>,
-    next_id: u64,
 }
 
 impl HashMapResourceCatalog {
@@ -258,29 +365,21 @@ impl HashMapResourceCatalog {
         let mut catalog = Self {
             entries: HashMap::new(),
             asset_cache: HashMap::new(),
-            next_id: 0,
         };
-        for (locator, meta) in &map {
-            catalog.register_dimensions(locator, meta.width, meta.height);
-        }
-        // Second pass: set metadata for all registered assets
         for (locator, meta) in map {
-            if let Some(id) = catalog.asset_cache.get(&locator) {
-                catalog.entries.insert(*id, meta);
-            }
+            let id = AssetId(locator.clone());
+            catalog.asset_cache.insert(locator.clone(), id.clone());
+            catalog.entries.insert(id, meta);
         }
         Ok(catalog)
     }
 
     fn resolve_key(&mut self, key: &str) -> AssetId {
         if let Some(id) = self.asset_cache.get(key) {
-            return *id;
+            return id.clone();
         }
-        use std::hash::{DefaultHasher, Hash, Hasher};
-        let mut h = DefaultHasher::new();
-        key.hash(&mut h);
-        let id = AssetId(h.finish());
-        self.asset_cache.insert(key.to_string(), id);
+        let id = AssetId(key.to_string());
+        self.asset_cache.insert(key.to_string(), id.clone());
         id
     }
 }
@@ -390,7 +489,7 @@ mod tests {
     #[test]
     fn unknown_resource_returns_zero_dimensions() {
         let catalog = HashMapResourceCatalog::from_json("{}").unwrap();
-        assert_eq!(catalog.dimensions(&AssetId(999)), (0, 0));
+        assert_eq!(catalog.dimensions(&AssetId("unknown".to_string())), (0, 0));
     }
 }
 ```

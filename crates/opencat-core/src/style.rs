@@ -128,7 +128,8 @@ impl LengthPercentageAuto {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum TextAlign {
     #[default]
     Left,
@@ -136,7 +137,8 @@ pub enum TextAlign {
     Right,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ObjectFit {
     #[default]
     Contain,
@@ -144,7 +146,8 @@ pub enum ObjectFit {
     Fill,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
 pub struct FontWeight(pub u16);
 
 impl FontWeight {
@@ -155,14 +158,16 @@ impl FontWeight {
     pub const BOLD: Self = Self(700);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum TextTransform {
     #[default]
     None,
     Uppercase,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BorderRadius {
     pub top_left: f32,
     pub top_right: f32,
@@ -191,7 +196,8 @@ impl std::hash::Hash for BorderRadius {
 }
 
 /// Border stroke style - Tailwind: border-solid / border-dashed / border-dotted
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum BorderStyle {
     #[default]
     Solid,
@@ -233,7 +239,8 @@ pub enum InsetShadowStyle {
     Md,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BoxShadow {
     pub offset_x: f32,
     pub offset_y: f32,
@@ -242,7 +249,8 @@ pub struct BoxShadow {
     pub color: ColorToken,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InsetShadow {
     pub offset_x: f32,
     pub offset_y: f32,
@@ -251,7 +259,8 @@ pub struct InsetShadow {
     pub color: ColorToken,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DropShadow {
     pub offset_x: f32,
     pub offset_y: f32,
@@ -418,7 +427,8 @@ fn shadow_outsets(
     (left, top, right, bottom)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum GradientDirection {
     ToRight,
     ToLeft,
@@ -427,9 +437,11 @@ pub enum GradientDirection {
     ToBottomRight,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum BackgroundFill {
-    Solid(ColorToken),
+    #[serde(rename = "solid")]
+    Solid(#[serde(rename = "color")] ColorToken),
     LinearGradient {
         direction: GradientDirection,
         from: ColorToken,
@@ -438,61 +450,72 @@ pub enum BackgroundFill {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum Transform {
-    TranslateX(f32),
-    TranslateY(f32),
-    Translate(f32, f32),
-    Scale(f32),
-    ScaleX(f32),
-    ScaleY(f32),
-    RotateDeg(f32),
-    SkewXDeg(f32),
-    SkewYDeg(f32),
-    SkewDeg(f32, f32),
+    #[serde(rename = "translateX")]
+    TranslateX { #[serde(rename = "value")] value: f32 },
+    #[serde(rename = "translateY")]
+    TranslateY { #[serde(rename = "value")] value: f32 },
+    #[serde(rename = "translate")]
+    Translate { #[serde(rename = "x")] x: f32, #[serde(rename = "y")] y: f32 },
+    #[serde(rename = "scale")]
+    Scale { #[serde(rename = "value")] value: f32 },
+    #[serde(rename = "scaleX")]
+    ScaleX { #[serde(rename = "value")] value: f32 },
+    #[serde(rename = "scaleY")]
+    ScaleY { #[serde(rename = "value")] value: f32 },
+    #[serde(rename = "rotate")]
+    RotateDeg { #[serde(rename = "value")] value: f32 },
+    #[serde(rename = "skewX")]
+    SkewXDeg { #[serde(rename = "value")] value: f32 },
+    #[serde(rename = "skewY")]
+    SkewYDeg { #[serde(rename = "value")] value: f32 },
+    #[serde(rename = "skew")]
+    SkewDeg { #[serde(rename = "x")] x: f32, #[serde(rename = "y")] y: f32 },
 }
 
 impl std::hash::Hash for Transform {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match *self {
-            Transform::TranslateX(x) => {
+            Transform::TranslateX { value } => {
                 0_u8.hash(state);
-                x.to_bits().hash(state);
+                value.to_bits().hash(state);
             }
-            Transform::TranslateY(y) => {
+            Transform::TranslateY { value } => {
                 1_u8.hash(state);
-                y.to_bits().hash(state);
+                value.to_bits().hash(state);
             }
-            Transform::Translate(x, y) => {
+            Transform::Translate { x, y } => {
                 2_u8.hash(state);
                 x.to_bits().hash(state);
                 y.to_bits().hash(state);
             }
-            Transform::Scale(value) => {
+            Transform::Scale { value } => {
                 3_u8.hash(state);
                 value.to_bits().hash(state);
             }
-            Transform::ScaleX(value) => {
+            Transform::ScaleX { value } => {
                 4_u8.hash(state);
                 value.to_bits().hash(state);
             }
-            Transform::ScaleY(value) => {
+            Transform::ScaleY { value } => {
                 5_u8.hash(state);
                 value.to_bits().hash(state);
             }
-            Transform::RotateDeg(value) => {
+            Transform::RotateDeg { value } => {
                 6_u8.hash(state);
                 value.to_bits().hash(state);
             }
-            Transform::SkewXDeg(value) => {
+            Transform::SkewXDeg { value } => {
                 7_u8.hash(state);
                 value.to_bits().hash(state);
             }
-            Transform::SkewYDeg(value) => {
+            Transform::SkewYDeg { value } => {
                 8_u8.hash(state);
                 value.to_bits().hash(state);
             }
-            Transform::SkewDeg(x, y) => {
+            Transform::SkewDeg { x, y } => {
                 9_u8.hash(state);
                 x.to_bits().hash(state);
                 y.to_bits().hash(state);
@@ -626,7 +649,8 @@ pub struct NodeStyle {
     pub script_driver: Option<Arc<ScriptDriver>>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ComputedTextStyle {
     pub color: ColorToken,
     pub text_px: f32,
@@ -1169,43 +1193,43 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn translate_x(self, value: f32) -> Self {
-                self.transform($crate::style::Transform::TranslateX(value))
+                self.transform($crate::style::Transform::TranslateX { value })
             }
 
             pub fn translate_y(self, value: f32) -> Self {
-                self.transform($crate::style::Transform::TranslateY(value))
+                self.transform($crate::style::Transform::TranslateY { value })
             }
 
             pub fn translate(self, x: f32, y: f32) -> Self {
-                self.transform($crate::style::Transform::Translate(x, y))
+                self.transform($crate::style::Transform::Translate { x, y })
             }
 
             pub fn scale(self, value: f32) -> Self {
-                self.transform($crate::style::Transform::Scale(value))
+                self.transform($crate::style::Transform::Scale { value })
             }
 
             pub fn scale_x(self, value: f32) -> Self {
-                self.transform($crate::style::Transform::ScaleX(value))
+                self.transform($crate::style::Transform::ScaleX { value })
             }
 
             pub fn scale_y(self, value: f32) -> Self {
-                self.transform($crate::style::Transform::ScaleY(value))
+                self.transform($crate::style::Transform::ScaleY { value })
             }
 
             pub fn rotate_deg(self, value: f32) -> Self {
-                self.transform($crate::style::Transform::RotateDeg(value))
+                self.transform($crate::style::Transform::RotateDeg { value })
             }
 
             pub fn skew_x_deg(self, value: f32) -> Self {
-                self.transform($crate::style::Transform::SkewXDeg(value))
+                self.transform($crate::style::Transform::SkewXDeg { value })
             }
 
             pub fn skew_y_deg(self, value: f32) -> Self {
-                self.transform($crate::style::Transform::SkewYDeg(value))
+                self.transform($crate::style::Transform::SkewYDeg { value })
             }
 
             pub fn skew_deg(self, x_deg: f32, y_deg: f32) -> Self {
-                self.transform($crate::style::Transform::SkewDeg(x_deg, y_deg))
+                self.transform($crate::style::Transform::SkewDeg { x: x_deg, y: y_deg })
             }
 
             pub fn rounded(mut self, radius: f32) -> Self {

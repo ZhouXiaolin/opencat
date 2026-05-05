@@ -370,12 +370,16 @@ function drawTextItem(item: DisplayItemJson): void {
 
   // Text alignment
   let x = bounds.x;
-  if (style.textAlign === 'center') {
-    const w = font.measureText(text);
-    x = bounds.x + (bounds.width - w) / 2;
-  } else if (style.textAlign === 'right') {
-    const w = font.measureText(text);
-    x = bounds.x + bounds.width - w;
+  if (style.textAlign === 'center' || style.textAlign === 'right') {
+    const glyphs = font.getGlyphIDs(text);
+    const widths = font.getGlyphWidths(glyphs);
+    let textWidth = 0;
+    for (let i = 0; i < widths.length; i++) textWidth += widths[i];
+    if (style.textAlign === 'center') {
+      x = bounds.x + (bounds.width - textWidth) / 2;
+    } else {
+      x = bounds.x + bounds.width - textWidth;
+    }
   }
 
   // Drop shadow on text
@@ -471,17 +475,12 @@ function drawSvgPathItem(item: DisplayItemJson): void {
   const { bounds, pathData, viewBox, svgPaint } = item;
   if (!pathData || pathData.length === 0) return;
 
-  const path = new CanvasKit.Path();
+  // SVG path syntax allows multiple subpaths in a single string (each `M` starts a new contour),
+  // so concatenate all entries and parse once. CanvasKit Path has no `addPath`; only PathBuilder does.
+  const combinedSvg = pathData.join(' ');
+  const path = CanvasKit.Path.MakeFromSVGString(combinedSvg);
+  if (!path) return;
   const vb = viewBox || [0, 0, 100, 100];
-
-  // Parse SVG path data and draw it
-  for (const d of pathData) {
-    const subPath = CanvasKit.Path.MakeFromSVGString(d);
-    if (subPath) {
-      path.addPath(subPath);
-      subPath.delete();
-    }
-  }
 
   // Scale to bounds
   const scaleX = bounds.width / (vb[2] || 100);
@@ -493,7 +492,7 @@ function drawSvgPathItem(item: DisplayItemJson): void {
 
   if (svgPaint?.fill) {
     const fillPaint = makeFillPaint(svgPaint.fill);
-    path.fill(CanvasKit.FillType.Winding);
+    path.setFillType(CanvasKit.FillType.Winding);
     ckCanvas.drawPath(path, fillPaint);
     fillPaint.delete();
   }

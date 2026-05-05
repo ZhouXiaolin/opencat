@@ -30,8 +30,8 @@ pub(crate) struct SkiaRenderEngine {
     frame_surface: SkiaFrameSurface,
 }
 
-struct SkiaSceneSnapshot {
-    snapshot: Picture,
+pub(crate) struct SkiaSceneSnapshot {
+    pub(crate) snapshot: Picture,
 }
 
 pub(crate) fn shared_raster_engine() -> SharedRenderEngine {
@@ -216,6 +216,19 @@ fn skia_snapshot_picture(snapshot: &SceneSnapshot) -> Result<&Picture> {
         .downcast_ref::<SkiaSceneSnapshot>()
         .map(|snapshot| &snapshot.snapshot)
         .ok_or_else(|| anyhow!("scene snapshot is not compatible with skia renderer"))
+}
+
+/// Extract the inner `Picture` from a `SceneSnapshot` (BackendObject wrapping SkiaSceneSnapshot).
+pub(crate) fn extract_picture(snapshot: &SceneSnapshot) -> Result<Picture> {
+    snapshot
+        .downcast_ref::<SkiaSceneSnapshot>()
+        .map(|s| s.snapshot.clone())
+        .ok_or_else(|| anyhow!("scene snapshot is not compatible with skia renderer"))
+}
+
+/// Wrap a `Picture` into a `SceneSnapshot` (BackendObject wrapping SkiaSceneSnapshot).
+pub(crate) fn wrap_snapshot(picture: Picture) -> SceneSnapshot {
+    SceneSnapshot::new(SkiaSceneSnapshot { snapshot: picture })
 }
 
 fn skia_canvas(frame_view: RenderFrameView) -> Result<&'static Canvas> {

@@ -7,6 +7,7 @@ use opencat_core::runtime::annotation::AnnotatedDisplayTree;
 use opencat_core::runtime::compositor::OrderedSceneProgram;
 
 use crate::{
+    backend::skia::renderer::{extract_picture, wrap_snapshot},
     resource::media::MediaContext,
     runtime::{
         cache::CacheRegistry,
@@ -91,17 +92,18 @@ fn resolve_scene_snapshot(
 ) -> Result<Option<SceneSnapshot>> {
     let engine = runtime.render_engine.clone();
     if plan.allows_scene_snapshot_cache {
-        if let Some(snapshot) = runtime.scene_snapshots.scene_snapshot() {
+        if let Some(picture) = runtime.scene_snapshots.scene_snapshot() {
             event!(target: "render.cache", Level::TRACE, kind = "cache", name = "scene_snapshot", result = "hit", amount = 1_u64);
-            return Ok(Some(snapshot));
+            return Ok(Some(wrap_snapshot(picture)));
         }
 
         let mut render_context = runtime.render_context();
         let snapshot = engine.record_display_tree_snapshot(&mut render_context, display_tree)?;
         event!(target: "render.cache", Level::TRACE, kind = "cache", name = "scene_snapshot", result = "miss", amount = 1_u64);
+        let picture = extract_picture(&snapshot)?;
         runtime
             .scene_snapshots
-            .store_scene_snapshot(Some(snapshot.clone()));
+            .store_scene_snapshot(Some(picture));
         return Ok(Some(snapshot));
     }
 

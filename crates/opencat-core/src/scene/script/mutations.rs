@@ -1023,7 +1023,7 @@ impl std::hash::Hash for CanvasCommand {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default)]
 pub struct CanvasMutations {
     pub commands: Vec<CanvasCommand>,
 }

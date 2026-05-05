@@ -1,8 +1,10 @@
 pub mod host;
 pub mod mutations;
+pub mod precomputed_host;
 
 pub use host::{ScriptDriverId, ScriptHost};
 pub use mutations::*;
+pub use precomputed_host::PrecomputedScriptHost;
 
 use crate::style::{
     AlignItems, BoxShadow, BoxShadowStyle, DropShadow, DropShadowStyle, FlexDirection,

@@ -1,5 +1,5 @@
 import './style.css';
-import { initWasm, parseJsonl, getCompositionInfo, collectResources } from './wasm';
+import { initWasm, parseJsonl, getCompositionInfo, collectResources, buildFrame } from './wasm';
 import {
   initCanvasKit,
   ensureSurface,
@@ -8,6 +8,7 @@ import {
   getCanvasKit,
   getCkCanvas,
   getSurface,
+  drawDisplayTree,
 } from './renderer';
 import {
   initFFmpeg as initFFmpegExport,
@@ -15,8 +16,9 @@ import {
   exportPngFrame,
   downloadMp4,
 } from './exporter';
-import { loadImages, setCanvasKit } from './resource';
-import type { CompositionInfo, JsonlFile } from './types';
+import { loadImages, setCanvasKit, getCachedImage } from './resource';
+import { createContext, runScript, type ScriptCtx, type CollectedMutations } from './script-runtime';
+import type { CompositionInfo, JsonlFile, ParsedResult, ParsedElement } from './types';
 
 // --- State ---
 let currentComposition: CompositionInfo | null = null;
@@ -26,6 +28,15 @@ let currentFrame = 0;
 let isPlaying = false;
 let playInterval: ReturnType<typeof setInterval> | null = null;
 let isExporting = false;
+
+// --- Resource Metadata for WASM build_frame ---
+interface ResourceMeta {
+  width: number;
+  height: number;
+  kind: string;
+  durationSecs?: number;
+}
+let resourceMeta: Record<string, ResourceMeta> = {};
 
 // --- DOM refs ---
 const fileListEl = document.getElementById('file-list')!;
@@ -119,6 +130,84 @@ async function loadFileList() {
   }
 }
 
+// --- Resource Preloading ---
+
+async function preloadResources(jsonlContent: string): Promise<void> {
+  resourceMeta = {};
+
+  // Parse JSONL to extract resource references
+  const lines = jsonlContent.split('\n').filter(line => line.trim());
+  const imageUrls = new Set<string>();
+  const videoUrls = new Set<string>();
+
+  for (const line of lines) {
+    try {
+      const obj = JSON.parse(line);
+      // Check for image sources
+      if (obj.src && typeof obj.src === 'string') {
+        const ext = obj.src.split('.').pop()?.toLowerCase();
+        if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'webp') {
+          imageUrls.add(obj.src);
+        } else if (ext === 'mp4' || ext === 'webm' || ext === 'mov') {
+          videoUrls.add(obj.src);
+        }
+      }
+      // Check for script elements (they might reference resources via ctx)
+      if (obj.type === 'script') {
+        // Scripts can reference resources dynamically
+        // We'll collect any string that looks like a URL
+        const source = obj.scriptSource || obj.source || obj.script || '';
+        const urlMatches = source.match(/['"`]([^'"`]*\.(png|jpg|jpeg|gif|webp|mp4|webm|mov))['"`]/gi);
+        if (urlMatches) {
+          for (const match of urlMatches) {
+            const url = match.replace(/['"`]/g, '');
+            const ext = url.split('.').pop()?.toLowerCase();
+            if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'webp') {
+              imageUrls.add(url);
+            } else if (ext === 'mp4' || ext === 'webm' || ext === 'mov') {
+              videoUrls.add(url);
+            }
+          }
+        }
+      }
+    } catch {
+      // Skip invalid JSON lines
+    }
+  }
+
+  // Load images and record metadata
+  const imagePromises = Array.from(imageUrls).map(async (url) => {
+    try {
+      const assetId = url.startsWith('http') ? `url:${url}` : url;
+      // Load the image - loadImages will handle URL construction
+      await loadImages({ images: [url], videos: [], audios: [], icons: [] });
+      // Get the cached image to extract dimensions
+      const cached = getCachedImage(assetId);
+      if (cached) {
+        resourceMeta[url] = {
+          width: cached.width,
+          height: cached.height,
+          kind: 'image',
+        };
+      }
+    } catch (err) {
+      console.warn(`Failed to preload image: ${url}`, err);
+    }
+  });
+
+  // For videos, use placeholder dimensions (actual decoding happens on-demand)
+  for (const url of videoUrls) {
+    resourceMeta[url] = {
+      width: 1920,  // Default placeholder
+      height: 1080,
+      kind: 'video',
+      durationSecs: 10,  // Default placeholder
+    };
+  }
+
+  await Promise.all(imagePromises);
+}
+
 // --- Load JSONL ---
 async function loadJsonl(file: JsonlFile) {
   try {
@@ -164,11 +253,8 @@ async function loadJsonl(file: JsonlFile) {
 
     ensureSurface(previewCanvas, comp.width, comp.height);
 
-    // Load resources
-    const resources = collectResources(currentJsonlContent);
-    if (resources.images.length > 0) {
-      await loadImages(resources);
-    }
+    // Preload resources to collect metadata
+    await preloadResources(currentJsonlContent);
 
     await renderFrameAsync(0);
   } catch (err) {
@@ -192,12 +278,19 @@ async function renderFrameAsync(frame: number) {
   const comp = currentComposition;
   ensureSurface(previewCanvas, comp.width, comp.height);
 
-  const parsed = parseJsonl(currentJsonlContent);
-  if (!parsed.composition) {
-    renderPending = false;
-    return;
+  try {
+    // Use the full pipeline: script execution → build_frame → drawDisplayTree
+    await renderFrameWithPipeline(frame, comp);
+  } catch (err) {
+    console.error('Pipeline render error, falling back:', err);
+    // Fallback to simple renderer
+    const parsed = parseJsonl(currentJsonlContent);
+    if (!parsed.composition) {
+      renderPending = false;
+      return;
+    }
+    drawFallbackFrame(parsed, frame, comp);
   }
-  drawFallbackFrame(parsed, frame, comp);
 
   renderPending = false;
 
@@ -206,6 +299,52 @@ async function renderFrameAsync(frame: number) {
     renderQueuedFrame = -1;
     renderFrameAsync(nextFrame);
   }
+}
+
+// --- Full Pipeline Renderer ---
+
+async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Promise<void> {
+  const CK = getCanvasKit();
+  const canvas = getCkCanvas();
+  const surface = getSurface();
+
+  if (!CK || !canvas || !surface) {
+    throw new Error('CanvasKit not initialized');
+  }
+
+  // Step 1: Execute scripts to collect mutations
+  const ctx = createContext(frame + 1, comp.frames, comp.frames);
+  const parsed = parseJsonl(currentJsonlContent!);
+  const scriptElements = (parsed.elements || []).filter(
+    (e: ParsedElement) => e.type === 'script'
+  );
+
+  for (const script of scriptElements) {
+    const source = (script.scriptSource || script.source || script.script || '') as string;
+    if (source) {
+      try {
+        runScript(ctx, source);
+      } catch (err) {
+        console.error(`Script execution error for element ${script.id}:`, err);
+      }
+    }
+  }
+
+  const mutations = ctx.collectMutations();
+  const mutationsJson = JSON.stringify(mutations);
+  const resourceMetaJson = JSON.stringify(resourceMeta);
+
+  // Step 2: WASM build display tree
+  const result = buildFrame(currentJsonlContent!, frame, resourceMetaJson, mutationsJson);
+
+  // Step 3: Render via CanvasKit
+  canvas.clear(CK.Color4f(0.06, 0.06, 0.09, 1.0));
+  drawDisplayTree(result.displayTree || result, comp, frame);
+  surface.flush();
+
+  // Update frame info
+  frameLabel.textContent = `${frame + 1} / ${comp.frames}`;
+  frameSlider.value = String(frame);
 }
 
 // --- Fallback renderer (when WASM buildDisplayTree not available) ---

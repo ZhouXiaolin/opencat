@@ -1,7 +1,8 @@
 use anyhow::Result;
 
 use crate::frame_ctx::ScriptFrameCtx;
-use crate::scene::script::{ScriptTextSource, StyleMutations};
+use crate::scene::script::ScriptTextSource;
+use crate::script::recorder::MutationRecorder;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ScriptDriverId(pub u64);
@@ -15,7 +16,8 @@ pub trait ScriptHost {
         driver: ScriptDriverId,
         frame_ctx: &ScriptFrameCtx,
         current_node_id: Option<&str>,
-    ) -> Result<StyleMutations>;
+        recorder: &mut dyn MutationRecorder,
+    ) -> Result<()>;
 }
 
 #[cfg(test)]

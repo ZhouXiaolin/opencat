@@ -140,7 +140,8 @@ impl crate::scene::script::ScriptHost for MockScriptHost {
         _: crate::scene::script::ScriptDriverId,
         _: &crate::frame_ctx::ScriptFrameCtx,
         _current_node_id: Option<&str>,
-    ) -> anyhow::Result<crate::scene::script::StyleMutations> {
-        Ok(crate::scene::script::StyleMutations::default())
+        _recorder: &mut dyn crate::script::recorder::MutationRecorder,
+    ) -> anyhow::Result<()> {
+        Ok(())
     }
 }

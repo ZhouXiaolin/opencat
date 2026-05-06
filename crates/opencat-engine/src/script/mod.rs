@@ -27,7 +27,7 @@ use bindings::animate_api::{
 use bindings::canvas_api;
 use bindings::node_style;
 use opencat_core::scene::script::{
-    NodeStyleMutations, ScriptDriver, StyleMutations, ScriptDriverId,
+    NodeStyleMutations, PrecomputedScriptHost, ScriptDriver, StyleMutations, ScriptDriverId,
     ScriptHost,
 };
 
@@ -315,14 +315,10 @@ impl ScriptHost for ScriptRuntimeCache {
         driver: ScriptDriverId,
         frame_ctx: &ScriptFrameCtx,
         current_node_id: Option<&str>,
-    ) -> anyhow::Result<StyleMutations> {
-        let runner = self
-            .runners
-            .get_mut(&driver.0)
-            .ok_or_else(|| anyhow::anyhow!("script driver {} not installed", driver.0))?;
-        if let Ok(mut store) = runner.store.lock() {
-            store.text_sources = self.text_sources.clone();
-        }
-        runner.run(*frame_ctx, current_node_id)
+        recorder: &mut dyn opencat_core::script::recorder::MutationRecorder,
+    ) -> anyhow::Result<()> {
+        let mutations = self.run_by_id(driver, *frame_ctx, current_node_id)?;
+        let mut precomputed = PrecomputedScriptHost::from_single(mutations);
+        precomputed.run_frame(driver, frame_ctx, current_node_id, recorder)
     }
 }

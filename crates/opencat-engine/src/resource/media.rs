@@ -167,6 +167,18 @@ impl Default for MediaContext {
     }
 }
 
+// Stub — Task 8 will replace with a real implementation that resolves AssetId
+// to a physical path via AssetPathStore and calls get_video_frame.
+impl opencat_core::platform::video::VideoFrameProvider for MediaContext {
+    fn frame_rgba(
+        &mut self,
+        _id: &opencat_core::resource::asset_id::AssetId,
+        _frame: u32,
+    ) -> anyhow::Result<opencat_core::platform::video::FrameBitmap> {
+        anyhow::bail!("MediaContext::frame_rgba stub — not yet connected to AssetPathStore (Task 8)")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{VideoInfo, quantize_target_size};

@@ -33,15 +33,18 @@ export class ScriptEngine {
   private bridge = new NativeBridge();
   private initialized = false;
 
-  /** Initialize once: inject native globals and evaluate core JS runtimes. */
-  init(): void {
+  /** Initialize once: init wasm bridge, inject native globals and evaluate core JS runtimes. */
+  async init(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
 
-    // 1. Inject native functions as window globals
+    // 1. Init wasm bridge (creates WebMutationRecorder)
+    await this.bridge.init();
+
+    // 2. Inject native functions as window globals
     this.bridge.injectGlobals();
 
-    // 2. Evaluate animation runtime in order
+    // 3. Evaluate animation runtime in order
     //    These files are IIFE-wrapped and build on each other:
     //    bootstrap -> core -> plugins -> facade
     eval(ANIMATION_BOOTSTRAP);   // globalThis.__opencatAnimation
@@ -55,10 +58,10 @@ export class ScriptEngine {
     eval(PLUGIN_UTILS);         // utility functions
     eval(ANIMATION_FACADE);     // ctx.set/ctx.animate/ctx.timeline/flushTimelines
 
-    // 3. Evaluate node style runtime
+    // 4. Evaluate node style runtime
     eval(NODE_STYLE_RUNTIME);   // ctx.getNode(id).prop(val) chainable API
 
-    // 4. Evaluate canvas API runtime
+    // 5. Evaluate canvas API runtime
     eval(CANVAS_API_RUNTIME);   // ctx.canvas(id).fillRect(...) API
   }
 
@@ -104,11 +107,10 @@ export class ScriptEngine {
 
 let sharedEngine: ScriptEngine | null = null;
 
-/** Get or create the shared ScriptEngine singleton. */
+/** Get or create the shared ScriptEngine singleton. Call init() separately. */
 export function getScriptEngine(): ScriptEngine {
   if (!sharedEngine) {
     sharedEngine = new ScriptEngine();
-    sharedEngine.init();
   }
   return sharedEngine;
 }

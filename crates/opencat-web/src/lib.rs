@@ -1,5 +1,7 @@
 //! opencat-web — WASM/Web rendering target for opencat-core.
 
+pub mod recorder;
+
 use opencat_core::scene::path_bounds::{DefaultPathBounds, PathBoundsComputer};
 
 #[cfg(target_arch = "wasm32")]

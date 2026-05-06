@@ -66,6 +66,7 @@ pub struct MediaContext {
     images: HashMap<PathBuf, (Arc<Vec<u8>>, u32, u32)>,
     video_frame_cache: VideoFrameCache,
     video_preview_quality: VideoPreviewQuality,
+    composition_fps: u32,
 }
 
 impl MediaContext {
@@ -79,6 +80,7 @@ impl MediaContext {
             images: HashMap::new(),
             video_frame_cache: VideoFrameCache::new(caps.video_frames),
             video_preview_quality: VideoPreviewQuality::Realtime,
+            composition_fps: 30,
         }
     }
 
@@ -88,6 +90,10 @@ impl MediaContext {
 
     pub fn video_preview_quality(&self) -> VideoPreviewQuality {
         self.video_preview_quality
+    }
+
+    pub fn set_composition_fps(&mut self, fps: u32) {
+        self.composition_fps = fps;
     }
 
     pub fn get_video_frame(
@@ -167,21 +173,46 @@ impl Default for MediaContext {
     }
 }
 
-// Stub — Task 8 will replace with a real implementation that resolves AssetId
-// to a physical path via AssetPathStore and calls get_video_frame.
 impl opencat_core::platform::video::VideoFrameProvider for MediaContext {
     fn frame_rgba(
         &mut self,
-        _id: &opencat_core::resource::asset_id::AssetId,
-        _frame: u32,
+        id: &opencat_core::resource::asset_id::AssetId,
+        frame: u32,
     ) -> anyhow::Result<opencat_core::platform::video::FrameBitmap> {
-        anyhow::bail!("MediaContext::frame_rgba stub — not yet connected to AssetPathStore (Task 8)")
+        let path = Path::new(&id.0);
+        let composition_time_secs = frame as f64 / self.composition_fps.max(1) as f64;
+        let request = VideoFrameRequest {
+            composition_time_secs,
+            timing: VideoFrameTiming::default(),
+            quality: self.video_preview_quality,
+            target_size: None,
+        };
+        let (data, width, height, _hit) = self.get_video_frame(path, request)?;
+        Ok(opencat_core::platform::video::FrameBitmap { data, width, height })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{VideoInfo, quantize_target_size};
+    use super::*;
+    use opencat_core::platform::video::VideoFrameProvider;
+    use opencat_core::resource::asset_id::AssetId;
+
+    #[test]
+    fn provider_returns_err_for_missing_video_path() {
+        let mut ctx = MediaContext::new();
+        ctx.set_composition_fps(30);
+        let result = ctx.frame_rgba(&AssetId("/nonexistent/video.mp4".into()), 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn set_composition_fps_updates_field() {
+        let mut ctx = MediaContext::new();
+        assert_eq!(ctx.composition_fps, 30);
+        ctx.set_composition_fps(60);
+        assert_eq!(ctx.composition_fps, 60);
+    }
 
     #[test]
     fn quantize_target_size_returns_none_when_at_or_above_source() {

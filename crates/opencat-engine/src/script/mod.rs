@@ -13,47 +13,19 @@ use rquickjs::{
 
 use opencat_core::frame_ctx::ScriptFrameCtx;
 use opencat_core::scene::script::{
-    CanvasMutations, ScriptTextSource,
+    ScriptTextSource,
 };
-use opencat_core::scene::script::{
-    align_items_from_name, box_shadow_from_name, drop_shadow_from_name,
-    flex_direction_from_name, inset_shadow_from_name, justify_content_from_name,
-    object_fit_from_name, position_from_name, text_align_from_name,
-};
-
-use bindings::animate_api::{
+use opencat_core::script::animate::{
     AnimateState, MorphSvgState, PathMeasureState,
 };
+use opencat_core::script::recorder::MutationRecorder;
+use opencat_core::script::recorder::MutationStore as CoreMutationStore;
 use bindings::canvas_api;
 use bindings::node_style;
 use opencat_core::scene::script::{
-    NodeStyleMutations, PrecomputedScriptHost, ScriptDriver, StyleMutations, ScriptDriverId,
+    ScriptDriver, StyleMutations, ScriptDriverId,
     ScriptHost,
 };
-
-#[derive(Default)]
-struct RuntimeMutationStore {
-    styles: HashMap<String, NodeStyleMutations>,
-    canvases: HashMap<String, CanvasMutations>,
-    current_frame: u32,
-    animate_state: std::sync::Mutex<AnimateState>,
-    path_measure_state: std::sync::Mutex<PathMeasureState>,
-    morph_svg_state: std::sync::Mutex<MorphSvgState>,
-    text_sources: HashMap<String, ScriptTextSource>,
-}
-
-impl RuntimeMutationStore {
-    fn reset_for_frame(&mut self, current_frame: u32) {
-        self.styles.clear();
-        self.canvases.clear();
-        self.current_frame = current_frame;
-        if let Ok(mut animate_state) = self.animate_state.lock() {
-            *animate_state = AnimateState::default();
-        }
-    }
-}
-
-pub(crate) type MutationStore = Arc<Mutex<RuntimeMutationStore>>;
 
 #[derive(Default)]
 pub struct ScriptRuntimeCache {
@@ -81,7 +53,10 @@ impl ScriptRuntimeCache {
             .get_mut(&id.0)
             .ok_or_else(|| anyhow!("script driver {} not installed", id.0))?;
         if let Ok(mut store) = runner.store.lock() {
-            store.text_sources = self.text_sources.clone();
+            store.clear_text_sources();
+            for (id, source) in &self.text_sources {
+                store.register_text_source(id, source.clone());
+            }
         }
         runner.run(frame_ctx, current_node_id)
     }
@@ -91,7 +66,10 @@ pub(crate) struct ScriptRunner {
     run_fn: Persistent<Function<'static>>,
     ctx_obj: Persistent<Object<'static>>,
     context: Context,
-    store: MutationStore,
+    store: Arc<Mutex<CoreMutationStore>>,
+    animate_state: Arc<Mutex<AnimateState>>,
+    morph_svg_state: Arc<Mutex<MorphSvgState>>,
+    path_measure_state: Arc<Mutex<PathMeasureState>>,
     _runtime: Runtime,
 }
 
@@ -138,7 +116,10 @@ impl ScriptRuntimeCache {
         };
 
         if let Ok(mut store) = runner.store.lock() {
-            store.text_sources = self.text_sources.clone();
+            store.clear_text_sources();
+            for (id, source) in &self.text_sources {
+                store.register_text_source(id, source.clone());
+            }
         }
 
         runner.run(frame_ctx, current_node_id)
@@ -149,11 +130,20 @@ impl ScriptRunner {
     fn new(source: &str) -> anyhow::Result<Self> {
         let runtime = Runtime::new()?;
         let context = Context::full(&runtime)?;
-        let store: MutationStore = Arc::new(Mutex::new(RuntimeMutationStore::default()));
+        let store = Arc::new(Mutex::new(CoreMutationStore::default()));
+        let animate_state = Arc::new(Mutex::new(AnimateState::default()));
+        let morph_svg_state = Arc::new(Mutex::new(MorphSvgState::default()));
+        let path_measure_state = Arc::new(Mutex::new(PathMeasureState::default()));
 
         let (ctx_obj, run_fn) = context.with(|ctx| {
             let globals = ctx.globals();
-            let ctx_obj = install_runtime_bindings(&ctx, &store)?;
+            let ctx_obj = install_runtime_bindings(
+                &ctx,
+                &store,
+                &animate_state,
+                &morph_svg_state,
+                &path_measure_state,
+            )?;
             let wrapped = format!("globalThis.{RUN_FRAME_FN} = function() {{\n{source}\n}};");
             map_js_result(
                 ctx.eval::<(), _>(wrapped.as_str()),
@@ -172,6 +162,9 @@ impl ScriptRunner {
             ctx_obj,
             context,
             store,
+            animate_state,
+            morph_svg_state,
+            path_measure_state,
             _runtime: runtime,
         })
     }
@@ -187,6 +180,12 @@ impl ScriptRunner {
                 .lock()
                 .map_err(|_| anyhow!("script mutation store lock poisoned before execution"))?;
             store.reset_for_frame(frame_ctx.current_frame);
+        }
+        {
+            let mut animate = self.animate_state.lock().map_err(|_| {
+                anyhow!("animate state lock poisoned")
+            })?;
+            *animate = AnimateState::default();
         }
 
         self.context.with(|ctx| {
@@ -212,14 +211,74 @@ impl ScriptRunner {
             Ok::<_, anyhow::Error>(())
         })?;
 
-        let mutations = self
+        let store = self
             .store
             .lock()
             .map_err(|_| anyhow!("script mutation store lock poisoned after execution"))?;
-        Ok(StyleMutations {
-            mutations: mutations.styles.clone(),
-            canvas_mutations: mutations.canvases.clone(),
-        })
+        Ok(store.snapshot_mutations())
+    }
+
+    pub(crate) fn run_into(
+        &mut self,
+        frame_ctx: ScriptFrameCtx,
+        current_node_id: Option<&str>,
+        recorder: &mut dyn MutationRecorder,
+    ) -> anyhow::Result<()> {
+        {
+            let mut store = self
+                .store
+                .lock()
+                .map_err(|_| anyhow!("script mutation store lock poisoned before execution"))?;
+            store.reset_for_frame(frame_ctx.current_frame);
+        }
+        {
+            let mut animate = self.animate_state.lock().map_err(|_| {
+                anyhow!("animate state lock poisoned")
+            })?;
+            *animate = AnimateState::default();
+        }
+
+        self.context.with(|ctx| {
+            let ctx_obj = self.ctx_obj.clone().restore(&ctx)?;
+            ctx_obj.set("frame", frame_ctx.frame)?;
+            ctx_obj.set("totalFrames", frame_ctx.total_frames)?;
+            ctx_obj.set("currentFrame", frame_ctx.current_frame)?;
+            ctx_obj.set("sceneFrames", frame_ctx.scene_frames)?;
+            ctx_obj.set("__currentCanvasTarget", current_node_id.unwrap_or(""))?;
+
+            let run_fn = self.run_fn.clone().restore(&ctx)?;
+            let node_label = current_node_id.unwrap_or("<global>");
+            let error_context = format!(
+                "script execution failed for node `{node_label}` at frame {}/{} (scene {}/{})",
+                frame_ctx.frame,
+                frame_ctx.total_frames,
+                frame_ctx.current_frame,
+                frame_ctx.scene_frames
+            );
+            map_js_result(run_fn.call::<(), ()>(()), &ctx, &error_context)?;
+            let flush_fn: Function<'_> = ctx_obj.get("__flushTimelines")?;
+            map_js_result(flush_fn.call::<(), ()>(()), &ctx, &error_context)?;
+            Ok::<_, anyhow::Error>(())
+        })?;
+
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| anyhow!("script mutation store lock poisoned after execution"))?;
+        let snap = store.snapshot_mutations();
+        for (node_id, node_mutations) in &snap.mutations {
+            opencat_core::scene::script::precomputed_host::apply_node_to_recorder(
+                recorder,
+                node_id,
+                node_mutations,
+            );
+        }
+        for (canvas_id, canvas_mutations) in &snap.canvas_mutations {
+            for cmd in &canvas_mutations.commands {
+                recorder.record_canvas_command(canvas_id, cmd.clone());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -250,7 +309,10 @@ fn map_js_result<T>(
 
 fn install_runtime_bindings<'js>(
     ctx: &rquickjs::Ctx<'js>,
-    store: &MutationStore,
+    store: &Arc<Mutex<CoreMutationStore>>,
+    animate_state: &Arc<Mutex<AnimateState>>,
+    morph_svg_state: &Arc<Mutex<MorphSvgState>>,
+    path_measure_state: &Arc<Mutex<PathMeasureState>>,
 ) -> anyhow::Result<Object<'js>> {
     let globals = ctx.globals();
     let ctx_obj = Object::new(ctx.clone())?;
@@ -263,22 +325,30 @@ fn install_runtime_bindings<'js>(
 
     node_style::install_node_style_bindings(ctx, store)?;
     canvas_api::install_canvaskit_bindings(ctx, store)?;
-    bindings::animate_api::install_animate_bindings(ctx, store)?;
+    bindings::animate_api::install_animate_bindings(
+        ctx,
+        store,
+        animate_state,
+        morph_svg_state,
+        path_measure_state,
+    )?;
 
     // Read-only text source query
     {
-        let store = store.clone();
+        let s = store.clone();
         globals.set(
             "__text_source_get",
             Function::new(ctx.clone(), move |id: String| {
-                let store = store.lock().map_err(|_| {
+                let guard = s.lock().map_err(|_| {
                     rquickjs::Error::new_from_js_message(
                         "mutex",
                         "mutex",
                         "text source lock poisoned",
                     )
                 })?;
-                Ok::<_, rquickjs::Error>(store.text_sources.get(&id).map(|s| s.text.clone()))
+                Ok::<_, rquickjs::Error>(
+                    guard.get_text_source(&id).map(|s| s.text.clone()),
+                )
             })?,
         )?;
     }
@@ -315,10 +385,18 @@ impl ScriptHost for ScriptRuntimeCache {
         driver: ScriptDriverId,
         frame_ctx: &ScriptFrameCtx,
         current_node_id: Option<&str>,
-        recorder: &mut dyn opencat_core::script::recorder::MutationRecorder,
+        recorder: &mut dyn MutationRecorder,
     ) -> anyhow::Result<()> {
-        let mutations = self.run_by_id(driver, *frame_ctx, current_node_id)?;
-        let mut precomputed = PrecomputedScriptHost::from_single(mutations);
-        precomputed.run_frame(driver, frame_ctx, current_node_id, recorder)
+        let runner = self
+            .runners
+            .get_mut(&driver.0)
+            .ok_or_else(|| anyhow!("script driver {} not installed", driver.0))?;
+        if let Ok(mut store) = runner.store.lock() {
+            store.clear_text_sources();
+            for (id, source) in &self.text_sources {
+                store.register_text_source(id, source.clone());
+            }
+        }
+        runner.run_into(*frame_ctx, current_node_id, recorder)
     }
 }

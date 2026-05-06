@@ -1,10 +1,12 @@
+use std::sync::{Arc, Mutex};
+
 use rquickjs::Function;
 
-use crate::script::MutationStore;
+use opencat_core::script::recorder::{MutationRecorder, MutationStore};
 use opencat_core::scene::script::mutations::{
     CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin, ScriptPointMode,
 };
-use crate::script::object_fit_from_name;
+use opencat_core::scene::script::object_fit_from_name;
 
 fn line_cap_from_name(name: &str) -> Option<ScriptLineCap> {
     match name {
@@ -140,7 +142,7 @@ pub(crate) const CANVASKIT_RUNTIME: &str = opencat_core::script::runtime::CANVAS
 
 pub(crate) fn install_canvaskit_bindings<'js>(
     ctx: &rquickjs::Ctx<'js>,
-    store: &MutationStore,
+    store: &Arc<Mutex<MutationStore>>,
 ) -> anyhow::Result<()> {
     let globals = ctx.globals();
 
@@ -150,12 +152,9 @@ pub(crate) fn install_canvaskit_bindings<'js>(
             globals.set(
                 $name,
                 Function::new(ctx.clone(), move |$id: String $(, $arg: $arg_ty)*| {
-                    let mut map = s.lock().unwrap();
-                    map.canvases
-                        .entry($id)
-                        .or_default()
-                        .commands
-                        .push($command);
+                    let mut guard = s.lock().unwrap();
+                    let rec = &mut *guard as &mut dyn MutationRecorder;
+                    rec.record_canvas_command(&$id, $command);
                     Ok::<_, rquickjs::Error>(())
                 })?,
             )?;
@@ -173,15 +172,15 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                     Some(bounds) => Some(parse_image_rect_coords(&bounds, "saveLayer")?),
                     None => None,
                 };
-                let mut map = s.lock().unwrap();
-                map.canvases
-                    .entry(id)
-                    .or_default()
-                    .commands
-                    .push(CanvasCommand::SaveLayer {
+                let mut guard = s.lock().unwrap();
+                let rec = &mut *guard as &mut dyn MutationRecorder;
+                rec.record_canvas_command(
+                    &id,
+                    CanvasCommand::SaveLayer {
                         alpha: alpha.clamp(0.0, 1.0),
                         bounds,
-                    });
+                    },
+                );
                 Ok::<_, rquickjs::Error>(())
             },
         )?,
@@ -315,12 +314,9 @@ pub(crate) fn install_canvaskit_bindings<'js>(
         "__canvas_set_fill_style",
         Function::new(ctx.clone(), move |id: String, color: String| {
             let color = parse_color(&color, "setFillStyle")?;
-            let mut map = s.lock().unwrap();
-            map.canvases
-                .entry(id)
-                .or_default()
-                .commands
-                .push(CanvasCommand::SetFillStyle { color });
+            let mut guard = s.lock().unwrap();
+            let rec = &mut *guard as &mut dyn MutationRecorder;
+            rec.record_canvas_command(&id, CanvasCommand::SetFillStyle { color });
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;
@@ -330,12 +326,9 @@ pub(crate) fn install_canvaskit_bindings<'js>(
         "__canvas_set_stroke_style",
         Function::new(ctx.clone(), move |id: String, color: String| {
             let color = parse_color(&color, "setStrokeStyle")?;
-            let mut map = s.lock().unwrap();
-            map.canvases
-                .entry(id)
-                .or_default()
-                .commands
-                .push(CanvasCommand::SetStrokeStyle { color });
+            let mut guard = s.lock().unwrap();
+            let rec = &mut *guard as &mut dyn MutationRecorder;
+            rec.record_canvas_command(&id, CanvasCommand::SetStrokeStyle { color });
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;
@@ -344,14 +337,14 @@ pub(crate) fn install_canvaskit_bindings<'js>(
     globals.set(
         "__canvas_set_line_width",
         Function::new(ctx.clone(), move |id: String, width: f32| {
-            let mut map = s.lock().unwrap();
-            map.canvases
-                .entry(id)
-                .or_default()
-                .commands
-                .push(CanvasCommand::SetLineWidth {
+            let mut guard = s.lock().unwrap();
+            let rec = &mut *guard as &mut dyn MutationRecorder;
+            rec.record_canvas_command(
+                &id,
+                CanvasCommand::SetLineWidth {
                     width: width.max(0.0),
-                });
+                },
+            );
         })?,
     )?;
 
@@ -361,12 +354,9 @@ pub(crate) fn install_canvaskit_bindings<'js>(
         Function::new(ctx.clone(), move |id: String, cap: String| {
             let cap = line_cap_from_name(&cap)
                 .ok_or_else(|| js_error("setLineCap", format!("unsupported line cap `{cap}`")))?;
-            let mut map = s.lock().unwrap();
-            map.canvases
-                .entry(id)
-                .or_default()
-                .commands
-                .push(CanvasCommand::SetLineCap { cap });
+            let mut guard = s.lock().unwrap();
+            let rec = &mut *guard as &mut dyn MutationRecorder;
+            rec.record_canvas_command(&id, CanvasCommand::SetLineCap { cap });
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;
@@ -378,12 +368,9 @@ pub(crate) fn install_canvaskit_bindings<'js>(
             let join = line_join_from_name(&join).ok_or_else(|| {
                 js_error("setLineJoin", format!("unsupported line join `{join}`"))
             })?;
-            let mut map = s.lock().unwrap();
-            map.canvases
-                .entry(id)
-                .or_default()
-                .commands
-                .push(CanvasCommand::SetLineJoin { join });
+            let mut guard = s.lock().unwrap();
+            let rec = &mut *guard as &mut dyn MutationRecorder;
+            rec.record_canvas_command(&id, CanvasCommand::SetLineJoin { join });
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;
@@ -394,12 +381,9 @@ pub(crate) fn install_canvaskit_bindings<'js>(
         Function::new(
             ctx.clone(),
             move |id: String, intervals: Vec<f32>, phase: f32| {
-                let mut map = s.lock().unwrap();
-                map.canvases
-                    .entry(id)
-                    .or_default()
-                    .commands
-                    .push(CanvasCommand::SetLineDash { intervals, phase });
+                let mut guard = s.lock().unwrap();
+                let rec = &mut *guard as &mut dyn MutationRecorder;
+                rec.record_canvas_command(&id, CanvasCommand::SetLineDash { intervals, phase });
             },
         )?,
     )?;
@@ -408,12 +392,9 @@ pub(crate) fn install_canvaskit_bindings<'js>(
     globals.set(
         "__canvas_clear_line_dash",
         Function::new(ctx.clone(), move |id: String| {
-            let mut map = s.lock().unwrap();
-            map.canvases
-                .entry(id)
-                .or_default()
-                .commands
-                .push(CanvasCommand::ClearLineDash);
+            let mut guard = s.lock().unwrap();
+            let rec = &mut *guard as &mut dyn MutationRecorder;
+            rec.record_canvas_command(&id, CanvasCommand::ClearLineDash);
         })?,
     )?;
 
@@ -421,14 +402,14 @@ pub(crate) fn install_canvaskit_bindings<'js>(
     globals.set(
         "__canvas_set_global_alpha",
         Function::new(ctx.clone(), move |id: String, alpha: f32| {
-            let mut map = s.lock().unwrap();
-            map.canvases
-                .entry(id)
-                .or_default()
-                .commands
-                .push(CanvasCommand::SetGlobalAlpha {
+            let mut guard = s.lock().unwrap();
+            let rec = &mut *guard as &mut dyn MutationRecorder;
+            rec.record_canvas_command(
+                &id,
+                CanvasCommand::SetGlobalAlpha {
                     alpha: alpha.clamp(0.0, 1.0),
-                });
+                },
+            );
         })?,
     )?;
 
@@ -436,12 +417,9 @@ pub(crate) fn install_canvaskit_bindings<'js>(
     globals.set(
         "__canvas_set_anti_alias",
         Function::new(ctx.clone(), move |id: String, enabled: bool| {
-            let mut map = s.lock().unwrap();
-            map.canvases
-                .entry(id)
-                .or_default()
-                .commands
-                .push(CanvasCommand::SetAntiAlias { enabled });
+            let mut guard = s.lock().unwrap();
+            let rec = &mut *guard as &mut dyn MutationRecorder;
+            rec.record_canvas_command(&id, CanvasCommand::SetAntiAlias { enabled });
         })?,
     )?;
 
@@ -453,12 +431,9 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                 Some(color) => Some(parse_color(&color, "clear")?),
                 None => None,
             };
-            let mut map = s.lock().unwrap();
-            map.canvases
-                .entry(id)
-                .or_default()
-                .commands
-                .push(CanvasCommand::Clear { color });
+            let mut guard = s.lock().unwrap();
+            let rec = &mut *guard as &mut dyn MutationRecorder;
+            rec.record_canvas_command(&id, CanvasCommand::Clear { color });
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;
@@ -470,12 +445,12 @@ pub(crate) fn install_canvaskit_bindings<'js>(
             ctx.clone(),
             move |id: String, color: String, anti_alias: bool| {
                 let color = parse_color(&color, "drawPaint")?;
-                let mut map = s.lock().unwrap();
-                map.canvases
-                    .entry(id)
-                    .or_default()
-                    .commands
-                    .push(CanvasCommand::DrawPaint { color, anti_alias });
+                let mut guard = s.lock().unwrap();
+                let rec = &mut *guard as &mut dyn MutationRecorder;
+                rec.record_canvas_command(
+                    &id,
+                    CanvasCommand::DrawPaint { color, anti_alias },
+                );
                 Ok::<_, rquickjs::Error>(())
             },
         )?,
@@ -541,12 +516,11 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                         format!("unsupported font edging `{font_edging}`"),
                     )
                 })?;
-                let mut map = s.lock().unwrap();
-                map.canvases
-                    .entry(id)
-                    .or_default()
-                    .commands
-                    .push(CanvasCommand::DrawText {
+                let mut guard = s.lock().unwrap();
+                let rec = &mut *guard as &mut dyn MutationRecorder;
+                rec.record_canvas_command(
+                    &id,
+                    CanvasCommand::DrawText {
                         text,
                         x: values[0],
                         y: values[1],
@@ -559,7 +533,8 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                         font_skew_x: values[4],
                         font_subpixel: flags[2],
                         font_edging,
-                    });
+                    },
+                );
                 Ok::<_, rquickjs::Error>(())
             },
         )?,
@@ -572,18 +547,18 @@ pub(crate) fn install_canvaskit_bindings<'js>(
             ctx.clone(),
             move |id: String, x: f32, y: f32, width: f32, height: f32, color: String| {
                 let color = parse_color(&color, "fillRect")?;
-                let mut map = s.lock().unwrap();
-                map.canvases
-                    .entry(id)
-                    .or_default()
-                    .commands
-                    .push(CanvasCommand::FillRect {
+                let mut guard = s.lock().unwrap();
+                let rec = &mut *guard as &mut dyn MutationRecorder;
+                rec.record_canvas_command(
+                    &id,
+                    CanvasCommand::FillRect {
                         x,
                         y,
                         width,
                         height,
                         color,
-                    });
+                    },
+                );
                 Ok::<_, rquickjs::Error>(())
             },
         )?,
@@ -602,19 +577,19 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                   color: String,
                   stroke_width: f32| {
                 let color = parse_color(&color, "strokeRect")?;
-                let mut map = s.lock().unwrap();
-                map.canvases
-                    .entry(id)
-                    .or_default()
-                    .commands
-                    .push(CanvasCommand::StrokeRect {
+                let mut guard = s.lock().unwrap();
+                let rec = &mut *guard as &mut dyn MutationRecorder;
+                rec.record_canvas_command(
+                    &id,
+                    CanvasCommand::StrokeRect {
                         x,
                         y,
                         width,
                         height,
                         color,
                         stroke_width: stroke_width.max(0.0),
-                    });
+                    },
+                );
                 Ok::<_, rquickjs::Error>(())
             },
         )?,
@@ -650,12 +625,11 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                         ));
                     }
                 };
-                let mut map = s.lock().unwrap();
-                map.canvases
-                    .entry(id)
-                    .or_default()
-                    .commands
-                    .push(CanvasCommand::DrawImage {
+                let mut guard = s.lock().unwrap();
+                let rec = &mut *guard as &mut dyn MutationRecorder;
+                rec.record_canvas_command(
+                    &id,
+                    CanvasCommand::DrawImage {
                         asset_id,
                         x: values[0],
                         y: values[1],
@@ -665,7 +639,8 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                         alpha: alpha.clamp(0.0, 1.0),
                         anti_alias,
                         object_fit,
-                    });
+                    },
+                );
                 Ok::<_, rquickjs::Error>(())
             },
         )?,
@@ -684,12 +659,11 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                   ry: f32,
                   start_angle: f32,
                   sweep_angle: f32| {
-                let mut map = s.lock().unwrap();
-                map.canvases
-                    .entry(id)
-                    .or_default()
-                    .commands
-                    .push(CanvasCommand::DrawArc {
+                let mut guard = s.lock().unwrap();
+                let rec = &mut *guard as &mut dyn MutationRecorder;
+                rec.record_canvas_command(
+                    &id,
+                    CanvasCommand::DrawArc {
                         cx,
                         cy,
                         rx,
@@ -697,7 +671,8 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                         start_angle,
                         sweep_angle,
                         use_center: false,
-                    });
+                    },
+                );
                 Ok::<_, rquickjs::Error>(())
             },
         )?,
@@ -716,12 +691,11 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                   ry: f32,
                   start_angle: f32,
                   sweep_angle: f32| {
-                let mut map = s.lock().unwrap();
-                map.canvases
-                    .entry(id)
-                    .or_default()
-                    .commands
-                    .push(CanvasCommand::DrawArc {
+                let mut guard = s.lock().unwrap();
+                let rec = &mut *guard as &mut dyn MutationRecorder;
+                rec.record_canvas_command(
+                    &id,
+                    CanvasCommand::DrawArc {
                         cx,
                         cy,
                         rx,
@@ -729,7 +703,8 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                         start_angle,
                         sweep_angle,
                         use_center: true,
-                    });
+                    },
+                );
                 Ok::<_, rquickjs::Error>(())
             },
         )?,
@@ -792,12 +767,9 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                 let mode = point_mode_from_name(&mode).ok_or_else(|| {
                     js_error("drawPoints", format!("unsupported point mode `{mode}`"))
                 })?;
-                let mut map = s.lock().unwrap();
-                map.canvases
-                    .entry(id)
-                    .or_default()
-                    .commands
-                    .push(CanvasCommand::DrawPoints { mode, points });
+                let mut guard = s.lock().unwrap();
+                let rec = &mut *guard as &mut dyn MutationRecorder;
+                rec.record_canvas_command(&id, CanvasCommand::DrawPoints { mode, points });
                 Ok::<_, rquickjs::Error>(())
             },
         )?,
@@ -820,12 +792,11 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                 inner_height,
                 inner_radius,
             ) = parse_drrect_coords(&coords, "fillDRRect")?;
-            let mut map = s.lock().unwrap();
-            map.canvases
-                .entry(id)
-                .or_default()
-                .commands
-                .push(CanvasCommand::FillDRRect {
+            let mut guard = s.lock().unwrap();
+            let rec = &mut *guard as &mut dyn MutationRecorder;
+            rec.record_canvas_command(
+                &id,
+                CanvasCommand::FillDRRect {
                     outer_x,
                     outer_y,
                     outer_width,
@@ -836,7 +807,8 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                     inner_width,
                     inner_height,
                     inner_radius,
-                });
+                },
+            );
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;
@@ -858,12 +830,11 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                 inner_height,
                 inner_radius,
             ) = parse_drrect_coords(&coords, "strokeDRRect")?;
-            let mut map = s.lock().unwrap();
-            map.canvases
-                .entry(id)
-                .or_default()
-                .commands
-                .push(CanvasCommand::StrokeDRRect {
+            let mut guard = s.lock().unwrap();
+            let rec = &mut *guard as &mut dyn MutationRecorder;
+            rec.record_canvas_command(
+                &id,
+                CanvasCommand::StrokeDRRect {
                     outer_x,
                     outer_y,
                     outer_width,
@@ -874,7 +845,8 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                     inner_width,
                     inner_height,
                     inner_radius,
-                });
+                },
+            );
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;
@@ -910,12 +882,9 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                 values[0], values[1], values[2], values[3], values[4], values[5], values[6],
                 values[7], values[8],
             ];
-            let mut map = s.lock().unwrap();
-            map.canvases
-                .entry(id)
-                .or_default()
-                .commands
-                .push(CanvasCommand::Concat { matrix });
+            let mut guard = s.lock().unwrap();
+            let rec = &mut *guard as &mut dyn MutationRecorder;
+            rec.record_canvas_command(&id, CanvasCommand::Concat { matrix });
             Ok::<_, rquickjs::Error>(())
         })?,
     )?;

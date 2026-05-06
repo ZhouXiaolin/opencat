@@ -77,8 +77,8 @@ async function boot() {
 
     setCanvasKit(getCanvasKit());
 
-    // Initialize shared script engine (loads core JS runtimes once)
-    getScriptEngine().init();
+    // Initialize shared script engine (loads wasm bridge + core JS runtimes once)
+    await getScriptEngine().init();
 
     await loadFileList();
   } catch (err) {

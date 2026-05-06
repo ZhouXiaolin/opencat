@@ -26,11 +26,11 @@ enum SkiaFrameSurface {
     MetalOffscreen,
 }
 
-pub(crate) struct SkiaRenderEngine {
+pub struct SkiaRenderEngine {
     frame_surface: SkiaFrameSurface,
 }
 
-pub(crate) fn shared_raster_engine() -> SharedRenderEngine {
+pub fn shared_raster_engine() -> SharedRenderEngine {
     static ENGINE: OnceLock<SharedRenderEngine> = OnceLock::new();
     ENGINE
         .get_or_init(|| {
@@ -41,13 +41,25 @@ pub(crate) fn shared_raster_engine() -> SharedRenderEngine {
         .clone()
 }
 
-pub(crate) fn shared_metal_engine() -> SharedRenderEngine {
+pub fn shared_metal_engine() -> SharedRenderEngine {
     static ENGINE: OnceLock<SharedRenderEngine> = OnceLock::new();
     ENGINE
         .get_or_init(|| {
             std::sync::Arc::new(SkiaRenderEngine {
                 frame_surface: SkiaFrameSurface::MetalOffscreen,
             }) as SharedRenderEngine
+        })
+        .clone()
+}
+
+/// Typed version: returns `Arc<SkiaRenderEngine>` instead of the trait object.
+pub fn shared_raster_engine_typed() -> std::sync::Arc<SkiaRenderEngine> {
+    static ENGINE: OnceLock<std::sync::Arc<SkiaRenderEngine>> = OnceLock::new();
+    ENGINE
+        .get_or_init(|| {
+            std::sync::Arc::new(SkiaRenderEngine {
+                frame_surface: SkiaFrameSurface::Raster,
+            })
         })
         .clone()
 }
@@ -64,7 +76,7 @@ impl RenderEngine for SkiaRenderEngine {
         session: &mut RenderSession,
         target: &mut RenderTargetHandle,
     ) -> Result<()> {
-        target.require_frame_view_kind(self.target_frame_view_kind())?;
+        target.require_frame_view_kind(RenderFrameViewKind::DrawContext2D)?;
         let frame_surface = target.begin_frame_surface(composition.width, composition.height)?;
         let frame_view = target.resolve_frame_view(frame_surface)?;
         let render_result = crate::runtime::pipeline::render_frame_on_surface(
@@ -216,4 +228,57 @@ fn skia_canvas(frame_view: RenderFrameView) -> Result<&'static Canvas> {
     // SAFETY: Skia backend only accepts Canvas surface views and the raw pointer is owned by the
     // active target or raster surface for the duration of the call chain.
     Ok(unsafe { &*(frame_view.raw() as *const Canvas) })
+}
+
+// ---------------------------------------------------------------------------
+// Core trait stubs — Task 6 will replace bodies with real implementations.
+// ---------------------------------------------------------------------------
+
+use opencat_core::platform::backend::BackendTypes;
+use opencat_core::platform::render_engine::{
+    FrameView, RecordCtx, RenderCtx, RenderEngine as CoreRenderEngine,
+};
+use super::backend::SkiaBackend;
+
+impl BackendTypes for SkiaRenderEngine {
+    type Picture = <SkiaBackend as BackendTypes>::Picture;
+    type Image = <SkiaBackend as BackendTypes>::Image;
+    type GlyphPath = <SkiaBackend as BackendTypes>::GlyphPath;
+    type GlyphImage = <SkiaBackend as BackendTypes>::GlyphImage;
+}
+
+impl CoreRenderEngine for SkiaRenderEngine {
+    fn target_frame_view_kind(&self) -> &'static str {
+        "DrawContext2D"
+    }
+
+    fn draw_scene_snapshot(
+        &self,
+        _snapshot: &Self::Picture,
+        _frame_view: FrameView<'_>,
+    ) -> Result<()> {
+        unimplemented!("Task 6: draw_scene_snapshot via core RenderEngine")
+    }
+
+    fn record_display_tree_snapshot(
+        &self,
+        _ctx: &mut RecordCtx<'_, Self>,
+        _display_tree: &AnnotatedDisplayTree,
+    ) -> Result<Self::Picture>
+    where
+        Self: Sized,
+    {
+        unimplemented!("Task 6: record_display_tree_snapshot via core RenderEngine")
+    }
+
+    fn draw_ordered_scene(
+        &self,
+        _ctx: &mut RenderCtx<'_, Self>,
+        _frame_view: FrameView<'_>,
+    ) -> Result<()>
+    where
+        Self: Sized,
+    {
+        unimplemented!("Task 6: draw_ordered_scene via core RenderEngine")
+    }
 }

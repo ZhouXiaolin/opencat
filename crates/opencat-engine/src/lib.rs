@@ -6,6 +6,7 @@ pub mod codec;
 pub mod fonts;
 pub mod inspect;
 pub mod jsonl_io;
+pub mod platform;
 pub mod render;
 pub mod resource;
 pub mod runtime;

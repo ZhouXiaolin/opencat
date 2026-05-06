@@ -15,3 +15,4 @@
 pub mod backend;
 pub mod render_engine;
 pub mod scene_snapshot;
+pub mod video;

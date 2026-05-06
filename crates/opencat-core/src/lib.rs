@@ -30,4 +30,5 @@ pub use self::scene::script::{ScriptHost, ScriptDriver, ScriptDriverId, Precompu
 pub use self::scene::node::Node;
 pub use self::platform::platform::Platform;
 pub use self::platform::video::{FrameBitmap, VideoFrameProvider};
+pub use self::runtime::session::RenderSession;
 pub use self::text::{FontProvider, DefaultFontProvider};

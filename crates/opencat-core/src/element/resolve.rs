@@ -24,6 +24,8 @@ use crate::{
     style::{NodeStyle, resolve_text_style},
 };
 
+use crate::script::recorder::MutationRecorder;
+
 #[derive(Default)]
 struct ElementIdAllocator {
     next: u64,
@@ -727,11 +729,14 @@ fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<b
     };
 
     let id = cx.script_runtime.install(&driver.source)?;
-    let mutations = cx.script_runtime.run_frame(
+    let mut store = crate::script::recorder::MutationStore::default();
+    cx.script_runtime.run_frame(
         id,
         cx.script_frame_ctx,
         (!style.id.is_empty()).then_some(style.id.as_str()),
+        &mut store,
     )?;
+    let mutations = store.snapshot_mutations();
     if mutations.is_empty() {
         return Ok(false);
     }

@@ -84,7 +84,7 @@ impl ScriptHost for PrecomputedScriptHost {
     }
 }
 
-fn apply_node_to_recorder(recorder: &mut dyn MutationRecorder, id: &str, m: &NodeStyleMutations) {
+pub fn apply_node_to_recorder(recorder: &mut dyn MutationRecorder, id: &str, m: &NodeStyleMutations) {
     if let Some(v) = m.opacity {
         recorder.record_opacity(id, v);
     }

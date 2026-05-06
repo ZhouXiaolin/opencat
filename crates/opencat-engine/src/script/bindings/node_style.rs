@@ -1,25 +1,27 @@
+use std::sync::{Arc, Mutex};
+
 use rquickjs::Function;
 
-use opencat_core::style::{ColorToken, FontWeight, Transform, color_token_from_script_name};
+use opencat_core::style::{ColorToken, FontWeight, color_token_from_script_name};
 use opencat_core::script::text_units::describe_text_units;
+use opencat_core::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
+use opencat_core::script::animate::{hsl_to_rgb, parse_color};
 
-use crate::script::{
-    MutationStore, align_items_from_name, box_shadow_from_name, drop_shadow_from_name,
+use opencat_core::scene::script::{
+    align_items_from_name, box_shadow_from_name, drop_shadow_from_name,
     flex_direction_from_name, inset_shadow_from_name,
     justify_content_from_name, object_fit_from_name, position_from_name, text_align_from_name,
 };
 use opencat_core::scene::script::mutations::{
-    TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch,
+    TextUnitGranularity,
 };
-
-// color_from_name is used by runtime bindings and references animate_api
 
 fn color_from_name(name: &str) -> Option<ColorToken> {
     if let Some(c) = color_token_from_script_name(name) {
         return Some(c);
     }
-    let hsla = super::animate_api::parse_color(name)?;
-    let (r, g, b) = super::animate_api::hsl_to_rgb(hsla.h, hsla.s, hsla.l);
+    let hsla = parse_color(name)?;
+    let (r, g, b) = hsl_to_rgb(hsla.h, hsla.s, hsla.l);
     let a = (hsla.a.clamp(0.0, 1.0) * 255.0).round() as u8;
     Some(ColorToken::Custom(r, g, b, a))
 }
@@ -28,173 +30,143 @@ pub(crate) const NODE_STYLE_RUNTIME: &str = opencat_core::script::runtime::NODE_
 
 pub(crate) fn install_node_style_bindings<'js>(
     ctx: &rquickjs::Ctx<'js>,
-    store: &MutationStore,
+    store: &Arc<Mutex<MutationStore>>,
 ) -> anyhow::Result<()> {
     let globals = ctx.globals();
 
-    macro_rules! set_style_binding {
-        ($name:literal, $map:ident, |$id:ident $(, $arg:ident : $arg_ty:ty)*| $body:block) => {{
+    macro_rules! bind_recorder {
+        ($name:literal, |$rec:ident, $id:ident $(, $arg:ident : $arg_ty:ty)*| $body:block) => {{
             let s = store.clone();
             globals.set(
                 $name,
                 Function::new(ctx.clone(), move |$id: String $(, $arg: $arg_ty)*| {
                     let mut guard = s.lock().unwrap();
-                    let $map = &mut guard.styles;
+                    let $rec = &mut *guard as &mut dyn MutationRecorder;
                     $body
                 })?,
             )?;
         }};
     }
 
-    set_style_binding!("__record_opacity", map, |id, v: f32| {
-        map.entry(id).or_default().opacity = Some(v);
+    bind_recorder!("__record_opacity", |rec, id, v: f32| {
+        rec.record_opacity(&id, v);
     });
-    set_style_binding!("__record_translate_x", map, |id, v: f32| {
-        map.entry(id)
-            .or_default()
-            .transforms
-            .push(Transform::TranslateX { value: v });
+    bind_recorder!("__record_translate_x", |rec, id, v: f32| {
+        rec.record_translate_x(&id, v);
     });
-    set_style_binding!("__record_translate_y", map, |id, v: f32| {
-        map.entry(id)
-            .or_default()
-            .transforms
-            .push(Transform::TranslateY { value: v });
+    bind_recorder!("__record_translate_y", |rec, id, v: f32| {
+        rec.record_translate_y(&id, v);
     });
-    set_style_binding!("__record_translate", map, |id, x: f32, y: f32| {
-        map.entry(id)
-            .or_default()
-            .transforms
-            .push(Transform::Translate { x, y });
+    bind_recorder!("__record_translate", |rec, id, x: f32, y: f32| {
+        rec.record_translate(&id, x, y);
     });
-    set_style_binding!("__record_scale", map, |id, v: f32| {
-        map.entry(id)
-            .or_default()
-            .transforms
-            .push(Transform::Scale { value: v });
+    bind_recorder!("__record_scale", |rec, id, v: f32| {
+        rec.record_scale(&id, v);
     });
-    set_style_binding!("__record_scale_x", map, |id, v: f32| {
-        map.entry(id)
-            .or_default()
-            .transforms
-            .push(Transform::ScaleX { value: v });
+    bind_recorder!("__record_scale_x", |rec, id, v: f32| {
+        rec.record_scale_x(&id, v);
     });
-    set_style_binding!("__record_scale_y", map, |id, v: f32| {
-        map.entry(id)
-            .or_default()
-            .transforms
-            .push(Transform::ScaleY { value: v });
+    bind_recorder!("__record_scale_y", |rec, id, v: f32| {
+        rec.record_scale_y(&id, v);
     });
-    set_style_binding!("__record_rotate", map, |id, v: f32| {
-        map.entry(id)
-            .or_default()
-            .transforms
-            .push(Transform::RotateDeg { value: v });
+    bind_recorder!("__record_rotate", |rec, id, v: f32| {
+        rec.record_rotate(&id, v);
     });
-    set_style_binding!("__record_skew_x", map, |id, v: f32| {
-        map.entry(id)
-            .or_default()
-            .transforms
-            .push(Transform::SkewXDeg { value: v });
+    bind_recorder!("__record_skew_x", |rec, id, v: f32| {
+        rec.record_skew_x(&id, v);
     });
-    set_style_binding!("__record_skew_y", map, |id, v: f32| {
-        map.entry(id)
-            .or_default()
-            .transforms
-            .push(Transform::SkewYDeg { value: v });
+    bind_recorder!("__record_skew_y", |rec, id, v: f32| {
+        rec.record_skew_y(&id, v);
     });
-    set_style_binding!("__record_skew", map, |id, x_deg: f32, y_deg: f32| {
-        map.entry(id)
-            .or_default()
-            .transforms
-            .push(Transform::SkewDeg { x: x_deg, y: y_deg });
+    bind_recorder!("__record_skew", |rec, id, x_deg: f32, y_deg: f32| {
+        rec.record_skew(&id, x_deg, y_deg);
     });
-    set_style_binding!("__record_position", map, |id, v: String| {
+    bind_recorder!("__record_position", |rec, id, v: String| {
         if let Some(pos) = position_from_name(&v) {
-            map.entry(id).or_default().position = Some(pos);
+            rec.record_position(&id, pos);
         }
     });
-    set_style_binding!("__record_left", map, |id, v: f32| {
-        map.entry(id).or_default().inset_left = Some(v);
+    bind_recorder!("__record_left", |rec, id, v: f32| {
+        rec.record_left(&id, v);
     });
-    set_style_binding!("__record_top", map, |id, v: f32| {
-        map.entry(id).or_default().inset_top = Some(v);
+    bind_recorder!("__record_top", |rec, id, v: f32| {
+        rec.record_top(&id, v);
     });
-    set_style_binding!("__record_right", map, |id, v: f32| {
-        map.entry(id).or_default().inset_right = Some(v);
+    bind_recorder!("__record_right", |rec, id, v: f32| {
+        rec.record_right(&id, v);
     });
-    set_style_binding!("__record_bottom", map, |id, v: f32| {
-        map.entry(id).or_default().inset_bottom = Some(v);
+    bind_recorder!("__record_bottom", |rec, id, v: f32| {
+        rec.record_bottom(&id, v);
     });
-    set_style_binding!("__record_width", map, |id, v: f32| {
-        map.entry(id).or_default().width = Some(v);
+    bind_recorder!("__record_width", |rec, id, v: f32| {
+        rec.record_width(&id, v);
     });
-    set_style_binding!("__record_height", map, |id, v: f32| {
-        map.entry(id).or_default().height = Some(v);
+    bind_recorder!("__record_height", |rec, id, v: f32| {
+        rec.record_height(&id, v);
     });
-    set_style_binding!("__record_padding", map, |id, v: f32| {
-        map.entry(id).or_default().padding = Some(v);
+    bind_recorder!("__record_padding", |rec, id, v: f32| {
+        rec.record_padding(&id, v);
     });
-    set_style_binding!("__record_padding_x", map, |id, v: f32| {
-        map.entry(id).or_default().padding_x = Some(v);
+    bind_recorder!("__record_padding_x", |rec, id, v: f32| {
+        rec.record_padding_x(&id, v);
     });
-    set_style_binding!("__record_padding_y", map, |id, v: f32| {
-        map.entry(id).or_default().padding_y = Some(v);
+    bind_recorder!("__record_padding_y", |rec, id, v: f32| {
+        rec.record_padding_y(&id, v);
     });
-    set_style_binding!("__record_margin", map, |id, v: f32| {
-        map.entry(id).or_default().margin = Some(v);
+    bind_recorder!("__record_margin", |rec, id, v: f32| {
+        rec.record_margin(&id, v);
     });
-    set_style_binding!("__record_margin_x", map, |id, v: f32| {
-        map.entry(id).or_default().margin_x = Some(v);
+    bind_recorder!("__record_margin_x", |rec, id, v: f32| {
+        rec.record_margin_x(&id, v);
     });
-    set_style_binding!("__record_margin_y", map, |id, v: f32| {
-        map.entry(id).or_default().margin_y = Some(v);
+    bind_recorder!("__record_margin_y", |rec, id, v: f32| {
+        rec.record_margin_y(&id, v);
     });
-    set_style_binding!("__record_flex_direction", map, |id, v: String| {
+    bind_recorder!("__record_flex_direction", |rec, id, v: String| {
         if let Some(fd) = flex_direction_from_name(&v) {
-            map.entry(id).or_default().flex_direction = Some(fd);
+            rec.record_flex_direction(&id, fd);
         }
     });
-    set_style_binding!("__record_justify_content", map, |id, v: String| {
+    bind_recorder!("__record_justify_content", |rec, id, v: String| {
         if let Some(jc) = justify_content_from_name(&v) {
-            map.entry(id).or_default().justify_content = Some(jc);
+            rec.record_justify_content(&id, jc);
         }
     });
-    set_style_binding!("__record_align_items", map, |id, v: String| {
+    bind_recorder!("__record_align_items", |rec, id, v: String| {
         if let Some(ai) = align_items_from_name(&v) {
-            map.entry(id).or_default().align_items = Some(ai);
+            rec.record_align_items(&id, ai);
         }
     });
-    set_style_binding!("__record_gap", map, |id, v: f32| {
-        map.entry(id).or_default().gap = Some(v);
+    bind_recorder!("__record_gap", |rec, id, v: f32| {
+        rec.record_gap(&id, v);
     });
-    set_style_binding!("__record_flex_grow", map, |id, v: f32| {
-        map.entry(id).or_default().flex_grow = Some(v);
+    bind_recorder!("__record_flex_grow", |rec, id, v: f32| {
+        rec.record_flex_grow(&id, v);
     });
-    set_style_binding!("__record_bg", map, |id, v: String| {
+    bind_recorder!("__record_bg", |rec, id, v: String| {
         if let Some(c) = color_from_name(&v) {
-            map.entry(id).or_default().bg_color = Some(c);
+            rec.record_bg_color(&id, c);
         }
     });
-    set_style_binding!("__record_border_radius", map, |id, v: f32| {
-        map.entry(id).or_default().border_radius = Some(v);
+    bind_recorder!("__record_border_radius", |rec, id, v: f32| {
+        rec.record_border_radius(&id, v);
     });
-    set_style_binding!("__record_border_width", map, |id, v: f32| {
-        map.entry(id).or_default().border_width = Some(v);
+    bind_recorder!("__record_border_width", |rec, id, v: f32| {
+        rec.record_border_width(&id, v);
     });
-    set_style_binding!("__record_border_top_width", map, |id, v: f32| {
-        map.entry(id).or_default().border_top_width = Some(v);
+    bind_recorder!("__record_border_top_width", |rec, id, v: f32| {
+        rec.record_border_top_width(&id, v);
     });
-    set_style_binding!("__record_border_right_width", map, |id, v: f32| {
-        map.entry(id).or_default().border_right_width = Some(v);
+    bind_recorder!("__record_border_right_width", |rec, id, v: f32| {
+        rec.record_border_right_width(&id, v);
     });
-    set_style_binding!("__record_border_bottom_width", map, |id, v: f32| {
-        map.entry(id).or_default().border_bottom_width = Some(v);
+    bind_recorder!("__record_border_bottom_width", |rec, id, v: f32| {
+        rec.record_border_bottom_width(&id, v);
     });
-    set_style_binding!("__record_border_left_width", map, |id, v: f32| {
-        map.entry(id).or_default().border_left_width = Some(v);
+    bind_recorder!("__record_border_left_width", |rec, id, v: f32| {
+        rec.record_border_left_width(&id, v);
     });
-    set_style_binding!("__record_border_style", map, |id, v: String| {
+    bind_recorder!("__record_border_style", |rec, id, v: String| {
         let parsed = match v.as_str() {
             "solid" => Some(opencat_core::style::BorderStyle::Solid),
             "dashed" => Some(opencat_core::style::BorderStyle::Dashed),
@@ -202,113 +174,95 @@ pub(crate) fn install_node_style_bindings<'js>(
             _ => None,
         };
         if let Some(bs) = parsed {
-            map.entry(id).or_default().border_style = Some(bs);
+            rec.record_border_style(&id, bs);
         }
     });
-    set_style_binding!("__record_border_color", map, |id, v: String| {
+    bind_recorder!("__record_border_color", |rec, id, v: String| {
         if let Some(c) = color_from_name(&v) {
-            map.entry(id).or_default().border_color = Some(c);
+            rec.record_border_color(&id, c);
         }
     });
-    set_style_binding!("__record_stroke_width", map, |id, v: f32| {
-        map.entry(id).or_default().stroke_width = Some(v.max(0.0));
+    bind_recorder!("__record_stroke_width", |rec, id, v: f32| {
+        rec.record_stroke_width(&id, v);
     });
-    set_style_binding!("__record_stroke_dasharray", map, |id, v: f32| {
-        map.entry(id).or_default().stroke_dasharray = Some(v.max(0.0));
+    bind_recorder!("__record_stroke_dasharray", |rec, id, v: f32| {
+        rec.record_stroke_dasharray(&id, v);
     });
-    set_style_binding!("__record_stroke_dashoffset", map, |id, v: f32| {
-        map.entry(id).or_default().stroke_dashoffset = Some(v);
+    bind_recorder!("__record_stroke_dashoffset", |rec, id, v: f32| {
+        rec.record_stroke_dashoffset(&id, v);
     });
-    set_style_binding!("__record_stroke_color", map, |id, v: String| {
+    bind_recorder!("__record_stroke_color", |rec, id, v: String| {
         if let Some(c) = color_from_name(&v) {
-            map.entry(id).or_default().stroke_color = Some(c);
+            rec.record_stroke_color(&id, c);
         }
     });
-    set_style_binding!("__record_fill_color", map, |id, v: String| {
+    bind_recorder!("__record_fill_color", |rec, id, v: String| {
         if let Some(c) = color_from_name(&v) {
-            map.entry(id).or_default().fill_color = Some(c);
+            rec.record_fill_color(&id, c);
         }
     });
-    set_style_binding!("__record_object_fit", map, |id, v: String| {
+    bind_recorder!("__record_object_fit", |rec, id, v: String| {
         if let Some(of) = object_fit_from_name(&v) {
-            map.entry(id).or_default().object_fit = Some(of);
+            rec.record_object_fit(&id, of);
         }
     });
-    set_style_binding!("__record_text_color", map, |id, v: String| {
+    bind_recorder!("__record_text_color", |rec, id, v: String| {
         if let Some(c) = color_from_name(&v) {
-            map.entry(id).or_default().text_color = Some(c);
+            rec.record_text_color(&id, c);
         }
     });
-    set_style_binding!("__record_text_size", map, |id, v: f32| {
-        map.entry(id).or_default().text_px = Some(v);
+    bind_recorder!("__record_text_size", |rec, id, v: f32| {
+        rec.record_text_size(&id, v);
     });
-    set_style_binding!("__record_font_weight", map, |id, v: f64| {
-        map.entry(id).or_default().font_weight = Some(FontWeight(v as u16));
+    bind_recorder!("__record_font_weight", |rec, id, v: f64| {
+        rec.record_font_weight(&id, FontWeight(v as u16));
     });
-    set_style_binding!("__record_letter_spacing", map, |id, v: f32| {
-        map.entry(id).or_default().letter_spacing = Some(v);
+    bind_recorder!("__record_letter_spacing", |rec, id, v: f32| {
+        rec.record_letter_spacing(&id, v);
     });
-    set_style_binding!("__record_text_align", map, |id, v: String| {
+    bind_recorder!("__record_text_align", |rec, id, v: String| {
         if let Some(align) = text_align_from_name(&v) {
-            map.entry(id).or_default().text_align = Some(align);
+            rec.record_text_align(&id, align);
         }
     });
-    set_style_binding!("__record_line_height", map, |id, v: f32| {
-        map.entry(id).or_default().line_height = Some(v);
+    bind_recorder!("__record_line_height", |rec, id, v: f32| {
+        rec.record_line_height(&id, v);
     });
-    set_style_binding!("__record_shadow", map, |id, v: String| {
+    bind_recorder!("__record_shadow", |rec, id, v: String| {
         if let Some(sh) = box_shadow_from_name(&v) {
-            map.entry(id).or_default().box_shadow = Some(sh);
+            rec.record_box_shadow(&id, sh);
         }
     });
-    set_style_binding!("__record_shadow_color", map, |id, v: String| {
+    bind_recorder!("__record_shadow_color", |rec, id, v: String| {
         if let Some(color) = color_from_name(&v) {
-            map.entry(id).or_default().box_shadow_color = Some(color);
+            rec.record_box_shadow_color(&id, color);
         }
     });
-    set_style_binding!("__record_inset_shadow", map, |id, v: String| {
+    bind_recorder!("__record_inset_shadow", |rec, id, v: String| {
         if let Some(sh) = inset_shadow_from_name(&v) {
-            map.entry(id).or_default().inset_shadow = Some(sh);
+            rec.record_inset_shadow(&id, sh);
         }
     });
-    set_style_binding!("__record_inset_shadow_color", map, |id, v: String| {
+    bind_recorder!("__record_inset_shadow_color", |rec, id, v: String| {
         if let Some(color) = color_from_name(&v) {
-            map.entry(id).or_default().inset_shadow_color = Some(color);
+            rec.record_inset_shadow_color(&id, color);
         }
     });
-    set_style_binding!("__record_drop_shadow", map, |id, v: String| {
+    bind_recorder!("__record_drop_shadow", |rec, id, v: String| {
         if let Some(sh) = drop_shadow_from_name(&v) {
-            map.entry(id).or_default().drop_shadow = Some(sh);
+            rec.record_drop_shadow(&id, sh);
         }
     });
-    set_style_binding!("__record_drop_shadow_color", map, |id, v: String| {
+    bind_recorder!("__record_drop_shadow_color", |rec, id, v: String| {
         if let Some(color) = color_from_name(&v) {
-            map.entry(id).or_default().drop_shadow_color = Some(color);
+            rec.record_drop_shadow_color(&id, color);
         }
     });
-    // Text content binding also populates the script-visible text source registry
-    // so that __text_source_get() can query it within the same frame.
-    {
-        let s = store.clone();
-        globals.set(
-            "__record_text_content",
-            Function::new(ctx.clone(), move |id: String, v: String| {
-                let mut guard = s.lock().unwrap();
-                guard.styles.entry(id.clone()).or_default().text_content = Some(v.clone());
-                guard.text_sources.insert(
-                    id,
-                    opencat_core::scene::script::ScriptTextSource {
-                        text: v,
-                        kind: opencat_core::scene::script::ScriptTextSourceKind::TextNode,
-                    },
-                );
-            })?,
-        )?;
-    }
+    bind_recorder!("__record_text_content", |rec, id, v: String| {
+        rec.record_text_content(&id, v);
+    });
 
     // Record a per-unit (grapheme/word) visual override for a text node.
-    // Arguments: id, granularity ("graphemes"|"words"), index, values_object
-    // values_object keys: opacity, translateX, translateY, scale, rotation, color/textColor
     {
         let s = store.clone();
         globals.set(
@@ -345,53 +299,19 @@ pub(crate) fn install_node_style_bindings<'js>(
                         .or_else(|| values.get("color").ok().flatten());
 
                     let mut guard = s.lock().unwrap();
-                    let mutations = guard.styles.entry(id).or_default();
-                    match &mut mutations.text_unit_overrides {
-                        Some(batch) => {
-                            if batch.granularity != gran {
-                                return Err(rquickjs::Error::new_from_js_message(
-                                    "text",
-                                    "granularity",
-                                    "mixed text unit granularities are not allowed in one node",
-                                ));
-                            }
-                            if index >= batch.overrides.len() {
-                                batch
-                                    .overrides
-                                    .resize_with(index + 1, TextUnitOverride::default);
-                            }
-                        }
-                        None => {
-                            let mut batch = TextUnitOverrideBatch {
-                                granularity: gran,
-                                overrides: Vec::new(),
-                            };
-                            batch
-                                .overrides
-                                .resize_with(index + 1, TextUnitOverride::default);
-                            mutations.text_unit_overrides = Some(batch);
-                        }
-                    }
-                    let entry =
-                        &mut mutations.text_unit_overrides.as_mut().unwrap().overrides[index];
-                    if let Some(v) = opacity {
-                        entry.opacity = Some(v as f32);
-                    }
-                    if let Some(v) = translate_x {
-                        entry.translate_x = Some(v as f32);
-                    }
-                    if let Some(v) = translate_y {
-                        entry.translate_y = Some(v as f32);
-                    }
-                    if let Some(v) = scale {
-                        entry.scale = Some(v as f32);
-                    }
-                    if let Some(v) = rotation_deg {
-                        entry.rotation_deg = Some(v as f32);
-                    }
-                    if let Some(v) = color.and_then(|value| color_from_name(&value)) {
-                        entry.color = Some(v);
-                    }
+                    guard.record_text_unit_override(
+                        &id,
+                        gran,
+                        index,
+                        TextUnitValues {
+                            opacity: opacity.map(|v| v as f32),
+                            translate_x: translate_x.map(|v| v as f32),
+                            translate_y: translate_y.map(|v| v as f32),
+                            scale: scale.map(|v| v as f32),
+                            rotation_deg: rotation_deg.map(|v| v as f32),
+                            color: color.and_then(|value| color_from_name(&value)),
+                        },
+                    );
                     Ok(())
                 },
             )?,
@@ -412,8 +332,7 @@ pub(crate) fn install_node_style_bindings<'js>(
                     let text = {
                         let guard = s.lock().unwrap();
                         guard
-                            .text_sources
-                            .get(&id)
+                            .get_text_source(&id)
                             .map(|src| src.text.clone())
                             .ok_or_else(|| {
                                 rquickjs::Error::new_from_js_message(
@@ -423,7 +342,6 @@ pub(crate) fn install_node_style_bindings<'js>(
                                 )
                             })?
                     };
-                    // guard dropped here
                     let granularity = match granularity_str.as_str() {
                         "graphemes" => TextUnitGranularity::Grapheme,
                         "words" => TextUnitGranularity::Word,
@@ -452,16 +370,9 @@ pub(crate) fn install_node_style_bindings<'js>(
     }
 
     // SVG path data override (used by morph-svg animation)
-    {
-        let s = store.clone();
-        globals.set(
-            "__record_svg_path",
-            Function::new(ctx.clone(), move |id: String, v: String| {
-                let mut guard = s.lock().unwrap();
-                guard.styles.entry(id).or_default().svg_path = Some(v);
-            })?,
-        )?;
-    }
+    bind_recorder!("__record_svg_path", |rec, id, v: String| {
+        rec.record_svg_path(&id, v);
+    });
 
     Ok(())
 }

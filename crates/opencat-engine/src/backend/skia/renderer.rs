@@ -232,7 +232,6 @@ fn skia_canvas(frame_view: RenderFrameView) -> Result<&'static Canvas> {
 // Core trait implementations — bridge to existing Skia canvas functions.
 // ---------------------------------------------------------------------------
 
-use super::backend::SkiaBackend;
 use crate::resource::asset_catalog::AssetCatalog;
 use crate::resource::media::MediaContext;
 use opencat_core::platform::backend::BackendTypes;
@@ -249,10 +248,10 @@ pub struct SkiaRenderData<'a> {
 }
 
 impl BackendTypes for SkiaRenderEngine {
-    type Picture = <SkiaBackend as BackendTypes>::Picture;
-    type Image = <SkiaBackend as BackendTypes>::Image;
-    type GlyphPath = <SkiaBackend as BackendTypes>::GlyphPath;
-    type GlyphImage = <SkiaBackend as BackendTypes>::GlyphImage;
+    type Picture = skia_safe::Picture;
+    type Image = skia_safe::Image;
+    type GlyphPath = skia_safe::Path;
+    type GlyphImage = skia_safe::Image;
 }
 
 impl CoreRenderEngine for SkiaRenderEngine {

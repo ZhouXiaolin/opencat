@@ -34,6 +34,7 @@ use opencat_core::platform::render_engine::{
 /// Allows the core pipeline to render via existing canvas functions without canvas knowing about core types.
 ///
 /// `media_ctx` is a raw pointer to the engine's `MediaContext` stored on `EnginePlatform`.
+/// `asset_catalog` is a temporary catalog created during rendering for canvas functions.
 /// SAFETY: The pointer is valid for the lifetime `'a` because `EnginePlatform` outlives the
 /// render call, and the core pipeline doesn't move or drop the platform during rendering.
 pub struct SkiaRenderData<'a> {

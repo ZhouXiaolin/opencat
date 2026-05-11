@@ -1,12 +1,14 @@
-//! src/host/resource/probe.rs
-use crate::resource::asset_catalog::AssetCatalog;
-use crate::resource::media::MediaContext;
-use anyhow::Result;
-use opencat_core::resource::catalog::VideoInfoMeta;
 use std::path::Path;
+use anyhow::Result;
+use opencat_core::resource::catalog::{VideoInfoMeta, ResourceCatalog};
+use opencat_core::resource::asset_id::AssetId;
+use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
+use crate::resource::media::MediaContext;
+use crate::resource::path_store::AssetPathStore;
 
 pub fn probe_video(
-    catalog: &mut AssetCatalog,
+    catalog: &mut HashMapResourceCatalog,
+    path_store: &mut AssetPathStore,
     path: &Path,
     media: &mut MediaContext,
 ) -> Result<VideoInfoMeta> {
@@ -16,6 +18,9 @@ pub fn probe_video(
         height: info.height,
         duration_secs: info.duration_secs,
     };
-    catalog.register_video_info(path, meta);
+    let locator = path.to_string_lossy();
+    catalog.register_video_dimensions(&locator, meta.width, meta.height, meta.duration_secs);
+    let id = AssetId(locator.into_owned());
+    path_store.insert(id, path.to_path_buf());
     Ok(meta)
 }

@@ -14,6 +14,7 @@ pub trait ResourceCatalog {
     fn resolve_image(&mut self, src: &ImageSource) -> Result<AssetId>;
     fn resolve_audio(&mut self, src: &AudioSource) -> Result<AssetId>;
     fn register_dimensions(&mut self, locator: &str, width: u32, height: u32) -> AssetId;
+    fn register_video_dimensions(&mut self, locator: &str, width: u32, height: u32, duration_secs: Option<f64>) -> AssetId;
     fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()>;
     fn dimensions(&self, id: &AssetId) -> (u32, u32);
     fn video_info(&self, id: &AssetId) -> Option<VideoInfoMeta>;

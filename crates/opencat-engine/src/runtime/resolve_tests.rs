@@ -3,12 +3,12 @@
 
 #![cfg(test)]
 
+use crate::resource::asset_catalog::AssetCatalog;
+use crate::runtime::path_bounds::SkiaPathBounds;
 use opencat_core::element::resolve::{resolve_ui_tree, resolve_ui_tree_with_script_cache};
 use opencat_core::element::tree::ElementKind;
 use opencat_core::frame_ctx::ScriptFrameCtx;
-use crate::resource::asset_catalog::AssetCatalog;
 use opencat_core::scene::easing::Easing;
-use crate::runtime::path_bounds::SkiaPathBounds;
 use opencat_core::scene::primitives::{SrtEntry, caption, div, text};
 use opencat_core::scene::time::{FrameState, frame_state_for_root};
 use opencat_core::scene::transition::{slide, timeline};
@@ -40,8 +40,14 @@ fn node_script_only_affects_its_own_subtree() {
         .child(div().id("static").child(text("B").id("title")));
 
     let mut script_runtime = ScriptRuntimeCache::default();
-    let resolved = resolve_ui_tree(&scene.into(), &frame_ctx, &mut assets, None, &mut script_runtime)
-        .expect("tree should resolve");
+    let resolved = resolve_ui_tree(
+        &scene.into(),
+        &frame_ctx,
+        &mut assets,
+        None,
+        &mut script_runtime,
+    )
+    .expect("tree should resolve");
 
     assert_eq!(resolved.children[0].children[0].style.visual.opacity, 0.25);
     assert_eq!(resolved.children[1].children[0].style.visual.opacity, 1.0);
@@ -188,8 +194,14 @@ fn parent_script_can_split_descendant_text_before_child_resolution() {
         .child(text("Hello").id("title"));
 
     let mut script_runtime = ScriptRuntimeCache::default();
-    let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None, &mut script_runtime)
-        .expect("parent script should see descendant text source");
+    let resolved = resolve_ui_tree(
+        &root.into(),
+        &frame_ctx,
+        &mut assets,
+        None,
+        &mut script_runtime,
+    )
+    .expect("parent script should see descendant text source");
 
     let ElementKind::Text(text) = &resolved.children[0].kind else {
         panic!("child should resolve to text");

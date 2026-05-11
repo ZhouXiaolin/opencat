@@ -47,10 +47,21 @@ pub trait Platform: 'static {
         &mut self,
         f: impl FnOnce(&mut Self::Video, &Self::Backend) -> R,
     ) -> R {
+        self.with_render_context(|video, engine, _| f(video, engine))
+    }
+
+    /// Combined accessor providing video, engine, and platform-specific extra data for backends.
+    ///
+    /// The default implementation passes `()` as platform_data. Platforms that need to pass
+    /// additional data to their backend (e.g. engine's `AssetCatalog`) should override this.
+    fn with_render_context<R>(
+        &mut self,
+        f: impl FnOnce(&mut Self::Video, &Self::Backend, &mut dyn std::any::Any) -> R,
+    ) -> R {
         let this = self as *mut Self;
         let video = unsafe { &mut *this }.video_source();
         let backend = unsafe { &*this }.render_engine();
-        f(video, backend)
+        f(video, backend, &mut ())
     }
 }
 

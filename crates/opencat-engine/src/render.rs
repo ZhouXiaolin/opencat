@@ -1,9 +1,12 @@
+use std::any::Any;
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
+use skia_safe::{AlphaType, ColorType, ImageInfo, image::CachingHint, surfaces};
 
 use crate::{
     codec::decode::AudioTrack,
+    platform::EnginePlatform,
     resource::media::VideoPreviewQuality,
     runtime::{
         audio::{
@@ -15,10 +18,12 @@ use crate::{
         target::RenderTargetHandle,
     },
 };
+use opencat_core::platform::render_engine::FrameView;
 use opencat_core::scene::composition::Composition;
 
 pub use crate::codec::encode::Mp4Config;
-pub use crate::runtime::session::RenderSession;
+/// Core generic RenderSession monomorphised for the engine's Skia + quickjs platform.
+pub type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform>;
 
 pub enum OutputFormat {
     Mp4(Mp4Config),
@@ -122,9 +127,9 @@ pub fn build_audio_track(
     ensure_assets_preloaded(composition, session)?;
     build_runtime_audio_track(
         composition,
-        &mut session.assets,
-        &mut session.audio_decode_cache,
-        &mut session.audio_interval_cache,
+        &mut session.platform.assets,
+        &mut session.platform.audio_decode_cache,
+        &mut session.platform.audio_interval_cache,
     )
 }
 
@@ -137,9 +142,9 @@ pub fn render_audio_chunk(
     ensure_assets_preloaded(composition, session)?;
     render_runtime_audio_chunk(
         composition,
-        &mut session.assets,
-        &mut session.audio_decode_cache,
-        &mut session.audio_interval_cache,
+        &mut session.platform.assets,
+        &mut session.platform.audio_decode_cache,
+        &mut session.platform.audio_interval_cache,
         start_time_secs,
         sample_frames,
     )
@@ -152,9 +157,15 @@ fn render_png(
 ) -> Result<()> {
     let profile_config = crate::runtime::profile::ProfileConfig::from_env();
     let (_, summary) = crate::runtime::profile::profile_render(&profile_config, || {
-        let engine = render_registry::render_engine_for_backend(backend)?;
-        let mut session = RenderSession::with_render_engine(engine.clone());
-        let rgba = engine.render_frame_rgba(composition, 0, &mut session)?;
+        let engine = match backend {
+            RenderBackend::Software => crate::backend::skia::renderer::shared_raster_engine_typed(),
+            RenderBackend::Accelerated => {
+                return Err(anyhow!("accelerated backend not yet supported via core pipeline"));
+            }
+        };
+        let platform = EnginePlatform::new(engine);
+        let mut session = RenderSession::new(platform);
+        let rgba = render_frame_rgba(composition, 0, &mut session)?;
         let image =
             image::RgbaImage::from_raw(composition.width as u32, composition.height as u32, rgba)
                 .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
@@ -177,11 +188,15 @@ fn render_mp4(
     let composition = composition.aligned_for_video_encoding();
     let profile_config = crate::runtime::profile::ProfileConfig::from_env();
     let (_, summary) = crate::runtime::profile::profile_render(&profile_config, move || {
-        let engine = render_registry::render_engine_for_backend(backend)?;
-        let mut session = RenderSession::with_render_engine(engine.clone());
-        session
-            .media_ctx
-            .set_video_preview_quality(VideoPreviewQuality::Exact);
+        let engine = match backend {
+            RenderBackend::Software => crate::backend::skia::renderer::shared_raster_engine_typed(),
+            RenderBackend::Accelerated => {
+                return Err(anyhow!("accelerated backend not yet supported via core pipeline"));
+            }
+        };
+        let mut platform = EnginePlatform::new(engine);
+        platform.set_video_preview_quality(VideoPreviewQuality::Exact);
+        let mut session = RenderSession::new(platform);
 
         let audio_track = build_audio_track(&composition, &mut session)?;
         crate::codec::encode::encode_rgba_frames(
@@ -194,7 +209,7 @@ fn render_mp4(
             audio_track.as_ref(),
             on_video_frame_encoded,
             |frame_index| {
-                let rgba = engine.render_frame_rgba(&composition, frame_index, &mut session)?;
+                let rgba = render_frame_rgba(&composition, frame_index, &mut session)?;
                 Ok(rgba)
             },
         )?;
@@ -212,8 +227,32 @@ pub fn render_frame_to_target(
     session: &mut RenderSession,
     target: &mut RenderTargetHandle,
 ) -> Result<()> {
-    render_registry::render_engine_for_frame_view_kind(target.frame_view_kind())?
-        .render_frame_to_target(composition, frame_index, session, target)
+    ensure_assets_preloaded(composition, session)?;
+
+    target.require_frame_view_kind(crate::runtime::target::RenderFrameViewKind::DrawContext2D)?;
+    let frame_surface = target.begin_frame_surface(composition.width, composition.height)?;
+    let frame_view_handle = target.resolve_frame_view(frame_surface)?;
+    let canvas_raw: *mut std::ffi::c_void = frame_view_handle.raw();
+
+    // Platform-specific data (SkiaRenderData with assets) is provided by
+    // EnginePlatform::with_render_context inside the core pipeline.
+    // We pass () here as the pipeline no longer uses this parameter directly.
+    let mut platform_data: Box<dyn Any> = Box::new(());
+    let mut canvas_any: Box<dyn Any> = Box::new(canvas_raw);
+    let frame_view = FrameView {
+        width: composition.width as u32,
+        height: composition.height as u32,
+        kind: opencat_core::platform::render_engine::FrameViewKind::Opaque(&mut *canvas_any),
+    };
+    let render_result = opencat_core::runtime::pipeline::render_frame::<EnginePlatform>(
+        composition,
+        frame_index,
+        session,
+        frame_view,
+        &mut *platform_data,
+    );
+    let end_result = target.end_frame();
+    render_result.and(end_result)
 }
 
 pub fn render_frame_rgba(
@@ -221,7 +260,53 @@ pub fn render_frame_rgba(
     frame_index: u32,
     session: &mut RenderSession,
 ) -> Result<Vec<u8>> {
-    render_registry::default_render_engine().render_frame_rgba(composition, frame_index, session)
+    ensure_assets_preloaded(composition, session)?;
+
+    let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
+        .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
+
+    let canvas_raw: *mut std::ffi::c_void = surface.canvas() as *const _ as *mut std::ffi::c_void;
+
+    // Platform-specific data (SkiaRenderData with assets) is provided by
+    // EnginePlatform::with_render_context inside the core pipeline.
+    // We pass () here as the pipeline no longer uses this parameter directly.
+    let mut platform_data: Box<dyn Any> = Box::new(());
+    let mut canvas_any: Box<dyn Any> = Box::new(canvas_raw);
+    let frame_view = FrameView {
+        width: composition.width as u32,
+        height: composition.height as u32,
+        kind: opencat_core::platform::render_engine::FrameViewKind::Opaque(&mut *canvas_any),
+    };
+    opencat_core::runtime::pipeline::render_frame::<EnginePlatform>(
+        composition,
+        frame_index,
+        session,
+        frame_view,
+        &mut *platform_data,
+    )?;
+
+    let image = surface.image_snapshot();
+    let image_info = ImageInfo::new(
+        (composition.width, composition.height),
+        ColorType::RGBA8888,
+        AlphaType::Premul,
+        None,
+    );
+
+    let mut rgba = vec![0_u8; (composition.width as usize) * (composition.height as usize) * 4];
+    let read_ok = image.read_pixels(
+        &image_info,
+        rgba.as_mut_slice(),
+        (composition.width as usize) * 4,
+        (0, 0),
+        CachingHint::Allow,
+    );
+
+    if !read_ok {
+        return Err(anyhow!("failed to read pixels from skia surface"));
+    }
+
+    Ok(rgba)
 }
 
 pub fn render_frame_rgb(
@@ -242,9 +327,14 @@ pub fn render_frame_rgb(
 #[cfg(test)]
 mod tests {
     use super::{RenderSession, render_frame_rgba};
-    use crate::{Composition, FrameCtx, text};
+    use crate::{Composition, FrameCtx, platform::EnginePlatform, text};
     use opencat_core::scene::primitives::{canvas, div, image};
     use opencat_core::style::ColorToken;
+
+    fn make_test_session() -> RenderSession {
+        let engine = crate::backend::skia::renderer::shared_raster_engine_typed();
+        RenderSession::new(EnginePlatform::new(engine))
+    }
 
     fn write_test_png(path: &std::path::Path) {
         let mut image = image::RgbaImage::new(2, 1);
@@ -310,7 +400,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let first =
             render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
         let second =
@@ -354,7 +444,7 @@ mod tests {
             .build()
             .expect("composition");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let frame =
             render_frame_rgba(&composition, 100, &mut session).expect("frame should render");
 
@@ -398,7 +488,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let first =
             render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
         let second =
@@ -465,7 +555,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let first =
             render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
         let second =
@@ -514,7 +604,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let frame = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
 
         let _ = std::fs::remove_file(&image_path);
@@ -577,7 +667,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let first =
             render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
         let second =
@@ -646,7 +736,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let first =
             render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
         let second =
@@ -713,7 +803,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let _ = render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
         let _ = render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
 
@@ -775,7 +865,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let pixels =
             render_frame_rgba(&composition, 12, &mut session).expect("frame should render");
 
@@ -817,7 +907,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let pixels = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
 
         assert_eq!(
@@ -859,7 +949,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let pixels = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
 
         assert_eq!(
@@ -917,7 +1007,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let pixels =
             render_frame_rgba(&composition, 12, &mut session).expect("frame should render");
 
@@ -963,7 +1053,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let pixels =
             render_frame_rgba(&composition, 15, &mut session).expect("frame should render");
         let pixel = pixel_rgba(&pixels, 80, 40, 40);
@@ -1003,7 +1093,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let pixels =
             render_frame_rgba(&composition, 15, &mut session).expect("frame should render");
         let pixel = pixel_rgba(&pixels, 80, 40, 40);
@@ -1079,7 +1169,7 @@ mod tests {
             .build()
             .expect("composition should build");
 
-        let mut session = RenderSession::new();
+        let mut session = make_test_session();
         let _ = render_frame_rgba(&composition, 12, &mut session)
             .expect("first transition frame should render");
         let size_after_first = session

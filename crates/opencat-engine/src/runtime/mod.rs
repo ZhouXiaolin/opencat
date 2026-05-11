@@ -3,12 +3,9 @@ pub mod cache;
 pub mod compositor;
 pub mod frame_view;
 pub mod path_bounds;
-pub mod pipeline;
 pub mod preflight;
 pub mod profile;
-pub mod render_engine;
 pub mod render_registry;
-pub mod session;
 pub mod surface;
 pub mod target;
 

@@ -3,11 +3,7 @@ use std::sync::{Arc, Mutex};
 use rquickjs::{Array, Function};
 
 use opencat_core::script::animate::{
-    AnimateState,
-    MorphSvgState,
-    PathMeasureState,
-    parse_easing_from_tag,
-    random_from_seed,
+    AnimateState, MorphSvgState, PathMeasureState, parse_easing_from_tag, random_from_seed,
 };
 use opencat_core::script::recorder::{MutationRecorder, MutationStore};
 
@@ -43,7 +39,16 @@ pub(crate) fn install_animate_bindings<'js>(
                     guard.current_frame()
                 };
                 let mut animate = a.lock().unwrap();
-                animate.create(current_frame, duration, delay, clamp, &easing_tag, repeat, yoyo, repeat_delay)
+                animate.create(
+                    current_frame,
+                    duration,
+                    delay,
+                    clamp,
+                    &easing_tag,
+                    repeat,
+                    yoyo,
+                    repeat_delay,
+                )
             },
         )?,
     )?;
@@ -111,7 +116,9 @@ pub(crate) fn install_animate_bindings<'js>(
             ctx.clone(),
             move |from_svg: String, to_svg: String, grid_size: f32| -> i32 {
                 let mut state = m.lock().unwrap();
-                state.create(&from_svg, &to_svg, grid_size as u32).unwrap_or(-1)
+                state
+                    .create(&from_svg, &to_svg, grid_size as u32)
+                    .unwrap_or(-1)
             },
         )?,
     )?;
@@ -175,11 +182,7 @@ pub(crate) fn install_animate_bindings<'js>(
             move |svg: String| -> Result<i32, rquickjs::Error> {
                 let mut state = p.lock().unwrap();
                 state.create(&svg).ok_or_else(|| {
-                    rquickjs::Error::new_from_js_message(
-                        "alongPath",
-                        "create",
-                        "invalid SVG path",
-                    )
+                    rquickjs::Error::new_from_js_message("alongPath", "create", "invalid SVG path")
                 })
             },
         )?,

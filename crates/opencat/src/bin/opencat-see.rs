@@ -96,7 +96,8 @@ mod app {
             );
             let (sender, receiver) = mpsc::sync_channel(3);
             std::thread::spawn(move || {
-                let mut session = RenderSession::new();
+                let engine = opencat::host::backend::skia::renderer::shared_raster_engine_typed();
+                let mut session = RenderSession::new(opencat::host::platform::EnginePlatform::new(engine));
                 let mut next_loop_sample_frame = 0;
 
                 loop {

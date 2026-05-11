@@ -46,7 +46,7 @@ struct AudioInterval {
 type AudioIntervalCacheKey = (usize, usize, u32, u32);
 
 #[derive(Default)]
-pub(crate) struct AudioIntervalCache {
+pub struct AudioIntervalCache {
     key: Option<AudioIntervalCacheKey>,
     intervals: Vec<AudioInterval>,
 }
@@ -263,7 +263,7 @@ fn collect_active_scene_ids_from_state(
 }
 
 #[derive(Default)]
-pub(crate) struct DecodedAudioCache {
+pub struct DecodedAudioCache {
     decoded: std::collections::HashMap<AudioSource, AudioTrack>,
 }
 

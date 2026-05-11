@@ -18,12 +18,12 @@ use opencat_core::{
     style::NodeStyle,
 };
 
-use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::resource::catalog::ResourceCatalog;
+use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 
+use super::runtime::path_bounds::default_host_path_bounds;
 use crate::platform::EnginePlatform;
 use crate::resource::path_store::AssetPathStore;
-use super::runtime::path_bounds::default_host_path_bounds;
 type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform>;
 
 #[derive(Clone, Debug)]
@@ -91,7 +91,12 @@ fn collect_scene_rects(
     draw_order: &mut u32,
     out: &mut Vec<FrameElementRect>,
 ) -> Result<()> {
-    seed_asset_entries_for_inspect(scene, frame_ctx, &mut session.catalog, &mut session.platform.asset_paths);
+    seed_asset_entries_for_inspect(
+        scene,
+        frame_ctx,
+        &mut session.catalog,
+        &mut session.platform.asset_paths,
+    );
 
     let mut source_meta_by_id = HashMap::<String, SourceNodeMeta>::new();
     collect_source_metadata(scene, frame_ctx, &mut source_meta_by_id);

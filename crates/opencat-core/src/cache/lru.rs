@@ -103,7 +103,10 @@ where
 
         CacheMutationReport {
             total_weight: self.total_weight,
-            utilization: self.map.len().checked_mul(100)
+            utilization: self
+                .map
+                .len()
+                .checked_mul(100)
                 .and_then(|v| v.checked_div(self.capacity))
                 .unwrap_or(0),
             evicted,

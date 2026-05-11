@@ -84,14 +84,14 @@ fn run_browser_layout_suite(fixtures: Vec<LayoutFixture>) -> Result<()> {
             let text_ids = fixture.root.collect_text_ids();
             let css = compile_tailwind_css(&fixture)?;
             let html = fixture.render_html_document(&css);
-            let html_path = write_fixture_file(&fixture.name, "html", &html)?;
+            let html_path = write_fixture_file(fixture.name, "html", &html)?;
             let browser_rects = browser
                 .measure_layout(&html_path, fixture.viewport_width, fixture.viewport_height)
                 .await?;
             let taffy_rects = measure_taffy_layout(&fixture)?;
 
             if let Err(error) = assert_layouts_close(
-                &fixture.name,
+                fixture.name,
                 &browser_rects,
                 &taffy_rects,
                 &text_ids,
@@ -401,10 +401,10 @@ impl Drop for BrowserHarness {
 
 async fn wait_for_webdriver_ready(client: &Client, webdriver_url: &str) -> Result<()> {
     for _ in 0..50 {
-        if let Ok(response) = client.get(format!("{webdriver_url}/status")).send().await {
-            if response.status().is_success() {
-                return Ok(());
-            }
+        if let Ok(response) = client.get(format!("{webdriver_url}/status")).send().await
+            && response.status().is_success()
+        {
+            return Ok(());
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -651,7 +651,7 @@ fn assert_layouts_close(
 fn compile_tailwind_css(fixture: &LayoutFixture) -> Result<String> {
     let candidates = fixture.root.collect_candidates();
     let payload = json!({ "candidates": candidates });
-    let payload_path = write_fixture_file(&fixture.name, "json", &payload.to_string())?;
+    let payload_path = write_fixture_file(fixture.name, "json", &payload.to_string())?;
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
         .parent()

@@ -79,16 +79,19 @@ pub fn render_frame<P: Platform>(
                 .render_engine()
                 .draw_scene_snapshot(&snapshot, frame_view);
         }
-        let snapshot = session.platform.with_render_context(|video, backend, ctx_platform_data| {
-            let mut ctx = RecordCtx {
-                catalog: &session.catalog,
-                frame_ctx: &frame_ctx,
-                cache: &mut session.cache_registry,
-                video,
-                platform_data: ctx_platform_data,
-            };
-            backend.record_display_tree_snapshot(&mut ctx, &annotated)
-        })?;
+        let snapshot =
+            session
+                .platform
+                .with_render_context(|video, backend, ctx_platform_data| {
+                    let mut ctx = RecordCtx {
+                        catalog: &session.catalog,
+                        frame_ctx: &frame_ctx,
+                        cache: &mut session.cache_registry,
+                        video,
+                        platform_data: ctx_platform_data,
+                    };
+                    backend.record_display_tree_snapshot(&mut ctx, &annotated)
+                })?;
         session
             .scene_snapshots
             .store_scene_snapshot(Some(snapshot.clone()));
@@ -101,18 +104,20 @@ pub fn render_frame<P: Platform>(
     // 6. ordered scene direct draw
     session.scene_snapshots.store_scene_snapshot(None);
     let ordered_scene = OrderedSceneProgram::build(&annotated);
-    session.platform.with_render_context(|video, backend, ctx_platform_data| {
-        let mut ctx = RenderCtx {
-            catalog: &session.catalog,
-            frame_ctx: &frame_ctx,
-            display_tree: &annotated,
-            ordered_scene: &ordered_scene,
-            cache: &mut session.cache_registry,
-            video,
-            platform_data: ctx_platform_data,
-        };
-        backend.draw_ordered_scene(&mut ctx, frame_view)
-    })
+    session
+        .platform
+        .with_render_context(|video, backend, ctx_platform_data| {
+            let mut ctx = RenderCtx {
+                catalog: &session.catalog,
+                frame_ctx: &frame_ctx,
+                display_tree: &annotated,
+                ordered_scene: &ordered_scene,
+                cache: &mut session.cache_registry,
+                video,
+                platform_data: ctx_platform_data,
+            };
+            backend.draw_ordered_scene(&mut ctx, frame_view)
+        })
 }
 
 #[cfg(test)]

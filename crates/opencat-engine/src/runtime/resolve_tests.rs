@@ -3,11 +3,11 @@
 
 #![cfg(test)]
 
-use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::runtime::path_bounds::SkiaPathBounds;
 use opencat_core::element::resolve::{resolve_ui_tree, resolve_ui_tree_with_script_cache};
 use opencat_core::element::tree::ElementKind;
 use opencat_core::frame_ctx::ScriptFrameCtx;
+use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::scene::easing::Easing;
 use opencat_core::scene::primitives::{SrtEntry, caption, div, text};
 use opencat_core::scene::time::{FrameState, frame_state_for_root};

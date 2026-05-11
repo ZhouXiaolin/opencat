@@ -196,6 +196,40 @@ impl opencat_core::platform::video::VideoFrameProvider for MediaContext {
     }
 }
 
+fn load_image_bitmap(path: &Path) -> Result<(Arc<Vec<u8>>, u32, u32)> {
+    let encoded = fs::read(path)
+        .with_context(|| format!("failed to read image bytes: {}", path.display()))?;
+    let image = Image::from_encoded(Data::new_copy(&encoded))
+        .ok_or_else(|| anyhow!("failed to decode image: {}", path.display()))?;
+
+    let width = image.width() as u32;
+    let height = image.height() as u32;
+    let row_bytes = width as usize * 4;
+    let mut pixels = vec![0_u8; row_bytes * height as usize];
+    let info = ImageInfo::new(
+        (width as i32, height as i32),
+        ColorType::RGBA8888,
+        AlphaType::Unpremul,
+        None,
+    );
+
+    let ok = image.read_pixels(
+        &info,
+        pixels.as_mut_slice(),
+        row_bytes,
+        (0, 0),
+        CachingHint::Allow,
+    );
+    if !ok {
+        return Err(anyhow!(
+            "failed to convert decoded image into RGBA pixels: {}",
+            path.display()
+        ));
+    }
+
+    Ok((Arc::new(pixels), width, height))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,38 +298,4 @@ mod tests {
             Some((64, 100))
         );
     }
-}
-
-fn load_image_bitmap(path: &Path) -> Result<(Arc<Vec<u8>>, u32, u32)> {
-    let encoded = fs::read(path)
-        .with_context(|| format!("failed to read image bytes: {}", path.display()))?;
-    let image = Image::from_encoded(Data::new_copy(&encoded))
-        .ok_or_else(|| anyhow!("failed to decode image: {}", path.display()))?;
-
-    let width = image.width() as u32;
-    let height = image.height() as u32;
-    let row_bytes = width as usize * 4;
-    let mut pixels = vec![0_u8; row_bytes * height as usize];
-    let info = ImageInfo::new(
-        (width as i32, height as i32),
-        ColorType::RGBA8888,
-        AlphaType::Unpremul,
-        None,
-    );
-
-    let ok = image.read_pixels(
-        &info,
-        pixels.as_mut_slice(),
-        row_bytes,
-        (0, 0),
-        CachingHint::Allow,
-    );
-    if !ok {
-        return Err(anyhow!(
-            "failed to convert decoded image into RGBA pixels: {}",
-            path.display()
-        ));
-    }
-
-    Ok((Arc::new(pixels), width, height))
 }

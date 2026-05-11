@@ -5,13 +5,10 @@ pub mod audio_runtime;
 
 use std::sync::Arc;
 
-use std::any::Any;
-
 use opencat_core::Platform;
 use opencat_core::scene::path_bounds::PathBoundsComputer;
 
 use crate::backend::skia::renderer::{SkiaRenderData, SkiaRenderEngine};
-use crate::resource::asset_catalog::AssetCatalog;
 use crate::resource::media::MediaContext;
 use crate::resource::path_store::AssetPathStore;
 use crate::runtime::audio::{AudioIntervalCache, DecodedAudioCache};
@@ -80,28 +77,17 @@ impl Platform for EnginePlatform {
     }
 
     /// Provide render context to the backend.
-    /// Creates a temporary AssetCatalog from AssetPathStore for canvas compatibility.
     fn with_render_context<R>(
         &mut self,
-        f: impl FnOnce(&mut Self::Video, &Self::Backend, &mut dyn Any) -> R,
+        f: impl FnOnce(&mut Self::Video, &Self::Backend, &mut dyn std::any::Any) -> R,
     ) -> R {
         let this = self as *mut Self;
         let video = unsafe { &mut *this }.video_source();
         let backend = unsafe { &*this }.render_engine();
         let media_ctx_ptr = video as *mut MediaContext;
 
-        // Create a temporary AssetCatalog from AssetPathStore for canvas functions
-        let mut temp_assets = AssetCatalog::new();
-        for (id, path) in unsafe { &(*this).asset_paths }.entries.iter() {
-            let (width, height) = crate::resource::asset_catalog::read_image_dimensions(path);
-            temp_assets.entries.insert(
-                id.clone(),
-                crate::resource::asset_catalog::AssetEntry::with_dimensions(path.clone(), width, height),
-            );
-        }
-
         let render_data = Box::new(SkiaRenderData {
-            assets: &temp_assets,
+            asset_paths: unsafe { &(*this).asset_paths },
             media_ctx: media_ctx_ptr,
         });
 

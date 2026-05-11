@@ -146,7 +146,7 @@ fn seed_asset_entries_for_inspect(
             for asset in canvas.assets_ref() {
                 if let Ok(id) = catalog.resolve_image(&asset.source) {
                     if let ImageSource::Path(path) = &asset.source {
-                        let (width, height) = crate::resource::asset_catalog::read_image_dimensions(path);
+                        let (width, height) = crate::resource::utils::read_image_dimensions(path);
                         catalog.register_dimensions(&path.to_string_lossy(), width, height);
                         path_store.insert(id, path);
                     }
@@ -156,7 +156,7 @@ fn seed_asset_entries_for_inspect(
         NodeKind::Image(image) => {
             if let Ok(id) = catalog.resolve_image(image.source()) {
                 if let ImageSource::Path(path) = image.source() {
-                    let (width, height) = crate::resource::asset_catalog::read_image_dimensions(path);
+                    let (width, height) = crate::resource::utils::read_image_dimensions(path);
                     catalog.register_dimensions(&path.to_string_lossy(), width, height);
                     path_store.insert(id, path);
                 }

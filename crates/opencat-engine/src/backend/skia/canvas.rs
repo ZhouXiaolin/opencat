@@ -7,7 +7,9 @@ use skia_safe::{
 };
 use tracing::{Level, event, span};
 
-use crate::resource::asset_catalog::AssetCatalog;
+use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
+
+use crate::resource::path_store::AssetPathStore;
 use opencat_core::display::list::{
     BitmapDisplayItem, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem,
     RectDisplayItem, SvgPathDisplayItem, TextDisplayItem, TimelineDisplayItem,
@@ -97,7 +99,8 @@ impl Default for DrawScriptPaintState {
 pub struct SkiaBackend<'a> {
     canvas: &'a Canvas,
     display_tree: &'a AnnotatedDisplayTree,
-    assets: &'a AssetCatalog,
+    catalog: &'a HashMapResourceCatalog,
+    asset_paths: &'a AssetPathStore,
     media_ctx: Option<&'a mut MediaContext>,
     frame_ctx: &'a FrameCtx,
     image_cache: ImageCache,
@@ -114,7 +117,8 @@ impl<'a> SkiaBackend<'a> {
         _width: i32,
         _height: i32,
         display_tree: &'a AnnotatedDisplayTree,
-        assets: &'a AssetCatalog,
+        catalog: &'a HashMapResourceCatalog,
+        asset_paths: &'a AssetPathStore,
         image_cache: ImageCache,
         glyph_path_cache: GlyphPathCache,
         glyph_image_cache: GlyphImageCache,
@@ -127,7 +131,8 @@ impl<'a> SkiaBackend<'a> {
         Self {
             canvas,
             display_tree,
-            assets,
+            catalog,
+            asset_paths,
             image_cache,
             glyph_path_cache,
             glyph_image_cache,
@@ -474,7 +479,8 @@ impl<'a> SkiaBackend<'a> {
                 self.canvas,
                 item,
                 cache_key,
-                self.assets,
+                self.catalog,
+                self.asset_paths,
                 &self.image_cache,
                 &self.glyph_path_cache,
                 &self.glyph_image_cache,
@@ -506,7 +512,8 @@ impl<'a> SkiaBackend<'a> {
         let _profile_span = profile_span.enter();
         let snapshot = record_item_picture(
             item,
-            self.assets,
+            self.catalog,
+            self.asset_paths,
             &self.image_cache,
             &self.glyph_path_cache,
             &self.glyph_image_cache,
@@ -589,7 +596,8 @@ impl<'a> SkiaBackend<'a> {
                         draw_bitmap(
                             canvas,
                             bitmap,
-                            self.assets,
+                            self.catalog,
+                            self.asset_paths,
                             &self.image_cache,
                             &mut self.media_ctx,
                             self.frame_ctx,
@@ -600,7 +608,8 @@ impl<'a> SkiaBackend<'a> {
                 let stats = draw_bitmap(
                     self.canvas,
                     bitmap,
-                    self.assets,
+                    self.catalog,
+                    self.asset_paths,
                     &self.image_cache,
                     &mut self.media_ctx,
                     self.frame_ctx,
@@ -620,7 +629,8 @@ impl<'a> SkiaBackend<'a> {
                         draw_script_item(
                             canvas,
                             script,
-                            self.assets,
+                            self.catalog,
+                            self.asset_paths,
                             &self.image_cache,
                             &mut self.media_ctx,
                             self.frame_ctx,
@@ -630,7 +640,8 @@ impl<'a> SkiaBackend<'a> {
                 draw_script_item(
                     self.canvas,
                     script,
-                    self.assets,
+                    self.catalog,
+                    self.asset_paths,
                     &self.image_cache,
                     &mut self.media_ctx,
                     self.frame_ctx,
@@ -666,7 +677,8 @@ impl<'a> SkiaBackend<'a> {
             layer_bounds.width.max(1.0).round() as i32,
             layer_bounds.height.max(1.0).round() as i32,
             self.display_tree,
-            self.assets,
+            self.catalog,
+            self.asset_paths,
             self.image_cache.clone(),
             self.glyph_path_cache.clone(),
             self.glyph_image_cache.clone(),
@@ -923,7 +935,8 @@ pub(crate) fn draw_ordered_scene_cached<'a>(
     display_tree: &AnnotatedDisplayTree,
     ordered_scene: &OrderedSceneProgram,
     canvas: &'a Canvas,
-    assets: &'a AssetCatalog,
+    catalog: &'a HashMapResourceCatalog,
+    asset_paths: &'a AssetPathStore,
     image_cache: ImageCache,
     glyph_path_cache: GlyphPathCache,
     glyph_image_cache: GlyphImageCache,
@@ -938,7 +951,8 @@ pub(crate) fn draw_ordered_scene_cached<'a>(
         display_tree.root_node().transform.bounds.width as i32,
         display_tree.root_node().transform.bounds.height as i32,
         display_tree,
-        assets,
+        catalog,
+        asset_paths,
         image_cache,
         glyph_path_cache,
         glyph_image_cache,
@@ -955,7 +969,8 @@ pub(crate) fn record_display_tree_snapshot<'a>(
     display_tree: &AnnotatedDisplayTree,
     width: i32,
     height: i32,
-    assets: &'a AssetCatalog,
+    catalog: &'a HashMapResourceCatalog,
+    asset_paths: &'a AssetPathStore,
     image_cache: ImageCache,
     glyph_path_cache: GlyphPathCache,
     glyph_image_cache: GlyphImageCache,
@@ -976,7 +991,8 @@ pub(crate) fn record_display_tree_snapshot<'a>(
         width,
         height,
         display_tree,
-        assets,
+        catalog,
+        asset_paths,
         image_cache,
         glyph_path_cache.clone(),
         glyph_image_cache.clone(),
@@ -1294,7 +1310,8 @@ fn draw_item_picture_cached(
     canvas: &Canvas,
     item: &DisplayItem,
     cache_key: u64,
-    assets: &AssetCatalog,
+    catalog: &HashMapResourceCatalog,
+    asset_paths: &AssetPathStore,
     image_cache: &ImageCache,
     glyph_path_cache: &GlyphPathCache,
     glyph_image_cache: &GlyphImageCache,
@@ -1316,7 +1333,8 @@ fn draw_item_picture_cached(
 
     let snapshot = record_item_picture(
         item,
-        assets,
+        catalog,
+        asset_paths,
         image_cache,
         glyph_path_cache,
         glyph_image_cache,
@@ -1340,7 +1358,8 @@ fn draw_item_picture_cached(
 
 fn record_item_picture(
     item: &DisplayItem,
-    assets: &AssetCatalog,
+    catalog: &HashMapResourceCatalog,
+    asset_paths: &AssetPathStore,
     image_cache: &ImageCache,
     glyph_path_cache: &GlyphPathCache,
     glyph_image_cache: &GlyphImageCache,
@@ -1363,7 +1382,8 @@ fn record_item_picture(
     draw_display_item_direct(
         recording_canvas,
         item,
-        assets,
+        catalog,
+        asset_paths,
         image_cache,
         glyph_path_cache,
         glyph_image_cache,
@@ -1378,7 +1398,8 @@ fn record_item_picture(
 fn draw_display_item_direct(
     canvas: &Canvas,
     item: &DisplayItem,
-    assets: &AssetCatalog,
+    catalog: &HashMapResourceCatalog,
+    asset_paths: &AssetPathStore,
     image_cache: &ImageCache,
     glyph_path_cache: &GlyphPathCache,
     glyph_image_cache: &GlyphImageCache,
@@ -1416,19 +1437,19 @@ fn draw_display_item_direct(
             }
             if let Some(shadow) = bitmap.paint.drop_shadow {
                 draw_item_drop_shadow(canvas, bitmap.bounds, shadow, |canvas| {
-                    draw_bitmap(canvas, bitmap, assets, image_cache, media_ctx, frame_ctx)
+                    draw_bitmap(canvas, bitmap, catalog, asset_paths, image_cache, media_ctx, frame_ctx)
                         .map(|_| ())
                 })?;
             }
-            let _ = draw_bitmap(canvas, bitmap, assets, image_cache, media_ctx, frame_ctx)?;
+            let _ = draw_bitmap(canvas, bitmap, catalog, asset_paths, image_cache, media_ctx, frame_ctx)?;
         }
         DisplayItem::DrawScript(script) => {
             if let Some(shadow) = script.drop_shadow {
                 draw_item_drop_shadow(canvas, script.bounds, shadow, |canvas| {
-                    draw_script_item(canvas, script, assets, image_cache, media_ctx, frame_ctx)
+                    draw_script_item(canvas, script, catalog, asset_paths, image_cache, media_ctx, frame_ctx)
                 })?;
             }
-            draw_script_item(canvas, script, assets, image_cache, media_ctx, frame_ctx)?;
+            draw_script_item(canvas, script, catalog, asset_paths, image_cache, media_ctx, frame_ctx)?;
         }
         DisplayItem::SvgPath(svg) => {
             if let Some(shadow) = svg.paint.drop_shadow {
@@ -1464,12 +1485,13 @@ fn draw_timeline_base(canvas: &Canvas, timeline: &TimelineDisplayItem) -> Result
 fn draw_bitmap(
     canvas: &Canvas,
     bitmap: &BitmapDisplayItem,
-    assets: &AssetCatalog,
+    _catalog: &HashMapResourceCatalog,
+    asset_paths: &AssetPathStore,
     image_cache: &ImageCache,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
 ) -> Result<BitmapDrawStats> {
-    let path = assets
+    let path = asset_paths
         .path(&bitmap.asset_id)
         .ok_or_else(|| anyhow!("missing asset path for {}", bitmap.asset_id.0))?;
 
@@ -1642,7 +1664,8 @@ fn video_frame_target_size(
 fn draw_script_item(
     canvas: &Canvas,
     item: &DrawScriptDisplayItem,
-    assets: &AssetCatalog,
+    catalog: &HashMapResourceCatalog,
+    asset_paths: &AssetPathStore,
     image_cache: &ImageCache,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
@@ -1947,7 +1970,8 @@ fn draw_script_item(
             } => {
                 let image = load_asset_image(
                     &opencat_core::resource::asset_id::AssetId(asset_id.clone()),
-                    assets,
+                    catalog,
+                    asset_paths,
                     image_cache,
                     media_ctx,
                     frame_ctx,
@@ -2140,7 +2164,8 @@ fn draw_script_item(
             } => {
                 let image = load_asset_image(
                     &opencat_core::resource::asset_id::AssetId(asset_id.clone()),
-                    assets,
+                    catalog,
+                    asset_paths,
                     image_cache,
                     media_ctx,
                     frame_ctx,
@@ -2208,12 +2233,13 @@ fn stroke_paint_for_draw_script(state: &DrawScriptPaintState) -> Paint {
 
 fn load_asset_image(
     asset_id: &opencat_core::resource::asset_id::AssetId,
-    assets: &AssetCatalog,
+    _catalog: &HashMapResourceCatalog,
+    asset_paths: &AssetPathStore,
     image_cache: &ImageCache,
     media_ctx: &mut Option<&mut MediaContext>,
     frame_ctx: &FrameCtx,
 ) -> Result<SkiaImage> {
-    let path = assets
+    let path = asset_paths
         .path(asset_id)
         .ok_or_else(|| anyhow!("missing asset path for {}", asset_id.0))?;
 

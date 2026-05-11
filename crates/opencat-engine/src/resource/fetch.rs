@@ -13,10 +13,11 @@ use tokio::task::JoinSet;
 use opencat_core::resource::asset_id::{
     asset_id_for_audio_url, asset_id_for_query, asset_id_for_url,
 };
+use opencat_core::resource::catalog::ResourceCatalog;
 use opencat_core::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
 
 pub use crate::resource::asset_catalog::{
-    AssetCatalog, AssetEntry, asset_id_for_audio_path, cache_file_path, read_image_dimensions,
+    AssetEntry, asset_id_for_audio_path, cache_file_path, read_image_dimensions,
 };
 pub use opencat_core::resource::asset_id::AssetId;
 
@@ -25,6 +26,17 @@ const OPENVERSE_TOKEN_ENDPOINT: &str = "https://api.openverse.org/v1/auth_tokens
 const OPENVERSE_CLIENT_ID_ENV: &str = "OPENVERSE_CLIENT_ID";
 const OPENVERSE_CLIENT_SECRET_ENV: &str = "OPENVERSE_CLIENT_SECRET";
 const HTTP_USER_AGENT: &str = "OpenCat/0.1 (+https://github.com/solaren/opencat)";
+
+use crate::resource::path_store::AssetPathStore;
+
+fn push_missing_request<T>(
+    _id: &AssetId,
+    remote_requests: &mut Vec<T>,
+    build: impl FnOnce() -> T,
+) {
+    // TODO: implement deduplication check when we have a way to track preloaded assets
+    remote_requests.push(build());
+}
 
 #[derive(Clone)]
 struct RemoteAssetRequest {
@@ -60,7 +72,7 @@ struct OpenverseTokenResponse {
     access_token: String,
 }
 
-pub fn preload_image_sources<I>(catalog: &mut AssetCatalog, sources: I) -> Result<()>
+pub fn preload_image_sources<I>(catalog: &mut opencat_core::resource::hash_map_catalog::HashMapResourceCatalog, path_store: &mut crate::resource::path_store::AssetPathStore, sources: I) -> Result<()>
 where
     I: IntoIterator<Item = ImageSource>,
 {
@@ -72,18 +84,22 @@ where
                 return Err(anyhow!("image source is required before rendering"));
             }
             ImageSource::Path(path) => {
-                catalog.register(&path);
+                let id = catalog.resolve_image(&ImageSource::Path(path.clone()))?;
+                let locator = path.to_string_lossy();
+                let (width, height) = crate::resource::asset_catalog::read_image_dimensions(&path);
+                catalog.register_dimensions(&locator, width, height);
+                path_store.insert(id, path);
             }
             ImageSource::Url(url) => {
                 let id = asset_id_for_url(&url);
-                catalog.push_missing_request(&id, &mut remote_requests, || RemoteAssetRequest {
+                push_missing_request(&id, &mut remote_requests, || RemoteAssetRequest {
                     id: id.clone(),
                     source: RemoteImageSource::Url(url.clone()),
                 });
             }
             ImageSource::Query(query) => {
                 let id = asset_id_for_query(&query);
-                catalog.push_missing_request(&id, &mut remote_requests, || RemoteAssetRequest {
+                push_missing_request(&id, &mut remote_requests, || RemoteAssetRequest {
                     id: id.clone(),
                     source: RemoteImageSource::Query(query.clone()),
                 });
@@ -95,25 +111,25 @@ where
         return Ok(());
     }
 
-    catalog.ensure_cache_dir()?;
-    let cache_dir = catalog.cache_dir.clone();
-    let existing_token = catalog.openverse_token.clone();
+    let cache_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".opencat")
+        .join("assets");
     let rt = build_preload_runtime("asset")?;
-    let token = rt.block_on(fetch_openverse_token(existing_token))?;
-    catalog.openverse_token = token.clone();
+    let token = rt.block_on(fetch_openverse_token(None))?;
 
     let prepared = rt.block_on(preload_remote_requests(cache_dir, token, remote_requests))?;
 
     for (id, path, width, height) in prepared {
-        catalog
-            .entries
-            .insert(id, AssetEntry::with_dimensions(path, width, height));
+        let locator = path.to_string_lossy().to_string();
+        catalog.register_dimensions(&locator, width, height);
+        path_store.insert(id, path);
     }
 
     Ok(())
 }
 
-pub fn preload_audio_sources<I>(catalog: &mut AssetCatalog, sources: I) -> Result<()>
+pub fn preload_audio_sources<I>(catalog: &mut opencat_core::resource::hash_map_catalog::HashMapResourceCatalog, path_store: &mut AssetPathStore, sources: I) -> Result<()>
 where
     I: IntoIterator<Item = AudioSource>,
 {
@@ -125,11 +141,12 @@ where
                 return Err(anyhow!("audio source is required before rendering"));
             }
             AudioSource::Path(path) => {
-                catalog.register_audio_path(&path);
+                let id = catalog.resolve_audio(&AudioSource::Path(path.clone()))?;
+                path_store.insert(id, path);
             }
             AudioSource::Url(url) => {
                 let id = asset_id_for_audio_url(&url);
-                catalog.push_missing_request(&id, &mut remote_requests, || RemoteAudioRequest {
+                push_missing_request(&id, &mut remote_requests, || RemoteAudioRequest {
                     id: id.clone(),
                     url: url.clone(),
                 });
@@ -141,13 +158,15 @@ where
         return Ok(());
     }
 
-    catalog.ensure_cache_dir()?;
-    let cache_dir = catalog.cache_dir.clone();
+    let cache_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".opencat")
+        .join("assets");
     let rt = build_preload_runtime("audio")?;
     let prepared = rt.block_on(preload_remote_audio_requests(cache_dir, remote_requests))?;
 
     for (id, path) in prepared {
-        catalog.entries.insert(id, AssetEntry::audio(&path));
+        path_store.insert(id, path);
     }
 
     Ok(())

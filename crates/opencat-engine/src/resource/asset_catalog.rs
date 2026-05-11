@@ -253,6 +253,22 @@ impl ResourceCatalog for AssetCatalog {
         AssetCatalog::register_dimensions(self, path, width, height)
     }
 
+    fn register_video_dimensions(&mut self, locator: &str, width: u32, height: u32, duration_secs: Option<f64>) -> AssetId {
+        let path = Path::new(locator);
+        let id = AssetId(locator.to_string());
+        self.insert_entry_if_missing(id.clone(), || {
+            AssetEntry::with_dimensions(path.to_path_buf(), width, height)
+        });
+        if let Some(duration) = duration_secs {
+            self.video_info_meta.insert(id.clone(), VideoInfoMeta {
+                width,
+                height,
+                duration_secs: Some(duration),
+            });
+        }
+        id
+    }
+
     fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()> {
         AssetCatalog::alias(self, alias, target)
     }

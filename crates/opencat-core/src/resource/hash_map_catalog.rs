@@ -87,6 +87,17 @@ impl ResourceCatalog for HashMapResourceCatalog {
         id
     }
 
+    fn register_video_dimensions(&mut self, locator: &str, width: u32, height: u32, duration_secs: Option<f64>) -> AssetId {
+        let id = self.resolve_key(locator);
+        self.entries.entry(id.clone()).or_insert(ResourceMeta {
+            width,
+            height,
+            kind: ResourceKind::Video,
+            duration_secs,
+        });
+        id
+    }
+
     fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()> {
         let meta = self.entries.get(target).cloned();
         if let Some(m) = meta {

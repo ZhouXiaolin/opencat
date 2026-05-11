@@ -25,6 +25,12 @@ pub struct WebMutationRecorder {
     path_measure: PathMeasureState,
 }
 
+impl Default for WebMutationRecorder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl WebMutationRecorder {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
@@ -266,6 +272,7 @@ impl WebMutationRecorder {
     }
 
     // ── Text unit override ──
+    #[allow(clippy::too_many_arguments)]
     pub fn record_text_unit_override(
         &mut self,
         id: &str,
@@ -396,6 +403,7 @@ impl WebMutationRecorder {
         self.inner
             .record_canvas_command(id, CanvasCommand::QuadTo { cx, cy, x, y });
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn record_canvas_cubic_to(
         &mut self,
         id: &str,
@@ -467,6 +475,7 @@ impl WebMutationRecorder {
         self.inner
             .record_canvas_command(id, CanvasCommand::Clear { color: c });
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn record_canvas_draw_image(
         &mut self,
         id: &str,
@@ -511,6 +520,7 @@ impl WebMutationRecorder {
             },
         );
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn record_canvas_draw_text(
         &mut self,
         id: &str,

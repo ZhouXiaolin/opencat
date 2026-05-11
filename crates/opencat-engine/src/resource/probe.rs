@@ -1,10 +1,10 @@
-use std::path::Path;
-use anyhow::Result;
-use opencat_core::resource::catalog::{VideoInfoMeta, ResourceCatalog};
-use opencat_core::resource::asset_id::AssetId;
-use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::resource::media::MediaContext;
 use crate::resource::path_store::AssetPathStore;
+use anyhow::Result;
+use opencat_core::resource::asset_id::AssetId;
+use opencat_core::resource::catalog::{ResourceCatalog, VideoInfoMeta};
+use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
+use std::path::Path;
 
 pub fn probe_video(
     catalog: &mut HashMapResourceCatalog,

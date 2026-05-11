@@ -1437,19 +1437,51 @@ fn draw_display_item_direct(
             }
             if let Some(shadow) = bitmap.paint.drop_shadow {
                 draw_item_drop_shadow(canvas, bitmap.bounds, shadow, |canvas| {
-                    draw_bitmap(canvas, bitmap, catalog, asset_paths, image_cache, media_ctx, frame_ctx)
-                        .map(|_| ())
+                    draw_bitmap(
+                        canvas,
+                        bitmap,
+                        catalog,
+                        asset_paths,
+                        image_cache,
+                        media_ctx,
+                        frame_ctx,
+                    )
+                    .map(|_| ())
                 })?;
             }
-            let _ = draw_bitmap(canvas, bitmap, catalog, asset_paths, image_cache, media_ctx, frame_ctx)?;
+            let _ = draw_bitmap(
+                canvas,
+                bitmap,
+                catalog,
+                asset_paths,
+                image_cache,
+                media_ctx,
+                frame_ctx,
+            )?;
         }
         DisplayItem::DrawScript(script) => {
             if let Some(shadow) = script.drop_shadow {
                 draw_item_drop_shadow(canvas, script.bounds, shadow, |canvas| {
-                    draw_script_item(canvas, script, catalog, asset_paths, image_cache, media_ctx, frame_ctx)
+                    draw_script_item(
+                        canvas,
+                        script,
+                        catalog,
+                        asset_paths,
+                        image_cache,
+                        media_ctx,
+                        frame_ctx,
+                    )
                 })?;
             }
-            draw_script_item(canvas, script, catalog, asset_paths, image_cache, media_ctx, frame_ctx)?;
+            draw_script_item(
+                canvas,
+                script,
+                catalog,
+                asset_paths,
+                image_cache,
+                media_ctx,
+                frame_ctx,
+            )?;
         }
         DisplayItem::SvgPath(svg) => {
             if let Some(shadow) = svg.paint.drop_shadow {

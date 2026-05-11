@@ -101,15 +101,24 @@ impl ResourceCatalog for TestCatalog {
         TestCatalog::register_dimensions(self, AssetId(locator.to_string()), width, height)
     }
 
-    fn register_video_dimensions(&mut self, locator: &str, width: u32, height: u32, duration_secs: Option<f64>) -> AssetId {
+    fn register_video_dimensions(
+        &mut self,
+        locator: &str,
+        width: u32,
+        height: u32,
+        duration_secs: Option<f64>,
+    ) -> AssetId {
         let id = AssetId(locator.to_string());
         self.dims.insert(id.clone(), (width, height));
         if let Some(duration) = duration_secs {
-            self.video_info.insert(id.clone(), VideoInfoMeta {
-                width,
-                height,
-                duration_secs: Some(duration),
-            });
+            self.video_info.insert(
+                id.clone(),
+                VideoInfoMeta {
+                    width,
+                    height,
+                    duration_secs: Some(duration),
+                },
+            );
         }
         id
     }

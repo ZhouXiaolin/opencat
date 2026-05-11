@@ -27,11 +27,7 @@ const HTTP_USER_AGENT: &str = "OpenCat/0.1 (+https://github.com/solaren/opencat)
 
 use crate::resource::path_store::AssetPathStore;
 
-fn push_missing_request<T>(
-    _id: &AssetId,
-    remote_requests: &mut Vec<T>,
-    build: impl FnOnce() -> T,
-) {
+fn push_missing_request<T>(_id: &AssetId, remote_requests: &mut Vec<T>, build: impl FnOnce() -> T) {
     // TODO: implement deduplication check when we have a way to track preloaded assets
     remote_requests.push(build());
 }
@@ -70,7 +66,11 @@ struct OpenverseTokenResponse {
     access_token: String,
 }
 
-pub fn preload_image_sources<I>(catalog: &mut opencat_core::resource::hash_map_catalog::HashMapResourceCatalog, path_store: &mut crate::resource::path_store::AssetPathStore, sources: I) -> Result<()>
+pub fn preload_image_sources<I>(
+    catalog: &mut opencat_core::resource::hash_map_catalog::HashMapResourceCatalog,
+    path_store: &mut crate::resource::path_store::AssetPathStore,
+    sources: I,
+) -> Result<()>
 where
     I: IntoIterator<Item = ImageSource>,
 {
@@ -127,7 +127,11 @@ where
     Ok(())
 }
 
-pub fn preload_audio_sources<I>(catalog: &mut opencat_core::resource::hash_map_catalog::HashMapResourceCatalog, path_store: &mut AssetPathStore, sources: I) -> Result<()>
+pub fn preload_audio_sources<I>(
+    catalog: &mut opencat_core::resource::hash_map_catalog::HashMapResourceCatalog,
+    path_store: &mut AssetPathStore,
+    sources: I,
+) -> Result<()>
 where
     I: IntoIterator<Item = AudioSource>,
 {

@@ -401,7 +401,7 @@ fn draw_iris_transition(
     let oval = RRect::new_oval(oval_rect);
 
     canvas.save();
-    canvas.clip_rrect(&oval, None, Some(true));
+    canvas.clip_rrect(oval, None, Some(true));
     canvas.draw_picture(to, None, None);
     canvas.restore();
 
@@ -618,8 +618,9 @@ fn gl_transition_glsl_to_sksl(
     let mut source = expand_defines(glsl);
     source = strip_precision_blocks(&source);
     source = replace_transition_uniforms(&source, default_params, params_types)?;
-    source = source.replace("getFromColor", "getFromColor");
-    source = source.replace("getToColor", "getToColor");
+    // Note: These replace calls are no-ops but kept for documentation
+    // source = source.replace("getFromColor", "getFromColor");
+    // source = source.replace("getToColor", "getToColor");
     source = replace_glsl_types(&source);
     source = source.replace("float2(1.0).xy", "float2(1.0)");
     source = replace_swizzle(&source, "uv.xy", "uv");
@@ -744,21 +745,23 @@ fn expand_func_macro(src: &str, name: &str, params: &[String], body: &str) -> St
             let abs = i + pos;
             let after_name = abs + name.len();
             let before_ok = abs == 0 || !is_word_char(bytes[abs - 1]);
-            if before_ok && after_name < src.len() && bytes[after_name] == b'(' {
-                if let Some(close) = find_matching_paren(src, after_name) {
-                    let args_str = &src[after_name + 1..close];
-                    let args = split_args(args_str);
-                    let mut expanded = body.to_string();
-                    for (pi, param) in params.iter().enumerate() {
-                        if let Some(arg) = args.get(pi) {
-                            expanded = replace_word(&expanded, param, arg);
-                        }
+            if before_ok
+                && after_name < src.len()
+                && bytes[after_name] == b'('
+                && let Some(close) = find_matching_paren(src, after_name)
+            {
+                let args_str = &src[after_name + 1..close];
+                let args = split_args(args_str);
+                let mut expanded = body.to_string();
+                for (pi, param) in params.iter().enumerate() {
+                    if let Some(arg) = args.get(pi) {
+                        expanded = replace_word(&expanded, param, arg);
                     }
-                    result.push_str(&src[i..abs]);
-                    result.push_str(&expanded);
-                    i = close + 1;
-                    continue;
                 }
+                result.push_str(&src[i..abs]);
+                result.push_str(&expanded);
+                i = close + 1;
+                continue;
             }
             result.push_str(&src[i..after_name]);
             i = after_name;
@@ -796,24 +799,23 @@ fn expand_defines(input: &str) -> String {
                 continue;
             }
             let after_name = rest[name_end..].trim_start();
-            if after_name.starts_with('(') {
-                let inner = &after_name[1..];
-                if let Some(close) = inner.find(')') {
-                    let params_str = inner[..close].trim();
-                    let params: Vec<String> = params_str
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    let raw_body = inner[close + 1..].trim();
-                    let body = raw_body
-                        .split_once("//")
-                        .map(|(code, _)| code.trim())
-                        .unwrap_or(raw_body)
-                        .to_string();
-                    func_defines.push((name.to_string(), params, body));
-                    continue;
-                }
+            if let Some(inner) = after_name.strip_prefix('(')
+                && let Some(close) = inner.find(')')
+            {
+                let params_str = inner[..close].trim();
+                let params: Vec<String> = params_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                let raw_body = inner[close + 1..].trim();
+                let body = raw_body
+                    .split_once("//")
+                    .map(|(code, _)| code.trim())
+                    .unwrap_or(raw_body)
+                    .to_string();
+                func_defines.push((name.to_string(), params, body));
+                continue;
             }
             let value = after_name
                 .split_once("//")
@@ -1110,9 +1112,7 @@ fn is_inlineable_global(trimmed: &str) -> Option<(String, String)> {
     if !trimmed.ends_with(';') || !trimmed.contains('=') {
         return None;
     }
-    let Some((left, right)) = trimmed.split_once('=') else {
-        return None;
-    };
+    let (left, right) = trimmed.split_once('=')?;
     if left.contains('(') {
         return None;
     }
@@ -1134,13 +1134,13 @@ fn inline_global_initializers(input: &str) -> String {
     let mut brace_depth = 0_i32;
 
     for line in input.lines() {
-        if brace_depth == 0 {
-            if let Some(pair) = is_inlineable_global(line.trim()) {
-                hoistable.push(pair);
-                brace_depth += line.chars().filter(|c| *c == '{').count() as i32;
-                brace_depth -= line.chars().filter(|c| *c == '}').count() as i32;
-                continue;
-            }
+        if brace_depth == 0
+            && let Some(pair) = is_inlineable_global(line.trim())
+        {
+            hoistable.push(pair);
+            brace_depth += line.chars().filter(|c| *c == '{').count() as i32;
+            brace_depth -= line.chars().filter(|c| *c == '}').count() as i32;
+            continue;
         }
         kept.push(line.to_string());
         brace_depth += line.chars().filter(|c| *c == '{').count() as i32;

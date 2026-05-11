@@ -182,14 +182,15 @@ impl VideoDecoder {
         // (no decode work). This is the common path when a video is shown at
         // multiple sizes in the same composition frame, or when a preceding
         // path decoded the frame at source resolution.
-        if same_time && !same_size {
-            if let Some(source) = self.current_source.clone() {
-                self.update_scaled_frame(&source, self.current_pts_secs, target_size)?;
-                return Ok(self
-                    .current_frame
-                    .clone()
-                    .expect("scaled frame just produced"));
-            }
+        if same_time
+            && !same_size
+            && let Some(source) = self.current_source.clone()
+        {
+            self.update_scaled_frame(&source, self.current_pts_secs, target_size)?;
+            return Ok(self
+                .current_frame
+                .clone()
+                .expect("scaled frame just produced"));
         }
 
         if self.should_seek_to_target(target_secs, quality) {
@@ -636,7 +637,7 @@ fn append_packed_stereo_samples(frame: &frame::Audio, output: &mut Vec<f32>) {
 }
 
 fn pack_rgba(frame: &ffmpeg::frame::Video, width: u32, height: u32) -> Vec<u8> {
-    let stride = frame.stride(0) as usize;
+    let stride = frame.stride(0);
     let row_bytes = width as usize * 4;
     let mut packed = Vec::with_capacity(row_bytes * height as usize);
     for y in 0..height as usize {

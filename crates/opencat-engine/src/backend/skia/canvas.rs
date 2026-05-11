@@ -112,6 +112,7 @@ pub struct SkiaBackend<'a> {
 }
 
 impl<'a> SkiaBackend<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_cache(
         canvas: &'a Canvas,
         _width: i32,
@@ -418,6 +419,7 @@ impl<'a> SkiaBackend<'a> {
         result
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_live_ordered_subtree_after_transform(
         &mut self,
         handle: AnnotatedNodeHandle,
@@ -931,6 +933,7 @@ impl<'a> SkiaBackend<'a> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_ordered_scene_cached<'a>(
     display_tree: &AnnotatedDisplayTree,
     ordered_scene: &OrderedSceneProgram,
@@ -965,6 +968,7 @@ pub(crate) fn draw_ordered_scene_cached<'a>(
     backend.draw_ordered_scene(ordered_scene)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn record_display_tree_snapshot<'a>(
     display_tree: &AnnotatedDisplayTree,
     width: i32,
@@ -1306,6 +1310,7 @@ fn should_cache_item_picture(item: &DisplayItem) -> bool {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_item_picture_cached(
     canvas: &Canvas,
     item: &DisplayItem,
@@ -1356,6 +1361,7 @@ fn draw_item_picture_cached(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn record_item_picture(
     item: &DisplayItem,
     catalog: &HashMapResourceCatalog,
@@ -1395,6 +1401,7 @@ fn record_item_picture(
         .ok_or_else(|| anyhow!("failed to record item picture"))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_display_item_direct(
     canvas: &Canvas,
     item: &DisplayItem,
@@ -2255,10 +2262,10 @@ fn stroke_paint_for_draw_script(state: &DrawScriptPaintState) -> Paint {
         ScriptLineJoin::Round => skia_safe::paint::Join::Round,
         ScriptLineJoin::Bevel => skia_safe::paint::Join::Bevel,
     });
-    if let Some(intervals) = &state.line_dash {
-        if let Some(path_effect) = skia_safe::PathEffect::dash(intervals, state.line_dash_phase) {
-            paint.set_path_effect(path_effect);
-        }
+    if let Some(intervals) = &state.line_dash
+        && let Some(path_effect) = skia_safe::PathEffect::dash(intervals, state.line_dash_phase)
+    {
+        paint.set_path_effect(path_effect);
     }
     paint
 }
@@ -2749,12 +2756,12 @@ fn draw_svg_path(canvas: &Canvas, item: &SvgPathDisplayItem) {
         paint.set_stroke_width(width);
         paint.set_stroke_cap(skia_safe::paint::Cap::Round);
         paint.set_stroke_join(skia_safe::paint::Join::Round);
-        if let Some(dash_len) = item.paint.stroke_dasharray {
-            if dash_len > 0.0 {
-                let offset = item.paint.stroke_dashoffset.unwrap_or(0.0);
-                if let Some(effect) = skia_safe::PathEffect::dash(&[dash_len, dash_len], offset) {
-                    paint.set_path_effect(effect);
-                }
+        if let Some(dash_len) = item.paint.stroke_dasharray
+            && dash_len > 0.0
+        {
+            let offset = item.paint.stroke_dashoffset.unwrap_or(0.0);
+            if let Some(effect) = skia_safe::PathEffect::dash(&[dash_len, dash_len], offset) {
+                paint.set_path_effect(effect);
             }
         }
         Some(paint)

@@ -154,11 +154,11 @@ fn resolve_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
         let mut current_specs = composition
             .audio_sources()
             .iter()
-            .cloned()
             .filter(|spec| match &spec.attach {
                 AudioAttachment::Timeline => true,
                 AudioAttachment::Scene { scene_id } => active_scene_ids.contains(scene_id),
             })
+            .cloned()
             .collect::<HashSet<_>>();
         current_specs.retain(|spec| {
             let Some(start_frame) = active_specs.get(spec).copied() else {

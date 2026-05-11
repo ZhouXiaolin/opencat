@@ -1,4 +1,4 @@
-//! 兼容别名 + 远程预加载入口；纯映射逻辑迁移到 asset_catalog.rs。
+//! Remote asset preloading entry point.
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -16,9 +16,7 @@ use opencat_core::resource::asset_id::{
 use opencat_core::resource::catalog::ResourceCatalog;
 use opencat_core::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
 
-pub use crate::resource::asset_catalog::{
-    AssetEntry, asset_id_for_audio_path, cache_file_path, read_image_dimensions,
-};
+pub use crate::resource::utils::{asset_id_for_audio_path, cache_file_path, read_image_dimensions};
 pub use opencat_core::resource::asset_id::AssetId;
 
 const OPENVERSE_IMAGES_ENDPOINT: &str = "https://api.openverse.org/v1/images/";
@@ -86,7 +84,7 @@ where
             ImageSource::Path(path) => {
                 let id = catalog.resolve_image(&ImageSource::Path(path.clone()))?;
                 let locator = path.to_string_lossy();
-                let (width, height) = crate::resource::asset_catalog::read_image_dimensions(&path);
+                let (width, height) = crate::resource::utils::read_image_dimensions(&path);
                 catalog.register_dimensions(&locator, width, height);
                 path_store.insert(id, path);
             }

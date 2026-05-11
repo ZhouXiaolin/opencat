@@ -14,7 +14,7 @@ pub struct FrameBitmap {
     pub height: u32,
 }
 
-pub trait VideoFrameProvider {
+pub trait VideoFrameProvider: std::any::Any {
     /// Get RGBA bitmap for video `id` at `frame` index.
     /// Returns Err if asset not preloaded.
     fn frame_rgba(&mut self, id: &AssetId, frame: u32) -> Result<FrameBitmap>;

@@ -2,11 +2,11 @@ use std::sync::{Arc, Mutex};
 
 use rquickjs::Function;
 
-use opencat_core::script::recorder::{MutationRecorder, MutationStore};
 use opencat_core::scene::script::mutations::{
     CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin, ScriptPointMode,
 };
 use opencat_core::scene::script::object_fit_from_name;
+use opencat_core::script::recorder::{MutationRecorder, MutationStore};
 
 fn line_cap_from_name(name: &str) -> Option<ScriptLineCap> {
     match name {
@@ -447,10 +447,7 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                 let color = parse_color(&color, "drawPaint")?;
                 let mut guard = s.lock().unwrap();
                 let rec = &mut *guard as &mut dyn MutationRecorder;
-                rec.record_canvas_command(
-                    &id,
-                    CanvasCommand::DrawPaint { color, anti_alias },
-                );
+                rec.record_canvas_command(&id, CanvasCommand::DrawPaint { color, anti_alias });
                 Ok::<_, rquickjs::Error>(())
             },
         )?,

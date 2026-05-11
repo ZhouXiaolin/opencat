@@ -29,4 +29,5 @@ pub use opencat_core::scene::script::ScriptDriver;
 pub use opencat_core::scene::transition::{fade, timeline};
 
 // Re-export engine types used in tests via `crate::` path
-pub use crate::runtime::session::RenderSession;
+// RenderSession is now a type alias for the core generic session monomorphised with EnginePlatform.
+pub use crate::render::RenderSession;

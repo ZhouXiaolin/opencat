@@ -13,6 +13,7 @@ use crate::{
     runtime::cache::{GlyphImageCache, GlyphPathCache},
 };
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_text(
     canvas: &Canvas,
     text: &str,
@@ -79,6 +80,7 @@ pub(crate) fn draw_text(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_text_with_unit_overrides(
     canvas: &Canvas,
     text: &str,
@@ -266,10 +268,10 @@ pub(crate) fn draw_text_with_unit_overrides(
                 unit_canvas.draw_path(path, &paint);
                 unit_canvas.restore();
             }
-            if let Some(ref img) = g.color_image {
-                if let Some(ref ir) = g.img_rect {
-                    unit_canvas.draw_image(img, (ir.left(), ir.top()), Some(&paint));
-                }
+            if let Some(ref img) = g.color_image
+                && let Some(ref ir) = g.img_rect
+            {
+                unit_canvas.draw_image(img, (ir.left(), ir.top()), Some(&paint));
             }
         }
 
@@ -305,6 +307,7 @@ pub(crate) fn draw_text_with_unit_overrides(
 
 // ── Skia-specific conversion helpers ──────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn draw_single_glyph(
     canvas: &Canvas,
     glyph_data: &GlyphData,

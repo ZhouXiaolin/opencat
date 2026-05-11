@@ -10,7 +10,7 @@ use opencat_core::resource::asset_id::AssetId;
 use opencat_core::scene::node::{Node, NodeKind};
 use opencat_core::scene::path_bounds::PathBoundsComputer;
 use opencat_core::scene::primitives::ImageSource;
-use opencat_core::scene::time::{FrameState, frame_state_for_root};
+use opencat_core::scene::time::FrameState;
 
 use crate::backend::skia::renderer::{SkiaRenderData, SkiaRenderEngine};
 use crate::resource::media::MediaContext;
@@ -118,7 +118,7 @@ impl Platform for EnginePlatform {
     type Video = MediaContext;
 
     fn render_engine(&self) -> &Self::Backend {
-        &*self.backend
+        &self.backend
     }
     fn script_host(&mut self) -> &mut Self::Script {
         &mut self.script

@@ -36,6 +36,7 @@ impl Default for Mp4Config {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn encode_rgba_frames(
     output_path: impl AsRef<Path>,
     width: u32,

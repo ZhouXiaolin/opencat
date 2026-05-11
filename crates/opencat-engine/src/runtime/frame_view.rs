@@ -19,6 +19,7 @@ impl RenderFrameView {
         Ok(Self { kind, raw })
     }
 
+    #[allow(dead_code)]
     pub(crate) fn kind(self) -> RenderFrameViewKind {
         self.kind
     }

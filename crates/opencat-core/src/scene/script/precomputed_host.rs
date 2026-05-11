@@ -1,9 +1,11 @@
-use std::collections::HashMap;
-use anyhow::{Result, anyhow};
 use crate::frame_ctx::ScriptFrameCtx;
-use crate::scene::script::{NodeStyleMutations, ScriptDriverId, ScriptHost, ScriptTextSource, StyleMutations};
+use crate::scene::script::{
+    NodeStyleMutations, ScriptDriverId, ScriptHost, ScriptTextSource, StyleMutations,
+};
 use crate::script::recorder::{MutationRecorder, TextUnitValues};
 use crate::style::Transform;
+use anyhow::{Result, anyhow};
+use std::collections::HashMap;
 
 /// ScriptHost that reads from precomputed mutations.
 /// Web side runs scripts natively in JS and passes mutations via insert().
@@ -84,7 +86,11 @@ impl ScriptHost for PrecomputedScriptHost {
     }
 }
 
-pub fn apply_node_to_recorder(recorder: &mut dyn MutationRecorder, id: &str, m: &NodeStyleMutations) {
+pub fn apply_node_to_recorder(
+    recorder: &mut dyn MutationRecorder,
+    id: &str,
+    m: &NodeStyleMutations,
+) {
     if let Some(v) = m.opacity {
         recorder.record_opacity(id, v);
     }
@@ -262,15 +268,17 @@ pub fn apply_node_to_recorder(recorder: &mut dyn MutationRecorder, id: &str, m: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::script::{NodeStyleMutations, StyleMutations, ScriptHost};
+    use crate::scene::script::{NodeStyleMutations, ScriptHost, StyleMutations};
     use crate::script::recorder::MutationStore;
     use std::collections::HashMap;
 
     #[test]
     fn from_single_and_returns_mutations() {
         let mut node_mutations = HashMap::new();
-        let mut node_muts = NodeStyleMutations::default();
-        node_muts.opacity = Some(0.5);
+        let node_muts = NodeStyleMutations {
+            opacity: Some(0.5),
+            ..Default::default()
+        };
         node_mutations.insert("node1".to_string(), node_muts);
 
         let mutations = StyleMutations {
@@ -281,7 +289,8 @@ mod tests {
         let mut host = PrecomputedScriptHost::from_single(mutations);
         let id = host.install("test script").unwrap();
         let mut store = MutationStore::default();
-        host.run_frame(id, &Default::default(), None, &mut store).unwrap();
+        host.run_frame(id, &Default::default(), None, &mut store)
+            .unwrap();
         let snapshot = store.snapshot_mutations();
         let node_muts = snapshot.mutations.get("node1").unwrap();
         assert_eq!(node_muts.opacity, Some(0.5));
@@ -302,17 +311,23 @@ mod tests {
         let mut host = PrecomputedScriptHost::from_single(StyleMutations::default());
         let id = host.install("script").unwrap();
         let mut store = MutationStore::default();
-        host.run_frame(id, &Default::default(), None, &mut store).unwrap();
-        assert!(host.run_frame(id, &Default::default(), None, &mut store).is_err());
+        host.run_frame(id, &Default::default(), None, &mut store)
+            .unwrap();
+        assert!(
+            host.run_frame(id, &Default::default(), None, &mut store)
+                .is_err()
+        );
     }
 
     #[test]
     fn from_json_parses_and_returns_mutations() {
-        let json = r#"{"mutations":{"node1":{"opacity":0.5,"transforms":[]}},"canvasMutations":{}}"#;
+        let json =
+            r#"{"mutations":{"node1":{"opacity":0.5,"transforms":[]}},"canvasMutations":{}}"#;
         let mut host = PrecomputedScriptHost::from_json(json).unwrap();
         let id = host.install("test script").unwrap();
         let mut store = MutationStore::default();
-        host.run_frame(id, &Default::default(), None, &mut store).unwrap();
+        host.run_frame(id, &Default::default(), None, &mut store)
+            .unwrap();
         let snapshot = store.snapshot_mutations();
         let node_muts = snapshot.mutations.get("node1").unwrap();
         assert_eq!(node_muts.opacity, Some(0.5));

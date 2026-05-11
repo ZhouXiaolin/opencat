@@ -16,12 +16,8 @@ pub struct ResourceRequests {
 
 pub fn collect_resource_requests(composition: &Composition) -> ResourceRequests {
     let mut req = ResourceRequests::default();
-    req.audio_sources.extend(
-        composition
-            .audio_sources()
-            .iter()
-            .map(|a| a.source.clone()),
-    );
+    req.audio_sources
+        .extend(composition.audio_sources().iter().map(|a| a.source.clone()));
 
     for frame in 0..composition.frames {
         let frame_ctx = FrameCtx {
@@ -57,11 +53,7 @@ pub(crate) fn collect_sources_from_frame_state(
     }
 }
 
-pub(crate) fn collect_sources(
-    node: &Node,
-    frame_ctx: &FrameCtx,
-    req: &mut ResourceRequests,
-) {
+pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut ResourceRequests) {
     match node.kind() {
         NodeKind::Component(component) => {
             let rendered = component.render(frame_ctx);
@@ -87,15 +79,10 @@ pub(crate) fn collect_sources(
         NodeKind::Video(video) => {
             req.video_paths.insert(video.source().to_path_buf());
         }
-        NodeKind::Timeline(_) => collect_sources_from_frame_state(
-            &frame_state_for_root(node, frame_ctx),
-            frame_ctx,
-            req,
-        ),
-        NodeKind::Text(_)
-        | NodeKind::Lucide(_)
-        | NodeKind::Path(_)
-        | NodeKind::Caption(_) => {}
+        NodeKind::Timeline(_) => {
+            collect_sources_from_frame_state(&frame_state_for_root(node, frame_ctx), frame_ctx, req)
+        }
+        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Path(_) | NodeKind::Caption(_) => {}
     }
 }
 
@@ -104,7 +91,10 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::scene::{composition::Composition, primitives::{div, image, video}};
+    use crate::scene::{
+        composition::Composition,
+        primitives::{div, image, video},
+    };
 
     #[test]
     fn collects_image_audio_video_distinctly() {

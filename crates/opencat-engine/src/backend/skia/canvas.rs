@@ -7,18 +7,15 @@ use skia_safe::{
 };
 use tracing::{Level, event, span};
 
+use crate::resource::asset_catalog::AssetCatalog;
 use opencat_core::display::list::{
     BitmapDisplayItem, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem,
     RectDisplayItem, SvgPathDisplayItem, TextDisplayItem, TimelineDisplayItem,
 };
 use opencat_core::frame_ctx::FrameCtx;
-use opencat_core::resource::{
-    bitmap_source::{BitmapSourceKind, bitmap_source_kind},
-};
-use crate::resource::asset_catalog::AssetCatalog;
+use opencat_core::resource::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
 use opencat_core::scene::script::{
-    CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin,
-    ScriptPointMode,
+    CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin, ScriptPointMode,
 };
 use opencat_core::style::{
     BackgroundFill, BoxShadow, DropShadow, GradientDirection, InsetShadow, ObjectFit, Transform,
@@ -32,12 +29,13 @@ use crate::{
     },
 };
 
-use opencat_core::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle, RecordedNodeSemantics};
-use opencat_core::runtime::fingerprint::{
-    SubtreeSnapshotFingerprint, item_paint_fingerprint,
-    subtree_has_dirty_descendant_composite,
-};
 use crate::runtime::compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram};
+use opencat_core::runtime::annotation::{
+    AnnotatedDisplayTree, AnnotatedNodeHandle, RecordedNodeSemantics,
+};
+use opencat_core::runtime::fingerprint::{
+    SubtreeSnapshotFingerprint, item_paint_fingerprint, subtree_has_dirty_descendant_composite,
+};
 
 use super::{
     color::{script_color, skia_color},
@@ -470,8 +468,7 @@ impl<'a> SkiaBackend<'a> {
         if should_cache_item_picture(item)
             && let Some(cache_key) = item_paint_fingerprint(item)
         {
-            let cached_span =
-                span!(target: "render.backend", Level::TRACE, "draw_item_cached");
+            let cached_span = span!(target: "render.backend", Level::TRACE, "draw_item_cached");
             let _cached_guard = cached_span.enter();
             let stats = draw_item_picture_cached(
                 self.canvas,
@@ -534,8 +531,7 @@ impl<'a> SkiaBackend<'a> {
     fn draw_display_item_uncached(&mut self, item: &DisplayItem) -> Result<()> {
         match item {
             DisplayItem::Rect(rect) => {
-                let kind_span =
-                    span!(target: "render.backend", Level::TRACE, "draw_item_rect");
+                let kind_span = span!(target: "render.backend", Level::TRACE, "draw_item_rect");
                 let _kind_guard = kind_span.enter();
                 if let Some(shadow) = rect.paint.box_shadow {
                     draw_box_shadow(self.canvas, rect.bounds, rect.paint.border_radius, shadow);
@@ -550,28 +546,35 @@ impl<'a> SkiaBackend<'a> {
                 event!(target: "render.draw", Level::TRACE, kind = "draw", name = "rect", result = "count", amount = 1_u64);
             }
             DisplayItem::Timeline(timeline) => {
-                let kind_span =
-                    span!(target: "render.backend", Level::TRACE, "draw_item_timeline");
+                let kind_span = span!(target: "render.backend", Level::TRACE, "draw_item_timeline");
                 let _kind_guard = kind_span.enter();
                 draw_timeline_base(self.canvas, timeline)?;
                 event!(target: "render.draw", Level::TRACE, kind = "draw", name = "timeline", result = "count", amount = 1_u64);
             }
             DisplayItem::Text(text) => {
-                let kind_span =
-                    span!(target: "render.backend", Level::TRACE, "draw_item_text");
+                let kind_span = span!(target: "render.backend", Level::TRACE, "draw_item_text");
                 let _kind_guard = kind_span.enter();
                 if let Some(shadow) = text.drop_shadow {
                     draw_item_drop_shadow(self.canvas, text.bounds, shadow, |canvas| {
-                        draw_text(canvas, text, &self.glyph_path_cache, &self.glyph_image_cache);
+                        draw_text(
+                            canvas,
+                            text,
+                            &self.glyph_path_cache,
+                            &self.glyph_image_cache,
+                        );
                         Ok(())
                     })?;
                 }
-                draw_text(self.canvas, text, &self.glyph_path_cache, &self.glyph_image_cache);
+                draw_text(
+                    self.canvas,
+                    text,
+                    &self.glyph_path_cache,
+                    &self.glyph_image_cache,
+                );
                 event!(target: "render.draw", Level::TRACE, kind = "draw", name = "text", result = "count", amount = 1_u64);
             }
             DisplayItem::Bitmap(bitmap) => {
-                let kind_span =
-                    span!(target: "render.backend", Level::TRACE, "draw_item_bitmap");
+                let kind_span = span!(target: "render.backend", Level::TRACE, "draw_item_bitmap");
                 let _kind_guard = kind_span.enter();
                 if let Some(shadow) = bitmap.paint.box_shadow {
                     draw_box_shadow(
@@ -610,8 +613,7 @@ impl<'a> SkiaBackend<'a> {
                 event!(target: "render.cache", Level::TRACE, kind = "cache", name = "video_frame", result = "decode", amount = stats.video_frame_decodes as u64);
             }
             DisplayItem::DrawScript(script) => {
-                let kind_span =
-                    span!(target: "render.backend", Level::TRACE, "draw_item_script");
+                let kind_span = span!(target: "render.backend", Level::TRACE, "draw_item_script");
                 let _kind_guard = kind_span.enter();
                 if let Some(shadow) = script.drop_shadow {
                     draw_item_drop_shadow(self.canvas, script.bounds, shadow, |canvas| {
@@ -636,8 +638,7 @@ impl<'a> SkiaBackend<'a> {
                 event!(target: "render.draw", Level::TRACE, kind = "draw", name = "script", result = "count", amount = 1_u64);
             }
             DisplayItem::SvgPath(svg) => {
-                let kind_span =
-                    span!(target: "render.backend", Level::TRACE, "draw_item_svg");
+                let kind_span = span!(target: "render.backend", Level::TRACE, "draw_item_svg");
                 let _kind_guard = kind_span.enter();
                 if let Some(shadow) = svg.paint.drop_shadow {
                     draw_item_drop_shadow(self.canvas, svg.bounds, shadow, |canvas| {
@@ -1486,11 +1487,7 @@ fn draw_bitmap(
         let media = media_ctx
             .as_deref_mut()
             .ok_or_else(|| anyhow!("video asset requires media context: {}", path.display()))?;
-        let target_size = video_frame_target_size(
-            media.video_info(path)?,
-            dst,
-            bitmap.object_fit,
-        );
+        let target_size = video_frame_target_size(media.video_info(path)?, dst, bitmap.object_fit);
         let request = bitmap
             .video_timing
             .map(|timing| VideoFrameRequest {
@@ -2795,7 +2792,11 @@ fn color4f_from_token(token: opencat_core::style::ColorToken) -> Color4f {
     )
 }
 
-fn clip_bounds(canvas: &Canvas, bounds: DisplayRect, border_radius: opencat_core::style::BorderRadius) {
+fn clip_bounds(
+    canvas: &Canvas,
+    bounds: DisplayRect,
+    border_radius: opencat_core::style::BorderRadius,
+) {
     let rect = layout_rect_to_skia(bounds);
     let radii = effective_corner_radius(rect, border_radius);
     if radii.iter().any(|&r| r > 0.0) {
@@ -2929,10 +2930,18 @@ mod promotion_tests {
     #[test]
     fn detects_non_unit_scale_transforms() {
         assert!(!transform_list_has_non_unit_scale(&[]));
-        assert!(!transform_list_has_non_unit_scale(&[Transform::Scale { value: 1.0 }]));
-        assert!(transform_list_has_non_unit_scale(&[Transform::Scale { value: 1.25 }]));
-        assert!(transform_list_has_non_unit_scale(&[Transform::ScaleX { value: 0.8 }]));
-        assert!(transform_list_has_non_unit_scale(&[Transform::ScaleY { value: 1.1 }]));
+        assert!(!transform_list_has_non_unit_scale(&[Transform::Scale {
+            value: 1.0
+        }]));
+        assert!(transform_list_has_non_unit_scale(&[Transform::Scale {
+            value: 1.25
+        }]));
+        assert!(transform_list_has_non_unit_scale(&[Transform::ScaleX {
+            value: 0.8
+        }]));
+        assert!(transform_list_has_non_unit_scale(&[Transform::ScaleY {
+            value: 1.1
+        }]));
         assert!(!transform_list_has_non_unit_scale(&[
             Transform::TranslateX { value: 20.0 }
         ]));
@@ -2996,10 +3005,12 @@ mod text_draw_tests {
     use skia_safe::surfaces;
 
     use super::draw_text;
-    use opencat_core::display::list::{DisplayRect, TextDisplayItem};
-    use opencat_core::scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch};
-    use opencat_core::style::ComputedTextStyle;
     use crate::runtime::cache::{GlyphImageCache, GlyphPathCache, lru::BoundedLruCache};
+    use opencat_core::display::list::{DisplayRect, TextDisplayItem};
+    use opencat_core::scene::script::{
+        TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch,
+    };
+    use opencat_core::style::ComputedTextStyle;
 
     fn rect_bounds() -> DisplayRect {
         DisplayRect {
@@ -3012,10 +3023,8 @@ mod text_draw_tests {
 
     #[test]
     fn draw_text_renders_plain_text() {
-        let path_cache: GlyphPathCache =
-            Rc::new(RefCell::new(BoundedLruCache::new(4096)));
-        let image_cache: GlyphImageCache =
-            Rc::new(RefCell::new(BoundedLruCache::new(1024)));
+        let path_cache: GlyphPathCache = Rc::new(RefCell::new(BoundedLruCache::new(4096)));
+        let image_cache: GlyphImageCache = Rc::new(RefCell::new(BoundedLruCache::new(1024)));
         let mut surface = surfaces::raster_n32_premul((256, 128)).expect("surface");
         surface.canvas().clear(skia_safe::Color::TRANSPARENT);
 
@@ -3035,7 +3044,9 @@ mod text_draw_tests {
         draw_text(surface.canvas(), &plain, &path_cache, &image_cache);
 
         let image = surface.image_snapshot();
-        let pixels = image.peek_pixels().expect("raster image should expose pixels");
+        let pixels = image
+            .peek_pixels()
+            .expect("raster image should expose pixels");
         let has_visible = pixels
             .bytes()
             .expect("pixels should expose bytes")
@@ -3046,10 +3057,8 @@ mod text_draw_tests {
 
     #[test]
     fn draw_text_with_unit_overrides_renders_visible_pixels() {
-        let path_cache: GlyphPathCache =
-            Rc::new(RefCell::new(BoundedLruCache::new(4096)));
-        let image_cache: GlyphImageCache =
-            Rc::new(RefCell::new(BoundedLruCache::new(1024)));
+        let path_cache: GlyphPathCache = Rc::new(RefCell::new(BoundedLruCache::new(4096)));
+        let image_cache: GlyphImageCache = Rc::new(RefCell::new(BoundedLruCache::new(1024)));
         let mut surface = surfaces::raster_n32_premul((256, 128)).expect("surface");
         surface.canvas().clear(skia_safe::Color::TRANSPARENT);
 

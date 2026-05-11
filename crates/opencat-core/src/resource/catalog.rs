@@ -22,8 +22,8 @@ pub trait ResourceCatalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::TestCatalog;
     use crate::scene::primitives::ImageSource;
+    use crate::test_support::TestCatalog;
 
     #[test]
     fn assets_map_implements_resource_catalog_register_dimensions_returns_stable_id() {
@@ -38,8 +38,12 @@ mod tests {
     fn assets_map_resolve_image_returns_stable_id_for_path() {
         let mut catalog = TestCatalog::new();
         let src = ImageSource::Path(std::path::PathBuf::from("/tmp/b.png"));
-        let id1 = (&mut catalog as &mut dyn ResourceCatalog).resolve_image(&src).unwrap();
-        let id2 = (&mut catalog as &mut dyn ResourceCatalog).resolve_image(&src).unwrap();
+        let id1 = (&mut catalog as &mut dyn ResourceCatalog)
+            .resolve_image(&src)
+            .unwrap();
+        let id2 = (&mut catalog as &mut dyn ResourceCatalog)
+            .resolve_image(&src)
+            .unwrap();
         assert_eq!(id1, id2);
     }
 

@@ -82,6 +82,12 @@ impl TestCatalog {
     }
 }
 
+impl Default for TestCatalog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResourceCatalog for TestCatalog {
     fn resolve_image(&mut self, src: &ImageSource) -> anyhow::Result<AssetId> {
         self.register_image_source(src)
@@ -115,25 +121,14 @@ pub struct MockScriptHost {
 }
 
 impl crate::scene::script::ScriptHost for MockScriptHost {
-    fn install(
-        &mut self,
-        source: &str,
-    ) -> anyhow::Result<crate::scene::script::ScriptDriverId> {
-        let id = *self
-            .map
-            .entry(source.to_string())
-            .or_insert_with(|| {
-                self.next_id += 1;
-                self.next_id
-            });
+    fn install(&mut self, source: &str) -> anyhow::Result<crate::scene::script::ScriptDriverId> {
+        let id = *self.map.entry(source.to_string()).or_insert_with(|| {
+            self.next_id += 1;
+            self.next_id
+        });
         Ok(crate::scene::script::ScriptDriverId(id))
     }
-    fn register_text_source(
-        &mut self,
-        _: &str,
-        _: crate::scene::script::ScriptTextSource,
-    ) {
-    }
+    fn register_text_source(&mut self, _: &str, _: crate::scene::script::ScriptTextSource) {}
     fn clear_text_sources(&mut self) {}
     fn run_frame(
         &mut self,

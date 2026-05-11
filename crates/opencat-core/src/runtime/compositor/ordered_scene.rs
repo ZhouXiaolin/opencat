@@ -1,7 +1,8 @@
 use crate::runtime::{
     annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle},
-    compositor::{
-        reuse::{LiveNodeItemExecution, StableNodeReuse, analyze_live_node_item_execution, analyze_stable_node_reuse},
+    compositor::reuse::{
+        LiveNodeItemExecution, StableNodeReuse, analyze_live_node_item_execution,
+        analyze_stable_node_reuse,
     },
 };
 

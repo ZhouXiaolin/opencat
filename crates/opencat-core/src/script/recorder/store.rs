@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use super::{MutationRecorder, TextUnitValues};
+use crate::scene::script::ScriptTextSource;
 use crate::scene::script::mutations::{
     CanvasCommand, CanvasMutations, NodeStyleMutations, StyleMutations, TextUnitGranularity,
     TextUnitOverride, TextUnitOverrideBatch,
 };
-use crate::scene::script::ScriptTextSource;
 use crate::style::{
     AlignItems, BorderStyle, BoxShadow, ColorToken, DropShadow, FlexDirection, FontWeight,
     InsetShadow, JustifyContent, ObjectFit, Position, TextAlign, Transform,
@@ -34,51 +34,103 @@ impl MutationRecorder for MutationStore {
         self.entry(id).opacity = Some(v);
     }
     fn record_translate(&mut self, id: &str, x: f32, y: f32) {
-        self.entry(id).transforms.push(Transform::Translate { x, y });
+        self.entry(id)
+            .transforms
+            .push(Transform::Translate { x, y });
     }
     fn record_translate_x(&mut self, id: &str, v: f32) {
-        self.entry(id).transforms.push(Transform::TranslateX { value: v });
+        self.entry(id)
+            .transforms
+            .push(Transform::TranslateX { value: v });
     }
     fn record_translate_y(&mut self, id: &str, v: f32) {
-        self.entry(id).transforms.push(Transform::TranslateY { value: v });
+        self.entry(id)
+            .transforms
+            .push(Transform::TranslateY { value: v });
     }
     fn record_scale(&mut self, id: &str, v: f32) {
-        self.entry(id).transforms.push(Transform::Scale { value: v });
+        self.entry(id)
+            .transforms
+            .push(Transform::Scale { value: v });
     }
     fn record_scale_x(&mut self, id: &str, v: f32) {
-        self.entry(id).transforms.push(Transform::ScaleX { value: v });
+        self.entry(id)
+            .transforms
+            .push(Transform::ScaleX { value: v });
     }
     fn record_scale_y(&mut self, id: &str, v: f32) {
-        self.entry(id).transforms.push(Transform::ScaleY { value: v });
+        self.entry(id)
+            .transforms
+            .push(Transform::ScaleY { value: v });
     }
     fn record_rotate(&mut self, id: &str, deg: f32) {
-        self.entry(id).transforms.push(Transform::RotateDeg { value: deg });
+        self.entry(id)
+            .transforms
+            .push(Transform::RotateDeg { value: deg });
     }
     fn record_skew_x(&mut self, id: &str, deg: f32) {
-        self.entry(id).transforms.push(Transform::SkewXDeg { value: deg });
+        self.entry(id)
+            .transforms
+            .push(Transform::SkewXDeg { value: deg });
     }
     fn record_skew_y(&mut self, id: &str, deg: f32) {
-        self.entry(id).transforms.push(Transform::SkewYDeg { value: deg });
+        self.entry(id)
+            .transforms
+            .push(Transform::SkewYDeg { value: deg });
     }
     fn record_skew(&mut self, id: &str, x_deg: f32, y_deg: f32) {
-        self.entry(id).transforms.push(Transform::SkewDeg { x: x_deg, y: y_deg });
+        self.entry(id)
+            .transforms
+            .push(Transform::SkewDeg { x: x_deg, y: y_deg });
     }
-    fn record_left(&mut self, id: &str, v: f32) { self.entry(id).inset_left = Some(v); }
-    fn record_top(&mut self, id: &str, v: f32) { self.entry(id).inset_top = Some(v); }
-    fn record_right(&mut self, id: &str, v: f32) { self.entry(id).inset_right = Some(v); }
-    fn record_bottom(&mut self, id: &str, v: f32) { self.entry(id).inset_bottom = Some(v); }
-    fn record_width(&mut self, id: &str, v: f32) { self.entry(id).width = Some(v); }
-    fn record_height(&mut self, id: &str, v: f32) { self.entry(id).height = Some(v); }
-    fn record_padding(&mut self, id: &str, v: f32) { self.entry(id).padding = Some(v); }
-    fn record_padding_x(&mut self, id: &str, v: f32) { self.entry(id).padding_x = Some(v); }
-    fn record_padding_y(&mut self, id: &str, v: f32) { self.entry(id).padding_y = Some(v); }
-    fn record_margin(&mut self, id: &str, v: f32) { self.entry(id).margin = Some(v); }
-    fn record_margin_x(&mut self, id: &str, v: f32) { self.entry(id).margin_x = Some(v); }
-    fn record_margin_y(&mut self, id: &str, v: f32) { self.entry(id).margin_y = Some(v); }
-    fn record_gap(&mut self, id: &str, v: f32) { self.entry(id).gap = Some(v); }
-    fn record_flex_grow(&mut self, id: &str, v: f32) { self.entry(id).flex_grow = Some(v); }
-    fn record_border_radius(&mut self, id: &str, v: f32) { self.entry(id).border_radius = Some(v); }
-    fn record_border_width(&mut self, id: &str, v: f32) { self.entry(id).border_width = Some(v); }
+    fn record_left(&mut self, id: &str, v: f32) {
+        self.entry(id).inset_left = Some(v);
+    }
+    fn record_top(&mut self, id: &str, v: f32) {
+        self.entry(id).inset_top = Some(v);
+    }
+    fn record_right(&mut self, id: &str, v: f32) {
+        self.entry(id).inset_right = Some(v);
+    }
+    fn record_bottom(&mut self, id: &str, v: f32) {
+        self.entry(id).inset_bottom = Some(v);
+    }
+    fn record_width(&mut self, id: &str, v: f32) {
+        self.entry(id).width = Some(v);
+    }
+    fn record_height(&mut self, id: &str, v: f32) {
+        self.entry(id).height = Some(v);
+    }
+    fn record_padding(&mut self, id: &str, v: f32) {
+        self.entry(id).padding = Some(v);
+    }
+    fn record_padding_x(&mut self, id: &str, v: f32) {
+        self.entry(id).padding_x = Some(v);
+    }
+    fn record_padding_y(&mut self, id: &str, v: f32) {
+        self.entry(id).padding_y = Some(v);
+    }
+    fn record_margin(&mut self, id: &str, v: f32) {
+        self.entry(id).margin = Some(v);
+    }
+    fn record_margin_x(&mut self, id: &str, v: f32) {
+        self.entry(id).margin_x = Some(v);
+    }
+    fn record_margin_y(&mut self, id: &str, v: f32) {
+        self.entry(id).margin_y = Some(v);
+    }
+    fn record_gap(&mut self, id: &str, v: f32) {
+        self.entry(id).gap = Some(v);
+    }
+    fn record_flex_grow(&mut self, id: &str, v: f32) {
+        self.entry(id).flex_grow = Some(v);
+    }
+    fn record_border_radius(&mut self, id: &str, v: f32) {
+        self.entry(id).border_radius = Some(v);
+    }
+    fn record_border_width(&mut self, id: &str, v: f32) {
+        self.entry(id).border_width = Some(v);
+    }
     fn record_border_top_width(&mut self, id: &str, v: f32) {
         self.entry(id).border_top_width = Some(v);
     }
@@ -100,11 +152,15 @@ impl MutationRecorder for MutationStore {
     fn record_stroke_dashoffset(&mut self, id: &str, v: f32) {
         self.entry(id).stroke_dashoffset = Some(v);
     }
-    fn record_text_size(&mut self, id: &str, v: f32) { self.entry(id).text_px = Some(v); }
+    fn record_text_size(&mut self, id: &str, v: f32) {
+        self.entry(id).text_px = Some(v);
+    }
     fn record_letter_spacing(&mut self, id: &str, v: f32) {
         self.entry(id).letter_spacing = Some(v);
     }
-    fn record_line_height(&mut self, id: &str, v: f32) { self.entry(id).line_height = Some(v); }
+    fn record_line_height(&mut self, id: &str, v: f32) {
+        self.entry(id).line_height = Some(v);
+    }
 
     fn record_position(&mut self, id: &str, pos: Position) {
         self.entry(id).position = Some(pos);
@@ -194,7 +250,9 @@ impl MutationRecorder for MutationStore {
                     return;
                 }
                 if index >= batch.overrides.len() {
-                    batch.overrides.resize_with(index + 1, TextUnitOverride::default);
+                    batch
+                        .overrides
+                        .resize_with(index + 1, TextUnitOverride::default);
                 }
             }
             None => {
@@ -202,17 +260,31 @@ impl MutationRecorder for MutationStore {
                     granularity,
                     overrides: Vec::new(),
                 };
-                batch.overrides.resize_with(index + 1, TextUnitOverride::default);
+                batch
+                    .overrides
+                    .resize_with(index + 1, TextUnitOverride::default);
                 mutations.text_unit_overrides = Some(batch);
             }
         }
         let entry = &mut mutations.text_unit_overrides.as_mut().unwrap().overrides[index];
-        if let Some(v) = values.opacity { entry.opacity = Some(v); }
-        if let Some(v) = values.translate_x { entry.translate_x = Some(v); }
-        if let Some(v) = values.translate_y { entry.translate_y = Some(v); }
-        if let Some(v) = values.scale { entry.scale = Some(v); }
-        if let Some(v) = values.rotation_deg { entry.rotation_deg = Some(v); }
-        if let Some(c) = values.color { entry.color = Some(c); }
+        if let Some(v) = values.opacity {
+            entry.opacity = Some(v);
+        }
+        if let Some(v) = values.translate_x {
+            entry.translate_x = Some(v);
+        }
+        if let Some(v) = values.translate_y {
+            entry.translate_y = Some(v);
+        }
+        if let Some(v) = values.scale {
+            entry.scale = Some(v);
+        }
+        if let Some(v) = values.rotation_deg {
+            entry.rotation_deg = Some(v);
+        }
+        if let Some(c) = values.color {
+            entry.color = Some(c);
+        }
     }
 
     fn record_svg_path(&mut self, id: &str, data: String) {

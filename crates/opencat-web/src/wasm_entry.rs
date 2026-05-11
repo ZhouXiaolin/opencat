@@ -18,8 +18,12 @@ fn parse_composition_info(input: &str) -> Option<(i32, i32, i32, i32)> {
         if trimmed.is_empty() {
             continue;
         }
-        if let Ok(JsonLine::Composition { width: w, height: h, fps: f, frames: fs }) =
-            serde_json::from_str(trimmed)
+        if let Ok(JsonLine::Composition {
+            width: w,
+            height: h,
+            fps: f,
+            frames: fs,
+        }) = serde_json::from_str(trimmed)
         {
             return Some((w, h, f, fs));
         }
@@ -38,7 +42,12 @@ pub fn parse_jsonl(input: &str) -> String {
             continue;
         }
         match serde_json::from_str::<JsonLine>(trimmed) {
-            Ok(JsonLine::Composition { width, height, fps, frames }) => {
+            Ok(JsonLine::Composition {
+                width,
+                height,
+                fps,
+                frames,
+            }) => {
                 composition = Some(serde_json::json!({
                     "width": width,
                     "height": height,
@@ -64,7 +73,8 @@ pub fn parse_jsonl(input: &str) -> String {
         "composition": composition,
         "elements": elements,
         "elementCount": elements.len()
-    }).to_string()
+    })
+    .to_string()
 }
 
 #[wasm_bindgen]
@@ -76,7 +86,8 @@ pub fn get_composition_info(input: &str) -> String {
         "height": height,
         "fps": fps,
         "frames": frames
-    }).to_string()
+    })
+    .to_string()
 }
 
 /// Collect resource requests from JSONL input.
@@ -127,7 +138,8 @@ pub fn collect_resources_json(input: &str) -> String {
         "videos": videos,
         "audios": audios,
         "icons": icons,
-    }).to_string()
+    })
+    .to_string()
 }
 
 /// Build display tree for a single frame.
@@ -140,9 +152,8 @@ pub fn build_frame(
     mutations_json: &str,
 ) -> String {
     match build_frame_impl(jsonl_input, frame, resource_meta, mutations_json) {
-        Ok(tree) => serde_json::to_string(&tree).unwrap_or_else(|e| {
-            format!(r#"{{"error":"serialization failed: {}"}}"#, e)
-        }),
+        Ok(tree) => serde_json::to_string(&tree)
+            .unwrap_or_else(|e| format!(r#"{{"error":"serialization failed: {}"}}"#, e)),
         Err(e) => format!(r#"{{"error":"{}"}}"#, e),
     }
 }
@@ -185,7 +196,8 @@ fn build_frame_impl(
     // 6. Compute layout
     let font_db = text::default_font_db_with_embedded_only();
     let mut layout_session = LayoutSession::default();
-    let (layout_tree, _) = layout_session.compute_layout_with_font_db(&element_root, &frame_ctx, &font_db)?;
+    let (layout_tree, _) =
+        layout_session.compute_layout_with_font_db(&element_root, &frame_ctx, &font_db)?;
 
     // 7. Build display tree
     let mut display_tree = build_display_tree(&element_root, &layout_tree)?;

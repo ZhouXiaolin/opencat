@@ -168,8 +168,8 @@ impl VideoDecoder {
         target_size: Option<(u32, u32)>,
     ) -> Result<Arc<Vec<u8>>> {
         let resolved_size = target_size.unwrap_or((self.width, self.height));
-        let same_time = self.current_frame.is_some()
-            && (self.current_pts_secs - target_secs).abs() < 1e-6;
+        let same_time =
+            self.current_frame.is_some() && (self.current_pts_secs - target_secs).abs() < 1e-6;
         let same_size = self.current_size == Some(resolved_size);
         if same_time && same_size {
             return Ok(self
@@ -253,11 +253,7 @@ impl VideoDecoder {
         Ok(())
     }
 
-    fn decode_forward(
-        &mut self,
-        target_secs: f64,
-        target_size: Option<(u32, u32)>,
-    ) -> Result<()> {
+    fn decode_forward(&mut self, target_secs: f64, target_size: Option<(u32, u32)>) -> Result<()> {
         if self.eof {
             return Ok(());
         }
@@ -287,11 +283,7 @@ impl VideoDecoder {
         None
     }
 
-    fn receive_until(
-        &mut self,
-        target_secs: f64,
-        target_size: Option<(u32, u32)>,
-    ) -> Result<bool> {
+    fn receive_until(&mut self, target_secs: f64, target_size: Option<(u32, u32)>) -> Result<bool> {
         let mut frame = ffmpeg::frame::Video::empty();
         let mut selected_frame: Option<ffmpeg::frame::Video> = None;
         let mut selected_pts_secs = -1.0;
@@ -352,10 +344,7 @@ impl VideoDecoder {
         {
             // LRU touch: move to back.
             if idx + 1 != self.scalers.len() {
-                let entry = self
-                    .scalers
-                    .remove(idx)
-                    .expect("index validated above");
+                let entry = self.scalers.remove(idx).expect("index validated above");
                 self.scalers.push_back(entry);
             }
         } else {
@@ -373,11 +362,7 @@ impl VideoDecoder {
             }
             self.scalers.push_back(((out_w, out_h), scaler));
         }
-        Ok(&mut self
-            .scalers
-            .back_mut()
-            .expect("scaler just pushed")
-            .1)
+        Ok(&mut self.scalers.back_mut().expect("scaler just pushed").1)
     }
 }
 

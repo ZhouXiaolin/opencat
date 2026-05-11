@@ -7,8 +7,8 @@ pub use mutations::*;
 pub use precomputed_host::PrecomputedScriptHost;
 
 use crate::style::{
-    AlignItems, BoxShadow, BoxShadowStyle, DropShadow, DropShadowStyle, FlexDirection,
-    InsetShadow, InsetShadowStyle, JustifyContent, ObjectFit, Position, TextAlign,
+    AlignItems, BoxShadow, BoxShadowStyle, DropShadow, DropShadowStyle, FlexDirection, InsetShadow,
+    InsetShadowStyle, JustifyContent, ObjectFit, Position, TextAlign,
 };
 
 #[derive(Clone, Debug, Default)]

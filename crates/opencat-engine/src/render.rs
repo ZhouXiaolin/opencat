@@ -55,7 +55,11 @@ impl EncodingConfig {
     }
 }
 
-pub fn render(composition: &Composition, output_path: impl AsRef<Path>, config: &EncodingConfig) -> Result<()> {
+pub fn render(
+    composition: &Composition,
+    output_path: impl AsRef<Path>,
+    config: &EncodingConfig,
+) -> Result<()> {
     render_with_progress(composition, output_path, config, |_, _| {})
 }
 
@@ -922,9 +926,9 @@ mod tests {
 
     #[test]
     fn nested_timeline_transition_renders_real_composite() {
+        use crate::{Easing, fade, timeline};
         use opencat_core::scene::node::Node;
         use opencat_core::style::{LengthPercentageAuto, Position};
-        use crate::{Easing, fade, timeline};
 
         let composition = Composition::new("nested_timeline_transition")
             .size(80, 80)
@@ -973,8 +977,8 @@ mod tests {
 
     #[test]
     fn root_timeline_renders_without_root_transition_special_case() {
-        use opencat_core::scene::node::Node;
         use crate::{Easing, fade, timeline};
+        use opencat_core::scene::node::Node;
 
         let composition = Composition::new("root_timeline_transition")
             .size(80, 80)
@@ -1013,8 +1017,8 @@ mod tests {
 
     #[test]
     fn transition_subtree_snapshots_are_reused_across_transition_frames() {
-        use opencat_core::scene::node::Node;
         use crate::{Easing, fade, timeline};
+        use opencat_core::scene::node::Node;
 
         let composition = Composition::new("transition_subtree_cache_reuse")
             .size(32, 32)

@@ -11,21 +11,14 @@ use rquickjs::{
     Context, Error as JsError, Exception, FromJs, Function, Object, Persistent, Runtime,
 };
 
-use opencat_core::frame_ctx::ScriptFrameCtx;
-use opencat_core::scene::script::{
-    ScriptTextSource,
-};
-use opencat_core::script::animate::{
-    AnimateState, MorphSvgState, PathMeasureState,
-};
-use opencat_core::script::recorder::MutationRecorder;
-use opencat_core::script::recorder::MutationStore as CoreMutationStore;
 use bindings::canvas_api;
 use bindings::node_style;
-use opencat_core::scene::script::{
-    ScriptDriver, StyleMutations, ScriptDriverId,
-    ScriptHost,
-};
+use opencat_core::frame_ctx::ScriptFrameCtx;
+use opencat_core::scene::script::ScriptTextSource;
+use opencat_core::scene::script::{ScriptDriver, ScriptDriverId, ScriptHost, StyleMutations};
+use opencat_core::script::animate::{AnimateState, MorphSvgState, PathMeasureState};
+use opencat_core::script::recorder::MutationRecorder;
+use opencat_core::script::recorder::MutationStore as CoreMutationStore;
 
 #[derive(Default)]
 pub struct ScriptRuntimeCache {
@@ -98,7 +91,6 @@ pub fn run_driver(
 }
 
 const RUN_FRAME_FN: &str = "__opencatRunFrame";
-
 
 impl ScriptRuntimeCache {
     pub(crate) fn run(
@@ -182,9 +174,10 @@ impl ScriptRunner {
             store.reset_for_frame(frame_ctx.current_frame);
         }
         {
-            let mut animate = self.animate_state.lock().map_err(|_| {
-                anyhow!("animate state lock poisoned")
-            })?;
+            let mut animate = self
+                .animate_state
+                .lock()
+                .map_err(|_| anyhow!("animate state lock poisoned"))?;
             *animate = AnimateState::default();
         }
 
@@ -232,9 +225,10 @@ impl ScriptRunner {
             store.reset_for_frame(frame_ctx.current_frame);
         }
         {
-            let mut animate = self.animate_state.lock().map_err(|_| {
-                anyhow!("animate state lock poisoned")
-            })?;
+            let mut animate = self
+                .animate_state
+                .lock()
+                .map_err(|_| anyhow!("animate state lock poisoned"))?;
             *animate = AnimateState::default();
         }
 
@@ -346,9 +340,7 @@ fn install_runtime_bindings<'js>(
                         "text source lock poisoned",
                     )
                 })?;
-                Ok::<_, rquickjs::Error>(
-                    guard.get_text_source(&id).map(|s| s.text.clone()),
-                )
+                Ok::<_, rquickjs::Error>(guard.get_text_source(&id).map(|s| s.text.clone()))
             })?,
         )?;
     }

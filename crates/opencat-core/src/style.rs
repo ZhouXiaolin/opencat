@@ -5,7 +5,9 @@ use crate::scene::script::ScriptDriver;
 include!(concat!(env!("OUT_DIR"), "/tailwind_color_items.rs"));
 
 /// Position mode - Tailwind: relative, absolute
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum Position {
     #[default]
@@ -14,7 +16,9 @@ pub enum Position {
 }
 
 /// Flex direction - Tailwind: flex-row, flex-col
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum FlexDirection {
     #[default]
@@ -24,7 +28,9 @@ pub enum FlexDirection {
     ColReverse,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum FlexWrap {
     #[default]
@@ -34,7 +40,9 @@ pub enum FlexWrap {
 }
 
 /// Main axis alignment - Tailwind: justify-*
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum JustifyContent {
     #[default]
@@ -48,7 +56,9 @@ pub enum JustifyContent {
 }
 
 /// Cross axis alignment - Tailwind: items-*
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum AlignItems {
     Start,
@@ -82,7 +92,9 @@ pub enum LengthPercentageAuto {
     Percent(f32),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum GridAutoFlow {
     #[default]
@@ -101,7 +113,9 @@ pub enum GridAutoRows {
     Fr,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum GridPlacement {
     #[default]
@@ -136,7 +150,9 @@ impl LengthPercentageAuto {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum TextAlign {
     #[default]
@@ -145,7 +161,9 @@ pub enum TextAlign {
     Right,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum ObjectFit {
     #[default]
@@ -154,7 +172,9 @@ pub enum ObjectFit {
     Fill,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(transparent)]
 pub struct FontWeight(pub u16);
 
@@ -166,7 +186,9 @@ impl FontWeight {
     pub const BOLD: Self = Self(700);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum TextTransform {
     #[default]
@@ -204,7 +226,9 @@ impl std::hash::Hash for BorderRadius {
 }
 
 /// Border stroke style - Tailwind: border-solid / border-dashed / border-dotted
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum BorderStyle {
     #[default]
@@ -462,25 +486,59 @@ pub enum BackgroundFill {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Transform {
     #[serde(rename = "translateX")]
-    TranslateX { #[serde(rename = "value")] value: f32 },
+    TranslateX {
+        #[serde(rename = "value")]
+        value: f32,
+    },
     #[serde(rename = "translateY")]
-    TranslateY { #[serde(rename = "value")] value: f32 },
+    TranslateY {
+        #[serde(rename = "value")]
+        value: f32,
+    },
     #[serde(rename = "translate")]
-    Translate { #[serde(rename = "x")] x: f32, #[serde(rename = "y")] y: f32 },
+    Translate {
+        #[serde(rename = "x")]
+        x: f32,
+        #[serde(rename = "y")]
+        y: f32,
+    },
     #[serde(rename = "scale")]
-    Scale { #[serde(rename = "value")] value: f32 },
+    Scale {
+        #[serde(rename = "value")]
+        value: f32,
+    },
     #[serde(rename = "scaleX")]
-    ScaleX { #[serde(rename = "value")] value: f32 },
+    ScaleX {
+        #[serde(rename = "value")]
+        value: f32,
+    },
     #[serde(rename = "scaleY")]
-    ScaleY { #[serde(rename = "value")] value: f32 },
+    ScaleY {
+        #[serde(rename = "value")]
+        value: f32,
+    },
     #[serde(rename = "rotate")]
-    RotateDeg { #[serde(rename = "value")] value: f32 },
+    RotateDeg {
+        #[serde(rename = "value")]
+        value: f32,
+    },
     #[serde(rename = "skewX")]
-    SkewXDeg { #[serde(rename = "value")] value: f32 },
+    SkewXDeg {
+        #[serde(rename = "value")]
+        value: f32,
+    },
     #[serde(rename = "skewY")]
-    SkewYDeg { #[serde(rename = "value")] value: f32 },
+    SkewYDeg {
+        #[serde(rename = "value")]
+        value: f32,
+    },
     #[serde(rename = "skew")]
-    SkewDeg { #[serde(rename = "x")] x: f32, #[serde(rename = "y")] y: f32 },
+    SkewDeg {
+        #[serde(rename = "x")]
+        x: f32,
+        #[serde(rename = "y")]
+        y: f32,
+    },
 }
 
 impl std::hash::Hash for Transform {

@@ -66,12 +66,8 @@ impl<B: BackendTypes> CacheRegistry<B> {
             subtree_snapshot_cache: Rc::new(RefCell::new(BoundedLruCache::new(
                 caps.subtree_snapshots,
             ))),
-            subtree_image_cache: Rc::new(RefCell::new(BoundedLruCache::new(
-                caps.subtree_images,
-            ))),
-            item_picture_cache: Rc::new(RefCell::new(BoundedLruCache::new(
-                caps.item_pictures,
-            ))),
+            subtree_image_cache: Rc::new(RefCell::new(BoundedLruCache::new(caps.subtree_images))),
+            item_picture_cache: Rc::new(RefCell::new(BoundedLruCache::new(caps.item_pictures))),
             glyph_path_cache: Rc::new(RefCell::new(BoundedLruCache::new(caps.glyph_paths))),
             glyph_image_cache: Rc::new(RefCell::new(BoundedLruCache::new(caps.glyph_images))),
         }
@@ -136,10 +132,7 @@ mod tests {
     fn cache_registry_exposes_glyph_path_cache() {
         let registry = CacheRegistry::<MockBackend>::default();
         let cache = registry.glyph_path_cache();
-        assert_eq!(
-            cache.borrow().capacity(),
-            CacheCaps::default().glyph_paths
-        );
+        assert_eq!(cache.borrow().capacity(), CacheCaps::default().glyph_paths);
     }
 
     #[test]

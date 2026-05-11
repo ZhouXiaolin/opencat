@@ -11,7 +11,10 @@ pub struct ScriptTextUnitMeta {
     pub end: usize,
 }
 
-pub fn describe_text_units(text: &str, granularity: TextUnitGranularity) -> Vec<ScriptTextUnitMeta> {
+pub fn describe_text_units(
+    text: &str,
+    granularity: TextUnitGranularity,
+) -> Vec<ScriptTextUnitMeta> {
     match granularity {
         TextUnitGranularity::Grapheme => describe_grapheme_units(text),
         TextUnitGranularity::Word => {

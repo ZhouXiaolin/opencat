@@ -1,8 +1,8 @@
 //! Animate state machine — keyframe + easing evaluation.
 
-use std::collections::HashMap;
-use crate::scene::easing::{Easing, SpringConfig};
 use super::color::{hsla_to_rgba_string, lerp_hsla_clamped, parse_color};
+use crate::scene::easing::{Easing, SpringConfig};
+use std::collections::HashMap;
 
 pub struct AnimateEntry {
     pub progress: f32,
@@ -25,8 +25,17 @@ pub struct AnimateState {
 
 impl AnimateState {
     #[allow(clippy::too_many_arguments)]
-    pub fn create(&mut self, current_frame: u32, duration: f32, delay: f32, clamp: bool,
-                  easing_tag: &str, repeat: i32, yoyo: bool, repeat_delay: f32) -> i32 {
+    pub fn create(
+        &mut self,
+        current_frame: u32,
+        duration: f32,
+        delay: f32,
+        clamp: bool,
+        easing_tag: &str,
+        repeat: i32,
+        yoyo: bool,
+        repeat_delay: f32,
+    ) -> i32 {
         let easing = parse_easing_from_tag(easing_tag);
         let fps = 30.0f32;
         let duration_u32 = if duration < 0.0 {
@@ -37,19 +46,41 @@ impl AnimateState {
         let delay_u32 = delay as u32;
         let repeat_delay_u32 = repeat_delay.max(0.0) as u32;
         let progress = crate::scene::easing::compute_progress(
-            current_frame, duration_u32, delay_u32, &easing, clamp, repeat, yoyo, repeat_delay_u32);
+            current_frame,
+            duration_u32,
+            delay_u32,
+            &easing,
+            clamp,
+            repeat,
+            yoyo,
+            repeat_delay_u32,
+        );
         let total_frames = if repeat >= 0 {
-            duration_u32.saturating_mul(repeat as u32 + 1)
+            duration_u32
+                .saturating_mul(repeat as u32 + 1)
                 .saturating_add(repeat_delay_u32.saturating_mul(repeat as u32))
-        } else { u32::MAX };
+        } else {
+            u32::MAX
+        };
         let settled = repeat >= 0 && current_frame >= delay_u32.saturating_add(total_frames);
         let settle_frame = delay_u32.saturating_add(total_frames);
         let handle = self.next_id;
         self.next_id += 1;
-        self.entries.insert(handle, AnimateEntry {
-            progress, settled, settle_frame, duration: duration_u32, delay: delay_u32,
-            clamp, easing, repeat, yoyo, repeat_delay: repeat_delay_u32,
-        });
+        self.entries.insert(
+            handle,
+            AnimateEntry {
+                progress,
+                settled,
+                settle_frame,
+                duration: duration_u32,
+                delay: delay_u32,
+                clamp,
+                easing,
+                repeat,
+                yoyo,
+                repeat_delay: repeat_delay_u32,
+            },
+        );
         handle
     }
 
@@ -57,13 +88,26 @@ impl AnimateState {
     pub fn value(&self, current_frame: u32, handle: i32, from: f32, to: f32) -> f32 {
         if let Some(entry) = self.entries.get(&handle) {
             crate::scene::easing::animate_value(
-                current_frame, entry.duration, entry.delay, from, to,
-                &entry.easing, entry.clamp, entry.repeat, entry.yoyo, entry.repeat_delay)
-        } else { from }
+                current_frame,
+                entry.duration,
+                entry.delay,
+                from,
+                to,
+                &entry.easing,
+                entry.clamp,
+                entry.repeat,
+                entry.yoyo,
+                entry.repeat_delay,
+            )
+        } else {
+            from
+        }
     }
 
     pub fn color(&self, handle: i32, from: &str, to: &str) -> String {
-        let Some(entry) = self.entries.get(&handle) else { return from.to_string(); };
+        let Some(entry) = self.entries.get(&handle) else {
+            return from.to_string();
+        };
         match (parse_color(from), parse_color(to)) {
             (Some(f), Some(t)) => {
                 let result = lerp_hsla_clamped(&f, &t, entry.progress);
@@ -73,9 +117,21 @@ impl AnimateState {
         }
     }
 
-    pub fn progress(&self, handle: i32) -> f32 { self.entries.get(&handle).map(|e| e.progress).unwrap_or(0.0) }
-    pub fn settled(&self, handle: i32) -> bool { self.entries.get(&handle).map(|e| e.settled).unwrap_or(false) }
-    pub fn settle_frame(&self, handle: i32) -> u32 { self.entries.get(&handle).map(|e| e.settle_frame).unwrap_or(0) }
+    pub fn progress(&self, handle: i32) -> f32 {
+        self.entries.get(&handle).map(|e| e.progress).unwrap_or(0.0)
+    }
+    pub fn settled(&self, handle: i32) -> bool {
+        self.entries
+            .get(&handle)
+            .map(|e| e.settled)
+            .unwrap_or(false)
+    }
+    pub fn settle_frame(&self, handle: i32) -> u32 {
+        self.entries
+            .get(&handle)
+            .map(|e| e.settle_frame)
+            .unwrap_or(0)
+    }
 }
 
 pub fn parse_easing_from_tag(tag: &str) -> Easing {
@@ -93,28 +149,42 @@ pub fn parse_easing_from_tag(tag: &str) -> Easing {
                     damping: parts[1].parse().unwrap_or(10.0),
                     mass: parts[2].parse().unwrap_or(1.0),
                 })
-            } else { crate::scene::easing::easing_from_name(tag).unwrap_or(Easing::Linear) }
+            } else {
+                crate::scene::easing::easing_from_name(tag).unwrap_or(Easing::Linear)
+            }
         }
         b if b.starts_with("bezier:") => {
             let parts: Vec<&str> = b[7..].split(',').collect();
             if parts.len() == 4 {
                 Easing::CubicBezier(
-                    parts[0].parse().unwrap_or(0.0), parts[1].parse().unwrap_or(0.0),
-                    parts[2].parse().unwrap_or(1.0), parts[3].parse().unwrap_or(1.0))
-            } else { Easing::Linear }
+                    parts[0].parse().unwrap_or(0.0),
+                    parts[1].parse().unwrap_or(0.0),
+                    parts[2].parse().unwrap_or(1.0),
+                    parts[3].parse().unwrap_or(1.0),
+                )
+            } else {
+                Easing::Linear
+            }
         }
         _ => crate::scene::easing::easing_from_name(tag).unwrap_or(Easing::Linear),
     }
 }
 
 pub fn random_from_seed(seed: f32) -> f32 {
-    let bits = if seed.is_finite() { seed.to_bits() } else { 1u32 };
+    let bits = if seed.is_finite() {
+        seed.to_bits()
+    } else {
+        1u32
+    };
     (xorshift32(bits) as f32) / (u32::MAX as f32)
 }
 
 fn xorshift32(seed: u32) -> u32 {
     let mut x = if seed == 0 { 0x9E3779B9 } else { seed };
-    x ^= x << 13; x ^= x >> 17; x ^= x << 5; x
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    x
 }
 
 #[cfg(test)]
@@ -122,12 +192,16 @@ mod tests {
     use super::*;
     #[test]
     fn random_seed_deterministic() {
-        let a = random_from_seed(42.0); let b = random_from_seed(42.0);
+        let a = random_from_seed(42.0);
+        let b = random_from_seed(42.0);
         assert!((a - b).abs() < 1e-9);
     }
     #[test]
     fn parse_unknown_tag_falls_back_to_linear() {
-        assert!(matches!(parse_easing_from_tag("totally-invalid"), Easing::Linear));
+        assert!(matches!(
+            parse_easing_from_tag("totally-invalid"),
+            Easing::Linear
+        ));
     }
     #[test]
     fn create_handle_increments() {

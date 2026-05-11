@@ -1,6 +1,4 @@
-use skia_safe::{
-    AlphaType, Canvas, ColorType, ImageInfo, Paint, PathBuilder, Rect, surfaces,
-};
+use skia_safe::{AlphaType, Canvas, ColorType, ImageInfo, Paint, PathBuilder, Rect, surfaces};
 use tracing::{Level, event};
 
 use opencat_core::scene::script::{TextUnitOverride, TextUnitOverrideBatch};
@@ -42,7 +40,12 @@ pub(crate) fn draw_text(
             .map(|l| l.y + style.resolved_line_height_px())
             .fold(0.0f32, f32::max);
         canvas.clip_rect(
-            Rect::from_xywh(left, top, width, clip_height.max(style.resolved_line_height_px())),
+            Rect::from_xywh(
+                left,
+                top,
+                width,
+                clip_height.max(style.resolved_line_height_px()),
+            ),
             None,
             None,
         );
@@ -110,10 +113,7 @@ pub(crate) fn draw_text_with_unit_overrides(
             continue;
         }
 
-        let unit_color = override_value
-            .color
-            .map(skia_color)
-            .unwrap_or(sk_color);
+        let unit_color = override_value.color.map(skia_color).unwrap_or(sk_color);
 
         let mut min_x: f32 = f32::INFINITY;
         let mut min_y: f32 = f32::INFINITY;
@@ -161,7 +161,9 @@ pub(crate) fn draw_text_with_unit_overrides(
                                 result = "miss",
                                 amount = 1_u64
                             );
-                            glyph_path_cache.borrow_mut().insert(pos.cache_key, p.clone());
+                            glyph_path_cache
+                                .borrow_mut()
+                                .insert(pos.cache_key, p.clone());
                             p
                         };
                         let b = *path.bounds();
@@ -214,7 +216,9 @@ pub(crate) fn draw_text_with_unit_overrides(
                                 result = "miss",
                                 amount = 1_u64
                             );
-                            glyph_image_cache.borrow_mut().insert(pos.cache_key, img.clone());
+                            glyph_image_cache
+                                .borrow_mut()
+                                .insert(pos.cache_key, img.clone());
                             img
                         } else {
                             continue;
@@ -313,9 +317,7 @@ fn draw_single_glyph(
 ) {
     match glyph_data {
         GlyphData::Outline(commands) => {
-            let path = if let Some(cached) =
-                glyph_path_cache.borrow_mut().get_cloned(&cache_key)
-            {
+            let path = if let Some(cached) = glyph_path_cache.borrow_mut().get_cloned(&cache_key) {
                 event!(
                     target: "render.cache",
                     Level::TRACE,
@@ -353,39 +355,44 @@ fn draw_single_glyph(
             let ix = x + *placement_left as f32;
             let iy = y - *placement_top as f32;
 
-            let skia_img = if let Some(cached) =
-                glyph_image_cache.borrow_mut().get_cloned(&cache_key)
-            {
-                event!(
-                    target: "render.cache",
-                    Level::TRACE,
-                    kind = "cache",
-                    name = "glyph_image",
-                    result = "hit",
-                    amount = 1_u64
-                );
-                cached
-            } else if let Some(img) = rgba_to_skia_image(rgba, *im_w, *im_h) {
-                event!(
-                    target: "render.cache",
-                    Level::TRACE,
-                    kind = "cache",
-                    name = "glyph_image",
-                    result = "miss",
-                    amount = 1_u64
-                );
-                glyph_image_cache.borrow_mut().insert(cache_key, img.clone());
-                img
-            } else {
-                return;
-            };
+            let skia_img =
+                if let Some(cached) = glyph_image_cache.borrow_mut().get_cloned(&cache_key) {
+                    event!(
+                        target: "render.cache",
+                        Level::TRACE,
+                        kind = "cache",
+                        name = "glyph_image",
+                        result = "hit",
+                        amount = 1_u64
+                    );
+                    cached
+                } else if let Some(img) = rgba_to_skia_image(rgba, *im_w, *im_h) {
+                    event!(
+                        target: "render.cache",
+                        Level::TRACE,
+                        kind = "cache",
+                        name = "glyph_image",
+                        result = "miss",
+                        amount = 1_u64
+                    );
+                    glyph_image_cache
+                        .borrow_mut()
+                        .insert(cache_key, img.clone());
+                    img
+                } else {
+                    return;
+                };
 
             canvas.draw_image(skia_img, (ix, iy), Some(color_paint));
         }
     }
 }
 
-fn build_skia_path(commands: &[cosmic_text::Command], offset_x: f32, offset_y: f32) -> skia_safe::Path {
+fn build_skia_path(
+    commands: &[cosmic_text::Command],
+    offset_x: f32,
+    offset_y: f32,
+) -> skia_safe::Path {
     use cosmic_text::Command;
 
     let mut pb = PathBuilder::new();

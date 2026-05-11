@@ -1,8 +1,8 @@
-pub mod asset_catalog;
 pub mod fetch;
 pub mod media;
 pub mod path_store;
 pub mod probe;
+pub mod utils;
 
-pub use asset_catalog::{AssetCatalog, AssetEntry};
 pub use path_store::AssetPathStore;
+pub use utils::{asset_id_for_audio_path, cache_file_path, read_image_dimensions};

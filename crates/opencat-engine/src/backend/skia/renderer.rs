@@ -23,8 +23,8 @@ pub fn shared_raster_engine_typed() -> std::sync::Arc<SkiaRenderEngine> {
 // Core trait implementations — bridge to existing Skia canvas functions.
 // ---------------------------------------------------------------------------
 
-use crate::resource::asset_catalog::AssetCatalog;
 use crate::resource::media::MediaContext;
+use crate::resource::path_store::AssetPathStore;
 use opencat_core::platform::backend::BackendTypes;
 use opencat_core::platform::render_engine::{
     FrameView, RecordCtx, RenderCtx, RenderEngine as CoreRenderEngine,
@@ -34,11 +34,11 @@ use opencat_core::platform::render_engine::{
 /// Allows the core pipeline to render via existing canvas functions without canvas knowing about core types.
 ///
 /// `media_ctx` is a raw pointer to the engine's `MediaContext` stored on `EnginePlatform`.
-/// `asset_catalog` is a temporary catalog created during rendering for canvas functions.
+/// `asset_paths` holds physical file paths (catalog metadata is in ctx.catalog).
 /// SAFETY: The pointer is valid for the lifetime `'a` because `EnginePlatform` outlives the
 /// render call, and the core pipeline doesn't move or drop the platform during rendering.
 pub struct SkiaRenderData<'a> {
-    pub assets: &'a AssetCatalog,
+    pub asset_paths: &'a AssetPathStore,
     pub media_ctx: *mut MediaContext,
 }
 
@@ -91,7 +91,8 @@ impl CoreRenderEngine for SkiaRenderEngine {
             display_tree,
             ctx.frame_ctx.width as i32,
             ctx.frame_ctx.height as i32,
-            data.assets,
+            ctx.catalog,
+            data.asset_paths,
             ctx.cache.image_cache(),
             ctx.cache.glyph_path_cache(),
             ctx.cache.glyph_image_cache(),
@@ -127,7 +128,8 @@ impl CoreRenderEngine for SkiaRenderEngine {
             ctx.display_tree,
             ctx.ordered_scene,
             canvas,
-            data.assets,
+            ctx.catalog,
+            data.asset_paths,
             ctx.cache.image_cache(),
             ctx.cache.glyph_path_cache(),
             ctx.cache.glyph_image_cache(),

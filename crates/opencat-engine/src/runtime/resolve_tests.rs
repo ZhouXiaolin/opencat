@@ -3,7 +3,7 @@
 
 #![cfg(test)]
 
-use crate::resource::asset_catalog::AssetCatalog;
+use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::runtime::path_bounds::SkiaPathBounds;
 use opencat_core::element::resolve::{resolve_ui_tree, resolve_ui_tree_with_script_cache};
 use opencat_core::element::tree::ElementKind;
@@ -26,7 +26,7 @@ fn node_script_only_affects_its_own_subtree() {
         height: 180,
         frames: 1,
     };
-    let mut assets = AssetCatalog::new();
+    let mut assets = HashMapResourceCatalog::from_json("{}").expect("empty catalog must parse");
 
     let scene = div()
         .id("root")
@@ -62,7 +62,7 @@ fn transition_scenes_keep_node_scripts_isolated() {
         height: 180,
         frames: 30,
     };
-    let mut assets = AssetCatalog::new();
+    let mut assets = HashMapResourceCatalog::from_json("{}").expect("empty catalog must parse");
     let mut script_runtime = ScriptRuntimeCache::default();
 
     let from_scene = div()
@@ -126,7 +126,7 @@ fn timeline_scripts_receive_scene_local_frames() {
         height: 180,
         frames: 60,
     };
-    let mut assets = AssetCatalog::new();
+    let mut assets = HashMapResourceCatalog::from_json("{}").expect("empty catalog must parse");
     let mut script_runtime = ScriptRuntimeCache::default();
 
     let scene = div()
@@ -180,7 +180,7 @@ fn parent_script_can_split_descendant_text_before_child_resolution() {
         height: 180,
         frames: 1,
     };
-    let mut assets = AssetCatalog::new();
+    let mut assets = HashMapResourceCatalog::from_json("{}").expect("empty catalog must parse");
 
     let root = div()
         .id("root")
@@ -240,7 +240,7 @@ fn resolve_caption_uses_scene_local_time_inside_timeline() {
         height: 180,
         frames: 20,
     };
-    let mut assets = AssetCatalog::new();
+    let mut assets = HashMapResourceCatalog::from_json("{}").expect("empty catalog must parse");
     let mut runtime = ScriptRuntimeCache::default();
 
     let FrameState::Scene {

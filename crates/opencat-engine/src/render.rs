@@ -127,7 +127,7 @@ pub fn build_audio_track(
     ensure_assets_preloaded(composition, session)?;
     build_runtime_audio_track(
         composition,
-        &mut session.platform.assets,
+        &session.platform.asset_paths,
         &mut session.platform.audio_decode_cache,
         &mut session.platform.audio_interval_cache,
     )
@@ -142,7 +142,7 @@ pub fn render_audio_chunk(
     ensure_assets_preloaded(composition, session)?;
     render_runtime_audio_chunk(
         composition,
-        &mut session.platform.assets,
+        &session.platform.asset_paths,
         &mut session.platform.audio_decode_cache,
         &mut session.platform.audio_interval_cache,
         start_time_secs,

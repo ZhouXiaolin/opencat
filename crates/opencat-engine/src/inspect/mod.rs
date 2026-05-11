@@ -18,9 +18,11 @@ use opencat_core::{
     style::NodeStyle,
 };
 
-use crate::resource::asset_catalog::AssetCatalog;
+use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
+use opencat_core::resource::catalog::ResourceCatalog;
 
 use crate::platform::EnginePlatform;
+use crate::resource::path_store::AssetPathStore;
 use super::runtime::path_bounds::default_host_path_bounds;
 type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform>;
 
@@ -89,7 +91,7 @@ fn collect_scene_rects(
     draw_order: &mut u32,
     out: &mut Vec<FrameElementRect>,
 ) -> Result<()> {
-    seed_asset_entries_for_inspect(scene, frame_ctx, &mut session.platform.assets);
+    seed_asset_entries_for_inspect(scene, frame_ctx, &mut session.catalog, &mut session.platform.asset_paths);
 
     let mut source_meta_by_id = HashMap::<String, SourceNodeMeta>::new();
     collect_source_metadata(scene, frame_ctx, &mut source_meta_by_id);
@@ -98,7 +100,7 @@ fn collect_scene_rects(
         scene,
         frame_ctx,
         script_frame_ctx,
-        &mut session.platform.assets,
+        &mut session.catalog,
         None,
         &mut session.platform.script,
         default_host_path_bounds(),
@@ -124,34 +126,51 @@ fn collect_scene_rects(
     )
 }
 
-fn seed_asset_entries_for_inspect(node: &Node, frame_ctx: &FrameCtx, assets: &mut AssetCatalog) {
+fn seed_asset_entries_for_inspect(
+    node: &Node,
+    frame_ctx: &FrameCtx,
+    catalog: &mut HashMapResourceCatalog,
+    path_store: &mut AssetPathStore,
+) {
     match node.kind() {
         NodeKind::Component(component) => {
             let rendered = component.render(frame_ctx);
-            seed_asset_entries_for_inspect(&rendered, frame_ctx, assets);
+            seed_asset_entries_for_inspect(&rendered, frame_ctx, catalog, path_store);
         }
         NodeKind::Div(div) => {
             for child in div.children_ref() {
-                seed_asset_entries_for_inspect(child, frame_ctx, assets);
+                seed_asset_entries_for_inspect(child, frame_ctx, catalog, path_store);
             }
         }
         NodeKind::Canvas(canvas) => {
             for asset in canvas.assets_ref() {
-                assets.ensure_image_source_entry_for_inspect(&asset.source);
+                if let Ok(id) = catalog.resolve_image(&asset.source) {
+                    if let ImageSource::Path(path) = &asset.source {
+                        let (width, height) = crate::resource::asset_catalog::read_image_dimensions(path);
+                        catalog.register_dimensions(&path.to_string_lossy(), width, height);
+                        path_store.insert(id, path);
+                    }
+                }
             }
         }
         NodeKind::Image(image) => {
-            assets.ensure_image_source_entry_for_inspect(image.source());
+            if let Ok(id) = catalog.resolve_image(image.source()) {
+                if let ImageSource::Path(path) = image.source() {
+                    let (width, height) = crate::resource::asset_catalog::read_image_dimensions(path);
+                    catalog.register_dimensions(&path.to_string_lossy(), width, height);
+                    path_store.insert(id, path);
+                }
+            }
         }
         NodeKind::Timeline(timeline) => {
             for segment in timeline.segments() {
                 match segment {
                     TimelineSegment::Scene { scene, .. } => {
-                        seed_asset_entries_for_inspect(scene, frame_ctx, assets);
+                        seed_asset_entries_for_inspect(scene, frame_ctx, catalog, path_store);
                     }
                     TimelineSegment::Transition { from, to, .. } => {
-                        seed_asset_entries_for_inspect(from, frame_ctx, assets);
-                        seed_asset_entries_for_inspect(to, frame_ctx, assets);
+                        seed_asset_entries_for_inspect(from, frame_ctx, catalog, path_store);
+                        seed_asset_entries_for_inspect(to, frame_ctx, catalog, path_store);
                     }
                 }
             }

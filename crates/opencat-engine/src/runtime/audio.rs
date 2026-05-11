@@ -5,7 +5,6 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use crate::resource::asset_catalog::AssetCatalog;
 use opencat_core::frame_ctx::FrameCtx;
 use opencat_core::scene::{
     composition::{AudioAttachment, Composition, CompositionAudioSource},
@@ -64,7 +63,7 @@ impl AudioIntervalCache {
 
 pub(crate) fn build_audio_track(
     composition: &Composition,
-    assets: &mut AssetCatalog,
+    path_store: &crate::resource::path_store::AssetPathStore,
     decoded: &mut DecodedAudioCache,
     interval_cache: &mut AudioIntervalCache,
 ) -> Result<Option<AudioTrack>> {
@@ -82,7 +81,7 @@ pub(crate) fn build_audio_track(
         let chunk_sample_frames =
             (total_sample_frames - start_sample_frame).min(DEFAULT_AUDIO_CHUNK_FRAMES);
         let chunk = render_audio_chunk_from_intervals(
-            assets,
+            path_store,
             &intervals,
             decoded,
             start_sample_frame,
@@ -101,7 +100,7 @@ pub(crate) fn build_audio_track(
 
 pub(crate) fn render_audio_chunk(
     composition: &Composition,
-    assets: &mut AssetCatalog,
+    path_store: &crate::resource::path_store::AssetPathStore,
     decoded: &mut DecodedAudioCache,
     interval_cache: &mut AudioIntervalCache,
     start_time_secs: f64,
@@ -122,7 +121,7 @@ pub(crate) fn render_audio_chunk(
     }
 
     Ok(Some(render_audio_chunk_from_intervals(
-        assets,
+        path_store,
         &intervals,
         decoded,
         start_sample_frame,
@@ -270,12 +269,22 @@ pub struct DecodedAudioCache {
 impl DecodedAudioCache {
     fn get_or_decode<'a>(
         &'a mut self,
-        assets: &mut AssetCatalog,
+        path_store: &crate::resource::path_store::AssetPathStore,
         source: &AudioSource,
     ) -> Result<&'a AudioTrack> {
         if !self.decoded.contains_key(source) {
-            let asset_id = assets.register_audio_source(source)?;
-            let path = assets
+            let asset_id = match source {
+                AudioSource::Path(path) => {
+                    opencat_core::resource::asset_id::AssetId(path.to_string_lossy().into_owned())
+                }
+                AudioSource::Url(url) => {
+                    opencat_core::resource::asset_id::asset_id_for_audio_url(url)
+                }
+                AudioSource::Unset => {
+                    return Err(anyhow!("audio source is required"));
+                }
+            };
+            let path = path_store
                 .path(&asset_id)
                 .ok_or_else(|| anyhow!("missing cached audio asset for {}", asset_id.0))?;
             let clip = decode_audio_to_f32_stereo(path, AUDIO_SAMPLE_RATE)?;
@@ -289,7 +298,7 @@ impl DecodedAudioCache {
 }
 
 fn render_audio_chunk_from_intervals(
-    assets: &mut AssetCatalog,
+    path_store: &crate::resource::path_store::AssetPathStore,
     intervals: &[AudioInterval],
     decoded: &mut DecodedAudioCache,
     start_sample_frame: usize,
@@ -305,7 +314,7 @@ fn render_audio_chunk_from_intervals(
             continue;
         }
 
-        let clip = decoded.get_or_decode(assets, &interval.source)?;
+        let clip = decoded.get_or_decode(path_store, &interval.source)?;
         let overlap_start = interval.start_sample_frame.max(start_sample_frame);
         let overlap_end = interval.end_sample_frame.min(end_sample_frame);
         let chunk_offset_frames = overlap_start.saturating_sub(start_sample_frame);

@@ -29,8 +29,6 @@ pub struct EnginePlatform {
     pub asset_paths: AssetPathStore,
     pub audio: AudioRuntime,
     pub path_bounds: SkiaPathBounds,
-    /// Engine-level asset catalog (file paths, dimensions, remote downloads).
-    pub assets: AssetCatalog,
     /// Decoded audio cache for streaming playback.
     pub audio_decode_cache: DecodedAudioCache,
     /// Audio interval cache for composition-level audio scheduling.
@@ -52,7 +50,6 @@ impl EnginePlatform {
             asset_paths: AssetPathStore::new(),
             audio: AudioRuntime::new(),
             path_bounds: SkiaPathBounds,
-            assets: AssetCatalog::new(),
             audio_decode_cache: DecodedAudioCache::default(),
             audio_interval_cache: AudioIntervalCache::default(),
             prepared_root_ptr: None,
@@ -82,7 +79,8 @@ impl Platform for EnginePlatform {
         &self.path_bounds
     }
 
-    /// Provide `SkiaRenderData` (assets + media_ctx raw pointer) to the backend through platform_data.
+    /// Provide render context to the backend.
+    /// Creates a temporary AssetCatalog from AssetPathStore for canvas compatibility.
     fn with_render_context<R>(
         &mut self,
         f: impl FnOnce(&mut Self::Video, &Self::Backend, &mut dyn Any) -> R,
@@ -90,10 +88,36 @@ impl Platform for EnginePlatform {
         let this = self as *mut Self;
         let video = unsafe { &mut *this }.video_source();
         let backend = unsafe { &*this }.render_engine();
-        let assets = unsafe { &(*this).assets };
         let media_ctx_ptr = video as *mut MediaContext;
-        let mut render_data = SkiaRenderData { assets, media_ctx: media_ctx_ptr };
-        f(video, backend, &mut render_data)
+
+        // Create a temporary AssetCatalog from AssetPathStore for canvas functions
+        let mut temp_assets = AssetCatalog::new();
+        for (id, path) in unsafe { &(*this).asset_paths }.entries.iter() {
+            let (width, height) = crate::resource::asset_catalog::read_image_dimensions(path);
+            temp_assets.entries.insert(
+                id.clone(),
+                crate::resource::asset_catalog::AssetEntry::with_dimensions(path.clone(), width, height),
+            );
+        }
+
+        let render_data = Box::new(SkiaRenderData {
+            assets: &temp_assets,
+            media_ctx: media_ctx_ptr,
+        });
+
+        // Extend the lifetime of render_data for the duration of the call
+        let extended_data: &'static mut SkiaRenderData = unsafe {
+            std::mem::transmute::<Box<SkiaRenderData>, &'static mut SkiaRenderData>(render_data)
+        };
+
+        let result = f(video, backend, extended_data);
+
+        // Clean up the extended reference
+        let _ = unsafe {
+            Box::from_raw(extended_data as *mut SkiaRenderData)
+        };
+
+        result
     }
 }
 

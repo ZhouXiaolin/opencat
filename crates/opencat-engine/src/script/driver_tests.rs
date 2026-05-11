@@ -34,13 +34,16 @@ fn script_driver_exposes_global_and_scene_frame_fields() {
     )
     .expect("script should compile");
 
-    let mutations = super::run_driver(&driver, 12, 240, 3, 30, Some("box"))
-        .expect("script should run");
+    let mutations =
+        super::run_driver(&driver, 12, 240, 3, 30, Some("box")).expect("script should run");
     let node = mutations.get("box").expect("box mutation should exist");
 
     assert_eq!(
         node.transforms,
-        vec![Transform::TranslateX { value: 252.0 }, Transform::TranslateY { value: 33.0 }]
+        vec![
+            Transform::TranslateX { value: 252.0 },
+            Transform::TranslateY { value: 33.0 }
+        ]
     );
 }
 
@@ -114,8 +117,8 @@ fn script_driver_records_standard_canvaskit_rect_and_image_commands() {
     )
     .expect("script should compile");
 
-    let mutations = super::run_driver(&driver, 0, 1, 0, 1, Some("card"))
-        .expect("script should run");
+    let mutations =
+        super::run_driver(&driver, 0, 1, 0, 1, Some("card")).expect("script should run");
     let canvas = mutations
         .get_canvas("card")
         .expect("canvas mutation should exist");

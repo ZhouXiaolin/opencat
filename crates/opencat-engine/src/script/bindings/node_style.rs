@@ -2,18 +2,16 @@ use std::sync::{Arc, Mutex};
 
 use rquickjs::Function;
 
-use opencat_core::style::{ColorToken, FontWeight, color_token_from_script_name};
-use opencat_core::script::text_units::describe_text_units;
-use opencat_core::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
 use opencat_core::script::animate::{hsl_to_rgb, parse_color};
+use opencat_core::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
+use opencat_core::script::text_units::describe_text_units;
+use opencat_core::style::{ColorToken, FontWeight, color_token_from_script_name};
 
+use opencat_core::scene::script::mutations::TextUnitGranularity;
 use opencat_core::scene::script::{
-    align_items_from_name, box_shadow_from_name, drop_shadow_from_name,
-    flex_direction_from_name, inset_shadow_from_name,
-    justify_content_from_name, object_fit_from_name, position_from_name, text_align_from_name,
-};
-use opencat_core::scene::script::mutations::{
-    TextUnitGranularity,
+    align_items_from_name, box_shadow_from_name, drop_shadow_from_name, flex_direction_from_name,
+    inset_shadow_from_name, justify_content_from_name, object_fit_from_name, position_from_name,
+    text_align_from_name,
 };
 
 fn color_from_name(name: &str) -> Option<ColorToken> {

@@ -22,7 +22,7 @@ pub fn render_frame<P: Platform>(
     frame_index: u32,
     session: &mut RenderSession<P>,
     frame_view: FrameView<'_>,
-    platform_data: &mut dyn Any,
+    _platform_data: &mut dyn Any,
 ) -> Result<()> {
     let frame_ctx = FrameCtx {
         frame: frame_index,
@@ -79,13 +79,13 @@ pub fn render_frame<P: Platform>(
                 .render_engine()
                 .draw_scene_snapshot(&snapshot, frame_view);
         }
-        let snapshot = session.platform.with_video_and_engine(|video, backend| {
+        let snapshot = session.platform.with_render_context(|video, backend, ctx_platform_data| {
             let mut ctx = RecordCtx {
                 catalog: &session.catalog,
                 frame_ctx: &frame_ctx,
                 cache: &mut session.cache_registry,
                 video,
-                platform_data,
+                platform_data: ctx_platform_data,
             };
             backend.record_display_tree_snapshot(&mut ctx, &annotated)
         })?;
@@ -101,7 +101,7 @@ pub fn render_frame<P: Platform>(
     // 6. ordered scene direct draw
     session.scene_snapshots.store_scene_snapshot(None);
     let ordered_scene = OrderedSceneProgram::build(&annotated);
-    session.platform.with_video_and_engine(|video, backend| {
+    session.platform.with_render_context(|video, backend, ctx_platform_data| {
         let mut ctx = RenderCtx {
             catalog: &session.catalog,
             frame_ctx: &frame_ctx,
@@ -109,7 +109,7 @@ pub fn render_frame<P: Platform>(
             ordered_scene: &ordered_scene,
             cache: &mut session.cache_registry,
             video,
-            platform_data,
+            platform_data: ctx_platform_data,
         };
         backend.draw_ordered_scene(&mut ctx, frame_view)
     })

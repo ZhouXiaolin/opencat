@@ -20,7 +20,9 @@ use opencat_core::{
 
 use crate::resource::asset_catalog::AssetCatalog;
 
-use super::runtime::{path_bounds::default_host_path_bounds, session::RenderSession};
+use crate::platform::EnginePlatform;
+use super::runtime::path_bounds::default_host_path_bounds;
+type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform>;
 
 #[derive(Clone, Debug)]
 pub struct FrameElementRect {
@@ -87,7 +89,7 @@ fn collect_scene_rects(
     draw_order: &mut u32,
     out: &mut Vec<FrameElementRect>,
 ) -> Result<()> {
-    seed_asset_entries_for_inspect(scene, frame_ctx, &mut session.assets);
+    seed_asset_entries_for_inspect(scene, frame_ctx, &mut session.platform.assets);
 
     let mut source_meta_by_id = HashMap::<String, SourceNodeMeta>::new();
     collect_source_metadata(scene, frame_ctx, &mut source_meta_by_id);
@@ -96,14 +98,14 @@ fn collect_scene_rects(
         scene,
         frame_ctx,
         script_frame_ctx,
-        &mut session.assets,
+        &mut session.platform.assets,
         None,
-        &mut session.script_runtime,
+        &mut session.platform.script,
         default_host_path_bounds(),
     )?;
 
-    let font_db = session.font_db_handle();
-    let (layout_tree, _) = session.layout_session_mut().compute_layout_with_font_db(
+    let font_db = session.font_db.clone();
+    let (layout_tree, _) = session.layout_session.compute_layout_with_font_db(
         &element_root,
         frame_ctx,
         font_db.as_ref(),

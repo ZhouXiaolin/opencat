@@ -1074,12 +1074,14 @@ impl StyleMutations {
 // ── Text source ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) struct ScriptTextSource {
     pub text: String,
     pub kind: ScriptTextSourceKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum ScriptTextSourceKind {
     TextNode,
     Caption,
@@ -1104,6 +1106,7 @@ impl ScriptDriver {
         Self::from_source(&source)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn cache_key(&self) -> u64 {
         use std::hash::{DefaultHasher, Hash, Hasher};
 

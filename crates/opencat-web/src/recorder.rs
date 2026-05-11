@@ -1,19 +1,21 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use opencat_core::script::animate::color::{hsl_to_rgb, parse_color};
-use opencat_core::script::animate::state::{parse_easing_from_tag, random_from_seed};
-use opencat_core::script::animate::{AnimateState, MorphSvgState, PathMeasureState};
-use opencat_core::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
 use opencat_core::scene::script::mutations::{
     CanvasCommand, ScriptColor, ScriptFontEdging, TextUnitGranularity,
 };
 use opencat_core::scene::script::{
-    align_items_from_name, box_shadow_from_name, drop_shadow_from_name, flex_direction_from_name,
-    inset_shadow_from_name, justify_content_from_name, object_fit_from_name, position_from_name,
-    text_align_from_name, ScriptTextSource, ScriptTextSourceKind,
+    ScriptTextSource, ScriptTextSourceKind, align_items_from_name, box_shadow_from_name,
+    drop_shadow_from_name, flex_direction_from_name, inset_shadow_from_name,
+    justify_content_from_name, object_fit_from_name, position_from_name, text_align_from_name,
 };
-use opencat_core::style::{color_token_from_script_name, BorderStyle, ColorToken, FontWeight, ObjectFit};
+use opencat_core::script::animate::color::{hsl_to_rgb, parse_color};
+use opencat_core::script::animate::state::{parse_easing_from_tag, random_from_seed};
+use opencat_core::script::animate::{AnimateState, MorphSvgState, PathMeasureState};
+use opencat_core::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
+use opencat_core::style::{
+    BorderStyle, ColorToken, FontWeight, ObjectFit, color_token_from_script_name,
+};
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct WebMutationRecorder {
@@ -203,8 +205,7 @@ impl WebMutationRecorder {
         self.inner.record_border_style(id, bs);
     }
     pub fn record_font_weight(&mut self, id: &str, v: f64) {
-        self.inner
-            .record_font_weight(id, FontWeight(v as u16));
+        self.inner.record_font_weight(id, FontWeight(v as u16));
     }
     pub fn record_box_shadow(&mut self, id: &str, v: &str) {
         if let Some(s) = box_shadow_from_name(v) {
@@ -303,8 +304,7 @@ impl WebMutationRecorder {
         self.inner.record_canvas_command(id, CanvasCommand::Save);
     }
     pub fn record_canvas_restore(&mut self, id: &str) {
-        self.inner
-            .record_canvas_command(id, CanvasCommand::Restore);
+        self.inner.record_canvas_command(id, CanvasCommand::Restore);
     }
     pub fn record_canvas_translate(&mut self, id: &str, x: f32, y: f32) {
         self.inner
@@ -318,15 +318,7 @@ impl WebMutationRecorder {
         self.inner
             .record_canvas_command(id, CanvasCommand::Rotate { degrees });
     }
-    pub fn record_canvas_clip_rect(
-        &mut self,
-        id: &str,
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-        _aa: bool,
-    ) {
+    pub fn record_canvas_clip_rect(&mut self, id: &str, x: f32, y: f32, w: f32, h: f32, _aa: bool) {
         self.inner.record_canvas_command(
             id,
             CanvasCommand::ClipRect {
@@ -364,15 +356,7 @@ impl WebMutationRecorder {
             },
         );
     }
-    pub fn record_canvas_fill_rrect(
-        &mut self,
-        id: &str,
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-        r: f32,
-    ) {
+    pub fn record_canvas_fill_rrect(&mut self, id: &str, x: f32, y: f32, w: f32, h: f32, r: f32) {
         self.inner.record_canvas_command(
             id,
             CanvasCommand::FillRRect {
@@ -392,14 +376,7 @@ impl WebMutationRecorder {
         self.inner
             .record_canvas_command(id, CanvasCommand::StrokeCircle { cx, cy, radius: r });
     }
-    pub fn record_canvas_draw_line(
-        &mut self,
-        id: &str,
-        x0: f32,
-        y0: f32,
-        x1: f32,
-        y1: f32,
-    ) {
+    pub fn record_canvas_draw_line(&mut self, id: &str, x0: f32, y0: f32, x1: f32, y1: f32) {
         self.inner
             .record_canvas_command(id, CanvasCommand::DrawLine { x0, y0, x1, y1 });
     }
@@ -415,14 +392,7 @@ impl WebMutationRecorder {
         self.inner
             .record_canvas_command(id, CanvasCommand::LineTo { x, y });
     }
-    pub fn record_canvas_quad_to(
-        &mut self,
-        id: &str,
-        cx: f32,
-        cy: f32,
-        x: f32,
-        y: f32,
-    ) {
+    pub fn record_canvas_quad_to(&mut self, id: &str, cx: f32, cy: f32, x: f32, y: f32) {
         self.inner
             .record_canvas_command(id, CanvasCommand::QuadTo { cx, cy, x, y });
     }
@@ -605,8 +575,16 @@ impl WebMutationRecorder {
         yoyo: bool,
         repeat_delay: f32,
     ) -> i32 {
-        self.animate
-            .create(current_frame, duration, delay, clamp, easing, repeat, yoyo, repeat_delay)
+        self.animate.create(
+            current_frame,
+            duration,
+            delay,
+            clamp,
+            easing,
+            repeat,
+            yoyo,
+            repeat_delay,
+        )
     }
     pub fn animate_value(&self, current_frame: u32, handle: i32, from: f32, to: f32) -> f32 {
         self.animate.value(current_frame, handle, from, to)

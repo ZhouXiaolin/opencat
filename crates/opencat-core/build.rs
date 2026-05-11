@@ -353,7 +353,8 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     output.push_str("}\n\n");
 
     output.push_str("/// Wire-format RGBA color used when serializing [`ColorToken`] to JSON\n");
-    output.push_str("/// (so JS/CanvasKit can consume it directly without enum-variant decoding).\n");
+    output
+        .push_str("/// (so JS/CanvasKit can consume it directly without enum-variant decoding).\n");
     output.push_str("#[derive(Debug, Clone, Copy, serde::Serialize)]\n");
     output.push_str("pub struct ColorRgba {\n");
     output.push_str("    pub r: u8,\n");
@@ -393,9 +394,7 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     output.push_str("        tailwind_color_from_class_suffix(name)\n");
     output.push_str("    }\n");
     output.push_str("}\n\n");
-    output.push_str(
-        "pub fn color_token_from_script_name(name: &str) -> Option<ColorToken> {\n",
-    );
+    output.push_str("pub fn color_token_from_script_name(name: &str) -> Option<ColorToken> {\n");
     output.push_str("    if name == \"primary\" {\n");
     output.push_str("        Some(ColorToken::Primary)\n");
     output.push_str("    } else if name == \"transparent\" {\n");
@@ -699,10 +698,7 @@ fn generate_tailwind_jsonl_rules() -> String {
             "ExactClassAction::ObjectFit(ObjectFit::Fill)",
         ),
         ("font-mono", "ExactClassAction::Noop"),
-        (
-            "font-thin",
-            "ExactClassAction::FontWeight(FontWeight(100))",
-        ),
+        ("font-thin", "ExactClassAction::FontWeight(FontWeight(100))"),
         (
             "font-extralight",
             "ExactClassAction::FontWeight(FontWeight(200))",
@@ -723,10 +719,7 @@ fn generate_tailwind_jsonl_rules() -> String {
             "font-semibold",
             "ExactClassAction::FontWeight(FontWeight(600))",
         ),
-        (
-            "font-bold",
-            "ExactClassAction::FontWeight(FontWeight(700))",
-        ),
+        ("font-bold", "ExactClassAction::FontWeight(FontWeight(700))"),
         (
             "font-extrabold",
             "ExactClassAction::FontWeight(FontWeight(800))",
@@ -1227,7 +1220,7 @@ fn generate_lucide_icons(out_dir: &Path) -> Result<(), String> {
 
     let mut output = String::new();
     output.push_str("/// Auto-generated Lucide icon path data.\n");
-    output.push_str("/// Each icon maps to a list of SVG path data strings.\n\n");
+    output.push_str("/// Each icon maps to a list of SVG path data strings.\n");
     output.push_str("pub fn lucide_icon_paths(name: &str) -> Option<&'static [&'static str]> {\n");
     output.push_str("    match name {\n");
     for icon in &icons {

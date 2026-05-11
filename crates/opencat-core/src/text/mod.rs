@@ -6,9 +6,7 @@ use std::{
     ops::Range,
 };
 
-use cosmic_text::{
-    Attrs, Buffer, Command, FontSystem, Metrics, Shaping, SwashCache, SwashContent,
-};
+use cosmic_text::{Attrs, Buffer, Command, FontSystem, Metrics, Shaping, SwashCache, SwashContent};
 use rustc_hash::{FxHashMap, FxHasher};
 
 use crate::style::{ComputedTextStyle, TextAlign, TextTransform};
@@ -140,8 +138,7 @@ pub fn measure_text(
     let line_height = style.resolved_line_height_px();
     let metrics = Metrics::new(style.text_px, line_height);
 
-    let mut font_system =
-        FontSystem::new_with_locale_and_db("en-US".to_string(), font_db.clone());
+    let mut font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), font_db.clone());
     let mut buffer = Buffer::new(&mut font_system, metrics);
     buffer.set_size(&mut font_system, layout_width, None);
 
@@ -242,8 +239,8 @@ pub fn rasterize_glyphs(
                             ck,
                             GlyphData::ColorImage {
                                 rgba: image.data.clone(),
-                                width: image.placement.width as u32,
-                                height: image.placement.height as u32,
+                                width: image.placement.width,
+                                height: image.placement.height,
                                 placement_left: image.placement.left,
                                 placement_top: image.placement.top,
                             },
@@ -410,14 +407,8 @@ pub fn rasterization_to_display_glyphs(raster: &TextRasterization) -> DisplayTex
 
 fn convert_command(cmd: &cosmic_text::Command) -> DisplayGlyphCommand {
     match cmd {
-        cosmic_text::Command::MoveTo(p) => DisplayGlyphCommand::MoveTo {
-            x: p.x,
-            y: p.y,
-        },
-        cosmic_text::Command::LineTo(p) => DisplayGlyphCommand::LineTo {
-            x: p.x,
-            y: p.y,
-        },
+        cosmic_text::Command::MoveTo(p) => DisplayGlyphCommand::MoveTo { x: p.x, y: p.y },
+        cosmic_text::Command::LineTo(p) => DisplayGlyphCommand::LineTo { x: p.x, y: p.y },
         cosmic_text::Command::QuadTo(c, p) => DisplayGlyphCommand::QuadTo {
             cx: c.x,
             cy: c.y,

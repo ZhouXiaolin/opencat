@@ -8,10 +8,8 @@ mod store;
 
 pub use store::MutationStore;
 
-use crate::scene::script::mutations::{
-    CanvasCommand, StyleMutations, TextUnitGranularity,
-};
 use crate::scene::script::ScriptTextSource;
+use crate::scene::script::mutations::{CanvasCommand, StyleMutations, TextUnitGranularity};
 use crate::style::{
     AlignItems, BorderStyle, BoxShadow, ColorToken, DropShadow, FlexDirection, FontWeight,
     InsetShadow, JustifyContent, ObjectFit, Position, TextAlign, Transform,

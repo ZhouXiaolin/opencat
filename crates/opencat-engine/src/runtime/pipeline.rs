@@ -6,9 +6,7 @@ use opencat_core::element::resolve::resolve_ui_tree_with_script_cache;
 use opencat_core::frame_ctx::{FrameCtx, ScriptFrameCtx};
 use opencat_core::resource::catalog::ResourceCatalog;
 use opencat_core::runtime::{
-    annotation::{
-        AnnotatedDisplayTree, annotate_display_tree, compute_display_tree_fingerprints,
-    },
+    annotation::{AnnotatedDisplayTree, annotate_display_tree, compute_display_tree_fingerprints},
     invalidation::{CompositeHistory, mark_display_tree_composite_dirty},
 };
 use opencat_core::scene::{
@@ -114,8 +112,8 @@ pub fn build_frame_display_tree(
         default_host_path_bounds(),
     )?;
 
-    let (layout_tree, layout_pass) = layout_session
-        .compute_layout_with_provider(&element_root, frame_ctx, fonts)?;
+    let (layout_tree, layout_pass) =
+        layout_session.compute_layout_with_provider(&element_root, frame_ctx, fonts)?;
     stats.layout_pass = layout_pass;
 
     let display_tree = build_display_tree(&element_root, &layout_tree)?;

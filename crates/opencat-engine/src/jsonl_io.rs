@@ -35,10 +35,9 @@ pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<Parse
                 } else {
                     PathBuf::from(&p)
                 };
-                let src =
-                    std::fs::read_to_string(&resolved_path).with_context(|| {
-                        format!("failed to read script file: {}", resolved_path.display())
-                    })?;
+                let src = std::fs::read_to_string(&resolved_path).with_context(|| {
+                    format!("failed to read script file: {}", resolved_path.display())
+                })?;
                 JsonLine::Script {
                     parent_id,
                     src: Some(src),

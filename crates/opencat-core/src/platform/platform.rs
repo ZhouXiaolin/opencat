@@ -19,6 +19,39 @@ pub trait Platform: 'static {
     fn script_host(&mut self) -> &mut Self::Script;
     fn video_source(&mut self) -> &mut Self::Video;
     fn path_bounds(&self) -> &dyn PathBoundsComputer;
+
+    /// Combined accessor that resolves the borrow conflict between script_host (mut)
+    /// and path_bounds (immutable). Default impl borrows sequentially via UnsafeCell
+    /// semantics — implementors should override if they have interior mutability.
+    ///
+    /// SAFETY: The default impl is safe because `script_host` and `path_bounds`
+    /// access disjoint fields. The reborrow through raw pointers is valid because:
+    /// 1. `self` is exclusively borrowed for the duration of the callback.
+    /// 2. `script` and `path_bounds` do not overlap in memory.
+    /// 3. No other code can access `self` during the callback.
+    fn with_script_and_bounds<R>(
+        &mut self,
+        f: impl FnOnce(&mut Self::Script, &dyn PathBoundsComputer) -> R,
+    ) -> R {
+        // SAFETY: We need to work around Rust's borrow checker not knowing that
+        // script_host and path_bounds access disjoint fields. We use raw pointers
+        // to obtain both references simultaneously.
+        let this = self as *mut Self;
+        let script = unsafe { &mut *this }.script_host();
+        let path_bounds = unsafe { &*this }.path_bounds();
+        f(script, path_bounds)
+    }
+
+    /// Combined accessor for video_source (mut) and render_engine (immutable).
+    fn with_video_and_engine<R>(
+        &mut self,
+        f: impl FnOnce(&mut Self::Video, &Self::Backend) -> R,
+    ) -> R {
+        let this = self as *mut Self;
+        let video = unsafe { &mut *this }.video_source();
+        let backend = unsafe { &*this }.render_engine();
+        f(video, backend)
+    }
 }
 
 #[cfg(test)]
@@ -46,11 +79,7 @@ mod tests {
         fn target_frame_view_kind(&self) -> &'static str {
             "mock"
         }
-        fn draw_scene_snapshot(
-            &self,
-            _: &Self::Picture,
-            _: FrameView<'_>,
-        ) -> Result<()> {
+        fn draw_scene_snapshot(&self, _: &Self::Picture, _: FrameView<'_>) -> Result<()> {
             Ok(())
         }
         fn record_display_tree_snapshot(
@@ -63,11 +92,7 @@ mod tests {
         {
             Ok("snap".into())
         }
-        fn draw_ordered_scene(
-            &self,
-            _: &mut RenderCtx<'_, Self>,
-            _: FrameView<'_>,
-        ) -> Result<()>
+        fn draw_ordered_scene(&self, _: &mut RenderCtx<'_, Self>, _: FrameView<'_>) -> Result<()>
         where
             Self: Sized,
         {

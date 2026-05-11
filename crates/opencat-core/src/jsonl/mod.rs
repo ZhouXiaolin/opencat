@@ -1491,5 +1491,4 @@ mod tests {
         assert_eq!(parsed.fps, 30);
         assert_eq!(parsed.frames, 90);
     }
-
 }

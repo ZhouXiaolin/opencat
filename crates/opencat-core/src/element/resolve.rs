@@ -100,10 +100,7 @@ pub fn resolve_ui_tree_with_script_cache(
     Ok(resolve_node_optional(node, &mut cx)?.unwrap_or_else(|| empty_root_div(&mut cx)))
 }
 
-fn resolve_node(
-    node: &Node,
-    cx: &mut ResolveContext<'_>,
-) -> Result<ElementNode> {
+fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     match node.kind() {
         NodeKind::Component(component) => resolve_component(component, cx),
         NodeKind::Video(video) => resolve_video(video, cx),
@@ -150,10 +147,7 @@ fn resolve_frame_state_as_children(
     }
 }
 
-fn resolve_timeline(
-    timeline: &TimelineNode,
-    cx: &mut ResolveContext<'_>,
-) -> Result<ElementNode> {
+fn resolve_timeline(timeline: &TimelineNode, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(timeline, timeline.style_ref(), cx)?;
     let result = (|| {
         let mut style = timeline.style_ref().clone();
@@ -256,10 +250,7 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     }
 }
 
-fn resolve_node_optional(
-    node: &Node,
-    cx: &mut ResolveContext<'_>,
-) -> Result<Option<ElementNode>> {
+fn resolve_node_optional(node: &Node, cx: &mut ResolveContext<'_>) -> Result<Option<ElementNode>> {
     match node.kind() {
         NodeKind::Component(component) => resolve_component_optional(component, cx),
         NodeKind::Caption(caption) => resolve_caption(caption, cx),
@@ -292,8 +283,10 @@ fn resolve_component_optional(
 }
 
 fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
-    let mut style = NodeStyle::default();
-    style.id = "__empty_root".to_string();
+    let style = NodeStyle {
+        id: "__empty_root".to_string(),
+        ..Default::default()
+    };
     ElementNode {
         id: cx.ids.alloc(),
         kind: ElementKind::Div(ElementDiv),
@@ -326,10 +319,7 @@ fn resolve_component(
     result
 }
 
-fn resolve_div(
-    div: &Div,
-    cx: &mut ResolveContext<'_>,
-) -> Result<ElementNode> {
+fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(div, div.style_ref(), cx)?;
     let result = (|| {
         let mut style = div.style_ref().clone();
@@ -436,7 +426,7 @@ fn resolve_caption(
             id: cx.ids.alloc(),
             kind: ElementKind::Text(ElementText {
                 text: content,
-                text_style: computed.text.clone(),
+                text_style: computed.text,
                 text_unit_overrides,
             }),
             style: computed,
@@ -481,10 +471,7 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
     result
 }
 
-fn resolve_video(
-    video: &Video,
-    cx: &mut ResolveContext<'_>,
-) -> Result<ElementNode> {
+fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(video, video.style_ref(), cx)?;
     let result = (|| {
         let mut style = video.style_ref().clone();
@@ -503,9 +490,11 @@ fn resolve_video(
             height: 0,
             duration_secs: None,
         });
-        let asset_id = cx
-            .assets
-            .register_dimensions(&video.source().to_string_lossy(), info.width, info.height);
+        let asset_id = cx.assets.register_dimensions(
+            &video.source().to_string_lossy(),
+            info.width,
+            info.height,
+        );
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -525,10 +514,7 @@ fn resolve_video(
     result
 }
 
-fn resolve_image(
-    image: &Image,
-    cx: &mut ResolveContext<'_>,
-) -> Result<ElementNode> {
+fn resolve_image(image: &Image, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(image, image.style_ref(), cx)?;
     let result = (|| {
         let mut style = image.style_ref().clone();
@@ -1088,14 +1074,13 @@ mod tests {
     use crate::{
         FrameCtx,
         element::tree::ElementKind,
-        resource::catalog::VideoInfoMeta,
-        test_support::TestCatalog,
         scene::primitives::{SrtEntry, caption, div, lucide, text, video},
         scene::script::{
-            NodeStyleMutations, StyleMutations, TextUnitGranularity,
-            TextUnitOverride, TextUnitOverrideBatch,
+            NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
+            TextUnitOverrideBatch,
         },
         test_support::MockScriptHost,
+        test_support::TestCatalog,
     };
 
     fn resolve(
@@ -1143,8 +1128,7 @@ mod tests {
             .child(text("A").id("label"))
             .child(lucide("play").id("icon").size(24.0, 24.0));
 
-        let resolved = resolve(&root.into(), &frame_ctx, &mut assets)
-            .expect("tree should resolve");
+        let resolved = resolve(&root.into(), &frame_ctx, &mut assets).expect("tree should resolve");
 
         assert_eq!(
             resolved.children[0].style.text.color,
@@ -1180,8 +1164,7 @@ mod tests {
             .child(text("A").id("label"))
             .child(lucide("play").id("icon").size(24.0, 24.0));
 
-        let resolved = resolve(&root.into(), &frame_ctx, &mut assets)
-            .expect("tree should resolve");
+        let resolved = resolve(&root.into(), &frame_ctx, &mut assets).expect("tree should resolve");
 
         assert_eq!(resolved.children[0].style.visual.background, None);
         assert_eq!(resolved.children[0].style.visual.border_width, None);
@@ -1206,8 +1189,7 @@ mod tests {
             .rotate_deg(12.0)
             .child(text("A").id("label"));
 
-        let resolved = resolve(&root.into(), &frame_ctx, &mut assets)
-            .expect("tree should resolve");
+        let resolved = resolve(&root.into(), &frame_ctx, &mut assets).expect("tree should resolve");
 
         assert_eq!(resolved.style.visual.opacity, 0.4);
         assert_eq!(resolved.children[0].style.visual.opacity, 1.0);
@@ -1292,24 +1274,28 @@ mod tests {
 
     #[test]
     fn text_unit_overrides_merge_per_field_across_stack_layers() {
-        let mut lower = NodeStyleMutations::default();
-        lower.text_unit_overrides = Some(TextUnitOverrideBatch {
-            granularity: TextUnitGranularity::Grapheme,
-            overrides: vec![TextUnitOverride {
-                translate_y: Some(-12.0),
-                color: Some(crate::style::ColorToken::Cyan400),
-                ..Default::default()
-            }],
-        });
+        let lower = NodeStyleMutations {
+            text_unit_overrides: Some(TextUnitOverrideBatch {
+                granularity: TextUnitGranularity::Grapheme,
+                overrides: vec![TextUnitOverride {
+                    translate_y: Some(-12.0),
+                    color: Some(crate::style::ColorToken::Cyan400),
+                    ..Default::default()
+                }],
+            }),
+            ..Default::default()
+        };
 
-        let mut upper = NodeStyleMutations::default();
-        upper.text_unit_overrides = Some(TextUnitOverrideBatch {
-            granularity: TextUnitGranularity::Grapheme,
-            overrides: vec![TextUnitOverride {
-                opacity: Some(0.5),
-                ..Default::default()
-            }],
-        });
+        let upper = NodeStyleMutations {
+            text_unit_overrides: Some(TextUnitOverrideBatch {
+                granularity: TextUnitGranularity::Grapheme,
+                overrides: vec![TextUnitOverride {
+                    opacity: Some(0.5),
+                    ..Default::default()
+                }],
+            }),
+            ..Default::default()
+        };
 
         let stack = vec![
             StyleMutations {
@@ -1384,12 +1370,8 @@ mod tests {
         let caption_node = caption().id("subs").path("test.srt").entries(entries);
         let root = div().id("root").child(caption_node);
 
-        let resolved = resolve(
-            &root.clone().into(),
-            &frame_ctx,
-            &mut assets,
-        )
-        .expect("div with inactive caption should resolve");
+        let resolved = resolve(&root.clone().into(), &frame_ctx, &mut assets)
+            .expect("div with inactive caption should resolve");
 
         assert_eq!(
             resolved.children.len(),
@@ -1401,12 +1383,8 @@ mod tests {
             frame: 45,
             ..frame_ctx
         };
-        let resolved_active = resolve(
-            &root.into(),
-            &frame_ctx_active,
-            &mut assets,
-        )
-        .expect("layer with active caption should resolve");
+        let resolved_active = resolve(&root.into(), &frame_ctx_active, &mut assets)
+            .expect("layer with active caption should resolve");
 
         assert_eq!(resolved_active.children.len(), 1);
         let ElementKind::Text(elem) = &resolved_active.children[0].kind else {

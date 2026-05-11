@@ -7,16 +7,14 @@ use std::ffi::c_void;
 
 #[cfg(target_os = "macos")]
 use crate::runtime::surface::MetalEncodeBridge;
-use opencat_core::runtime::annotation::AnnotatedDisplayTree;
-use crate::{
-    runtime::{
-        compositor::OrderedSceneProgram,
-        frame_view::RenderFrameView,
-        render_engine::{RenderEngine, SceneRenderContext, SceneSnapshot, SharedRenderEngine},
-        session::RenderSession,
-        target::{RenderFrameViewKind, RenderTargetHandle},
-    },
+use crate::runtime::{
+    compositor::OrderedSceneProgram,
+    frame_view::RenderFrameView,
+    render_engine::{RenderEngine, SceneRenderContext, SceneSnapshot, SharedRenderEngine},
+    session::RenderSession,
+    target::{RenderFrameViewKind, RenderTargetHandle},
 };
+use opencat_core::runtime::annotation::AnnotatedDisplayTree;
 use opencat_core::scene::composition::Composition;
 
 use super::canvas as skia;
@@ -231,14 +229,24 @@ fn skia_canvas(frame_view: RenderFrameView) -> Result<&'static Canvas> {
 }
 
 // ---------------------------------------------------------------------------
-// Core trait stubs — Task 6 will replace bodies with real implementations.
+// Core trait implementations — bridge to existing Skia canvas functions.
 // ---------------------------------------------------------------------------
 
+use super::backend::SkiaBackend;
+use crate::resource::asset_catalog::AssetCatalog;
+use crate::resource::media::MediaContext;
 use opencat_core::platform::backend::BackendTypes;
 use opencat_core::platform::render_engine::{
     FrameView, RecordCtx, RenderCtx, RenderEngine as CoreRenderEngine,
 };
-use super::backend::SkiaBackend;
+use std::any::Any;
+
+/// Bundle passed through `platform_data` from engine driver to SkiaRenderEngine core trait impls.
+/// Allows the core pipeline to render via existing canvas functions without canvas knowing about core types.
+pub struct SkiaRenderData<'a> {
+    pub assets: &'a AssetCatalog,
+    pub media_ctx: &'a mut MediaContext,
+}
 
 impl BackendTypes for SkiaRenderEngine {
     type Picture = <SkiaBackend as BackendTypes>::Picture;
@@ -254,31 +262,96 @@ impl CoreRenderEngine for SkiaRenderEngine {
 
     fn draw_scene_snapshot(
         &self,
-        _snapshot: &Self::Picture,
-        _frame_view: FrameView<'_>,
+        snapshot: &Self::Picture,
+        frame_view: FrameView<'_>,
     ) -> Result<()> {
-        unimplemented!("Task 6: draw_scene_snapshot via core RenderEngine")
+        let canvas = skia_canvas_from_core(frame_view)?;
+        if snapshot.cull_rect().is_empty() {
+            return Err(anyhow!("scene snapshot has empty bounds"));
+        }
+        canvas.draw_picture(snapshot, None, None);
+        Ok(())
     }
 
     fn record_display_tree_snapshot(
         &self,
-        _ctx: &mut RecordCtx<'_, Self>,
-        _display_tree: &AnnotatedDisplayTree,
+        ctx: &mut RecordCtx<'_, Self>,
+        display_tree: &AnnotatedDisplayTree,
     ) -> Result<Self::Picture>
     where
         Self: Sized,
     {
-        unimplemented!("Task 6: record_display_tree_snapshot via core RenderEngine")
+        let data = ctx
+            .platform_data
+            .downcast_mut::<SkiaRenderData<'_>>()
+            .ok_or_else(|| anyhow!("platform_data must be SkiaRenderData"))?;
+        let snapshot = skia::record_display_tree_snapshot(
+            display_tree,
+            ctx.frame_ctx.width as i32,
+            ctx.frame_ctx.height as i32,
+            data.assets,
+            ctx.cache.image_cache(),
+            ctx.cache.glyph_path_cache(),
+            ctx.cache.glyph_image_cache(),
+            ctx.cache.item_picture_cache(),
+            ctx.cache.subtree_snapshot_cache(),
+            ctx.cache.subtree_image_cache(),
+            Some(&mut *data.media_ctx),
+            ctx.frame_ctx,
+        )?;
+        Ok(snapshot)
     }
 
     fn draw_ordered_scene(
         &self,
-        _ctx: &mut RenderCtx<'_, Self>,
-        _frame_view: FrameView<'_>,
+        ctx: &mut RenderCtx<'_, Self>,
+        frame_view: FrameView<'_>,
     ) -> Result<()>
     where
         Self: Sized,
     {
-        unimplemented!("Task 6: draw_ordered_scene via core RenderEngine")
+        let direct_draw_span =
+            span!(target: "render.backend", Level::TRACE, "display_tree_direct_draw");
+        let _profile_span = direct_draw_span.enter();
+        let canvas = skia_canvas_from_core(frame_view)?;
+        let data = ctx
+            .platform_data
+            .downcast_mut::<SkiaRenderData<'_>>()
+            .ok_or_else(|| anyhow!("platform_data must be SkiaRenderData"))?;
+        skia::draw_ordered_scene_cached(
+            ctx.display_tree,
+            ctx.ordered_scene,
+            canvas,
+            data.assets,
+            ctx.cache.image_cache(),
+            ctx.cache.glyph_path_cache(),
+            ctx.cache.glyph_image_cache(),
+            ctx.cache.item_picture_cache(),
+            ctx.cache.subtree_snapshot_cache(),
+            ctx.cache.subtree_image_cache(),
+            Some(&mut *data.media_ctx),
+            ctx.frame_ctx,
+        )?;
+        Ok(())
     }
+}
+
+fn skia_canvas_from_core(frame_view: FrameView<'_>) -> Result<&'static Canvas> {
+    use opencat_core::platform::render_engine::FrameViewKind;
+    let kind = match &frame_view.kind {
+        FrameViewKind::Opaque(any) => any,
+    };
+    // Try to downcast to the engine's raw pointer convention.
+    // The engine passes raw *mut c_void through FrameView.
+    let raw: Option<*mut c_void> = kind
+        .downcast_ref()
+        .copied()
+        .or_else(|| kind.downcast_ref::<*mut c_void>().copied());
+    let raw = raw.ok_or_else(|| anyhow!("frame view does not contain a raw pointer"))?;
+    if raw.is_null() {
+        return Err(anyhow!("frame view raw pointer is null"));
+    }
+    // SAFETY: Skia backend only accepts Canvas surface views and the raw pointer is owned by the
+    // active target or raster surface for the duration of the call chain.
+    Ok(unsafe { &*(raw as *const Canvas) })
 }

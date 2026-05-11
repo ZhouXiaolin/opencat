@@ -16,8 +16,7 @@ impl SceneRenderPlan {
             || layout_pass.composite_dirty_nodes > 0;
 
         Self {
-            allows_scene_snapshot_cache: !contains_time_variant_paint
-                && !has_structural_change,
+            allows_scene_snapshot_cache: !contains_time_variant_paint && !has_structural_change,
         }
     }
 }

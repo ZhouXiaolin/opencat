@@ -7,8 +7,8 @@ use anyhow::{Context, Result, anyhow};
 use skia_safe::{AlphaType, ColorType, Data, Image, ImageInfo, image::CachingHint};
 
 use crate::codec::decode::VideoDecodeCache;
-use opencat_core::resource::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
 use crate::runtime::cache::{CacheCaps, video_frames::VideoFrameCache};
+use opencat_core::resource::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
 
 pub use crate::codec::decode::VideoInfo;
 pub use opencat_core::resource::types::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality};
@@ -188,7 +188,11 @@ impl opencat_core::platform::video::VideoFrameProvider for MediaContext {
             target_size: None,
         };
         let (data, width, height, _hit) = self.get_video_frame(path, request)?;
-        Ok(opencat_core::platform::video::FrameBitmap { data, width, height })
+        Ok(opencat_core::platform::video::FrameBitmap {
+            data,
+            width,
+            height,
+        })
     }
 }
 

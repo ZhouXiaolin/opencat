@@ -1,9 +1,9 @@
-use std::collections::HashMap;
-use anyhow::Result;
 use crate::resource::asset_id::AssetId;
 use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 use crate::scene::primitives::{AudioSource, ImageSource};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

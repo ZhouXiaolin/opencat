@@ -100,9 +100,7 @@ impl AnnotatedDisplayNode {
     }
 }
 
-pub fn annotate_display_tree(
-    display_tree: &DisplayTree,
-) -> AnnotatedDisplayTree {
+pub fn annotate_display_tree(display_tree: &DisplayTree) -> AnnotatedDisplayTree {
     let node_count = count_display_nodes(&display_tree.root);
     let mut nodes = Vec::with_capacity(node_count);
     let mut keys = Vec::with_capacity(node_count);

@@ -103,9 +103,11 @@ fn collect_scene_rects(
     )?;
 
     let font_db = session.font_db_handle();
-    let (layout_tree, _) = session
-        .layout_session_mut()
-        .compute_layout_with_font_db(&element_root, frame_ctx, font_db.as_ref())?;
+    let (layout_tree, _) = session.layout_session_mut().compute_layout_with_font_db(
+        &element_root,
+        frame_ctx,
+        font_db.as_ref(),
+    )?;
 
     collect_rects_in_draw_order(
         &element_root,
@@ -120,11 +122,7 @@ fn collect_scene_rects(
     )
 }
 
-fn seed_asset_entries_for_inspect(
-    node: &Node,
-    frame_ctx: &FrameCtx,
-    assets: &mut AssetCatalog,
-) {
+fn seed_asset_entries_for_inspect(node: &Node, frame_ctx: &FrameCtx, assets: &mut AssetCatalog) {
     match node.kind() {
         NodeKind::Component(component) => {
             let rendered = component.render(frame_ctx);

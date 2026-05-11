@@ -49,8 +49,7 @@ impl<P: Platform> RenderSession<P> {
             layout_session: LayoutSession::new(),
             composite_history: CompositeHistory::default(),
             font_db,
-            catalog: HashMapResourceCatalog::from_json("{}")
-                .expect("empty catalog must parse"),
+            catalog: HashMapResourceCatalog::from_json("{}").expect("empty catalog must parse"),
             prepared_root_ptr: None,
             cache_registry: CacheRegistry::new(caps),
             scene_snapshots: SceneSnapshotCache::new(),
@@ -86,11 +85,7 @@ mod tests {
         fn target_frame_view_kind(&self) -> &'static str {
             "mock"
         }
-        fn draw_scene_snapshot(
-            &self,
-            _: &Self::Picture,
-            _: FrameView<'_>,
-        ) -> Result<()> {
+        fn draw_scene_snapshot(&self, _: &Self::Picture, _: FrameView<'_>) -> Result<()> {
             Ok(())
         }
         fn record_display_tree_snapshot(
@@ -103,11 +98,7 @@ mod tests {
         {
             Ok("snap".into())
         }
-        fn draw_ordered_scene(
-            &self,
-            _: &mut RenderCtx<'_, Self>,
-            _: FrameView<'_>,
-        ) -> Result<()>
+        fn draw_ordered_scene(&self, _: &mut RenderCtx<'_, Self>, _: FrameView<'_>) -> Result<()>
         where
             Self: Sized,
         {
@@ -201,7 +192,11 @@ mod tests {
         let session = RenderSession::with_cache_caps(make_mock_platform(), caps);
         assert_eq!(session.cache_registry.image_cache().borrow().capacity(), 1);
         assert_eq!(
-            session.cache_registry.glyph_path_cache().borrow().capacity(),
+            session
+                .cache_registry
+                .glyph_path_cache()
+                .borrow()
+                .capacity(),
             6
         );
     }

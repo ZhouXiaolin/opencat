@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 
-use opencat_core::resource::asset_id::{AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, stable_hash};
+use opencat_core::resource::asset_id::{
+    AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, stable_hash,
+};
 use opencat_core::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 use opencat_core::scene::primitives::{AudioSource, ImageSource};
 
@@ -299,9 +301,7 @@ mod tests {
     fn alias_copies_entry_dimensions() {
         let mut catalog = AssetCatalog::new();
         let target = catalog.register_dimensions(Path::new("/tmp/t.png"), 100, 200);
-        catalog
-            .alias(AssetId("alias".into()), &target)
-            .unwrap();
+        catalog.alias(AssetId("alias".into()), &target).unwrap();
         assert_eq!(catalog.dimensions(&AssetId("alias".into())), (100, 200));
         assert_eq!(
             catalog.path(&AssetId("alias".into())),
@@ -318,7 +318,11 @@ mod tests {
     #[test]
     fn video_info_returns_none_when_not_registered() {
         let catalog = AssetCatalog::new();
-        assert!(catalog.video_info_meta(&AssetId("no-video".into())).is_none());
+        assert!(
+            catalog
+                .video_info_meta(&AssetId("no-video".into()))
+                .is_none()
+        );
     }
 
     #[test]
@@ -339,30 +343,28 @@ mod tests {
     #[test]
     fn register_image_source_errors_on_unset() {
         let mut catalog = AssetCatalog::new();
-        assert!(catalog
-            .register_image_source(&ImageSource::Unset)
-            .is_err());
+        assert!(catalog.register_image_source(&ImageSource::Unset).is_err());
     }
 
     #[test]
     fn register_audio_source_errors_on_unset() {
         let mut catalog = AssetCatalog::new();
-        assert!(catalog
-            .register_audio_source(&AudioSource::Unset)
-            .is_err());
+        assert!(catalog.register_audio_source(&AudioSource::Unset).is_err());
     }
 
     #[test]
     fn register_audio_source_errors_on_missing_preloaded_url() {
         let mut catalog = AssetCatalog::new();
-        let result = catalog.register_audio_source(&AudioSource::Url("https://example.com/a.mp3".into()));
+        let result =
+            catalog.register_audio_source(&AudioSource::Url("https://example.com/a.mp3".into()));
         assert!(result.is_err());
     }
 
     #[test]
     fn register_image_source_errors_on_missing_preloaded_url() {
         let mut catalog = AssetCatalog::new();
-        let result = catalog.register_image_source(&ImageSource::Url("https://example.com/b.png".into()));
+        let result =
+            catalog.register_image_source(&ImageSource::Url("https://example.com/b.png".into()));
         assert!(result.is_err());
     }
 
@@ -386,11 +388,13 @@ mod tests {
             aspect_ratio: None,
         };
         catalog.ensure_image_source_entry_for_inspect(&ImageSource::Query(query));
-        let qid = opencat_core::resource::asset_id::asset_id_for_query(&opencat_core::scene::primitives::OpenverseQuery {
-            query: "dog".into(),
-            count: 1,
-            aspect_ratio: None,
-        });
+        let qid = opencat_core::resource::asset_id::asset_id_for_query(
+            &opencat_core::scene::primitives::OpenverseQuery {
+                query: "dog".into(),
+                count: 1,
+                aspect_ratio: None,
+            },
+        );
         assert_eq!(catalog.dimensions(&qid), (0, 0));
     }
 }

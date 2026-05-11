@@ -800,10 +800,7 @@ mod tests {
                 drop_shadow: None,
             },
         });
-        assert_eq!(
-            classify_paint(&bitmap_item),
-            PaintVariance::TimeVariant
-        );
+        assert_eq!(classify_paint(&bitmap_item), PaintVariance::TimeVariant);
         // 视频 Bitmap 不再进 ItemPictureCache —— 解码层的 video_frame_cache 已按
         // pts 复用帧数据,Picture 层冻帧会破坏"视频视为变化"的设计原则。
         assert!(

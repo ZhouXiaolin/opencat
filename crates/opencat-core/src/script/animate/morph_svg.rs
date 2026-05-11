@@ -1,7 +1,7 @@
 //! SVG path morphing — single-contour to single-contour, closed-to-closed or open-to-open.
 
+use kurbo::{BezPath, ParamCurve, ParamCurveArclen, PathEl, PathSeg};
 use std::collections::HashMap;
-use kurbo::{BezPath, PathEl, PathSeg, ParamCurve, ParamCurveArclen};
 
 #[derive(Clone, Copy, Debug)]
 struct Point {
@@ -74,7 +74,11 @@ fn build_contour(
     let min_points = if closed { 3 } else { 2 };
     let count = sample_count.max(min_points);
     let from_points = sample_contour(&from_contour, count, closed)?;
-    let to_points = align_points(&from_points, sample_contour(&to_contour, count, closed)?, closed);
+    let to_points = align_points(
+        &from_points,
+        sample_contour(&to_contour, count, closed)?,
+        closed,
+    );
 
     if from_points.len() < min_points || to_points.len() < min_points {
         return None;
@@ -142,13 +146,13 @@ fn single_contour(path: &BezPath) -> Option<(MeasuredContour, bool)> {
             }
             PathEl::ClosePath => {
                 let first = segs.first().map(|s| s.start());
-                if let (Some(prev), Some(first)) = (last, first) {
-                    if (prev - first).hypot() > 1e-6 {
-                        let s = PathSeg::Line(kurbo::Line::new(prev, first));
-                        len += s.arclen(ARCLEN_ACCURACY);
-                        cum.push(len);
-                        segs.push(s);
-                    }
+                if let (Some(prev), Some(first)) = (last, first)
+                    && (prev - first).hypot() > 1e-6
+                {
+                    let s = PathSeg::Line(kurbo::Line::new(prev, first));
+                    len += s.arclen(ARCLEN_ACCURACY);
+                    cum.push(len);
+                    segs.push(s);
                 }
                 last = first;
             }
@@ -172,17 +176,20 @@ fn single_contour(path: &BezPath) -> Option<(MeasuredContour, bool)> {
         return None;
     }
 
-    Some((MeasuredContour {
-        segments: contour.segments,
-        cumulative: contour.cumulative,
-        length: contour.length,
-    }, closed))
+    Some((
+        MeasuredContour {
+            segments: contour.segments,
+            cumulative: contour.cumulative,
+            length: contour.length,
+        },
+        closed,
+    ))
 }
 
 fn is_closed(path: &BezPath) -> bool {
     path.elements()
         .last()
-        .map_or(false, |el| matches!(el, PathEl::ClosePath))
+        .is_some_and(|el| matches!(el, PathEl::ClosePath))
 }
 
 fn sample_contour(contour: &MeasuredContour, count: usize, closed: bool) -> Option<Vec<Point>> {
@@ -193,21 +200,26 @@ fn sample_contour(contour: &MeasuredContour, count: usize, closed: bool) -> Opti
         } else {
             i as f32 / (count.saturating_sub(1).max(1)) as f32
         };
-        let (x, y, _) = sample_at_length_from_contour(contour, contour.length as f64 * progress as f64);
+        let (x, y, _) =
+            sample_at_length_from_contour(contour, contour.length as f64 * progress as f64);
         points.push(Point { x, y });
     }
     Some(remove_near_duplicate_points(points))
 }
 
 fn sample_at_length_from_contour(contour: &MeasuredContour, length: f64) -> (f32, f32, f32) {
-    let idx = match contour
-        .cumulative
-        .binary_search_by(|cum| cum.partial_cmp(&length).unwrap_or(std::cmp::Ordering::Equal))
-    {
+    let idx = match contour.cumulative.binary_search_by(|cum| {
+        cum.partial_cmp(&length)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    }) {
         Ok(i) => i,
         Err(i) => i.min(contour.cumulative.len().saturating_sub(1)),
     };
-    let prev = if idx == 0 { 0.0 } else { contour.cumulative[idx - 1] };
+    let prev = if idx == 0 {
+        0.0
+    } else {
+        contour.cumulative[idx - 1]
+    };
     let local = length - prev;
     let seg = &contour.segments[idx];
     let seg_len = seg.arclen(ARCLEN_ACCURACY);
@@ -330,8 +342,7 @@ fn rdp_simplify_closed(points: &[Point], epsilon: f32) -> Vec<Point> {
     opened.push(opened[0]);
 
     let mut simplified = rdp_simplify_open(&opened, epsilon);
-    if simplified.len() > 1
-        && distance_sq(simplified[0], simplified[simplified.len() - 1]) <= 1e-8
+    if simplified.len() > 1 && distance_sq(simplified[0], simplified[simplified.len() - 1]) <= 1e-8
     {
         simplified.pop();
     }
@@ -483,9 +494,8 @@ mod tests {
 
     #[test]
     fn morph_triangle_at_t0_produces_valid_path() {
-        let entry =
-            MorphSvgEntry::new("M55 0 L110 95 L0 95 Z", "M55 95 L110 0 L0 0 Z", 128)
-                .expect("should create entry from valid paths");
+        let entry = MorphSvgEntry::new("M55 0 L110 95 L0 95 Z", "M55 95 L110 0 L0 0 Z", 128)
+            .expect("should create entry from valid paths");
         let result = entry.sample(0.0, 0.5);
         assert_ne!(result, "M55 0 L110 95 L0 95 Z");
         assert!(kurbo::BezPath::from_svg(&result).is_ok());
@@ -493,9 +503,8 @@ mod tests {
 
     #[test]
     fn morph_triangle_at_t1_produces_valid_path() {
-        let entry =
-            MorphSvgEntry::new("M55 0 L110 95 L0 95 Z", "M55 95 L110 0 L0 0 Z", 128)
-                .expect("should create entry");
+        let entry = MorphSvgEntry::new("M55 0 L110 95 L0 95 Z", "M55 95 L110 0 L0 0 Z", 128)
+            .expect("should create entry");
         let result = entry.sample(1.0, 0.5);
         assert_ne!(result, "M55 95 L110 0 L0 0 Z");
         assert!(kurbo::BezPath::from_svg(&result).is_ok());
@@ -519,17 +528,13 @@ mod tests {
         assert!(kurbo::BezPath::from_svg(&near_end).is_ok());
         assert_eq!(at_end.matches('M').count(), 1);
         assert_eq!(at_end.matches('Z').count(), 1);
-        assert_eq!(
-            at_end.matches('C').count(),
-            near_end.matches('C').count()
-        );
+        assert_eq!(at_end.matches('C').count(), near_end.matches('C').count());
     }
 
     #[test]
     fn morph_at_t05_produces_valid_path() {
-        let entry =
-            MorphSvgEntry::new("M55 0 L110 95 L0 95 Z", "M55 95 L110 0 L0 0 Z", 128)
-                .expect("should create entry");
+        let entry = MorphSvgEntry::new("M55 0 L110 95 L0 95 Z", "M55 95 L110 0 L0 0 Z", 128)
+            .expect("should create entry");
         let result = entry.sample(0.5, 0.5);
         assert!(!result.is_empty(), "sample at t=0.5 should not be empty");
         assert!(kurbo::BezPath::from_svg(&result).is_ok());
@@ -606,12 +611,7 @@ mod tests {
     #[test]
     fn rejects_open_to_closed() {
         assert!(
-            MorphSvgEntry::new(
-                "M0 0 C30 60 70 -60 100 0",
-                "M0 0 L100 0 L50 80 Z",
-                64,
-            )
-            .is_none()
+            MorphSvgEntry::new("M0 0 C30 60 70 -60 100 0", "M0 0 L100 0 L50 80 Z", 64,).is_none()
         );
     }
 }

@@ -48,10 +48,28 @@ pub enum DisplayGlyphData {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum DisplayGlyphCommand {
-    MoveTo { x: f32, y: f32 },
-    LineTo { x: f32, y: f32 },
-    QuadTo { cx: f32, cy: f32, x: f32, y: f32 },
-    CurveTo { c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32 },
+    MoveTo {
+        x: f32,
+        y: f32,
+    },
+    LineTo {
+        x: f32,
+        y: f32,
+    },
+    QuadTo {
+        cx: f32,
+        cy: f32,
+        x: f32,
+        y: f32,
+    },
+    CurveTo {
+        c1x: f32,
+        c1y: f32,
+        c2x: f32,
+        c2y: f32,
+        x: f32,
+        y: f32,
+    },
     Close,
 }
 
@@ -347,7 +365,7 @@ mod tests {
 
     #[test]
     fn text_visual_bounds_expand_for_unit_overrides() {
-        let item = DisplayItem::Text(TextDisplayItem {
+        let _item = DisplayItem::Text(TextDisplayItem {
             bounds: DisplayRect {
                 x: 10.0,
                 y: 20.0,

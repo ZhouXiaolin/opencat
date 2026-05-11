@@ -50,18 +50,16 @@ fn parse_class_name_impl(class_name: &str, context: Option<(&str, usize)>) -> No
             has_explicit_line_height = true;
         }
 
-        if !parse_single_class(class, &mut style) {
-            if let Some((node_id, line_number)) = context {
-                report_unsupported_tailwind_class(class, node_id, line_number);
-            }
+        if !parse_single_class(class, &mut style)
+            && let Some((node_id, line_number)) = context
+        {
+            report_unsupported_tailwind_class(class, node_id, line_number);
         }
     }
 
-    if !has_explicit_line_height {
-        if let Some(line_height_px) = text_size_default_line_height_px {
-            style.line_height_px = Some(line_height_px);
-            style.line_height = None;
-        }
+    if !has_explicit_line_height && let Some(line_height_px) = text_size_default_line_height_px {
+        style.line_height_px = Some(line_height_px);
+        style.line_height = None;
     }
 
     style
@@ -382,19 +380,19 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
     }
 
     // gap-x-N / gap-x-[Npx]
-    if let Some(value) = class.strip_prefix("gap-x-") {
-        if let Some(n) = parse_bracket_f32(value).or_else(|| parse_tailwind_spacing_token(value)) {
-            style.gap_x = Some(n);
-            return true;
-        }
+    if let Some(value) = class.strip_prefix("gap-x-")
+        && let Some(n) = parse_bracket_f32(value).or_else(|| parse_tailwind_spacing_token(value))
+    {
+        style.gap_x = Some(n);
+        return true;
     }
 
     // gap-y-N / gap-y-[Npx]
-    if let Some(value) = class.strip_prefix("gap-y-") {
-        if let Some(n) = parse_bracket_f32(value).or_else(|| parse_tailwind_spacing_token(value)) {
-            style.gap_y = Some(n);
-            return true;
-        }
+    if let Some(value) = class.strip_prefix("gap-y-")
+        && let Some(n) = parse_bracket_f32(value).or_else(|| parse_tailwind_spacing_token(value))
+    {
+        style.gap_y = Some(n);
+        return true;
     }
 
     // order-N / order-[N]
@@ -403,20 +401,20 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
             style.order = Some(n);
             return true;
         }
-        if let Some(value) = value.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
-            if let Ok(n) = value.parse::<i32>() {
-                style.order = Some(n);
-                return true;
-            }
+        if let Some(value) = value.strip_prefix('[').and_then(|v| v.strip_suffix(']'))
+            && let Ok(n) = value.parse::<i32>()
+        {
+            style.order = Some(n);
+            return true;
         }
     }
 
     // aspect-video → 16/9, aspect-square → 1, aspect-auto, aspect-[W/H]
-    if let Some(value) = class.strip_prefix("aspect-") {
-        if let Some(ratio) = parse_aspect_ratio(value) {
-            style.aspect_ratio = Some(ratio);
-            return true;
-        }
+    if let Some(value) = class.strip_prefix("aspect-")
+        && let Some(ratio) = parse_aspect_ratio(value)
+    {
+        style.aspect_ratio = Some(ratio);
+        return true;
     }
 
     // min-h-full → min-height: 100%, min-h-screen → min-height: 100vh, min-h-N, min-h-[Npx]
@@ -449,21 +447,21 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
     }
 
     // grid-cols-N
-    if let Some(cols_str) = class.strip_prefix("grid-cols-") {
-        if let Ok(cols) = cols_str.parse::<u16>() {
-            style.is_grid = true;
-            style.grid_template_columns = Some(cols);
-            return true;
-        }
+    if let Some(cols_str) = class.strip_prefix("grid-cols-")
+        && let Ok(cols) = cols_str.parse::<u16>()
+    {
+        style.is_grid = true;
+        style.grid_template_columns = Some(cols);
+        return true;
     }
 
     // grid-rows-N
-    if let Some(rows_str) = class.strip_prefix("grid-rows-") {
-        if let Ok(rows) = rows_str.parse::<u16>() {
-            style.is_grid = true;
-            style.grid_template_rows = Some(rows);
-            return true;
-        }
+    if let Some(rows_str) = class.strip_prefix("grid-rows-")
+        && let Ok(rows) = rows_str.parse::<u16>()
+    {
+        style.is_grid = true;
+        style.grid_template_rows = Some(rows);
+        return true;
     }
 
     // col-start-N / -col-start-N
@@ -712,6 +710,7 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
 }
 
 #[derive(Copy, Clone)]
+#[allow(dead_code)]
 enum F32Target {
     Gap,
     GapX,
@@ -774,6 +773,7 @@ enum ShadowValueTarget {
 }
 
 #[derive(Copy, Clone)]
+#[allow(dead_code)]
 enum ExactClassAction {
     Position(Position),
     Flex,

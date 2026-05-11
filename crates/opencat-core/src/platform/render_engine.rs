@@ -28,6 +28,9 @@ pub struct RecordCtx<'a, B: BackendTypes> {
     pub frame_ctx: &'a FrameCtx,
     pub cache: &'a mut crate::runtime::cache::CacheRegistry<B>,
     pub video: &'a mut dyn crate::platform::video::VideoFrameProvider,
+    /// Platform-specific userdata (e.g. engine's AssetCatalog + MediaContext bundle).
+    /// Allows backends to access concrete types without core knowing about them.
+    pub platform_data: &'a mut dyn Any,
 }
 
 /// Borrow-bundle for backend.draw_ordered_scene.
@@ -38,6 +41,8 @@ pub struct RenderCtx<'a, B: BackendTypes> {
     pub ordered_scene: &'a OrderedSceneProgram,
     pub cache: &'a mut crate::runtime::cache::CacheRegistry<B>,
     pub video: &'a mut dyn crate::platform::video::VideoFrameProvider,
+    /// Platform-specific userdata (e.g. engine's AssetCatalog + MediaContext bundle).
+    pub platform_data: &'a mut dyn Any,
 }
 
 /// Backend-only render engine surface.
@@ -71,11 +76,11 @@ pub trait RenderEngine: BackendTypes + Send + Sync {
 mod ctx_tests {
     use super::*;
     use crate::frame_ctx::FrameCtx;
-    use crate::resource::hash_map_catalog::HashMapResourceCatalog;
-    use crate::resource::asset_id::AssetId;
-    use crate::runtime::cache::CacheRegistry;
     use crate::platform::backend::BackendTypes;
     use crate::platform::video::{FrameBitmap, VideoFrameProvider};
+    use crate::resource::asset_id::AssetId;
+    use crate::resource::hash_map_catalog::HashMapResourceCatalog;
+    use crate::runtime::cache::CacheRegistry;
     use anyhow::Result;
 
     struct MockBackend;
@@ -100,30 +105,51 @@ mod ctx_tests {
     #[test]
     fn record_ctx_carries_cache_and_video() {
         let catalog = HashMapResourceCatalog::from_json("{}").unwrap();
-        let frame_ctx = FrameCtx { frame: 0, fps: 30, width: 100, height: 100, frames: 60 };
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 100,
+            height: 100,
+            frames: 60,
+        };
         let mut cache: CacheRegistry<MockBackend> = CacheRegistry::default();
         let mut video = MockVideo;
+        let mut platform_data: Box<dyn Any> = Box::new(());
         let ctx: RecordCtx<'_, MockBackend> = RecordCtx {
             catalog: &catalog,
             frame_ctx: &frame_ctx,
             cache: &mut cache,
             video: &mut video,
+            platform_data: &mut *platform_data,
         };
         assert_eq!(ctx.frame_ctx.width, 100);
     }
 
     #[test]
     fn render_ctx_carries_display_tree_and_cache() {
-        use crate::display::list::{DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem, RectPaintStyle};
-        use crate::display::tree::{DisplayTree, DisplayNode};
+        use crate::display::list::{
+            DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem, RectPaintStyle,
+        };
+        use crate::display::tree::{DisplayNode, DisplayTree};
         use crate::element::tree::ElementId;
         use crate::runtime::annotation::annotate_display_tree;
         use crate::runtime::compositor::OrderedSceneProgram;
         use crate::style::BorderRadius;
 
         let catalog = HashMapResourceCatalog::from_json("{}").unwrap();
-        let frame_ctx = FrameCtx { frame: 0, fps: 30, width: 16, height: 16, frames: 1 };
-        let bounds = DisplayRect { x: 0.0, y: 0.0, width: 16.0, height: 16.0 };
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 16,
+            height: 16,
+            frames: 1,
+        };
+        let bounds = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 16.0,
+            height: 16.0,
+        };
         let display_tree = DisplayTree {
             root: DisplayNode {
                 element_id: ElementId(0),
@@ -161,6 +187,7 @@ mod ctx_tests {
         let ordered = OrderedSceneProgram::build(&annotated);
         let mut cache: CacheRegistry<MockBackend> = CacheRegistry::default();
         let mut video = MockVideo;
+        let mut platform_data: Box<dyn Any> = Box::new(());
         let ctx: RenderCtx<'_, MockBackend> = RenderCtx {
             catalog: &catalog,
             frame_ctx: &frame_ctx,
@@ -168,6 +195,7 @@ mod ctx_tests {
             ordered_scene: &ordered,
             cache: &mut cache,
             video: &mut video,
+            platform_data: &mut *platform_data,
         };
         assert_eq!(ctx.frame_ctx.width, 16);
     }

@@ -5,17 +5,15 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use opencat_core::frame_ctx::FrameCtx;
 use crate::resource::asset_catalog::AssetCatalog;
+use opencat_core::frame_ctx::FrameCtx;
 use opencat_core::scene::{
     composition::{AudioAttachment, Composition, CompositionAudioSource},
     primitives::AudioSource,
     time::{FrameState, frame_state_for_root},
 };
 
-use crate::{
-    codec::decode::{AudioTrack, decode_audio_to_f32_stereo},
-};
+use crate::codec::decode::{AudioTrack, decode_audio_to_f32_stereo};
 
 pub(crate) const AUDIO_SAMPLE_RATE: u32 = 48_000;
 pub(crate) const AUDIO_CHANNELS: u16 = 2;
@@ -230,7 +228,10 @@ fn composition_audio_cache_key(composition: &Composition) -> AudioIntervalCacheK
     )
 }
 
-fn active_scene_ids(root: &opencat_core::scene::node::Node, frame_ctx: &FrameCtx) -> HashSet<String> {
+fn active_scene_ids(
+    root: &opencat_core::scene::node::Node,
+    frame_ctx: &FrameCtx,
+) -> HashSet<String> {
     let mut out = HashSet::new();
     collect_active_scene_ids(root, frame_ctx, &mut out);
     out

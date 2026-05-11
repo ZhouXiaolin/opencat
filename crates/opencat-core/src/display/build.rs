@@ -240,11 +240,11 @@ mod tests {
         FrameCtx,
         element::resolve::resolve_ui_tree,
         parse,
-        test_support::TestCatalog,
         runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
         scene::primitives::{div, lucide},
         style::{ColorToken, ObjectFit},
         test_support::MockScriptHost,
+        test_support::TestCatalog,
     };
     use crate::{
         display::list::DisplayItem,
@@ -279,8 +279,14 @@ mod tests {
                     .cover(),
             )
             .into();
-        let resolved = resolve_ui_tree(&element, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
-            .expect("tree should resolve");
+        let resolved = resolve_ui_tree(
+            &element,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
                 "root",
@@ -303,8 +309,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree)
-            .expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
         let DisplayItem::Bitmap(bitmap) = &tree.root.children[0].item else {
             panic!("expected bitmap draw item");
         };
@@ -333,8 +338,14 @@ mod tests {
 {"id":"back","parentId":"root","type":"text","className":"text-[12px]","text":"back"}"#,
         )
         .expect("jsonl should parse");
-        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
-            .expect("tree should resolve");
+        let resolved = resolve_ui_tree(
+            &parsed.root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
                 "root",
@@ -369,8 +380,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree)
-            .expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
         let texts = tree
             .root
             .children
@@ -400,8 +410,14 @@ mod tests {
             .overflow_hidden()
             .child(div().id("child"))
             .into();
-        let resolved = resolve_ui_tree(&element, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
-            .expect("tree should resolve");
+        let resolved = resolve_ui_tree(
+            &element,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
                 "root",
@@ -424,8 +440,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree)
-            .expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
         let clip = tree.root.clip.as_ref();
         assert!(clip.is_some());
         assert_eq!(
@@ -456,8 +471,14 @@ mod tests {
 {"id":"early","parentId":"root","type":"text","className":"text-[12px]","text":"early"}"#,
         )
         .expect("jsonl should parse");
-        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
-            .expect("tree should resolve");
+        let resolved = resolve_ui_tree(
+            &parsed.root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
                 "root",
@@ -492,8 +513,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree)
-            .expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
         let texts = tree
             .root
             .children
@@ -523,8 +543,14 @@ mod tests {
 {"id":"child","parentId":"root","type":"div","className":"w-[10px] h-[10px] bg-red-500"}"#,
         )
         .expect("jsonl should parse");
-        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
-            .expect("tree should resolve");
+        let resolved = resolve_ui_tree(
+            &parsed.root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
 
         let layout_a = LayoutTree {
             root: simple_layout(
@@ -569,10 +595,8 @@ mod tests {
             ),
         };
 
-        let tree_a =
-            build_display_tree(&resolved, &layout_a).expect("display tree should build");
-        let tree_b =
-            build_display_tree(&resolved, &layout_b).expect("display tree should build");
+        let tree_a = build_display_tree(&resolved, &layout_a).expect("display tree should build");
+        let tree_b = build_display_tree(&resolved, &layout_b).expect("display tree should build");
         let mut annotated_a = annotate_display_tree(&tree_a);
         compute_display_tree_fingerprints(&mut annotated_a);
         let mut annotated_b = annotate_display_tree(&tree_b);
@@ -612,8 +636,14 @@ mod tests {
                 .stroke_width(3.5)
                 .fill_color(ColorToken::Sky200),
         );
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
-            .expect("tree should resolve");
+        let resolved = resolve_ui_tree(
+            &root.into(),
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
                 "root",
@@ -636,8 +666,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree)
-            .expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
         let DisplayItem::SvgPath(svg) = &tree.root.children[0].item else {
             panic!("expected svg path item");
         };
@@ -666,8 +695,14 @@ mod tests {
 {"id":"child","parentId":"root","type":"text","className":"text-[12px]","text":"A"}"#,
         )
         .expect("jsonl should parse");
-        let resolved = resolve_ui_tree(&parsed.root, &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
-            .expect("tree should resolve");
+        let resolved = resolve_ui_tree(
+            &parsed.root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
                 "root",
@@ -681,8 +716,7 @@ mod tests {
             ),
         };
 
-        let err =
-            build_display_tree(&resolved, &layout_tree).expect_err("expected mismatch");
+        let err = build_display_tree(&resolved, &layout_tree).expect_err("expected mismatch");
         assert!(err.to_string().contains("child count mismatch"));
     }
 
@@ -704,8 +738,14 @@ mod tests {
                 .stroke_color(ColorToken::Blue)
                 .stroke_width(2.0),
         );
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
-            .expect("tree should resolve");
+        let resolved = resolve_ui_tree(
+            &root.into(),
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
         let layout_tree = LayoutTree {
             root: simple_layout(
                 "root",
@@ -728,8 +768,7 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree)
-            .expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
         let DisplayItem::SvgPath(svg) = &tree.root.children[0].item else {
             panic!(
                 "expected svg path item, got {:?}",
@@ -756,8 +795,14 @@ mod tests {
         };
         let mut assets = TestCatalog::new();
         let root = div().id("root").child(lucide("play").id("icon"));
-        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, None, &mut MockScriptHost::default())
-            .expect("tree should resolve");
+        let resolved = resolve_ui_tree(
+            &root.into(),
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
 
         let child = &resolved.children[0];
         let crate::element::tree::ElementKind::SvgPath(svg) = &child.kind else {

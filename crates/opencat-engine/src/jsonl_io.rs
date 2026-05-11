@@ -59,7 +59,7 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use super::{parse_file, parse_with_base_dir};
+    use super::parse_file;
     use opencat_core::jsonl::parse;
 
     #[test]

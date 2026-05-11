@@ -6,6 +6,7 @@ use crate::runtime::target::RenderFrameViewKind;
 
 #[derive(Clone, Copy)]
 pub(crate) struct RenderFrameView {
+    #[allow(dead_code)]
     kind: RenderFrameViewKind,
     raw: *mut c_void,
 }

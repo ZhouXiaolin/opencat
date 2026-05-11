@@ -933,6 +933,7 @@ fn parse_image_rect_coords(coords: &[f32], op: &'static str) -> Result<[f32; 4],
     Ok([coords[0], coords[1], coords[2], coords[3]])
 }
 
+#[allow(clippy::type_complexity)]
 fn parse_drrect_coords(
     coords: &[f32],
     op: &'static str,

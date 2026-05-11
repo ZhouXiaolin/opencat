@@ -160,7 +160,9 @@ fn render_png(
         let engine = match backend {
             RenderBackend::Software => crate::backend::skia::renderer::shared_raster_engine_typed(),
             RenderBackend::Accelerated => {
-                return Err(anyhow!("accelerated backend not yet supported via core pipeline"));
+                return Err(anyhow!(
+                    "accelerated backend not yet supported via core pipeline"
+                ));
             }
         };
         let platform = EnginePlatform::new(engine);
@@ -191,7 +193,9 @@ fn render_mp4(
         let engine = match backend {
             RenderBackend::Software => crate::backend::skia::renderer::shared_raster_engine_typed(),
             RenderBackend::Accelerated => {
-                return Err(anyhow!("accelerated backend not yet supported via core pipeline"));
+                return Err(anyhow!(
+                    "accelerated backend not yet supported via core pipeline"
+                ));
             }
         };
         let mut platform = EnginePlatform::new(engine);

@@ -82,7 +82,7 @@ pub(crate) fn build_audio_track(
             (total_sample_frames - start_sample_frame).min(DEFAULT_AUDIO_CHUNK_FRAMES);
         let chunk = render_audio_chunk_from_intervals(
             path_store,
-            &intervals,
+            intervals,
             decoded,
             start_sample_frame,
             chunk_sample_frames,
@@ -122,7 +122,7 @@ pub(crate) fn render_audio_chunk(
 
     Ok(Some(render_audio_chunk_from_intervals(
         path_store,
-        &intervals,
+        intervals,
         decoded,
         start_sample_frame,
         sample_frames,

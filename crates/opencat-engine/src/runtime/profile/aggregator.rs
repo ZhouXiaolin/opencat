@@ -21,6 +21,7 @@ pub(crate) struct CompletedProfileSpan {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ProfileCountEvent {
     pub frame: u32,
+    #[allow(dead_code)]
     pub target: &'static str,
     pub kind: &'static str,
     pub name: &'static str,
@@ -34,6 +35,7 @@ pub(crate) struct RenderProfileSummary {
 }
 
 impl RenderProfileSummary {
+    #[allow(dead_code)]
     pub(crate) fn average_light_leak_transition_ms(&self) -> f64 {
         let total_count = self
             .frames

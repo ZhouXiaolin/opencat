@@ -75,13 +75,11 @@ fn parse_rgb_function(value: &str) -> Option<ScriptColor> {
         .and_then(|body| body.strip_suffix(')'))
     {
         (true, body)
-    } else if let Some(body) = value
-        .strip_prefix("rgb(")
-        .and_then(|body| body.strip_suffix(')'))
-    {
-        (false, body)
     } else {
-        return None;
+        let body = value
+            .strip_prefix("rgb(")
+            .and_then(|body| body.strip_suffix(')'))?;
+        (false, body)
     };
 
     let parts: Vec<_> = body.split(',').map(str::trim).collect();

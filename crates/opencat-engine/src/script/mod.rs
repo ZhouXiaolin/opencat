@@ -35,6 +35,7 @@ impl ScriptRuntimeCache {
         self.text_sources.insert(id.to_string(), source);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn run_by_id(
         &mut self,
         id: ScriptDriverId,
@@ -61,7 +62,9 @@ pub(crate) struct ScriptRunner {
     context: Context,
     store: Arc<Mutex<CoreMutationStore>>,
     animate_state: Arc<Mutex<AnimateState>>,
+    #[allow(dead_code)]
     morph_svg_state: Arc<Mutex<MorphSvgState>>,
+    #[allow(dead_code)]
     path_measure_state: Arc<Mutex<PathMeasureState>>,
     _runtime: Runtime,
 }
@@ -93,6 +96,7 @@ pub fn run_driver(
 const RUN_FRAME_FN: &str = "__opencatRunFrame";
 
 impl ScriptRuntimeCache {
+    #[allow(dead_code)]
     pub(crate) fn run(
         &mut self,
         driver: &ScriptDriver,

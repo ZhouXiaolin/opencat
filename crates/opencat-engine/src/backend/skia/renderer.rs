@@ -89,8 +89,8 @@ impl CoreRenderEngine for SkiaRenderEngine {
         let media_ctx = unsafe { &mut *data.media_ctx };
         let snapshot = skia::record_display_tree_snapshot(
             display_tree,
-            ctx.frame_ctx.width as i32,
-            ctx.frame_ctx.height as i32,
+            ctx.frame_ctx.width,
+            ctx.frame_ctx.height,
             ctx.catalog,
             data.asset_paths,
             ctx.cache.image_cache(),
@@ -145,9 +145,7 @@ impl CoreRenderEngine for SkiaRenderEngine {
 
 fn skia_canvas_from_core(frame_view: FrameView<'_>) -> Result<&'static Canvas> {
     use opencat_core::platform::render_engine::FrameViewKind;
-    let kind = match &frame_view.kind {
-        FrameViewKind::Opaque(any) => any,
-    };
+    let FrameViewKind::Opaque(kind) = &frame_view.kind;
     // Try to downcast to the engine's raw pointer convention.
     // The engine passes raw *mut c_void through FrameView.
     let raw: Option<*mut c_void> = kind

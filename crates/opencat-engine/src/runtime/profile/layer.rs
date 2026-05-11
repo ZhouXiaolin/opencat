@@ -241,10 +241,10 @@ where
 
         let inclusive_ms = state.started.elapsed().as_secs_f64() * 1000.0;
 
-        if let Some(parent_id) = &state.parent_id {
-            if let Some(parent_state) = shared.spans.get_mut(parent_id) {
-                parent_state.child_inclusive_ms += inclusive_ms;
-            }
+        if let Some(parent_id) = &state.parent_id
+            && let Some(parent_state) = shared.spans.get_mut(parent_id)
+        {
+            parent_state.child_inclusive_ms += inclusive_ms;
         }
 
         let exclusive_ms = (inclusive_ms - state.child_inclusive_ms).max(0.0);

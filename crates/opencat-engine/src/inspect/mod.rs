@@ -149,22 +149,22 @@ fn seed_asset_entries_for_inspect(
         }
         NodeKind::Canvas(canvas) => {
             for asset in canvas.assets_ref() {
-                if let Ok(id) = catalog.resolve_image(&asset.source) {
-                    if let ImageSource::Path(path) = &asset.source {
-                        let (width, height) = crate::resource::utils::read_image_dimensions(path);
-                        catalog.register_dimensions(&path.to_string_lossy(), width, height);
-                        path_store.insert(id, path);
-                    }
-                }
-            }
-        }
-        NodeKind::Image(image) => {
-            if let Ok(id) = catalog.resolve_image(image.source()) {
-                if let ImageSource::Path(path) = image.source() {
+                if let Ok(id) = catalog.resolve_image(&asset.source)
+                    && let ImageSource::Path(path) = &asset.source
+                {
                     let (width, height) = crate::resource::utils::read_image_dimensions(path);
                     catalog.register_dimensions(&path.to_string_lossy(), width, height);
                     path_store.insert(id, path);
                 }
+            }
+        }
+        NodeKind::Image(image) => {
+            if let Ok(id) = catalog.resolve_image(image.source())
+                && let ImageSource::Path(path) = image.source()
+            {
+                let (width, height) = crate::resource::utils::read_image_dimensions(path);
+                catalog.register_dimensions(&path.to_string_lossy(), width, height);
+                path_store.insert(id, path);
             }
         }
         NodeKind::Timeline(timeline) => {
@@ -188,6 +188,7 @@ fn seed_asset_entries_for_inspect(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_rects_in_draw_order(
     element: &ElementNode,
     layout: &LayoutNode,
@@ -222,9 +223,7 @@ fn collect_rects_in_draw_order(
             _ => None,
         });
     let media_source = source_meta.and_then(|meta| meta.media_source.clone());
-    let icon_name = source_meta
-        .and_then(|meta| meta.icon_name.clone())
-        .or_else(|| None);
+    let icon_name = source_meta.and_then(|meta| meta.icon_name.clone()).or(None);
     let script_source = source_meta.and_then(|meta| meta.script_source.clone());
     let canvas_command_count = match &element.kind {
         ElementKind::Canvas(canvas) => Some(canvas.commands.len() as u32),

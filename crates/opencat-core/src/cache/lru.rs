@@ -103,11 +103,9 @@ where
 
         CacheMutationReport {
             total_weight: self.total_weight,
-            utilization: if self.capacity == 0 {
-                0
-            } else {
-                (self.map.len() * 100) / self.capacity
-            },
+            utilization: self.map.len().checked_mul(100)
+                .and_then(|v| v.checked_div(self.capacity))
+                .unwrap_or(0),
             evicted,
             replaced,
         }

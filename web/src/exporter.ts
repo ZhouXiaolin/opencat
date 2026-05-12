@@ -1,6 +1,6 @@
 import type { CompositionInfo } from './types';
-import { captureFramePixels, ensureSurface, drawFrame } from './renderer';
-import { parseJsonl } from './wasm';
+import { captureFramePixels, ensureSurface, drawDisplayTree } from './renderer';
+import { buildFrame } from './wasm';
 
 type ProgressCallback = (current: number, total: number) => void;
 
@@ -35,6 +35,7 @@ export async function exportMp4(
   jsonlContent: string,
   canvas: HTMLCanvasElement,
   comp: CompositionInfo,
+  resourceMeta: Record<string, { width: number; height: number; kind: string; durationSecs?: number }>,
   onProgress: ProgressCallback,
 ): Promise<Uint8Array | null> {
   if (!ffmpeg || !loaded) {
@@ -43,20 +44,37 @@ export async function exportMp4(
   }
 
   const { width, height, fps, frames } = comp;
+  const resourceMetaJson = JSON.stringify(resourceMeta);
+
+  // Pre-filter script elements (once, not per-frame)
+  const filteredJsonl = jsonlContent
+    .split('\n')
+    .filter(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      try {
+        const obj = JSON.parse(trimmed);
+        return obj.type !== 'script';
+      } catch { return true; }
+    })
+    .join('\n');
 
   ensureSurface(canvas, width, height);
 
-  const framePromises: Promise<void>[] = [];
   const chunkSize = Math.min(30, frames);
 
   // Process frames in chunks to avoid memory issues
   for (let start = 0; start < frames; start += chunkSize) {
     const end = Math.min(start + chunkSize, frames);
 
-    // Write frames as raw rgba files to ffmpeg's virtual FS
+    // Render each frame using the full display-tree pipeline
     for (let f = start; f < end; f++) {
-      const parsed = parseJsonl(jsonlContent);
-      drawFrame(parsed, f, comp);
+      // Build display tree via WASM (no mutations for export — static layout only)
+      const result = buildFrame(filteredJsonl, f, resourceMetaJson, '{}');
+
+      // Draw via CanvasKit
+      ensureSurface(canvas, width, height);
+      drawDisplayTree(result.root, comp, f);
 
       const pixels = captureFramePixels(width, height);
       if (!pixels) continue;
@@ -101,14 +119,29 @@ export async function exportPngFrame(
   canvas: HTMLCanvasElement,
   comp: CompositionInfo,
   frame: number,
+  resourceMeta: Record<string, { width: number; height: number; kind: string; durationSecs?: number }>,
 ): Promise<void> {
   if (!ffmpeg || !loaded) return;
 
   const { width, height } = comp;
+  const resourceMetaJson = JSON.stringify(resourceMeta);
+
+  const filteredJsonl = jsonlContent
+    .split('\n')
+    .filter(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      try {
+        const obj = JSON.parse(trimmed);
+        return obj.type !== 'script';
+      } catch { return true; }
+    })
+    .join('\n');
+
   ensureSurface(canvas, width, height);
 
-  const parsed = parseJsonl(jsonlContent);
-  drawFrame(parsed, frame, comp);
+  const result = buildFrame(filteredJsonl, frame, resourceMetaJson, '{}');
+  drawDisplayTree(result.root, comp, frame);
 
   const pixels = captureFramePixels(width, height);
   if (!pixels) return;

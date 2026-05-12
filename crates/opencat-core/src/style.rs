@@ -1600,6 +1600,18 @@ include!(concat!(
     "/tailwind_color_inherent_impls.rs"
 ));
 
+/// Parse a color from a script-facing string (named color, hex, hsla, etc.)
+/// into a `ColorToken`. Used by both engine and web script bridges.
+pub fn color_token_from_script_string(name: &str) -> Option<ColorToken> {
+    if let Some(c) = color_token_from_script_name(name) {
+        return Some(c);
+    }
+    let hsla = crate::script::animate::parse_color(name)?;
+    let (r, g, b) = crate::script::animate::hsl_to_rgb(hsla.h, hsla.s, hsla.l);
+    let a = (hsla.a.clamp(0.0, 1.0) * 255.0).round() as u8;
+    Some(ColorToken::Custom(r, g, b, a))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ColorToken, color_token_from_class_suffix, color_token_from_script_name};

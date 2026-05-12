@@ -6,6 +6,7 @@ use opencat_core::script::animate::{
     AnimateState, MorphSvgState, PathMeasureState, parse_easing_from_tag, random_from_seed,
 };
 use opencat_core::script::recorder::{MutationRecorder, MutationStore};
+use opencat_core::script::text_units::grapheme_strings;
 
 pub(crate) const ANIMATE_RUNTIME: &str = opencat_core::script::runtime::ANIMATION_RUNTIME;
 
@@ -155,11 +156,8 @@ pub(crate) fn install_animate_bindings<'js>(
             ctx.clone(),
             |ctx_inner: rquickjs::Ctx<'js>, text: String| -> Result<Array<'js>, rquickjs::Error> {
                 let result = Array::new(ctx_inner)?;
-                for (index, grapheme) in
-                    unicode_segmentation::UnicodeSegmentation::graphemes(text.as_str(), true)
-                        .enumerate()
-                {
-                    result.set(index, grapheme.to_string())?;
+                for (index, grapheme) in grapheme_strings(&text).into_iter().enumerate() {
+                    result.set(index, grapheme)?;
                 }
                 Ok(result)
             },

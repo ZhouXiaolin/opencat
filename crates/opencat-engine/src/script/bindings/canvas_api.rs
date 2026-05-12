@@ -3,138 +3,14 @@ use std::sync::{Arc, Mutex};
 use rquickjs::Function;
 
 use opencat_core::scene::script::mutations::{
-    CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin, ScriptPointMode,
+    CanvasCommand, ScriptColor, ScriptFontEdging,
 };
 use opencat_core::scene::script::object_fit_from_name;
+use opencat_core::scene::script::{
+    font_edging_from_name, line_cap_from_name, line_join_from_name, parse_drrect_coords,
+    parse_image_rect_coords, point_mode_from_name, script_color_from_value, DrRectCoords,
+};
 use opencat_core::script::recorder::{MutationRecorder, MutationStore};
-
-fn line_cap_from_name(name: &str) -> Option<ScriptLineCap> {
-    match name {
-        "butt" => Some(ScriptLineCap::Butt),
-        "round" => Some(ScriptLineCap::Round),
-        "square" => Some(ScriptLineCap::Square),
-        _ => None,
-    }
-}
-
-fn line_join_from_name(name: &str) -> Option<ScriptLineJoin> {
-    match name {
-        "miter" => Some(ScriptLineJoin::Miter),
-        "round" => Some(ScriptLineJoin::Round),
-        "bevel" => Some(ScriptLineJoin::Bevel),
-        _ => None,
-    }
-}
-
-fn point_mode_from_name(name: &str) -> Option<ScriptPointMode> {
-    match name {
-        "points" => Some(ScriptPointMode::Points),
-        "lines" => Some(ScriptPointMode::Lines),
-        "polygon" => Some(ScriptPointMode::Polygon),
-        _ => None,
-    }
-}
-
-fn font_edging_from_name(name: &str) -> Option<ScriptFontEdging> {
-    match name {
-        "alias" => Some(ScriptFontEdging::Alias),
-        "antiAlias" => Some(ScriptFontEdging::AntiAlias),
-        "subpixelAntiAlias" => Some(ScriptFontEdging::SubpixelAntiAlias),
-        _ => None,
-    }
-}
-
-fn parse_hex_nibble(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
-}
-
-fn parse_rgb_channel(value: &str) -> Option<u8> {
-    let channel = value.trim().parse::<f32>().ok()?;
-    if !(0.0..=255.0).contains(&channel) {
-        return None;
-    }
-    Some(channel.round() as u8)
-}
-
-fn parse_alpha_channel(value: &str) -> Option<u8> {
-    let alpha = value.trim().parse::<f32>().ok()?;
-    if !(0.0..=1.0).contains(&alpha) {
-        return None;
-    }
-    Some((alpha * 255.0).round() as u8)
-}
-
-fn parse_rgb_function(value: &str) -> Option<ScriptColor> {
-    let (is_rgba, body) = if let Some(body) = value
-        .strip_prefix("rgba(")
-        .and_then(|body| body.strip_suffix(')'))
-    {
-        (true, body)
-    } else {
-        let body = value
-            .strip_prefix("rgb(")
-            .and_then(|body| body.strip_suffix(')'))?;
-        (false, body)
-    };
-
-    let parts: Vec<_> = body.split(',').map(str::trim).collect();
-    if (!is_rgba && parts.len() != 3) || (is_rgba && parts.len() != 4) {
-        return None;
-    }
-
-    let r = parse_rgb_channel(parts[0])?;
-    let g = parse_rgb_channel(parts[1])?;
-    let b = parse_rgb_channel(parts[2])?;
-    let a = if is_rgba {
-        parse_alpha_channel(parts[3])?
-    } else {
-        255
-    };
-
-    Some(ScriptColor { r, g, b, a })
-}
-
-fn script_color_from_value(value: &str) -> Option<ScriptColor> {
-    let color = opencat_core::style::color_token_from_script_name(value).map(|color| color.rgba());
-    if let Some((r, g, b, a)) = color {
-        return Some(ScriptColor { r, g, b, a });
-    }
-
-    if let Some(color) = parse_rgb_function(value) {
-        return Some(color);
-    }
-
-    let hex = value.strip_prefix('#')?;
-    let (r, g, b, a) = match hex.len() {
-        3 => {
-            let r = parse_hex_nibble(hex.as_bytes()[0])?;
-            let g = parse_hex_nibble(hex.as_bytes()[1])?;
-            let b = parse_hex_nibble(hex.as_bytes()[2])?;
-            (r * 17, g * 17, b * 17, 255)
-        }
-        6 => {
-            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-            (r, g, b, 255)
-        }
-        8 => {
-            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-            let a = u8::from_str_radix(&hex[6..8], 16).ok()?;
-            (r, g, b, a)
-        }
-        _ => return None,
-    };
-
-    Some(ScriptColor { r, g, b, a })
-}
 
 pub(crate) const CANVASKIT_RUNTIME: &str = opencat_core::script::runtime::CANVAS_API_RUNTIME;
 
@@ -167,7 +43,7 @@ pub(crate) fn install_canvaskit_bindings<'js>(
             ctx.clone(),
             move |id: String, alpha: f32, bounds: Option<Vec<f32>>| {
                 let bounds = match bounds {
-                    Some(bounds) => Some(parse_image_rect_coords(&bounds, "saveLayer")?),
+                    Some(bounds) => Some(parse_image_rect_error("saveLayer", &bounds)?),
                     None => None,
                 };
                 let mut guard = s.lock().unwrap();
@@ -612,7 +488,7 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                 }
                 let src_rect = match values.len() {
                     4 => None,
-                    8.. => Some(parse_image_rect_coords(&values[4..8], "drawImageRect")?),
+                    8.. => Some(parse_image_rect_error("drawImageRect", &values[4..8])?),
                     _ => {
                         return Err(js_error(
                             "drawImageRect",
@@ -786,7 +662,7 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                 inner_width,
                 inner_height,
                 inner_radius,
-            ) = parse_drrect_coords(&coords, "fillDRRect")?;
+            ) = parse_drrect_error("fillDRRect", &coords)?;
             let mut guard = s.lock().unwrap();
             let rec = &mut *guard as &mut dyn MutationRecorder;
             rec.record_canvas_command(
@@ -824,7 +700,7 @@ pub(crate) fn install_canvaskit_bindings<'js>(
                 inner_width,
                 inner_height,
                 inner_radius,
-            ) = parse_drrect_coords(&coords, "strokeDRRect")?;
+            ) = parse_drrect_error("strokeDRRect", &coords)?;
             let mut guard = s.lock().unwrap();
             let rec = &mut *guard as &mut dyn MutationRecorder;
             rec.record_canvas_command(
@@ -921,26 +797,15 @@ fn make_script_font(
     font
 }
 
-fn parse_image_rect_coords(coords: &[f32], op: &'static str) -> Result<[f32; 4], rquickjs::Error> {
-    if coords.len() < 4 {
-        return Err(js_error(
-            op,
-            "expected source rect as [x, y, width, height]".to_string(),
-        ));
-    }
-    Ok([coords[0], coords[1], coords[2], coords[3]])
+fn parse_image_rect_error(op: &'static str, coords: &[f32]) -> Result<[f32; 4], rquickjs::Error> {
+    parse_image_rect_coords(coords)
+        .ok_or_else(|| js_error(op, "expected source rect as [x, y, width, height]".to_string()))
 }
 
-#[allow(clippy::type_complexity)]
-fn parse_drrect_coords(
-    coords: &[f32],
+fn parse_drrect_error(
     op: &'static str,
-) -> Result<(f32, f32, f32, f32, f32, f32, f32, f32, f32, f32), rquickjs::Error> {
-    if coords.len() < 10 {
-        return Err(js_error(op, "expected 10 coordinate values".to_string()));
-    }
-    Ok((
-        coords[0], coords[1], coords[2], coords[3], coords[4], coords[5], coords[6], coords[7],
-        coords[8], coords[9],
-    ))
+    coords: &[f32],
+) -> Result<DrRectCoords, rquickjs::Error> {
+    parse_drrect_coords(coords)
+        .ok_or_else(|| js_error(op, "expected 10 coordinate values".to_string()))
 }

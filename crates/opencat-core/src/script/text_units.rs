@@ -57,6 +57,13 @@ fn describe_grapheme_units(text: &str) -> Vec<ScriptTextUnitMeta> {
         .collect()
 }
 
+/// Return grapheme cluster strings for a text (used by the JS `__text_graphemes` bridge).
+pub fn grapheme_strings(text: &str) -> Vec<String> {
+    UnicodeSegmentation::graphemes(text, true)
+        .map(|g| g.to_string())
+        .collect()
+}
+
 fn contains_cjk(text: &str) -> bool {
     text.chars().any(|ch| {
         matches!(

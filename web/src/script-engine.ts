@@ -15,19 +15,20 @@
 
 import { NativeBridge } from './native-bridge';
 
-// Import core JS runtime files as raw strings (via Vite ?raw)
-import NODE_STYLE_RUNTIME from './script-runtime/node_style.js?raw';
-import CANVAS_API_RUNTIME from './script-runtime/canvas_api.js?raw';
-import ANIMATION_BOOTSTRAP from './script-runtime/animation/bootstrap.js?raw';
-import ANIMATION_CORE from './script-runtime/animation/core.js?raw';
-import ANIMATION_FACADE from './script-runtime/animation/facade.js?raw';
-import PLUGIN_STYLE_PROPS from './script-runtime/animation/plugins/style_props.js?raw';
-import PLUGIN_COLOR from './script-runtime/animation/plugins/color.js?raw';
-import PLUGIN_TEXT from './script-runtime/animation/plugins/text.js?raw';
-import PLUGIN_SPLIT_TEXT from './script-runtime/animation/plugins/split_text.js?raw';
-import PLUGIN_MOTION_PATH from './script-runtime/animation/plugins/motion_path.js?raw';
-import PLUGIN_MORPH_SVG from './script-runtime/animation/plugins/morph_svg.js?raw';
-import PLUGIN_UTILS from './script-runtime/animation/plugins/utils.js?raw';
+// Import core JS runtime files as raw strings (via Vite ?raw).
+// Single source of truth: crates/opencat-core/src/script/runtime/
+import NODE_STYLE_RUNTIME from '../../crates/opencat-core/src/script/runtime/node_style.js?raw';
+import CANVAS_API_RUNTIME from '../../crates/opencat-core/src/script/runtime/canvas_api.js?raw';
+import ANIMATION_BOOTSTRAP from '../../crates/opencat-core/src/script/runtime/animation/bootstrap.js?raw';
+import ANIMATION_CORE from '../../crates/opencat-core/src/script/runtime/animation/core.js?raw';
+import ANIMATION_FACADE from '../../crates/opencat-core/src/script/runtime/animation/facade.js?raw';
+import PLUGIN_STYLE_PROPS from '../../crates/opencat-core/src/script/runtime/animation/plugins/style_props.js?raw';
+import PLUGIN_COLOR from '../../crates/opencat-core/src/script/runtime/animation/plugins/color.js?raw';
+import PLUGIN_TEXT from '../../crates/opencat-core/src/script/runtime/animation/plugins/text.js?raw';
+import PLUGIN_SPLIT_TEXT from '../../crates/opencat-core/src/script/runtime/animation/plugins/split_text.js?raw';
+import PLUGIN_MOTION_PATH from '../../crates/opencat-core/src/script/runtime/animation/plugins/motion_path.js?raw';
+import PLUGIN_MORPH_SVG from '../../crates/opencat-core/src/script/runtime/animation/plugins/morph_svg.js?raw';
+import PLUGIN_UTILS from '../../crates/opencat-core/src/script/runtime/animation/plugins/utils.js?raw';
 
 export class ScriptEngine {
   private bridge = new NativeBridge();

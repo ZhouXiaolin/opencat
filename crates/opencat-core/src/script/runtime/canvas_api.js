@@ -1144,7 +1144,15 @@
     ctx.getCanvas = function() {
         const id = ctx.__currentCanvasTarget;
         if (!id) {
-            return null;
+            return new Proxy({}, {
+                get(target, prop) {
+                    if (prop === '__opencatCanvas' || prop === 'then') return undefined;
+                    if (typeof prop === 'string' && !prop.startsWith('_')) {
+                        return function() { return this; };
+                    }
+                    return undefined;
+                }
+            });
         }
         if (!canvasCache[id]) {
             canvasCache[id] = makeCanvas(id);

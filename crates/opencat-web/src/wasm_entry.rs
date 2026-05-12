@@ -9,6 +9,7 @@ use opencat_core::jsonl::JsonLine;
 use opencat_core::layout::LayoutSession;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::scene::script::PrecomputedScriptHost;
+use opencat_core::scene::script::mutations::StyleMutations;
 use opencat_core::text;
 use opencat_core::text::{rasterization_to_display_glyphs, rasterize_glyphs};
 
@@ -182,31 +183,41 @@ fn build_frame_impl(
     // 2. Build resource catalog from JS-provided metadata
     let mut catalog = HashMapResourceCatalog::from_json(resource_meta)?;
 
-    // 3. Build script host from JS-provided mutations
-    let mut script_host = PrecomputedScriptHost::from_json(mutations_json)?;
+    // 3. Parse style mutations from JS script engine
+    let mutations: StyleMutations =
+        serde_json::from_str(mutations_json).unwrap_or_default();
 
-    // 4. Get the scene node for this frame
+    let effective_mutations: Option<&StyleMutations> = if mutations.is_empty() {
+        None
+    } else {
+        Some(&mutations)
+    };
+
+    // 4. Build script host from parsed mutations (script elements in tree)
+    let mut script_host = PrecomputedScriptHost::from_single(mutations.clone());
+
+    // 5. Get the scene node for this frame
     let scene_node = parsed.root;
 
-    // 5. Resolve UI tree
+    // 6. Resolve UI tree with mutations applied directly
     let element_root = resolve_ui_tree(
         &scene_node,
         &frame_ctx,
         &mut catalog,
-        None, // parent_composition
+        effective_mutations,
         &mut script_host,
     )?;
 
-    // 6. Compute layout
+    // 7. Compute layout
     let font_db = text::default_font_db_with_embedded_only();
     let mut layout_session = LayoutSession::default();
     let (layout_tree, _) =
         layout_session.compute_layout_with_font_db(&element_root, &frame_ctx, &font_db)?;
 
-    // 7. Build display tree
+    // 8. Build display tree
     let mut display_tree = build_display_tree(&element_root, &layout_tree)?;
 
-    // 8. Enrich text nodes with cosmic-text glyph rasterization data
+    // 9. Enrich text nodes with cosmic-text glyph rasterization data
     enrich_text_with_glyphs(&mut display_tree);
 
     Ok(display_tree)

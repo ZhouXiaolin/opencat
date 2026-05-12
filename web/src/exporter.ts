@@ -6,23 +6,28 @@ type ProgressCallback = (current: number, total: number) => void;
 
 let ffmpeg: any = null;
 let loaded = false;
+let loadingPromise: Promise<void> | null = null;
 
 export async function initFFmpeg(): Promise<void> {
   if (loaded) return;
-  const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-  const { toBlobURL } = await import('@ffmpeg/util');
-  ffmpeg = new FFmpeg();
-  ffmpeg.on('log', ({ message }: { message: string }) => {
-    if (message.includes('Error') || message.includes('error')) {
-      console.warn('[ffmpeg]', message);
-    }
-  });
-  const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm';
-  await ffmpeg.load({
-    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-  });
-  loaded = true;
+  if (loadingPromise) return loadingPromise;
+  loadingPromise = (async () => {
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const { toBlobURL } = await import('@ffmpeg/util');
+    ffmpeg = new FFmpeg();
+    ffmpeg.on('log', ({ message }: { message: string }) => {
+      if (message.includes('Error') || message.includes('error')) {
+        console.warn('[ffmpeg]', message);
+      }
+    });
+    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm';
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+    });
+    loaded = true;
+  })();
+  return loadingPromise;
 }
 
 export async function exportMp4(

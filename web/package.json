@@ -4,8 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "npm run build:wasm && vite",
+    "build:wasm": "cd ../crates/opencat-web && wasm-pack build --target web --out-dir ../../web/wasm",
+    "build": "npm run build:wasm && tsc && vite build",
     "preview": "vite preview"
   },
   "devDependencies": {

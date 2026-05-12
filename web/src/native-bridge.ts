@@ -165,6 +165,15 @@ export class NativeBridge {
 
     w.__text_units_describe = (id: string, gran: string) => r.text_units_describe(id, gran);
 
+    w.__text_graphemes = (text: string): string[] => {
+      const IntlAny = Intl as any;
+      if (IntlAny && IntlAny.Segmenter) {
+        const segmenter = new IntlAny.Segmenter('en', { granularity: 'grapheme' });
+        return Array.from(segmenter.segment(text), (s: any) => s.segment);
+      }
+      return [...text];
+    };
+
     w.__record_text_unit_override = (id: string, gran: string, idx: number, vals: any) =>
       r.record_text_unit_override(
         id, gran, idx,
@@ -197,7 +206,7 @@ export class NativeBridge {
       '__record_inset_shadow', '__record_inset_shadow_color', '__record_drop_shadow',
       '__record_drop_shadow_color', '__record_text_content', '__record_stroke_dasharray',
       '__record_stroke_dashoffset', '__record_svg_path', '__record_text_unit_override',
-      '__text_source_get', '__text_source_set', '__text_units_describe',
+      '__text_source_get', '__text_source_set', '__text_units_describe', '__text_graphemes',
       '__canvas_save', '__canvas_restore', '__canvas_translate', '__canvas_scale',
       '__canvas_rotate', '__canvas_clip_rect', '__canvas_fill_rect',
       '__canvas_fill_rrect', '__canvas_fill_circle', '__canvas_stroke_circle',

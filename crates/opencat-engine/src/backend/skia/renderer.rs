@@ -5,7 +5,9 @@ use anyhow::{Result, anyhow};
 use skia_safe::Canvas;
 use std::ffi::c_void;
 
-use opencat_core::runtime::annotation::AnnotatedDisplayTree;
+use opencat_core::display::list::{DisplayItem, DisplayRect};
+use opencat_core::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
+use opencat_core::text::GlyphData;
 
 use super::canvas as skia;
 
@@ -27,7 +29,7 @@ use crate::resource::media::MediaContext;
 use crate::resource::path_store::AssetPathStore;
 use opencat_core::platform::backend::BackendTypes;
 use opencat_core::platform::render_engine::{
-    FrameView, RecordCtx, RenderCtx, RenderEngine as CoreRenderEngine,
+    FrameView, GlyphPaint, RecordCtx, RenderCtx, RenderEngine as CoreRenderEngine,
 };
 
 /// Bundle passed through `platform_data` from engine driver to SkiaRenderEngine core trait impls.
@@ -140,6 +142,94 @@ impl CoreRenderEngine for SkiaRenderEngine {
             ctx.frame_ctx,
         )?;
         Ok(())
+    }
+
+    // ── Subtree granularity (stubs) ──
+
+    fn record_subtree_snapshot(
+        &self,
+        _ctx: &mut RecordCtx<'_, Self>,
+        _display_tree: &AnnotatedDisplayTree,
+        _handle: AnnotatedNodeHandle,
+    ) -> Result<Self::Picture> {
+        Err(anyhow!("record_subtree_snapshot not yet implemented"))
+    }
+
+    fn record_subtree_image(
+        &self,
+        _snapshot: &Self::Picture,
+        _bounds: DisplayRect,
+    ) -> Result<Self::Image> {
+        Err(anyhow!("record_subtree_image not yet implemented"))
+    }
+
+    fn draw_subtree_snapshot(
+        &self,
+        _snapshot: &Self::Picture,
+        _opacity: f32,
+        _backdrop_blur: Option<f32>,
+        _bounds: DisplayRect,
+        _frame_view: FrameView<'_>,
+    ) -> Result<()> {
+        Err(anyhow!("draw_subtree_snapshot not yet implemented"))
+    }
+
+    fn draw_subtree_image(
+        &self,
+        _image: &Self::Image,
+        _opacity: f32,
+        _backdrop_blur: Option<f32>,
+        _bounds: DisplayRect,
+        _frame_view: FrameView<'_>,
+    ) -> Result<()> {
+        Err(anyhow!("draw_subtree_image not yet implemented"))
+    }
+
+    // ── Item granularity (stubs) ──
+
+    fn record_item_picture(
+        &self,
+        _ctx: &mut RecordCtx<'_, Self>,
+        _item: &DisplayItem,
+    ) -> Result<Self::Picture> {
+        Err(anyhow!("record_item_picture not yet implemented"))
+    }
+
+    fn draw_item_picture(
+        &self,
+        _picture: &Self::Picture,
+        _translation: (f32, f32),
+        _frame_view: FrameView<'_>,
+    ) -> Result<()> {
+        Err(anyhow!("draw_item_picture not yet implemented"))
+    }
+
+    // ── Glyph granularity (stubs) ──
+
+    fn rasterize_glyph_path(&self, _glyph: &GlyphData) -> Result<Self::GlyphPath> {
+        Err(anyhow!("rasterize_glyph_path not yet implemented"))
+    }
+
+    fn rasterize_glyph_image(&self, _glyph: &GlyphData) -> Result<Self::GlyphImage> {
+        Err(anyhow!("rasterize_glyph_image not yet implemented"))
+    }
+
+    fn draw_glyph_path(
+        &self,
+        _path: &Self::GlyphPath,
+        _paint: &GlyphPaint,
+        _frame_view: FrameView<'_>,
+    ) -> Result<()> {
+        Err(anyhow!("draw_glyph_path not yet implemented"))
+    }
+
+    fn draw_glyph_image(
+        &self,
+        _image: &Self::GlyphImage,
+        _bounds: DisplayRect,
+        _frame_view: FrameView<'_>,
+    ) -> Result<()> {
+        Err(anyhow!("draw_glyph_image not yet implemented"))
     }
 }
 

@@ -4,11 +4,13 @@ use std::any::Any;
 
 use anyhow::Result;
 
+use crate::display::list::{DisplayItem, DisplayRect};
 use crate::frame_ctx::FrameCtx;
 use crate::platform::backend::BackendTypes;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
-use crate::runtime::annotation::AnnotatedDisplayTree;
+use crate::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
 use crate::runtime::compositor::OrderedSceneProgram;
+use crate::text::GlyphData;
 
 /// Backend-agnostic frame view.
 pub struct FrameView<'a> {
@@ -45,6 +47,13 @@ pub struct RenderCtx<'a, B: BackendTypes> {
     pub platform_data: &'a mut dyn Any,
 }
 
+/// Glyph painting parameters for render backends.
+#[derive(Clone, Debug)]
+pub struct GlyphPaint {
+    pub color: (f32, f32, f32, f32), // RGBA
+    pub font_size: f32,
+}
+
 /// Backend-only render engine surface.
 pub trait RenderEngine: BackendTypes + Send + Sync {
     fn target_frame_view_kind(&self) -> &'static str;
@@ -70,6 +79,75 @@ pub trait RenderEngine: BackendTypes + Send + Sync {
     ) -> Result<()>
     where
         Self: Sized;
+
+    // ── Subtree granularity ──
+
+    fn record_subtree_snapshot(
+        &self,
+        ctx: &mut RecordCtx<'_, Self>,
+        display_tree: &AnnotatedDisplayTree,
+        handle: AnnotatedNodeHandle,
+    ) -> Result<Self::Picture>
+    where
+        Self: Sized;
+
+    fn record_subtree_image(
+        &self,
+        snapshot: &Self::Picture,
+        bounds: DisplayRect,
+    ) -> Result<Self::Image>;
+
+    fn draw_subtree_snapshot(
+        &self,
+        snapshot: &Self::Picture,
+        opacity: f32,
+        backdrop_blur: Option<f32>,
+        bounds: DisplayRect,
+        frame_view: FrameView<'_>,
+    ) -> Result<()>;
+
+    fn draw_subtree_image(
+        &self,
+        image: &Self::Image,
+        opacity: f32,
+        backdrop_blur: Option<f32>,
+        bounds: DisplayRect,
+        frame_view: FrameView<'_>,
+    ) -> Result<()>;
+
+    // ── Item granularity ──
+
+    fn record_item_picture(
+        &self,
+        ctx: &mut RecordCtx<'_, Self>,
+        item: &DisplayItem,
+    ) -> Result<Self::Picture>
+    where
+        Self: Sized;
+
+    fn draw_item_picture(
+        &self,
+        picture: &Self::Picture,
+        translation: (f32, f32),
+        frame_view: FrameView<'_>,
+    ) -> Result<()>;
+
+    // ── Glyph granularity ──
+
+    fn rasterize_glyph_path(&self, glyph: &GlyphData) -> Result<Self::GlyphPath>;
+    fn rasterize_glyph_image(&self, glyph: &GlyphData) -> Result<Self::GlyphImage>;
+    fn draw_glyph_path(
+        &self,
+        path: &Self::GlyphPath,
+        paint: &GlyphPaint,
+        frame_view: FrameView<'_>,
+    ) -> Result<()>;
+    fn draw_glyph_image(
+        &self,
+        image: &Self::GlyphImage,
+        bounds: DisplayRect,
+        frame_view: FrameView<'_>,
+    ) -> Result<()>;
 }
 
 #[cfg(test)]

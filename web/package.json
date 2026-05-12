@@ -14,9 +14,7 @@
     "vite": "^6.3.0"
   },
   "dependencies": {
-    "@ffmpeg/core-mt": "^0.12.10",
-    "@ffmpeg/ffmpeg": "^0.12.15",
-    "@ffmpeg/util": "^0.12.2",
+    "@webav/av-cliper": "^1.2.8",
     "canvaskit-wasm": "^0.41.1"
   }
 }

@@ -4,7 +4,6 @@ import {
   initCanvasKit,
   ensureSurface,
   disposeSurface,
-  captureFramePixels,
   getCanvasKit,
   getCkCanvas,
   getSurface,
@@ -12,7 +11,6 @@ import {
   registerImage,
 } from './renderer';
 import {
-  initFFmpeg as initFFmpegExport,
   exportMp4,
   exportPngFrame,
   downloadMp4,
@@ -103,9 +101,9 @@ async function boot() {
     // Load file list first (fast, local)
     await loadFileList();
 
-    // FFmpeg loads on demand when user clicks Export — no need to eagerly load 31MB WASM
-    ffStatusEl.textContent = 'FFmpeg on-demand';
-    ffStatusEl.className = 'status-badge';
+    // Export uses WebCodecs (hardware-accelerated), no preloading needed
+    ffStatusEl.textContent = 'WebCodecs ready';
+    ffStatusEl.className = 'status-badge ready';
   } catch (err) {
     wasmStatusEl.textContent = `Bootstrap error: ${err}`;
     wasmStatusEl.className = 'status-badge error';
@@ -638,14 +636,8 @@ async function handleExport() {
   btnExport.classList.add('exporting');
   exportProgress.classList.remove('hidden');
   exportProgressFill.style.width = '0%';
-  ffStatusEl.textContent = 'FFmpeg loading...';
-  ffStatusEl.className = 'status-badge loading';
 
   try {
-    await initFFmpegExport();
-    ffStatusEl.textContent = 'FFmpeg ready';
-    ffStatusEl.className = 'status-badge ready';
-
     const comp = currentComposition;
     exportInfoEl.textContent = 'Encoding MP4...';
 
@@ -662,8 +654,6 @@ async function handleExport() {
       exportInfoEl.textContent = 'Export failed';
     }
   } catch (err) {
-    ffStatusEl.textContent = `FFmpeg error: ${err}`;
-    ffStatusEl.className = 'status-badge error';
     exportInfoEl.textContent = `Export error: ${err}`;
   } finally {
     isExporting = false;
@@ -683,18 +673,11 @@ async function handleExportPng() {
 
   isExporting = true;
   btnExportPng.disabled = true;
-  ffStatusEl.textContent = 'FFmpeg loading...';
-  ffStatusEl.className = 'status-badge loading';
 
   try {
-    await initFFmpegExport();
-    ffStatusEl.textContent = 'FFmpeg ready';
-    ffStatusEl.className = 'status-badge ready';
-
     await exportPngFrame(currentJsonlContent, previewCanvas, currentComposition, currentFrame, resourceMeta);
   } catch (err) {
-    ffStatusEl.textContent = `FFmpeg error: ${err}`;
-    ffStatusEl.className = 'status-badge error';
+    console.error('PNG export error:', err);
   } finally {
     isExporting = false;
     btnExportPng.disabled = false;

@@ -7,7 +7,7 @@ pub struct WebPicture {
 }
 
 /// Glyph path data produced by cosmic-text, serialized to JS via wasm-bindgen.
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct GlyphPathData {
     pub commands: Vec<GlyphPathCommand>,
     pub bounds_x: f32,
@@ -16,7 +16,7 @@ pub struct GlyphPathData {
     pub bounds_h: f32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum GlyphPathCommand {
     MoveTo { x: f32, y: f32 },
     LineTo { x: f32, y: f32 },

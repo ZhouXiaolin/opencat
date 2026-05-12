@@ -1,6 +1,6 @@
 //! 冒烟测试：opencat-web 可以构造并暴露 PathBoundsComputer。
 
-use opencat_web::WebRenderEngine;
+use opencat_web::engine::WebRenderEngine;
 
 #[test]
 fn web_render_engine_default_uses_default_path_bounds() {

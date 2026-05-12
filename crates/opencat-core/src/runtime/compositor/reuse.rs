@@ -3,7 +3,7 @@ use crate::{
     runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum StableNodeReuse {
     /// 足够便宜的叶子，直接重画比 record picture 更划算。
     DirectLeaf,
@@ -15,7 +15,7 @@ pub enum StableNodeReuse {
     SubtreeSnapshot,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum LiveNodeItemExecution {
     Direct,
     FrameLocalPicture,

@@ -9,6 +9,9 @@ use crate::platform::platform::Platform;
 use crate::platform::scene_snapshot::SceneSnapshotCache;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::runtime::cache::{CacheCaps, CacheRegistry};
+use crate::runtime::compositor::ordered_scene::{OrderedSceneOp, OrderedSceneProgram};
+use crate::runtime::compositor::reuse::LiveNodeItemExecution;
+use crate::runtime::annotation::AnnotatedNodeHandle;
 use crate::runtime::invalidation::CompositeHistory;
 use crate::text::default_font_db;
 
@@ -34,6 +37,9 @@ pub struct RenderSession<P: Platform> {
     /// single-slot scene snapshot cross-frame cache
     pub scene_snapshots: SceneSnapshotCache<P::Backend>,
 
+    /// last ordered scene program from the most recent render_frame call
+    pub last_ordered_scene: OrderedSceneProgram,
+
     /// platform's own stuff (script runtime, video source, render engine ref, IO etc)
     pub platform: P,
 }
@@ -53,6 +59,13 @@ impl<P: Platform> RenderSession<P> {
             prepared_root_ptr: None,
             cache_registry: CacheRegistry::new(caps),
             scene_snapshots: SceneSnapshotCache::new(),
+            last_ordered_scene: OrderedSceneProgram {
+                root: OrderedSceneOp::LiveSubtree {
+                    handle: AnnotatedNodeHandle(0),
+                    item_execution: LiveNodeItemExecution::Direct,
+                    children: Vec::new(),
+                },
+            },
             platform,
         }
     }

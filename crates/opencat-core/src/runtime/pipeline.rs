@@ -104,6 +104,7 @@ pub fn render_frame<P: Platform>(
     // 6. ordered scene direct draw
     session.scene_snapshots.store_scene_snapshot(None);
     let ordered_scene = OrderedSceneProgram::build(&annotated);
+    session.last_ordered_scene = ordered_scene.clone();
     session
         .platform
         .with_render_context(|video, backend, ctx_platform_data| {

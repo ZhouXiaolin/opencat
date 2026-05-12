@@ -7,6 +7,7 @@ use crate::cache::lru::BoundedLruCache;
 use crate::display::list::DisplayRect;
 use crate::platform::backend::BackendTypes;
 
+pub mod decision;
 pub mod video_frames;
 
 pub type SharedLruCache<K, V> = Rc<RefCell<BoundedLruCache<K, V>>>;

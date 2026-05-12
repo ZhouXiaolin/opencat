@@ -23,6 +23,11 @@ use opencat_core::style::{
     BackgroundFill, BoxShadow, DropShadow, GradientDirection, InsetShadow, ObjectFit, Transform,
 };
 
+use opencat_core::runtime::cache::decision::{
+    CachedSubtreeRenderMode, SubtreeSnapshotResolution, resolve_cached_subtree_render_mode,
+    resolve_subtree_snapshot_lookup, should_cache_item_picture,
+};
+
 use crate::{
     resource::media::{MediaContext, VideoFrameRequest},
     runtime::cache::{
@@ -1210,57 +1215,6 @@ fn draw_text(
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SubtreeSnapshotResolution {
-    Hit,
-    Miss,
-    CollisionRejected,
-}
-
-pub(crate) fn resolve_subtree_snapshot_lookup(
-    query_fingerprint: opencat_core::runtime::fingerprint::SubtreeSnapshotFingerprint,
-    cached_secondary: Option<u64>,
-) -> SubtreeSnapshotResolution {
-    match cached_secondary {
-        None => SubtreeSnapshotResolution::Miss,
-        Some(secondary) if secondary == query_fingerprint.secondary => {
-            SubtreeSnapshotResolution::Hit
-        }
-        Some(_) => SubtreeSnapshotResolution::CollisionRejected,
-    }
-}
-
-const SUBTREE_IMAGE_PROMOTION_HITS: usize = 3;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CachedSubtreeRenderMode {
-    DrawImage,
-    DrawPicture,
-    PromoteToImage,
-}
-
-fn resolve_cached_subtree_render_mode(
-    has_cached_image: bool,
-    consecutive_hits: usize,
-    recorded_bounds: DisplayRect,
-    current_bounds: DisplayRect,
-    has_non_unit_scale: bool,
-) -> CachedSubtreeRenderMode {
-    if has_cached_image && !has_non_unit_scale {
-        return CachedSubtreeRenderMode::DrawImage;
-    }
-    if should_promote_snapshot_to_image(
-        consecutive_hits,
-        recorded_bounds,
-        current_bounds,
-        has_non_unit_scale,
-    ) {
-        CachedSubtreeRenderMode::PromoteToImage
-    } else {
-        CachedSubtreeRenderMode::DrawPicture
-    }
-}
-
 fn transform_list_has_non_unit_scale(transforms: &[Transform]) -> bool {
     transforms.iter().any(|transform| match *transform {
         Transform::Scale { value } | Transform::ScaleX { value } | Transform::ScaleY { value } => {
@@ -1268,20 +1222,6 @@ fn transform_list_has_non_unit_scale(transforms: &[Transform]) -> bool {
         }
         _ => false,
     })
-}
-
-fn should_promote_snapshot_to_image(
-    consecutive_hits: usize,
-    recorded_bounds: DisplayRect,
-    current_bounds: DisplayRect,
-    has_non_unit_scale: bool,
-) -> bool {
-    consecutive_hits >= SUBTREE_IMAGE_PROMOTION_HITS
-        && !has_non_unit_scale
-        && recorded_bounds.x.to_bits() == current_bounds.x.to_bits()
-        && recorded_bounds.y.to_bits() == current_bounds.y.to_bits()
-        && recorded_bounds.width.to_bits() == current_bounds.width.to_bits()
-        && recorded_bounds.height.to_bits() == current_bounds.height.to_bits()
 }
 
 fn record_subtree_snapshot_image(
@@ -1301,13 +1241,6 @@ fn record_subtree_snapshot_image(
     surface.canvas().draw_picture(snapshot, None, None);
     surface.canvas().restore();
     Ok(surface.image_snapshot())
-}
-
-fn should_cache_item_picture(item: &DisplayItem) -> bool {
-    matches!(
-        item,
-        DisplayItem::Bitmap(_) | DisplayItem::DrawScript(_) | DisplayItem::SvgPath(_)
-    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2942,9 +2875,9 @@ mod resolve_tests {
 
 #[cfg(test)]
 mod promotion_tests {
-    use super::{
+    use super::transform_list_has_non_unit_scale;
+    use opencat_core::runtime::cache::decision::{
         SUBTREE_IMAGE_PROMOTION_HITS, should_promote_snapshot_to_image,
-        transform_list_has_non_unit_scale,
     };
     use opencat_core::{display::list::DisplayRect, style::Transform};
 
@@ -3015,8 +2948,9 @@ mod promotion_tests {
 
 #[cfg(test)]
 mod materialization_tests {
-    use super::{
-        CachedSubtreeRenderMode, SUBTREE_IMAGE_PROMOTION_HITS, resolve_cached_subtree_render_mode,
+    use super::CachedSubtreeRenderMode;
+    use opencat_core::runtime::cache::decision::{
+        SUBTREE_IMAGE_PROMOTION_HITS, resolve_cached_subtree_render_mode,
     };
     use opencat_core::display::list::DisplayRect;
 

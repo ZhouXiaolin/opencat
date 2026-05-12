@@ -99,6 +99,15 @@ async function boot() {
     // Initialize shared script engine (loads wasm bridge + core JS runtimes once)
     await getScriptEngine().init();
 
+    // Preload FFmpeg in background (fire-and-forget)
+    initFFmpegExport().then(() => {
+      ffStatusEl.textContent = 'FFmpeg ready';
+      ffStatusEl.className = 'status-badge ready';
+    }).catch(() => {
+      ffStatusEl.textContent = 'FFmpeg click-to-load';
+      ffStatusEl.className = 'status-badge';
+    });
+
     await loadFileList();
   } catch (err) {
     wasmStatusEl.textContent = `Bootstrap error: ${err}`;
@@ -197,53 +206,14 @@ function stripScriptElements(jsonlContent: string): string {
 async function preloadResources(jsonlContent: string): Promise<void> {
   resourceMeta = {};
 
-  // Parse JSONL to extract resource references
-  const lines = jsonlContent.split('\n').filter(line => line.trim());
-  const imageUrls = new Set<string>();
-  const videoUrls = new Set<string>();
+  // Use WASM's collect_resources to get the authoritative resource list
+  const requests = collectResources(jsonlContent);
 
-  for (const line of lines) {
-    try {
-      const obj = JSON.parse(line);
-      // Check for image sources
-      if (obj.src && typeof obj.src === 'string') {
-        const ext = obj.src.split('.').pop()?.toLowerCase();
-        if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'webp') {
-          imageUrls.add(obj.src);
-        } else if (ext === 'mp4' || ext === 'webm' || ext === 'mov') {
-          videoUrls.add(obj.src);
-        }
-      }
-      // Check for script elements (they might reference resources via ctx)
-      if (obj.type === 'script') {
-        // Scripts can reference resources dynamically
-        // We'll collect any string that looks like a URL
-        const source = obj.scriptSource || obj.source || obj.script || '';
-        const urlMatches = source.match(/['"`]([^'"`]*\.(png|jpg|jpeg|gif|webp|mp4|webm|mov))['"`]/gi);
-        if (urlMatches) {
-          for (const match of urlMatches) {
-            const url = match.replace(/['"`]/g, '');
-            const ext = url.split('.').pop()?.toLowerCase();
-            if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'webp') {
-              imageUrls.add(url);
-            } else if (ext === 'mp4' || ext === 'webm' || ext === 'mov') {
-              videoUrls.add(url);
-            }
-          }
-        }
-      }
-    } catch {
-      // Skip invalid JSON lines
-    }
-  }
-
-  // Load images and record metadata
-  const imagePromises = Array.from(imageUrls).map(async (url) => {
+  // Load images with timeout (fire-and-forget: don't block initial render)
+  const imagePromises = requests.images.map(async (url) => {
     try {
       const assetId = url.startsWith('http') ? `url:${url}` : url;
-      // Load the image - loadImages will handle URL construction
       await loadImages({ images: [url], videos: [], audios: [], icons: [] });
-      // Get the cached image to extract dimensions
       const cached = getCachedImage(assetId);
       if (cached) {
         resourceMeta[url] = {
@@ -258,16 +228,17 @@ async function preloadResources(jsonlContent: string): Promise<void> {
   });
 
   // For videos, use placeholder dimensions (actual decoding happens on-demand)
-  for (const url of videoUrls) {
+  for (const url of requests.videos) {
     resourceMeta[url] = {
-      width: 1920,  // Default placeholder
+      width: 1920,
       height: 1080,
       kind: 'video',
-      durationSecs: 10,  // Default placeholder
+      durationSecs: 10,
     };
   }
 
-  await Promise.all(imagePromises);
+  // Don't block the initial render on image loading
+  Promise.all(imagePromises).catch(() => {});
 }
 
 // --- Load JSONL ---
@@ -687,17 +658,6 @@ function extractFontSize(className: string): number {
   const m = className.match(/text-\[(\d+)px\]/);
   return m ? parseInt(m[1]) : 16;
 }
-
-// --- Init FFmpeg on idle after boot ---
-setTimeout(() => {
-  initFFmpegExport().then(() => {
-    ffStatusEl.textContent = 'FFmpeg ready';
-    ffStatusEl.className = 'status-badge ready';
-  }).catch(() => {
-    ffStatusEl.textContent = 'FFmpeg click-to-load';
-    ffStatusEl.className = 'status-badge';
-  });
-}, 2000);
 
 // --- Boot ---
 boot();

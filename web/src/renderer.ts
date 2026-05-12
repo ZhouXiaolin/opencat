@@ -407,10 +407,10 @@ function drawTextWithGlyphs(item: DisplayItemJson): void {
       const glyphData = glyphMap.get(pos.cacheKey);
       if (!glyphData) continue;
 
-      // pos.x: offset within the text area
-      // pos.y - line.y: glyph Y within its line (relative to line baseline)
+      // pos.x: X offset within the text area
+      // pos.y: absolute glyph Y in screen space (already includes line baseline)
       const gx = pos.x + xShift;
-      const gy = pos.y - line.y;
+      const gy = pos.y;
 
       canvas.save();
       canvas.translate(gx, gy);
@@ -498,27 +498,27 @@ function drawTextWithCanvasKitFont(item: DisplayItemJson): void {
 /// Y coordinates are negated because cosmic-text uses Y-up
 /// (font space), while Skia/CanvasKit uses Y-down (screen space).
 function buildGlyphPath(commands: DisplayGlyphCommand[]): any {
-  const path = new CanvasKit.Path();
+  const parts: string[] = [];
   for (const cmd of commands) {
     switch (cmd.type) {
       case 'moveTo':
-        path.moveTo(cmd.x, -cmd.y);
+        parts.push(`M${cmd.x},${-cmd.y}`);
         break;
       case 'lineTo':
-        path.lineTo(cmd.x, -cmd.y);
+        parts.push(`L${cmd.x},${-cmd.y}`);
         break;
       case 'quadTo':
-        path.quadTo(cmd.cx, -cmd.cy, cmd.x, -cmd.y);
+        parts.push(`Q${cmd.cx},${-cmd.cy},${cmd.x},${-cmd.y}`);
         break;
       case 'curveTo':
-        path.cubicTo(cmd.c1x, -cmd.c1y, cmd.c2x, -cmd.c2y, cmd.x, -cmd.y);
+        parts.push(`C${cmd.c1x},${-cmd.c1y},${cmd.c2x},${-cmd.c2y},${cmd.x},${-cmd.y}`);
         break;
       case 'close':
-        path.close();
+        parts.push('Z');
         break;
     }
   }
-  return path;
+  return CanvasKit.Path.MakeFromSVGString(parts.join(' '));
 }
 
 /// Build a CanvasKit Image from raw RGBA pixel data (e.g., emoji glyphs).
@@ -694,12 +694,13 @@ function drawScriptItem(item: DisplayItemJson): void {
     globalAlpha: number;
     lineCap: string;
     lineJoin: string;
-    path?: any;
+    pathStr: string;
   } = {
     lineWidth: 1,
     globalAlpha: 1,
     lineCap: 'butt',
     lineJoin: 'miter',
+    pathStr: '',
   };
 
   for (const cmd of commands) {
@@ -720,7 +721,7 @@ function executeCanvasCommand(
     globalAlpha: number;
     lineCap: string;
     lineJoin: string;
-    path?: any;
+    pathStr: string;
   },
 ): void {
   const CK = CanvasKit;
@@ -867,57 +868,57 @@ function executeCanvasCommand(
     }
 
     case 'beginPath':
-      if (state.path) {
-        state.path.delete();
-      }
-      state.path = new CK.Path();
+      state.pathStr = '';
       break;
     case 'moveTo':
-      if (state.path) state.path.moveTo(cmd.x as number || 0, cmd.y as number || 0);
+      state.pathStr += `M${cmd.x as number || 0},${cmd.y as number || 0} `;
       break;
     case 'lineTo':
-      if (state.path) state.path.lineTo(cmd.x as number || 0, cmd.y as number || 0);
+      state.pathStr += `L${cmd.x as number || 0},${cmd.y as number || 0} `;
       break;
     case 'quadTo':
-      if (state.path) state.path.quadTo(
-        cmd.cx as number || 0, cmd.cy as number || 0,
-        cmd.x as number || 0, cmd.y as number || 0,
-      );
+      state.pathStr += `Q${cmd.cx as number || 0},${cmd.cy as number || 0},${cmd.x as number || 0},${cmd.y as number || 0} `;
       break;
     case 'cubicTo':
-      if (state.path) state.path.cubicTo(
-        cmd.c1x as number || 0, cmd.c1y as number || 0,
-        cmd.c2x as number || 0, cmd.c2y as number || 0,
-        cmd.x as number || 0, cmd.y as number || 0,
-      );
+      state.pathStr += `C${cmd.c1x as number || 0},${cmd.c1y as number || 0},${cmd.c2x as number || 0},${cmd.c2y as number || 0},${cmd.x as number || 0},${cmd.y as number || 0} `;
       break;
     case 'closePath':
-      if (state.path) state.path.close();
+      state.pathStr += 'Z ';
       break;
     case 'fillPath': {
-      if (state.path) {
-        const paint = makeStateFillPaint(state);
-        ckCanvas.drawPath(state.path, paint);
-        paint.delete();
+      if (state.pathStr) {
+        const path = CK.Path.MakeFromSVGString(state.pathStr);
+        if (path) {
+          const paint = makeStateFillPaint(state);
+          ckCanvas.drawPath(path, paint);
+          paint.delete();
+          path.delete();
+        }
       }
+      state.pathStr = '';
       break;
     }
     case 'strokePath': {
-      if (state.path) {
-        const paint = new CK.Paint();
-        paint.setStyle(CK.PaintStyle.Stroke);
-        paint.setStrokeWidth(state.lineWidth);
-        if (state.strokeColor) {
-          paint.setColor(CK.Color4f(
-            state.strokeColor.r / 255,
-            state.strokeColor.g / 255,
-            state.strokeColor.b / 255,
-            (state.strokeColor.a / 255) * state.globalAlpha,
-          ));
+      if (state.pathStr) {
+        const path = CK.Path.MakeFromSVGString(state.pathStr);
+        if (path) {
+          const paint = new CK.Paint();
+          paint.setStyle(CK.PaintStyle.Stroke);
+          paint.setStrokeWidth(state.lineWidth);
+          if (state.strokeColor) {
+            paint.setColor(CK.Color4f(
+              state.strokeColor.r / 255,
+              state.strokeColor.g / 255,
+              state.strokeColor.b / 255,
+              (state.strokeColor.a / 255) * state.globalAlpha,
+            ));
+          }
+          ckCanvas.drawPath(path, paint);
+          paint.delete();
+          path.delete();
         }
-        ckCanvas.drawPath(state.path, paint);
-        paint.delete();
       }
+      state.pathStr = '';
       break;
     }
 

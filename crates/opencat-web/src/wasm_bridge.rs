@@ -170,6 +170,33 @@ impl WebRenderer {
             .map(|arc| (*arc).clone())
     }
 
+    /// Inject a pre-decoded video frame from JS.
+    /// JS side calls this after `prepareVideoFrames()` completes.
+    pub fn inject_video_frame(
+        &mut self,
+        asset_id: String,
+        frame: u32,
+        rgba: Vec<u8>,
+        width: u32,
+        height: u32,
+    ) {
+        use opencat_core::resource::asset_id::AssetId;
+        self.session
+            .platform
+            .video
+            .inject_frame(AssetId(asset_id), frame, rgba, width, height);
+    }
+
+    /// Clear cached video frames for a specific asset (or all if empty string).
+    pub fn clear_video_cache(&mut self, asset_id: String) {
+        use opencat_core::resource::asset_id::AssetId;
+        if asset_id.is_empty() {
+            self.session.platform.video.clear_cache(None);
+        } else {
+            self.session.platform.video.clear_cache(Some(&AssetId(asset_id)));
+        }
+    }
+
     pub fn build_frame(
         &mut self,
         jsonl: String,

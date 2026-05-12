@@ -2351,6 +2351,7 @@ dependencies = [
  "serde_json",
  "tracing",
  "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

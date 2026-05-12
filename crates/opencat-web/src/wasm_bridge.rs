@@ -6,9 +6,16 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+use std::any::Any;
+
 use opencat_core::display::list::DisplayRect;
+use opencat_core::platform::render_engine::{FrameView, FrameViewKind};
+use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::runtime::cache::CachedSubtreeSnapshot;
+use opencat_core::runtime::pipeline::render_frame;
 use opencat_core::runtime::session::RenderSession;
+use opencat_core::scene::composition::Composition;
+use opencat_core::scene::script::precomputed_host::PrecomputedScriptHost;
 
 use crate::backend::WebPicture;
 use crate::platform::WebPlatform;
@@ -165,16 +172,74 @@ impl WebRenderer {
 
     pub fn build_frame(
         &mut self,
-        _jsonl: String,
-        _frame: u32,
-        _resources: String,
-        _mutations: String,
+        jsonl: String,
+        frame: u32,
+        resources: String,
+        mutations: String,
     ) -> BuildFrameResult {
-        // Placeholder — D5 will fill this in.
-        BuildFrameResult {
-            ops_json: "[]".to_string(),
-            frame_width: 0,
-            frame_height: 0,
+        match self.build_frame_inner(&jsonl, frame, &resources, &mutations) {
+            Ok(result) => result,
+            Err(e) => BuildFrameResult {
+                ops_json: serde_json::json!({"error": e.to_string()}).to_string(),
+                frame_width: 0,
+                frame_height: 0,
+            },
         }
+    }
+}
+
+impl WebRenderer {
+    fn build_frame_inner(
+        &mut self,
+        jsonl: &str,
+        frame: u32,
+        resources: &str,
+        mutations: &str,
+    ) -> anyhow::Result<BuildFrameResult> {
+        // 1. Parse JSONL
+        let parsed = opencat_core::jsonl::parse(jsonl)?;
+
+        // 2. Update session catalog from JS-provided resource metadata
+        self.session.catalog = HashMapResourceCatalog::from_json(resources)?;
+
+        // 3. Update session platform script from JS-provided mutations
+        self.session.platform.script = PrecomputedScriptHost::from_json(mutations)?;
+
+        // 4. Build a Composition from the parsed JSONL
+        let root_node = parsed.root;
+        let width = parsed.width;
+        let height = parsed.height;
+        let composition = Composition::new("web")
+            .size(width, height)
+            .fps(parsed.fps as u32)
+            .frames(parsed.frames as u32)
+            .root(move |_ctx| root_node.clone())
+            .build()?;
+
+        // 5. Render frame through core pipeline
+        let mut frame_view_data: Box<dyn Any> = Box::new(());
+        let frame_view = FrameView {
+            width: width as u32,
+            height: height as u32,
+            kind: FrameViewKind::Opaque(&mut *frame_view_data),
+        };
+        let mut platform_data: Box<dyn Any> = Box::new(());
+
+        render_frame(
+            &composition,
+            frame,
+            &mut self.session,
+            frame_view,
+            &mut *platform_data,
+        )?;
+
+        // 6. Serialize ordered scene program to JSON
+        let ops_json = serde_json::to_string(&self.session.last_ordered_scene)?;
+
+        Ok(BuildFrameResult {
+            ops_json,
+            frame_width: width as u32,
+            frame_height: height as u32,
+        })
     }
 }

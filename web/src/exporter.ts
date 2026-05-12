@@ -1,34 +1,135 @@
-import type { CompositionInfo } from './types';
-import { captureFramePixels, ensureSurface, drawDisplayTree } from './renderer';
-import { buildFrame } from './wasm';
+import type { CompositionInfo, ParsedElement } from './types';
+import { ensureSurface, drawDisplayTree } from './renderer';
+import { buildFrame, parseJsonl } from './wasm';
+import { getScriptEngine } from './script-engine';
+import type { IClip } from '@webav/av-cliper';
 
 type ProgressCallback = (current: number, total: number) => void;
 
-let ffmpeg: any = null;
-let loaded = false;
-let loadingPromise: Promise<void> | null = null;
+// ── Custom IClip that renders frames on-demand via CanvasKit ──
+
+class ExportClip implements IClip {
+  readonly meta: { width: number; height: number; duration: number };
+  readonly ready: Promise<{ width: number; height: number; duration: number }>;
+
+  private canvas: HTMLCanvasElement;
+  private jsonlContent: string;
+  private filteredJsonl: string;
+  private resourceMetaJson: string;
+  private comp: CompositionInfo;
+  private totalFrames: number;
+  private fps: number;
+  private onProgress: ProgressCallback;
+
+  constructor(
+    canvas: HTMLCanvasElement,
+    jsonlContent: string,
+    filteredJsonl: string,
+    resourceMetaJson: string,
+    comp: CompositionInfo,
+    onProgress: ProgressCallback,
+  ) {
+    this.canvas = canvas;
+    this.jsonlContent = jsonlContent;
+    this.filteredJsonl = filteredJsonl;
+    this.resourceMetaJson = resourceMetaJson;
+    this.comp = comp;
+    this.totalFrames = comp.frames;
+    this.fps = comp.fps;
+    this.onProgress = onProgress;
+
+    this.meta = {
+      width: comp.width,
+      height: comp.height,
+      duration: Math.round((comp.frames / comp.fps) * 1_000_000),
+    };
+    this.ready = Promise.resolve(this.meta);
+  }
+
+  async tick(time: number): Promise<{
+    video?: ImageBitmap | null;
+    audio?: Float32Array[];
+    state: 'done' | 'success';
+  }> {
+    const { width, height } = this.comp;
+
+    if (time >= this.meta.duration) {
+      return { video: null, audio: [], state: 'done' };
+    }
+
+    const frameNum = Math.min(
+      Math.floor((time / 1_000_000) * this.fps),
+      this.totalFrames - 1,
+    );
+
+    // Execute scripts to collect mutations
+    const engine = getScriptEngine();
+    engine.setFrameCtx(frameNum + 1, this.totalFrames, this.totalFrames);
+    const parsed = parseJsonl(this.jsonlContent);
+
+    for (const el of parsed.elements || []) {
+      if (el.id && el.text) {
+        (window as any).__text_source_set?.(el.id, el.text);
+      }
+    }
+
+    const scriptElements = (parsed.elements || []).filter(
+      (e: ParsedElement) => e.type === 'script',
+    );
+
+    for (const script of scriptElements) {
+      if (script.id) {
+        (window as any).ctx.__currentCanvasTarget = script.id;
+      }
+      const source = (script.src || script.content || '') as string;
+      if (source) {
+        try {
+          engine.runScript(source);
+        } catch (err) {
+          console.error(`Script execution error for element ${script.id}:`, err);
+        }
+      }
+    }
+
+    try {
+      (window as any).ctx.__flushTimelines?.();
+    } catch (err) {
+      console.error('Timeline flush error:', err);
+    }
+
+    const mutationsJson = engine.collectJson();
+
+    // Build display tree and render to canvas
+    const result = buildFrame(this.filteredJsonl, frameNum, this.resourceMetaJson, mutationsJson);
+    ensureSurface(this.canvas, width, height);
+    drawDisplayTree(result.root, this.comp, frameNum);
+
+    // Read canvas as PNG blob then create ImageBitmap
+    const blob = await new Promise<Blob | null>((resolve) => {
+      this.canvas.toBlob(resolve, 'image/png');
+    });
+    if (!blob) {
+      return { video: null, audio: [], state: 'success' };
+    }
+
+    const bitmap = await createImageBitmap(blob);
+
+    this.onProgress(frameNum + 1, this.totalFrames);
+
+    return { video: bitmap, audio: [], state: 'success' };
+  }
+
+  async clone(): Promise<this> {
+    return this;
+  }
+
+  destroy(): void {}
+}
+
+// ── Public API ──
 
 export async function initFFmpeg(): Promise<void> {
-  if (loaded) return;
-  if (loadingPromise) return loadingPromise;
-  loadingPromise = (async () => {
-    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-    const { toBlobURL } = await import('@ffmpeg/util');
-    ffmpeg = new FFmpeg();
-    ffmpeg.on('log', ({ message }: { message: string }) => {
-      if (message.includes('Error') || message.includes('error')) {
-        console.warn('[ffmpeg]', message);
-      }
-    });
-    const baseURL = 'https://unpkg.com/@ffmpeg/core-mt@0.12.10/dist/esm';
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-      workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
-    });
-    loaded = true;
-  })();
-  return loadingPromise;
+  // No-op: FFmpeg.wasm has been removed (replaced by WebAV/WebCodecs)
 }
 
 export async function exportMp4(
@@ -38,15 +139,10 @@ export async function exportMp4(
   resourceMeta: Record<string, { width: number; height: number; kind: string; durationSecs?: number }>,
   onProgress: ProgressCallback,
 ): Promise<Uint8Array | null> {
-  if (!ffmpeg || !loaded) {
-    console.warn('FFmpeg not loaded');
-    return null;
-  }
-
-  const { width, height, fps, frames } = comp;
+  const { width, height, fps } = comp;
   const resourceMetaJson = JSON.stringify(resourceMeta);
 
-  // Pre-filter script elements (once, not per-frame)
+  // Pre-filter script elements once
   const filteredJsonl = jsonlContent
     .split('\n')
     .filter(line => {
@@ -59,59 +155,54 @@ export async function exportMp4(
     })
     .join('\n');
 
-  ensureSurface(canvas, width, height);
+  // Dynamically import Combinator + OffscreenSprite only when needed
+  const { Combinator, OffscreenSprite } = await import('@webav/av-cliper');
 
-  const chunkSize = Math.min(30, frames);
+  const clip = new ExportClip(canvas, jsonlContent, filteredJsonl, resourceMetaJson, comp, onProgress);
+  const spr = new OffscreenSprite(clip);
 
-  // Process frames in chunks to avoid memory issues
-  for (let start = 0; start < frames; start += chunkSize) {
-    const end = Math.min(start + chunkSize, frames);
+  const com = new Combinator({
+    width,
+    height,
+    fps,
+    bgColor: '#000',
+    videoCodec: 'avc1.42E032',
+    audio: false,
+  });
 
-    // Render each frame using the full display-tree pipeline
-    for (let f = start; f < end; f++) {
-      // Build display tree via WASM (no mutations for export — static layout only)
-      const result = buildFrame(filteredJsonl, f, resourceMetaJson, '{}');
+  // Track encoding progress
+  com.on('OutputProgress', (progress) => {
+    const pct = Math.round(progress * 100);
+    onProgress(Math.round(comp.frames * progress), comp.frames);
+  });
+  com.on('error', (err) => {
+    console.error('[export] Combinator error:', err);
+  });
 
-      // Draw via CanvasKit
-      ensureSurface(canvas, width, height);
-      drawDisplayTree(result.root, comp, f);
+  await com.addSprite(spr, { main: true });
 
-      const pixels = captureFramePixels(width, height);
-      if (!pixels) continue;
-
-      const fileName = `frame_${String(f).padStart(6, '0')}.rgba`;
-      await ffmpeg.writeFile(fileName, pixels);
-      onProgress(f + 1, frames);
-    }
+  // Collect output stream chunks
+  const reader = com.output().getReader();
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) chunks.push(value);
   }
 
-  // Build the filter for RGBA to YUV conversion
-  const filter = `[0:v]format=rgba,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]`;
+  if (chunks.length === 0) return null;
 
-  await ffmpeg.exec([
-    '-f', 'image2',
-    '-framerate', String(fps),
-    '-pattern_type', 'glob',
-    '-i', 'frame_*.rgba',
-    '-vf', filter,
-    '-c:v', 'libx264',
-    '-pix_fmt', 'yuv420p',
-    '-preset', 'fast',
-    '-crf', '18',
-    '-y',
-    'output.mp4',
-  ]);
-
-  const data = await ffmpeg.readFile('output.mp4');
-
-  // Cleanup temp files
-  for (let f = 0; f < frames; f++) {
-    const fileName = `frame_${String(f).padStart(6, '0')}.rgba`;
-    try { await ffmpeg.deleteFile(fileName); } catch { /* ignore */ }
+  // Merge into single buffer
+  const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const c of chunks) {
+    result.set(c, offset);
+    offset += c.length;
   }
-  try { await ffmpeg.deleteFile('output.mp4'); } catch { /* ignore */ }
 
-  return data as Uint8Array;
+  com.destroy();
+  return result;
 }
 
 export async function exportPngFrame(
@@ -121,8 +212,6 @@ export async function exportPngFrame(
   frame: number,
   resourceMeta: Record<string, { width: number; height: number; kind: string; durationSecs?: number }>,
 ): Promise<void> {
-  if (!ffmpeg || !loaded) return;
-
   const { width, height } = comp;
   const resourceMetaJson = JSON.stringify(resourceMeta);
 
@@ -140,31 +229,52 @@ export async function exportPngFrame(
 
   ensureSurface(canvas, width, height);
 
-  const result = buildFrame(filteredJsonl, frame, resourceMetaJson, '{}');
+  // Execute scripts to collect mutations
+  const engine = getScriptEngine();
+  engine.setFrameCtx(frame + 1, comp.frames, comp.frames);
+  const parsed = parseJsonl(jsonlContent);
+
+  for (const el of parsed.elements || []) {
+    if (el.id && el.text) {
+      (window as any).__text_source_set?.(el.id, el.text);
+    }
+  }
+
+  const scriptElements = (parsed.elements || []).filter(
+    (e: ParsedElement) => e.type === 'script',
+  );
+
+  for (const script of scriptElements) {
+    if (script.id) {
+      (window as any).ctx.__currentCanvasTarget = script.id;
+    }
+    const source = (script.src || script.content || '') as string;
+    if (source) {
+      try {
+        engine.runScript(source);
+      } catch (err) {
+        console.error(`Script execution error for element ${script.id}:`, err);
+      }
+    }
+  }
+
+  try {
+    (window as any).ctx.__flushTimelines?.();
+  } catch (err) {
+    console.error('Timeline flush error:', err);
+  }
+
+  const mutationsJson = engine.collectJson();
+
+  const result = buildFrame(filteredJsonl, frame, resourceMetaJson, mutationsJson);
   drawDisplayTree(result.root, comp, frame);
 
-  const pixels = captureFramePixels(width, height);
-  if (!pixels) return;
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, 'image/png');
+  });
+  if (!blob) return;
 
-  // Use ffmpeg to convert raw rgba to PNG
-  const inName = 'frame.rgba';
-  const outName = 'frame.png';
-  await ffmpeg.writeFile(inName, pixels);
-  await ffmpeg.exec([
-    '-f', 'rawvideo',
-    '-pixel_format', 'rgba',
-    '-video_size', `${width}x${height}`,
-    '-i', inName,
-    '-frames:v', '1',
-    '-y',
-    outName,
-  ]);
-
-  const data = await ffmpeg.readFile(outName);
-  await ffmpeg.deleteFile(inName);
-  await ffmpeg.deleteFile(outName);
-
-  downloadBlob(new Blob([data], { type: 'image/png' }), `frame_${String(frame).padStart(4, '0')}.png`);
+  downloadBlob(blob, `frame_${String(frame).padStart(4, '0')}.png`);
 }
 
 function downloadBlob(blob: Blob, name: string): void {

@@ -1071,51 +1071,156 @@ impl StyleMutations {
     }
 }
 
-// ── Text source ───────────────────────────────────────────────────
+// ── Name → enum parsing helpers (for script/JS bridge) ────────────
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
-pub(crate) struct ScriptTextSource {
-    pub text: String,
-    pub kind: ScriptTextSourceKind,
+pub fn line_cap_from_name(name: &str) -> Option<ScriptLineCap> {
+    match name {
+        "butt" => Some(ScriptLineCap::Butt),
+        "round" => Some(ScriptLineCap::Round),
+        "square" => Some(ScriptLineCap::Square),
+        _ => None,
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub(crate) enum ScriptTextSourceKind {
-    TextNode,
-    Caption,
+pub fn line_join_from_name(name: &str) -> Option<ScriptLineJoin> {
+    match name {
+        "miter" => Some(ScriptLineJoin::Miter),
+        "round" => Some(ScriptLineJoin::Round),
+        "bevel" => Some(ScriptLineJoin::Bevel),
+        _ => None,
+    }
 }
 
-// ── Script driver ─────────────────────────────────────────────────
-
-#[derive(Debug, Clone)]
-pub struct ScriptDriver {
-    pub(crate) source: String,
+pub fn point_mode_from_name(name: &str) -> Option<ScriptPointMode> {
+    match name {
+        "points" => Some(ScriptPointMode::Points),
+        "lines" => Some(ScriptPointMode::Lines),
+        "polygon" => Some(ScriptPointMode::Polygon),
+        _ => None,
+    }
 }
 
-impl ScriptDriver {
-    pub fn from_source(source: &str) -> anyhow::Result<Self> {
-        Ok(Self {
-            source: source.to_string(),
-        })
+pub fn font_edging_from_name(name: &str) -> Option<ScriptFontEdging> {
+    match name {
+        "alias" => Some(ScriptFontEdging::Alias),
+        "antiAlias" => Some(ScriptFontEdging::AntiAlias),
+        "subpixelAntiAlias" => Some(ScriptFontEdging::SubpixelAntiAlias),
+        _ => None,
+    }
+}
+
+// ── ScriptColor parsing ───────────────────────────────────────────
+
+pub fn script_color_from_value(value: &str) -> Option<ScriptColor> {
+    let color =
+        crate::style::color_token_from_script_name(value).map(|color| color.rgba());
+    if let Some((r, g, b, a)) = color {
+        return Some(ScriptColor { r, g, b, a });
     }
 
-    pub fn from_file(path: &str) -> anyhow::Result<Self> {
-        let source = std::fs::read_to_string(path)?;
-        Self::from_source(&source)
+    if let Some(color) = parse_rgb_function(value) {
+        return Some(color);
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn cache_key(&self) -> u64 {
-        use std::hash::{DefaultHasher, Hash, Hasher};
+    let hex = value.strip_prefix('#')?;
+    let (r, g, b, a) = match hex.len() {
+        3 => {
+            let r = parse_hex_nibble(hex.as_bytes()[0])?;
+            let g = parse_hex_nibble(hex.as_bytes()[1])?;
+            let b = parse_hex_nibble(hex.as_bytes()[2])?;
+            (r * 17, g * 17, b * 17, 255)
+        }
+        6 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            (r, g, b, 255)
+        }
+        8 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            let a = u8::from_str_radix(&hex[6..8], 16).ok()?;
+            (r, g, b, a)
+        }
+        _ => return None,
+    };
 
-        let mut hasher = DefaultHasher::new();
-        self.source.hash(&mut hasher);
-        hasher.finish()
+    Some(ScriptColor { r, g, b, a })
+}
+
+fn parse_hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn parse_rgb_channel(value: &str) -> Option<u8> {
+    let channel = value.trim().parse::<f32>().ok()?;
+    if !(0.0..=255.0).contains(&channel) {
+        return None;
+    }
+    Some(channel.round() as u8)
+}
+
+fn parse_alpha_channel(value: &str) -> Option<u8> {
+    let alpha = value.trim().parse::<f32>().ok()?;
+    if !(0.0..=1.0).contains(&alpha) {
+        return None;
+    }
+    Some((alpha * 255.0).round() as u8)
+}
+
+fn parse_rgb_function(value: &str) -> Option<ScriptColor> {
+    let (is_rgba, body) = if let Some(body) = value
+        .strip_prefix("rgba(")
+        .and_then(|body| body.strip_suffix(')'))
+    {
+        (true, body)
+    } else {
+        let body = value
+            .strip_prefix("rgb(")
+            .and_then(|body| body.strip_suffix(')'))?;
+        (false, body)
+    };
+
+    let parts: Vec<_> = body.split(',').map(str::trim).collect();
+    if (!is_rgba && parts.len() != 3) || (is_rgba && parts.len() != 4) {
+        return None;
     }
 
-    pub fn source(&self) -> &str {
-        &self.source
+    let r = parse_rgb_channel(parts[0])?;
+    let g = parse_rgb_channel(parts[1])?;
+    let b = parse_rgb_channel(parts[2])?;
+    let a = if is_rgba {
+        parse_alpha_channel(parts[3])?
+    } else {
+        255
+    };
+
+    Some(ScriptColor { r, g, b, a })
+}
+
+// ── Coordinate parsing helpers ─────────────────────────────────────
+
+pub fn parse_image_rect_coords(coords: &[f32]) -> Option<[f32; 4]> {
+    if coords.len() < 4 {
+        return None;
     }
+    Some([coords[0], coords[1], coords[2], coords[3]])
+}
+
+pub type DrRectCoords = (f32, f32, f32, f32, f32, f32, f32, f32, f32, f32);
+
+pub fn parse_drrect_coords(coords: &[f32]) -> Option<DrRectCoords> {
+    if coords.len() < 10 {
+        return None;
+    }
+    Some((
+        coords[0], coords[1], coords[2], coords[3], coords[4],
+        coords[5], coords[6], coords[7], coords[8], coords[9],
+    ))
 }

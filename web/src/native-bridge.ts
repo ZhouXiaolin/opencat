@@ -165,14 +165,7 @@ export class NativeBridge {
 
     w.__text_units_describe = (id: string, gran: string) => r.text_units_describe(id, gran);
 
-    w.__text_graphemes = (text: string): string[] => {
-      const IntlAny = Intl as any;
-      if (IntlAny && IntlAny.Segmenter) {
-        const segmenter = new IntlAny.Segmenter('en', { granularity: 'grapheme' });
-        return Array.from(segmenter.segment(text), (s: any) => s.segment);
-      }
-      return [...text];
-    };
+    w.__text_graphemes = (text: string): string[] => r.grapheme_strings(text);
 
     w.__record_text_unit_override = (id: string, gran: string, idx: number, vals: any) =>
       r.record_text_unit_override(

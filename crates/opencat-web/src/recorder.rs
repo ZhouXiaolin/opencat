@@ -7,14 +7,14 @@ use opencat_core::scene::script::mutations::{
 use opencat_core::scene::script::{
     ScriptTextSource, ScriptTextSourceKind, align_items_from_name, box_shadow_from_name,
     drop_shadow_from_name, flex_direction_from_name, inset_shadow_from_name,
-    justify_content_from_name, object_fit_from_name, position_from_name, text_align_from_name,
+    justify_content_from_name, object_fit_from_name, position_from_name, script_color_from_value,
+    text_align_from_name,
 };
-use opencat_core::script::animate::color::{hsl_to_rgb, parse_color};
 use opencat_core::script::animate::state::{parse_easing_from_tag, random_from_seed};
 use opencat_core::script::animate::{AnimateState, MorphSvgState, PathMeasureState};
 use opencat_core::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
 use opencat_core::style::{
-    BorderStyle, ColorToken, FontWeight, ObjectFit, color_token_from_script_name,
+    BorderStyle, FontWeight, ObjectFit, color_token_from_script_string,
 };
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
@@ -231,42 +231,42 @@ impl WebMutationRecorder {
 
     // ── Color setters (string parse) ──
     pub fn record_bg_color(&mut self, id: &str, v: &str) {
-        if let Some(c) = parse_color_to_token(v) {
+        if let Some(c) = color_token_from_script_string(v) {
             self.inner.record_bg_color(id, c);
         }
     }
     pub fn record_fill_color(&mut self, id: &str, v: &str) {
-        if let Some(c) = parse_color_to_token(v) {
+        if let Some(c) = color_token_from_script_string(v) {
             self.inner.record_fill_color(id, c);
         }
     }
     pub fn record_stroke_color(&mut self, id: &str, v: &str) {
-        if let Some(c) = parse_color_to_token(v) {
+        if let Some(c) = color_token_from_script_string(v) {
             self.inner.record_stroke_color(id, c);
         }
     }
     pub fn record_border_color(&mut self, id: &str, v: &str) {
-        if let Some(c) = parse_color_to_token(v) {
+        if let Some(c) = color_token_from_script_string(v) {
             self.inner.record_border_color(id, c);
         }
     }
     pub fn record_text_color(&mut self, id: &str, v: &str) {
-        if let Some(c) = parse_color_to_token(v) {
+        if let Some(c) = color_token_from_script_string(v) {
             self.inner.record_text_color(id, c);
         }
     }
     pub fn record_box_shadow_color(&mut self, id: &str, v: &str) {
-        if let Some(c) = parse_color_to_token(v) {
+        if let Some(c) = color_token_from_script_string(v) {
             self.inner.record_box_shadow_color(id, c);
         }
     }
     pub fn record_inset_shadow_color(&mut self, id: &str, v: &str) {
-        if let Some(c) = parse_color_to_token(v) {
+        if let Some(c) = color_token_from_script_string(v) {
             self.inner.record_inset_shadow_color(id, c);
         }
     }
     pub fn record_drop_shadow_color(&mut self, id: &str, v: &str) {
-        if let Some(c) = parse_color_to_token(v) {
+        if let Some(c) = color_token_from_script_string(v) {
             self.inner.record_drop_shadow_color(id, c);
         }
     }
@@ -290,7 +290,7 @@ impl WebMutationRecorder {
             "words" => TextUnitGranularity::Word,
             _ => return,
         };
-        let color = color.and_then(|s| parse_color_to_token(&s));
+        let color = color.and_then(|s| color_token_from_script_string(&s));
         self.inner.record_text_unit_override(
             id,
             gran,
@@ -346,7 +346,7 @@ impl WebMutationRecorder {
         h: f32,
         color: &str,
     ) {
-        let c = parse_script_color(color).unwrap_or(ScriptColor {
+        let c = script_color_from_value(color).unwrap_or(ScriptColor {
             r: 0,
             g: 0,
             b: 0,
@@ -439,7 +439,7 @@ impl WebMutationRecorder {
             .record_canvas_command(id, CanvasCommand::StrokePath);
     }
     pub fn record_canvas_set_fill_style(&mut self, id: &str, color: &str) {
-        let c = parse_script_color(color).unwrap_or(ScriptColor {
+        let c = script_color_from_value(color).unwrap_or(ScriptColor {
             r: 0,
             g: 0,
             b: 0,
@@ -449,7 +449,7 @@ impl WebMutationRecorder {
             .record_canvas_command(id, CanvasCommand::SetFillStyle { color: c });
     }
     pub fn record_canvas_set_stroke_style(&mut self, id: &str, color: &str) {
-        let c = parse_script_color(color).unwrap_or(ScriptColor {
+        let c = script_color_from_value(color).unwrap_or(ScriptColor {
             r: 0,
             g: 0,
             b: 0,
@@ -471,7 +471,7 @@ impl WebMutationRecorder {
         );
     }
     pub fn record_canvas_clear(&mut self, id: &str, color: Option<String>) {
-        let c = color.and_then(|s| parse_script_color(&s));
+        let c = color.and_then(|s| script_color_from_value(&s));
         self.inner
             .record_canvas_command(id, CanvasCommand::Clear { color: c });
     }
@@ -533,7 +533,7 @@ impl WebMutationRecorder {
         sw: f32,
         color: &str,
     ) {
-        let c = parse_script_color(color).unwrap_or(ScriptColor {
+        let c = script_color_from_value(color).unwrap_or(ScriptColor {
             r: 0,
             g: 0,
             b: 0,
@@ -678,20 +678,9 @@ impl WebMutationRecorder {
             .collect();
         Ok(result)
     }
-}
 
-fn parse_color_to_token(v: &str) -> Option<ColorToken> {
-    if let Some(c) = color_token_from_script_name(v) {
-        return Some(c);
+    #[cfg(target_arch = "wasm32")]
+    pub fn grapheme_strings(&self, text: &str) -> Vec<String> {
+        opencat_core::script::text_units::grapheme_strings(text)
     }
-    let hsla = parse_color(v)?;
-    let (r, g, b) = hsl_to_rgb(hsla.h, hsla.s, hsla.l);
-    let a = (hsla.a.clamp(0.0, 1.0) * 255.0).round() as u8;
-    Some(ColorToken::Custom(r, g, b, a))
-}
-
-fn parse_script_color(v: &str) -> Option<ScriptColor> {
-    let token = parse_color_to_token(v)?;
-    let (r, g, b, a) = token.rgba();
-    Some(ScriptColor { r, g, b, a })
 }

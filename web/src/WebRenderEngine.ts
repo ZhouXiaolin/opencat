@@ -143,11 +143,13 @@ export class WebRenderEngine {
       comp: CompositionInfo;
       frame: number;
     },
+    clearColor?: Color4f | null,
   ): void {
     if (!this.ckCanvas || !this.surface) return;
 
     const { comp, frame } = frameView;
-    this.ckCanvas.clear(this.CK.Color4f(0.06, 0.06, 0.09, 1.0));
+    const cc = clearColor || { r: 0, g: 0, b: 0, a: 255 };
+    this.ckCanvas.clear(this.CK.Color4f(cc.r / 255, cc.g / 255, cc.b / 255, cc.a / 255));
 
     // Build a flat handle-to-node map from the display tree for O(1) lookup.
     const nodeMap = new Map<number, DisplayNodeJson>();
@@ -169,10 +171,12 @@ export class WebRenderEngine {
     displayTree: DisplayNodeJson,
     comp: CompositionInfo,
     frame: number,
+    clearColor?: Color4f | null,
   ): void {
     if (!this.ckCanvas || !this.surface) return;
 
-    this.ckCanvas.clear(this.CK.Color4f(0.06, 0.06, 0.09, 1.0));
+    const cc = clearColor || { r: 0, g: 0, b: 0, a: 255 };
+    this.ckCanvas.clear(this.CK.Color4f(cc.r / 255, cc.g / 255, cc.b / 255, cc.a / 255));
 
     this.applyTransform(displayTree.transform);
     this.drawDisplayNode(displayTree);
@@ -390,6 +394,14 @@ export class WebRenderEngine {
       glyphMap.set(entry.cacheKey, entry.data);
     }
 
+    // Build per-character override map from text_unit_overrides (if any)
+    const unitOverrides = (item as any).textUnitOverrides;
+    const byteToOverride = this.buildByteToOverrideMap(
+      (item as any).text || '',
+      unitOverrides?.overrides ?? null,
+      unitOverrides?.granularity,
+    );
+
     const textAlign = style.textAlign || 'left';
 
     canvas.save();
@@ -404,11 +416,33 @@ export class WebRenderEngine {
         const gx = pos.x + xShift;
         const gy = pos.y;
 
+        const override = byteToOverride.get(pos.byteStart);
+
         canvas.save();
-        canvas.translate(gx, gy);
+
+        // Move to glyph's final position (original position + override offset)
+        canvas.translate(
+          gx + (override?.translateX || 0),
+          gy + (override?.translateY || 0),
+        );
+
+        // Apply scale and rotation around this position
+        if (override?.scale !== undefined && override.scale !== 1) {
+          canvas.scale(override.scale, override.scale);
+        }
+        if (override?.rotationDeg) {
+          canvas.rotate(override.rotationDeg);
+        }
+
+        // Opacity override via saveLayer
+        if (override?.opacity !== undefined && override.opacity < 1) {
+          const alphaPaint = new CK.Paint();
+          alphaPaint.setAlphaf(override.opacity);
+          canvas.saveLayer(alphaPaint);
+          alphaPaint.delete();
+        }
 
         if (glyphData.kind === 'outline') {
-          // Try glyph path cache first.
           let path = this.glyphPathCache.get(pos.cacheKey);
           if (!path) {
             path = this.buildGlyphPath(glyphData.commands);
@@ -417,14 +451,27 @@ export class WebRenderEngine {
             }
           }
           if (path) {
+            // Determine paint: override color or default text color
+            let glyphPaint = fillPaint;
+            let ownsPaint = false;
+            if (override?.color) {
+              const c = override.color;
+              glyphPaint = new CK.Paint();
+              glyphPaint.setStyle(CK.PaintStyle.Fill);
+              glyphPaint.setAntiAlias(true);
+              glyphPaint.setColor(
+                CK.Color4f(c.r / 255, c.g / 255, c.b / 255, c.a / 255),
+              );
+              ownsPaint = true;
+            }
             if (dropShadow) {
               this.drawGlyphDropShadow(path, dropShadow);
             }
-            canvas.drawPath(path, fillPaint);
+            canvas.drawPath(path, glyphPaint);
+            if (ownsPaint) glyphPaint.delete();
           }
         } else if (glyphData.kind === 'colorImage') {
           const { rgba, width, height, placementLeft, placementTop } = glyphData;
-          // Try glyph image cache.
           let image = this.glyphImgCache.get(pos.cacheKey);
           if (!image) {
             image = this.makeImageFromRgba(rgba, width, height);
@@ -435,6 +482,11 @@ export class WebRenderEngine {
           if (image) {
             canvas.drawImage(image, placementLeft, placementTop);
           }
+        }
+
+        // Restore saveLayer if opacity override was applied
+        if (override?.opacity !== undefined && override.opacity < 1) {
+          canvas.restore();
         }
 
         canvas.restore();
@@ -556,7 +608,8 @@ export class WebRenderEngine {
   // ── SVG Path ──
 
   private drawSvgPathItem(item: DisplayItemJson): void {
-    const { bounds, pathData, viewBox, svgPaint } = item;
+    const { bounds, pathData, viewBox } = item;
+    const svgPaint = (item as any).paint || item.svgPaint;
     if (!pathData || pathData.length === 0) return;
 
     const CK = this.CK;
@@ -573,6 +626,7 @@ export class WebRenderEngine {
     canvas.save();
     canvas.translate(bounds.x, bounds.y);
     canvas.scale(scaleX, scaleY);
+    canvas.translate(-vb[0], -vb[1]);
 
     if (svgPaint?.fill) {
       const fillPaint = this.makeFillPaint(svgPaint.fill);
@@ -1004,13 +1058,12 @@ export class WebRenderEngine {
     paint.setStyle(CK.PaintStyle.Fill);
     paint.setAntiAlias(true);
 
-    if (fill.type === 'solid' && fill.color) {
-      paint.setColor(CK.Color4f(
-        fill.color.r / 255,
-        fill.color.g / 255,
-        fill.color.b / 255,
-        fill.color.a / 255,
-      ));
+    if (fill.type === 'solid') {
+      const r = fill.r ?? fill.color?.r ?? 0;
+      const g = fill.g ?? fill.color?.g ?? 0;
+      const b = fill.b ?? fill.color?.b ?? 0;
+      const a = fill.a ?? fill.color?.a ?? 255;
+      paint.setColor(CK.Color4f(r / 255, g / 255, b / 255, a / 255));
     } else if (fill.type === 'linearGradient' && fill.from && fill.to) {
       const from = fill.from;
       const to = fill.to;
@@ -1246,6 +1299,64 @@ export class WebRenderEngine {
       default:
         return 0;
     }
+  }
+
+  /// Build a mapping from UTF-8 byte offset to per-character/per-word override.
+  /// Glyph positions carry `byteStart` (UTF-8 byte offset into the original text),
+  /// and overrides are indexed by text-unit position (grapheme or word).
+  /// For word granularity, one override spans all glyphs in that word.
+  private buildByteToOverrideMap(
+    text: string,
+    overrides: Array<{
+      opacity?: number;
+      translateX?: number;
+      translateY?: number;
+      scale?: number;
+      rotationDeg?: number;
+      color?: { r: number; g: number; b: number; a: number };
+    }> | null | undefined,
+    granularity?: string,
+  ): Map<number, any> {
+    const map = new Map<number, any>();
+    if (!overrides || overrides.length === 0) return map;
+    const encoder = new TextEncoder();
+
+    if (granularity === 'words') {
+      // Word-level: segment text into words+whitespace using Intl.Segmenter
+      // to match Rust's UnicodeSegmentation::split_word_bounds behavior.
+      const segmenter = new (Intl as any).Segmenter('en', { granularity: 'word' });
+      const segments: Array<{ segment: string; index: number; isWordLike: boolean }> =
+        Array.from(segmenter.segment(text));
+      let unitIndex = 0;
+      for (const seg of segments) {
+        const byteStart = encoder.encode(text.slice(0, seg.index)).length;
+        const byteEnd = byteStart + encoder.encode(seg.segment).length;
+        const override = overrides[unitIndex];
+        if (override) {
+          for (let b = byteStart; b < byteEnd; b++) {
+            map.set(b, override);
+          }
+        }
+        unitIndex++;
+      }
+    } else {
+      // Character/grapheme-level
+      const graphemes: string[] =
+        ((window as any).__text_graphemes?.(text) as string[]) || [...text];
+      let byteOffset = 0;
+      for (let i = 0; i < graphemes.length; i++) {
+        const byteLen = encoder.encode(graphemes[i]).length;
+        const override = overrides[i];
+        if (override) {
+          for (let b = byteOffset; b < byteOffset + byteLen; b++) {
+            map.set(b, override);
+          }
+        }
+        byteOffset += byteLen;
+      }
+    }
+
+    return map;
   }
 
   // ── Debug overlay ──

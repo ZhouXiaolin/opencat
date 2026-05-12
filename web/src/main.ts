@@ -161,7 +161,21 @@ async function loadFileList() {
 // --- Helpers ---
 
 /**
- * 过滤掉 JSONL 中带有 `path` 字段的元素（本地文件路径，Web 端无法解析）
+ * Extract the root display item's solid background color for canvas clear.
+ * Returns null if the root has no solid background fill.
+ */
+function extractRootBackground(root: any): { r: number; g: number; b: number; a: number } | null {
+  const item = root?.item;
+  if (!item) return null;
+  if (item.type !== 'rect' && item.type !== 'timeline') return null;
+  const bg = item?.paint?.background;
+  if (!bg || bg.type !== 'solid' || !bg.color) return null;
+  return bg.color;
+}
+
+/**
+ * 过滤掉 JSONL 中带有 `path` 字段的非媒体元素（本地文件路径，Web 端无法解析）。
+ * 保留 image/video/audio 等媒体类型 — 它们的 path 是可通过 HTTP 获取的 URL。
  */
 function stripLocalPathElements(jsonlContent: string): string {
   return jsonlContent
@@ -171,7 +185,11 @@ function stripLocalPathElements(jsonlContent: string): string {
       if (!trimmed) return false;
       try {
         const obj = JSON.parse(trimmed);
-        return !obj.path;
+        if (obj.path) {
+          const mediaTypes = ['image', 'video', 'audio'];
+          return mediaTypes.includes(obj.type);
+        }
+        return true;
       } catch {
         return true;
       }
@@ -205,6 +223,7 @@ async function preloadResources(jsonlContent: string): Promise<void> {
 
   // Use WASM's collect_resources to get the authoritative resource list
   const requests = collectResources(jsonlContent);
+  console.log('[DEBUG preload] resources:', JSON.stringify(requests));
 
   // Load images with timeout (fire-and-forget: don't block initial render)
   const imagePromises = requests.images.map(async (url) => {
@@ -279,7 +298,8 @@ async function loadJsonl(file: JsonlFile) {
       previewCanvas.style.height = `${comp.height * scale}px`;
     }
 
-    frameSlider.max = String(comp.frames - 1);
+    frameSlider.max = String((comp.frames - 1) / comp.fps);
+    frameSlider.step = String(1 / comp.fps);
     frameSlider.value = '0';
     updateFrameInfo();
 
@@ -400,6 +420,10 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   }
 
   const mutationsJson = engine.collectJson();
+  // DEBUG: log mutations and root display tree on first frame
+  if (frame === 0) {
+    console.log('[DEBUG pipeline] mutationsJson (first 500 chars):', mutationsJson.slice(0, 500));
+  }
   const resourceMetaJson = JSON.stringify(resourceMeta);
 
   // Strip script elements from JSONL before WASM buildFrame,
@@ -410,10 +434,28 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   const result = buildFrame(filteredJsonl, frame, resourceMetaJson, mutationsJson);
 
   // Step 3: Render via CanvasKit
+  const rootBg = extractRootBackground(result.root);
+
+  // DEBUG: log display tree structure on first frame
+  if (frame === 0) {
+    const logNode = (n: any, depth: number = 0) => {
+      if (!n) return;
+      const indent = '  '.repeat(depth);
+      const itemInfo = n.item
+        ? `${n.item.type}${n.item.assetId ? ' asset=' + n.item.assetId : ''}${n.item.paint?.background ? ' bg=' + JSON.stringify(n.item.paint.background) : ''}`
+        : 'no-item';
+      console.log(`[DEBUG tree] ${indent}${itemInfo}`);
+      if (n.children) {
+        for (const c of n.children) logNode(c, depth + 1);
+      }
+    };
+    console.log('[DEBUG pipeline] rootBg:', JSON.stringify(rootBg));
+    logNode(result.root);
+  }
   if (useWasmEngine && webRenderEngine) {
     // New path: WebRenderEngine class-based rendering
     webRenderEngine.ensureSurface(comp.width, comp.height);
-    webRenderEngine.drawDisplayTree(result.root, comp, frame);
+    webRenderEngine.drawDisplayTree(result.root, comp, frame, rootBg);
   } else {
     // Old path: module-level renderer.ts functions
     const CK = getCanvasKit();
@@ -424,14 +466,13 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
       throw new Error('CanvasKit not initialized');
     }
 
-    canvas.clear(CK.Color4f(0.06, 0.06, 0.09, 1.0));
-    drawDisplayTree(result.root, comp, frame);
+    drawDisplayTree(result.root, comp, frame, rootBg);
     surface.flush();
   }
 
   // Update frame info
-  frameLabel.textContent = `${frame + 1} / ${comp.frames}`;
-  frameSlider.value = String(frame);
+  frameLabel.textContent = `${(frame / comp.fps).toFixed(2)}s / ${((comp.frames - 1) / comp.fps).toFixed(2)}s`;
+  frameSlider.value = String(frame / comp.fps);
 }
 
 // --- Fallback renderer (when WASM buildDisplayTree not available) ---
@@ -448,7 +489,7 @@ function drawFallbackFrame(
 
   const w = comp.width;
   const h = comp.height;
-  canvas.clear(CK.Color4f(0.06, 0.06, 0.09, 1.0));
+  canvas.clear(CK.Color4f(0, 0, 0, 0));
 
   const font = new CK.Font(null, 14);
   const textPaint = new CK.Paint();
@@ -501,11 +542,12 @@ function drawFallbackFrame(
 
 function updateFrameInfo() {
   if (!currentComposition) return;
-  const f = currentFrame + 1;
-  const total = currentComposition.frames;
-  frameLabel.textContent = `${f} / ${total}`;
-  frameSlider.value = String(currentFrame);
-  frameInfoEl.textContent = `Frame ${f}/${total}`;
+  const fps = currentComposition.fps;
+  const currentTime = currentFrame / fps;
+  const totalTime = (currentComposition.frames - 1) / fps;
+  frameLabel.textContent = `${currentTime.toFixed(2)}s / ${totalTime.toFixed(2)}s`;
+  frameSlider.value = String(currentFrame / fps);
+  frameInfoEl.textContent = `Frame ${currentFrame + 1}/${currentComposition.frames} | Time ${currentTime.toFixed(2)}s`;
 }
 
 // --- Playback ---
@@ -570,7 +612,8 @@ btnLast.addEventListener('click', () => {
 frameSlider.addEventListener('input', () => {
   if (!currentComposition) return;
   pause();
-  currentFrame = parseInt(frameSlider.value, 10);
+  const time = parseFloat(frameSlider.value);
+  currentFrame = Math.round(time * currentComposition.fps);
   renderFrameAsync(currentFrame);
   updateFrameInfo();
 });
@@ -606,7 +649,7 @@ async function handleExport() {
     const comp = currentComposition;
     exportInfoEl.textContent = 'Encoding MP4...';
 
-    const data = await exportMp4(currentJsonlContent, previewCanvas, comp, (current, total) => {
+    const data = await exportMp4(currentJsonlContent, previewCanvas, comp, resourceMeta, (current, total) => {
       const pct = Math.round((current / total) * 100);
       exportProgressFill.style.width = `${pct}%`;
       btnExport.textContent = `⏳ ${current}/${total}`;
@@ -648,7 +691,7 @@ async function handleExportPng() {
     ffStatusEl.textContent = 'FFmpeg ready';
     ffStatusEl.className = 'status-badge ready';
 
-    await exportPngFrame(currentJsonlContent, previewCanvas, currentComposition, currentFrame);
+    await exportPngFrame(currentJsonlContent, previewCanvas, currentComposition, currentFrame, resourceMeta);
   } catch (err) {
     ffStatusEl.textContent = `FFmpeg error: ${err}`;
     ffStatusEl.className = 'status-badge error';

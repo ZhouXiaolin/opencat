@@ -2,10 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use rquickjs::Function;
 
-use opencat_core::script::animate::{hsl_to_rgb, parse_color};
 use opencat_core::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
 use opencat_core::script::text_units::describe_text_units;
-use opencat_core::style::{ColorToken, FontWeight, color_token_from_script_name};
+use opencat_core::style::{FontWeight, color_token_from_script_string};
 
 use opencat_core::scene::script::mutations::TextUnitGranularity;
 use opencat_core::scene::script::{
@@ -13,16 +12,6 @@ use opencat_core::scene::script::{
     inset_shadow_from_name, justify_content_from_name, object_fit_from_name, position_from_name,
     text_align_from_name,
 };
-
-fn color_from_name(name: &str) -> Option<ColorToken> {
-    if let Some(c) = color_token_from_script_name(name) {
-        return Some(c);
-    }
-    let hsla = parse_color(name)?;
-    let (r, g, b) = hsl_to_rgb(hsla.h, hsla.s, hsla.l);
-    let a = (hsla.a.clamp(0.0, 1.0) * 255.0).round() as u8;
-    Some(ColorToken::Custom(r, g, b, a))
-}
 
 pub(crate) const NODE_STYLE_RUNTIME: &str = opencat_core::script::runtime::NODE_STYLE_RUNTIME;
 
@@ -142,7 +131,7 @@ pub(crate) fn install_node_style_bindings<'js>(
         rec.record_flex_grow(&id, v);
     });
     bind_recorder!("__record_bg", |rec, id, v: String| {
-        if let Some(c) = color_from_name(&v) {
+        if let Some(c) = color_token_from_script_string(&v) {
             rec.record_bg_color(&id, c);
         }
     });
@@ -176,7 +165,7 @@ pub(crate) fn install_node_style_bindings<'js>(
         }
     });
     bind_recorder!("__record_border_color", |rec, id, v: String| {
-        if let Some(c) = color_from_name(&v) {
+        if let Some(c) = color_token_from_script_string(&v) {
             rec.record_border_color(&id, c);
         }
     });
@@ -190,12 +179,12 @@ pub(crate) fn install_node_style_bindings<'js>(
         rec.record_stroke_dashoffset(&id, v);
     });
     bind_recorder!("__record_stroke_color", |rec, id, v: String| {
-        if let Some(c) = color_from_name(&v) {
+        if let Some(c) = color_token_from_script_string(&v) {
             rec.record_stroke_color(&id, c);
         }
     });
     bind_recorder!("__record_fill_color", |rec, id, v: String| {
-        if let Some(c) = color_from_name(&v) {
+        if let Some(c) = color_token_from_script_string(&v) {
             rec.record_fill_color(&id, c);
         }
     });
@@ -205,7 +194,7 @@ pub(crate) fn install_node_style_bindings<'js>(
         }
     });
     bind_recorder!("__record_text_color", |rec, id, v: String| {
-        if let Some(c) = color_from_name(&v) {
+        if let Some(c) = color_token_from_script_string(&v) {
             rec.record_text_color(&id, c);
         }
     });
@@ -232,7 +221,7 @@ pub(crate) fn install_node_style_bindings<'js>(
         }
     });
     bind_recorder!("__record_shadow_color", |rec, id, v: String| {
-        if let Some(color) = color_from_name(&v) {
+        if let Some(color) = color_token_from_script_string(&v) {
             rec.record_box_shadow_color(&id, color);
         }
     });
@@ -242,7 +231,7 @@ pub(crate) fn install_node_style_bindings<'js>(
         }
     });
     bind_recorder!("__record_inset_shadow_color", |rec, id, v: String| {
-        if let Some(color) = color_from_name(&v) {
+        if let Some(color) = color_token_from_script_string(&v) {
             rec.record_inset_shadow_color(&id, color);
         }
     });
@@ -252,7 +241,7 @@ pub(crate) fn install_node_style_bindings<'js>(
         }
     });
     bind_recorder!("__record_drop_shadow_color", |rec, id, v: String| {
-        if let Some(color) = color_from_name(&v) {
+        if let Some(color) = color_token_from_script_string(&v) {
             rec.record_drop_shadow_color(&id, color);
         }
     });
@@ -307,7 +296,7 @@ pub(crate) fn install_node_style_bindings<'js>(
                             translate_y: translate_y.map(|v| v as f32),
                             scale: scale.map(|v| v as f32),
                             rotation_deg: rotation_deg.map(|v| v as f32),
-                            color: color.and_then(|value| color_from_name(&value)),
+                            color: color.and_then(|value| color_token_from_script_string(&value)),
                         },
                     );
                     Ok(())

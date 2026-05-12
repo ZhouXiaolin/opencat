@@ -89,7 +89,14 @@ export interface Color4f {
 
 export interface BackgroundFillJson {
   type: 'solid' | 'linearGradient';
+  // Solid: r,g,b,a are at top level (flattened from Rust ColorRgba via internally-tagged enum)
+  r?: number;
+  g?: number;
+  b?: number;
+  a?: number;
+  // Also support nested color field for backward compatibility
   color?: Color4f;
+  // LinearGradient
   direction?: string;
   from?: Color4f;
   via?: Color4f | null;

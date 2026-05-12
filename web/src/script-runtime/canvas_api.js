@@ -1144,7 +1144,18 @@
     ctx.getCanvas = function() {
         const id = ctx.__currentCanvasTarget;
         if (!id) {
-            return null;
+            // Return a no-op proxy canvas so user scripts don't crash with
+            // "Cannot read properties of null (reading 'clear')" etc.
+            // All method calls are silently ignored, returning a chainable stub.
+            return new Proxy({}, {
+                get(target, prop) {
+                    if (prop === '__opencatCanvas' || prop === 'then') return undefined;
+                    if (typeof prop === 'string' && !prop.startsWith('_')) {
+                        return function() { return this; };
+                    }
+                    return undefined;
+                }
+            });
         }
         if (!canvasCache[id]) {
             canvasCache[id] = makeCanvas(id);

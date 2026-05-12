@@ -53,7 +53,7 @@ export async function loadImages(
   baseUrl?: string,
 ): Promise<void> {
   const promises = requests.images.map(async (url) => {
-    const assetId = url.startsWith('http') ? `url:${url}` : url;
+    const assetId = url;
     if (imageCache.has(assetId)) return;
     try {
       const fullUrl = baseUrl ? new URL(url, baseUrl).href : url;

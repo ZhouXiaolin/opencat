@@ -57,6 +57,10 @@ function serveStaticDirs(basePath: string, dirs: { mount: string; path: string; 
 export default defineConfig({
   root: __dirname,
   server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
     fs: {
       allow: [__dirname, resolve(__dirname, '..')],
     },
@@ -81,6 +85,6 @@ export default defineConfig({
     emptyOutDir: true,
   },
   optimizeDeps: {
-    exclude: ['opencat-web'],
+    exclude: ['opencat-web', '@ffmpeg/ffmpeg', '@ffmpeg/core-mt'],
   },
 });

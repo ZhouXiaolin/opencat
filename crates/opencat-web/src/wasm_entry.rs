@@ -144,6 +144,10 @@ pub fn collect_resources_json(input: &str) -> String {
 
 /// Build display tree for a single frame.
 /// Returns: DisplayTree JSON or `{"error": "message"}` on failure
+///
+/// **Deprecated**: Prefer `WebRenderer::build_frame` from `wasm_bridge`,
+/// which runs through the full render pipeline and returns ordered-scene ops.
+/// This legacy entry point is kept for backward compatibility with existing JS code.
 #[wasm_bindgen]
 pub fn build_frame(
     jsonl_input: &str,

@@ -65,13 +65,19 @@ fn default_platform() -> WebPlatform {
 
 // ── WebRenderer impl ──
 
+impl Default for WebRenderer {
+    fn default() -> Self {
+        Self {
+            session: RenderSession::new(default_platform()),
+        }
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 impl WebRenderer {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
     pub fn new() -> Self {
-        Self {
-            session: RenderSession::new(default_platform()),
-        }
+        Self::default()
     }
 
     pub fn query_subtree_snapshot(&self, key: u64) -> SubtreeCacheResult {

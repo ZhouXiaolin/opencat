@@ -18,7 +18,14 @@ import {
 } from './exporter';
 import { loadImages, setCanvasKit, getCachedImage } from './resource';
 import { getScriptEngine } from './script-engine';
+import { WebRenderEngine } from './WebRenderEngine';
+import { WasmCacheBridge } from './WasmCacheBridge';
 import type { CompositionInfo, JsonlFile, ParsedResult, ParsedElement } from './types';
+
+// --- Feature flag: switch to new WebRenderEngine path via ?engine=wasm ---
+const useWasmEngine = new URLSearchParams(location.search).has('engine')
+  ? location.search.includes('engine=wasm')
+  : false;
 
 // --- State ---
 let currentComposition: CompositionInfo | null = null;
@@ -28,6 +35,9 @@ let currentFrame = 0;
 let isPlaying = false;
 let playInterval: ReturnType<typeof setInterval> | null = null;
 let isExporting = false;
+
+// --- WebRenderEngine (new path) ---
+let webRenderEngine: WebRenderEngine | null = null;
 
 // --- Resource Metadata for WASM build_frame ---
 interface ResourceMeta {
@@ -76,6 +86,15 @@ async function boot() {
     ckStatusEl.className = 'status-badge ready';
 
     setCanvasKit(getCanvasKit());
+
+    // Initialize WebRenderEngine for the new rendering path
+    if (useWasmEngine) {
+      const CK = getCanvasKit();
+      // WasmCacheBridge requires a wasm WebRenderer instance.
+      // Will be wired up when the wasm module exports WebRenderer.
+      const cacheBridge: WasmCacheBridge | null = null;
+      webRenderEngine = new WebRenderEngine(CK, previewCanvas, cacheBridge);
+    }
 
     // Initialize shared script engine (loads wasm bridge + core JS runtimes once)
     await getScriptEngine().init();
@@ -294,7 +313,11 @@ async function loadJsonl(file: JsonlFile) {
       }
     }
 
-    ensureSurface(previewCanvas, comp.width, comp.height);
+    if (useWasmEngine && webRenderEngine) {
+      webRenderEngine.ensureSurface(comp.width, comp.height);
+    } else {
+      ensureSurface(previewCanvas, comp.width, comp.height);
+    }
 
     // Preload resources to collect metadata
     await preloadResources(currentJsonlContent);
@@ -319,7 +342,11 @@ async function renderFrameAsync(frame: number) {
 
   renderPending = true;
   const comp = currentComposition;
-  ensureSurface(previewCanvas, comp.width, comp.height);
+  if (useWasmEngine && webRenderEngine) {
+    webRenderEngine.ensureSurface(comp.width, comp.height);
+  } else {
+    ensureSurface(previewCanvas, comp.width, comp.height);
+  }
 
   try {
     // Use the full pipeline: script execution → build_frame → drawDisplayTree
@@ -347,15 +374,7 @@ async function renderFrameAsync(frame: number) {
 // --- Full Pipeline Renderer ---
 
 async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Promise<void> {
-  const CK = getCanvasKit();
-  const canvas = getCkCanvas();
-  const surface = getSurface();
-
-  if (!CK || !canvas || !surface) {
-    throw new Error('CanvasKit not initialized');
-  }
-
-  // Step 1: Execute scripts to collect mutations
+  // Step 1: Execute scripts to collect mutations (shared by both paths)
   const engine = getScriptEngine();
   engine.setFrameCtx(frame + 1, comp.frames, comp.frames);
   const parsed = parseJsonl(currentJsonlContent!);
@@ -385,9 +404,24 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   const result = buildFrame(filteredJsonl, frame, resourceMetaJson, mutationsJson);
 
   // Step 3: Render via CanvasKit
-  canvas.clear(CK.Color4f(0.06, 0.06, 0.09, 1.0));
-  drawDisplayTree(result.root, comp, frame);
-  surface.flush();
+  if (useWasmEngine && webRenderEngine) {
+    // New path: WebRenderEngine class-based rendering
+    webRenderEngine.ensureSurface(comp.width, comp.height);
+    webRenderEngine.drawDisplayTree(result.root, comp, frame);
+  } else {
+    // Old path: module-level renderer.ts functions
+    const CK = getCanvasKit();
+    const canvas = getCkCanvas();
+    const surface = getSurface();
+
+    if (!CK || !canvas || !surface) {
+      throw new Error('CanvasKit not initialized');
+    }
+
+    canvas.clear(CK.Color4f(0.06, 0.06, 0.09, 1.0));
+    drawDisplayTree(result.root, comp, frame);
+    surface.flush();
+  }
 
   // Update frame info
   frameLabel.textContent = `${frame + 1} / ${comp.frames}`;

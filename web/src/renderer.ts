@@ -49,13 +49,15 @@ export function drawFrame(
   parsed: { composition: CompositionInfo | null; elements: any[]; elementCount: number },
   frame: number,
   comp: CompositionInfo,
+  clearColor?: Color4f | null,
 ): void {
   if (!CanvasKit || !ckCanvas || !surface) return;
 
   const w = comp.width;
   const h = comp.height;
 
-  ckCanvas.clear(CanvasKit.Color4f(0.06, 0.06, 0.09, 1.0));
+  const cc = clearColor || { r: 0, g: 0, b: 0, a: 255 };
+  ckCanvas.clear(CanvasKit.Color4f(cc.r / 255, cc.g / 255, cc.b / 255, cc.a / 255));
 
   const paint = new CanvasKit.Paint();
   const font = new CanvasKit.Font(null, 14);
@@ -171,13 +173,15 @@ export function drawDisplayTree(
   displayTree: DisplayNodeJson,
   comp: CompositionInfo,
   frame: number,
+  clearColor?: Color4f | null,
 ): void {
   if (!CanvasKit || !ckCanvas || !surface) return;
 
   const w = comp.width;
   const h = comp.height;
 
-  ckCanvas.clear(CanvasKit.Color4f(0.06, 0.06, 0.09, 1.0));
+  const cc = clearColor || { r: 0, g: 0, b: 0, a: 255 };
+  ckCanvas.clear(CanvasKit.Color4f(cc.r / 255, cc.g / 255, cc.b / 255, cc.a / 255));
 
   // Apply root transform
   const root = displayTree;
@@ -304,6 +308,7 @@ function applyClip(clip: { bounds: DisplayRect; borderRadius: BorderRadius }): v
 // ── DisplayItem Router ──
 
 function drawDisplayItem(item: DisplayItemJson): void {
+  console.log('[DEBUG drawDisplayItem] type:', item.type, 'assetId:', (item as any).assetId, 'paint:', item.paint ? JSON.stringify(item.paint).slice(0, 200) : 'none');
   switch (item.type) {
     case 'rect':
       drawRectItem(item);
@@ -375,8 +380,6 @@ function drawTextWithGlyphs(item: DisplayItemJson): void {
   const { bounds, style, glyphs, dropShadow } = item;
   if (!style || !glyphs) return;
 
-  // Canvas is already translated to the text element's position,
-  // so we draw glyphs directly at their layout coordinates.
   const CK = CanvasKit;
   const canvas = ckCanvas;
 
@@ -394,6 +397,14 @@ function drawTextWithGlyphs(item: DisplayItemJson): void {
     glyphMap.set(entry.cacheKey, entry.data);
   }
 
+  // Build per-character override map from text_unit_overrides (if any)
+  const unitOverrides = (item as any).textUnitOverrides;
+  const byteToOverride = buildByteToOverrideMap(
+    (item as any).text || '',
+    unitOverrides?.overrides ?? null,
+    unitOverrides?.granularity,
+  );
+
   const textAlign = style.textAlign || 'left';
 
   canvas.save();
@@ -405,23 +416,58 @@ function drawTextWithGlyphs(item: DisplayItemJson): void {
       const glyphData = glyphMap.get(pos.cacheKey);
       if (!glyphData) continue;
 
-      // pos.x: X offset within the text area
-      // pos.y: absolute glyph Y in screen space (already includes line baseline)
       const gx = pos.x + xShift;
       const gy = pos.y;
 
+      const override = byteToOverride.get(pos.byteStart);
+
       canvas.save();
-      canvas.translate(gx, gy);
+
+      // Move to glyph's final position (original position + override offset)
+      canvas.translate(
+        gx + (override?.translateX || 0),
+        gy + (override?.translateY || 0),
+      );
+
+      // Apply scale and rotation around this position
+      if (override?.scale !== undefined && override.scale !== 1) {
+        canvas.scale(override.scale, override.scale);
+      }
+      if (override?.rotationDeg) {
+        canvas.rotate(override.rotationDeg);
+      }
+
+      // Opacity override via saveLayer
+      if (override?.opacity !== undefined && override.opacity < 1) {
+        const alphaPaint = new CK.Paint();
+        alphaPaint.setAlphaf(override.opacity);
+        canvas.saveLayer(alphaPaint);
+        alphaPaint.delete();
+      }
 
       if (glyphData.kind === 'outline') {
         const path = buildGlyphPath(glyphData.commands);
         if (path) {
+          // Determine paint: override color or default text color
+          let glyphPaint = fillPaint;
+          let ownsPaint = false;
+          if (override?.color) {
+            const c = override.color;
+            glyphPaint = new CK.Paint();
+            glyphPaint.setStyle(CK.PaintStyle.Fill);
+            glyphPaint.setAntiAlias(true);
+            glyphPaint.setColor(
+              CK.Color4f(c.r / 255, c.g / 255, c.b / 255, c.a / 255),
+            );
+            ownsPaint = true;
+          }
           // Drop shadow
           if (dropShadow) {
             drawGlyphDropShadow(path, dropShadow);
           }
-          canvas.drawPath(path, fillPaint);
+          canvas.drawPath(path, glyphPaint);
           path.delete();
+          if (ownsPaint) glyphPaint.delete();
         }
       } else if (glyphData.kind === 'colorImage') {
         const { rgba, width, height, placementLeft, placementTop } = glyphData;
@@ -432,12 +478,75 @@ function drawTextWithGlyphs(item: DisplayItemJson): void {
         }
       }
 
+      // Restore saveLayer if opacity override was applied
+      if (override?.opacity !== undefined && override.opacity < 1) {
+        canvas.restore();
+      }
+
       canvas.restore();
     }
   }
 
   canvas.restore();
   fillPaint.delete();
+}
+
+/// Build a mapping from UTF-8 byte offset to per-character/per-word override.
+/// Glyph positions carry `byteStart` (UTF-8 byte offset into the original text),
+/// and overrides are indexed by text-unit position (grapheme or word).
+/// For word granularity, one override spans all glyphs in that word.
+function buildByteToOverrideMap(
+  text: string,
+  overrides: Array<{
+    opacity?: number;
+    translateX?: number;
+    translateY?: number;
+    scale?: number;
+    rotationDeg?: number;
+    color?: { r: number; g: number; b: number; a: number };
+  }> | null | undefined,
+  granularity?: string,
+): Map<number, any> {
+  const map = new Map<number, any>();
+  if (!overrides || overrides.length === 0) return map;
+  const encoder = new TextEncoder();
+
+  if (granularity === 'words') {
+    // Word-level: segment text into words+whitespace using Intl.Segmenter
+    // to match Rust's UnicodeSegmentation::split_word_bounds behavior.
+    const segmenter = new (Intl as any).Segmenter('en', { granularity: 'word' });
+    const segments: Array<{ segment: string; index: number; isWordLike: boolean }> =
+      Array.from(segmenter.segment(text));
+    let unitIndex = 0;
+    for (const seg of segments) {
+      const byteStart = encoder.encode(text.slice(0, seg.index)).length;
+      const byteEnd = byteStart + encoder.encode(seg.segment).length;
+      const override = overrides[unitIndex];
+      if (override) {
+        for (let b = byteStart; b < byteEnd; b++) {
+          map.set(b, override);
+        }
+      }
+      unitIndex++;
+    }
+  } else {
+    // Character/grapheme-level
+    const graphemes: string[] =
+      ((window as any).__text_graphemes?.(text) as string[]) || [...text];
+    let byteOffset = 0;
+    for (let i = 0; i < graphemes.length; i++) {
+      const byteLen = encoder.encode(graphemes[i]).length;
+      const override = overrides[i];
+      if (override) {
+        for (let b = byteOffset; b < byteOffset + byteLen; b++) {
+          map.set(b, override);
+        }
+      }
+      byteOffset += byteLen;
+    }
+  }
+
+  return map;
 }
 
 /// Fallback: draw text using CanvasKit's built-in font rendering.
@@ -575,7 +684,12 @@ function drawBitmapItem(item: DisplayItemJson): void {
   if (!assetId || !bounds) return;
 
   const img = loadedImages.get(assetId);
-  if (!img) return;
+  if (!img) {
+    const keys = Array.from(loadedImages.keys());
+    console.warn('[DEBUG drawBitmapItem] image not loaded:', assetId, 'loaded keys (first 5):', keys.slice(0, 5), 'total loaded:', keys.length);
+    return;
+  }
+  console.log('[DEBUG drawBitmapItem] drawing:', assetId, 'bounds:', bounds, 'objectFit:', objectFit);
 
   const srcW = img.width();
   const srcH = img.height();
@@ -628,23 +742,36 @@ function drawBitmapItem(item: DisplayItemJson): void {
 // ── SVG Path Item ──
 
 function drawSvgPathItem(item: DisplayItemJson): void {
-  const { bounds, pathData, viewBox, svgPaint } = item;
-  if (!pathData || pathData.length === 0) return;
+  const { bounds, pathData, viewBox } = item;
+  // WASM serializes SVG paint as `item.paint` (Rust SvgPathDisplayItem.paint),
+  // while the TS type also has an `svgPaint` field for backward compatibility.
+  const svgPaint = (item as any).paint || item.svgPaint;
+  if (!pathData || pathData.length === 0) {
+    console.warn('[DEBUG drawSvgPathItem] empty pathData, item:', JSON.stringify(item).slice(0, 300));
+    return;
+  }
 
   // SVG path syntax allows multiple subpaths in a single string (each `M` starts a new contour),
   // so concatenate all entries and parse once. CanvasKit Path has no `addPath`; only PathBuilder does.
   const combinedSvg = pathData.join(' ');
+  console.log('[DEBUG drawSvgPathItem] combinedSvg first 200 chars:', combinedSvg.slice(0, 200));
   const path = CanvasKit.Path.MakeFromSVGString(combinedSvg);
-  if (!path) return;
+  if (!path) {
+    console.warn('[DEBUG drawSvgPathItem] MakeFromSVGString failed, viewBox:', viewBox, 'bounds:', bounds);
+    return;
+  }
+  console.log('[DEBUG drawSvgPathItem] path OK, svgPaint:', JSON.stringify(svgPaint), 'viewBox:', viewBox, 'bounds:', bounds);
   const vb = viewBox || [0, 0, 100, 100];
 
-  // Scale to bounds
+  // Scale to bounds, accounting for viewBox origin offset.
+  // viewBox = [minX, minY, width, height] maps to bounds.
   const scaleX = bounds.width / (vb[2] || 100);
   const scaleY = bounds.height / (vb[3] || 100);
 
   ckCanvas.save();
   ckCanvas.translate(bounds.x, bounds.y);
   ckCanvas.scale(scaleX, scaleY);
+  ckCanvas.translate(-vb[0], -vb[1]);
 
   if (svgPaint?.fill) {
     const fillPaint = makeFillPaint(svgPaint.fill);
@@ -982,13 +1109,12 @@ function makeFillPaint(fill: BackgroundFillJson): any {
   paint.setStyle(CanvasKit.PaintStyle.Fill);
   paint.setAntiAlias(true);
 
-  if (fill.type === 'solid' && fill.color) {
-    paint.setColor(CanvasKit.Color4f(
-      fill.color.r / 255,
-      fill.color.g / 255,
-      fill.color.b / 255,
-      fill.color.a / 255,
-    ));
+  if (fill.type === 'solid') {
+    const r = fill.r ?? fill.color?.r ?? 0;
+    const g = fill.g ?? fill.color?.g ?? 0;
+    const b = fill.b ?? fill.color?.b ?? 0;
+    const a = fill.a ?? fill.color?.a ?? 255;
+    paint.setColor(CanvasKit.Color4f(r / 255, g / 255, b / 255, a / 255));
   } else if (fill.type === 'linearGradient' && fill.from && fill.to) {
     // Simple gradient
     const from = fill.from;

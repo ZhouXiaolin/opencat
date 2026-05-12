@@ -6,19 +6,19 @@ use crate::runtime::{
     },
 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct OrderedSceneProgram {
     pub root: OrderedSceneOp,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct OrderedSubtreeProgram {
     pub handle: AnnotatedNodeHandle,
     pub item_execution: LiveNodeItemExecution,
     pub children: Vec<OrderedSceneOp>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum OrderedSceneOp {
     LiveSubtree {
         handle: AnnotatedNodeHandle,

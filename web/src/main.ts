@@ -9,6 +9,7 @@ import {
   getCkCanvas,
   getSurface,
   drawDisplayTree,
+  registerImage,
 } from './renderer';
 import {
   initFFmpeg as initFFmpegExport,
@@ -99,16 +100,12 @@ async function boot() {
     // Initialize shared script engine (loads wasm bridge + core JS runtimes once)
     await getScriptEngine().init();
 
-    // Preload FFmpeg in background (fire-and-forget)
-    initFFmpegExport().then(() => {
-      ffStatusEl.textContent = 'FFmpeg ready';
-      ffStatusEl.className = 'status-badge ready';
-    }).catch(() => {
-      ffStatusEl.textContent = 'FFmpeg click-to-load';
-      ffStatusEl.className = 'status-badge';
-    });
-
+    // Load file list first (fast, local)
     await loadFileList();
+
+    // FFmpeg loads on demand when user clicks Export — no need to eagerly load 31MB WASM
+    ffStatusEl.textContent = 'FFmpeg on-demand';
+    ffStatusEl.className = 'status-badge';
   } catch (err) {
     wasmStatusEl.textContent = `Bootstrap error: ${err}`;
     wasmStatusEl.className = 'status-badge error';
@@ -212,7 +209,9 @@ async function preloadResources(jsonlContent: string): Promise<void> {
   // Load images with timeout (fire-and-forget: don't block initial render)
   const imagePromises = requests.images.map(async (url) => {
     try {
-      const assetId = url.startsWith('http') ? `url:${url}` : url;
+      // Use the raw URL/path as the assetId — this matches what Rust's
+      // HashMapResourceCatalog expects for dimension lookup.
+      const assetId = url;
       await loadImages({ images: [url], videos: [], audios: [], icons: [] });
       const cached = getCachedImage(assetId);
       if (cached) {
@@ -221,6 +220,14 @@ async function preloadResources(jsonlContent: string): Promise<void> {
           height: cached.height,
           kind: 'image',
         };
+      }
+      // Also register with the renderer so it can draw bitmap items
+      if (cached) {
+        if (useWasmEngine && webRenderEngine) {
+          webRenderEngine.registerImage(assetId, cached.ckImage);
+        } else {
+          registerImage(assetId, cached.ckImage);
+        }
       }
     } catch (err) {
       console.warn(`Failed to preload image: ${url}`, err);
@@ -262,7 +269,8 @@ async function loadJsonl(file: JsonlFile) {
     emptyStateEl.style.display = 'none';
     previewCanvas.style.display = 'block';
 
-    if (!previewCanvas.width) {
+    {
+      // Always resize canvas to match the composition dimensions
       const maxW = Math.min(comp.width, 780);
       const scale = maxW / comp.width;
       previewCanvas.width = comp.width;
@@ -349,11 +357,27 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   const engine = getScriptEngine();
   engine.setFrameCtx(frame + 1, comp.frames, comp.frames);
   const parsed = parseJsonl(currentJsonlContent!);
+
+  // Pre-register text sources from JSONL elements so that script features
+  // like splitText can resolve text content before the wasm pipeline runs.
+  for (const el of parsed.elements || []) {
+    if (el.id && el.text) {
+      (window as any).__text_source_set?.(el.id, el.text);
+    }
+  }
+
   const scriptElements = (parsed.elements || []).filter(
     (e: ParsedElement) => e.type === 'script'
   );
 
   for (const script of scriptElements) {
+    // Set the canvas target to the script element's own ID so that
+    // ctx.getCanvas() in the script resolves to this element.
+    // This mirrors what the desktop engine does in ScriptRunner::run_into()
+    // where ctx.__currentCanvasTarget = current_node_id is set per-element.
+    if (script.id) {
+      (window as any).ctx.__currentCanvasTarget = script.id;
+    }
     const source = (script.src || script.content || '') as string;
     if (source) {
       try {
@@ -362,6 +386,17 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
         console.error(`Script execution error for element ${script.id}:`, err);
       }
     }
+  }
+
+  // Flush all pending animation timelines after script execution.
+  // In the desktop engine this happens automatically after each
+  // script element's run_frame(), flushing timelines that were
+  // queued via ctx.timeline() / ctx.to() / ctx.from() etc.
+  // Without this, animated values are never recorded as mutations.
+  try {
+    (window as any).ctx.__flushTimelines?.();
+  } catch (err) {
+    console.error('Timeline flush error:', err);
   }
 
   const mutationsJson = engine.collectJson();

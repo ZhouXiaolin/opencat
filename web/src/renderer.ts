@@ -289,10 +289,8 @@ function applyClip(clip: { bounds: DisplayRect; borderRadius: BorderRadius }): v
       borderRadius.bottomRight, borderRadius.bottomRight,
       borderRadius.bottomLeft, borderRadius.bottomLeft,
     ];
-    const rrect = CanvasKit.RRect(
-      CanvasKit.XYWHRect(bounds.x, bounds.y, bounds.width, bounds.height),
-      radii,
-    );
+    const rect = CanvasKit.XYWHRect(bounds.x, bounds.y, bounds.width, bounds.height);
+    const rrect = Float32Array.of(rect[0], rect[1], rect[2], rect[3], radii[0], radii[1], radii[2], radii[3], radii[4], radii[5], radii[6], radii[7]);
     ckCanvas.clipRRect(rrect, CanvasKit.ClipOp.Intersect, true);
   } else {
     ckCanvas.clipRect(
@@ -1046,10 +1044,8 @@ function drawRoundRect(b: DisplayRect, br: BorderRadius, paint: any): void {
         br.bottomRight, br.bottomRight,
         br.bottomLeft, br.bottomLeft,
       ];
-      const rrect = CanvasKit.RRect(
-        CanvasKit.XYWHRect(b.x, b.y, b.width, b.height),
-        radii,
-      );
+      const rect = CanvasKit.XYWHRect(b.x, b.y, b.width, b.height);
+      const rrect = Float32Array.of(rect[0], rect[1], rect[2], rect[3], radii[0], radii[1], radii[2], radii[3], radii[4], radii[5], radii[6], radii[7]);
       ckCanvas.drawRRect(rrect, paint);
     }
   } else {

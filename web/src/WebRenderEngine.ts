@@ -984,10 +984,8 @@ export class WebRenderEngine {
         borderRadius.bottomRight, borderRadius.bottomRight,
         borderRadius.bottomLeft, borderRadius.bottomLeft,
       ];
-      const rrect = CK.RRect(
-        CK.XYWHRect(bounds.x, bounds.y, bounds.width, bounds.height),
-        radii,
-      );
+      const rect = CK.XYWHRect(bounds.x, bounds.y, bounds.width, bounds.height);
+      const rrect = Float32Array.of(rect[0], rect[1], rect[2], rect[3], radii[0], radii[1], radii[2], radii[3], radii[4], radii[5], radii[6], radii[7]);
       this.ckCanvas.clipRRect(rrect, CK.ClipOp.Intersect, true);
     } else {
       this.ckCanvas.clipRect(
@@ -1074,10 +1072,8 @@ export class WebRenderEngine {
           br.bottomRight, br.bottomRight,
           br.bottomLeft, br.bottomLeft,
         ];
-        const rrect = CK.RRect(
-          CK.XYWHRect(b.x, b.y, b.width, b.height),
-          radii,
-        );
+        const rect = CK.XYWHRect(b.x, b.y, b.width, b.height);
+        const rrect = Float32Array.of(rect[0], rect[1], rect[2], rect[3], radii[0], radii[1], radii[2], radii[3], radii[4], radii[5], radii[6], radii[7]);
         this.ckCanvas.drawRRect(rrect, paint);
       }
     } else {

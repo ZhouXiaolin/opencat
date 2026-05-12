@@ -343,7 +343,7 @@ fn generate_impls(colors: &[GeneratedColor]) -> String {
 fn generate_items(colors: &[GeneratedColor]) -> String {
     let mut output = String::new();
 
-    output.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]\n");
+    output.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]\n");
     output.push_str("#[serde(rename_all = \"camelCase\", into = \"ColorRgba\")]\n");
     output.push_str("pub enum ColorToken {\n");
     output.push_str(&indent_block(&generate_variants(colors), 1));
@@ -355,7 +355,7 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     output.push_str("/// Wire-format RGBA color used when serializing [`ColorToken`] to JSON\n");
     output
         .push_str("/// (so JS/CanvasKit can consume it directly without enum-variant decoding).\n");
-    output.push_str("#[derive(Debug, Clone, Copy, serde::Serialize)]\n");
+    output.push_str("#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]\n");
     output.push_str("pub struct ColorRgba {\n");
     output.push_str("    pub r: u8,\n");
     output.push_str("    pub g: u8,\n");
@@ -367,6 +367,38 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     output.push_str("    fn from(token: ColorToken) -> Self {\n");
     output.push_str("        let (r, g, b, a) = token.rgba();\n");
     output.push_str("        Self { r, g, b, a }\n");
+    output.push_str("    }\n");
+    output.push_str("}\n\n");
+
+    // Custom Deserialize: accept either a string (variant name like "red500")
+    // or an RGBA object {"r":...,"g":...,"b":...,"a":...} for Custom variant
+    output.push_str("impl<'de> serde::Deserialize<'de> for ColorToken {\n");
+    output.push_str("    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>\n");
+    output.push_str("    where\n");
+    output.push_str("        D: serde::Deserializer<'de>,\n");
+    output.push_str("    {\n");
+    output.push_str("        use serde::de;\n");
+    output.push_str("        struct ColorTokenVisitor;\n");
+    output.push_str("        impl<'de> de::Visitor<'de> for ColorTokenVisitor {\n");
+    output.push_str("            type Value = ColorToken;\n");
+    output.push_str("            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {\n");
+    output.push_str("                f.write_str(\"a color name string or RGBA object\")\n");
+    output.push_str("            }\n");
+    output.push_str("            fn visit_str<E: de::Error>(self, v: &str) -> Result<ColorToken, E> {\n");
+    output.push_str("                color_token_from_script_name(v).ok_or_else(|| de::Error::unknown_variant(v, &[]))\n");
+    output.push_str("            }\n");
+    output.push_str("            fn visit_borrowed_str<E: de::Error>(self, v: &'de str) -> Result<ColorToken, E> {\n");
+    output.push_str("                color_token_from_script_name(v).ok_or_else(|| de::Error::unknown_variant(v, &[]))\n");
+    output.push_str("            }\n");
+    output.push_str("            fn visit_map<A>(self, map: A) -> Result<ColorToken, A::Error>\n");
+    output.push_str("            where\n");
+    output.push_str("                A: de::MapAccess<'de>,\n");
+    output.push_str("            {\n");
+    output.push_str("                let rgba = <ColorRgba as serde::Deserialize>::deserialize(de::value::MapAccessDeserializer::new(map))?;\n");
+    output.push_str("                Ok(ColorToken::Custom(rgba.r, rgba.g, rgba.b, rgba.a))\n");
+    output.push_str("            }\n");
+    output.push_str("        }\n");
+    output.push_str("        deserializer.deserialize_any(ColorTokenVisitor)\n");
     output.push_str("    }\n");
     output.push_str("}\n\n");
 

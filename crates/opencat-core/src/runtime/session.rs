@@ -63,10 +63,12 @@ mod tests {
     use super::*;
     use crate::frame_ctx::ScriptFrameCtx;
     use crate::platform::backend::BackendTypes;
-    use crate::platform::render_engine::{FrameView, RecordCtx, RenderCtx, RenderEngine};
+    use crate::platform::render_engine::{FrameView, GlyphPaint, RecordCtx, RenderCtx, RenderEngine};
     use crate::platform::video::{FrameBitmap, VideoFrameProvider};
     use crate::resource::asset_id::AssetId;
-    use crate::runtime::annotation::AnnotatedDisplayTree;
+    use crate::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
+    use crate::display::list::{DisplayItem, DisplayRect};
+    use crate::text::GlyphData;
     use crate::scene::path_bounds::{DefaultPathBounds, PathBoundsComputer};
     use crate::scene::script::{ScriptDriverId, ScriptHost, ScriptTextSource};
     use crate::script::recorder::MutationRecorder;
@@ -104,6 +106,28 @@ mod tests {
         {
             Ok(())
         }
+        fn record_subtree_snapshot(
+            &self, _: &mut RecordCtx<'_, Self>, _: &AnnotatedDisplayTree, _: AnnotatedNodeHandle,
+        ) -> Result<Self::Picture> { Ok("subtree_snap".into()) }
+        fn record_subtree_image(&self, _: &Self::Picture, _: DisplayRect) -> Result<Self::Image> {
+            Ok("subtree_img".into())
+        }
+        fn draw_subtree_snapshot(
+            &self, _: &Self::Picture, _: f32, _: Option<f32>, _: DisplayRect, _: FrameView<'_>,
+        ) -> Result<()> { Ok(()) }
+        fn draw_subtree_image(
+            &self, _: &Self::Image, _: f32, _: Option<f32>, _: DisplayRect, _: FrameView<'_>,
+        ) -> Result<()> { Ok(()) }
+        fn record_item_picture(
+            &self, _: &mut RecordCtx<'_, Self>, _: &DisplayItem,
+        ) -> Result<Self::Picture> { Ok("item_pic".into()) }
+        fn draw_item_picture(
+            &self, _: &Self::Picture, _: (f32, f32), _: FrameView<'_>,
+        ) -> Result<()> { Ok(()) }
+        fn rasterize_glyph_path(&self, _: &GlyphData) -> Result<Self::GlyphPath> { Ok("glyph_path".into()) }
+        fn rasterize_glyph_image(&self, _: &GlyphData) -> Result<Self::GlyphImage> { Ok("glyph_img".into()) }
+        fn draw_glyph_path(&self, _: &Self::GlyphPath, _: &GlyphPaint, _: FrameView<'_>) -> Result<()> { Ok(()) }
+        fn draw_glyph_image(&self, _: &Self::GlyphImage, _: DisplayRect, _: FrameView<'_>) -> Result<()> { Ok(()) }
     }
     unsafe impl Send for MockBackend {}
     unsafe impl Sync for MockBackend {}

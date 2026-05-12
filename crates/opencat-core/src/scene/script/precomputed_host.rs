@@ -4,7 +4,7 @@ use crate::scene::script::{
 };
 use crate::script::recorder::{MutationRecorder, TextUnitValues};
 use crate::style::Transform;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use std::collections::HashMap;
 
 /// ScriptHost that reads from precomputed mutations.
@@ -63,16 +63,30 @@ impl ScriptHost for PrecomputedScriptHost {
 
     fn run_frame(
         &mut self,
-        _driver: ScriptDriverId,
+        driver: ScriptDriverId,
         _frame_ctx: &ScriptFrameCtx,
         _current_node_id: Option<&str>,
         recorder: &mut dyn MutationRecorder,
     ) -> Result<()> {
-        let all_mutations: Vec<StyleMutations> = self.mutations.drain().map(|(_, m)| m).collect();
-        if all_mutations.is_empty() {
-            return Err(anyhow!("no precomputed mutations available"));
-        }
-        for mutations in &all_mutations {
+        // Look up mutations by driver id first; if not found, fall back
+        // to any available mutations (web path stores all under ID 0).
+        let mutations_to_apply: Vec<StyleMutations> = self
+            .mutations
+            .get(&driver)
+            .cloned()
+            .map(|m| vec![m])
+            .unwrap_or_else(|| {
+                // Fallback: use all available mutations if driver-specific not found.
+                // This handles the web path where all mutations are stored under
+                // ScriptDriverId(0) but the pipeline requests a hash-based id.
+                if self.mutations.is_empty() {
+                    vec![]
+                } else {
+                    self.mutations.values().cloned().collect()
+                }
+            });
+
+        for mutations in &mutations_to_apply {
             for (node_id, node_mutations) in &mutations.mutations {
                 apply_node_to_recorder(recorder, node_id, node_mutations);
             }
@@ -307,16 +321,16 @@ mod tests {
     }
 
     #[test]
-    fn run_frame_with_no_mutations_returns_error() {
+    fn run_frame_with_no_mutations_succeeds_silently() {
         let mut host = PrecomputedScriptHost::from_single(StyleMutations::default());
         let id = host.install("script").unwrap();
         let mut store = MutationStore::default();
+        // First call applies empty mutations
         host.run_frame(id, &Default::default(), None, &mut store)
             .unwrap();
-        assert!(
-            host.run_frame(id, &Default::default(), None, &mut store)
-                .is_err()
-        );
+        // Second call also succeeds (no drain, so mutations are still available)
+        host.run_frame(id, &Default::default(), None, &mut store)
+            .unwrap();
     }
 
     #[test]

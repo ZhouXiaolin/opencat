@@ -17,4 +17,4 @@ pub use image::{Image, ImageSource, OpenverseQuery, image};
 pub use lucide::{Lucide, lucide};
 pub use path::{Path, path};
 pub use text::{Text, text};
-pub use video::{Video, video};
+pub use video::{Video, VideoSource, video, video_url};

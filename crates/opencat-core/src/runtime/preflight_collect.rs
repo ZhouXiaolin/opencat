@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::frame_ctx::FrameCtx;
 use crate::scene::composition::Composition;
 use crate::scene::node::{Node, NodeKind};
-use crate::scene::primitives::{AudioSource, ImageSource};
+use crate::scene::primitives::{AudioSource, ImageSource, VideoSource};
 use crate::scene::time::{FrameState, frame_state_for_root};
 
 #[derive(Default, Debug)]
@@ -77,7 +77,9 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
             }
         }
         NodeKind::Video(video) => {
-            req.video_paths.insert(video.source().to_path_buf());
+            if let VideoSource::Path(p) = video.source() {
+                req.video_paths.insert(p.clone());
+            }
         }
         NodeKind::Timeline(_) => {
             collect_sources_from_frame_state(&frame_state_for_root(node, frame_ctx), frame_ctx, req)

@@ -926,12 +926,11 @@ function drawBitmapItem(item: DisplayItemJson): void {
 
   const srcRect = CanvasKit.XYWHRect(0, 0, srcW, srcH);
   const dstRect = CanvasKit.XYWHRect(dst.x, dst.y, dst.width, dst.height);
-  const sampling = new CanvasKit.SamplingOptions(CanvasKit.FilterMode.Linear);
 
   const paint2 = new CanvasKit.Paint();
   paint2.setAlphaf(1.0);
   paint2.setAntiAlias(true);
-  ckCanvas.drawImageRect(img, srcRect, dstRect, sampling, paint2);
+  ckCanvas.drawImageRect(img, srcRect, dstRect, paint2);
   paint2.delete();
 
   if (paint?.borderRadius && hasNonZeroRadius(paint.borderRadius)) {
@@ -1252,8 +1251,7 @@ function executeCanvasCommand(
         if (cmd.srcRect) {
           const srcArr = cmd.srcRect as number[];
           const srcRect = CK.XYWHRect(srcArr[0], srcArr[1], srcArr[2], srcArr[3]);
-          const sampling = new CK.SamplingOptions(CK.FilterMode.Linear);
-          ckCanvas.drawImageRect(img, srcRect, dstRect, sampling, paint);
+          ckCanvas.drawImageRect(img, srcRect, dstRect, paint);
         } else {
           ckCanvas.drawImage(img, cmd.x as number || 0, cmd.y as number || 0, paint);
         }

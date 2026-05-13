@@ -214,53 +214,79 @@ async function preloadResources(
 ): Promise<void> {
   resourceMeta = {};
 
-  // Use WASM's collect_resources to get the authoritative resource list
   const requests = collectResources(jsonlContent);
 
-  const total = requests.images.length;
-  let loaded = 0;
-  onProgress?.(loaded, total);
+  // Seed progress with initial draw on canvas
+  onProgress?.(0, requests.images.length);
 
-  const imagePromises = requests.images.map(async (url) => {
-    try {
-      // Use the raw URL/path as the assetId — this matches what Rust's
-      // HashMapResourceCatalog expects for dimension lookup.
-      const assetId = url;
-      await loadImages({ images: [url], videos: [], audios: [], icons: [] });
-      const cached = getCachedImage(assetId);
-      if (cached) {
-        resourceMeta[url] = {
-          width: cached.width,
-          height: cached.height,
-          kind: 'image',
-        };
-      }
-      // Also register with the renderer so it can draw bitmap items
-      if (cached) {
-        registerImage(assetId, cached.ckImage);
-      }
-    } catch (err) {
-      console.warn(`Failed to preload image: ${url}`, err);
-    } finally {
-      loaded++;
-      onProgress?.(loaded, total);
-    }
+  // Load all images with sequential progress tracking.
+  // Each completed image triggers a progress callback that redraws
+  // the black canvas with updated download text.
+  await loadImages(requests, (loaded, total) => {
+    onProgress?.(loaded, total);
   });
 
-  // For videos, use placeholder dimensions (actual decoding happens on-demand)
-  for (const url of requests.videos) {
-    resourceMeta[url] = {
+  // After downloads complete, register all cached images with the
+  // renderer and populate resourceMeta for WASM buildFrame.
+  for (const assetId of requests.images) {
+    const cached = getCachedImage(assetId);
+    if (cached) {
+      resourceMeta[assetId] = {
+        width: cached.width,
+        height: cached.height,
+        kind: 'image',
+      };
+      registerImage(assetId, cached.ckImage);
+    }
+  }
+
+  // Video/Audio: register placeholder metadata (decoded on-demand).
+  for (const assetId of requests.videos) {
+    resourceMeta[assetId] = {
       width: 1920,
       height: 1080,
       kind: 'video',
       durationSecs: 10,
     };
   }
+  for (const assetId of requests.audios) {
+    resourceMeta[assetId] = {
+      width: 0,
+      height: 0,
+      kind: 'audio',
+    };
+  }
+}
 
-  // Match desktop engine: block until all image assets are downloaded so the
-  // first preview frame can already use them. Without this, the renderer would
-  // draw an empty bitmap slot for any asset not yet resolved.
-  await Promise.all(imagePromises);
+// --- Download Progress Canvas Overlay ---
+
+/** Draw a black canvas with download progress text centered. */
+function drawDownloadProgress(loaded: number, total: number): void {
+  const CK = getCanvasKit();
+  const canvas = getCkCanvas();
+  const surface = getSurface();
+  if (!CK || !canvas || !surface || !currentComposition) return;
+
+  const w = currentComposition.width;
+  const h = currentComposition.height;
+
+  canvas.clear(CK.BLACK);
+
+  const text = `Downloading ${loaded} / ${total} images...`;
+  const font = new CK.Font(null, 24);
+  const paint = new CK.Paint();
+  paint.setColor(CK.Color4f(0.7, 0.7, 0.7, 1.0));
+  paint.setAntiAlias(true);
+
+  const glyphs = font.getGlyphIDs(text);
+  const widths = font.getGlyphWidths(glyphs);
+  let textWidth = 0;
+  for (let i = 0; i < widths.length; i++) textWidth += widths[i];
+  canvas.drawText(text, (w - textWidth) / 2, h / 2, paint, font);
+
+  font.delete();
+  paint.delete();
+  surface.flush();
 }
 
 // --- Load JSONL ---
@@ -310,17 +336,13 @@ async function loadJsonl(file: JsonlFile) {
 
     ensureSurface(previewCanvas, comp.width, comp.height);
 
-    // Block first render until image assets are downloaded — otherwise bitmap
-    // items would render empty and pop in once images arrive later.
-    setPreviewLoading('Loading resources...');
+    // Block first render until image assets are downloaded.
+    // During download the canvas shows a black background with progress text.
     try {
       await preloadResources(currentJsonlContent, (done, total) => {
-        if (total > 0) {
-          setPreviewLoading(`Loading resources... ${done}/${total}`);
-        }
+        drawDownloadProgress(done, total);
       });
     } finally {
-      setPreviewLoading(null);
     }
 
     await renderFrameAsync(0);

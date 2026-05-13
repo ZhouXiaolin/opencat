@@ -683,4 +683,17 @@ impl WebMutationRecorder {
     pub fn grapheme_strings(&self, text: &str) -> Vec<String> {
         opencat_core::script::text_units::grapheme_strings(text)
     }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn word_ranges(&self, text: &str) -> Vec<js_sys::Array> {
+        opencat_core::script::text_units::word_ranges(text)
+            .into_iter()
+            .map(|[start, end]| {
+                let arr = js_sys::Array::new();
+                arr.push(&JsValue::from_f64(start as f64));
+                arr.push(&JsValue::from_f64(end as f64));
+                arr
+            })
+            .collect()
+    }
 }

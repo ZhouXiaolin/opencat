@@ -19,6 +19,8 @@ import type {
   DropShadowJson,
 } from './types';
 
+import { recordPicture, drawTransition, setCanvasKitForTransition } from './transition';
+
 let CanvasKit: any = null;
 let surface: any = null;
 let ckCanvas: any = null;
@@ -54,11 +56,15 @@ export function registerImage(assetId: string, ckImage: any): void {
 // ── Initialization ──
 
 export async function initCanvasKit(): Promise<void> {
-  if (CanvasKit) return;
+  if (CanvasKit) {
+    setCanvasKitForTransition(CanvasKit);
+    return;
+  }
   const mod = await import('canvaskit-wasm/full');
   CanvasKit = await mod.default({
     locateFile: (file: string) => `/canvaskit/${file}`,
   });
+  setCanvasKitForTransition(CanvasKit);
 }
 
 export function getCanvasKit(): any {
@@ -211,9 +217,6 @@ export function drawDisplayTree(
   // Draw display node recursively
   drawDisplayNode(root);
 
-  // Draw overlay info
-  drawDebugOverlay(comp, frame);
-
   // Restore root transform
   ckCanvas.restore();
 
@@ -239,11 +242,18 @@ function drawDisplayNode(node: DisplayNodeJson): void {
   }
 
   // Draw the item
-  drawDisplayItem(item);
+  const isTransition = item.type === 'timeline'
+    && item.transition
+    && children.length >= 2;
 
-  // Draw children
-  for (const child of children) {
-    drawDisplayNode(child);
+  if (isTransition) {
+    drawRectItem(item);
+    drawTransitionForNode(item, children);
+  } else {
+    drawDisplayItem(item);
+    for (const child of children) {
+      drawDisplayNode(child);
+    }
   }
 
   // Restore clip
@@ -253,6 +263,40 @@ function drawDisplayNode(node: DisplayNodeJson): void {
   }
 
   ckCanvas.restore();
+}
+
+function drawTransitionForNode(
+  item: DisplayItemJson,
+  children: DisplayNodeJson[],
+): void {
+  const transition = item.transition!;
+  const bounds = item.bounds;
+
+  const drawNodeToPic = (node: DisplayNodeJson): any | null => {
+    return recordPicture(bounds, (recCanvas: any) => {
+      const savedCanvas = ckCanvas;
+      ckCanvas = recCanvas;
+      try {
+        drawDisplayNode(node);
+      } finally {
+        ckCanvas = savedCanvas;
+      }
+    });
+  };
+
+  const fromPic = drawNodeToPic(children[0]);
+  const toPic = drawNodeToPic(children[1]);
+
+  if (fromPic && toPic) {
+    drawTransition(ckCanvas, fromPic, toPic, transition, bounds);
+  } else {
+    for (const child of children) {
+      drawDisplayNode(child);
+    }
+  }
+
+  fromPic?.delete();
+  toPic?.delete();
 }
 
 function applyTransform(t: DisplayTransformJson): void {
@@ -595,17 +639,6 @@ function drawTextWithGlyphs(item: DisplayItemJson): void {
     glyphMap,
   );
 
-  // Debug: "hello world" char-text / word-text
-  if (rawText === 'hello world') {
-    const panel = granularity === 'grapheme' ? 'LEFT(chars)' : 'RIGHT(words)';
-    console.log('[SPLIT-TEXT] ' + panel + ' render raw=' + rawText + ' tx=' + text + ' gran=' + granularity + ' units=' + unitGroups.length + ' hasOv=' + (overrides != null) + ' ovLen=' + (overrides?.length ?? 0));
-    if (unitGroups.length > 0) {
-      const g0 = unitGroups[0];
-      const ov0 = overrides?.[g0.unitIndex];
-      console.log('[SPLIT-TEXT] ' + panel + ' render unit[0] idx=' + g0.unitIndex + ' bbox=(' + g0.bbox.minX.toFixed(1) + ',' + g0.bbox.minY.toFixed(1) + ')-(' + g0.bbox.maxX.toFixed(1) + ',' + g0.bbox.maxY.toFixed(1) + ') slots=' + g0.slots.length + ' ov=' + JSON.stringify(ov0));
-    }
-  }
-
   canvas.save();
 
   // Render each unit
@@ -856,12 +889,7 @@ function drawBitmapItem(item: DisplayItemJson): void {
   if (!assetId || !bounds) return;
 
   const img = loadedImages.get(assetId);
-  if (!img) {
-    const keys = Array.from(loadedImages.keys());
-    console.warn('[DEBUG drawBitmapItem] image not loaded:', assetId, 'loaded keys (first 5):', keys.slice(0, 5), 'total loaded:', keys.length);
-    return;
-  }
-  console.log('[DEBUG drawBitmapItem] drawing:', assetId, 'bounds:', bounds, 'objectFit:', objectFit);
+  if (!img) return;
 
   const srcW = img.width();
   const srcH = img.height();
@@ -918,21 +946,11 @@ function drawSvgPathItem(item: DisplayItemJson): void {
   // WASM serializes SVG paint as `item.paint` (Rust SvgPathDisplayItem.paint),
   // while the TS type also has an `svgPaint` field for backward compatibility.
   const svgPaint = (item as any).paint || item.svgPaint;
-  if (!pathData || pathData.length === 0) {
-    console.warn('[DEBUG drawSvgPathItem] empty pathData, item:', JSON.stringify(item).slice(0, 300));
-    return;
-  }
+  if (!pathData || pathData.length === 0) return;
 
-  // SVG path syntax allows multiple subpaths in a single string (each `M` starts a new contour),
-  // so concatenate all entries and parse once. CanvasKit Path has no `addPath`; only PathBuilder does.
   const combinedSvg = pathData.join(' ');
-  console.log('[DEBUG drawSvgPathItem] combinedSvg first 200 chars:', combinedSvg.slice(0, 200));
   const path = CanvasKit.Path.MakeFromSVGString(combinedSvg);
-  if (!path) {
-    console.warn('[DEBUG drawSvgPathItem] MakeFromSVGString failed, viewBox:', viewBox, 'bounds:', bounds);
-    return;
-  }
-  console.log('[DEBUG drawSvgPathItem] path OK, svgPaint:', JSON.stringify(svgPaint), 'viewBox:', viewBox, 'bounds:', bounds);
+  if (!path) return;
   const vb = viewBox || [0, 0, 100, 100];
 
   // Scale to bounds, accounting for viewBox origin offset.
@@ -1438,22 +1456,6 @@ function drawInsetShadow(b: DisplayRect, shadow: { offsetX: number; offsetY: num
   ckCanvas.restore();
 
   paint.delete();
-}
-
-// ── Debug Overlay ──
-
-function drawDebugOverlay(comp: CompositionInfo, frame: number): void {
-  const paint = new CanvasKit.Paint();
-  const font = new CanvasKit.Font(null, 13);
-  const textPaint = new CanvasKit.Paint();
-  textPaint.setColor(CanvasKit.Color4f(0.63, 0.63, 0.69, 1.0));
-
-  const info = `${comp.width}×${comp.height} @ ${comp.fps}fps — frame ${frame + 1}/${comp.frames}`;
-  ckCanvas.drawText(info, 12, 18, textPaint, font);
-
-  paint.delete();
-  font.delete();
-  textPaint.delete();
 }
 
 // ── Frame Capture ──

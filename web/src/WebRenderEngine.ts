@@ -845,12 +845,11 @@ export class WebRenderEngine {
 
     const srcRect = CK.XYWHRect(0, 0, srcW, srcH);
     const dstRect = CK.XYWHRect(dst.x, dst.y, dst.width, dst.height);
-    const sampling = new CK.SamplingOptions(CK.FilterMode.Linear);
 
     const drawPaint = new CK.Paint();
     drawPaint.setAlphaf(1.0);
     drawPaint.setAntiAlias(true);
-    canvas.drawImageRect(img, srcRect, dstRect, sampling, drawPaint);
+    canvas.drawImageRect(img, srcRect, dstRect, drawPaint);
     drawPaint.delete();
 
     if (paint?.borderRadius && this.hasNonZeroRadius(paint.borderRadius)) {
@@ -1184,8 +1183,7 @@ export class WebRenderEngine {
           if (cmd.srcRect) {
             const srcArr = cmd.srcRect as number[];
             const srcRect = CK.XYWHRect(srcArr[0], srcArr[1], srcArr[2], srcArr[3]);
-            const sampling = new CK.SamplingOptions(CK.FilterMode.Linear);
-            canvas.drawImageRect(img, srcRect, dstRect, sampling, paint);
+            canvas.drawImageRect(img, srcRect, dstRect, paint);
           } else {
             canvas.drawImage(img, (cmd.x as number) || 0, (cmd.y as number) || 0, paint);
           }

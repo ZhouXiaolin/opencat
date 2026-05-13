@@ -3,15 +3,21 @@ use std::path::{Path, PathBuf};
 use crate::resource::types::VideoFrameTiming;
 use crate::style::{NodeStyle, impl_node_style_api};
 
+#[derive(Clone, Debug)]
+pub enum VideoSource {
+    Path(PathBuf),
+    Url(String),
+}
+
 #[derive(Clone)]
 pub struct Video {
-    source: PathBuf,
+    source: VideoSource,
     timing: VideoFrameTiming,
     pub(crate) style: NodeStyle,
 }
 
 impl Video {
-    pub fn source(&self) -> &Path {
+    pub fn source(&self) -> &VideoSource {
         &self.source
     }
 
@@ -41,7 +47,15 @@ impl Video {
 
 pub fn video(path: impl AsRef<Path>) -> Video {
     Video {
-        source: path.as_ref().to_path_buf(),
+        source: VideoSource::Path(path.as_ref().to_path_buf()),
+        timing: VideoFrameTiming::default(),
+        style: NodeStyle::default(),
+    }
+}
+
+pub fn video_url(url: impl Into<String>) -> Video {
+    Video {
+        source: VideoSource::Url(url.into()),
         timing: VideoFrameTiming::default(),
         style: NodeStyle::default(),
     }

@@ -7,7 +7,9 @@ use opencat_core::element::resolve::resolve_ui_tree;
 use opencat_core::frame_ctx::FrameCtx;
 use opencat_core::jsonl::JsonLine;
 use opencat_core::layout::LayoutSession;
+use opencat_core::resource::asset_id::asset_id_for_query;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
+use opencat_core::scene::primitives::OpenverseQuery;
 use opencat_core::scene::script::PrecomputedScriptHost;
 use opencat_core::scene::script::mutations::StyleMutations;
 use opencat_core::text;
@@ -107,23 +109,43 @@ pub fn collect_resources_json(input: &str) -> String {
         }
         if let Ok(parsed) = serde_json::from_str::<JsonLine>(trimmed) {
             match parsed {
-                JsonLine::Image { path, url, .. } => {
+                JsonLine::Image {
+                    path,
+                    url,
+                    query,
+                    query_count,
+                    aspect_ratio,
+                    ..
+                } => {
                     if let Some(p) = path {
                         images.push(p);
                     }
                     if let Some(u) = url {
-                        images.push(u);
+                        images.push(format!("url:{u}"));
+                    }
+                    if let Some(q) = query {
+                        let count = query_count.map(|n| n as usize).unwrap_or(1);
+                        let q = OpenverseQuery {
+                            query: q,
+                            count,
+                            aspect_ratio,
+                        };
+                        images.push(asset_id_for_query(&q).0);
                     }
                 }
-                JsonLine::Video { path, .. } => {
-                    videos.push(path);
+                JsonLine::Video { path, url, .. } => {
+                    if let Some(u) = url {
+                        videos.push(format!("video:url:{u}"));
+                    } else {
+                        videos.push(path);
+                    }
                 }
                 JsonLine::Audio { path, url, .. } => {
                     if let Some(p) = path {
                         audios.push(p);
                     }
                     if let Some(u) = url {
-                        audios.push(u);
+                        audios.push(format!("audio:url:{u}"));
                     }
                 }
                 JsonLine::Icon { icon, .. } => {

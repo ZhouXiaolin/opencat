@@ -12,7 +12,7 @@ use opencat_core::{
     scene::{
         composition::Composition,
         node::{Node, NodeKind},
-        primitives::ImageSource,
+        primitives::{ImageSource, VideoSource},
         time::TimelineSegment,
     },
     style::NodeStyle,
@@ -353,7 +353,11 @@ fn collect_source_metadata(
         NodeKind::Video(video) => {
             let entry = upsert_style_meta(video.style_ref(), "video", out);
             if let Some(entry) = entry {
-                entry.media_source = Some(video.source().to_string_lossy().to_string());
+                let source_str = match video.source() {
+                    VideoSource::Path(p) => p.to_string_lossy().to_string(),
+                    VideoSource::Url(u) => format!("video:url:{u}"),
+                };
+                entry.media_source = Some(source_str);
             }
         }
         NodeKind::Timeline(timeline) => {

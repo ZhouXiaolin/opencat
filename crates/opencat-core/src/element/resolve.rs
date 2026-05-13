@@ -16,7 +16,7 @@ use crate::{
     scene::script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
     scene::{
         node::{ComponentNode, NodeKind},
-        primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video},
+        primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video, VideoSource},
         time::TimelineNode,
         time::{FrameState, frame_state_for_root},
     },
@@ -482,16 +482,21 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style);
 
+        let locator = match video.source() {
+            VideoSource::Path(p) => p.to_string_lossy().to_string(),
+            VideoSource::Url(u) => format!("video:url:{u}"),
+        };
+
         let asset_id = cx
             .assets
-            .register_dimensions(&video.source().to_string_lossy(), 0, 0);
+            .register_dimensions(&locator, 0, 0);
         let info = cx.assets.video_info(&asset_id).unwrap_or(VideoInfoMeta {
             width: 0,
             height: 0,
             duration_secs: None,
         });
         let asset_id = cx.assets.register_dimensions(
-            &video.source().to_string_lossy(),
+            &locator,
             info.width,
             info.height,
         );

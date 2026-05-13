@@ -190,7 +190,15 @@ export interface DisplayItemJson {
   paint?: RectPaintJson;
   transition?: {
     progress: number;
-    kind: { type: string; direction?: string };
+    kind: {
+      type: string;
+      direction?: string;
+      seed?: number;
+      hueShift?: number;
+      maskScale?: number;
+      name?: string;
+      sksl?: string;
+    };
   } | null;
   // Text
   text?: string;

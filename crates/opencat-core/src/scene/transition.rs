@@ -79,6 +79,17 @@ pub struct LightLeakTransition {
 #[serde(rename_all = "camelCase")]
 pub struct GlTransition {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sksl: Option<String>,
+}
+
+impl GlTransition {
+    /// Fill the `sksl` field using the GLSL-to-SKSL conversion in core.
+    pub fn fill_sksl(&mut self) {
+        if self.sksl.is_none() {
+            self.sksl = crate::scene::gl_transition::gl_transition_sksl(&self.name).ok();
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -358,7 +369,7 @@ impl LightLeakBuilder {
 impl GlTransitionBuilder {
     pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
         Transition {
-            presentation: Presentation::Gl(GlTransition { name: self.name }),
+            presentation: Presentation::Gl(GlTransition { name: self.name, sksl: None }),
             easing,
             duration_in_frames,
         }

@@ -18,6 +18,7 @@ import type {
 } from './types';
 
 import { WasmCacheBridge } from './WasmCacheBridge';
+import { recordPicture, drawTransition, setCanvasKitForTransition } from './transition';
 
 // ── OrderedSceneProgram types ──
 
@@ -90,6 +91,7 @@ export class WebRenderEngine {
     this.CK = ck;
     this.canvas = canvas;
     this.cacheBridge = cacheBridge;
+    setCanvasKitForTransition(ck);
   }
 
   // ── Public API ──
@@ -158,9 +160,6 @@ export class WebRenderEngine {
     // Walk the ordered scene tree.
     this.walkOp(opsJson.root, nodeMap);
 
-    // Debug overlay.
-    this.drawDebugOverlay(comp, frame);
-
     this.surface.flush();
   }
 
@@ -182,7 +181,6 @@ export class WebRenderEngine {
     this.drawDisplayNode(displayTree);
     this.ckCanvas.restore();
 
-    this.drawDebugOverlay(comp, frame);
     this.surface.flush();
   }
 
@@ -235,10 +233,19 @@ export class WebRenderEngine {
           this.applyClip(node.clip);
         }
 
-        this.drawDisplayItem(node.item);
+        const isTransition = node.item.type === 'timeline'
+          && node.item.transition
+          && children.length >= 2;
 
-        for (const child of children) {
-          this.walkOp(child, nodeMap);
+        if (isTransition) {
+          // Draw timeline base (rect background) then composite children
+          this.drawRectItem(node.item);
+          this.drawTimelineTransition(node.item, children, nodeMap);
+        } else {
+          this.drawDisplayItem(node.item);
+          for (const child of children) {
+            this.walkOp(child, nodeMap);
+          }
         }
 
         if (node.opacity < 1.0) {
@@ -250,6 +257,43 @@ export class WebRenderEngine {
       const { handle } = op.CachedSubtree;
       this.drawCachedSubtree(handle);
     }
+  }
+
+  /// Record from/to children into Pictures and composite with transition effect.
+  private drawTimelineTransition(
+    item: DisplayItemJson,
+    children: OrderedSceneOp[],
+    nodeMap: Map<number, DisplayNodeJson>,
+  ): void {
+    const transition = item.transition!;
+    const bounds = item.bounds;
+
+    const recordChild = (child: OrderedSceneOp): any | null => {
+      return recordPicture(bounds, (recCanvas: any) => {
+        const savedCanvas = this.ckCanvas;
+        this.ckCanvas = recCanvas;
+        try {
+          this.walkOp(child, nodeMap);
+        } finally {
+          this.ckCanvas = savedCanvas;
+        }
+      });
+    };
+
+    const fromPic = recordChild(children[0]);
+    const toPic = recordChild(children[1]);
+
+    if (fromPic && toPic) {
+      drawTransition(this.ckCanvas, fromPic, toPic, transition, bounds);
+    } else {
+      // Fallback: draw children directly
+      for (let i = 0; i < children.length; i++) {
+        this.walkOp(children[i], nodeMap);
+      }
+    }
+
+    fromPic?.delete();
+    toPic?.delete();
   }
 
   private drawCachedSubtree(handle: number): void {
@@ -298,10 +342,18 @@ export class WebRenderEngine {
       this.applyClip(clip);
     }
 
-    this.drawDisplayItem(item);
+    const isTransition = item.type === 'timeline'
+      && item.transition
+      && children.length >= 2;
 
-    for (const child of children) {
-      this.drawDisplayNode(child);
+    if (isTransition) {
+      this.drawRectItem(item);
+      this.drawTransitionForNode(item, children);
+    } else {
+      this.drawDisplayItem(item);
+      for (const child of children) {
+        this.drawDisplayNode(child);
+      }
     }
 
     if (opacity < 1.0) {
@@ -309,6 +361,40 @@ export class WebRenderEngine {
     }
 
     this.ckCanvas.restore();
+  }
+
+  private drawTransitionForNode(
+    item: DisplayItemJson,
+    children: DisplayNodeJson[],
+  ): void {
+    const transition = item.transition!;
+    const bounds = item.bounds;
+
+    const drawNodeToPic = (node: DisplayNodeJson): any | null => {
+      return recordPicture(bounds, (recCanvas: any) => {
+        const savedCanvas = this.ckCanvas;
+        this.ckCanvas = recCanvas;
+        try {
+          this.drawDisplayNode(node);
+        } finally {
+          this.ckCanvas = savedCanvas;
+        }
+      });
+    };
+
+    const fromPic = drawNodeToPic(children[0]);
+    const toPic = drawNodeToPic(children[1]);
+
+    if (fromPic && toPic) {
+      drawTransition(this.ckCanvas, fromPic, toPic, transition, bounds);
+    } else {
+      for (const child of children) {
+        this.drawDisplayNode(child);
+      }
+    }
+
+    fromPic?.delete();
+    toPic?.delete();
   }
 
   // ── DisplayItem router ──
@@ -1159,9 +1245,6 @@ export class WebRenderEngine {
     // REVERSE iteration to match Rust's .rev()
     for (let i = t.transforms.length - 1; i >= 0; i--) {
       const xf = t.transforms[i];
-      if ((window as any).__debugTransforms) {
-        console.log(`[transform] type=${xf.type} value=${xf.value ?? xf.x ?? 'N/A'} center=(${centerX.toFixed(1)}, ${centerY.toFixed(1)}) bounds=${t.bounds.width}x${t.bounds.height}`);
-      }
       switch (xf.type) {
         case 'translate':
           // Translate: no pivot
@@ -1494,21 +1577,6 @@ export class WebRenderEngine {
       default:
         return 0;
     }
-  }
-
-  // ── Debug overlay ──
-
-  private drawDebugOverlay(comp: CompositionInfo, frame: number): void {
-    const CK = this.CK;
-    const font = new CK.Font(null, 13);
-    const textPaint = new CK.Paint();
-    textPaint.setColor(CK.Color4f(0.63, 0.63, 0.69, 1.0));
-
-    const info = `${comp.width}x${comp.height} @ ${comp.fps}fps -- frame ${frame + 1}/${comp.frames}`;
-    this.ckCanvas.drawText(info, 12, 18, textPaint, font);
-
-    font.delete();
-    textPaint.delete();
   }
 
   // ── Radius helpers ──

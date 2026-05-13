@@ -12,6 +12,7 @@ use crate::{
     },
     element::tree::{ElementKind, ElementNode},
     layout::tree::{LayoutNode, LayoutTree},
+    scene::transition::TransitionKind,
 };
 
 pub fn build_display_tree(
@@ -136,9 +137,15 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
             transition: timeline
                 .transition
                 .as_ref()
-                .map(|transition| TimelineTransitionDisplay {
-                    progress: transition.progress,
-                    kind: transition.kind.clone(),
+                .map(|transition| {
+                    let mut kind = transition.kind.clone();
+                    if let TransitionKind::Gl(ref mut gl) = kind {
+                        gl.fill_sksl();
+                    }
+                    TimelineTransitionDisplay {
+                        progress: transition.progress,
+                        kind,
+                    }
                 }),
         }),
         ElementKind::Text(text) => {

@@ -155,6 +155,7 @@ interface TransitionMeta {
     hueShift?: number;
     maskScale?: number;
     name?: string;
+    sksl?: string;
   };
 }
 
@@ -190,10 +191,7 @@ export function drawTransition(
       drawLightLeak(canvas, fromPic, toPic, progress, meta.kind, bounds);
       break;
     case 'gl':
-      // SKSL-from-GLSL conversion is not yet ported to web — fall back to fade
-      // so the timeline keeps animating instead of freezing on the from frame.
-      console.warn('[transition] GL transition not yet supported on web; falling back to fade');
-      drawFade(canvas, fromPic, toPic, progress);
+      drawGlTransition(canvas, fromPic, toPic, progress, meta.kind, bounds);
       break;
     default:
       console.warn('[transition] unknown kind:', kind);
@@ -501,6 +499,68 @@ function drawLightLeak(
   paint.delete();
   maskImage.delete();
   maskSurface.delete();
+}
+
+// ── GL Transition (SKSL) ──
+
+function drawGlTransition(
+  canvas: any,
+  fromPic: any,
+  toPic: any,
+  progress: number,
+  params: { name?: string; sksl?: string },
+  bounds: DisplayRect,
+): void {
+  const CK = CK_ref;
+  const sksl = params.sksl;
+  if (!sksl) {
+    console.warn('[transition] GL transition missing sksl for', params.name);
+    drawFade(canvas, fromPic, toPic, progress);
+    return;
+  }
+
+  const key = `gl_${params.name || 'unnamed'}`;
+  const effect = getEffect(key, sksl);
+  if (!effect) {
+    drawFade(canvas, fromPic, toPic, progress);
+    return;
+  }
+
+  const fromShader = fromPic.makeShader(
+    CK.TileMode.Clamp,
+    CK.TileMode.Clamp,
+    CK.FilterMode.Linear,
+  );
+  const toShader = toPic.makeShader(
+    CK.TileMode.Clamp,
+    CK.TileMode.Clamp,
+    CK.FilterMode.Linear,
+  );
+
+  // Uniforms: progress, resolution (width, height)
+  const uniforms = new Float32Array([
+    clamp01(progress),
+    bounds.width,
+    bounds.height,
+  ]);
+
+  const shader = effect.makeShaderWithChildren(uniforms, [fromShader, toShader]);
+  if (!shader) {
+    drawFade(canvas, fromPic, toPic, progress);
+    return;
+  }
+
+  const paint = new CK.Paint();
+  paint.setShader(shader);
+  canvas.save();
+  canvas.clipRect(
+    CK.LTRBRect(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height),
+    CK.ClipOp.Intersect,
+    true,
+  );
+  canvas.drawPaint(paint);
+  canvas.restore();
+  paint.delete();
 }
 
 function clamp01(v: number): number {

@@ -136,8 +136,10 @@ export class NativeBridge {
       r.record_canvas_draw_text(id, txt, x, y, fs, aa, stroke, sw, 'rgba(0,0,0,1)');
 
     w.__animate_create = (dur: number, del: number, clmp: number, ease: string,
-                          rep: number, yoyo: number, rd: number) =>
-      r.animate_create(this.currentFrame, dur, del, clmp !== 0, ease, rep, yoyo !== 0, rd);
+                           rep: number, yoyo: number, rd: number) => {
+      const h = r.animate_create(this.currentFrame, dur, del, clmp !== 0, ease, rep, yoyo !== 0, rd);
+      return h;
+    };
     w.__animate_value = (h: number, _k: string, from: number, to: number) =>
       r.animate_value(this.currentFrame, h, from, to);
     w.__animate_color = (h: number, _k: string, from: string, to: string) =>
@@ -166,8 +168,9 @@ export class NativeBridge {
     w.__text_units_describe = (id: string, gran: string) => r.text_units_describe(id, gran);
 
     w.__text_graphemes = (text: string): string[] => r.grapheme_strings(text);
+    w.__text_word_ranges = (text: string): number[][] => r.word_ranges(text);
 
-    w.__record_text_unit_override = (id: string, gran: string, idx: number, vals: any) =>
+    w.__record_text_unit_override = (id: string, gran: string, idx: number, vals: any) => {
       r.record_text_unit_override(
         id, gran, idx,
         vals?.opacity ?? null,
@@ -177,6 +180,7 @@ export class NativeBridge {
         vals?.rotation ?? null,
         vals?.textColor ?? vals?.color ?? null,
       );
+    };
   }
 
   removeGlobals(): void {
@@ -200,6 +204,7 @@ export class NativeBridge {
       '__record_drop_shadow_color', '__record_text_content', '__record_stroke_dasharray',
       '__record_stroke_dashoffset', '__record_svg_path', '__record_text_unit_override',
       '__text_source_get', '__text_source_set', '__text_units_describe', '__text_graphemes',
+      '__text_word_ranges',
       '__canvas_save', '__canvas_restore', '__canvas_translate', '__canvas_scale',
       '__canvas_rotate', '__canvas_clip_rect', '__canvas_fill_rect',
       '__canvas_fill_rrect', '__canvas_fill_circle', '__canvas_stroke_circle',

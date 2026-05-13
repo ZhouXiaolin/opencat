@@ -1,5 +1,6 @@
 pub mod composition;
 pub mod easing;
+pub mod gl_transition;
 pub mod node;
 pub mod path_bounds;
 pub mod primitives;

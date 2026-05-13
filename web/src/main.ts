@@ -17,14 +17,7 @@ import {
 } from './exporter';
 import { loadImages, setCanvasKit, getCachedImage } from './resource';
 import { getScriptEngine } from './script-engine';
-import { WebRenderEngine } from './WebRenderEngine';
-import { WasmCacheBridge } from './WasmCacheBridge';
 import type { CompositionInfo, JsonlFile, ParsedResult, ParsedElement } from './types';
-
-// --- Feature flag: switch to new WebRenderEngine path via ?engine=wasm ---
-const useWasmEngine = new URLSearchParams(location.search).has('engine')
-  ? location.search.includes('engine=wasm')
-  : false;
 
 // --- State ---
 let currentComposition: CompositionInfo | null = null;
@@ -34,9 +27,6 @@ let currentFrame = 0;
 let isPlaying = false;
 let playInterval: ReturnType<typeof setInterval> | null = null;
 let isExporting = false;
-
-// --- WebRenderEngine (new path) ---
-let webRenderEngine: WebRenderEngine | null = null;
 
 // --- Resource Metadata for WASM build_frame ---
 interface ResourceMeta {
@@ -96,15 +86,6 @@ async function boot() {
     ckStatusEl.className = 'status-badge ready';
 
     setCanvasKit(getCanvasKit());
-
-    // Initialize WebRenderEngine for the new rendering path
-    if (useWasmEngine) {
-      const CK = getCanvasKit();
-      // WasmCacheBridge requires a wasm WebRenderer instance.
-      // Will be wired up when the wasm module exports WebRenderer.
-      const cacheBridge: WasmCacheBridge | null = null;
-      webRenderEngine = new WebRenderEngine(CK, previewCanvas, cacheBridge);
-    }
 
     // Initialize shared script engine (loads wasm bridge + core JS runtimes once)
     await getScriptEngine().init();
@@ -235,7 +216,6 @@ async function preloadResources(
 
   // Use WASM's collect_resources to get the authoritative resource list
   const requests = collectResources(jsonlContent);
-  console.log('[DEBUG preload] resources:', JSON.stringify(requests));
 
   const total = requests.images.length;
   let loaded = 0;
@@ -257,11 +237,7 @@ async function preloadResources(
       }
       // Also register with the renderer so it can draw bitmap items
       if (cached) {
-        if (useWasmEngine && webRenderEngine) {
-          webRenderEngine.registerImage(assetId, cached.ckImage);
-        } else {
-          registerImage(assetId, cached.ckImage);
-        }
+        registerImage(assetId, cached.ckImage);
       }
     } catch (err) {
       console.warn(`Failed to preload image: ${url}`, err);
@@ -332,11 +308,7 @@ async function loadJsonl(file: JsonlFile) {
       }
     }
 
-    if (useWasmEngine && webRenderEngine) {
-      webRenderEngine.ensureSurface(comp.width, comp.height);
-    } else {
-      ensureSurface(previewCanvas, comp.width, comp.height);
-    }
+    ensureSurface(previewCanvas, comp.width, comp.height);
 
     // Block first render until image assets are downloaded — otherwise bitmap
     // items would render empty and pop in once images arrive later.
@@ -372,11 +344,7 @@ async function renderFrameAsync(frame: number) {
 
   renderPending = true;
   const comp = currentComposition;
-  if (useWasmEngine && webRenderEngine) {
-    webRenderEngine.ensureSurface(comp.width, comp.height);
-  } else {
-    ensureSurface(previewCanvas, comp.width, comp.height);
-  }
+  ensureSurface(previewCanvas, comp.width, comp.height);
 
   try {
     // Use the full pipeline: script execution → build_frame → drawDisplayTree
@@ -451,33 +419,6 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   }
 
   const mutationsJson = engine.collectJson();
-  // DEBUG: log mutations and root display tree on first frame
-  if (frame === 0) {
-    console.log('[DEBUG pipeline] mutationsJson (first 500 chars):', mutationsJson.slice(0, 500));
-  }
-  if (frame === 40) {
-    const parsedMutations = JSON.parse(mutationsJson);
-    const ct = parsedMutations.mutations?.['char-text'];
-    if (ct?.textUnitOverrides) {
-      console.log('[SPLIT-TEXT] mutations f=40 gran=' + ct.textUnitOverrides.granularity + ' overrides[0..5]=' + JSON.stringify(ct.textUnitOverrides.overrides.slice(0, 6)));
-    }
-  }
-  if (frame === 10) {
-    // Bug 1 diagnostic — show how mutations carry per-glyph transforms by
-    // mid-animation. Should contain non-zero translateX/Y/scale/rotationDeg.
-    const parsedMutations = JSON.parse(mutationsJson);
-    const ids = Object.keys(parsedMutations.mutations || {});
-    for (const id of ids) {
-      const m = parsedMutations.mutations[id];
-      if (m?.textUnitOverrides) {
-        console.log(
-          `[DEBUG mutations f=10] id="${id}" granularity=${m.textUnitOverrides.granularity}`,
-          'overrides[0..3]:',
-          JSON.stringify(m.textUnitOverrides.overrides.slice(0, 3)),
-        );
-      }
-    }
-  }
   const resourceMetaJson = JSON.stringify(resourceMeta);
 
   // Strip script elements from JSONL before WASM buildFrame,
@@ -490,61 +431,11 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   // Step 3: Render via CanvasKit
   const rootBg = extractRootBackground(result.root);
 
-  // DEBUG: log display tree structure on first frame
-  if (frame === 0) {
-    const logNode = (n: any, depth: number = 0) => {
-      if (!n) return;
-      const indent = '  '.repeat(depth);
-      const itemInfo = n.item
-        ? `${n.item.type}${n.item.assetId ? ' asset=' + n.item.assetId : ''}${n.item.paint?.background ? ' bg=' + JSON.stringify(n.item.paint.background) : ''}`
-        : 'no-item';
-      console.log(`[DEBUG tree] ${indent}${itemInfo}`);
-      if (n.children) {
-        for (const c of n.children) logNode(c, depth + 1);
-      }
-    };
-    console.log('[DEBUG pipeline] rootBg:', JSON.stringify(rootBg));
-    logNode(result.root);
-  }
-  if (frame === 10) {
-    // Walk display tree to inspect per-glyph overrides as they enter the renderer.
-    const visit = (n: any) => {
-      if (!n) return;
-      if (n.item?.type === 'text' && n.item.textUnitOverrides) {
-        console.log(
-          `[DEBUG display f=10] text id=${n.elementId} overrides[0..2]=`,
-          JSON.stringify(n.item.textUnitOverrides.overrides.slice(0, 2)),
-        );
-      }
-      for (const c of n.children || []) visit(c);
-    };
-    visit(result.root);
-  }
-  if (frame === 40) {
-    const visit = (n: any) => {
-      if (!n) return;
-      if (n.item?.type === 'text' && n.item.textUnitOverrides) {
-        const text = n.item.text || '';
-        console.log('[SPLIT-TEXT] display-tree f=40 id=' + n.elementId + ' text="' + text + '" gran=' + n.item.textUnitOverrides.granularity + ' overrides[0..5]=' + JSON.stringify(n.item.textUnitOverrides.overrides.slice(0, 6)));
-      }
-      for (const c of n.children || []) visit(c);
-    };
-    visit(result.root);
-  }
-  if (useWasmEngine && webRenderEngine) {
-    // New path: WebRenderEngine class-based rendering
-    webRenderEngine.ensureSurface(comp.width, comp.height);
-    webRenderEngine.drawDisplayTree(result.root, comp, frame, rootBg);
-  } else {
-    // Old path: module-level renderer.ts functions
-    const CK = getCanvasKit();
-    const canvas = getCkCanvas();
-    const surface = getSurface();
+  const CK = getCanvasKit();
+  const canvas = getCkCanvas();
+  const surface = getSurface();
 
-    if (!CK || !canvas || !surface) {
-      throw new Error('CanvasKit not initialized');
-    }
-
+  if (CK && canvas && surface) {
     drawDisplayTree(result.root, comp, frame, rootBg);
     surface.flush();
   }

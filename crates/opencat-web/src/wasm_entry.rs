@@ -234,12 +234,17 @@ fn enrich_node_with_glyphs(node: &mut DisplayNode) {
     if let DisplayItem::Text(text_item) = &mut node.item
         && text_item.glyphs.is_none()
     {
+        let truncate = if text_item.text_unit_overrides.is_some() {
+            false
+        } else {
+            text_item.truncate
+        };
         let raster = rasterize_glyphs(
             &text_item.text,
             &text_item.style,
             text_item.bounds.width,
             text_item.allow_wrap,
-            text_item.truncate,
+            truncate,
         );
         text_item.glyphs = Some(rasterization_to_display_glyphs(&raster));
     }

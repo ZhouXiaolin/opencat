@@ -68,6 +68,17 @@ const btnExport = document.getElementById('btn-export')! as HTMLButtonElement;
 const btnExportPng = document.getElementById('btn-export-png')! as HTMLButtonElement;
 const exportProgress = document.getElementById('export-progress')!;
 const exportProgressFill = document.getElementById('export-progress-fill')!;
+const previewLoadingEl = document.getElementById('preview-loading')!;
+const previewLoadingTextEl = document.getElementById('preview-loading-text')!;
+
+function setPreviewLoading(message: string | null) {
+  if (message) {
+    previewLoadingTextEl.textContent = message;
+    previewLoadingEl.classList.remove('hidden');
+  } else {
+    previewLoadingEl.classList.add('hidden');
+  }
+}
 
 // --- Boot ---
 async function boot() {
@@ -216,14 +227,20 @@ function stripScriptElements(jsonlContent: string): string {
 
 // --- Resource Preloading ---
 
-async function preloadResources(jsonlContent: string): Promise<void> {
+async function preloadResources(
+  jsonlContent: string,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<void> {
   resourceMeta = {};
 
   // Use WASM's collect_resources to get the authoritative resource list
   const requests = collectResources(jsonlContent);
   console.log('[DEBUG preload] resources:', JSON.stringify(requests));
 
-  // Load images with timeout (fire-and-forget: don't block initial render)
+  const total = requests.images.length;
+  let loaded = 0;
+  onProgress?.(loaded, total);
+
   const imagePromises = requests.images.map(async (url) => {
     try {
       // Use the raw URL/path as the assetId — this matches what Rust's
@@ -248,6 +265,9 @@ async function preloadResources(jsonlContent: string): Promise<void> {
       }
     } catch (err) {
       console.warn(`Failed to preload image: ${url}`, err);
+    } finally {
+      loaded++;
+      onProgress?.(loaded, total);
     }
   });
 
@@ -261,8 +281,10 @@ async function preloadResources(jsonlContent: string): Promise<void> {
     };
   }
 
-  // Don't block the initial render on image loading
-  Promise.all(imagePromises).catch(() => {});
+  // Match desktop engine: block until all image assets are downloaded so the
+  // first preview frame can already use them. Without this, the renderer would
+  // draw an empty bitmap slot for any asset not yet resolved.
+  await Promise.all(imagePromises);
 }
 
 // --- Load JSONL ---
@@ -316,12 +338,23 @@ async function loadJsonl(file: JsonlFile) {
       ensureSurface(previewCanvas, comp.width, comp.height);
     }
 
-    // Preload resources to collect metadata
-    await preloadResources(currentJsonlContent);
+    // Block first render until image assets are downloaded — otherwise bitmap
+    // items would render empty and pop in once images arrive later.
+    setPreviewLoading('Loading resources...');
+    try {
+      await preloadResources(currentJsonlContent, (done, total) => {
+        if (total > 0) {
+          setPreviewLoading(`Loading resources... ${done}/${total}`);
+        }
+      });
+    } finally {
+      setPreviewLoading(null);
+    }
 
     await renderFrameAsync(0);
   } catch (err) {
     fileInfoEl.textContent = `Error loading ${file.name}: ${err}`;
+    setPreviewLoading(null);
   }
 }
 
@@ -422,6 +455,29 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   if (frame === 0) {
     console.log('[DEBUG pipeline] mutationsJson (first 500 chars):', mutationsJson.slice(0, 500));
   }
+  if (frame === 40) {
+    const parsedMutations = JSON.parse(mutationsJson);
+    const ct = parsedMutations.mutations?.['char-text'];
+    if (ct?.textUnitOverrides) {
+      console.log('[SPLIT-TEXT] mutations f=40 gran=' + ct.textUnitOverrides.granularity + ' overrides[0..5]=' + JSON.stringify(ct.textUnitOverrides.overrides.slice(0, 6)));
+    }
+  }
+  if (frame === 10) {
+    // Bug 1 diagnostic — show how mutations carry per-glyph transforms by
+    // mid-animation. Should contain non-zero translateX/Y/scale/rotationDeg.
+    const parsedMutations = JSON.parse(mutationsJson);
+    const ids = Object.keys(parsedMutations.mutations || {});
+    for (const id of ids) {
+      const m = parsedMutations.mutations[id];
+      if (m?.textUnitOverrides) {
+        console.log(
+          `[DEBUG mutations f=10] id="${id}" granularity=${m.textUnitOverrides.granularity}`,
+          'overrides[0..3]:',
+          JSON.stringify(m.textUnitOverrides.overrides.slice(0, 3)),
+        );
+      }
+    }
+  }
   const resourceMetaJson = JSON.stringify(resourceMeta);
 
   // Strip script elements from JSONL before WASM buildFrame,
@@ -449,6 +505,31 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
     };
     console.log('[DEBUG pipeline] rootBg:', JSON.stringify(rootBg));
     logNode(result.root);
+  }
+  if (frame === 10) {
+    // Walk display tree to inspect per-glyph overrides as they enter the renderer.
+    const visit = (n: any) => {
+      if (!n) return;
+      if (n.item?.type === 'text' && n.item.textUnitOverrides) {
+        console.log(
+          `[DEBUG display f=10] text id=${n.elementId} overrides[0..2]=`,
+          JSON.stringify(n.item.textUnitOverrides.overrides.slice(0, 2)),
+        );
+      }
+      for (const c of n.children || []) visit(c);
+    };
+    visit(result.root);
+  }
+  if (frame === 40) {
+    const visit = (n: any) => {
+      if (!n) return;
+      if (n.item?.type === 'text' && n.item.textUnitOverrides) {
+        const text = n.item.text || '';
+        console.log('[SPLIT-TEXT] display-tree f=40 id=' + n.elementId + ' text="' + text + '" gran=' + n.item.textUnitOverrides.granularity + ' overrides[0..5]=' + JSON.stringify(n.item.textUnitOverrides.overrides.slice(0, 6)));
+      }
+      for (const c of n.children || []) visit(c);
+    };
+    visit(result.root);
   }
   if (useWasmEngine && webRenderEngine) {
     // New path: WebRenderEngine class-based rendering

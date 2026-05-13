@@ -388,113 +388,280 @@ export class WebRenderEngine {
       CK.Color4f(textColor.r / 255, textColor.g / 255, textColor.b / 255, textColor.a / 255),
     );
 
-    // Build lookup map: cacheKey -> glyph data
+    // Build lookup map from cache_key -> glyph data
     const glyphMap = new Map<number, any>();
     for (const entry of glyphs.entries) {
       glyphMap.set(entry.cacheKey, entry.data);
     }
 
-    // Build per-character override map from text_unit_overrides (if any)
+    // Parse text unit overrides
+    const rawText = (item as any).text || '';
+    const text = style.textTransform === 'uppercase' ? rawText.toUpperCase() : rawText;
     const unitOverrides = (item as any).textUnitOverrides;
-    const byteToOverride = this.buildByteToOverrideMap(
-      (item as any).text || '',
-      unitOverrides?.overrides ?? null,
-      unitOverrides?.granularity,
-    );
-
+    const overrides = unitOverrides?.overrides ?? null;
+    const granularity = unitOverrides?.granularity;
     const textAlign = style.textAlign || 'left';
+
+    // Group glyphs by unit
+    const unitGroups = this.buildGlyphUnitGroups(
+      text,
+      glyphs,
+      granularity,
+      textAlign,
+      bounds.width,
+      glyphMap,
+    );
 
     canvas.save();
 
-    for (const line of glyphs.lines) {
-      const xShift = this.computeTextXShift(line.width, bounds.width, textAlign);
+    // Render each unit
+    for (const group of unitGroups) {
+      const override = overrides?.[group.unitIndex];
+      const hasNonDefault =
+        override &&
+        ((override.translateX ?? 0) !== 0 ||
+          (override.translateY ?? 0) !== 0 ||
+          (override.scale ?? 1) !== 1 ||
+          (override.rotationDeg ?? 0) !== 0 ||
+          (override.opacity ?? 1) < 1 ||
+          override.color != null);
 
-      for (const pos of line.positions) {
-        const glyphData = glyphMap.get(pos.cacheKey);
-        if (!glyphData) continue;
-
-        const gx = pos.x + xShift;
-        const gy = pos.y;
-
-        const override = byteToOverride.get(pos.byteStart);
-
-        canvas.save();
-
-        // Move to glyph's final position (original position + override offset)
-        canvas.translate(
-          gx + (override?.translateX || 0),
-          gy + (override?.translateY || 0),
-        );
-
-        // Apply scale and rotation around this position
-        if (override?.scale !== undefined && override.scale !== 1) {
-          canvas.scale(override.scale, override.scale);
+      if (!hasNonDefault) {
+        // Fast path: draw glyphs at layout positions
+        for (const slot of group.slots) {
+          this.drawSingleGlyph(slot, fillPaint, dropShadow, 1.0);
         }
-        if (override?.rotationDeg) {
-          canvas.rotate(override.rotationDeg);
-        }
-
-        // Opacity override via saveLayer
-        if (override?.opacity !== undefined && override.opacity < 1) {
-          const alphaPaint = new CK.Paint();
-          alphaPaint.setAlphaf(override.opacity);
-          canvas.saveLayer(alphaPaint);
-          alphaPaint.delete();
-        }
-
-        if (glyphData.kind === 'outline') {
-          let path = this.glyphPathCache.get(pos.cacheKey);
-          if (!path) {
-            path = this.buildGlyphPath(glyphData.commands);
-            if (path) {
-              this.glyphPathCache.set(pos.cacheKey, path);
-            }
-          }
-          if (path) {
-            // Determine paint: override color or default text color
-            let glyphPaint = fillPaint;
-            let ownsPaint = false;
-            if (override?.color) {
-              const c = override.color;
-              glyphPaint = new CK.Paint();
-              glyphPaint.setStyle(CK.PaintStyle.Fill);
-              glyphPaint.setAntiAlias(true);
-              glyphPaint.setColor(
-                CK.Color4f(c.r / 255, c.g / 255, c.b / 255, c.a / 255),
-              );
-              ownsPaint = true;
-            }
-            if (dropShadow) {
-              this.drawGlyphDropShadow(path, dropShadow);
-            }
-            canvas.drawPath(path, glyphPaint);
-            if (ownsPaint) glyphPaint.delete();
-          }
-        } else if (glyphData.kind === 'colorImage') {
-          const { rgba, width, height, placementLeft, placementTop } = glyphData;
-          let image = this.glyphImgCache.get(pos.cacheKey);
-          if (!image) {
-            image = this.makeImageFromRgba(rgba, width, height);
-            if (image) {
-              this.glyphImgCache.set(pos.cacheKey, image);
-            }
-          }
-          if (image) {
-            canvas.drawImage(image, placementLeft, placementTop);
-          }
-        }
-
-        // Restore saveLayer if opacity override was applied
-        if (override?.opacity !== undefined && override.opacity < 1) {
-          canvas.restore();
-        }
-
-        canvas.restore();
+        continue;
       }
+
+      // Engine-style: T(pivot + trans) -> R -> S -> T(-pivot)
+      const bx = group.bbox;
+      const pivotX = (bx.minX + bx.maxX) / 2;
+      const pivotY = (bx.minY + bx.maxY) / 2;
+      const transX = override.translateX ?? 0;
+      const transY = override.translateY ?? 0;
+      const scale = override.scale ?? 1;
+      const rotationDeg = override.rotationDeg ?? 0;
+      const opacity = override.opacity ?? 1;
+
+      canvas.save();
+      canvas.translate(transX, transY);
+      if (rotationDeg !== 0) canvas.rotate(rotationDeg, pivotX, pivotY);
+      if (scale !== 1) canvas.scale(scale, scale, pivotX, pivotY);
+
+      // Opacity via saveLayer
+      if (opacity < 1) {
+        const alphaPaint = new CK.Paint();
+        alphaPaint.setAlphaf(opacity);
+        canvas.saveLayer(alphaPaint);
+        alphaPaint.delete();
+      }
+
+      // Use override color or default
+      let unitPaint = fillPaint;
+      let ownsUnitPaint = false;
+      if (override?.color) {
+        const c = override.color;
+        unitPaint = new CK.Paint();
+        unitPaint.setStyle(CK.PaintStyle.Fill);
+        unitPaint.setAntiAlias(true);
+        unitPaint.setColor(CK.Color4f(c.r / 255, c.g / 255, c.b / 255, c.a / 255));
+        ownsUnitPaint = true;
+      }
+
+      for (const slot of group.slots) {
+        this.drawSingleGlyph(slot, unitPaint, dropShadow, 1.0);
+      }
+
+      if (ownsUnitPaint) unitPaint.delete();
+      if (opacity < 1) canvas.restore();
+      canvas.restore();
     }
 
     canvas.restore();
     fillPaint.delete();
+  }
+
+  /// Group glyphs into text units (grapheme or word) and compute per-unit bounding box.
+  private buildGlyphUnitGroups(
+    text: string,
+    glyphs: any,
+    granularity: string | undefined,
+    textAlign: string,
+    boundsWidth: number,
+    glyphMap: Map<number, any>,
+  ): Array<{ unitIndex: number; slots: Array<{ cacheKey: number; glyphData: any; gx: number; gy: number; byteStart: number }>; bbox: { minX: number; minY: number; maxX: number; maxY: number } }> {
+    const encoder = new TextEncoder();
+
+    // Segment text into units and get byte ranges
+    const units: Array<{ byteStart: number; byteEnd: number }> = [];
+
+    if (granularity === 'word' || granularity === 'words') {
+      const wordRanges: number[][] =
+        ((window as any).__text_word_ranges?.(text) as number[][]) || [];
+      for (const [start, end] of wordRanges) {
+        units.push({ byteStart: start, byteEnd: end });
+      }
+    } else {
+      const graphemes: string[] =
+        ((window as any).__text_graphemes?.(text) as string[]) || [...text];
+      let byteOffset = 0;
+      for (const g of graphemes) {
+        const byteLen = encoder.encode(g).length;
+        units.push({ byteStart: byteOffset, byteEnd: byteOffset + byteLen });
+        byteOffset += byteLen;
+      }
+    }
+
+    // Collect all glyph slots from the layout
+    const allSlots: Array<{ cacheKey: number; glyphData: any; gx: number; gy: number; byteStart: number }> = [];
+    for (let li = 0; li < glyphs.lines.length; li++) {
+      const line = glyphs.lines[li];
+      const xShift = this.computeTextXShift(line.width, boundsWidth, textAlign);
+      for (let pi = 0; pi < line.positions.length; pi++) {
+        const pos = line.positions[pi];
+        const glyphData = glyphMap.get(pos.cacheKey);
+        if (!glyphData) continue;
+        allSlots.push({
+          cacheKey: pos.cacheKey,
+          glyphData,
+          gx: pos.x + xShift,
+          gy: pos.y,
+          byteStart: pos.byteStart,
+        });
+      }
+    }
+
+    // Assign glyph slots to their corresponding unit
+    const unitGroups: Array<{
+      unitIndex: number;
+      slots: Array<{ cacheKey: number; glyphData: any; gx: number; gy: number; byteStart: number }>;
+      bbox: { minX: number; minY: number; maxX: number; maxY: number };
+    }> = [];
+    for (let ui = 0; ui < units.length; ui++) {
+      const unit = units[ui];
+      const slots = allSlots.filter(
+        (s) => s.byteStart >= unit.byteStart && s.byteStart < unit.byteEnd,
+      );
+      if (slots.length === 0) continue;
+
+      // Compute bounding box of this unit's glyphs
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+
+      for (const slot of slots) {
+        if (slot.glyphData.kind === 'outline') {
+          const path = this.buildGlyphPathCached(slot.cacheKey, slot.glyphData.commands);
+          if (path) {
+            const b = path.getBounds(); // Float32Array [left, top, right, bottom]
+            const gx = slot.gx + b[0];
+            const gy = slot.gy + b[1];
+            const gw = b[2] - b[0];
+            const gh = b[3] - b[1];
+            if (gw > 0 && gh > 0) {
+              minX = Math.min(minX, gx);
+              minY = Math.min(minY, gy);
+              maxX = Math.max(maxX, gx + gw);
+              maxY = Math.max(maxY, gy + gh);
+            } else {
+              minX = Math.min(minX, slot.gx);
+              minY = Math.min(minY, slot.gy);
+              maxX = Math.max(maxX, slot.gx);
+              maxY = Math.max(maxY, slot.gy);
+            }
+          } else {
+            minX = Math.min(minX, slot.gx);
+            minY = Math.min(minY, slot.gy);
+            maxX = Math.max(maxX, slot.gx);
+            maxY = Math.max(maxY, slot.gy);
+          }
+        } else if (slot.glyphData.kind === 'colorImage') {
+          const { placementLeft, placementTop, width, height } = slot.glyphData;
+          const ix = slot.gx + (placementLeft || 0);
+          const iy = slot.gy - (placementTop || 0);
+          const iw = width || 0;
+          const ih = height || 0;
+          if (iw > 0 && ih > 0) {
+            minX = Math.min(minX, ix);
+            minY = Math.min(minY, iy);
+            maxX = Math.max(maxX, ix + iw);
+            maxY = Math.max(maxY, iy + ih);
+          } else {
+            minX = Math.min(minX, slot.gx);
+            minY = Math.min(minY, slot.gy);
+            maxX = Math.max(maxX, slot.gx);
+            maxY = Math.max(maxY, slot.gy);
+          }
+        }
+      }
+
+      // Fallback if bbox is empty
+      if (slots.length > 0 && (minX === Infinity || minY === Infinity)) {
+        minX = slots[0].gx - 5;
+        minY = slots[0].gy - 5;
+        maxX = slots[0].gx + 5;
+        maxY = slots[0].gy + 5;
+      }
+
+      unitGroups.push({
+        unitIndex: ui,
+        slots,
+        bbox: { minX, minY, maxX, maxY },
+      });
+    }
+
+    return unitGroups;
+  }
+
+  /// Draw a single glyph at its layout position (path or color image).
+  private drawSingleGlyph(
+    slot: { cacheKey: number; glyphData: any; gx: number; gy: number; byteStart: number },
+    paint: any,
+    dropShadow: DropShadowJson | null | undefined,
+    _opacity: number,
+  ): void {
+    const glyphData = slot.glyphData;
+
+    if (glyphData.kind === 'outline') {
+      const path = this.buildGlyphPathCached(slot.cacheKey, glyphData.commands);
+      if (!path) return;
+      this.ckCanvas.save();
+      this.ckCanvas.translate(slot.gx, slot.gy);
+      if (dropShadow) {
+        this.drawGlyphDropShadow(path, dropShadow);
+      }
+      this.ckCanvas.drawPath(path, paint);
+      this.ckCanvas.restore();
+    } else if (glyphData.kind === 'colorImage') {
+      const { rgba, width, height, placementLeft, placementTop } = glyphData;
+      let image = this.glyphImgCache.get(slot.cacheKey);
+      if (!image) {
+        image = this.makeImageFromRgba(rgba, width, height);
+        if (image) {
+          this.glyphImgCache.set(slot.cacheKey, image);
+        }
+      }
+      if (image) {
+        this.ckCanvas.save();
+        this.ckCanvas.translate(slot.gx, slot.gy);
+        this.ckCanvas.drawImage(image, placementLeft || 0, -(placementTop || 0));
+        this.ckCanvas.restore();
+      }
+    }
+  }
+
+  /// Build a cached glyph path from outline commands.
+  private buildGlyphPathCached(cacheKey: number, commands: any): any {
+    let path = this.glyphPathCache.get(cacheKey);
+    if (!path) {
+      path = this.buildGlyphPath(commands);
+      if (path) {
+        this.glyphPathCache.set(cacheKey, path);
+      }
+    }
+    return path;
   }
 
   private drawTextWithCanvasKitFont(item: DisplayItemJson): void {
@@ -979,11 +1146,25 @@ export class WebRenderEngine {
   // ── Transform & Clip ──
 
   private applyTransform(t: DisplayTransformJson): void {
+    // Always apply the base translation
     this.ckCanvas.translate(t.translationX, t.translationY);
 
-    for (const xf of t.transforms) {
+    // Early return if no additional transforms (matching Rust's early return)
+    if (t.transforms.length === 0) return;
+
+    // Calculate center from bounds (matching Rust's layout_rect_to_skia)
+    const centerX = t.bounds.width / 2;
+    const centerY = t.bounds.height / 2;
+
+    // REVERSE iteration to match Rust's .rev()
+    for (let i = t.transforms.length - 1; i >= 0; i--) {
+      const xf = t.transforms[i];
+      if ((window as any).__debugTransforms) {
+        console.log(`[transform] type=${xf.type} value=${xf.value ?? xf.x ?? 'N/A'} center=(${centerX.toFixed(1)}, ${centerY.toFixed(1)}) bounds=${t.bounds.width}x${t.bounds.height}`);
+      }
       switch (xf.type) {
         case 'translate':
+          // Translate: no pivot
           this.ckCanvas.translate(xf.x || 0, xf.y || 0);
           break;
         case 'translateX':
@@ -993,28 +1174,42 @@ export class WebRenderEngine {
           this.ckCanvas.translate(0, xf.value || 0);
           break;
         case 'scale':
+          // T(center) * S * T(-center) — matching Rust's three-step sequence
+          this.ckCanvas.translate(centerX, centerY);
           this.ckCanvas.scale(xf.value || 1, xf.value || 1);
+          this.ckCanvas.translate(-centerX, -centerY);
           break;
         case 'scaleX':
+          this.ckCanvas.translate(centerX, centerY);
           this.ckCanvas.scale(xf.value || 1, 1);
+          this.ckCanvas.translate(-centerX, -centerY);
           break;
         case 'scaleY':
+          this.ckCanvas.translate(centerX, centerY);
           this.ckCanvas.scale(1, xf.value || 1);
+          this.ckCanvas.translate(-centerX, -centerY);
           break;
-        case 'rotateDeg':
-          this.ckCanvas.rotate(xf.value || 0, 0, 0);
+        case 'rotate':
+          // CanvasKit rotate(degrees, px, py) — same as Skia, takes degrees
+          this.ckCanvas.rotate(xf.value || 0, centerX, centerY);
           break;
-        case 'skewXDeg':
+        case 'skewX':
+          this.ckCanvas.translate(centerX, centerY);
           this.ckCanvas.skew(Math.tan((xf.value || 0) * Math.PI / 180), 0);
+          this.ckCanvas.translate(-centerX, -centerY);
           break;
-        case 'skewYDeg':
+        case 'skewY':
+          this.ckCanvas.translate(centerX, centerY);
           this.ckCanvas.skew(0, Math.tan((xf.value || 0) * Math.PI / 180));
+          this.ckCanvas.translate(-centerX, -centerY);
           break;
-        case 'skewDeg':
+        case 'skew':
+          this.ckCanvas.translate(centerX, centerY);
           this.ckCanvas.skew(
             Math.tan((xf.x || 0) * Math.PI / 180),
             Math.tan((xf.y || 0) * Math.PI / 180),
           );
+          this.ckCanvas.translate(-centerX, -centerY);
           break;
       }
     }
@@ -1299,64 +1494,6 @@ export class WebRenderEngine {
       default:
         return 0;
     }
-  }
-
-  /// Build a mapping from UTF-8 byte offset to per-character/per-word override.
-  /// Glyph positions carry `byteStart` (UTF-8 byte offset into the original text),
-  /// and overrides are indexed by text-unit position (grapheme or word).
-  /// For word granularity, one override spans all glyphs in that word.
-  private buildByteToOverrideMap(
-    text: string,
-    overrides: Array<{
-      opacity?: number;
-      translateX?: number;
-      translateY?: number;
-      scale?: number;
-      rotationDeg?: number;
-      color?: { r: number; g: number; b: number; a: number };
-    }> | null | undefined,
-    granularity?: string,
-  ): Map<number, any> {
-    const map = new Map<number, any>();
-    if (!overrides || overrides.length === 0) return map;
-    const encoder = new TextEncoder();
-
-    if (granularity === 'words') {
-      // Word-level: segment text into words+whitespace using Intl.Segmenter
-      // to match Rust's UnicodeSegmentation::split_word_bounds behavior.
-      const segmenter = new (Intl as any).Segmenter('en', { granularity: 'word' });
-      const segments: Array<{ segment: string; index: number; isWordLike: boolean }> =
-        Array.from(segmenter.segment(text));
-      let unitIndex = 0;
-      for (const seg of segments) {
-        const byteStart = encoder.encode(text.slice(0, seg.index)).length;
-        const byteEnd = byteStart + encoder.encode(seg.segment).length;
-        const override = overrides[unitIndex];
-        if (override) {
-          for (let b = byteStart; b < byteEnd; b++) {
-            map.set(b, override);
-          }
-        }
-        unitIndex++;
-      }
-    } else {
-      // Character/grapheme-level
-      const graphemes: string[] =
-        ((window as any).__text_graphemes?.(text) as string[]) || [...text];
-      let byteOffset = 0;
-      for (let i = 0; i < graphemes.length; i++) {
-        const byteLen = encoder.encode(graphemes[i]).length;
-        const override = overrides[i];
-        if (override) {
-          for (let b = byteOffset; b < byteOffset + byteLen; b++) {
-            map.set(b, override);
-          }
-        }
-        byteOffset += byteLen;
-      }
-    }
-
-    return map;
   }
 
   // ── Debug overlay ──

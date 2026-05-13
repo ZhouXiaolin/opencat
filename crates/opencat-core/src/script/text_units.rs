@@ -64,6 +64,28 @@ pub fn grapheme_strings(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Return byte ranges for word-mode segmentation, matching `describe_text_unit_ranges`.
+/// CJK text falls back to grapheme ranges.
+pub fn word_ranges(text: &str) -> Vec<[usize; 2]> {
+    if contains_cjk(text) {
+        return UnicodeSegmentation::graphemes(text, true)
+            .scan(0usize, |offset, g| {
+                let start = *offset;
+                *offset += g.len();
+                Some([start, *offset])
+            })
+            .collect();
+    }
+    UnicodeSegmentation::split_word_bounds(text)
+        .filter(|s| !s.is_empty())
+        .scan(0usize, |offset, w| {
+            let start = *offset;
+            *offset += w.len();
+            Some([start, *offset])
+        })
+        .collect()
+}
+
 fn contains_cjk(text: &str) -> bool {
     text.chars().any(|ch| {
         matches!(
@@ -106,5 +128,23 @@ mod tests {
         let words: Vec<&str> = units.iter().map(|u| u.text.as_str()).collect();
         assert!(words.contains(&"hello"));
         assert!(words.contains(&"world"));
+    }
+
+    #[test]
+    fn word_ranges_matches_describe_text_units() {
+        let text = "hello, world!";
+        let units = describe_text_units(text, TextUnitGranularity::Word);
+        let ranges = word_ranges(text);
+        assert_eq!(units.len(), ranges.len());
+        for (u, [start, end]) in units.iter().zip(ranges.iter()) {
+            assert_eq!(u.start, *start);
+            assert_eq!(u.end, *end);
+        }
+    }
+
+    #[test]
+    fn word_ranges_cjk_falls_back_to_graphemes() {
+        let ranges = word_ranges("你好世界");
+        assert_eq!(ranges.len(), 4);
     }
 }

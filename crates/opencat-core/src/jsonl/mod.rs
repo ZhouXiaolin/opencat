@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::scene::{
     composition::{AudioAttachment, CompositionAudioSource},
     node::Node,
-    primitives::{AudioSource, ImageSource, OpenverseQuery},
+    primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource},
 };
 use crate::style::NodeStyle;
 
@@ -97,6 +97,7 @@ pub enum JsonLine {
         #[serde(rename = "className")]
         class_name: Option<String>,
         path: String,
+        url: Option<String>,
         duration: Option<u32>,
     },
     #[serde(rename = "icon")]
@@ -167,7 +168,7 @@ enum ParsedElementKind {
     Image { source: ImageSource },
     Icon { name: String },
     Path { data: String },
-    Video { path: PathBuf },
+    Video { source: VideoSource },
     Caption { path: PathBuf },
 }
 
@@ -369,6 +370,7 @@ pub fn parse_with_base_dir(
                 parent_id,
                 class_name,
                 path,
+                url,
                 duration,
             } => {
                 let style = parse_class_name_with_context(
@@ -376,14 +378,16 @@ pub fn parse_with_base_dir(
                     &id,
                     line_index + 1,
                 );
+                let source = match url {
+                    Some(u) => VideoSource::Url(u),
+                    None => VideoSource::Path(PathBuf::from(path)),
+                };
                 elements.push(ParsedElement {
                     id,
                     parent_id,
                     duration,
                     style,
-                    kind: ParsedElementKind::Video {
-                        path: PathBuf::from(path),
-                    },
+                    kind: ParsedElementKind::Video { source },
                 });
             }
             JsonLine::Icon {

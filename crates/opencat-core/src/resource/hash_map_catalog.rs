@@ -1,4 +1,4 @@
-use crate::resource::asset_id::AssetId;
+use crate::resource::asset_id::{asset_id_for_query, AssetId};
 use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 use crate::scene::primitives::{AudioSource, ImageSource};
 use anyhow::Result;
@@ -61,8 +61,8 @@ impl ResourceCatalog for HashMapResourceCatalog {
         let key = match src {
             ImageSource::Unset => "unset".to_string(),
             ImageSource::Path(p) => p.to_string_lossy().to_string(),
-            ImageSource::Url(u) => u.clone(),
-            ImageSource::Query(q) => format!("query:{}", q.query),
+            ImageSource::Url(u) => format!("url:{u}"),
+            ImageSource::Query(q) => asset_id_for_query(q).0,
         };
         Ok(self.resolve_key(&key))
     }
@@ -71,7 +71,7 @@ impl ResourceCatalog for HashMapResourceCatalog {
         let key = match src {
             AudioSource::Unset => "unset".to_string(),
             AudioSource::Path(p) => p.to_string_lossy().to_string(),
-            AudioSource::Url(u) => u.clone(),
+            AudioSource::Url(u) => format!("audio:url:{u}"),
         };
         Ok(self.resolve_key(&key))
     }
@@ -138,7 +138,7 @@ impl ResourceCatalog for HashMapResourceCatalog {
 mod tests {
     use super::*;
     use crate::resource::catalog::ResourceCatalog;
-    use crate::scene::primitives::ImageSource;
+    use crate::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
     use std::path::PathBuf;
 
     #[test]
@@ -148,6 +148,38 @@ mod tests {
         let src = ImageSource::Path(PathBuf::from("/img/a.png"));
         let id = catalog.resolve_image(&src).unwrap();
         assert_eq!(catalog.dimensions(&id), (100, 200));
+    }
+
+    #[test]
+    fn resolves_image_url_with_prefix() {
+        let json = r#"{"url:https://example.com/a.png":{"width":800,"height":600,"kind":"image"}}"#;
+        let mut catalog = HashMapResourceCatalog::from_json(json).unwrap();
+        let src = ImageSource::Url("https://example.com/a.png".to_string());
+        let id = catalog.resolve_image(&src).unwrap();
+        assert_eq!(catalog.dimensions(&id), (800, 600));
+    }
+
+    #[test]
+    fn resolves_image_query() {
+        let json = r#"{"openverse:q=cats;count=3":{"width":640,"height":480,"kind":"image"}}"#;
+        let mut catalog = HashMapResourceCatalog::from_json(json).unwrap();
+        let q = OpenverseQuery {
+            query: "cats".into(),
+            count: 3,
+            aspect_ratio: None,
+        };
+        let src = ImageSource::Query(q);
+        let id = catalog.resolve_image(&src).unwrap();
+        assert_eq!(catalog.dimensions(&id), (640, 480));
+    }
+
+    #[test]
+    fn resolves_audio_url_with_prefix() {
+        let json = r#"{"audio:url:https://example.com/music.mp3":{"width":0,"height":0,"kind":"audio"}}"#;
+        let mut catalog = HashMapResourceCatalog::from_json(json).unwrap();
+        let src = AudioSource::Url("https://example.com/music.mp3".to_string());
+        let id = catalog.resolve_audio(&src).unwrap();
+        assert_eq!(catalog.dimensions(&id), (0, 0));
     }
 
     #[test]

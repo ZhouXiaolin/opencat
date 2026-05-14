@@ -18,6 +18,7 @@ uniform float seed;
 uniform float retractSeed;
 uniform float hueShift;
 uniform float2 resolution;
+uniform float2 offset;
 
 const float PI = 3.14159265;
 
@@ -44,8 +45,9 @@ float3 computePattern(float2 uv, float s, float t) {
 }
 
 half4 main(float2 coord) {
+    float2 local = coord - offset;
     float refScale = 1.92;
-    float2 uv = (coord / resolution) *
+    float2 uv = (local / resolution) *
         float2(refScale, refScale * resolution.y / resolution.x);
 
     float3 patA = computePattern(uv, seed, evolveProgress * PI);
@@ -403,13 +405,6 @@ function drawLightLeak(
   const CK = CK_ref;
   const seed = params.seed ?? 0;
   const hueShift = params.hueShift ?? 0;
-  const rawMaskScale = params.maskScale ?? 1;
-  const maskScale = Math.min(1, Math.max(0.03125, rawMaskScale));
-
-  // Render the leak mask to an offscreen surface at reduced resolution
-  // to keep the heavy procedural pattern cheap.
-  const maskW = Math.max(1, Math.round(bounds.width * maskScale));
-  const maskH = Math.max(1, Math.round(bounds.height * maskScale));
 
   const maskEffect = getEffect('lightLeakMask', LIGHT_LEAK_MASK_SKSL);
   const compositeEffect = getEffect('lightLeakComposite', LIGHT_LEAK_COMPOSITE_SKSL);
@@ -423,67 +418,45 @@ function drawLightLeak(
   const evolveProgress = Math.min(1, normalized * 2);
   const retractProgress = Math.max(0, normalized * 2 - 1);
 
+  // Mask shader runs directly on GPU — no intermediate CPU surface needed.
   const maskUniforms = new Float32Array([
     evolveProgress,
     retractProgress,
     seed,
     seed + 42,
     hueShift,
-    maskW,
-    maskH,
+    bounds.width,
+    bounds.height,
+    bounds.x,
+    bounds.y,
   ]);
-
-  // Bake mask into an Image via an offscreen surface.
-  const maskSurface = CK.MakeSurface(maskW, maskH);
-  if (!maskSurface) {
-    console.warn('[transition] light leak mask surface failed; falling back to fade');
-    drawFade(canvas, fromPic, toPic, progress);
-    return;
-  }
-  const maskCanvas = maskSurface.getCanvas();
   const maskShader = maskEffect.makeShader(maskUniforms);
-  const maskPaint = new CK.Paint();
-  maskPaint.setShader(maskShader);
-  maskCanvas.drawPaint(maskPaint);
-  maskPaint.delete();
-  const maskImage = maskSurface.makeImageSnapshot();
 
-  // Build shaders from from/to pictures (in absolute coordinates already)
-  // and from the mask image. The mask is scaled back up to bounds size.
-  const noMatrix = undefined;
+  // Picture shaders: offset coords so they align with bounds.
+  const offsetMatrix = [
+    1, 0, -bounds.x,
+    0, 1, -bounds.y,
+    0, 0, 1,
+  ];
   const fromShader = fromPic.makeShader(
     CK.TileMode.Clamp,
     CK.TileMode.Clamp,
     CK.FilterMode.Linear,
-    noMatrix,
+    offsetMatrix,
     undefined,
   );
   const toShader = toPic.makeShader(
     CK.TileMode.Clamp,
     CK.TileMode.Clamp,
     CK.FilterMode.Linear,
-    noMatrix,
+    offsetMatrix,
     undefined,
-  );
-  // Mask shader covers bounds, so we translate to bounds.x/y and scale 1/maskScale
-  // to map mask pixels back to bounds pixels.
-  const scaleMatrix = [
-    1 / maskScale, 0, bounds.x,
-    0, 1 / maskScale, bounds.y,
-    0, 0, 1,
-  ];
-  const maskUpscaledShader = maskImage.makeShaderOptions(
-    CK.TileMode.Clamp,
-    CK.TileMode.Clamp,
-    CK.FilterMode.Linear,
-    CK.MipmapMode.None,
-    scaleMatrix,
   );
 
   const compositeUniforms = new Float32Array([normalized]);
   const compositeShader = compositeEffect.makeShaderWithChildren(
     compositeUniforms,
-    [fromShader, toShader, maskUpscaledShader],
+    [fromShader, toShader, maskShader],
   );
 
   const paint = new CK.Paint();
@@ -497,8 +470,6 @@ function drawLightLeak(
   canvas.drawPaint(paint);
   canvas.restore();
   paint.delete();
-  maskImage.delete();
-  maskSurface.delete();
 }
 
 // ── GL Transition (SKSL) ──

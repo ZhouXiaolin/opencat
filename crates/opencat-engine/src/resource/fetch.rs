@@ -1,20 +1,16 @@
-//! Remote asset preloading entry point.
+//! HTTP helpers shared by [`crate::resource::resolver::EngineAssetResolver`]:
+//! reqwest client construction, Openverse search/token, generic download-to-file.
 
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use reqwest::header::CONTENT_TYPE;
 use serde::Deserialize;
 use tokio::runtime::Builder;
-use tokio::task::JoinSet;
 
-use opencat_core::resource::asset_id::{
-    asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
-};
-use opencat_core::resource::catalog::ResourceCatalog;
-use opencat_core::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
+use opencat_core::scene::primitives::OpenverseQuery;
 
 pub use crate::resource::utils::{asset_id_for_audio_path, cache_file_path, read_image_dimensions};
 pub use opencat_core::resource::asset_id::AssetId;
@@ -24,31 +20,6 @@ const OPENVERSE_TOKEN_ENDPOINT: &str = "https://api.openverse.org/v1/auth_tokens
 const OPENVERSE_CLIENT_ID_ENV: &str = "OPENVERSE_CLIENT_ID";
 const OPENVERSE_CLIENT_SECRET_ENV: &str = "OPENVERSE_CLIENT_SECRET";
 const HTTP_USER_AGENT: &str = "OpenCat/0.1 (+https://github.com/solaren/opencat)";
-
-use crate::resource::path_store::AssetPathStore;
-
-fn push_missing_request<T>(_id: &AssetId, remote_requests: &mut Vec<T>, build: impl FnOnce() -> T) {
-    // TODO: implement deduplication check when we have a way to track preloaded assets
-    remote_requests.push(build());
-}
-
-#[derive(Clone)]
-struct RemoteAssetRequest {
-    id: AssetId,
-    source: RemoteImageSource,
-}
-
-#[derive(Clone)]
-struct RemoteAudioRequest {
-    id: AssetId,
-    url: String,
-}
-
-#[derive(Clone)]
-enum RemoteImageSource {
-    Url(String),
-    Query(OpenverseQuery),
-}
 
 #[derive(Deserialize)]
 struct OpenverseSearchResponse {
@@ -66,266 +37,44 @@ struct OpenverseTokenResponse {
     access_token: String,
 }
 
-pub fn preload_image_sources<I>(
-    catalog: &mut opencat_core::resource::hash_map_catalog::HashMapResourceCatalog,
-    path_store: &mut crate::resource::path_store::AssetPathStore,
-    sources: I,
-) -> Result<()>
-where
-    I: IntoIterator<Item = ImageSource>,
-{
-    let mut remote_requests = Vec::new();
-
-    for source in sources {
-        match source {
-            ImageSource::Unset => {
-                return Err(anyhow!("image source is required before rendering"));
-            }
-            ImageSource::Path(path) => {
-                let id = catalog.resolve_image(&ImageSource::Path(path.clone()))?;
-                let locator = path.to_string_lossy();
-                let (width, height) = crate::resource::utils::read_image_dimensions(&path);
-                catalog.register_dimensions(&locator, width, height);
-                path_store.insert(id, path);
-            }
-            ImageSource::Url(url) => {
-                let id = asset_id_for_url(&url);
-                push_missing_request(&id, &mut remote_requests, || RemoteAssetRequest {
-                    id: id.clone(),
-                    source: RemoteImageSource::Url(url.clone()),
-                });
-            }
-            ImageSource::Query(query) => {
-                let id = asset_id_for_query(&query);
-                push_missing_request(&id, &mut remote_requests, || RemoteAssetRequest {
-                    id: id.clone(),
-                    source: RemoteImageSource::Query(query.clone()),
-                });
-            }
-        }
-    }
-
-    if remote_requests.is_empty() {
-        return Ok(());
-    }
-
-    let cache_dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".opencat")
-        .join("assets");
-    let rt = build_preload_runtime("asset")?;
-    let token = rt.block_on(fetch_openverse_token(None))?;
-
-    let prepared = rt.block_on(preload_remote_requests(cache_dir, token, remote_requests))?;
-
-    for (id, path, width, height) in prepared {
-        let locator = path.to_string_lossy().to_string();
-        catalog.register_dimensions(&locator, width, height);
-        path_store.insert(id, path);
-    }
-
-    Ok(())
-}
-
-pub fn preload_audio_sources<I>(
-    catalog: &mut opencat_core::resource::hash_map_catalog::HashMapResourceCatalog,
-    path_store: &mut AssetPathStore,
-    sources: I,
-) -> Result<()>
-where
-    I: IntoIterator<Item = AudioSource>,
-{
-    let mut remote_requests = Vec::new();
-
-    for source in sources {
-        match source {
-            AudioSource::Unset => {
-                return Err(anyhow!("audio source is required before rendering"));
-            }
-            AudioSource::Path(path) => {
-                let id = catalog.resolve_audio(&AudioSource::Path(path.clone()))?;
-                path_store.insert(id, path);
-            }
-            AudioSource::Url(url) => {
-                let id = asset_id_for_audio_url(&url);
-                push_missing_request(&id, &mut remote_requests, || RemoteAudioRequest {
-                    id: id.clone(),
-                    url: url.clone(),
-                });
-            }
-        }
-    }
-
-    if remote_requests.is_empty() {
-        return Ok(());
-    }
-
-    let cache_dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".opencat")
-        .join("assets");
-    let rt = build_preload_runtime("audio")?;
-    let prepared = rt.block_on(preload_remote_audio_requests(cache_dir, remote_requests))?;
-
-    for (id, path) in prepared {
-        path_store.insert(id, path);
-    }
-
-    Ok(())
-}
-
-pub fn preload_video_sources(
-    path_store: &mut AssetPathStore,
-    urls: &std::collections::HashSet<String>,
-) -> Result<Vec<(String, PathBuf)>> {
-    if urls.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let cache_dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".opencat")
-        .join("assets");
-    let rt = build_preload_runtime("video")?;
-    let prepared = rt.block_on(preload_remote_video_requests(cache_dir, urls))?;
-
-    for (id, cache_path) in &prepared {
-        path_store.insert(AssetId(id.clone()), cache_path.clone());
-    }
-
-    Ok(prepared)
-}
-
-async fn preload_remote_video_requests(
-    cache_dir: PathBuf,
-    urls: &std::collections::HashSet<String>,
-) -> Result<Vec<(String, PathBuf)>> {
-    let client = build_http_client("failed to build async http client")?;
-    let mut tasks = JoinSet::new();
-
-    for url in urls {
-        let client = client.clone();
-        let cache_dir = cache_dir.clone();
-        let url = url.clone();
-        tasks.spawn(async move {
-            let id = asset_id_for_video_url(&url);
-            let locator = id.0.clone();
-            let path = cache_file_path(&cache_dir, &id, "mp4");
-
-            if !path.exists() {
-                download_to_cache(&client, &url, &path, "video").await?;
-            }
-
-            Ok::<_, anyhow::Error>((locator, path))
-        });
-    }
-
-    let mut prepared = Vec::new();
-    while let Some(result) = tasks.join_next().await {
-        prepared.push(
-            result
-                .context("video preload task failed to join")?
-                .context("video preload task failed")?,
-        );
-    }
-    Ok(prepared)
-}
-
-fn build_preload_runtime(kind: &str) -> Result<tokio::runtime::Runtime> {
+pub(crate) fn build_preload_runtime(kind: &str) -> Result<tokio::runtime::Runtime> {
     Builder::new_multi_thread()
         .enable_all()
         .build()
         .with_context(|| format!("failed to build tokio runtime for {kind} preloading"))
 }
 
-async fn preload_remote_requests(
-    cache_dir: PathBuf,
-    openverse_token: Option<String>,
-    requests: Vec<RemoteAssetRequest>,
-) -> Result<Vec<(AssetId, PathBuf, u32, u32)>> {
-    let client = build_http_client("failed to build async http client")?;
-
-    let mut tasks = JoinSet::new();
-    for request in requests {
-        let client = client.clone();
-        let cache_dir = cache_dir.clone();
-        let token = openverse_token.clone();
-        tasks.spawn(async move { prepare_remote_asset(client, cache_dir, token, request).await });
-    }
-
-    let mut prepared = Vec::new();
-    while let Some(result) = tasks.join_next().await {
-        prepared.push(
-            result
-                .context("asset preload task failed to join")?
-                .context("asset preload task failed")?,
-        );
-    }
-    Ok(prepared)
+pub(crate) fn build_http_client(context: &str) -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent(HTTP_USER_AGENT)
+        .timeout(Duration::from_secs(20))
+        .build()
+        .with_context(|| context.to_string())
 }
 
-async fn prepare_remote_asset(
-    client: reqwest::Client,
-    cache_dir: PathBuf,
-    openverse_token: Option<String>,
-    request: RemoteAssetRequest,
-) -> Result<(AssetId, PathBuf, u32, u32)> {
-    let path = cache_file_path(&cache_dir, &request.id, "img");
+pub(crate) async fn download_to_cache(
+    client: &reqwest::Client,
+    url: &str,
+    path: &Path,
+    asset_kind: &str,
+) -> Result<()> {
+    let bytes = client
+        .get(url)
+        .send()
+        .await
+        .with_context(|| format!("failed to download {asset_kind} asset from {url}"))?
+        .error_for_status()
+        .with_context(|| format!("{asset_kind} download failed for {url}"))?
+        .bytes()
+        .await
+        .with_context(|| format!("failed to read downloaded {asset_kind} bytes from {url}"))?;
 
-    if !path.exists() {
-        let resolved_url = match &request.source {
-            RemoteImageSource::Url(url) => url.clone(),
-            RemoteImageSource::Query(query) => {
-                search_openverse_image(&client, openverse_token.as_deref(), query).await?
-            }
-        };
-
-        download_to_cache(&client, &resolved_url, &path, "image").await?;
-    }
-
-    let (width, height) = read_image_dimensions(&path);
-    Ok((request.id, path, width, height))
+    tokio::fs::write(path, &bytes)
+        .await
+        .with_context(|| format!("failed to write cached {asset_kind} {}", path.display()))
 }
 
-async fn preload_remote_audio_requests(
-    cache_dir: PathBuf,
-    requests: Vec<RemoteAudioRequest>,
-) -> Result<Vec<(AssetId, PathBuf)>> {
-    let client = build_http_client("failed to build async http client")?;
-
-    let mut tasks = JoinSet::new();
-    for request in requests {
-        let client = client.clone();
-        let cache_dir = cache_dir.clone();
-        tasks.spawn(async move { prepare_remote_audio_asset(client, cache_dir, request).await });
-    }
-
-    let mut prepared = Vec::new();
-    while let Some(result) = tasks.join_next().await {
-        prepared.push(
-            result
-                .context("audio preload task failed to join")?
-                .context("audio preload task failed")?,
-        );
-    }
-    Ok(prepared)
-}
-
-async fn prepare_remote_audio_asset(
-    client: reqwest::Client,
-    cache_dir: PathBuf,
-    request: RemoteAudioRequest,
-) -> Result<(AssetId, PathBuf)> {
-    let path = cache_file_path(&cache_dir, &request.id, "audio");
-
-    if !path.exists() {
-        download_to_cache(&client, &request.url, &path, "audio").await?;
-    }
-
-    Ok((request.id, path))
-}
-
-async fn search_openverse_image(
+pub(crate) async fn search_openverse_image(
     client: &reqwest::Client,
     openverse_token: Option<&str>,
     query: &OpenverseQuery,
@@ -366,7 +115,7 @@ async fn search_openverse_image(
         .ok_or_else(|| anyhow!("Openverse returned no image for query {:?}", query.query))
 }
 
-async fn fetch_openverse_token(existing: Option<String>) -> Result<Option<String>> {
+pub(crate) async fn fetch_openverse_token(existing: Option<String>) -> Result<Option<String>> {
     if existing.is_some() {
         return Ok(existing);
     }
@@ -406,34 +155,4 @@ async fn fetch_openverse_token(existing: Option<String>) -> Result<Option<String
             Ok(Some(token.access_token))
         }
     }
-}
-
-fn build_http_client(context: &str) -> Result<reqwest::Client> {
-    reqwest::Client::builder()
-        .user_agent(HTTP_USER_AGENT)
-        .timeout(Duration::from_secs(20))
-        .build()
-        .with_context(|| context.to_string())
-}
-
-async fn download_to_cache(
-    client: &reqwest::Client,
-    url: &str,
-    path: &Path,
-    asset_kind: &str,
-) -> Result<()> {
-    let bytes = client
-        .get(url)
-        .send()
-        .await
-        .with_context(|| format!("failed to download {asset_kind} asset from {url}"))?
-        .error_for_status()
-        .with_context(|| format!("{asset_kind} download failed for {url}"))?
-        .bytes()
-        .await
-        .with_context(|| format!("failed to read downloaded {asset_kind} bytes from {url}"))?;
-
-    tokio::fs::write(path, &bytes)
-        .await
-        .with_context(|| format!("failed to write cached {asset_kind} {}", path.display()))
 }

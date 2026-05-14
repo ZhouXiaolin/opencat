@@ -3,20 +3,22 @@
 
 pub mod audio_runtime;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Context;
 use opencat_core::Platform;
-use opencat_core::resource::catalog::ResourceCatalog;
 use opencat_core::resource::asset_id::AssetId;
+use opencat_core::resource::preload::preload_all;
 use opencat_core::scene::node::{Node, NodeKind};
 use opencat_core::scene::path_bounds::PathBoundsComputer;
 use opencat_core::scene::primitives::ImageSource;
 use opencat_core::scene::time::FrameState;
 
 use crate::backend::skia::renderer::{SkiaRenderData, SkiaRenderEngine};
+use crate::resource::fetch::{build_preload_runtime, fetch_openverse_token};
 use crate::resource::media::MediaContext;
 use crate::resource::path_store::AssetPathStore;
+use crate::resource::resolver::EngineAssetResolver;
 use crate::runtime::audio::{AudioIntervalCache, DecodedAudioCache};
 use crate::runtime::cache::CacheCaps;
 use crate::runtime::path_bounds::SkiaPathBounds;
@@ -73,41 +75,22 @@ impl EnginePlatform {
     ) -> anyhow::Result<()> {
         let req = opencat_core::runtime::preflight_collect::collect_resource_requests(composition);
 
-        crate::resource::fetch::preload_image_sources(
-            catalog,
-            &mut self.asset_paths,
-            req.image_sources,
-        )?;
-        crate::resource::fetch::preload_audio_sources(
-            catalog,
-            &mut self.asset_paths,
-            req.audio_sources,
-        )?;
+        let cache_dir = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".opencat")
+            .join("assets");
+        std::fs::create_dir_all(&cache_dir).ok();
 
-        let downloaded_videos = crate::resource::fetch::preload_video_sources(
-            &mut self.asset_paths,
-            &req.video_urls,
-        )?;
-        for (locator, cache_path) in &downloaded_videos {
-            let info = self
-                .video
-                .video_info(cache_path)
-                .with_context(|| format!("failed to probe downloaded video: {}", cache_path.display()))?;
-            catalog.register_video_dimensions(
-                locator,
-                info.width,
-                info.height,
-                info.duration_secs,
-            );
-        }
-
-        for path in req.video_paths {
-            let _ = crate::resource::probe::probe_video(
-                catalog,
+        let rt = build_preload_runtime("preflight")?;
+        let token = rt.block_on(fetch_openverse_token(None))?;
+        {
+            let mut resolver = EngineAssetResolver::new(
                 &mut self.asset_paths,
-                &path,
                 &mut self.video,
-            );
+                cache_dir,
+                token,
+            )?;
+            rt.block_on(preload_all(req, &mut resolver, catalog))?;
         }
 
         self.video.set_composition_fps(composition.fps);

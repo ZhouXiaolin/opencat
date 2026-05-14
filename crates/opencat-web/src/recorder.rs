@@ -47,6 +47,10 @@ impl WebMutationRecorder {
         self.inner.reset_for_frame(current_frame);
     }
 
+    pub fn reset_animate(&mut self) {
+        self.animate = AnimateState::default();
+    }
+
     pub fn snapshot_mutations_json(&self) -> String {
         serde_json::to_string(&self.inner.snapshot_mutations()).unwrap_or_default()
     }

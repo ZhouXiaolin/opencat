@@ -16,6 +16,7 @@ export class NativeBridge {
 
   setFrameCtx(frame: number, _totalFrames: number, _sceneFrames: number): void {
     this.currentFrame = frame;
+    this.rec.reset_animate();
     this.rec.reset_for_frame(frame);
   }
 

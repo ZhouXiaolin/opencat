@@ -195,6 +195,109 @@ function stripLocalPathElements(jsonlContent: string): string {
     .join('\n');
 }
 
+// ── Timeline segment computation ──
+// Parses JSONL to extract scene/transition timing so we can compute
+// per-scene local frames (matching the engine's ScriptFrameCtx::for_segment).
+
+interface TimelineSegment {
+  type: 'scene' | 'transition';
+  startFrame: number;
+  duration: number;
+}
+
+let cachedSegments: TimelineSegment[] | null = null;
+let cachedSegmentsJsonl: string | null = null;
+
+function computeTimelineSegments(jsonlContent: string): TimelineSegment[] {
+  if (jsonlContent === cachedSegmentsJsonl && cachedSegments) return cachedSegments;
+
+  const lines = jsonlContent.split('\n');
+  const elementsById = new Map<string, { duration?: number; parentId?: string }>();
+  const tlChildren = new Map<string, string[]>(); // tlId → [childId, ...]
+  const transitions: { parentId: string; from: string; to: string; duration: number }[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let obj: any;
+    try { obj = JSON.parse(trimmed); } catch { continue; }
+
+    if (obj.id) elementsById.set(obj.id, obj);
+    if (obj.type === 'tl' && obj.id) tlChildren.set(obj.id, []);
+    if (obj.type === 'transition') transitions.push(obj);
+  }
+
+  // Build parent-child for scenes under tl
+  for (const [id, el] of elementsById) {
+    if (el.parentId && tlChildren.has(el.parentId)) {
+      tlChildren.get(el.parentId)!.push(id);
+    }
+  }
+
+  // Find the first tl node (the main timeline)
+  const tlId = tlChildren.keys().next().value;
+  if (!tlId) {
+    cachedSegmentsJsonl = jsonlContent;
+    cachedSegments = [];
+    return [];
+  }
+
+  // Get ordered scene children, preserving JSONL order
+  const childIds = tlChildren.get(tlId) ?? [];
+  const transitionsByPair = new Map<string, any>();
+  for (const t of transitions) {
+    transitionsByPair.set(`${t.from}->${t.to}`, t);
+  }
+
+  // Build segments in order: scene, transition, scene, transition, scene, ...
+  const segments: TimelineSegment[] = [];
+  let cursor = 0;
+
+  for (let i = 0; i < childIds.length; i++) {
+    const sceneId = childIds[i];
+    const sceneEl = elementsById.get(sceneId);
+    const sceneDuration = sceneEl?.duration ?? 0;
+
+    segments.push({ type: 'scene', startFrame: cursor, duration: sceneDuration });
+    cursor += sceneDuration;
+
+    // Add transition to next scene
+    if (i < childIds.length - 1) {
+      const nextId = childIds[i + 1];
+      const trans = transitionsByPair.get(`${sceneId}->${nextId}`);
+      const transDuration = trans?.duration ?? 0;
+      if (transDuration > 0) {
+        segments.push({ type: 'transition', startFrame: cursor, duration: transDuration });
+        cursor += transDuration;
+      }
+    }
+  }
+
+  cachedSegmentsJsonl = jsonlContent;
+  cachedSegments = segments;
+  return segments;
+}
+
+/** Find the scene-local frame and scene duration for a global frame number. */
+function sceneFrameCtx(globalFrame: number, jsonlContent: string): { localFrame: number; sceneFrames: number } {
+  const segments = computeTimelineSegments(jsonlContent);
+  for (const seg of segments) {
+    if (seg.type !== 'scene') continue;
+    const end = seg.startFrame + seg.duration;
+    if (globalFrame < end) {
+      const local = Math.min(globalFrame - seg.startFrame, seg.duration - 1);
+      return { localFrame: Math.max(0, local), sceneFrames: seg.duration };
+    }
+  }
+  // Past last scene — clamp to last scene's final frame
+  for (let i = segments.length - 1; i >= 0; i--) {
+    if (segments[i].type === 'scene') {
+      return { localFrame: segments[i].duration - 1, sceneFrames: segments[i].duration };
+    }
+  }
+  return { localFrame: globalFrame, sceneFrames: 0 };
+}
+
 /**
  * 从 JSONL 中剥离 type: script 的元素（JS 已处理，避免 WASM 重复处理报错）
  */
@@ -284,6 +387,8 @@ function drawDownloadProgress(loaded: number, total: number): void {
 
 // --- Load JSONL ---
 async function loadJsonl(file: JsonlFile) {
+  cachedSegments = null;
+  cachedSegmentsJsonl = null;
   try {
     const resp = await fetch(file.path);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -389,7 +494,8 @@ async function renderFrameAsync(frame: number) {
 async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Promise<void> {
   // Step 1: Execute scripts to collect mutations (shared by both paths)
   const engine = getScriptEngine();
-  engine.setFrameCtx(frame + 1, comp.frames, comp.frames);
+  const { localFrame, sceneFrames } = sceneFrameCtx(frame, currentJsonlContent!);
+  engine.setFrameCtx(localFrame + 1, comp.frames, sceneFrames);
   const parsed = parseJsonl(currentJsonlContent!);
 
   // Pre-register text sources from JSONL elements so that script features

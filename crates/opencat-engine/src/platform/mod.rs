@@ -86,7 +86,6 @@ impl EnginePlatform {
         {
             let mut resolver = EngineAssetResolver::new(
                 &mut self.asset_paths,
-                &mut self.video,
                 cache_dir,
                 token,
             )?;

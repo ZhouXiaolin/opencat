@@ -18,6 +18,8 @@ rustc-hash = "2.1"
 unicode-segmentation = "1.11"
 cosmic-text = "0.12"
 fontdb = "0.16"
+imagesize = "0.14"
+nom-exif = "3.4.1"
 
 [features]
 default = []

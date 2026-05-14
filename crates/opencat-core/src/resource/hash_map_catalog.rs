@@ -46,6 +46,17 @@ impl HashMapResourceCatalog {
         Ok(catalog)
     }
 
+    /// Serialize entries to the same JSON shape `from_json` accepts.
+    /// Useful for handing catalog state across an FFI boundary (e.g. wasm → JS).
+    pub fn to_json(&self) -> Result<String> {
+        let map: HashMap<&str, &ResourceMeta> = self
+            .entries
+            .iter()
+            .map(|(id, meta)| (id.0.as_str(), meta))
+            .collect();
+        Ok(serde_json::to_string(&map)?)
+    }
+
     fn resolve_key(&mut self, key: &str) -> AssetId {
         if let Some(id) = self.asset_cache.get(key) {
             return id.clone();

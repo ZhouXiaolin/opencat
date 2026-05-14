@@ -15,7 +15,9 @@ use opencat_core::display::list::{
     RectDisplayItem, SvgPathDisplayItem, TextDisplayItem, TimelineDisplayItem,
 };
 use opencat_core::frame_ctx::FrameCtx;
-use opencat_core::resource::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
+use opencat_core::resource::bitmap_source::{
+    BitmapSourceKind, bitmap_source_kind, bitmap_source_kind_from_id,
+};
 use opencat_core::scene::script::{
     CanvasCommand, ScriptColor, ScriptFontEdging, ScriptLineCap, ScriptLineJoin, ScriptPointMode,
 };
@@ -1477,7 +1479,10 @@ fn draw_bitmap(
         video_frame_decodes: 0,
     };
 
-    let image = if bitmap_source_kind(path) == BitmapSourceKind::Video {
+    let is_video =
+        bitmap_source_kind_from_id(&bitmap.asset_id.0) == BitmapSourceKind::Video
+            || bitmap_source_kind(path) == BitmapSourceKind::Video;
+    let image = if is_video {
         let media = media_ctx
             .as_deref_mut()
             .ok_or_else(|| anyhow!("video asset requires media context: {}", path.display()))?;
@@ -2215,7 +2220,9 @@ fn load_asset_image(
         .path(asset_id)
         .ok_or_else(|| anyhow!("missing asset path for {}", asset_id.0))?;
 
-    if bitmap_source_kind(path) == BitmapSourceKind::Video {
+    if bitmap_source_kind_from_id(&asset_id.0) == BitmapSourceKind::Video
+        || bitmap_source_kind(path) == BitmapSourceKind::Video
+    {
         let media = media_ctx
             .as_deref_mut()
             .ok_or_else(|| anyhow!("video asset requires media context: {}", path.display()))?;

@@ -20,6 +20,7 @@ pub use opencat_engine::codec;
 pub use opencat_engine::fonts;
 pub use opencat_engine::inspect;
 pub use opencat_engine::jsonl_io;
+pub use opencat_engine::platform;
 pub use opencat_engine::render;
 pub use opencat_engine::resource;
 pub use opencat_engine::runtime;
@@ -43,11 +44,18 @@ pub use opencat_core::scene::transition::{
 };
 pub use opencat_engine::inspect::{FrameElementRect, collect_frame_layout_rects};
 pub use opencat_engine::jsonl_io::{parse_file, parse_with_base_dir};
+pub use opencat_engine::platform::EnginePlatform;
 pub use opencat_engine::render::{
     EncodingConfig, Mp4Config, OutputFormat, RenderBackend, RenderSession, build_audio_track,
     render, render_audio_chunk, render_frame_rgb, render_frame_rgba, render_frame_to_target,
-    render_frame_with_target,
+    render_frame_with_target, render_with_backend_progress, render_with_progress,
 };
+
+// Convenience: construct a default RenderSession backed by the shared raster engine.
+pub fn default_render_session() -> RenderSession {
+    let engine = opencat_engine::backend::skia::renderer::shared_raster_engine_typed();
+    RenderSession::new(EnginePlatform::new(engine))
+}
 pub use opencat_engine::resource::media::{
     VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality,
 };

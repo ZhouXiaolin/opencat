@@ -6,6 +6,10 @@ type WasmModule = {
   get_composition_info(input: string): string;
   collect_resources_json(input: string): string;
   build_frame(jsonl_input: string, frame: number, resource_meta: string, mutations_json: string): string;
+  preload_assets(jsonl: string): Promise<string>;
+  get_blob_bytes(asset_id: string): Uint8Array | undefined;
+  clear_blobs(): void;
+  blob_count(): number;
 };
 
 let wasmModule: WasmModule | null = null;
@@ -56,4 +60,32 @@ export function buildFrame(
   const result = JSON.parse(json);
   if (result.error) throw new Error(result.error);
   return result;
+}
+
+// ── 资源预加载（下载 + 元数据探测在 Rust 侧完成） ──
+
+/**
+ * 由 Rust 侧通过 fetch + nom-exif/imagesize 完成下载与元数据读取。
+ * 返回的字符串是 catalog JSON（{ "<assetId>": { width, height, kind, durationSecs? }, ... }），
+ * 可直接作为 buildFrame 的 resource_meta 参数。
+ * 下载的字节同时保存在 wasm 的 BlobStore 中，调 getBlobBytes(assetId) 可拿回。
+ */
+export async function preloadAssets(jsonl: string): Promise<string> {
+  if (!wasmModule) throw new Error('WASM not initialized');
+  return await wasmModule.preload_assets(jsonl);
+}
+
+export function getBlobBytes(assetId: string): Uint8Array | undefined {
+  if (!wasmModule) return undefined;
+  return wasmModule.get_blob_bytes(assetId);
+}
+
+export function clearBlobs(): void {
+  if (!wasmModule) return;
+  wasmModule.clear_blobs();
+}
+
+export function blobCount(): number {
+  if (!wasmModule) return 0;
+  return wasmModule.blob_count();
 }

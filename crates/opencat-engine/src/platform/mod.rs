@@ -5,7 +5,9 @@ pub mod audio_runtime;
 
 use std::sync::Arc;
 
+use anyhow::Context;
 use opencat_core::Platform;
+use opencat_core::resource::catalog::ResourceCatalog;
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::scene::node::{Node, NodeKind};
 use opencat_core::scene::path_bounds::PathBoundsComputer;
@@ -81,6 +83,23 @@ impl EnginePlatform {
             &mut self.asset_paths,
             req.audio_sources,
         )?;
+
+        let downloaded_videos = crate::resource::fetch::preload_video_sources(
+            &mut self.asset_paths,
+            &req.video_urls,
+        )?;
+        for (locator, cache_path) in &downloaded_videos {
+            let info = self
+                .video
+                .video_info(cache_path)
+                .with_context(|| format!("failed to probe downloaded video: {}", cache_path.display()))?;
+            catalog.register_video_dimensions(
+                locator,
+                info.width,
+                info.height,
+                info.duration_secs,
+            );
+        }
 
         for path in req.video_paths {
             let _ = crate::resource::probe::probe_video(

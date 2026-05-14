@@ -12,6 +12,7 @@ pub struct ResourceRequests {
     pub image_sources: HashSet<ImageSource>,
     pub audio_sources: HashSet<AudioSource>,
     pub video_paths: HashSet<PathBuf>,
+    pub video_urls: HashSet<String>,
 }
 
 pub fn collect_resource_requests(composition: &Composition) -> ResourceRequests {
@@ -77,8 +78,13 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
             }
         }
         NodeKind::Video(video) => {
-            if let VideoSource::Path(p) = video.source() {
-                req.video_paths.insert(p.clone());
+            match video.source() {
+                VideoSource::Path(p) => {
+                    req.video_paths.insert(p.clone());
+                }
+                VideoSource::Url(u) => {
+                    req.video_urls.insert(u.clone());
+                }
             }
         }
         NodeKind::Timeline(_) => {
@@ -95,7 +101,7 @@ mod tests {
     use super::*;
     use crate::scene::{
         composition::Composition,
-        primitives::{div, image, video},
+        primitives::{div, image, video, video_url},
     };
 
     #[test]
@@ -117,5 +123,26 @@ mod tests {
         let req = collect_resource_requests(&comp);
         assert_eq!(req.image_sources.len(), 1);
         assert_eq!(req.video_paths.len(), 1);
+    }
+
+    #[test]
+    fn collects_video_url_separately() {
+        let root_node = div()
+            .id("r")
+            .child(video_url("https://example.com/v.mp4").id("v"));
+
+        let root = Arc::new(move |_ctx: &FrameCtx| root_node.clone().into());
+        let comp = Composition::new("test")
+            .size(100, 100)
+            .fps(30)
+            .frames(5)
+            .root(move |ctx| root(ctx))
+            .build()
+            .unwrap();
+
+        let req = collect_resource_requests(&comp);
+        assert_eq!(req.video_urls.len(), 1);
+        assert!(req.video_urls.contains("https://example.com/v.mp4"));
+        assert!(req.video_paths.is_empty());
     }
 }

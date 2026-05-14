@@ -9,14 +9,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use opencat_core::resource::asset_id::{AssetId, asset_id_for_query};
+use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::probe::{probe_image_dims, probe_video};
 use opencat_core::resource::resolver::{
     AssetResolver, AssetSink, AudioMeta, ImageMeta, VideoMeta,
 };
-use opencat_core::scene::primitives::OpenverseQuery;
 
-use crate::resource::fetch::{EngineFetcher, search_openverse_image};
+use crate::resource::fetch::EngineFetcher;
 use crate::resource::path_store::AssetPathStore;
 use crate::resource::utils::cache_file_path;
 
@@ -53,22 +52,16 @@ impl<'a> AssetSink for EngineSink<'a> {
 pub struct EngineAssetResolver<'a> {
     fetcher: EngineFetcher,
     sink: EngineSink<'a>,
-    openverse_token: Option<String>,
 }
 
 impl<'a> EngineAssetResolver<'a> {
     pub fn new(
         path_store: &'a mut AssetPathStore,
         cache_dir: PathBuf,
-        openverse_token: Option<String>,
     ) -> Result<Self> {
         let fetcher = EngineFetcher::new(cache_dir.clone())?;
         let sink = EngineSink::new(path_store, cache_dir);
-        Ok(Self {
-            fetcher,
-            sink,
-            openverse_token,
-        })
+        Ok(Self { fetcher, sink })
     }
 }
 
@@ -126,36 +119,4 @@ impl<'a> AssetResolver for EngineAssetResolver<'a> {
         }
     }
 
-    fn resolve_image_query(
-        &mut self,
-        query: &OpenverseQuery,
-    ) -> impl Future<Output = Result<ImageMeta>> {
-        let id = asset_id_for_query(query);
-        let cache_path = cache_file_path(self.fetcher.cache_dir(), &id);
-        let client = self.fetcher.client().clone();
-        let token = self.openverse_token.clone();
-        let query = query.clone();
-        async move {
-            let bytes = if cache_path.exists() {
-                tokio::fs::read(&cache_path)
-                    .await
-                    .with_context(|| format!("failed to read cached query asset {}", cache_path.display()))?
-            } else {
-                let url = search_openverse_image(&client, token.as_deref(), &query).await?;
-                let bytes = crate::resource::fetch::download_bytes(&client, &url).await?;
-                tokio::fs::write(&cache_path, &bytes).await.with_context(|| {
-                    format!("failed to write cache {}", cache_path.display())
-                })?;
-                bytes
-            };
-            let dims = probe_image_dims(&bytes)?;
-            // 直接注册到 path_store（绕过 EngineSink::store 避免重新计算 path）。
-            self.sink.register_external_path(id.clone(), cache_path);
-            Ok(ImageMeta {
-                id,
-                width: dims.width,
-                height: dims.height,
-            })
-        }
-    }
 }

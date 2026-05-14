@@ -2406,6 +2406,7 @@ dependencies = [
  "serde_json",
  "taffy",
  "unicode-segmentation",
+ "url",
 ]
 
 [[package]]

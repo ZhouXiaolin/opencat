@@ -64,6 +64,13 @@ export default defineConfig({
     fs: {
       allow: [__dirname, resolve(__dirname, '..')],
     },
+    proxy: {
+      '/assets-proxy': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/assets-proxy/, ''),
+      },
+    },
   },
   plugins: [
     serveStaticDirs('static', [

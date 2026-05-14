@@ -5,9 +5,9 @@
 //! [`crate::scene::primitives::VideoSource`] / Path / Openverse query。
 //! 输出：`*Meta`（含 [`AssetId`] + 宽高/时长等元数据）。
 //!
-//! 设计：core 持有 URL 变体的完整流水线（id → fetch → probe → store），
+//! 设计：core 持有 URL 变体 + Openverse 查询的完整流水线（id → fetch → probe → store），
 //! 平台只需提供 [`UrlFetcher`] + [`AssetSink`] 两个底层 trait 的实现。
-//! Path / Openverse 变体由平台 override（engine 实现，wasm 默认 bail）。
+//! Path 变体由平台 override（engine 实现，wasm 默认 bail）。
 //!
 //! 没有 `Send` bound：原生 tokio multi-thread 实现自然返回 Send future，
 //! wasm 单线程实现返回 !Send future，两端都能编译。
@@ -15,10 +15,10 @@
 use std::future::Future;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow};
 
 use crate::resource::asset_id::{
-    AssetId, asset_id_for_audio_url, asset_id_for_url, asset_id_for_video_url,
+    AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
 };
 use crate::resource::probe::{probe_image_dims, probe_video};
 use crate::scene::primitives::OpenverseQuery;
@@ -125,11 +125,74 @@ pub trait AssetResolver {
         async { anyhow::bail!("resolve_audio_path not supported on this platform") }
     }
 
-    /// Openverse 图片搜索。engine 实现；wasm v1 不支持。
+    /// Openverse 图片搜索。core 提供默认实现：搜索 Openverse → 取图片 URL →
+    /// fetcher 下载 → probe → sink 存储。各端无需 override。
     fn resolve_image_query(
         &mut self,
-        _query: &OpenverseQuery,
+        query: &OpenverseQuery,
     ) -> impl Future<Output = Result<ImageMeta>> {
-        async { anyhow::bail!("resolve_image_query not supported on this platform") }
+        let id = asset_id_for_query(query);
+        let query = query.clone();
+        async move {
+            let (fetcher, sink) = self.parts();
+
+            // 用 search-specific ID 搜索，避免与 query_id 缓存冲突
+            let search_id = AssetId(format!("openverse:search:{}", query.query));
+            let search_url = build_openverse_search_url(&query);
+            let search_bytes = fetcher
+                .fetch_bytes(&search_id, &search_url)
+                .await
+                .with_context(|| format!("failed to query Openverse for {:?}", query.query))?;
+
+            // 解析搜索结果，拿到图片 URL
+            let image_url = parse_openverse_response(&search_bytes)
+                .with_context(|| format!("bad Openverse response for {:?}", query.query))?;
+
+            // 下载图片（fetcher 缓存到 query_id），probe，sink 登记
+            let bytes = fetcher.fetch_bytes(&id, &image_url).await?;
+            let dims = probe_image_dims(&bytes)?;
+            sink.store(&id, bytes);
+
+            Ok(ImageMeta {
+                id,
+                width: dims.width,
+                height: dims.height,
+            })
+        }
     }
+}
+
+/// 构建 Openverse 搜索 URL（core 内部帮助函数，两端共享）。
+fn build_openverse_search_url(query: &OpenverseQuery) -> String {
+    let page_size = query.count.max(1).to_string();
+    let mut url = url::Url::parse("https://api.openverse.org/v1/images/")
+        .expect("static Openverse endpoint URL is valid");
+    {
+        let mut params = url.query_pairs_mut();
+        params.append_pair("q", &query.query);
+        params.append_pair("page_size", &page_size);
+        if let Some(aspect_ratio) = &query.aspect_ratio {
+            params.append_pair("aspect_ratio", aspect_ratio);
+        }
+    }
+    url.to_string()
+}
+
+/// 解析 Openverse JSON 响应，提取第一张图片的 URL。
+fn parse_openverse_response(bytes: &[u8]) -> Result<String> {
+    #[derive(serde::Deserialize)]
+    struct ImageResult {
+        url: Option<String>,
+        thumbnail: Option<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct SearchResponse {
+        results: Vec<ImageResult>,
+    }
+
+    let resp: SearchResponse = serde_json::from_slice(bytes)?;
+    resp.results
+        .into_iter()
+        .find_map(|r| r.url.or(r.thumbnail))
+        .ok_or_else(|| anyhow!("Openverse returned no image"))
 }

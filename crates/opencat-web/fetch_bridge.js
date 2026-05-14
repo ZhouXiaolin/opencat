@@ -1,4 +1,4 @@
-export async function fetch_bytes(url) {
+export async function fetch_bytes_js(url) {
     const response = await fetch(url);
     if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${url}`);

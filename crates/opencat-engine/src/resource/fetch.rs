@@ -11,7 +11,7 @@ use tokio::runtime::Builder;
 use tokio::task::JoinSet;
 
 use opencat_core::resource::asset_id::{
-    asset_id_for_audio_url, asset_id_for_query, asset_id_for_url,
+    asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
 };
 use opencat_core::resource::catalog::ResourceCatalog;
 use opencat_core::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
@@ -172,6 +172,63 @@ where
     }
 
     Ok(())
+}
+
+pub fn preload_video_sources(
+    path_store: &mut AssetPathStore,
+    urls: &std::collections::HashSet<String>,
+) -> Result<Vec<(String, PathBuf)>> {
+    if urls.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let cache_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".opencat")
+        .join("assets");
+    let rt = build_preload_runtime("video")?;
+    let prepared = rt.block_on(preload_remote_video_requests(cache_dir, urls))?;
+
+    for (id, cache_path) in &prepared {
+        path_store.insert(AssetId(id.clone()), cache_path.clone());
+    }
+
+    Ok(prepared)
+}
+
+async fn preload_remote_video_requests(
+    cache_dir: PathBuf,
+    urls: &std::collections::HashSet<String>,
+) -> Result<Vec<(String, PathBuf)>> {
+    let client = build_http_client("failed to build async http client")?;
+    let mut tasks = JoinSet::new();
+
+    for url in urls {
+        let client = client.clone();
+        let cache_dir = cache_dir.clone();
+        let url = url.clone();
+        tasks.spawn(async move {
+            let id = asset_id_for_video_url(&url);
+            let locator = id.0.clone();
+            let path = cache_file_path(&cache_dir, &id, "mp4");
+
+            if !path.exists() {
+                download_to_cache(&client, &url, &path, "video").await?;
+            }
+
+            Ok::<_, anyhow::Error>((locator, path))
+        });
+    }
+
+    let mut prepared = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        prepared.push(
+            result
+                .context("video preload task failed to join")?
+                .context("video preload task failed")?,
+        );
+    }
+    Ok(prepared)
 }
 
 fn build_preload_runtime(kind: &str) -> Result<tokio::runtime::Runtime> {

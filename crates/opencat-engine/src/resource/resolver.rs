@@ -1,5 +1,5 @@
-//! Engine 侧 [`AssetResolver`] 实现 —— tokio + reqwest 下载、`image` crate
-//! 读图片维度、`MediaContext` 读视频维度。
+//! Engine 侧 [`AssetResolver`] —— tokio + reqwest 下载、core 提供探测函数、
+//! `MediaContext` 仍保留用于渲染时视频帧解码（不再用于 preload 元数据探测）。
 //!
 //! 所有方法 async 返回 `impl Future`；`EnginePlatform::preflight` 用
 //! `tokio::runtime::block_on` 同步驱动 `preload_all`。
@@ -7,73 +7,122 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
-use opencat_core::resource::asset_id::{
-    asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url, AssetId,
+use opencat_core::resource::asset_id::{AssetId, asset_id_for_query};
+use opencat_core::resource::probe::{probe_image_dims, probe_video};
+use opencat_core::resource::resolver::{
+    AssetResolver, AssetSink, AudioMeta, ImageMeta, VideoMeta,
 };
-use opencat_core::resource::resolver::{AssetResolver, AudioMeta, ImageMeta, VideoMeta};
 use opencat_core::scene::primitives::OpenverseQuery;
 
-use crate::resource::fetch::{
-    build_http_client, download_to_cache, search_openverse_image,
-};
-use crate::resource::media::MediaContext;
+use crate::resource::fetch::{EngineFetcher, search_openverse_image};
 use crate::resource::path_store::AssetPathStore;
-use crate::resource::utils::{cache_file_path, read_image_dimensions};
+use crate::resource::utils::cache_file_path;
+
+/// Engine 端 (id, bytes) → path_store 索引建立。
+///
+/// 字节已被 [`EngineFetcher`] 写到 `cache_dir`，本 Sink 只负责注册
+/// `id → cache_path` 映射，`store` 不写盘（避免重复 IO）。
+pub struct EngineSink<'a> {
+    path_store: &'a mut AssetPathStore,
+    cache_dir: PathBuf,
+}
+
+impl<'a> EngineSink<'a> {
+    pub fn new(path_store: &'a mut AssetPathStore, cache_dir: PathBuf) -> Self {
+        Self {
+            path_store,
+            cache_dir,
+        }
+    }
+
+    /// path 变体专用：直接注册外部 path（字节不进 cache）。
+    pub fn register_external_path(&mut self, id: AssetId, path: PathBuf) {
+        self.path_store.insert(id, path);
+    }
+}
+
+impl<'a> AssetSink for EngineSink<'a> {
+    fn store(&mut self, id: &AssetId, _bytes: Vec<u8>) {
+        let path = cache_file_path(&self.cache_dir, id);
+        self.path_store.insert(id.clone(), path);
+    }
+}
 
 pub struct EngineAssetResolver<'a> {
-    client: reqwest::Client,
-    cache_dir: PathBuf,
+    fetcher: EngineFetcher,
+    sink: EngineSink<'a>,
     openverse_token: Option<String>,
-    path_store: &'a mut AssetPathStore,
-    video_probe: &'a mut MediaContext,
 }
 
 impl<'a> EngineAssetResolver<'a> {
     pub fn new(
         path_store: &'a mut AssetPathStore,
-        video_probe: &'a mut MediaContext,
         cache_dir: PathBuf,
         openverse_token: Option<String>,
     ) -> Result<Self> {
+        let fetcher = EngineFetcher::new(cache_dir.clone())?;
+        let sink = EngineSink::new(path_store, cache_dir);
         Ok(Self {
-            client: build_http_client("failed to build async http client")?,
-            cache_dir,
+            fetcher,
+            sink,
             openverse_token,
-            path_store,
-            video_probe,
         })
-    }
-
-    fn cache_path(&self, id: &AssetId, ext: &str) -> PathBuf {
-        cache_file_path(&self.cache_dir, id, ext)
     }
 }
 
 impl<'a> AssetResolver for EngineAssetResolver<'a> {
-    fn resolve_image_url(&mut self, url: &str) -> impl Future<Output = Result<ImageMeta>> {
-        let id = asset_id_for_url(url);
-        let path = self.cache_path(&id, "img");
-        let client = self.client.clone();
-        let url = url.to_string();
-        async move {
-            if !path.exists() {
-                download_to_cache(&client, &url, &path, "image").await?;
-            }
-            let (width, height) = read_image_dimensions(&path);
-            self.path_store.insert(id.clone(), path);
-            Ok(ImageMeta { id, width, height })
-        }
+    type Fetcher = EngineFetcher;
+    type Sink = EngineSink<'a>;
+
+    fn parts(&mut self) -> (&mut EngineFetcher, &mut EngineSink<'a>) {
+        (&mut self.fetcher, &mut self.sink)
     }
+
+    // URL 变体走 core 的默认实现（id → fetcher → probe → sink）。
 
     fn resolve_image_path(&mut self, path: &Path) -> impl Future<Output = Result<ImageMeta>> {
         let path = path.to_path_buf();
         async move {
-            let (width, height) = read_image_dimensions(&path);
+            let bytes = tokio::fs::read(&path)
+                .await
+                .with_context(|| format!("failed to read image {}", path.display()))?;
+            let dims = probe_image_dims(&bytes)?;
             let id = AssetId(path.to_string_lossy().into_owned());
-            self.path_store.insert(id.clone(), path);
-            Ok(ImageMeta { id, width, height })
+            self.sink.register_external_path(id.clone(), path);
+            Ok(ImageMeta {
+                id,
+                width: dims.width,
+                height: dims.height,
+            })
+        }
+    }
+
+    fn resolve_audio_path(&mut self, path: &Path) -> impl Future<Output = Result<AudioMeta>> {
+        let path = path.to_path_buf();
+        async move {
+            let id = AssetId(path.to_string_lossy().into_owned());
+            self.sink.register_external_path(id.clone(), path);
+            Ok(AudioMeta { id })
+        }
+    }
+
+    fn resolve_video_path(&mut self, path: &Path) -> impl Future<Output = Result<VideoMeta>> {
+        let path = path.to_path_buf();
+        async move {
+            let bytes = tokio::fs::read(&path)
+                .await
+                .with_context(|| format!("failed to read video {}", path.display()))?;
+            let probe = probe_video(&bytes)?;
+            let id = AssetId(path.to_string_lossy().into_owned());
+            self.sink.register_external_path(id.clone(), path);
+            Ok(VideoMeta {
+                id,
+                width: probe.width,
+                height: probe.height,
+                duration_secs: probe.duration_secs,
+            })
         }
     }
 
@@ -82,75 +131,30 @@ impl<'a> AssetResolver for EngineAssetResolver<'a> {
         query: &OpenverseQuery,
     ) -> impl Future<Output = Result<ImageMeta>> {
         let id = asset_id_for_query(query);
-        let path = self.cache_path(&id, "img");
-        let client = self.client.clone();
+        let cache_path = cache_file_path(self.fetcher.cache_dir(), &id);
+        let client = self.fetcher.client().clone();
         let token = self.openverse_token.clone();
         let query = query.clone();
         async move {
-            if !path.exists() {
+            let bytes = if cache_path.exists() {
+                tokio::fs::read(&cache_path)
+                    .await
+                    .with_context(|| format!("failed to read cached query asset {}", cache_path.display()))?
+            } else {
                 let url = search_openverse_image(&client, token.as_deref(), &query).await?;
-                download_to_cache(&client, &url, &path, "image").await?;
-            }
-            let (width, height) = read_image_dimensions(&path);
-            self.path_store.insert(id.clone(), path);
-            Ok(ImageMeta { id, width, height })
-        }
-    }
-
-    fn resolve_audio_url(&mut self, url: &str) -> impl Future<Output = Result<AudioMeta>> {
-        let id = asset_id_for_audio_url(url);
-        let path = self.cache_path(&id, "audio");
-        let client = self.client.clone();
-        let url = url.to_string();
-        async move {
-            if !path.exists() {
-                download_to_cache(&client, &url, &path, "audio").await?;
-            }
-            self.path_store.insert(id.clone(), path);
-            Ok(AudioMeta { id })
-        }
-    }
-
-    fn resolve_audio_path(&mut self, path: &Path) -> impl Future<Output = Result<AudioMeta>> {
-        let path = path.to_path_buf();
-        async move {
-            let id = AssetId(path.to_string_lossy().into_owned());
-            self.path_store.insert(id.clone(), path);
-            Ok(AudioMeta { id })
-        }
-    }
-
-    fn resolve_video_url(&mut self, url: &str) -> impl Future<Output = Result<VideoMeta>> {
-        let id = asset_id_for_video_url(url);
-        let path = self.cache_path(&id, "mp4");
-        let client = self.client.clone();
-        let url = url.to_string();
-        async move {
-            if !path.exists() {
-                download_to_cache(&client, &url, &path, "video").await?;
-            }
-            let info = self.video_probe.video_info(&path)?;
-            self.path_store.insert(id.clone(), path);
-            Ok(VideoMeta {
+                let bytes = crate::resource::fetch::download_bytes(&client, &url).await?;
+                tokio::fs::write(&cache_path, &bytes).await.with_context(|| {
+                    format!("failed to write cache {}", cache_path.display())
+                })?;
+                bytes
+            };
+            let dims = probe_image_dims(&bytes)?;
+            // 直接注册到 path_store（绕过 EngineSink::store 避免重新计算 path）。
+            self.sink.register_external_path(id.clone(), cache_path);
+            Ok(ImageMeta {
                 id,
-                width: info.width,
-                height: info.height,
-                duration_secs: info.duration_secs,
-            })
-        }
-    }
-
-    fn resolve_video_path(&mut self, path: &Path) -> impl Future<Output = Result<VideoMeta>> {
-        let path = path.to_path_buf();
-        async move {
-            let info = self.video_probe.video_info(&path)?;
-            let id = AssetId(path.to_string_lossy().into_owned());
-            self.path_store.insert(id.clone(), path);
-            Ok(VideoMeta {
-                id,
-                width: info.width,
-                height: info.height,
-                duration_secs: info.duration_secs,
+                width: dims.width,
+                height: dims.height,
             })
         }
     }

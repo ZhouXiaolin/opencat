@@ -64,11 +64,29 @@ mod tests {
 
     use super::*;
     use crate::resource::asset_id::{
-        asset_id_for_audio_url, asset_id_for_url, asset_id_for_video_url, AssetId,
+        AssetId, asset_id_for_audio_url, asset_id_for_url, asset_id_for_video_url,
     };
     use crate::resource::hash_map_catalog::HashMapResourceCatalog;
-    use crate::resource::resolver::{AudioMeta, ImageMeta, VideoMeta};
+    use crate::resource::resolver::{AssetSink, AudioMeta, ImageMeta, UrlFetcher, VideoMeta};
     use crate::scene::primitives::OpenverseQuery;
+
+    /// 测试用空实现，永远不被实际调用（MockResolver override 了所有方法）。
+    #[derive(Default)]
+    struct NullFetcher;
+    impl UrlFetcher for NullFetcher {
+        fn fetch_bytes(
+            &mut self,
+            _id: &AssetId,
+            _url: &str,
+        ) -> impl Future<Output = Result<Vec<u8>>> {
+            async { anyhow::bail!("NullFetcher unused") }
+        }
+    }
+    #[derive(Default)]
+    struct NullSink;
+    impl AssetSink for NullSink {
+        fn store(&mut self, _id: &AssetId, _bytes: Vec<u8>) {}
+    }
 
     /// 记录每次方法调用的 mock，断言「编排路由对了」。
     #[derive(Default)]
@@ -80,9 +98,18 @@ mod tests {
         audio_paths: Vec<PathBuf>,
         video_urls: Vec<String>,
         video_paths: Vec<PathBuf>,
+        null_fetcher: NullFetcher,
+        null_sink: NullSink,
     }
 
     impl AssetResolver for MockResolver {
+        type Fetcher = NullFetcher;
+        type Sink = NullSink;
+
+        fn parts(&mut self) -> (&mut NullFetcher, &mut NullSink) {
+            (&mut self.null_fetcher, &mut self.null_sink)
+        }
+
         fn resolve_image_url(&mut self, url: &str) -> impl Future<Output = Result<ImageMeta>> {
             self.image_urls.push(url.to_string());
             let id = asset_id_for_url(url);

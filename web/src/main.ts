@@ -1,5 +1,13 @@
 import './style.css';
-import { initWasm, parseJsonl, getCompositionInfo, collectResources, buildFrame } from './wasm';
+import {
+  initWasm,
+  parseJsonl,
+  getCompositionInfo,
+  collectResources,
+  buildFrame,
+  preloadAssets,
+  clearBlobs,
+} from './wasm';
 import {
   initCanvasKit,
   ensureSurface,
@@ -15,7 +23,7 @@ import {
   exportPngFrame,
   downloadMp4,
 } from './exporter';
-import { loadImages, setCanvasKit, getCachedImage } from './resource';
+import { decodeImageFromBlob, setCanvasKit } from './resource';
 import { getScriptEngine } from './script-engine';
 import type { CompositionInfo, JsonlFile, ParsedResult, ParsedElement } from './types';
 
@@ -214,47 +222,32 @@ async function preloadResources(
 ): Promise<void> {
   resourceMeta = {};
 
+  // 列举一下要预下载的资源数量（仅用于进度显示），实际下载由 Rust 一次性处理。
   const requests = collectResources(jsonlContent);
+  const totalAssets = requests.images.length + requests.videos.length + requests.audios.length;
+  onProgress?.(0, totalAssets);
 
-  // Seed progress with initial draw on canvas
-  onProgress?.(0, requests.images.length);
+  // 清空上一轮的 BlobStore，让 Rust 重新填。
+  clearBlobs();
 
-  // Load all images with sequential progress tracking.
-  // Each completed image triggers a progress callback that redraws
-  // the black canvas with updated download text.
-  await loadImages(requests, (loaded, total) => {
-    onProgress?.(loaded, total);
-  });
+  // 把整个下载 + 元数据探测交给 Rust：一次 await 出 catalog JSON。
+  const catalogJson = await preloadAssets(jsonlContent);
+  const catalog = JSON.parse(catalogJson) as Record<string, ResourceMeta>;
 
-  // After downloads complete, register all cached images with the
-  // renderer and populate resourceMeta for WASM buildFrame.
-  for (const assetId of requests.images) {
-    const cached = getCachedImage(assetId);
-    if (cached) {
-      resourceMeta[assetId] = {
-        width: cached.width,
-        height: cached.height,
-        kind: 'image',
-      };
-      registerImage(assetId, cached.ckImage);
+  // 元数据直接来自 Rust 的 nom-exif / imagesize 探测结果（dims + duration 准确）。
+  resourceMeta = catalog;
+
+  // 对图片资源：从 wasm BlobStore 取字节、CanvasKit 解码、注册到 renderer。
+  let decoded = 0;
+  for (const [assetId, meta] of Object.entries(catalog)) {
+    if (meta.kind === 'image') {
+      const loaded = decodeImageFromBlob(assetId);
+      if (loaded) {
+        registerImage(assetId, loaded.ckImage);
+      }
     }
-  }
-
-  // Video/Audio: register placeholder metadata (decoded on-demand).
-  for (const assetId of requests.videos) {
-    resourceMeta[assetId] = {
-      width: 1920,
-      height: 1080,
-      kind: 'video',
-      durationSecs: 10,
-    };
-  }
-  for (const assetId of requests.audios) {
-    resourceMeta[assetId] = {
-      width: 0,
-      height: 0,
-      kind: 'audio',
-    };
+    decoded++;
+    onProgress?.(decoded, totalAssets);
   }
 }
 

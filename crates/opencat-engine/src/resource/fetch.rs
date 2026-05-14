@@ -1,8 +1,9 @@
-//! HTTP helpers shared by [`crate::resource::resolver::EngineAssetResolver`]:
-//! reqwest client construction, Openverse search/token, generic download-to-file.
+//! HTTP helpers + [`EngineFetcher`] 实现：reqwest client、cache 命中、
+//! 字节下载、Openverse 搜索/token。
 
 use std::env;
-use std::path::Path;
+use std::future::Future;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -10,10 +11,11 @@ use reqwest::header::CONTENT_TYPE;
 use serde::Deserialize;
 use tokio::runtime::Builder;
 
+use opencat_core::resource::asset_id::AssetId;
+use opencat_core::resource::resolver::UrlFetcher;
 use opencat_core::scene::primitives::OpenverseQuery;
 
-pub use crate::resource::utils::{asset_id_for_audio_path, cache_file_path, read_image_dimensions};
-pub use opencat_core::resource::asset_id::AssetId;
+use crate::resource::utils::cache_file_path;
 
 const OPENVERSE_IMAGES_ENDPOINT: &str = "https://api.openverse.org/v1/images/";
 const OPENVERSE_TOKEN_ENDPOINT: &str = "https://api.openverse.org/v1/auth_tokens/token/";
@@ -52,26 +54,66 @@ pub(crate) fn build_http_client(context: &str) -> Result<reqwest::Client> {
         .with_context(|| context.to_string())
 }
 
-pub(crate) async fn download_to_cache(
-    client: &reqwest::Client,
-    url: &str,
-    path: &Path,
-    asset_kind: &str,
-) -> Result<()> {
+pub(crate) async fn download_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>> {
     let bytes = client
         .get(url)
         .send()
         .await
-        .with_context(|| format!("failed to download {asset_kind} asset from {url}"))?
+        .with_context(|| format!("failed to download asset from {url}"))?
         .error_for_status()
-        .with_context(|| format!("{asset_kind} download failed for {url}"))?
+        .with_context(|| format!("download failed for {url}"))?
         .bytes()
         .await
-        .with_context(|| format!("failed to read downloaded {asset_kind} bytes from {url}"))?;
+        .with_context(|| format!("failed to read downloaded bytes from {url}"))?;
+    Ok(bytes.to_vec())
+}
 
-    tokio::fs::write(path, &bytes)
-        .await
-        .with_context(|| format!("failed to write cached {asset_kind} {}", path.display()))
+/// Engine 端 URL → 字节下载器，内置 cache_dir 命中/写盘。
+pub struct EngineFetcher {
+    client: reqwest::Client,
+    cache_dir: PathBuf,
+}
+
+impl EngineFetcher {
+    pub fn new(cache_dir: PathBuf) -> Result<Self> {
+        Ok(Self {
+            client: build_http_client("failed to build async http client")?,
+            cache_dir,
+        })
+    }
+
+    pub fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
+    pub fn cache_dir(&self) -> &std::path::Path {
+        &self.cache_dir
+    }
+}
+
+impl UrlFetcher for EngineFetcher {
+    fn fetch_bytes(
+        &mut self,
+        id: &AssetId,
+        url: &str,
+    ) -> impl Future<Output = Result<Vec<u8>>> {
+        let path = cache_file_path(&self.cache_dir, id);
+        let client = self.client.clone();
+        let url = url.to_string();
+        async move {
+            if path.exists() {
+                let bytes = tokio::fs::read(&path)
+                    .await
+                    .with_context(|| format!("failed to read cached asset {}", path.display()))?;
+                return Ok(bytes);
+            }
+            let bytes = download_bytes(&client, &url).await?;
+            tokio::fs::write(&path, &bytes)
+                .await
+                .with_context(|| format!("failed to write cache {}", path.display()))?;
+            Ok(bytes)
+        }
+    }
 }
 
 pub(crate) async fn search_openverse_image(

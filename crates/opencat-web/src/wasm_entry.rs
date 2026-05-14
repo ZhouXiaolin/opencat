@@ -136,8 +136,8 @@ pub fn collect_resources_json(input: &str) -> String {
                 JsonLine::Video { path, url, .. } => {
                     if let Some(u) = url {
                         videos.push(format!("video:url:{u}"));
-                    } else {
-                        videos.push(path);
+                    } else if let Some(p) = path {
+                        videos.push(p);
                     }
                 }
                 JsonLine::Audio { path, url, .. } => {

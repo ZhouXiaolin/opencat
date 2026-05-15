@@ -23,7 +23,7 @@ use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 
 use super::runtime::path_bounds::default_host_path_bounds;
 use crate::platform::EnginePlatform;
-use crate::resource::path_store::AssetPathStore;
+use crate::resource::AssetPathStore;
 type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform>;
 
 #[derive(Clone, Debug)]

@@ -17,7 +17,7 @@ use opencat_core::scene::time::FrameState;
 use crate::backend::skia::renderer::{SkiaRenderData, SkiaRenderEngine};
 use crate::resource::fetch::build_preload_runtime;
 use crate::resource::media::MediaContext;
-use crate::resource::path_store::AssetPathStore;
+use crate::resource::AssetPathStore;
 use crate::resource::resolver::EngineAssetResolver;
 use crate::runtime::audio::{AudioIntervalCache, DecodedAudioCache};
 use crate::runtime::cache::CacheCaps;
@@ -163,7 +163,7 @@ fn register_canvas_asset_aliases(
     state: &FrameState,
     frame_ctx: &opencat_core::frame_ctx::FrameCtx,
     catalog: &mut opencat_core::resource::hash_map_catalog::HashMapResourceCatalog,
-    path_store: &mut crate::resource::path_store::AssetPathStore,
+    path_store: &mut crate::resource::AssetPathStore,
 ) {
     match state {
         FrameState::Scene { scene, .. } => {
@@ -180,7 +180,7 @@ fn register_canvas_aliases_from_node(
     node: &Node,
     frame_ctx: &opencat_core::frame_ctx::FrameCtx,
     catalog: &mut opencat_core::resource::hash_map_catalog::HashMapResourceCatalog,
-    path_store: &mut crate::resource::path_store::AssetPathStore,
+    path_store: &mut crate::resource::AssetPathStore,
 ) {
     use opencat_core::resource::catalog::ResourceCatalog;
     match node.kind() {

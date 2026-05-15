@@ -30,6 +30,7 @@ import { decodeImageFromBlob, setCanvasKit } from './resource';
 import { getScriptEngine } from './script-engine';
 import { prepareVideoSource, getDecodedFrameRgba, registerVideoGlobals, clearVideoCache } from './video-decoder';
 import type { CompositionInfo, JsonlFile, ParsedResult, ParsedElement } from './types';
+import { computeTimelineSegments, sceneFrameCtx, clearTimelineCache, type TimelineSegment } from './timeline';
 
 // --- State ---
 let currentComposition: CompositionInfo | null = null;
@@ -37,7 +38,9 @@ let currentJsonlContent: string | null = null;
 let currentFile: JsonlFile | null = null;
 let currentFrame = 0;
 let isPlaying = false;
-let playInterval: ReturnType<typeof setInterval> | null = null;
+let playRafId: number | null = null;
+let playStartTime = 0;
+let playStartFrame = 0;
 let isExporting = false;
 
 // --- Resource Metadata for WASM build_frame ---
@@ -202,108 +205,7 @@ function stripLocalPathElements(jsonlContent: string): string {
     .join('\n');
 }
 
-// ── Timeline segment computation ──
-// Parses JSONL to extract scene/transition timing so we can compute
-// per-scene local frames (matching the engine's ScriptFrameCtx::for_segment).
-
-interface TimelineSegment {
-  type: 'scene' | 'transition';
-  startFrame: number;
-  duration: number;
-}
-
-let cachedSegments: TimelineSegment[] | null = null;
-let cachedSegmentsJsonl: string | null = null;
-
-function computeTimelineSegments(jsonlContent: string): TimelineSegment[] {
-  if (jsonlContent === cachedSegmentsJsonl && cachedSegments) return cachedSegments;
-
-  const lines = jsonlContent.split('\n');
-  const elementsById = new Map<string, { duration?: number; parentId?: string }>();
-  const tlChildren = new Map<string, string[]>(); // tlId → [childId, ...]
-  const transitions: { parentId: string; from: string; to: string; duration: number }[] = [];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let obj: any;
-    try { obj = JSON.parse(trimmed); } catch { continue; }
-
-    if (obj.id) elementsById.set(obj.id, obj);
-    if (obj.type === 'tl' && obj.id) tlChildren.set(obj.id, []);
-    if (obj.type === 'transition') transitions.push(obj);
-  }
-
-  // Build parent-child for scenes under tl
-  for (const [id, el] of elementsById) {
-    if (el.parentId && tlChildren.has(el.parentId)) {
-      tlChildren.get(el.parentId)!.push(id);
-    }
-  }
-
-  // Find the first tl node (the main timeline)
-  const tlId = tlChildren.keys().next().value;
-  if (!tlId) {
-    cachedSegmentsJsonl = jsonlContent;
-    cachedSegments = [];
-    return [];
-  }
-
-  // Get ordered scene children, preserving JSONL order
-  const childIds = tlChildren.get(tlId) ?? [];
-  const transitionsByPair = new Map<string, any>();
-  for (const t of transitions) {
-    transitionsByPair.set(`${t.from}->${t.to}`, t);
-  }
-
-  // Build segments in order: scene, transition, scene, transition, scene, ...
-  const segments: TimelineSegment[] = [];
-  let cursor = 0;
-
-  for (let i = 0; i < childIds.length; i++) {
-    const sceneId = childIds[i];
-    const sceneEl = elementsById.get(sceneId);
-    const sceneDuration = sceneEl?.duration ?? 0;
-
-    segments.push({ type: 'scene', startFrame: cursor, duration: sceneDuration });
-    cursor += sceneDuration;
-
-    // Add transition to next scene
-    if (i < childIds.length - 1) {
-      const nextId = childIds[i + 1];
-      const trans = transitionsByPair.get(`${sceneId}->${nextId}`);
-      const transDuration = trans?.duration ?? 0;
-      if (transDuration > 0) {
-        segments.push({ type: 'transition', startFrame: cursor, duration: transDuration });
-        cursor += transDuration;
-      }
-    }
-  }
-
-  cachedSegmentsJsonl = jsonlContent;
-  cachedSegments = segments;
-  return segments;
-}
-
-/** Find the scene-local frame and scene duration for a global frame number. */
-function sceneFrameCtx(globalFrame: number, jsonlContent: string): { localFrame: number; sceneFrames: number } {
-  const segments = computeTimelineSegments(jsonlContent);
-  for (const seg of segments) {
-    if (seg.type !== 'scene') continue;
-    const end = seg.startFrame + seg.duration;
-    if (globalFrame < end) {
-      const local = Math.min(globalFrame - seg.startFrame, seg.duration - 1);
-      return { localFrame: Math.max(0, local), sceneFrames: seg.duration };
-    }
-  }
-  // Past last scene — clamp to last scene's final frame
-  for (let i = segments.length - 1; i >= 0; i--) {
-    if (segments[i].type === 'scene') {
-      return { localFrame: segments[i].duration - 1, sceneFrames: segments[i].duration };
-    }
-  }
-  return { localFrame: globalFrame, sceneFrames: 0 };
-}
+// ── Timeline segment computation (imported from shared module) ──
 
 /**
  * 从 JSONL 中剥离 type: script 的元素（JS 已处理，避免 WASM 重复处理报错）
@@ -447,8 +349,7 @@ function drawDownloadProgress(loaded: number, total: number): void {
 
 // --- Load JSONL ---
 async function loadJsonl(file: JsonlFile) {
-  cachedSegments = null;
-  cachedSegmentsJsonl = null;
+  clearTimelineCache();
   try {
     const resp = await fetch(file.path);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -730,45 +631,70 @@ function updateFrameInfo() {
 }
 
 // --- Playback ---
+function hasAudioSources(): boolean {
+  for (const [, meta] of Object.entries(resourceMeta)) {
+    if (meta.kind === 'audio') return true;
+  }
+  return false;
+}
+
 function play() {
   if (!currentComposition || isPlaying) return;
   isPlaying = true;
   btnPlay.textContent = '⏸';
 
-  // Resume AudioContext (browser requires user gesture)
-  try {
-    getRendererOrThrow().play_audio_at('', 0, 0); // dummy call to ensure context is alive
-  } catch { /* ignore */ }
+  const renderer = getRendererOrThrow();
+  const fps = currentComposition.fps;
+  const totalFrames = currentComposition.frames;
+  const totalDuration = totalFrames / fps;
+  const startTime = currentFrame / fps;
 
   // Start audio for each source at current time offset
-  const startTime = currentFrame / currentComposition.fps;
   for (const [id, meta] of Object.entries(resourceMeta)) {
     if (meta.kind === 'audio') {
       try {
-        getRendererOrThrow().play_audio_at(id, startTime, currentComposition.frames / currentComposition.fps);
+        renderer.play_audio_at(id, startTime, totalDuration - startTime);
       } catch { /* ignore */ }
     }
   }
 
-  playInterval = setInterval(() => {
-    if (!currentComposition) return;
-    currentFrame++;
-    if (currentFrame >= currentComposition.frames) {
-      currentFrame = 0;
+  // Record audio clock at play start for audio-driven sync
+  const useAudioClock = hasAudioSources();
+  playStartFrame = currentFrame;
+  playStartTime = useAudioClock ? renderer.audio_context_time() : performance.now() / 1000;
+
+  function tick() {
+    if (!isPlaying || !currentComposition) return;
+
+    // Audio clock first (like native opencat-see), fall back to system clock
+    const elapsed = useAudioClock
+      ? renderer.audio_context_time() - playStartTime
+      : performance.now() / 1000 - playStartTime;
+
+    const compFps = currentComposition.fps;
+    const compFrames = currentComposition.frames;
+    const rawFrame = Math.floor((playStartFrame + elapsed * compFps) % compFrames);
+    const frame = rawFrame < 0 ? rawFrame + compFrames : rawFrame;
+
+    if (frame !== currentFrame) {
+      currentFrame = frame;
+      renderFrameAsync(frame);
+      updateFrameInfo();
     }
-    renderFrameAsync(currentFrame);
-    updateFrameInfo();
-  }, 1000 / currentComposition.fps);
+
+    playRafId = requestAnimationFrame(tick);
+  }
+
+  playRafId = requestAnimationFrame(tick);
 }
 
 function pause() {
   isPlaying = false;
   btnPlay.textContent = '▶';
-  if (playInterval) {
-    clearInterval(playInterval);
-    playInterval = null;
+  if (playRafId !== null) {
+    cancelAnimationFrame(playRafId);
+    playRafId = null;
   }
-  // Stop audio on pause
   try {
     getRendererOrThrow().stop_audio();
   } catch { /* ignore */ }

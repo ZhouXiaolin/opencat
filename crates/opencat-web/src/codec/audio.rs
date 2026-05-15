@@ -31,6 +31,7 @@ pub struct WebAudio {
     gain: GainNode,
     buffers: HashMap<String, AudioBuffer>,
     pcm_cache: HashMap<String, DecodedAudio>,
+    active_sources: Vec<AudioBufferSourceNode>,
 }
 
 impl WebAudio {
@@ -50,6 +51,7 @@ impl WebAudio {
             gain,
             buffers: HashMap::new(),
             pcm_cache: HashMap::new(),
+            active_sources: Vec::new(),
         })
     }
 
@@ -132,7 +134,7 @@ impl WebAudio {
     /// 从指定时间偏移开始播放音频，持续 `duration_secs`。
     ///
     /// 用于预览时与帧时间线同步。
-    pub fn play_at(&self, key: &str, offset_secs: f64, duration_secs: f64) -> Result<()> {
+    pub fn play_at(&mut self, key: &str, offset_secs: f64, duration_secs: f64) -> Result<()> {
         let buffer = self
             .buffers
             .get(key)
@@ -151,6 +153,8 @@ impl WebAudio {
         source
             .start_with_when_and_grain_offset_and_grain_duration(0.0, offset_secs, duration_secs)
             .map_err(|e| anyhow!("start: {e:?}"))?;
+
+        self.active_sources.push(source);
 
         Ok(())
     }
@@ -197,17 +201,17 @@ impl WebAudio {
 
         let ratio = target_rate as f64 / src_rate;
         let out_frames = ((src_slice.len() / channels) as f64 * ratio) as usize;
+        let src_frames = src_slice.len() / channels;
         let mut out = Vec::with_capacity(out_frames * channels);
         for out_frame in 0..out_frames {
-            let src_frame = (out_frame as f64 / ratio) as usize;
-            let src_base = (src_frame * channels).min(src_slice.len());
+            let src_pos = out_frame as f64 / ratio;
+            let src_frame = src_pos as usize;
+            let frac = (src_pos - src_frame as f64) as f32;
+            let next_frame = (src_frame + 1).min(src_frames.saturating_sub(1));
             for ch in 0..channels {
-                let idx = src_base + ch;
-                out.push(if idx < src_slice.len() {
-                    src_slice[idx]
-                } else {
-                    0.0
-                });
+                let a = src_slice[src_frame * channels + ch];
+                let b = src_slice[next_frame * channels + ch];
+                out.push(a + (b - a) * frac);
             }
         }
         out
@@ -231,10 +235,17 @@ impl WebAudio {
         Ok(())
     }
 
-    /// 停止所有音频（suspend context 然后立即 resume 以清除播放）。
-    pub fn stop_all(&self) -> Result<()> {
-        self.suspend()?;
-        // 立即 resume 以允许后续播放
-        self.resume()
+    /// 返回 AudioContext.currentTime，用于音视频同步。
+    pub fn current_time(&self) -> f64 {
+        self.ctx.current_time()
+    }
+
+    /// 停止所有正在播放的音频，释放 source 节点。
+    #[allow(deprecated)]
+    pub fn stop_all(&mut self) -> Result<()> {
+        for source in self.active_sources.drain(..) {
+            let _ = source.stop();
+        }
+        Ok(())
     }
 }

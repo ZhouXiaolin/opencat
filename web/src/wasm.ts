@@ -25,6 +25,7 @@ export interface WebRendererInstance {
   stop_audio(): void;
   set_audio_volume(volume: number): void;
   clear_audio_cache(): void;
+  audio_context_time(): number;
   query_subtree_snapshot(key: bigint): SubtreeCacheResult;
   query_glyph_path(key: bigint): string | undefined;
   free(): void;

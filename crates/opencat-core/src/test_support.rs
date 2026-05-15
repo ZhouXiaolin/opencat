@@ -123,6 +123,12 @@ impl ResourceCatalog for TestCatalog {
         id
     }
 
+    fn register_audio(&mut self, locator: &str) -> AssetId {
+        let id = AssetId(locator.to_string());
+        self.dims.entry(id.clone()).or_insert((0, 0));
+        id
+    }
+
     fn alias(&mut self, alias: AssetId, target: &AssetId) -> anyhow::Result<()> {
         TestCatalog::alias(self, alias, target)
     }

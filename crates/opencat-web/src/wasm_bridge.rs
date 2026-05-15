@@ -256,7 +256,7 @@ impl WebRenderer {
 
     /// Play audio from `offset_secs` for `duration_secs` (for preview).
     pub fn play_audio_at(
-        &self,
+        &mut self,
         asset_id: String,
         offset_secs: f64,
         duration_secs: f64,
@@ -280,12 +280,17 @@ impl WebRenderer {
     }
 
     /// Stop all audio playback.
-    pub fn stop_audio(&self) -> Result<(), JsValue> {
+    pub fn stop_audio(&mut self) -> Result<(), JsValue> {
         self.session
             .platform
             .audio
             .stop_all()
             .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Get AudioContext.currentTime for audio-driven frame sync.
+    pub fn audio_context_time(&self) -> f64 {
+        self.session.platform.audio.current_time()
     }
 
     pub fn build_frame(
@@ -331,6 +336,7 @@ impl WebRenderer {
             .size(width, height)
             .fps(parsed.fps as u32)
             .frames(parsed.frames as u32)
+            .audio_sources(parsed.audio_sources)
             .root(move |_ctx| root_node.clone())
             .build()?;
 

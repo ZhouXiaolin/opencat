@@ -3,6 +3,7 @@ import { ensureSurface, drawDisplayTree, predecodeVideoFramesInTree } from './re
 import { buildFrame, parseJsonl } from './wasm';
 import { getScriptEngine } from './script-engine';
 import { getRendererOrThrow } from './wasm';
+import { sceneFrameCtx } from './timeline';
 import type { IClip } from '@webav/av-cliper';
 
 type ProgressCallback = (current: number, total: number) => void;
@@ -70,7 +71,8 @@ class ExportClip implements IClip {
 
     // Execute scripts to collect mutations
     const engine = getScriptEngine();
-    engine.setFrameCtx(frameNum + 1, this.totalFrames, this.totalFrames);
+    const sc = sceneFrameCtx(frameNum, this.jsonlContent);
+    engine.setFrameCtx(sc.localFrame + 1, this.totalFrames, sc.sceneFrames);
     const parsed = parseJsonl(this.jsonlContent);
 
     for (const el of parsed.elements || []) {
@@ -181,6 +183,22 @@ class ExportClip implements IClip {
 
 // ── Public API ──
 
+async function isAacEncodingSupported(): Promise<boolean> {
+  if (typeof AudioEncoder === 'undefined') return false;
+  if (!('isConfigSupported' in AudioEncoder)) return false;
+  try {
+    const support = await (AudioEncoder as any).isConfigSupported({
+      codec: 'mp4a.40.2',
+      sampleRate: 48000,
+      numberOfChannels: 2,
+      bitrate: 128000,
+    });
+    return support?.supported === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function initFFmpeg(): Promise<void> {
   // No-op: FFmpeg.wasm has been removed (replaced by WebAV/WebCodecs)
 }
@@ -215,7 +233,15 @@ export async function exportMp4(
   const clip = new ExportClip(canvas, jsonlContent, filteredJsonl, resourceMetaJson, comp, onProgress, audioIds);
   const spr = new OffscreenSprite(clip);
 
-  const hasAudio = audioIds.length > 0;
+  let hasAudio = audioIds.length > 0;
+  if (hasAudio) {
+    const aacSupported = await isAacEncodingSupported();
+    if (!aacSupported) {
+      console.warn('[export] AAC audio encoding not supported by this browser, exporting video only');
+      hasAudio = false;
+    }
+  }
+
   const com = new Combinator({
     width,
     height,
@@ -286,7 +312,8 @@ export async function exportPngFrame(
 
   // Execute scripts to collect mutations
   const engine = getScriptEngine();
-  engine.setFrameCtx(frame + 1, comp.frames, comp.frames);
+  const sc = sceneFrameCtx(frame, jsonlContent);
+  engine.setFrameCtx(sc.localFrame + 1, comp.frames, sc.sceneFrames);
   const parsed = parseJsonl(jsonlContent);
 
   for (const el of parsed.elements || []) {

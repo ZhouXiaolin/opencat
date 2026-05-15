@@ -11,8 +11,7 @@ use rquickjs::{
     Context, Error as JsError, Exception, FromJs, Function, Object, Persistent, Runtime,
 };
 
-use bindings::canvas_api;
-use bindings::node_style;
+use bindings as script_bindings;
 use opencat_core::frame_ctx::ScriptFrameCtx;
 use opencat_core::scene::script::ScriptTextSource;
 use opencat_core::scene::script::{ScriptDriver, ScriptDriverId, ScriptHost, StyleMutations};
@@ -321,8 +320,8 @@ fn install_runtime_bindings<'js>(
     ctx_obj.set("__currentCanvasTarget", "")?;
     globals.set("ctx", ctx_obj.clone())?;
 
-    node_style::install_node_style_bindings(ctx, store)?;
-    canvas_api::install_canvaskit_bindings(ctx, store)?;
+    script_bindings::install_node_style_bindings(ctx, store)?;
+    script_bindings::install_canvaskit_bindings(ctx, store)?;
     bindings::animate_api::install_animate_bindings(
         ctx,
         store,
@@ -349,8 +348,8 @@ fn install_runtime_bindings<'js>(
         )?;
     }
 
-    ctx.eval::<(), _>(node_style::NODE_STYLE_RUNTIME)?;
-    ctx.eval::<(), _>(canvas_api::CANVASKIT_RUNTIME)?;
+    ctx.eval::<(), _>(script_bindings::NODE_STYLE_RUNTIME)?;
+    ctx.eval::<(), _>(script_bindings::CANVASKIT_RUNTIME)?;
     ctx.eval::<(), _>(bindings::animate_api::ANIMATE_RUNTIME)?;
 
     Ok(ctx_obj)

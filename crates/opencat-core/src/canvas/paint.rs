@@ -65,11 +65,12 @@ pub enum StrokeJoin {
     Bevel,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BlendMode {
     Clear,
     Src,
     Dst,
+    #[default]
     SrcOver,
     DstOver,
     SrcIn,
@@ -98,11 +99,7 @@ pub enum BlendMode {
     Luminosity,
 }
 
-impl Default for BlendMode {
-    fn default() -> Self {
-        BlendMode::SrcOver
-    }
-}
+
 
 #[derive(Clone, Debug)]
 pub enum ImageFilterSpec {

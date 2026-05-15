@@ -1,14 +1,11 @@
 use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle};
 use crate::canvas::{Canvas2D, Rect};
-use crate::display::list::{BitmapDisplayItem, DisplayRect};
+use crate::display::list::BitmapDisplayItem;
 use crate::style::ObjectFit;
 
 use super::paint_conv::background_fill_to_paint_spec;
+use super::rect::{clip_bounds, draw_box_shadow, draw_inset_shadow, draw_item_drop_shadow, draw_node_border, kurbo_rect};
 use super::{RenderCache, RenderCtx, RenderError};
-
-fn kurbo_rect(r: DisplayRect) -> Rect {
-    Rect::new(r.x as f64, r.y as f64, (r.x + r.width) as f64, (r.y + r.height) as f64)
-}
 
 fn fitted_rect(src_width: f32, src_height: f32, dst: &Rect, cover: bool) -> Rect {
     let iw = src_width as f64;
@@ -44,16 +41,50 @@ fn cover_src_rect(src_width: f32, src_height: f32, dst: &Rect) -> Rect {
     Rect::new(x, y, x + visible_width, y + visible_height)
 }
 
+fn draw_bitmap_image<C: Canvas2D>(
+    canvas: &mut C,
+    item: &BitmapDisplayItem,
+    image: &C::Image,
+    dst: &Rect,
+    paint: &PaintSpec,
+    src_width: f32,
+    src_height: f32,
+) {
+    match item.object_fit {
+        ObjectFit::Fill => {
+            canvas.draw_image_rect(image, None, dst, Some(paint));
+        }
+        ObjectFit::Contain => {
+            let fitted = fitted_rect(src_width, src_height, dst, false);
+            canvas.draw_image_rect(image, None, &fitted, Some(paint));
+        }
+        ObjectFit::Cover => {
+            let src = cover_src_rect(src_width, src_height, dst);
+            canvas.draw_image_rect(image, Some(&src), dst, Some(paint));
+        }
+    }
+}
+
 pub fn render_bitmap<C: Canvas2D>(
     canvas: &mut C,
     item: &BitmapDisplayItem,
     ctx: &RenderCtx<C>,
     cache: &mut RenderCache<C>,
 ) -> Result<(), RenderError> {
-    let asset_key = item.asset_id.0.clone();
+    let style = &item.paint;
     let dst = kurbo_rect(item.bounds);
 
-    let image = {
+    let image = if item.video_timing.is_some() {
+        let frame_index = ctx.frame_ctx.frame as u32;
+        let video = unsafe {
+            let ptr = ctx as *const RenderCtx<C> as *mut RenderCtx<C>;
+            &mut *(*ptr).video
+        };
+        let frame = video.frame_rgba(&item.asset_id, frame_index)
+            .map_err(|e| RenderError::MissingResource(format!("video frame: {}", e)))?;
+        canvas.make_image_from_rgba(&frame.data, frame.width, frame.height)
+    } else {
+        let asset_key = item.asset_id.0.clone();
         let mut lru = cache.images.borrow_mut();
         if let Some(Some(img)) = lru.get_cloned(&asset_key) {
             img
@@ -80,7 +111,10 @@ pub fn render_bitmap<C: Canvas2D>(
         }
     };
 
-    if let Some(ref bg) = item.paint.background {
+    canvas.save();
+    clip_bounds(canvas, item.bounds, &style.border_radius);
+
+    if let Some(ref bg) = style.background {
         let paint = background_fill_to_paint_spec(bg);
         canvas.draw_rect(&dst, &paint);
     }
@@ -97,22 +131,48 @@ pub fn render_bitmap<C: Canvas2D>(
         path_effect: None,
     };
 
-    let src_width = item.width as f32;
+    let src_width = if item.video_timing.is_some() {
+        item.width as f32
+    } else {
+        item.width as f32
+    };
     let src_height = item.height as f32;
+    draw_bitmap_image(canvas, item, &image, &dst, &paint, src_width, src_height);
 
-    match item.object_fit {
-        ObjectFit::Fill => {
-            canvas.draw_image_rect(&image, None, &dst, Some(&paint));
-        }
-        ObjectFit::Contain => {
-            let fitted = fitted_rect(src_width, src_height, &dst, false);
-            canvas.draw_image_rect(&image, None, &fitted, Some(&paint));
-        }
-        ObjectFit::Cover => {
-            let src = cover_src_rect(src_width, src_height, &dst);
-            canvas.draw_image_rect(&image, Some(&src), &dst, Some(&paint));
-        }
+    if let Some(ref shadow) = style.inset_shadow {
+        draw_inset_shadow(canvas, item.bounds, &style.border_radius, shadow);
     }
+
+    draw_node_border(
+        canvas, &dst, &style.border_radius,
+        style.border_width, style.border_top_width, style.border_right_width,
+        style.border_bottom_width, style.border_left_width,
+        style.border_color, style.border_style, style.blur_sigma,
+    );
+
+    canvas.restore();
+    Ok(())
+}
+
+pub fn render_bitmap_with_shadows<C: Canvas2D>(
+    canvas: &mut C,
+    item: &BitmapDisplayItem,
+    ctx: &RenderCtx<C>,
+    cache: &mut RenderCache<C>,
+) -> Result<(), RenderError> {
+    let style = &item.paint;
+    let bounds = item.bounds;
+
+    if let Some(ref shadow) = style.box_shadow {
+        draw_box_shadow(canvas, bounds, &style.border_radius, shadow);
+    }
+
+    if let Some(ref shadow) = style.drop_shadow {
+        draw_item_drop_shadow(canvas, bounds, shadow, |c| {
+            render_bitmap(c, item, ctx, cache)
+        })?;
+    }
+    render_bitmap(canvas, item, ctx, cache)?;
 
     Ok(())
 }

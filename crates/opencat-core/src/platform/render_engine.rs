@@ -256,6 +256,7 @@ mod ctx_tests {
                         box_shadow: None,
                         inset_shadow: None,
                         drop_shadow: None,
+                        backdrop_blur_sigma: None,
                     },
                 }),
                 children: vec![],

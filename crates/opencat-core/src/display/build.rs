@@ -115,6 +115,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 box_shadow: element.style.visual.box_shadow,
                 inset_shadow: element.style.visual.inset_shadow,
                 drop_shadow: element.style.visual.drop_shadow,
+                backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
             },
         }),
         ElementKind::Timeline(timeline) => DisplayItem::Timeline(TimelineDisplayItem {
@@ -133,6 +134,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 box_shadow: element.style.visual.box_shadow,
                 inset_shadow: element.style.visual.inset_shadow,
                 drop_shadow: element.style.visual.drop_shadow,
+                backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
             },
             transition: timeline
                 .transition

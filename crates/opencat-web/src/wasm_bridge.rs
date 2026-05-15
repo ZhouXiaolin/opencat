@@ -50,6 +50,7 @@ pub struct BuildFrameResult {
 // ── Helpers ──
 
 fn default_platform() -> WebPlatform {
+    use crate::codec::audio::WebAudio;
     use crate::engine::WebRenderEngine;
     use crate::video::WebVideoSource;
     use opencat_core::scene::path_bounds::DefaultPathBounds;
@@ -59,6 +60,7 @@ fn default_platform() -> WebPlatform {
         backend: WebRenderEngine::new(),
         script: PrecomputedScriptHost::new(),
         video: WebVideoSource::default(),
+        audio: WebAudio::new().expect("WebAudio initialization"),
         path_bounds: DefaultPathBounds,
     }
 }
@@ -201,6 +203,89 @@ impl WebRenderer {
         } else {
             self.session.platform.video.clear_cache(Some(&AssetId(asset_id)));
         }
+    }
+
+    // ── Audio API ──
+
+    /// Decode an audio file (bytes) via Web Audio API.
+    /// `asset_id` is used as the cache key for subsequent play/get_samples calls.
+    pub async fn decode_audio_file(
+        &mut self,
+        asset_id: String,
+        data: Vec<u8>,
+    ) -> Result<(), JsValue> {
+        self.session
+            .platform
+            .audio
+            .decode_file(&asset_id, &data)
+            .await
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Get decoded PCM audio samples for a time range (for export).
+    /// Returns JSON: `{ sample_rate, channels, samples: [f32...] }`
+    pub fn get_audio_samples(
+        &self,
+        asset_id: String,
+        start_secs: f64,
+        duration_secs: f64,
+        target_rate: u32,
+    ) -> String {
+        use crate::codec::audio::WebAudio;
+
+        let pcm = self.session.platform.audio.get_pcm(&asset_id);
+        match pcm {
+            Some(pcm) => {
+                let samples =
+                    WebAudio::extract_samples(pcm, start_secs, duration_secs, target_rate);
+                serde_json::json!({
+                    "sample_rate": pcm.sample_rate,
+                    "channels": pcm.channels,
+                    "samples": samples,
+                })
+                .to_string()
+            }
+            None => serde_json::json!({
+                "sample_rate": 0,
+                "channels": 0,
+                "samples": [],
+            })
+            .to_string(),
+        }
+    }
+
+    /// Play audio from `offset_secs` for `duration_secs` (for preview).
+    pub fn play_audio_at(
+        &self,
+        asset_id: String,
+        offset_secs: f64,
+        duration_secs: f64,
+    ) -> Result<(), JsValue> {
+        self.session
+            .platform
+            .audio
+            .play_at(&asset_id, offset_secs, duration_secs)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Set master audio volume (0.0 ~ 1.0).
+    pub fn set_audio_volume(&self, volume: f32) {
+        self.session.platform.audio.set_volume(volume);
+    }
+
+    /// Clear decoded audio cache.
+    pub fn clear_audio_cache(&mut self) {
+        self.session.platform.audio = crate::codec::audio::WebAudio::new()
+            .expect("WebAudio re-initialization");
+    }
+
+    /// Stop all audio playback.
+    pub fn stop_audio(&self) -> Result<(), JsValue> {
+        self.session
+            .platform
+            .audio
+            .stop_all()
+            .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     pub fn build_frame(

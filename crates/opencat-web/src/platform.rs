@@ -4,6 +4,7 @@ use opencat_core::platform::platform::Platform;
 use opencat_core::scene::path_bounds::{DefaultPathBounds, PathBoundsComputer};
 use opencat_core::scene::script::precomputed_host::PrecomputedScriptHost;
 
+use crate::codec::audio::WebAudio;
 use crate::engine::WebRenderEngine;
 use crate::video::WebVideoSource;
 
@@ -11,6 +12,7 @@ pub struct WebPlatform {
     pub backend: WebRenderEngine,
     pub script: PrecomputedScriptHost,
     pub video: WebVideoSource,
+    pub audio: WebAudio,
     pub path_bounds: DefaultPathBounds,
 }
 

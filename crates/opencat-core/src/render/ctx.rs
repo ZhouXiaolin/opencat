@@ -3,6 +3,8 @@
 //! Generic over any `Canvas2D` backend so that core render helpers can
 //! operate without knowing the concrete Skia / CPU / GPU implementation.
 
+use std::cell::RefCell;
+
 use crate::canvas::Canvas2D;
 use crate::frame_ctx::FrameCtx;
 use crate::resource::AssetPathStore;
@@ -29,7 +31,9 @@ pub struct RenderCtx<'a, C: Canvas2D> {
     /// LRU caches parameterised by the canvas backend.
     pub cache: &'a mut RenderCache<C>,
     /// Video frame decoder (platform-supplied).
-    pub video: &'a mut dyn VideoFrameProvider,
+    /// Wrapped in RefCell so render functions can call `frame_rgba`
+    /// (which takes `&mut self`) through a shared `&RenderCtx`.
+    pub video: RefCell<&'a mut dyn VideoFrameProvider>,
     /// Physical path table for bitmap loading.
     pub asset_paths: Option<&'a AssetPathStore>,
     /// Platform-specific userdata (e.g. engine's MediaContext).

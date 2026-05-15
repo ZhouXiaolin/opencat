@@ -1,6 +1,7 @@
 //! Per-frame pipeline — core manages the entire chain from element resolve to backend draw.
 
 use std::any::Any;
+use std::cell::RefCell;
 
 use anyhow::Result;
 
@@ -87,7 +88,7 @@ pub fn render_frame<P: Platform>(
                         catalog: &session.catalog,
                         frame_ctx: &frame_ctx,
                         cache: &mut session.cache_registry,
-                        video,
+                video,
                         platform_data: ctx_platform_data,
                     };
                     backend.record_display_tree_snapshot(&mut ctx, &annotated)
@@ -114,7 +115,7 @@ pub fn render_frame<P: Platform>(
                 display_tree: &annotated,
                 ordered_scene: &ordered_scene,
                 cache: &mut session.cache_registry,
-                video,
+                video: RefCell::new(video as &mut dyn crate::platform::video::VideoFrameProvider),
                 platform_data: ctx_platform_data,
             };
             backend.draw_ordered_scene(&mut ctx, frame_view)

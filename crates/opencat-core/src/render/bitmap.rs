@@ -76,7 +76,11 @@ pub fn render_bitmap<C: Canvas2D>(
 
     let (image, src_width, src_height) = if item.video_timing.is_some() {
         let frame_index = ctx.frame_ctx.frame as u32;
-        let frame = ctx.video.borrow_mut().frame_rgba(&item.asset_id, frame_index)
+        let resolved_id = ctx.asset_paths
+            .and_then(|store| store.path(&item.asset_id))
+            .map(|p| crate::resource::asset_id::AssetId(p.to_string_lossy().to_string()));
+        let asset_id = resolved_id.as_ref().unwrap_or(&item.asset_id);
+        let frame = ctx.video.borrow_mut().frame_rgba(asset_id, frame_index)
             .map_err(|e| RenderError::MissingResource(format!("video frame: {}", e)))?;
         let w = frame.width;
         let h = frame.height;

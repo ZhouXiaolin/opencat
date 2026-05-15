@@ -63,7 +63,7 @@ impl AudioIntervalCache {
 
 pub(crate) fn build_audio_track(
     composition: &Composition,
-    path_store: &crate::resource::path_store::AssetPathStore,
+    path_store: &crate::resource::AssetPathStore,
     decoded: &mut DecodedAudioCache,
     interval_cache: &mut AudioIntervalCache,
 ) -> Result<Option<AudioTrack>> {
@@ -100,7 +100,7 @@ pub(crate) fn build_audio_track(
 
 pub(crate) fn render_audio_chunk(
     composition: &Composition,
-    path_store: &crate::resource::path_store::AssetPathStore,
+    path_store: &crate::resource::AssetPathStore,
     decoded: &mut DecodedAudioCache,
     interval_cache: &mut AudioIntervalCache,
     start_time_secs: f64,
@@ -269,7 +269,7 @@ pub struct DecodedAudioCache {
 impl DecodedAudioCache {
     fn get_or_decode<'a>(
         &'a mut self,
-        path_store: &crate::resource::path_store::AssetPathStore,
+        path_store: &crate::resource::AssetPathStore,
         source: &AudioSource,
     ) -> Result<&'a AudioTrack> {
         if !self.decoded.contains_key(source) {
@@ -298,7 +298,7 @@ impl DecodedAudioCache {
 }
 
 fn render_audio_chunk_from_intervals(
-    path_store: &crate::resource::path_store::AssetPathStore,
+    path_store: &crate::resource::AssetPathStore,
     intervals: &[AudioInterval],
     decoded: &mut DecodedAudioCache,
     start_sample_frame: usize,

@@ -51,10 +51,9 @@ pub use opencat_engine::render::{
     render_frame_with_target, render_with_backend_progress, render_with_progress,
 };
 
-// Convenience: construct a default RenderSession backed by the shared raster engine.
+// Convenience: construct a default RenderSession.
 pub fn default_render_session() -> RenderSession {
-    let engine = opencat_engine::backend::skia::renderer::shared_raster_engine_typed();
-    RenderSession::new(EnginePlatform::new(engine))
+    RenderSession::new(EnginePlatform::new())
 }
 pub use opencat_engine::resource::media::{
     VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality,

@@ -9,7 +9,7 @@ use tracing::{Level, event, span};
 
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 
-use crate::resource::path_store::AssetPathStore;
+use crate::resource::AssetPathStore;
 use opencat_core::display::list::{
     BitmapDisplayItem, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem,
     RectDisplayItem, SvgPathDisplayItem, TextDisplayItem, TimelineDisplayItem,

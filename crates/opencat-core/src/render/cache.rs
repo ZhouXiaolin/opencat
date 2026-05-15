@@ -1,6 +1,7 @@
 //! Render cache — generic LRU buckets parameterised by a `Canvas2D` backend.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::cache::lru::BoundedLruCache;
@@ -39,6 +40,8 @@ pub struct RenderCache<C: Canvas2D> {
     pub glyph_images: SharedLruCache<u64, C::Image>,
     /// Runtime-effect shader cache (keyed by SkSL hash).
     pub runtime_effects: SharedLruCache<u64, C::RuntimeEffect>,
+    /// Natural image dimensions indexed by asset key (populated during script image loads).
+    pub image_sizes: RefCell<HashMap<String, (u32, u32)>>,
     /// Most-recent scene-level picture snapshot (fingerprint, picture).
     pub scene_snapshot: Option<(u64, C::Picture)>,
 }
@@ -63,6 +66,7 @@ impl<C: Canvas2D> RenderCache<C> {
             glyph_paths: Rc::new(RefCell::new(BoundedLruCache::new(glyph_path_cap))),
             glyph_images: Rc::new(RefCell::new(BoundedLruCache::new(glyph_image_cap))),
             runtime_effects: Rc::new(RefCell::new(BoundedLruCache::new(runtime_effect_cap))),
+            image_sizes: RefCell::new(HashMap::new()),
             scene_snapshot: None,
         }
     }

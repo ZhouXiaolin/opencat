@@ -1,6 +1,7 @@
 //! Core-level RenderEngine trait + per-frame borrow contexts.
 
 use std::any::Any;
+use std::cell::RefCell;
 
 use anyhow::Result;
 
@@ -42,7 +43,7 @@ pub struct RenderCtx<'a, B: BackendTypes> {
     pub display_tree: &'a AnnotatedDisplayTree,
     pub ordered_scene: &'a OrderedSceneProgram,
     pub cache: &'a mut crate::runtime::cache::CacheRegistry<B>,
-    pub video: &'a mut dyn crate::platform::video::VideoFrameProvider,
+    pub video: RefCell<&'a mut dyn crate::platform::video::VideoFrameProvider>,
     /// Platform-specific userdata (e.g. engine's AssetCatalog + MediaContext bundle).
     pub platform_data: &'a mut dyn Any,
 }
@@ -152,6 +153,8 @@ pub trait RenderEngine: BackendTypes + Send + Sync {
 
 #[cfg(test)]
 mod ctx_tests {
+    use std::cell::RefCell;
+
     use super::*;
     use crate::frame_ctx::FrameCtx;
     use crate::platform::backend::BackendTypes;
@@ -273,7 +276,7 @@ mod ctx_tests {
             display_tree: &annotated,
             ordered_scene: &ordered,
             cache: &mut cache,
-            video: &mut video,
+            video: RefCell::new(&mut video),
             platform_data: &mut *platform_data,
         };
         assert_eq!(ctx.frame_ctx.width, 16);

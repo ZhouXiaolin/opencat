@@ -72,7 +72,9 @@ fn render_transition_overlay<C: Canvas2D>(
             };
             canvas.draw_rect(&rect, &paint);
         }
-        TransitionKind::Gl(_gl) => {}
+        TransitionKind::Gl(_gl) => {
+            // GL transition not supported in generic render layer
+        }
     }
 }
 

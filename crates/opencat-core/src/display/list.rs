@@ -205,6 +205,7 @@ pub struct RectPaintStyle {
     pub box_shadow: Option<BoxShadow>,
     pub inset_shadow: Option<InsetShadow>,
     pub drop_shadow: Option<DropShadow>,
+    pub backdrop_blur_sigma: Option<f32>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

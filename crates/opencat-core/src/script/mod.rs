@@ -10,6 +10,7 @@
 //! by the host environment.
 
 pub mod animate;
+pub mod bindings;
 pub mod recorder;
 pub mod runtime;
 pub mod text_units;

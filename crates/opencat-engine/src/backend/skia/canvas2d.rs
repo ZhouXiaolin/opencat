@@ -349,6 +349,7 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
     }
 
     fn draw_glyph_run(&mut self, run: &GlyphRunSpec, paint: &PaintSpec) {
+        debug_assert_eq!(run.positions.len() % 2, 0, "glyph positions must be even");
         let mut font = Font::default();
         font.set_size(run.font_size);
         font.set_scale_x(run.font_scale_x);
@@ -395,6 +396,8 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         let mut recorder = PictureRecorder::new();
         let recording_canvas = recorder.begin_recording(skia_bounds, false);
         let canvas_ptr: *const Canvas = recording_canvas;
+        // SAFETY: canvas points to valid Canvas owned by recorder, which outlives temp
+        // because temp is dropped before finish_recording_as_picture
         let canvas_ref: &Canvas = unsafe { &*canvas_ptr };
         let mut temp = SkiaCanvas2D::new(canvas_ref);
         record(&mut temp);
@@ -529,6 +532,7 @@ fn rect_to_skia(r: &Rect) -> SkiaRect {
 fn rrect_to_skia(r: &RRect) -> SkiaRRect {
     let rect = rect_to_skia(&r.rect());
     let radii = r.radii();
+    // Precision loss from f64 to f32 cast is acceptable for rendering
     let points = [
         SkiaPoint::new(radii.top_left as f32, radii.top_left as f32),
         SkiaPoint::new(radii.top_right as f32, radii.top_right as f32),
@@ -639,6 +643,7 @@ fn convert_blend_mode(m: BlendMode) -> skia_safe::BlendMode {
 }
 
 fn apply_spec(paint: &mut Paint, spec: &PaintSpec, style: PaintStyle) {
+    *paint = Paint::default();
     paint.set_style(match style {
         PaintStyle::Fill => SkiaPaintStyle::Fill,
         PaintStyle::Stroke => SkiaPaintStyle::Stroke,

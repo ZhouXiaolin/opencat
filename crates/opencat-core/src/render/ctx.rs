@@ -4,6 +4,7 @@
 //! operate without knowing the concrete Skia / CPU / GPU implementation.
 
 use std::cell::RefCell;
+use std::marker::PhantomData;
 
 use crate::canvas::Canvas2D;
 use crate::frame_ctx::FrameCtx;
@@ -12,8 +13,6 @@ use crate::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::runtime::annotation::AnnotatedDisplayTree;
 use crate::runtime::compositor::ordered_scene::OrderedSceneProgram;
 use crate::platform::video::VideoFrameProvider;
-
-use super::cache::RenderCache;
 
 /// All data needed for rendering a single frame.
 ///
@@ -28,8 +27,6 @@ pub struct RenderCtx<'a, C: Canvas2D> {
     pub display_tree: &'a AnnotatedDisplayTree,
     /// Ordered scene program (painter's order).
     pub ordered_scene: &'a OrderedSceneProgram,
-    /// LRU caches parameterised by the canvas backend.
-    pub cache: &'a mut RenderCache<C>,
     /// Video frame decoder (platform-supplied).
     /// Wrapped in RefCell so render functions can call `frame_rgba`
     /// (which takes `&mut self`) through a shared `&RenderCtx`.
@@ -38,4 +35,7 @@ pub struct RenderCtx<'a, C: Canvas2D> {
     pub asset_paths: Option<&'a AssetPathStore>,
     /// Platform-specific userdata (e.g. engine's MediaContext).
     pub platform_data: &'a mut dyn std::any::Any,
+    /// Phantom marker for the canvas2d backend type.
+    #[doc(hidden)]
+    pub _phantom: PhantomData<C>,
 }

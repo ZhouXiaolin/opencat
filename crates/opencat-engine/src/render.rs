@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
@@ -15,15 +14,14 @@ use crate::{
         },
         preflight::ensure_assets_preloaded,
         render_registry,
-        target::RenderTargetHandle,
     },
 };
-use opencat_core::platform::render_engine::FrameView;
 use opencat_core::scene::composition::Composition;
+use crate::backend::skia::canvas2d::SkiaCanvas2D;
 
 pub use crate::codec::encode::Mp4Config;
-/// Core generic RenderSession monomorphised for the engine's Skia + quickjs platform.
-pub type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform>;
+/// Core generic RenderSession monomorphised for the engine's Skia platform.
+pub type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform, SkiaCanvas2D>;
 
 pub enum OutputFormat {
     Mp4(Mp4Config),
@@ -115,7 +113,7 @@ pub fn render_frame_with_target(
     composition: &Composition,
     frame_index: u32,
     session: &mut RenderSession,
-    target: &mut RenderTargetHandle,
+    target: &mut crate::runtime::target::RenderTargetHandle,
 ) -> Result<()> {
     render_frame_to_target(composition, frame_index, session, target)
 }
@@ -157,15 +155,12 @@ fn render_png(
 ) -> Result<()> {
     let profile_config = crate::runtime::profile::ProfileConfig::from_env();
     let (_, summary) = crate::runtime::profile::profile_render(&profile_config, || {
-        let engine = match backend {
-            RenderBackend::Software => crate::backend::skia::renderer::shared_raster_engine_typed(),
-            RenderBackend::Accelerated => {
-                return Err(anyhow!(
-                    "accelerated backend not yet supported via core pipeline"
-                ));
-            }
-        };
-        let platform = EnginePlatform::new(engine);
+        if let RenderBackend::Accelerated = backend {
+            return Err(anyhow!(
+                "accelerated backend not yet supported via core pipeline"
+            ));
+        }
+        let platform = EnginePlatform::new();
         let mut session = RenderSession::new(platform);
         let rgba = render_frame_rgba(composition, 0, &mut session)?;
         let image =
@@ -190,15 +185,12 @@ fn render_mp4(
     let composition = composition.aligned_for_video_encoding();
     let profile_config = crate::runtime::profile::ProfileConfig::from_env();
     let (_, summary) = crate::runtime::profile::profile_render(&profile_config, move || {
-        let engine = match backend {
-            RenderBackend::Software => crate::backend::skia::renderer::shared_raster_engine_typed(),
-            RenderBackend::Accelerated => {
-                return Err(anyhow!(
-                    "accelerated backend not yet supported via core pipeline"
-                ));
-            }
-        };
-        let mut platform = EnginePlatform::new(engine);
+        if let RenderBackend::Accelerated = backend {
+            return Err(anyhow!(
+                "accelerated backend not yet supported via core pipeline"
+            ));
+        }
+        let mut platform = EnginePlatform::new();
         platform.set_video_preview_quality(VideoPreviewQuality::Exact);
         let mut session = RenderSession::new(platform);
 
@@ -229,7 +221,7 @@ pub fn render_frame_to_target(
     composition: &Composition,
     frame_index: u32,
     session: &mut RenderSession,
-    target: &mut RenderTargetHandle,
+    target: &mut crate::runtime::target::RenderTargetHandle,
 ) -> Result<()> {
     ensure_assets_preloaded(composition, session)?;
 
@@ -238,22 +230,20 @@ pub fn render_frame_to_target(
     let frame_view_handle = target.resolve_frame_view(frame_surface)?;
     let canvas_raw: *mut std::ffi::c_void = frame_view_handle.raw();
 
-    // Platform-specific data (SkiaRenderData with assets) is provided by
-    // EnginePlatform::with_render_context inside the core pipeline.
-    // We pass () here as the pipeline no longer uses this parameter directly.
-    let mut platform_data: Box<dyn Any> = Box::new(());
-    let mut canvas_any: Box<dyn Any> = Box::new(canvas_raw);
-    let frame_view = FrameView {
-        width: composition.width as u32,
-        height: composition.height as u32,
-        kind: opencat_core::platform::render_engine::FrameViewKind::Opaque(&mut *canvas_any),
-    };
-    let render_result = opencat_core::runtime::pipeline::render_frame::<EnginePlatform>(
+    // SAFETY: canvas_raw points to a valid Skia Canvas for the duration of this call.
+    let canvas_ref: &skia_safe::Canvas = unsafe { &*(canvas_raw as *const skia_safe::Canvas) };
+    let mut skia_canvas = SkiaCanvas2D::new(canvas_ref);
+
+    // SAFETY: asset_paths lives on session.platform which is not moved/dropped
+    // during the render call.
+    let asset_paths_ptr: *const crate::resource::AssetPathStore = &session.platform.asset_paths;
+    let asset_paths_ref = unsafe { &*asset_paths_ptr };
+    let render_result = opencat_core::runtime::pipeline::render_frame::<EnginePlatform, SkiaCanvas2D>(
         composition,
         frame_index,
         session,
-        frame_view,
-        &mut *platform_data,
+        &mut skia_canvas,
+        Some(asset_paths_ref),
     );
     let end_result = target.end_frame();
     render_result.and(end_result)
@@ -269,24 +259,18 @@ pub fn render_frame_rgba(
     let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
 
-    let canvas_raw: *mut std::ffi::c_void = surface.canvas() as *const _ as *mut std::ffi::c_void;
+    let mut skia_canvas = SkiaCanvas2D::new(surface.canvas());
 
-    // Platform-specific data (SkiaRenderData with assets) is provided by
-    // EnginePlatform::with_render_context inside the core pipeline.
-    // We pass () here as the pipeline no longer uses this parameter directly.
-    let mut platform_data: Box<dyn Any> = Box::new(());
-    let mut canvas_any: Box<dyn Any> = Box::new(canvas_raw);
-    let frame_view = FrameView {
-        width: composition.width as u32,
-        height: composition.height as u32,
-        kind: opencat_core::platform::render_engine::FrameViewKind::Opaque(&mut *canvas_any),
-    };
-    opencat_core::runtime::pipeline::render_frame::<EnginePlatform>(
+    // SAFETY: asset_paths lives on session.platform which is not moved/dropped
+    // during the render call. We use a raw pointer to split the borrow.
+    let asset_paths_ptr: *const crate::resource::AssetPathStore = &session.platform.asset_paths;
+    let asset_paths_ref = unsafe { &*asset_paths_ptr };
+    opencat_core::runtime::pipeline::render_frame::<EnginePlatform, SkiaCanvas2D>(
         composition,
         frame_index,
         session,
-        frame_view,
-        &mut *platform_data,
+        &mut skia_canvas,
+        Some(asset_paths_ref),
     )?;
 
     let image = surface.image_snapshot();
@@ -331,13 +315,10 @@ pub fn render_frame_rgb(
 #[cfg(test)]
 mod tests {
     use super::{RenderSession, render_frame_rgba};
-    use crate::{Composition, FrameCtx, platform::EnginePlatform, text};
-    use opencat_core::scene::primitives::{canvas, div, image};
-    use opencat_core::style::ColorToken;
+    use crate::{Composition, FrameCtx, platform::EnginePlatform};
 
     fn make_test_session() -> RenderSession {
-        let engine = crate::backend::skia::renderer::shared_raster_engine_typed();
-        RenderSession::new(EnginePlatform::new(engine))
+        RenderSession::new(EnginePlatform::new())
     }
 
     fn write_test_png(path: &std::path::Path) {
@@ -378,7 +359,7 @@ mod tests {
 
     #[test]
     fn subtree_cache_does_not_apply_node_opacity_twice() {
-        let scene = div()
+        let scene = crate::div()
             .id("root")
             .w_full()
             .h_full()
@@ -386,7 +367,7 @@ mod tests {
             .script_source(r#"ctx.getNode("box").opacity(ctx.frame === 0 ? 1 : 0.5);"#)
             .expect("script should compile")
             .child(
-                div()
+                crate::div()
                     .id("box")
                     .absolute()
                     .left(0.0)
@@ -464,7 +445,7 @@ mod tests {
 
     #[test]
     fn subtree_cache_preserves_shadow_outside_node_bounds_during_opacity_animation() {
-        let scene = div()
+        let scene = crate::div()
             .id("root")
             .w_full()
             .h_full()
@@ -472,7 +453,7 @@ mod tests {
             .script_source(r#"ctx.getNode("box").opacity(ctx.frame === 0 ? 1 : 0.5);"#)
             .expect("script should compile")
             .child(
-                div()
+                crate::div()
                     .id("box")
                     .absolute()
                     .left(10.0)
@@ -480,7 +461,7 @@ mod tests {
                     .w(20.0)
                     .h(8.0)
                     .rounded_full()
-                    .bg(ColorToken::Red500)
+                    .bg(crate::ColorToken::Red500)
                     .shadow_lg(),
             );
 
@@ -515,15 +496,15 @@ mod tests {
 
     #[test]
     fn display_list_and_subtree_cache_both_preserve_overflow_clipping() {
-        let scene = div()
+        let scene = crate::div()
             .id("root")
             .w_full()
             .h_full()
-            .bg(ColorToken::Black)
+            .bg(crate::ColorToken::Black)
             .script_source(r#"ctx.getNode("mover").translateY(ctx.frame);"#)
             .expect("script should compile")
             .child(
-                div()
+                crate::div()
                     .id("card")
                     .absolute()
                     .left(4.0)
@@ -533,22 +514,22 @@ mod tests {
                     .rounded(6.0)
                     .overflow_hidden()
                     .child(
-                        div()
+                        crate::div()
                             .id("card-fill")
                             .w_full()
                             .h_full()
-                            .bg(ColorToken::White),
+                            .bg(crate::ColorToken::White),
                     ),
             )
             .child(
-                div()
+                crate::div()
                     .id("mover")
                     .absolute()
                     .left(0.0)
                     .top(0.0)
                     .w(2.0)
                     .h(2.0)
-                    .bg(ColorToken::Red500),
+                    .bg(crate::ColorToken::Red500),
             );
 
         let composition = Composition::new("clip_consistency")
@@ -583,7 +564,7 @@ mod tests {
             std::env::temp_dir().join(format!("opencat-canvas-test-{}.png", std::process::id()));
         write_test_png(&image_path);
 
-        let scene = canvas()
+        let scene = crate::canvas()
             .id("canvas")
             .size(2.0, 1.0)
             .asset_path("hero", &image_path)
@@ -623,7 +604,7 @@ mod tests {
             .size(3, 5)
             .fps(30)
             .frames(1)
-            .root(|_ctx| div().id("root").into())
+            .root(|_ctx| crate::div().id("root").into())
             .build()
             .expect("composition should build");
 
@@ -634,7 +615,7 @@ mod tests {
             .size(1280, 720)
             .fps(30)
             .frames(1)
-            .root(|_ctx| div().id("root").into())
+            .root(|_ctx| crate::div().id("root").into())
             .build()
             .expect("composition should build");
         let even_aligned = even.aligned_for_video_encoding();
@@ -649,13 +630,13 @@ mod tests {
             .frames(2)
             .root(|ctx: &FrameCtx| {
                 let scale = if ctx.frame == 0 { 1.0 } else { 2.0 };
-                div()
+                crate::div()
                     .id("root")
                     .w_full()
                     .h_full()
                     .bg_black()
                     .child(
-                        div()
+                        crate::div()
                             .id("dot")
                             .absolute()
                             .left(8.0)
@@ -698,17 +679,17 @@ mod tests {
             .root(|ctx: &FrameCtx| {
                 let scale = if ctx.frame == 0 { 1.0 } else { 2.0 };
                 let ticker_color = if ctx.frame == 0 {
-                    ColorToken::Red500
+                    crate::ColorToken::Red500
                 } else {
-                    ColorToken::Blue500
+                    crate::ColorToken::Blue500
                 };
-                div()
+                crate::div()
                     .id("root")
                     .w_full()
                     .h_full()
                     .bg_black()
                     .child(
-                        div()
+                        crate::div()
                             .id("group")
                             .absolute()
                             .left(8.0)
@@ -716,7 +697,7 @@ mod tests {
                             .h(8.0)
                             .w(8.0)
                             .child(
-                                div()
+                                crate::div()
                                     .id("dot")
                                     .w_full()
                                     .h_full()
@@ -726,7 +707,7 @@ mod tests {
                             ),
                     )
                     .child(
-                        div()
+                        crate::div()
                             .id("ticker-fill")
                             .absolute()
                             .left(0.0)
@@ -772,17 +753,17 @@ mod tests {
                 let image_path = image_path.clone();
                 move |ctx: &FrameCtx| {
                     let ticker_color = if ctx.frame == 0 {
-                        ColorToken::Red500
+                        crate::ColorToken::Red500
                     } else {
-                        ColorToken::Blue500
+                        crate::ColorToken::Blue500
                     };
-                    div()
+                    crate::div()
                         .id("root")
                         .w_full()
                         .h_full()
                         .bg_black()
                         .child(
-                            image()
+                            crate::image()
                                 .path(&image_path)
                                 .id("bitmap")
                                 .absolute()
@@ -792,7 +773,7 @@ mod tests {
                                 .h(8.0),
                         )
                         .child(
-                            div()
+                            crate::div()
                                 .id("ticker")
                                 .absolute()
                                 .left(0.0)
@@ -812,7 +793,7 @@ mod tests {
         let _ = render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
 
         assert_eq!(
-            session.cache_registry.item_picture_cache().borrow().len(),
+            session.cache.item_pictures.borrow().len(),
             1
         );
 
@@ -821,37 +802,37 @@ mod tests {
 
     #[test]
     fn layered_caption_renders_above_timeline_transition() {
-        use crate::{Easing, SrtEntry, caption, div, fade, timeline};
+        use crate::{Easing, SrtEntry, caption, fade, timeline, text};
 
         let composition = Composition::new("layered_caption")
             .size(320, 180)
             .fps(30)
             .frames(25)
             .root(move |_| {
-                div()
+                crate::div()
                     .id("root")
                     .child(
                         timeline()
                             .sequence(
                                 10,
-                                div()
+                                crate::div()
                                     .id("scene-a")
-                                    .bg(ColorToken::Black)
+                                    .bg(crate::ColorToken::Black)
                                     .child(text("A").id("a"))
                                     .into(),
                             )
                             .transition(fade().timing(Easing::Linear, 5))
                             .sequence(
                                 10,
-                                div()
+                                crate::div()
                                     .id("scene-b")
-                                    .bg(ColorToken::Black)
+                                    .bg(crate::ColorToken::Black)
                                     .child(text("B").id("b"))
                                     .into(),
                             ),
                     )
                     .child(
-                        div().id("overlay-root").child(
+                        crate::div().id("overlay-root").child(
                             caption()
                                 .id("subs")
                                 .path("sub.srt")
@@ -861,7 +842,7 @@ mod tests {
                                     end_frame: 25,
                                     text: "Subtitle".into(),
                                 }])
-                                .text_color(ColorToken::White),
+                                .text_color(crate::ColorToken::White),
                         ),
                     )
                     .into()
@@ -881,16 +862,16 @@ mod tests {
 
     #[test]
     fn layered_single_scene_renders_bottom_scene_before_caption_overlay() {
-        use crate::{SrtEntry, caption, div};
+        use crate::{SrtEntry, caption};
 
         let composition = Composition::new("layered_single_scene_with_caption")
             .size(64, 64)
             .fps(30)
             .frames(1)
             .root(move |_| {
-                div()
+                crate::div()
                     .id("root")
-                    .child(div().id("scene").w_full().h_full().bg(ColorToken::Blue500))
+                    .child(crate::div().id("scene").w_full().h_full().bg(crate::ColorToken::Blue500))
                     .child(
                         caption()
                             .id("subs")
@@ -904,7 +885,7 @@ mod tests {
                             .absolute()
                             .left(8.0)
                             .top(8.0)
-                            .text_color(ColorToken::White),
+                            .text_color(crate::ColorToken::White),
                     )
                     .into()
             })
@@ -923,16 +904,16 @@ mod tests {
 
     #[test]
     fn layered_root_caption_without_active_entry_does_not_fail_rendering() {
-        use crate::{SrtEntry, caption, div};
+        use crate::{SrtEntry, caption};
 
         let composition = Composition::new("layered_inactive_root_caption")
             .size(64, 64)
             .fps(30)
             .frames(60)
             .root(move |_| {
-                div()
+                crate::div()
                     .id("root")
-                    .child(div().id("scene").w_full().h_full().bg(ColorToken::Blue500))
+                    .child(crate::div().id("scene").w_full().h_full().bg(crate::ColorToken::Blue500))
                     .child(
                         caption()
                             .id("subs")
@@ -946,7 +927,7 @@ mod tests {
                             .absolute()
                             .left(8.0)
                             .top(8.0)
-                            .text_color(ColorToken::White),
+                            .text_color(crate::ColorToken::White),
                     )
                     .into()
             })
@@ -965,31 +946,31 @@ mod tests {
 
     #[test]
     fn timeline_caption_sibling_renders_above_transition() {
-        use crate::{Easing, SrtEntry, caption, fade, timeline};
+        use crate::{Easing, SrtEntry, caption, fade, timeline, text};
 
         let composition = Composition::new("timeline_caption")
             .size(320, 180)
             .fps(30)
             .frames(25)
             .root(move |_| {
-                div()
+                crate::div()
                     .id("root")
                     .child(
                         timeline()
                             .sequence(
                                 10,
-                                div()
+                                crate::div()
                                     .id("scene-a")
-                                    .bg(ColorToken::Black)
+                                    .bg(crate::ColorToken::Black)
                                     .child(text("A").id("a"))
                                     .into(),
                             )
                             .transition(fade().timing(Easing::Linear, 5))
                             .sequence(
                                 10,
-                                div()
+                                crate::div()
                                     .id("scene-b")
-                                    .bg(ColorToken::Black)
+                                    .bg(crate::ColorToken::Black)
                                     .child(text("B").id("b"))
                                     .into(),
                             ),
@@ -1004,7 +985,7 @@ mod tests {
                                 end_frame: 25,
                                 text: "Subtitle".into(),
                             }])
-                            .text_color(ColorToken::White),
+                            .text_color(crate::ColorToken::White),
                     )
                     .into()
             })
@@ -1031,9 +1012,9 @@ mod tests {
             .root(move |_| {
                 let mut tl_kind = Node::from(
                     timeline()
-                        .sequence(10, div().id("scene-a").w_full().h_full().bg_red().into())
+                        .sequence(10, crate::div().id("scene-a").w_full().h_full().bg_red().into())
                         .transition(fade().timing(Easing::Linear, 10))
-                        .sequence(10, div().id("scene-b").w_full().h_full().bg_blue().into()),
+                        .sequence(10, crate::div().id("scene-b").w_full().h_full().bg_blue().into()),
                 )
                 .kind()
                 .clone();
@@ -1046,7 +1027,7 @@ mod tests {
                 tl_style.height = Some(80.0);
                 tl_style.overflow_hidden = true;
 
-                div()
+                crate::div()
                     .id("root")
                     .w_full()
                     .h_full()
@@ -1081,9 +1062,9 @@ mod tests {
             .root(move |_| {
                 let mut tl_kind = Node::from(
                     timeline()
-                        .sequence(10, div().id("scene-a").w_full().h_full().bg_red().into())
+                        .sequence(10, crate::div().id("scene-a").w_full().h_full().bg_red().into())
                         .transition(fade().timing(Easing::Linear, 10))
-                        .sequence(10, div().id("scene-b").w_full().h_full().bg_blue().into()),
+                        .sequence(10, crate::div().id("scene-b").w_full().h_full().bg_blue().into()),
                 )
                 .kind()
                 .clone();
@@ -1123,13 +1104,13 @@ mod tests {
                     timeline()
                         .sequence(
                             10,
-                            div()
+                            crate::div()
                                 .id("scene-a")
                                 .w_full()
                                 .h_full()
                                 .bg_red()
                                 .child(
-                                    div()
+                                    crate::div()
                                         .id("inner-a")
                                         .absolute()
                                         .left(4.0)
@@ -1143,13 +1124,13 @@ mod tests {
                         .transition(fade().timing(Easing::Linear, 10))
                         .sequence(
                             10,
-                            div()
+                            crate::div()
                                 .id("scene-b")
                                 .w_full()
                                 .h_full()
                                 .bg_blue()
                                 .child(
-                                    div()
+                                    crate::div()
                                         .id("inner-b")
                                         .absolute()
                                         .left(4.0)
@@ -1177,16 +1158,16 @@ mod tests {
         let _ = render_frame_rgba(&composition, 12, &mut session)
             .expect("first transition frame should render");
         let size_after_first = session
-            .cache_registry
-            .subtree_snapshot_cache()
+            .cache
+            .subtree_snapshots
             .borrow()
             .len();
 
         let _ = render_frame_rgba(&composition, 13, &mut session)
             .expect("second transition frame should render");
         let size_after_second = session
-            .cache_registry
-            .subtree_snapshot_cache()
+            .cache
+            .subtree_snapshots
             .borrow()
             .len();
 

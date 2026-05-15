@@ -13,30 +13,40 @@ use opencat_core::canvas::{
     Rect, RRect, RuntimeEffectChild, ShaderSpec, StrokeCap, StrokeJoin, TileMode,
 };
 
-pub struct SkiaCanvas2D<'a> {
-    canvas: &'a Canvas,
+pub struct SkiaCanvas2D {
+    canvas: *const Canvas,
     fill_paint: Paint,
     stroke_paint: Paint,
 }
 
-impl<'a> SkiaCanvas2D<'a> {
-    pub fn new(canvas: &'a Canvas) -> Self {
+// SAFETY: Skia Canvas uses interior mutability; rendering is single-threaded.
+unsafe impl Send for SkiaCanvas2D {}
+unsafe impl Sync for SkiaCanvas2D {}
+
+impl SkiaCanvas2D {
+    pub fn new(canvas: &Canvas) -> Self {
         Self {
-            canvas,
+            canvas: canvas as *const Canvas,
             fill_paint: Paint::default(),
             stroke_paint: Paint::default(),
         }
     }
+
+    fn canvas_ref(&self) -> &Canvas {
+        // SAFETY: The pointer is valid as long as the underlying surface/canvas
+        // outlives this SkiaCanvas2D, which is guaranteed by the caller.
+        unsafe { &*self.canvas }
+    }
 }
 
-impl<'a> Canvas2D for SkiaCanvas2D<'a> {
+impl Canvas2D for SkiaCanvas2D {
     type Path = SkiaPath;
     type Image = SkiaImage;
     type Picture = Picture;
     type RuntimeEffect = RuntimeEffect;
 
     fn save(&mut self) -> i32 {
-        self.canvas.save() as i32
+        self.canvas_ref().save() as i32
     }
 
     fn save_layer(&mut self, bounds: Option<Rect>, alpha: f32) {
@@ -48,7 +58,7 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         if let Some(ref b) = skia_bounds {
             rec = rec.bounds(b);
         }
-        self.canvas.save_layer(&rec);
+        self.canvas_ref().save_layer(&rec);
     }
 
     fn save_layer_with(&mut self, bounds: Option<Rect>, paint: &PaintSpec) {
@@ -59,35 +69,35 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         if let Some(ref b) = skia_bounds {
             rec = rec.bounds(b);
         }
-        self.canvas.save_layer(&rec);
+        self.canvas_ref().save_layer(&rec);
     }
 
     fn restore(&mut self) {
-        self.canvas.restore();
+        self.canvas_ref().restore();
     }
 
     fn restore_to_count(&mut self, count: i32) {
-        self.canvas.restore_to_count(count as usize);
+        self.canvas_ref().restore_to_count(count as usize);
     }
 
     fn save_count(&self) -> i32 {
-        self.canvas.save_count() as i32
+        self.canvas_ref().save_count() as i32
     }
 
     fn translate(&mut self, dx: f32, dy: f32) {
-        self.canvas.translate((dx, dy));
+        self.canvas_ref().translate((dx, dy));
     }
 
     fn scale(&mut self, sx: f32, sy: f32) {
-        self.canvas.scale((sx, sy));
+        self.canvas_ref().scale((sx, sy));
     }
 
     fn rotate(&mut self, degrees: f32, cx: f32, cy: f32) {
-        self.canvas.rotate(degrees, Some(SkiaPoint::new(cx, cy)));
+        self.canvas_ref().rotate(degrees, Some(SkiaPoint::new(cx, cy)));
     }
 
     fn skew(&mut self, sx: f32, sy: f32) {
-        self.canvas.skew((sx, sy));
+        self.canvas_ref().skew((sx, sy));
     }
 
     fn concat(&mut self, matrix: &[f32; 9]) {
@@ -95,37 +105,37 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
             matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5], matrix[6],
             matrix[7], matrix[8],
         );
-        self.canvas.concat(&m);
+        self.canvas_ref().concat(&m);
     }
 
     fn clip_rect(&mut self, rect: &Rect, op: ClipOp, anti_alias: bool) {
-        self.canvas
+        self.canvas_ref()
             .clip_rect(rect_to_skia(rect), convert_clip_op(op), anti_alias);
     }
 
     fn clip_rrect(&mut self, rrect: &RRect, op: ClipOp, anti_alias: bool) {
-        self.canvas
+        self.canvas_ref()
             .clip_rrect(rrect_to_skia(rrect), convert_clip_op(op), anti_alias);
     }
 
     fn clip_path(&mut self, path: &Self::Path, op: ClipOp, anti_alias: bool) {
-        self.canvas
+        self.canvas_ref()
             .clip_path(path, convert_clip_op(op), anti_alias);
     }
 
     fn clear(&mut self, color: [f32; 4]) {
-        self.canvas.clear(float4_to_color(color));
+        self.canvas_ref().clear(float4_to_color(color));
     }
 
     fn draw_paint(&mut self, paint: &PaintSpec) {
         match paint.style {
             PaintStyle::Fill => {
                 apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas.draw_paint(&self.fill_paint);
+                self.canvas_ref().draw_paint(&self.fill_paint);
             }
             PaintStyle::Stroke => {
                 apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas.draw_paint(&self.stroke_paint);
+                self.canvas_ref().draw_paint(&self.stroke_paint);
             }
         }
     }
@@ -135,11 +145,11 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         match paint.style {
             PaintStyle::Fill => {
                 apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas.draw_rect(r, &self.fill_paint);
+                self.canvas_ref().draw_rect(r, &self.fill_paint);
             }
             PaintStyle::Stroke => {
                 apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas.draw_rect(r, &self.stroke_paint);
+                self.canvas_ref().draw_rect(r, &self.stroke_paint);
             }
         }
     }
@@ -149,11 +159,11 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         match paint.style {
             PaintStyle::Fill => {
                 apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas.draw_rrect(rr, &self.fill_paint);
+                self.canvas_ref().draw_rrect(rr, &self.fill_paint);
             }
             PaintStyle::Stroke => {
                 apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas.draw_rrect(rr, &self.stroke_paint);
+                self.canvas_ref().draw_rrect(rr, &self.stroke_paint);
             }
         }
     }
@@ -164,11 +174,11 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         match paint.style {
             PaintStyle::Fill => {
                 apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas.draw_drrect(o, i, &self.fill_paint);
+                self.canvas_ref().draw_drrect(o, i, &self.fill_paint);
             }
             PaintStyle::Stroke => {
                 apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas.draw_drrect(o, i, &self.stroke_paint);
+                self.canvas_ref().draw_drrect(o, i, &self.stroke_paint);
             }
         }
     }
@@ -178,11 +188,11 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         match paint.style {
             PaintStyle::Fill => {
                 apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas.draw_oval(o, &self.fill_paint);
+                self.canvas_ref().draw_oval(o, &self.fill_paint);
             }
             PaintStyle::Stroke => {
                 apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas.draw_oval(o, &self.stroke_paint);
+                self.canvas_ref().draw_oval(o, &self.stroke_paint);
             }
         }
     }
@@ -191,11 +201,11 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         match paint.style {
             PaintStyle::Fill => {
                 apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas.draw_circle((cx, cy), radius, &self.fill_paint);
+                self.canvas_ref().draw_circle((cx, cy), radius, &self.fill_paint);
             }
             PaintStyle::Stroke => {
                 apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas
+                self.canvas_ref()
                     .draw_circle((cx, cy), radius, &self.stroke_paint);
             }
         }
@@ -213,12 +223,12 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         match paint.style {
             PaintStyle::Fill => {
                 apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas
+                self.canvas_ref()
                     .draw_arc(o, start, sweep, use_center, &self.fill_paint);
             }
             PaintStyle::Stroke => {
                 apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas
+                self.canvas_ref()
                     .draw_arc(o, start, sweep, use_center, &self.stroke_paint);
             }
         }
@@ -228,12 +238,12 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         match paint.style {
             PaintStyle::Fill => {
                 apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas
+                self.canvas_ref()
                     .draw_line((x0, y0), (x1, y1), &self.fill_paint);
             }
             PaintStyle::Stroke => {
                 apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas
+                self.canvas_ref()
                     .draw_line((x0, y0), (x1, y1), &self.stroke_paint);
             }
         }
@@ -247,12 +257,12 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         match paint.style {
             PaintStyle::Fill => {
                 apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas
+                self.canvas_ref()
                     .draw_points(convert_point_mode(mode), &skia_points, &self.fill_paint);
             }
             PaintStyle::Stroke => {
                 apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas
+                self.canvas_ref()
                     .draw_points(convert_point_mode(mode), &skia_points, &self.stroke_paint);
             }
         }
@@ -262,11 +272,11 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         match paint.style {
             PaintStyle::Fill => {
                 apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas.draw_path(path, &self.fill_paint);
+                self.canvas_ref().draw_path(path, &self.fill_paint);
             }
             PaintStyle::Stroke => {
                 apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas.draw_path(path, &self.stroke_paint);
+                self.canvas_ref().draw_path(path, &self.stroke_paint);
             }
         }
     }
@@ -280,10 +290,10 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
     ) {
         if let Some(spec) = paint {
             apply_spec(&mut self.fill_paint, spec, PaintStyle::Fill);
-            self.canvas
+            self.canvas_ref()
                 .draw_image(image, (x, y), Some(&self.fill_paint));
         } else {
-            self.canvas
+            self.canvas_ref()
                 .draw_image(image, (x, y), None::<&Paint>);
         }
     }
@@ -300,26 +310,26 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
             apply_spec(&mut self.fill_paint, spec, PaintStyle::Fill);
             if let Some(src_rect) = src {
                 let skia_src = rect_to_skia(src_rect);
-                self.canvas.draw_image_rect(
+                self.canvas_ref().draw_image_rect(
                     image,
                     Some((&skia_src, SrcRectConstraint::Strict)),
                     skia_dst,
                     &self.fill_paint,
                 );
             } else {
-                self.canvas
+                self.canvas_ref()
                     .draw_image_rect(image, None, skia_dst, &self.fill_paint);
             }
         } else if let Some(src_rect) = src {
             let skia_src = rect_to_skia(src_rect);
-            self.canvas.draw_image_rect(
+            self.canvas_ref().draw_image_rect(
                 image,
                 Some((&skia_src, SrcRectConstraint::Strict)),
                 skia_dst,
                 &Paint::default(),
             );
         } else {
-            self.canvas
+            self.canvas_ref()
                 .draw_image_rect(image, None, skia_dst, &Paint::default());
         }
     }
@@ -337,12 +347,12 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         match paint.style {
             PaintStyle::Fill => {
                 apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas
+                self.canvas_ref()
                     .draw_str(text, (x, y), &font, &self.fill_paint);
             }
             PaintStyle::Stroke => {
                 apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas
+                self.canvas_ref()
                     .draw_str(text, (x, y), &font, &self.stroke_paint);
             }
         }
@@ -366,7 +376,7 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         match paint.style {
             PaintStyle::Fill => {
                 apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas.draw_glyphs_at(
+                self.canvas_ref().draw_glyphs_at(
                     run.glyph_ids,
                     &*positions,
                     SkiaPoint::new(0.0, 0.0),
@@ -376,7 +386,7 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
             }
             PaintStyle::Stroke => {
                 apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas.draw_glyphs_at(
+                self.canvas_ref().draw_glyphs_at(
                     run.glyph_ids,
                     &*positions,
                     SkiaPoint::new(0.0, 0.0),
@@ -420,10 +430,10 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
         });
         if let Some(spec) = paint {
             apply_spec(&mut self.fill_paint, spec, PaintStyle::Fill);
-            self.canvas
+            self.canvas_ref()
                 .draw_picture(picture, m.as_ref(), Some(&self.fill_paint));
         } else {
-            self.canvas
+            self.canvas_ref()
                 .draw_picture(picture, m.as_ref(), None::<&Paint>);
         }
     }
@@ -449,7 +459,7 @@ impl<'a> Canvas2D for SkiaCanvas2D<'a> {
             let mut paint = Paint::default();
             paint.set_shader(shader);
             let r = rect_to_skia(dst);
-            self.canvas.draw_rect(r, &paint);
+            self.canvas_ref().draw_rect(r, &paint);
         }
     }
 

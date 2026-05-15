@@ -566,8 +566,7 @@ fn measure_taffy_layout(fixture: &LayoutFixture) -> Result<BTreeMap<String, Brow
         })
         .build()?;
 
-    let engine = crate::backend::skia::renderer::shared_raster_engine_typed();
-    let mut session = RenderSession::new(crate::platform::EnginePlatform::new(engine));
+    let mut session = RenderSession::new(crate::platform::EnginePlatform::new());
     let rects = collect_frame_layout_rects(&composition, 0, &mut session)?;
     Ok(rect_map_from_frame_rects(rects))
 }

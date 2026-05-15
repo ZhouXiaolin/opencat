@@ -21,10 +21,11 @@ use opencat_core::{
 use opencat_core::resource::catalog::ResourceCatalog;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 
-use super::runtime::path_bounds::default_host_path_bounds;
 use crate::platform::EnginePlatform;
 use crate::resource::AssetPathStore;
-type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform>;
+use crate::backend::skia::canvas2d::SkiaCanvas2D;
+use opencat_core::scene::path_bounds::DefaultPathBounds;
+type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform, SkiaCanvas2D>;
 
 #[derive(Clone, Debug)]
 pub struct FrameElementRect {
@@ -108,7 +109,7 @@ fn collect_scene_rects(
         &mut session.catalog,
         None,
         &mut session.platform.script,
-        default_host_path_bounds(),
+        &DefaultPathBounds,
     )?;
 
     let font_db = session.font_db.clone();

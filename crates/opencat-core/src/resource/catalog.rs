@@ -21,6 +21,7 @@ pub trait ResourceCatalog {
         height: u32,
         duration_secs: Option<f64>,
     ) -> AssetId;
+    fn register_audio(&mut self, locator: &str) -> AssetId;
     fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()>;
     fn dimensions(&self, id: &AssetId) -> (u32, u32);
     fn video_info(&self, id: &AssetId) -> Option<VideoInfoMeta>;

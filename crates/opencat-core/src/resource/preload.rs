@@ -29,14 +29,15 @@ pub async fn preload_all<R: AssetResolver, C: ResourceCatalog>(
     }
 
     for src in requests.audio_sources {
-        // audio 没有宽高需要落 catalog；resolver impl 内部负责存储副作用。
         match src {
             AudioSource::Unset => continue,
             AudioSource::Url(url) => {
-                resolver.resolve_audio_url(&url).await?;
+                let meta = resolver.resolve_audio_url(&url).await?;
+                catalog.register_audio(&meta.id.0);
             }
             AudioSource::Path(path) => {
-                resolver.resolve_audio_path(&path).await?;
+                let meta = resolver.resolve_audio_path(&path).await?;
+                catalog.register_audio(&meta.id.0);
             }
         }
     }

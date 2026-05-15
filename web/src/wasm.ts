@@ -2,6 +2,9 @@ import type { CompositionInfo, ParsedResult, ResourceRequests } from './types';
 
 type WasmModule = {
   default(): Promise<void>;
+  WebRenderer: {
+    new(): WebRendererInstance;
+  };
   parse_jsonl(input: string): string;
   get_composition_info(input: string): string;
   collect_resources_json(input: string): string;
@@ -12,13 +15,47 @@ type WasmModule = {
   blob_count(): number;
 };
 
+export interface WebRendererInstance {
+  build_frame(jsonl: string, frame: number, resources: string, mutations: string): BuildFrameResult;
+  inject_video_frame(asset_id: string, frame: number, rgba: Uint8Array, width: number, height: number): void;
+  clear_video_cache(asset_id: string): void;
+  decode_audio_file(asset_id: string, data: Uint8Array): Promise<void>;
+  get_audio_samples(asset_id: string, start_secs: number, duration_secs: number, target_rate: number): string;
+  play_audio_at(asset_id: string, offset_secs: number, duration_secs: number): void;
+  stop_audio(): void;
+  set_audio_volume(volume: number): void;
+  clear_audio_cache(): void;
+  query_subtree_snapshot(key: bigint): SubtreeCacheResult;
+  query_glyph_path(key: bigint): string | undefined;
+  free(): void;
+}
+
+interface BuildFrameResult {
+  ops_json: string;
+  frame_width: number;
+  frame_height: number;
+}
+
+interface SubtreeCacheResult {
+  found: boolean;
+  secondary_fingerprint: number;
+  recorded_bounds_x: number;
+  recorded_bounds_y: number;
+  recorded_bounds_w: number;
+  recorded_bounds_h: number;
+  consecutive_hits: number;
+  render_mode: string;
+}
+
 let wasmModule: WasmModule | null = null;
+let renderer: WebRendererInstance | null = null;
 
 export async function initWasm(): Promise<void> {
   if (wasmModule) return;
   const mod = await import('../wasm/opencat_web.js');
   await mod.default();
   wasmModule = mod as unknown as WasmModule;
+  renderer = new wasmModule.WebRenderer();
 }
 
 export function parseJsonl(input: string): ParsedResult {
@@ -88,4 +125,15 @@ export function clearBlobs(): void {
 export function blobCount(): number {
   if (!wasmModule) return 0;
   return wasmModule.blob_count();
+}
+
+// ── WebRenderer access ──
+
+export function getRenderer(): WebRendererInstance | null {
+  return renderer;
+}
+
+export function getRendererOrThrow(): WebRendererInstance {
+  if (!renderer) throw new Error('WASM renderer not initialized');
+  return renderer;
 }

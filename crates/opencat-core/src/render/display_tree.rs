@@ -38,7 +38,7 @@ pub fn render_display_tree<C: Canvas2D>(
     ctx: &RenderCtx<C>,
     cache: &mut RenderCache<C>,
 ) -> Result<(), RenderError> {
-    render_scene_op(canvas, &ctx.ordered_scene.root, tree, ctx, cache, false)
+    render_scene_op(canvas, &ctx.ordered_scene.root, tree, ctx, cache)
 }
 
 fn render_scene_op<C: Canvas2D>(
@@ -47,14 +47,13 @@ fn render_scene_op<C: Canvas2D>(
     tree: &AnnotatedDisplayTree,
     ctx: &RenderCtx<C>,
     cache: &mut RenderCache<C>,
-    ancestor_has_non_unit_scale: bool,
 ) -> Result<(), RenderError> {
     match op {
         OrderedSceneOp::CachedSubtree { handle } => {
             render_cached_subtree(canvas, *handle, tree, ctx, cache)
         }
         OrderedSceneOp::LiveSubtree { handle, item_execution, children } => {
-            render_live_subtree(canvas, *handle, *item_execution, children, tree, ctx, cache, ancestor_has_non_unit_scale)
+            render_live_subtree(canvas, *handle, *item_execution, children, tree, ctx, cache)
         }
     }
 }
@@ -116,7 +115,7 @@ fn render_live_cached_node<C: Canvas2D>(
         clip_bounds_with_radius(canvas, &bounds, &clip.border_radius);
     }
     for child in &subtree.children {
-        render_scene_op(canvas, child, tree, ctx, cache, false)?;
+        render_scene_op(canvas, child, tree, ctx, cache)?;
     }
     if node.recorded_semantics().clip.is_some() {
         canvas.restore();
@@ -132,16 +131,12 @@ fn render_live_subtree<C: Canvas2D>(
     tree: &AnnotatedDisplayTree,
     ctx: &RenderCtx<C>,
     cache: &mut RenderCache<C>,
-    ancestor_has_non_unit_scale: bool,
 ) -> Result<(), RenderError> {
     let node = tree.node(handle);
     let draw = node.draw_composite_semantics();
     if draw.opacity <= 0.0 {
         return Ok(());
     }
-
-    let has_non_unit_scale = ancestor_has_non_unit_scale
-        || transform_list_has_non_unit_scale(&draw.transform.transforms);
 
     canvas.save();
     apply_transform(canvas, draw.transform);
@@ -214,7 +209,7 @@ fn render_live_subtree<C: Canvas2D>(
     }
 
     for child in children {
-        render_scene_op(canvas, child, tree, ctx, cache, has_non_unit_scale)?;
+        render_scene_op(canvas, child, tree, ctx, cache)?;
     }
 
     if node.clip.is_some() {
@@ -289,11 +284,4 @@ fn apply_transform<C: Canvas2D>(canvas: &mut C, transform: &crate::display::list
     }
 }
 
-fn transform_list_has_non_unit_scale(transforms: &[Transform]) -> bool {
-    transforms.iter().any(|t| match *t {
-        Transform::Scale { value } | Transform::ScaleX { value } | Transform::ScaleY { value } => {
-            (value - 1.0).abs() > f32::EPSILON
-        }
-        _ => false,
-    })
-}
+

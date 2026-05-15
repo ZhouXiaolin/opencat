@@ -7,7 +7,7 @@ use super::paint_conv::background_fill_to_paint_spec;
 use super::rect::{clip_bounds, draw_box_shadow, draw_inset_shadow, draw_item_drop_shadow, draw_node_border, kurbo_rect};
 use super::{RenderCache, RenderCtx, RenderError};
 
-fn fitted_rect(src_width: f32, src_height: f32, dst: &Rect, cover: bool) -> Rect {
+pub(crate) fn fitted_rect(src_width: f32, src_height: f32, dst: &Rect, cover: bool) -> Rect {
     let iw = src_width as f64;
     let ih = src_height as f64;
     if iw <= 0.0 || ih <= 0.0 {
@@ -31,7 +31,7 @@ fn fitted_rect(src_width: f32, src_height: f32, dst: &Rect, cover: bool) -> Rect
     Rect::new(x, y, x + width, y + height)
 }
 
-fn cover_src_rect(src_width: f32, src_height: f32, dst: &Rect) -> Rect {
+pub(crate) fn cover_src_rect(src_width: f32, src_height: f32, dst: &Rect) -> Rect {
     let fitted = fitted_rect(src_width, src_height, dst, true);
     let scale = fitted.width() / src_width as f64;
     let visible_width = dst.width() / scale;
@@ -74,20 +74,18 @@ pub fn render_bitmap<C: Canvas2D>(
     let style = &item.paint;
     let dst = kurbo_rect(item.bounds);
 
-    let image = if item.video_timing.is_some() {
+    let (image, src_width, src_height) = if item.video_timing.is_some() {
         let frame_index = ctx.frame_ctx.frame as u32;
-        let video = unsafe {
-            let ptr = ctx as *const RenderCtx<C> as *mut RenderCtx<C>;
-            &mut *(*ptr).video
-        };
-        let frame = video.frame_rgba(&item.asset_id, frame_index)
+        let frame = ctx.video.borrow_mut().frame_rgba(&item.asset_id, frame_index)
             .map_err(|e| RenderError::MissingResource(format!("video frame: {}", e)))?;
-        canvas.make_image_from_rgba(&frame.data, frame.width, frame.height)
+        let w = frame.width;
+        let h = frame.height;
+        (canvas.make_image_from_rgba(&frame.data, w, h), w, h)
     } else {
         let asset_key = item.asset_id.0.clone();
         let mut lru = cache.images.borrow_mut();
         if let Some(Some(img)) = lru.get_cloned(&asset_key) {
-            img
+            (img, item.width as u32, item.height as u32)
         } else {
             drop(lru);
             let loaded: Option<C::Image> = 'load: {
@@ -105,7 +103,7 @@ pub fn render_bitmap<C: Canvas2D>(
             let report = lru.insert(asset_key, loaded.clone());
             drop(report);
             match loaded {
-                Some(img) => img,
+                Some(img) => (img, item.width as u32, item.height as u32),
                 None => return Err(RenderError::MissingResource(format!("cannot load image: {}", item.asset_id.0))),
             }
         }
@@ -131,13 +129,7 @@ pub fn render_bitmap<C: Canvas2D>(
         path_effect: None,
     };
 
-    let src_width = if item.video_timing.is_some() {
-        item.width as f32
-    } else {
-        item.width as f32
-    };
-    let src_height = item.height as f32;
-    draw_bitmap_image(canvas, item, &image, &dst, &paint, src_width, src_height);
+    draw_bitmap_image(canvas, item, &image, &dst, &paint, src_width as f32, src_height as f32);
 
     if let Some(ref shadow) = style.inset_shadow {
         draw_inset_shadow(canvas, item.bounds, &style.border_radius, shadow);

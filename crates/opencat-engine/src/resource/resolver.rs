@@ -16,7 +16,7 @@ use opencat_core::resource::resolver::{
 };
 
 use crate::resource::fetch::EngineFetcher;
-use crate::resource::path_store::AssetPathStore;
+use crate::resource::AssetPathStore;
 use crate::resource::utils::cache_file_path;
 
 /// Engine 端 (id, bytes) → path_store 索引建立。

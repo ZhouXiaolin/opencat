@@ -26,7 +26,7 @@ pub fn shared_raster_engine_typed() -> std::sync::Arc<SkiaRenderEngine> {
 // ---------------------------------------------------------------------------
 
 use crate::resource::media::MediaContext;
-use crate::resource::path_store::AssetPathStore;
+use crate::resource::AssetPathStore;
 use opencat_core::platform::backend::BackendTypes;
 use opencat_core::platform::render_engine::{
     FrameView, GlyphPaint, RecordCtx, RenderCtx, RenderEngine as CoreRenderEngine,

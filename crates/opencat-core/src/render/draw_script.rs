@@ -2,6 +2,7 @@ use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle, StrokeSpe
 use crate::canvas::{Canvas2D, ClipOp, FillType, Rect};
 use crate::display::list::{DisplayRect, DrawScriptDisplayItem};
 
+use super::bitmap::{cover_src_rect, fitted_rect};
 use super::script_conv::{script_color_with_alpha, to_fill_spec, script_line_cap, script_line_join, script_point_mode};
 use super::state::DrawScriptPaintState;
 use super::{RenderCache, RenderCtx, RenderError};
@@ -258,7 +259,7 @@ pub fn execute_canvas_command<C: Canvas2D>(
             canvas.draw_path(&path, &paint);
         }
         CanvasCommand::DrawImage { asset_id, x, y, width, height, src_rect, anti_alias, object_fit, .. } => {
-            let image = load_image_for_script(canvas, asset_id, ctx, cache)?;
+            let (image, img_w, img_h) = load_image_for_script(canvas, asset_id, ctx, cache)?;
             let dst = kurbo_rect_xywh(*x, *y, *width, *height);
             let paint = PaintSpec {
                 fill: FillSpec::Solid([1.0; 4]), style: PaintStyle::Fill, stroke: None,
@@ -271,8 +272,13 @@ pub fn execute_canvas_command<C: Canvas2D>(
             } else {
                 match object_fit {
                     ObjectFit::Fill => { canvas.draw_image_rect(&image, None, &dst, Some(&paint)); }
-                    ObjectFit::Contain | ObjectFit::Cover => {
-                        canvas.draw_image_rect(&image, None, &dst, Some(&paint));
+                    ObjectFit::Contain => {
+                        let fitted = fitted_rect(img_w as f32, img_h as f32, &dst, false);
+                        canvas.draw_image_rect(&image, None, &fitted, Some(&paint));
+                    }
+                    ObjectFit::Cover => {
+                        let src = cover_src_rect(img_w as f32, img_h as f32, &dst);
+                        canvas.draw_image_rect(&image, Some(&src), &dst, Some(&paint));
                     }
                 }
             }
@@ -324,7 +330,7 @@ pub fn execute_canvas_command<C: Canvas2D>(
         }
         CanvasCommand::Skew { sx, sy } => { canvas.skew(*sx, *sy); }
         CanvasCommand::DrawImageSimple { asset_id, x, y, anti_alias, .. } => {
-            let image = load_image_for_script(canvas, asset_id, ctx, cache)?;
+            let (image, _, _) = load_image_for_script(canvas, asset_id, ctx, cache)?;
             let paint = PaintSpec {
                 fill: FillSpec::Solid([1.0; 4]), style: PaintStyle::Fill, stroke: None,
                 anti_alias: *anti_alias, blend_mode: BlendMode::SrcOver,
@@ -342,12 +348,15 @@ fn load_image_for_script<C: Canvas2D>(
     asset_id: &str,
     ctx: &RenderCtx<C>,
     cache: &mut RenderCache<C>,
-) -> Result<C::Image, RenderError> {
+) -> Result<(C::Image, u32, u32), RenderError> {
     let key = asset_id.to_string();
     {
         let mut lru = cache.images.borrow_mut();
         if let Some(Some(img)) = lru.get_cloned(&key) {
-            return Ok(img);
+            let sizes = cache.image_sizes.borrow();
+            if let Some(&(w, h)) = sizes.get(&key) {
+                return Ok((img, w, h));
+            }
         }
     }
     let asset_id_obj = crate::resource::asset_id::AssetId(asset_id.to_string());
@@ -358,10 +367,49 @@ fn load_image_for_script<C: Canvas2D>(
     })?;
     let image = canvas.make_image_from_encoded(&encoded)
         .ok_or_else(|| RenderError::MissingResource(format!("failed to decode image: {}", path.display())))?;
+    let dims = read_image_dimensions_from_encoded(&encoded).unwrap_or((0, 0));
     {
         let mut lru = cache.images.borrow_mut();
-        let report = lru.insert(key, Some(image.clone()));
+        let report = lru.insert(key.clone(), Some(image.clone()));
         drop(report);
     }
-    Ok(image)
+    cache.image_sizes.borrow_mut().insert(key, dims);
+    Ok((image, dims.0, dims.1))
+}
+
+fn read_image_dimensions_from_encoded(data: &[u8]) -> Option<(u32, u32)> {
+    if data.len() < 24 {
+        return None;
+    }
+    if data.len() >= 24 && &data[1..4] == b"PNG" {
+        let w = u32::from_be_bytes([data[16], data[17], data[18], data[19]]);
+        let h = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
+        return Some((w, h));
+    }
+    if data.len() >= 2 && data[0] == 0xFF && data[1] == 0xD8 {
+        let mut pos = 2usize;
+        while pos + 4 <= data.len() {
+            if data[pos] != 0xFF {
+                return None;
+            }
+            let marker = data[pos + 1];
+            if marker == 0xC0 || marker == 0xC2 {
+                if pos + 9 > data.len() {
+                    return None;
+                }
+                let h = u16::from_be_bytes([data[pos + 5], data[pos + 6]]) as u32;
+                let w = u16::from_be_bytes([data[pos + 7], data[pos + 8]]) as u32;
+                return Some((w, h));
+            }
+            if pos + 4 > data.len() {
+                return None;
+            }
+            let seg_len = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
+            if seg_len < 2 {
+                return None;
+            }
+            pos += seg_len as usize;
+        }
+    }
+    None
 }

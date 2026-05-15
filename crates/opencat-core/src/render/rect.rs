@@ -325,9 +325,9 @@ fn draw_per_side_borders<C: Canvas2D>(
     if top_w > 0.0 {
         let y = top + top_w / 2.0;
         let x0 = if top_w == left_w && r_tl > 0.0 { left + r_tl }
-            else if left_w > 0.0 { left + left_w } else { left };
+            else if left_w > 0.0 && top_w == left_w { left + left_w } else { left };
         let x1 = if top_w == right_w && r_tr > 0.0 { right - r_tr }
-            else if right_w > 0.0 { right - right_w } else { right };
+            else if right_w > 0.0 && top_w == right_w { right - right_w } else { right };
         if x1 > x0 {
             let paint = build_stroke_paint(color, top_w, border_style, blur_sigma);
             canvas.draw_line(x0, y, x1, y, &paint);
@@ -337,9 +337,9 @@ fn draw_per_side_borders<C: Canvas2D>(
     if right_w > 0.0 {
         let x = right - right_w / 2.0;
         let y0 = if right_w == top_w && r_tr > 0.0 { top + r_tr }
-            else if top_w > 0.0 { top + top_w } else { top };
+            else if top_w > 0.0 && right_w == top_w { top + top_w } else { top };
         let y1 = if right_w == bottom_w && r_br > 0.0 { bottom - r_br }
-            else if bottom_w > 0.0 { bottom - bottom_w } else { bottom };
+            else if bottom_w > 0.0 && right_w == bottom_w { bottom - bottom_w } else { bottom };
         if y1 > y0 {
             let paint = build_stroke_paint(color, right_w, border_style, blur_sigma);
             canvas.draw_line(x, y0, x, y1, &paint);
@@ -349,9 +349,9 @@ fn draw_per_side_borders<C: Canvas2D>(
     if bottom_w > 0.0 {
         let y = bottom - bottom_w / 2.0;
         let x0 = if bottom_w == left_w && r_bl > 0.0 { left + r_bl }
-            else if left_w > 0.0 { left + left_w } else { left };
+            else if left_w > 0.0 && bottom_w == left_w { left + left_w } else { left };
         let x1 = if bottom_w == right_w && r_br > 0.0 { right - r_br }
-            else if right_w > 0.0 { right - right_w } else { right };
+            else if right_w > 0.0 && bottom_w == right_w { right - right_w } else { right };
         if x1 > x0 {
             let paint = build_stroke_paint(color, bottom_w, border_style, blur_sigma);
             canvas.draw_line(x0, y, x1, y, &paint);
@@ -361,9 +361,9 @@ fn draw_per_side_borders<C: Canvas2D>(
     if left_w > 0.0 {
         let x = left + left_w / 2.0;
         let y0 = if left_w == top_w && r_tl > 0.0 { top + r_tl }
-            else if top_w > 0.0 { top + top_w } else { top };
+            else if top_w > 0.0 && left_w == top_w { top + top_w } else { top };
         let y1 = if left_w == bottom_w && r_bl > 0.0 { bottom - r_bl }
-            else if bottom_w > 0.0 { bottom - bottom_w } else { bottom };
+            else if bottom_w > 0.0 && left_w == bottom_w { bottom - bottom_w } else { bottom };
         if y1 > y0 {
             let paint = build_stroke_paint(color, left_w, border_style, blur_sigma);
             canvas.draw_line(x, y0, x, y1, &paint);

@@ -1,5 +1,5 @@
 use crate::canvas::paint::{
-    BlendMode, BlurStyle, FillSpec, MaskFilterSpec, PaintSpec, PaintStyle,
+    BlendMode, BlurStyle, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec, PaintStyle,
     PathEffectSpec, StrokeCap, StrokeSpec,
 };
 use crate::canvas::{Canvas2D, ClipOp, Rect, RRect};
@@ -12,7 +12,7 @@ use super::paint_conv::{
 };
 use super::{RenderCache, RenderCtx, RenderError};
 
-fn kurbo_rect(r: DisplayRect) -> Rect {
+pub fn kurbo_rect(r: DisplayRect) -> Rect {
     Rect::new(r.x as f64, r.y as f64, (r.x + r.width) as f64, (r.y + r.height) as f64)
 }
 
@@ -45,7 +45,7 @@ fn spread_radius(radius: &BorderRadius, spread: f32) -> BorderRadius {
     }
 }
 
-fn draw_box_shadow<C: Canvas2D>(
+pub fn draw_box_shadow<C: Canvas2D>(
     canvas: &mut C,
     bounds: DisplayRect,
     border_radius: &BorderRadius,
@@ -81,7 +81,7 @@ fn draw_box_shadow<C: Canvas2D>(
     }
 }
 
-fn draw_inset_shadow<C: Canvas2D>(
+pub fn draw_inset_shadow<C: Canvas2D>(
     canvas: &mut C,
     bounds: DisplayRect,
     border_radius: &BorderRadius,
@@ -120,7 +120,7 @@ fn draw_inset_shadow<C: Canvas2D>(
     canvas.restore();
 }
 
-fn clip_bounds<C: Canvas2D>(
+pub fn clip_bounds<C: Canvas2D>(
     canvas: &mut C,
     bounds: DisplayRect,
     border_radius: &BorderRadius,
@@ -135,7 +135,7 @@ fn clip_bounds<C: Canvas2D>(
     }
 }
 
-fn draw_item_drop_shadow<C: Canvas2D>(
+pub fn draw_item_drop_shadow<C: Canvas2D>(
     canvas: &mut C,
     bounds: DisplayRect,
     shadow: &DropShadow,
@@ -216,7 +216,7 @@ fn build_stroke_paint(color: &[f32; 4], width: f32, border_style: &BorderStyle, 
     p
 }
 
-fn draw_node_border<C: Canvas2D>(
+pub fn draw_node_border<C: Canvas2D>(
     canvas: &mut C,
     rect: &Rect,
     radius: &BorderRadius,
@@ -414,6 +414,28 @@ pub fn render_rect<C: Canvas2D>(
     let has_radius = radii.iter().any(|&r| r > 0.0);
 
     canvas.save();
+    clip_bounds(canvas, bounds, &style.border_radius);
+
+    if let Some(sigma) = style.backdrop_blur_sigma {
+        if sigma > 0.0 {
+            let blur_paint = PaintSpec {
+                fill: FillSpec::Solid([1.0; 4]),
+                style: PaintStyle::Fill,
+                stroke: None,
+                anti_alias: true,
+                blend_mode: BlendMode::SrcOver,
+                image_filter: Some(ImageFilterSpec::Blur {
+                    sigma_x: sigma,
+                    sigma_y: sigma,
+                    crop_rect: None,
+                }),
+                color_filter: None,
+                mask_filter: None,
+                path_effect: None,
+            };
+            canvas.save_layer_with(Some(rect), &blur_paint);
+        }
+    }
 
     if let Some(ref background) = style.background {
         let paint_spec = background_fill_to_paint_spec(background);
@@ -435,6 +457,10 @@ pub fn render_rect<C: Canvas2D>(
         style.border_bottom_width, style.border_left_width,
         style.border_color, style.border_style, style.blur_sigma,
     );
+
+    if style.backdrop_blur_sigma.unwrap_or(0.0) > 0.0 {
+        canvas.restore();
+    }
 
     canvas.restore();
     Ok(())

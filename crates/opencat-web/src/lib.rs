@@ -1,6 +1,7 @@
 //! opencat-web — WASM/Web rendering target for opencat-core.
 
 pub mod backend;
+pub mod codec;
 pub mod engine;
 pub mod platform;
 pub mod recorder;

@@ -115,6 +115,17 @@ impl ResourceCatalog for HashMapResourceCatalog {
         id
     }
 
+    fn register_audio(&mut self, locator: &str) -> AssetId {
+        let id = self.resolve_key(locator);
+        self.entries.entry(id.clone()).or_insert(ResourceMeta {
+            width: 0,
+            height: 0,
+            kind: ResourceKind::Audio,
+            duration_secs: None,
+        });
+        id
+    }
+
     fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()> {
         let meta = self.entries.get(target).cloned();
         if let Some(m) = meta {

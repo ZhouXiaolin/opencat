@@ -20,6 +20,12 @@ import type {
 } from './types';
 
 import { recordPicture, drawTransition, setCanvasKitForTransition } from './transition';
+import {
+  getDecodedFrameRgba,
+  resolveVideoTimeSecs,
+  getVideoDurationSecs,
+} from './video-decoder';
+import type { VideoFrameTiming } from './video-decoder';
 
 let CanvasKit: any = null;
 let surface: any = null;
@@ -48,6 +54,81 @@ const loadedImages = new Map<string, any>();
 
 // Module-level cache for glyph paths
 const glyphPathCache = new Map<number, any>();
+
+// Current frame number for per-frame video image lookup
+let currentFrame = 0;
+// Current composition FPS (for time-based video frame lookup)
+let currentFps = 30;
+
+export function setCurrentFrame(frame: number): void {
+  currentFrame = frame;
+}
+
+/**
+ * Walk display tree, find video bitmap items, decode needed frames,
+ * and register them as CanvasKit images for the renderer.
+ * Call this before `drawDisplayTree` for frames that need video.
+ */
+export async function predecodeVideoFramesInTree(
+  root: DisplayNodeJson,
+  comp: CompositionInfo,
+  frame: number,
+): Promise<void> {
+  const CK = CanvasKit;
+  if (!CK) return;
+
+  const videoItems = collectVideoBitmapItems(root);
+  if (videoItems.length === 0) return;
+
+  for (const item of videoItems) {
+    const assetId = item.assetId as string | undefined;
+    if (!assetId) continue;
+
+    const cacheKey = `${assetId}__${frame}`;
+    if (loadedImages.has(cacheKey)) continue;
+
+    const timing = (item as any).videoTiming as VideoFrameTiming | undefined;
+    const compositionTimeSecs = frame / comp.fps;
+    const durationSecs = getVideoDurationSecs(assetId);
+    const targetTimeSecs = timing
+      ? resolveVideoTimeSecs(compositionTimeSecs, timing, durationSecs)
+      : compositionTimeSecs;
+
+  // Decode frame and create CK Image
+  try {
+    const decoded = await getDecodedFrameRgba(assetId, targetTimeSecs);
+    if (!decoded) continue;
+
+    const imageInfo = {
+      width: decoded.width,
+      height: decoded.height,
+      colorType: CK.ColorType.RGBA_8888,
+      alphaType: CK.AlphaType.Unpremul,
+      colorSpace: CK.ColorSpace.SRGB,
+    };
+    const ckImage = CK.MakeImage(imageInfo, decoded.rgba, decoded.width * 4);
+    if (ckImage) {
+      registerImage(cacheKey, ckImage);
+    }
+  } catch (err) {
+      console.warn(`[renderer] failed to decode video frame for ${assetId} at ${targetTimeSecs.toFixed(3)}s:`, err);
+    }
+  }
+}
+
+/** Recursively collect all bitmap display items that have an assetId. */
+function collectVideoBitmapItems(node: DisplayNodeJson): DisplayItemJson[] {
+  const items: DisplayItemJson[] = [];
+  if (node.item?.type === 'bitmap' && node.item?.assetId) {
+    items.push(node.item);
+  }
+  if (node.children) {
+    for (const child of node.children) {
+      items.push(...collectVideoBitmapItems(child));
+    }
+  }
+  return items;
+}
 
 export function registerImage(assetId: string, ckImage: any): void {
   loadedImages.set(assetId, ckImage);
@@ -204,6 +285,9 @@ export function drawDisplayTree(
 ): void {
   if (!CanvasKit || !ckCanvas || !surface) return;
 
+  setCurrentFrame(frame);
+  currentFps = comp.fps;
+
   const w = comp.width;
   const h = comp.height;
 
@@ -273,25 +357,38 @@ function drawTransitionForNode(
   const bounds = item.bounds;
 
   const drawNodeToPic = (node: DisplayNodeJson): any | null => {
-    return recordPicture(bounds, (recCanvas: any) => {
-      const savedCanvas = ckCanvas;
-      ckCanvas = recCanvas;
-      try {
-        drawDisplayNode(node);
-      } finally {
-        ckCanvas = savedCanvas;
-      }
-    });
+    try {
+      return recordPicture(bounds, (recCanvas: any) => {
+        const savedCanvas = ckCanvas;
+        ckCanvas = recCanvas;
+        try {
+          drawDisplayNode(node);
+        } finally {
+          ckCanvas = savedCanvas;
+        }
+      });
+    } catch (err) {
+      console.warn('[renderer] failed to record transition picture:', err);
+      return null;
+    }
   };
 
   const fromPic = drawNodeToPic(children[0]);
   const toPic = drawNodeToPic(children[1]);
 
   if (fromPic && toPic) {
-    drawTransition(ckCanvas, fromPic, toPic, transition, bounds);
+    try {
+      drawTransition(ckCanvas, fromPic, toPic, transition, bounds);
+    } catch (err) {
+      console.warn('[renderer] transition draw failed, falling back:', err);
+      for (const child of children) {
+        try { drawDisplayNode(child); } catch { /* skip */ }
+      }
+    }
   } else {
+    console.warn(`[renderer] transition picture failed: fromPic=${!!fromPic} toPic=${!!toPic}, falling back to direct draw`);
     for (const child of children) {
-      drawDisplayNode(child);
+      try { drawDisplayNode(child); } catch { /* skip */ }
     }
   }
 
@@ -888,9 +985,33 @@ function drawBitmapItem(item: DisplayItemJson): void {
   const { bounds, assetId, paint, objectFit } = item;
   if (!assetId || !bounds) return;
 
-  const img = loadedImages.get(assetId);
-  if (!img) return;
+  // For video frames, use per-frame composite key
+  const hasVideoTiming = !!(item as any).videoTiming;
+  const lookupKey = hasVideoTiming
+    ? `${assetId}__${currentFrame}`
+    : assetId;
 
+  const img = loadedImages.get(lookupKey);
+  if (!img) {
+    if (hasVideoTiming) {
+      console.log(`[renderer] video bitmap NOT FOUND: ${lookupKey} (currentFrame=${currentFrame}, assetId=${assetId})`);
+    }
+    // Fallback: try direct assetId (for static images)
+    const fallback = loadedImages.get(assetId);
+    if (!fallback) return;
+    drawBitmapToBounds(fallback, bounds, paint, objectFit);
+    return;
+  }
+
+  drawBitmapToBounds(img, bounds, paint, objectFit);
+}
+
+function drawBitmapToBounds(
+  img: any,
+  bounds: DisplayRect,
+  paint: RectPaintJson | undefined,
+  objectFit: string | undefined,
+): void {
   const srcW = img.width();
   const srcH = img.height();
 
@@ -918,7 +1039,6 @@ function drawBitmapItem(item: DisplayItemJson): void {
     }
   }
 
-  // Clip to bounds with border radius
   if (paint?.borderRadius && hasNonZeroRadius(paint.borderRadius)) {
     ckCanvas.save();
     applyClip({ bounds, borderRadius: paint.borderRadius });
@@ -927,11 +1047,11 @@ function drawBitmapItem(item: DisplayItemJson): void {
   const srcRect = CanvasKit.XYWHRect(0, 0, srcW, srcH);
   const dstRect = CanvasKit.XYWHRect(dst.x, dst.y, dst.width, dst.height);
 
-  const paint2 = new CanvasKit.Paint();
-  paint2.setAlphaf(1.0);
-  paint2.setAntiAlias(true);
-  ckCanvas.drawImageRect(img, srcRect, dstRect, paint2);
-  paint2.delete();
+  const imgPaint = new CanvasKit.Paint();
+  imgPaint.setAlphaf(1.0);
+  imgPaint.setAntiAlias(true);
+  ckCanvas.drawImageRect(img, srcRect, dstRect, imgPaint);
+  imgPaint.delete();
 
   if (paint?.borderRadius && hasNonZeroRadius(paint.borderRadius)) {
     ckCanvas.restore();

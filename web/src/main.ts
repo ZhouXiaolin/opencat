@@ -7,6 +7,8 @@ import {
   buildFrame,
   preloadAssets,
   clearBlobs,
+  getBlobBytes,
+  getRendererOrThrow,
 } from './wasm';
 import {
   initCanvasKit,
@@ -17,6 +19,7 @@ import {
   getSurface,
   drawDisplayTree,
   registerImage,
+  predecodeVideoFramesInTree,
 } from './renderer';
 import {
   exportMp4,
@@ -25,6 +28,7 @@ import {
 } from './exporter';
 import { decodeImageFromBlob, setCanvasKit } from './resource';
 import { getScriptEngine } from './script-engine';
+import { prepareVideoSource, getDecodedFrameRgba, registerVideoGlobals, clearVideoCache } from './video-decoder';
 import type { CompositionInfo, JsonlFile, ParsedResult, ParsedElement } from './types';
 
 // --- State ---
@@ -94,6 +98,9 @@ async function boot() {
     ckStatusEl.className = 'status-badge ready';
 
     setCanvasKit(getCanvasKit());
+
+    // Register video decode globals on window for WASM fallback access
+    registerVideoGlobals();
 
     // Initialize shared script engine (loads wasm bridge + core JS runtimes once)
     await getScriptEngine().init();
@@ -325,30 +332,83 @@ async function preloadResources(
 ): Promise<void> {
   resourceMeta = {};
 
-  // 列举一下要预下载的资源数量（仅用于进度显示），实际下载由 Rust 一次性处理。
   const requests = collectResources(jsonlContent);
   const totalAssets = requests.images.length + requests.videos.length + requests.audios.length;
   onProgress?.(0, totalAssets);
 
-  // 清空上一轮的 BlobStore，让 Rust 重新填。
   clearBlobs();
 
-  // 把整个下载 + 元数据探测交给 Rust：一次 await 出 catalog JSON。
   const catalogJson = await preloadAssets(jsonlContent);
   const catalog = JSON.parse(catalogJson) as Record<string, ResourceMeta>;
-
-  // 元数据直接来自 Rust 的 nom-exif / imagesize 探测结果（dims + duration 准确）。
   resourceMeta = catalog;
 
-  // 对图片资源：从 wasm BlobStore 取字节、CanvasKit 解码、注册到 renderer。
+  const renderer = getRendererOrThrow();
   let decoded = 0;
+
   for (const [assetId, meta] of Object.entries(catalog)) {
     if (meta.kind === 'image') {
       const loaded = decodeImageFromBlob(assetId);
       if (loaded) {
         registerImage(assetId, loaded.ckImage);
       }
+    } else if (meta.kind === 'video') {
+      const raw = getBlobBytes(assetId);
+      if (raw) {
+        try {
+          // Ensure we have a clean ArrayBuffer (no offset/length issues)
+          const videoBuf = new Uint8Array(raw).buffer;
+
+          // Demux only — no pre-decoding. Frames are decoded on-demand.
+          const { width, height, durationSecs } = await prepareVideoSource(
+            assetId,
+            videoBuf,
+          );
+
+          console.log(`[main] video source ready: ${assetId} → ${width}x${height}, duration=${durationSecs ?? 'N/A'}s`);
+
+          // Register a static placeholder so the renderer has something to show
+          // before the first frame is decoded. Use the first frame as a fallback
+          // by triggering an early decode for time 0.
+          try {
+            const firstFrame = await getDecodedFrameRgba(assetId, 0);
+            if (firstFrame) {
+              const CK = getCanvasKit();
+              if (CK) {
+                const imageInfo = {
+                  width: firstFrame.width,
+                  height: firstFrame.height,
+                  colorType: CK.ColorType.RGBA_8888,
+                  alphaType: CK.AlphaType.Unpremul,
+                  colorSpace: CK.ColorSpace.SRGB,
+                };
+                const ckImage = CK.MakeImage(imageInfo, firstFrame.rgba, firstFrame.width * 4);
+                if (ckImage) {
+                  // Register as fallback (no frame suffix) so the renderer can show
+                  // something even before explicit frame pre-decode
+                  registerImage(assetId, ckImage);
+                  // Also inject into WASM for Rust-side VideoFrameProvider
+                  renderer.inject_video_frame(assetId, 0, firstFrame.rgba, firstFrame.width, firstFrame.height);
+                }
+              }
+            }
+          } catch (err) {
+            console.warn(`[main] failed to decode first frame for ${assetId}:`, err);
+          }
+        } catch (err) {
+          console.error(`Video source prep failed for ${assetId}:`, err);
+        }
+      }
+    } else if (meta.kind === 'audio') {
+      const raw = getBlobBytes(assetId);
+      if (raw) {
+        try {
+          await renderer.decode_audio_file(assetId, raw);
+        } catch (err) {
+          console.error(`Audio decode failed for ${assetId}:`, err);
+        }
+      }
     }
+
     decoded++;
     onProgress?.(decoded, totalAssets);
   }
@@ -491,6 +551,8 @@ async function renderFrameAsync(frame: number) {
 
 // --- Full Pipeline Renderer ---
 
+// --- Full Pipeline Renderer ---
+
 async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Promise<void> {
   // Step 1: Execute scripts to collect mutations (shared by both paths)
   const engine = getScriptEngine();
@@ -548,6 +610,32 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
 
   // Step 2: WASM build display tree
   const result = buildFrame(filteredJsonl, frame, resourceMetaJson, mutationsJson);
+
+  // Step 2.5: Pre-decode video frames needed for this composition frame.
+  // Walk the display tree, find bitmap items with videoTiming, compute
+  // target video time, decode the frame, and register as CanvasKit image.
+  await predecodeVideoFramesInTree(result.root, comp, frame);
+
+  // Debug: check if display tree has video bitmap items
+  if (frame === 108) {
+    const collectTypes = (node: any): string[] => {
+      const types: string[] = [node.item?.type || '?'];
+      if (node.item?.type === 'bitmap') {
+        types[types.length - 1] += `(videoTiming=${!!node.item.videoTiming}, assetId=${node.item.assetId})`;
+      }
+      for (const c of node.children || []) {
+        types.push(...collectTypes(c));
+      }
+      return types;
+    };
+    const allTypes = collectTypes(result.root);
+    const bitmapItems = allTypes.filter(t => t.startsWith('bitmap'));
+    if (bitmapItems.length > 0) {
+      console.log(`[main] frame ${frame} display tree has ${bitmapItems.length} bitmap items:`, bitmapItems);
+    } else {
+      console.log(`[main] frame ${frame} display tree: no bitmap items found`);
+    }
+  }
 
   // Step 3: Render via CanvasKit
   const rootBg = extractRootBackground(result.root);
@@ -646,6 +734,22 @@ function play() {
   if (!currentComposition || isPlaying) return;
   isPlaying = true;
   btnPlay.textContent = '⏸';
+
+  // Resume AudioContext (browser requires user gesture)
+  try {
+    getRendererOrThrow().play_audio_at('', 0, 0); // dummy call to ensure context is alive
+  } catch { /* ignore */ }
+
+  // Start audio for each source at current time offset
+  const startTime = currentFrame / currentComposition.fps;
+  for (const [id, meta] of Object.entries(resourceMeta)) {
+    if (meta.kind === 'audio') {
+      try {
+        getRendererOrThrow().play_audio_at(id, startTime, currentComposition.frames / currentComposition.fps);
+      } catch { /* ignore */ }
+    }
+  }
+
   playInterval = setInterval(() => {
     if (!currentComposition) return;
     currentFrame++;
@@ -664,6 +768,10 @@ function pause() {
     clearInterval(playInterval);
     playInterval = null;
   }
+  // Stop audio on pause
+  try {
+    getRendererOrThrow().stop_audio();
+  } catch { /* ignore */ }
 }
 
 function togglePlay() {
@@ -734,11 +842,16 @@ async function handleExport() {
     const comp = currentComposition;
     exportInfoEl.textContent = 'Encoding MP4...';
 
+    // Collect audio asset IDs
+    const audioIds = Object.entries(resourceMeta)
+      .filter(([, meta]) => meta.kind === 'audio')
+      .map(([id]) => id);
+
     const data = await exportMp4(currentJsonlContent, previewCanvas, comp, resourceMeta, (current, total) => {
       const pct = Math.round((current / total) * 100);
       exportProgressFill.style.width = `${pct}%`;
       btnExport.textContent = `⏳ ${current}/${total}`;
-    });
+    }, audioIds);
 
     if (data) {
       downloadMp4(data, currentFile.name);

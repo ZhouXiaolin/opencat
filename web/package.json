@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@webav/av-cliper": "^1.2.8",
-    "canvaskit-wasm": "^0.41.1"
+    "canvaskit-wasm": "^0.41.1",
+    "mp4box": "^2.3.0"
   }
 }

@@ -31,6 +31,9 @@ interface VideoSource {
   width: number;
   height: number;
   durationSecs: number | null;
+  // Persistent decoder (one per video, never closed — aligns with engine)
+  decoder: VideoDecoder | null;
+  decoderKeyIdx: number; // keyframe index the decoder was last started from
 }
 
 interface CachedFrame {
@@ -88,6 +91,8 @@ export async function prepareVideoSource(
     width,
     height,
     durationSecs,
+    decoder: null,
+    decoderKeyIdx: -1,
   };
   videoSources.set(url, source);
 
@@ -96,8 +101,8 @@ export async function prepareVideoSource(
 
 /**
  * Decode and return a raw VideoFrame nearest to targetTimeSecs.
- * Caller is responsible for closing the returned VideoFrame.
- * No canvas extraction, no RGBA — use with createImageBitmap for GPU path.
+ * Uses a persistent VideoDecoder per source (one per video, never closed).
+ * This aligns with the engine's approach of reusing a single ffmpeg instance.
  */
 export async function getDecodedVideoFrame(
   url: string,
@@ -107,48 +112,107 @@ export async function getDecodedVideoFrame(
   if (!source) return null;
 
   const targetUs = Math.max(0, targetTimeSecs * 1_000_000);
+  let keyIdx = findKeyframeBefore(source.encodedChunks, targetUs);
+  const triedKeyframes: number[] = [];
 
-  // Find keyframe before target
-  const keyIdx = findKeyframeBefore(source.encodedChunks, targetUs);
+  // Retry loop: if a keyframe fails (e.g., non-IDR Open GOP), try the
+  // previous true IDR keyframe. Mirrors ffmpeg's robust seek behavior.
+  let result: VideoFrame | null = null;
+  while (keyIdx >= 0 && result === null) {
+    triedKeyframes.push(keyIdx);
 
-  // Find end chunk within a margin
-  const marginUs = 500_000;
-  let endIdx = keyIdx;
-  for (let i = keyIdx + 1; i < source.encodedChunks.length; i++) {
-    if (source.encodedChunks[i].timestamp <= targetUs + marginUs) {
-      endIdx = i;
-    } else {
+    // Find end chunk within a margin
+    const marginUs = 500_000;
+    let endIdx = keyIdx;
+    for (let i = keyIdx + 1; i < source.encodedChunks.length; i++) {
+      if (source.encodedChunks[i].timestamp <= targetUs + marginUs) {
+        endIdx = i;
+      } else {
+        break;
+      }
+    }
+
+    const chunkSlice = source.encodedChunks.slice(keyIdx, endIdx + 1);
+    const firstChunk = chunkSlice[0];
+
+    // Ensure decoder is alive and configured for this keyframe
+    if (!source.decoder || source.decoderKeyIdx !== keyIdx) {
+      if (source.decoder) {
+        try { source.decoder.close(); } catch { /* ignore */ }
+        source.decoder = null;
+      }
+      source.decoder = createConfiguredDecoder(source.codec, source.description);
+      if (!source.decoder) return null;
+      source.decoderKeyIdx = keyIdx;
+    }
+
+    // Decode the chunk range through the persistent decoder
+    pendingFrames = [];
+    const decodedFrames = await feedAndFlushDecoder(source.decoder, chunkSlice);
+
+    if (decodedFrames.length > 0) {
+      // Success — find frame closest to target
+      let bestIdx = 0;
+      let bestDiff = Infinity;
+      for (let i = 0; i < decodedFrames.length; i++) {
+        const diff = Math.abs(decodedFrames[i].timestamp - targetUs);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestIdx = i;
+        }
+      }
+      const best = decodedFrames[bestIdx];
+      for (let i = 0; i < decodedFrames.length; i++) {
+        if (i !== bestIdx) decodedFrames[i].videoFrame.close();
+      }
+      result = best.videoFrame;
       break;
     }
-  }
 
-  // Decode the range
-  const decodedFrames = await decodeChunkRange(
-    source.codec,
-    source.description,
-    source.encodedChunks.slice(keyIdx, endIdx + 1),
-  );
+    // Decode failed — decoder is now closed, destroy it
+    try { source.decoder.close(); } catch { /* ignore */ }
+    source.decoder = null;
+    source.decoderKeyIdx = -1;
 
-  if (decodedFrames.length === 0) return null;
-
-  // Find frame closest to target
-  let bestIdx = 0;
-  let bestDiff = Infinity;
-  for (let i = 0; i < decodedFrames.length; i++) {
-    const diff = Math.abs(decodedFrames[i].timestamp - targetUs);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      bestIdx = i;
+    // Check NAL type of the first chunk to understand why
+    const firstData = firstChunk ? new Uint8Array(firstChunk.data.slice(0, Math.min(64, firstChunk.data.byteLength))) : null;
+    const nalTypes: string[] = [];
+    if (firstData && firstData.length >= 9) {
+      let offset = 0;
+      while (offset + 4 < firstData.length) {
+        const len = (firstData[offset] << 24) | (firstData[offset + 1] << 16) | (firstData[offset + 2] << 8) | firstData[offset + 3];
+        if (len === 0 || offset + 4 + len > firstData.length) break;
+        const nalType = firstData[offset + 4] & 0x1F;
+        nalTypes.push(`${nalType}`);
+        offset += 4 + len;
+      }
     }
+
+    // If first NAL is not IDR (type 5), this is an Open GOP keyframe.
+    // WebCodecs requires true IDR after configure/flush. Skip to previous IDR.
+    const hasIDR = nalTypes.includes('5');
+    const descHex = source.description ? Array.from(source.description.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ') : 'none';
+
+    if (!hasIDR && nalTypes.length > 0) {
+      console.warn(`[video-decoder] Open GOP keyframe at idx=${keyIdx} (nalTypes=[${nalTypes.join(',')}], no IDR), falling back to previous keyframe`);
+    } else {
+      const firstHex = firstData ? Array.from(firstData.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ') : 'n/a';
+      console.warn(`[video-decoder] no frames decoded: keyIdx=${keyIdx}/${source.encodedChunks.length} targetUs=${Math.round(targetUs)} firstTs=${firstChunk?.timestamp} firstType=${firstChunk?.type} dataLen=${firstChunk?.data.byteLength} nalTypes=[${nalTypes.join(',')}] firstHex=${firstHex} descHex=${descHex}`);
+    }
+
+    // Find previous keyframe
+    let prevKey = -1;
+    for (let i = keyIdx - 1; i >= 0; i--) {
+      if (source.encodedChunks[i].type === 'key') {
+        prevKey = i;
+        break;
+      }
+    }
+    if (prevKey < 0) break;
+    keyIdx = prevKey;
   }
 
-  // Close all other frames, return best
-  const best = decodedFrames[bestIdx];
-  for (let i = 0; i < decodedFrames.length; i++) {
-    if (i !== bestIdx) decodedFrames[i].videoFrame.close();
-  }
-
-  return best.videoFrame;
+  return result;
 }
 
 /**
@@ -210,9 +274,18 @@ export function getVideoDurationSecs(url: string): number | null {
 
 export function clearVideoCache(url?: string): void {
   if (url) {
+    const source = videoSources.get(url);
+    if (source?.decoder) {
+      try { source.decoder.close(); } catch { /* ignore */ }
+    }
     videoSources.delete(url);
     decodedCache.delete(url);
   } else {
+    for (const source of videoSources.values()) {
+      if (source.decoder) {
+        try { source.decoder.close(); } catch { /* ignore */ }
+      }
+    }
     videoSources.clear();
     decodedCache.clear();
   }
@@ -328,61 +401,88 @@ interface DecodedFrame {
   videoFrame: VideoFrame;
 }
 
-function decodeChunkRange(
+// ── Persistent decoder helpers (aligns with engine: one decoder per video) ──
+
+// Shared accumulator for frames from the persistent decoder output callback.
+// Cleared before each decode batch, populated during decode+flush.
+let pendingFrames: DecodedFrame[] = [];
+
+function createConfiguredDecoder(
   codec: string,
   description: Uint8Array | undefined,
+): VideoDecoder | null {
+  const decoder = new VideoDecoder({
+    output(frame: VideoFrame) {
+      pendingFrames.push({ timestamp: frame.timestamp, videoFrame: frame });
+    },
+    error(err: Error) {
+      console.warn(`[video-decoder] persistent decoder error: ${err.message}`);
+    },
+  });
+
+  const config: VideoDecoderConfig = { codec };
+  if (description && description.length > 0) {
+    config.description = description;
+  }
+
+  try {
+    decoder.configure(config);
+  } catch (err: any) {
+    console.warn(`[video-decoder] configure failed: ${err.message}`);
+    try { decoder.close(); } catch { /* ignore */ }
+    return null;
+  }
+
+  return decoder;
+}
+
+function feedAndFlushDecoder(
+  decoder: VideoDecoder,
   chunks: EncodedChunkDesc[],
 ): Promise<DecodedFrame[]> {
-  return new Promise((resolve, reject) => {
-    const frames: DecodedFrame[] = [];
+  return new Promise((resolve) => {
+    let errored = false;
+    let settled = false;
 
-    const decoder = new VideoDecoder({
-      output(frame: VideoFrame) {
-        frames.push({ timestamp: frame.timestamp, videoFrame: frame });
-      },
-      error(err: Error) {
-        console.warn(`[video-decoder] decode error: ${err.message}`);
-        // Don't reject — collect whatever frames we got
-      },
-    });
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      const frames = pendingFrames.slice(); // snapshot
+      frames.sort((a, b) => a.timestamp - b.timestamp);
+      resolve(frames);
+    };
 
-    const config: VideoDecoderConfig = { codec };
-    if (description && description.length > 0) {
-      config.description = description;
-    }
-
-    try {
-      decoder.configure(config);
-    } catch (err: any) {
-      reject(new Error(`VideoDecoder configure failed: ${err.message}`));
-      return;
-    }
-
+    // Feed chunks
     for (const chunk of chunks) {
-      const encodedChunk = new EncodedVideoChunk({
-        type: chunk.type,
-        timestamp: chunk.timestamp,
-        duration: chunk.duration,
-        // Copy buffer — EncodedVideoChunk transfers ownership (detaches original)
-        data: chunk.data.slice(0) as ArrayBuffer,
-      });
+      if (errored) break;
       try {
+        const encodedChunk = new EncodedVideoChunk({
+          type: chunk.type,
+          timestamp: chunk.timestamp,
+          duration: chunk.duration,
+          data: chunk.data.slice(0) as ArrayBuffer,
+        });
         decoder.decode(encodedChunk);
       } catch (err: any) {
         console.warn(`[video-decoder] chunk decode error: ${err.message}`);
+        errored = true;
+        break;
       }
     }
 
+    // Timeout guard
+    const TIMEOUT_MS = 8000;
+    const timer = setTimeout(() => {
+      console.warn('[video-decoder] decode timed out');
+      finish();
+    }, TIMEOUT_MS);
+
     decoder.flush().then(() => {
-      // Sort by timestamp (presentation order)
-      frames.sort((a, b) => a.timestamp - b.timestamp);
-      resolve(frames);
-      decoder.close();
-    }).catch((err) => {
-      // Still resolve with whatever frames we got
-      frames.sort((a, b) => a.timestamp - b.timestamp);
-      resolve(frames);
-      decoder.close();
+      clearTimeout(timer);
+      finish();
+    }).catch(() => {
+      clearTimeout(timer);
+      finish();
     });
   });
 }

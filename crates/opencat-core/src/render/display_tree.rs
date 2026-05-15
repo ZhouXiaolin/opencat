@@ -244,7 +244,7 @@ fn apply_transform<C: Canvas2D>(canvas: &mut C, transform: &crate::display::list
     let center_x = rect.width() as f32 / 2.0;
     let center_y = rect.height() as f32 / 2.0;
 
-    for t in transform.transforms.iter().rev() {
+    for t in transform.transforms.iter() {
         match *t {
             Transform::TranslateX { value } => canvas.translate(value, 0.0),
             Transform::TranslateY { value } => canvas.translate(0.0, value),

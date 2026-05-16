@@ -11,7 +11,6 @@ use opencat_core::scene::script::{
     text_align_from_name,
 };
 use opencat_core::script::animate::state::{parse_easing_from_tag, random_from_seed};
-use opencat_core::script::animate::{AnimateState, MorphSvgState, PathMeasureState};
 use opencat_core::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
 use opencat_core::style::{
     BorderStyle, FontWeight, ObjectFit, color_token_from_script_string,
@@ -20,9 +19,6 @@ use opencat_core::style::{
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct WebMutationRecorder {
     inner: MutationStore,
-    animate: AnimateState,
-    morph: MorphSvgState,
-    path_measure: PathMeasureState,
 }
 
 impl Default for WebMutationRecorder {
@@ -37,18 +33,11 @@ impl WebMutationRecorder {
     pub fn new() -> Self {
         Self {
             inner: MutationStore::default(),
-            animate: AnimateState::default(),
-            morph: MorphSvgState::default(),
-            path_measure: PathMeasureState::default(),
         }
     }
 
     pub fn reset_for_frame(&mut self, current_frame: u32) {
         self.inner.reset_for_frame(current_frame);
-    }
-
-    pub fn reset_animate(&mut self) {
-        self.animate = AnimateState::default();
     }
 
     pub fn snapshot_mutations_json(&self) -> String {
@@ -589,7 +578,7 @@ impl WebMutationRecorder {
         yoyo: bool,
         repeat_delay: f32,
     ) -> i32 {
-        self.animate.create(
+        self.inner.animate_create(
             current_frame,
             duration,
             delay,
@@ -601,45 +590,45 @@ impl WebMutationRecorder {
         )
     }
     pub fn animate_value(&self, current_frame: u32, handle: i32, from: f32, to: f32) -> f32 {
-        self.animate.value(current_frame, handle, from, to)
+        self.inner.animate_value(current_frame, handle, from, to)
     }
     pub fn animate_color(&self, handle: i32, from: &str, to: &str) -> String {
-        self.animate.color(handle, from, to)
+        self.inner.animate_color(handle, from, to)
     }
     pub fn animate_progress(&self, handle: i32) -> f32 {
-        self.animate.progress(handle)
+        self.inner.animate_progress(handle)
     }
     pub fn animate_settled(&self, handle: i32) -> bool {
-        self.animate.settled(handle)
+        self.inner.animate_settled(handle)
     }
     pub fn animate_settle_frame(&self, handle: i32) -> u32 {
-        self.animate.settle_frame(handle)
+        self.inner.animate_settle_frame(handle)
     }
 
     // ── Morph SVG ──
     pub fn morph_svg_create(&mut self, from_svg: &str, to_svg: &str, grid: u32) -> i32 {
-        self.morph.create(from_svg, to_svg, grid).unwrap_or(-1)
+        self.inner.morph_svg_create(from_svg, to_svg, grid).unwrap_or(-1)
     }
     pub fn morph_svg_sample(&self, handle: i32, t: f32, tol: f32) -> String {
-        self.morph.sample(handle, t, tol)
+        self.inner.morph_svg_sample(handle, t, tol)
     }
     pub fn morph_svg_dispose(&mut self, handle: i32) {
-        self.morph.dispose(handle);
+        self.inner.morph_svg_dispose(handle);
     }
 
     // ── Along path ──
     pub fn along_path_create(&mut self, svg: &str) -> i32 {
-        self.path_measure.create(svg).unwrap_or(-1)
+        self.inner.along_path_create(svg).unwrap_or(-1)
     }
     pub fn along_path_length(&self, handle: i32) -> f32 {
-        self.path_measure.length(handle)
+        self.inner.along_path_length(handle)
     }
     pub fn along_path_at(&self, handle: i32, t: f32) -> Vec<f32> {
-        let (x, y, a) = self.path_measure.sample(handle, t);
+        let (x, y, a) = self.inner.along_path_at(handle, t);
         vec![x, y, a]
     }
     pub fn along_path_dispose(&mut self, handle: i32) {
-        self.path_measure.dispose(handle);
+        self.inner.along_path_dispose(handle);
     }
 
     // ── Utils ──

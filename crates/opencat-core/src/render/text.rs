@@ -114,8 +114,9 @@ pub fn render_text<C: Canvas2D>(
                         } else {
                             drop(lru);
                             let (verbs, pts) = commands_to_verbs_points(commands);
+                            let weight = verbs.len() + pts.len();
                             let p = canvas.make_path_from_verbs(&verbs, &pts, FillType::Winding);
-                            let report = cache.glyph_paths.borrow_mut().insert(pos.cache_key, p.clone());
+                            let report = cache.glyph_paths.borrow_mut().insert_with_weight(pos.cache_key, p.clone(), weight.max(1));
                             record_cache_pressure("glyph_path", &report);
                             #[cfg(feature = "profile")]
                             event!(
@@ -156,8 +157,9 @@ pub fn render_text<C: Canvas2D>(
                             cached
                         } else {
                             drop(lru);
+                            let weight = (*width * *height * 4) as usize;
                             let img = canvas.make_image_from_rgba(rgba, *width, *height);
-                            let report = cache.glyph_images.borrow_mut().insert(pos.cache_key, img.clone());
+                            let report = cache.glyph_images.borrow_mut().insert_with_weight(pos.cache_key, img.clone(), weight.max(1));
                             record_cache_pressure("glyph_image", &report);
                             #[cfg(feature = "profile")]
                             event!(
@@ -281,12 +283,13 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                             } else {
                                 drop(lru);
                                 let (verbs, pts) = commands_to_verbs_points(commands);
+                                let weight = verbs.len() + pts.len();
                                 let p =
                                     canvas.make_path_from_verbs(&verbs, &pts, FillType::Winding);
                                 let report = cache
                                     .glyph_paths
                                     .borrow_mut()
-                                    .insert(pos.cache_key, p.clone());
+                                    .insert_with_weight(pos.cache_key, p.clone(), weight.max(1));
                                 record_cache_pressure("glyph_path", &report);
                                 #[cfg(feature = "profile")]
                                 event!(
@@ -346,11 +349,12 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                                 cached
                             } else {
                                 drop(lru);
+                                let weight = (*im_w * *im_h * 4) as usize;
                                 let img = canvas.make_image_from_rgba(rgba, *im_w, *im_h);
                                 let report = cache
                                     .glyph_images
                                     .borrow_mut()
-                                    .insert(pos.cache_key, img.clone());
+                                    .insert_with_weight(pos.cache_key, img.clone(), weight.max(1));
                                 record_cache_pressure("glyph_image", &report);
                                 #[cfg(feature = "profile")]
                                 event!(

@@ -1,5 +1,8 @@
 pub mod tree;
 
+#[cfg(feature = "profile")]
+use tracing::Level;
+
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -100,6 +103,13 @@ impl LayoutSession {
         let mut stats = LayoutPassStats::default();
         let viewport_size = (frame_ctx.width, frame_ctx.height);
 
+        #[cfg(feature = "profile")]
+        let _update_span = tracing::span!(
+            target: "render.scene",
+            Level::TRACE,
+            "layout_structure_update"
+        )
+        .entered();
         let root_id = if self
             .root
             .as_ref()
@@ -111,6 +121,8 @@ impl LayoutSession {
         } else {
             self.rebuild(root, &mut stats)?
         };
+        #[cfg(feature = "profile")]
+        drop(_update_span);
 
         let layout_must_recompute = stats.structure_rebuild
             || stats.layout_dirty_nodes > 0
@@ -118,6 +130,13 @@ impl LayoutSession {
             || self.last_layout_size != Some(viewport_size);
 
         if layout_must_recompute {
+            #[cfg(feature = "profile")]
+            let _resolve_span = tracing::span!(
+                target: "render.scene",
+                Level::TRACE,
+                "layout_resolve"
+            )
+            .entered();
             self.taffy.compute_layout_with_measure(
                 root_id,
                 taffy::geometry::Size {

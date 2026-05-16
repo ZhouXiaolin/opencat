@@ -262,39 +262,39 @@ macro_rules! for_each_binding {
         }}
         $apply! { $rec $id canvas_save_layer ($id: &str, alpha: f32, bounds: Option<Vec<f32>>) {
             let bounds = match bounds {
-                Some(b) => Some(parse_image_rect_error("saveLayer", &b)?),
+                Some(b) => Some($crate::script::helpers::parse_image_rect("saveLayer", &b)?),
                 None => None,
             };
             $rec . record_canvas_command($id, CanvasCommand::SaveLayer {
                 alpha: alpha.clamp(0.0, 1.0),
                 bounds,
             });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_set_fill_style ($id: &str, color: String) {
-            let color = parse_color(&color, "setFillStyle")?;
+            let color = $crate::script::helpers::parse_color(&color, "setFillStyle")?;
             $rec . record_canvas_command($id, CanvasCommand::SetFillStyle { color });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_set_stroke_style ($id: &str, color: String) {
-            let color = parse_color(&color, "setStrokeStyle")?;
+            let color = $crate::script::helpers::parse_color(&color, "setStrokeStyle")?;
             $rec . record_canvas_command($id, CanvasCommand::SetStrokeStyle { color });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_set_line_width ($id: &str, width: f32) {
             $rec . record_canvas_command($id, CanvasCommand::SetLineWidth { width: width.max(0.0) });
         }}
         $apply! { $rec $id canvas_set_line_cap ($id: &str, cap: String) {
             let cap = line_cap_from_name(&cap)
-                .ok_or_else(|| js_error("setLineCap", format!("unsupported line cap `{cap}`")))?;
+                .ok_or_else(|| $crate::script::helpers::script_error("setLineCap", format!("unsupported line cap `{cap}`")))?;
             $rec . record_canvas_command($id, CanvasCommand::SetLineCap { cap });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_set_line_join ($id: &str, join: String) {
             let join = line_join_from_name(&join)
-                .ok_or_else(|| js_error("setLineJoin", format!("unsupported line join `{join}`")))?;
+                .ok_or_else(|| $crate::script::helpers::script_error("setLineJoin", format!("unsupported line join `{join}`")))?;
             $rec . record_canvas_command($id, CanvasCommand::SetLineJoin { join });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_set_line_dash ($id: &str, intervals: Vec<f32>, phase: f32) {
             $rec . record_canvas_command($id, CanvasCommand::SetLineDash { intervals, phase });
@@ -310,50 +310,50 @@ macro_rules! for_each_binding {
         }}
         $apply! { $rec $id canvas_clear ($id: &str, color: Option<String>) {
             let color = match color {
-                Some(c) => Some(parse_color(&c, "clear")?),
+                Some(c) => Some($crate::script::helpers::parse_color(&c, "clear")?),
                 None => None,
             };
             $rec . record_canvas_command($id, CanvasCommand::Clear { color });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_draw_paint ($id: &str, color: String, anti_alias: bool) {
-            let color = parse_color(&color, "drawPaint")?;
+            let color = $crate::script::helpers::parse_color(&color, "drawPaint")?;
             $rec . record_canvas_command($id, CanvasCommand::DrawPaint { color, anti_alias });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_draw_text ($id: &str, text: String, values: Vec<f32>, color: String, flags: Vec<bool>, font_edging: String) {
             if values.len() < 6 {
-                return Err(js_error("drawText", "expected text values [x, y, fontSize, scaleX, skewX, strokeWidth]".to_string()));
+                Err($crate::script::helpers::script_error("drawText", "expected text values [x, y, fontSize, scaleX, skewX, strokeWidth]".to_string()))
+            } else if flags.len() < 3 {
+                Err($crate::script::helpers::script_error("drawText", "expected text flags [antiAlias, stroke, fontSubpixel]".to_string()))
+            } else {
+                let color = $crate::script::helpers::parse_color(&color, "drawText")?;
+                let font_edging = font_edging_from_name(&font_edging)
+                    .ok_or_else(|| $crate::script::helpers::script_error("drawText", format!("unsupported font edging `{font_edging}`")))?;
+                $rec . record_canvas_command($id, CanvasCommand::DrawText {
+                    text,
+                    x: values[0],
+                    y: values[1],
+                    color,
+                    anti_alias: flags[0],
+                    stroke: flags[1],
+                    stroke_width: values[5].max(0.0),
+                    font_size: values[2].max(1.0),
+                    font_scale_x: values[3],
+                    font_skew_x: values[4],
+                    font_subpixel: flags[2],
+                    font_edging,
+                });
+                Ok::<_, anyhow::Error>(())
             }
-            if flags.len() < 3 {
-                return Err(js_error("drawText", "expected text flags [antiAlias, stroke, fontSubpixel]".to_string()));
-            }
-            let color = parse_color(&color, "drawText")?;
-            let font_edging = font_edging_from_name(&font_edging)
-                .ok_or_else(|| js_error("drawText", format!("unsupported font edging `{font_edging}`")))?;
-            $rec . record_canvas_command($id, CanvasCommand::DrawText {
-                text,
-                x: values[0],
-                y: values[1],
-                color,
-                anti_alias: flags[0],
-                stroke: flags[1],
-                stroke_width: values[5].max(0.0),
-                font_size: values[2].max(1.0),
-                font_scale_x: values[3],
-                font_skew_x: values[4],
-                font_subpixel: flags[2],
-                font_edging,
-            });
-            Ok::<_, rquickjs::Error>(())
         }}
         $apply! { $rec $id canvas_fill_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, color: String) {
-            let color = parse_color(&color, "fillRect")?;
+            let color = $crate::script::helpers::parse_color(&color, "fillRect")?;
             $rec . record_canvas_command($id, CanvasCommand::FillRect { x, y, width, height, color });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_stroke_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, color: String, stroke_width: f32) {
-            let color = parse_color(&color, "strokeRect")?;
+            let color = $crate::script::helpers::parse_color(&color, "strokeRect")?;
             $rec . record_canvas_command($id, CanvasCommand::StrokeRect {
                 x,
                 y,
@@ -362,19 +362,20 @@ macro_rules! for_each_binding {
                 color,
                 stroke_width: stroke_width.max(0.0),
             });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_draw_image ($id: &str, asset_id: String, values: Vec<f32>, fit: String, alpha: f32, anti_alias: bool) {
             let object_fit = object_fit_from_name(&fit)
-                .ok_or_else(|| js_error("drawImage", format!("unsupported objectFit `{fit}`")))?;
-            if values.len() < 4 {
-                return Err(js_error("drawImageRect", "expected destination rect as [x, y, width, height]".to_string()));
-            }
-            let src_rect = match values.len() {
-                4 => None,
-                8.. => Some(parse_image_rect_error("drawImageRect", &values[4..8])?),
-                _ => return Err(js_error("drawImageRect", "expected either 4 or 8 image rect values".to_string())),
-            };
+                .ok_or_else(|| $crate::script::helpers::script_error("drawImage", format!("unsupported objectFit `{fit}`")))?;
+            let src_rect = if values.len() < 4 {
+                Err($crate::script::helpers::script_error("drawImageRect", "expected destination rect as [x, y, width, height]".to_string()))
+            } else {
+                match values.len() {
+                    4 => Ok(None),
+                    8.. => Ok(Some($crate::script::helpers::parse_image_rect("drawImageRect", &values[4..8])?)),
+                    _ => Err($crate::script::helpers::script_error("drawImageRect", "expected either 4 or 8 image rect values".to_string())),
+                }
+            }?;
             $rec . record_canvas_command($id, CanvasCommand::DrawImage {
                 asset_id,
                 x: values[0],
@@ -386,57 +387,58 @@ macro_rules! for_each_binding {
                 anti_alias,
                 object_fit,
             });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_draw_arc ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32, start_angle: f32, sweep_angle: f32) {
             $rec . record_canvas_command($id, CanvasCommand::DrawArc {
                 cx, cy, rx, ry, start_angle, sweep_angle, use_center: false,
             });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_draw_arc_to_center ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32, start_angle: f32, sweep_angle: f32) {
             $rec . record_canvas_command($id, CanvasCommand::DrawArc {
                 cx, cy, rx, ry, start_angle, sweep_angle, use_center: true,
             });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_draw_points ($id: &str, mode: String, points: Vec<f32>) {
             let mode = point_mode_from_name(&mode)
-                .ok_or_else(|| js_error("drawPoints", format!("unsupported point mode `{mode}`")))?;
+                .ok_or_else(|| $crate::script::helpers::script_error("drawPoints", format!("unsupported point mode `{mode}`")))?;
             $rec . record_canvas_command($id, CanvasCommand::DrawPoints { mode, points });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_fill_drrect ($id: &str, coords: Vec<f32>) {
             let (outer_x, outer_y, outer_width, outer_height, outer_radius,
                  inner_x, inner_y, inner_width, inner_height, inner_radius) =
-                parse_drrect_error("fillDRRect", &coords)?;
+                $crate::script::helpers::parse_drrect("fillDRRect", &coords)?;
             $rec . record_canvas_command($id, CanvasCommand::FillDRRect {
                 outer_x, outer_y, outer_width, outer_height, outer_radius,
                 inner_x, inner_y, inner_width, inner_height, inner_radius,
             });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_stroke_drrect ($id: &str, coords: Vec<f32>) {
             let (outer_x, outer_y, outer_width, outer_height, outer_radius,
                  inner_x, inner_y, inner_width, inner_height, inner_radius) =
-                parse_drrect_error("strokeDRRect", &coords)?;
+                $crate::script::helpers::parse_drrect("strokeDRRect", &coords)?;
             $rec . record_canvas_command($id, CanvasCommand::StrokeDRRect {
                 outer_x, outer_y, outer_width, outer_height, outer_radius,
                 inner_x, inner_y, inner_width, inner_height, inner_radius,
             });
-            Ok::<_, rquickjs::Error>(())
+            Ok::<_, anyhow::Error>(())
         }}
         $apply! { $rec $id canvas_concat ($id: &str, values: Vec<f32>) {
             if values.len() < 9 {
-                return Err(js_error("concat", "expected 9 matrix values".to_string()));
+                Err($crate::script::helpers::script_error("concat", "expected 9 matrix values".to_string()))
+            } else {
+                let matrix = [
+                    values[0], values[1], values[2],
+                    values[3], values[4], values[5],
+                    values[6], values[7], values[8],
+                ];
+                $rec . record_canvas_command($id, CanvasCommand::Concat { matrix });
+                Ok::<_, anyhow::Error>(())
             }
-            let matrix = [
-                values[0], values[1], values[2],
-                values[3], values[4], values[5],
-                values[6], values[7], values[8],
-            ];
-            $rec . record_canvas_command($id, CanvasCommand::Concat { matrix });
-            Ok::<_, rquickjs::Error>(())
         }}
     };
 }

@@ -8,7 +8,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use rquickjs::{Error as JsError, Exception, FromJs, Function};
+use rquickjs::{Context, Error as JsError, Exception, FromJs, Function, Object, Persistent, Runtime};
 
 use opencat_core::for_each_binding;
 use opencat_core::scene::script::mutations::{CanvasCommand, TextUnitGranularity};
@@ -19,6 +19,7 @@ use opencat_core::scene::script::{
     line_join_from_name, point_mode_from_name, position_from_name, text_align_from_name,
 };
 use opencat_core::script::animate::state::{parse_easing_from_tag, random_from_seed};
+use opencat_core::script::js_context::JsContext;
 use opencat_core::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
 use opencat_core::script::text_units::{describe_text_units, grapheme_strings};
 use opencat_core::style::color_token_from_script_string;
@@ -140,4 +141,74 @@ pub(crate) fn install_node_style_bindings<'js>(
     for_each_binding!(rec id store install_to_rquickjs);
 
     Ok(())
+}
+
+// ── RqJsContext ──────────────────────────────────────────────────────
+
+pub struct RqJsContext {
+    _runtime: Runtime,
+    context: Context,
+    store: Arc<Mutex<MutationStore>>,
+    ctx_obj: Persistent<Object<'static>>,
+}
+
+impl JsContext for RqJsContext {
+    fn new() -> anyhow::Result<Self> {
+        let runtime = Runtime::new()?;
+        let context = Context::full(&runtime)?;
+        let store = Arc::new(Mutex::new(MutationStore::default()));
+
+        let ctx_obj = context.with(|ctx| -> anyhow::Result<_> {
+            let obj = Object::new(ctx.clone())?;
+            ctx.globals().set("ctx", obj.clone())?;
+            Ok(Persistent::save(&ctx, obj))
+        })?;
+
+        Ok(Self {
+            _runtime: runtime,
+            context,
+            store,
+            ctx_obj,
+        })
+    }
+
+    fn eval(&self, code: &str) -> anyhow::Result<()> {
+        self.context.with(|ctx| {
+            map_js_result(ctx.eval::<(), _>(code), &ctx, "script eval")
+        })
+    }
+
+    fn set_ctx_field_i64(&self, name: &str, v: i64) -> anyhow::Result<()> {
+        self.context.with(|ctx| -> anyhow::Result<()> {
+            let obj = self.ctx_obj.clone().restore(&ctx)?;
+            obj.set(name, v)?;
+            Ok(())
+        })
+    }
+
+    fn set_ctx_field_str(&self, name: &str, v: &str) -> anyhow::Result<()> {
+        self.context.with(|ctx| -> anyhow::Result<()> {
+            let obj = self.ctx_obj.clone().restore(&ctx)?;
+            obj.set(name, v)?;
+            Ok(())
+        })
+    }
+
+    fn call_global_fn(&self, name: &str) -> anyhow::Result<()> {
+        self.context.with(|ctx| -> anyhow::Result<()> {
+            let f: Function = ctx.globals().get(name)?;
+            map_js_result(f.call::<(), ()>(()), &ctx, name)
+        })
+    }
+
+    fn install_all_bindings(&self) -> anyhow::Result<()> {
+        self.context.with(|ctx| -> anyhow::Result<()> {
+            install_node_style_bindings(&ctx, &self.store)
+        })
+    }
+
+    fn with_store_mut<R>(&self, f: impl FnOnce(&mut MutationStore) -> R) -> R {
+        let mut guard = self.store.lock().expect("script store lock poisoned");
+        f(&mut guard)
+    }
 }

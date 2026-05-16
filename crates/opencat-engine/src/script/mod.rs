@@ -1,9 +1,5 @@
 pub mod bindings;
 
-#[cfg(test)]
-mod driver_tests;
-
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
@@ -14,29 +10,15 @@ use rquickjs::{
 use bindings as script_bindings;
 use opencat_core::frame_ctx::ScriptFrameCtx;
 use opencat_core::scene::script::ScriptTextSource;
-use opencat_core::scene::script::{ScriptDriverId, ScriptHost, StyleMutations};
+use opencat_core::scene::script::StyleMutations;
+use opencat_core::scene::script::Runner as CoreRunner;
 use opencat_core::script::animate::{AnimateState, MorphSvgState, PathMeasureState};
 use opencat_core::script::recorder::MutationRecorder;
 use opencat_core::script::recorder::MutationStore as CoreMutationStore;
 
-#[derive(Default)]
-pub struct ScriptRuntimeCache {
-    runners: HashMap<u64, ScriptRunner>,
-    text_sources: HashMap<String, ScriptTextSource>,
-}
+pub type ScriptRuntimeCache = opencat_core::scene::script::ScriptRuntimeCache<ScriptRunner>;
 
-impl ScriptRuntimeCache {
-    pub(crate) fn clear_text_sources(&mut self) {
-        self.text_sources.clear();
-    }
-
-    pub(crate) fn register_text_source(&mut self, id: &str, source: ScriptTextSource) {
-        self.text_sources.insert(id.to_string(), source);
-    }
-
-}
-
-pub(crate) struct ScriptRunner {
+pub struct ScriptRunner {
     run_fn: Persistent<Function<'static>>,
     ctx_obj: Persistent<Object<'static>>,
     context: Context,
@@ -217,18 +199,7 @@ impl ScriptRunner {
             .lock()
             .map_err(|_| anyhow!("script mutation store lock poisoned after execution"))?;
         let snap = store.snapshot_mutations();
-        for (node_id, node_mutations) in &snap.mutations {
-            opencat_core::scene::script::precomputed_host::apply_node_to_recorder(
-                recorder,
-                node_id,
-                node_mutations,
-            );
-        }
-        for (canvas_id, canvas_mutations) in &snap.canvas_mutations {
-            for cmd in &canvas_mutations.commands {
-                recorder.record_canvas_command(canvas_id, cmd.clone());
-            }
-        }
+        snap.apply_to_recorder(recorder);
         Ok(())
     }
 }
@@ -309,43 +280,26 @@ fn install_runtime_bindings<'js>(
     Ok(ctx_obj)
 }
 
-impl ScriptHost for ScriptRuntimeCache {
-    fn install(&mut self, source: &str) -> anyhow::Result<ScriptDriverId> {
-        use std::hash::{DefaultHasher, Hash, Hasher};
-        let mut h = DefaultHasher::new();
-        source.hash(&mut h);
-        let key = h.finish();
-        if let std::collections::hash_map::Entry::Vacant(e) = self.runners.entry(key) {
-            e.insert(ScriptRunner::new(source)?);
+impl CoreRunner for ScriptRunner {
+    fn from_source(source: &str) -> anyhow::Result<Self> {
+        ScriptRunner::new(source)
+    }
+
+    fn set_text_sources(&mut self, sources: &std::collections::HashMap<String, ScriptTextSource>) {
+        if let Ok(mut store) = self.store.lock() {
+            store.clear_text_sources();
+            for (id, source) in sources {
+                store.register_text_source(id, source.clone());
+            }
         }
-        Ok(ScriptDriverId(key))
     }
 
-    fn register_text_source(&mut self, node_id: &str, source: ScriptTextSource) {
-        ScriptRuntimeCache::register_text_source(self, node_id, source);
-    }
-
-    fn clear_text_sources(&mut self) {
-        ScriptRuntimeCache::clear_text_sources(self);
-    }
-
-    fn run_frame(
+    fn run_into(
         &mut self,
-        driver: ScriptDriverId,
         frame_ctx: &ScriptFrameCtx,
         current_node_id: Option<&str>,
         recorder: &mut dyn MutationRecorder,
     ) -> anyhow::Result<()> {
-        let runner = self
-            .runners
-            .get_mut(&driver.0)
-            .ok_or_else(|| anyhow!("script driver {} not installed", driver.0))?;
-        if let Ok(mut store) = runner.store.lock() {
-            store.clear_text_sources();
-            for (id, source) in &self.text_sources {
-                store.register_text_source(id, source.clone());
-            }
-        }
-        runner.run_into(*frame_ctx, current_node_id, recorder)
+        ScriptRunner::run_into(self, *frame_ctx, current_node_id, recorder)
     }
 }

@@ -1,3 +1,6 @@
+#[cfg(feature = "profile")]
+use tracing::{Level, event, span};
+
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::canvas::{Canvas2D, ClipOp, Rect};
 use crate::display::list::{DisplayItem, DisplayRect};
@@ -8,7 +11,7 @@ use crate::scene::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::style::{BorderRadius, Transform};
 
 use super::cache::CachedSubtreeSnapshot;
-use super::{RenderCache, RenderCtx, RenderError};
+use super::{record_cache_pressure, RenderCache, RenderCtx, RenderError};
 
 fn kurbo_rect(r: DisplayRect) -> Rect {
     Rect::new(r.x as f64, r.y as f64, (r.x + r.width) as f64, (r.y + r.height) as f64)
@@ -85,6 +88,15 @@ fn render_cached_subtree<C: Canvas2D>(
     let uses_layer = opacity < 1.0 || backdrop_blur.is_some();
     let mut has_backdrop_clip = false;
     if uses_layer {
+        #[cfg(feature = "profile")]
+        event!(
+            target: "render.layer",
+            Level::TRACE,
+            kind = "layer",
+            name = "save_layer",
+            result = "count",
+            amount = 1_u64
+        );
         let bounds_rect = kurbo_rect(layer_bounds);
         if let Some(sigma) = backdrop_blur {
             if sigma > 0.0 {
@@ -119,13 +131,23 @@ fn render_cached_subtree<C: Canvas2D>(
         let mut lru = cache.subtree_snapshots.borrow_mut();
         if let Some(snapshot) = lru.get_cloned(&key) {
             if snapshot.secondary_fingerprint == fingerprint.secondary {
+                #[cfg(feature = "profile")]
+                event!(
+                    target: "render.cache",
+                    Level::TRACE,
+                    kind = "cache",
+                    name = "subtree_snapshot",
+                    result = "hit",
+                    amount = 1_u64
+                );
                 canvas.draw_picture(&snapshot.picture, None, None);
                 let updated = CachedSubtreeSnapshot {
                     consecutive_hits: snapshot.consecutive_hits + 1,
                     ..snapshot
                 };
-                lru.insert(key, updated);
+                let report = lru.insert(key, updated);
                 drop(lru);
+                record_cache_pressure("subtree_snapshot", &report);
                 if uses_layer {
                     canvas.restore();
                     if has_backdrop_clip {
@@ -138,19 +160,40 @@ fn render_cached_subtree<C: Canvas2D>(
         }
     }
 
+    #[cfg(feature = "profile")]
+    let _record_span = span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record").entered();
     let bounds = kurbo_rect(layer_bounds);
-    let picture = canvas.make_picture(&bounds, |rec_canvas| {
+    let recorded = canvas.make_picture(&bounds, |rec_canvas| {
         let _ = render_live_cached_node(rec_canvas, handle, tree, ctx, cache);
     });
+    #[cfg(feature = "profile")]
+    drop(_record_span);
 
     let snapshot = CachedSubtreeSnapshot {
-        picture: picture.clone(),
+        picture: recorded.clone(),
         secondary_fingerprint: fingerprint.secondary,
         consecutive_hits: 0,
         recorded_bounds: layer_bounds,
     };
-    cache.subtree_snapshots.borrow_mut().insert(key, snapshot);
-    canvas.draw_picture(&picture, None, None);
+    {
+        let report = cache.subtree_snapshots.borrow_mut().insert(key, snapshot);
+        record_cache_pressure("subtree_snapshot", &report);
+    }
+    #[cfg(feature = "profile")]
+    event!(
+        target: "render.cache",
+        Level::TRACE,
+        kind = "cache",
+        name = "subtree_snapshot",
+        result = "miss",
+        amount = 1_u64
+    );
+
+    #[cfg(feature = "profile")]
+    let _draw_span = span!(target: "render.backend", Level::TRACE, "subtree_snapshot_draw").entered();
+    canvas.draw_picture(&recorded, None, None);
+    #[cfg(feature = "profile")]
+    drop(_draw_span);
 
     if uses_layer {
         canvas.restore();
@@ -213,6 +256,15 @@ fn render_live_subtree<C: Canvas2D>(
     let uses_layer = opacity < 1.0 || backdrop_blur.is_some();
     let mut has_backdrop_clip = false;
     if uses_layer {
+        #[cfg(feature = "profile")]
+        event!(
+            target: "render.layer",
+            Level::TRACE,
+            kind = "layer",
+            name = "save_layer",
+            result = "count",
+            amount = 1_u64
+        );
         let bounds_rect = kurbo_rect(bounds);
         if let Some(sigma) = backdrop_blur {
             if sigma > 0.0 {
@@ -266,6 +318,15 @@ fn render_live_subtree<C: Canvas2D>(
                     let _ = render_scene_op(rec, &children[1], tree, ctx, cache);
                 });
 
+                #[cfg(feature = "profile")]
+                let _trans_span = span!(
+                    target: "render.transition",
+                    Level::TRACE,
+                    "draw_transition",
+                    transition_kind = transition_kind_str(&transition.kind),
+                )
+                .entered();
+
                 let p = transition.progress.clamp(0.0, 1.0);
                 render_transition_composite(canvas, &from_pic, &to_pic, p, &transition.kind, timeline.bounds, cache);
 
@@ -286,9 +347,13 @@ fn render_live_subtree<C: Canvas2D>(
 
     match item_execution {
         LiveNodeItemExecution::Direct => {
+            #[cfg(feature = "profile")]
+            let _item_span = span!(target: "render.backend", Level::TRACE, "draw_item").entered();
             super::display_item::render_display_item(canvas, &node.item, ctx, cache)?;
         }
         LiveNodeItemExecution::FrameLocalPicture => {
+            #[cfg(feature = "profile")]
+            let _item_span = span!(target: "render.backend", Level::TRACE, "draw_item_frame_local_picture").entered();
             let semantics = node.item.picture_semantics();
             let pic_bounds = kurbo_rect_xywh(
                 0.0, 0.0,
@@ -438,6 +503,16 @@ fn clip_bounds_with_radius<C: Canvas2D>(canvas: &mut C, rect: &Rect, radius: &Bo
         canvas.clip_rrect(&rrect, ClipOp::Intersect, true);
     } else {
         canvas.clip_rect(rect, ClipOp::Intersect, true);
+    }
+}
+
+#[cfg(feature = "profile")]
+fn transition_kind_str(kind: &TransitionKind) -> &'static str {
+    match kind {
+        TransitionKind::Slide(_) => "slide",
+        TransitionKind::LightLeak(_) => "light_leak",
+        TransitionKind::Gl(_) => "gltransition",
+        _ => "other",
     }
 }
 

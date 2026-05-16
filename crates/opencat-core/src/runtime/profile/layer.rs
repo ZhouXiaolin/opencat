@@ -1,3 +1,4 @@
+#[cfg(feature = "profile")]
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -5,33 +6,38 @@ use std::{
 };
 
 use anyhow::Result;
+
+#[cfg(feature = "profile")]
 use tracing::{Id, Subscriber, dispatcher::Dispatch};
+#[cfg(feature = "profile")]
 use tracing_subscriber::{
     Registry,
     layer::{Context, Layer, SubscriberExt},
     registry::LookupSpan,
 };
 
-use super::{
-    CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator, RenderProfileSummary,
+#[cfg(feature = "profile")]
+use crate::runtime::profile::{
+    CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator,
 };
+use crate::runtime::profile::RenderProfileSummary;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProfileOutputFormat {
+pub enum ProfileOutputFormat {
     Text,
     Json,
     Both,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ProfileConfig {
+pub struct ProfileConfig {
     pub enabled: bool,
     pub output_format: ProfileOutputFormat,
     pub emit_frame_records: bool,
 }
 
 impl ProfileConfig {
-    pub(crate) fn from_env() -> Self {
+    pub fn from_env() -> Self {
         let enabled = std::env::var("OPENCAT_PROFILE")
             .map(|value| value == "1")
             .unwrap_or(false);
@@ -51,6 +57,7 @@ impl ProfileConfig {
     }
 }
 
+#[cfg(feature = "profile")]
 #[derive(Debug)]
 struct SpanState {
     name: &'static str,
@@ -60,15 +67,12 @@ struct SpanState {
     frame: Option<u32>,
     started: Instant,
     child_inclusive_ms: f64,
-    /// 仅对 target == "render.backend" 的 span 有值；0 表示该 backend span 没有
-    /// render.backend 祖先（frame / transition 等上层不计入 backend 深度）。
     backend_depth: Option<usize>,
-    /// 最近的 render.backend 祖先 span 的 name；仅对 backend span 本身有意义。
     backend_parent: Option<&'static str>,
-    /// 仅对 render.transition::draw_transition span 有意义；其他 span 为 None。
     transition_kind: Option<&'static str>,
 }
 
+#[cfg(feature = "profile")]
 #[derive(Default)]
 struct SharedState {
     spans: HashMap<Id, SpanState>,
@@ -76,10 +80,12 @@ struct SharedState {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct RenderProfileLayer {
+pub struct RenderProfileLayer {
+    #[cfg(feature = "profile")]
     shared: Arc<Mutex<SharedState>>,
 }
 
+#[cfg(feature = "profile")]
 impl RenderProfileLayer {
     fn take_summary(&self) -> RenderProfileSummary {
         let mut shared = self.shared.lock().expect("profile state lock");
@@ -87,12 +93,14 @@ impl RenderProfileLayer {
     }
 }
 
+#[cfg(feature = "profile")]
 #[derive(Default)]
 struct SpanFields {
     frame: Option<u32>,
     transition_kind: Option<&'static str>,
 }
 
+#[cfg(feature = "profile")]
 #[derive(Default)]
 struct EventFields {
     kind: Option<&'static str>,
@@ -101,11 +109,13 @@ struct EventFields {
     amount: Option<usize>,
 }
 
+#[cfg(feature = "profile")]
 struct ProfileFieldVisitor<'a> {
     span_fields: Option<&'a mut SpanFields>,
     event_fields: Option<&'a mut EventFields>,
 }
 
+#[cfg(feature = "profile")]
 impl tracing::field::Visit for ProfileFieldVisitor<'_> {
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
         match field.name() {
@@ -157,6 +167,7 @@ impl tracing::field::Visit for ProfileFieldVisitor<'_> {
     fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {}
 }
 
+#[cfg(feature = "profile")]
 impl<S> Layer<S> for RenderProfileLayer
 where
     S: Subscriber + for<'lookup> LookupSpan<'lookup>,
@@ -185,7 +196,6 @@ where
             .as_ref()
             .and_then(|pid| shared.spans.get(pid).and_then(|state| state.frame));
 
-        // 只在 render.backend 子树内累积 depth；跨过 frame / transition 祖先。
         let (backend_depth, backend_parent) = if is_backend {
             let mut cursor = parent_id.clone();
             let mut result: (Option<usize>, Option<&'static str>) = (Some(0), None);
@@ -248,8 +258,6 @@ where
         }
 
         let exclusive_ms = (inclusive_ms - state.child_inclusive_ms).max(0.0);
-        // backend span 只暴露 "最近的 backend 祖先" 作为语义 parent，避免把
-        // render.pipeline::frame 之类的非 backend 祖先混进聚合树。
         let parent = if state.target == "render.backend" {
             state.backend_parent
         } else {
@@ -304,7 +312,7 @@ where
     }
 }
 
-pub(crate) fn profile_render<T>(
+pub fn profile_render<T>(
     config: &ProfileConfig,
     f: impl FnOnce() -> Result<T>,
 ) -> Result<(T, Option<RenderProfileSummary>)> {
@@ -312,28 +320,30 @@ pub(crate) fn profile_render<T>(
         return Ok((f()?, None));
     }
 
-    let layer = RenderProfileLayer::default();
-    let subscriber = Registry::default().with(layer.clone());
-    let dispatch = Dispatch::new(subscriber);
-    let result = tracing::dispatcher::with_default(&dispatch, f)?;
-    Ok((result, Some(layer.take_summary())))
+    #[cfg(feature = "profile")]
+    {
+        let layer = RenderProfileLayer::default();
+        let subscriber = Registry::default().with(layer.clone());
+        let dispatch = Dispatch::new(subscriber);
+        let result = tracing::dispatcher::with_default(&dispatch, f)?;
+        Ok((result, Some(layer.take_summary())))
+    }
+
+    #[cfg(not(feature = "profile"))]
+    {
+        Ok((f()?, None))
+    }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "profile"))]
 mod tests {
-    use super::super::BackendSpanKey;
-    use super::{ProfileConfig, ProfileOutputFormat, profile_render};
+    use crate::runtime::profile::BackendSpanKey;
+    use crate::runtime::profile::{ProfileConfig, ProfileOutputFormat, profile_render};
     use anyhow::Result;
     use tracing::{Level, span};
 
     #[test]
     fn backend_span_depth_ignores_non_backend_ancestors() -> Result<()> {
-        // 契约：backend span 的 depth / parent 应该只在 render.backend 子树内计算。
-        // frame (render.pipeline) → display_tree_direct_draw (render.backend)
-        //                         → subtree_snapshot_record (render.backend)
-        //
-        // display_tree_direct_draw: depth=0, parent=None (跨过 "frame")
-        // subtree_snapshot_record:  depth=1, parent=Some("display_tree_direct_draw")
         let config = ProfileConfig {
             enabled: true,
             output_format: ProfileOutputFormat::Text,
@@ -478,9 +488,6 @@ mod tests {
     fn tracing_layer_propagates_transition_kind() -> anyhow::Result<()> {
         use tracing::{Level, span};
 
-        // 端到端契约：在 render.transition::draw_transition span 上挂 transition_kind 字段，
-        // ProfileLayer 必须把它带进 CompletedProfileSpan，最终落到对应 frame 字段。
-        // canvas.rs::draw_timeline_transition_subtree 是该 span 的实际发布点。
         let config = ProfileConfig {
             enabled: true,
             output_format: ProfileOutputFormat::Text,

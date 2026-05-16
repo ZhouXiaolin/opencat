@@ -1,6 +1,5 @@
 //! Path measuring (length + position+tangent at parameterized t) without skia.
 use kurbo::{BezPath, ParamCurve, ParamCurveArclen, PathSeg, Point};
-use std::collections::HashMap;
 
 const ARCLEN_ACCURACY: f64 = 0.25;
 
@@ -154,36 +153,7 @@ fn derivative(seg: &PathSeg, t: f64) -> kurbo::Vec2 {
     }
 }
 
-#[derive(Default)]
-pub struct PathMeasureState {
-    pub next_id: i32,
-    pub entries: HashMap<i32, PathMeasureEntry>,
-}
 
-impl PathMeasureState {
-    pub fn create(&mut self, svg: &str) -> Option<i32> {
-        let entry = PathMeasureEntry::from_svg(svg)?;
-        let handle = self.next_id;
-        self.next_id += 1;
-        self.entries.insert(handle, entry);
-        Some(handle)
-    }
-    pub fn length(&self, handle: i32) -> f32 {
-        self.entries
-            .get(&handle)
-            .map(|e| e.total_length)
-            .unwrap_or(0.0)
-    }
-    pub fn sample(&self, handle: i32, t: f32) -> (f32, f32, f32) {
-        self.entries
-            .get(&handle)
-            .map(|e| e.sample(t))
-            .unwrap_or((0.0, 0.0, 0.0))
-    }
-    pub fn dispose(&mut self, handle: i32) {
-        self.entries.remove(&handle);
-    }
-}
 
 #[cfg(test)]
 mod tests {

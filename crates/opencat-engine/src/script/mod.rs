@@ -12,7 +12,6 @@ use opencat_core::frame_ctx::ScriptFrameCtx;
 use opencat_core::scene::script::ScriptTextSource;
 use opencat_core::scene::script::StyleMutations;
 use opencat_core::scene::script::Runner as CoreRunner;
-use opencat_core::script::animate::{AnimateState, MorphSvgState, PathMeasureState};
 use opencat_core::script::recorder::MutationRecorder;
 use opencat_core::script::recorder::MutationStore as CoreMutationStore;
 
@@ -23,11 +22,6 @@ pub struct ScriptRunner {
     ctx_obj: Persistent<Object<'static>>,
     context: Context,
     store: Arc<Mutex<CoreMutationStore>>,
-    animate_state: Arc<Mutex<AnimateState>>,
-    #[allow(dead_code)]
-    morph_svg_state: Arc<Mutex<MorphSvgState>>,
-    #[allow(dead_code)]
-    path_measure_state: Arc<Mutex<PathMeasureState>>,
     _runtime: Runtime,
 }
 
@@ -62,19 +56,10 @@ impl ScriptRunner {
         let runtime = Runtime::new()?;
         let context = Context::full(&runtime)?;
         let store = Arc::new(Mutex::new(CoreMutationStore::default()));
-        let animate_state = Arc::new(Mutex::new(AnimateState::default()));
-        let morph_svg_state = Arc::new(Mutex::new(MorphSvgState::default()));
-        let path_measure_state = Arc::new(Mutex::new(PathMeasureState::default()));
 
         let (ctx_obj, run_fn) = context.with(|ctx| {
             let globals = ctx.globals();
-            let ctx_obj = install_runtime_bindings(
-                &ctx,
-                &store,
-                &animate_state,
-                &morph_svg_state,
-                &path_measure_state,
-            )?;
+            let ctx_obj = install_runtime_bindings(&ctx, &store)?;
             let wrapped = format!("globalThis.{RUN_FRAME_FN} = function() {{\n{source}\n}};");
             map_js_result(
                 ctx.eval::<(), _>(wrapped.as_str()),
@@ -93,9 +78,6 @@ impl ScriptRunner {
             ctx_obj,
             context,
             store,
-            animate_state,
-            morph_svg_state,
-            path_measure_state,
             _runtime: runtime,
         })
     }
@@ -111,13 +93,6 @@ impl ScriptRunner {
                 .lock()
                 .map_err(|_| anyhow!("script mutation store lock poisoned before execution"))?;
             store.reset_for_frame(frame_ctx.current_frame);
-        }
-        {
-            let mut animate = self
-                .animate_state
-                .lock()
-                .map_err(|_| anyhow!("animate state lock poisoned"))?;
-            *animate = AnimateState::default();
         }
 
         self.context.with(|ctx| {
@@ -162,13 +137,6 @@ impl ScriptRunner {
                 .lock()
                 .map_err(|_| anyhow!("script mutation store lock poisoned before execution"))?;
             store.reset_for_frame(frame_ctx.current_frame);
-        }
-        {
-            let mut animate = self
-                .animate_state
-                .lock()
-                .map_err(|_| anyhow!("animate state lock poisoned"))?;
-            *animate = AnimateState::default();
         }
 
         self.context.with(|ctx| {
@@ -232,9 +200,6 @@ fn map_js_result<T>(
 fn install_runtime_bindings<'js>(
     ctx: &rquickjs::Ctx<'js>,
     store: &Arc<Mutex<CoreMutationStore>>,
-    animate_state: &Arc<Mutex<AnimateState>>,
-    morph_svg_state: &Arc<Mutex<MorphSvgState>>,
-    path_measure_state: &Arc<Mutex<PathMeasureState>>,
 ) -> anyhow::Result<Object<'js>> {
     let globals = ctx.globals();
     let ctx_obj = Object::new(ctx.clone())?;
@@ -247,13 +212,7 @@ fn install_runtime_bindings<'js>(
 
     script_bindings::install_node_style_bindings(ctx, store)?;
     script_bindings::install_canvaskit_bindings(ctx, store)?;
-    bindings::animate_api::install_animate_bindings(
-        ctx,
-        store,
-        animate_state,
-        morph_svg_state,
-        path_measure_state,
-    )?;
+    bindings::animate_api::install_animate_bindings(ctx, store)?;
 
     // Read-only text source query
     {

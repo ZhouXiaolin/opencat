@@ -1,7 +1,6 @@
 //! SVG path morphing — single-contour to single-contour, closed-to-closed or open-to-open.
 
 use kurbo::{BezPath, ParamCurve, ParamCurveArclen, PathEl, PathSeg};
-use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug)]
 struct Point {
@@ -463,30 +462,7 @@ fn fmt_num(v: f32) -> String {
     }
 }
 
-#[derive(Default)]
-pub struct MorphSvgState {
-    pub next_id: i32,
-    pub entries: HashMap<i32, MorphSvgEntry>,
-}
 
-impl MorphSvgState {
-    pub fn create(&mut self, from_svg: &str, to_svg: &str, grid: u32) -> Option<i32> {
-        let entry = MorphSvgEntry::new(from_svg, to_svg, grid)?;
-        let handle = self.next_id;
-        self.next_id += 1;
-        self.entries.insert(handle, entry);
-        Some(handle)
-    }
-    pub fn sample(&self, handle: i32, t: f32, tolerance: f32) -> String {
-        self.entries
-            .get(&handle)
-            .map(|e| e.sample(t, tolerance))
-            .unwrap_or_default()
-    }
-    pub fn dispose(&mut self, handle: i32) {
-        self.entries.remove(&handle);
-    }
-}
 
 #[cfg(test)]
 mod tests {

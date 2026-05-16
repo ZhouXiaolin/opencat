@@ -41,7 +41,6 @@ pub struct ScriptRunner {
     ctx_obj: Persistent<Object<'static>>,
     context: Context,
     store: Arc<Mutex<CoreMutationStore>>,
-    _runtime: Runtime,
 }
 
 
@@ -74,7 +73,6 @@ impl ScriptRunner {
             ctx_obj,
             context,
             store,
-            _runtime: runtime,
         })
     }
 

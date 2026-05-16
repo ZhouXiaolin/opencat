@@ -1,3 +1,6 @@
+#[cfg(feature = "profile")]
+use tracing::{Level, span};
+
 use crate::canvas::{Canvas2D, Rect, RuntimeEffectChild};
 use crate::display::list::DisplayRect;
 use crate::scene::transition::{GlTransition, LightLeakTransition};
@@ -191,15 +194,19 @@ pub(crate) fn render_light_leak_transition<C: Canvas2D>(
         resolution: [mask_w as f32, mask_h as f32],
     };
 
-    let mask_rect = Rect::new(0.0, 0.0, mask_w as f64, mask_h as f64);
-    let mask_image = canvas.render_to_image(mask_w, mask_h, |off| {
-        off.draw_runtime_effect(
-            &mask_effect,
-            as_bytes(&mask_uniforms),
-            &[],
-            &mask_rect,
-        );
-    });
+    let mask_image = {
+        #[cfg(feature = "profile")]
+        let _mask_span = span!(target: "render.backend", Level::TRACE, "light_leak_mask").entered();
+        let mask_rect = Rect::new(0.0, 0.0, mask_w as f64, mask_h as f64);
+        canvas.render_to_image(mask_w, mask_h, |off| {
+            off.draw_runtime_effect(
+                &mask_effect,
+                as_bytes(&mask_uniforms),
+                &[],
+                &mask_rect,
+            );
+        })
+    };
 
     let composite_uniforms = LightLeakCompositeUniforms { progress: normalized };
     let dst = Rect::new(
@@ -222,12 +229,16 @@ pub(crate) fn render_light_leak_transition<C: Canvas2D>(
         RuntimeEffectChild::Texture(&scaled_mask_image),
     ];
 
-    canvas.draw_runtime_effect(
-        &composite_effect,
-        as_bytes(&composite_uniforms),
-        &children,
-        &dst,
-    );
+    {
+        #[cfg(feature = "profile")]
+        let _composite_span = span!(target: "render.backend", Level::TRACE, "light_leak_composite").entered();
+        canvas.draw_runtime_effect(
+            &composite_effect,
+            as_bytes(&composite_uniforms),
+            &children,
+            &dst,
+        );
+    }
 }
 
 // ── GL Transition ──────────────────────────────────────────────────────────

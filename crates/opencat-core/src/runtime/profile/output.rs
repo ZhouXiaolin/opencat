@@ -142,7 +142,7 @@ pub(crate) fn render_profile_json(summary: &RenderProfileSummary) -> anyhow::Res
     Ok(json)
 }
 
-pub(crate) fn print_profile_summary(
+pub fn print_profile_summary(
     summary: &RenderProfileSummary,
     config: &ProfileConfig,
 ) -> anyhow::Result<()> {

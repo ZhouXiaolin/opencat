@@ -1,3 +1,6 @@
+#[cfg(feature = "profile")]
+use tracing::{Level, event};
+
 use cosmic_text::Command;
 
 use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle};
@@ -11,7 +14,7 @@ use crate::text::{
 };
 
 use super::paint_conv::drop_shadow_to_image_filter;
-use super::{RenderCache, RenderCtx, RenderError};
+use super::{record_cache_pressure, RenderCache, RenderCtx, RenderError};
 
 fn kurbo_rect(r: DisplayRect) -> Rect {
     Rect::new(r.x as f64, r.y as f64, (r.x + r.width) as f64, (r.y + r.height) as f64)
@@ -98,12 +101,31 @@ pub fn render_text<C: Canvas2D>(
                     let path = {
                         let mut lru = cache.glyph_paths.borrow_mut();
                         if let Some(cached) = lru.get_cloned(&pos.cache_key) {
+                            #[cfg(feature = "profile")]
+                            event!(
+                                target: "render.cache",
+                                Level::TRACE,
+                                kind = "cache",
+                                name = "glyph_path",
+                                result = "hit",
+                                amount = 1_u64
+                            );
                             cached
                         } else {
                             drop(lru);
                             let (verbs, pts) = commands_to_verbs_points(commands);
                             let p = canvas.make_path_from_verbs(&verbs, &pts, FillType::Winding);
-                            cache.glyph_paths.borrow_mut().insert(pos.cache_key, p.clone());
+                            let report = cache.glyph_paths.borrow_mut().insert(pos.cache_key, p.clone());
+                            record_cache_pressure("glyph_path", &report);
+                            #[cfg(feature = "profile")]
+                            event!(
+                                target: "render.cache",
+                                Level::TRACE,
+                                kind = "cache",
+                                name = "glyph_path",
+                                result = "miss",
+                                amount = 1_u64
+                            );
                             p
                         }
                     };
@@ -122,11 +144,30 @@ pub fn render_text<C: Canvas2D>(
                     let image = {
                         let mut lru = cache.glyph_images.borrow_mut();
                         if let Some(cached) = lru.get_cloned(&pos.cache_key) {
+                            #[cfg(feature = "profile")]
+                            event!(
+                                target: "render.cache",
+                                Level::TRACE,
+                                kind = "cache",
+                                name = "glyph_image",
+                                result = "hit",
+                                amount = 1_u64
+                            );
                             cached
                         } else {
                             drop(lru);
                             let img = canvas.make_image_from_rgba(rgba, *width, *height);
-                            cache.glyph_images.borrow_mut().insert(pos.cache_key, img.clone());
+                            let report = cache.glyph_images.borrow_mut().insert(pos.cache_key, img.clone());
+                            record_cache_pressure("glyph_image", &report);
+                            #[cfg(feature = "profile")]
+                            event!(
+                                target: "render.cache",
+                                Level::TRACE,
+                                kind = "cache",
+                                name = "glyph_image",
+                                result = "miss",
+                                amount = 1_u64
+                            );
                             img
                         }
                     };
@@ -227,16 +268,35 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                         let path = {
                             let mut lru = cache.glyph_paths.borrow_mut();
                             if let Some(cached) = lru.get_cloned(&pos.cache_key) {
+                                #[cfg(feature = "profile")]
+                                event!(
+                                    target: "render.cache",
+                                    Level::TRACE,
+                                    kind = "cache",
+                                    name = "glyph_path",
+                                    result = "hit",
+                                    amount = 1_u64
+                                );
                                 cached
                             } else {
                                 drop(lru);
                                 let (verbs, pts) = commands_to_verbs_points(commands);
                                 let p =
                                     canvas.make_path_from_verbs(&verbs, &pts, FillType::Winding);
-                                cache
+                                let report = cache
                                     .glyph_paths
                                     .borrow_mut()
                                     .insert(pos.cache_key, p.clone());
+                                record_cache_pressure("glyph_path", &report);
+                                #[cfg(feature = "profile")]
+                                event!(
+                                    target: "render.cache",
+                                    Level::TRACE,
+                                    kind = "cache",
+                                    name = "glyph_path",
+                                    result = "miss",
+                                    amount = 1_u64
+                                );
                                 p
                             }
                         };
@@ -274,14 +334,33 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                         let image = {
                             let mut lru = cache.glyph_images.borrow_mut();
                             if let Some(cached) = lru.get_cloned(&pos.cache_key) {
+                                #[cfg(feature = "profile")]
+                                event!(
+                                    target: "render.cache",
+                                    Level::TRACE,
+                                    kind = "cache",
+                                    name = "glyph_image",
+                                    result = "hit",
+                                    amount = 1_u64
+                                );
                                 cached
                             } else {
                                 drop(lru);
                                 let img = canvas.make_image_from_rgba(rgba, *im_w, *im_h);
-                                cache
+                                let report = cache
                                     .glyph_images
                                     .borrow_mut()
                                     .insert(pos.cache_key, img.clone());
+                                record_cache_pressure("glyph_image", &report);
+                                #[cfg(feature = "profile")]
+                                event!(
+                                    target: "render.cache",
+                                    Level::TRACE,
+                                    kind = "cache",
+                                    name = "glyph_image",
+                                    result = "miss",
+                                    amount = 1_u64
+                                );
                                 img
                             }
                         };

@@ -1,33 +1,33 @@
-mod aggregator;
-mod layer;
-mod output;
+pub mod aggregator;
+pub mod layer;
+pub mod output;
 
 use std::collections::BTreeMap;
 
-use opencat_core::layout::LayoutPassStats;
+use crate::layout::LayoutPassStats;
 
-pub(crate) use aggregator::{
+pub use aggregator::{
     CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator, RenderProfileSummary,
 };
-pub(crate) use layer::{ProfileConfig, ProfileOutputFormat, profile_render};
-pub(crate) use output::print_profile_summary;
+pub use layer::{ProfileConfig, ProfileOutputFormat, profile_render};
+pub use output::print_profile_summary;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct BackendSpanKey {
+pub struct BackendSpanKey {
     pub depth: usize,
     pub parent: Option<&'static str>,
     pub name: &'static str,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct BackendSpanAggregate {
+pub struct BackendSpanAggregate {
     pub inclusive_ms: f64,
     pub exclusive_ms: f64,
     pub count: usize,
 }
 
 impl BackendSpanAggregate {
-    pub(crate) fn record(&mut self, inclusive_ms: f64, exclusive_ms: f64) {
+    pub fn record(&mut self, inclusive_ms: f64, exclusive_ms: f64) {
         self.inclusive_ms += inclusive_ms;
         self.exclusive_ms += exclusive_ms;
         self.count += 1;
@@ -47,11 +47,7 @@ pub struct BackendProfile {
     pub subtree_snapshot_cache_hits: usize,
     pub subtree_snapshot_cache_misses: usize,
     pub subtree_snapshot_collision_rejected: usize,
-    /// 诊断：`hit` 中子树后代 composite 跨帧变化（`DisplayNodeInvalidation.composite_dirty`）
-    /// 的子集。期望值接近 0——fingerprint 稳定的反证是 hit 本身。
     pub subtree_snapshot_composite_dirty_hits: usize,
-    /// 诊断：`miss` 中子树后代 composite 跨帧变化的子集——fingerprint 抖动的精准
-    /// 归因。"composite-stable only" 新规则能直接 bypass 这部分避免 cache 污染。
     pub subtree_snapshot_composite_dirty_misses: usize,
     pub subtree_image_cache_hits: usize,
     pub subtree_image_cache_misses: usize,
@@ -99,7 +95,7 @@ pub struct SceneBuildStats {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct FrameProfile {
+pub struct FrameProfile {
     pub script_ms: f64,
     pub frame_state_ms: f64,
     pub resolve_ms: f64,

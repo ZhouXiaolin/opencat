@@ -3,23 +3,19 @@ use std::collections::BTreeMap;
 use super::{BackendSpanKey, FrameProfile};
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct CompletedProfileSpan {
+pub struct CompletedProfileSpan {
     pub frame: u32,
     pub target: &'static str,
     pub name: &'static str,
     pub parent: Option<&'static str>,
     pub inclusive_ms: f64,
     pub exclusive_ms: f64,
-    /// render.backend span tree 内的深度；非 backend span 为 None。
-    /// 0 表示该 backend span 没有 render.backend 祖先（frame / transition 祖先不算）。
     pub backend_depth: Option<usize>,
-    /// 仅对 render.transition::draw_transition span 有意义；其他 span 为 None。
-    /// 取值与 canvas.rs 中 transition_kind 字段一致："slide" | "light_leak" | "gltransition" | "other"。
     pub transition_kind: Option<&'static str>,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ProfileCountEvent {
+pub struct ProfileCountEvent {
     pub frame: u32,
     pub kind: &'static str,
     pub name: &'static str,
@@ -28,13 +24,13 @@ pub(crate) struct ProfileCountEvent {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct RenderProfileSummary {
+pub struct RenderProfileSummary {
     pub frames: BTreeMap<u32, FrameProfile>,
 }
 
 impl RenderProfileSummary {
     #[allow(dead_code)]
-    pub(crate) fn average_light_leak_transition_ms(&self) -> f64 {
+    pub fn average_light_leak_transition_ms(&self) -> f64 {
         let total_count = self
             .frames
             .values()
@@ -52,16 +48,16 @@ impl RenderProfileSummary {
 }
 
 #[derive(Default)]
-pub(crate) struct RenderProfileAggregator {
+pub struct RenderProfileAggregator {
     frames: BTreeMap<u32, FrameProfile>,
 }
 
 impl RenderProfileAggregator {
-    pub(crate) fn frame_mut(&mut self, frame: u32) -> &mut FrameProfile {
+    pub fn frame_mut(&mut self, frame: u32) -> &mut FrameProfile {
         self.frames.entry(frame).or_default()
     }
 
-    pub(crate) fn record_span(&mut self, span: CompletedProfileSpan) {
+    pub fn record_span(&mut self, span: CompletedProfileSpan) {
         match (span.target, span.name) {
             ("render.pipeline", "frame_state") => {
                 self.frame_mut(span.frame).frame_state_ms += span.inclusive_ms;
@@ -110,8 +106,6 @@ impl RenderProfileAggregator {
                 })
                 .or_default()
                 .record(span.inclusive_ms, span.exclusive_ms);
-            // 所有 root backend span（没有 render.backend 祖先）累加进 backend_ms。
-            // 嵌套 backend span 的 inclusive 已经被其 root 覆盖，不重复计入。
             if depth == 0 {
                 frame.backend_ms += span.inclusive_ms;
             }
@@ -139,7 +133,7 @@ impl RenderProfileAggregator {
         }
     }
 
-    pub(crate) fn record_count(&mut self, event: ProfileCountEvent) {
+    pub fn record_count(&mut self, event: ProfileCountEvent) {
         let frame = self.frame_mut(event.frame);
         match (event.kind, event.name, event.result) {
             ("cache", "subtree_snapshot", "hit") => {
@@ -269,7 +263,7 @@ impl RenderProfileAggregator {
         }
     }
 
-    pub(crate) fn finish(self) -> RenderProfileSummary {
+    pub fn finish(self) -> RenderProfileSummary {
         RenderProfileSummary {
             frames: self.frames,
         }

@@ -4,6 +4,9 @@ use std::cell::RefCell;
 
 use anyhow::Result;
 
+#[cfg(feature = "profile")]
+use tracing::{Level, event, span};
+
 use crate::canvas::Canvas2D;
 use crate::display::build::build_display_tree;
 use crate::element::resolve::resolve_ui_tree_with_script_cache;
@@ -44,6 +47,19 @@ pub fn render_frame_inner<C: Canvas2D>(
     video: &mut dyn VideoFrameProvider,
     asset_paths: Option<&AssetPathStore>,
 ) -> Result<()> {
+    #[cfg(feature = "profile")]
+    let _frame_span = span!(
+        target: "render.pipeline",
+        Level::TRACE,
+        "frame",
+        frame = frame_index,
+        width = composition.width as i64,
+        height = composition.height as i64,
+        fps = composition.fps as i64,
+        mode = "scene"
+    )
+    .entered();
+
     let path_bounds = DefaultPathBounds;
 
     let frame_ctx = FrameCtx {
@@ -57,6 +73,8 @@ pub fn render_frame_inner<C: Canvas2D>(
     let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
 
     // 1. element resolve (with script)
+    #[cfg(feature = "profile")]
+    let _resolve_span = span!(target: "render.scene", Level::TRACE, "resolve_ui_tree").entered();
     let root = composition.root_node(&frame_ctx);
     let element_root = resolve_ui_tree_with_script_cache(
         &root,
@@ -67,16 +85,24 @@ pub fn render_frame_inner<C: Canvas2D>(
         script,
         &path_bounds,
     )?;
+    #[cfg(feature = "profile")]
+    drop(_resolve_span);
 
     // 2. layout
+    #[cfg(feature = "profile")]
+    let _layout_span = span!(target: "render.scene", Level::TRACE, "compute_layout").entered();
     let provider = DefaultFontProvider::from_arc(font_db.clone());
     let (layout_tree, layout_pass) = layout_session.compute_layout_with_provider(
         &element_root,
         &frame_ctx,
         &provider,
     )?;
+    #[cfg(feature = "profile")]
+    drop(_layout_span);
 
     // 3. display tree + annotation + fingerprint
+    #[cfg(feature = "profile")]
+    let _display_span = span!(target: "render.scene", Level::TRACE, "build_display_tree").entered();
     let display_tree = build_display_tree(&element_root, &layout_tree)?;
     let mut annotated = annotate_display_tree(&display_tree);
     mark_display_tree_composite_dirty(
@@ -85,6 +111,8 @@ pub fn render_frame_inner<C: Canvas2D>(
         layout_pass.structure_rebuild,
     );
     compute_display_tree_fingerprints(&mut annotated);
+    #[cfg(feature = "profile")]
+    drop(_display_span);
 
     // 4. plan
     let scene_plan = plan_for_scene(&layout_pass, annotated.contains_time_variant());
@@ -92,9 +120,27 @@ pub fn render_frame_inner<C: Canvas2D>(
     // 5/6. snapshot cache decision
     if scene_plan.allows_scene_snapshot_cache {
         if let Some((_, ref snapshot)) = cache.scene_snapshot {
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "scene_snapshot",
+                result = "hit",
+                amount = 1_u64
+            );
             canvas.draw_picture(snapshot, None, None);
             return Ok(());
         }
+        #[cfg(feature = "profile")]
+        event!(
+            target: "render.cache",
+            Level::TRACE,
+            kind = "cache",
+            name = "scene_snapshot",
+            result = "miss",
+            amount = 1_u64
+        );
         let ordered_scene = OrderedSceneProgram::build(&annotated);
         let bounds = crate::canvas::Rect::new(
             0.0, 0.0,

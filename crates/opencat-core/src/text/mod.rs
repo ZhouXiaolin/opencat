@@ -267,6 +267,30 @@ pub fn rasterize_glyphs(
     })
 }
 
+// ── Script text measurement ────────────────────────────────────────────────
+
+/// Measure single-line text width for the script engine canvas API.
+/// Uses cosmic-text with the embedded Noto Sans SC font.
+/// Returns 0.0 for empty strings.
+pub fn measure_script_text_width(text: &str, font_size: f32, scale_x: f32) -> f32 {
+    if text.is_empty() {
+        return 0.0;
+    }
+    let line_height = font_size * 1.2;
+    let metrics = Metrics::new(font_size, line_height);
+    let font_db = default_font_db_with_embedded_only();
+    let mut font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), font_db);
+    let mut buffer = Buffer::new(&mut font_system, metrics);
+    buffer.set_size(&mut font_system, None, None);
+    let attrs = Attrs::new().family(cosmic_text::Family::SansSerif);
+    buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
+    let mut width: f32 = 0.0;
+    for run in buffer.layout_runs() {
+        width = width.max(run.line_w);
+    }
+    (width * scale_x).max(0.0)
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /// Compute a stable u64 key from a cosmic-text CacheKey.

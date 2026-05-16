@@ -1,6 +1,5 @@
 pub mod audio;
 pub mod cache;
-pub mod compositor;
 pub mod frame_view;
 pub mod path_bounds;
 pub mod preflight;

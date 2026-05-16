@@ -17,7 +17,7 @@ use crate::{
     },
 };
 use opencat_core::scene::composition::Composition;
-use crate::backend::skia::canvas2d::SkiaCanvas2D;
+use crate::backend::SkiaCanvas2D;
 
 pub use crate::codec::encode::Mp4Config;
 /// Core generic RenderSession monomorphised for the engine's Skia platform.

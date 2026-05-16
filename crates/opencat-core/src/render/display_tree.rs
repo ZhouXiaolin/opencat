@@ -267,7 +267,7 @@ fn render_live_subtree<C: Canvas2D>(
                 });
 
                 let p = transition.progress.clamp(0.0, 1.0);
-                render_transition_composite(canvas, &from_pic, &to_pic, p, &transition.kind, timeline.bounds);
+                render_transition_composite(canvas, &from_pic, &to_pic, p, &transition.kind, timeline.bounds, cache);
 
                 if node.clip.is_some() {
                     canvas.restore();
@@ -338,6 +338,7 @@ fn render_transition_composite<C: Canvas2D>(
     progress: f32,
     kind: &TransitionKind,
     bounds: DisplayRect,
+    cache: &mut RenderCache<C>,
 ) {
     let rect = kurbo_rect(bounds);
     canvas.draw_picture(from_pic, None, None);
@@ -412,7 +413,12 @@ fn render_transition_composite<C: Canvas2D>(
             canvas.draw_picture(to_pic, None, None);
             canvas.restore();
         }
-        TransitionKind::ClockWipe | TransitionKind::LightLeak(_) | TransitionKind::Gl(_) => {
+        TransitionKind::LightLeak(params) => {
+            super::transition::render_light_leak_transition(
+                canvas, from_pic, to_pic, progress, params, bounds, cache,
+            );
+        }
+        TransitionKind::ClockWipe | TransitionKind::Gl(_) => {
             canvas.save_layer(Some(rect), progress);
             canvas.draw_picture(to_pic, None, None);
             canvas.restore();

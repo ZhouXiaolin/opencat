@@ -10,20 +10,41 @@ use opencat_core::script::text_units::describe_text_units;
 use opencat_core::style::color_token_from_script_string;
 
 use opencat_core::scene::script::mutations::{
-    CanvasCommand, ScriptColor, ScriptFontEdging, TextUnitGranularity,
+    CanvasCommand, TextUnitGranularity,
 };
 use opencat_core::scene::script::object_fit_from_name;
 use opencat_core::scene::script::{
     align_items_from_name, box_shadow_from_name, drop_shadow_from_name, flex_direction_from_name,
     font_edging_from_name, inset_shadow_from_name, justify_content_from_name, line_cap_from_name,
-    line_join_from_name, parse_drrect_coords, parse_image_rect_coords, point_mode_from_name,
-    position_from_name, script_color_from_value, text_align_from_name,
+    line_join_from_name, point_mode_from_name,
+    position_from_name, text_align_from_name,
 };
+use opencat_core::text::measure_script_text_width;
 
 use opencat_core::style::{BorderStyle, FontWeight};
 
 pub(crate) const NODE_STYLE_RUNTIME: &str = opencat_core::script::runtime::NODE_STYLE_RUNTIME;
 pub(crate) const CANVASKIT_RUNTIME: &str = opencat_core::script::runtime::CANVAS_API_RUNTIME;
+
+// ── anyhow → rquickjs conversion ─────────────────────────────────────
+
+trait IntoAnyhow {
+    fn into_anyhow(self) -> anyhow::Result<()>;
+}
+
+impl IntoAnyhow for () {
+    fn into_anyhow(self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+impl IntoAnyhow for anyhow::Result<()> {
+    fn into_anyhow(self) -> anyhow::Result<()> {
+        self
+    }
+}
+
+// ── rquickjs binding installation ────────────────────────────────────
 
 pub(crate) fn install_node_style_bindings<'js>(
     ctx: &rquickjs::Ctx<'js>,
@@ -36,11 +57,14 @@ pub(crate) fn install_node_style_bindings<'js>(
             let s = store.clone();
             globals.set(
                 concat!("__", stringify!($name)),
-                Function::new(ctx.clone(), move |$id_owned: String $(, $param: $param_ty)*| {
+                Function::new(ctx.clone(), move |$id_owned: String $(, $param: $param_ty)*| -> Result<(), rquickjs::Error> {
                     let $id: &str = &$id_owned;
-                    let mut guard = s.lock().unwrap();
+                    let mut guard = s.lock().map_err(|e| rquickjs::Error::new_from_js_message("script", "lock", &e.to_string()))?;
                     let $rec = &mut *guard as &mut dyn MutationRecorder;
-                    $($body)*
+                    // Inner closure: $? resolves against anyhow::Result
+                    (|| -> anyhow::Result<()> {
+                        { $($body)* }.into_anyhow()
+                    })().map_err(|e| rquickjs::Error::new_from_js_message("script", "script", &e.to_string()))
                 })?,
             )?;
         }};
@@ -48,7 +72,7 @@ pub(crate) fn install_node_style_bindings<'js>(
 
     for_each_binding!(rec id install_to_rquickjs);
 
-    // ── Excluded bindings (kept hand-written) ──────────────────────────────
+    // ── Excluded bindings (kept hand-written) ─────────────────────────
 
     // record_text_unit_override: complex object destructuring
     {
@@ -160,14 +184,14 @@ pub(crate) fn install_node_style_bindings<'js>(
     Ok(())
 }
 
-/// Install value-returning canvas bindings that don't fit the for_each_binding! pattern.
+/// Install value-returning canvas bindings.
 pub(crate) fn install_canvaskit_bindings<'js>(
     ctx: &rquickjs::Ctx<'js>,
     _store: &Arc<Mutex<MutationStore>>,
 ) -> anyhow::Result<()> {
     let globals = ctx.globals();
 
-    // canvas_measure_text: returns f32 (text width), not a mutation
+    // canvas_measure_text: uses core's cosmic-text measurement
     globals.set(
         "__canvas_measure_text",
         Function::new(
@@ -175,82 +199,14 @@ pub(crate) fn install_canvaskit_bindings<'js>(
             move |text: String,
                   font_size: f32,
                   font_scale_x: f32,
-                  font_skew_x: f32,
-                  font_subpixel: bool,
-                  font_edging: String| {
-                let font_edging = font_edging_from_name(&font_edging).ok_or_else(|| {
-                    js_error(
-                        "measureText",
-                        format!("unsupported font edging `{font_edging}`"),
-                    )
-                })?;
-                let font = make_script_font(
-                    font_size,
-                    font_scale_x,
-                    font_skew_x,
-                    font_subpixel,
-                    font_edging,
-                );
-                let (width, _) = font.measure_str(text, None);
+                  _font_skew_x: f32,
+                  _font_subpixel: bool,
+                  _font_edging: String| {
+                let width = measure_script_text_width(&text, font_size, font_scale_x);
                 Ok::<_, rquickjs::Error>(width)
             },
         )?,
     )?;
 
     Ok(())
-}
-
-// ── Helper functions used by the macro-generated bindings ──────────────────
-
-fn js_error(op: &'static str, message: String) -> rquickjs::Error {
-    rquickjs::Error::new_from_js_message("canvas", op, message)
-}
-
-fn parse_color(color: &str, op: &'static str) -> Result<ScriptColor, rquickjs::Error> {
-    script_color_from_value(color)
-        .ok_or_else(|| js_error(op, format!("unsupported color `{color}`")))
-}
-
-fn parse_image_rect_error(op: &'static str, coords: &[f32]) -> Result<[f32; 4], rquickjs::Error> {
-    parse_image_rect_coords(coords)
-        .ok_or_else(|| js_error(op, "expected source rect as [x, y, width, height]".to_string()))
-}
-
-fn parse_drrect_error(
-    op: &'static str,
-    coords: &[f32],
-) -> Result<
-    (
-        f32, f32, f32, f32, f32,
-        f32, f32, f32, f32, f32,
-    ),
-    rquickjs::Error,
-> {
-    parse_drrect_coords(coords)
-        .ok_or_else(|| js_error(op, "expected 10 coordinate values".to_string()))
-}
-
-fn make_script_font(
-    font_size: f32,
-    font_scale_x: f32,
-    font_skew_x: f32,
-    font_subpixel: bool,
-    font_edging: ScriptFontEdging,
-) -> skia_safe::Font {
-    let mut font = skia_safe::Font::default();
-    if let Some(typeface) =
-        skia_safe::FontMgr::new().legacy_make_typeface(None, skia_safe::FontStyle::normal())
-    {
-        font.set_typeface(typeface);
-    }
-    font.set_size(font_size.max(1.0));
-    font.set_scale_x(font_scale_x);
-    font.set_skew_x(font_skew_x);
-    font.set_subpixel(font_subpixel);
-    font.set_edging(match font_edging {
-        ScriptFontEdging::Alias => skia_safe::font::Edging::Alias,
-        ScriptFontEdging::AntiAlias => skia_safe::font::Edging::AntiAlias,
-        ScriptFontEdging::SubpixelAntiAlias => skia_safe::font::Edging::SubpixelAntiAlias,
-    });
-    font
 }

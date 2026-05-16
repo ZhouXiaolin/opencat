@@ -11,6 +11,7 @@
 
 pub mod animate;
 pub mod bindings;
+pub mod helpers;
 pub mod recorder;
 pub mod runtime;
 pub mod text_units;

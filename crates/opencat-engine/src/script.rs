@@ -1,5 +1,3 @@
-pub mod bindings;
-
 use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
@@ -7,13 +5,34 @@ use rquickjs::{
     Context, Error as JsError, Exception, FromJs, Function, Object, Persistent, Runtime,
 };
 
-use bindings as script_bindings;
+use opencat_core::for_each_binding;
 use opencat_core::frame_ctx::ScriptFrameCtx;
+use opencat_core::scene::script::mutations::{
+    CanvasCommand, TextUnitGranularity,
+};
+use opencat_core::scene::script::object_fit_from_name;
+use opencat_core::scene::script::{
+    align_items_from_name, box_shadow_from_name, drop_shadow_from_name, flex_direction_from_name,
+    font_edging_from_name, inset_shadow_from_name, justify_content_from_name, line_cap_from_name,
+    line_join_from_name, point_mode_from_name,
+    position_from_name, text_align_from_name,
+};
 use opencat_core::scene::script::ScriptTextSource;
 use opencat_core::scene::script::StyleMutations;
 use opencat_core::scene::script::Runner as CoreRunner;
+use opencat_core::script::animate::state::{parse_easing_from_tag, random_from_seed};
 use opencat_core::script::recorder::MutationRecorder;
 use opencat_core::script::recorder::MutationStore as CoreMutationStore;
+use opencat_core::script::recorder::{MutationStore, TextUnitValues};
+use opencat_core::script::text_units::describe_text_units;
+use opencat_core::script::text_units::grapheme_strings;
+use opencat_core::style::color_token_from_script_string;
+use opencat_core::text::measure_script_text_width;
+use opencat_core::style::{BorderStyle, FontWeight};
+
+const NODE_STYLE_RUNTIME: &str = opencat_core::script::runtime::NODE_STYLE_RUNTIME;
+const CANVASKIT_RUNTIME: &str = opencat_core::script::runtime::CANVAS_API_RUNTIME;
+const ANIMATE_RUNTIME: &str = opencat_core::script::runtime::ANIMATION_RUNTIME;
 
 pub type ScriptRuntimeCache = opencat_core::scene::script::ScriptRuntimeCache<ScriptRunner>;
 
@@ -25,29 +44,6 @@ pub struct ScriptRunner {
     _runtime: Runtime,
 }
 
-pub(crate) fn create_runner(driver: &opencat_core::ScriptDriver) -> anyhow::Result<ScriptRunner> {
-    ScriptRunner::new(&driver.source)
-}
-
-pub fn run_driver(
-    driver: &opencat_core::ScriptDriver,
-    frame: u32,
-    total_frames: u32,
-    current_frame: u32,
-    scene_frames: u32,
-    current_node_id: Option<&str>,
-) -> anyhow::Result<StyleMutations> {
-    let mut runner = create_runner(driver)?;
-    runner.run(
-        ScriptFrameCtx {
-            frame,
-            total_frames,
-            current_frame,
-            scene_frames,
-        },
-        current_node_id,
-    )
-}
 
 const RUN_FRAME_FN: &str = "__opencatRunFrame";
 
@@ -80,49 +76,6 @@ impl ScriptRunner {
             store,
             _runtime: runtime,
         })
-    }
-
-    pub(crate) fn run(
-        &mut self,
-        frame_ctx: ScriptFrameCtx,
-        current_node_id: Option<&str>,
-    ) -> anyhow::Result<StyleMutations> {
-        {
-            let mut store = self
-                .store
-                .lock()
-                .map_err(|_| anyhow!("script mutation store lock poisoned before execution"))?;
-            store.reset_for_frame(frame_ctx.current_frame);
-        }
-
-        self.context.with(|ctx| {
-            let ctx_obj = self.ctx_obj.clone().restore(&ctx)?;
-            ctx_obj.set("frame", frame_ctx.frame)?;
-            ctx_obj.set("totalFrames", frame_ctx.total_frames)?;
-            ctx_obj.set("currentFrame", frame_ctx.current_frame)?;
-            ctx_obj.set("sceneFrames", frame_ctx.scene_frames)?;
-            ctx_obj.set("__currentCanvasTarget", current_node_id.unwrap_or(""))?;
-
-            let run_fn = self.run_fn.clone().restore(&ctx)?;
-            let node_label = current_node_id.unwrap_or("<global>");
-            let error_context = format!(
-                "script execution failed for node `{node_label}` at frame {}/{} (scene {}/{})",
-                frame_ctx.frame,
-                frame_ctx.total_frames,
-                frame_ctx.current_frame,
-                frame_ctx.scene_frames
-            );
-            map_js_result(run_fn.call::<(), ()>(()), &ctx, &error_context)?;
-            let flush_fn: Function<'_> = ctx_obj.get("__flushTimelines")?;
-            map_js_result(flush_fn.call::<(), ()>(()), &ctx, &error_context)?;
-            Ok::<_, anyhow::Error>(())
-        })?;
-
-        let store = self
-            .store
-            .lock()
-            .map_err(|_| anyhow!("script mutation store lock poisoned after execution"))?;
-        Ok(store.snapshot_mutations())
     }
 
     pub(crate) fn run_into(
@@ -197,6 +150,96 @@ fn map_js_result<T>(
     }
 }
 
+// ── anyhow → rquickjs conversion ─────────────────────────────────────
+
+trait IntoAnyhow {
+    fn into_anyhow(self) -> anyhow::Result<()>;
+}
+
+impl IntoAnyhow for () {
+    fn into_anyhow(self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+impl IntoAnyhow for anyhow::Result<()> {
+    fn into_anyhow(self) -> anyhow::Result<()> {
+        self
+    }
+}
+
+// ── rquickjs binding installation ────────────────────────────────────
+
+fn install_node_style_bindings<'js>(
+    ctx: &rquickjs::Ctx<'js>,
+    store: &Arc<Mutex<MutationStore>>,
+) -> anyhow::Result<()> {
+    let globals = ctx.globals();
+
+    macro_rules! install_to_rquickjs {
+        // ── Node commands ($rec: &mut dyn MutationRecorder, $id: &str) ──
+        (node $rec:ident $id:ident $name:ident ($first_param:ident : &str $(, $param:ident : $param_ty:ty)*) $($body:tt)*) => {{
+            let s = store.clone();
+            globals.set(
+                concat!("__", stringify!($name)),
+                Function::new(ctx.clone(), move |$first_param: String $(, $param: $param_ty)*| -> Result<(), rquickjs::Error> {
+                    let mut guard = s.lock().map_err(|e| rquickjs::Error::new_from_js_message("script", "lock", &e.to_string()))?;
+                    let $rec = &mut *guard as &mut dyn MutationRecorder;
+                    let $id: &str = &$first_param;
+                    (|| -> anyhow::Result<()> {
+                        { $($body)* }.into_anyhow()
+                    })().map_err(|e| rquickjs::Error::new_from_js_message("script", "script", &e.to_string()))
+                })?,
+            )?;
+        }};
+
+        // ── Store commands ($store: &mut MutationStore) ──
+        (cmd $store:ident $name:ident ($($param:ident : $param_ty:ty),*) -> $ret:ty $body:block) => {{
+            let s = store.clone();
+            globals.set(
+                concat!("__", stringify!($name)),
+                Function::new(ctx.clone(), move |$($param: $param_ty),*| -> Result<$ret, rquickjs::Error> {
+                    let mut guard = s.lock().map_err(|e| rquickjs::Error::new_from_js_message("script", "lock", &e.to_string()))?;
+                    let $store = &mut *guard;
+                    (|| -> anyhow::Result<$ret> { $body })()
+                        .map_err(|e| rquickjs::Error::new_from_js_message("script", "script", &e.to_string()))
+                })?,
+            )?;
+        }};
+
+        // ── Store queries ($store: &MutationStore) ──
+        (qry $store:ident $name:ident ($($param:ident : $param_ty:ty),*) -> $ret:ty $body:block) => {{
+            let s = store.clone();
+            globals.set(
+                concat!("__", stringify!($name)),
+                Function::new(ctx.clone(), move |$($param: $param_ty),*| -> Result<$ret, rquickjs::Error> {
+                    let guard = s.lock().map_err(|e| rquickjs::Error::new_from_js_message("script", "lock", &e.to_string()))?;
+                    let $store = &*guard;
+                    (|| -> anyhow::Result<$ret> { $body })()
+                        .map_err(|e| rquickjs::Error::new_from_js_message("script", "script", &e.to_string()))
+                })?,
+            )?;
+        }};
+
+        // ── Pure functions (no store) ──
+        (pure $name:ident ($($param:ident : $param_ty:ty),*) -> $ret:ty $body:block) => {{
+            globals.set(
+                concat!("__", stringify!($name)),
+                Function::new(ctx.clone(), move |$($param: $param_ty),*| -> Result<$ret, rquickjs::Error> {
+                    (|| -> anyhow::Result<$ret> { $body })()
+                        .map_err(|e| rquickjs::Error::new_from_js_message("script", "script", &e.to_string()))
+                })?,
+            )?;
+        }};
+    }
+
+    for_each_binding!(rec id store install_to_rquickjs);
+
+    Ok(())
+}
+
+// ── Runtime binding installation ─────────────────────────────────────
+
 fn install_runtime_bindings<'js>(
     ctx: &rquickjs::Ctx<'js>,
     store: &Arc<Mutex<CoreMutationStore>>,
@@ -210,31 +253,11 @@ fn install_runtime_bindings<'js>(
     ctx_obj.set("__currentCanvasTarget", "")?;
     globals.set("ctx", ctx_obj.clone())?;
 
-    script_bindings::install_node_style_bindings(ctx, store)?;
-    script_bindings::install_canvaskit_bindings(ctx, store)?;
-    bindings::animate_api::install_animate_bindings(ctx, store)?;
+    install_node_style_bindings(ctx, store)?;
 
-    // Read-only text source query
-    {
-        let s = store.clone();
-        globals.set(
-            "__text_source_get",
-            Function::new(ctx.clone(), move |id: String| {
-                let guard = s.lock().map_err(|_| {
-                    rquickjs::Error::new_from_js_message(
-                        "mutex",
-                        "mutex",
-                        "text source lock poisoned",
-                    )
-                })?;
-                Ok::<_, rquickjs::Error>(guard.get_text_source(&id).map(|s| s.text.clone()))
-            })?,
-        )?;
-    }
-
-    ctx.eval::<(), _>(script_bindings::NODE_STYLE_RUNTIME)?;
-    ctx.eval::<(), _>(script_bindings::CANVASKIT_RUNTIME)?;
-    ctx.eval::<(), _>(bindings::animate_api::ANIMATE_RUNTIME)?;
+    ctx.eval::<(), _>(NODE_STYLE_RUNTIME)?;
+    ctx.eval::<(), _>(CANVASKIT_RUNTIME)?;
+    ctx.eval::<(), _>(ANIMATE_RUNTIME)?;
 
     Ok(ctx_obj)
 }

@@ -1,82 +1,75 @@
-//! Unified JS binding definitions shared between engine and future consumers.
+//! Unified JS binding definitions — all script bindings in one place.
 //!
-//! The `for_each_binding!` macro enumerates every script binding (node-style
-//! mutations + canvas commands) so that consumers can generate their own
-//! installation code without duplicating the binding list.
+//! Four categories: `node`, `cmd`, `qry`, `pure`.
+//! `node` entries have `$rec` and `$id`; `cmd`/`qry` entries have `$store`.
 //!
 //! Usage:
 //! ```ignore
-//! for_each_binding!($rec $id $apply);
-//! ```
-//! Where `$rec` and `$id` are identifiers for the recorder and node-id variables
-//! that will be in scope in the body expressions, and `$apply` is the consumer
-//! macro name.  Each invocation has the form:
-//! ```ignore
-//! $apply! { $rec $id name ($id: &str, param: Type, ...) body }
+//! for_each_binding!($rec $id $store $binding);
 //! ```
 
 #[macro_export]
 macro_rules! for_each_binding {
-    ($rec:ident $id:ident $apply:ident) => {
+    ($rec:ident $id:ident $store:ident $binding:ident) => {
         // ── 58 node-style entries ──────────────────────────────────────────
 
-        $apply! { $rec $id record_opacity ($id: &str, v: f32) $rec . record_opacity($id, v) }
-        $apply! { $rec $id record_translate_x ($id: &str, v: f32) $rec . record_translate_x($id, v) }
-        $apply! { $rec $id record_translate_y ($id: &str, v: f32) $rec . record_translate_y($id, v) }
-        $apply! { $rec $id record_translate ($id: &str, x: f32, y: f32) $rec . record_translate($id, x, y) }
-        $apply! { $rec $id record_scale ($id: &str, v: f32) $rec . record_scale($id, v) }
-        $apply! { $rec $id record_scale_x ($id: &str, v: f32) $rec . record_scale_x($id, v) }
-        $apply! { $rec $id record_scale_y ($id: &str, v: f32) $rec . record_scale_y($id, v) }
-        $apply! { $rec $id record_rotate ($id: &str, v: f32) $rec . record_rotate($id, v) }
-        $apply! { $rec $id record_skew_x ($id: &str, v: f32) $rec . record_skew_x($id, v) }
-        $apply! { $rec $id record_skew_y ($id: &str, v: f32) $rec . record_skew_y($id, v) }
-        $apply! { $rec $id record_skew ($id: &str, x_deg: f32, y_deg: f32) $rec . record_skew($id, x_deg, y_deg) }
-        $apply! { $rec $id record_position ($id: &str, v: String) {
+        $binding! { node $rec $id record_opacity ($id: &str, v: f32) $rec . record_opacity($id, v) }
+        $binding! { node $rec $id record_translate_x ($id: &str, v: f32) $rec . record_translate_x($id, v) }
+        $binding! { node $rec $id record_translate_y ($id: &str, v: f32) $rec . record_translate_y($id, v) }
+        $binding! { node $rec $id record_translate ($id: &str, x: f32, y: f32) $rec . record_translate($id, x, y) }
+        $binding! { node $rec $id record_scale ($id: &str, v: f32) $rec . record_scale($id, v) }
+        $binding! { node $rec $id record_scale_x ($id: &str, v: f32) $rec . record_scale_x($id, v) }
+        $binding! { node $rec $id record_scale_y ($id: &str, v: f32) $rec . record_scale_y($id, v) }
+        $binding! { node $rec $id record_rotate ($id: &str, v: f32) $rec . record_rotate($id, v) }
+        $binding! { node $rec $id record_skew_x ($id: &str, v: f32) $rec . record_skew_x($id, v) }
+        $binding! { node $rec $id record_skew_y ($id: &str, v: f32) $rec . record_skew_y($id, v) }
+        $binding! { node $rec $id record_skew ($id: &str, x_deg: f32, y_deg: f32) $rec . record_skew($id, x_deg, y_deg) }
+        $binding! { node $rec $id record_position ($id: &str, v: String) {
             if let Some(pos) = position_from_name(&v) {
                 $rec . record_position($id, pos);
             }
         }}
-        $apply! { $rec $id record_left ($id: &str, v: f32) $rec . record_left($id, v) }
-        $apply! { $rec $id record_top ($id: &str, v: f32) $rec . record_top($id, v) }
-        $apply! { $rec $id record_right ($id: &str, v: f32) $rec . record_right($id, v) }
-        $apply! { $rec $id record_bottom ($id: &str, v: f32) $rec . record_bottom($id, v) }
-        $apply! { $rec $id record_width ($id: &str, v: f32) $rec . record_width($id, v) }
-        $apply! { $rec $id record_height ($id: &str, v: f32) $rec . record_height($id, v) }
-        $apply! { $rec $id record_padding ($id: &str, v: f32) $rec . record_padding($id, v) }
-        $apply! { $rec $id record_padding_x ($id: &str, v: f32) $rec . record_padding_x($id, v) }
-        $apply! { $rec $id record_padding_y ($id: &str, v: f32) $rec . record_padding_y($id, v) }
-        $apply! { $rec $id record_margin ($id: &str, v: f32) $rec . record_margin($id, v) }
-        $apply! { $rec $id record_margin_x ($id: &str, v: f32) $rec . record_margin_x($id, v) }
-        $apply! { $rec $id record_margin_y ($id: &str, v: f32) $rec . record_margin_y($id, v) }
-        $apply! { $rec $id record_flex_direction ($id: &str, v: String) {
+        $binding! { node $rec $id record_left ($id: &str, v: f32) $rec . record_left($id, v) }
+        $binding! { node $rec $id record_top ($id: &str, v: f32) $rec . record_top($id, v) }
+        $binding! { node $rec $id record_right ($id: &str, v: f32) $rec . record_right($id, v) }
+        $binding! { node $rec $id record_bottom ($id: &str, v: f32) $rec . record_bottom($id, v) }
+        $binding! { node $rec $id record_width ($id: &str, v: f32) $rec . record_width($id, v) }
+        $binding! { node $rec $id record_height ($id: &str, v: f32) $rec . record_height($id, v) }
+        $binding! { node $rec $id record_padding ($id: &str, v: f32) $rec . record_padding($id, v) }
+        $binding! { node $rec $id record_padding_x ($id: &str, v: f32) $rec . record_padding_x($id, v) }
+        $binding! { node $rec $id record_padding_y ($id: &str, v: f32) $rec . record_padding_y($id, v) }
+        $binding! { node $rec $id record_margin ($id: &str, v: f32) $rec . record_margin($id, v) }
+        $binding! { node $rec $id record_margin_x ($id: &str, v: f32) $rec . record_margin_x($id, v) }
+        $binding! { node $rec $id record_margin_y ($id: &str, v: f32) $rec . record_margin_y($id, v) }
+        $binding! { node $rec $id record_flex_direction ($id: &str, v: String) {
             if let Some(fd) = flex_direction_from_name(&v) {
                 $rec . record_flex_direction($id, fd);
             }
         }}
-        $apply! { $rec $id record_justify_content ($id: &str, v: String) {
+        $binding! { node $rec $id record_justify_content ($id: &str, v: String) {
             if let Some(jc) = justify_content_from_name(&v) {
                 $rec . record_justify_content($id, jc);
             }
         }}
-        $apply! { $rec $id record_align_items ($id: &str, v: String) {
+        $binding! { node $rec $id record_align_items ($id: &str, v: String) {
             if let Some(ai) = align_items_from_name(&v) {
                 $rec . record_align_items($id, ai);
             }
         }}
-        $apply! { $rec $id record_gap ($id: &str, v: f32) $rec . record_gap($id, v) }
-        $apply! { $rec $id record_flex_grow ($id: &str, v: f32) $rec . record_flex_grow($id, v) }
-        $apply! { $rec $id record_bg ($id: &str, v: String) {
+        $binding! { node $rec $id record_gap ($id: &str, v: f32) $rec . record_gap($id, v) }
+        $binding! { node $rec $id record_flex_grow ($id: &str, v: f32) $rec . record_flex_grow($id, v) }
+        $binding! { node $rec $id record_bg ($id: &str, v: String) {
             if let Some(c) = color_token_from_script_string(&v) {
                 $rec . record_bg_color($id, c);
             }
         }}
-        $apply! { $rec $id record_border_radius ($id: &str, v: f32) $rec . record_border_radius($id, v) }
-        $apply! { $rec $id record_border_width ($id: &str, v: f32) $rec . record_border_width($id, v) }
-        $apply! { $rec $id record_border_top_width ($id: &str, v: f32) $rec . record_border_top_width($id, v) }
-        $apply! { $rec $id record_border_right_width ($id: &str, v: f32) $rec . record_border_right_width($id, v) }
-        $apply! { $rec $id record_border_bottom_width ($id: &str, v: f32) $rec . record_border_bottom_width($id, v) }
-        $apply! { $rec $id record_border_left_width ($id: &str, v: f32) $rec . record_border_left_width($id, v) }
-        $apply! { $rec $id record_border_style ($id: &str, v: String) {
+        $binding! { node $rec $id record_border_radius ($id: &str, v: f32) $rec . record_border_radius($id, v) }
+        $binding! { node $rec $id record_border_width ($id: &str, v: f32) $rec . record_border_width($id, v) }
+        $binding! { node $rec $id record_border_top_width ($id: &str, v: f32) $rec . record_border_top_width($id, v) }
+        $binding! { node $rec $id record_border_right_width ($id: &str, v: f32) $rec . record_border_right_width($id, v) }
+        $binding! { node $rec $id record_border_bottom_width ($id: &str, v: f32) $rec . record_border_bottom_width($id, v) }
+        $binding! { node $rec $id record_border_left_width ($id: &str, v: f32) $rec . record_border_left_width($id, v) }
+        $binding! { node $rec $id record_border_style ($id: &str, v: String) {
             let parsed = match v.as_str() {
                 "solid" => Some(BorderStyle::Solid),
                 "dashed" => Some(BorderStyle::Dashed),
@@ -87,171 +80,171 @@ macro_rules! for_each_binding {
                 $rec . record_border_style($id, bs);
             }
         }}
-        $apply! { $rec $id record_border_color ($id: &str, v: String) {
+        $binding! { node $rec $id record_border_color ($id: &str, v: String) {
             if let Some(c) = color_token_from_script_string(&v) {
                 $rec . record_border_color($id, c);
             }
         }}
-        $apply! { $rec $id record_stroke_width ($id: &str, v: f32) $rec . record_stroke_width($id, v) }
-        $apply! { $rec $id record_stroke_dasharray ($id: &str, v: f32) $rec . record_stroke_dasharray($id, v) }
-        $apply! { $rec $id record_stroke_dashoffset ($id: &str, v: f32) $rec . record_stroke_dashoffset($id, v) }
-        $apply! { $rec $id record_stroke_color ($id: &str, v: String) {
+        $binding! { node $rec $id record_stroke_width ($id: &str, v: f32) $rec . record_stroke_width($id, v) }
+        $binding! { node $rec $id record_stroke_dasharray ($id: &str, v: f32) $rec . record_stroke_dasharray($id, v) }
+        $binding! { node $rec $id record_stroke_dashoffset ($id: &str, v: f32) $rec . record_stroke_dashoffset($id, v) }
+        $binding! { node $rec $id record_stroke_color ($id: &str, v: String) {
             if let Some(c) = color_token_from_script_string(&v) {
                 $rec . record_stroke_color($id, c);
             }
         }}
-        $apply! { $rec $id record_fill_color ($id: &str, v: String) {
+        $binding! { node $rec $id record_fill_color ($id: &str, v: String) {
             if let Some(c) = color_token_from_script_string(&v) {
                 $rec . record_fill_color($id, c);
             }
         }}
-        $apply! { $rec $id record_object_fit ($id: &str, v: String) {
+        $binding! { node $rec $id record_object_fit ($id: &str, v: String) {
             if let Some(of) = object_fit_from_name(&v) {
                 $rec . record_object_fit($id, of);
             }
         }}
-        $apply! { $rec $id record_text_color ($id: &str, v: String) {
+        $binding! { node $rec $id record_text_color ($id: &str, v: String) {
             if let Some(c) = color_token_from_script_string(&v) {
                 $rec . record_text_color($id, c);
             }
         }}
-        $apply! { $rec $id record_text_size ($id: &str, v: f32) $rec . record_text_size($id, v) }
-        $apply! { $rec $id record_font_weight ($id: &str, v: f64) {
+        $binding! { node $rec $id record_text_size ($id: &str, v: f32) $rec . record_text_size($id, v) }
+        $binding! { node $rec $id record_font_weight ($id: &str, v: f64) {
             $rec . record_font_weight($id, FontWeight(v as u16));
         }}
-        $apply! { $rec $id record_letter_spacing ($id: &str, v: f32) $rec . record_letter_spacing($id, v) }
-        $apply! { $rec $id record_text_align ($id: &str, v: String) {
+        $binding! { node $rec $id record_letter_spacing ($id: &str, v: f32) $rec . record_letter_spacing($id, v) }
+        $binding! { node $rec $id record_text_align ($id: &str, v: String) {
             if let Some(align) = text_align_from_name(&v) {
                 $rec . record_text_align($id, align);
             }
         }}
-        $apply! { $rec $id record_line_height ($id: &str, v: f32) $rec . record_line_height($id, v) }
-        $apply! { $rec $id record_shadow ($id: &str, v: String) {
+        $binding! { node $rec $id record_line_height ($id: &str, v: f32) $rec . record_line_height($id, v) }
+        $binding! { node $rec $id record_shadow ($id: &str, v: String) {
             if let Some(sh) = box_shadow_from_name(&v) {
                 $rec . record_box_shadow($id, sh);
             }
         }}
-        $apply! { $rec $id record_shadow_color ($id: &str, v: String) {
+        $binding! { node $rec $id record_shadow_color ($id: &str, v: String) {
             if let Some(color) = color_token_from_script_string(&v) {
                 $rec . record_box_shadow_color($id, color);
             }
         }}
-        $apply! { $rec $id record_inset_shadow ($id: &str, v: String) {
+        $binding! { node $rec $id record_inset_shadow ($id: &str, v: String) {
             if let Some(sh) = inset_shadow_from_name(&v) {
                 $rec . record_inset_shadow($id, sh);
             }
         }}
-        $apply! { $rec $id record_inset_shadow_color ($id: &str, v: String) {
+        $binding! { node $rec $id record_inset_shadow_color ($id: &str, v: String) {
             if let Some(color) = color_token_from_script_string(&v) {
                 $rec . record_inset_shadow_color($id, color);
             }
         }}
-        $apply! { $rec $id record_drop_shadow ($id: &str, v: String) {
+        $binding! { node $rec $id record_drop_shadow ($id: &str, v: String) {
             if let Some(sh) = drop_shadow_from_name(&v) {
                 $rec . record_drop_shadow($id, sh);
             }
         }}
-        $apply! { $rec $id record_drop_shadow_color ($id: &str, v: String) {
+        $binding! { node $rec $id record_drop_shadow_color ($id: &str, v: String) {
             if let Some(color) = color_token_from_script_string(&v) {
                 $rec . record_drop_shadow_color($id, color);
             }
         }}
-        $apply! { $rec $id record_text_content ($id: &str, v: String) $rec . record_text_content($id, v) }
-        $apply! { $rec $id record_svg_path ($id: &str, v: String) $rec . record_svg_path($id, v) }
+        $binding! { node $rec $id record_text_content ($id: &str, v: String) $rec . record_text_content($id, v) }
+        $binding! { node $rec $id record_svg_path ($id: &str, v: String) $rec . record_svg_path($id, v) }
 
         // ── 53 canvas entries ──────────────────────────────────────────────
 
-        $apply! { $rec $id canvas_save ($id: &str) {
+        $binding! { node $rec $id canvas_save ($id: &str) {
             $rec . record_canvas_command($id, CanvasCommand::Save);
         }}
-        $apply! { $rec $id canvas_restore ($id: &str) {
+        $binding! { node $rec $id canvas_restore ($id: &str) {
             $rec . record_canvas_command($id, CanvasCommand::Restore);
         }}
-        $apply! { $rec $id canvas_restore_to_count ($id: &str, count: i32) {
+        $binding! { node $rec $id canvas_restore_to_count ($id: &str, count: i32) {
             $rec . record_canvas_command($id, CanvasCommand::RestoreToCount { count: count.max(1) });
         }}
-        $apply! { $rec $id canvas_translate ($id: &str, x: f32, y: f32) {
+        $binding! { node $rec $id canvas_translate ($id: &str, x: f32, y: f32) {
             $rec . record_canvas_command($id, CanvasCommand::Translate { x, y });
         }}
-        $apply! { $rec $id canvas_scale ($id: &str, x: f32, y: f32) {
+        $binding! { node $rec $id canvas_scale ($id: &str, x: f32, y: f32) {
             $rec . record_canvas_command($id, CanvasCommand::Scale { x, y });
         }}
-        $apply! { $rec $id canvas_rotate ($id: &str, degrees: f32) {
+        $binding! { node $rec $id canvas_rotate ($id: &str, degrees: f32) {
             $rec . record_canvas_command($id, CanvasCommand::Rotate { degrees });
         }}
-        $apply! { $rec $id canvas_clip_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, anti_alias: bool) {
+        $binding! { node $rec $id canvas_clip_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, anti_alias: bool) {
             $rec . record_canvas_command($id, CanvasCommand::ClipRect { x, y, width, height, anti_alias });
         }}
-        $apply! { $rec $id canvas_draw_line ($id: &str, x0: f32, y0: f32, x1: f32, y1: f32) {
+        $binding! { node $rec $id canvas_draw_line ($id: &str, x0: f32, y0: f32, x1: f32, y1: f32) {
             $rec . record_canvas_command($id, CanvasCommand::DrawLine { x0, y0, x1, y1 });
         }}
-        $apply! { $rec $id canvas_fill_circle ($id: &str, cx: f32, cy: f32, radius: f32) {
+        $binding! { node $rec $id canvas_fill_circle ($id: &str, cx: f32, cy: f32, radius: f32) {
             $rec . record_canvas_command($id, CanvasCommand::FillCircle { cx, cy, radius });
         }}
-        $apply! { $rec $id canvas_stroke_circle ($id: &str, cx: f32, cy: f32, radius: f32) {
+        $binding! { node $rec $id canvas_stroke_circle ($id: &str, cx: f32, cy: f32, radius: f32) {
             $rec . record_canvas_command($id, CanvasCommand::StrokeCircle { cx, cy, radius });
         }}
-        $apply! { $rec $id canvas_fill_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32) {
+        $binding! { node $rec $id canvas_fill_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32) {
             $rec . record_canvas_command($id, CanvasCommand::FillRRect { x, y, width, height, radius });
         }}
-        $apply! { $rec $id canvas_stroke_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32) {
+        $binding! { node $rec $id canvas_stroke_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32) {
             $rec . record_canvas_command($id, CanvasCommand::StrokeRRect { x, y, width, height, radius });
         }}
-        $apply! { $rec $id canvas_begin_path ($id: &str) {
+        $binding! { node $rec $id canvas_begin_path ($id: &str) {
             $rec . record_canvas_command($id, CanvasCommand::BeginPath);
         }}
-        $apply! { $rec $id canvas_move_to ($id: &str, x: f32, y: f32) {
+        $binding! { node $rec $id canvas_move_to ($id: &str, x: f32, y: f32) {
             $rec . record_canvas_command($id, CanvasCommand::MoveTo { x, y });
         }}
-        $apply! { $rec $id canvas_line_to ($id: &str, x: f32, y: f32) {
+        $binding! { node $rec $id canvas_line_to ($id: &str, x: f32, y: f32) {
             $rec . record_canvas_command($id, CanvasCommand::LineTo { x, y });
         }}
-        $apply! { $rec $id canvas_quad_to ($id: &str, cx: f32, cy: f32, x: f32, y: f32) {
+        $binding! { node $rec $id canvas_quad_to ($id: &str, cx: f32, cy: f32, x: f32, y: f32) {
             $rec . record_canvas_command($id, CanvasCommand::QuadTo { cx, cy, x, y });
         }}
-        $apply! { $rec $id canvas_cubic_to ($id: &str, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32) {
+        $binding! { node $rec $id canvas_cubic_to ($id: &str, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32) {
             $rec . record_canvas_command($id, CanvasCommand::CubicTo { c1x, c1y, c2x, c2y, x, y });
         }}
-        $apply! { $rec $id canvas_close_path ($id: &str) {
+        $binding! { node $rec $id canvas_close_path ($id: &str) {
             $rec . record_canvas_command($id, CanvasCommand::ClosePath);
         }}
-        $apply! { $rec $id canvas_path_add_rect ($id: &str, x: f32, y: f32, width: f32, height: f32) {
+        $binding! { node $rec $id canvas_path_add_rect ($id: &str, x: f32, y: f32, width: f32, height: f32) {
             $rec . record_canvas_command($id, CanvasCommand::AddRectPath { x, y, width, height });
         }}
-        $apply! { $rec $id canvas_path_add_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32) {
+        $binding! { node $rec $id canvas_path_add_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32) {
             $rec . record_canvas_command($id, CanvasCommand::AddRRectPath { x, y, width, height, radius });
         }}
-        $apply! { $rec $id canvas_path_add_oval ($id: &str, x: f32, y: f32, width: f32, height: f32) {
+        $binding! { node $rec $id canvas_path_add_oval ($id: &str, x: f32, y: f32, width: f32, height: f32) {
             $rec . record_canvas_command($id, CanvasCommand::AddOvalPath { x, y, width, height });
         }}
-        $apply! { $rec $id canvas_path_add_arc ($id: &str, x: f32, y: f32, width: f32, height: f32, start_angle: f32, sweep_angle: f32) {
+        $binding! { node $rec $id canvas_path_add_arc ($id: &str, x: f32, y: f32, width: f32, height: f32, start_angle: f32, sweep_angle: f32) {
             $rec . record_canvas_command($id, CanvasCommand::AddArcPath { x, y, width, height, start_angle, sweep_angle });
         }}
-        $apply! { $rec $id canvas_fill_path ($id: &str) {
+        $binding! { node $rec $id canvas_fill_path ($id: &str) {
             $rec . record_canvas_command($id, CanvasCommand::FillPath);
         }}
-        $apply! { $rec $id canvas_stroke_path ($id: &str) {
+        $binding! { node $rec $id canvas_stroke_path ($id: &str) {
             $rec . record_canvas_command($id, CanvasCommand::StrokePath);
         }}
-        $apply! { $rec $id canvas_stroke_arc ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32, start_angle: f32, sweep_angle: f32) {
+        $binding! { node $rec $id canvas_stroke_arc ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32, start_angle: f32, sweep_angle: f32) {
             $rec . record_canvas_command($id, CanvasCommand::StrokeArc { cx, cy, rx, ry, start_angle, sweep_angle });
         }}
-        $apply! { $rec $id canvas_fill_oval ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32) {
+        $binding! { node $rec $id canvas_fill_oval ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32) {
             $rec . record_canvas_command($id, CanvasCommand::FillOval { cx, cy, rx, ry });
         }}
-        $apply! { $rec $id canvas_stroke_oval ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32) {
+        $binding! { node $rec $id canvas_stroke_oval ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32) {
             $rec . record_canvas_command($id, CanvasCommand::StrokeOval { cx, cy, rx, ry });
         }}
-        $apply! { $rec $id canvas_clip_path ($id: &str, anti_alias: bool) {
+        $binding! { node $rec $id canvas_clip_path ($id: &str, anti_alias: bool) {
             $rec . record_canvas_command($id, CanvasCommand::ClipPath { anti_alias });
         }}
-        $apply! { $rec $id canvas_clip_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32, anti_alias: bool) {
+        $binding! { node $rec $id canvas_clip_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32, anti_alias: bool) {
             $rec . record_canvas_command($id, CanvasCommand::ClipRRect { x, y, width, height, radius, anti_alias });
         }}
-        $apply! { $rec $id canvas_skew ($id: &str, sx: f32, sy: f32) {
+        $binding! { node $rec $id canvas_skew ($id: &str, sx: f32, sy: f32) {
             $rec . record_canvas_command($id, CanvasCommand::Skew { sx, sy });
         }}
-        $apply! { $rec $id canvas_draw_image_simple ($id: &str, asset_id: String, x: f32, y: f32, alpha: f32, anti_alias: bool) {
+        $binding! { node $rec $id canvas_draw_image_simple ($id: &str, asset_id: String, x: f32, y: f32, alpha: f32, anti_alias: bool) {
             $rec . record_canvas_command($id, CanvasCommand::DrawImageSimple {
                 asset_id,
                 x,
@@ -260,7 +253,7 @@ macro_rules! for_each_binding {
                 anti_alias,
             });
         }}
-        $apply! { $rec $id canvas_save_layer ($id: &str, alpha: f32, bounds: Option<Vec<f32>>) {
+        $binding! { node $rec $id canvas_save_layer ($id: &str, alpha: f32, bounds: Option<Vec<f32>>) {
             let bounds = match bounds {
                 Some(b) => Some($crate::script::helpers::parse_image_rect("saveLayer", &b)?),
                 None => None,
@@ -271,44 +264,44 @@ macro_rules! for_each_binding {
             });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_set_fill_style ($id: &str, color: String) {
+        $binding! { node $rec $id canvas_set_fill_style ($id: &str, color: String) {
             let color = $crate::script::helpers::parse_color(&color, "setFillStyle")?;
             $rec . record_canvas_command($id, CanvasCommand::SetFillStyle { color });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_set_stroke_style ($id: &str, color: String) {
+        $binding! { node $rec $id canvas_set_stroke_style ($id: &str, color: String) {
             let color = $crate::script::helpers::parse_color(&color, "setStrokeStyle")?;
             $rec . record_canvas_command($id, CanvasCommand::SetStrokeStyle { color });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_set_line_width ($id: &str, width: f32) {
+        $binding! { node $rec $id canvas_set_line_width ($id: &str, width: f32) {
             $rec . record_canvas_command($id, CanvasCommand::SetLineWidth { width: width.max(0.0) });
         }}
-        $apply! { $rec $id canvas_set_line_cap ($id: &str, cap: String) {
+        $binding! { node $rec $id canvas_set_line_cap ($id: &str, cap: String) {
             let cap = line_cap_from_name(&cap)
                 .ok_or_else(|| $crate::script::helpers::script_error("setLineCap", format!("unsupported line cap `{cap}`")))?;
             $rec . record_canvas_command($id, CanvasCommand::SetLineCap { cap });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_set_line_join ($id: &str, join: String) {
+        $binding! { node $rec $id canvas_set_line_join ($id: &str, join: String) {
             let join = line_join_from_name(&join)
                 .ok_or_else(|| $crate::script::helpers::script_error("setLineJoin", format!("unsupported line join `{join}`")))?;
             $rec . record_canvas_command($id, CanvasCommand::SetLineJoin { join });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_set_line_dash ($id: &str, intervals: Vec<f32>, phase: f32) {
+        $binding! { node $rec $id canvas_set_line_dash ($id: &str, intervals: Vec<f32>, phase: f32) {
             $rec . record_canvas_command($id, CanvasCommand::SetLineDash { intervals, phase });
         }}
-        $apply! { $rec $id canvas_clear_line_dash ($id: &str) {
+        $binding! { node $rec $id canvas_clear_line_dash ($id: &str) {
             $rec . record_canvas_command($id, CanvasCommand::ClearLineDash);
         }}
-        $apply! { $rec $id canvas_set_global_alpha ($id: &str, alpha: f32) {
+        $binding! { node $rec $id canvas_set_global_alpha ($id: &str, alpha: f32) {
             $rec . record_canvas_command($id, CanvasCommand::SetGlobalAlpha { alpha: alpha.clamp(0.0, 1.0) });
         }}
-        $apply! { $rec $id canvas_set_anti_alias ($id: &str, enabled: bool) {
+        $binding! { node $rec $id canvas_set_anti_alias ($id: &str, enabled: bool) {
             $rec . record_canvas_command($id, CanvasCommand::SetAntiAlias { enabled });
         }}
-        $apply! { $rec $id canvas_clear ($id: &str, color: Option<String>) {
+        $binding! { node $rec $id canvas_clear ($id: &str, color: Option<String>) {
             let color = match color {
                 Some(c) => Some($crate::script::helpers::parse_color(&c, "clear")?),
                 None => None,
@@ -316,12 +309,12 @@ macro_rules! for_each_binding {
             $rec . record_canvas_command($id, CanvasCommand::Clear { color });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_draw_paint ($id: &str, color: String, anti_alias: bool) {
+        $binding! { node $rec $id canvas_draw_paint ($id: &str, color: String, anti_alias: bool) {
             let color = $crate::script::helpers::parse_color(&color, "drawPaint")?;
             $rec . record_canvas_command($id, CanvasCommand::DrawPaint { color, anti_alias });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_draw_text ($id: &str, text: String, values: Vec<f32>, color: String, flags: Vec<bool>, font_edging: String) {
+        $binding! { node $rec $id canvas_draw_text ($id: &str, text: String, values: Vec<f32>, color: String, flags: Vec<bool>, font_edging: String) {
             if values.len() < 6 {
                 Err($crate::script::helpers::script_error("drawText", "expected text values [x, y, fontSize, scaleX, skewX, strokeWidth]".to_string()))
             } else if flags.len() < 3 {
@@ -347,12 +340,12 @@ macro_rules! for_each_binding {
                 Ok::<_, anyhow::Error>(())
             }
         }}
-        $apply! { $rec $id canvas_fill_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, color: String) {
+        $binding! { node $rec $id canvas_fill_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, color: String) {
             let color = $crate::script::helpers::parse_color(&color, "fillRect")?;
             $rec . record_canvas_command($id, CanvasCommand::FillRect { x, y, width, height, color });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_stroke_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, color: String, stroke_width: f32) {
+        $binding! { node $rec $id canvas_stroke_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, color: String, stroke_width: f32) {
             let color = $crate::script::helpers::parse_color(&color, "strokeRect")?;
             $rec . record_canvas_command($id, CanvasCommand::StrokeRect {
                 x,
@@ -364,7 +357,7 @@ macro_rules! for_each_binding {
             });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_draw_image ($id: &str, asset_id: String, values: Vec<f32>, fit: String, alpha: f32, anti_alias: bool) {
+        $binding! { node $rec $id canvas_draw_image ($id: &str, asset_id: String, values: Vec<f32>, fit: String, alpha: f32, anti_alias: bool) {
             let object_fit = object_fit_from_name(&fit)
                 .ok_or_else(|| $crate::script::helpers::script_error("drawImage", format!("unsupported objectFit `{fit}`")))?;
             let src_rect = if values.len() < 4 {
@@ -389,25 +382,25 @@ macro_rules! for_each_binding {
             });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_draw_arc ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32, start_angle: f32, sweep_angle: f32) {
+        $binding! { node $rec $id canvas_draw_arc ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32, start_angle: f32, sweep_angle: f32) {
             $rec . record_canvas_command($id, CanvasCommand::DrawArc {
                 cx, cy, rx, ry, start_angle, sweep_angle, use_center: false,
             });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_draw_arc_to_center ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32, start_angle: f32, sweep_angle: f32) {
+        $binding! { node $rec $id canvas_draw_arc_to_center ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32, start_angle: f32, sweep_angle: f32) {
             $rec . record_canvas_command($id, CanvasCommand::DrawArc {
                 cx, cy, rx, ry, start_angle, sweep_angle, use_center: true,
             });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_draw_points ($id: &str, mode: String, points: Vec<f32>) {
+        $binding! { node $rec $id canvas_draw_points ($id: &str, mode: String, points: Vec<f32>) {
             let mode = point_mode_from_name(&mode)
                 .ok_or_else(|| $crate::script::helpers::script_error("drawPoints", format!("unsupported point mode `{mode}`")))?;
             $rec . record_canvas_command($id, CanvasCommand::DrawPoints { mode, points });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_fill_drrect ($id: &str, coords: Vec<f32>) {
+        $binding! { node $rec $id canvas_fill_drrect ($id: &str, coords: Vec<f32>) {
             let (outer_x, outer_y, outer_width, outer_height, outer_radius,
                  inner_x, inner_y, inner_width, inner_height, inner_radius) =
                 $crate::script::helpers::parse_drrect("fillDRRect", &coords)?;
@@ -417,7 +410,7 @@ macro_rules! for_each_binding {
             });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_stroke_drrect ($id: &str, coords: Vec<f32>) {
+        $binding! { node $rec $id canvas_stroke_drrect ($id: &str, coords: Vec<f32>) {
             let (outer_x, outer_y, outer_width, outer_height, outer_radius,
                  inner_x, inner_y, inner_width, inner_height, inner_radius) =
                 $crate::script::helpers::parse_drrect("strokeDRRect", &coords)?;
@@ -427,7 +420,7 @@ macro_rules! for_each_binding {
             });
             Ok::<_, anyhow::Error>(())
         }}
-        $apply! { $rec $id canvas_concat ($id: &str, values: Vec<f32>) {
+        $binding! { node $rec $id canvas_concat ($id: &str, values: Vec<f32>) {
             if values.len() < 9 {
                 Err($crate::script::helpers::script_error("concat", "expected 9 matrix values".to_string()))
             } else {
@@ -439,6 +432,131 @@ macro_rules! for_each_binding {
                 $rec . record_canvas_command($id, CanvasCommand::Concat { matrix });
                 Ok::<_, anyhow::Error>(())
             }
+        }}
+
+        // ── Special node: complex object destructuring ────────────────────
+        $binding! { node $rec $id record_text_unit_override ($id: &str, granularity: String, index: u32, values: rquickjs::Object<'js>) {
+            let index = index as usize;
+            let gran = match granularity.as_str() {
+                "graphemes" => TextUnitGranularity::Grapheme,
+                "words" => TextUnitGranularity::Word,
+                _ => return Err(anyhow::anyhow!("unsupported granularity")),
+            };
+            let opacity: Option<f64> = values.get("opacity").ok().flatten();
+            let translate_x: Option<f64> = values.get("translateX").ok().flatten();
+            let translate_y: Option<f64> = values.get("translateY").ok().flatten();
+            let scale: Option<f64> = values.get("scale").ok().flatten();
+            let rotation_deg: Option<f64> = values.get("rotation").ok().flatten();
+            let color: Option<String> = values
+                .get("textColor")
+                .ok()
+                .flatten()
+                .or_else(|| values.get("color").ok().flatten());
+            $rec.record_text_unit_override(
+                $id,
+                gran,
+                index,
+                TextUnitValues {
+                    opacity: opacity.map(|v| v as f32),
+                    translate_x: translate_x.map(|v| v as f32),
+                    translate_y: translate_y.map(|v| v as f32),
+                    scale: scale.map(|v| v as f32),
+                    rotation_deg: rotation_deg.map(|v| v as f32),
+                    color: color.and_then(|value| color_token_from_script_string(&value)),
+                },
+            );
+        }}
+
+        // ── Store commands ($store: &mut MutationStore) ───────────────────
+        $binding! { cmd $store animate_create (duration: f32, delay: f32, clamp_flag: i32, easing_tag: String, repeat: i32, yoyo_flag: i32, repeat_delay: f32) -> i32 {
+            let clamp = clamp_flag != 0;
+            let yoyo = yoyo_flag != 0;
+            let cf = $store.current_frame();
+            Ok($store.animate_create(cf, duration, delay, clamp, &easing_tag, repeat, yoyo, repeat_delay))
+        }}
+        $binding! { cmd $store morph_svg_create (from_svg: String, to_svg: String, grid_size: f32) -> i32 {
+            Ok($store.morph_svg_create(&from_svg, &to_svg, grid_size as u32).unwrap_or(-1))
+        }}
+        $binding! { cmd $store morph_svg_dispose (handle: i32) -> () {
+            $store.morph_svg_dispose(handle);
+            Ok(())
+        }}
+        $binding! { cmd $store along_path_create (svg: String) -> i32 {
+            $store.along_path_create(&svg).ok_or_else(|| anyhow::anyhow!("invalid SVG path"))
+        }}
+        $binding! { cmd $store along_path_dispose (handle: i32) -> () {
+            $store.along_path_dispose(handle);
+            Ok(())
+        }}
+
+        // ── Store queries ($store: &MutationStore) ───────────────────────
+        $binding! { qry $store animate_value (handle: i32, _key: String, from: f32, to: f32) -> f32 {
+            let cf = $store.current_frame();
+            Ok($store.animate_value(cf, handle, from, to))
+        }}
+        $binding! { qry $store animate_color (handle: i32, _key: String, from: String, to: String) -> String {
+            Ok($store.animate_color(handle, &from, &to))
+        }}
+        $binding! { qry $store animate_progress (handle: i32) -> f32 {
+            Ok($store.animate_progress(handle))
+        }}
+        $binding! { qry $store animate_settled (handle: i32) -> bool {
+            Ok($store.animate_settled(handle))
+        }}
+        $binding! { qry $store animate_settle_frame (handle: i32) -> u32 {
+            Ok($store.animate_settle_frame(handle))
+        }}
+        $binding! { qry $store morph_svg_sample (handle: i32, t: f32, tolerance: f32) -> String {
+            Ok($store.morph_svg_sample(handle, t, tolerance))
+        }}
+        $binding! { qry $store along_path_length (handle: i32) -> f32 {
+            Ok($store.along_path_length(handle))
+        }}
+        $binding! { qry $store along_path_at (handle: i32, t: f32) -> Vec<f32> {
+            let (x, y, angle) = $store.along_path_at(handle, t);
+            Ok(vec![x, y, angle])
+        }}
+        $binding! { qry $store text_units_describe (_ctx: rquickjs::Ctx<'js>, id: String, granularity_str: String) -> rquickjs::Array<'js> {
+            let text = $store.get_text_source(&id).map(|src| src.text.clone())
+                .ok_or_else(|| anyhow::anyhow!("no text source found for node"))?;
+            let granularity = match granularity_str.as_str() {
+                "graphemes" => TextUnitGranularity::Grapheme,
+                "words" => TextUnitGranularity::Word,
+                _ => return Err(anyhow::anyhow!("unknown granularity; expected 'graphemes' or 'words'")),
+            };
+            let units = describe_text_units(&text, granularity);
+            let result = rquickjs::Array::new(_ctx.clone())?;
+            for (i, unit) in units.iter().enumerate() {
+                let entry = rquickjs::Array::new(_ctx.clone())?;
+                entry.set(0, unit.index as f64)?;
+                entry.set(1, unit.text.clone())?;
+                entry.set(2, unit.start as f64)?;
+                entry.set(3, unit.end as f64)?;
+                result.set(i, entry)?;
+            }
+            Ok(result)
+        }}
+        $binding! { qry $store text_source_get (id: String) -> Option<String> {
+            Ok($store.get_text_source(&id).map(|s| s.text.clone()))
+        }}
+
+        // ── Pure functions (no store) ────────────────────────────────────
+        $binding! { pure canvas_measure_text (text: String, font_size: f32, font_scale_x: f32, _font_skew_x: f32, _font_subpixel: bool, _font_edging: String) -> f32 {
+            Ok(measure_script_text_width(&text, font_size, font_scale_x))
+        }}
+        $binding! { pure util_random_seeded (seed: f32) -> f32 {
+            Ok(random_from_seed(seed))
+        }}
+        $binding! { pure text_graphemes (_ctx: rquickjs::Ctx<'js>, text: String) -> rquickjs::Array<'js> {
+            let result = rquickjs::Array::new(_ctx)?;
+            for (index, grapheme) in grapheme_strings(&text).into_iter().enumerate() {
+                result.set(index, grapheme)?;
+            }
+            Ok(result)
+        }}
+        $binding! { pure easing_apply (tag: String, t: f32) -> f32 {
+            let easing = parse_easing_from_tag(&tag);
+            Ok(easing.apply(t))
         }}
     };
 }

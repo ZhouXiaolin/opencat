@@ -200,16 +200,6 @@ pub(crate) fn install_canvaskit_bindings<'js>(
     Ok(())
 }
 
-#[allow(dead_code)]
-pub(crate) fn install_bindings<'js>(
-    _ctx: &rquickjs::Ctx<'js>,
-    _globals: &rquickjs::Object<'js>,
-    _store: &Arc<Mutex<MutationStore>>,
-) -> anyhow::Result<()> {
-    // Alternative entry point kept for future consumers.
-    Ok(())
-}
-
 // ── Helper functions used by the macro-generated bindings ──────────────────
 
 fn js_error(op: &'static str, message: String) -> rquickjs::Error {

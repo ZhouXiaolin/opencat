@@ -296,7 +296,6 @@ where
             .unwrap_or(0);
         shared.aggregator.record_count(ProfileCountEvent {
             frame,
-            target: metadata.target(),
             kind,
             name,
             result,

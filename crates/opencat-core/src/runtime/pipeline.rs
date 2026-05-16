@@ -92,17 +92,13 @@ pub fn render_frame_inner<C: Canvas2D>(
     #[cfg(feature = "profile")]
     drop(_resolve_span);
 
-    // 2. layout
-    #[cfg(feature = "profile")]
-    let _layout_span = span!(target: "render.scene", Level::TRACE, "compute_layout").entered();
+    // 2. layout (sub-spans emitted inside compute_layout_with_font_db)
     let provider = DefaultFontProvider::from_arc(font_db.clone());
     let (layout_tree, layout_pass) = layout_session.compute_layout_with_provider(
         &element_root,
         &frame_ctx,
         &provider,
     )?;
-    #[cfg(feature = "profile")]
-    drop(_layout_span);
 
     #[cfg(feature = "profile")]
     {

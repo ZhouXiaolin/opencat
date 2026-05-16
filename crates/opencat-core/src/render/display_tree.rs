@@ -140,6 +140,15 @@ fn render_cached_subtree<C: Canvas2D>(
                     result = "hit",
                     amount = 1_u64
                 );
+                #[cfg(feature = "profile")]
+                event!(
+                    target: "render.cache",
+                    Level::TRACE,
+                    kind = "consecutive",
+                    name = "subtree_snapshot",
+                    result = "count",
+                    amount = snapshot.consecutive_hits as u64
+                );
                 canvas.draw_picture(&snapshot.picture, None, None);
                 let updated = CachedSubtreeSnapshot {
                     consecutive_hits: snapshot.consecutive_hits + 1,

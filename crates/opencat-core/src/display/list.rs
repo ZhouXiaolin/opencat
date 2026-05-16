@@ -85,6 +85,7 @@ pub struct DisplayGlyphLine {
 #[serde(rename_all = "camelCase")]
 pub struct DisplayGlyphPosition {
     pub cache_key: u64,
+    pub outline_key: u64,
     pub x: f32,
     pub y: f32,
     pub byte_start: usize,

@@ -20,36 +20,36 @@ fn kurbo_rect(r: DisplayRect) -> Rect {
     Rect::new(r.x as f64, r.y as f64, (r.x + r.width) as f64, (r.y + r.height) as f64)
 }
 
-fn commands_to_verbs_points(commands: &[Command]) -> (Vec<u8>, Vec<f32>) {
+fn commands_to_verbs_points(commands: &[Command], scale: f32) -> (Vec<u8>, Vec<f32>) {
     let mut verbs = Vec::with_capacity(commands.len());
     let mut points = Vec::new();
     for cmd in commands {
         match cmd {
             Command::MoveTo(p) => {
                 verbs.push(0);
-                points.push(p.x);
-                points.push(-p.y);
+                points.push(p.x * scale);
+                points.push(-p.y * scale);
             }
             Command::LineTo(p) => {
                 verbs.push(1);
-                points.push(p.x);
-                points.push(-p.y);
+                points.push(p.x * scale);
+                points.push(-p.y * scale);
             }
             Command::QuadTo(c, p) => {
                 verbs.push(2);
-                points.push(c.x);
-                points.push(-c.y);
-                points.push(p.x);
-                points.push(-p.y);
+                points.push(c.x * scale);
+                points.push(-c.y * scale);
+                points.push(p.x * scale);
+                points.push(-p.y * scale);
             }
             Command::CurveTo(c1, c2, p) => {
                 verbs.push(3);
-                points.push(c1.x);
-                points.push(-c1.y);
-                points.push(c2.x);
-                points.push(-c2.y);
-                points.push(p.x);
-                points.push(-p.y);
+                points.push(c1.x * scale);
+                points.push(-c1.y * scale);
+                points.push(c2.x * scale);
+                points.push(-c2.y * scale);
+                points.push(p.x * scale);
+                points.push(-p.y * scale);
             }
             Command::Close => {
                 verbs.push(4);
@@ -97,10 +97,12 @@ pub fn render_text<C: Canvas2D>(
             let abs_y = item.bounds.y + pos.y;
 
             match glyph_data {
-                GlyphData::Outline(commands) => {
+                GlyphData::Outline(commands, upem) => {
+                    let draw_scale = item.style.text_px / *upem;
+                    let unscale = *upem / item.style.text_px;
                     let path = {
                         let mut lru = cache.glyph_paths.borrow_mut();
-                        if let Some(cached) = lru.get_cloned(&pos.cache_key) {
+                        if let Some(cached) = lru.get_cloned(&pos.outline_key) {
                             #[cfg(feature = "profile")]
                             event!(
                                 target: "render.cache",
@@ -113,10 +115,10 @@ pub fn render_text<C: Canvas2D>(
                             cached
                         } else {
                             drop(lru);
-                            let (verbs, pts) = commands_to_verbs_points(commands);
+                            let (verbs, pts) = commands_to_verbs_points(commands, unscale);
                             let weight = verbs.len() + pts.len();
                             let p = canvas.make_path_from_verbs(&verbs, &pts, FillType::Winding);
-                            let report = cache.glyph_paths.borrow_mut().insert_with_weight(pos.cache_key, p.clone(), weight.max(1));
+                            let report = cache.glyph_paths.borrow_mut().insert_with_weight(pos.outline_key, p.clone(), weight.max(1));
                             record_cache_pressure("glyph_path", &report);
                             #[cfg(feature = "profile")]
                             event!(
@@ -132,6 +134,9 @@ pub fn render_text<C: Canvas2D>(
                     };
                     canvas.save();
                     canvas.translate(abs_x, abs_y);
+                    if (draw_scale - 1.0).abs() > f32::EPSILON {
+                        canvas.scale(draw_scale, draw_scale);
+                    }
                     canvas.draw_path(&path, &paint);
                     canvas.restore();
                 }
@@ -244,6 +249,7 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
             kind: GlyphEntryKind<P, I>,
             abs_x: f32,
             abs_y: f32,
+            scale: f32,
         }
         enum GlyphEntryKind<P, I> {
             Path(P),
@@ -266,10 +272,12 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                 let abs_y = item.bounds.y + pos.y;
 
                 match glyph_data {
-                    GlyphData::Outline(commands) => {
+                    GlyphData::Outline(commands, upem) => {
+                        let draw_scale = item.style.text_px / *upem;
+                        let unscale = *upem / item.style.text_px;
                         let path = {
                             let mut lru = cache.glyph_paths.borrow_mut();
-                            if let Some(cached) = lru.get_cloned(&pos.cache_key) {
+                            if let Some(cached) = lru.get_cloned(&pos.outline_key) {
                                 #[cfg(feature = "profile")]
                                 event!(
                                     target: "render.cache",
@@ -282,14 +290,14 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                                 cached
                             } else {
                                 drop(lru);
-                                let (verbs, pts) = commands_to_verbs_points(commands);
+                                let (verbs, pts) = commands_to_verbs_points(commands, unscale);
                                 let weight = verbs.len() + pts.len();
                                 let p =
                                     canvas.make_path_from_verbs(&verbs, &pts, FillType::Winding);
                                 let report = cache
                                     .glyph_paths
                                     .borrow_mut()
-                                    .insert_with_weight(pos.cache_key, p.clone(), weight.max(1));
+                                    .insert_with_weight(pos.outline_key, p.clone(), weight.max(1));
                                 record_cache_pressure("glyph_path", &report);
                                 #[cfg(feature = "profile")]
                                 event!(
@@ -303,19 +311,20 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                                 p
                             }
                         };
-                        let (bx, by, bw, bh) = outline_bounds(commands);
-                        let gx = abs_x + bx;
-                        let gy = abs_y + by;
+                        let (bx, by, bw, bh) = outline_bounds(commands, unscale);
+                        let gx = abs_x + bx * draw_scale;
+                        let gy = abs_y + by * draw_scale;
                         if bw > 0.0 && bh > 0.0 {
                             min_x = min_x.min(gx);
                             min_y = min_y.min(gy);
-                            max_x = max_x.max(gx + bw);
-                            max_y = max_y.max(gy + bh);
+                            max_x = max_x.max(gx + bw * draw_scale);
+                            max_y = max_y.max(gy + bh * draw_scale);
                         }
                         entries.push(GlyphEntry {
                             kind: GlyphEntryKind::Path(path),
                             abs_x,
                             abs_y,
+                            scale: draw_scale,
                         });
                     }
                     GlyphData::ColorImage {
@@ -375,6 +384,7 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                             },
                             abs_x,
                             abs_y,
+                            scale: 1.0,
                         });
                     }
                 }
@@ -395,6 +405,9 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                     GlyphEntryKind::Path(path) => {
                         offscreen.save();
                         offscreen.translate(entry.abs_x, entry.abs_y);
+                        if (entry.scale - 1.0).abs() > f32::EPSILON {
+                            offscreen.scale(entry.scale, entry.scale);
+                        }
                         offscreen.draw_path(path, &unit_paint);
                         offscreen.restore();
                     }
@@ -443,7 +456,7 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
     Ok(())
 }
 
-fn outline_bounds(commands: &[Command]) -> (f32, f32, f32, f32) {
+fn outline_bounds(commands: &[Command], scale: f32) -> (f32, f32, f32, f32) {
     let mut min_x = f32::INFINITY;
     let mut min_y = f32::INFINITY;
     let mut max_x = f32::NEG_INFINITY;
@@ -456,15 +469,15 @@ fn outline_bounds(commands: &[Command]) -> (f32, f32, f32, f32) {
     };
     for cmd in commands {
         match cmd {
-            Command::MoveTo(p) | Command::LineTo(p) => track(p.x, -p.y),
+            Command::MoveTo(p) | Command::LineTo(p) => track(p.x * scale, -p.y * scale),
             Command::QuadTo(c, p) => {
-                track(c.x, -c.y);
-                track(p.x, -p.y);
+                track(c.x * scale, -c.y * scale);
+                track(p.x * scale, -p.y * scale);
             }
             Command::CurveTo(c1, c2, p) => {
-                track(c1.x, -c1.y);
-                track(c2.x, -c2.y);
-                track(p.x, -p.y);
+                track(c1.x * scale, -c1.y * scale);
+                track(c2.x * scale, -c2.y * scale);
+                track(p.x * scale, -p.y * scale);
             }
             Command::Close => {}
         }

@@ -21,8 +21,6 @@ pub(crate) struct CompletedProfileSpan {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ProfileCountEvent {
     pub frame: u32,
-    #[allow(dead_code)]
-    pub target: &'static str,
     pub kind: &'static str,
     pub name: &'static str,
     pub result: &'static str,
@@ -384,7 +382,6 @@ mod tests {
 
         aggregator.record_count(ProfileCountEvent {
             frame: 3,
-            target: "render.cache",
             kind: "cache",
             name: "subtree_snapshot",
             result: "hit",
@@ -392,7 +389,6 @@ mod tests {
         });
         aggregator.record_count(ProfileCountEvent {
             frame: 3,
-            target: "render.draw",
             kind: "draw",
             name: "rect",
             result: "count",
@@ -400,7 +396,6 @@ mod tests {
         });
         aggregator.record_count(ProfileCountEvent {
             frame: 3,
-            target: "render.cache",
             kind: "cache",
             name: "image",
             result: "miss",
@@ -408,7 +403,6 @@ mod tests {
         });
         aggregator.record_count(ProfileCountEvent {
             frame: 3,
-            target: "render.cache",
             kind: "eviction",
             name: "glyph_path",
             result: "count",

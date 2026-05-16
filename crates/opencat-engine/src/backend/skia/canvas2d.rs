@@ -862,6 +862,16 @@ fn build_runtime_effect_child(child: &RuntimeEffectChild<SkiaCanvas2D>) -> Optio
             skia_safe::SamplingOptions::default(),
             None,
         ),
+        RuntimeEffectChild::Picture(pic) => {
+            let cull = pic.cull_rect();
+            let local_matrix = skia_safe::Matrix::translate((cull.left(), cull.top()));
+            Some(pic.to_shader(
+                None,
+                skia_safe::FilterMode::Linear,
+                Some(&local_matrix),
+                None,
+            ))
+        }
         RuntimeEffectChild::Shader(spec) => build_skia_shader(spec),
     }
 }

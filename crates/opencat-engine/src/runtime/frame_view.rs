@@ -2,26 +2,17 @@ use std::ffi::c_void;
 
 use anyhow::{Result, anyhow};
 
-use crate::runtime::target::RenderFrameViewKind;
-
 #[derive(Clone, Copy)]
 pub(crate) struct RenderFrameView {
-    #[allow(dead_code)]
-    kind: RenderFrameViewKind,
     raw: *mut c_void,
 }
 
 impl RenderFrameView {
-    pub(crate) fn new(kind: RenderFrameViewKind, raw: *mut c_void) -> Result<Self> {
+    pub(crate) fn new(raw: *mut c_void) -> Result<Self> {
         if raw.is_null() {
             return Err(anyhow!("render frame view resolver returned null view"));
         }
-        Ok(Self { kind, raw })
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn kind(self) -> RenderFrameViewKind {
-        self.kind
+        Ok(Self { raw })
     }
 
     pub(crate) fn raw(self) -> *mut c_void {

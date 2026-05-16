@@ -14,7 +14,7 @@ use rquickjs::{
 use bindings as script_bindings;
 use opencat_core::frame_ctx::ScriptFrameCtx;
 use opencat_core::scene::script::ScriptTextSource;
-use opencat_core::scene::script::{ScriptDriver, ScriptDriverId, ScriptHost, StyleMutations};
+use opencat_core::scene::script::{ScriptDriverId, ScriptHost, StyleMutations};
 use opencat_core::script::animate::{AnimateState, MorphSvgState, PathMeasureState};
 use opencat_core::script::recorder::MutationRecorder;
 use opencat_core::script::recorder::MutationStore as CoreMutationStore;
@@ -34,25 +34,6 @@ impl ScriptRuntimeCache {
         self.text_sources.insert(id.to_string(), source);
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn run_by_id(
-        &mut self,
-        id: ScriptDriverId,
-        frame_ctx: ScriptFrameCtx,
-        current_node_id: Option<&str>,
-    ) -> anyhow::Result<StyleMutations> {
-        let runner = self
-            .runners
-            .get_mut(&id.0)
-            .ok_or_else(|| anyhow!("script driver {} not installed", id.0))?;
-        if let Ok(mut store) = runner.store.lock() {
-            store.clear_text_sources();
-            for (id, source) in &self.text_sources {
-                store.register_text_source(id, source.clone());
-            }
-        }
-        runner.run(frame_ctx, current_node_id)
-    }
 }
 
 pub(crate) struct ScriptRunner {
@@ -93,33 +74,6 @@ pub fn run_driver(
 }
 
 const RUN_FRAME_FN: &str = "__opencatRunFrame";
-
-impl ScriptRuntimeCache {
-    #[allow(dead_code)]
-    pub(crate) fn run(
-        &mut self,
-        driver: &ScriptDriver,
-        frame_ctx: ScriptFrameCtx,
-        current_node_id: Option<&str>,
-    ) -> anyhow::Result<StyleMutations> {
-        let key = driver.cache_key();
-        let runner = match self.runners.entry(key) {
-            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(create_runner(driver)?)
-            }
-        };
-
-        if let Ok(mut store) = runner.store.lock() {
-            store.clear_text_sources();
-            for (id, source) in &self.text_sources {
-                store.register_text_source(id, source.clone());
-            }
-        }
-
-        runner.run(frame_ctx, current_node_id)
-    }
-}
 
 impl ScriptRunner {
     fn new(source: &str) -> anyhow::Result<Self> {

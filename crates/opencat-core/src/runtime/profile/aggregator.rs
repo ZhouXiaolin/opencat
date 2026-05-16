@@ -79,6 +79,14 @@ impl RenderProfileAggregator {
                 self.frame_mut(span.frame).display_ms += span.inclusive_ms;
                 return;
             }
+            ("render.scene", "layout_structure_update") => {
+                self.frame_mut(span.frame).layout_ms += span.inclusive_ms;
+                return;
+            }
+            ("render.scene", "layout_resolve") => {
+                self.frame_mut(span.frame).layout_ms += span.inclusive_ms;
+                return;
+            }
             ("render.transition", "draw_transition") => {
                 let frame_state = self.frame_mut(span.frame);
                 frame_state.transition_ms += span.inclusive_ms;
@@ -277,6 +285,9 @@ impl RenderProfileAggregator {
             }
             ("layout", "structure_rebuild", "count") => {
                 frame.structure_rebuilds += event.amount;
+            }
+            ("consecutive", "subtree_snapshot", "count") => {
+                frame.backend.subtree_snapshot_consecutive_hits_total += event.amount;
             }
             _ => {}
         }

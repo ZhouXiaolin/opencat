@@ -1,9 +1,64 @@
-//! Unified JS binding definitions — all script bindings in one place.
+//! ── All JS bindings in one place ─────────────────────────────────────
 //!
-//! Four categories: `node`, `cmd`, `qry`, `pure`.
-//! `node` entries have `$rec` and `$id`; `cmd`/`qry` entries have `$store`.
+//! Every JS → Rust binding used by the script engine is defined here.
+//! To add a new binding, write ONE entry below in the right section.
+//! The engine side (`install_to_rquickjs`) handles the rest automatically.
 //!
-//! Usage:
+//! ── Four categories ──────────────────────────────────────────────────
+//!
+//! | category | body injection         | typical use                          |
+//! |----------|------------------------|--------------------------------------|
+//! | `node`   | `$rec`, `$id`          | set a style property on a node       |
+//! | `cmd`    | `$store: &mut ...`     | mutate store state (animate/morph)   |
+//! | `qry`    | `$store: &...`         | read store state, return a value     |
+//! | `pure`   | —                      | no store, pure computation           |
+//!
+//! ── Body rules ───────────────────────────────────────────────────────
+//!
+//! **node**  — body evaluates to `()` (use `.into_anyhow()` internally).
+//!             Use `return Err(anyhow::anyhow!(...))` for early errors.
+//!
+//! **cmd/qry/pure** — body must evaluate to `anyhow::Result<T>`.
+//!             Infallible: `Ok(value)`
+//!             Fallible:  `expr.ok_or_else(|| anyhow::anyhow!(...))`
+//!
+//! **All** — `$crate::` resolves to `opencat_core`.
+//!           Inside the body, `?` works for `anyhow::Error` conversions.
+//!
+//! ── How to add a new binding ─────────────────────────────────────────
+//!
+//! 1. Find the right section below (node / cmd / qry / pure)
+//! 2. Copy an existing line and fill in the name, params, and body
+//! 3. Make sure the engine's `bindings/mod.rs` imports any types/fns used
+//!
+//! Examples:
+//! ```ignore
+//! // node — simplest form (no braces, single expression)
+//! $binding! { node $rec $id record_foo ($id: &str, v: f32) $rec . record_foo($id, v) }
+//!
+//! // node — with logic (braces, multi-statement)
+//! $binding! { node $rec $id record_foo ($id: &str, v: String) {
+//!     let parsed = parse_foo(&v);
+//!     $rec . record_foo($id, parsed);
+//! }}
+//!
+//! // cmd — returns a value
+//! $binding! { cmd $store do_something (x: f32) -> i32 {
+//!     Ok($store.do_something(x))
+//! }}
+//!
+//! // qry — read-only, returns a value
+//! $binding! { qry $store get_something (handle: i32) -> f32 {
+//!     Ok($store.get_something(handle))
+//! }}
+//!
+//! // pure — no store at all
+//! $binding! { pure compute_value (input: f32) -> f32 {
+//!     Ok(input * 2.0)
+//! }}
+//! ```
+//!
+//! Usage in engine:
 //! ```ignore
 //! for_each_binding!($rec $id $store $binding);
 //! ```
@@ -11,7 +66,7 @@
 #[macro_export]
 macro_rules! for_each_binding {
     ($rec:ident $id:ident $store:ident $binding:ident) => {
-        // ── 58 node-style entries ──────────────────────────────────────────
+        // ── Node: style mutations (111 entries) ────────────────────────────
 
         $binding! { node $rec $id record_opacity ($id: &str, v: f32) $rec . record_opacity($id, v) }
         $binding! { node $rec $id record_translate_x ($id: &str, v: f32) $rec . record_translate_x($id, v) }
@@ -152,7 +207,7 @@ macro_rules! for_each_binding {
         $binding! { node $rec $id record_text_content ($id: &str, v: String) $rec . record_text_content($id, v) }
         $binding! { node $rec $id record_svg_path ($id: &str, v: String) $rec . record_svg_path($id, v) }
 
-        // ── 53 canvas entries ──────────────────────────────────────────────
+        // ── Node: canvas commands (53 entries) ─────────────────────────────
 
         $binding! { node $rec $id canvas_save ($id: &str) {
             $rec . record_canvas_command($id, CanvasCommand::Save);
@@ -434,7 +489,7 @@ macro_rules! for_each_binding {
             }
         }}
 
-        // ── Special node: complex object destructuring ────────────────────
+        // ── Node: text unit overrides (complex Object destructuring) ──────
         $binding! { node $rec $id record_text_unit_override ($id: &str, granularity: String, index: u32, values: rquickjs::Object<'js>) {
             let index = index as usize;
             let gran = match granularity.as_str() {
@@ -467,7 +522,7 @@ macro_rules! for_each_binding {
             );
         }}
 
-        // ── Store commands ($store: &mut MutationStore) ───────────────────
+        // ── Cmd: store mutations (5 entries: animate, morph, along_path) ──
         $binding! { cmd $store animate_create (duration: f32, delay: f32, clamp_flag: i32, easing_tag: String, repeat: i32, yoyo_flag: i32, repeat_delay: f32) -> i32 {
             let clamp = clamp_flag != 0;
             let yoyo = yoyo_flag != 0;
@@ -489,7 +544,7 @@ macro_rules! for_each_binding {
             Ok(())
         }}
 
-        // ── Store queries ($store: &MutationStore) ───────────────────────
+        // ── Qry: store reads (10 entries: animate, morph, text, along_path) ─
         $binding! { qry $store animate_value (handle: i32, _key: String, from: f32, to: f32) -> f32 {
             let cf = $store.current_frame();
             Ok($store.animate_value(cf, handle, from, to))
@@ -540,7 +595,7 @@ macro_rules! for_each_binding {
             Ok($store.get_text_source(&id).map(|s| s.text.clone()))
         }}
 
-        // ── Pure functions (no store) ────────────────────────────────────
+        // ── Pure: no store (4 entries: text measure, random, graphemes, easing) ─
         $binding! { pure canvas_measure_text (text: String, font_size: f32, font_scale_x: f32, _font_skew_x: f32, _font_subpixel: bool, _font_edging: String) -> f32 {
             Ok(measure_script_text_width(&text, font_size, font_scale_x))
         }}

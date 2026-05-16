@@ -146,10 +146,10 @@ pub(crate) fn install_node_style_bindings<'js>(
 // ── RqJsContext ──────────────────────────────────────────────────────
 
 pub struct RqJsContext {
-    _runtime: Runtime,
     context: Context,
     store: Arc<Mutex<MutationStore>>,
     ctx_obj: Persistent<Object<'static>>,
+    _runtime: Runtime,
 }
 
 impl JsContext for RqJsContext {
@@ -165,10 +165,10 @@ impl JsContext for RqJsContext {
         })?;
 
         Ok(Self {
-            _runtime: runtime,
             context,
             store,
             ctx_obj,
+            _runtime: runtime,
         })
     }
 

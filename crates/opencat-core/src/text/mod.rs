@@ -27,8 +27,9 @@ pub struct TextMeasurement {
 /// pre-rasterized RGBA bitmaps for color glyphs (e.g., emoji).
 #[derive(Clone, Debug)]
 pub enum GlyphData {
-    /// Vector outline path commands
-    Outline(Vec<Command>),
+    /// Vector outline path commands in design units (unscaled).
+    /// `upem` is the font's units-per-em for computing scale at draw time.
+    Outline(Vec<Command>, f32),
     /// Pre-rasterized color bitmap (e.g., emoji glyphs)
     ColorImage {
         rgba: Vec<u8>,
@@ -40,9 +41,13 @@ pub enum GlyphData {
 }
 
 /// A positioned glyph reference into the deduplicated glyph map.
+///
+/// `cache_key` includes font_size + subpixel bins (used for glyph data lookup).
+/// `outline_key` uses only (font_id, glyph_id) for shared shape caching.
 #[derive(Clone, Debug)]
 pub struct GlyphPosition {
     pub cache_key: u64,
+    pub outline_key: u64,
     pub x: f32,
     pub y: f32,
     /// Byte range of the glyph within the original (transformed) text,
@@ -216,12 +221,14 @@ pub fn rasterize_glyphs(
                 for glyph in run.glyphs {
                     let physical = glyph.physical((0.0, 0.0), 1.0);
                     let ck = glyph_cache_key(&physical.cache_key);
+                    let ok = glyph_outline_key(&physical.cache_key);
 
                     let x = physical.x as f32 + physical.cache_key.x_bin.as_float();
                     let y = run.line_y + physical.y as f32 + physical.cache_key.y_bin.as_float();
 
                     positions.push(GlyphPosition {
                         cache_key: ck,
+                        outline_key: ok,
                         x,
                         y,
                         byte_range: glyph.start..glyph.end,
@@ -251,7 +258,11 @@ pub fn rasterize_glyphs(
                     if let Some(commands) =
                         swash_cache.get_outline_commands(font_system, physical.cache_key)
                     {
-                        glyphs.insert(ck, GlyphData::Outline(commands.to_vec()));
+                        let upem = font_system
+                            .get_font(physical.cache_key.font_id)
+                            .map(|f| f.as_swash().metrics(&[]).units_per_em as f32)
+                            .unwrap_or(1000.0);
+                        glyphs.insert(ck, GlyphData::Outline(commands.to_vec(), upem));
                     }
                 }
 
@@ -299,6 +310,16 @@ pub fn glyph_cache_key(cache_key: &cosmic_text::CacheKey) -> u64 {
     cache_key.hash(&mut hasher);
     hasher.finish()
 }
+
+/// Key for the outline path cache — only `(font_id, glyph_id)` matters for shape.
+pub fn glyph_outline_key(cache_key: &cosmic_text::CacheKey) -> u64 {
+    let mut hasher = FxHasher::default();
+    cache_key.font_id.hash(&mut hasher);
+    cache_key.glyph_id.hash(&mut hasher);
+    hasher.finish()
+}
+
+
 
 pub fn apply_text_transform(text: &str, transform: TextTransform) -> String {
     match transform {
@@ -386,7 +407,7 @@ pub fn rasterization_to_display_glyphs(raster: &TextRasterization) -> DisplayTex
         .map(|(key, data)| DisplayGlyphEntry {
             cache_key: *key,
             data: match data {
-                GlyphData::Outline(commands) => DisplayGlyphData::Outline {
+                GlyphData::Outline(commands, _upem) => DisplayGlyphData::Outline {
                     commands: commands.iter().map(convert_command).collect(),
                 },
                 GlyphData::ColorImage {
@@ -417,6 +438,7 @@ pub fn rasterization_to_display_glyphs(raster: &TextRasterization) -> DisplayTex
                 .iter()
                 .map(|pos| DisplayGlyphPosition {
                     cache_key: pos.cache_key,
+                    outline_key: pos.outline_key,
                     x: pos.x,
                     y: pos.y,
                     byte_start: pos.byte_range.start,

@@ -3,6 +3,9 @@ name = "opencat"
 version.workspace = true
 edition.workspace = true
 
+[features]
+profile = ["opencat-core/profile"]
+
 [dependencies]
 opencat-core = { path = "../opencat-core" }
 opencat-engine = { path = "../opencat-engine" }

@@ -563,7 +563,6 @@ fn rect_to_skia(r: &Rect) -> SkiaRect {
 fn rrect_to_skia(r: &RRect) -> SkiaRRect {
     let rect = rect_to_skia(&r.rect());
     let radii = r.radii();
-    // Precision loss from f64 to f32 cast is acceptable for rendering
     let points = [
         SkiaPoint::new(radii.top_left as f32, radii.top_left as f32),
         SkiaPoint::new(radii.top_right as f32, radii.top_right as f32),

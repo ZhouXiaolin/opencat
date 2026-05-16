@@ -18,7 +18,6 @@ use opencat_core::scene::script::{
     position_from_name, text_align_from_name,
 };
 use opencat_core::scene::script::ScriptTextSource;
-use opencat_core::scene::script::StyleMutations;
 use opencat_core::scene::script::Runner as CoreRunner;
 use opencat_core::script::animate::state::{parse_easing_from_tag, random_from_seed};
 use opencat_core::script::recorder::MutationRecorder;

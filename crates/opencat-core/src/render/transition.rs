@@ -1,6 +1,7 @@
 use crate::canvas::{Canvas2D, Rect, RuntimeEffectChild};
 use crate::display::list::DisplayRect;
-use crate::scene::transition::LightLeakTransition;
+use crate::scene::transition::{GlTransition, LightLeakTransition};
+use crate::scene::gl_transition;
 
 use super::RenderCache;
 
@@ -235,4 +236,96 @@ pub(crate) fn render_light_leak_transition<C: Canvas2D>(
         &children,
         &dst,
     );
+}
+
+// ── GL Transition ──────────────────────────────────────────────────────────
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct GlTransitionUniforms {
+    progress: f32,
+    resolution: [f32; 2],
+}
+
+pub(crate) fn render_gl_transition<C: Canvas2D>(
+    canvas: &mut C,
+    from_pic: &C::Picture,
+    to_pic: &C::Picture,
+    progress: f32,
+    effect: &GlTransition,
+    bounds: DisplayRect,
+    cache: &mut RenderCache<C>,
+) {
+    let w = bounds.width.max(1.0).round() as u32;
+    let h = bounds.height.max(1.0).round() as u32;
+
+    let sksl = effect
+        .sksl
+        .as_deref()
+        .map(String::from)
+        .or_else(|| gl_transition::gl_transition_sksl(&effect.name).ok());
+    let sksl = match sksl {
+        Some(s) => s,
+        None => {
+            let rect = Rect::new(
+                bounds.x as f64,
+                bounds.y as f64,
+                (bounds.x + bounds.width) as f64,
+                (bounds.y + bounds.height) as f64,
+            );
+            canvas.draw_picture(from_pic, None, None);
+            canvas.save_layer(Some(rect), progress);
+            canvas.draw_picture(to_pic, None, None);
+            canvas.restore();
+            return;
+        }
+    };
+
+    let cache_key = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        effect.name.hash(&mut hasher);
+        hasher.finish() | 0xBB00_0000_0000_0000
+    };
+
+    let rt_effect = match ensure_effect(canvas, cache, cache_key, &sksl) {
+        Some(e) => e,
+        None => {
+            let rect = Rect::new(
+                bounds.x as f64,
+                bounds.y as f64,
+                (bounds.x + bounds.width) as f64,
+                (bounds.y + bounds.height) as f64,
+            );
+            canvas.draw_picture(from_pic, None, None);
+            canvas.save_layer(Some(rect), progress);
+            canvas.draw_picture(to_pic, None, None);
+            canvas.restore();
+            return;
+        }
+    };
+
+    let from_image = canvas.render_to_image(w, h, |off| {
+        off.draw_picture(from_pic, None, None);
+    });
+    let to_image = canvas.render_to_image(w, h, |off| {
+        off.draw_picture(to_pic, None, None);
+    });
+
+    let uniforms = GlTransitionUniforms {
+        progress: progress.clamp(0.0, 1.0),
+        resolution: [w as f32, h as f32],
+    };
+    let dst = Rect::new(
+        bounds.x as f64,
+        bounds.y as f64,
+        (bounds.x + bounds.width) as f64,
+        (bounds.y + bounds.height) as f64,
+    );
+    let children: Vec<RuntimeEffectChild<'_, C>> = vec![
+        RuntimeEffectChild::Texture(&from_image),
+        RuntimeEffectChild::Texture(&to_image),
+    ];
+
+    canvas.draw_runtime_effect(&rt_effect, as_bytes(&uniforms), &children, &dst);
 }

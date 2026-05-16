@@ -26,9 +26,6 @@ use opencat_core::style::color_token_from_script_string;
 use opencat_core::style::{BorderStyle, FontWeight};
 use opencat_core::text::measure_script_text_width;
 
-pub(crate) const NODE_STYLE_RUNTIME: &str = opencat_core::script::runtime::NODE_STYLE_RUNTIME;
-pub(crate) const CANVASKIT_RUNTIME: &str = opencat_core::script::runtime::CANVAS_API_RUNTIME;
-pub(crate) const ANIMATE_RUNTIME: &str = opencat_core::script::runtime::ANIMATION_RUNTIME;
 
 // ── Error mapping helpers ────────────────────────────────────────────
 

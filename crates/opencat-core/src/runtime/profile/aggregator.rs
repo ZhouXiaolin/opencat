@@ -63,6 +63,10 @@ impl RenderProfileAggregator {
                 self.frame_mut(span.frame).frame_state_ms += span.inclusive_ms;
                 return;
             }
+            ("render.pipeline", "script") => {
+                self.frame_mut(span.frame).script_ms += span.inclusive_ms;
+                return;
+            }
             ("render.scene", "resolve_ui_tree") => {
                 self.frame_mut(span.frame).resolve_ms += span.inclusive_ms;
                 return;
@@ -258,6 +262,21 @@ impl RenderProfileAggregator {
             }
             ("utilization", "image", "count") => {
                 frame.backend.image_cache_capacity_utilization += event.amount;
+            }
+            ("layout", "reused_nodes", "count") => {
+                frame.reused_nodes += event.amount;
+            }
+            ("layout", "layout_dirty", "count") => {
+                frame.layout_dirty_nodes += event.amount;
+            }
+            ("layout", "raster_dirty", "count") => {
+                frame.raster_dirty_nodes += event.amount;
+            }
+            ("layout", "composite_dirty", "count") => {
+                frame.composite_dirty_nodes += event.amount;
+            }
+            ("layout", "structure_rebuild", "count") => {
+                frame.structure_rebuilds += event.amount;
             }
             _ => {}
         }

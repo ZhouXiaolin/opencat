@@ -418,7 +418,12 @@ fn render_transition_composite<C: Canvas2D>(
                 canvas, from_pic, to_pic, progress, params, bounds, cache,
             );
         }
-        TransitionKind::ClockWipe | TransitionKind::Gl(_) => {
+        TransitionKind::Gl(effect) => {
+            super::transition::render_gl_transition(
+                canvas, from_pic, to_pic, progress, effect, bounds, cache,
+            );
+        }
+        TransitionKind::ClockWipe => {
             canvas.save_layer(Some(rect), progress);
             canvas.draw_picture(to_pic, None, None);
             canvas.restore();

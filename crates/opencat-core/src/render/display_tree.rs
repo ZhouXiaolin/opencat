@@ -1,9 +1,10 @@
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::canvas::{Canvas2D, ClipOp, Rect};
-use crate::display::list::DisplayRect;
+use crate::display::list::{DisplayItem, DisplayRect};
 use crate::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
 use crate::runtime::compositor::ordered_scene::{OrderedSceneOp, OrderedSceneProgram};
 use crate::runtime::compositor::reuse::LiveNodeItemExecution;
+use crate::scene::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::style::{BorderRadius, Transform};
 
 use super::cache::CachedSubtreeSnapshot;
@@ -65,35 +66,99 @@ fn render_cached_subtree<C: Canvas2D>(
     ctx: &RenderCtx<C>,
     cache: &mut RenderCache<C>,
 ) -> Result<(), RenderError> {
-    let layer_bounds = tree.layer_bounds(handle);
-    let key = handle.0 as u64;
+    let node = tree.node(handle);
+    let draw = node.draw_composite_semantics();
+    if draw.opacity <= 0.0 {
+        return Ok(());
+    }
 
-    let picture = {
+    canvas.save();
+    apply_transform(canvas, draw.transform);
+
+    let opacity = draw.opacity;
+    let backdrop_blur = draw.backdrop_blur_sigma;
+    let layer_bounds = tree.layer_bounds(handle);
+    let fingerprint = tree.analysis(handle).snapshot_fingerprint
+        .expect("CachedSubtree node must have snapshot_fingerprint");
+    let key = fingerprint.primary;
+
+    let uses_layer = opacity < 1.0 || backdrop_blur.is_some();
+    let mut has_backdrop_clip = false;
+    if uses_layer {
+        let bounds_rect = kurbo_rect(layer_bounds);
+        if let Some(sigma) = backdrop_blur {
+            if sigma > 0.0 {
+                let paint = PaintSpec {
+                    fill: FillSpec::Solid([1.0, 1.0, 1.0, opacity]),
+                    style: PaintStyle::Fill,
+                    stroke: None,
+                    anti_alias: true,
+                    blend_mode: BlendMode::SrcOver,
+                    image_filter: Some(ImageFilterSpec::Blur {
+                        sigma_x: sigma,
+                        sigma_y: sigma,
+                        crop_rect: None,
+                    }),
+                    color_filter: None,
+                    mask_filter: None,
+                    path_effect: None,
+                };
+                canvas.save();
+                canvas.clip_rect(&bounds_rect, ClipOp::Intersect, false);
+                has_backdrop_clip = true;
+                canvas.save_layer_with(Some(bounds_rect), &paint);
+            } else {
+                canvas.save_layer(Some(bounds_rect), opacity);
+            }
+        } else {
+            canvas.save_layer(Some(bounds_rect), opacity);
+        }
+    }
+
+    {
         let mut lru = cache.subtree_snapshots.borrow_mut();
         if let Some(snapshot) = lru.get_cloned(&key) {
-            canvas.draw_picture(&snapshot.picture, None, None);
-            return Ok(());
+            if snapshot.secondary_fingerprint == fingerprint.secondary {
+                canvas.draw_picture(&snapshot.picture, None, None);
+                let updated = CachedSubtreeSnapshot {
+                    consecutive_hits: snapshot.consecutive_hits + 1,
+                    ..snapshot
+                };
+                lru.insert(key, updated);
+                drop(lru);
+                if uses_layer {
+                    canvas.restore();
+                    if has_backdrop_clip {
+                        canvas.restore();
+                    }
+                }
+                canvas.restore();
+                return Ok(());
+            }
         }
-        drop(lru);
+    }
 
-        let bounds = kurbo_rect(layer_bounds);
-        canvas.make_picture(&bounds, |rec_canvas| {
-            let _ = render_live_cached_node(rec_canvas, handle, tree, ctx, cache);
-        })
-    };
+    let bounds = kurbo_rect(layer_bounds);
+    let picture = canvas.make_picture(&bounds, |rec_canvas| {
+        let _ = render_live_cached_node(rec_canvas, handle, tree, ctx, cache);
+    });
 
     let snapshot = CachedSubtreeSnapshot {
         picture: picture.clone(),
-        secondary_fingerprint: 0,
+        secondary_fingerprint: fingerprint.secondary,
         consecutive_hits: 0,
         recorded_bounds: layer_bounds,
     };
-    {
-        let mut lru = cache.subtree_snapshots.borrow_mut();
-        let report = lru.insert(key, snapshot);
-        drop(report);
-    }
+    cache.subtree_snapshots.borrow_mut().insert(key, snapshot);
     canvas.draw_picture(&picture, None, None);
+
+    if uses_layer {
+        canvas.restore();
+        if has_backdrop_clip {
+            canvas.restore();
+        }
+    }
+    canvas.restore();
     Ok(())
 }
 
@@ -178,6 +243,47 @@ fn render_live_subtree<C: Canvas2D>(
         }
     }
 
+    if let DisplayItem::Timeline(timeline) = &node.item {
+        if let Some(ref transition) = timeline.transition {
+            if children.len() == 2 {
+                let tl_rect = super::rect::kurbo_rect(timeline.bounds);
+                let rect_item = crate::display::list::RectDisplayItem {
+                    bounds: timeline.bounds,
+                    paint: timeline.paint.clone(),
+                };
+                super::rect::render_rect_with_shadows(canvas, &rect_item, ctx, cache)?;
+
+                if let Some(clip) = &node.clip {
+                    canvas.save();
+                    let clip_bounds_rect = kurbo_rect(clip.bounds);
+                    clip_bounds_with_radius(canvas, &clip_bounds_rect, &clip.border_radius);
+                }
+
+                let from_pic = canvas.make_picture(&tl_rect, |rec| {
+                    let _ = render_scene_op(rec, &children[0], tree, ctx, cache);
+                });
+                let to_pic = canvas.make_picture(&tl_rect, |rec| {
+                    let _ = render_scene_op(rec, &children[1], tree, ctx, cache);
+                });
+
+                let p = transition.progress.clamp(0.0, 1.0);
+                render_transition_composite(canvas, &from_pic, &to_pic, p, &transition.kind, timeline.bounds);
+
+                if node.clip.is_some() {
+                    canvas.restore();
+                }
+                if uses_layer {
+                    canvas.restore();
+                    if has_backdrop_clip {
+                        canvas.restore();
+                    }
+                }
+                canvas.restore();
+                return Ok(());
+            }
+        }
+    }
+
     match item_execution {
         LiveNodeItemExecution::Direct => {
             super::display_item::render_display_item(canvas, &node.item, ctx, cache)?;
@@ -223,6 +329,95 @@ fn render_live_subtree<C: Canvas2D>(
     }
     canvas.restore();
     Ok(())
+}
+
+fn render_transition_composite<C: Canvas2D>(
+    canvas: &mut C,
+    from_pic: &C::Picture,
+    to_pic: &C::Picture,
+    progress: f32,
+    kind: &TransitionKind,
+    bounds: DisplayRect,
+) {
+    let rect = kurbo_rect(bounds);
+    canvas.draw_picture(from_pic, None, None);
+
+    match kind {
+        TransitionKind::Fade => {
+            canvas.save_layer(Some(rect), progress);
+            canvas.draw_picture(to_pic, None, None);
+            canvas.restore();
+        }
+        TransitionKind::Slide(dir) => {
+            let (dx, dy) = match dir {
+                SlideDirection::FromLeft => (-(1.0 - progress) * bounds.width, 0.0),
+                SlideDirection::FromRight => ((1.0 - progress) * bounds.width, 0.0),
+                SlideDirection::FromTop => (0.0, -(1.0 - progress) * bounds.height),
+                SlideDirection::FromBottom => (0.0, (1.0 - progress) * bounds.height),
+            };
+            canvas.save();
+            canvas.translate(dx, dy);
+            canvas.draw_picture(to_pic, None, None);
+            canvas.restore();
+        }
+        TransitionKind::Wipe(dir) => {
+            let clip = match dir {
+                WipeDirection::FromLeft => DisplayRect {
+                    x: bounds.x + bounds.width * (1.0 - progress),
+                    y: bounds.y,
+                    width: bounds.width * progress,
+                    height: bounds.height,
+                },
+                WipeDirection::FromRight => DisplayRect {
+                    x: bounds.x,
+                    y: bounds.y,
+                    width: bounds.width * progress,
+                    height: bounds.height,
+                },
+                WipeDirection::FromTop => {
+                    let start = bounds.y + bounds.height * (1.0 - progress);
+                    DisplayRect {
+                        x: bounds.x,
+                        y: start,
+                        width: bounds.width,
+                        height: bounds.height * progress,
+                    }
+                }
+                WipeDirection::FromBottom => DisplayRect {
+                    x: bounds.x,
+                    y: bounds.y,
+                    width: bounds.width,
+                    height: bounds.height * progress,
+                },
+                _ => DisplayRect {
+                    x: bounds.x,
+                    y: bounds.y,
+                    width: bounds.width * progress,
+                    height: bounds.height,
+                },
+            };
+            canvas.save();
+            canvas.clip_rect(&kurbo_rect(clip), ClipOp::Intersect, false);
+            canvas.draw_picture(to_pic, None, None);
+            canvas.restore();
+        }
+        TransitionKind::Iris => {
+            let cx = bounds.x + bounds.width / 2.0;
+            let cy = bounds.y + bounds.height / 2.0;
+            let scale = progress.max(0.001);
+            canvas.save();
+            canvas.translate(cx, cy);
+            canvas.scale(scale, scale);
+            canvas.translate(-cx, -cy);
+            canvas.draw_picture(to_pic, None, None);
+            canvas.restore();
+        }
+        TransitionKind::ClockWipe | TransitionKind::LightLeak(_) | TransitionKind::Gl(_) => {
+            canvas.save_layer(Some(rect), progress);
+            canvas.draw_picture(to_pic, None, None);
+            canvas.restore();
+        }
+    }
 }
 
 fn clip_bounds_with_radius<C: Canvas2D>(canvas: &mut C, rect: &Rect, radius: &BorderRadius) {

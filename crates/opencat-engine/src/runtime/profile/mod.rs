@@ -32,13 +32,6 @@ impl BackendSpanAggregate {
         self.exclusive_ms += exclusive_ms;
         self.count += 1;
     }
-
-    #[allow(dead_code)]
-    pub(crate) fn merge(&mut self, other: &BackendSpanAggregate) {
-        self.inclusive_ms += other.inclusive_ms;
-        self.exclusive_ms += other.exclusive_ms;
-        self.count += other.count;
-    }
 }
 
 #[derive(Clone, Debug, Default)]

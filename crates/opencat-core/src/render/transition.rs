@@ -201,14 +201,6 @@ pub(crate) fn render_light_leak_transition<C: Canvas2D>(
         );
     });
 
-    let from_image = canvas.render_to_image(w, h, |off| {
-        off.draw_picture(from_pic, None, None);
-    });
-
-    let to_image = canvas.render_to_image(w, h, |off| {
-        off.draw_picture(to_pic, None, None);
-    });
-
     let composite_uniforms = LightLeakCompositeUniforms { progress: normalized };
     let dst = Rect::new(
         bounds.x as f64,
@@ -225,8 +217,8 @@ pub(crate) fn render_light_leak_transition<C: Canvas2D>(
     });
 
     let children: Vec<RuntimeEffectChild<'_, C>> = vec![
-        RuntimeEffectChild::Texture(&from_image),
-        RuntimeEffectChild::Texture(&to_image),
+        RuntimeEffectChild::Picture(from_pic),
+        RuntimeEffectChild::Picture(to_pic),
         RuntimeEffectChild::Texture(&scaled_mask_image),
     ];
 
@@ -305,13 +297,6 @@ pub(crate) fn render_gl_transition<C: Canvas2D>(
         }
     };
 
-    let from_image = canvas.render_to_image(w, h, |off| {
-        off.draw_picture(from_pic, None, None);
-    });
-    let to_image = canvas.render_to_image(w, h, |off| {
-        off.draw_picture(to_pic, None, None);
-    });
-
     let uniforms = GlTransitionUniforms {
         progress: progress.clamp(0.0, 1.0),
         resolution: [w as f32, h as f32],
@@ -323,8 +308,8 @@ pub(crate) fn render_gl_transition<C: Canvas2D>(
         (bounds.y + bounds.height) as f64,
     );
     let children: Vec<RuntimeEffectChild<'_, C>> = vec![
-        RuntimeEffectChild::Texture(&from_image),
-        RuntimeEffectChild::Texture(&to_image),
+        RuntimeEffectChild::Picture(from_pic),
+        RuntimeEffectChild::Picture(to_pic),
     ];
 
     canvas.draw_runtime_effect(&rt_effect, as_bytes(&uniforms), &children, &dst);

@@ -17,12 +17,12 @@ use crate::runtime::invalidation::CompositeHistory;
 use crate::text::default_font_db;
 
 /// Default cache capacity constants.
-const DEFAULT_IMAGE_CAP: usize = 256;
+const DEFAULT_IMAGE_CAP: usize = 128;
 const DEFAULT_SUBTREE_SNAPSHOT_CAP: usize = 256;
 const DEFAULT_SUBTREE_IMAGE_CAP: usize = 128;
-const DEFAULT_ITEM_PICTURE_CAP: usize = 512;
-const DEFAULT_GLYPH_PATH_CAP: usize = 4096;
-const DEFAULT_GLYPH_IMAGE_CAP: usize = 512;
+const DEFAULT_ITEM_PICTURE_CAP: usize = 64;
+const DEFAULT_GLYPH_PATH_CAP: usize = 256;
+const DEFAULT_GLYPH_IMAGE_CAP: usize = 128;
 const DEFAULT_RUNTIME_EFFECT_CAP: usize = 64;
 
 pub struct RenderSession<P: Platform, C: Canvas2D> {

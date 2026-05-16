@@ -46,6 +46,7 @@ pub mod bitmap;
 pub mod svg_path;
 pub mod draw_script;
 pub mod timeline;
+pub mod transition;
 
 pub use cache::RenderCache;
 pub use ctx::RenderCtx;

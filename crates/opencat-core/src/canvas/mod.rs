@@ -124,6 +124,12 @@ pub trait Canvas2D {
     fn make_path_from_svg(&self, svg_path_data: &str) -> Option<Self::Path>;
     fn make_image_from_rgba(&self, bytes: &[u8], width: u32, height: u32) -> Self::Image;
     fn make_image_from_encoded(&self, bytes: &[u8]) -> Option<Self::Image>;
+
+    /// Render into an offscreen surface and return the result as an image.
+    fn render_to_image<R>(&mut self, width: u32, height: u32, draw: R) -> Self::Image
+    where
+        R: FnOnce(&mut Self),
+        Self: Sized;
 }
 
 pub mod paint;

@@ -533,6 +533,27 @@ impl Canvas2D for SkiaCanvas2D {
         let data = Data::new_copy(bytes);
         SkiaImage::from_encoded(data)
     }
+
+    fn render_to_image<R>(&mut self, width: u32, height: u32, draw: R) -> Self::Image
+    where
+        R: FnOnce(&mut Self),
+        Self: Sized,
+    {
+        let info = ImageInfo::new(
+            (width as i32, height as i32),
+            skia_safe::ColorType::RGBA8888,
+            skia_safe::AlphaType::Premul,
+            None,
+        );
+        let mut surface = skia_safe::surfaces::raster(&info, None, None)
+            .expect("failed to create offscreen surface");
+        let canvas_ptr: *const Canvas = surface.canvas();
+        let canvas_ref: &Canvas = unsafe { &*canvas_ptr };
+        let mut temp = SkiaCanvas2D::new(canvas_ref);
+        draw(&mut temp);
+        drop(temp);
+        surface.image_snapshot()
+    }
 }
 
 fn rect_to_skia(r: &Rect) -> SkiaRect {

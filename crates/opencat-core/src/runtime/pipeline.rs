@@ -76,6 +76,8 @@ pub fn render_frame_inner<C: Canvas2D>(
     #[cfg(feature = "profile")]
     let _resolve_span = span!(target: "render.scene", Level::TRACE, "resolve_ui_tree").entered();
     let root = composition.root_node(&frame_ctx);
+    #[cfg(feature = "profile")]
+    let _script_span = span!(target: "render.pipeline", Level::TRACE, "script").entered();
     let element_root = resolve_ui_tree_with_script_cache(
         &root,
         &frame_ctx,
@@ -85,6 +87,8 @@ pub fn render_frame_inner<C: Canvas2D>(
         script,
         &path_bounds,
     )?;
+    #[cfg(feature = "profile")]
+    drop(_script_span);
     #[cfg(feature = "profile")]
     drop(_resolve_span);
 
@@ -99,6 +103,15 @@ pub fn render_frame_inner<C: Canvas2D>(
     )?;
     #[cfg(feature = "profile")]
     drop(_layout_span);
+
+    #[cfg(feature = "profile")]
+    {
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "reused_nodes", result = "count", amount = layout_pass.reused_nodes as u64);
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "layout_dirty", result = "count", amount = layout_pass.layout_dirty_nodes as u64);
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "raster_dirty", result = "count", amount = layout_pass.raster_dirty_nodes as u64);
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "composite_dirty", result = "count", amount = layout_pass.composite_dirty_nodes as u64);
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "structure_rebuild", result = "count", amount = layout_pass.structure_rebuild as u64);
+    }
 
     // 3. display tree + annotation + fingerprint
     #[cfg(feature = "profile")]

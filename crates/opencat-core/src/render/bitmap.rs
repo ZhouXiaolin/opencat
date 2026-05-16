@@ -1,3 +1,6 @@
+#[cfg(feature = "profile")]
+use tracing::{Level, event};
+
 use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle};
 use crate::canvas::{Canvas2D, Rect};
 use crate::display::list::BitmapDisplayItem;
@@ -5,7 +8,7 @@ use crate::style::ObjectFit;
 
 use super::paint_conv::background_fill_to_paint_spec;
 use super::rect::{clip_bounds, draw_box_shadow, draw_inset_shadow, draw_item_drop_shadow, draw_node_border, kurbo_rect};
-use super::{RenderCache, RenderCtx, RenderError};
+use super::{record_cache_pressure, RenderCache, RenderCtx, RenderError};
 
 pub(crate) fn fitted_rect(src_width: f32, src_height: f32, dst: &Rect, cover: bool) -> Rect {
     let iw = src_width as f64;
@@ -71,6 +74,16 @@ pub fn render_bitmap<C: Canvas2D>(
     ctx: &RenderCtx<C>,
     cache: &mut RenderCache<C>,
 ) -> Result<(), RenderError> {
+    #[cfg(feature = "profile")]
+    event!(
+        target: "render.draw",
+        Level::TRACE,
+        kind = "draw",
+        name = "bitmap",
+        result = "count",
+        amount = 1_u64
+    );
+
     let style = &item.paint;
     let dst = kurbo_rect(item.bounds);
 
@@ -84,11 +97,29 @@ pub fn render_bitmap<C: Canvas2D>(
             .map_err(|e| RenderError::MissingResource(format!("video frame: {}", e)))?;
         let w = frame.width;
         let h = frame.height;
+        #[cfg(feature = "profile")]
+        event!(
+            target: "render.cache",
+            Level::TRACE,
+            kind = "cache",
+            name = "video_frame",
+            result = "decode",
+            amount = 1_u64
+        );
         (canvas.make_image_from_rgba(&frame.data, w, h), w, h)
     } else {
         let asset_key = item.asset_id.0.clone();
         let mut lru = cache.images.borrow_mut();
         if let Some(Some(img)) = lru.get_cloned(&asset_key) {
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "image",
+                result = "hit",
+                amount = 1_u64
+            );
             (img, item.width as u32, item.height as u32)
         } else {
             drop(lru);
@@ -98,6 +129,15 @@ pub fn render_bitmap<C: Canvas2D>(
                         RenderError::MissingResource(format!("failed to read image: {} ({})", path.display(), e))
                     })?;
                     if let Some(img) = canvas.make_image_from_encoded(&encoded) {
+                        #[cfg(feature = "profile")]
+                        event!(
+                            target: "render.cache",
+                            Level::TRACE,
+                            kind = "cache",
+                            name = "image",
+                            result = "miss",
+                            amount = 1_u64
+                        );
                         break 'load Some(img);
                     }
                 }
@@ -105,6 +145,7 @@ pub fn render_bitmap<C: Canvas2D>(
             };
             let mut lru = cache.images.borrow_mut();
             let report = lru.insert(asset_key, loaded.clone());
+            record_cache_pressure("image", &report);
             drop(report);
             match loaded {
                 Some(img) => (img, item.width as u32, item.height as u32),

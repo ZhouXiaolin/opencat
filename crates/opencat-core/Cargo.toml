@@ -22,6 +22,16 @@ imagesize = "0.14"
 nom-exif = "3.4.1"
 url = "2.5"
 
+[dependencies.tracing]
+version = "0.1"
+optional = true
+
+[dependencies.tracing-subscriber]
+version = "0.3"
+features = ["registry"]
+optional = true
+
 [features]
 default = []
 test-support = []
+profile = ["tracing", "tracing-subscriber"]

@@ -153,8 +153,8 @@ fn render_png(
     output_path: impl AsRef<Path>,
     backend: RenderBackend,
 ) -> Result<()> {
-    let profile_config = crate::runtime::profile::ProfileConfig::from_env();
-    let (_, summary) = crate::runtime::profile::profile_render(&profile_config, || {
+    let profile_config = opencat_core::runtime::profile::ProfileConfig::from_env();
+    let (_, summary) = opencat_core::runtime::profile::profile_render(&profile_config, || {
         if let RenderBackend::Accelerated = backend {
             return Err(anyhow!(
                 "accelerated backend not yet supported via core pipeline"
@@ -170,7 +170,7 @@ fn render_png(
         Ok::<_, anyhow::Error>(())
     })?;
     if let Some(summary) = summary {
-        crate::runtime::profile::print_profile_summary(&summary, &profile_config)?;
+        opencat_core::runtime::profile::print_profile_summary(&summary, &profile_config)?;
     }
     Ok(())
 }
@@ -183,8 +183,8 @@ fn render_mp4(
     on_video_frame_encoded: impl FnMut(u32, u32),
 ) -> Result<()> {
     let composition = composition.aligned_for_video_encoding();
-    let profile_config = crate::runtime::profile::ProfileConfig::from_env();
-    let (_, summary) = crate::runtime::profile::profile_render(&profile_config, move || {
+    let profile_config = opencat_core::runtime::profile::ProfileConfig::from_env();
+    let (_, summary) = opencat_core::runtime::profile::profile_render(&profile_config, move || {
         if let RenderBackend::Accelerated = backend {
             return Err(anyhow!(
                 "accelerated backend not yet supported via core pipeline"
@@ -212,7 +212,7 @@ fn render_mp4(
         Ok::<_, anyhow::Error>(())
     })?;
     if let Some(summary) = summary {
-        crate::runtime::profile::print_profile_summary(&summary, &profile_config)?;
+        opencat_core::runtime::profile::print_profile_summary(&summary, &profile_config)?;
     }
     Ok(())
 }

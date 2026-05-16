@@ -1,7 +1,4 @@
-pub mod lru;
 pub mod video_frames;
-
-use skia_safe::{Image as SkiaImage, Picture};
 
 pub use opencat_core::render::cache::{
     CachedSubtreeImage, CachedSubtreeSnapshot, SharedLruCache,
@@ -31,10 +28,3 @@ impl Default for CacheCaps {
         }
     }
 }
-
-pub(crate) type ImageCache = SharedLruCache<String, Option<SkiaImage>>;
-pub(crate) type SubtreeSnapshotCache = SharedLruCache<u64, CachedSubtreeSnapshot<Picture>>;
-pub(crate) type SubtreeImageCache = SharedLruCache<u64, CachedSubtreeImage<SkiaImage>>;
-pub(crate) type ItemPictureCache = SharedLruCache<u64, Picture>;
-pub(crate) type GlyphPathCache = SharedLruCache<u64, skia_safe::Path>;
-pub(crate) type GlyphImageCache = SharedLruCache<u64, SkiaImage>;

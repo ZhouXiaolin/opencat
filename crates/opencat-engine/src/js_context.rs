@@ -1,37 +1,28 @@
-//! engine 端：rquickjs binding 注册逻辑 + 错误映射 helper。
+//! engine 端 rquickjs 后端：`JsContext` 的具体实现。
 //!
-//! 本文件保存了"端侧专属"的两件事：
-//!  - native callback 注册（`install_node_style_bindings` + `install_to_rquickjs!` 宏）
-//!  - rquickjs 异常 → anyhow 的映射（`map_js_result`、`IntoAnyhow`）
-//!
-//! `RqJsContext` 与 `impl JsContext` 在下一任务追加到本文件。
+//! 本文件只关心"如何在 rquickjs 环境里实现 [`opencat_core::script::js_context::JsContext`] 的
+//! 几个原语"——它不认识任何具体 binding 名字，也不展开 `for_each_binding!`。
+//! 所有 binding 的派发集中在 core 的 [`opencat_core::script::dispatch::dispatch_binding`]，
+//! 通过 [`RqJsContext::install_dispatcher`] 桥接到 JS 端的 `__opencatCallNative`。
 
 use std::sync::{Arc, Mutex};
 
-use rquickjs::{Context, Error as JsError, Exception, FromJs, Function, Object, Persistent, Runtime};
-
-use opencat_core::for_each_binding;
-use opencat_core::scene::script::mutations::{CanvasCommand, TextUnitGranularity};
-use opencat_core::scene::script::object_fit_from_name;
-use opencat_core::scene::script::{
-    align_items_from_name, box_shadow_from_name, drop_shadow_from_name, flex_direction_from_name,
-    font_edging_from_name, inset_shadow_from_name, justify_content_from_name, line_cap_from_name,
-    line_join_from_name, point_mode_from_name, position_from_name, text_align_from_name,
+use anyhow::anyhow;
+use rquickjs::function::Rest;
+use rquickjs::{
+    Array, Context, Ctx, Error as JsError, Exception, FromJs, Function, IntoJs, Object, Persistent,
+    Runtime, Type, Value,
 };
-use opencat_core::script::animate::state::{parse_easing_from_tag, random_from_seed};
+use serde_json::Value as JsonValue;
+
 use opencat_core::script::js_context::JsContext;
-use opencat_core::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
-use opencat_core::script::text_units::{describe_text_units, grapheme_strings};
-use opencat_core::style::color_token_from_script_string;
-use opencat_core::style::{BorderStyle, FontWeight};
-use opencat_core::text::measure_script_text_width;
+use opencat_core::script::recorder::MutationStore;
 
-
-// ── Error mapping helpers ────────────────────────────────────────────
+// ── Error mapping ────────────────────────────────────────────────────
 
 pub(crate) fn map_js_result<T>(
     result: Result<T, JsError>,
-    ctx: &rquickjs::Ctx<'_>,
+    ctx: &Ctx<'_>,
     error_context: &str,
 ) -> anyhow::Result<T> {
     match result {
@@ -54,90 +45,91 @@ pub(crate) fn map_js_result<T>(
     }
 }
 
-pub(crate) trait IntoAnyhow {
-    fn into_anyhow(self) -> anyhow::Result<()>;
-}
+// ── rquickjs::Value <-> serde_json::Value walker ─────────────────────
 
-impl IntoAnyhow for () {
-    fn into_anyhow(self) -> anyhow::Result<()> {
-        Ok(())
+fn rq_to_json(v: &Value<'_>) -> anyhow::Result<JsonValue> {
+    match v.type_of() {
+        Type::Uninitialized | Type::Undefined | Type::Null => Ok(JsonValue::Null),
+        Type::Bool => Ok(JsonValue::Bool(v.as_bool().unwrap())),
+        Type::Int => Ok(JsonValue::Number(v.as_int().unwrap().into())),
+        Type::Float => {
+            let f = v.as_float().unwrap();
+            serde_json::Number::from_f64(f)
+                .map(JsonValue::Number)
+                .ok_or_else(|| anyhow!("non-finite number: {f}"))
+        }
+        Type::String => {
+            let s = v.as_string().unwrap().to_string()?;
+            Ok(JsonValue::String(s))
+        }
+        Type::Array => {
+            let arr = v.as_array().unwrap();
+            let mut out = Vec::with_capacity(arr.len());
+            for item in arr.iter::<Value>() {
+                out.push(rq_to_json(&item?)?);
+            }
+            Ok(JsonValue::Array(out))
+        }
+        Type::Object => {
+            let obj = v.as_object().unwrap();
+            let mut map = serde_json::Map::new();
+            for kv in obj.props::<String, Value>() {
+                let (k, val) = kv?;
+                map.insert(k, rq_to_json(&val)?);
+            }
+            Ok(JsonValue::Object(map))
+        }
+        other => Err(anyhow!("unsupported js value type: {}", other.as_str())),
     }
 }
 
-impl IntoAnyhow for anyhow::Result<()> {
-    fn into_anyhow(self) -> anyhow::Result<()> {
-        self
+fn json_to_rq<'js>(ctx: &Ctx<'js>, v: JsonValue) -> anyhow::Result<Value<'js>> {
+    match v {
+        JsonValue::Null => Ok(Value::new_null(ctx.clone())),
+        JsonValue::Bool(b) => Ok(b.into_js(ctx)?),
+        JsonValue::Number(n) => {
+            let f = n
+                .as_f64()
+                .ok_or_else(|| anyhow!("non-finite number in return value"))?;
+            Ok(Value::new_number(ctx.clone(), f))
+        }
+        JsonValue::String(s) => Ok(s.into_js(ctx)?),
+        JsonValue::Array(arr) => {
+            let out = Array::new(ctx.clone())?;
+            for (i, item) in arr.into_iter().enumerate() {
+                out.set(i, json_to_rq(ctx, item)?)?;
+            }
+            Ok(out.into_value())
+        }
+        JsonValue::Object(map) => {
+            let out = Object::new(ctx.clone())?;
+            for (k, val) in map.into_iter() {
+                out.set(k, json_to_rq(ctx, val)?)?;
+            }
+            Ok(out.into_value())
+        }
     }
 }
 
-// ── rquickjs binding installation ────────────────────────────────────
+/// JS-side arg → `serde_json::Value`，让 `Function::new` 闭包以 `Rest<JsonArg>` 收参。
+struct JsonArg(JsonValue);
 
-pub(crate) fn install_node_style_bindings<'js>(
-    ctx: &rquickjs::Ctx<'js>,
-    store: &Arc<Mutex<MutationStore>>,
-) -> anyhow::Result<()> {
-    let globals = ctx.globals();
-
-    macro_rules! install_to_rquickjs {
-        // ── Node commands ──
-        (node $rec:ident $id:ident $name:ident ($first_param:ident : &str $(, $param:ident : $param_ty:ty)*) $($body:tt)*) => {{
-            let s = store.clone();
-            globals.set(
-                concat!("__", stringify!($name)),
-                Function::new(ctx.clone(), move |$first_param: String $(, $param: $param_ty)*| -> Result<(), rquickjs::Error> {
-                    let mut guard = s.lock().map_err(|e| rquickjs::Error::new_from_js_message("script", "lock", &e.to_string()))?;
-                    let $rec = &mut *guard as &mut dyn MutationRecorder;
-                    let $id: &str = &$first_param;
-                    (|| -> anyhow::Result<()> {
-                        { $($body)* }.into_anyhow()
-                    })().map_err(|e| rquickjs::Error::new_from_js_message("script", "script", &e.to_string()))
-                })?,
-            )?;
-        }};
-
-        // ── Store commands ──
-        (cmd $store:ident $name:ident ($($param:ident : $param_ty:ty),*) -> $ret:ty $body:block) => {{
-            let s = store.clone();
-            globals.set(
-                concat!("__", stringify!($name)),
-                Function::new(ctx.clone(), move |$($param: $param_ty),*| -> Result<$ret, rquickjs::Error> {
-                    let mut guard = s.lock().map_err(|e| rquickjs::Error::new_from_js_message("script", "lock", &e.to_string()))?;
-                    let $store = &mut *guard;
-                    (|| -> anyhow::Result<$ret> { $body })()
-                        .map_err(|e| rquickjs::Error::new_from_js_message("script", "script", &e.to_string()))
-                })?,
-            )?;
-        }};
-
-        // ── Store queries ──
-        (qry $store:ident $name:ident ($($param:ident : $param_ty:ty),*) -> $ret:ty $body:block) => {{
-            let s = store.clone();
-            globals.set(
-                concat!("__", stringify!($name)),
-                Function::new(ctx.clone(), move |$($param: $param_ty),*| -> Result<$ret, rquickjs::Error> {
-                    let guard = s.lock().map_err(|e| rquickjs::Error::new_from_js_message("script", "lock", &e.to_string()))?;
-                    let $store = &*guard;
-                    (|| -> anyhow::Result<$ret> { $body })()
-                        .map_err(|e| rquickjs::Error::new_from_js_message("script", "script", &e.to_string()))
-                })?,
-            )?;
-        }};
-
-        // ── Pure functions ──
-        (pure $name:ident ($($param:ident : $param_ty:ty),*) -> $ret:ty $body:block) => {{
-            globals.set(
-                concat!("__", stringify!($name)),
-                Function::new(ctx.clone(), move |$($param: $param_ty),*| -> Result<$ret, rquickjs::Error> {
-                    (|| -> anyhow::Result<$ret> { $body })()
-                        .map_err(|e| rquickjs::Error::new_from_js_message("script", "script", &e.to_string()))
-                })?,
-            )?;
-        }};
+impl<'js> FromJs<'js> for JsonArg {
+    fn from_js(_ctx: &Ctx<'js>, value: Value<'js>) -> Result<Self, JsError> {
+        rq_to_json(&value)
+            .map(JsonArg)
+            .map_err(|e| JsError::new_from_js_message("script", "arg", &e.to_string()))
     }
+}
 
-    for_each_binding!(rec id store install_to_rquickjs);
+/// `serde_json::Value` → JS-side return，让 dispatcher 闭包返回与 rquickjs 衔接。
+struct JsonReturn(JsonValue);
 
-    Ok(())
+impl<'js> IntoJs<'js> for JsonReturn {
+    fn into_js(self, ctx: &Ctx<'js>) -> Result<Value<'js>, JsError> {
+        json_to_rq(ctx, self.0)
+            .map_err(|e| JsError::new_from_js_message("script", "ret", &e.to_string()))
+    }
 }
 
 // ── RqJsContext ──────────────────────────────────────────────────────
@@ -170,23 +162,15 @@ impl JsContext for RqJsContext {
     }
 
     fn eval(&self, code: &str) -> anyhow::Result<()> {
-        self.context.with(|ctx| {
-            map_js_result(ctx.eval::<(), _>(code), &ctx, "script eval")
-        })
+        self.context
+            .with(|ctx| map_js_result(ctx.eval::<(), _>(code), &ctx, "script eval"))
     }
 
-    fn set_ctx_field_i64(&self, name: &str, v: i64) -> anyhow::Result<()> {
+    fn set_ctx_field(&self, name: &str, v: JsonValue) -> anyhow::Result<()> {
         self.context.with(|ctx| -> anyhow::Result<()> {
             let obj = self.ctx_obj.clone().restore(&ctx)?;
-            obj.set(name, v)?;
-            Ok(())
-        })
-    }
-
-    fn set_ctx_field_str(&self, name: &str, v: &str) -> anyhow::Result<()> {
-        self.context.with(|ctx| -> anyhow::Result<()> {
-            let obj = self.ctx_obj.clone().restore(&ctx)?;
-            obj.set(name, v)?;
+            let rq = json_to_rq(&ctx, v)?;
+            obj.set(name, rq)?;
             Ok(())
         })
     }
@@ -198,9 +182,26 @@ impl JsContext for RqJsContext {
         })
     }
 
-    fn install_all_bindings(&self) -> anyhow::Result<()> {
+    fn install_dispatcher<F>(&self, dispatcher: F) -> anyhow::Result<()>
+    where
+        F: Fn(&mut MutationStore, &str, &[JsonValue]) -> anyhow::Result<JsonValue> + 'static,
+    {
+        let store = self.store.clone();
         self.context.with(|ctx| -> anyhow::Result<()> {
-            install_node_style_bindings(&ctx, &self.store)
+            let f = Function::new(
+                ctx.clone(),
+                move |name: String, rest: Rest<JsonArg>| -> Result<JsonReturn, JsError> {
+                    let args: Vec<JsonValue> = rest.0.into_iter().map(|a| a.0).collect();
+                    let mut guard = store.lock().map_err(|e| {
+                        JsError::new_from_js_message("script", "lock", &e.to_string())
+                    })?;
+                    dispatcher(&mut guard, &name, &args).map(JsonReturn).map_err(|e| {
+                        JsError::new_from_js_message("script", "script", &e.to_string())
+                    })
+                },
+            )?;
+            ctx.globals().set("__opencatCallNative", f)?;
+            Ok(())
         })
     }
 

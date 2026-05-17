@@ -96,7 +96,7 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
-        path: String,
+        path: Option<String>,
         url: Option<String>,
         duration: Option<u32>,
     },
@@ -380,7 +380,7 @@ pub fn parse_with_base_dir(
                 );
                 let source = match url {
                     Some(u) => VideoSource::Url(u),
-                    None => VideoSource::Path(PathBuf::from(path)),
+                    None => VideoSource::Path(PathBuf::from(path.unwrap_or_default())),
                 };
                 elements.push(ParsedElement {
                     id,

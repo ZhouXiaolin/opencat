@@ -5,6 +5,7 @@ pub mod backend;
 pub mod codec;
 pub mod fonts;
 pub mod inspect;
+pub mod js_context;
 pub mod jsonl_io;
 pub mod platform;
 pub mod render;
@@ -24,7 +25,8 @@ pub use opencat_core::frame_ctx::FrameCtx;
 pub use opencat_core::scene::composition::Composition;
 pub use opencat_core::scene::easing::Easing;
 pub use opencat_core::scene::node::Node;
-pub use opencat_core::scene::primitives::{SrtEntry, caption, div, text};
+pub use opencat_core::scene::primitives::{SrtEntry, caption, canvas, div, image, text};
+pub use opencat_core::style::ColorToken;
 pub use opencat_core::scene::script::ScriptDriver;
 pub use opencat_core::scene::transition::{fade, timeline};
 

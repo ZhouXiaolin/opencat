@@ -46,6 +46,17 @@ impl HashMapResourceCatalog {
         Ok(catalog)
     }
 
+    /// Serialize entries to the same JSON shape `from_json` accepts.
+    /// Useful for handing catalog state across an FFI boundary (e.g. wasm → JS).
+    pub fn to_json(&self) -> Result<String> {
+        let map: HashMap<&str, &ResourceMeta> = self
+            .entries
+            .iter()
+            .map(|(id, meta)| (id.0.as_str(), meta))
+            .collect();
+        Ok(serde_json::to_string(&map)?)
+    }
+
     fn resolve_key(&mut self, key: &str) -> AssetId {
         if let Some(id) = self.asset_cache.get(key) {
             return id.clone();
@@ -100,6 +111,17 @@ impl ResourceCatalog for HashMapResourceCatalog {
             height,
             kind: ResourceKind::Video,
             duration_secs,
+        });
+        id
+    }
+
+    fn register_audio(&mut self, locator: &str) -> AssetId {
+        let id = self.resolve_key(locator);
+        self.entries.entry(id.clone()).or_insert(ResourceMeta {
+            width: 0,
+            height: 0,
+            kind: ResourceKind::Audio,
+            duration_secs: None,
         });
         id
     }

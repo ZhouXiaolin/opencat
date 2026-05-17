@@ -10,6 +10,11 @@
 //! by the host environment.
 
 pub mod animate;
+pub mod bindings;
+pub mod dispatch;
+pub mod helpers;
+pub mod js_context;
 pub mod recorder;
 pub mod runtime;
+pub mod script_runner;
 pub mod text_units;

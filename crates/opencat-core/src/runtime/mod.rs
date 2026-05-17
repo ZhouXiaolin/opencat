@@ -1,9 +1,9 @@
 pub mod analysis;
 pub mod annotation;
-pub mod cache;
 pub mod compositor;
 pub mod fingerprint;
 pub mod invalidation;
 pub mod pipeline;
 pub mod preflight_collect;
+pub mod profile;
 pub mod session;

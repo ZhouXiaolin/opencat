@@ -1,10 +1,13 @@
 pub mod host;
 pub mod mutations;
 pub mod precomputed_host;
+pub mod runtime_cache;
 
 pub use host::{ScriptDriverId, ScriptHost};
 pub use mutations::*;
 pub use precomputed_host::PrecomputedScriptHost;
+pub use crate::script::script_runner::ScriptRunner;
+pub use runtime_cache::ScriptRuntimeCache;
 
 use crate::style::{
     AlignItems, BoxShadow, BoxShadowStyle, DropShadow, DropShadowStyle, FlexDirection, InsetShadow,
@@ -24,11 +27,15 @@ impl ScriptDriver {
     }
 
     pub fn cache_key(&self) -> u64 {
-        use std::hash::{DefaultHasher, Hash, Hasher};
-        let mut h = DefaultHasher::new();
-        self.source.hash(&mut h);
-        h.finish()
+        driver_id_from_source(&self.source).0
     }
+}
+
+pub fn driver_id_from_source(source: &str) -> ScriptDriverId {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    source.hash(&mut h);
+    ScriptDriverId(h.finish())
 }
 
 pub fn driver_from_source(source: &str) -> anyhow::Result<ScriptDriver> {

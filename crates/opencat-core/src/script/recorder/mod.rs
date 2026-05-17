@@ -6,7 +6,7 @@
 
 mod store;
 
-pub use store::MutationStore;
+pub use store::{AnimateEntry, MutationStore};
 
 use crate::scene::script::ScriptTextSource;
 use crate::scene::script::mutations::{CanvasCommand, StyleMutations, TextUnitGranularity};

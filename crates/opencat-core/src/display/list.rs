@@ -85,6 +85,7 @@ pub struct DisplayGlyphLine {
 #[serde(rename_all = "camelCase")]
 pub struct DisplayGlyphPosition {
     pub cache_key: u64,
+    pub outline_key: u64,
     pub x: f32,
     pub y: f32,
     pub byte_start: usize,
@@ -205,6 +206,7 @@ pub struct RectPaintStyle {
     pub box_shadow: Option<BoxShadow>,
     pub inset_shadow: Option<InsetShadow>,
     pub drop_shadow: Option<DropShadow>,
+    pub backdrop_blur_sigma: Option<f32>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

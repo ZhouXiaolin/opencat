@@ -21,10 +21,11 @@ use opencat_core::{
 use opencat_core::resource::catalog::ResourceCatalog;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 
-use super::runtime::path_bounds::default_host_path_bounds;
 use crate::platform::EnginePlatform;
-use crate::resource::path_store::AssetPathStore;
-type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform>;
+use crate::resource::AssetPathStore;
+use crate::backend::SkiaCanvas2D;
+use opencat_core::scene::path_bounds::DefaultPathBounds;
+type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform, SkiaCanvas2D>;
 
 #[derive(Clone, Debug)]
 pub struct FrameElementRect {
@@ -108,7 +109,7 @@ fn collect_scene_rects(
         &mut session.catalog,
         None,
         &mut session.platform.script,
-        default_host_path_bounds(),
+        &DefaultPathBounds,
     )?;
 
     let font_db = session.font_db.clone();
@@ -129,6 +130,17 @@ fn collect_scene_rects(
         draw_order,
         out,
     )
+}
+
+/// 同步读取图片维度。失败返回 (0, 0)（兼容旧 `read_image_dimensions` 语义）。
+fn read_image_dims_sync(path: &std::path::Path) -> (u32, u32) {
+    let Ok(bytes) = std::fs::read(path) else {
+        return (0, 0);
+    };
+    match opencat_core::resource::probe::probe_image_dims(&bytes) {
+        Ok(d) => (d.width, d.height),
+        Err(_) => (0, 0),
+    }
 }
 
 fn seed_asset_entries_for_inspect(
@@ -152,7 +164,7 @@ fn seed_asset_entries_for_inspect(
                 if let Ok(id) = catalog.resolve_image(&asset.source)
                     && let ImageSource::Path(path) = &asset.source
                 {
-                    let (width, height) = crate::resource::utils::read_image_dimensions(path);
+                    let (width, height) = read_image_dims_sync(path);
                     catalog.register_dimensions(&path.to_string_lossy(), width, height);
                     path_store.insert(id, path);
                 }
@@ -162,7 +174,7 @@ fn seed_asset_entries_for_inspect(
             if let Ok(id) = catalog.resolve_image(image.source())
                 && let ImageSource::Path(path) = image.source()
             {
-                let (width, height) = crate::resource::utils::read_image_dimensions(path);
+                let (width, height) = read_image_dims_sync(path);
                 catalog.register_dimensions(&path.to_string_lossy(), width, height);
                 path_store.insert(id, path);
             }

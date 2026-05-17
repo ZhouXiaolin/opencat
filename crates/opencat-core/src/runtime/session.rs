@@ -1,21 +1,31 @@
 //! Generic per-render session: holds backend-agnostic state + platform state.
 //!
-//! engine / web each have a type alias monomorphizing this session.
+//! engine / web each monomorphize this session with their concrete Platform
+//! and Canvas2D types.
 
 use std::sync::Arc;
 
+use crate::canvas::Canvas2D;
 use crate::layout::LayoutSession;
 use crate::platform::platform::Platform;
-use crate::platform::scene_snapshot::SceneSnapshotCache;
+use crate::render::RenderCache;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
-use crate::runtime::cache::{CacheCaps, CacheRegistry};
 use crate::runtime::compositor::ordered_scene::{OrderedSceneOp, OrderedSceneProgram};
 use crate::runtime::compositor::reuse::LiveNodeItemExecution;
 use crate::runtime::annotation::AnnotatedNodeHandle;
 use crate::runtime::invalidation::CompositeHistory;
 use crate::text::default_font_db;
 
-pub struct RenderSession<P: Platform> {
+/// Default cache capacity constants.
+const DEFAULT_IMAGE_CAP: usize = 128;
+const DEFAULT_SUBTREE_SNAPSHOT_CAP: usize = 256;
+const DEFAULT_SUBTREE_IMAGE_CAP: usize = 128;
+const DEFAULT_ITEM_PICTURE_CAP: usize = 64;
+const DEFAULT_GLYPH_PATH_CAP: usize = 1024;
+const DEFAULT_GLYPH_IMAGE_CAP: usize = 128;
+const DEFAULT_RUNTIME_EFFECT_CAP: usize = 64;
+
+pub struct RenderSession<P: Platform, C: Canvas2D> {
     /// per-render layout accumulator (node id -> measure cache)
     pub layout_session: LayoutSession,
 
@@ -31,34 +41,33 @@ pub struct RenderSession<P: Platform> {
     /// last preflight root pointer, for skipping duplicate preflight
     pub prepared_root_ptr: Option<usize>,
 
-    /// backend-typed caches (subtree snapshot / item picture / glyph etc)
-    pub cache_registry: CacheRegistry<P::Backend>,
-
-    /// single-slot scene snapshot cross-frame cache
-    pub scene_snapshots: SceneSnapshotCache<P::Backend>,
+    /// LRU caches parameterised by the canvas backend.
+    pub cache: RenderCache<C>,
 
     /// last ordered scene program from the most recent render_frame call
     pub last_ordered_scene: OrderedSceneProgram,
 
-    /// platform's own stuff (script runtime, video source, render engine ref, IO etc)
+    /// platform's own stuff (script runtime, video source, IO etc)
     pub platform: P,
 }
 
-impl<P: Platform> RenderSession<P> {
+impl<P: Platform, C: Canvas2D> RenderSession<P, C> {
     pub fn new(platform: P) -> Self {
-        Self::with_cache_caps(platform, CacheCaps::default())
-    }
-
-    pub fn with_cache_caps(platform: P, caps: CacheCaps) -> Self {
-        let font_db = Arc::new(default_font_db(&[]));
         Self {
             layout_session: LayoutSession::new(),
             composite_history: CompositeHistory::default(),
-            font_db,
+            font_db: Arc::new(default_font_db(&[])),
             catalog: HashMapResourceCatalog::from_json("{}").expect("empty catalog must parse"),
             prepared_root_ptr: None,
-            cache_registry: CacheRegistry::new(caps),
-            scene_snapshots: SceneSnapshotCache::new(),
+            cache: RenderCache::new(
+                DEFAULT_IMAGE_CAP,
+                DEFAULT_SUBTREE_SNAPSHOT_CAP,
+                DEFAULT_SUBTREE_IMAGE_CAP,
+                DEFAULT_ITEM_PICTURE_CAP,
+                DEFAULT_GLYPH_PATH_CAP,
+                DEFAULT_GLYPH_IMAGE_CAP,
+                DEFAULT_RUNTIME_EFFECT_CAP,
+            ),
             last_ordered_scene: OrderedSceneProgram {
                 root: OrderedSceneOp::LiveSubtree {
                     handle: AnnotatedNodeHandle(0),
@@ -68,173 +77,5 @@ impl<P: Platform> RenderSession<P> {
             },
             platform,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::frame_ctx::ScriptFrameCtx;
-    use crate::platform::backend::BackendTypes;
-    use crate::platform::render_engine::{FrameView, GlyphPaint, RecordCtx, RenderCtx, RenderEngine};
-    use crate::platform::video::{FrameBitmap, VideoFrameProvider};
-    use crate::resource::asset_id::AssetId;
-    use crate::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
-    use crate::display::list::{DisplayItem, DisplayRect};
-    use crate::text::GlyphData;
-    use crate::scene::path_bounds::{DefaultPathBounds, PathBoundsComputer};
-    use crate::scene::script::{ScriptDriverId, ScriptHost, ScriptTextSource};
-    use crate::script::recorder::MutationRecorder;
-    use anyhow::Result;
-
-    // --- mock types (mirror platform.rs tests) ---
-
-    struct MockBackend;
-    impl BackendTypes for MockBackend {
-        type Picture = String;
-        type Image = String;
-        type GlyphPath = String;
-        type GlyphImage = String;
-    }
-    impl RenderEngine for MockBackend {
-        fn target_frame_view_kind(&self) -> &'static str {
-            "mock"
-        }
-        fn draw_scene_snapshot(&self, _: &Self::Picture, _: FrameView<'_>) -> Result<()> {
-            Ok(())
-        }
-        fn record_display_tree_snapshot(
-            &self,
-            _: &mut RecordCtx<'_, Self>,
-            _: &AnnotatedDisplayTree,
-        ) -> Result<Self::Picture>
-        where
-            Self: Sized,
-        {
-            Ok("snap".into())
-        }
-        fn draw_ordered_scene(&self, _: &mut RenderCtx<'_, Self>, _: FrameView<'_>) -> Result<()>
-        where
-            Self: Sized,
-        {
-            Ok(())
-        }
-        fn record_subtree_snapshot(
-            &self, _: &mut RecordCtx<'_, Self>, _: &AnnotatedDisplayTree, _: AnnotatedNodeHandle,
-        ) -> Result<Self::Picture> { Ok("subtree_snap".into()) }
-        fn record_subtree_image(&self, _: &Self::Picture, _: DisplayRect) -> Result<Self::Image> {
-            Ok("subtree_img".into())
-        }
-        fn draw_subtree_snapshot(
-            &self, _: &Self::Picture, _: f32, _: Option<f32>, _: DisplayRect, _: FrameView<'_>,
-        ) -> Result<()> { Ok(()) }
-        fn draw_subtree_image(
-            &self, _: &Self::Image, _: f32, _: Option<f32>, _: DisplayRect, _: FrameView<'_>,
-        ) -> Result<()> { Ok(()) }
-        fn record_item_picture(
-            &self, _: &mut RecordCtx<'_, Self>, _: &DisplayItem,
-        ) -> Result<Self::Picture> { Ok("item_pic".into()) }
-        fn draw_item_picture(
-            &self, _: &Self::Picture, _: (f32, f32), _: FrameView<'_>,
-        ) -> Result<()> { Ok(()) }
-        fn rasterize_glyph_path(&self, _: &GlyphData) -> Result<Self::GlyphPath> { Ok("glyph_path".into()) }
-        fn rasterize_glyph_image(&self, _: &GlyphData) -> Result<Self::GlyphImage> { Ok("glyph_img".into()) }
-        fn draw_glyph_path(&self, _: &Self::GlyphPath, _: &GlyphPaint, _: FrameView<'_>) -> Result<()> { Ok(()) }
-        fn draw_glyph_image(&self, _: &Self::GlyphImage, _: DisplayRect, _: FrameView<'_>) -> Result<()> { Ok(()) }
-    }
-    unsafe impl Send for MockBackend {}
-    unsafe impl Sync for MockBackend {}
-
-    struct MockScript;
-    impl ScriptHost for MockScript {
-        fn install(&mut self, _: &str) -> Result<ScriptDriverId> {
-            Ok(ScriptDriverId(1))
-        }
-        fn register_text_source(&mut self, _: &str, _: ScriptTextSource) {}
-        fn clear_text_sources(&mut self) {}
-        fn run_frame(
-            &mut self,
-            _: ScriptDriverId,
-            _: &ScriptFrameCtx,
-            _: Option<&str>,
-            _: &mut dyn MutationRecorder,
-        ) -> Result<()> {
-            Ok(())
-        }
-    }
-
-    struct MockVideo;
-    impl VideoFrameProvider for MockVideo {
-        fn frame_rgba(&mut self, _: &AssetId, _: u32) -> Result<FrameBitmap> {
-            Ok(FrameBitmap {
-                data: std::sync::Arc::new(vec![0; 4]),
-                width: 1,
-                height: 1,
-            })
-        }
-    }
-
-    struct MockPlatform {
-        backend: MockBackend,
-        script: MockScript,
-        video: MockVideo,
-        path_bounds: DefaultPathBounds,
-    }
-    impl Platform for MockPlatform {
-        type Backend = MockBackend;
-        type Script = MockScript;
-        type Video = MockVideo;
-
-        fn render_engine(&self) -> &Self::Backend {
-            &self.backend
-        }
-        fn script_host(&mut self) -> &mut Self::Script {
-            &mut self.script
-        }
-        fn video_source(&mut self) -> &mut Self::Video {
-            &mut self.video
-        }
-        fn path_bounds(&self) -> &dyn PathBoundsComputer {
-            &self.path_bounds
-        }
-    }
-
-    fn make_mock_platform() -> MockPlatform {
-        MockPlatform {
-            backend: MockBackend,
-            script: MockScript,
-            video: MockVideo,
-            path_bounds: DefaultPathBounds,
-        }
-    }
-
-    #[test]
-    fn render_session_constructs_with_default_caps() {
-        let session = RenderSession::new(make_mock_platform());
-        assert!(session.prepared_root_ptr.is_none());
-        assert!(session.scene_snapshots.scene_snapshot().is_none());
-    }
-
-    #[test]
-    fn render_session_with_custom_cache_caps() {
-        let caps = CacheCaps {
-            images: 1,
-            subtree_snapshots: 2,
-            subtree_images: 3,
-            item_pictures: 4,
-            video_frames: 5,
-            glyph_paths: 6,
-            glyph_images: 7,
-        };
-        let session = RenderSession::with_cache_caps(make_mock_platform(), caps);
-        assert_eq!(session.cache_registry.image_cache().borrow().capacity(), 1);
-        assert_eq!(
-            session
-                .cache_registry
-                .glyph_path_cache()
-                .borrow()
-                .capacity(),
-            6
-        );
     }
 }

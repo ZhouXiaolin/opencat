@@ -124,7 +124,7 @@ impl RenderTargetHandle {
             .ok_or_else(|| anyhow!("render target does not expose a frame view resolver"))?;
         // SAFETY: frame surface handle is created by this target's begin_frame callback.
         let view = unsafe { resolve(self.user_data, frame_surface.raw()) }?;
-        RenderFrameView::new(self.frame_view_kind, view)
+        RenderFrameView::new(view)
     }
 
     pub(crate) fn require_frame_view_kind(&self, expected: RenderFrameViewKind) -> Result<()> {

@@ -1,7 +1,9 @@
 import type { CompositionInfo, ParsedElement } from './types';
-import { ensureSurface, drawDisplayTree } from './renderer';
+import { ensureSurface, drawDisplayTree, predecodeVideoFramesInTree } from './renderer';
 import { buildFrame, parseJsonl } from './wasm';
 import { getScriptEngine } from './script-engine';
+import { getRendererOrThrow } from './wasm';
+import { sceneFrameCtx } from './timeline';
 import type { IClip } from '@webav/av-cliper';
 
 type ProgressCallback = (current: number, total: number) => void;
@@ -19,7 +21,9 @@ class ExportClip implements IClip {
   private comp: CompositionInfo;
   private totalFrames: number;
   private fps: number;
+  private sampleRate: number;
   private onProgress: ProgressCallback;
+  private audioIds: string[];
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -28,6 +32,7 @@ class ExportClip implements IClip {
     resourceMetaJson: string,
     comp: CompositionInfo,
     onProgress: ProgressCallback,
+    audioIds: string[],
   ) {
     this.canvas = canvas;
     this.jsonlContent = jsonlContent;
@@ -36,7 +41,9 @@ class ExportClip implements IClip {
     this.comp = comp;
     this.totalFrames = comp.frames;
     this.fps = comp.fps;
+    this.sampleRate = 48000;
     this.onProgress = onProgress;
+    this.audioIds = audioIds;
 
     this.meta = {
       width: comp.width,
@@ -64,7 +71,8 @@ class ExportClip implements IClip {
 
     // Execute scripts to collect mutations
     const engine = getScriptEngine();
-    engine.setFrameCtx(frameNum + 1, this.totalFrames, this.totalFrames);
+    const sc = sceneFrameCtx(frameNum, this.jsonlContent);
+    engine.setFrameCtx(sc.localFrame + 1, this.totalFrames, sc.sceneFrames);
     const parsed = parseJsonl(this.jsonlContent);
 
     for (const el of parsed.elements || []) {
@@ -102,21 +110,68 @@ class ExportClip implements IClip {
     // Build display tree and render to canvas
     const result = buildFrame(this.filteredJsonl, frameNum, this.resourceMetaJson, mutationsJson);
     ensureSurface(this.canvas, width, height);
+    await predecodeVideoFramesInTree(result.root, this.comp, frameNum);
     drawDisplayTree(result.root, this.comp, frameNum);
+
+    // --- Audio: get samples for this frame's time slice ---
+    const startSecs = time / 1_000_000;
+    const durationSecs = 1.0 / this.fps;
+    const audioChannels = this.mixAudioForFrame(startSecs, durationSecs);
 
     // Read canvas as PNG blob then create ImageBitmap
     const blob = await new Promise<Blob | null>((resolve) => {
       this.canvas.toBlob(resolve, 'image/png');
     });
     if (!blob) {
-      return { video: null, audio: [], state: 'success' };
+      return { video: null, audio: audioChannels, state: 'success' };
     }
 
     const bitmap = await createImageBitmap(blob);
 
     this.onProgress(frameNum + 1, this.totalFrames);
 
-    return { video: bitmap, audio: [], state: 'success' };
+    return { video: bitmap, audio: audioChannels, state: 'success' };
+  }
+
+  /// Mix audio samples from all audio sources for a time slice.
+  private mixAudioForFrame(startSecs: number, durationSecs: number): Float32Array[] {
+    if (this.audioIds.length === 0) return [];
+
+    const renderer = getRendererOrThrow();
+    const frameSamples = Math.ceil(durationSecs * this.sampleRate);
+
+    // Initialize stereo buffers
+    const left = new Float32Array(frameSamples);
+    const right = new Float32Array(frameSamples);
+
+    for (const audioId of this.audioIds) {
+      const jsonStr = renderer.get_audio_samples(
+        audioId,
+        startSecs,
+        durationSecs,
+        this.sampleRate,
+      );
+      try {
+        const parsed = JSON.parse(jsonStr);
+        if (parsed.samples && parsed.samples.length > 0) {
+          // samples are interleaved: L,R,L,R,...
+          for (let i = 0; i < Math.min(parsed.samples.length / 2, frameSamples); i++) {
+            left[i] += parsed.samples[i * 2] || 0;
+            right[i] += parsed.samples[i * 2 + 1] || 0;
+          }
+        }
+      } catch {
+        // skip malformed audio data
+      }
+    }
+
+    // Clamp to [-1, 1]
+    for (let i = 0; i < frameSamples; i++) {
+      left[i] = Math.max(-1, Math.min(1, left[i]));
+      right[i] = Math.max(-1, Math.min(1, right[i]));
+    }
+
+    return [left, right];
   }
 
   async clone(): Promise<this> {
@@ -128,6 +183,22 @@ class ExportClip implements IClip {
 
 // ── Public API ──
 
+async function isAacEncodingSupported(): Promise<boolean> {
+  if (typeof AudioEncoder === 'undefined') return false;
+  if (!('isConfigSupported' in AudioEncoder)) return false;
+  try {
+    const support = await (AudioEncoder as any).isConfigSupported({
+      codec: 'mp4a.40.2',
+      sampleRate: 48000,
+      numberOfChannels: 2,
+      bitrate: 128000,
+    });
+    return support?.supported === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function initFFmpeg(): Promise<void> {
   // No-op: FFmpeg.wasm has been removed (replaced by WebAV/WebCodecs)
 }
@@ -138,6 +209,7 @@ export async function exportMp4(
   comp: CompositionInfo,
   resourceMeta: Record<string, { width: number; height: number; kind: string; durationSecs?: number }>,
   onProgress: ProgressCallback,
+  audioIds: string[],
 ): Promise<Uint8Array | null> {
   const { width, height, fps } = comp;
   const resourceMetaJson = JSON.stringify(resourceMeta);
@@ -158,8 +230,17 @@ export async function exportMp4(
   // Dynamically import Combinator + OffscreenSprite only when needed
   const { Combinator, OffscreenSprite } = await import('@webav/av-cliper');
 
-  const clip = new ExportClip(canvas, jsonlContent, filteredJsonl, resourceMetaJson, comp, onProgress);
+  const clip = new ExportClip(canvas, jsonlContent, filteredJsonl, resourceMetaJson, comp, onProgress, audioIds);
   const spr = new OffscreenSprite(clip);
+
+  let hasAudio = audioIds.length > 0;
+  if (hasAudio) {
+    const aacSupported = await isAacEncodingSupported();
+    if (!aacSupported) {
+      console.warn('[export] AAC audio encoding not supported by this browser, exporting video only');
+      hasAudio = false;
+    }
+  }
 
   const com = new Combinator({
     width,
@@ -167,8 +248,8 @@ export async function exportMp4(
     fps,
     bgColor: '#000',
     videoCodec: 'avc1.42E032',
-    audio: false,
-  });
+    ...(hasAudio ? { audio: true as const } : { audio: false as const }),
+  } as any);
 
   // Track encoding progress
   com.on('OutputProgress', (progress) => {
@@ -231,7 +312,8 @@ export async function exportPngFrame(
 
   // Execute scripts to collect mutations
   const engine = getScriptEngine();
-  engine.setFrameCtx(frame + 1, comp.frames, comp.frames);
+  const sc = sceneFrameCtx(frame, jsonlContent);
+  engine.setFrameCtx(sc.localFrame + 1, comp.frames, sc.sceneFrames);
   const parsed = parseJsonl(jsonlContent);
 
   for (const el of parsed.elements || []) {
@@ -267,6 +349,7 @@ export async function exportPngFrame(
   const mutationsJson = engine.collectJson();
 
   const result = buildFrame(filteredJsonl, frame, resourceMetaJson, mutationsJson);
+  await predecodeVideoFramesInTree(result.root, comp, frame);
   drawDisplayTree(result.root, comp, frame);
 
   const blob = await new Promise<Blob | null>((resolve) => {

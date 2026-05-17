@@ -17,3 +17,11 @@ pub fn bitmap_source_kind(path: &Path) -> BitmapSourceKind {
         _ => BitmapSourceKind::StaticImage,
     }
 }
+
+pub fn bitmap_source_kind_from_id(asset_id: &str) -> BitmapSourceKind {
+    if asset_id.starts_with("video:") {
+        BitmapSourceKind::Video
+    } else {
+        BitmapSourceKind::StaticImage
+    }
+}

@@ -1,5 +1,15 @@
 import './style.css';
-import { initWasm, parseJsonl, getCompositionInfo, collectResources, buildFrame } from './wasm';
+import {
+  initWasm,
+  parseJsonl,
+  getCompositionInfo,
+  collectResources,
+  buildFrame,
+  preloadAssets,
+  clearBlobs,
+  getBlobBytes,
+  getRendererOrThrow,
+} from './wasm';
 import {
   initCanvasKit,
   ensureSurface,
@@ -9,15 +19,18 @@ import {
   getSurface,
   drawDisplayTree,
   registerImage,
+  predecodeVideoFramesInTree,
 } from './renderer';
 import {
   exportMp4,
   exportPngFrame,
   downloadMp4,
 } from './exporter';
-import { loadImages, setCanvasKit, getCachedImage } from './resource';
+import { decodeImageFromBlob, setCanvasKit } from './resource';
 import { getScriptEngine } from './script-engine';
+import { prepareVideoSource, getDecodedFrameRgba, registerVideoGlobals, clearVideoCache } from './video-decoder';
 import type { CompositionInfo, JsonlFile, ParsedResult, ParsedElement } from './types';
+import { computeTimelineSegments, sceneFrameCtx, clearTimelineCache, type TimelineSegment } from './timeline';
 
 // --- State ---
 let currentComposition: CompositionInfo | null = null;
@@ -25,7 +38,9 @@ let currentJsonlContent: string | null = null;
 let currentFile: JsonlFile | null = null;
 let currentFrame = 0;
 let isPlaying = false;
-let playInterval: ReturnType<typeof setInterval> | null = null;
+let playRafId: number | null = null;
+let playStartTime = 0;
+let playStartFrame = 0;
 let isExporting = false;
 
 // --- Resource Metadata for WASM build_frame ---
@@ -86,6 +101,9 @@ async function boot() {
     ckStatusEl.className = 'status-badge ready';
 
     setCanvasKit(getCanvasKit());
+
+    // Register video decode globals on window for WASM fallback access
+    registerVideoGlobals();
 
     // Initialize shared script engine (loads wasm bridge + core JS runtimes once)
     await getScriptEngine().init();
@@ -187,6 +205,8 @@ function stripLocalPathElements(jsonlContent: string): string {
     .join('\n');
 }
 
+// ── Timeline segment computation (imported from shared module) ──
+
 /**
  * 从 JSONL 中剥离 type: script 的元素（JS 已处理，避免 WASM 重复处理报错）
  */
@@ -215,46 +235,84 @@ async function preloadResources(
   resourceMeta = {};
 
   const requests = collectResources(jsonlContent);
+  const totalAssets = requests.images.length + requests.videos.length + requests.audios.length;
+  onProgress?.(0, totalAssets);
 
-  // Seed progress with initial draw on canvas
-  onProgress?.(0, requests.images.length);
+  clearBlobs();
 
-  // Load all images with sequential progress tracking.
-  // Each completed image triggers a progress callback that redraws
-  // the black canvas with updated download text.
-  await loadImages(requests, (loaded, total) => {
-    onProgress?.(loaded, total);
-  });
+  const catalogJson = await preloadAssets(jsonlContent);
+  const catalog = JSON.parse(catalogJson) as Record<string, ResourceMeta>;
+  resourceMeta = catalog;
 
-  // After downloads complete, register all cached images with the
-  // renderer and populate resourceMeta for WASM buildFrame.
-  for (const assetId of requests.images) {
-    const cached = getCachedImage(assetId);
-    if (cached) {
-      resourceMeta[assetId] = {
-        width: cached.width,
-        height: cached.height,
-        kind: 'image',
-      };
-      registerImage(assetId, cached.ckImage);
+  const renderer = getRendererOrThrow();
+  let decoded = 0;
+
+  for (const [assetId, meta] of Object.entries(catalog)) {
+    if (meta.kind === 'image') {
+      const loaded = decodeImageFromBlob(assetId);
+      if (loaded) {
+        registerImage(assetId, loaded.ckImage);
+      }
+    } else if (meta.kind === 'video') {
+      const raw = getBlobBytes(assetId);
+      if (raw) {
+        try {
+          // Ensure we have a clean ArrayBuffer (no offset/length issues)
+          const videoBuf = new Uint8Array(raw).buffer;
+
+          // Demux only — no pre-decoding. Frames are decoded on-demand.
+          const { width, height, durationSecs } = await prepareVideoSource(
+            assetId,
+            videoBuf,
+          );
+
+          console.log(`[main] video source ready: ${assetId} → ${width}x${height}, duration=${durationSecs ?? 'N/A'}s`);
+
+          // Register a static placeholder so the renderer has something to show
+          // before the first frame is decoded. Use the first frame as a fallback
+          // by triggering an early decode for time 0.
+          try {
+            const firstFrame = await getDecodedFrameRgba(assetId, 0);
+            if (firstFrame) {
+              const CK = getCanvasKit();
+              if (CK) {
+                const imageInfo = {
+                  width: firstFrame.width,
+                  height: firstFrame.height,
+                  colorType: CK.ColorType.RGBA_8888,
+                  alphaType: CK.AlphaType.Unpremul,
+                  colorSpace: CK.ColorSpace.SRGB,
+                };
+                const ckImage = CK.MakeImage(imageInfo, firstFrame.rgba, firstFrame.width * 4);
+                if (ckImage) {
+                  // Register as fallback (no frame suffix) so the renderer can show
+                  // something even before explicit frame pre-decode
+                  registerImage(assetId, ckImage);
+                  // Also inject into WASM for Rust-side VideoFrameProvider
+                  renderer.inject_video_frame(assetId, 0, firstFrame.rgba, firstFrame.width, firstFrame.height);
+                }
+              }
+            }
+          } catch (err) {
+            console.warn(`[main] failed to decode first frame for ${assetId}:`, err);
+          }
+        } catch (err) {
+          console.error(`Video source prep failed for ${assetId}:`, err);
+        }
+      }
+    } else if (meta.kind === 'audio') {
+      const raw = getBlobBytes(assetId);
+      if (raw) {
+        try {
+          await renderer.decode_audio_file(assetId, raw);
+        } catch (err) {
+          console.error(`Audio decode failed for ${assetId}:`, err);
+        }
+      }
     }
-  }
 
-  // Video/Audio: register placeholder metadata (decoded on-demand).
-  for (const assetId of requests.videos) {
-    resourceMeta[assetId] = {
-      width: 1920,
-      height: 1080,
-      kind: 'video',
-      durationSecs: 10,
-    };
-  }
-  for (const assetId of requests.audios) {
-    resourceMeta[assetId] = {
-      width: 0,
-      height: 0,
-      kind: 'audio',
-    };
+    decoded++;
+    onProgress?.(decoded, totalAssets);
   }
 }
 
@@ -291,6 +349,7 @@ function drawDownloadProgress(loaded: number, total: number): void {
 
 // --- Load JSONL ---
 async function loadJsonl(file: JsonlFile) {
+  clearTimelineCache();
   try {
     const resp = await fetch(file.path);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -393,10 +452,13 @@ async function renderFrameAsync(frame: number) {
 
 // --- Full Pipeline Renderer ---
 
+// --- Full Pipeline Renderer ---
+
 async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Promise<void> {
   // Step 1: Execute scripts to collect mutations (shared by both paths)
   const engine = getScriptEngine();
-  engine.setFrameCtx(frame + 1, comp.frames, comp.frames);
+  const { localFrame, sceneFrames } = sceneFrameCtx(frame, currentJsonlContent!);
+  engine.setFrameCtx(localFrame + 1, comp.frames, sceneFrames);
   const parsed = parseJsonl(currentJsonlContent!);
 
   // Pre-register text sources from JSONL elements so that script features
@@ -449,6 +511,32 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
 
   // Step 2: WASM build display tree
   const result = buildFrame(filteredJsonl, frame, resourceMetaJson, mutationsJson);
+
+  // Step 2.5: Pre-decode video frames needed for this composition frame.
+  // Walk the display tree, find bitmap items with videoTiming, compute
+  // target video time, decode the frame, and register as CanvasKit image.
+  await predecodeVideoFramesInTree(result.root, comp, frame);
+
+  // Debug: check if display tree has video bitmap items
+  if (frame === 108) {
+    const collectTypes = (node: any): string[] => {
+      const types: string[] = [node.item?.type || '?'];
+      if (node.item?.type === 'bitmap') {
+        types[types.length - 1] += `(videoTiming=${!!node.item.videoTiming}, assetId=${node.item.assetId})`;
+      }
+      for (const c of node.children || []) {
+        types.push(...collectTypes(c));
+      }
+      return types;
+    };
+    const allTypes = collectTypes(result.root);
+    const bitmapItems = allTypes.filter(t => t.startsWith('bitmap'));
+    if (bitmapItems.length > 0) {
+      console.log(`[main] frame ${frame} display tree has ${bitmapItems.length} bitmap items:`, bitmapItems);
+    } else {
+      console.log(`[main] frame ${frame} display tree: no bitmap items found`);
+    }
+  }
 
   // Step 3: Render via CanvasKit
   const rootBg = extractRootBackground(result.root);
@@ -543,28 +631,73 @@ function updateFrameInfo() {
 }
 
 // --- Playback ---
+function hasAudioSources(): boolean {
+  for (const [, meta] of Object.entries(resourceMeta)) {
+    if (meta.kind === 'audio') return true;
+  }
+  return false;
+}
+
 function play() {
   if (!currentComposition || isPlaying) return;
   isPlaying = true;
   btnPlay.textContent = '⏸';
-  playInterval = setInterval(() => {
-    if (!currentComposition) return;
-    currentFrame++;
-    if (currentFrame >= currentComposition.frames) {
-      currentFrame = 0;
+
+  const renderer = getRendererOrThrow();
+  const fps = currentComposition.fps;
+  const totalFrames = currentComposition.frames;
+  const totalDuration = totalFrames / fps;
+  const startTime = currentFrame / fps;
+
+  // Start audio for each source at current time offset
+  for (const [id, meta] of Object.entries(resourceMeta)) {
+    if (meta.kind === 'audio') {
+      try {
+        renderer.play_audio_at(id, startTime, totalDuration - startTime);
+      } catch { /* ignore */ }
     }
-    renderFrameAsync(currentFrame);
-    updateFrameInfo();
-  }, 1000 / currentComposition.fps);
+  }
+
+  // Record audio clock at play start for audio-driven sync
+  const useAudioClock = hasAudioSources();
+  playStartFrame = currentFrame;
+  playStartTime = useAudioClock ? renderer.audio_context_time() : performance.now() / 1000;
+
+  function tick() {
+    if (!isPlaying || !currentComposition) return;
+
+    // Audio clock first (like native opencat-see), fall back to system clock
+    const elapsed = useAudioClock
+      ? renderer.audio_context_time() - playStartTime
+      : performance.now() / 1000 - playStartTime;
+
+    const compFps = currentComposition.fps;
+    const compFrames = currentComposition.frames;
+    const rawFrame = Math.floor((playStartFrame + elapsed * compFps) % compFrames);
+    const frame = rawFrame < 0 ? rawFrame + compFrames : rawFrame;
+
+    if (frame !== currentFrame) {
+      currentFrame = frame;
+      renderFrameAsync(frame);
+      updateFrameInfo();
+    }
+
+    playRafId = requestAnimationFrame(tick);
+  }
+
+  playRafId = requestAnimationFrame(tick);
 }
 
 function pause() {
   isPlaying = false;
   btnPlay.textContent = '▶';
-  if (playInterval) {
-    clearInterval(playInterval);
-    playInterval = null;
+  if (playRafId !== null) {
+    cancelAnimationFrame(playRafId);
+    playRafId = null;
   }
+  try {
+    getRendererOrThrow().stop_audio();
+  } catch { /* ignore */ }
 }
 
 function togglePlay() {
@@ -635,11 +768,16 @@ async function handleExport() {
     const comp = currentComposition;
     exportInfoEl.textContent = 'Encoding MP4...';
 
+    // Collect audio asset IDs
+    const audioIds = Object.entries(resourceMeta)
+      .filter(([, meta]) => meta.kind === 'audio')
+      .map(([id]) => id);
+
     const data = await exportMp4(currentJsonlContent, previewCanvas, comp, resourceMeta, (current, total) => {
       const pct = Math.round((current / total) * 100);
       exportProgressFill.style.width = `${pct}%`;
       btnExport.textContent = `⏳ ${current}/${total}`;
-    });
+    }, audioIds);
 
     if (data) {
       downloadMp4(data, currentFile.name);

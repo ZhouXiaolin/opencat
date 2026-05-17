@@ -11,6 +11,7 @@
 
 pub mod animate;
 pub mod bindings;
+pub mod dispatch;
 pub mod helpers;
 pub mod js_context;
 pub mod recorder;

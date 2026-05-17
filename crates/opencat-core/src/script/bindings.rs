@@ -2,7 +2,9 @@
 //!
 //! Every JS → Rust binding used by the script engine is defined here.
 //! To add a new binding, write ONE entry below in the right section.
-//! The engine side (`install_to_rquickjs`) handles the rest automatically.
+//! The core dispatcher (`script::dispatch::dispatch_binding`) handles the
+//! rest automatically; engine / web only register a single native entry
+//! point and route by name through this table.
 //!
 //! ── Four categories ──────────────────────────────────────────────────
 //!
@@ -490,23 +492,20 @@ macro_rules! for_each_binding {
         }}
 
         // ── Node: text unit overrides (complex Object destructuring) ──────
-        $binding! { node $rec $id record_text_unit_override ($id: &str, granularity: String, index: u32, values: rquickjs::Object<'js>) {
+        $binding! { node $rec $id record_text_unit_override ($id: &str, granularity: String, index: u32, values: serde_json::Map<String, serde_json::Value>) {
             let index = index as usize;
             let gran = match granularity.as_str() {
                 "graphemes" => TextUnitGranularity::Grapheme,
                 "words" => TextUnitGranularity::Word,
                 _ => return Err(anyhow::anyhow!("unsupported granularity")),
             };
-            let opacity: Option<f64> = values.get("opacity").ok().flatten();
-            let translate_x: Option<f64> = values.get("translateX").ok().flatten();
-            let translate_y: Option<f64> = values.get("translateY").ok().flatten();
-            let scale: Option<f64> = values.get("scale").ok().flatten();
-            let rotation_deg: Option<f64> = values.get("rotation").ok().flatten();
-            let color: Option<String> = values
-                .get("textColor")
-                .ok()
-                .flatten()
-                .or_else(|| values.get("color").ok().flatten());
+            let opacity = values.get("opacity").and_then(|v| v.as_f64());
+            let translate_x = values.get("translateX").and_then(|v| v.as_f64());
+            let translate_y = values.get("translateY").and_then(|v| v.as_f64());
+            let scale = values.get("scale").and_then(|v| v.as_f64());
+            let rotation_deg = values.get("rotation").and_then(|v| v.as_f64());
+            let color = values.get("textColor").and_then(|v| v.as_str()).map(String::from)
+                .or_else(|| values.get("color").and_then(|v| v.as_str()).map(String::from));
             $rec.record_text_unit_override(
                 $id,
                 gran,
@@ -571,7 +570,7 @@ macro_rules! for_each_binding {
             let (x, y, angle) = $store.along_path_at(handle, t);
             Ok(vec![x, y, angle])
         }}
-        $binding! { qry $store text_units_describe (_ctx: rquickjs::Ctx<'js>, id: String, granularity_str: String) -> rquickjs::Array<'js> {
+        $binding! { qry $store text_units_describe (id: String, granularity_str: String) -> Vec<(u32, String, u32, u32)> {
             let text = $store.get_text_source(&id).map(|src| src.text.clone())
                 .ok_or_else(|| anyhow::anyhow!("no text source found for node"))?;
             let granularity = match granularity_str.as_str() {
@@ -579,17 +578,10 @@ macro_rules! for_each_binding {
                 "words" => TextUnitGranularity::Word,
                 _ => return Err(anyhow::anyhow!("unknown granularity; expected 'graphemes' or 'words'")),
             };
-            let units = describe_text_units(&text, granularity);
-            let result = rquickjs::Array::new(_ctx.clone())?;
-            for (i, unit) in units.iter().enumerate() {
-                let entry = rquickjs::Array::new(_ctx.clone())?;
-                entry.set(0, unit.index as f64)?;
-                entry.set(1, unit.text.clone())?;
-                entry.set(2, unit.start as f64)?;
-                entry.set(3, unit.end as f64)?;
-                result.set(i, entry)?;
-            }
-            Ok(result)
+            Ok(describe_text_units(&text, granularity)
+                .into_iter()
+                .map(|u| (u.index as u32, u.text, u.start as u32, u.end as u32))
+                .collect())
         }}
         $binding! { qry $store text_source_get (id: String) -> Option<String> {
             Ok($store.get_text_source(&id).map(|s| s.text.clone()))
@@ -602,12 +594,8 @@ macro_rules! for_each_binding {
         $binding! { pure util_random_seeded (seed: f32) -> f32 {
             Ok(random_from_seed(seed))
         }}
-        $binding! { pure text_graphemes (_ctx: rquickjs::Ctx<'js>, text: String) -> rquickjs::Array<'js> {
-            let result = rquickjs::Array::new(_ctx)?;
-            for (index, grapheme) in grapheme_strings(&text).into_iter().enumerate() {
-                result.set(index, grapheme)?;
-            }
-            Ok(result)
+        $binding! { pure text_graphemes (text: String) -> Vec<String> {
+            Ok(grapheme_strings(&text).into_iter().collect())
         }}
         $binding! { pure easing_apply (tag: String, t: f32) -> f32 {
             let easing = parse_easing_from_tag(&tag);

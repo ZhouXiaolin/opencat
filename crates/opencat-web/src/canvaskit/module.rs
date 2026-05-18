@@ -36,19 +36,32 @@ pub(crate) fn ck() -> &'static JsValue {
 use crate::canvaskit::bindings::CKTypefaceJs;
 use wasm_bindgen::JsCast;
 
+const EMBEDDED_FONT: &[u8] = include_bytes!("../../../../assets/NotoSansSC-Regular.otf");
+
 thread_local! {
     static DEFAULT_TYPEFACE: std::cell::RefCell<Option<CKTypefaceJs>> = std::cell::RefCell::new(None);
 }
 
-/// Set the default Typeface (used by draw_simple_text/draw_glyph_run as Font::default substitute).
+fn ensure_default_typeface() {
+    DEFAULT_TYPEFACE.with(|tf| {
+        if tf.borrow().is_none() {
+            if let Some(typeface) = crate::canvaskit::bindings::ck_make_typeface_from_data(EMBEDDED_FONT) {
+                *tf.borrow_mut() = Some(typeface);
+            }
+        }
+    });
+}
+
+/// Set the default Typeface (overrides embedded NotoSansSC).
 pub fn set_default_typeface(typeface: CKTypefaceJs) {
     DEFAULT_TYPEFACE.with(|tf| {
         *tf.borrow_mut() = Some(typeface);
     });
 }
 
-/// Get the default Typeface. Returns None if not initialized.
+/// Get the default Typeface. Falls back to embedded NotoSansSC if none was injected.
 pub fn default_typeface() -> Option<CKTypefaceJs> {
+    ensure_default_typeface();
     DEFAULT_TYPEFACE.with(|tf| {
         tf.borrow().as_ref().map(|t| {
             let js: &JsValue = t.unchecked_ref();

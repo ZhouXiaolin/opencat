@@ -34,11 +34,13 @@ pub fn apply_to<'a>(
             // 重置 shader（防止上一次设过 shader 留在 paint 上）
             target.set_shader(&wasm_bindgen::JsValue::NULL);
         }
-        FillSpec::Shader(_shader_spec) => {
-            // TODO(Plan C/D): build_ck_shader(shader_spec) 后 target.set_shader(&shader);
-            // 暂时 fall back 到透明黑色，行为可视化为 shader 未生效，但不 panic。
-            target.set_color(&ck_color4f(0.0, 0.0, 0.0, 0.0));
-            target.set_shader(&wasm_bindgen::JsValue::NULL);
+        FillSpec::Shader(shader_spec) => {
+            if let Some(shader_handle) = crate::canvaskit::bindings::build_ck_shader(shader_spec) {
+                target.set_shader(shader_handle.as_js());
+            } else {
+                target.set_color(&ck_color4f(0.0, 0.0, 0.0, 0.0));
+                target.set_shader(&wasm_bindgen::JsValue::NULL);
+            }
         }
     }
 

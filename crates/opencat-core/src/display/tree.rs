@@ -1,14 +1,12 @@
 use crate::display::list::{DisplayClip, DisplayItem, DisplayTransform};
 use crate::element::tree::ElementId;
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct DisplayTree {
     pub root: DisplayNode,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct DisplayNode {
     pub element_id: ElementId,
     pub transform: DisplayTransform,

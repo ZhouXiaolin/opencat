@@ -425,11 +425,23 @@ impl Canvas2D for CanvasKitCanvas2D {
     fn make_image_from_encoded(&self, bytes: &[u8]) -> Option<Self::Image> {
         crate::canvaskit::bindings::ck_make_image_from_encoded(bytes)
     }
-    fn render_to_image<R>(&mut self, _width: u32, _height: u32, _draw: R) -> Self::Image
+    fn render_to_image<R>(&mut self, width: u32, height: u32, draw: R) -> Self::Image
     where
         R: FnOnce(&mut Self),
         Self: Sized,
     {
-        todo!("M2: MakeSurface → getCanvas → draw → makeImageSnapshot")
+        let surface = crate::canvaskit::bindings::ck_make_surface(width, height)
+            .expect("CanvasKit.MakeSurface failed; check width/height");
+        let offscreen_canvas = crate::canvaskit::bindings::CKSurfaceJs::surface_get_canvas(&surface);
+
+        let mut temp = CanvasKitCanvas2D::new(offscreen_canvas);
+        draw(&mut temp);
+        drop(temp);
+
+        crate::canvaskit::bindings::CKSurfaceJs::surface_flush(&surface);
+        let img_js = crate::canvaskit::bindings::CKSurfaceJs::make_image_snapshot(&surface);
+        crate::canvaskit::bindings::CKSurfaceJs::delete_surface(&surface);
+
+        crate::canvaskit::handle::CKHandle::wrap(img_js)
     }
 }

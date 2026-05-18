@@ -494,10 +494,8 @@ impl Canvas2D for CanvasKitCanvas2D {
         points: &[f32],
         fill_type: FillType,
     ) -> Self::Path {
-        let path_handle = crate::canvaskit::bindings::ck_new_path()
-            .expect("CanvasKit.Path() ctor failed; ensure init_canvaskit() was called");
-        let path: &crate::canvaskit::bindings::CKPath =
-            path_handle.as_js().unchecked_ref();
+        let builder = crate::canvaskit::bindings::ck_new_path_builder()
+            .expect("CanvasKit.PathBuilder() ctor failed; ensure init_canvaskit() was called");
 
         let mut pi = 0usize;
         let n = points.len();
@@ -515,32 +513,33 @@ impl Canvas2D for CanvasKitCanvas2D {
             }
             match *v {
                 0 => {
-                    path.move_to(points[pi], points[pi + 1]);
+                    crate::canvaskit::bindings::CKPathBuilder::pb_move_to(&builder, points[pi], points[pi + 1]);
                     pi += 2;
                 }
                 1 => {
-                    path.line_to(points[pi], points[pi + 1]);
+                    crate::canvaskit::bindings::CKPathBuilder::pb_line_to(&builder, points[pi], points[pi + 1]);
                     pi += 2;
                 }
                 2 => {
-                    path.quad_to(points[pi], points[pi + 1], points[pi + 2], points[pi + 3]);
+                    crate::canvaskit::bindings::CKPathBuilder::pb_quad_to(&builder, points[pi], points[pi + 1], points[pi + 2], points[pi + 3]);
                     pi += 4;
                 }
                 3 => {
                     // Conic verb: points[pi..pi+5] = (x0,y0,x1,y1,w).
                     // Weight w is dropped; quad_to uses only 4 points, pi skips all 5.
-                    path.quad_to(points[pi], points[pi + 1], points[pi + 2], points[pi + 3]);
+                    crate::canvaskit::bindings::CKPathBuilder::pb_quad_to(&builder, points[pi], points[pi + 1], points[pi + 2], points[pi + 3]);
                     pi += 5;
                 }
                 4 => {
-                    path.cubic_to(
+                    crate::canvaskit::bindings::CKPathBuilder::pb_cubic_to(
+                        &builder,
                         points[pi], points[pi + 1], points[pi + 2],
                         points[pi + 3], points[pi + 4], points[pi + 5],
                     );
                     pi += 6;
                 }
                 5 => {
-                    path.close_path();
+                    crate::canvaskit::bindings::CKPathBuilder::pb_close(&builder);
                 }
                 _ => {
                     break;
@@ -548,6 +547,11 @@ impl Canvas2D for CanvasKitCanvas2D {
             }
         }
 
+        let path_js = crate::canvaskit::bindings::CKPathBuilder::snapshot(&builder);
+        crate::canvaskit::bindings::CKPathBuilder::delete_builder(&builder);
+
+        let path_handle: crate::canvaskit::handle::CKPath = crate::canvaskit::handle::CKHandle::wrap(path_js);
+        let path: &crate::canvaskit::bindings::CKPath = path_handle.as_js().unchecked_ref();
         path.set_fill_type(&crate::canvaskit::convert::ck_fill_type(fill_type));
         path_handle
     }

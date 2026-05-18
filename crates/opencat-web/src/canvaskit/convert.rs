@@ -101,19 +101,27 @@ pub fn ck_fill_type(f: FillType) -> JsValue {
 }
 
 /// CanvasKit RRect 表示为 [l, t, r, b, rx_lt, ry_lt, rx_rt, ry_rt, rx_rb, ry_rb, rx_lb, ry_lb]
-/// 共 12 个 f32 的 Float32Array。这里从 kurbo::RoundedRect 抽出统一半径（kurbo
-/// 只支持一个 radius，不区分 8 个角），4 角同值。
+/// 共 12 个 f32 的 Float32Array。从 kurbo::RoundedRect 提取 4 角各自半径（kurbo
+/// 的 radii 是单一 f64，不区分 x/y，故每个角的 rx = ry）。
 pub fn ck_rrect_from_kurbo(rrect: &opencat_core::canvas::RRect) -> JsValue {
     let rect = rrect.rect();
-    let r = rrect.radii().as_single_radius().unwrap_or(0.0) as f32;
+    let radii = rrect.radii();
     let arr = js_sys::Float32Array::new_with_length(12);
     arr.set_index(0, rect.x0 as f32);
     arr.set_index(1, rect.y0 as f32);
     arr.set_index(2, rect.x1 as f32);
     arr.set_index(3, rect.y1 as f32);
-    for i in 0..4 {
-        arr.set_index(4 + i * 2, r);
-        arr.set_index(5 + i * 2, r);
-    }
+    // top-left (index 4,5)
+    arr.set_index(4, radii.top_left as f32);
+    arr.set_index(5, radii.top_left as f32);
+    // top-right (index 6,7)
+    arr.set_index(6, radii.top_right as f32);
+    arr.set_index(7, radii.top_right as f32);
+    // bottom-right (index 8,9)
+    arr.set_index(8, radii.bottom_right as f32);
+    arr.set_index(9, radii.bottom_right as f32);
+    // bottom-left (index 10,11)
+    arr.set_index(10, radii.bottom_left as f32);
+    arr.set_index(11, radii.bottom_left as f32);
     arr.into()
 }

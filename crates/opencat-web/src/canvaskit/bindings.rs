@@ -8,7 +8,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::canvaskit::handle::{CKHandle, CkColorFilterMarker, CkImageFilterMarker, CkImageMarker, CkPathMarker, CkRuntimeEffectMarker, CkShaderMarker};
+use crate::canvaskit::handle::{CKHandle, CkColorFilterMarker, CkImageFilterMarker, CkImageMarker, CkMaskFilterMarker, CkPathEffectMarker, CkPathMarker, CkRuntimeEffectMarker, CkShaderMarker};
 
 #[wasm_bindgen]
 extern "C" {
@@ -577,6 +577,64 @@ pub fn build_ck_image_filter(
             if result.is_null() || result.is_undefined() {
                 return None;
             }
+            Some(CKHandle::wrap(result))
+        }
+    }
+}
+
+/// Convert core `MaskFilterSpec` to CanvasKit MaskFilter handle.
+pub fn build_ck_mask_filter(
+    spec: &opencat_core::canvas::paint::MaskFilterSpec,
+) -> Option<CKHandle<CkMaskFilterMarker>> {
+    use opencat_core::canvas::paint::MaskFilterSpec;
+    let m = crate::canvaskit::module::ck();
+
+    match spec {
+        MaskFilterSpec::Blur { sigma, style, respect_ctm } => {
+            let mf_class = js_sys::Reflect::get(m, &JsValue::from_str("MaskFilter")).ok()?;
+            let make_fn = js_sys::Reflect::get(&mf_class, &JsValue::from_str("MakeBlur")).ok()?;
+            let func = make_fn.dyn_ref::<js_sys::Function>()?;
+
+            let style_name = match style {
+                opencat_core::canvas::paint::BlurStyle::Normal => "Normal",
+                opencat_core::canvas::paint::BlurStyle::Inner => "Inner",
+                opencat_core::canvas::paint::BlurStyle::Solid => "Solid",
+                opencat_core::canvas::paint::BlurStyle::Outer => "Outer",
+            };
+            let bs_group = js_sys::Reflect::get(m, &JsValue::from_str("BlurStyle"))
+                .unwrap_or(JsValue::UNDEFINED);
+            let style_js = js_sys::Reflect::get(&bs_group, &JsValue::from_str(style_name))
+                .unwrap_or(JsValue::UNDEFINED);
+
+            let result = func.call3(
+                &mf_class,
+                &JsValue::from_f64(*sigma as f64),
+                &style_js,
+                &JsValue::from_bool(*respect_ctm),
+            ).ok()?;
+            if result.is_null() || result.is_undefined() { return None; }
+            Some(CKHandle::wrap(result))
+        }
+    }
+}
+
+/// Convert core `PathEffectSpec` to CanvasKit PathEffect handle.
+pub fn build_ck_path_effect(
+    spec: &opencat_core::canvas::paint::PathEffectSpec,
+) -> Option<CKHandle<CkPathEffectMarker>> {
+    use opencat_core::canvas::paint::PathEffectSpec;
+    let m = crate::canvaskit::module::ck();
+
+    match spec {
+        PathEffectSpec::Dash { intervals, phase } => {
+            let pe_class = js_sys::Reflect::get(m, &JsValue::from_str("PathEffect")).ok()?;
+            let make_fn = js_sys::Reflect::get(&pe_class, &JsValue::from_str("MakeDash")).ok()?;
+            let func = make_fn.dyn_ref::<js_sys::Function>()?;
+
+            let arr = js_sys::Float32Array::new_with_length(intervals.len() as u32);
+            for (i, &v) in intervals.iter().enumerate() { arr.set_index(i as u32, v); }
+            let result = func.call2(&pe_class, &arr, &JsValue::from_f64(*phase as f64)).ok()?;
+            if result.is_null() || result.is_undefined() { return None; }
             Some(CKHandle::wrap(result))
         }
     }

@@ -19,6 +19,7 @@ use crate::platform::WebPlatform;
 pub struct WebRenderer {
     session: RenderSession<WebPlatform, CanvasKitCanvas2D>,
     audio: WebAudio,
+    blobs: crate::resource::blob_store::BlobStore,
 }
 
 #[wasm_bindgen]
@@ -29,6 +30,7 @@ impl WebRenderer {
         Ok(Self {
             session: RenderSession::new(WebPlatform::new()),
             audio,
+            blobs: crate::resource::blob_store::BlobStore::new(),
         })
     }
 
@@ -57,12 +59,13 @@ impl WebRenderer {
         let canvas: CKCanvas = ck_canvas.unchecked_into();
         let mut canvas2d = CanvasKitCanvas2D::new(canvas);
 
+        let blob_store_ref: &dyn opencat_core::resource::BlobStore = &self.blobs;
         render_frame::<WebPlatform, CanvasKitCanvas2D>(
             &composition,
             frame,
             &mut self.session,
             &mut canvas2d,
-            None,
+            Some(blob_store_ref),
         )
         .map_err(|e| JsValue::from_str(&format!("render_frame: {e}")))?;
 
@@ -163,5 +166,19 @@ impl WebRenderer {
 
     pub fn audio_context_time(&self) -> f64 {
         self.audio.current_time()
+    }
+
+    // -- Image blob API --
+
+    /// Inject image bytes from JS. Call before build_frame.
+    /// asset_id must match catalog entry. Repeated injects overwrite.
+    pub fn inject_image_bytes(&mut self, asset_id: String, bytes: Vec<u8>) {
+        self.blobs
+            .insert(AssetId(asset_id), std::sync::Arc::from(bytes));
+    }
+
+    /// Clear all injected image blobs (for switching compositions).
+    pub fn clear_image_blobs(&mut self) {
+        self.blobs.clear();
     }
 }

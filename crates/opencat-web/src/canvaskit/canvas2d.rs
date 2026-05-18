@@ -261,16 +261,64 @@ impl Canvas2D for CanvasKitCanvas2D {
 
     fn draw_simple_text(
         &mut self,
-        _text: &str,
-        _x: f32,
-        _y: f32,
-        _font_size: f32,
-        _paint: &PaintSpec,
+        text: &str,
+        x: f32,
+        y: f32,
+        font_size: f32,
+        paint: &PaintSpec,
     ) {
-        todo!("M2: CKCanvas::drawSimpleText (needs Typeface bridge)")
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        let typeface = crate::canvaskit::module::default_typeface();
+        let font = match crate::canvaskit::bindings::ck_new_font(typeface.as_ref(), font_size) {
+            Some(f) => f,
+            None => return,
+        };
+
+        crate::canvaskit::bindings::CKCanvas::draw_simple_text(
+            &self.canvas,
+            text,
+            x, y,
+            font.unchecked_ref(),
+            target.unchecked_ref(),
+        );
+
+        crate::canvaskit::bindings::CKFontJs::delete_font(&font);
     }
-    fn draw_glyph_run(&mut self, _run: &GlyphRunSpec, _paint: &PaintSpec) {
-        todo!("M2: CKCanvas::drawGlyphs (needs Typeface bridge)")
+    fn draw_glyph_run(&mut self, run: &GlyphRunSpec, paint: &PaintSpec) {
+        debug_assert_eq!(run.positions.len() % 2, 0, "glyph positions must be even");
+
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        let typeface = crate::canvaskit::module::default_typeface();
+        let font = match crate::canvaskit::bindings::ck_new_font(typeface.as_ref(), run.font_size) {
+            Some(f) => f,
+            None => return,
+        };
+        crate::canvaskit::bindings::CKFontJs::font_set_scale_x(&font, run.font_scale_x);
+        crate::canvaskit::bindings::CKFontJs::font_set_skew_x(&font, run.font_skew_x);
+        crate::canvaskit::bindings::CKFontJs::font_set_subpixel(&font, run.subpixel);
+        let edging = crate::canvaskit::bindings::ck_font_edging(run.edging);
+        crate::canvaskit::bindings::CKFontJs::font_set_edging(&font, &edging);
+
+        let glyphs_arr = js_sys::Uint16Array::new_with_length(run.glyph_ids.len() as u32);
+        for (i, &g) in run.glyph_ids.iter().enumerate() {
+            glyphs_arr.set_index(i as u32, g);
+        }
+
+        let positions_arr = js_sys::Float32Array::new_with_length(run.positions.len() as u32);
+        for (i, &p) in run.positions.iter().enumerate() {
+            positions_arr.set_index(i as u32, p);
+        }
+
+        crate::canvaskit::bindings::CKCanvas::draw_glyphs(
+            &self.canvas,
+            &glyphs_arr.into(),
+            &positions_arr.into(),
+            0.0, 0.0,
+            font.unchecked_ref(),
+            target.unchecked_ref(),
+        );
+
+        crate::canvaskit::bindings::CKFontJs::delete_font(&font);
     }
 
     // ── Picture ──────────────────────────────────────────────────

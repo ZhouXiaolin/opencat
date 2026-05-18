@@ -21,6 +21,7 @@ fontdb = "0.16"
 imagesize = "0.14"
 nom-exif = "3.4.1"
 url = "2.5"
+bumpalo = "3.20.2"
 
 [dependencies.tracing]
 version = "0.1"

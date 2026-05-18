@@ -7,6 +7,7 @@
 
 pub mod bindings;
 pub mod canvas2d;
+pub mod convert;
 pub mod handle;
 pub mod module;
 pub mod paint;

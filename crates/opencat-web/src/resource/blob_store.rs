@@ -33,3 +33,9 @@ impl BlobStore {
         self.blobs.len()
     }
 }
+
+impl opencat_core::resource::BlobStore for BlobStore {
+    fn read(&self, id: &AssetId) -> Option<Vec<u8>> {
+        self.blobs.get(id).map(|arc| arc.to_vec())
+    }
+}

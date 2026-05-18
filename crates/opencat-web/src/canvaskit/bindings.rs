@@ -83,26 +83,6 @@ extern "C" {
     );
     #[wasm_bindgen(method, js_name = "drawPicture")]
     pub fn draw_picture(this: &CKCanvas, picture: &JsValue);
-    #[wasm_bindgen(method, js_name = "drawSimpleText")]
-    pub fn draw_simple_text(
-        this: &CKCanvas,
-        text: &str,
-        x: f32,
-        y: f32,
-        font: &JsValue,
-        paint: &JsValue,
-    );
-    #[wasm_bindgen(method, js_name = "drawGlyphs")]
-    pub fn draw_glyphs(
-        this: &CKCanvas,
-        glyphs: &JsValue,
-        positions: &JsValue,
-        x: f32,
-        y: f32,
-        font: &JsValue,
-        paint: &JsValue,
-    );
-
     // ── Paint（轻量 JS 对象，由 V8 GC 管理，不走 CKHandle）──
 
     pub type CKPaint;
@@ -192,27 +172,6 @@ extern "C" {
     pub fn make_shader(this: &CKRuntimeEffectJs, uniforms: &JsValue, children: &JsValue) -> JsValue;
     #[wasm_bindgen(method, js_name = "delete")]
     pub fn delete_effect(this: &CKRuntimeEffectJs);
-
-    // ── Typeface / Font ──
-    pub type CKTypefaceJs;
-
-    #[wasm_bindgen(method, js_name = "delete")]
-    pub fn delete_typeface(this: &CKTypefaceJs);
-
-    pub type CKFontJs;
-
-    #[wasm_bindgen(method, js_name = "delete")]
-    pub fn delete_font(this: &CKFontJs);
-    #[wasm_bindgen(method, js_name = "setSize")]
-    pub fn font_set_size(this: &CKFontJs, size: f32);
-    #[wasm_bindgen(method, js_name = "setScaleX")]
-    pub fn font_set_scale_x(this: &CKFontJs, sx: f32);
-    #[wasm_bindgen(method, js_name = "setSkewX")]
-    pub fn font_set_skew_x(this: &CKFontJs, kx: f32);
-    #[wasm_bindgen(method, js_name = "setSubpixel")]
-    pub fn font_set_subpixel(this: &CKFontJs, sub: bool);
-    #[wasm_bindgen(method, js_name = "setEdging")]
-    pub fn font_set_edging(this: &CKFontJs, edging: &JsValue);
 }
 
 // ── 工厂函数（包装 CK 模块上的全局函数）──
@@ -383,53 +342,4 @@ pub fn ck_make_runtime_effect(
     Some(CKHandle::wrap(result))
 }
 
-/// `CanvasKit.Typeface.MakeFreeTypeFaceFromData(bytes)` → `Option<CKTypefaceJs>`.
-pub fn ck_make_typeface_from_data(bytes: &[u8]) -> Option<CKTypefaceJs> {
-    let m = crate::canvaskit::module::ck();
-    let tf_class = js_sys::Reflect::get(m, &JsValue::from_str("Typeface")).ok()?;
-    let f = js_sys::Reflect::get(&tf_class, &JsValue::from_str("MakeFreeTypeFaceFromData")).ok()?;
-    let func = f.dyn_ref::<js_sys::Function>()?;
-    let arr = js_sys::Uint8Array::from(bytes);
-    let result = func.call1(&tf_class, &arr).ok()?;
-    if result.is_null() || result.is_undefined() {
-        return None;
-    }
-    Some(result.unchecked_into::<CKTypefaceJs>())
-}
-
-/// `new CanvasKit.Font(typeface, size)` → `Option<CKFontJs>`.
-pub fn ck_new_font(typeface: Option<&CKTypefaceJs>, size: f32) -> Option<CKFontJs> {
-    let m = crate::canvaskit::module::ck();
-    let font_class = js_sys::Reflect::get(m, &JsValue::from_str("Font")).ok()?;
-    let ctor = font_class.dyn_ref::<js_sys::Function>()?;
-    let tf_js: JsValue = match typeface {
-        Some(t) => {
-            let r: &JsValue = t.unchecked_ref();
-            r.clone()
-        }
-        None => JsValue::NULL,
-    };
-    let args = js_sys::Array::new();
-    args.push(&tf_js);
-    args.push(&JsValue::from_f64(size as f64));
-    let inst = js_sys::Reflect::construct(ctor, &args).ok()?;
-    if inst.is_null() || inst.is_undefined() {
-        return None;
-    }
-    Some(inst.unchecked_into::<CKFontJs>())
-}
-
-/// CanvasKit FontEdging: `CK.FontEdging.<Alias|AntiAlias|SubpixelAntiAlias>`.
-pub fn ck_font_edging(edging: opencat_core::canvas::glyph::FontEdging) -> JsValue {
-    use opencat_core::canvas::glyph::FontEdging;
-    let v = match edging {
-        FontEdging::Alias => "Alias",
-        FontEdging::AntiAlias => "AntiAlias",
-        FontEdging::SubpixelAntiAlias => "SubpixelAntiAlias",
-    };
-    let m = crate::canvaskit::module::ck();
-    let group =
-        js_sys::Reflect::get(m, &JsValue::from_str("FontEdging")).unwrap_or(JsValue::UNDEFINED);
-    js_sys::Reflect::get(&group, &JsValue::from_str(v)).unwrap_or(JsValue::UNDEFINED)
-}
 

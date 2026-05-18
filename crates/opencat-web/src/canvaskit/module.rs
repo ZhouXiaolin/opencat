@@ -38,38 +38,3 @@ pub(crate) fn ck() -> &'static JsValue {
         .get()
         .expect("init_canvaskit() must be called before any CanvasKit usage")
 }
-
-use crate::canvaskit::bindings::CKTypefaceJs;
-use wasm_bindgen::JsCast;
-
-thread_local! {
-    static DEFAULT_TYPEFACE: std::cell::RefCell<Option<CKTypefaceJs>> = std::cell::RefCell::new(None);
-}
-
-fn ensure_default_typeface() {
-    DEFAULT_TYPEFACE.with(|tf| {
-        if tf.borrow().is_none() {
-            if let Some(typeface) = crate::canvaskit::bindings::ck_make_typeface_from_data(opencat_core::text::NOTO_SANS_SC) {
-                *tf.borrow_mut() = Some(typeface);
-            }
-        }
-    });
-}
-
-/// Set the default Typeface (overrides embedded NotoSansSC).
-pub fn set_default_typeface(typeface: CKTypefaceJs) {
-    DEFAULT_TYPEFACE.with(|tf| {
-        *tf.borrow_mut() = Some(typeface);
-    });
-}
-
-/// Get the default Typeface. Falls back to embedded NotoSansSC if none was injected.
-pub fn default_typeface() -> Option<CKTypefaceJs> {
-    ensure_default_typeface();
-    DEFAULT_TYPEFACE.with(|tf| {
-        tf.borrow().as_ref().map(|t| {
-            let js: &JsValue = t.unchecked_ref();
-            js.clone().unchecked_into::<CKTypefaceJs>()
-        })
-    })
-}

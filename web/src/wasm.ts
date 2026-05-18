@@ -16,7 +16,6 @@ export interface WebRendererInstance {
   clear_video_cache(asset_id: string): void;
   inject_image_bytes(asset_id: string, bytes: Uint8Array): void;
   clear_image_blobs(): void;
-  inject_default_typeface(bytes: Uint8Array): void;
   decode_audio_file(asset_id: string, data: Uint8Array): Promise<void>;
   get_audio_samples(asset_id: string, start_secs: number, duration_secs: number, target_rate: number): string;
   play_audio_at(asset_id: string, offset_secs: number, duration_secs: number): void;

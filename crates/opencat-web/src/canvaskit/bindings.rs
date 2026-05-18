@@ -156,6 +156,7 @@ extern "C" {
     pub fn set_fill_type(this: &CKPath, fill: &JsValue);
 
     // ── Picture / PictureRecorder / Surface 实例方法 ──
+    // （不走 CKHandle：调用者在录制/绘制完成后手动 delete）
 
     pub type CKPictureRecorder;
 
@@ -166,6 +167,7 @@ extern "C" {
     #[wasm_bindgen(method, js_name = "delete")]
     pub fn delete_recorder(this: &CKPictureRecorder);
 
+    // CKImageJs：裸 JS 类型，用于访问 width/height；CKImage = CKHandle<CkImageMarker> 是句柄
     pub type CKImageJs;
     #[wasm_bindgen(method, js_name = "width")]
     pub fn image_width(this: &CKImageJs) -> u32;
@@ -279,7 +281,7 @@ pub fn ck_make_image_from_rgba(
     bytes: &[u8],
     width: u32,
     height: u32,
-) -> Option<CKHandle<crate::canvaskit::handle::CkImageMarker>> {
+) -> Option<CKHandle<CkImageMarker>> {
     let m = crate::canvaskit::module::ck();
 
     let info = js_sys::Object::new();

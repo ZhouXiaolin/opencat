@@ -9,8 +9,8 @@ use wasm_bindgen::prelude::*;
 
 static CK_MODULE: OnceCell<JsValue> = OnceCell::new();
 
-/// 暴露给 JS 调用：把 `globalThis.__canvasKit` 装载到 Rust 侧 OnceCell。
-/// 在 `CanvasKitInit()` 完成、`init()`（wasm bindgen 启动）之后调用。
+/// 暴露给 JS 调用：把 `globalThis.__canvasKit` 装载到 Rust 侧 OnceCell，
+/// 同时把 `CKPaint` 注册为全局变量（wasm-bindgen 构造器需要）。
 #[wasm_bindgen]
 pub fn init_canvaskit() -> Result<(), JsValue> {
     let global = js_sys::global();
@@ -20,6 +20,12 @@ pub fn init_canvaskit() -> Result<(), JsValue> {
             "__canvasKit not set; call CanvasKitInit first",
         ));
     }
+
+    // wasm-bindgen constructor for CKPaint generates `new CKPaint()` in JS,
+    // so we need CKPaint as a global alias for CanvasKit.Paint.
+    let ck_paint = js_sys::Reflect::get(&ck, &JsValue::from_str("Paint"))?;
+    js_sys::Reflect::set(&global, &JsValue::from_str("CKPaint"), &ck_paint)?;
+
     CK_MODULE
         .set(ck)
         .map_err(|_| JsValue::from_str("canvaskit already initialized"))?;
@@ -36,8 +42,6 @@ pub(crate) fn ck() -> &'static JsValue {
 use crate::canvaskit::bindings::CKTypefaceJs;
 use wasm_bindgen::JsCast;
 
-const EMBEDDED_FONT: &[u8] = include_bytes!("../../../../assets/NotoSansSC-Regular.otf");
-
 thread_local! {
     static DEFAULT_TYPEFACE: std::cell::RefCell<Option<CKTypefaceJs>> = std::cell::RefCell::new(None);
 }
@@ -45,7 +49,7 @@ thread_local! {
 fn ensure_default_typeface() {
     DEFAULT_TYPEFACE.with(|tf| {
         if tf.borrow().is_none() {
-            if let Some(typeface) = crate::canvaskit::bindings::ck_make_typeface_from_data(EMBEDDED_FONT) {
+            if let Some(typeface) = crate::canvaskit::bindings::ck_make_typeface_from_data(opencat_core::text::NOTO_SANS_SC) {
                 *tf.borrow_mut() = Some(typeface);
             }
         }

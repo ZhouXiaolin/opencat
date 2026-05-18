@@ -413,8 +413,37 @@ impl Canvas2D for CanvasKitCanvas2D {
         for child in children {
             let shader_js: wasm_bindgen::JsValue = match child {
                 RuntimeEffectChild::Texture(img) => img.as_js().clone(),
-                RuntimeEffectChild::Picture(_) => wasm_bindgen::JsValue::NULL,
-                RuntimeEffectChild::Shader(_) => wasm_bindgen::JsValue::NULL,
+                RuntimeEffectChild::Picture(picture) => {
+                    let pic_js = picture.as_js();
+                    let make_shader_fn = js_sys::Reflect::get(
+                        pic_js,
+                        &wasm_bindgen::JsValue::from_str("makeShader"),
+                    )
+                    .ok();
+                    match make_shader_fn {
+                        Some(f) if f.is_function() => {
+                            let func = f.unchecked_ref::<js_sys::Function>();
+                            let m = crate::canvaskit::module::ck();
+                            let tile_clamp = js_sys::Reflect::get(m, &wasm_bindgen::JsValue::from_str("TileMode"))
+                                .ok()
+                                .and_then(|g| {
+                                    js_sys::Reflect::get(&g, &wasm_bindgen::JsValue::from_str("Decal")).ok()
+                                })
+                                .unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
+                            let filter = wasm_bindgen::JsValue::NULL;
+                            match func.call3(pic_js, &tile_clamp, &tile_clamp, &filter).ok() {
+                                Some(s) if !s.is_null() && !s.is_undefined() => s,
+                                _ => wasm_bindgen::JsValue::NULL,
+                            }
+                        }
+                        _ => wasm_bindgen::JsValue::NULL,
+                    }
+                }
+                RuntimeEffectChild::Shader(shader_spec) => {
+                    crate::canvaskit::bindings::build_ck_shader(shader_spec)
+                        .map(|h| h.as_js().clone())
+                        .unwrap_or(wasm_bindgen::JsValue::NULL)
+                }
             };
             children_arr.push(&shader_js);
         }

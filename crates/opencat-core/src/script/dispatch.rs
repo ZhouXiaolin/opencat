@@ -156,7 +156,7 @@ pub fn for_each_binding_name(mut f: impl FnMut(&str)) {
 }
 
 /// 生成 JS 端 shim 字符串：把每个 binding 名包成
-/// `globalThis.__<name> = (...a) => __opencatCallNative('<name>', ...a);`。
+/// `globalThis.__<name> = (...a) => __opencatCallNative('<name>', a);`。
 ///
 /// runtime/*.js 仍按原方式直接调用 `__record_opacity(...)`、`__canvas_*(...)`，
 /// 通过本 shim 路由到 dispatcher。
@@ -167,7 +167,7 @@ pub fn binding_shim_js() -> String {
         buf.push_str(n);
         buf.push_str("=function(){return __opencatCallNative('");
         buf.push_str(n);
-        buf.push_str("',...arguments);};\n");
+        buf.push_str("',Array.from(arguments));};\n");
     });
     buf
 }

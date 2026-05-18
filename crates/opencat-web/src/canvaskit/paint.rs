@@ -1,5 +1,5 @@
-//! `PaintSpec` → `CKPaint` 转换。仅覆盖 Solid / Stroke / AA / BlendMode / PaintStyle。
-//! Shader / ImageFilter / ColorFilter / MaskFilter / PathEffect 在 Plan C/D 填实。
+//! `PaintSpec` → `CKPaint` 转换。覆盖 Solid / Stroke / AA / BlendMode / PaintStyle。
+//! Shader / ImageFilter / ColorFilter 已实现；MaskFilter / PathEffect 待填实。
 
 #![cfg(target_arch = "wasm32")]
 
@@ -56,6 +56,8 @@ pub fn apply_to<'a>(
     if let Some(ref if_spec) = spec.image_filter {
         if let Some(handle) = crate::canvaskit::bindings::build_ck_image_filter(if_spec) {
             target.set_image_filter(handle.as_js());
+        } else {
+            target.set_image_filter(&wasm_bindgen::JsValue::NULL);
         }
     } else {
         target.set_image_filter(&wasm_bindgen::JsValue::NULL);
@@ -65,6 +67,8 @@ pub fn apply_to<'a>(
     if let Some(ref cf_spec) = spec.color_filter {
         if let Some(handle) = crate::canvaskit::bindings::build_ck_color_filter(cf_spec) {
             target.set_color_filter(handle.as_js());
+        } else {
+            target.set_color_filter(&wasm_bindgen::JsValue::NULL);
         }
     } else {
         target.set_color_filter(&wasm_bindgen::JsValue::NULL);

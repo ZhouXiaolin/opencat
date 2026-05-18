@@ -154,6 +154,34 @@ extern "C" {
     pub fn close_path(this: &CKPath);
     #[wasm_bindgen(method, js_name = "setFillType")]
     pub fn set_fill_type(this: &CKPath, fill: &JsValue);
+
+    // ── Picture / PictureRecorder / Surface 实例方法 ──
+
+    pub type CKPictureRecorder;
+
+    #[wasm_bindgen(method, js_name = "beginRecording")]
+    pub fn begin_recording(this: &CKPictureRecorder, bounds: &JsValue) -> CKCanvas;
+    #[wasm_bindgen(method, js_name = "finishRecordingAsPicture")]
+    pub fn finish_recording_as_picture(this: &CKPictureRecorder) -> JsValue;
+    #[wasm_bindgen(method, js_name = "delete")]
+    pub fn delete_recorder(this: &CKPictureRecorder);
+
+    pub type CKImageJs;
+    #[wasm_bindgen(method, js_name = "width")]
+    pub fn image_width(this: &CKImageJs) -> u32;
+    #[wasm_bindgen(method, js_name = "height")]
+    pub fn image_height(this: &CKImageJs) -> u32;
+
+    pub type CKSurfaceJs;
+
+    #[wasm_bindgen(method, js_name = "getCanvas")]
+    pub fn surface_get_canvas(this: &CKSurfaceJs) -> CKCanvas;
+    #[wasm_bindgen(method, js_name = "makeImageSnapshot")]
+    pub fn make_image_snapshot(this: &CKSurfaceJs) -> JsValue;
+    #[wasm_bindgen(method, js_name = "flush")]
+    pub fn surface_flush(this: &CKSurfaceJs);
+    #[wasm_bindgen(method, js_name = "delete")]
+    pub fn delete_surface(this: &CKSurfaceJs);
 }
 
 // ── 工厂函数（包装 CK 模块上的全局函数）──
@@ -231,5 +259,81 @@ pub fn ck_path_from_svg(svg: &str) -> Option<CKHandle<CkPathMarker>> {
         return None;
     }
     Some(CKHandle::wrap(r))
+}
+
+/// `new CanvasKit.PictureRecorder()`。
+pub fn ck_new_picture_recorder() -> Option<CKPictureRecorder> {
+    let m = crate::canvaskit::module::ck();
+    let class = js_sys::Reflect::get(m, &JsValue::from_str("PictureRecorder")).ok()?;
+    let ctor = class.dyn_ref::<js_sys::Function>()?;
+    let args = js_sys::Array::new();
+    let inst = js_sys::Reflect::construct(ctor, &args).ok()?;
+    if inst.is_null() || inst.is_undefined() {
+        return None;
+    }
+    Some(inst.unchecked_into::<CKPictureRecorder>())
+}
+
+/// `CanvasKit.MakeImage(info, bytes, bytesPerRow)` → `Option<CKImage>`。
+pub fn ck_make_image_from_rgba(
+    bytes: &[u8],
+    width: u32,
+    height: u32,
+) -> Option<CKHandle<crate::canvaskit::handle::CkImageMarker>> {
+    let m = crate::canvaskit::module::ck();
+
+    let info = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &info,
+        &JsValue::from_str("width"),
+        &JsValue::from_f64(width as f64),
+    )
+    .ok()?;
+    js_sys::Reflect::set(
+        &info,
+        &JsValue::from_str("height"),
+        &JsValue::from_f64(height as f64),
+    )
+    .ok()?;
+
+    let alpha_type = {
+        let at = js_sys::Reflect::get(m, &JsValue::from_str("AlphaType")).ok()?;
+        js_sys::Reflect::get(&at, &JsValue::from_str("Unpremul")).ok()?
+    };
+    js_sys::Reflect::set(&info, &JsValue::from_str("alphaType"), &alpha_type).ok()?;
+
+    let color_type = {
+        let ct = js_sys::Reflect::get(m, &JsValue::from_str("ColorType")).ok()?;
+        js_sys::Reflect::get(&ct, &JsValue::from_str("RGBA_8888")).ok()?
+    };
+    js_sys::Reflect::set(&info, &JsValue::from_str("colorType"), &color_type).ok()?;
+
+    let arr = js_sys::Uint8Array::from(bytes);
+    let f = js_sys::Reflect::get(m, &JsValue::from_str("MakeImage")).ok()?;
+    let func = f.dyn_ref::<js_sys::Function>()?;
+    let row_bytes = JsValue::from_f64((width * 4) as f64);
+    let result = func.call3(m, &info, &arr, &row_bytes).ok()?;
+    if result.is_null() || result.is_undefined() {
+        return None;
+    }
+    Some(CKHandle::wrap(result))
+}
+
+/// `CanvasKit.MakeSurface(width, height)` —— offscreen raster surface。
+pub fn ck_make_surface(width: u32, height: u32) -> Option<CKSurfaceJs> {
+    let m = crate::canvaskit::module::ck();
+    let f = js_sys::Reflect::get(m, &JsValue::from_str("MakeSurface")).ok()?;
+    let func = f.dyn_ref::<js_sys::Function>()?;
+    let result = func
+        .call2(
+            m,
+            &JsValue::from_f64(width as f64),
+            &JsValue::from_f64(height as f64),
+        )
+        .ok()?;
+    if result.is_null() || result.is_undefined() {
+        return None;
+    }
+    Some(result.unchecked_into::<CKSurfaceJs>())
 }
 

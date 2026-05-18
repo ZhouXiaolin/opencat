@@ -339,15 +339,76 @@ impl Canvas2D for CanvasKitCanvas2D {
 
     fn draw_runtime_effect(
         &mut self,
-        _effect: &Self::RuntimeEffect,
-        _uniforms: &[u8],
-        _children: &[RuntimeEffectChild<'_, Self>],
-        _dst: &Rect,
+        effect: &Self::RuntimeEffect,
+        uniforms: &[u8],
+        children: &[RuntimeEffectChild<'_, Self>],
+        dst: &Rect,
     ) {
-        todo!("M2: RuntimeEffect::makeShader → setShader → drawRect")
+        // 1. uniforms bytes → Float32Array (interpreting bytes as f32 LE pairs)
+        let uniforms_arr = if uniforms.len() % 4 == 0 {
+            let n = uniforms.len() / 4;
+            let arr = js_sys::Float32Array::new_with_length(n as u32);
+            for i in 0..n {
+                let bytes = [
+                    uniforms[i * 4],
+                    uniforms[i * 4 + 1],
+                    uniforms[i * 4 + 2],
+                    uniforms[i * 4 + 3],
+                ];
+                arr.set_index(i as u32, f32::from_le_bytes(bytes));
+            }
+            arr
+        } else {
+            js_sys::Float32Array::new_with_length(0)
+        };
+
+        // 2. children → JS Array of shader-like values
+        let children_arr = js_sys::Array::new();
+        for child in children {
+            let shader_js: wasm_bindgen::JsValue = match child {
+                RuntimeEffectChild::Texture(img) => img.as_js().clone(),
+                RuntimeEffectChild::Picture(_) => wasm_bindgen::JsValue::NULL,
+                RuntimeEffectChild::Shader(_) => wasm_bindgen::JsValue::NULL,
+            };
+            children_arr.push(&shader_js);
+        }
+
+        // 3. effect.makeShader(uniforms, children) → shader
+        let effect_js: &crate::canvaskit::bindings::CKRuntimeEffectJs =
+            effect.as_js().unchecked_ref();
+        let shader_js = crate::canvaskit::bindings::CKRuntimeEffectJs::make_shader(
+            effect_js,
+            &uniforms_arr.into(),
+            &children_arr.into(),
+        );
+        if shader_js.is_null() || shader_js.is_undefined() {
+            return;
+        }
+
+        // 4. set shader on fill_paint, drawRect(dst, paint)
+        self.fill_paint.set_shader(&shader_js);
+        let dst_js = crate::canvaskit::bindings::ck_ltrb_rect(
+            dst.x0 as f32,
+            dst.y0 as f32,
+            dst.x1 as f32,
+            dst.y1 as f32,
+        );
+        crate::canvaskit::bindings::CKCanvas::draw_rect(
+            &self.canvas,
+            &dst_js,
+            self.fill_paint.unchecked_ref(),
+        );
+
+        // 5. Reset shader to avoid polluting subsequent draws
+        self.fill_paint.set_shader(&wasm_bindgen::JsValue::NULL);
     }
-    fn make_runtime_effect(&self, _sksl: &str) -> Result<Self::RuntimeEffect, String> {
-        todo!("M2: CanvasKit.RuntimeEffect.Make(sksl)")
+    fn make_runtime_effect(&self, sksl: &str) -> Result<Self::RuntimeEffect, String> {
+        crate::canvaskit::bindings::ck_make_runtime_effect(sksl).ok_or_else(|| {
+            format!(
+                "CanvasKit.RuntimeEffect.Make failed for SkSL: {}",
+                sksl.chars().take(80).collect::<String>()
+            )
+        })
     }
 
     // ── Factory ──────────────────────────────────────────────────

@@ -2449,6 +2449,7 @@ dependencies = [
  "anyhow",
  "getrandom 0.3.4",
  "js-sys",
+ "once_cell",
  "opencat-core",
  "serde",
  "serde_json",

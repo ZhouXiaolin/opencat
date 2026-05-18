@@ -10,6 +10,8 @@ use opencat_core::canvas::{
     RuntimeEffectChild,
 };
 
+use wasm_bindgen::JsCast;
+
 use crate::canvaskit::bindings::{CKCanvas, CKPaint};
 use crate::canvaskit::handle::{CKImage, CKPath, CKPicture, CKRuntimeEffect};
 
@@ -91,28 +93,36 @@ impl Canvas2D for CanvasKitCanvas2D {
             rect.x0 as f32, rect.y0 as f32, rect.x1 as f32, rect.y1 as f32,
         );
         let js_op = crate::canvaskit::convert::ck_clip_op(op);
-        crate::canvaskit::bindings::CKCanvas::clip_rect(&self.canvas, &js_rect, &js_op, anti_alias);
+        CKCanvas::clip_rect(&self.canvas, &js_rect, &js_op, anti_alias);
     }
     fn clip_rrect(&mut self, rrect: &RRect, op: ClipOp, anti_alias: bool) {
         let js_rrect = crate::canvaskit::convert::ck_rrect_from_kurbo(rrect);
         let js_op = crate::canvaskit::convert::ck_clip_op(op);
-        crate::canvaskit::bindings::CKCanvas::clip_rrect(&self.canvas, &js_rrect, &js_op, anti_alias);
+        CKCanvas::clip_rrect(&self.canvas, &js_rrect, &js_op, anti_alias);
     }
     fn clip_path(&mut self, path: &Self::Path, op: ClipOp, anti_alias: bool) {
         let js_op = crate::canvaskit::convert::ck_clip_op(op);
-        crate::canvaskit::bindings::CKCanvas::clip_path(&self.canvas, path.as_js(), &js_op, anti_alias);
+        CKCanvas::clip_path(&self.canvas, path.as_js(), &js_op, anti_alias);
     }
 
     // ── Basic geometry ───────────────────────────────────────────
 
-    fn clear(&mut self, _color: [f32; 4]) {
-        todo!("M2: CKCanvas::clear with Color4f")
+    fn clear(&mut self, color: [f32; 4]) {
+        let js_color = crate::canvaskit::bindings::ck_color4f(
+            color[0], color[1], color[2], color[3],
+        );
+        CKCanvas::clear(&self.canvas, &js_color);
     }
-    fn draw_paint(&mut self, _paint: &PaintSpec) {
-        todo!("M2: CKCanvas::drawPaint")
+    fn draw_paint(&mut self, paint: &PaintSpec) {
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        CKCanvas::draw_paint(&self.canvas, target.unchecked_ref());
     }
-    fn draw_rect(&mut self, _rect: &Rect, _paint: &PaintSpec) {
-        todo!("M2: CKCanvas::drawRect")
+    fn draw_rect(&mut self, rect: &Rect, paint: &PaintSpec) {
+        let js_rect = crate::canvaskit::bindings::ck_ltrb_rect(
+            rect.x0 as f32, rect.y0 as f32, rect.x1 as f32, rect.y1 as f32,
+        );
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        CKCanvas::draw_rect(&self.canvas, &js_rect, target.unchecked_ref());
     }
     fn draw_rrect(&mut self, _rrect: &RRect, _paint: &PaintSpec) {
         todo!("M2: CKCanvas::drawRRect")
@@ -123,8 +133,9 @@ impl Canvas2D for CanvasKitCanvas2D {
     fn draw_oval(&mut self, _oval: &Rect, _paint: &PaintSpec) {
         todo!("M2: CKCanvas::drawOval")
     }
-    fn draw_circle(&mut self, _cx: f32, _cy: f32, _radius: f32, _paint: &PaintSpec) {
-        todo!("M2: CKCanvas::drawCircle")
+    fn draw_circle(&mut self, cx: f32, cy: f32, radius: f32, paint: &PaintSpec) {
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        CKCanvas::draw_circle(&self.canvas, cx, cy, radius, target.unchecked_ref());
     }
     fn draw_arc(
         &mut self,
@@ -136,8 +147,9 @@ impl Canvas2D for CanvasKitCanvas2D {
     ) {
         todo!("M2: CKCanvas::drawArc")
     }
-    fn draw_line(&mut self, _x0: f32, _y0: f32, _x1: f32, _y1: f32, _paint: &PaintSpec) {
-        todo!("M2: CKCanvas::drawLine")
+    fn draw_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, paint: &PaintSpec) {
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        CKCanvas::draw_line(&self.canvas, x0, y0, x1, y1, target.unchecked_ref());
     }
     fn draw_points(&mut self, _mode: PointMode, _points: &[f32], _paint: &PaintSpec) {
         todo!("M2: CKCanvas::drawPoints")

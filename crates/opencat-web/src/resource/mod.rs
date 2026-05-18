@@ -3,11 +3,14 @@
 //! （CanvasKit 解码、`URL.createObjectURL` 等）。
 
 pub mod blob_store;
+#[cfg(target_arch = "wasm32")]
 pub mod fetch;
+#[cfg(target_arch = "wasm32")]
 pub mod resolver;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_api;
 
 pub use blob_store::BlobStore;
+#[cfg(target_arch = "wasm32")]
 pub use resolver::WebAssetResolver;

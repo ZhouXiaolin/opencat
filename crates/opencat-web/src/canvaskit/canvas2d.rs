@@ -10,7 +10,7 @@ use opencat_core::canvas::{
     RuntimeEffectChild,
 };
 
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, JsValue};
 
 use crate::canvaskit::bindings::{CKCanvas, CKPaint};
 use crate::canvaskit::handle::{CKImage, CKPath, CKPicture, CKRuntimeEffect};
@@ -48,11 +48,34 @@ impl Canvas2D for CanvasKitCanvas2D {
     fn save(&mut self) -> i32 {
         CKCanvas::save(&self.canvas)
     }
-    fn save_layer(&mut self, _bounds: Option<Rect>, _alpha: f32) {
-        todo!("M2: CKCanvas::saveLayer with alpha paint")
+    fn save_layer(&mut self, bounds: Option<Rect>, alpha: f32) {
+        let tmp = CKPaint::new();
+        tmp.set_alpha(alpha);
+        let bounds_js = match bounds {
+            Some(r) => crate::canvaskit::bindings::ck_ltrb_rect(
+                r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32,
+            ),
+            None => JsValue::NULL,
+        };
+        CKCanvas::save_layer(
+            &self.canvas,
+            tmp.unchecked_ref(),
+            &bounds_js,
+        );
     }
-    fn save_layer_with(&mut self, _bounds: Option<Rect>, _paint: &PaintSpec) {
-        todo!("M2: CKCanvas::saveLayer with PaintSpec")
+    fn save_layer_with(&mut self, bounds: Option<Rect>, paint: &PaintSpec) {
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        let bounds_js = match bounds {
+            Some(r) => crate::canvaskit::bindings::ck_ltrb_rect(
+                r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32,
+            ),
+            None => JsValue::NULL,
+        };
+        CKCanvas::save_layer(
+            &self.canvas,
+            target.unchecked_ref(),
+            &bounds_js,
+        );
     }
     fn restore(&mut self) {
         CKCanvas::restore(&self.canvas);

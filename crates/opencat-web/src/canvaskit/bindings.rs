@@ -8,7 +8,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::canvaskit::handle::{CKHandle, CkImageMarker};
+use crate::canvaskit::handle::{CKHandle, CkImageMarker, CkPathMarker};
 
 #[wasm_bindgen]
 extern "C" {
@@ -206,3 +206,30 @@ pub fn ck_color4f(r: f32, g: f32, b: f32, a: f32) -> JsValue {
     )
     .unwrap_or(JsValue::UNDEFINED)
 }
+
+/// `new CanvasKit.Path()` —— 创建空 Path。
+pub fn ck_new_path() -> Option<CKHandle<CkPathMarker>> {
+    let m = crate::canvaskit::module::ck();
+    let ctor = js_sys::Reflect::get(m, &JsValue::from_str("Path")).ok()?;
+    let ctor_fn = ctor.dyn_ref::<js_sys::Function>()?;
+    let args = js_sys::Array::new();
+    let path = js_sys::Reflect::construct(ctor_fn, &args).ok()?;
+    if path.is_null() || path.is_undefined() {
+        return None;
+    }
+    Some(CKHandle::wrap(path))
+}
+
+/// `CanvasKit.Path.MakeFromSVGString(svg)` —— 解析 SVG path data。
+pub fn ck_path_from_svg(svg: &str) -> Option<CKHandle<CkPathMarker>> {
+    let m = crate::canvaskit::module::ck();
+    let path_class = js_sys::Reflect::get(m, &JsValue::from_str("Path")).ok()?;
+    let f = js_sys::Reflect::get(&path_class, &JsValue::from_str("MakeFromSVGString")).ok()?;
+    let func = f.dyn_ref::<js_sys::Function>()?;
+    let r = func.call1(&path_class, &JsValue::from_str(svg)).ok()?;
+    if r.is_null() || r.is_undefined() {
+        return None;
+    }
+    Some(CKHandle::wrap(r))
+}
+

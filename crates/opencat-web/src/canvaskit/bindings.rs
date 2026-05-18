@@ -8,7 +8,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::canvaskit::handle::{CKHandle, CkImageMarker, CkPathMarker, CkRuntimeEffectMarker, CkShaderMarker};
+use crate::canvaskit::handle::{CKHandle, CkColorFilterMarker, CkImageFilterMarker, CkImageMarker, CkPathMarker, CkRuntimeEffectMarker, CkShaderMarker};
 
 #[wasm_bindgen]
 extern "C" {
@@ -435,6 +435,147 @@ pub fn build_ck_shader(
                 &tile_js,
             ).ok()?;
             if result.is_null() || result.is_undefined() { return None; }
+            Some(CKHandle::wrap(result))
+        }
+    }
+}
+
+/// Convert core `ColorFilterSpec` to CanvasKit ColorFilter handle.
+pub fn build_ck_color_filter(
+    spec: &opencat_core::canvas::paint::ColorFilterSpec,
+) -> Option<CKHandle<CkColorFilterMarker>> {
+    use opencat_core::canvas::paint::ColorFilterSpec;
+    let m = crate::canvaskit::module::ck();
+    let cf_class = js_sys::Reflect::get(m, &JsValue::from_str("ColorFilter")).ok()?;
+
+    match spec {
+        ColorFilterSpec::Matrix(matrix) => {
+            let arr = js_sys::Float32Array::new_with_length(20);
+            for (i, &v) in matrix.iter().enumerate() {
+                arr.set_index(i as u32, v);
+            }
+            let make_fn = js_sys::Reflect::get(&cf_class, &JsValue::from_str("MakeMatrix")).ok()?;
+            let func = make_fn.dyn_ref::<js_sys::Function>()?;
+            let result = func.call1(&cf_class, &arr).ok()?;
+            if result.is_null() || result.is_undefined() {
+                return None;
+            }
+            Some(CKHandle::wrap(result))
+        }
+        ColorFilterSpec::BlendColor { color, mode } => {
+            let c = ck_color4f(color[0], color[1], color[2], color[3]);
+            let bm = crate::canvaskit::convert::ck_blend_mode(*mode);
+            let make_fn = js_sys::Reflect::get(&cf_class, &JsValue::from_str("MakeBlend")).ok()?;
+            let func = make_fn.dyn_ref::<js_sys::Function>()?;
+            let result = func.call2(&cf_class, &c, &bm).ok()?;
+            if result.is_null() || result.is_undefined() {
+                return None;
+            }
+            Some(CKHandle::wrap(result))
+        }
+        ColorFilterSpec::LinearToSrgbGamma => {
+            let make_fn =
+                js_sys::Reflect::get(&cf_class, &JsValue::from_str("MakeLinearToSRGBGamma"))
+                    .ok()?;
+            let func = make_fn.dyn_ref::<js_sys::Function>()?;
+            let result = func.call0(&cf_class).ok()?;
+            if result.is_null() || result.is_undefined() {
+                return None;
+            }
+            Some(CKHandle::wrap(result))
+        }
+        ColorFilterSpec::SrgbToLinearGamma => {
+            let make_fn =
+                js_sys::Reflect::get(&cf_class, &JsValue::from_str("MakeSRGBToLinearGamma"))
+                    .ok()?;
+            let func = make_fn.dyn_ref::<js_sys::Function>()?;
+            let result = func.call0(&cf_class).ok()?;
+            if result.is_null() || result.is_undefined() {
+                return None;
+            }
+            Some(CKHandle::wrap(result))
+        }
+    }
+}
+
+/// Convert core `ImageFilterSpec` to CanvasKit ImageFilter handle.
+pub fn build_ck_image_filter(
+    spec: &opencat_core::canvas::paint::ImageFilterSpec,
+) -> Option<CKHandle<CkImageFilterMarker>> {
+    use opencat_core::canvas::paint::ImageFilterSpec;
+    let m = crate::canvaskit::module::ck();
+    let if_class = js_sys::Reflect::get(m, &JsValue::from_str("ImageFilter")).ok()?;
+
+    match spec {
+        ImageFilterSpec::Blur {
+            sigma_x,
+            sigma_y,
+            ..
+        } => {
+            let make_fn = js_sys::Reflect::get(&if_class, &JsValue::from_str("MakeBlur")).ok()?;
+            let func = make_fn.dyn_ref::<js_sys::Function>()?;
+            let result = func
+                .call3(
+                    &if_class,
+                    &JsValue::from_f64(*sigma_x as f64),
+                    &JsValue::from_f64(*sigma_y as f64),
+                    &JsValue::NULL, // tileMode — null for default (clamp)
+                )
+                .ok()?;
+            if result.is_null() || result.is_undefined() {
+                return None;
+            }
+            Some(CKHandle::wrap(result))
+        }
+        ImageFilterSpec::DropShadow {
+            dx,
+            dy,
+            sigma_x,
+            sigma_y,
+            color,
+        } => {
+            let make_fn =
+                js_sys::Reflect::get(&if_class, &JsValue::from_str("MakeDropShadow")).ok()?;
+            let func = make_fn.dyn_ref::<js_sys::Function>()?;
+            let color_js = ck_color4f(color[0], color[1], color[2], color[3]);
+            let result = func
+                .call5(
+                    &if_class,
+                    &JsValue::from_f64(*dx as f64),
+                    &JsValue::from_f64(*dy as f64),
+                    &JsValue::from_f64(*sigma_x as f64),
+                    &JsValue::from_f64(*sigma_y as f64),
+                    &color_js,
+                )
+                .ok()?;
+            if result.is_null() || result.is_undefined() {
+                return None;
+            }
+            Some(CKHandle::wrap(result))
+        }
+        ImageFilterSpec::ColorFilter(cf) => {
+            let color_filter = build_ck_color_filter(cf)?;
+            let make_fn =
+                js_sys::Reflect::get(&if_class, &JsValue::from_str("MakeColorFilter")).ok()?;
+            let func = make_fn.dyn_ref::<js_sys::Function>()?;
+            let result = func.call1(&if_class, color_filter.as_js()).ok()?;
+            if result.is_null() || result.is_undefined() {
+                return None;
+            }
+            Some(CKHandle::wrap(result))
+        }
+        ImageFilterSpec::Compose(outer, inner) => {
+            let outer_h = build_ck_image_filter(outer)?;
+            let inner_h = build_ck_image_filter(inner)?;
+            let make_fn =
+                js_sys::Reflect::get(&if_class, &JsValue::from_str("MakeCompose")).ok()?;
+            let func = make_fn.dyn_ref::<js_sys::Function>()?;
+            let result = func
+                .call2(&if_class, outer_h.as_js(), inner_h.as_js())
+                .ok()?;
+            if result.is_null() || result.is_undefined() {
+                return None;
+            }
             Some(CKHandle::wrap(result))
         }
     }

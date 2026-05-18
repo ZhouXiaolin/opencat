@@ -44,7 +44,7 @@ impl Canvas2D for CanvasKitCanvas2D {
     // ── State stack ──────────────────────────────────────────────
 
     fn save(&mut self) -> i32 {
-        todo!("M2: CKCanvas::save")
+        CKCanvas::save(&self.canvas)
     }
     fn save_layer(&mut self, _bounds: Option<Rect>, _alpha: f32) {
         todo!("M2: CKCanvas::saveLayer with alpha paint")
@@ -53,31 +53,35 @@ impl Canvas2D for CanvasKitCanvas2D {
         todo!("M2: CKCanvas::saveLayer with PaintSpec")
     }
     fn restore(&mut self) {
-        todo!("M2: CKCanvas::restore")
+        CKCanvas::restore(&self.canvas);
     }
-    fn restore_to_count(&mut self, _count: i32) {
-        todo!("M2: CKCanvas::restoreToCount")
+    fn restore_to_count(&mut self, count: i32) {
+        CKCanvas::restore_to_count(&self.canvas, count);
     }
     fn save_count(&self) -> i32 {
-        todo!("M2: CKCanvas::getSaveCount")
+        CKCanvas::save_count(&self.canvas)
     }
 
     // ── Transforms ───────────────────────────────────────────────
 
-    fn translate(&mut self, _dx: f32, _dy: f32) {
-        todo!("M2: CKCanvas::translate")
+    fn translate(&mut self, dx: f32, dy: f32) {
+        CKCanvas::translate(&self.canvas, dx, dy);
     }
-    fn scale(&mut self, _sx: f32, _sy: f32) {
-        todo!("M2: CKCanvas::scale")
+    fn scale(&mut self, sx: f32, sy: f32) {
+        CKCanvas::scale(&self.canvas, sx, sy);
     }
-    fn rotate(&mut self, _degrees: f32, _cx: f32, _cy: f32) {
-        todo!("M2: CKCanvas::rotate")
+    fn rotate(&mut self, degrees: f32, cx: f32, cy: f32) {
+        CKCanvas::rotate(&self.canvas, degrees, cx, cy);
     }
-    fn skew(&mut self, _sx: f32, _sy: f32) {
-        todo!("M2: CKCanvas::skew")
+    fn skew(&mut self, sx: f32, sy: f32) {
+        CKCanvas::skew(&self.canvas, sx, sy);
     }
-    fn concat(&mut self, _matrix: &[f32; 9]) {
-        todo!("M2: CKCanvas::concat")
+    fn concat(&mut self, matrix: &[f32; 9]) {
+        let arr = js_sys::Float32Array::new_with_length(9);
+        for (i, v) in matrix.iter().enumerate() {
+            arr.set_index(i as u32, *v);
+        }
+        CKCanvas::concat(&self.canvas, &arr.into());
     }
 
     // ── Clipping ─────────────────────────────────────────────────

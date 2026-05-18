@@ -3,7 +3,6 @@ import {
   initWasm,
   initCanvasKitWasm,
   preloadAssets,
-  clearBlobs,
   getBlobBytes,
   getRendererOrThrow,
 } from './wasm';
@@ -12,7 +11,7 @@ import {
   exportPngFrame,
   downloadMp4,
 } from './exporter';
-import { prepareVideoSource, getDecodedFrameRgba, registerVideoGlobals, clearVideoCache } from './video-decoder';
+import { prepareVideoSource, getDecodedFrameRgba, registerVideoGlobals } from './video-decoder';
 import type { CompositionInfo, JsonlFile, ResourceMeta } from './types';
 import CanvasKitInit from 'canvaskit-wasm';
 
@@ -382,14 +381,18 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   const renderer = getRendererOrThrow();
   const CK = (globalThis as any).__canvasKit;
 
-  const surface = CK.MakeWebGLCanvasSurface(previewCanvas);
-  if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
-  const ckCanvas = surface.getCanvas();
+  let surface;
+  try {
+    surface = CK.MakeWebGLCanvasSurface(previewCanvas);
+    if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
+    const ckCanvas = surface.getCanvas();
 
-  const resourceMetaJson = JSON.stringify(resourceMeta);
-  renderer.build_frame(currentJsonlContent!, frame, ckCanvas, resourceMetaJson);
-  surface.flush();
-  surface.delete();
+    const resourceMetaJson = JSON.stringify(resourceMeta);
+    renderer.build_frame(currentJsonlContent!, frame, ckCanvas, resourceMetaJson);
+    surface.flush();
+  } finally {
+    surface?.delete();
+  }
 
   frameLabel.textContent = `${(frame / comp.fps).toFixed(2)}s / ${((comp.frames - 1) / comp.fps).toFixed(2)}s`;
   frameSlider.value = String(frame / comp.fps);

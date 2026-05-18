@@ -177,8 +177,9 @@ impl Canvas2D for CanvasKitCanvas2D {
             &self.canvas, &js_mode, &arr.into(), target.unchecked_ref(),
         );
     }
-    fn draw_path(&mut self, _path: &Self::Path, _paint: &PaintSpec) {
-        todo!("M2: CKCanvas::drawPath")
+    fn draw_path(&mut self, path: &Self::Path, paint: &PaintSpec) {
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        CKCanvas::draw_path(&self.canvas, path.as_js(), target.unchecked_ref());
     }
 
     // ── Image ────────────────────────────────────────────────────
@@ -255,14 +256,69 @@ impl Canvas2D for CanvasKitCanvas2D {
 
     fn make_path_from_verbs(
         &self,
-        _verbs: &[u8],
-        _points: &[f32],
-        _fill_type: FillType,
+        verbs: &[u8],
+        points: &[f32],
+        fill_type: FillType,
     ) -> Self::Path {
-        todo!("M2: PathBuilder via CK.Path")
+        let path_handle = crate::canvaskit::bindings::ck_new_path()
+            .expect("CanvasKit.Path() ctor failed; ensure init_canvaskit() was called");
+        let path: &crate::canvaskit::bindings::CKPath =
+            path_handle.as_js().unchecked_ref();
+
+        let mut pi = 0usize;
+        let n = points.len();
+        for v in verbs {
+            let needed = match *v {
+                0 | 1 => 2,
+                2 => 4,
+                3 => 5,
+                4 => 6,
+                5 => 0,
+                _ => 0,
+            };
+            if pi + needed > n {
+                break;
+            }
+            match *v {
+                0 => {
+                    path.move_to(points[pi], points[pi + 1]);
+                    pi += 2;
+                }
+                1 => {
+                    path.line_to(points[pi], points[pi + 1]);
+                    pi += 2;
+                }
+                2 => {
+                    path.quad_to(points[pi], points[pi + 1], points[pi + 2], points[pi + 3]);
+                    pi += 4;
+                }
+                3 => {
+                    // Conic verb: points[pi..pi+5] = (x0,y0,x1,y1,w).
+                    // Weight w is dropped; quad_to uses only 4 points, pi skips all 5.
+                    path.quad_to(points[pi], points[pi + 1], points[pi + 2], points[pi + 3]);
+                    pi += 5;
+                }
+                4 => {
+                    path.cubic_to(
+                        points[pi], points[pi + 1], points[pi + 2],
+                        points[pi + 3], points[pi + 4], points[pi + 5],
+                    );
+                    pi += 6;
+                }
+                5 => {
+                    path.close_path();
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+
+        path.set_fill_type(&crate::canvaskit::convert::ck_fill_type(fill_type));
+        path_handle
     }
-    fn make_path_from_svg(&self, _svg_path_data: &str) -> Option<Self::Path> {
-        todo!("M2: CK.Path.MakeFromSVGString")
+    fn make_path_from_svg(&self, svg_path_data: &str) -> Option<Self::Path> {
+        crate::canvaskit::bindings::ck_path_from_svg(svg_path_data)
     }
     fn make_image_from_rgba(&self, _bytes: &[u8], _width: u32, _height: u32) -> Self::Image {
         todo!("M2: CK.MakeImage(info, bytes, rowBytes)")

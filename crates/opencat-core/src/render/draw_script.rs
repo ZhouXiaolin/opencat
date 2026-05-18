@@ -360,13 +360,10 @@ fn load_image_for_script<C: Canvas2D>(
         }
     }
     let asset_id_obj = crate::resource::asset_id::AssetId(asset_id.to_string());
-    let path = ctx.asset_paths.and_then(|store| store.path(&asset_id_obj))
-        .ok_or_else(|| RenderError::MissingResource(format!("missing asset path for {}", asset_id)))?;
-    let encoded = std::fs::read(path).map_err(|e| {
-        RenderError::MissingResource(format!("failed to read image: {} ({})", path.display(), e))
-    })?;
+    let encoded = ctx.blob_store.and_then(|store| store.read(&asset_id_obj))
+        .ok_or_else(|| RenderError::MissingResource(format!("missing asset blob for {}", asset_id)))?;
     let image = canvas.make_image_from_encoded(&encoded)
-        .ok_or_else(|| RenderError::MissingResource(format!("failed to decode image: {}", path.display())))?;
+        .ok_or_else(|| RenderError::MissingResource(format!("failed to decode image: {}", asset_id)))?;
     let dims = read_image_dimensions_from_encoded(&encoded).unwrap_or((0, 0));
     {
         let mut lru = cache.images.borrow_mut();

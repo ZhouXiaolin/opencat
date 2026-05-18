@@ -8,7 +8,7 @@
 
 use wasm_bindgen::prelude::*;
 
-use crate::canvaskit::handle::{CKHandle, CkImageMarker, CkPathMarker, CkRuntimeEffectMarker};
+use crate::canvaskit::handle::{CKHandle, CkImageMarker, CkPathMarker, CkRuntimeEffectMarker, CkShaderMarker};
 
 #[wasm_bindgen]
 extern "C" {
@@ -172,6 +172,12 @@ extern "C" {
     pub fn make_shader(this: &CKRuntimeEffectJs, uniforms: &JsValue, children: &JsValue) -> JsValue;
     #[wasm_bindgen(method, js_name = "delete")]
     pub fn delete_effect(this: &CKRuntimeEffectJs);
+
+    // ── Shader ──
+    pub type CKShaderJs;
+
+    #[wasm_bindgen(method, js_name = "delete")]
+    pub fn delete_shader(this: &CKShaderJs);
 }
 
 // ── 工厂函数（包装 CK 模块上的全局函数）──
@@ -342,4 +348,101 @@ pub fn ck_make_runtime_effect(
     Some(CKHandle::wrap(result))
 }
 
+fn ck_tile_mode(tm: opencat_core::canvas::paint::TileMode) -> JsValue {
+    use opencat_core::canvas::paint::TileMode;
+    let v = match tm {
+        TileMode::Clamp => "Clamp",
+        TileMode::Repeat => "Repeat",
+        TileMode::Mirror => "Mirror",
+        TileMode::Decal => "Decal",
+    };
+    let m = crate::canvaskit::module::ck();
+    let group = js_sys::Reflect::get(m, &JsValue::from_str("TileMode")).unwrap_or(JsValue::UNDEFINED);
+    js_sys::Reflect::get(&group, &JsValue::from_str(v)).unwrap_or(JsValue::UNDEFINED)
+}
+
+/// Convert core `ShaderSpec` to CanvasKit Shader handle.
+pub fn build_ck_shader(
+    spec: &opencat_core::canvas::paint::ShaderSpec,
+) -> Option<CKHandle<CkShaderMarker>> {
+    use opencat_core::canvas::paint::ShaderSpec;
+    let m = crate::canvaskit::module::ck();
+
+    match spec {
+        ShaderSpec::LinearGradient { from, to, stops, colors, tile_mode, .. } => {
+            let shader_class = js_sys::Reflect::get(m, &JsValue::from_str("Shader")).ok()?;
+            let make_fn = js_sys::Reflect::get(&shader_class, &JsValue::from_str("MakeLinearGradient")).ok()?;
+            let func = make_fn.dyn_ref::<js_sys::Function>()?;
+
+            let color_count = colors.len() as u32;
+            let color_arr = js_sys::Float32Array::new_with_length(color_count * 4);
+            for (i, c) in colors.iter().enumerate() {
+                color_arr.set_index((i * 4) as u32, c[0]);
+                color_arr.set_index((i * 4 + 1) as u32, c[1]);
+                color_arr.set_index((i * 4 + 2) as u32, c[2]);
+                color_arr.set_index((i * 4 + 3) as u32, c[3]);
+            }
+
+            let pos_js = if stops.is_empty() {
+                JsValue::NULL
+            } else {
+                let arr = js_sys::Float32Array::new_with_length(stops.len() as u32);
+                for (i, &v) in stops.iter().enumerate() { arr.set_index(i as u32, v); }
+                arr.into()
+            };
+
+            let start_arr = js_sys::Array::new();
+            start_arr.push(&JsValue::from_f64(from[0] as f64));
+            start_arr.push(&JsValue::from_f64(from[1] as f64));
+            let end_arr = js_sys::Array::new();
+            end_arr.push(&JsValue::from_f64(to[0] as f64));
+            end_arr.push(&JsValue::from_f64(to[1] as f64));
+
+            let tile_js = ck_tile_mode(*tile_mode);
+
+            let result = func.call5(
+                &shader_class,
+                &start_arr, &end_arr, &color_arr, &pos_js, &tile_js,
+            ).ok()?;
+            if result.is_null() || result.is_undefined() { return None; }
+            Some(CKHandle::wrap(result))
+        }
+        ShaderSpec::RadialGradient { center, radius, stops, colors, tile_mode, .. } => {
+            let shader_class = js_sys::Reflect::get(m, &JsValue::from_str("Shader")).ok()?;
+            let make_fn = js_sys::Reflect::get(&shader_class, &JsValue::from_str("MakeRadialGradient")).ok()?;
+            let func = make_fn.dyn_ref::<js_sys::Function>()?;
+
+            let color_count = colors.len() as u32;
+            let color_arr = js_sys::Float32Array::new_with_length(color_count * 4);
+            for (i, c) in colors.iter().enumerate() {
+                color_arr.set_index((i * 4) as u32, c[0]);
+                color_arr.set_index((i * 4 + 1) as u32, c[1]);
+                color_arr.set_index((i * 4 + 2) as u32, c[2]);
+                color_arr.set_index((i * 4 + 3) as u32, c[3]);
+            }
+
+            let pos_js = if stops.is_empty() {
+                JsValue::NULL
+            } else {
+                let arr = js_sys::Float32Array::new_with_length(stops.len() as u32);
+                for (i, &v) in stops.iter().enumerate() { arr.set_index(i as u32, v); }
+                arr.into()
+            };
+
+            let tile_js = ck_tile_mode(*tile_mode);
+
+            let result = func.call6(
+                &shader_class,
+                &JsValue::from_f64(center[0] as f64),
+                &JsValue::from_f64(center[1] as f64),
+                &JsValue::from_f64(*radius as f64),
+                &color_arr,
+                &pos_js,
+                &tile_js,
+            ).ok()?;
+            if result.is_null() || result.is_undefined() { return None; }
+            Some(CKHandle::wrap(result))
+        }
+    }
+}
 

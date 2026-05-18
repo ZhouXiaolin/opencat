@@ -4,6 +4,7 @@
 //! - 预览播放：通过 `AudioBufferSourceNode` 按时间偏移播放。
 //! - 导出：从 AudioBuffer 中按时间范围提取 f32 PCM 样本。
 
+#![cfg(target_arch = "wasm32")]
 use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};

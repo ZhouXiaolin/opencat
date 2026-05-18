@@ -207,21 +207,54 @@ impl Canvas2D for CanvasKitCanvas2D {
 
     fn draw_image(
         &mut self,
-        _image: &Self::Image,
-        _x: f32,
-        _y: f32,
-        _paint: Option<&PaintSpec>,
+        image: &Self::Image,
+        x: f32,
+        y: f32,
+        paint: Option<&PaintSpec>,
     ) {
-        todo!("M2: CKCanvas::drawImage")
+        let target_opt = paint.map(|spec| {
+            crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, spec)
+        });
+        let null_js = wasm_bindgen::JsValue::NULL;
+        let paint_ref: &wasm_bindgen::JsValue = match target_opt {
+            Some(t) => t.unchecked_ref(),
+            None => &null_js,
+        };
+        crate::canvaskit::bindings::CKCanvas::draw_image(&self.canvas, image.as_js(), x, y, paint_ref);
     }
     fn draw_image_rect(
         &mut self,
-        _image: &Self::Image,
-        _src: Option<&Rect>,
-        _dst: &Rect,
-        _paint: Option<&PaintSpec>,
+        image: &Self::Image,
+        src: Option<&Rect>,
+        dst: &Rect,
+        paint: Option<&PaintSpec>,
     ) {
-        todo!("M2: CKCanvas::drawImageRect")
+        let src_js = match src {
+            Some(r) => crate::canvaskit::bindings::ck_ltrb_rect(
+                r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32,
+            ),
+            None => {
+                let img_js = image.as_js();
+                let img_inst: &crate::canvaskit::bindings::CKImageJs = img_js.unchecked_ref();
+                let w = img_inst.image_width() as f32;
+                let h = img_inst.image_height() as f32;
+                crate::canvaskit::bindings::ck_ltrb_rect(0.0, 0.0, w, h)
+            }
+        };
+        let dst_js = crate::canvaskit::bindings::ck_ltrb_rect(
+            dst.x0 as f32, dst.y0 as f32, dst.x1 as f32, dst.y1 as f32,
+        );
+        let target_opt = paint.map(|spec| {
+            crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, spec)
+        });
+        let null_js = wasm_bindgen::JsValue::NULL;
+        let paint_ref: &wasm_bindgen::JsValue = match target_opt {
+            Some(t) => t.unchecked_ref(),
+            None => &null_js,
+        };
+        crate::canvaskit::bindings::CKCanvas::draw_image_rect(
+            &self.canvas, image.as_js(), &src_js, &dst_js, paint_ref,
+        );
     }
 
     // ── Text ─────────────────────────────────────────────────────

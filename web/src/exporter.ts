@@ -51,8 +51,6 @@ class ExportClip implements IClip {
     audio?: Float32Array[];
     state: 'done' | 'success';
   }> {
-    const { width, height } = this.comp;
-
     if (time >= this.meta.duration) {
       return { video: null, audio: [], state: 'done' };
     }
@@ -65,31 +63,36 @@ class ExportClip implements IClip {
     const renderer = getRendererOrThrow();
     const CK = (globalThis as any).__canvasKit;
 
-    const surface = CK.MakeWebGLCanvasSurface(this.canvas);
-    if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
-    const ckCanvas = surface.getCanvas();
+    let surface;
+    try {
+      surface = CK.MakeWebGLCanvasSurface(this.canvas);
+      if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
+      const ckCanvas = surface.getCanvas();
 
-    renderer.build_frame(this.jsonlContent, frameNum, ckCanvas, this.resourceMetaJson);
-    surface.flush();
+      renderer.build_frame(this.jsonlContent, frameNum, ckCanvas, this.resourceMetaJson);
+      surface.flush();
 
-    const startSecs = time / 1_000_000;
-    const durationSecs = 1.0 / this.fps;
-    const audioChannels = this.mixAudioForFrame(startSecs, durationSecs);
+      const startSecs = time / 1_000_000;
+      const durationSecs = 1.0 / this.fps;
+      const audioChannels = this.mixAudioForFrame(startSecs, durationSecs);
 
-    const blob = await new Promise<Blob | null>((resolve) => {
-      this.canvas.toBlob(resolve, 'image/png');
-    });
-    surface.delete();
+      const blob = await new Promise<Blob | null>((resolve) => {
+        this.canvas.toBlob(resolve, 'image/png');
+      });
 
-    if (!blob) {
-      return { video: null, audio: audioChannels, state: 'success' };
+      if (!blob) {
+        return { video: null, audio: audioChannels, state: 'success' };
+      }
+
+      const bitmap = await createImageBitmap(blob);
+
+      this.onProgress(frameNum + 1, this.totalFrames);
+
+      return { video: bitmap, audio: audioChannels, state: 'success' };
+    } finally {
+      surface?.delete();
     }
 
-    const bitmap = await createImageBitmap(blob);
-
-    this.onProgress(frameNum + 1, this.totalFrames);
-
-    return { video: bitmap, audio: audioChannels, state: 'success' };
   }
 
   /// Mix audio samples from all audio sources for a time slice.
@@ -237,21 +240,25 @@ export async function exportPngFrame(
   const renderer = getRendererOrThrow();
   const CK = (globalThis as any).__canvasKit;
 
-  const surface = CK.MakeWebGLCanvasSurface(canvas);
-  if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
-  const ckCanvas = surface.getCanvas();
+  let surface;
+  try {
+    surface = CK.MakeWebGLCanvasSurface(canvas);
+    if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
+    const ckCanvas = surface.getCanvas();
 
-  renderer.build_frame(jsonlContent, frame, ckCanvas, resourceMetaJson);
-  surface.flush();
+    renderer.build_frame(jsonlContent, frame, ckCanvas, resourceMetaJson);
+    surface.flush();
 
-  const blob = await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, 'image/png');
-  });
-  surface.delete();
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/png');
+    });
 
-  if (!blob) return;
+    if (!blob) return;
 
-  downloadBlob(blob, `frame_${String(frame).padStart(4, '0')}.png`);
+    downloadBlob(blob, `frame_${String(frame).padStart(4, '0')}.png`);
+  } finally {
+    surface?.delete();
+  }
 }
 
 function downloadBlob(blob: Blob, name: string): void {

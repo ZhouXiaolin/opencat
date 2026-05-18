@@ -14,8 +14,7 @@ use crate::{
 /// and per-line positioning info, enabling the web renderer to draw
 /// text without needing its own font engine.
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct DisplayTextGlyphs {
     /// Deduplicated glyph entries keyed by cache_key.
     pub entries: Vec<DisplayGlyphEntry>,
@@ -23,15 +22,13 @@ pub struct DisplayTextGlyphs {
     pub lines: Vec<DisplayGlyphLine>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct DisplayGlyphEntry {
     pub cache_key: u64,
     pub data: DisplayGlyphData,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub enum DisplayGlyphData {
     /// Vector outline path commands for the glyph.
     Outline { commands: Vec<DisplayGlyphCommand> },
@@ -45,8 +42,7 @@ pub enum DisplayGlyphData {
     },
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub enum DisplayGlyphCommand {
     MoveTo {
         x: f32,
@@ -73,16 +69,14 @@ pub enum DisplayGlyphCommand {
     Close,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct DisplayGlyphLine {
     pub y: f32,
     pub width: f32,
     pub positions: Vec<DisplayGlyphPosition>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct DisplayGlyphPosition {
     pub cache_key: u64,
     pub outline_key: u64,
@@ -92,8 +86,7 @@ pub struct DisplayGlyphPosition {
     pub byte_end: usize,
 }
 
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug)]
 pub struct DisplayRect {
     pub x: f32,
     pub y: f32,
@@ -101,15 +94,13 @@ pub struct DisplayRect {
     pub height: f32,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct DisplayClip {
     pub bounds: DisplayRect,
     pub border_radius: BorderRadius,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct DisplayTransform {
     pub translation_x: f32,
     pub translation_y: f32,
@@ -117,8 +108,7 @@ pub struct DisplayTransform {
     pub transforms: Vec<crate::style::Transform>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub enum DisplayItem {
     Rect(RectDisplayItem),
     Timeline(TimelineDisplayItem),
@@ -128,15 +118,13 @@ pub enum DisplayItem {
     SvgPath(SvgPathDisplayItem),
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct RectDisplayItem {
     pub bounds: DisplayRect,
     pub paint: RectPaintStyle,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct TextDisplayItem {
     pub bounds: DisplayRect,
     pub text: String,
@@ -151,27 +139,23 @@ pub struct TextDisplayItem {
     /// Produced by `rasterize_glyphs()` and consumed by the web renderer.
     /// The desktop engine ignores this field and calls rasterize_glyphs
     /// directly within its Skia rendering backend.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glyphs: Option<DisplayTextGlyphs>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct TimelineDisplayItem {
     pub bounds: DisplayRect,
     pub paint: RectPaintStyle,
     pub transition: Option<TimelineTransitionDisplay>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct TimelineTransitionDisplay {
     pub progress: f32,
     pub kind: TransitionKind,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct BitmapDisplayItem {
     pub bounds: DisplayRect,
     pub asset_id: AssetId,
@@ -182,16 +166,14 @@ pub struct BitmapDisplayItem {
     pub paint: BitmapPaintStyle,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct DrawScriptDisplayItem {
     pub bounds: DisplayRect,
     pub commands: Vec<CanvasCommand>,
     pub drop_shadow: Option<DropShadow>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct RectPaintStyle {
     pub background: Option<BackgroundFill>,
     pub border_radius: BorderRadius,
@@ -209,8 +191,7 @@ pub struct RectPaintStyle {
     pub backdrop_blur_sigma: Option<f32>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct BitmapPaintStyle {
     pub background: Option<BackgroundFill>,
     pub border_radius: BorderRadius,
@@ -227,8 +208,7 @@ pub struct BitmapPaintStyle {
     pub drop_shadow: Option<DropShadow>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct SvgPathPaintStyle {
     pub fill: Option<BackgroundFill>,
     pub stroke_width: Option<f32>,
@@ -238,8 +218,7 @@ pub struct SvgPathPaintStyle {
     pub stroke_dashoffset: Option<f32>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 pub struct SvgPathDisplayItem {
     pub bounds: DisplayRect,
     pub path_data: Vec<String>,
@@ -247,8 +226,7 @@ pub struct SvgPathDisplayItem {
     pub view_box: [f32; 4],
 }
 
-#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug)]
 pub struct PictureSemantics {
     pub record_bounds: DisplayRect,
     pub record_translation_x: f32,

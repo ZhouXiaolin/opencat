@@ -165,24 +165,16 @@ pub fn collect_resources_json(input: &str) -> String {
     .to_string()
 }
 
-/// Build display tree for a single frame.
-/// Returns: DisplayTree JSON or `{"error": "message"}` on failure
-///
-/// **Deprecated**: Prefer `WebRenderer::build_frame` from `wasm_bridge`,
-/// which runs through the full render pipeline and returns ordered-scene ops.
-/// This legacy entry point is kept for backward compatibility with existing JS code.
+/// **Deprecated & Removed**: Prefer `WebRenderer::build_frame` from `wasm_bridge`.
+/// This legacy entry point serialized DisplayTree which no longer implements Serialize.
 #[wasm_bindgen]
 pub fn build_frame(
-    jsonl_input: &str,
-    frame: u32,
-    resource_meta: &str,
-    mutations_json: &str,
+    _jsonl_input: &str,
+    _frame: u32,
+    _resource_meta: &str,
+    _mutations_json: &str,
 ) -> String {
-    match build_frame_impl(jsonl_input, frame, resource_meta, mutations_json) {
-        Ok(tree) => serde_json::to_string(&tree)
-            .unwrap_or_else(|e| format!(r#"{{"error":"serialization failed: {}"}}"#, e)),
-        Err(e) => format!(r#"{{"error":"{}"}}"#, e),
-    }
+    r#"{"error":"build_frame is removed, use WebRenderer::build_frame from wasm_bridge"}"#.to_string()
 }
 
 fn build_frame_impl(

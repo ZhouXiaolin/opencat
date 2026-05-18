@@ -275,20 +275,64 @@ impl Canvas2D for CanvasKitCanvas2D {
 
     // ── Picture ──────────────────────────────────────────────────
 
-    fn make_picture<R>(&mut self, _bounds: &Rect, _record: R) -> Self::Picture
+    fn make_picture<R>(&mut self, bounds: &Rect, record: R) -> Self::Picture
     where
         R: FnOnce(&mut Self),
         Self: Sized,
     {
-        todo!("M2: PictureRecorder + finishRecordingAsPicture")
+        let bounds_js = crate::canvaskit::bindings::ck_ltrb_rect(
+            bounds.x0 as f32, bounds.y0 as f32, bounds.x1 as f32, bounds.y1 as f32,
+        );
+        let recorder = crate::canvaskit::bindings::ck_new_picture_recorder()
+            .expect("PictureRecorder() ctor failed; ensure init_canvaskit() was called");
+        let recording_canvas = crate::canvaskit::bindings::CKPictureRecorder::begin_recording(
+            &recorder, &bounds_js,
+        );
+
+        let mut temp = CanvasKitCanvas2D::new(recording_canvas);
+        record(&mut temp);
+        drop(temp);
+
+        let picture_js = crate::canvaskit::bindings::CKPictureRecorder::finish_recording_as_picture(&recorder);
+        crate::canvaskit::bindings::CKPictureRecorder::delete_recorder(&recorder);
+        crate::canvaskit::handle::CKHandle::wrap(picture_js)
     }
     fn draw_picture(
         &mut self,
-        _picture: &Self::Picture,
-        _matrix: Option<&[f32; 9]>,
-        _paint: Option<&PaintSpec>,
+        picture: &Self::Picture,
+        matrix: Option<&[f32; 9]>,
+        paint: Option<&PaintSpec>,
     ) {
-        todo!("M2: CKCanvas::drawPicture")
+        let need_save = matrix.is_some() || paint.is_some();
+        if need_save {
+            crate::canvaskit::bindings::CKCanvas::save(&self.canvas);
+        }
+
+        if let Some(spec) = paint {
+            let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, spec);
+            crate::canvaskit::bindings::CKCanvas::save_layer(
+                &self.canvas,
+                target.unchecked_ref(),
+                &wasm_bindgen::JsValue::NULL,
+            );
+        }
+
+        if let Some(m) = matrix {
+            let arr = js_sys::Float32Array::new_with_length(9);
+            for (i, v) in m.iter().enumerate() {
+                arr.set_index(i as u32, *v);
+            }
+            crate::canvaskit::bindings::CKCanvas::concat(&self.canvas, &arr.into());
+        }
+
+        crate::canvaskit::bindings::CKCanvas::draw_picture(&self.canvas, picture.as_js());
+
+        if paint.is_some() {
+            crate::canvaskit::bindings::CKCanvas::restore(&self.canvas);
+        }
+        if need_save {
+            crate::canvaskit::bindings::CKCanvas::restore(&self.canvas);
+        }
     }
 
     // ── Runtime Effect ───────────────────────────────────────────

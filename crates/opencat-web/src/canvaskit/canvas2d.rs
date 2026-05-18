@@ -86,14 +86,21 @@ impl Canvas2D for CanvasKitCanvas2D {
 
     // ── Clipping ─────────────────────────────────────────────────
 
-    fn clip_rect(&mut self, _rect: &Rect, _op: ClipOp, _anti_alias: bool) {
-        todo!("M2: CKCanvas::clipRect")
+    fn clip_rect(&mut self, rect: &Rect, op: ClipOp, anti_alias: bool) {
+        let js_rect = crate::canvaskit::bindings::ck_ltrb_rect(
+            rect.x0 as f32, rect.y0 as f32, rect.x1 as f32, rect.y1 as f32,
+        );
+        let js_op = crate::canvaskit::convert::ck_clip_op(op);
+        crate::canvaskit::bindings::CKCanvas::clip_rect(&self.canvas, &js_rect, &js_op, anti_alias);
     }
-    fn clip_rrect(&mut self, _rrect: &RRect, _op: ClipOp, _anti_alias: bool) {
-        todo!("M2: CKCanvas::clipRRect")
+    fn clip_rrect(&mut self, rrect: &RRect, op: ClipOp, anti_alias: bool) {
+        let js_rrect = crate::canvaskit::convert::ck_rrect_from_kurbo(rrect);
+        let js_op = crate::canvaskit::convert::ck_clip_op(op);
+        crate::canvaskit::bindings::CKCanvas::clip_rrect(&self.canvas, &js_rrect, &js_op, anti_alias);
     }
-    fn clip_path(&mut self, _path: &Self::Path, _op: ClipOp, _anti_alias: bool) {
-        todo!("M2: CKCanvas::clipPath")
+    fn clip_path(&mut self, path: &Self::Path, op: ClipOp, anti_alias: bool) {
+        let js_op = crate::canvaskit::convert::ck_clip_op(op);
+        crate::canvaskit::bindings::CKCanvas::clip_path(&self.canvas, path.as_js(), &js_op, anti_alias);
     }
 
     // ── Basic geometry ───────────────────────────────────────────

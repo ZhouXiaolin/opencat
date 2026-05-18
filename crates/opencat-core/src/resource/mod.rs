@@ -1,5 +1,6 @@
 pub mod asset_id;
 pub mod bitmap_source;
+pub mod blob_store;
 pub mod catalog;
 pub mod hash_map_catalog;
 pub mod path_store;
@@ -9,6 +10,7 @@ pub mod resolver;
 pub mod types;
 
 pub use asset_id::AssetId;
+pub use blob_store::{AssetPathBlobStore, BlobStore};
 pub use catalog::{ResourceCatalog, VideoInfoMeta};
 pub use path_store::AssetPathStore;
 pub use preload::preload_all;

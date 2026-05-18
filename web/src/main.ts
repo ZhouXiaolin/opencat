@@ -13,7 +13,7 @@ import {
 } from './exporter';
 import { prepareVideoSource, getDecodedFrameRgba, registerVideoGlobals } from './video-decoder';
 import type { CompositionInfo, JsonlFile, ResourceMeta } from './types';
-import CanvasKitInit from 'canvaskit-wasm';
+import CanvasKitInit from 'canvaskit-wasm/full';
 
 // --- State ---
 let currentComposition: CompositionInfo | null = null;

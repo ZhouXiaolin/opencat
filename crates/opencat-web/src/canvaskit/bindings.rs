@@ -514,12 +514,13 @@ pub fn build_ck_image_filter(
         } => {
             let make_fn = js_sys::Reflect::get(&if_class, &JsValue::from_str("MakeBlur")).ok()?;
             let func = make_fn.dyn_ref::<js_sys::Function>()?;
+            let tile_mode = ck_tile_mode(opencat_core::canvas::paint::TileMode::Clamp);
             let result = func
                 .call3(
                     &if_class,
                     &JsValue::from_f64(*sigma_x as f64),
                     &JsValue::from_f64(*sigma_y as f64),
-                    &JsValue::NULL, // tileMode — null for default (clamp)
+                    &tile_mode,
                 )
                 .ok()?;
             if result.is_null() || result.is_undefined() {

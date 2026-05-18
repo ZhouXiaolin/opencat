@@ -1,5 +1,5 @@
 //! `PaintSpec` → `CKPaint` 转换。覆盖 Solid / Stroke / AA / BlendMode / PaintStyle。
-//! Shader / ImageFilter / ColorFilter 已实现；MaskFilter / PathEffect 待填实。
+//! Shader / ImageFilter / ColorFilter / MaskFilter / PathEffect 已实现。
 
 #![cfg(target_arch = "wasm32")]
 
@@ -74,9 +74,27 @@ pub fn apply_to<'a>(
         target.set_color_filter(&wasm_bindgen::JsValue::NULL);
     }
 
-    // MaskFilter / PathEffect still reset to NULL (Task 6 will implement)
-    target.set_mask_filter(&wasm_bindgen::JsValue::NULL);
-    target.set_path_effect(&wasm_bindgen::JsValue::NULL);
+    // MaskFilter
+    if let Some(ref mf_spec) = spec.mask_filter {
+        if let Some(handle) = crate::canvaskit::bindings::build_ck_mask_filter(mf_spec) {
+            target.set_mask_filter(handle.as_js());
+        } else {
+            target.set_mask_filter(&wasm_bindgen::JsValue::NULL);
+        }
+    } else {
+        target.set_mask_filter(&wasm_bindgen::JsValue::NULL);
+    }
+
+    // PathEffect
+    if let Some(ref pe_spec) = spec.path_effect {
+        if let Some(handle) = crate::canvaskit::bindings::build_ck_path_effect(pe_spec) {
+            target.set_path_effect(handle.as_js());
+        } else {
+            target.set_path_effect(&wasm_bindgen::JsValue::NULL);
+        }
+    } else {
+        target.set_path_effect(&wasm_bindgen::JsValue::NULL);
+    }
 
     target
 }

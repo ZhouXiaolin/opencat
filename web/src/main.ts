@@ -82,13 +82,6 @@ async function boot() {
     // Register video decode globals
     registerVideoGlobals();
 
-    // Load default font for text rendering
-    const fontResp = await fetch('/Roboto-Regular.ttf');
-    if (fontResp.ok) {
-      const fontBytes = new Uint8Array(await fontResp.arrayBuffer());
-      getRendererOrThrow().inject_default_typeface(fontBytes);
-    }
-
     // Load file list
     await loadFileList();
 

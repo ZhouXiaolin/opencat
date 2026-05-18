@@ -1,7 +1,7 @@
 //! `CanvasKitCanvas2D`：核心 `Canvas2D` trait 的 CanvasKit 后端。
 //!
-//! M1 阶段为骨架：实现 trait 的所有方法以满足编译，方法体 `todo!()`。
-//! M2（后续计划）会按 `Canvas2D` trait 顺序逐一填实。
+//! Plan B 已填实状态栈/变换/裁剪/基础几何/paint converter（28 个方法）。
+//! Image/Picture/Text/RuntimeEffect 将在 Plan C/D 逐一填实（10 个方法仍为 `todo!()`）。
 
 #![cfg(target_arch = "wasm32")]
 
@@ -17,9 +17,7 @@ use crate::canvaskit::handle::{CKImage, CKPath, CKPicture, CKRuntimeEffect};
 
 pub struct CanvasKitCanvas2D {
     canvas: CKCanvas,
-    #[allow(dead_code)]
     fill_paint: CKPaint,
-    #[allow(dead_code)]
     stroke_paint: CKPaint,
 }
 

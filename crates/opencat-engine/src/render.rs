@@ -17,6 +17,7 @@ use crate::{
     },
 };
 use opencat_core::scene::composition::Composition;
+use opencat_core::resource::AssetPathBlobStore;
 use crate::backend::SkiaCanvas2D;
 
 pub use crate::codec::encode::Mp4Config;
@@ -237,13 +238,13 @@ pub fn render_frame_to_target(
     // SAFETY: asset_paths lives on session.platform which is not moved/dropped
     // during the render call.
     let asset_paths_ptr: *const crate::resource::AssetPathStore = &session.platform.asset_paths;
-    let asset_paths_ref = unsafe { &*asset_paths_ptr };
+    let blob_store = AssetPathBlobStore::new(unsafe { &*asset_paths_ptr });
     let render_result = opencat_core::runtime::pipeline::render_frame::<EnginePlatform, SkiaCanvas2D>(
         composition,
         frame_index,
         session,
         &mut skia_canvas,
-        Some(asset_paths_ref),
+        Some(&blob_store),
     );
     let end_result = target.end_frame();
     render_result.and(end_result)
@@ -264,13 +265,13 @@ pub fn render_frame_rgba(
     // SAFETY: asset_paths lives on session.platform which is not moved/dropped
     // during the render call. We use a raw pointer to split the borrow.
     let asset_paths_ptr: *const crate::resource::AssetPathStore = &session.platform.asset_paths;
-    let asset_paths_ref = unsafe { &*asset_paths_ptr };
+    let blob_store = AssetPathBlobStore::new(unsafe { &*asset_paths_ptr });
     opencat_core::runtime::pipeline::render_frame::<EnginePlatform, SkiaCanvas2D>(
         composition,
         frame_index,
         session,
         &mut skia_canvas,
-        Some(asset_paths_ref),
+        Some(&blob_store),
     )?;
 
     let image = surface.image_snapshot();

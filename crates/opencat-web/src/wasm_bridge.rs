@@ -182,12 +182,4 @@ impl WebRenderer {
         self.blobs.clear();
     }
 
-    /// JS 端在 init_canvaskit() 后注入默认字体字节（TTF/OTF/WOFF2）。
-    /// 影响所有 draw_simple_text / draw_glyph_run 调用。
-    pub fn inject_default_typeface(&self, bytes: Vec<u8>) -> Result<(), JsValue> {
-        let typeface = crate::canvaskit::bindings::ck_make_typeface_from_data(&bytes)
-            .ok_or_else(|| JsValue::from_str("CanvasKit.Typeface.MakeFreeTypeFaceFromData failed"))?;
-        crate::canvaskit::module::set_default_typeface(typeface);
-        Ok(())
-    }
 }

@@ -20,7 +20,7 @@ fn kurbo_rect(r: DisplayRect) -> Rect {
     Rect::new(r.x as f64, r.y as f64, (r.x + r.width) as f64, (r.y + r.height) as f64)
 }
 
-fn commands_to_verbs_points(commands: &[Command], scale: f32) -> (Vec<u8>, Vec<f32>) {
+pub fn commands_to_verbs_points(commands: &[Command], scale: f32) -> (Vec<u8>, Vec<f32>) {
     let mut verbs = Vec::with_capacity(commands.len());
     let mut points = Vec::new();
     for cmd in commands {
@@ -43,7 +43,7 @@ fn commands_to_verbs_points(commands: &[Command], scale: f32) -> (Vec<u8>, Vec<f
                 points.push(-p.y * scale);
             }
             Command::CurveTo(c1, c2, p) => {
-                verbs.push(3);
+                verbs.push(4);
                 points.push(c1.x * scale);
                 points.push(-c1.y * scale);
                 points.push(c2.x * scale);
@@ -52,7 +52,7 @@ fn commands_to_verbs_points(commands: &[Command], scale: f32) -> (Vec<u8>, Vec<f
                 points.push(-p.y * scale);
             }
             Command::Close => {
-                verbs.push(4);
+                verbs.push(5);
             }
         }
     }

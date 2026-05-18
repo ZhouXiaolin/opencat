@@ -137,6 +137,23 @@ extern "C" {
     pub fn set_mask_filter(this: &CKPaint, filter: &JsValue);
     #[wasm_bindgen(method, js_name = "setPathEffect")]
     pub fn set_path_effect(this: &CKPaint, effect: &JsValue);
+
+    // ── Path（CanvasKit 的 SkPath，由 CKHandle<CkPathMarker> 持有）──
+
+    pub type CKPath;
+
+    #[wasm_bindgen(method, js_name = "moveTo")]
+    pub fn move_to(this: &CKPath, x: f32, y: f32);
+    #[wasm_bindgen(method, js_name = "lineTo")]
+    pub fn line_to(this: &CKPath, x: f32, y: f32);
+    #[wasm_bindgen(method, js_name = "cubicTo")]
+    pub fn cubic_to(this: &CKPath, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32);
+    #[wasm_bindgen(method, js_name = "quadTo")]
+    pub fn quad_to(this: &CKPath, cx: f32, cy: f32, x: f32, y: f32);
+    #[wasm_bindgen(method, js_name = "close")]
+    pub fn close_path(this: &CKPath);
+    #[wasm_bindgen(method, js_name = "setFillType")]
+    pub fn set_fill_type(this: &CKPath, fill: &JsValue);
 }
 
 // ── 工厂函数（包装 CK 模块上的全局函数）──

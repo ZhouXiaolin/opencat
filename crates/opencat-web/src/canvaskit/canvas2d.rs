@@ -124,14 +124,23 @@ impl Canvas2D for CanvasKitCanvas2D {
         let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
         CKCanvas::draw_rect(&self.canvas, &js_rect, target.unchecked_ref());
     }
-    fn draw_rrect(&mut self, _rrect: &RRect, _paint: &PaintSpec) {
-        todo!("M2: CKCanvas::drawRRect")
+    fn draw_rrect(&mut self, rrect: &RRect, paint: &PaintSpec) {
+        let js_rrect = crate::canvaskit::convert::ck_rrect_from_kurbo(rrect);
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        CKCanvas::draw_rrect(&self.canvas, &js_rrect, target.unchecked_ref());
     }
-    fn draw_drrect(&mut self, _outer: &RRect, _inner: &RRect, _paint: &PaintSpec) {
-        todo!("M2: CKCanvas::drawDRRect")
+    fn draw_drrect(&mut self, outer: &RRect, inner: &RRect, paint: &PaintSpec) {
+        let js_outer = crate::canvaskit::convert::ck_rrect_from_kurbo(outer);
+        let js_inner = crate::canvaskit::convert::ck_rrect_from_kurbo(inner);
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        CKCanvas::draw_drrect(&self.canvas, &js_outer, &js_inner, target.unchecked_ref());
     }
-    fn draw_oval(&mut self, _oval: &Rect, _paint: &PaintSpec) {
-        todo!("M2: CKCanvas::drawOval")
+    fn draw_oval(&mut self, oval: &Rect, paint: &PaintSpec) {
+        let js_oval = crate::canvaskit::bindings::ck_ltrb_rect(
+            oval.x0 as f32, oval.y0 as f32, oval.x1 as f32, oval.y1 as f32,
+        );
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        CKCanvas::draw_oval(&self.canvas, &js_oval, target.unchecked_ref());
     }
     fn draw_circle(&mut self, cx: f32, cy: f32, radius: f32, paint: &PaintSpec) {
         let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
@@ -139,20 +148,34 @@ impl Canvas2D for CanvasKitCanvas2D {
     }
     fn draw_arc(
         &mut self,
-        _oval: &Rect,
-        _start: f32,
-        _sweep: f32,
-        _use_center: bool,
-        _paint: &PaintSpec,
+        oval: &Rect,
+        start: f32,
+        sweep: f32,
+        use_center: bool,
+        paint: &PaintSpec,
     ) {
-        todo!("M2: CKCanvas::drawArc")
+        let js_oval = crate::canvaskit::bindings::ck_ltrb_rect(
+            oval.x0 as f32, oval.y0 as f32, oval.x1 as f32, oval.y1 as f32,
+        );
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        CKCanvas::draw_arc(
+            &self.canvas, &js_oval, start, sweep, use_center, target.unchecked_ref(),
+        );
     }
     fn draw_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, paint: &PaintSpec) {
         let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
         CKCanvas::draw_line(&self.canvas, x0, y0, x1, y1, target.unchecked_ref());
     }
-    fn draw_points(&mut self, _mode: PointMode, _points: &[f32], _paint: &PaintSpec) {
-        todo!("M2: CKCanvas::drawPoints")
+    fn draw_points(&mut self, mode: PointMode, points: &[f32], paint: &PaintSpec) {
+        let js_mode = crate::canvaskit::convert::ck_point_mode(mode);
+        let arr = js_sys::Float32Array::new_with_length(points.len() as u32);
+        for (i, v) in points.iter().enumerate() {
+            arr.set_index(i as u32, *v);
+        }
+        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
+        CKCanvas::draw_points(
+            &self.canvas, &js_mode, &arr.into(), target.unchecked_ref(),
+        );
     }
     fn draw_path(&mut self, _path: &Self::Path, _paint: &PaintSpec) {
         todo!("M2: CKCanvas::drawPath")

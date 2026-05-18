@@ -1,9 +1,5 @@
-import type { CompositionInfo, ParsedElement } from './types';
-import { ensureSurface, drawDisplayTree, predecodeVideoFramesInTree } from './renderer';
-import { buildFrame, parseJsonl } from './wasm';
-import { getScriptEngine } from './script-engine';
+import type { CompositionInfo, ResourceMeta } from './types';
 import { getRendererOrThrow } from './wasm';
-import { sceneFrameCtx } from './timeline';
 import type { IClip } from '@webav/av-cliper';
 
 type ProgressCallback = (current: number, total: number) => void;
@@ -16,7 +12,6 @@ class ExportClip implements IClip {
 
   private canvas: HTMLCanvasElement;
   private jsonlContent: string;
-  private filteredJsonl: string;
   private resourceMetaJson: string;
   private comp: CompositionInfo;
   private totalFrames: number;
@@ -28,7 +23,6 @@ class ExportClip implements IClip {
   constructor(
     canvas: HTMLCanvasElement,
     jsonlContent: string,
-    filteredJsonl: string,
     resourceMetaJson: string,
     comp: CompositionInfo,
     onProgress: ProgressCallback,
@@ -36,7 +30,6 @@ class ExportClip implements IClip {
   ) {
     this.canvas = canvas;
     this.jsonlContent = jsonlContent;
-    this.filteredJsonl = filteredJsonl;
     this.resourceMetaJson = resourceMetaJson;
     this.comp = comp;
     this.totalFrames = comp.frames;
@@ -69,59 +62,25 @@ class ExportClip implements IClip {
       this.totalFrames - 1,
     );
 
-    // Execute scripts to collect mutations
-    const engine = getScriptEngine();
-    const sc = sceneFrameCtx(frameNum, this.jsonlContent);
-    engine.setFrameCtx(sc.localFrame + 1, this.totalFrames, sc.sceneFrames);
-    const parsed = parseJsonl(this.jsonlContent);
+    const renderer = getRendererOrThrow();
+    const CK = (globalThis as any).__canvasKit;
 
-    for (const el of parsed.elements || []) {
-      if (el.id && el.text) {
-        (window as any).__text_source_set?.(el.id, el.text);
-      }
-    }
+    const surface = CK.MakeWebGLCanvasSurface(this.canvas);
+    if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
+    const ckCanvas = surface.getCanvas();
 
-    const scriptElements = (parsed.elements || []).filter(
-      (e: ParsedElement) => e.type === 'script',
-    );
+    renderer.build_frame(this.jsonlContent, frameNum, ckCanvas, this.resourceMetaJson);
+    surface.flush();
 
-    for (const script of scriptElements) {
-      if (script.id) {
-        (window as any).ctx.__currentCanvasTarget = script.id;
-      }
-      const source = (script.src || script.content || '') as string;
-      if (source) {
-        try {
-          engine.runScript(source);
-        } catch (err) {
-          console.error(`Script execution error for element ${script.id}:`, err);
-        }
-      }
-    }
-
-    try {
-      (window as any).ctx.__flushTimelines?.();
-    } catch (err) {
-      console.error('Timeline flush error:', err);
-    }
-
-    const mutationsJson = engine.collectJson();
-
-    // Build display tree and render to canvas
-    const result = buildFrame(this.filteredJsonl, frameNum, this.resourceMetaJson, mutationsJson);
-    ensureSurface(this.canvas, width, height);
-    await predecodeVideoFramesInTree(result.root, this.comp, frameNum);
-    drawDisplayTree(result.root, this.comp, frameNum);
-
-    // --- Audio: get samples for this frame's time slice ---
     const startSecs = time / 1_000_000;
     const durationSecs = 1.0 / this.fps;
     const audioChannels = this.mixAudioForFrame(startSecs, durationSecs);
 
-    // Read canvas as PNG blob then create ImageBitmap
     const blob = await new Promise<Blob | null>((resolve) => {
       this.canvas.toBlob(resolve, 'image/png');
     });
+    surface.delete();
+
     if (!blob) {
       return { video: null, audio: audioChannels, state: 'success' };
     }
@@ -140,7 +99,6 @@ class ExportClip implements IClip {
     const renderer = getRendererOrThrow();
     const frameSamples = Math.ceil(durationSecs * this.sampleRate);
 
-    // Initialize stereo buffers
     const left = new Float32Array(frameSamples);
     const right = new Float32Array(frameSamples);
 
@@ -154,7 +112,6 @@ class ExportClip implements IClip {
       try {
         const parsed = JSON.parse(jsonStr);
         if (parsed.samples && parsed.samples.length > 0) {
-          // samples are interleaved: L,R,L,R,...
           for (let i = 0; i < Math.min(parsed.samples.length / 2, frameSamples); i++) {
             left[i] += parsed.samples[i * 2] || 0;
             right[i] += parsed.samples[i * 2 + 1] || 0;
@@ -165,7 +122,6 @@ class ExportClip implements IClip {
       }
     }
 
-    // Clamp to [-1, 1]
     for (let i = 0; i < frameSamples; i++) {
       left[i] = Math.max(-1, Math.min(1, left[i]));
       right[i] = Math.max(-1, Math.min(1, right[i]));
@@ -207,30 +163,16 @@ export async function exportMp4(
   jsonlContent: string,
   canvas: HTMLCanvasElement,
   comp: CompositionInfo,
-  resourceMeta: Record<string, { width: number; height: number; kind: string; durationSecs?: number }>,
+  resourceMeta: Record<string, ResourceMeta>,
   onProgress: ProgressCallback,
   audioIds: string[],
 ): Promise<Uint8Array | null> {
   const { width, height, fps } = comp;
   const resourceMetaJson = JSON.stringify(resourceMeta);
 
-  // Pre-filter script elements once
-  const filteredJsonl = jsonlContent
-    .split('\n')
-    .filter(line => {
-      const trimmed = line.trim();
-      if (!trimmed) return false;
-      try {
-        const obj = JSON.parse(trimmed);
-        return obj.type !== 'script';
-      } catch { return true; }
-    })
-    .join('\n');
-
-  // Dynamically import Combinator + OffscreenSprite only when needed
   const { Combinator, OffscreenSprite } = await import('@webav/av-cliper');
 
-  const clip = new ExportClip(canvas, jsonlContent, filteredJsonl, resourceMetaJson, comp, onProgress, audioIds);
+  const clip = new ExportClip(canvas, jsonlContent, resourceMetaJson, comp, onProgress, audioIds);
   const spr = new OffscreenSprite(clip);
 
   let hasAudio = audioIds.length > 0;
@@ -251,7 +193,6 @@ export async function exportMp4(
     ...(hasAudio ? { audio: true as const } : { audio: false as const }),
   } as any);
 
-  // Track encoding progress
   com.on('OutputProgress', (progress) => {
     const pct = Math.round(progress * 100);
     onProgress(Math.round(comp.frames * progress), comp.frames);
@@ -262,7 +203,6 @@ export async function exportMp4(
 
   await com.addSprite(spr, { main: true });
 
-  // Collect output stream chunks
   const reader = com.output().getReader();
   const chunks: Uint8Array[] = [];
   while (true) {
@@ -273,7 +213,6 @@ export async function exportMp4(
 
   if (chunks.length === 0) return null;
 
-  // Merge into single buffer
   const totalLen = chunks.reduce((s, c) => s + c.length, 0);
   const result = new Uint8Array(totalLen);
   let offset = 0;
@@ -291,70 +230,25 @@ export async function exportPngFrame(
   canvas: HTMLCanvasElement,
   comp: CompositionInfo,
   frame: number,
-  resourceMeta: Record<string, { width: number; height: number; kind: string; durationSecs?: number }>,
+  resourceMeta: Record<string, ResourceMeta>,
 ): Promise<void> {
-  const { width, height } = comp;
   const resourceMetaJson = JSON.stringify(resourceMeta);
 
-  const filteredJsonl = jsonlContent
-    .split('\n')
-    .filter(line => {
-      const trimmed = line.trim();
-      if (!trimmed) return false;
-      try {
-        const obj = JSON.parse(trimmed);
-        return obj.type !== 'script';
-      } catch { return true; }
-    })
-    .join('\n');
+  const renderer = getRendererOrThrow();
+  const CK = (globalThis as any).__canvasKit;
 
-  ensureSurface(canvas, width, height);
+  const surface = CK.MakeWebGLCanvasSurface(canvas);
+  if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
+  const ckCanvas = surface.getCanvas();
 
-  // Execute scripts to collect mutations
-  const engine = getScriptEngine();
-  const sc = sceneFrameCtx(frame, jsonlContent);
-  engine.setFrameCtx(sc.localFrame + 1, comp.frames, sc.sceneFrames);
-  const parsed = parseJsonl(jsonlContent);
-
-  for (const el of parsed.elements || []) {
-    if (el.id && el.text) {
-      (window as any).__text_source_set?.(el.id, el.text);
-    }
-  }
-
-  const scriptElements = (parsed.elements || []).filter(
-    (e: ParsedElement) => e.type === 'script',
-  );
-
-  for (const script of scriptElements) {
-    if (script.id) {
-      (window as any).ctx.__currentCanvasTarget = script.id;
-    }
-    const source = (script.src || script.content || '') as string;
-    if (source) {
-      try {
-        engine.runScript(source);
-      } catch (err) {
-        console.error(`Script execution error for element ${script.id}:`, err);
-      }
-    }
-  }
-
-  try {
-    (window as any).ctx.__flushTimelines?.();
-  } catch (err) {
-    console.error('Timeline flush error:', err);
-  }
-
-  const mutationsJson = engine.collectJson();
-
-  const result = buildFrame(filteredJsonl, frame, resourceMetaJson, mutationsJson);
-  await predecodeVideoFramesInTree(result.root, comp, frame);
-  drawDisplayTree(result.root, comp, frame);
+  renderer.build_frame(jsonlContent, frame, ckCanvas, resourceMetaJson);
+  surface.flush();
 
   const blob = await new Promise<Blob | null>((resolve) => {
     canvas.toBlob(resolve, 'image/png');
   });
+  surface.delete();
+
   if (!blob) return;
 
   downloadBlob(blob, `frame_${String(frame).padStart(4, '0')}.png`);

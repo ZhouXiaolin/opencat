@@ -52,9 +52,25 @@ pub fn apply_to<'a>(
         target.set_stroke_miter(stroke.miter_limit);
     }
 
-    // 子 spec（Plan C/D 在此接入），先 reset 防残留：
-    target.set_image_filter(&wasm_bindgen::JsValue::NULL);
-    target.set_color_filter(&wasm_bindgen::JsValue::NULL);
+    // ImageFilter
+    if let Some(ref if_spec) = spec.image_filter {
+        if let Some(handle) = crate::canvaskit::bindings::build_ck_image_filter(if_spec) {
+            target.set_image_filter(handle.as_js());
+        }
+    } else {
+        target.set_image_filter(&wasm_bindgen::JsValue::NULL);
+    }
+
+    // ColorFilter
+    if let Some(ref cf_spec) = spec.color_filter {
+        if let Some(handle) = crate::canvaskit::bindings::build_ck_color_filter(cf_spec) {
+            target.set_color_filter(handle.as_js());
+        }
+    } else {
+        target.set_color_filter(&wasm_bindgen::JsValue::NULL);
+    }
+
+    // MaskFilter / PathEffect still reset to NULL (Task 6 will implement)
     target.set_mask_filter(&wasm_bindgen::JsValue::NULL);
     target.set_path_effect(&wasm_bindgen::JsValue::NULL);
 

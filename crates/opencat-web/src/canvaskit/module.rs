@@ -32,3 +32,27 @@ pub(crate) fn ck() -> &'static JsValue {
         .get()
         .expect("init_canvaskit() must be called before any CanvasKit usage")
 }
+
+use crate::canvaskit::bindings::CKTypefaceJs;
+use wasm_bindgen::JsCast;
+
+thread_local! {
+    static DEFAULT_TYPEFACE: std::cell::RefCell<Option<CKTypefaceJs>> = std::cell::RefCell::new(None);
+}
+
+/// Set the default Typeface (used by draw_simple_text/draw_glyph_run as Font::default substitute).
+pub fn set_default_typeface(typeface: CKTypefaceJs) {
+    DEFAULT_TYPEFACE.with(|tf| {
+        *tf.borrow_mut() = Some(typeface);
+    });
+}
+
+/// Get the default Typeface. Returns None if not initialized.
+pub fn default_typeface() -> Option<CKTypefaceJs> {
+    DEFAULT_TYPEFACE.with(|tf| {
+        tf.borrow().as_ref().map(|t| {
+            let js: &JsValue = t.unchecked_ref();
+            js.clone().unchecked_into::<CKTypefaceJs>()
+        })
+    })
+}

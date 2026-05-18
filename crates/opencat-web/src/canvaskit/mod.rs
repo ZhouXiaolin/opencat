@@ -17,4 +17,4 @@ pub use handle::{
     CKColorFilterHandle, CKHandle, CKImage, CKImageFilterHandle, CKMaskFilterHandle, CKPath,
     CKPathEffectHandle, CKPicture, CKRuntimeEffect, CKShaderHandle, CKSurface,
 };
-pub use module::init_canvaskit;
+pub use module::{init_canvaskit, set_default_typeface, default_typeface};

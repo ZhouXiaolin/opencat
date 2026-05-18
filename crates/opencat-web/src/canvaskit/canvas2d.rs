@@ -1,7 +1,7 @@
 //! `CanvasKitCanvas2D`：核心 `Canvas2D` trait 的 CanvasKit 后端。
 //!
-//! Plan B 已填实状态栈/变换/裁剪/基础几何/paint converter（28 个方法）。
-//! Image/Picture/Text/RuntimeEffect 将在 Plan C/D 逐一填实（10 个方法仍为 `todo!()`）。
+//! Plan B 填实状态栈/变换/裁剪/基础几何/paint converter；Plan C 填实 Image/Picture。
+//! 剩余 Text/RuntimeEffect（4 个 `todo!()`）将在 Plan D 填实。
 
 #![cfg(target_arch = "wasm32")]
 

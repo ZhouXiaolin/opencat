@@ -341,8 +341,9 @@ impl Canvas2D for CanvasKitCanvas2D {
     fn make_path_from_svg(&self, svg_path_data: &str) -> Option<Self::Path> {
         crate::canvaskit::bindings::ck_path_from_svg(svg_path_data)
     }
-    fn make_image_from_rgba(&self, _bytes: &[u8], _width: u32, _height: u32) -> Self::Image {
-        todo!("M2: CK.MakeImage(info, bytes, rowBytes)")
+    fn make_image_from_rgba(&self, bytes: &[u8], width: u32, height: u32) -> Self::Image {
+        crate::canvaskit::bindings::ck_make_image_from_rgba(bytes, width, height)
+            .expect("CanvasKit.MakeImage failed; check info/colorType/bytes length")
     }
     fn make_image_from_encoded(&self, bytes: &[u8]) -> Option<Self::Image> {
         crate::canvaskit::bindings::ck_make_image_from_encoded(bytes)

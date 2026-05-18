@@ -267,58 +267,56 @@ impl Canvas2D for CanvasKitCanvas2D {
         font_size: f32,
         paint: &PaintSpec,
     ) {
-        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
-        let typeface = crate::canvaskit::module::default_typeface();
-        let font = match crate::canvaskit::bindings::ck_new_font(typeface.as_ref(), font_size) {
-            Some(f) => f,
-            None => return,
-        };
+        use opencat_core::text::{GlyphData, commands_to_verbs_points, rasterize_glyphs};
+        use opencat_core::style::ComputedTextStyle;
 
-        crate::canvaskit::bindings::CKCanvas::draw_simple_text(
-            &self.canvas,
-            text,
-            x, y,
-            font.unchecked_ref(),
-            target.unchecked_ref(),
-        );
+        let mut style = ComputedTextStyle::default();
+        style.text_px = font_size;
+        let raster = rasterize_glyphs(text, &style, f32::INFINITY, false, false);
 
-        crate::canvaskit::bindings::CKFontJs::delete_font(&font);
+        for line in &raster.lines {
+            for pos in &line.positions {
+                let glyph_data = match raster.glyphs.get(&pos.cache_key) {
+                    Some(d) => d,
+                    None => continue,
+                };
+                let abs_x = x + pos.x;
+                let abs_y = y + pos.y;
+
+                match glyph_data {
+                    GlyphData::Outline(commands, upem) => {
+                        let scale = font_size / *upem;
+                        let (verbs, pts) = commands_to_verbs_points(commands, 1.0);
+                        let path = self.make_path_from_verbs(&verbs, &pts, FillType::Winding);
+                        self.save();
+                        self.translate(abs_x, abs_y);
+                        if (scale - 1.0).abs() > f32::EPSILON {
+                            self.scale(scale, scale);
+                        }
+                        self.draw_path(&path, paint);
+                        self.restore();
+                    }
+                    GlyphData::ColorImage {
+                        rgba,
+                        width,
+                        height,
+                        placement_left,
+                        placement_top,
+                    } => {
+                        let img = self.make_image_from_rgba(rgba, *width, *height);
+                        self.draw_image(
+                            &img,
+                            abs_x + *placement_left as f32,
+                            abs_y - *placement_top as f32,
+                            Some(paint),
+                        );
+                    }
+                }
+            }
+        }
     }
-    fn draw_glyph_run(&mut self, run: &GlyphRunSpec, paint: &PaintSpec) {
-        debug_assert_eq!(run.positions.len() % 2, 0, "glyph positions must be even");
-
-        let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
-        let typeface = crate::canvaskit::module::default_typeface();
-        let font = match crate::canvaskit::bindings::ck_new_font(typeface.as_ref(), run.font_size) {
-            Some(f) => f,
-            None => return,
-        };
-        crate::canvaskit::bindings::CKFontJs::font_set_scale_x(&font, run.font_scale_x);
-        crate::canvaskit::bindings::CKFontJs::font_set_skew_x(&font, run.font_skew_x);
-        crate::canvaskit::bindings::CKFontJs::font_set_subpixel(&font, run.subpixel);
-        let edging = crate::canvaskit::bindings::ck_font_edging(run.edging);
-        crate::canvaskit::bindings::CKFontJs::font_set_edging(&font, &edging);
-
-        let glyphs_arr = js_sys::Uint16Array::new_with_length(run.glyph_ids.len() as u32);
-        for (i, &g) in run.glyph_ids.iter().enumerate() {
-            glyphs_arr.set_index(i as u32, g);
-        }
-
-        let positions_arr = js_sys::Float32Array::new_with_length(run.positions.len() as u32);
-        for (i, &p) in run.positions.iter().enumerate() {
-            positions_arr.set_index(i as u32, p);
-        }
-
-        crate::canvaskit::bindings::CKCanvas::draw_glyphs(
-            &self.canvas,
-            &glyphs_arr.into(),
-            &positions_arr.into(),
-            0.0, 0.0,
-            font.unchecked_ref(),
-            target.unchecked_ref(),
-        );
-
-        crate::canvaskit::bindings::CKFontJs::delete_font(&font);
+    fn draw_glyph_run(&mut self, _run: &GlyphRunSpec, _paint: &PaintSpec) {
+        // GlyphRunSpec-based rendering deferred — core pipeline uses cosmic-text path/image.
     }
 
     // ── Picture ──────────────────────────────────────────────────

@@ -122,18 +122,29 @@ extern "C" {
 
     pub type CKPath;
 
-    #[wasm_bindgen(method, js_name = "moveTo")]
-    pub fn move_to(this: &CKPath, x: f32, y: f32);
-    #[wasm_bindgen(method, js_name = "lineTo")]
-    pub fn line_to(this: &CKPath, x: f32, y: f32);
-    #[wasm_bindgen(method, js_name = "cubicTo")]
-    pub fn cubic_to(this: &CKPath, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32);
-    #[wasm_bindgen(method, js_name = "quadTo")]
-    pub fn quad_to(this: &CKPath, cx: f32, cy: f32, x: f32, y: f32);
-    #[wasm_bindgen(method, js_name = "close")]
-    pub fn close_path(this: &CKPath);
     #[wasm_bindgen(method, js_name = "setFillType")]
     pub fn set_fill_type(this: &CKPath, fill: &JsValue);
+    #[wasm_bindgen(method, js_name = "delete")]
+    pub fn delete_path(this: &CKPath);
+
+    // ── PathBuilder（CanvasKit ≥0.39 路径构建器，moveTo/lineTo 等在此）──
+
+    pub type CKPathBuilder;
+
+    #[wasm_bindgen(method, js_name = "moveTo")]
+    pub fn pb_move_to(this: &CKPathBuilder, x: f32, y: f32);
+    #[wasm_bindgen(method, js_name = "lineTo")]
+    pub fn pb_line_to(this: &CKPathBuilder, x: f32, y: f32);
+    #[wasm_bindgen(method, js_name = "cubicTo")]
+    pub fn pb_cubic_to(this: &CKPathBuilder, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32);
+    #[wasm_bindgen(method, js_name = "quadTo")]
+    pub fn pb_quad_to(this: &CKPathBuilder, cx: f32, cy: f32, x: f32, y: f32);
+    #[wasm_bindgen(method, js_name = "close")]
+    pub fn pb_close(this: &CKPathBuilder);
+    #[wasm_bindgen(method, js_name = "snapshot")]
+    pub fn snapshot(this: &CKPathBuilder) -> JsValue;
+    #[wasm_bindgen(method, js_name = "delete")]
+    pub fn delete_builder(this: &CKPathBuilder);
 
     // ── Picture / PictureRecorder / Surface 实例方法 ──
     // （不走 CKHandle：调用者在录制/绘制完成后手动 delete）
@@ -226,17 +237,17 @@ pub fn ck_color4f(r: f32, g: f32, b: f32, a: f32) -> JsValue {
     .unwrap_or(JsValue::UNDEFINED)
 }
 
-/// `new CanvasKit.Path()` —— 创建空 Path。
-pub fn ck_new_path() -> Option<CKHandle<CkPathMarker>> {
+/// `new CanvasKit.PathBuilder()` —— 创建空 PathBuilder。
+pub fn ck_new_path_builder() -> Option<CKPathBuilder> {
     let m = crate::canvaskit::module::ck();
-    let ctor = js_sys::Reflect::get(m, &JsValue::from_str("Path")).ok()?;
+    let ctor = js_sys::Reflect::get(m, &JsValue::from_str("PathBuilder")).ok()?;
     let ctor_fn = ctor.dyn_ref::<js_sys::Function>()?;
     let args = js_sys::Array::new();
-    let path = js_sys::Reflect::construct(ctor_fn, &args).ok()?;
-    if path.is_null() || path.is_undefined() {
+    let builder = js_sys::Reflect::construct(ctor_fn, &args).ok()?;
+    if builder.is_null() || builder.is_undefined() {
         return None;
     }
-    Some(CKHandle::wrap(path))
+    Some(builder.unchecked_into::<CKPathBuilder>())
 }
 
 /// `CanvasKit.Path.MakeFromSVGString(svg)` —— 解析 SVG path data。

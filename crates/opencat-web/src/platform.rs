@@ -1,29 +1,35 @@
-//! WebPlatform — Platform facade for the wasm/web target.
+//! WebPlatform -- wasm/web 端的 Platform 实现。
+
+#![cfg(target_arch = "wasm32")]
 
 use opencat_core::platform::platform::Platform;
-use opencat_core::scene::path_bounds::{DefaultPathBounds, PathBoundsComputer};
-use opencat_core::scene::script::precomputed_host::PrecomputedScriptHost;
 
-use crate::codec::audio::WebAudio;
-use crate::engine::WebRenderEngine;
+use crate::script::ScriptRuntimeCache;
 use crate::video::WebVideoSource;
 
 pub struct WebPlatform {
-    pub backend: WebRenderEngine,
-    pub script: PrecomputedScriptHost,
+    pub script: ScriptRuntimeCache,
     pub video: WebVideoSource,
-    pub audio: WebAudio,
-    pub path_bounds: DefaultPathBounds,
+}
+
+impl WebPlatform {
+    pub fn new() -> Self {
+        Self {
+            script: ScriptRuntimeCache::default(),
+            video: WebVideoSource::default(),
+        }
+    }
+}
+
+impl Default for WebPlatform {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Platform for WebPlatform {
-    type Backend = WebRenderEngine;
-    type Script = PrecomputedScriptHost;
+    type Script = ScriptRuntimeCache;
     type Video = WebVideoSource;
-
-    fn render_engine(&self) -> &Self::Backend {
-        &self.backend
-    }
 
     fn script_host(&mut self) -> &mut Self::Script {
         &mut self.script
@@ -31,9 +37,5 @@ impl Platform for WebPlatform {
 
     fn video_source(&mut self) -> &mut Self::Video {
         &mut self.video
-    }
-
-    fn path_bounds(&self) -> &dyn PathBoundsComputer {
-        &self.path_bounds
     }
 }

@@ -12,8 +12,8 @@ use rustc_hash::{FxHashMap, FxHasher};
 use crate::style::{ComputedTextStyle, TextAlign, TextTransform};
 use unicode_segmentation::UnicodeSegmentation;
 
-const NOTO_SANS_SC: &[u8] = include_bytes!("../../../../assets/NotoSansSC-Regular.otf");
-const NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../../../assets/NotoColorEmoji.ttf");
+pub const NOTO_SANS_SC: &[u8] = include_bytes!("../../../../assets/NotoSansSC-Regular.otf");
+pub const NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../../../assets/NotoColorEmoji.ttf");
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

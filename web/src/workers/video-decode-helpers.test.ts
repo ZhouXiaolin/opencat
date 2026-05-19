@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
+  chunkIdxAtTime,
+  type EncodedChunkDesc,
   nearestKeyframeBefore,
   previousKeyframeBefore,
   seekThresholdUs,
@@ -76,5 +78,38 @@ describe('shouldSeekToTarget', () => {
     expect(shouldSeekToTarget(true, 2_000_000, 2_125_000, 'scrubbing')).toBe(true);
     expect(shouldSeekToTarget(true, 2_000_000, 3_400_000, 'exact')).toBe(false);
     expect(shouldSeekToTarget(true, 2_000_000, 3_600_000, 'exact')).toBe(true);
+  });
+});
+
+function makeChunks(times: number[]): EncodedChunkDesc[] {
+  return times.map((t, i) => ({
+    type: i === 0 ? 'key' : 'delta',
+    timestamp: t,
+    duration: 33_333,
+    data: new ArrayBuffer(1),
+  }));
+}
+
+describe('chunkIdxAtTime', () => {
+  test('returns the index whose timestamp matches', () => {
+    const chunks = makeChunks([0, 33_333, 66_666, 100_000]);
+    expect(chunkIdxAtTime(chunks, 33_333)).toBe(1);
+    expect(chunkIdxAtTime(chunks, 0)).toBe(0);
+    expect(chunkIdxAtTime(chunks, 100_000)).toBe(3);
+  });
+
+  test('returns first matching index when duplicates exist', () => {
+    const chunks = makeChunks([0, 100, 100, 200]);
+    expect(chunkIdxAtTime(chunks, 100)).toBe(1);
+  });
+
+  test('returns -1 when no exact match', () => {
+    const chunks = makeChunks([0, 100, 200]);
+    expect(chunkIdxAtTime(chunks, 50)).toBe(-1);
+    expect(chunkIdxAtTime(chunks, 300)).toBe(-1);
+  });
+
+  test('returns -1 for empty list', () => {
+    expect(chunkIdxAtTime([], 100)).toBe(-1);
   });
 });

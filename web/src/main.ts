@@ -11,7 +11,13 @@ import {
   exportPngFrame,
   downloadMp4,
 } from './exporter';
-import { prepareVideoSource, getDecodedFrameRgba, getDecodedVideoFrame, registerVideoGlobals } from './video-decoder';
+import {
+  prepareVideoSource,
+  getDecodedFrameRgba,
+  getDecodedVideoFrame,
+  registerVideoGlobals,
+  type VideoPreviewQuality,
+} from './video-decoder';
 import type { CompositionInfo, JsonlFile, ResourceMeta } from './types';
 import CanvasKitInit from 'canvaskit-wasm/full';
 
@@ -343,12 +349,14 @@ async function loadJsonl(file: JsonlFile) {
 // --- Render ---
 let renderPending = false;
 let renderQueuedFrame = -1;
+let renderQueuedQuality: VideoPreviewQuality = 'realtime';
 
-async function renderFrameAsync(frame: number) {
+async function renderFrameAsync(frame: number, quality: VideoPreviewQuality = 'realtime') {
   if (!currentJsonlContent || !currentComposition) return;
 
   if (renderPending) {
     renderQueuedFrame = frame;
+    renderQueuedQuality = quality;
     return;
   }
 
@@ -356,7 +364,7 @@ async function renderFrameAsync(frame: number) {
   const comp = currentComposition;
 
   try {
-    await renderFrameWithPipeline(frame, comp);
+    await renderFrameWithPipeline(frame, comp, quality);
   } catch (err) {
     console.error('Pipeline render error:', err);
   }
@@ -365,12 +373,18 @@ async function renderFrameAsync(frame: number) {
 
   if (renderQueuedFrame >= 0) {
     const nextFrame = renderQueuedFrame;
+    const nextQuality = renderQueuedQuality;
     renderQueuedFrame = -1;
-    renderFrameAsync(nextFrame);
+    renderQueuedQuality = 'realtime';
+    renderFrameAsync(nextFrame, nextQuality);
   }
 }
 
-async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Promise<void> {
+async function renderFrameWithPipeline(
+  frame: number,
+  comp: CompositionInfo,
+  quality: VideoPreviewQuality,
+): Promise<void> {
   const renderer = getRendererOrThrow();
   const CK = (globalThis as any).__canvasKit;
 
@@ -384,7 +398,7 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   for (const [assetId, meta] of Object.entries(resourceMeta)) {
     if (meta.kind === 'video') {
       try {
-        const vf = await getDecodedVideoFrame(assetId, timeSecs);
+        const vf = await getDecodedVideoFrame(assetId, timeSecs, quality);
         if (!vf) continue;
 
         let skImage = videoImages.get(assetId);
@@ -547,7 +561,7 @@ frameSlider.addEventListener('input', () => {
   pause();
   const time = parseFloat(frameSlider.value);
   currentFrame = Math.round(time * currentComposition.fps);
-  renderFrameAsync(currentFrame);
+  renderFrameAsync(currentFrame, 'scrubbing');
   updateFrameInfo();
 });
 

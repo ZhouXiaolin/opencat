@@ -1,7 +1,6 @@
 //! `PaintSpec` → `CKPaint` 转换。覆盖 Solid / Stroke / AA / BlendMode / PaintStyle。
 //! Shader / ImageFilter / ColorFilter / MaskFilter / PathEffect 已实现。
 
-#![cfg(target_arch = "wasm32")]
 
 use opencat_core::canvas::paint::{FillSpec, PaintStyle, PaintSpec};
 

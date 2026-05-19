@@ -1,4 +1,3 @@
-#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 use opencat_core::scene::script::mutations::{
@@ -641,7 +640,6 @@ impl WebMutationRecorder {
     }
 
     // ── Text units (wasm-only: requires js-sys) ──
-    #[cfg(target_arch = "wasm32")]
     pub fn text_units_describe(
         &self,
         id: &str,
@@ -672,12 +670,10 @@ impl WebMutationRecorder {
         Ok(result)
     }
 
-    #[cfg(target_arch = "wasm32")]
     pub fn grapheme_strings(&self, text: &str) -> Vec<String> {
         opencat_core::script::text_units::grapheme_strings(text)
     }
 
-    #[cfg(target_arch = "wasm32")]
     pub fn word_ranges(&self, text: &str) -> Vec<js_sys::Array> {
         opencat_core::script::text_units::word_ranges(text)
             .into_iter()

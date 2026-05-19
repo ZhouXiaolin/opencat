@@ -1,6 +1,5 @@
 //! wasm-bindgen 桥：JS 端调用 `WebRenderer.build_frame(jsonl, frame, ck_canvas, resources_json)`.
 
-#![cfg(target_arch = "wasm32")]
 
 use wasm_bindgen::prelude::*;
 
@@ -86,6 +85,19 @@ impl WebRenderer {
             .platform
             .video
             .inject_frame(AssetId(asset_id), frame, rgba, width, height);
+    }
+
+    pub fn inject_video_texture(
+        &mut self,
+        asset_id: String,
+        image: JsValue,
+        width: u32,
+        height: u32,
+    ) {
+        self.session
+            .platform
+            .video
+            .inject_texture(AssetId(asset_id), image, width, height);
     }
 
     pub fn clear_video_cache(&mut self, asset_id: String) {

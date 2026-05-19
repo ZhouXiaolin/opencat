@@ -4,7 +4,6 @@
 //! 添加新绑定的流程：① 在对应 extern 块加 `#[wasm_bindgen(method, ...)]` 行
 //! ② 在 `canvas2d.rs` 对应方法里调用它。
 
-#![cfg(target_arch = "wasm32")]
 
 use wasm_bindgen::prelude::*;
 
@@ -316,6 +315,12 @@ pub fn ck_make_image_from_rgba(
         js_sys::Reflect::get(&ct, &JsValue::from_str("RGBA_8888")).ok()?
     };
     js_sys::Reflect::set(&info, &JsValue::from_str("colorType"), &color_type).ok()?;
+
+    let color_space = {
+        let cs = js_sys::Reflect::get(m, &JsValue::from_str("ColorSpace")).ok()?;
+        js_sys::Reflect::get(&cs, &JsValue::from_str("SRGB")).ok()?
+    };
+    js_sys::Reflect::set(&info, &JsValue::from_str("colorSpace"), &color_space).ok()?;
 
     let arr = js_sys::Uint8Array::from(bytes);
     let f = js_sys::Reflect::get(m, &JsValue::from_str("MakeImage")).ok()?;

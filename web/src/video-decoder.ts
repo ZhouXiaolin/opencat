@@ -6,6 +6,8 @@
 //   1. prepareVideoSource: fetch → mp4box demux → store encoded chunks + metadata
 //   2. getDecodedFrameRgba: on-demand decode at target time, with caching
 //   3. Cache is a small LRU (max ~30 decoded frames per video)
+//   4. VideoStreamDecoder: streaming sequential access for export,
+//      mirrors engine's cursor-based forward-decode pattern — no LRU.
 
 import { createFile } from 'mp4box';
 
@@ -136,7 +138,11 @@ export async function getDecodedVideoFrame(
     const firstChunk = chunkSlice[0];
 
     // Ensure decoder is alive and configured for this keyframe
-    if (!source.decoder || source.decoderKeyIdx !== keyIdx) {
+    if (
+      !source.decoder ||
+      source.decoder.state === 'closed' ||
+      source.decoderKeyIdx !== keyIdx
+    ) {
       if (source.decoder) {
         try { source.decoder.close(); } catch { /* ignore */ }
         source.decoder = null;
@@ -148,6 +154,7 @@ export async function getDecodedVideoFrame(
 
     // Decode the chunk range through the persistent decoder
     pendingFrames = [];
+    decoderErrored = false;
     const decodedFrames = await feedAndFlushDecoder(source.decoder, chunkSlice);
 
     if (decodedFrames.length > 0) {
@@ -400,6 +407,11 @@ interface DecodedFrame {
 // Cleared before each decode batch, populated during decode+flush.
 let pendingFrames: DecodedFrame[] = [];
 
+// Error flag shared across decoder error callback and feed loop.
+// When the decoder fires its error callback, subsequent flush() may hang,
+// so we short-circuit the promise before calling flush().
+let decoderErrored = false;
+
 function createConfiguredDecoder(
   codec: string,
   description: Uint8Array | undefined,
@@ -410,6 +422,7 @@ function createConfiguredDecoder(
     },
     error(err: Error) {
       console.warn(`[video-decoder] persistent decoder error: ${err.message}`);
+      decoderErrored = true;
     },
   });
 
@@ -434,37 +447,42 @@ function feedAndFlushDecoder(
   chunks: EncodedChunkDesc[],
 ): Promise<DecodedFrame[]> {
   return new Promise((resolve) => {
-    let errored = false;
+    let feedErrored = false;
     let settled = false;
 
     const finish = () => {
       if (settled) return;
       settled = true;
-      const frames = pendingFrames.slice(); // snapshot
+      const frames = pendingFrames.slice();
       frames.sort((a, b) => a.timestamp - b.timestamp);
       resolve(frames);
     };
 
-    // Feed chunks
     for (const chunk of chunks) {
-      if (errored) break;
+      if (feedErrored) break;
       try {
-        const encodedChunk = new EncodedVideoChunk({
+        decoder.decode(new EncodedVideoChunk({
           type: chunk.type,
           timestamp: chunk.timestamp,
           duration: chunk.duration,
           data: chunk.data.slice(0) as ArrayBuffer,
-        });
-        decoder.decode(encodedChunk);
+        }));
       } catch (err: any) {
         console.warn(`[video-decoder] chunk decode error: ${err.message}`);
-        errored = true;
+        feedErrored = true;
         break;
       }
     }
 
-    // Timeout guard
-    const TIMEOUT_MS = 8000;
+    // If decode() threw or the decoder's own error callback fired,
+    // skip flush() — the decoder may be in a terminal state where
+    // flush() never resolves (browser-dependent behaviour).
+    if (feedErrored || decoderErrored) {
+      finish();
+      return;
+    }
+
+    const TIMEOUT_MS = 3000;
     const timer = setTimeout(() => {
       console.warn('[video-decoder] decode timed out');
       finish();
@@ -489,6 +507,246 @@ function findKeyframeBefore(chunks: EncodedChunkDesc[], targetUs: number): numbe
     if (chunks[i].timestamp > targetUs) break;
   }
   return keyIdx;
+}
+
+// ── Streaming Decoder ──────────────────────────────────────────
+//
+// VideoStreamDecoder maintains a persistent WebCodecs decoder with a
+// chunk cursor, mirroring the engine's forward-decode pattern:
+//   - feed only delta chunks between requests (no re-feeding from keyframe)
+//   - skip the LRU cache — served directly from decoder output
+//   - seek only when time jumps backwards by > 100 ms
+//
+// Designed for sequential access (export pipeline). Not suitable for
+// random-access scrubbing — use getDecodedFrameRgba for that.
+
+export class VideoStreamDecoder {
+  private source: VideoSource;
+  private decoder: VideoDecoder | null = null;
+  private decoderStartKeyIdx: number = -1;
+  private fedUpToIdx: number = -1;
+  private pendingFrames: DecodedFrame[] = [];
+  private lastReturnedPtsUs: number = -1;
+  readonly width: number;
+  readonly height: number;
+
+  constructor(url: string) {
+    const src = videoSources.get(url);
+    if (!src) throw new Error(`[stream-decode] source not prepared: ${url}`);
+    this.source = src;
+    this.width = src.width;
+    this.height = src.height;
+  }
+
+  async getFrameRgba(
+    targetTimeSecs: number,
+  ): Promise<{ rgba: Uint8Array; width: number; height: number } | null> {
+    const frame = await this.decodeFrame(targetTimeSecs);
+    if (!frame) return null;
+
+    const offscreen = new OffscreenCanvas(this.width, this.height);
+    const ctx = offscreen.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(frame, 0, 0);
+    const imageData = ctx.getImageData(0, 0, this.width, this.height);
+    const rgba = new Uint8Array(imageData.data.buffer.slice(0));
+    frame.close();
+
+    return { rgba, width: this.width, height: this.height };
+  }
+
+  async getFrame(targetTimeSecs: number): Promise<VideoFrame | null> {
+    return this.decodeFrame(targetTimeSecs);
+  }
+
+  private async decodeFrame(targetTimeSecs: number): Promise<VideoFrame | null> {
+    const targetUs = Math.max(0, targetTimeSecs * 1_000_000);
+
+    // Seek detection: if we jumped backwards more than 100 ms, reset decoder
+    if (this.decoder && targetUs < this.lastReturnedPtsUs - 100_000) {
+      this.resetDecoder();
+    }
+
+    // Retry loop for Open GOP fallback (mirrors getDecodedVideoFrame)
+    let keyIdx = this.decoder
+      ? this.decoderStartKeyIdx
+      : findKeyframeBefore(this.source.encodedChunks, targetUs);
+    const triedKeyframes: number[] = [];
+    let result: VideoFrame | null = null;
+
+    while (keyIdx >= 0 && result === null) {
+      triedKeyframes.push(keyIdx);
+
+      // Initialize or reconfigure decoder for this keyframe
+      if (!this.decoder || this.decoderStartKeyIdx !== keyIdx) {
+        if (this.decoder) {
+          try { this.decoder.close(); } catch { /* ignore */ }
+        }
+        this.decoder = this.makeDecoder();
+        if (!this.decoder) return null;
+        this.decoderStartKeyIdx = keyIdx;
+        this.fedUpToIdx = keyIdx - 1;
+        this.pendingFrames = [];
+        this.decoderErrored = false;
+      }
+
+      // Find end chunk for this decode batch
+      const marginUs = 500_000;
+      let endIdx = this.fedUpToIdx;
+      for (let i = this.fedUpToIdx + 1; i < this.source.encodedChunks.length; i++) {
+        if (this.source.encodedChunks[i].timestamp <= targetUs + marginUs) {
+          endIdx = i;
+        } else {
+          break;
+        }
+      }
+
+      // Feed only the delta chunks since last feed
+      if (endIdx > this.fedUpToIdx) {
+        const newChunks = this.source.encodedChunks.slice(this.fedUpToIdx + 1, endIdx + 1);
+        this.pendingFrames = [];
+        this.decoderErrored = false;
+        await this.feedAndFlush(newChunks);
+        this.fedUpToIdx = endIdx;
+      }
+
+      if (this.pendingFrames.length > 0) {
+        // Find frame closest to target
+        let bestIdx = 0;
+        let bestDiff = Infinity;
+        for (let i = 0; i < this.pendingFrames.length; i++) {
+          const diff = Math.abs(this.pendingFrames[i].timestamp - targetUs);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestIdx = i;
+          }
+        }
+        const best = this.pendingFrames[bestIdx];
+        for (let i = 0; i < this.pendingFrames.length; i++) {
+          if (i !== bestIdx) this.pendingFrames[i].videoFrame.close();
+        }
+        this.pendingFrames = [];
+        this.lastReturnedPtsUs = best.timestamp;
+        result = best.videoFrame;
+        break;
+      }
+
+      // Decode failed — close and fall back to previous keyframe
+      try { this.decoder.close(); } catch { /* ignore */ }
+      this.decoder = null;
+      this.decoderStartKeyIdx = -1;
+      this.fedUpToIdx = -1;
+
+      let prevKey = -1;
+      for (let i = keyIdx - 1; i >= 0; i--) {
+        if (this.source.encodedChunks[i].type === 'key') {
+          prevKey = i;
+          break;
+        }
+      }
+      if (prevKey < 0) break;
+      keyIdx = prevKey;
+    }
+
+    return result;
+  }
+
+  private decoderErrored: boolean = false;
+
+  private makeDecoder(): VideoDecoder | null {
+    const frames = this.pendingFrames;
+    const self = this;
+    const decoder = new VideoDecoder({
+      output(frame: VideoFrame) {
+        frames.push({ timestamp: frame.timestamp, videoFrame: frame });
+      },
+      error(err: Error) {
+        console.warn(`[stream-decode] decoder error: ${err.message}`);
+        self.decoderErrored = true;
+      },
+    });
+
+    const config: VideoDecoderConfig = { codec: this.source.codec };
+    if (this.source.description && this.source.description.length > 0) {
+      config.description = this.source.description;
+    }
+
+    try {
+      decoder.configure(config);
+    } catch (err: any) {
+      console.warn(`[stream-decode] configure failed: ${err.message}`);
+      try { decoder.close(); } catch { /* ignore */ }
+      return null;
+    }
+
+    return decoder;
+  }
+
+  private feedAndFlush(chunks: EncodedChunkDesc[]): Promise<void> {
+    if (!this.decoder) return Promise.resolve();
+    const decoder = this.decoder;
+
+    return new Promise((resolve) => {
+      let feedErrored = false;
+      let settled = false;
+
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        this.pendingFrames.sort((a, b) => a.timestamp - b.timestamp);
+        resolve();
+      };
+
+      for (const chunk of chunks) {
+        if (feedErrored) break;
+        try {
+          decoder.decode(new EncodedVideoChunk({
+            type: chunk.type,
+            timestamp: chunk.timestamp,
+            duration: chunk.duration,
+            data: chunk.data.slice(0) as ArrayBuffer,
+          }));
+        } catch (err: any) {
+          console.warn(`[stream-decode] feed error: ${err.message}`);
+          feedErrored = true;
+          break;
+        }
+      }
+
+      if (feedErrored || this.decoderErrored) {
+        finish();
+        return;
+      }
+
+      const TIMEOUT_MS = 3000;
+      const timer = setTimeout(() => {
+        console.warn('[stream-decode] decode timed out');
+        finish();
+      }, TIMEOUT_MS);
+
+      decoder.flush().then(() => {
+        clearTimeout(timer);
+        finish();
+      }).catch(() => {
+        clearTimeout(timer);
+        finish();
+      });
+    });
+  }
+
+  private resetDecoder(): void {
+    if (this.decoder) {
+      try { this.decoder.close(); } catch { /* ignore */ }
+      this.decoder = null;
+    }
+    this.decoderStartKeyIdx = -1;
+    this.fedUpToIdx = -1;
+    this.pendingFrames = [];
+    this.decoderErrored = false;
+  }
+
+  close(): void {
+    this.resetDecoder();
+  }
 }
 
 // ── Time helpers ──

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { nearestKeyframeBefore } from './video-decode-helpers';
+import { nearestKeyframeBefore, previousKeyframeBefore } from './video-decode-helpers';
 
 describe('nearestKeyframeBefore', () => {
   test('returns clamped anchor for target inside a span', () => {
@@ -22,5 +22,22 @@ describe('nearestKeyframeBefore', () => {
 
   test('exact match returns that keyframe', () => {
     expect(nearestKeyframeBefore([0, 1_000_000, 2_000_000], 1_000_000)).toBe(1_000_000);
+  });
+});
+
+describe('previousKeyframeBefore', () => {
+  test('returns strictly-smaller keyframe', () => {
+    const keys = [0, 500_000, 1_200_000, 2_400_000];
+    expect(previousKeyframeBefore(keys, 1_200_000)).toBe(500_000);
+    expect(previousKeyframeBefore(keys, 500_000)).toBe(0);
+  });
+
+  test('returns -1 when target is at or before first keyframe', () => {
+    expect(previousKeyframeBefore([0, 1_000_000], 0)).toBe(-1);
+    expect(previousKeyframeBefore([100_000, 500_000], 50_000)).toBe(-1);
+  });
+
+  test('returns -1 for empty list', () => {
+    expect(previousKeyframeBefore([], 1_000_000)).toBe(-1);
   });
 });

@@ -395,7 +395,55 @@ impl Canvas2D for CanvasKitCanvas2D {
         let children_arr = js_sys::Array::new();
         for child in children {
             let shader_js: wasm_bindgen::JsValue = match child {
-                RuntimeEffectChild::Texture(img) => img.as_js().clone(),
+                RuntimeEffectChild::Texture(img) => {
+                    let img_js = img.as_js();
+                    let make_fn = js_sys::Reflect::get(
+                        img_js,
+                        &wasm_bindgen::JsValue::from_str("makeShaderOptions"),
+                    )
+                    .ok();
+                    match make_fn {
+                        Some(f) if f.is_function() => {
+                            let func = f.unchecked_ref::<js_sys::Function>();
+                            let m = crate::canvaskit::module::ck();
+                            let tile_clamp = js_sys::Reflect::get(
+                                m,
+                                &wasm_bindgen::JsValue::from_str("TileMode"),
+                            )
+                            .ok()
+                            .and_then(|g| {
+                                js_sys::Reflect::get(&g, &wasm_bindgen::JsValue::from_str("Clamp"))
+                                    .ok()
+                            })
+                            .unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
+                            let filter_linear = js_sys::Reflect::get(
+                                m,
+                                &wasm_bindgen::JsValue::from_str("FilterMode"),
+                            )
+                            .ok()
+                            .and_then(|g| {
+                                js_sys::Reflect::get(&g, &wasm_bindgen::JsValue::from_str("Linear"))
+                                    .ok()
+                            })
+                            .unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
+                            match func
+                                .call5(
+                                    img_js,
+                                    &tile_clamp,
+                                    &tile_clamp,
+                                    &filter_linear,
+                                    &wasm_bindgen::JsValue::from_bool(false),
+                                    &wasm_bindgen::JsValue::NULL,
+                                )
+                                .ok()
+                            {
+                                Some(s) if !s.is_null() && !s.is_undefined() => s,
+                                _ => wasm_bindgen::JsValue::NULL,
+                            }
+                        }
+                        _ => wasm_bindgen::JsValue::NULL,
+                    }
+                }
                 RuntimeEffectChild::Picture(picture) => {
                     let pic_js = picture.as_js();
                     let make_shader_fn = js_sys::Reflect::get(

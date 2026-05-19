@@ -81,7 +81,15 @@ function postError(id: number, message: string): void {
 // `prepare`: demux entire stream, build chunk + keyframe tables,
 // probe codec support, register asset state. `getFrame` / `release`
 // are still stubbed and will land in Tasks 5.5 / 5.6.
+//
+// Caller (web/src/video-decoder.ts) is expected to deduplicate prepare per
+// assetId via its metaCache; the worker does not guard against two
+// concurrent prepares for the same asset.
 async function handlePrepare(req: PrepareRequest): Promise<void> {
+  // Hoisted so the catch can destroy a partially-built demuxer. Set to
+  // null once ownership transfers to the assets Map (or after an inline
+  // destroy() in an error branch) so the catch never double-destroys.
+  let demuxer: WebDemuxer | null = null;
   try {
     // Release any prior state for this assetId.
     const prior = assets.get(req.assetId);
@@ -90,7 +98,7 @@ async function handlePrepare(req: PrepareRequest): Promise<void> {
       assets.delete(req.assetId);
     }
 
-    const demuxer = new WebDemuxer({ wasmFilePath: WD_WASM_FILE_PATH });
+    demuxer = new WebDemuxer({ wasmFilePath: WD_WASM_FILE_PATH });
     // web-demuxer v4 `load()` takes File | string. Wrap the transferred
     // ArrayBuffer in a File (the name/type are cosmetic — demuxing is by
     // probing, not by filename).
@@ -148,6 +156,7 @@ async function handlePrepare(req: PrepareRequest): Promise<void> {
     const support = await VideoDecoder.isConfigSupported(config);
     if (!support.supported) {
       demuxer.destroy();
+      demuxer = null;
       postError(
         req.id,
         `prepare: codec not supported (${config.codec ?? 'unknown'})`,
@@ -161,6 +170,10 @@ async function handlePrepare(req: PrepareRequest): Promise<void> {
     const durationSecs =
       last !== undefined ? (last.timestamp + last.duration) / 1_000_000 : null;
 
+    // Transfer demuxer ownership to the assets Map; null the local so the
+    // catch (and any later code in this scope) can't double-destroy.
+    const ownedDemuxer = demuxer;
+    demuxer = null;
     const st: AssetState = {
       config,
       width,
@@ -176,7 +189,7 @@ async function handlePrepare(req: PrepareRequest): Promise<void> {
       pendingFrames: [],
       decoderErrored: false,
       inflight: null,
-      demuxer,
+      demuxer: ownedDemuxer,
     };
     assets.set(req.assetId, st);
 
@@ -186,6 +199,13 @@ async function handlePrepare(req: PrepareRequest): Promise<void> {
       meta: { width, height, durationSecs },
     });
   } catch (err) {
+    if (demuxer) {
+      try {
+        demuxer.destroy();
+      } catch {
+        // ignore — demuxer may already be torn down
+      }
+    }
     postError(req.id, err instanceof Error ? err.message : String(err));
   }
 }

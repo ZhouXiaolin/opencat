@@ -22,7 +22,10 @@ const WD_PUBLIC_DIR = resolve(__dirname, 'public/web-demuxer');
 //   /web-demuxer/wasm-files/web-demuxer.wasm
 function ensureWebDemuxerAssets(): void {
   if (!fs.existsSync(WD_PUBLIC_DIR)) fs.mkdirSync(WD_PUBLIC_DIR, { recursive: true });
-  if (!fs.existsSync(WD_DIST_DIR)) return;
+  if (!fs.existsSync(WD_DIST_DIR)) {
+    console.warn('[web-demuxer-assets] node_modules/web-demuxer/dist not found — run `npm install`. Using existing public/web-demuxer/ if present.');
+    return;
+  }
   const copyTree = (srcDir: string, dstDir: string): void => {
     for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
       const src = resolve(srcDir, entry.name);

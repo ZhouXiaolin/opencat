@@ -4,6 +4,8 @@
 // Algorithms mirror opencat-engine/src/codec/decode.rs to keep web preview
 // behavior aligned with native FFmpeg seek strategy.
 
+import type { VideoPreviewQuality } from './video-decode-worker.types';
+
 /** Largest keyframe PTS ≤ targetUs. Returns 0 (or targetUs floored at 0)
  *  when the list is empty, mirroring engine's `nearest_keyframe_before`. */
 export function nearestKeyframeBefore(
@@ -41,4 +43,33 @@ export function previousKeyframeBefore(
   const idx = lo - 1;
   if (idx < 0) return -1;
   return keyframeTimesUs[idx];
+}
+
+/** Engine-aligned seek thresholds in microseconds.
+ *  Source: opencat-engine/src/codec/decode.rs:226-232. */
+export function seekThresholdUs(quality: VideoPreviewQuality): number {
+  switch (quality) {
+    case 'scrubbing':
+      return 120_000; // 0.12 s
+    case 'realtime':
+      return 350_000; // 0.35 s
+    case 'exact':
+      return 1_500_000; // 1.5 s
+  }
+}
+
+/** Engine-aligned should_seek decision.
+ *  - hasFrame=false: always seek (cold decoder)
+ *  - target < current: backward jump, seek
+ *  - target - current > threshold: large forward jump, seek
+ *  - otherwise: forward-decode from current cursor */
+export function shouldSeekToTarget(
+  hasFrame: boolean,
+  currentPtsUs: number,
+  targetUs: number,
+  quality: VideoPreviewQuality,
+): boolean {
+  if (!hasFrame) return true;
+  if (targetUs < currentPtsUs) return true;
+  return targetUs - currentPtsUs > seekThresholdUs(quality);
 }

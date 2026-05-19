@@ -1,15 +1,15 @@
 use skia_safe::{
     canvas::{SaveLayerRec, SrcRectConstraint},
     color_filters, gradient_shader, image_filters, images,
-    BlurStyle as SkiaBlurStyle, Canvas, Color, ColorFilter, Data, Font, Image as SkiaImage,
+    BlurStyle as SkiaBlurStyle, Canvas, Color, ColorFilter, Data, Image as SkiaImage,
     ImageInfo, MaskFilter, Matrix, Paint, PaintStyle as SkiaPaintStyle, Path as SkiaPath,
     PathBuilder, PathEffect, PathFillType, Picture, PictureRecorder, Point as SkiaPoint,
     RRect as SkiaRRect, Rect as SkiaRect, RuntimeEffect, Shader, TileMode as SkiaTileMode,
 };
 
 use opencat_core::canvas::{
-    BlendMode, BlurStyle, Canvas2D, ClipOp, ColorFilterSpec, FillSpec, FillType, FontEdging,
-    GlyphRunSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec, PaintStyle, PathBuilder as CorePathBuilder, PathEffectSpec, PointMode,
+    BlendMode, BlurStyle, Canvas2D, ClipOp, ColorFilterSpec, FillSpec, FillType,
+    ImageFilterSpec, MaskFilterSpec, PaintSpec, PaintStyle, PathBuilder as CorePathBuilder, PathEffectSpec, PointMode,
     Rect, RRect, RuntimeEffectChild, ShaderSpec, StrokeCap, StrokeJoin, TileMode,
 };
 
@@ -383,68 +383,9 @@ impl Canvas2D for SkiaCanvas2D {
         }
     }
 
-    fn draw_simple_text(
-        &mut self,
-        text: &str,
-        x: f32,
-        y: f32,
-        font_size: f32,
-        paint: &PaintSpec,
-    ) {
-        let mut font = Font::default();
-        font.set_size(font_size);
-        match paint.style {
-            PaintStyle::Fill => {
-                apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas_ref()
-                    .draw_str(text, (x, y), &font, &self.fill_paint);
-            }
-            PaintStyle::Stroke => {
-                apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas_ref()
-                    .draw_str(text, (x, y), &font, &self.stroke_paint);
-            }
-        }
-    }
 
-    fn draw_glyph_run(&mut self, run: &GlyphRunSpec, paint: &PaintSpec) {
-        debug_assert_eq!(run.positions.len() % 2, 0, "glyph positions must be even");
-        let mut font = Font::default();
-        font.set_size(run.font_size);
-        font.set_scale_x(run.font_scale_x);
-        font.set_skew_x(run.font_skew_x);
-        font.set_subpixel(run.subpixel);
-        font.set_edging(convert_font_edging(run.edging));
 
-        let positions: Vec<SkiaPoint> = run
-            .positions
-            .chunks_exact(2)
-            .map(|chunk| SkiaPoint::new(chunk[0], chunk[1]))
-            .collect();
 
-        match paint.style {
-            PaintStyle::Fill => {
-                apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas_ref().draw_glyphs_at(
-                    run.glyph_ids,
-                    &*positions,
-                    SkiaPoint::new(0.0, 0.0),
-                    &font,
-                    &self.fill_paint,
-                );
-            }
-            PaintStyle::Stroke => {
-                apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas_ref().draw_glyphs_at(
-                    run.glyph_ids,
-                    &*positions,
-                    SkiaPoint::new(0.0, 0.0),
-                    &font,
-                    &self.stroke_paint,
-                );
-            }
-        }
-    }
 
     fn make_picture<R>(&mut self, bounds: &Rect, record: R) -> Self::Picture
     where
@@ -641,13 +582,6 @@ fn convert_tile_mode(t: TileMode) -> SkiaTileMode {
     }
 }
 
-fn convert_font_edging(e: FontEdging) -> skia_safe::font::Edging {
-    match e {
-        FontEdging::Alias => skia_safe::font::Edging::Alias,
-        FontEdging::AntiAlias => skia_safe::font::Edging::AntiAlias,
-        FontEdging::SubpixelAntiAlias => skia_safe::font::Edging::SubpixelAntiAlias,
-    }
-}
 
 fn convert_blend_mode(m: BlendMode) -> skia_safe::BlendMode {
     match m {

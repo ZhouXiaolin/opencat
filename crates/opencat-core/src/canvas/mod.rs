@@ -192,8 +192,67 @@ pub trait Canvas2D {
         y: f32,
         font_size: f32,
         paint: &PaintSpec,
-    );
-    fn draw_glyph_run(&mut self, run: &GlyphRunSpec, paint: &PaintSpec);
+    ) {
+        use crate::style::ComputedTextStyle;
+        use crate::text::{rasterize_glyphs, GlyphData};
+        use cosmic_text::Command;
+
+        let mut style = ComputedTextStyle::default();
+        style.text_px = font_size;
+        let raster = rasterize_glyphs(text, &style, f32::INFINITY, false, false);
+
+        for line in &raster.lines {
+            for pos in &line.positions {
+                let glyph_data = match raster.glyphs.get(&pos.cache_key) {
+                    Some(d) => d,
+                    None => continue,
+                };
+                let abs_x = x + pos.x;
+                let abs_y = y + pos.y;
+
+                match glyph_data {
+                    GlyphData::Outline(commands, upem) => {
+                        let scale = font_size / *upem;
+                        let mut b = self.create_path_builder(FillType::Winding);
+                        for cmd in commands {
+                            match cmd {
+                                Command::MoveTo(p) => b.move_to(p.x, -p.y),
+                                Command::LineTo(p) => b.line_to(p.x, -p.y),
+                                Command::QuadTo(c, p) => b.quad_to(c.x, -c.y, p.x, -p.y),
+                                Command::CurveTo(c1, c2, p) => {
+                                    b.cubic_to(c1.x, -c1.y, c2.x, -c2.y, p.x, -p.y)
+                                }
+                                Command::Close => b.close(),
+                            }
+                        }
+                        let path = b.finish();
+                        self.save();
+                        self.translate(abs_x, abs_y);
+                        if (scale - 1.0).abs() > f32::EPSILON {
+                            self.scale(scale, scale);
+                        }
+                        self.draw_path(&path, paint);
+                        self.restore();
+                    }
+                    GlyphData::ColorImage {
+                        rgba,
+                        width,
+                        height,
+                        placement_left,
+                        placement_top,
+                    } => {
+                        let img = self.make_image_from_rgba(rgba, *width, *height);
+                        self.draw_image(
+                            &img,
+                            abs_x + *placement_left as f32,
+                            abs_y - *placement_top as f32,
+                            Some(paint),
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     // -- Picture --
     fn make_picture<R>(&mut self, bounds: &Rect, record: R) -> Self::Picture

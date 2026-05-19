@@ -16,7 +16,14 @@ import type {
   WorkerResponse,
 } from './video-decode-worker.types';
 
-import type { EncodedChunkDesc } from './video-decode-helpers';
+import {
+  type EncodedChunkDesc,
+  encodedChunkFrom,
+  nearestKeyframeBefore,
+  previousKeyframeBefore,
+  chunkIdxAtTime,
+  shouldSeekToTarget,
+} from './video-decode-helpers';
 
 // URL of the web-demuxer wasm file, wired up by Task 1.2.
 const WD_WASM_FILE_PATH = '/web-demuxer/wasm-files/web-demuxer.wasm';
@@ -231,6 +238,124 @@ function destroyAssetState(st: AssetState): void {
   } catch {
     // ignore — demuxer worker may already be terminated
   }
+}
+
+const FEED_MARGIN_US = 500_000;
+const FLUSH_TIMEOUT_MS = 3_000;
+
+function makeDecoder(st: AssetState): VideoDecoder {
+  st.decoderErrored = false;
+  return new VideoDecoder({
+    output: (frame) => {
+      st.pendingFrames.push({ timestamp: frame.timestamp, videoFrame: frame });
+    },
+    error: (err) => {
+      console.warn('[video-decode-worker] decoder error:', err.message);
+      st.decoderErrored = true;
+    },
+  });
+}
+
+function closeDecoder(st: AssetState): void {
+  if (st.decoder) {
+    try { st.decoder.close(); } catch { /* ignore */ }
+    st.decoder = null;
+  }
+}
+
+function closeAndClearPendingFrames(st: AssetState): void {
+  for (const f of st.pendingFrames) {
+    try { f.videoFrame.close(); } catch { /* ignore */ }
+  }
+  st.pendingFrames = [];
+}
+
+function flushWithTimeout(decoder: VideoDecoder, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      console.warn('[video-decode-worker] flush timed out');
+      resolve();
+    }, timeoutMs);
+    decoder.flush().then(
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      },
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      },
+    );
+  });
+}
+
+/** Feed chunks from `st.cursorChunkIdx` until past `targetUs + margin`,
+ *  flush, then return the frame in `pendingFrames` closest to targetUs.
+ *  Closes the other pending frames. */
+async function feedAndCollect(
+  st: AssetState,
+  targetUs: number,
+): Promise<VideoFrame | null> {
+  if (!st.decoder) return null;
+
+  while (st.cursorChunkIdx < st.chunks.length) {
+    if (st.decoderErrored) break;
+    const chunk = st.chunks[st.cursorChunkIdx];
+    if (chunk.timestamp > targetUs + FEED_MARGIN_US) break;
+    try {
+      st.decoder.decode(encodedChunkFrom(chunk));
+    } catch (err) {
+      console.warn('[video-decode-worker] decode threw:', err);
+      st.decoderErrored = true;
+      break;
+    }
+    st.cursorChunkIdx++;
+  }
+
+  if (st.decoderErrored) {
+    closeAndClearPendingFrames(st);
+    closeDecoder(st);
+    return null;
+  }
+
+  await flushWithTimeout(st.decoder, FLUSH_TIMEOUT_MS);
+
+  if (st.decoderErrored) {
+    closeAndClearPendingFrames(st);
+    closeDecoder(st);
+    return null;
+  }
+
+  if (st.pendingFrames.length === 0) return null;
+
+  // Pick closest, close the rest
+  let bestIdx = 0;
+  let bestDiff = Infinity;
+  for (let i = 0; i < st.pendingFrames.length; i++) {
+    const diff = Math.abs(st.pendingFrames[i].timestamp - targetUs);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestIdx = i;
+    }
+  }
+  const best = st.pendingFrames[bestIdx];
+  for (let i = 0; i < st.pendingFrames.length; i++) {
+    if (i !== bestIdx) {
+      try { st.pendingFrames[i].videoFrame.close(); } catch { /* ignore */ }
+    }
+  }
+  st.pendingFrames = [];
+
+  st.currentPtsUs = best.timestamp;
+  st.hasFrame = true;
+  return best.videoFrame;
 }
 async function handleGetFrame(req: GetFrameRequest): Promise<void> {
   postError(req.id, 'getFrame: not implemented yet');

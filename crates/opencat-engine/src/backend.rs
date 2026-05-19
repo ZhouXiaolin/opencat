@@ -881,3 +881,69 @@ fn build_runtime_effect_child(child: &RuntimeEffectChild<SkiaCanvas2D>) -> Optio
         RuntimeEffectChild::Shader(spec) => build_skia_shader(spec),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opencat_core::text::{rasterize_glyphs, NOTO_SANS_SC};
+    use opencat_core::style::ComputedTextStyle;
+
+    #[test]
+    fn compare_text_width_cosmic_vs_skia() {
+        let font_data = NOTO_SANS_SC.to_vec();
+        let typeface = skia_safe::FontMgr::new()
+            .new_from_data(&font_data, None)
+            .expect("failed to load NotoSansSC into skia");
+
+        let samples = [
+            "Four scenes exercise",
+            "Hello World",
+            "A B C D",
+            "text, image, video",
+            "ab cd ef gh",
+        ];
+
+        for text in &samples {
+            let font_size = 22.0_f32;
+
+            // skia-safe: Font with same NotoSansSC
+            let mut font = Font::from_typeface(&typeface, font_size);
+            let (skia_width, _) = font.measure_str(text, None);
+
+            // cosmic-text
+            let mut style = ComputedTextStyle::default();
+            style.text_px = font_size;
+            let raster = rasterize_glyphs(text, &style, f32::INFINITY, false, false);
+            let cosmic_width = raster.lines.first().map(|l| l.width).unwrap_or(0.0);
+
+            let ratio = cosmic_width / skia_width.max(1.0);
+
+            eprintln!(
+                "[compare] text={:?} skia={:.2} cosmic={:.2} ratio={:.3}",
+                text, skia_width, cosmic_width, ratio
+            );
+
+            // Per-glyph x deltas
+            if let Some(line) = raster.lines.first() {
+                let xs: Vec<f32> = line.positions.iter().map(|p| p.x).collect();
+                if xs.len() > 1 {
+                    let deltas: Vec<f32> = xs.windows(2).map(|w| w[1] - w[0]).collect();
+                    eprintln!("  cosmic deltas: {:?}", &deltas[..deltas.len().min(20)]);
+                }
+            }
+
+            // skia per-glyph widths
+            let mut glyph_buf = [0u16; 64];
+            let mut width_buf = [0.0f32; 64];
+            let n = text.chars().count().min(64);
+            let mut ws = Vec::with_capacity(n);
+            for c in text.chars().take(n) {
+                let count = font.text_to_glyphs(&c.to_string(), &mut glyph_buf);
+                let gid = if count > 0 { glyph_buf[0] } else { 0 };
+                font.get_widths(&[gid], &mut width_buf[..1]);
+                ws.push(width_buf[0]);
+            }
+            eprintln!("  skia glyph widths: {:?}", &ws[..ws.len().min(20)]);
+        }
+    }
+}

@@ -97,3 +97,31 @@ export async function getDecodedVideoFrame(
   }>({ type: 'getFrame', id, assetId: url, timeSecs, quality });
   return res.frame;
 }
+
+export async function getDecodedFrameRgba(
+  url: string,
+  timeSecs: number,
+  quality: VideoPreviewQuality = 'realtime',
+): Promise<{ rgba: Uint8Array; width: number; height: number } | null> {
+  const meta = metaCache.get(url);
+  if (!meta) return null;
+  const frame = await getDecodedVideoFrame(url, timeSecs, quality);
+  if (!frame) return null;
+
+  try {
+    const w = frame.displayWidth || meta.width;
+    const h = frame.displayHeight || meta.height;
+    const off = new OffscreenCanvas(w, h);
+    const ctx = off.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(frame, 0, 0);
+    const img = ctx.getImageData(0, 0, w, h);
+    return {
+      rgba: new Uint8Array(img.data.buffer.slice(0)),
+      width: w,
+      height: h,
+    };
+  } finally {
+    try { frame.close(); } catch { /* ignore */ }
+  }
+}

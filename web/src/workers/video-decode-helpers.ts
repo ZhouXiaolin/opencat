@@ -99,3 +99,14 @@ export function chunkIdxAtTime(
   if (lo >= chunks.length || chunks[lo].timestamp !== targetUs) return -1;
   return lo;
 }
+
+/** Build a fresh `EncodedVideoChunk` from our descriptor.
+ *  Slices the buffer to dodge detached-ArrayBuffer issues across decoders. */
+export function encodedChunkFrom(chunk: EncodedChunkDesc): EncodedVideoChunk {
+  return new EncodedVideoChunk({
+    type: chunk.type,
+    timestamp: chunk.timestamp,
+    duration: chunk.duration,
+    data: chunk.data.slice(0),
+  });
+}

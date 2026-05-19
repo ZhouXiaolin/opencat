@@ -1,0 +1,69 @@
+// Shared RPC envelope between main thread (web/src/video-decoder.ts)
+// and Worker (web/src/workers/video-decode-worker.ts).
+
+export type VideoPreviewQuality = 'scrubbing' | 'realtime' | 'exact';
+
+export interface VideoSourceMeta {
+  width: number;
+  height: number;
+  durationSecs: number | null;
+}
+
+// ── Requests (main → worker) ──
+
+export interface PrepareRequest {
+  type: 'prepare';
+  id: number;
+  assetId: string;
+  buffer: ArrayBuffer; // transferred
+}
+
+export interface GetFrameRequest {
+  type: 'getFrame';
+  id: number;
+  assetId: string;
+  timeSecs: number;
+  quality: VideoPreviewQuality;
+}
+
+export interface ReleaseRequest {
+  type: 'release';
+  id: number;
+  assetId: string;
+}
+
+export type WorkerRequest =
+  | PrepareRequest
+  | GetFrameRequest
+  | ReleaseRequest;
+
+// ── Responses (worker → main) ──
+
+export interface PrepareResponse {
+  type: 'prepare';
+  id: number;
+  meta: VideoSourceMeta;
+}
+
+export interface GetFrameResponse {
+  type: 'getFrame';
+  id: number;
+  frame: VideoFrame | null; // transferred
+}
+
+export interface ReleaseResponse {
+  type: 'release';
+  id: number;
+}
+
+export interface ErrorResponse {
+  type: 'error';
+  id: number;
+  message: string;
+}
+
+export type WorkerResponse =
+  | PrepareResponse
+  | GetFrameResponse
+  | ReleaseResponse
+  | ErrorResponse;

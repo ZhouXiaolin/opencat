@@ -1,6 +1,6 @@
 import type { CompositionInfo, ResourceMeta } from './types';
 import { getRendererOrThrow } from './wasm';
-import { VideoStreamDecoder } from './video-decoder';
+import { getDecodedVideoFrame } from './video-decoder';
 import type { IClip } from '@webav/av-cliper';
 
 type ProgressCallback = (current: number, total: number) => void;
@@ -21,7 +21,6 @@ class ExportClip implements IClip {
   private onProgress: ProgressCallback;
   private audioIds: string[];
   private resourceMeta: Record<string, ResourceMeta>;
-  private streamDecoders: Map<string, VideoStreamDecoder> = new Map();
   private videoImages: Map<
     string,
     { skImage: any; width: number; height: number }
@@ -54,15 +53,6 @@ class ExportClip implements IClip {
     this.ready = Promise.resolve(this.meta);
 
     this.resourceMeta = JSON.parse(resourceMetaJson) as Record<string, ResourceMeta>;
-    for (const [id, meta] of Object.entries(this.resourceMeta)) {
-      if (meta.kind === 'video') {
-        try {
-          this.streamDecoders.set(id, new VideoStreamDecoder(id));
-        } catch (err) {
-          console.warn(`[export] failed to create stream decoder for ${id}:`, err);
-        }
-      }
-    }
   }
 
   async tick(time: number): Promise<{
@@ -87,22 +77,23 @@ class ExportClip implements IClip {
     // Frame 1: CK.MakeLazyImageFromTextureSource → texImage2D (GPU→GPU)
     // Frame 2+: surface.updateTextureFromSource → texSubImage2D (reuses texture)
     this.pendingFrames.clear();
-    for (const [assetId, decoder] of this.streamDecoders) {
+    for (const [assetId, meta] of Object.entries(this.resourceMeta)) {
+      if (meta.kind !== 'video') continue;
       try {
-        const vf = await decoder.getFrame(timeSecs);
+        const vf = await getDecodedVideoFrame(assetId, timeSecs, 'exact');
         if (!vf) continue;
 
         let entry = this.videoImages.get(assetId);
         if (!entry) {
           entry = {
             skImage: CK.MakeLazyImageFromTextureSource(vf, {
-              width: decoder.width,
-              height: decoder.height,
+              width: vf.displayWidth,
+              height: vf.displayHeight,
               colorType: CK.ColorType.RGBA_8888,
               alphaType: CK.AlphaType.Opaque,
             }),
-            width: decoder.width,
-            height: decoder.height,
+            width: vf.displayWidth,
+            height: vf.displayHeight,
           };
           this.videoImages.set(assetId, entry);
         }
@@ -110,7 +101,7 @@ class ExportClip implements IClip {
         renderer.inject_video_texture(assetId, entry.skImage, entry.width, entry.height);
         this.pendingFrames.set(assetId, vf);
       } catch (err) {
-        console.warn(`[export] stream decode failed for ${assetId} at ${timeSecs.toFixed(3)}s:`, err);
+        console.warn(`[export] decode failed for ${assetId} at ${timeSecs.toFixed(3)}s:`, err);
       }
     }
 
@@ -207,10 +198,6 @@ class ExportClip implements IClip {
     for (const vf of this.pendingFrames.values()) vf.close();
     this.pendingFrames.clear();
     this.videoImages.clear();
-    for (const decoder of this.streamDecoders.values()) {
-      decoder.close();
-    }
-    this.streamDecoders.clear();
   }
 }
 

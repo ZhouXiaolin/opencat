@@ -82,3 +82,18 @@ export async function prepareVideoSource(
   metaCache.set(url, res.meta);
   return res.meta;
 }
+
+export async function getDecodedVideoFrame(
+  url: string,
+  timeSecs: number,
+  quality: VideoPreviewQuality = 'realtime',
+): Promise<VideoFrame | null> {
+  if (!metaCache.has(url)) return null;
+  const id = nextId();
+  const res = await rpc<{
+    type: 'getFrame';
+    id: number;
+    frame: VideoFrame | null;
+  }>({ type: 'getFrame', id, assetId: url, timeSecs, quality });
+  return res.frame;
+}

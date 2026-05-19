@@ -2,7 +2,6 @@
 //! 路径变体 (`resolve_image_path` 等) 不实现 —— web 没有文件系统。
 //! query 变体走 core 默认实现（Openverse 搜索也是 HTTP，WebFetcher 即可处理）。
 
-#![cfg(target_arch = "wasm32")]
 use std::future::Future;
 use std::sync::Arc;
 

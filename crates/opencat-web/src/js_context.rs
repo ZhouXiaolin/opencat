@@ -1,6 +1,5 @@
 //! 浏览器原生 JS 引擎后端：`JsContext` 的具体实现。
 
-#![cfg(target_arch = "wasm32")]
 
 use std::cell::RefCell;
 use std::rc::Rc;

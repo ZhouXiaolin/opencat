@@ -6,7 +6,6 @@
 //!   `URL.createObjectURL` 等下游消费）。
 //! - [`clear_blobs`]: 清空 BlobStore（切换 composition 时调用）。
 
-#![cfg(target_arch = "wasm32")]
 
 use std::cell::RefCell;
 

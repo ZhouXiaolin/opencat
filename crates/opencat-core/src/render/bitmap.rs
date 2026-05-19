@@ -90,20 +90,40 @@ pub fn render_bitmap<C: Canvas2D>(
     let (image, src_width, src_height) = if item.video_timing.is_some() {
         let frame_index = ctx.frame_ctx.frame as u32;
         let asset_id = &item.asset_id;
-        let frame = ctx.video.borrow_mut().frame_rgba(asset_id, frame_index)
-            .map_err(|e| RenderError::MissingResource(format!("video frame: {}", e)))?;
-        let w = frame.width;
-        let h = frame.height;
-        #[cfg(feature = "profile")]
-        event!(
-            target: "render.cache",
-            Level::TRACE,
-            kind = "cache",
-            name = "video_frame",
-            result = "decode",
-            amount = 1_u64
-        );
-        (canvas.make_image_from_rgba(&frame.data, w, h), w, h)
+
+        // Zero-copy GPU texture path (Web/CanvasKit)
+        if let Some((img, w, h)) = canvas.video_frame_as_image(
+            *ctx.video.borrow_mut(),
+            asset_id,
+            frame_index,
+        ) {
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "video_texture",
+                result = "zero_copy",
+                amount = 1_u64
+            );
+            (img, w, h)
+        } else {
+            // Fallback: RGBA bytes
+            let frame = ctx.video.borrow_mut().frame_rgba(asset_id, frame_index)
+                .map_err(|e| RenderError::MissingResource(format!("video frame: {}", e)))?;
+            let w = frame.width;
+            let h = frame.height;
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "video_frame",
+                result = "decode",
+                amount = 1_u64
+            );
+            (canvas.make_image_from_rgba(&frame.data, w, h), w, h)
+        }
     } else {
         let asset_key = item.asset_id.0.clone();
         let mut lru = cache.images.borrow_mut();

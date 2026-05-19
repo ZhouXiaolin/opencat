@@ -9,9 +9,57 @@ use skia_safe::{
 
 use opencat_core::canvas::{
     BlendMode, BlurStyle, Canvas2D, ClipOp, ColorFilterSpec, FillSpec, FillType, FontEdging,
-    GlyphRunSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec, PaintStyle, PathEffectSpec, PointMode,
+    GlyphRunSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec, PaintStyle, PathBuilder as CorePathBuilder, PathEffectSpec, PointMode,
     Rect, RRect, RuntimeEffectChild, ShaderSpec, StrokeCap, StrokeJoin, TileMode,
 };
+
+pub struct SkiaPathBuilder(PathBuilder);
+
+impl CorePathBuilder for SkiaPathBuilder {
+    type Path = SkiaPath;
+
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.move_to((x, y));
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.line_to((x, y));
+    }
+
+    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
+        self.0.quad_to((cx, cy), (x, y));
+    }
+
+    fn cubic_to(&mut self, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32) {
+        self.0.cubic_to((c1x, c1y), (c2x, c2y), (x, y));
+    }
+
+    fn close(&mut self) {
+        self.0.close();
+    }
+
+    fn finish(mut self) -> Self::Path {
+        self.0.detach()
+    }
+
+    fn add_rect(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.0.add_rect(SkiaRect::from_xywh(x, y, w, h), None, None);
+    }
+
+    fn add_rrect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32) {
+        let r = r.min(w / 2.0).min(h / 2.0);
+        let sk_rrect = SkiaRRect::new_rect_xy(SkiaRect::from_xywh(x, y, w, h), r, r);
+        self.0.add_rrect(&sk_rrect, None, None);
+    }
+
+    fn add_oval(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.0.add_oval(SkiaRect::from_xywh(x, y, w, h), None, None);
+    }
+
+    fn add_arc(&mut self, x: f32, y: f32, w: f32, h: f32, start_angle: f32, sweep_angle: f32) {
+        self.0.add_arc(SkiaRect::from_xywh(x, y, w, h), start_angle, sweep_angle);
+    }
+}
 
 pub struct SkiaCanvas2D {
     canvas: *const Canvas,
@@ -44,6 +92,7 @@ impl Canvas2D for SkiaCanvas2D {
     type Image = SkiaImage;
     type Picture = Picture;
     type RuntimeEffect = RuntimeEffect;
+    type PathBuilder = SkiaPathBuilder;
 
     fn save(&mut self) -> i32 {
         self.canvas_ref().save() as i32
@@ -467,57 +516,12 @@ impl Canvas2D for SkiaCanvas2D {
         RuntimeEffect::make_for_shader(sksl, None)
     }
 
-    fn make_path_from_verbs(
-        &self,
-        verbs: &[u8],
-        points: &[f32],
-        fill_type: FillType,
-    ) -> Self::Path {
+    fn create_path_builder(&self, fill_type: FillType) -> Self::PathBuilder {
         let skia_fill = match fill_type {
             FillType::Winding => PathFillType::Winding,
             FillType::EvenOdd => PathFillType::EvenOdd,
         };
-        let mut builder = PathBuilder::new_with_fill_type(skia_fill);
-        let mut pi = 0;
-        for &verb in verbs {
-            match verb {
-                0 => {
-                    builder.move_to((points[pi], points[pi + 1]));
-                    pi += 2;
-                }
-                1 => {
-                    builder.line_to((points[pi], points[pi + 1]));
-                    pi += 2;
-                }
-                2 => {
-                    builder.quad_to(
-                        (points[pi], points[pi + 1]),
-                        (points[pi + 2], points[pi + 3]),
-                    );
-                    pi += 4;
-                }
-                3 => {
-                    builder.quad_to(
-                        (points[pi], points[pi + 1]),
-                        (points[pi + 2], points[pi + 3]),
-                    );
-                    pi += 5;
-                }
-                4 => {
-                    builder.cubic_to(
-                        (points[pi], points[pi + 1]),
-                        (points[pi + 2], points[pi + 3]),
-                        (points[pi + 4], points[pi + 5]),
-                    );
-                    pi += 6;
-                }
-                5 => {
-                    builder.close();
-                }
-                _ => {}
-            }
-        }
-        builder.snapshot()
+        SkiaPathBuilder(PathBuilder::new_with_fill_type(skia_fill))
     }
 
     fn make_path_from_svg(&self, svg_path_data: &str) -> Option<Self::Path> {

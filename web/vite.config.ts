@@ -106,6 +106,7 @@ export default defineConfig({
     serveStaticDirs('static', [
       { mount: '/json', path: resolve(__dirname, '..', 'json') },
       { mount: '/lucide', path: resolve(__dirname, '..', 'lucide') },
+      { mount: '/fixtures', path: resolve(__dirname, '..', 'testsupport', 'fixtures') },
     ]),
     {
       name: 'canvaskit-wasm',

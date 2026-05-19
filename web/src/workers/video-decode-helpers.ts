@@ -73,3 +73,29 @@ export function shouldSeekToTarget(
   if (targetUs < currentPtsUs) return true;
   return targetUs - currentPtsUs > seekThresholdUs(quality);
 }
+
+/** Chunk descriptor — sequencing format used internally by the worker. */
+export interface EncodedChunkDesc {
+  type: 'key' | 'delta';
+  timestamp: number;  // μs
+  duration: number;   // μs
+  data: ArrayBuffer;
+}
+
+/** Find the smallest index `i` such that `chunks[i].timestamp === targetUs`.
+ *  Returns -1 if no exact match. Binary-search assumes chunks are sorted
+ *  ascending on timestamp (DTS order from a demuxer). */
+export function chunkIdxAtTime(
+  chunks: readonly EncodedChunkDesc[],
+  targetUs: number,
+): number {
+  let lo = 0;
+  let hi = chunks.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (chunks[mid].timestamp < targetUs) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo >= chunks.length || chunks[lo].timestamp !== targetUs) return -1;
+  return lo;
+}

@@ -449,5 +449,16 @@ async function handleGetFrame(req: GetFrameRequest): Promise<void> {
   }
 }
 async function handleRelease(req: ReleaseRequest): Promise<void> {
-  postError(req.id, 'release: not implemented yet');
+  const st = assets.get(req.assetId);
+  if (!st) {
+    postResponse({ type: 'release', id: req.id });
+    return;
+  }
+  // Wait for any inflight getFrame so we don't tear down state mid-decode.
+  while (st.inflight) {
+    try { await st.inflight; } catch { /* ignore */ }
+  }
+  destroyAssetState(st);
+  assets.delete(req.assetId);
+  postResponse({ type: 'release', id: req.id });
 }

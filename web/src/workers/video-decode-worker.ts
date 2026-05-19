@@ -405,7 +405,48 @@ async function seekAndDecode(
 }
 
 async function handleGetFrame(req: GetFrameRequest): Promise<void> {
-  postError(req.id, 'getFrame: not implemented yet');
+  const st = assets.get(req.assetId);
+  if (!st) {
+    postError(req.id, `asset not prepared: ${req.assetId}`);
+    return;
+  }
+
+  // Serialize concurrent getFrame calls for the same asset. while (not if):
+  // if three calls arrive same tick, the 2nd and 3rd both await the 1st's
+  // inflight; when it resolves, each re-checks at the loop head. The 2nd
+  // sees inflight=null, claims it, sets its own; the 3rd then sees the
+  // 2nd's inflight and continues to wait. `if` would let the 3rd skip past
+  // the gate (it already passed the check at await time) and overwrite the
+  // 2nd's inflight, racing the two decodes.
+  while (st.inflight) {
+    try { await st.inflight; } catch { /* swallow; we'll handle our own */ }
+  }
+
+  const work = (async (): Promise<VideoFrame | null> => {
+    const targetUs = Math.max(0, Math.round(req.timeSecs * 1_000_000));
+    const mustSeek = shouldSeekToTarget(
+      st.hasFrame,
+      st.currentPtsUs,
+      targetUs,
+      req.quality,
+    );
+    if (mustSeek) return await seekAndDecode(st, targetUs);
+    return await feedAndCollect(st, targetUs);
+  })();
+
+  st.inflight = work;
+  try {
+    const frame = await work;
+    if (frame) {
+      postResponse({ type: 'getFrame', id: req.id, frame }, [frame]);
+    } else {
+      postResponse({ type: 'getFrame', id: req.id, frame: null });
+    }
+  } catch (err) {
+    postError(req.id, err instanceof Error ? err.message : String(err));
+  } finally {
+    if (st.inflight === work) st.inflight = null;
+  }
 }
 async function handleRelease(req: ReleaseRequest): Promise<void> {
   postError(req.id, 'release: not implemented yet');

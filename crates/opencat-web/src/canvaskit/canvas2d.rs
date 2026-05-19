@@ -5,7 +5,7 @@
 
 
 use opencat_core::canvas::{
-    Canvas2D, ClipOp, FillType, GlyphRunSpec, PaintSpec, PointMode, RRect, Rect,
+    Canvas2D, ClipOp, FillType, GlyphRunSpec, PaintSpec, PathBuilder as CorePathBuilder, PointMode, RRect, Rect,
     RuntimeEffectChild,
 };
 use opencat_core::platform::video::VideoFrameProvider;
@@ -13,8 +13,46 @@ use opencat_core::resource::asset_id::AssetId;
 
 use wasm_bindgen::{JsCast, JsValue};
 
-use crate::canvaskit::bindings::{CKCanvas, CKPaint};
+use crate::canvaskit::bindings::{CKCanvas, CKPaint, CKPathBuilder};
 use crate::canvaskit::handle::{CKImage, CKPath, CKPicture, CKRuntimeEffect};
+
+struct CKPathBuilderHandle {
+    inner: CKPathBuilder,
+    fill_type: FillType,
+}
+
+impl CorePathBuilder for CKPathBuilderHandle {
+    type Path = CKPath;
+
+    fn move_to(&mut self, x: f32, y: f32) {
+        CKPathBuilder::pb_move_to(&self.inner, x, y);
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        CKPathBuilder::pb_line_to(&self.inner, x, y);
+    }
+
+    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
+        CKPathBuilder::pb_quad_to(&self.inner, cx, cy, x, y);
+    }
+
+    fn cubic_to(&mut self, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32) {
+        CKPathBuilder::pb_cubic_to(&self.inner, c1x, c1y, c2x, c2y, x, y);
+    }
+
+    fn close(&mut self) {
+        CKPathBuilder::pb_close(&self.inner);
+    }
+
+    fn finish(self) -> Self::Path {
+        let path_js = CKPathBuilder::snapshot(&self.inner);
+        CKPathBuilder::delete_builder(&self.inner);
+        let path_handle: CKPath = crate::canvaskit::handle::CKHandle::wrap(path_js);
+        let path: &crate::canvaskit::bindings::CKPath = path_handle.as_js().unchecked_ref();
+        path.set_fill_type(&crate::canvaskit::convert::ck_fill_type(self.fill_type));
+        path_handle
+    }
+}
 
 pub struct CanvasKitCanvas2D {
     canvas: CKCanvas,
@@ -41,6 +79,7 @@ impl Canvas2D for CanvasKitCanvas2D {
     type Image = CKImage;
     type Picture = CKPicture;
     type RuntimeEffect = CKRuntimeEffect;
+    type PathBuilder = CKPathBuilderHandle;
 
     // ── State stack ──────────────────────────────────────────────
 
@@ -268,8 +307,10 @@ impl Canvas2D for CanvasKitCanvas2D {
         font_size: f32,
         paint: &PaintSpec,
     ) {
-        use opencat_core::text::{GlyphData, commands_to_verbs_points, rasterize_glyphs};
+        use opencat_core::text::{GlyphData, rasterize_glyphs};
         use opencat_core::style::ComputedTextStyle;
+        use cosmic_text::Command;
+        use opencat_core::canvas::PathBuilder;
 
         let mut style = ComputedTextStyle::default();
         style.text_px = font_size;
@@ -287,8 +328,19 @@ impl Canvas2D for CanvasKitCanvas2D {
                 match glyph_data {
                     GlyphData::Outline(commands, upem) => {
                         let scale = font_size / *upem;
-                        let (verbs, pts) = commands_to_verbs_points(commands, 1.0);
-                        let path = self.make_path_from_verbs(&verbs, &pts, FillType::Winding);
+                        let mut b = self.create_path_builder(FillType::Winding);
+                        for cmd in commands {
+                            match cmd {
+                                Command::MoveTo(p) => b.move_to(p.x, -p.y),
+                                Command::LineTo(p) => b.line_to(p.x, -p.y),
+                                Command::QuadTo(c, p) => b.quad_to(c.x, -c.y, p.x, -p.y),
+                                Command::CurveTo(c1, c2, p) => b.cubic_to(
+                                    c1.x, -c1.y, c2.x, -c2.y, p.x, -p.y,
+                                ),
+                                Command::Close => b.close(),
+                            }
+                        }
+                        let path = b.finish();
                         self.save();
                         self.translate(abs_x, abs_y);
                         if (scale - 1.0).abs() > f32::EPSILON {
@@ -503,73 +555,12 @@ impl Canvas2D for CanvasKitCanvas2D {
 
     // ── Factory ──────────────────────────────────────────────────
 
-    fn make_path_from_verbs(
-        &self,
-        verbs: &[u8],
-        points: &[f32],
-        fill_type: FillType,
-    ) -> Self::Path {
-        let builder = crate::canvaskit::bindings::ck_new_path_builder()
+    fn create_path_builder(&self, fill_type: FillType) -> Self::PathBuilder {
+        let inner = crate::canvaskit::bindings::ck_new_path_builder()
             .expect("CanvasKit.PathBuilder() ctor failed; ensure init_canvaskit() was called");
-
-        let mut pi = 0usize;
-        let n = points.len();
-        for v in verbs {
-            let needed = match *v {
-                0 | 1 => 2,
-                2 => 4,
-                3 => 5,
-                4 => 6,
-                5 => 0,
-                _ => 0,
-            };
-            if pi + needed > n {
-                break;
-            }
-            match *v {
-                0 => {
-                    crate::canvaskit::bindings::CKPathBuilder::pb_move_to(&builder, points[pi], points[pi + 1]);
-                    pi += 2;
-                }
-                1 => {
-                    crate::canvaskit::bindings::CKPathBuilder::pb_line_to(&builder, points[pi], points[pi + 1]);
-                    pi += 2;
-                }
-                2 => {
-                    crate::canvaskit::bindings::CKPathBuilder::pb_quad_to(&builder, points[pi], points[pi + 1], points[pi + 2], points[pi + 3]);
-                    pi += 4;
-                }
-                3 => {
-                    // Conic verb: points[pi..pi+5] = (x0,y0,x1,y1,w).
-                    // Weight w is dropped; quad_to uses only 4 points, pi skips all 5.
-                    crate::canvaskit::bindings::CKPathBuilder::pb_quad_to(&builder, points[pi], points[pi + 1], points[pi + 2], points[pi + 3]);
-                    pi += 5;
-                }
-                4 => {
-                    crate::canvaskit::bindings::CKPathBuilder::pb_cubic_to(
-                        &builder,
-                        points[pi], points[pi + 1], points[pi + 2],
-                        points[pi + 3], points[pi + 4], points[pi + 5],
-                    );
-                    pi += 6;
-                }
-                5 => {
-                    crate::canvaskit::bindings::CKPathBuilder::pb_close(&builder);
-                }
-                _ => {
-                    break;
-                }
-            }
-        }
-
-        let path_js = crate::canvaskit::bindings::CKPathBuilder::snapshot(&builder);
-        crate::canvaskit::bindings::CKPathBuilder::delete_builder(&builder);
-
-        let path_handle: crate::canvaskit::handle::CKPath = crate::canvaskit::handle::CKHandle::wrap(path_js);
-        let path: &crate::canvaskit::bindings::CKPath = path_handle.as_js().unchecked_ref();
-        path.set_fill_type(&crate::canvaskit::convert::ck_fill_type(fill_type));
-        path_handle
+        CKPathBuilderHandle { inner, fill_type }
     }
+
     fn make_path_from_svg(&self, svg_path_data: &str) -> Option<Self::Path> {
         crate::canvaskit::bindings::ck_path_from_svg(svg_path_data)
     }

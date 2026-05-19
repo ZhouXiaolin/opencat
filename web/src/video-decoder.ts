@@ -64,3 +64,21 @@ function rpc<T extends WorkerResponse>(
 function nextId(): number {
   return nextRpcId++;
 }
+
+// ── Public API ──
+
+export async function prepareVideoSource(
+  url: string,
+  buffer: ArrayBuffer,
+): Promise<VideoSourceMeta> {
+  const existing = metaCache.get(url);
+  if (existing) return existing;
+
+  const id = nextId();
+  const res = await rpc<{ type: 'prepare'; id: number; meta: VideoSourceMeta }>(
+    { type: 'prepare', id, assetId: url, buffer },
+    [buffer],
+  );
+  metaCache.set(url, res.meta);
+  return res.meta;
+}

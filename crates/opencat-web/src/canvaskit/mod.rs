@@ -3,7 +3,6 @@
 //!
 //! 仅在 wasm32 平台编译；native build 跳过整棵子树。
 
-#![cfg(target_arch = "wasm32")]
 
 pub mod bindings;
 pub mod canvas2d;

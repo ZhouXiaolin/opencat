@@ -1,6 +1,5 @@
 //! WebPlatform -- wasm/web 端的 Platform 实现。
 
-#![cfg(target_arch = "wasm32")]
 
 use opencat_core::platform::platform::Platform;
 

@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import { nearestKeyframeBefore, previousKeyframeBefore } from './video-decode-helpers';
+import {
+  nearestKeyframeBefore,
+  previousKeyframeBefore,
+  seekThresholdUs,
+  shouldSeekToTarget,
+} from './video-decode-helpers';
 
 describe('nearestKeyframeBefore', () => {
   test('returns clamped anchor for target inside a span', () => {
@@ -39,5 +44,37 @@ describe('previousKeyframeBefore', () => {
 
   test('returns -1 for empty list', () => {
     expect(previousKeyframeBefore([], 1_000_000)).toBe(-1);
+  });
+});
+
+describe('seekThresholdUs', () => {
+  test('matches engine thresholds', () => {
+    expect(seekThresholdUs('scrubbing')).toBe(120_000);
+    expect(seekThresholdUs('realtime')).toBe(350_000);
+    expect(seekThresholdUs('exact')).toBe(1_500_000);
+  });
+});
+
+describe('shouldSeekToTarget', () => {
+  test('always seeks when no frame yet', () => {
+    expect(shouldSeekToTarget(false, -1, 1_000_000, 'realtime')).toBe(true);
+    expect(shouldSeekToTarget(false, 5_000_000, 1_000_000, 'realtime')).toBe(true);
+  });
+
+  test('seeks on backward jump', () => {
+    expect(shouldSeekToTarget(true, 2_000_000, 1_000_000, 'realtime')).toBe(true);
+    expect(shouldSeekToTarget(true, 2_000_000, 1_999_999, 'realtime')).toBe(true);
+  });
+
+  test('does not seek for forward delta within threshold', () => {
+    expect(shouldSeekToTarget(true, 2_000_000, 2_300_000, 'realtime')).toBe(false);
+    expect(shouldSeekToTarget(true, 2_000_000, 2_110_000, 'scrubbing')).toBe(false);
+  });
+
+  test('seeks for forward delta beyond threshold', () => {
+    expect(shouldSeekToTarget(true, 2_000_000, 2_400_000, 'realtime')).toBe(true);
+    expect(shouldSeekToTarget(true, 2_000_000, 2_125_000, 'scrubbing')).toBe(true);
+    expect(shouldSeekToTarget(true, 2_000_000, 3_400_000, 'exact')).toBe(false);
+    expect(shouldSeekToTarget(true, 2_000_000, 3_600_000, 'exact')).toBe(true);
   });
 });

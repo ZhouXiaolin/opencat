@@ -427,11 +427,16 @@ impl Canvas2D for CanvasKitCanvas2D {
                             let tile_clamp = js_sys::Reflect::get(m, &wasm_bindgen::JsValue::from_str("TileMode"))
                                 .ok()
                                 .and_then(|g| {
-                                    js_sys::Reflect::get(&g, &wasm_bindgen::JsValue::from_str("Decal")).ok()
+                                    js_sys::Reflect::get(&g, &wasm_bindgen::JsValue::from_str("Clamp")).ok()
                                 })
                                 .unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
-                            let filter = wasm_bindgen::JsValue::NULL;
-                            match func.call3(pic_js, &tile_clamp, &tile_clamp, &filter).ok() {
+                            let filter_mode = js_sys::Reflect::get(m, &wasm_bindgen::JsValue::from_str("FilterMode"))
+                                .ok()
+                                .and_then(|g| {
+                                    js_sys::Reflect::get(&g, &wasm_bindgen::JsValue::from_str("Linear")).ok()
+                                })
+                                .unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
+                            match func.call3(pic_js, &tile_clamp, &tile_clamp, &filter_mode).ok() {
                                 Some(s) if !s.is_null() && !s.is_undefined() => s,
                                 _ => wasm_bindgen::JsValue::NULL,
                             }
@@ -448,14 +453,23 @@ impl Canvas2D for CanvasKitCanvas2D {
             children_arr.push(&shader_js);
         }
 
-        // 3. effect.makeShader(uniforms, children) → shader
+        // 3. effect.makeShader/makeShaderWithChildren(uniforms[, children], localMatrix) → shader
         let effect_js: &crate::canvaskit::bindings::CKRuntimeEffectJs =
             effect.as_js().unchecked_ref();
-        let shader_js = crate::canvaskit::bindings::CKRuntimeEffectJs::make_shader(
-            effect_js,
-            &uniforms_arr.into(),
-            &children_arr.into(),
-        );
+        let shader_js = if children.is_empty() {
+            crate::canvaskit::bindings::CKRuntimeEffectJs::make_shader(
+                effect_js,
+                &uniforms_arr.into(),
+                &wasm_bindgen::JsValue::NULL,
+            )
+        } else {
+            crate::canvaskit::bindings::CKRuntimeEffectJs::make_shader_with_children(
+                effect_js,
+                &uniforms_arr.into(),
+                &children_arr.into(),
+                &wasm_bindgen::JsValue::NULL,
+            )
+        };
         if shader_js.is_null() || shader_js.is_undefined() {
             return;
         }

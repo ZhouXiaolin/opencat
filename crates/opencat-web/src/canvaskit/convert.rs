@@ -2,7 +2,6 @@
 //! CanvasKit 把 BlendMode/PaintStyle 等暴露成 `CK.BlendMode.SrcOver` 形式的 JS 对象，
 //! 不是数字。本文件统一通过 `Reflect::get` 拿到对应 JS 值供 `setBlendMode` 等使用。
 
-#![cfg(target_arch = "wasm32")]
 
 use wasm_bindgen::JsValue;
 

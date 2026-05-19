@@ -13,6 +13,7 @@ type WasmModule = {
 export interface WebRendererInstance {
   build_frame(jsonl: string, frame: number, ck_canvas: any, resources_json: string): void;
   inject_video_frame(asset_id: string, frame: number, rgba: Uint8Array, width: number, height: number): void;
+  inject_video_texture(asset_id: string, image: any, width: number, height: number): void;
   clear_video_cache(asset_id: string): void;
   inject_image_bytes(asset_id: string, bytes: Uint8Array): void;
   clear_image_blobs(): void;

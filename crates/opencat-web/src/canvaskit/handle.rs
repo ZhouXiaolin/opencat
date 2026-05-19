@@ -6,7 +6,6 @@
 //! - **CKPaint 不走 CKHandle**：CanvasKit Paint 是普通 JS 对象（V8 GC 管理），
 //!   没有 `.delete()` 方法。`CanvasKitCanvas2D` 直接持有 `bindings::CKPaint`。
 
-#![cfg(target_arch = "wasm32")]
 
 use std::marker::PhantomData;
 use std::sync::Arc;

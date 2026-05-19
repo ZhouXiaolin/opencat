@@ -1,13 +1,19 @@
+
 //! WebVideoSource — VideoFrameProvider for wasm target.
 //!
-//! Receives pre-decoded RGBA frames from the JS side via `inject_frame()`.
-//! JS-side video decoding uses HTMLVideoElement + OffscreenCanvas
-//! (see web/src/video-decoder.ts).
+//! Supports two injection paths:
+//!   - inject_frame: pre-decoded RGBA bytes (legacy, CPU round-trip)
+//!   - inject_texture: CanvasKit SkImage handle (zero-copy GPU texture)
+//!
+//! The rendering pipeline checks `take_texture()` first; if it returns
+//! `Some`, the SkImage is used directly without any RGBA conversion.
+//! Otherwise the pipeline falls back to `frame_rgba()`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+use wasm_bindgen::JsValue;
 
 use opencat_core::platform::video::{FrameBitmap, VideoFrameProvider};
 use opencat_core::resource::asset_id::AssetId;
@@ -18,12 +24,22 @@ struct VideoMeta {
     height: u32,
 }
 
+/// Zero-copy GPU texture entry (CanvasKit SkImage handle).
+struct TextureEntry {
+    #[allow(dead_code)]
+    image: JsValue,
+    width: u32,
+    height: u32,
+}
+
 #[derive(Default)]
 pub struct WebVideoSource {
     /// Latest decoded RGBA frame per asset (replaced on each inject).
     frames: HashMap<AssetId, Arc<Vec<u8>>>,
     /// Video dimensions per asset (set during frame injection).
     meta: HashMap<AssetId, VideoMeta>,
+    /// Zero-copy GPU textures per asset (set by inject_texture, consumed by take_texture).
+    textures: HashMap<AssetId, TextureEntry>,
 }
 
 impl WebVideoSource {
@@ -44,6 +60,30 @@ impl WebVideoSource {
         self.frames.insert(asset_id, Arc::new(rgba));
     }
 
+    /// Inject a CanvasKit SkImage as a zero-copy GPU texture.
+    /// The `image` must be obtained from `CK.MakeLazyImageFromTextureSource`
+    /// and updated each frame with `surface.updateTextureFromSource`.
+    pub fn inject_texture(
+        &mut self,
+        asset_id: AssetId,
+        image: JsValue,
+        width: u32,
+        height: u32,
+    ) {
+        self.meta.insert(
+            asset_id.clone(),
+            VideoMeta { width, height },
+        );
+        self.textures.insert(asset_id, TextureEntry { image, width, height });
+    }
+
+    /// Take (consume) a previously injected GPU texture.
+    /// Called by the canvas during rendering — if this returns `Some`,
+    /// the texture path is used; otherwise `frame_rgba` fallback kicks in.
+    pub fn take_texture(&mut self, id: &AssetId) -> Option<(JsValue, u32, u32)> {
+        self.textures.remove(id).map(|e| (e.image, e.width, e.height))
+    }
+
     /// Number of cached assets (useful for diagnostics).
     pub fn cached_frame_count(&self) -> usize {
         self.frames.len()
@@ -55,10 +95,12 @@ impl WebVideoSource {
             Some(id) => {
                 self.meta.remove(id);
                 self.frames.remove(id);
+                self.textures.remove(id);
             }
             None => {
                 self.frames.clear();
                 self.meta.clear();
+                self.textures.clear();
             }
         }
     }

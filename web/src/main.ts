@@ -11,7 +11,7 @@ import {
   exportPngFrame,
   downloadMp4,
 } from './exporter';
-import { prepareVideoSource, getDecodedFrameRgba, registerVideoGlobals } from './video-decoder';
+import { prepareVideoSource, getDecodedFrameRgba, getDecodedVideoFrame, registerVideoGlobals } from './video-decoder';
 import type { CompositionInfo, JsonlFile, ResourceMeta } from './types';
 import CanvasKitInit from 'canvaskit-wasm/full';
 
@@ -374,17 +374,31 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   const renderer = getRendererOrThrow();
   const CK = (globalThis as any).__canvasKit;
 
-  // Pre-decode video frames for the current composition time.
-  // JS-side WebCodecs decode is async, so this must happen before the
-  // synchronous WASM build_frame which calls VideoFrameProvider::frame_rgba.
+  // Decode video frames and inject as zero-copy GPU textures.
+  // Uses the existing getDecodedVideoFrame API (returns VideoFrame directly,
+  // no RGBA extraction needed).
   const timeSecs = frame / comp.fps;
+  const pendingFrames: Map<string, VideoFrame> = new Map();
+  const videoImages: Map<string, any> = new Map();
+
   for (const [assetId, meta] of Object.entries(resourceMeta)) {
     if (meta.kind === 'video') {
       try {
-        const decoded = await getDecodedFrameRgba(assetId, timeSecs);
-        if (decoded) {
-          renderer.inject_video_frame(assetId, frame, decoded.rgba, decoded.width, decoded.height);
+        const vf = await getDecodedVideoFrame(assetId, timeSecs);
+        if (!vf) continue;
+
+        let skImage = videoImages.get(assetId);
+        if (!skImage) {
+          skImage = CK.MakeLazyImageFromTextureSource(vf, {
+            width: vf.displayWidth,
+            height: vf.displayHeight,
+            colorType: CK.ColorType.RGBA_8888,
+            alphaType: CK.AlphaType.Opaque,
+          });
+          videoImages.set(assetId, skImage);
         }
+        renderer.inject_video_texture(assetId, skImage, vf.displayWidth, vf.displayHeight);
+        pendingFrames.set(assetId, vf);
       } catch (err) {
         console.warn(`[render] video decode failed for ${assetId} at ${timeSecs.toFixed(3)}s:`, err);
       }
@@ -395,13 +409,22 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   try {
     surface = CK.MakeWebGLCanvasSurface(previewCanvas);
     if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
-    const ckCanvas = surface.getCanvas();
 
+    // Update textures before build_frame so CanvasKit can read them
+    for (const [assetId, skImage] of videoImages) {
+      const vf = pendingFrames.get(assetId);
+      if (vf) {
+        try { surface.updateTextureFromSource(skImage, vf); } catch { /* ignore */ }
+      }
+    }
+
+    const ckCanvas = surface.getCanvas();
     const resourceMetaJson = JSON.stringify(resourceMeta);
     renderer.build_frame(currentJsonlContent!, frame, ckCanvas, resourceMetaJson);
     surface.flush();
   } finally {
     surface?.delete();
+    for (const vf of pendingFrames.values()) vf.close();
   }
 
   frameLabel.textContent = `${(frame / comp.fps).toFixed(2)}s / ${((comp.frames - 1) / comp.fps).toFixed(2)}s`;

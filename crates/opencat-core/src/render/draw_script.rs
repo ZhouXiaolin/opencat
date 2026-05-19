@@ -1,5 +1,5 @@
 use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle, StrokeSpec};
-use crate::canvas::{Canvas2D, ClipOp, FillType, Rect};
+use crate::canvas::{Canvas2D, ClipOp, FillType, PathBuilder, Rect};
 use crate::display::list::{DisplayRect, DrawScriptDisplayItem};
 
 use super::bitmap::{cover_src_rect, fitted_rect};
@@ -10,83 +10,43 @@ use super::{RenderCache, RenderCtx, RenderError};
 use crate::scene::script::CanvasCommand;
 use crate::style::ObjectFit;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum PathVerb {
-    Move = 0,
-    Line = 1,
-    Quad = 2,
-    Cubic = 3,
-    Close = 4,
-    AddRect = 5,
-    AddRRect = 6,
-    AddOval = 7,
-    AddArc = 8,
+/// 路径状态：直接持有平台 PathBuilder，在 draw/clip 时 finish 出 Path。
+///
+/// - `builder`：活跃的 PathBuilder，path 命令直接操作它。
+/// - `cached_path`：finish 后缓存的 Path，供 FillPath/StrokePath/ClipPath 复用。
+///   任何新的 path 命令会使缓存失效（置 None）。
+pub struct PathState<C: Canvas2D> {
+    builder: Option<C::PathBuilder>,
+    cached_path: Option<C::Path>,
 }
 
-pub struct PathAccumulator {
-    verbs: Vec<u8>,
-    points: Vec<f32>,
-}
-
-impl PathAccumulator {
+impl<C: Canvas2D> PathState<C> {
     fn new() -> Self {
-        PathAccumulator { verbs: Vec::new(), points: Vec::new() }
+        Self { builder: None, cached_path: None }
     }
 
-    fn begin(&mut self) {
-        self.verbs.clear();
-        self.points.clear();
+    fn begin(&mut self, canvas: &C) {
+        self.builder = Some(canvas.create_path_builder(FillType::Winding));
+        self.cached_path = None;
     }
 
-    fn move_to(&mut self, x: f32, y: f32) {
-        self.verbs.push(PathVerb::Move as u8);
-        self.points.push(x);
-        self.points.push(y);
+    fn builder(&mut self, canvas: &C) -> &mut C::PathBuilder {
+        if self.builder.is_none() {
+            self.builder = Some(canvas.create_path_builder(FillType::Winding));
+        }
+        self.cached_path = None;
+        self.builder.as_mut().unwrap()
     }
 
-    fn line_to(&mut self, x: f32, y: f32) {
-        self.verbs.push(PathVerb::Line as u8);
-        self.points.push(x);
-        self.points.push(y);
-    }
-
-    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
-        self.verbs.push(PathVerb::Quad as u8);
-        self.points.extend_from_slice(&[cx, cy, x, y]);
-    }
-
-    fn cubic_to(&mut self, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32) {
-        self.verbs.push(PathVerb::Cubic as u8);
-        self.points.extend_from_slice(&[c1x, c1y, c2x, c2y, x, y]);
-    }
-
-    fn close(&mut self) {
-        self.verbs.push(PathVerb::Close as u8);
-    }
-
-    fn add_rect(&mut self, x: f32, y: f32, width: f32, height: f32) {
-        self.verbs.push(PathVerb::AddRect as u8);
-        self.points.extend_from_slice(&[x, y, width, height]);
-    }
-
-    fn add_rrect(&mut self, x: f32, y: f32, width: f32, height: f32, radius: f32) {
-        self.verbs.push(PathVerb::AddRRect as u8);
-        self.points.extend_from_slice(&[x, y, width, height, radius]);
-    }
-
-    fn add_oval(&mut self, x: f32, y: f32, width: f32, height: f32) {
-        self.verbs.push(PathVerb::AddOval as u8);
-        self.points.extend_from_slice(&[x, y, width, height]);
-    }
-
-    fn add_arc(&mut self, x: f32, y: f32, width: f32, height: f32, start_angle: f32, sweep_angle: f32) {
-        self.verbs.push(PathVerb::AddArc as u8);
-        self.points.extend_from_slice(&[x, y, width, height, start_angle, sweep_angle]);
-    }
-
-    fn make_path<C: Canvas2D>(&self, canvas: &C) -> C::Path {
-        canvas.make_path_from_verbs(&self.verbs, &self.points, FillType::Winding)
+    fn get_path(&mut self, canvas: &C) -> &C::Path {
+        if self.cached_path.is_none() {
+            if let Some(b) = self.builder.take() {
+                self.cached_path = Some(b.finish());
+            } else {
+                self.cached_path = Some(canvas.create_path_builder(FillType::Winding).finish());
+            }
+        }
+        self.cached_path.as_ref().unwrap()
     }
 }
 
@@ -112,14 +72,14 @@ pub fn render_draw_script<C: Canvas2D>(
     cache: &mut RenderCache<C>,
 ) -> Result<(), RenderError> {
     let mut state = DrawScriptPaintState::default();
-    let mut path_acc = PathAccumulator::new();
+    let mut path_state = PathState::<C>::new();
     let clip_rect = display_rect_to_rect(item.bounds);
 
     canvas.save();
     canvas.clip_rect(&clip_rect, ClipOp::Intersect, true);
 
     for command in &item.commands {
-        execute_canvas_command(canvas, command, &mut state, &mut path_acc, ctx, cache)?;
+        execute_canvas_command(canvas, command, &mut state, &mut path_state, ctx, cache)?;
     }
 
     canvas.restore();
@@ -130,7 +90,7 @@ pub fn execute_canvas_command<C: Canvas2D>(
     canvas: &mut C,
     cmd: &CanvasCommand,
     state: &mut DrawScriptPaintState,
-    path_acc: &mut PathAccumulator,
+    path_state: &mut PathState<C>,
     ctx: &RenderCtx<C>,
     cache: &mut RenderCache<C>,
 ) -> Result<(), RenderError> {
@@ -232,31 +192,31 @@ pub fn execute_canvas_command<C: Canvas2D>(
             let paint = state.stroke_paint_spec();
             canvas.draw_circle(*cx, *cy, *radius, &paint);
         }
-        CanvasCommand::BeginPath => { path_acc.begin(); }
-        CanvasCommand::MoveTo { x, y } => { path_acc.move_to(*x, *y); }
-        CanvasCommand::LineTo { x, y } => { path_acc.line_to(*x, *y); }
-        CanvasCommand::QuadTo { cx, cy, x, y } => { path_acc.quad_to(*cx, *cy, *x, *y); }
+        CanvasCommand::BeginPath => { path_state.begin(canvas); }
+        CanvasCommand::MoveTo { x, y } => { path_state.builder(canvas).move_to(*x, *y); }
+        CanvasCommand::LineTo { x, y } => { path_state.builder(canvas).line_to(*x, *y); }
+        CanvasCommand::QuadTo { cx, cy, x, y } => { path_state.builder(canvas).quad_to(*cx, *cy, *x, *y); }
         CanvasCommand::CubicTo { c1x, c1y, c2x, c2y, x, y } => {
-            path_acc.cubic_to(*c1x, *c1y, *c2x, *c2y, *x, *y);
+            path_state.builder(canvas).cubic_to(*c1x, *c1y, *c2x, *c2y, *x, *y);
         }
-        CanvasCommand::ClosePath => { path_acc.close(); }
-        CanvasCommand::AddRectPath { x, y, width, height } => { path_acc.add_rect(*x, *y, *width, *height); }
+        CanvasCommand::ClosePath => { path_state.builder(canvas).close(); }
+        CanvasCommand::AddRectPath { x, y, width, height } => { path_state.builder(canvas).add_rect(*x, *y, *width, *height); }
         CanvasCommand::AddRRectPath { x, y, width, height, radius } => {
-            path_acc.add_rrect(*x, *y, *width, *height, *radius);
+            path_state.builder(canvas).add_rrect(*x, *y, *width, *height, *radius);
         }
-        CanvasCommand::AddOvalPath { x, y, width, height } => { path_acc.add_oval(*x, *y, *width, *height); }
+        CanvasCommand::AddOvalPath { x, y, width, height } => { path_state.builder(canvas).add_oval(*x, *y, *width, *height); }
         CanvasCommand::AddArcPath { x, y, width, height, start_angle, sweep_angle } => {
-            path_acc.add_arc(*x, *y, *width, *height, *start_angle, *sweep_angle);
+            path_state.builder(canvas).add_arc(*x, *y, *width, *height, *start_angle, *sweep_angle);
         }
         CanvasCommand::FillPath => {
             let paint = state.fill_paint_spec();
-            let path = path_acc.make_path(canvas);
-            canvas.draw_path(&path, &paint);
+            let path = path_state.get_path(canvas);
+            canvas.draw_path(path, &paint);
         }
         CanvasCommand::StrokePath => {
             let paint = state.stroke_paint_spec();
-            let path = path_acc.make_path(canvas);
-            canvas.draw_path(&path, &paint);
+            let path = path_state.get_path(canvas);
+            canvas.draw_path(path, &paint);
         }
         CanvasCommand::DrawImage { asset_id, x, y, width, height, src_rect, anti_alias, object_fit, .. } => {
             let (image, img_w, img_h) = load_image_for_script(canvas, asset_id, ctx, cache)?;
@@ -302,9 +262,9 @@ pub fn execute_canvas_command<C: Canvas2D>(
             canvas.draw_oval(&kurbo_rect_xywh(cx - rx, cy - ry, rx * 2.0, ry * 2.0), &paint);
         }
         CanvasCommand::ClipPath { anti_alias } => {
-            let path = path_acc.make_path(canvas);
+            let path = path_state.get_path(canvas).clone();
             canvas.clip_path(&path, ClipOp::Intersect, *anti_alias);
-            path_acc.begin();
+            path_state.begin(canvas);
         }
         CanvasCommand::ClipRRect { x, y, width, height, radius, anti_alias } => {
             let rrect = kurbo_rrect(*x, *y, *width, *height, *radius);

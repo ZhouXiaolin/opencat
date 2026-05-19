@@ -14,6 +14,33 @@ function ensureCanvaskitWasm(): void {
   }
 }
 
+const WD_DIST_DIR = resolve(__dirname, 'node_modules/web-demuxer/dist');
+const WD_PUBLIC_DIR = resolve(__dirname, 'public/web-demuxer');
+
+// Layout: preserves `wasm-files/` subdir, so URLs are
+//   /web-demuxer/web-demuxer.js
+//   /web-demuxer/wasm-files/web-demuxer.wasm
+function ensureWebDemuxerAssets(): void {
+  if (!fs.existsSync(WD_PUBLIC_DIR)) fs.mkdirSync(WD_PUBLIC_DIR, { recursive: true });
+  if (!fs.existsSync(WD_DIST_DIR)) return;
+  const copyTree = (srcDir: string, dstDir: string): void => {
+    for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+      const src = resolve(srcDir, entry.name);
+      const dst = resolve(dstDir, entry.name);
+      if (entry.isDirectory()) {
+        if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
+        copyTree(src, dst);
+        continue;
+      }
+      if (!entry.name.endsWith('.wasm') && !entry.name.endsWith('.js')) continue;
+      if (!fs.existsSync(dst) || fs.statSync(src).mtimeMs > fs.statSync(dst).mtimeMs) {
+        fs.copyFileSync(src, dst);
+      }
+    }
+  };
+  copyTree(WD_DIST_DIR, WD_PUBLIC_DIR);
+}
+
 function serveStaticDirs(basePath: string, dirs: { mount: string; path: string; mime?: Record<string, string> }[]): Plugin {
   return {
     name: `serve-${basePath}`,
@@ -84,6 +111,15 @@ export default defineConfig({
       },
       configureServer(server) {
         ensureCanvaskitWasm();
+      },
+    },
+    {
+      name: 'web-demuxer-assets',
+      buildStart() {
+        ensureWebDemuxerAssets();
+      },
+      configureServer(_server) {
+        ensureWebDemuxerAssets();
       },
     },
   ],

@@ -252,15 +252,8 @@ export async function getDecodedFrameRgba(
   return { rgba, width: source.width, height: source.height };
 }
 
-/**
- * Synchronous lookup in the decode cache (for backward compat).
- */
-export function decodeVideoFrameSync(url: string, frame: number): Uint8Array | null {
-  return null; // on-demand mode — sync lookup is no longer supported
-}
-
 export function registerVideoGlobals(): void {
-  (window as any).__video_decode_frame_sync = decodeVideoFrameSync;
+  // No-op — kept for API compat with main.ts import.
 }
 
 export function getVideoDimensions(url: string): { width: number; height: number } | null {

@@ -180,7 +180,14 @@ extern "C" {
     pub type CKRuntimeEffectJs;
 
     #[wasm_bindgen(method, js_name = "makeShader")]
-    pub fn make_shader(this: &CKRuntimeEffectJs, uniforms: &JsValue, children: &JsValue) -> JsValue;
+    pub fn make_shader(this: &CKRuntimeEffectJs, uniforms: &JsValue, local_matrix: &JsValue) -> JsValue;
+    #[wasm_bindgen(method, js_name = "makeShaderWithChildren")]
+    pub fn make_shader_with_children(
+        this: &CKRuntimeEffectJs,
+        uniforms: &JsValue,
+        children: &JsValue,
+        local_matrix: &JsValue,
+    ) -> JsValue;
     #[wasm_bindgen(method, js_name = "delete")]
     pub fn delete_effect(this: &CKRuntimeEffectJs);
 

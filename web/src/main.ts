@@ -374,6 +374,23 @@ async function renderFrameWithPipeline(frame: number, comp: CompositionInfo): Pr
   const renderer = getRendererOrThrow();
   const CK = (globalThis as any).__canvasKit;
 
+  // Pre-decode video frames for the current composition time.
+  // JS-side WebCodecs decode is async, so this must happen before the
+  // synchronous WASM build_frame which calls VideoFrameProvider::frame_rgba.
+  const timeSecs = frame / comp.fps;
+  for (const [assetId, meta] of Object.entries(resourceMeta)) {
+    if (meta.kind === 'video') {
+      try {
+        const decoded = await getDecodedFrameRgba(assetId, timeSecs);
+        if (decoded) {
+          renderer.inject_video_frame(assetId, frame, decoded.rgba, decoded.width, decoded.height);
+        }
+      } catch (err) {
+        console.warn(`[render] video decode failed for ${assetId} at ${timeSecs.toFixed(3)}s:`, err);
+      }
+    }
+  }
+
   let surface;
   try {
     surface = CK.MakeWebGLCanvasSurface(previewCanvas);

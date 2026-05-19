@@ -497,6 +497,13 @@ impl Canvas2D for SkiaCanvas2D {
                     pi += 4;
                 }
                 3 => {
+                    builder.quad_to(
+                        (points[pi], points[pi + 1]),
+                        (points[pi + 2], points[pi + 3]),
+                    );
+                    pi += 5;
+                }
+                4 => {
                     builder.cubic_to(
                         (points[pi], points[pi + 1]),
                         (points[pi + 2], points[pi + 3]),
@@ -504,7 +511,7 @@ impl Canvas2D for SkiaCanvas2D {
                     );
                     pi += 6;
                 }
-                4 => {
+                5 => {
                     builder.close();
                 }
                 _ => {}

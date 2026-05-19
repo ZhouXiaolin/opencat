@@ -125,3 +125,44 @@ export async function getDecodedFrameRgba(
     try { frame.close(); } catch { /* ignore */ }
   }
 }
+
+export async function clearVideoCache(url?: string): Promise<void> {
+  if (url) {
+    if (!metaCache.has(url)) return;
+    metaCache.delete(url);
+    const id = nextId();
+    await rpc<{ type: 'release'; id: number }>({
+      type: 'release',
+      id,
+      assetId: url,
+    }).catch(() => { /* swallow — release is best-effort */ });
+    return;
+  }
+  const urls = Array.from(metaCache.keys());
+  metaCache.clear();
+  await Promise.all(
+    urls.map((u) => {
+      const id = nextId();
+      return rpc<{ type: 'release'; id: number }>({
+        type: 'release',
+        id,
+        assetId: u,
+      }).catch(() => { /* ignore */ });
+    }),
+  );
+}
+
+export function getVideoDimensions(
+  url: string,
+): { width: number; height: number } | null {
+  const m = metaCache.get(url);
+  return m ? { width: m.width, height: m.height } : null;
+}
+
+export function getVideoDurationSecs(url: string): number | null {
+  return metaCache.get(url)?.durationSecs ?? null;
+}
+
+export function registerVideoGlobals(): void {
+  // No-op — retained for API compatibility with main.ts.
+}

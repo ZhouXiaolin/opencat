@@ -357,6 +357,53 @@ async function feedAndCollect(
   st.hasFrame = true;
   return best.videoFrame;
 }
+
+/** Engine-aligned seek + decode. Walks back through keyframes if a feed
+ *  yields zero frames (Open-GOP / non-IDR keyframe fallback).
+ *  Decision is purely "feed yielded 0 frames → try previous keyframe"
+ *  — codec-agnostic, no NAL parsing. */
+async function seekAndDecode(
+  st: AssetState,
+  targetUs: number,
+): Promise<VideoFrame | null> {
+  let keyTimeUs = nearestKeyframeBefore(st.keyframeTimesUs, targetUs);
+  while (keyTimeUs >= 0) {
+    // Reset decoder and cursor to this keyframe
+    closeDecoder(st);
+    closeAndClearPendingFrames(st);
+    st.decoder = makeDecoder(st);
+    try {
+      st.decoder.configure(st.config);
+    } catch (err) {
+      console.warn('[video-decode-worker] configure failed:', err);
+      closeDecoder(st);
+      return null;
+    }
+    st.decoderKeyTimeUs = keyTimeUs;
+
+    const idx = chunkIdxAtTime(st.chunks, keyTimeUs);
+    if (idx < 0) {
+      // Keyframe time wasn't in our chunk table — should never happen
+      // unless the demuxer mis-reported. Bail.
+      closeDecoder(st);
+      return null;
+    }
+    st.cursorChunkIdx = idx;
+    st.hasFrame = false;
+    st.currentPtsUs = -1;
+
+    const frame = await feedAndCollect(st, targetUs);
+    if (frame) return frame;
+
+    // Feed-yielded-no-frames fallback. H.264 Open-GOP "key" packets
+    // (non-IDR) fail under strict WebCodecs configure; retry from the
+    // previous keyframe. VP9 / AV1 keyframes are independently
+    // decodable so this fallback never triggers on those codecs.
+    keyTimeUs = previousKeyframeBefore(st.keyframeTimesUs, keyTimeUs);
+  }
+  return null;
+}
+
 async function handleGetFrame(req: GetFrameRequest): Promise<void> {
   postError(req.id, 'getFrame: not implemented yet');
 }

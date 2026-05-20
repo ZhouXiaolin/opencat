@@ -8,7 +8,6 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
-use rquickjs::function::Rest;
 use rquickjs::{
     Array, Context, Ctx, Error as JsError, Exception, FromJs, Function, IntoJs, Object, Persistent,
     Runtime, Type, Value,
@@ -111,7 +110,7 @@ fn json_to_rq<'js>(ctx: &Ctx<'js>, v: JsonValue) -> anyhow::Result<Value<'js>> {
     }
 }
 
-/// JS-side arg → `serde_json::Value`，让 `Function::new` 闭包以 `Rest<JsonArg>` 收参。
+/// JS-side arg → `serde_json::Value`，让 `Function::new` 闭包以 `JsonArg` 收参。
 struct JsonArg(JsonValue);
 
 impl<'js> FromJs<'js> for JsonArg {
@@ -190,8 +189,11 @@ impl JsContext for RqJsContext {
         self.context.with(|ctx| -> anyhow::Result<()> {
             let f = Function::new(
                 ctx.clone(),
-                move |name: String, rest: Rest<JsonArg>| -> Result<JsonReturn, JsError> {
-                    let args: Vec<JsonValue> = rest.0.into_iter().map(|a| a.0).collect();
+                move |name: String, args_arg: JsonArg| -> Result<JsonReturn, JsError> {
+                    let args: Vec<JsonValue> = match args_arg.0 {
+                        JsonValue::Array(arr) => arr,
+                        other => vec![other],
+                    };
                     let mut guard = store.lock().map_err(|e| {
                         JsError::new_from_js_message("script", "lock", &e.to_string())
                     })?;
@@ -203,6 +205,10 @@ impl JsContext for RqJsContext {
             ctx.globals().set("__opencatCallNative", f)?;
             Ok(())
         })
+    }
+
+    fn rebind_dispatcher(&self) -> anyhow::Result<()> {
+        Ok(())
     }
 
     fn with_store_mut<R>(&self, f: impl FnOnce(&mut MutationStore) -> R) -> R {

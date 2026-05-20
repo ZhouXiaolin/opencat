@@ -1,17 +1,65 @@
 use skia_safe::{
     canvas::{SaveLayerRec, SrcRectConstraint},
     color_filters, gradient_shader, image_filters, images,
-    BlurStyle as SkiaBlurStyle, Canvas, Color, ColorFilter, Data, Font, Image as SkiaImage,
+    BlurStyle as SkiaBlurStyle, Canvas, Color, ColorFilter, Data, Image as SkiaImage,
     ImageInfo, MaskFilter, Matrix, Paint, PaintStyle as SkiaPaintStyle, Path as SkiaPath,
     PathBuilder, PathEffect, PathFillType, Picture, PictureRecorder, Point as SkiaPoint,
     RRect as SkiaRRect, Rect as SkiaRect, RuntimeEffect, Shader, TileMode as SkiaTileMode,
 };
 
 use opencat_core::canvas::{
-    BlendMode, BlurStyle, Canvas2D, ClipOp, ColorFilterSpec, FillSpec, FillType, FontEdging,
-    GlyphRunSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec, PaintStyle, PathEffectSpec, PointMode,
+    BlendMode, BlurStyle, Canvas2D, ClipOp, ColorFilterSpec, FillSpec, FillType,
+    ImageFilterSpec, MaskFilterSpec, PaintSpec, PaintStyle, PathBuilder as CorePathBuilder, PathEffectSpec, PointMode,
     Rect, RRect, RuntimeEffectChild, ShaderSpec, StrokeCap, StrokeJoin, TileMode,
 };
+
+pub struct SkiaPathBuilder(PathBuilder);
+
+impl CorePathBuilder for SkiaPathBuilder {
+    type Path = SkiaPath;
+
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.move_to((x, y));
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.line_to((x, y));
+    }
+
+    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
+        self.0.quad_to((cx, cy), (x, y));
+    }
+
+    fn cubic_to(&mut self, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32) {
+        self.0.cubic_to((c1x, c1y), (c2x, c2y), (x, y));
+    }
+
+    fn close(&mut self) {
+        self.0.close();
+    }
+
+    fn finish(mut self) -> Self::Path {
+        self.0.detach()
+    }
+
+    fn add_rect(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.0.add_rect(SkiaRect::from_xywh(x, y, w, h), None, None);
+    }
+
+    fn add_rrect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32) {
+        let r = r.min(w / 2.0).min(h / 2.0);
+        let sk_rrect = SkiaRRect::new_rect_xy(SkiaRect::from_xywh(x, y, w, h), r, r);
+        self.0.add_rrect(&sk_rrect, None, None);
+    }
+
+    fn add_oval(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.0.add_oval(SkiaRect::from_xywh(x, y, w, h), None, None);
+    }
+
+    fn add_arc(&mut self, x: f32, y: f32, w: f32, h: f32, start_angle: f32, sweep_angle: f32) {
+        self.0.add_arc(SkiaRect::from_xywh(x, y, w, h), start_angle, sweep_angle);
+    }
+}
 
 pub struct SkiaCanvas2D {
     canvas: *const Canvas,
@@ -44,6 +92,7 @@ impl Canvas2D for SkiaCanvas2D {
     type Image = SkiaImage;
     type Picture = Picture;
     type RuntimeEffect = RuntimeEffect;
+    type PathBuilder = SkiaPathBuilder;
 
     fn save(&mut self) -> i32 {
         self.canvas_ref().save() as i32
@@ -334,68 +383,9 @@ impl Canvas2D for SkiaCanvas2D {
         }
     }
 
-    fn draw_simple_text(
-        &mut self,
-        text: &str,
-        x: f32,
-        y: f32,
-        font_size: f32,
-        paint: &PaintSpec,
-    ) {
-        let mut font = Font::default();
-        font.set_size(font_size);
-        match paint.style {
-            PaintStyle::Fill => {
-                apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas_ref()
-                    .draw_str(text, (x, y), &font, &self.fill_paint);
-            }
-            PaintStyle::Stroke => {
-                apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas_ref()
-                    .draw_str(text, (x, y), &font, &self.stroke_paint);
-            }
-        }
-    }
 
-    fn draw_glyph_run(&mut self, run: &GlyphRunSpec, paint: &PaintSpec) {
-        debug_assert_eq!(run.positions.len() % 2, 0, "glyph positions must be even");
-        let mut font = Font::default();
-        font.set_size(run.font_size);
-        font.set_scale_x(run.font_scale_x);
-        font.set_skew_x(run.font_skew_x);
-        font.set_subpixel(run.subpixel);
-        font.set_edging(convert_font_edging(run.edging));
 
-        let positions: Vec<SkiaPoint> = run
-            .positions
-            .chunks_exact(2)
-            .map(|chunk| SkiaPoint::new(chunk[0], chunk[1]))
-            .collect();
 
-        match paint.style {
-            PaintStyle::Fill => {
-                apply_spec(&mut self.fill_paint, paint, PaintStyle::Fill);
-                self.canvas_ref().draw_glyphs_at(
-                    run.glyph_ids,
-                    &*positions,
-                    SkiaPoint::new(0.0, 0.0),
-                    &font,
-                    &self.fill_paint,
-                );
-            }
-            PaintStyle::Stroke => {
-                apply_spec(&mut self.stroke_paint, paint, PaintStyle::Stroke);
-                self.canvas_ref().draw_glyphs_at(
-                    run.glyph_ids,
-                    &*positions,
-                    SkiaPoint::new(0.0, 0.0),
-                    &font,
-                    &self.stroke_paint,
-                );
-            }
-        }
-    }
 
     fn make_picture<R>(&mut self, bounds: &Rect, record: R) -> Self::Picture
     where
@@ -467,50 +457,12 @@ impl Canvas2D for SkiaCanvas2D {
         RuntimeEffect::make_for_shader(sksl, None)
     }
 
-    fn make_path_from_verbs(
-        &self,
-        verbs: &[u8],
-        points: &[f32],
-        fill_type: FillType,
-    ) -> Self::Path {
+    fn create_path_builder(&self, fill_type: FillType) -> Self::PathBuilder {
         let skia_fill = match fill_type {
             FillType::Winding => PathFillType::Winding,
             FillType::EvenOdd => PathFillType::EvenOdd,
         };
-        let mut builder = PathBuilder::new_with_fill_type(skia_fill);
-        let mut pi = 0;
-        for &verb in verbs {
-            match verb {
-                0 => {
-                    builder.move_to((points[pi], points[pi + 1]));
-                    pi += 2;
-                }
-                1 => {
-                    builder.line_to((points[pi], points[pi + 1]));
-                    pi += 2;
-                }
-                2 => {
-                    builder.quad_to(
-                        (points[pi], points[pi + 1]),
-                        (points[pi + 2], points[pi + 3]),
-                    );
-                    pi += 4;
-                }
-                3 => {
-                    builder.cubic_to(
-                        (points[pi], points[pi + 1]),
-                        (points[pi + 2], points[pi + 3]),
-                        (points[pi + 4], points[pi + 5]),
-                    );
-                    pi += 6;
-                }
-                4 => {
-                    builder.close();
-                }
-                _ => {}
-            }
-        }
-        builder.snapshot()
+        SkiaPathBuilder(PathBuilder::new_with_fill_type(skia_fill))
     }
 
     fn make_path_from_svg(&self, svg_path_data: &str) -> Option<Self::Path> {
@@ -630,13 +582,6 @@ fn convert_tile_mode(t: TileMode) -> SkiaTileMode {
     }
 }
 
-fn convert_font_edging(e: FontEdging) -> skia_safe::font::Edging {
-    match e {
-        FontEdging::Alias => skia_safe::font::Edging::Alias,
-        FontEdging::AntiAlias => skia_safe::font::Edging::AntiAlias,
-        FontEdging::SubpixelAntiAlias => skia_safe::font::Edging::SubpixelAntiAlias,
-    }
-}
 
 fn convert_blend_mode(m: BlendMode) -> skia_safe::BlendMode {
     match m {
@@ -872,5 +817,71 @@ fn build_runtime_effect_child(child: &RuntimeEffectChild<SkiaCanvas2D>) -> Optio
             ))
         }
         RuntimeEffectChild::Shader(spec) => build_skia_shader(spec),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opencat_core::text::{rasterize_glyphs, NOTO_SANS_SC};
+    use opencat_core::style::ComputedTextStyle;
+
+    #[test]
+    fn compare_text_width_cosmic_vs_skia() {
+        let font_data = NOTO_SANS_SC.to_vec();
+        let typeface = skia_safe::FontMgr::new()
+            .new_from_data(&font_data, None)
+            .expect("failed to load NotoSansSC into skia");
+
+        let samples = [
+            "Four scenes exercise",
+            "Hello World",
+            "A B C D",
+            "text, image, video",
+            "ab cd ef gh",
+        ];
+
+        for text in &samples {
+            let font_size = 22.0_f32;
+
+            // skia-safe: Font with same NotoSansSC
+            let mut font = Font::from_typeface(&typeface, font_size);
+            let (skia_width, _) = font.measure_str(text, None);
+
+            // cosmic-text
+            let mut style = ComputedTextStyle::default();
+            style.text_px = font_size;
+            let raster = rasterize_glyphs(text, &style, f32::INFINITY, false, false);
+            let cosmic_width = raster.lines.first().map(|l| l.width).unwrap_or(0.0);
+
+            let ratio = cosmic_width / skia_width.max(1.0);
+
+            eprintln!(
+                "[compare] text={:?} skia={:.2} cosmic={:.2} ratio={:.3}",
+                text, skia_width, cosmic_width, ratio
+            );
+
+            // Per-glyph x deltas
+            if let Some(line) = raster.lines.first() {
+                let xs: Vec<f32> = line.positions.iter().map(|p| p.x).collect();
+                if xs.len() > 1 {
+                    let deltas: Vec<f32> = xs.windows(2).map(|w| w[1] - w[0]).collect();
+                    eprintln!("  cosmic deltas: {:?}", &deltas[..deltas.len().min(20)]);
+                }
+            }
+
+            // skia per-glyph widths
+            let mut glyph_buf = [0u16; 64];
+            let mut width_buf = [0.0f32; 64];
+            let n = text.chars().count().min(64);
+            let mut ws = Vec::with_capacity(n);
+            for c in text.chars().take(n) {
+                let count = font.text_to_glyphs(&c.to_string(), &mut glyph_buf);
+                let gid = if count > 0 { glyph_buf[0] } else { 0 };
+                font.get_widths(&[gid], &mut width_buf[..1]);
+                ws.push(width_buf[0]);
+            }
+            eprintln!("  skia glyph widths: {:?}", &ws[..ws.len().min(20)]);
+        }
     }
 }

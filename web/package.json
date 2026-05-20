@@ -7,15 +7,18 @@
     "dev": "npm run build:wasm && vite",
     "build:wasm": "cd ../crates/opencat-web && wasm-pack build --target web --out-dir ../../web/wasm",
     "build": "npm run build:wasm && tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
-    "vite": "^6.3.0"
+    "vite": "^6.3.0",
+    "vitest": "^2.1.9"
   },
   "dependencies": {
     "@webav/av-cliper": "^1.2.8",
     "canvaskit-wasm": "^0.41.1",
-    "mp4box": "^2.3.0"
+    "web-demuxer": "^4.0.0"
   }
 }

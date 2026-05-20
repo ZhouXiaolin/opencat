@@ -19,11 +19,114 @@ pub enum PointMode {
     Polygon,
 }
 
+/// 平台无关的路径构建器 trait。
+///
+/// 各后端（Skia / CanvasKit）将各自的 PathBuilder 适配到此接口，
+/// 使 core 层能直接拼装路径，省去 `commands → verbs+points → PathBuilder` 的序列化中转。
+///
+/// 基本操作（move_to / line_to / quad_to / cubic_to / close）由各后端各自实现；
+/// 高级操作（add_rect / add_rrect / add_oval / add_arc）有基于基本操作的默认实现，
+/// 后端可覆盖以使用原生 API（如 skia-safe PathBuilder::add_rect）。
+pub trait PathBuilder {
+    type Path: Clone;
+
+    // -- 基本操作 --
+    fn move_to(&mut self, x: f32, y: f32);
+    fn line_to(&mut self, x: f32, y: f32);
+    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32);
+    fn cubic_to(&mut self, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32);
+    fn close(&mut self);
+
+    /// 消费构建器，返回最终的 `Path`。
+    fn finish(self) -> Self::Path;
+
+    // -- 高级操作（默认用基本操作模拟，后端可覆盖） --
+
+    fn add_rect(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.move_to(x, y);
+        self.line_to(x + w, y);
+        self.line_to(x + w, y + h);
+        self.line_to(x, y + h);
+        self.close();
+    }
+
+    fn add_rrect(&mut self, x: f32, y: f32, w: f32, h: f32, r: f32) {
+        let r = r.min(w / 2.0).min(h / 2.0);
+        self.move_to(x + r, y);
+        self.line_to(x + w - r, y);
+        self.quad_to(x + w, y, x + w, y + r);
+        self.line_to(x + w, y + h - r);
+        self.quad_to(x + w, y + h, x + w - r, y + h);
+        self.line_to(x + r, y + h);
+        self.quad_to(x, y + h, x, y + h - r);
+        self.line_to(x, y + r);
+        self.quad_to(x, y, x + r, y);
+        self.close();
+    }
+
+    fn add_oval(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        let cx = x + w / 2.0;
+        let cy = y + h / 2.0;
+        let rx = w / 2.0;
+        let ry = h / 2.0;
+        let k = 0.5522847498;
+        self.move_to(cx + rx, cy);
+        self.cubic_to(cx + rx, cy + ry * k, cx + rx * k, cy + ry, cx, cy + ry);
+        self.cubic_to(cx - rx * k, cy + ry, cx - rx, cy + ry * k, cx - rx, cy);
+        self.cubic_to(cx - rx, cy - ry * k, cx - rx * k, cy - ry, cx, cy - ry);
+        self.cubic_to(cx + rx * k, cy - ry, cx + rx, cy - ry * k, cx + rx, cy);
+        self.close();
+    }
+
+    fn add_arc(&mut self, x: f32, y: f32, w: f32, h: f32, start_angle: f32, sweep_angle: f32) {
+        let cx = x + w / 2.0;
+        let cy = y + h / 2.0;
+        let rx = w / 2.0;
+        let ry = h / 2.0;
+
+        let mut angle = start_angle;
+        let end_angle = start_angle + sweep_angle;
+        let step = 90.0_f32.to_radians();
+        let n = ((sweep_angle.abs() / step).ceil() as usize).max(1);
+        let seg_sweep = sweep_angle / n as f32;
+
+        let start_rad = angle.to_radians();
+        self.move_to(
+            cx + rx * start_rad.cos(),
+            cy + ry * start_rad.sin(),
+        );
+
+        for _ in 0..n {
+            let a1 = angle;
+            let a2 = angle + seg_sweep;
+            let da = seg_sweep / 2.0;
+            let alpha = (4.0 / 3.0) * da.tan();
+            let (cos1, sin1) = (a1.to_radians().cos(), a1.to_radians().sin());
+            let (cos2, sin2) = (a2.to_radians().cos(), a2.to_radians().sin());
+
+            self.cubic_to(
+                cx + rx * (cos1 - alpha * sin1),
+                cy + ry * (sin1 + alpha * cos1),
+                cx + rx * (cos2 + alpha * sin2),
+                cy + ry * (sin2 - alpha * cos2),
+                cx + rx * cos2,
+                cy + ry * sin2,
+            );
+            angle = a2;
+        }
+
+        if (end_angle - start_angle).abs() >= 360.0 - f32::EPSILON {
+            self.close();
+        }
+    }
+}
+
 pub trait Canvas2D {
     type Path: Clone;
     type Image: Clone;
     type Picture: Clone;
     type RuntimeEffect: Clone;
+    type PathBuilder: PathBuilder<Path = Self::Path>;
 
     // -- State stack --
     fn save(&mut self) -> i32;
@@ -89,8 +192,67 @@ pub trait Canvas2D {
         y: f32,
         font_size: f32,
         paint: &PaintSpec,
-    );
-    fn draw_glyph_run(&mut self, run: &GlyphRunSpec, paint: &PaintSpec);
+    ) {
+        use crate::style::ComputedTextStyle;
+        use crate::text::{rasterize_glyphs, GlyphData};
+        use cosmic_text::Command;
+
+        let mut style = ComputedTextStyle::default();
+        style.text_px = font_size;
+        let raster = rasterize_glyphs(text, &style, f32::INFINITY, false, false);
+
+        for line in &raster.lines {
+            for pos in &line.positions {
+                let glyph_data = match raster.glyphs.get(&pos.cache_key) {
+                    Some(d) => d,
+                    None => continue,
+                };
+                let abs_x = x + pos.x;
+                let abs_y = y + pos.y;
+
+                match glyph_data {
+                    GlyphData::Outline(commands, upem) => {
+                        let scale = font_size / *upem;
+                        let mut b = self.create_path_builder(FillType::Winding);
+                        for cmd in commands {
+                            match cmd {
+                                Command::MoveTo(p) => b.move_to(p.x, -p.y),
+                                Command::LineTo(p) => b.line_to(p.x, -p.y),
+                                Command::QuadTo(c, p) => b.quad_to(c.x, -c.y, p.x, -p.y),
+                                Command::CurveTo(c1, c2, p) => {
+                                    b.cubic_to(c1.x, -c1.y, c2.x, -c2.y, p.x, -p.y)
+                                }
+                                Command::Close => b.close(),
+                            }
+                        }
+                        let path = b.finish();
+                        self.save();
+                        self.translate(abs_x, abs_y);
+                        if (scale - 1.0).abs() > f32::EPSILON {
+                            self.scale(scale, scale);
+                        }
+                        self.draw_path(&path, paint);
+                        self.restore();
+                    }
+                    GlyphData::ColorImage {
+                        rgba,
+                        width,
+                        height,
+                        placement_left,
+                        placement_top,
+                    } => {
+                        let img = self.make_image_from_rgba(rgba, *width, *height);
+                        self.draw_image(
+                            &img,
+                            abs_x + *placement_left as f32,
+                            abs_y - *placement_top as f32,
+                            Some(paint),
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     // -- Picture --
     fn make_picture<R>(&mut self, bounds: &Rect, record: R) -> Self::Picture
@@ -115,12 +277,7 @@ pub trait Canvas2D {
     fn make_runtime_effect(&self, sksl: &str) -> Result<Self::RuntimeEffect, String>;
 
     // -- Factory --
-    fn make_path_from_verbs(
-        &self,
-        verbs: &[u8],
-        points: &[f32],
-        fill_type: FillType,
-    ) -> Self::Path;
+    fn create_path_builder(&self, fill_type: FillType) -> Self::PathBuilder;
     fn make_path_from_svg(&self, svg_path_data: &str) -> Option<Self::Path>;
     fn make_image_from_rgba(&self, bytes: &[u8], width: u32, height: u32) -> Self::Image;
     fn make_image_from_encoded(&self, bytes: &[u8]) -> Option<Self::Image>;

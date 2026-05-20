@@ -6,7 +6,6 @@ pub mod blob_store;
 pub mod fetch;
 pub mod resolver;
 
-#[cfg(target_arch = "wasm32")]
 pub mod wasm_api;
 
 pub use blob_store::BlobStore;

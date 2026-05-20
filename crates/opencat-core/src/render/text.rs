@@ -4,7 +4,7 @@ use tracing::{Level, event};
 use cosmic_text::Command;
 
 use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle};
-use crate::canvas::{Canvas2D, FillType, Rect};
+use crate::canvas::{Canvas2D, FillType, PathBuilder, Rect};
 use crate::display::list::{DisplayRect, TextDisplayItem};
 use crate::scene::script::TextUnitOverride;
 use crate::style::TextAlign;
@@ -20,43 +20,28 @@ fn kurbo_rect(r: DisplayRect) -> Rect {
     Rect::new(r.x as f64, r.y as f64, (r.x + r.width) as f64, (r.y + r.height) as f64)
 }
 
-fn commands_to_verbs_points(commands: &[Command], scale: f32) -> (Vec<u8>, Vec<f32>) {
-    let mut verbs = Vec::with_capacity(commands.len());
-    let mut points = Vec::new();
+fn build_glyph_path<C: Canvas2D>(
+    canvas: &C,
+    commands: &[Command],
+    scale: f32,
+) -> C::Path {
+    let mut b = canvas.create_path_builder(FillType::Winding);
     for cmd in commands {
         match cmd {
-            Command::MoveTo(p) => {
-                verbs.push(0);
-                points.push(p.x * scale);
-                points.push(-p.y * scale);
-            }
-            Command::LineTo(p) => {
-                verbs.push(1);
-                points.push(p.x * scale);
-                points.push(-p.y * scale);
-            }
+            Command::MoveTo(p) => b.move_to(p.x * scale, -p.y * scale),
+            Command::LineTo(p) => b.line_to(p.x * scale, -p.y * scale),
             Command::QuadTo(c, p) => {
-                verbs.push(2);
-                points.push(c.x * scale);
-                points.push(-c.y * scale);
-                points.push(p.x * scale);
-                points.push(-p.y * scale);
+                b.quad_to(c.x * scale, -c.y * scale, p.x * scale, -p.y * scale)
             }
-            Command::CurveTo(c1, c2, p) => {
-                verbs.push(3);
-                points.push(c1.x * scale);
-                points.push(-c1.y * scale);
-                points.push(c2.x * scale);
-                points.push(-c2.y * scale);
-                points.push(p.x * scale);
-                points.push(-p.y * scale);
-            }
-            Command::Close => {
-                verbs.push(4);
-            }
+            Command::CurveTo(c1, c2, p) => b.cubic_to(
+                c1.x * scale, -c1.y * scale,
+                c2.x * scale, -c2.y * scale,
+                p.x * scale, -p.y * scale,
+            ),
+            Command::Close => b.close(),
         }
     }
-    (verbs, points)
+    b.finish()
 }
 
 pub fn render_text<C: Canvas2D>(
@@ -115,9 +100,8 @@ pub fn render_text<C: Canvas2D>(
                             cached
                         } else {
                             drop(lru);
-                            let (verbs, pts) = commands_to_verbs_points(commands, unscale);
-                            let weight = verbs.len() + pts.len();
-                            let p = canvas.make_path_from_verbs(&verbs, &pts, FillType::Winding);
+                            let p = build_glyph_path(canvas, commands, unscale);
+                            let weight = commands.len();
                             let report = cache.glyph_paths.borrow_mut().insert_with_weight(pos.outline_key, p.clone(), weight.max(1));
                             record_cache_pressure("glyph_path", &report);
                             #[cfg(feature = "profile")]
@@ -290,10 +274,8 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                                 cached
                             } else {
                                 drop(lru);
-                                let (verbs, pts) = commands_to_verbs_points(commands, unscale);
-                                let weight = verbs.len() + pts.len();
-                                let p =
-                                    canvas.make_path_from_verbs(&verbs, &pts, FillType::Winding);
+                                let p = build_glyph_path(canvas, commands, unscale);
+                                let weight = commands.len();
                                 let report = cache
                                     .glyph_paths
                                     .borrow_mut()

@@ -16,7 +16,7 @@ use crate::platform::video::VideoFrameProvider;
 use crate::render::{RenderCache, RenderCtx};
 use std::marker::PhantomData;
 use crate::render::display_tree::render_display_tree;
-use crate::resource::AssetPathStore;
+use crate::resource::blob_store::BlobStore;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints};
 use crate::runtime::compositor::{OrderedSceneProgram, plan_for_scene};
@@ -45,7 +45,7 @@ pub fn render_frame_inner<C: Canvas2D>(
     last_ordered_scene: &mut OrderedSceneProgram,
     script: &mut dyn ScriptHost,
     video: &mut dyn VideoFrameProvider,
-    asset_paths: Option<&AssetPathStore>,
+    blob_store: Option<&dyn BlobStore>,
 ) -> Result<()> {
     #[cfg(feature = "profile")]
     let _frame_span = span!(
@@ -163,7 +163,7 @@ pub fn render_frame_inner<C: Canvas2D>(
                 display_tree: &annotated,
                 ordered_scene: &ordered_scene,
                 video: RefCell::new(video),
-                asset_paths,
+                blob_store,
                 platform_data: &mut (),
                 _phantom: PhantomData,
             };
@@ -185,7 +185,7 @@ pub fn render_frame_inner<C: Canvas2D>(
         display_tree: &annotated,
         ordered_scene: &ordered_scene,
         video: RefCell::new(video),
-        asset_paths,
+        blob_store,
         platform_data: &mut (),
         _phantom: PhantomData,
     };
@@ -200,7 +200,7 @@ pub fn render_frame<P: Platform, C: Canvas2D>(
     frame_index: u32,
     session: &mut RenderSession<P, C>,
     canvas: &mut C,
-    asset_paths: Option<&AssetPathStore>,
+    blob_store: Option<&dyn BlobStore>,
 ) -> Result<()> {
     let RenderSession {
         ref mut layout_session,
@@ -232,6 +232,6 @@ pub fn render_frame<P: Platform, C: Canvas2D>(
         last_ordered,
         script,
         video,
-        asset_paths,
+        blob_store,
     )
 }

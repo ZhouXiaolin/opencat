@@ -89,10 +89,8 @@ pub fn render_bitmap<C: Canvas2D>(
 
     let (image, src_width, src_height) = if item.video_timing.is_some() {
         let frame_index = ctx.frame_ctx.frame as u32;
-        let resolved_id = ctx.asset_paths
-            .and_then(|store| store.path(&item.asset_id))
-            .map(|p| crate::resource::asset_id::AssetId(p.to_string_lossy().to_string()));
-        let asset_id = resolved_id.as_ref().unwrap_or(&item.asset_id);
+        let asset_id = &item.asset_id;
+
         let frame = ctx.video.borrow_mut().frame_rgba(asset_id, frame_index)
             .map_err(|e| RenderError::MissingResource(format!("video frame: {}", e)))?;
         let w = frame.width;
@@ -124,10 +122,7 @@ pub fn render_bitmap<C: Canvas2D>(
         } else {
             drop(lru);
             let loaded: Option<C::Image> = 'load: {
-                if let Some(path) = ctx.asset_paths.and_then(|store| store.path(&item.asset_id)) {
-                    let encoded = std::fs::read(path).map_err(|e| {
-                        RenderError::MissingResource(format!("failed to read image: {} ({})", path.display(), e))
-                    })?;
+                if let Some(encoded) = ctx.blob_store.and_then(|store| store.read(&item.asset_id)) {
                     if let Some(img) = canvas.make_image_from_encoded(&encoded) {
                         #[cfg(feature = "profile")]
                         event!(

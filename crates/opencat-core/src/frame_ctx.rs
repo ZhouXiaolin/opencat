@@ -10,6 +10,7 @@ pub struct FrameCtx {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ScriptFrameCtx {
     pub frame: u32,
+    pub fps: u32,
     pub total_frames: u32,
     pub current_frame: u32,
     pub scene_frames: u32,
@@ -19,6 +20,7 @@ impl ScriptFrameCtx {
     pub fn global(frame_ctx: &FrameCtx) -> Self {
         Self {
             frame: frame_ctx.frame,
+            fps: frame_ctx.fps,
             total_frames: frame_ctx.frames,
             current_frame: frame_ctx.frame,
             scene_frames: frame_ctx.frames,
@@ -33,6 +35,7 @@ impl ScriptFrameCtx {
             .min(max_local_frame);
         Self {
             frame: frame_ctx.frame,
+            fps: frame_ctx.fps,
             total_frames: frame_ctx.frames,
             current_frame,
             scene_frames,

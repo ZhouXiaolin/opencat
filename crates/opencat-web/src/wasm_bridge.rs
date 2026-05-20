@@ -25,6 +25,8 @@ pub struct WebRenderer {
 impl WebRenderer {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<WebRenderer, JsValue> {
+        #[cfg(feature = "profile")]
+        tracing_wasm::set_as_global_default();
         let audio = WebAudio::new().map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(Self {
             session: RenderSession::new(WebPlatform::new()),
@@ -40,6 +42,8 @@ impl WebRenderer {
         ck_canvas: JsValue,
         resources_json: &str,
     ) -> Result<(), JsValue> {
+        #[cfg(feature = "profile")]
+        tracing::info!(frame, "build_frame start");
         let parsed = opencat_core::jsonl::parse(jsonl)
             .map_err(|e| JsValue::from_str(&format!("parse: {e}")))?;
         let root_node = parsed.root.clone();

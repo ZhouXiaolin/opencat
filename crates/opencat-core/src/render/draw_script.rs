@@ -139,9 +139,20 @@ pub fn execute_canvas_command<C: Canvas2D>(
         CanvasCommand::Clear { color } => {
             let rgba = match color {
                 Some(c) => script_color_with_alpha(*c, state.global_alpha),
-                None => [0.0; 4],
+                None => [0.0, 0.0, 0.0, 0.0],
             };
-            canvas.clear(rgba);
+            let paint = PaintSpec {
+                fill: FillSpec::Solid(rgba),
+                style: PaintStyle::Fill,
+                stroke: None,
+                anti_alias: false,
+                blend_mode: BlendMode::Src,
+                image_filter: None,
+                color_filter: None,
+                mask_filter: None,
+                path_effect: None,
+            };
+            canvas.draw_paint(&paint);
         }
         CanvasCommand::DrawPaint { color, anti_alias } => {
             let mut paint = state.fill_paint_spec();

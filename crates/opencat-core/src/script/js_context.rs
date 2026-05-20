@@ -37,6 +37,12 @@ pub trait JsContext: Sized {
         F: Fn(&mut MutationStore, &str, &[serde_json::Value]) -> anyhow::Result<serde_json::Value>
             + 'static;
 
+    /// 在 `run_into` 开头调用，确保 `__opencatCallNative` 指向当前 runner 的 store。
+    ///
+    /// Engine 端（rquickjs）每个 Context 隔离，无需操作；Web 端共享全局作用域，
+    /// 必须重新绑定 `globalThis.__opencatCallNative`。
+    fn rebind_dispatcher(&self) -> anyhow::Result<()>;
+
     /// 借出内部 MutationStore 让 core 流程读写。
     fn with_store_mut<R>(&self, f: impl FnOnce(&mut MutationStore) -> R) -> R;
 }

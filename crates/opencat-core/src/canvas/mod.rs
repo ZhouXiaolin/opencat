@@ -282,19 +282,6 @@ pub trait Canvas2D {
     fn make_image_from_rgba(&self, bytes: &[u8], width: u32, height: u32) -> Self::Image;
     fn make_image_from_encoded(&self, bytes: &[u8]) -> Option<Self::Image>;
 
-    /// Try to obtain a video frame as a GPU-backed image (zero-copy).
-    /// Returns `(image, width, height)` when the backend supports external
-    /// texture sources (e.g. CanvasKit `MakeLazyImageFromTextureSource`).
-    /// Falls back to `frame_rgba` + `make_image_from_rgba` when `None`.
-    fn video_frame_as_image(
-        &mut self,
-        _provider: &mut dyn crate::platform::video::VideoFrameProvider,
-        _asset_id: &crate::resource::asset_id::AssetId,
-        _frame: u32,
-    ) -> Option<(Self::Image, u32, u32)> {
-        None
-    }
-
     /// Render into an offscreen surface and return the result as an image.
     fn render_to_image<R>(&mut self, width: u32, height: u32, draw: R) -> Self::Image
     where

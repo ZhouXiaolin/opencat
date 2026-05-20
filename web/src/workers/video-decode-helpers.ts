@@ -45,33 +45,15 @@ export function previousKeyframeBefore(
   return keyframeTimesUs[idx];
 }
 
-/** Engine-aligned seek thresholds in microseconds.
- *  Source: opencat-engine/src/codec/decode.rs:226-232. */
-export function seekThresholdUs(quality: VideoPreviewQuality): number {
+export function seekFeedMarginUs(quality: VideoPreviewQuality): number {
   switch (quality) {
     case 'scrubbing':
-      return 120_000; // 0.12 s
+      return 120_000;
     case 'realtime':
-      return 350_000; // 0.35 s
+      return 350_000;
     case 'exact':
-      return 1_500_000; // 1.5 s
+      return 500_000;
   }
-}
-
-/** Engine-aligned should_seek decision.
- *  - hasFrame=false: always seek (cold decoder)
- *  - target < current: backward jump, seek
- *  - target - current > threshold: large forward jump, seek
- *  - otherwise: forward-decode from current cursor */
-export function shouldSeekToTarget(
-  hasFrame: boolean,
-  currentPtsUs: number,
-  targetUs: number,
-  quality: VideoPreviewQuality,
-): boolean {
-  if (!hasFrame) return true;
-  if (targetUs < currentPtsUs) return true;
-  return targetUs - currentPtsUs > seekThresholdUs(quality);
 }
 
 /** Chunk descriptor — sequencing format used internally by the worker. */
@@ -82,22 +64,56 @@ export interface EncodedChunkDesc {
   data: ArrayBuffer;
 }
 
-/** Find the smallest index `i` such that `chunks[i].timestamp === targetUs`.
- *  Returns -1 if no exact match. Binary-search assumes chunks are sorted
- *  ascending on timestamp (DTS order from a demuxer). */
+/** Find the smallest decode-order index `i` such that `chunks[i].timestamp === targetUs`.
+ *  WebDemuxer yields H.264 packets in decode/DTS order; B-frames make their
+ *  presentation timestamps non-monotonic, so binary search on timestamp would
+ *  skip valid chunks. */
 export function chunkIdxAtTime(
   chunks: readonly EncodedChunkDesc[],
   targetUs: number,
 ): number {
-  let lo = 0;
-  let hi = chunks.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (chunks[mid].timestamp < targetUs) lo = mid + 1;
-    else hi = mid;
+  for (let i = 0; i < chunks.length; i++) {
+    if (chunks[i].timestamp === targetUs) return i;
   }
-  if (lo >= chunks.length || chunks[lo].timestamp !== targetUs) return -1;
-  return lo;
+  return -1;
+}
+
+/** Last decode-order chunk index needed to cover `targetUs + marginUs`.
+ *
+ *  web-demuxer yields packets in decode/DTS order, while `timestamp` is the
+ *  presentation timestamp. With B-frames, a packet can jump far ahead in PTS
+ *  before later decode-order packets fill the earlier presentation gap. Track
+ *  the maximum presentation timestamp observed instead of stopping on the
+ *  first timestamp greater than the target. */
+export function decodeSliceEndIndex(
+  chunks: readonly EncodedChunkDesc[],
+  startIdx: number,
+  targetUs: number,
+  marginUs: number,
+  lookaheadChunks = 8,
+): number {
+  if (chunks.length === 0) return -1;
+  const start = Math.max(0, Math.min(startIdx, chunks.length - 1));
+  const stopPtsUs = targetUs + Math.max(0, marginUs);
+  let endIdx = start;
+  let maxSeenPtsUs = Number.NEGATIVE_INFINITY;
+  let coveredAtIdx = -1;
+
+  for (let i = start; i < chunks.length; i++) {
+    endIdx = i;
+    maxSeenPtsUs = Math.max(maxSeenPtsUs, chunks[i].timestamp);
+    if (i > start && maxSeenPtsUs >= stopPtsUs && coveredAtIdx < 0) {
+      coveredAtIdx = i;
+    }
+    if (
+      coveredAtIdx >= 0 &&
+      i - coveredAtIdx >= Math.max(0, lookaheadChunks)
+    ) {
+      break;
+    }
+  }
+
+  return endIdx;
 }
 
 /** Build a fresh `EncodedVideoChunk` from our descriptor.

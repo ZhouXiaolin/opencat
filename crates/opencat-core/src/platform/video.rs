@@ -8,6 +8,7 @@ use crate::resource::asset_id::AssetId;
 use anyhow::Result;
 
 /// Decoded RGBA video frame.
+#[derive(Clone)]
 pub struct FrameBitmap {
     pub data: std::sync::Arc<Vec<u8>>,
     pub width: u32,

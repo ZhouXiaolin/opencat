@@ -1,6 +1,6 @@
 import type { CompositionInfo, ResourceMeta } from './types';
 import { getRendererOrThrow } from './wasm';
-import { getDecodedVideoFrame } from './video-decoder';
+import { injectVideoFramesForRender } from './video-frame-injector';
 import type { IClip } from '@webav/av-cliper';
 
 type ProgressCallback = (current: number, total: number) => void;
@@ -20,12 +20,6 @@ class ExportClip implements IClip {
   private sampleRate: number;
   private onProgress: ProgressCallback;
   private audioIds: string[];
-  private resourceMeta: Record<string, ResourceMeta>;
-  private videoImages: Map<
-    string,
-    { skImage: any; width: number; height: number }
-  > = new Map();
-  private pendingFrames: Map<string, VideoFrame> = new Map();
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -51,8 +45,6 @@ class ExportClip implements IClip {
       duration: Math.round((comp.frames / comp.fps) * 1_000_000),
     };
     this.ready = Promise.resolve(this.meta);
-
-    this.resourceMeta = JSON.parse(resourceMetaJson) as Record<string, ResourceMeta>;
   }
 
   async tick(time: number): Promise<{
@@ -73,55 +65,20 @@ class ExportClip implements IClip {
     const renderer = getRendererOrThrow();
     const CK = (globalThis as any).__canvasKit;
 
-    // Decode VideoFrames and inject as zero-copy GPU textures.
-    // Frame 1: CK.MakeLazyImageFromTextureSource → texImage2D (GPU→GPU)
-    // Frame 2+: surface.updateTextureFromSource → texSubImage2D (reuses texture)
-    this.pendingFrames.clear();
-    for (const [assetId, meta] of Object.entries(this.resourceMeta)) {
-      if (meta.kind !== 'video') continue;
-      try {
-        const vf = await getDecodedVideoFrame(assetId, timeSecs, 'exact');
-        if (!vf) continue;
-
-        let entry = this.videoImages.get(assetId);
-        if (!entry) {
-          entry = {
-            skImage: CK.MakeLazyImageFromTextureSource(vf, {
-              width: vf.displayWidth,
-              height: vf.displayHeight,
-              colorType: CK.ColorType.RGBA_8888,
-              alphaType: CK.AlphaType.Opaque,
-            }),
-            width: vf.displayWidth,
-            height: vf.displayHeight,
-          };
-          this.videoImages.set(assetId, entry);
-        }
-
-        renderer.inject_video_texture(assetId, entry.skImage, entry.width, entry.height);
-        this.pendingFrames.set(assetId, vf);
-      } catch (err) {
-        console.warn(`[export] decode failed for ${assetId} at ${timeSecs.toFixed(3)}s:`, err);
-      }
-    }
+    await injectVideoFramesForRender({
+      renderer,
+      jsonlContent: this.jsonlContent,
+      frame: frameNum,
+      resourcesJson: this.resourceMetaJson,
+      quality: 'exact',
+      logPrefix: 'export',
+      logEveryFrames: 30,
+    });
 
     let surface;
     try {
       surface = CK.MakeWebGLCanvasSurface(this.canvas);
       if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
-
-      // Update each SkImage's backing texture with the current VideoFrame.
-      // Must happen AFTER surface creation and BEFORE build_frame.
-      for (const [assetId, entry] of this.videoImages) {
-        const vf = this.pendingFrames.get(assetId);
-        if (vf) {
-          try {
-            surface.updateTextureFromSource(entry.skImage, vf);
-          } catch (err) {
-            console.warn(`[export] updateTexture failed for ${assetId}:`, err);
-          }
-        }
-      }
 
       const ckCanvas = surface.getCanvas();
       renderer.build_frame(this.jsonlContent, frameNum, ckCanvas, this.resourceMetaJson);
@@ -145,9 +102,8 @@ class ExportClip implements IClip {
 
       return { video: bitmap, audio: audioChannels, state: 'success' };
     } finally {
+      try { renderer.clear_video_cache(''); } catch { /* ignore */ }
       surface?.delete();
-      for (const vf of this.pendingFrames.values()) vf.close();
-      this.pendingFrames.clear();
     }
 
   }
@@ -194,11 +150,7 @@ class ExportClip implements IClip {
     return this;
   }
 
-  destroy(): void {
-    for (const vf of this.pendingFrames.values()) vf.close();
-    this.pendingFrames.clear();
-    this.videoImages.clear();
-  }
+  destroy(): void {}
 }
 
 // ── Public API ──
@@ -301,6 +253,15 @@ export async function exportPngFrame(
   const renderer = getRendererOrThrow();
   const CK = (globalThis as any).__canvasKit;
 
+  await injectVideoFramesForRender({
+    renderer,
+    jsonlContent,
+    frame,
+    resourcesJson: resourceMetaJson,
+    quality: 'exact',
+    logPrefix: 'export',
+  });
+
   let surface;
   try {
     surface = CK.MakeWebGLCanvasSurface(canvas);
@@ -318,6 +279,7 @@ export async function exportPngFrame(
 
     downloadBlob(blob, `frame_${String(frame).padStart(4, '0')}.png`);
   } finally {
+    try { renderer.clear_video_cache(''); } catch { /* ignore */ }
     surface?.delete();
   }
 }

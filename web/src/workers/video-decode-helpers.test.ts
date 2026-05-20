@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import {
   chunkIdxAtTime,
+  decodeSliceEndIndex,
   type EncodedChunkDesc,
   nearestKeyframeBefore,
   previousKeyframeBefore,
-  seekThresholdUs,
-  shouldSeekToTarget,
+  seekFeedMarginUs,
 } from './video-decode-helpers';
 
 describe('nearestKeyframeBefore', () => {
@@ -49,35 +49,11 @@ describe('previousKeyframeBefore', () => {
   });
 });
 
-describe('seekThresholdUs', () => {
-  test('matches engine thresholds', () => {
-    expect(seekThresholdUs('scrubbing')).toBe(120_000);
-    expect(seekThresholdUs('realtime')).toBe(350_000);
-    expect(seekThresholdUs('exact')).toBe(1_500_000);
-  });
-});
-
-describe('shouldSeekToTarget', () => {
-  test('always seeks when no frame yet', () => {
-    expect(shouldSeekToTarget(false, -1, 1_000_000, 'realtime')).toBe(true);
-    expect(shouldSeekToTarget(false, 5_000_000, 1_000_000, 'realtime')).toBe(true);
-  });
-
-  test('seeks on backward jump', () => {
-    expect(shouldSeekToTarget(true, 2_000_000, 1_000_000, 'realtime')).toBe(true);
-    expect(shouldSeekToTarget(true, 2_000_000, 1_999_999, 'realtime')).toBe(true);
-  });
-
-  test('does not seek for forward delta within threshold', () => {
-    expect(shouldSeekToTarget(true, 2_000_000, 2_300_000, 'realtime')).toBe(false);
-    expect(shouldSeekToTarget(true, 2_000_000, 2_110_000, 'scrubbing')).toBe(false);
-  });
-
-  test('seeks for forward delta beyond threshold', () => {
-    expect(shouldSeekToTarget(true, 2_000_000, 2_400_000, 'realtime')).toBe(true);
-    expect(shouldSeekToTarget(true, 2_000_000, 2_125_000, 'scrubbing')).toBe(true);
-    expect(shouldSeekToTarget(true, 2_000_000, 3_400_000, 'exact')).toBe(false);
-    expect(shouldSeekToTarget(true, 2_000_000, 3_600_000, 'exact')).toBe(true);
+describe('seekFeedMarginUs', () => {
+  test('uses bounded decode margins for preview and exact export', () => {
+    expect(seekFeedMarginUs('scrubbing')).toBe(120_000);
+    expect(seekFeedMarginUs('realtime')).toBe(350_000);
+    expect(seekFeedMarginUs('exact')).toBe(500_000);
   });
 });
 
@@ -103,6 +79,18 @@ describe('chunkIdxAtTime', () => {
     expect(chunkIdxAtTime(chunks, 100)).toBe(1);
   });
 
+  test('works when packet order is DTS order and presentation timestamps are not sorted', () => {
+    const chunks = makeChunks([
+      0,
+      66_666,
+      33_333,
+      133_333,
+      100_000,
+    ]);
+    expect(chunkIdxAtTime(chunks, 33_333)).toBe(2);
+    expect(chunkIdxAtTime(chunks, 100_000)).toBe(4);
+  });
+
   test('returns -1 when no exact match', () => {
     const chunks = makeChunks([0, 100, 200]);
     expect(chunkIdxAtTime(chunks, 50)).toBe(-1);
@@ -111,5 +99,45 @@ describe('chunkIdxAtTime', () => {
 
   test('returns -1 for empty list', () => {
     expect(chunkIdxAtTime([], 100)).toBe(-1);
+  });
+});
+
+describe('decodeSliceEndIndex', () => {
+  test('keeps a small decode-order lookahead after presentation timestamps cover the target', () => {
+    const chunks = makeChunks([
+      0,
+      66_666,
+      33_333,
+      133_333,
+      100_000,
+      3_500_000,
+      166_666,
+      200_000,
+      3_600_000,
+    ]);
+
+    expect(decodeSliceEndIndex(chunks, 0, 3_000_000, 500_000)).toBe(8);
+  });
+
+  test('can stop immediately after target coverage when lookahead is disabled', () => {
+    const chunks = makeChunks([
+      0,
+      66_666,
+      33_333,
+      133_333,
+      100_000,
+      3_500_000,
+      166_666,
+      200_000,
+      3_600_000,
+    ]);
+
+    expect(decodeSliceEndIndex(chunks, 0, 3_000_000, 500_000, 0)).toBe(5);
+  });
+
+  test('stops at eof when the target plus margin is never covered', () => {
+    const chunks = makeChunks([0, 33_333, 66_666]);
+
+    expect(decodeSliceEndIndex(chunks, 0, 3_000_000, 500_000)).toBe(2);
   });
 });

@@ -28,10 +28,16 @@ export interface WebRendererInstance {
 
 let wasmModule: WasmModule | null = null;
 let renderer: WebRendererInstance | null = null;
+let configuredWasmBaseUrl: string | undefined;
 
-export async function initWasm(): Promise<void> {
+export function setWasmBaseUrl(url: string): void {
+  configuredWasmBaseUrl = url.endsWith('/') ? url : url + '/';
+}
+
+export async function initWasm(wasmBaseUrl?: string): Promise<void> {
   if (wasmModule) return;
-  const mod = await import('../wasm/opencat_web.js');
+  const base = wasmBaseUrl || configuredWasmBaseUrl || '';
+  const mod = await import(/* @vite-ignore */ `${base}opencat_web.js`);
   await mod.default();
   wasmModule = mod as unknown as WasmModule;
   renderer = new wasmModule.WebRenderer();

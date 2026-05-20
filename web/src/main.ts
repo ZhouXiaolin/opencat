@@ -1,24 +1,24 @@
 import './style.css';
 import {
-  initWasm,
-  initCanvasKitWasm,
-  preloadAssets,
-  getBlobBytes,
-  getRendererOrThrow,
-} from './wasm';
-import {
+  clearVideoCache,
+  downloadMp4,
   exportMp4,
   exportPngFrame,
-  downloadMp4,
-} from './exporter';
-import {
+  getBlobBytes,
+  getRendererOrThrow,
+  initCanvasKitWasm,
+  initWasm,
+  injectVideoFramesForRender,
   prepareVideoSource,
-  clearVideoCache,
+  preloadAssets,
   registerVideoGlobals,
+  setWasmBaseUrl,
+  setWorkerBaseUrl,
+  type CompositionInfo,
+  type JsonlFile,
+  type ResourceMeta,
   type VideoPreviewQuality,
-} from './video-decoder';
-import { injectVideoFramesForRender } from './video-frame-injector';
-import type { CompositionInfo, JsonlFile, ResourceMeta } from './types';
+} from 'opencat-web';
 import CanvasKitInit from 'canvaskit-wasm/full';
 
 // --- State ---
@@ -73,6 +73,8 @@ async function boot() {
   try {
     wasmStatusEl.textContent = 'WASM loading...';
     wasmStatusEl.className = 'status-badge loading';
+    setWasmBaseUrl('/wasm/');
+    setWorkerBaseUrl('/wasm/');
     await initWasm();
     wasmStatusEl.textContent = 'WASM ready';
     wasmStatusEl.className = 'status-badge ready';

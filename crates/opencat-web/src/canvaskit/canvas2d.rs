@@ -8,8 +8,6 @@ use opencat_core::canvas::{
     Canvas2D, ClipOp, FillType, PaintSpec, PathBuilder as CorePathBuilder, PointMode, RRect, Rect,
     RuntimeEffectChild,
 };
-use opencat_core::platform::video::VideoFrameProvider;
-use opencat_core::resource::asset_id::AssetId;
 
 use wasm_bindgen::{JsCast, JsValue};
 
@@ -548,18 +546,6 @@ impl Canvas2D for CanvasKitCanvas2D {
     }
     fn make_image_from_encoded(&self, bytes: &[u8]) -> Option<Self::Image> {
         crate::canvaskit::bindings::ck_make_image_from_encoded(bytes)
-    }
-    fn video_frame_as_image(
-        &mut self,
-        provider: &mut dyn VideoFrameProvider,
-        id: &AssetId,
-        _frame: u32,
-    ) -> Option<(Self::Image, u32, u32)> {
-        use std::any::Any;
-        let ws = (provider as &mut dyn Any).downcast_mut::<crate::video::WebVideoSource>()?;
-        ws.take_texture(id).map(|(js_img, w, h)| {
-            (crate::canvaskit::handle::CKHandle::wrap(js_img), w, h)
-        })
     }
     fn render_to_image<R>(&mut self, width: u32, height: u32, draw: R) -> Self::Image
     where

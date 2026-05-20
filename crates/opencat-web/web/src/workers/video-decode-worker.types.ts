@@ -1,5 +1,5 @@
-// Shared RPC envelope between main thread (web/src/video-decoder.ts)
-// and Worker (web/src/workers/video-decode-worker.ts).
+// Shared RPC envelope between the main-thread decoder client
+// and the video-decode worker.
 
 export type VideoPreviewQuality = 'scrubbing' | 'realtime' | 'exact';
 

@@ -1,11 +1,13 @@
 # OpenCat
 
-> **Tailwind 写布局，GSAP 调动画，CanvasKit 画图形——底层是 Rust + Skia 原生渲染，不跑浏览器。**
+> JSONL 描述画面，Rust 渲染视频。CLI 一行出 MP4，浏览器几行出 Canvas。
 
-OpenCat 是一个 **纯 Rust 原生** 的程序化视频合成引擎——**类似 [Remotion](https://remotion.dev) 用 React 写视频，但 OpenCat 不跑浏览器、不依赖 Node.js**。它把 Skia 渲染、Taffy 布局、QuickJS 脚本和 FFmpeg 编码焊成一个独立的 Rust 二进制。一行命令或几行 JSONL，就能生成一段带转场、动画、字幕和音频的 MP4 视频。
+OpenCat 是一个 **Rust 原生** 的程序化视频合成引擎。它用 JSONL 格式声明视频内容，底层由 Skia 渲染、Taffy 布局、QuickJS 脚本驱动。支持两条路径：
+
+- **CLI**：`cargo run --bin opencat` — Rust + FFmpeg 直接输出 MP4
+- **Web**：`import { initWasm } from 'opencat-web'` — 浏览器内 CanvasKit + WebCodecs 渲染导出
 
 https://github.com/user-attachments/assets/dfe6e104-691a-4775-94a3-7cf7105f1e2e
-
 
 ---
 
@@ -21,71 +23,122 @@ https://github.com/user-attachments/assets/dfe6e104-691a-4775-94a3-7cf7105f1e2e
 
 ---
 
-## 和 Remotion 对比
-
-如果你听说过 [Remotion](https://remotion.dev)——那个用 React 写视频的工具——OpenCat 目标相似，但技术路线截然不同：
-
-| 对比项 | Remotion | OpenCat ⬅️ |
-|--------|----------|-----------|
-| **渲染方式** | React → Puppeteer → headless Chrome 逐帧渲染后捕获 | **JSONL → Skia 原生渲染，无中间层** |
-| **运行时** | Node.js + Chrome（约 500MB） | **无需安装任何运行时** |
-| **描述格式** | React JSX / TypeScript | **JSONL（纯数据描述，AI / 程序化生成友好）** |
-| **帧开销** | 每帧需完成完整浏览器布局→绘制→合成→像素读取 | **直接调 Skia 绘制到内存，无浏览器流程** |
-| **确定性** | 受字体回退、GPU 驱动、抗锯齿算法等因素影响 | **动画函数式求值；软件后端输出跨机器字节一致** |
-| **硬件利用** | 并行渲染需启动多个 Chrome 实例，内存随并发线性增长 | **原生多线程 + 直接 GPU 调用，资源用满为止** |
-| **许可证** | 公司 4 人以上需付费 | **MIT** |
-| **启动耗时** | 数秒（Node 初始化 + Chrome 启动） | **毫秒级** |
-
-**本质差异**：Remotion 复用 Web 生态，在浏览器中渲染每一帧后捕获输出。OpenCat 提供了一套声明式 JSONL 格式，由 Rust 原生引擎直接渲染——同样的程序化视频生成目标，一个选择了 Web 兼容性，一个选择了原生性能与部署灵活性。
-
----
-
 ## 核心特色
 
 | 能力 | 说明 |
 |------|------|
-| **熟悉的 API 表层** | Tailwind 式 className 写样式，GSAP 风格 API 做动效，CanvasKit 子集画图形——Web 开发者零学习成本切入 |
-| **Rust 原生内核** | Skia 硬件加速渲染（macOS Metal / Windows OpenGL），Taffy Flexbox/Grid 布局引擎，QuickJS 轻量脚本运行时。没有浏览器，没有 Node.js，没有虚拟机 |
-| **确定性动画** | 动画系统是函数式的：`value = f(frame)`。软件后端输出跨机器字节一致，适合 AI 训练数据管线 |
+| **熟悉的 API 表层** | Tailwind 式 className 写样式，GSAP 风格 API 做动效，CanvasKit 子集画图形 |
+| **Rust 原生内核** | Skia 硬件加速渲染（macOS Metal / Windows OpenGL），Taffy Flexbox/Grid 布局引擎 |
+| **浏览器内渲染** | 通过 WASM + CanvasKit 在浏览器中实时渲染，WebCodecs 视频解码，WebAV MP4 导出 |
+| **确定性动画** | 动画系统是函数式的：`value = f(frame)`。跨机器输出一致，适合 AI 训练数据管线 |
 | **JSONL 交换格式** | 每行一个 JSON 对象，AI 易生成、易 diff、易版本控制 |
-| **多场景时间线** | 多场景编排 + 转场 + 持久化叠加层（如字幕不随转场消失） |
+| **多场景时间线** | 多场景编排 + 转场 + 持久化叠加层 |
 | **内置转场** | fade / slide / wipe / clock_wipe / iris / light_leak，支持自定义 GLSL |
 | **字幕引擎** | SRT 解析，场景内时间线对齐，跨场景持久化显示 |
 | **音频混音** | 多轨道音频，场景级挂载，自动混音输出 |
-| **GSAP 级动画能力** | 弹簧 / 贝塞尔 / 关键帧 / splitText 逐字逐词 / SVG 路径动画 / 路径变形 / 打字机效果 |
-| **Canvas 绘图** | CanvasKit 子集 API，支持程序化矢量绘图与贴图渲染 |
-| **Lucide 图标库** | 2000+ 开箱即用图标，写 kebab-case 名称即可引用 |
+| **GSAP 级动画** | 弹簧 / 贝塞尔 / 关键帧 / splitText 逐字逐词 / SVG 路径动画 |
+| **Lucide 图标库** | 2000+ 开箱即用图标 |
 
 ---
 
-## 一句话看懂技术堆栈
+## 技术架构
 
 ```
-JSONL ──→ Taffy 布局 ──→ Skia 渲染 ──→ FFmpeg 编码 → MP4
-              ↑
-         QuickJS 动画脚本
+JSONL ──→ Taffy 布局 ──→ Skia 渲染 ──→ 编码 → MP4 / Canvas
+               ↑
+          QuickJS 动画脚本
 ```
 
-每一层都是独立的 Rust crate，没有隐形的运行时依赖。
+### Crate 结构
+
+```
+opencat
+├── crates/
+│   ├── opencat-core/      # 核心：布局(Taffy)、文字(cosmic-text)、字体、元数据
+│   ├── opencat-engine/    # 引擎：Skia 渲染、FFmpeg 编码、QuickJS 脚本、资源请求
+│   ├── opencat-web/       # WASM 目标：编译为 wasm32 供浏览器端使用
+│   │   ├── src/           # Rust → WASM 桥接层
+│   │   └── web/           # TypeScript 前端包 (opencat-web npm 包)
+│   └── opencat/           # CLI：opencat (渲染) + opencat-see (桌面播放器)
+├── web/                   # Web 应用：基于 opencat-web 的视频编辑器
+├── json/                  # JSONL 组合文件
+└── examples/              # Rust 示例
+```
+
+### 渲染路径
+
+```
+CLI:   JSONL → Rust + Skia (GPU) + FFmpeg → MP4 文件
+Web:   JSONL → WASM + CanvasKit (WebGL) + WebCodecs → Canvas / MP4 导出
+```
 
 ---
 
 ## 快速开始
 
+### CLI 渲染
+
 ```bash
-# 看个演示效果
+# 渲染为 MP4
 cargo run --bin opencat -- json/opencat-project-showcase-landscape.jsonl
 
-# 或者用桌面播放器看实时预览（macOS / Windows）
+# 桌面播放器实时预览（macOS / Windows）
 cargo run --bin opencat-see -- path/to/input.jsonl
 
-# 跑个 Hello World 示例
+# 跑个 Hello World
 cargo run --example hello_world
 ```
 
+### Web 渲染
+
+```bash
+# 1. 构建 opencat-web
+cd crates/opencat-web/web
+npm run build
+
+# 2. 在你的 Web 项目中使用
+cd your-project
+npm install @webav/av-cliper web-demuxer canvaskit-wasm
+npm link ../crates/opencat-web/web
+```
+
+```ts
+import {
+  initWasm,
+  initCanvasKitWasm,
+  setWasmBaseUrl,
+  setWorkerBaseUrl,
+  preloadAssets,
+  getRendererOrThrow,
+  exportMp4,
+  downloadMp4,
+} from 'opencat-web';
+import CanvasKitInit from 'canvaskit-wasm/full';
+
+// 初始化
+setWasmBaseUrl('/wasm/');
+setWorkerBaseUrl('/wasm/');
+await initWasm();
+
+const CK = await CanvasKitInit({ locateFile: (f) => '/canvaskit/' + f });
+(globalThis as any).__canvasKit = CK;
+initCanvasKitWasm();
+
+// 加载合成 + 渲染
+const catalog = await preloadAssets(jsonlContent);
+const renderer = getRendererOrThrow();
+renderer.build_frame(jsonlContent, frameNumber, canvas, catalog);
+
+// 导出 MP4
+await exportMp4({ /* ... */ });
+downloadMp4();
+```
+
+> **注意**：浏览器需要 `Cross-Origin-Isolated` 环境（COOP/COEP headers）才能使用 SharedArrayBuffer。
+
 ---
 
-## 一个例子抵过千言万语
+## 一个例子
 
 ```jsonl
 {"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 150}
@@ -95,68 +148,72 @@ cargo run --example hello_world
 {"type": "script", "parentId": "scene1", "src": "ctx.fromTo('title',{opacity:0,y:30},{opacity:1,y:0,duration:20,ease:'spring.gentle'});ctx.fromTo('subtitle',{opacity:0},{opacity:1,duration:30,delay:10});"}
 ```
 
-> **注意**：`className` 只做静态布局，动效全走脚本。别往 className 里塞 transform、transition、animate——那是脚本的地盘。
-
 ---
 
-## 项目布局
+## opencat-web API
 
-```text
-src/
-├── lib.rs               # 公共 API 出口
-├── backend/skia/        # Skia 渲染后端（Metal / GL / Software）
-├── bin/
-│   ├── opencat-see       # 桌面预览播放器
-│   └── opencat           # CLI 渲染器（JSONL → MP4）
-├── codec/               # FFmpeg 编码 / 解码
-├── element/             # 元素树类型和解析
-├── jsonl/               # JSONL 解析 + 场景树构建
-├── layout/              # Taffy Flexbox/Grid 布局
-├── render.rs            # 高层渲染接口
-├── resource/            # 资源管理（图片、媒体）
-├── runtime/             # 运行时：JS 引擎、音频、缓存、合成器
-├── scene/               # 场景图：节点、合成、缓动、转场
-└── style.rs             # 样式系统（颜色、阴影、Tailwind 解析）
+| 函数 | 说明 |
+|------|------|
+| `initWasm(baseUrl?)` | 初始化 Rust WASM 模块 |
+| `setWasmBaseUrl(url)` | 设置 WASM 文件基础路径 |
+| `setWorkerBaseUrl(url)` | 设置视频解码 Worker 基础路径 |
+| `initCanvasKitWasm()` | 注册 CanvasKit 到 WASM 侧 |
+| `preloadAssets(jsonl)` | 下载资源，返回资源目录 JSON |
+| `getRendererOrThrow()` | 获取 WebRenderer 实例 |
+| `renderer.build_frame(...)` | 渲染单帧到 CanvasKit 画布 |
+| `exportMp4(options)` | 导出 MP4 |
+| `exportPngFrame(options)` | 导出当前帧为 PNG |
+| `downloadMp4()` | 触发浏览器下载 |
+
+### 类型
+
+```ts
+interface CompositionInfo { width: number; height: number; fps: number; frames: number }
+interface JsonlFile { name: string; path: string }
+interface ResourceMeta { kind: 'image' | 'video' | 'audio' | 'icon'; width?; height?; durationSecs? }
 ```
 
 ---
 
-### 验证 core 纯净度
+## 构建依赖
 
-```bash
-./scripts/check_core_purity.sh
-```
+### CLI (原生)
 
-该脚本必须在每次 PR 前手动执行，确保 `src/core/` 不依赖任何 host-only 依赖。
+- Rust toolchain (edition 2024)
+- FFmpeg 开发库
+- 本地图形后端：macOS 需要 Xcode / Metal，Windows 需要 OpenGL
+
+### Web (WASM)
+
+- Rust toolchain + `wasm-pack`
+- Node.js / Bun
+- `npm run build` — 一条命令完成 wasm-pack → Vite build → 类型声明生成
+
+---
 
 ## 适合谁用？
 
 - **AI 视频管线开发者**：让模型生成 JSONL 而不是直接操纵像素
-- **程序化动画 / 动态设计作者**：需要确定性 GPU 加速渲染，不想要浏览器层
-- **后端 / 基础设施团队**：需要可嵌入自有管线的轻量渲染方案，不想维护 Node.js + Chrome 环境
+- **Web 应用开发者**：在浏览器中集成视频编辑/渲染能力
+- **程序化动画 / 动态设计作者**：需要确定性 GPU 加速渲染
+- **后端 / 基础设施团队**：需要可嵌入自有管线的轻量渲染方案
 - **短视频批量生产者**：模板化视频生成，换数据 = 换 JSONL
-
-## 正在进行中
-
-- **可视化编辑器**：目前通过 JSONL 描述画面，GUI 编辑工具在规划中
-- **实时预览**：命令行渲染 + 播放器的工作流已可用；设计时即时预览体验仍在迭代
-- **更丰富的特效库**：核心转场和动效能力已就绪，更多预设效果持续开发中
 
 ---
 
 ## 当前限制
 
-- 播放器目前仅支持 macOS 和 Windows
-- 构建依赖本地图形库和 FFmpeg
+- 桌面播放器仅支持 macOS 和 Windows
+- CLI 构建依赖本地图形库和 FFmpeg
 - CanvasKit 是子集实现，非完整版
 - 详细的 JSONL 格式参考请见 [`opencat.md`](opencat.md)
 
 ---
 
-## 社区支持
+## 社区
 
 - 问题反馈 / 讨论 → [Linux.do 社区](https://linux.do/)
-- 发现 bug 或有想法 → [提 Issue](https://github.com/ZhouXiaolin/opencat/issues)
+- Bug / 功能建议 → [提 Issue](https://github.com/ZhouXiaolin/opencat/issues)
 
 ## 许可证
 

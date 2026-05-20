@@ -84,6 +84,20 @@ impl JsContext for WebJsContext {
         Ok(())
     }
 
+    fn rebind_dispatcher(&self) -> anyhow::Result<()> {
+        let handle = self._dispatcher_handle.borrow();
+        if let Some(ref closure) = *handle {
+            let global = js_sys::global();
+            js_sys::Reflect::set(
+                &global,
+                &JsValue::from_str("__opencatCallNative"),
+                closure.as_ref().unchecked_ref(),
+            )
+            .map_err(|e| anyhow::anyhow!("rebind __opencatCallNative: {}", js_err_to_string(&e)))?;
+        }
+        Ok(())
+    }
+
     fn with_store_mut<R>(&self, f: impl FnOnce(&mut MutationStore) -> R) -> R {
         let mut guard = self.store.borrow_mut();
         f(&mut guard)

@@ -184,6 +184,7 @@ fn frozen_script_frame_ctx(
 ) -> ScriptFrameCtx {
     ScriptFrameCtx {
         frame: ctx.frame,
+        fps: ctx.fps,
         total_frames: ctx.frames,
         current_frame: current_frame.min(scene_frames.saturating_sub(1)),
         scene_frames,

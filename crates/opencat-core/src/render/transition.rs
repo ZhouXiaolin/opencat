@@ -156,14 +156,9 @@ pub(crate) fn render_light_leak_transition<C: Canvas2D>(
     let w = bounds.width.max(1.0).round() as u32;
     let h = bounds.height.max(1.0).round() as u32;
 
-    let mask_scale = params.mask_scale.clamp(0.03125, 1.0);
-    let mask_w = ((w as f32) * mask_scale).round().max(1.0) as u32;
-    let mask_h = ((h as f32) * mask_scale).round().max(1.0) as u32;
-
     let mask_effect = match ensure_effect(canvas, cache, MASK_EFFECT_KEY, LIGHT_LEAK_MASK_SKSL) {
         Some(e) => e,
         None => {
-            // Fallback: simple crossfade
             let rect = Rect::new(bounds.x as f64, bounds.y as f64, (bounds.x + bounds.width) as f64, (bounds.y + bounds.height) as f64);
             canvas.draw_picture(from_pic, None, None);
             canvas.save_layer(Some(rect), progress);
@@ -191,14 +186,14 @@ pub(crate) fn render_light_leak_transition<C: Canvas2D>(
         seed: params.seed,
         retract_seed: params.seed + 42.0,
         hue_shift: params.hue_shift,
-        resolution: [mask_w as f32, mask_h as f32],
+        resolution: [w as f32, h as f32],
     };
 
-    let mask_image = {
+    let mask_rect = Rect::new(0.0, 0.0, w as f64, h as f64);
+    let mask_picture = {
         #[cfg(feature = "profile")]
         let _mask_span = span!(target: "render.backend", Level::TRACE, "light_leak_mask").entered();
-        let mask_rect = Rect::new(0.0, 0.0, mask_w as f64, mask_h as f64);
-        canvas.render_to_image(mask_w, mask_h, |off| {
+        canvas.make_picture(&mask_rect, |off| {
             off.draw_runtime_effect(
                 &mask_effect,
                 as_bytes(&mask_uniforms),
@@ -216,17 +211,10 @@ pub(crate) fn render_light_leak_transition<C: Canvas2D>(
         (bounds.y + bounds.height) as f64,
     );
 
-    // Scale the mask up from lower resolution to the full destination size.
-    let scaled_mask_image = canvas.render_to_image(w, h, |off| {
-        let src_rect = Rect::new(0.0, 0.0, mask_w as f64, mask_h as f64);
-        let dst_rect = Rect::new(0.0, 0.0, w as f64, h as f64);
-        off.draw_image_rect(&mask_image, Some(&src_rect), &dst_rect, None);
-    });
-
     let children: Vec<RuntimeEffectChild<'_, C>> = vec![
         RuntimeEffectChild::Picture(from_pic),
         RuntimeEffectChild::Picture(to_pic),
-        RuntimeEffectChild::Texture(&scaled_mask_image),
+        RuntimeEffectChild::Picture(&mask_picture),
     ];
 
     {

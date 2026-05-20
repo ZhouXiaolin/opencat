@@ -1,12 +1,11 @@
 {
-  "name": "opencat-web",
+  "name": "opencat-web-app",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "npm run build:wasm && vite",
-    "build:wasm": "cd ../crates/opencat-web && wasm-pack build --target web --out-dir ../../web/wasm",
-    "build": "npm run build:wasm && tsc && vite build",
+    "dev": "vite",
+    "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -19,6 +18,7 @@
   "dependencies": {
     "@webav/av-cliper": "^1.2.8",
     "canvaskit-wasm": "^0.41.1",
+    "opencat-web": "link:../crates/opencat-web/web",
     "web-demuxer": "^4.0.0"
   }
 }

@@ -1,5 +1,5 @@
 // RPC client shell for the video-decode worker.
-// All decoding happens in web/src/workers/video-decode-worker.ts;
+// All decoding happens in crates/opencat-web/web/src/workers/video-decode-worker.ts;
 // this file just routes calls through postMessage.
 
 import type {
@@ -14,7 +14,17 @@ export type { VideoPreviewQuality, VideoSourceMeta };
 // ── State ──
 
 let worker: Worker | null = null;
+let workerBaseUrl: string | undefined;
 let nextRpcId = 1;
+
+export function setWorkerBaseUrl(url: string): void {
+  workerBaseUrl = url.endsWith('/') ? url : url + '/';
+}
+
+function getWorkerUrl(): string {
+  const base = workerBaseUrl || '';
+  return `${base}workers/video-decode-worker.js`;
+}
 const pending = new Map<
   number,
   { resolve: (value: unknown) => void; reject: (err: Error) => void }
@@ -38,10 +48,7 @@ function fmtMs(ms: number): string {
 
 function ensureWorker(): Worker {
   if (worker) return worker;
-  worker = new Worker(
-    new URL('./workers/video-decode-worker.ts', import.meta.url),
-    { type: 'module' },
-  );
+  worker = new Worker(getWorkerUrl(), { type: 'module' });
   worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
     const res = e.data;
     const handler = pending.get(res.id);

@@ -1,98 +1,122 @@
-import { defineConfig, type Plugin } from 'vite';
-import { resolve } from 'path';
-import type { Connect } from 'vite';
-import fs from 'fs';
+import fs from 'node:fs';
+import { resolve } from 'node:path';
+import { defineConfig } from 'vite';
+import type { Connect, Plugin } from 'vite';
 
-const CK_WASM_SRC = resolve(__dirname, 'node_modules/canvaskit-wasm/bin/full/canvaskit.wasm');
-const CK_WASM_DEST = resolve(__dirname, 'public/canvaskit/canvaskit.wasm');
+const ROOT_DIR = __dirname;
+const REPO_ROOT = resolve(ROOT_DIR, '..');
+const NODE_MODULES = resolve(ROOT_DIR, 'node_modules');
+
+const CANVASKIT_WASM_SRC = resolve(NODE_MODULES, 'canvaskit-wasm/bin/full/canvaskit.wasm');
+const CANVASKIT_WASM_DEST = resolve(ROOT_DIR, 'public/canvaskit/canvaskit.wasm');
+
+const OPENCAT_WEB_DIST = resolve(REPO_ROOT, 'crates/opencat-web/web/dist');
+const WASM_PUBLIC_DIR = resolve(ROOT_DIR, 'public/wasm');
+
+type StaticDir = {
+  mount: string;
+  path: string;
+  mime?: Record<string, string>;
+};
+
+const DEFAULT_STATIC_MIME: Record<string, string> = {
+  jsonl: 'application/jsonl',
+  json: 'application/json',
+  svg: 'image/svg+xml',
+};
+
+function ensureDir(dir: string): void {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
 
 function ensureCanvaskitWasm(): void {
-  const dir = resolve(__dirname, 'public/canvaskit');
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  if (!fs.existsSync(CK_WASM_DEST)) {
-    fs.copyFileSync(CK_WASM_SRC, CK_WASM_DEST);
-  }
+  ensureDir(resolve(ROOT_DIR, 'public/canvaskit'));
+  if (!fs.existsSync(CANVASKIT_WASM_DEST)) fs.copyFileSync(CANVASKIT_WASM_SRC, CANVASKIT_WASM_DEST);
 }
 
-const WD_DIST_DIR = resolve(__dirname, 'node_modules/web-demuxer/dist');
-const WD_PUBLIC_DIR = resolve(__dirname, 'public/web-demuxer');
+function ensureOpencatWasm(): void {
+  ensureDir(WASM_PUBLIC_DIR);
+  const files = [
+    'opencat_web.js',
+    'opencat_web_bg.wasm',
+    'workers/video-decode-worker.js',
+  ];
 
-// Layout: preserves `wasm-files/` subdir, so URLs are
-//   /web-demuxer/web-demuxer.js
-//   /web-demuxer/wasm-files/web-demuxer.wasm
-function ensureWebDemuxerAssets(): void {
-  if (!fs.existsSync(WD_PUBLIC_DIR)) fs.mkdirSync(WD_PUBLIC_DIR, { recursive: true });
-  if (!fs.existsSync(WD_DIST_DIR)) {
-    console.warn('[web-demuxer-assets] node_modules/web-demuxer/dist not found — run `npm install`. Using existing public/web-demuxer/ if present.');
-    return;
-  }
-  const copyTree = (srcDir: string, dstDir: string): void => {
-    for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
-      const src = resolve(srcDir, entry.name);
-      const dst = resolve(dstDir, entry.name);
-      if (entry.isDirectory()) {
-        if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
-        copyTree(src, dst);
-        continue;
-      }
-      if (!entry.name.endsWith('.wasm') && !entry.name.endsWith('.js')) continue;
-      if (!fs.existsSync(dst) || fs.statSync(src).mtimeMs > fs.statSync(dst).mtimeMs) {
-        fs.copyFileSync(src, dst);
-      }
+  for (const f of files) {
+    const src = resolve(OPENCAT_WEB_DIST, f);
+    if (!fs.existsSync(src)) continue;
+    const destDir = resolve(WASM_PUBLIC_DIR, f.includes('/') ? f.substring(0, f.lastIndexOf('/')) : '');
+    if (destDir) ensureDir(destDir);
+    const dest = resolve(WASM_PUBLIC_DIR, f);
+    if (!fs.existsSync(dest) || fs.statSync(src).mtimeMs > fs.statSync(dest).mtimeMs) {
+      fs.copyFileSync(src, dest);
     }
-  };
-  copyTree(WD_DIST_DIR, WD_PUBLIC_DIR);
+  }
 }
 
-function serveStaticDirs(basePath: string, dirs: { mount: string; path: string; mime?: Record<string, string> }[]): Plugin {
+function assetPlugin(name: string, ensureAssets: () => void): Plugin {
   return {
-    name: `serve-${basePath}`,
+    name,
+    buildStart() {
+      ensureAssets();
+    },
+    configureServer() {
+      ensureAssets();
+    },
+  };
+}
+
+function serveStaticDirs(dirs: StaticDir[]): Plugin {
+  return {
+    name: 'static-dirs',
     configureServer(server) {
-      for (const { mount, path: dirPath, mime } of dirs) {
-        server.middlewares.use(mount, ((req: any, res: any, next: any) => {
+      for (const dir of dirs) {
+        const handler: Connect.NextHandleFunction = (req, res, next) => {
           const url = decodeURIComponent(req.url || '');
-          const filePath = resolve(dirPath, url.slice(1));
-          if (filePath.startsWith(dirPath) && fs.existsSync(filePath)) {
-            const stat = fs.statSync(filePath);
-            if (stat.isFile()) {
-              const ext = filePath.split('.').pop()?.toLowerCase();
-              const defaultMime: Record<string, string> = {
-                jsonl: 'application/jsonl',
-                json: 'application/json',
-                svg: 'image/svg+xml',
-              };
-              res.writeHead(200, {
-                'Content-Type': mime?.[ext || ''] || defaultMime[ext || ''] || 'application/octet-stream',
-                'Content-Length': stat.size,
-                'Access-Control-Allow-Origin': '*',
-              });
-              fs.createReadStream(filePath).pipe(res);
-              return;
-            }
-            if (stat.isDirectory()) {
-              const files = fs.readdirSync(filePath).filter(f => f.endsWith('.jsonl') || f.endsWith('.svg'));
-              res.writeHead(200, { 'Content-Type': 'text/html' });
-              const base = req.url.replace(/\/$/, '');
-              res.end(files.map(f => `<a href="${base}/${f}">${f}</a>`).join('\n'));
-              return;
-            }
+          const filePath = resolve(dir.path, url.slice(1));
+          if (!filePath.startsWith(dir.path) || !fs.existsSync(filePath)) {
+            next();
+            return;
           }
+
+          const stat = fs.statSync(filePath);
+          if (stat.isFile()) {
+            const ext = filePath.split('.').pop()?.toLowerCase() || '';
+            res.writeHead(200, {
+              'Content-Type': dir.mime?.[ext] || DEFAULT_STATIC_MIME[ext] || 'application/octet-stream',
+              'Content-Length': stat.size,
+              'Access-Control-Allow-Origin': '*',
+            });
+            fs.createReadStream(filePath).pipe(res);
+            return;
+          }
+
+          if (stat.isDirectory()) {
+            const files = fs.readdirSync(filePath).filter((file) => file.endsWith('.jsonl') || file.endsWith('.svg'));
+            const base = (req.url || '').replace(/\/$/, '');
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(files.map((file) => `<a href="${base}/${file}">${file}</a>`).join('\n'));
+            return;
+          }
+
           next();
-        }) as Connect.NextHandleFunction);
+        };
+
+        server.middlewares.use(dir.mount, handler);
       }
     },
   };
 }
 
 export default defineConfig({
-  root: __dirname,
+  root: ROOT_DIR,
   server: {
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
     fs: {
-      allow: [__dirname, resolve(__dirname, '..')],
+      allow: [ROOT_DIR, REPO_ROOT],
     },
     proxy: {
       '/assets-proxy': {
@@ -103,35 +127,17 @@ export default defineConfig({
     },
   },
   plugins: [
-    serveStaticDirs('static', [
-      { mount: '/json', path: resolve(__dirname, '..', 'json') },
-      { mount: '/lucide', path: resolve(__dirname, '..', 'lucide') },
-      { mount: '/fixtures', path: resolve(__dirname, '..', 'testsupport', 'fixtures') },
+    serveStaticDirs([
+      { mount: '/json', path: resolve(REPO_ROOT, 'json') },
+      { mount: '/lucide', path: resolve(REPO_ROOT, 'lucide') },
+      { mount: '/fixtures', path: resolve(REPO_ROOT, 'testsupport/fixtures') },
     ]),
-    {
-      name: 'canvaskit-wasm',
-      buildStart() {
-        ensureCanvaskitWasm();
-      },
-      configureServer(server) {
-        ensureCanvaskitWasm();
-      },
-    },
-    {
-      name: 'web-demuxer-assets',
-      buildStart() {
-        ensureWebDemuxerAssets();
-      },
-      configureServer(_server) {
-        ensureWebDemuxerAssets();
-      },
-    },
+    assetPlugin('canvaskit-wasm', ensureCanvaskitWasm),
+    assetPlugin('opencat-wasm', ensureOpencatWasm),
   ],
   build: {
     outDir: 'dist',
     emptyOutDir: true,
   },
-  optimizeDeps: {
-    exclude: ['opencat-web', '@ffmpeg/ffmpeg', '@ffmpeg/core-mt'],
-  },
+
 });

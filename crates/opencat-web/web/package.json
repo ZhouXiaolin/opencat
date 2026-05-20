@@ -1,0 +1,31 @@
+{
+  "name": "opencat-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/opencat-web.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/opencat-web.js",
+      "default": "./dist/opencat-web.js"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "scripts": {
+    "build:wasm": "cd .. && wasm-pack build --target web --out-dir web/pkg",
+    "build:lib": "vite build && cp pkg/opencat_web.js pkg/opencat_web_bg.wasm dist/",
+    "build:types": "tsc -p tsconfig.build.json",
+    "build": "npm run build:wasm && npm run build:lib && npm run build:types"
+  },
+  "peerDependencies": {
+    "@webav/av-cliper": "^1.2.8",
+    "web-demuxer": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vite": "^8.0.13"
+  }
+}

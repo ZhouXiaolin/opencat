@@ -18,15 +18,19 @@ pub struct ScriptRunner<C: JsContext> {
     ctx: C,
     #[allow(dead_code)]
     first_frame: bool,
+    run_fn_source: String,
+    flush_fn_source: String,
 }
 
 impl<C: JsContext> ScriptRunner<C> {
     pub fn new(source: &str) -> anyhow::Result<Self> {
         let ctx = C::new()?;
-        install_runtime(&ctx, source)?;
+        let (run_fn_source, flush_fn_source) = install_runtime(&ctx, source)?;
         Ok(Self {
             ctx,
             first_frame: true,
+            run_fn_source,
+            flush_fn_source,
         })
     }
 
@@ -51,6 +55,8 @@ impl<C: JsContext> ScriptRunner<C> {
         self.ctx
             .set_ctx_field("frame", json!(frame_ctx.frame as i64))?;
         self.ctx
+            .set_ctx_field("fps", json!(frame_ctx.fps as i64))?;
+        self.ctx
             .set_ctx_field("totalFrames", json!(frame_ctx.total_frames as i64))?;
         self.ctx
             .set_ctx_field("currentFrame", json!(frame_ctx.current_frame as i64))?;
@@ -60,6 +66,14 @@ impl<C: JsContext> ScriptRunner<C> {
             "__currentCanvasTarget",
             json!(current_node_id.unwrap_or("")),
         )?;
+
+        // Web 端共享全局作用域，多个 runner 的 __opencatCallNative 会互相覆盖。
+        // 必须在执行脚本前重新绑定，确保 native 调用路由到本 runner 的 store。
+        self.ctx.rebind_dispatcher()?;
+
+        // 重新设置全局函数，确保 web 端共享作用域下调用正确的函数。
+        self.ctx.eval(&self.run_fn_source)?;
+        self.ctx.eval(&self.flush_fn_source)?;
 
         self.ctx.call_global_fn("__opencatRunFrame")?;
         self.ctx.call_global_fn("__opencatFlushTimelines")?;
@@ -72,11 +86,11 @@ impl<C: JsContext> ScriptRunner<C> {
     }
 }
 
-fn install_runtime<C: JsContext>(ctx: &C, user_source: &str) -> anyhow::Result<()> {
+fn install_runtime<C: JsContext>(ctx: &C, user_source: &str) -> anyhow::Result<(String, String)> {
     // 1. 兜底 globalThis.ctx（端侧 new() 已建过，这里只在尚未存在时初始化）。
     ctx.eval(
         "globalThis.ctx = globalThis.ctx || {\
-            frame:0, totalFrames:0, currentFrame:0, sceneFrames:0, \
+            frame:0, fps:0, totalFrames:0, currentFrame:0, sceneFrames:0, \
             __currentCanvasTarget:''\
          };",
     )?;
@@ -94,17 +108,19 @@ fn install_runtime<C: JsContext>(ctx: &C, user_source: &str) -> anyhow::Result<(
     ctx.eval(ANIMATION_RUNTIME)?;
 
     // 5. 把用户脚本包装为全局函数。
-    ctx.eval(&format!(
+    let run_fn_source = format!(
         "globalThis.__opencatRunFrame = function() {{\n{user_source}\n}};"
-    ))?;
+    );
+    ctx.eval(&run_fn_source)?;
 
     // 6. 把 ctx.__flushTimelines 别名为全局函数，与 call_global_fn 单一动词配套。
     //    依赖 ANIMATION_RUNTIME (facade.js) 已经把 ctx.__flushTimelines 装上去。
-    ctx.eval(
+    let flush_fn_source = String::from(
         "globalThis.__opencatFlushTimelines = function() {\
             if (globalThis.ctx && globalThis.ctx.__flushTimelines) \
                 globalThis.ctx.__flushTimelines();\
          };",
-    )?;
-    Ok(())
+    );
+    ctx.eval(&flush_fn_source)?;
+    Ok((run_fn_source, flush_fn_source))
 }

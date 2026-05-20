@@ -5,7 +5,7 @@
 
 
 use opencat_core::canvas::{
-    Canvas2D, ClipOp, FillType, GlyphRunSpec, PaintSpec, PathBuilder as CorePathBuilder, PointMode, RRect, Rect,
+    Canvas2D, ClipOp, FillType, PaintSpec, PathBuilder as CorePathBuilder, PointMode, RRect, Rect,
     RuntimeEffectChild,
 };
 use opencat_core::platform::video::VideoFrameProvider;

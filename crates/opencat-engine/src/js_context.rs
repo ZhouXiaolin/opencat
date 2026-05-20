@@ -207,6 +207,10 @@ impl JsContext for RqJsContext {
         })
     }
 
+    fn rebind_dispatcher(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     fn with_store_mut<R>(&self, f: impl FnOnce(&mut MutationStore) -> R) -> R {
         let mut guard = self.store.lock().expect("script store lock poisoned");
         f(&mut guard)

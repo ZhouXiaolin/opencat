@@ -75,8 +75,36 @@ pub fn render_draw_script<C: Canvas2D>(
     let mut path_state = PathState::<C>::new();
     let clip_rect = display_rect_to_rect(item.bounds);
 
-    canvas.save();
-    canvas.clip_rect(&clip_rect, ClipOp::Intersect, true);
+    // -- clear-to-transparent 需要 alpha 离屏层 --
+    //
+    // `c.clear()` 不带参数 → Clear { color: None } →
+    // draw_paint(Fill::Solid([0,0,0,0]), BlendMode::Src)。
+    //
+    // engine 的 surface 是 raster_n32_premul()（AlphaType::Premul），所以
+    // draw_paint(透明, Src) 在 engine 上能写出正确的 RGBA(0,0,0,0)；但 engine
+    // 能正常显示是因为 surface 读回 RGBA 后在上层做了合成，背景得以透出。
+    //
+    // web 即使把 MakeWebGLCanvasSurface 设为 AlphaType::Premul（main.ts:424），
+    // clear 仍然会覆写掉先画好的 scene 背景。原因：bg-sky-950 先渲染到 surface，
+    // canvas 的 clear 随后执行，draw_paint(透明, Src) 直接把那块的像素抹成透明，
+    // 最终透出的是 HTML 页面 <body> 的白色，而非 bg-sky-950。
+    //
+    // 用 save_layer 替代 save+clip_rect：离屏 buffer 内 clear→透明正常生效，
+    // restore 时用 SrcOver 合成回主 surface，透明区域不覆盖已绘制的底层背景。
+    // 只在命令列表含 Clear { color: None } 时走此路径，其他 canvas 脚本不受影响。
+    //
+    // 参考 profile-showcase.jsonl 场景 1，s1-canvas 覆盖整个 scene，c.clear()
+    // 把 bg-sky-950 洗白，导致 "Every surface at once" 白字在白底上不可见。
+    let needs_alpha_layer = item.commands.iter().any(|cmd| {
+        matches!(cmd, CanvasCommand::Clear { color: None })
+    });
+
+    if needs_alpha_layer {
+        canvas.save_layer(Some(clip_rect), 1.0);
+    } else {
+        canvas.save();
+        canvas.clip_rect(&clip_rect, ClipOp::Intersect, true);
+    }
 
     for command in &item.commands {
         execute_canvas_command(canvas, command, &mut state, &mut path_state, ctx, cache)?;
@@ -136,6 +164,9 @@ pub fn execute_canvas_command<C: Canvas2D>(
             let r = kurbo_rect_xywh(*x, *y, *width, *height);
             canvas.clip_rect(&r, ClipOp::Intersect, *anti_alias);
         }
+        // Clear { color: None } 在不透明 surface 上会把底层背景抹掉。
+        // render_draw_script 中 needs_alpha_layer 检测到后会改用 save_layer
+        // 提供 alpha 离屏层来规避。
         CanvasCommand::Clear { color } => {
             let rgba = match color {
                 Some(c) => script_color_with_alpha(*c, state.global_alpha),

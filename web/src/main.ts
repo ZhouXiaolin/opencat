@@ -13,11 +13,11 @@ import {
 } from './exporter';
 import {
   prepareVideoSource,
-  getDecodedFrameRgba,
-  getDecodedVideoFrame,
+  clearVideoCache,
   registerVideoGlobals,
   type VideoPreviewQuality,
 } from './video-decoder';
+import { injectVideoFramesForRender } from './video-frame-injector';
 import type { CompositionInfo, JsonlFile, ResourceMeta } from './types';
 import CanvasKitInit from 'canvaskit-wasm/full';
 
@@ -224,17 +224,7 @@ async function preloadResources(
             assetId,
             videoBuf,
           );
-
           console.log(`[main] video source ready: ${assetId} → ${width}x${height}, duration=${durationSecs ?? 'N/A'}s`);
-
-          try {
-            const firstFrame = await getDecodedFrameRgba(assetId, 0);
-            if (firstFrame) {
-              renderer.inject_video_frame(assetId, 0, firstFrame.rgba, firstFrame.width, firstFrame.height);
-            }
-          } catch (err) {
-            console.warn(`[main] failed to decode first frame for ${assetId}:`, err);
-          }
         } catch (err) {
           console.error(`Video source prep failed for ${assetId}:`, err);
         }
@@ -295,6 +285,10 @@ async function loadJsonl(file: JsonlFile) {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     currentJsonlContent = stripLocalPathElements(await resp.text());
     currentFile = file;
+
+    // Worker-side decoder pool needs to be reset when switching files. SkImages
+    // are per-frame so nothing to clean on this side.
+    await clearVideoCache();
 
     const comp = parseCompInfo(currentJsonlContent);
     if (!comp) {
@@ -387,58 +381,30 @@ async function renderFrameWithPipeline(
 ): Promise<void> {
   const renderer = getRendererOrThrow();
   const CK = (globalThis as any).__canvasKit;
+  const resourceMetaJson = JSON.stringify(resourceMeta);
 
-  // Decode video frames and inject as zero-copy GPU textures.
-  // Uses the existing getDecodedVideoFrame API (returns VideoFrame directly,
-  // no RGBA extraction needed).
-  const timeSecs = frame / comp.fps;
-  const pendingFrames: Map<string, VideoFrame> = new Map();
-  const videoImages: Map<string, any> = new Map();
-
-  for (const [assetId, meta] of Object.entries(resourceMeta)) {
-    if (meta.kind === 'video') {
-      try {
-        const vf = await getDecodedVideoFrame(assetId, timeSecs, quality);
-        if (!vf) continue;
-
-        let skImage = videoImages.get(assetId);
-        if (!skImage) {
-          skImage = CK.MakeLazyImageFromTextureSource(vf, {
-            width: vf.displayWidth,
-            height: vf.displayHeight,
-            colorType: CK.ColorType.RGBA_8888,
-            alphaType: CK.AlphaType.Opaque,
-          });
-          videoImages.set(assetId, skImage);
-        }
-        renderer.inject_video_texture(assetId, skImage, vf.displayWidth, vf.displayHeight);
-        pendingFrames.set(assetId, vf);
-      } catch (err) {
-        console.warn(`[render] video decode failed for ${assetId} at ${timeSecs.toFixed(3)}s:`, err);
-      }
-    }
-  }
+  await injectVideoFramesForRender({
+    renderer,
+    jsonlContent: currentJsonlContent!,
+    frame,
+    resourcesJson: resourceMetaJson,
+    quality,
+    logPrefix: 'render',
+    logEveryFrames: 15,
+  });
 
   let surface;
   try {
-    surface = CK.MakeWebGLCanvasSurface(previewCanvas);
+    surface = CK.MakeWebGLCanvasSurface(previewCanvas, undefined, { alphaType: CK.AlphaType.Premul });
     if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
 
-    // Update textures before build_frame so CanvasKit can read them
-    for (const [assetId, skImage] of videoImages) {
-      const vf = pendingFrames.get(assetId);
-      if (vf) {
-        try { surface.updateTextureFromSource(skImage, vf); } catch { /* ignore */ }
-      }
-    }
-
     const ckCanvas = surface.getCanvas();
-    const resourceMetaJson = JSON.stringify(resourceMeta);
     renderer.build_frame(currentJsonlContent!, frame, ckCanvas, resourceMetaJson);
     surface.flush();
+    surface.flush();
   } finally {
+    try { renderer.clear_video_cache(''); } catch { /* ignore */ }
     surface?.delete();
-    for (const vf of pendingFrames.values()) vf.close();
   }
 
   frameLabel.textContent = `${(frame / comp.fps).toFixed(2)}s / ${((comp.frames - 1) / comp.fps).toFixed(2)}s`;

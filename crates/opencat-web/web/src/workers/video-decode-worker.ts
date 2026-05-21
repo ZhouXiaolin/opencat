@@ -42,9 +42,6 @@ const CACHE_HIT_TOLERANCE_US = 50_000;
 const CACHE_BEHIND_TARGET_US = 250_000;
 const MAX_CACHED_FRAMES_PER_ASSET = 90;
 const DECODE_SLICE_LOOKAHEAD_CHUNKS = 16;
-const DECODE_PROGRESS_CHUNK_INTERVAL = 32;
-const DECODE_PROGRESS_FRAME_INTERVAL = 30;
-const SLOW_DECODE_WARN_MS = 300;
 const DECODE_YIELD_CHUNK_INTERVAL = 32;
 
 interface DecodedFrame {
@@ -117,10 +114,6 @@ function postError(id: number, message: string): void {
 
 async function handlePrepare(req: PrepareRequest): Promise<void> {
   let demuxer: WebDemuxer | null = null;
-  const startedAt = performance.now();
-  console.log(
-    `[vdw rpc#${req.id}] prepare start asset=${req.assetId} bytes=${req.buffer.byteLength}`,
-  );
   try {
     const prior = assets.get(req.assetId);
     if (prior) {
@@ -171,9 +164,6 @@ async function handlePrepare(req: PrepareRequest): Promise<void> {
 
     const support = await VideoDecoder.isConfigSupported(config);
     if (!support.supported) {
-      console.warn(
-        `[vdw rpc#${req.id}] prepare unsupported asset=${req.assetId} codec=${config.codec ?? 'unknown'} dt=${fmtMs(performance.now() - startedAt)}`,
-      );
       demuxer.destroy();
       demuxer = null;
       postError(req.id, `prepare: codec not supported (${config.codec ?? 'unknown'})`);
@@ -199,10 +189,6 @@ async function handlePrepare(req: PrepareRequest): Promise<void> {
       inflight: null,
     });
 
-    console.log(
-      `[vdw rpc#${req.id}] prepare done asset=${req.assetId} codec=${config.codec ?? 'unknown'} coded=${width}x${height} chunks=${chunks.length} keyframes=${keyframeTimesUs.length} duration=${durationSecs === null ? 'null' : `${durationSecs.toFixed(3)}s`} maxPts=${fmtSecs(maxPtsUs)} dt=${fmtMs(performance.now() - startedAt)}`,
-    );
-
     postResponse({
       type: 'prepare',
       id: req.id,
@@ -213,9 +199,6 @@ async function handlePrepare(req: PrepareRequest): Promise<void> {
       try { demuxer.destroy(); } catch { /* ignore */ }
     }
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[vdw rpc#${req.id}] prepare error asset=${req.assetId} dt=${fmtMs(performance.now() - startedAt)} err=${message}`,
-    );
     postError(req.id, message);
   }
 }
@@ -259,35 +242,19 @@ async function handleGetFrame(req: GetFrameRequest): Promise<void> {
     return;
   }
 
-  const enqueuedAt = performance.now();
-  console.log(
-    `[vdw rpc#${req.id}] getFrame queued asset=${req.assetId} req=${req.timeSecs.toFixed(3)}s q=${req.quality} cache=${st.frameCache.length} inflight=${st.inflight ? 'yes' : 'no'}`,
-  );
-
   const previous = st.inflight ?? Promise.resolve();
   const work = previous.catch(() => undefined).then(async () => {
-    const waitedMs = performance.now() - enqueuedAt;
     const requestedUs = Math.max(0, Math.round(req.timeSecs * 1_000_000));
     const targetUs = st.chunks.length > 0
       ? Math.min(requestedUs, st.maxPtsUs)
       : requestedUs;
 
-    console.log(
-      `[vdw rpc#${req.id}] getFrame start asset=${req.assetId} req=${fmtSecs(requestedUs)} target=${fmtSecs(targetUs)} q=${req.quality} waited=${fmtMs(waitedMs)} cache=${cacheSummary(st)}`,
-    );
-
-    return getFrameAtTime(st, req.assetId, req.id, targetUs, req.quality);
+    return getFrameAtTime(st, req.assetId, targetUs, req.quality);
   });
   st.inflight = work;
 
   try {
-    const startedAt = performance.now();
     const frame = await work;
-    const elapsedMs = performance.now() - startedAt;
-    const log = !frame || elapsedMs >= SLOW_DECODE_WARN_MS ? console.warn : console.log;
-    log(
-      `[vdw rpc#${req.id}] getFrame done asset=${req.assetId} q=${req.quality} dt=${fmtMs(elapsedMs)} result=${frame ? `${frame.displayWidth}x${frame.displayHeight} ts=${fmtSecs(frame.timestamp)}` : 'NULL'} cache=${cacheSummary(st)}`,
-    );
     if (frame) {
       postResponse({ type: 'getFrame', id: req.id, frame }, [frame]);
     } else {
@@ -295,9 +262,6 @@ async function handleGetFrame(req: GetFrameRequest): Promise<void> {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[vdw rpc#${req.id}] getFrame error asset=${req.assetId} dt=${fmtMs(performance.now() - enqueuedAt)} err=${message}`,
-    );
     postError(req.id, message);
   } finally {
     if (st.inflight === work) st.inflight = null;
@@ -307,40 +271,20 @@ async function handleGetFrame(req: GetFrameRequest): Promise<void> {
 async function getFrameAtTime(
   st: AssetState,
   assetId: string,
-  rpcId: number,
   targetUs: number,
   quality: VideoPreviewQuality,
 ): Promise<VideoFrame | null> {
-  const cacheProbe = findNearestCachedFrame(st, targetUs);
-  if (cacheProbe) {
-    console.log(
-      `[vdw rpc#${rpcId}] cache probe asset=${assetId} target=${fmtSecs(targetUs)} nearest=${fmtSecs(cacheProbe.timestamp)} diff=${fmtSecs(cacheProbe.diffUs)} tolerance=${fmtSecs(CACHE_HIT_TOLERANCE_US)} cache=${cacheSummary(st)}`,
-    );
-  } else {
-    console.log(
-      `[vdw rpc#${rpcId}] cache miss empty asset=${assetId} target=${fmtSecs(targetUs)}`,
-    );
-  }
-
   const cached = cloneCachedFrame(st, targetUs);
   if (cached) {
-    console.log(
-      `[vdw rpc#${rpcId}] cache hit asset=${assetId} target=${fmtSecs(targetUs)} cache=${cacheSummary(st)}`,
-    );
     return cached;
   }
 
   const attempts: DecodeAttempt[] = [];
   let keyTimeUs = nearestKeyframeBefore(st.keyframeTimesUs, targetUs);
-  console.log(
-    `[vdw rpc#${rpcId}] decode search asset=${assetId} target=${fmtSecs(targetUs)} firstKey=${fmtSecs(keyTimeUs)} keys=${st.keyframeTimesUs.length}`,
-  );
 
   while (keyTimeUs >= 0) {
     const { frames, attempt } = await decodeSliceFromKey(
       st,
-      assetId,
-      rpcId,
       keyTimeUs,
       targetUs,
       quality,
@@ -348,25 +292,14 @@ async function getFrameAtTime(
     attempts.push(attempt);
 
     if (frames.length > 0) {
-      cacheDecodedFrames(st, frames, targetUs, quality, assetId, rpcId);
+      cacheDecodedFrames(st, frames, targetUs, quality);
       const decoded = cloneCachedFrame(st, targetUs);
       if (decoded) {
-        console.log(
-          `[vdw rpc#${rpcId}] decode selected asset=${assetId} target=${fmtSecs(targetUs)} cache=${cacheSummary(st)}`,
-        );
         return decoded;
       }
-      console.warn(
-        `[vdw rpc#${rpcId}] decode produced no usable frame near target asset=${assetId} target=${fmtSecs(targetUs)} cache=${cacheSummary(st)}`,
-      );
     }
 
     keyTimeUs = previousKeyframeBefore(st.keyframeTimesUs, keyTimeUs);
-    if (keyTimeUs >= 0) {
-      console.warn(
-        `[vdw rpc#${rpcId}] retry previous key asset=${assetId} target=${fmtSecs(targetUs)} nextKey=${fmtSecs(keyTimeUs)}`,
-      );
-    }
   }
 
   warnDecodeNull(assetId, targetUs, attempts);
@@ -375,18 +308,12 @@ async function getFrameAtTime(
 
 async function decodeSliceFromKey(
   st: AssetState,
-  assetId: string,
-  rpcId: number,
   keyTimeUs: number,
   targetUs: number,
   quality: VideoPreviewQuality,
 ): Promise<{ frames: DecodedFrame[]; attempt: DecodeAttempt }> {
-  const startedAt = performance.now();
   const keyIdx = keyChunkIndexAtTime(st.chunks, keyTimeUs);
   if (keyIdx < 0) {
-    console.warn(
-      `[vdw rpc#${rpcId}] slice skipped asset=${assetId} target=${fmtSecs(targetUs)} key=${fmtSecs(keyTimeUs)} reason=key-chunk-not-found`,
-    );
     return {
       frames: [],
       attempt: emptyAttempt(keyTimeUs, -1, -1, false, 'key chunk not found'),
@@ -401,9 +328,6 @@ async function decodeSliceFromKey(
     DECODE_SLICE_LOOKAHEAD_CHUNKS,
   );
   if (endIdx < keyIdx) {
-    console.warn(
-      `[vdw rpc#${rpcId}] slice skipped asset=${assetId} target=${fmtSecs(targetUs)} key=${fmtSecs(keyTimeUs)} keyIdx=${keyIdx} endIdx=${endIdx} reason=empty-slice`,
-    );
     return {
       frames: [],
       attempt: emptyAttempt(keyTimeUs, keyIdx, endIdx, false, 'empty decode slice'),
@@ -422,36 +346,13 @@ async function decodeSliceFromKey(
     maxUs: Number.NEGATIVE_INFINITY,
   };
   let errorMessage: string | null = null;
-  let outputCoveredTargetLogged = false;
-  let outputCoveredCoverLogged = false;
-
-  console.log(
-    `[vdw rpc#${rpcId}] slice start asset=${assetId} target=${fmtSecs(targetUs)} cover=${fmtSecs(coverUs)} key=${fmtSecs(keyTimeUs)} keyIdx=${keyIdx} endIdx=${endIdx} chunks=${endIdx - keyIdx + 1} margin=${fmtSecs(seekFeedMarginUs(quality))} lookahead=${DECODE_SLICE_LOOKAHEAD_CHUNKS} q=${quality}`,
-  );
 
   const decoder = new VideoDecoder({
     output(frame) {
-      const timestamp = frame.timestamp;
       collectDecodedFrame(collector, frame, targetUs);
-      const count = collector.outputCount;
-      const shouldLogOutput =
-        count === 1 ||
-        count % DECODE_PROGRESS_FRAME_INTERVAL === 0 ||
-        (!outputCoveredTargetLogged && timestamp >= targetUs) ||
-        (!outputCoveredCoverLogged && timestamp >= coverUs);
-      if (shouldLogOutput) {
-        console.log(
-          `[vdw rpc#${rpcId}] output asset=${assetId} count=${count} ts=${fmtSecs(timestamp)} queue=${decoder.decodeQueueSize} ${collectorSummary(collector, targetUs)} elapsed=${fmtMs(performance.now() - startedAt)}`,
-        );
-      }
-      if (timestamp >= targetUs) outputCoveredTargetLogged = true;
-      if (timestamp >= coverUs) outputCoveredCoverLogged = true;
     },
     error(err) {
       errorMessage = err.message;
-      console.warn(
-        `[vdw rpc#${rpcId}] decoder error asset=${assetId} target=${fmtSecs(targetUs)} err=${err.message}`,
-      );
     },
   });
 
@@ -459,21 +360,7 @@ async function decodeSliceFromKey(
     decoder.configure(st.config);
     for (let i = keyIdx; i <= endIdx; i++) {
       decoder.decode(encodedChunkFrom(st.chunks[i]));
-      if (i === keyIdx || i === endIdx || (i - keyIdx) % DECODE_PROGRESS_CHUNK_INTERVAL === 0) {
-        console.log(
-          `[vdw rpc#${rpcId}] feed asset=${assetId} i=${i}/${endIdx} pts=${fmtSecs(st.chunks[i].timestamp)} type=${st.chunks[i].type} queue=${decoder.decodeQueueSize} ${collectorSummary(collector, targetUs)} elapsed=${fmtMs(performance.now() - startedAt)}`,
-        );
-      }
       if (decoder.decodeQueueSize >= DECODE_QUEUE_HIGH_WATER) {
-        if (
-          i === keyIdx ||
-          i === endIdx ||
-          (i - keyIdx) % DECODE_PROGRESS_CHUNK_INTERVAL === 0
-        ) {
-          console.log(
-            `[vdw rpc#${rpcId}] feed high queue asset=${assetId} i=${i}/${endIdx} queue=${decoder.decodeQueueSize} ${collectorSummary(collector, targetUs)} elapsed=${fmtMs(performance.now() - startedAt)}`,
-          );
-        }
         if ((i - keyIdx) % DECODE_YIELD_CHUNK_INTERVAL === 0) {
           await yieldToDecoder();
         }
@@ -486,32 +373,15 @@ async function decodeSliceFromKey(
     }
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[vdw rpc#${rpcId}] feed error asset=${assetId} target=${fmtSecs(targetUs)} dt=${fmtMs(performance.now() - startedAt)} err=${errorMessage}`,
-    );
   }
 
   let flushed = false;
   if (errorMessage === null && !collectorHasFrameAtOrPast(collector, coverUs)) {
-    const waitStartedAt = performance.now();
-    console.log(
-      `[vdw rpc#${rpcId}] wait output start asset=${assetId} target=${fmtSecs(coverUs)} queue=${decoder.decodeQueueSize} ${collectorSummary(collector, targetUs)}`,
-    );
     await waitForTargetFrame(decoder, collector, coverUs, OUTPUT_WAIT_TIMEOUT_MS);
-    console.log(
-      `[vdw rpc#${rpcId}] wait output done asset=${assetId} dt=${fmtMs(performance.now() - waitStartedAt)} queue=${decoder.decodeQueueSize} ${collectorSummary(collector, targetUs)} covered=${collectorHasFrameAtOrPast(collector, coverUs)}`,
-    );
   }
 
   if (errorMessage === null && !collectorHasFrameAtOrPast(collector, coverUs)) {
-    const flushStartedAt = performance.now();
-    console.log(
-      `[vdw rpc#${rpcId}] flush start asset=${assetId} queue=${decoder.decodeQueueSize} ${collectorSummary(collector, targetUs)}`,
-    );
     flushed = await flushDecoderWithTimeout(decoder, FLUSH_TIMEOUT_MS);
-    console.log(
-      `[vdw rpc#${rpcId}] flush done asset=${assetId} dt=${fmtMs(performance.now() - flushStartedAt)} flushed=${flushed} queue=${decoder.decodeQueueSize} ${collectorSummary(collector, targetUs)}`,
-    );
     if (!flushed) {
       errorMessage = `flush timeout after ${FLUSH_TIMEOUT_MS}ms`;
     }
@@ -520,11 +390,6 @@ async function decodeSliceFromKey(
   try { decoder.close(); } catch { /* ignore */ }
 
   const frames = collector.best ? [collector.best] : [];
-  const elapsedMs = performance.now() - startedAt;
-  const log = errorMessage || elapsedMs >= SLOW_DECODE_WARN_MS ? console.warn : console.log;
-  log(
-    `[vdw rpc#${rpcId}] slice done asset=${assetId} target=${fmtSecs(targetUs)} key=${fmtSecs(keyTimeUs)} decoded=${collector.outputCount} kept=${frames.length} closed=${collector.closedCount} range=${collectorRangeSummary(collector)} flushed=${flushed} dt=${fmtMs(elapsedMs)}${errorMessage ? ` err=${errorMessage}` : ''}`,
-  );
   return {
     frames,
     attempt: {
@@ -649,13 +514,8 @@ function cacheDecodedFrames(
   frames: DecodedFrame[],
   targetUs: number,
   quality: VideoPreviewQuality,
-  assetId: string,
-  rpcId: number,
 ): void {
   const lower = Math.max(0, targetUs - CACHE_BEHIND_TARGET_US);
-  const beforeCount = st.frameCache.length;
-  let keptCount = 0;
-  let closedCount = 0;
 
   for (const frame of frames) {
     const diff = Math.abs(frame.timestamp - targetUs);
@@ -664,20 +524,15 @@ function cacheDecodedFrames(
       frame.timestamp >= lower;
 
     if (!shouldKeep) {
-      closedCount++;
       try { frame.videoFrame.close(); } catch { /* ignore */ }
       continue;
     }
 
-    keptCount++;
     insertCachedFrame(st, frame);
   }
 
   st.frameCache.sort((a, b) => a.timestamp - b.timestamp);
   trimFrameCache(st, targetUs);
-  console.log(
-    `[vdw rpc#${rpcId}] cache store asset=${assetId} q=${quality} decoded=${frames.length} kept=${keptCount} closed=${closedCount} before=${beforeCount} after=${st.frameCache.length} target=${fmtSecs(targetUs)} cache=${cacheSummary(st)}`,
-  );
 }
 
 function insertCachedFrame(st: AssetState, frame: DecodedFrame): void {
@@ -737,42 +592,6 @@ function warnDecodeNull(
 
 function fmtSecs(us: number): string {
   return `${(us / 1_000_000).toFixed(3)}s`;
-}
-
-function fmtMs(ms: number): string {
-  return `${ms.toFixed(1)}ms`;
-}
-
-function collectorRangeSummary(collector: DecodeCollector): string {
-  if (collector.outputCount === 0 || !Number.isFinite(collector.minUs)) {
-    return 'empty';
-  }
-  return `${fmtSecs(collector.minUs)}..${fmtSecs(collector.maxUs)}`;
-}
-
-function collectorSummary(
-  collector: DecodeCollector,
-  targetUs: number,
-): string {
-  const best = collector.best
-    ? ` best=${fmtSecs(collector.best.timestamp)} diff=${fmtSecs(Math.abs(collector.best.timestamp - targetUs))}`
-    : ' best=none';
-  return `outputs=${collector.outputCount} closed=${collector.closedCount} range=${collectorRangeSummary(collector)}${best}`;
-}
-
-function frameRangeSummary(frames: readonly DecodedFrame[]): string {
-  if (frames.length === 0) return 'empty';
-  let min = frames[0].timestamp;
-  let max = frames[0].timestamp;
-  for (let i = 1; i < frames.length; i++) {
-    min = Math.min(min, frames[i].timestamp);
-    max = Math.max(max, frames[i].timestamp);
-  }
-  return `${fmtSecs(min)}..${fmtSecs(max)}`;
-}
-
-function cacheSummary(st: AssetState): string {
-  return `${st.frameCache.length} [${frameRangeSummary(st.frameCache)}]`;
 }
 
 function findNearestCachedFrame(

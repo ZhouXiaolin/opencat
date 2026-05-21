@@ -31,21 +31,6 @@ const pending = new Map<
 >();
 const metaCache = new Map<string, VideoSourceMeta>();
 
-const SLOW_WORKER_RPC_WARN_MS = 300;
-const SLOW_RGBA_READBACK_WARN_MS = 300;
-
-function fmtSecs(seconds: number): string {
-  return `${seconds.toFixed(3)}s`;
-}
-
-function fmtUs(us: number): string {
-  return `${(us / 1_000_000).toFixed(3)}s`;
-}
-
-function fmtMs(ms: number): string {
-  return `${ms.toFixed(1)}ms`;
-}
-
 function ensureWorker(): Worker {
   if (worker) return worker;
   worker = new Worker(getWorkerUrl(), { type: 'module' });
@@ -97,16 +82,9 @@ export async function prepareVideoSource(
   if (existing) return existing;
 
   const id = nextId();
-  const startedAt = performance.now();
-  console.log(
-    `[video-decoder rpc#${id}] prepare start asset=${url} bytes=${buffer.byteLength}`,
-  );
   const res = await rpc<{ type: 'prepare'; id: number; meta: VideoSourceMeta }>(
     { type: 'prepare', id, assetId: url, buffer },
     [buffer],
-  );
-  console.log(
-    `[video-decoder rpc#${id}] prepare done asset=${url} dt=${fmtMs(performance.now() - startedAt)} meta=${res.meta.width}x${res.meta.height} duration=${res.meta.durationSecs === null ? 'null' : fmtSecs(res.meta.durationSecs)}`,
   );
   metaCache.set(url, res.meta);
   return res.meta;
@@ -119,32 +97,16 @@ export async function getDecodedVideoFrame(
 ): Promise<VideoFrame | null> {
   if (!metaCache.has(url)) {
     console.warn(
-      `[video-decoder] getFrame skipped: asset not prepared asset=${url} t=${fmtSecs(timeSecs)} q=${quality}`,
+      `[video-decoder] getFrame skipped: asset not prepared asset=${url}`,
     );
     return null;
   }
   const id = nextId();
-  const startedAt = performance.now();
-  const shouldLog = quality === 'exact';
-  if (shouldLog) {
-    console.log(
-      `[video-decoder rpc#${id}] getFrame start asset=${url} t=${fmtSecs(timeSecs)} q=${quality}`,
-    );
-  }
   const res = await rpc<{
     type: 'getFrame';
     id: number;
     frame: VideoFrame | null;
   }>({ type: 'getFrame', id, assetId: url, timeSecs, quality });
-  const elapsedMs = performance.now() - startedAt;
-  const log = !res.frame || elapsedMs >= SLOW_WORKER_RPC_WARN_MS
-    ? console.warn
-    : console.log;
-  if (shouldLog || !res.frame || elapsedMs >= SLOW_WORKER_RPC_WARN_MS) {
-    log(
-      `[video-decoder rpc#${id}] getFrame done asset=${url} t=${fmtSecs(timeSecs)} q=${quality} dt=${fmtMs(elapsedMs)} result=${res.frame ? `${res.frame.displayWidth}x${res.frame.displayHeight} ts=${fmtUs(res.frame.timestamp)}` : 'NULL'}`,
-    );
-  }
   return res.frame;
 }
 
@@ -156,15 +118,14 @@ export async function getDecodedFrameRgba(
   const meta = metaCache.get(url);
   if (!meta) {
     console.warn(
-      `[video-decoder] rgba skipped: asset not prepared asset=${url} t=${fmtSecs(timeSecs)} q=${quality}`,
+      `[video-decoder] rgba skipped: asset not prepared asset=${url}`,
     );
     return null;
   }
-  const totalStartedAt = performance.now();
   const frame = await getDecodedVideoFrame(url, timeSecs, quality);
   if (!frame) {
     console.warn(
-      `[video-decoder] rgba NULL asset=${url} t=${fmtSecs(timeSecs)} q=${quality} dt=${fmtMs(performance.now() - totalStartedAt)}`,
+      `[video-decoder] rgba NULL asset=${url}`,
     );
     return null;
   }
@@ -172,25 +133,16 @@ export async function getDecodedFrameRgba(
   try {
     const w = frame.displayWidth || meta.width;
     const h = frame.displayHeight || meta.height;
-    const readbackStartedAt = performance.now();
     const off = new OffscreenCanvas(w, h);
     const ctx = off.getContext('2d', { willReadFrequently: true });
     if (!ctx) {
       console.warn(
-        `[video-decoder] rgba failed: no 2d context asset=${url} t=${fmtSecs(timeSecs)} q=${quality} size=${w}x${h}`,
+        `[video-decoder] rgba failed: no 2d context asset=${url} size=${w}x${h}`,
       );
       return null;
     }
     ctx.drawImage(frame, 0, 0);
     const img = ctx.getImageData(0, 0, w, h);
-    const readbackMs = performance.now() - readbackStartedAt;
-    const totalMs = performance.now() - totalStartedAt;
-    const log = readbackMs >= SLOW_RGBA_READBACK_WARN_MS ? console.warn : console.log;
-    if (quality === 'exact' || readbackMs >= SLOW_RGBA_READBACK_WARN_MS) {
-      log(
-        `[video-decoder] rgba done asset=${url} t=${fmtSecs(timeSecs)} q=${quality} readback=${fmtMs(readbackMs)} total=${fmtMs(totalMs)} size=${w}x${h} bytes=${img.data.byteLength}`,
-      );
-    }
     return {
       rgba: new Uint8Array(img.data.buffer.slice(0)),
       width: w,

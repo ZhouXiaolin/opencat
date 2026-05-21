@@ -71,8 +71,6 @@ class ExportClip implements IClip {
       frame: frameNum,
       resourcesJson: this.resourceMetaJson,
       quality: 'exact',
-      logPrefix: 'export',
-      logEveryFrames: 30,
     });
 
     let surface;
@@ -259,7 +257,6 @@ export async function exportPngFrame(
     frame,
     resourcesJson: resourceMetaJson,
     quality: 'exact',
-    logPrefix: 'export',
   });
 
   let surface;

@@ -226,7 +226,7 @@ async function preloadResources(
             assetId,
             videoBuf,
           );
-          console.log(`[main] video source ready: ${assetId} → ${width}x${height}, duration=${durationSecs ?? 'N/A'}s`);
+
         } catch (err) {
           console.error(`Video source prep failed for ${assetId}:`, err);
         }
@@ -391,8 +391,6 @@ async function renderFrameWithPipeline(
     frame,
     resourcesJson: resourceMetaJson,
     quality,
-    logPrefix: 'render',
-    logEveryFrames: 15,
   });
 
   let surface;

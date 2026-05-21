@@ -31,7 +31,7 @@ import {
 } from './video-decode-helpers';
 
 const WD_WASM_FILE_PATH = new URL(
-  '../../node_modules/web-demuxer/dist/wasm-files/web-demuxer.wasm',
+  '../web-demuxer.wasm',
   self.location.href,
 ).href;
 

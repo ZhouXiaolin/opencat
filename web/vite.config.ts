@@ -12,6 +12,8 @@ const CANVASKIT_WASM_DEST = resolve(ROOT_DIR, 'public/canvaskit/canvaskit.wasm')
 
 const OPENCAT_WEB_DIST = resolve(REPO_ROOT, 'crates/opencat-web/web/dist');
 const WASM_PUBLIC_DIR = resolve(ROOT_DIR, 'public/wasm');
+const WEB_DEMUXER_WASM_SRC = resolve(NODE_MODULES, 'web-demuxer/dist/wasm-files/web-demuxer.wasm');
+const WEB_DEMUXER_WASM_DEST = resolve(WASM_PUBLIC_DIR, 'web-demuxer.wasm');
 
 type StaticDir = {
   mount: string;
@@ -50,6 +52,12 @@ function ensureOpencatWasm(): void {
     const dest = resolve(WASM_PUBLIC_DIR, f);
     if (!fs.existsSync(dest) || fs.statSync(src).mtimeMs > fs.statSync(dest).mtimeMs) {
       fs.copyFileSync(src, dest);
+    }
+  }
+
+  if (fs.existsSync(WEB_DEMUXER_WASM_SRC)) {
+    if (!fs.existsSync(WEB_DEMUXER_WASM_DEST) || fs.statSync(WEB_DEMUXER_WASM_SRC).mtimeMs > fs.statSync(WEB_DEMUXER_WASM_DEST).mtimeMs) {
+      fs.copyFileSync(WEB_DEMUXER_WASM_SRC, WEB_DEMUXER_WASM_DEST);
     }
   }
 }

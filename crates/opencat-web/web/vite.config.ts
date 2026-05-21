@@ -13,7 +13,6 @@ export default defineConfig({
     rollupOptions: {
       external: [
         '@webav/av-cliper',
-        'web-demuxer',
         'canvaskit-wasm',
         /\/pkg\/opencat_web/,
       ],

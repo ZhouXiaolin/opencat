@@ -3,6 +3,7 @@
 pub mod cache;
 pub mod canvas;
 pub mod display;
+pub mod draw;
 pub mod element;
 pub mod frame_ctx;
 pub mod jsonl;

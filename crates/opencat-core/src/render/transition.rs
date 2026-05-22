@@ -1,12 +1,15 @@
 #[cfg(feature = "profile")]
 use tracing::{Level, span};
 
-use crate::canvas::{Canvas2D, Rect, RuntimeEffectChild};
 use crate::display::list::DisplayRect;
+use crate::draw::op::{DrawOp, Rect4};
+use crate::draw::types::{
+    ChildRange, DrawOpRange, RuntimeEffectChildRef,
+};
 use crate::scene::transition::{GlTransition, LightLeakTransition};
 use crate::scene::gl_transition;
 
-use super::RenderCache;
+use super::RenderCtx;
 
 const LIGHT_LEAK_MASK_SKSL: &str = r#"
 uniform float evolveProgress;
@@ -121,63 +124,26 @@ struct LightLeakCompositeUniforms {
     progress: f32,
 }
 
-fn ensure_effect<C: Canvas2D>(
-    canvas: &C,
-    cache: &mut RenderCache<C>,
-    key: u64,
-    sksl: &str,
-) -> Option<C::RuntimeEffect> {
-    {
-        let mut lru = cache.runtime_effects.borrow_mut();
-        if let Some(effect) = lru.get_cloned(&key) {
-            return Some(effect);
-        }
-    }
-    let effect = canvas.make_runtime_effect(sksl).ok()?;
-    cache.runtime_effects.borrow_mut().insert(key, effect.clone());
-    Some(effect)
-}
-
 fn as_bytes<T: Copy>(val: &T) -> &[u8] {
     unsafe {
         std::slice::from_raw_parts(val as *const T as *const u8, std::mem::size_of::<T>())
     }
 }
 
-pub(crate) fn render_light_leak_transition<C: Canvas2D>(
-    canvas: &mut C,
-    from_pic: &C::Picture,
-    to_pic: &C::Picture,
+pub(crate) fn render_light_leak_transition(
+    ctx: &mut RenderCtx,
+    from_range: DrawOpRange,
+    to_range: DrawOpRange,
     progress: f32,
     params: &LightLeakTransition,
     bounds: DisplayRect,
-    cache: &mut RenderCache<C>,
 ) {
+    let builder = &mut ctx.builder;
     let w = bounds.width.max(1.0).round() as u32;
     let h = bounds.height.max(1.0).round() as u32;
 
-    let mask_effect = match ensure_effect(canvas, cache, MASK_EFFECT_KEY, LIGHT_LEAK_MASK_SKSL) {
-        Some(e) => e,
-        None => {
-            let rect = Rect::new(bounds.x as f64, bounds.y as f64, (bounds.x + bounds.width) as f64, (bounds.y + bounds.height) as f64);
-            canvas.draw_picture(from_pic, None, None);
-            canvas.save_layer(Some(rect), progress);
-            canvas.draw_picture(to_pic, None, None);
-            canvas.restore();
-            return;
-        }
-    };
-    let composite_effect = match ensure_effect(canvas, cache, COMPOSITE_EFFECT_KEY, LIGHT_LEAK_COMPOSITE_SKSL) {
-        Some(e) => e,
-        None => {
-            let rect = Rect::new(bounds.x as f64, bounds.y as f64, (bounds.x + bounds.width) as f64, (bounds.y + bounds.height) as f64);
-            canvas.draw_picture(from_pic, None, None);
-            canvas.save_layer(Some(rect), progress);
-            canvas.draw_picture(to_pic, None, None);
-            canvas.restore();
-            return;
-        }
-    };
+    let mask_effect_id = builder.intern_effect(MASK_EFFECT_KEY, LIGHT_LEAK_MASK_SKSL);
+    let composite_effect_id = builder.intern_effect(COMPOSITE_EFFECT_KEY, LIGHT_LEAK_COMPOSITE_SKSL);
 
     let normalized = progress.clamp(0.0, 1.0);
     let mask_uniforms = LightLeakMaskUniforms {
@@ -188,44 +154,58 @@ pub(crate) fn render_light_leak_transition<C: Canvas2D>(
         hue_shift: params.hue_shift,
         resolution: [w as f32, h as f32],
     };
+    let mask_uniforms_range = builder.intern_bytes(as_bytes(&mask_uniforms));
 
-    let mask_rect = Rect::new(0.0, 0.0, w as f64, h as f64);
-    let mask_picture = {
-        #[cfg(feature = "profile")]
-        let _mask_span = span!(target: "render.backend", Level::TRACE, "light_leak_mask").entered();
-        canvas.make_picture(&mask_rect, |off| {
-            off.draw_runtime_effect(
-                &mask_effect,
-                as_bytes(&mask_uniforms),
-                &[],
-                &mask_rect,
-            );
-        })
+    let mask_dst = Rect4 {
+        x: 0.0,
+        y: 0.0,
+        width: w as f32,
+        height: h as f32,
     };
-
-    let composite_uniforms = LightLeakCompositeUniforms { progress: normalized };
-    let dst = Rect::new(
-        bounds.x as f64,
-        bounds.y as f64,
-        (bounds.x + bounds.width) as f64,
-        (bounds.y + bounds.height) as f64,
-    );
-
-    let children: Vec<RuntimeEffectChild<'_, C>> = vec![
-        RuntimeEffectChild::Picture(from_pic),
-        RuntimeEffectChild::Picture(to_pic),
-        RuntimeEffectChild::Picture(&mask_picture),
-    ];
 
     {
         #[cfg(feature = "profile")]
-        let _composite_span = span!(target: "render.backend", Level::TRACE, "light_leak_composite").entered();
-        canvas.draw_runtime_effect(
-            &composite_effect,
-            as_bytes(&composite_uniforms),
-            &children,
-            &dst,
-        );
+        let _mask_span =
+            span!(target: "render.backend", Level::TRACE, "light_leak_mask").entered();
+
+        let mask_marker = builder.begin_range();
+        builder.push(DrawOp::RuntimeEffect {
+            effect: mask_effect_id,
+            uniforms: mask_uniforms_range,
+            children: ChildRange { start: 0, len: 0 },
+            dst: mask_dst,
+        });
+        let mask_range = builder.end_range(mask_marker);
+
+        let composite_uniforms = LightLeakCompositeUniforms {
+            progress: normalized,
+        };
+        let composite_uniforms_range = builder.intern_bytes(as_bytes(&composite_uniforms));
+
+        let child_start = builder.push_child(RuntimeEffectChildRef::Picture(from_range));
+        builder.push_child(RuntimeEffectChildRef::Picture(to_range));
+        builder.push_child(RuntimeEffectChildRef::Picture(mask_range));
+
+        let dst_rect4 = Rect4 {
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height,
+        };
+
+        #[cfg(feature = "profile")]
+        let _composite_span =
+            span!(target: "render.backend", Level::TRACE, "light_leak_composite").entered();
+
+        builder.push(DrawOp::RuntimeEffect {
+            effect: composite_effect_id,
+            uniforms: composite_uniforms_range,
+            children: ChildRange {
+                start: child_start,
+                len: 3,
+            },
+            dst: dst_rect4,
+        });
     }
 }
 
@@ -238,17 +218,24 @@ struct GlTransitionUniforms {
     resolution: [f32; 2],
 }
 
-pub(crate) fn render_gl_transition<C: Canvas2D>(
-    canvas: &mut C,
-    from_pic: &C::Picture,
-    to_pic: &C::Picture,
+pub(crate) fn render_gl_transition(
+    ctx: &mut RenderCtx,
+    from_range: DrawOpRange,
+    to_range: DrawOpRange,
     progress: f32,
     effect: &GlTransition,
     bounds: DisplayRect,
-    cache: &mut RenderCache<C>,
 ) {
+    let builder = &mut ctx.builder;
     let w = bounds.width.max(1.0).round() as u32;
     let h = bounds.height.max(1.0).round() as u32;
+
+    let dst_rect4 = Rect4 {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+    };
 
     let sksl = effect
         .sksl
@@ -258,16 +245,14 @@ pub(crate) fn render_gl_transition<C: Canvas2D>(
     let sksl = match sksl {
         Some(s) => s,
         None => {
-            let rect = Rect::new(
-                bounds.x as f64,
-                bounds.y as f64,
-                (bounds.x + bounds.width) as f64,
-                (bounds.y + bounds.height) as f64,
-            );
-            canvas.draw_picture(from_pic, None, None);
-            canvas.save_layer(Some(rect), progress);
-            canvas.draw_picture(to_pic, None, None);
-            canvas.restore();
+            builder.push(DrawOp::ReplayRange { range: from_range });
+            builder.push(DrawOp::SaveLayer {
+                bounds: Some(dst_rect4),
+                paint: None,
+                alpha: progress,
+            });
+            builder.push(DrawOp::ReplayRange { range: to_range });
+            builder.push(DrawOp::Restore);
             return;
         }
     };
@@ -279,37 +264,24 @@ pub(crate) fn render_gl_transition<C: Canvas2D>(
         hasher.finish() | 0xBB00_0000_0000_0000
     };
 
-    let rt_effect = match ensure_effect(canvas, cache, cache_key, &sksl) {
-        Some(e) => e,
-        None => {
-            let rect = Rect::new(
-                bounds.x as f64,
-                bounds.y as f64,
-                (bounds.x + bounds.width) as f64,
-                (bounds.y + bounds.height) as f64,
-            );
-            canvas.draw_picture(from_pic, None, None);
-            canvas.save_layer(Some(rect), progress);
-            canvas.draw_picture(to_pic, None, None);
-            canvas.restore();
-            return;
-        }
-    };
+    let effect_id = builder.intern_effect(cache_key, &sksl);
 
     let uniforms = GlTransitionUniforms {
         progress: progress.clamp(0.0, 1.0),
         resolution: [w as f32, h as f32],
     };
-    let dst = Rect::new(
-        bounds.x as f64,
-        bounds.y as f64,
-        (bounds.x + bounds.width) as f64,
-        (bounds.y + bounds.height) as f64,
-    );
-    let children: Vec<RuntimeEffectChild<'_, C>> = vec![
-        RuntimeEffectChild::Picture(from_pic),
-        RuntimeEffectChild::Picture(to_pic),
-    ];
+    let uniforms_range = builder.intern_bytes(as_bytes(&uniforms));
 
-    canvas.draw_runtime_effect(&rt_effect, as_bytes(&uniforms), &children, &dst);
+    let child_start = builder.push_child(RuntimeEffectChildRef::Picture(from_range));
+    builder.push_child(RuntimeEffectChildRef::Picture(to_range));
+
+    builder.push(DrawOp::RuntimeEffect {
+        effect: effect_id,
+        uniforms: uniforms_range,
+        children: ChildRange {
+            start: child_start,
+            len: 2,
+        },
+        dst: dst_rect4,
+    });
 }

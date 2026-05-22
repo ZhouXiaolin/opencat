@@ -459,48 +459,62 @@ fn render_transition_composite(
         }
         TransitionKind::Wipe(dir) => {
             let clip = match dir {
-                WipeDirection::FromLeft => DisplayRect {
+                WipeDirection::FromLeft => Rect4 {
+                    x: bounds.x,
+                    y: bounds.y,
+                    width: bounds.width * progress,
+                    height: bounds.height,
+                },
+                WipeDirection::FromRight => Rect4 {
                     x: bounds.x + bounds.width * (1.0 - progress),
                     y: bounds.y,
                     width: bounds.width * progress,
                     height: bounds.height,
                 },
-                WipeDirection::FromRight => DisplayRect {
-                    x: bounds.x,
-                    y: bounds.y,
-                    width: bounds.width * progress,
-                    height: bounds.height,
-                },
-                WipeDirection::FromTop => {
-                    let start = bounds.y + bounds.height * (1.0 - progress);
-                    DisplayRect {
-                        x: bounds.x,
-                        y: start,
-                        width: bounds.width,
-                        height: bounds.height * progress,
-                    }
-                }
-                WipeDirection::FromBottom => DisplayRect {
+                WipeDirection::FromTop => Rect4 {
                     x: bounds.x,
                     y: bounds.y,
                     width: bounds.width,
                     height: bounds.height * progress,
                 },
-                _ => DisplayRect {
+                WipeDirection::FromBottom => Rect4 {
+                    x: bounds.x,
+                    y: bounds.y + bounds.height * (1.0 - progress),
+                    width: bounds.width,
+                    height: bounds.height * progress,
+                },
+                WipeDirection::FromTopLeft => Rect4 {
                     x: bounds.x,
                     y: bounds.y,
                     width: bounds.width * progress,
-                    height: bounds.height,
+                    height: bounds.height * progress,
+                },
+                WipeDirection::FromTopRight => Rect4 {
+                    x: bounds.x + bounds.width * (1.0 - progress),
+                    y: bounds.y,
+                    width: bounds.width * progress,
+                    height: bounds.height * progress,
+                },
+                WipeDirection::FromBottomLeft => Rect4 {
+                    x: bounds.x,
+                    y: bounds.y + bounds.height * (1.0 - progress),
+                    width: bounds.width * progress,
+                    height: bounds.height * progress,
+                },
+                WipeDirection::FromBottomRight => Rect4 {
+                    x: bounds.x + bounds.width * (1.0 - progress),
+                    y: bounds.y + bounds.height * (1.0 - progress),
+                    width: bounds.width * progress,
+                    height: bounds.height * progress,
                 },
             };
-            let clip_rect4 = display_rect_to_rect4(clip);
             ctx.builder.push(DrawOp::Save);
             ctx.builder.push(DrawOp::BeginPath);
             ctx.builder.push(DrawOp::Path(PathOp::AddRect {
-                x: clip_rect4.x,
-                y: clip_rect4.y,
-                width: clip_rect4.width,
-                height: clip_rect4.height,
+                x: clip.x,
+                y: clip.y,
+                width: clip.width,
+                height: clip.height,
             }));
             ctx.builder.push(DrawOp::ClipPath { anti_alias: false });
             ctx.builder.push(DrawOp::ReplayRange { range: to_range });

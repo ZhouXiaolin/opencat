@@ -18,7 +18,8 @@ use crate::{
 };
 use opencat_core::scene::composition::Composition;
 use opencat_core::resource::AssetPathBlobStore;
-use crate::backend::SkiaCanvas2D;
+use opencat_core::platform::draw::{DrawPlatform, RenderSessionHeader};
+use opencat_core::platform::media::{MediaPlatform, PrepareMode};
 
 pub use crate::codec::encode::Mp4Config;
 /// Core generic RenderSession monomorphised for the engine's Skia platform.
@@ -231,23 +232,37 @@ pub fn render_frame_to_target(
     let frame_view_handle = target.resolve_frame_view(frame_surface)?;
     let canvas_raw: *mut std::ffi::c_void = frame_view_handle.raw();
 
-    // SAFETY: canvas_raw points to a valid Skia Canvas for the duration of this call.
-    let canvas_ref: &skia_safe::Canvas = unsafe { &*(canvas_raw as *const skia_safe::Canvas) };
-    let mut skia_canvas = SkiaCanvas2D::new(canvas_ref);
-
-    // SAFETY: asset_paths lives on session.platform which is not moved/dropped
-    // during the render call.
+    // SAFETY: The raw pointer is derived from a valid reference to `asset_paths`
+    // which outlives this scope. We use a raw pointer to avoid conflicting
+    // borrows when `render_frame` takes `&mut session`.
     let asset_paths_ptr: *const crate::resource::AssetPathStore = &session.platform.asset_paths;
     let blob_store = AssetPathBlobStore::new(unsafe { &*asset_paths_ptr });
-    let render_result = opencat_core::runtime::pipeline::render_frame::<EnginePlatform, SkiaCanvas2D>(
+    let (draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame::<EnginePlatform>(
         composition,
         frame_index,
         session,
-        &mut skia_canvas,
         Some(&blob_store),
-    );
-    let end_result = target.end_frame();
-    render_result.and(end_result)
+    )?;
+
+    let mut media = crate::media::EngineMedia;
+    let prepared = media
+        .prepare_frame(&media_plan, PrepareMode::Export)
+        .map_err(|e| anyhow!("media prepare failed: {}", e))?;
+
+    let header = RenderSessionHeader {
+        composition_size: (composition.width as u32, composition.height as u32),
+        fps: composition.fps,
+        frames: composition.frames,
+    };
+
+    let canvas: &mut skia_safe::Canvas =
+        unsafe { &mut *(canvas_raw as *mut skia_safe::Canvas) };
+    let mut executor = crate::executor::EngineDrawExecutor::new();
+    executor
+        .execute(&header, &draw_frame, &prepared, canvas)
+        .map_err(|e| anyhow!("draw execute failed: {}", e))?;
+
+    target.end_frame()
 }
 
 pub fn render_frame_rgba(
@@ -260,19 +275,40 @@ pub fn render_frame_rgba(
     let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
 
-    let mut skia_canvas = SkiaCanvas2D::new(surface.canvas());
-
-    // SAFETY: asset_paths lives on session.platform which is not moved/dropped
-    // during the render call. We use a raw pointer to split the borrow.
+    // SAFETY: The raw pointer is derived from a valid reference to `asset_paths`
+    // which outlives this scope. We use a raw pointer to avoid conflicting
+    // borrows when `render_frame` takes `&mut session`.
     let asset_paths_ptr: *const crate::resource::AssetPathStore = &session.platform.asset_paths;
     let blob_store = AssetPathBlobStore::new(unsafe { &*asset_paths_ptr });
-    opencat_core::runtime::pipeline::render_frame::<EnginePlatform, SkiaCanvas2D>(
+
+    let (draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame::<EnginePlatform>(
         composition,
         frame_index,
         session,
-        &mut skia_canvas,
         Some(&blob_store),
     )?;
+
+    let mut media = crate::media::EngineMedia;
+    let prepared = media
+        .prepare_frame(&media_plan, PrepareMode::Export)
+        .map_err(|e| anyhow!("media prepare failed: {}", e))?;
+
+    let header = RenderSessionHeader {
+        composition_size: (composition.width as u32, composition.height as u32),
+        fps: composition.fps,
+        frames: composition.frames,
+    };
+
+    // SAFETY: skia_safe::Canvas wraps a C++ ref-counted object with interior mutability.
+        // All draw methods take &self at the Rust level while mutating internal C++ state.
+        // The surface owns the canvas and no other references exist at this point.
+        #[allow(invalid_reference_casting)]
+        let canvas: &mut skia_safe::Canvas =
+            unsafe { &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas) };
+    let mut executor = crate::executor::EngineDrawExecutor::new();
+    executor
+        .execute(&header, &draw_frame, &prepared, canvas)
+        .map_err(|e| anyhow!("draw execute failed: {}", e))?;
 
     let image = surface.image_snapshot();
     let image_info = ImageInfo::new(

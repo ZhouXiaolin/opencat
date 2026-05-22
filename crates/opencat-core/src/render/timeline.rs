@@ -18,11 +18,7 @@ fn render_transition_overlay(
 
     match &transition.kind {
         TransitionKind::Fade => {
-            builder.push(DrawOp::SaveLayer {
-                bounds: Some(bounded_rect4),
-                paint: None,
-                alpha: p,
-            });
+            // Alpha blends into the SaveLayer created in render_timeline
         }
         TransitionKind::Slide(dir) => {
             let (dx, dy) = slide_offset(dir, bounds, 1.0 - p);
@@ -74,8 +70,8 @@ fn render_transition_overlay(
             }
         }
         TransitionKind::Iris => {
-            let cx = (bounds.x + bounds.width / 2.0) as f32;
-            let cy = (bounds.y + bounds.height / 2.0) as f32;
+            let cx = bounded_rect4.x + bounded_rect4.width / 2.0;
+            let cy = bounded_rect4.y + bounded_rect4.height / 2.0;
             let scale = p.max(0.001);
             builder.push(DrawOp::Translate { x: cx, y: cy });
             builder.push(DrawOp::Scale { x: scale, y: scale });
@@ -103,7 +99,9 @@ fn render_transition_overlay(
                 paint: paint_id,
             });
         }
-        TransitionKind::Gl(_gl) => {}
+        TransitionKind::Gl(gl) => {
+            log::warn!("GL transition '{}' not supported in render layer", gl.name);
+        }
     }
 }
 
@@ -118,10 +116,10 @@ fn slide_offset(dir: &SlideDirection, bounds: DisplayRect, amount: f32) -> (f32,
 
 fn wipe_clip_rect(dir: &WipeDirection, bounds: DisplayRect, progress: f32) -> Rect4 {
     let p = progress;
-    let x = bounds.x as f32;
-    let y = bounds.y as f32;
-    let w = bounds.width as f32;
-    let h = bounds.height as f32;
+    let x = bounds.x;
+    let y = bounds.y;
+    let w = bounds.width;
+    let h = bounds.height;
     match dir {
         WipeDirection::FromLeft => Rect4 {
             x,
@@ -191,6 +189,7 @@ pub fn render_timeline(
         let bounds = item.bounds;
         let rect4 = rect_to_rect4(kurbo_rect(bounds));
 
+        // Solid white backdrop for transition compositing
         let paint = PaintSpec {
             fill: FillSpec::Solid([1.0; 4]),
             style: PaintStyle::Fill,
@@ -203,6 +202,11 @@ pub fn render_timeline(
             path_effect: None,
         };
         let paint_id = ctx.builder.intern_paint(paint);
+
+        let layer_alpha = match &transition.kind {
+            TransitionKind::Fade => transition.progress.clamp(0.0, 1.0),
+            _ => 1.0,
+        };
 
         ctx.builder.push(DrawOp::Save);
         ctx.builder.push(DrawOp::BeginPath);
@@ -217,7 +221,7 @@ pub fn render_timeline(
         ctx.builder.push(DrawOp::SaveLayer {
             bounds: Some(rect4),
             paint: Some(paint_id),
-            alpha: 1.0,
+            alpha: layer_alpha,
         });
 
         render_transition_overlay(&mut ctx.builder, bounds, transition);

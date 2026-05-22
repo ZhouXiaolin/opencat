@@ -19,17 +19,6 @@ use crate::resource::resolver::EngineAssetResolver;
 use crate::runtime::audio::{AudioIntervalCache, DecodedAudioCache};
 use crate::script::ScriptRuntimeCache;
 
-use std::future::Future;
-
-use opencat_core::draw::cache::CachedDrawRange;
-use opencat_core::draw::frame::DrawOpFrame;
-use opencat_core::platform::draw::{DrawError, DrawPlatform, DrawStats, RenderSessionHeader};
-use opencat_core::platform::media::{
-    AudioPlanSlice, PrepareMode, FrameMediaPlan, MediaError, MediaPlatform,
-};
-use opencat_core::platform::resource::ResourcePlatform;
-use opencat_core::resource::{AssetResolver, AssetSink, BlobStore, UrlFetcher};
-
 pub use audio_runtime::AudioRuntime;
 
 /// Engine platform implementation.
@@ -110,106 +99,11 @@ impl EnginePlatform {
     }
 }
 
-// ── Stub types — will be replaced with real implementations later ───
-
-pub struct StubFetcher;
-impl UrlFetcher for StubFetcher {
-    fn fetch_bytes(
-        &mut self,
-        _id: &AssetId,
-        _url: &str,
-    ) -> impl Future<Output = anyhow::Result<Vec<u8>>> {
-        async { unimplemented!("StubFetcher::fetch_bytes") }
-    }
-}
-
-pub struct StubSink;
-impl AssetSink for StubSink {
-    fn store(&mut self, _id: &AssetId, _bytes: Vec<u8>) {}
-}
-
-pub struct StubAssetResolver {
-    fetcher: StubFetcher,
-    sink: StubSink,
-}
-impl AssetResolver for StubAssetResolver {
-    type Fetcher = StubFetcher;
-    type Sink = StubSink;
-    fn parts(&mut self) -> (&mut Self::Fetcher, &mut Self::Sink) {
-        (&mut self.fetcher, &mut self.sink)
-    }
-}
-
-pub struct StubBlobStore;
-impl BlobStore for StubBlobStore {
-    fn read(&self, _id: &AssetId) -> Option<Vec<u8>> {
-        None
-    }
-}
-
-pub struct StubResourcePlatform {
-    resolver: StubAssetResolver,
-    blob_store: StubBlobStore,
-}
-impl ResourcePlatform for StubResourcePlatform {
-    type Resolver = StubAssetResolver;
-    type BlobStore = StubBlobStore;
-    fn resolver(&mut self) -> &mut Self::Resolver {
-        &mut self.resolver
-    }
-    fn blob_store(&self) -> Option<&Self::BlobStore> {
-        Some(&self.blob_store)
-    }
-}
-
-pub struct StubMediaPlatform;
-impl MediaPlatform for StubMediaPlatform {
-    type PreparedFrameMedia = ();
-    type PreparedAudioSlice = ();
-    fn prepare_frame(
-        &mut self,
-        _plan: &FrameMediaPlan,
-        _mode: PrepareMode,
-    ) -> Result<Self::PreparedFrameMedia, MediaError> {
-        Err(MediaError("stub".into()))
-    }
-    fn prepare_audio_slice(
-        &mut self,
-        _slice: &AudioPlanSlice,
-        _mode: PrepareMode,
-    ) -> Result<Self::PreparedAudioSlice, MediaError> {
-        Err(MediaError("stub".into()))
-    }
-}
-
-pub struct StubDrawPlatform;
-impl DrawPlatform for StubDrawPlatform {
-    type Target = ();
-    type PreparedFrameMedia = ();
-    fn execute(
-        &mut self,
-        _header: &RenderSessionHeader,
-        _draw: &DrawOpFrame,
-        _media: &Self::PreparedFrameMedia,
-        _target: &mut Self::Target,
-    ) -> Result<DrawStats, DrawError> {
-        Err(DrawError("stub".into()))
-    }
-    fn compile_range(
-        &mut self,
-        _cached: &CachedDrawRange,
-        _draw: &DrawOpFrame,
-    ) -> Result<(), DrawError> {
-        Err(DrawError("stub".into()))
-    }
-    fn evict_range(&mut self, _fingerprint: u64) {}
-}
-
 impl Platform for EnginePlatform {
     type Script = ScriptRuntimeCache;
-    type Resource = StubResourcePlatform;
-    type Media = StubMediaPlatform;
-    type Draw = StubDrawPlatform;
+    type Resource = crate::resource::EngineResourcePlatform;
+    type Media = crate::media::EngineMedia;
+    type Draw = crate::executor::EngineDrawExecutor;
     type Video = MediaContext;
 
     fn script(&mut self) -> &mut Self::Script {
@@ -217,15 +111,15 @@ impl Platform for EnginePlatform {
     }
 
     fn resources(&mut self) -> &mut Self::Resource {
-        unimplemented!("EnginePlatform::resources not yet implemented")
+        unimplemented!("resources not wired")
     }
 
     fn media(&mut self) -> &mut Self::Media {
-        unimplemented!("EnginePlatform::media not yet implemented")
+        unimplemented!("media not wired")
     }
 
     fn draw(&mut self) -> &mut Self::Draw {
-        unimplemented!("EnginePlatform::draw not yet implemented")
+        unimplemented!("draw not wired")
     }
 
     fn video_source(&mut self) -> &mut Self::Video {

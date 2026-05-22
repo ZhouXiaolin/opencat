@@ -1,7 +1,7 @@
 //! Platform role for media preparation: decoding video frames, audio slices,
 //! and compiling runtime effects.
 
-use crate::draw::types::{EffectId, ImageRef};
+use crate::draw::types::{EffectRef, ImageRef};
 
 /// Unified preparation mode for both media and audio.
 /// Preview favors speed over quality; Export favors quality over speed.
@@ -16,8 +16,8 @@ pub enum PrepareMode {
 pub struct FrameMediaPlan {
     /// Deduplicated image references needed for this frame.
     pub images: Vec<ImageRef>,
-    /// Runtime effect IDs needed for this frame (resolved to EffectRef during media preparation).
-    pub runtime_effects: Vec<EffectId>,
+    /// Runtime effect metadata (hash + SkSL) needed for this frame.
+    pub runtime_effects: Vec<EffectRef>,
 }
 
 /// Stub: a slice of an audio track to prepare for playback or export.

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::draw::frame::DrawOpFrame;
 use crate::draw::op::DrawOp;
-use crate::draw::types::{EffectId, ImageRef, RuntimeEffectChildRef};
+use crate::draw::types::{EffectId, EffectRef, ImageRef, RuntimeEffectChildRef};
 use crate::platform::media::FrameMediaPlan;
 
 /// Extract all media references from a DrawOpFrame and build a FrameMediaPlan.
@@ -10,7 +10,7 @@ use crate::platform::media::FrameMediaPlan;
 pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
     let mut images: Vec<ImageRef> = Vec::new();
     let mut seen_images: HashSet<ImageRef> = HashSet::new();
-    let mut effect_ids: Vec<EffectId> = Vec::new();
+    let mut effects: Vec<EffectRef> = Vec::new();
     let mut seen_effects: HashSet<EffectId> = HashSet::new();
 
     for op in &frame.ops {
@@ -25,7 +25,9 @@ pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
                 effect, children, ..
             } => {
                 if seen_effects.insert(*effect) {
-                    effect_ids.push(*effect);
+                    if let Some(effect_ref) = frame.effects.get(effect.0 as usize) {
+                        effects.push(effect_ref.clone());
+                    }
                 }
                 let start = children.start as usize;
                 let end = start + children.len as usize;
@@ -44,7 +46,7 @@ pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
 
     FrameMediaPlan {
         images,
-        runtime_effects: effect_ids,
+        runtime_effects: effects,
     }
 }
 
@@ -54,7 +56,7 @@ mod tests {
     use crate::draw::builder::DrawOpBuilder;
     use crate::draw::frame::DrawOpFrame;
     use crate::draw::op::{DrawOp, Rect4};
-    use crate::draw::types::{BytesRangeId, ChildRange, EffectId, ImageRef, RuntimeEffectChildRef};
+    use crate::draw::types::{BytesRangeId, ChildRange, EffectId, EffectRef, ImageRef, RuntimeEffectChildRef};
 
     #[test]
     fn empty_frame_produces_empty_plan() {
@@ -122,8 +124,10 @@ mod tests {
     #[test]
     fn extracts_runtime_effect_ids() {
         let mut builder = DrawOpBuilder::default();
+        let effect_id = builder.intern_effect(0xAA01, "half4 main(float2 uv) {}");
+        assert_eq!(effect_id, EffectId(0));
         builder.push(DrawOp::RuntimeEffect {
-            effect: EffectId(0),
+            effect: effect_id,
             uniforms: BytesRangeId(0),
             children: ChildRange { start: 0, len: 0 },
             dst: Rect4 {
@@ -138,15 +142,19 @@ mod tests {
 
         assert!(plan.images.is_empty());
         assert_eq!(plan.runtime_effects.len(), 1);
-        assert_eq!(plan.runtime_effects[0], EffectId(0));
+        assert_eq!(plan.runtime_effects[0].hash, 0xAA01);
     }
 
     #[test]
-    fn runtime_effect_children_images_are_collected() {
+    fn runtime_effect_child_images_are_collected() {
         let mut frame = DrawOpFrame::default();
         let child_img = ImageRef::Static {
             asset_id: "child.png".into(),
         };
+        frame.effects.push(EffectRef {
+            hash: 0xAA01,
+            sksl: "half4 main(float2 uv) {}".into(),
+        });
         frame
             .children
             .push(RuntimeEffectChildRef::Image(child_img.clone()));
@@ -173,6 +181,10 @@ mod tests {
         let img = ImageRef::Static {
             asset_id: "shared.png".into(),
         };
+        frame.effects.push(EffectRef {
+            hash: 0xAA01,
+            sksl: "half4 main(float2 uv) {}".into(),
+        });
         frame
             .children
             .push(RuntimeEffectChildRef::Image(img.clone()));
@@ -201,8 +213,9 @@ mod tests {
     #[test]
     fn effect_ids_are_deduplicated() {
         let mut builder = DrawOpBuilder::default();
+        let effect_id = builder.intern_effect(0xAA01, "half4 main(float2 uv) {}");
         builder.push(DrawOp::RuntimeEffect {
-            effect: EffectId(0),
+            effect: effect_id,
             uniforms: BytesRangeId(0),
             children: ChildRange { start: 0, len: 0 },
             dst: Rect4 {
@@ -213,7 +226,7 @@ mod tests {
             },
         });
         builder.push(DrawOp::RuntimeEffect {
-            effect: EffectId(0),
+            effect: effect_id,
             uniforms: BytesRangeId(1),
             children: ChildRange { start: 0, len: 0 },
             dst: Rect4 {

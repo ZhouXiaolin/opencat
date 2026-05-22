@@ -36,6 +36,7 @@ pub struct DrawOpBuilder {
     f32_pool: Vec<f32>,
     ranges: Vec<DrawOpRange>,
     resources: Vec<ResourceRef>,
+    effects: Vec<EffectRef>,
     #[allow(dead_code)]
     paint_state: DrawScriptPaintState,
 }
@@ -104,6 +105,38 @@ impl DrawOpBuilder {
         range
     }
 
+    /// Intern an effect (hash + SkSL), returning a deduplicated EffectId.
+    pub fn intern_effect(&mut self, hash: u64, sksl: &str) -> EffectId {
+        if let Some(pos) = self.effects.iter().position(|e| e.hash == hash) {
+            return EffectId(pos as u32);
+        }
+        let id = EffectId(self.effects.len() as u32);
+        self.effects.push(EffectRef {
+            hash,
+            sksl: sksl.to_string(),
+        });
+        id
+    }
+
+    /// Intern raw bytes, returning a BytesRangeId into the byte table.
+    pub fn intern_bytes(&mut self, data: &[u8]) -> BytesRangeId {
+        let id = BytesRangeId(self.byte_ranges.len() as u32);
+        let start = self.bytes.len() as u32;
+        self.bytes.extend_from_slice(data);
+        self.byte_ranges.push(TableRange {
+            start,
+            len: data.len() as u32,
+        });
+        id
+    }
+
+    /// Push a child reference into the children table, returning its index.
+    pub fn push_child(&mut self, child: RuntimeEffectChildRef) -> u32 {
+        let idx = self.children.len() as u32;
+        self.children.push(child);
+        idx
+    }
+
     /// Import a cached segment into the current builder, remapping all id
     /// offsets so they index correctly into this builder's side tables.
     pub fn import_segment(&mut self, segment: &super::cache::CachedDrawSegment) -> DrawOpRange {
@@ -112,6 +145,7 @@ impl DrawOpBuilder {
         let string_offset = self.strings.len() as u32;
         let child_offset = self.children.len() as u32;
         let resource_offset = self.resources.len() as u32;
+        let effects_offset = self.effects.len() as u32;
         let f32_pool_off = self.f32_pool.len() as u32;
         let byte_ranges_off = self.byte_ranges.len() as u32;
         let ops_off = self.ops.len() as u32;
@@ -136,6 +170,7 @@ impl DrawOpBuilder {
         self.byte_ranges.extend(segment.byte_ranges.iter().cloned());
         self.f32_pool.extend_from_slice(&segment.f32_pool);
         self.resources.extend(segment.resources.iter().cloned());
+        self.effects.extend(segment.effects.iter().cloned());
 
         for op in &segment.ops {
             self.ops.push(remap_op(
@@ -145,6 +180,7 @@ impl DrawOpBuilder {
                 string_offset,
                 child_offset,
                 resource_offset,
+                effects_offset,
                 f32_pool_off,
                 byte_ranges_off,
                 ops_off,
@@ -171,6 +207,7 @@ impl DrawOpBuilder {
             f32_pool: self.f32_pool,
             ranges: self.ranges,
             resources: self.resources,
+            effects: self.effects,
         }
     }
 }
@@ -191,6 +228,7 @@ fn remap_op(
     _string_off: u32,
     child_off: u32,
     _resource_off: u32,
+    effects_off: u32,
     f32_pool_off: u32,
     byte_ranges_off: u32,
     ops_off: u32,
@@ -296,7 +334,7 @@ fn remap_op(
             children,
             dst,
         } => DrawOp::RuntimeEffect {
-            effect: EffectId(effect.0),
+            effect: EffectId(effect.0 + effects_off),
             uniforms: BytesRangeId(uniforms.0 + byte_ranges_off),
             children: ChildRange {
                 start: children.start + child_off,

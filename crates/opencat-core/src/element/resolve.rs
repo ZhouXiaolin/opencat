@@ -24,6 +24,7 @@ use crate::{
     style::{NodeStyle, resolve_text_style},
 };
 
+use crate::draw::op::DrawOp;
 use crate::script::recorder::MutationRecorder;
 
 #[derive(Default)]
@@ -876,7 +877,7 @@ fn apply_mutation_stack(style: &mut NodeStyle, stack: &[StyleMutations]) {
 }
 
 fn apply_canvas_mutation_stack(
-    commands: &mut Vec<crate::scene::script::CanvasCommand>,
+    commands: &mut Vec<DrawOp>,
     stack: &[StyleMutations],
     id: &str,
 ) {

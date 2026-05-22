@@ -61,7 +61,6 @@ pub enum ResourceRef {
     RuntimeEffect(EffectId),
 }
 
-/// Path construction operations. Mirrors the Canvas2D PathBuilder interface.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PathOp {
     MoveTo { x: f32, y: f32 },
@@ -73,6 +72,22 @@ pub enum PathOp {
     AddRRect { x: f32, y: f32, width: f32, height: f32, radius: f32 },
     AddOval { x: f32, y: f32, width: f32, height: f32 },
     AddArc { x: f32, y: f32, width: f32, height: f32, start_angle: f32, sweep_angle: f32 },
+}
+
+impl std::hash::Hash for PathOp {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            PathOp::MoveTo { x, y } => { 0_u8.hash(state); x.to_bits().hash(state); y.to_bits().hash(state); }
+            PathOp::LineTo { x, y } => { 1_u8.hash(state); x.to_bits().hash(state); y.to_bits().hash(state); }
+            PathOp::QuadTo { cx, cy, x, y } => { 2_u8.hash(state); cx.to_bits().hash(state); cy.to_bits().hash(state); x.to_bits().hash(state); y.to_bits().hash(state); }
+            PathOp::CubicTo { c1x, c1y, c2x, c2y, x, y } => { 3_u8.hash(state); c1x.to_bits().hash(state); c1y.to_bits().hash(state); c2x.to_bits().hash(state); c2y.to_bits().hash(state); x.to_bits().hash(state); y.to_bits().hash(state); }
+            PathOp::Close => { 4_u8.hash(state); }
+            PathOp::AddRect { x, y, width, height } => { 5_u8.hash(state); x.to_bits().hash(state); y.to_bits().hash(state); width.to_bits().hash(state); height.to_bits().hash(state); }
+            PathOp::AddRRect { x, y, width, height, radius } => { 6_u8.hash(state); x.to_bits().hash(state); y.to_bits().hash(state); width.to_bits().hash(state); height.to_bits().hash(state); radius.to_bits().hash(state); }
+            PathOp::AddOval { x, y, width, height } => { 7_u8.hash(state); x.to_bits().hash(state); y.to_bits().hash(state); width.to_bits().hash(state); height.to_bits().hash(state); }
+            PathOp::AddArc { x, y, width, height, start_angle, sweep_angle } => { 8_u8.hash(state); x.to_bits().hash(state); y.to_bits().hash(state); width.to_bits().hash(state); height.to_bits().hash(state); start_angle.to_bits().hash(state); sweep_angle.to_bits().hash(state); }
+        }
+    }
 }
 
 /// Path fill type for EncodedPath.

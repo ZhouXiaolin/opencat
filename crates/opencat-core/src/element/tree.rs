@@ -1,5 +1,6 @@
+use crate::draw::op::DrawOp;
 use crate::resource::{asset_id::AssetId, types::VideoFrameTiming};
-use crate::scene::script::{CanvasCommand, TextUnitOverrideBatch};
+use crate::scene::script::TextUnitOverrideBatch;
 use crate::scene::transition::TransitionKind;
 use crate::style::ComputedTextStyle;
 
@@ -56,7 +57,7 @@ pub struct ElementBitmap {
 
 #[derive(Clone, Debug)]
 pub struct ElementCanvas {
-    pub commands: Vec<CanvasCommand>,
+    pub commands: Vec<DrawOp>,
 }
 
 #[derive(Clone, Debug)]

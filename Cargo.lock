@@ -2345,6 +2345,7 @@ dependencies = [
  "fontdb",
  "imagesize",
  "kurbo",
+ "log",
  "nom-exif",
  "rustc-hash 2.1.2",
  "serde",

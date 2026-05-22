@@ -2,72 +2,57 @@
 use tracing::{Level, event, span};
 
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
-use crate::canvas::{Canvas2D, ClipOp, Rect};
-use crate::display::list::{DisplayItem, DisplayRect};
+use crate::display::list::{DisplayItem, DisplayRect, RectDisplayItem};
+use crate::draw::builder::DrawOpBuilder;
+use crate::draw::op::{DrawOp, Rect4};
+use crate::draw::types::{DrawOpRange, PathOp};
+use crate::draw::cache::{self as draw_cache, CachedSubtreeIr};
 use crate::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
 use crate::runtime::compositor::ordered_scene::{OrderedSceneOp, OrderedSceneProgram};
 use crate::runtime::compositor::reuse::LiveNodeItemExecution;
 use crate::scene::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::style::{BorderRadius, Transform};
 
-use super::cache::CachedSubtreeSnapshot;
-use super::{record_cache_pressure, RenderCache, RenderCtx, RenderError};
+use super::{record_cache_pressure, RenderCtx, RenderError};
 
-fn kurbo_rect(r: DisplayRect) -> Rect {
-    Rect::new(r.x as f64, r.y as f64, (r.x + r.width) as f64, (r.y + r.height) as f64)
+fn display_rect_to_rect4(r: DisplayRect) -> Rect4 {
+    Rect4 {
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+    }
 }
 
-fn kurbo_rect_xywh(x: f32, y: f32, w: f32, h: f32) -> Rect {
-    Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64)
-}
-
-fn kurbo_rrect(rect: &Rect, radius: &BorderRadius) -> crate::canvas::RRect {
-    let radii = effective_corner_radius(rect, radius);
-    let r: (f64, f64, f64, f64) = (radii[0] as f64, radii[1] as f64, radii[2] as f64, radii[3] as f64);
-    crate::canvas::RRect::new(rect.x0, rect.y0, rect.x1, rect.y1, r)
-}
-
-fn effective_corner_radius(rect: &Rect, radius: &BorderRadius) -> [f32; 4] {
-    let w = rect.width() as f32;
-    let h = rect.height() as f32;
-    let clamp = |r: f32| {
-        if r <= 0.0 { 0.0 } else { r.min(w / 2.0).min(h / 2.0) }
-    };
-    [clamp(radius.top_left), clamp(radius.top_right), clamp(radius.bottom_right), clamp(radius.bottom_left)]
-}
-
-pub fn render_display_tree<C: Canvas2D>(
-    canvas: &mut C,
+pub fn render_display_tree(
+    ctx: &mut RenderCtx,
     tree: &AnnotatedDisplayTree,
-    ctx: &RenderCtx<C>,
-    cache: &mut RenderCache<C>,
+    cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
-    render_scene_op(canvas, &ctx.ordered_scene.root, tree, ctx, cache)
+    render_scene_op(ctx, &ctx.ordered_scene.root, tree, cache)
 }
 
-fn render_scene_op<C: Canvas2D>(
-    canvas: &mut C,
+fn render_scene_op(
+    ctx: &mut RenderCtx,
     op: &OrderedSceneOp,
     tree: &AnnotatedDisplayTree,
-    ctx: &RenderCtx<C>,
-    cache: &mut RenderCache<C>,
+    cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     match op {
         OrderedSceneOp::CachedSubtree { handle } => {
-            render_cached_subtree(canvas, *handle, tree, ctx, cache)
+            render_cached_subtree(ctx, *handle, tree, cache)
         }
         OrderedSceneOp::LiveSubtree { handle, item_execution, children } => {
-            render_live_subtree(canvas, *handle, *item_execution, children, tree, ctx, cache)
+            render_live_subtree(ctx, *handle, *item_execution, children, tree, cache)
         }
     }
 }
 
-fn render_cached_subtree<C: Canvas2D>(
-    canvas: &mut C,
+fn render_cached_subtree(
+    ctx: &mut RenderCtx,
     handle: AnnotatedNodeHandle,
     tree: &AnnotatedDisplayTree,
-    ctx: &RenderCtx<C>,
-    cache: &mut RenderCache<C>,
+    cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     let node = tree.node(handle);
     let draw = node.draw_composite_semantics();
@@ -75,8 +60,8 @@ fn render_cached_subtree<C: Canvas2D>(
         return Ok(());
     }
 
-    canvas.save();
-    apply_transform(canvas, draw.transform);
+    ctx.builder.push(DrawOp::Save);
+    apply_transform(&mut ctx.builder, draw.transform);
 
     let opacity = draw.opacity;
     let backdrop_blur = draw.backdrop_blur_sigma;
@@ -97,7 +82,7 @@ fn render_cached_subtree<C: Canvas2D>(
             result = "count",
             amount = 1_u64
         );
-        let bounds_rect = kurbo_rect(layer_bounds);
+        let bounds_rect4 = display_rect_to_rect4(layer_bounds);
         if let Some(sigma) = backdrop_blur {
             if sigma > 0.0 {
                 let paint = PaintSpec {
@@ -115,22 +100,43 @@ fn render_cached_subtree<C: Canvas2D>(
                     mask_filter: None,
                     path_effect: None,
                 };
-                canvas.save();
-                canvas.clip_rect(&bounds_rect, ClipOp::Intersect, false);
+                let paint_id = ctx.builder.intern_paint(paint);
+                ctx.builder.push(DrawOp::Save);
+                ctx.builder.push(DrawOp::BeginPath);
+                ctx.builder.push(DrawOp::Path(PathOp::AddRect {
+                    x: bounds_rect4.x,
+                    y: bounds_rect4.y,
+                    width: bounds_rect4.width,
+                    height: bounds_rect4.height,
+                }));
+                ctx.builder.push(DrawOp::ClipPath { anti_alias: false });
                 has_backdrop_clip = true;
-                canvas.save_layer_with(Some(bounds_rect), &paint);
+                ctx.builder.push(DrawOp::SaveLayer {
+                    bounds: Some(bounds_rect4),
+                    paint: Some(paint_id),
+                    alpha: 1.0,
+                });
             } else {
-                canvas.save_layer(Some(bounds_rect), opacity);
+                ctx.builder.push(DrawOp::SaveLayer {
+                    bounds: Some(bounds_rect4),
+                    paint: None,
+                    alpha: opacity,
+                });
             }
         } else {
-            canvas.save_layer(Some(bounds_rect), opacity);
+            ctx.builder.push(DrawOp::SaveLayer {
+                bounds: Some(bounds_rect4),
+                paint: None,
+                alpha: opacity,
+            });
         }
     }
 
+    // Check cache
     {
-        let mut lru = cache.subtree_snapshots.borrow_mut();
-        if let Some(snapshot) = lru.get_cloned(&key) {
-            if snapshot.secondary_fingerprint == fingerprint.secondary {
+        let hit_entry = cache.subtree_snapshots.get_cloned(&key);
+        if let Some(entry) = hit_entry {
+            if entry.secondary_fingerprint == fingerprint.secondary {
                 #[cfg(feature = "profile")]
                 event!(
                     target: "render.cache",
@@ -147,45 +153,53 @@ fn render_cached_subtree<C: Canvas2D>(
                     kind = "consecutive",
                     name = "subtree_snapshot",
                     result = "count",
-                    amount = snapshot.consecutive_hits as u64
+                    amount = entry.consecutive_hits as u64
                 );
-                canvas.draw_picture(&snapshot.picture, None, None);
-                let updated = CachedSubtreeSnapshot {
-                    consecutive_hits: snapshot.consecutive_hits + 1,
-                    ..snapshot
-                };
-                let report = lru.insert(key, updated);
-                drop(lru);
-                record_cache_pressure("subtree_snapshot", &report);
-                if uses_layer {
-                    canvas.restore();
-                    if has_backdrop_clip {
-                        canvas.restore();
+                if let Some(segment) = cache.segments.get_cloned(&entry.segment_key) {
+                    ctx.builder.import_segment(&segment);
+                    let updated = CachedSubtreeIr {
+                        consecutive_hits: entry.consecutive_hits + 1,
+                        ..entry
+                    };
+                    let report = cache.subtree_snapshots.insert(key, updated);
+                    record_cache_pressure("subtree_snapshot", &report);
+                    if uses_layer {
+                        ctx.builder.push(DrawOp::Restore);
+                        if has_backdrop_clip {
+                            ctx.builder.push(DrawOp::Restore);
+                        }
                     }
+                    ctx.builder.push(DrawOp::Restore);
+                    return Ok(());
                 }
-                canvas.restore();
-                return Ok(());
             }
         }
     }
 
+    // Cache miss — record subtree into IR range
     #[cfg(feature = "profile")]
     let _record_span = span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record").entered();
-    let bounds = kurbo_rect(layer_bounds);
-    let recorded = canvas.make_picture(&bounds, |rec_canvas| {
-        let _ = render_live_cached_node(rec_canvas, handle, tree, ctx, cache);
-    });
+
+    let range_marker = ctx.builder.begin_range();
+    render_live_cached_node(ctx, handle, tree, cache)?;
+    let range = ctx.builder.end_range(range_marker);
+
     #[cfg(feature = "profile")]
     drop(_record_span);
 
-    let snapshot = CachedSubtreeSnapshot {
-        picture: recorded.clone(),
+    let segment = ctx.builder.snapshot_range(range);
+    let segment_key = key;
+
+    cache.segments.insert(segment_key, segment);
+
+    let snapshot = CachedSubtreeIr {
+        segment_key,
         secondary_fingerprint: fingerprint.secondary,
         consecutive_hits: 0,
         recorded_bounds: layer_bounds,
     };
     {
-        let report = cache.subtree_snapshots.borrow_mut().insert(key, snapshot);
+        let report = cache.subtree_snapshots.insert(key, snapshot);
         record_cache_pressure("subtree_snapshot", &report);
     }
     #[cfg(feature = "profile")]
@@ -198,56 +212,48 @@ fn render_cached_subtree<C: Canvas2D>(
         amount = 1_u64
     );
 
-    #[cfg(feature = "profile")]
-    let _draw_span = span!(target: "render.backend", Level::TRACE, "subtree_snapshot_draw").entered();
-    canvas.draw_picture(&recorded, None, None);
-    #[cfg(feature = "profile")]
-    drop(_draw_span);
-
     if uses_layer {
-        canvas.restore();
+        ctx.builder.push(DrawOp::Restore);
         if has_backdrop_clip {
-            canvas.restore();
+            ctx.builder.push(DrawOp::Restore);
         }
     }
-    canvas.restore();
+    ctx.builder.push(DrawOp::Restore);
     Ok(())
 }
 
-fn render_live_cached_node<C: Canvas2D>(
-    canvas: &mut C,
+fn render_live_cached_node(
+    ctx: &mut RenderCtx,
     handle: AnnotatedNodeHandle,
     tree: &AnnotatedDisplayTree,
-    ctx: &RenderCtx<C>,
-    cache: &mut RenderCache<C>,
+    cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     let node = tree.node(handle);
     let subtree = OrderedSceneProgram::build_subtree(tree, handle);
 
-    super::display_item::render_display_item(canvas, node.recorded_semantics().item, ctx, cache)?;
+    super::display_item::render_display_item(ctx, node.recorded_semantics().item, cache)?;
 
     if let Some(clip) = node.recorded_semantics().clip {
-        canvas.save();
-        let bounds = kurbo_rect(clip.bounds);
-        clip_bounds_with_radius(canvas, &bounds, &clip.border_radius);
+        ctx.builder.push(DrawOp::Save);
+        let clip_rect4 = display_rect_to_rect4(clip.bounds);
+        clip_bounds_with_radius(&mut ctx.builder, clip_rect4, &clip.border_radius);
     }
     for child in &subtree.children {
-        render_scene_op(canvas, child, tree, ctx, cache)?;
+        render_scene_op(ctx, child, tree, cache)?;
     }
     if node.recorded_semantics().clip.is_some() {
-        canvas.restore();
+        ctx.builder.push(DrawOp::Restore);
     }
     Ok(())
 }
 
-fn render_live_subtree<C: Canvas2D>(
-    canvas: &mut C,
+fn render_live_subtree(
+    ctx: &mut RenderCtx,
     handle: AnnotatedNodeHandle,
     item_execution: LiveNodeItemExecution,
     children: &[OrderedSceneOp],
     tree: &AnnotatedDisplayTree,
-    ctx: &RenderCtx<C>,
-    cache: &mut RenderCache<C>,
+    cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     let node = tree.node(handle);
     let draw = node.draw_composite_semantics();
@@ -255,8 +261,8 @@ fn render_live_subtree<C: Canvas2D>(
         return Ok(());
     }
 
-    canvas.save();
-    apply_transform(canvas, draw.transform);
+    ctx.builder.push(DrawOp::Save);
+    apply_transform(&mut ctx.builder, draw.transform);
 
     let opacity = draw.opacity;
     let backdrop_blur = draw.backdrop_blur_sigma;
@@ -274,7 +280,7 @@ fn render_live_subtree<C: Canvas2D>(
             result = "count",
             amount = 1_u64
         );
-        let bounds_rect = kurbo_rect(bounds);
+        let bounds_rect4 = display_rect_to_rect4(bounds);
         if let Some(sigma) = backdrop_blur {
             if sigma > 0.0 {
                 let paint = PaintSpec {
@@ -292,40 +298,61 @@ fn render_live_subtree<C: Canvas2D>(
                     mask_filter: None,
                     path_effect: None,
                 };
-                canvas.save();
-                canvas.clip_rect(&bounds_rect, ClipOp::Intersect, false);
+                let paint_id = ctx.builder.intern_paint(paint);
+                ctx.builder.push(DrawOp::Save);
+                ctx.builder.push(DrawOp::BeginPath);
+                ctx.builder.push(DrawOp::Path(PathOp::AddRect {
+                    x: bounds_rect4.x,
+                    y: bounds_rect4.y,
+                    width: bounds_rect4.width,
+                    height: bounds_rect4.height,
+                }));
+                ctx.builder.push(DrawOp::ClipPath { anti_alias: false });
                 has_backdrop_clip = true;
-                canvas.save_layer_with(Some(bounds_rect), &paint);
+                ctx.builder.push(DrawOp::SaveLayer {
+                    bounds: Some(bounds_rect4),
+                    paint: Some(paint_id),
+                    alpha: 1.0,
+                });
             } else {
-                canvas.save_layer(Some(bounds_rect), opacity);
+                ctx.builder.push(DrawOp::SaveLayer {
+                    bounds: Some(bounds_rect4),
+                    paint: None,
+                    alpha: opacity,
+                });
             }
         } else {
-            canvas.save_layer(Some(bounds_rect), opacity);
+            ctx.builder.push(DrawOp::SaveLayer {
+                bounds: Some(bounds_rect4),
+                paint: None,
+                alpha: opacity,
+            });
         }
     }
 
+    // Transition compositing: render from/to subtrees and blend them
     if let DisplayItem::Timeline(timeline) = &node.item {
         if let Some(ref transition) = timeline.transition {
             if children.len() == 2 {
-                let tl_rect = super::rect::kurbo_rect(timeline.bounds);
-                let rect_item = crate::display::list::RectDisplayItem {
+                let rect_item = RectDisplayItem {
                     bounds: timeline.bounds,
                     paint: timeline.paint.clone(),
                 };
-                super::rect::render_rect_with_shadows(canvas, &rect_item, ctx, cache)?;
+                super::rect::render_rect_with_shadows(ctx, &rect_item)?;
 
                 if let Some(clip) = &node.clip {
-                    canvas.save();
-                    let clip_bounds_rect = kurbo_rect(clip.bounds);
-                    clip_bounds_with_radius(canvas, &clip_bounds_rect, &clip.border_radius);
+                    ctx.builder.push(DrawOp::Save);
+                    let clip_bounds_rect4 = display_rect_to_rect4(clip.bounds);
+                    clip_bounds_with_radius(&mut ctx.builder, clip_bounds_rect4, &clip.border_radius);
                 }
 
-                let from_pic = canvas.make_picture(&tl_rect, |rec| {
-                    let _ = render_scene_op(rec, &children[0], tree, ctx, cache);
-                });
-                let to_pic = canvas.make_picture(&tl_rect, |rec| {
-                    let _ = render_scene_op(rec, &children[1], tree, ctx, cache);
-                });
+                let from_marker = ctx.builder.begin_range();
+                render_scene_op(ctx, &children[0], tree, cache)?;
+                let from_range = ctx.builder.end_range(from_marker);
+
+                let to_marker = ctx.builder.begin_range();
+                render_scene_op(ctx, &children[1], tree, cache)?;
+                let to_range = ctx.builder.end_range(to_marker);
 
                 #[cfg(feature = "profile")]
                 let _trans_span = span!(
@@ -337,18 +364,18 @@ fn render_live_subtree<C: Canvas2D>(
                 .entered();
 
                 let p = transition.progress.clamp(0.0, 1.0);
-                render_transition_composite(canvas, &from_pic, &to_pic, p, &transition.kind, timeline.bounds, cache);
+                render_transition_composite(ctx, from_range, to_range, p, &transition.kind, timeline.bounds);
 
                 if node.clip.is_some() {
-                    canvas.restore();
+                    ctx.builder.push(DrawOp::Restore);
                 }
                 if uses_layer {
-                    canvas.restore();
+                    ctx.builder.push(DrawOp::Restore);
                     if has_backdrop_clip {
-                        canvas.restore();
+                        ctx.builder.push(DrawOp::Restore);
                     }
                 }
-                canvas.restore();
+                ctx.builder.push(DrawOp::Restore);
                 return Ok(());
             }
         }
@@ -358,70 +385,65 @@ fn render_live_subtree<C: Canvas2D>(
         LiveNodeItemExecution::Direct => {
             #[cfg(feature = "profile")]
             let _item_span = span!(target: "render.backend", Level::TRACE, "draw_item").entered();
-            super::display_item::render_display_item(canvas, &node.item, ctx, cache)?;
+            super::display_item::render_display_item(ctx, &node.item, cache)?;
         }
         LiveNodeItemExecution::FrameLocalPicture => {
             #[cfg(feature = "profile")]
             let _item_span = span!(target: "render.backend", Level::TRACE, "draw_item_frame_local_picture").entered();
             let semantics = node.item.picture_semantics();
-            let pic_bounds = kurbo_rect_xywh(
-                0.0, 0.0,
-                semantics.record_bounds.width, semantics.record_bounds.height,
-            );
-            let picture = canvas.make_picture(&pic_bounds, |rec_canvas| {
-                rec_canvas.translate(
-                    semantics.record_translation_x,
-                    semantics.record_translation_y,
-                );
-                let _ = super::display_item::render_display_item(rec_canvas, &node.item, ctx, cache);
+            ctx.builder.push(DrawOp::Save);
+            ctx.builder.push(DrawOp::Translate {
+                x: semantics.draw_translation_x,
+                y: semantics.draw_translation_y,
             });
-            canvas.save();
-            canvas.translate(semantics.draw_translation_x, semantics.draw_translation_y);
-            canvas.draw_picture(&picture, None, None);
-            canvas.restore();
+            super::display_item::render_display_item(ctx, &node.item, cache)?;
+            ctx.builder.push(DrawOp::Restore);
         }
     }
 
     if let Some(clip) = &node.clip {
-        canvas.save();
-        let clip_bounds_rect = kurbo_rect(clip.bounds);
-        clip_bounds_with_radius(canvas, &clip_bounds_rect, &clip.border_radius);
+        ctx.builder.push(DrawOp::Save);
+        let clip_bounds_rect4 = display_rect_to_rect4(clip.bounds);
+        clip_bounds_with_radius(&mut ctx.builder, clip_bounds_rect4, &clip.border_radius);
     }
 
     for child in children {
-        render_scene_op(canvas, child, tree, ctx, cache)?;
+        render_scene_op(ctx, child, tree, cache)?;
     }
 
     if node.clip.is_some() {
-        canvas.restore();
+        ctx.builder.push(DrawOp::Restore);
     }
     if uses_layer {
-        canvas.restore();
+        ctx.builder.push(DrawOp::Restore);
         if has_backdrop_clip {
-            canvas.restore();
+            ctx.builder.push(DrawOp::Restore);
         }
     }
-    canvas.restore();
+    ctx.builder.push(DrawOp::Restore);
     Ok(())
 }
 
-fn render_transition_composite<C: Canvas2D>(
-    canvas: &mut C,
-    from_pic: &C::Picture,
-    to_pic: &C::Picture,
+fn render_transition_composite(
+    ctx: &mut RenderCtx,
+    from_range: DrawOpRange,
+    to_range: DrawOpRange,
     progress: f32,
     kind: &TransitionKind,
     bounds: DisplayRect,
-    cache: &mut RenderCache<C>,
 ) {
-    let rect = kurbo_rect(bounds);
-    canvas.draw_picture(from_pic, None, None);
+    ctx.builder.push(DrawOp::ReplayRange { range: from_range });
 
     match kind {
         TransitionKind::Fade => {
-            canvas.save_layer(Some(rect), progress);
-            canvas.draw_picture(to_pic, None, None);
-            canvas.restore();
+            let bounds_rect4 = display_rect_to_rect4(bounds);
+            ctx.builder.push(DrawOp::SaveLayer {
+                bounds: Some(bounds_rect4),
+                paint: None,
+                alpha: progress,
+            });
+            ctx.builder.push(DrawOp::ReplayRange { range: to_range });
+            ctx.builder.push(DrawOp::Restore);
         }
         TransitionKind::Slide(dir) => {
             let (dx, dy) = match dir {
@@ -430,10 +452,10 @@ fn render_transition_composite<C: Canvas2D>(
                 SlideDirection::FromTop => (0.0, -(1.0 - progress) * bounds.height),
                 SlideDirection::FromBottom => (0.0, (1.0 - progress) * bounds.height),
             };
-            canvas.save();
-            canvas.translate(dx, dy);
-            canvas.draw_picture(to_pic, None, None);
-            canvas.restore();
+            ctx.builder.push(DrawOp::Save);
+            ctx.builder.push(DrawOp::Translate { x: dx, y: dy });
+            ctx.builder.push(DrawOp::ReplayRange { range: to_range });
+            ctx.builder.push(DrawOp::Restore);
         }
         TransitionKind::Wipe(dir) => {
             let clip = match dir {
@@ -471,48 +493,103 @@ fn render_transition_composite<C: Canvas2D>(
                     height: bounds.height,
                 },
             };
-            canvas.save();
-            canvas.clip_rect(&kurbo_rect(clip), ClipOp::Intersect, false);
-            canvas.draw_picture(to_pic, None, None);
-            canvas.restore();
+            let clip_rect4 = display_rect_to_rect4(clip);
+            ctx.builder.push(DrawOp::Save);
+            ctx.builder.push(DrawOp::BeginPath);
+            ctx.builder.push(DrawOp::Path(PathOp::AddRect {
+                x: clip_rect4.x,
+                y: clip_rect4.y,
+                width: clip_rect4.width,
+                height: clip_rect4.height,
+            }));
+            ctx.builder.push(DrawOp::ClipPath { anti_alias: false });
+            ctx.builder.push(DrawOp::ReplayRange { range: to_range });
+            ctx.builder.push(DrawOp::Restore);
         }
         TransitionKind::Iris => {
             let cx = bounds.x + bounds.width / 2.0;
             let cy = bounds.y + bounds.height / 2.0;
             let scale = progress.max(0.001);
-            canvas.save();
-            canvas.translate(cx, cy);
-            canvas.scale(scale, scale);
-            canvas.translate(-cx, -cy);
-            canvas.draw_picture(to_pic, None, None);
-            canvas.restore();
+            ctx.builder.push(DrawOp::Save);
+            ctx.builder.push(DrawOp::Translate { x: cx, y: cy });
+            ctx.builder.push(DrawOp::Scale { x: scale, y: scale });
+            ctx.builder.push(DrawOp::Translate { x: -cx, y: -cy });
+            ctx.builder.push(DrawOp::ReplayRange { range: to_range });
+            ctx.builder.push(DrawOp::Restore);
         }
         TransitionKind::LightLeak(params) => {
             super::transition::render_light_leak_transition(
-                canvas, from_pic, to_pic, progress, params, bounds, cache,
+                ctx, from_range, to_range, progress, params, bounds,
             );
         }
         TransitionKind::Gl(effect) => {
             super::transition::render_gl_transition(
-                canvas, from_pic, to_pic, progress, effect, bounds, cache,
+                ctx, from_range, to_range, progress, effect, bounds,
             );
         }
         TransitionKind::ClockWipe => {
-            canvas.save_layer(Some(rect), progress);
-            canvas.draw_picture(to_pic, None, None);
-            canvas.restore();
+            let bounds_rect4 = display_rect_to_rect4(bounds);
+            ctx.builder.push(DrawOp::SaveLayer {
+                bounds: Some(bounds_rect4),
+                paint: None,
+                alpha: progress,
+            });
+            ctx.builder.push(DrawOp::ReplayRange { range: to_range });
+            ctx.builder.push(DrawOp::Restore);
         }
     }
 }
 
-fn clip_bounds_with_radius<C: Canvas2D>(canvas: &mut C, rect: &Rect, radius: &BorderRadius) {
-    let radii = effective_corner_radius(rect, radius);
-    if radii.iter().any(|&r| r > 0.0) {
-        let rrect = kurbo_rrect(rect, radius);
-        canvas.clip_rrect(&rrect, ClipOp::Intersect, true);
+fn clip_bounds_with_radius(builder: &mut DrawOpBuilder, rect: Rect4, radius: &BorderRadius) {
+    let w = rect.width;
+    let h = rect.height;
+    let clamp = |r: f32| {
+        if r <= 0.0 {
+            0.0
+        } else {
+            r.min(w / 2.0).min(h / 2.0)
+        }
+    };
+    let tl = clamp(radius.top_left);
+    let tr = clamp(radius.top_right);
+    let br = clamp(radius.bottom_right);
+    let bl = clamp(radius.bottom_left);
+
+    let has_radius = tl > 0.0 || tr > 0.0 || br > 0.0 || bl > 0.0;
+
+    builder.push(DrawOp::BeginPath);
+    if has_radius {
+        let x = rect.x;
+        let y = rect.y;
+        let x1 = x + rect.width;
+        let y1 = y + rect.height;
+        builder.push(DrawOp::Path(PathOp::MoveTo { x: x + tl, y: y }));
+        builder.push(DrawOp::Path(PathOp::LineTo { x: x1 - tr, y: y }));
+        if tr > 0.0 {
+            builder.push(DrawOp::Path(PathOp::QuadTo { cx: x1, cy: y, x: x1, y: y + tr }));
+        }
+        builder.push(DrawOp::Path(PathOp::LineTo { x: x1, y: y1 - br }));
+        if br > 0.0 {
+            builder.push(DrawOp::Path(PathOp::QuadTo { cx: x1, cy: y1, x: x1 - br, y: y1 }));
+        }
+        builder.push(DrawOp::Path(PathOp::LineTo { x: x + bl, y: y1 }));
+        if bl > 0.0 {
+            builder.push(DrawOp::Path(PathOp::QuadTo { cx: x, cy: y1, x: x, y: y1 - bl }));
+        }
+        builder.push(DrawOp::Path(PathOp::LineTo { x: x, y: y + tl }));
+        if tl > 0.0 {
+            builder.push(DrawOp::Path(PathOp::QuadTo { cx: x, cy: y, x: x + tl, y: y }));
+        }
+        builder.push(DrawOp::Path(PathOp::Close));
     } else {
-        canvas.clip_rect(rect, ClipOp::Intersect, true);
+        builder.push(DrawOp::Path(PathOp::AddRect {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        }));
     }
+    builder.push(DrawOp::ClipPath { anti_alias: true });
 }
 
 #[cfg(feature = "profile")]
@@ -525,53 +602,66 @@ fn transition_kind_str(kind: &TransitionKind) -> &'static str {
     }
 }
 
-fn apply_transform<C: Canvas2D>(canvas: &mut C, transform: &crate::display::list::DisplayTransform) {
-    canvas.translate(transform.translation_x, transform.translation_y);
+fn apply_transform(builder: &mut DrawOpBuilder, transform: &crate::display::list::DisplayTransform) {
+    builder.push(DrawOp::Translate {
+        x: transform.translation_x,
+        y: transform.translation_y,
+    });
     if transform.transforms.is_empty() {
         return;
     }
-    let rect = kurbo_rect(transform.bounds);
-    let center_x = rect.width() as f32 / 2.0;
-    let center_y = rect.height() as f32 / 2.0;
+    let center_x = transform.bounds.width / 2.0;
+    let center_y = transform.bounds.height / 2.0;
 
     for t in transform.transforms.iter() {
         match *t {
-            Transform::TranslateX { value } => canvas.translate(value, 0.0),
-            Transform::TranslateY { value } => canvas.translate(0.0, value),
-            Transform::Translate { x, y } => canvas.translate(x, y),
+            Transform::TranslateX { value } => builder.push(DrawOp::Translate { x: value, y: 0.0 }),
+            Transform::TranslateY { value } => builder.push(DrawOp::Translate { x: 0.0, y: value }),
+            Transform::Translate { x, y } => builder.push(DrawOp::Translate { x, y }),
             Transform::Scale { value } => {
-                canvas.translate(center_x, center_y);
-                canvas.scale(value, value);
-                canvas.translate(-center_x, -center_y);
+                builder.push(DrawOp::Translate { x: center_x, y: center_y });
+                builder.push(DrawOp::Scale { x: value, y: value });
+                builder.push(DrawOp::Translate { x: -center_x, y: -center_y });
             }
             Transform::ScaleX { value } => {
-                canvas.translate(center_x, center_y);
-                canvas.scale(value, 1.0);
-                canvas.translate(-center_x, -center_y);
+                builder.push(DrawOp::Translate { x: center_x, y: center_y });
+                builder.push(DrawOp::Scale { x: value, y: 1.0 });
+                builder.push(DrawOp::Translate { x: -center_x, y: -center_y });
             }
             Transform::ScaleY { value } => {
-                canvas.translate(center_x, center_y);
-                canvas.scale(1.0, value);
-                canvas.translate(-center_x, -center_y);
+                builder.push(DrawOp::Translate { x: center_x, y: center_y });
+                builder.push(DrawOp::Scale { x: 1.0, y: value });
+                builder.push(DrawOp::Translate { x: -center_x, y: -center_y });
             }
-            Transform::RotateDeg { value: deg } => canvas.rotate(deg, center_x, center_y),
+            Transform::RotateDeg { value: deg } => builder.push(DrawOp::Rotate {
+                degrees: deg,
+                cx: center_x,
+                cy: center_y,
+            }),
             Transform::SkewXDeg { value: deg } => {
-                canvas.translate(center_x, center_y);
-                canvas.skew(deg.to_radians().tan(), 0.0);
-                canvas.translate(-center_x, -center_y);
+                builder.push(DrawOp::Translate { x: center_x, y: center_y });
+                builder.push(DrawOp::Skew {
+                    sx: deg.to_radians().tan(),
+                    sy: 0.0,
+                });
+                builder.push(DrawOp::Translate { x: -center_x, y: -center_y });
             }
             Transform::SkewYDeg { value: deg } => {
-                canvas.translate(center_x, center_y);
-                canvas.skew(0.0, deg.to_radians().tan());
-                canvas.translate(-center_x, -center_y);
+                builder.push(DrawOp::Translate { x: center_x, y: center_y });
+                builder.push(DrawOp::Skew {
+                    sx: 0.0,
+                    sy: deg.to_radians().tan(),
+                });
+                builder.push(DrawOp::Translate { x: -center_x, y: -center_y });
             }
             Transform::SkewDeg { x: x_deg, y: y_deg } => {
-                canvas.translate(center_x, center_y);
-                canvas.skew(x_deg.to_radians().tan(), y_deg.to_radians().tan());
-                canvas.translate(-center_x, -center_y);
+                builder.push(DrawOp::Translate { x: center_x, y: center_y });
+                builder.push(DrawOp::Skew {
+                    sx: x_deg.to_radians().tan(),
+                    sy: y_deg.to_radians().tan(),
+                });
+                builder.push(DrawOp::Translate { x: -center_x, y: -center_y });
             }
         }
     }
 }
-
-

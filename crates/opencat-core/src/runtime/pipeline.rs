@@ -121,8 +121,7 @@ pub fn render_frame_inner(
     drop(_display_span);
 
     // 4. plan
-    #[allow(unused_variables)]
-    let scene_plan = plan_for_scene(&layout_pass, annotated.contains_time_variant());
+    let _scene_plan = plan_for_scene(&layout_pass, annotated.contains_time_variant());
 
     // 5/6. Build DrawOp IR via builder + RenderCtx
     cache.scene_snapshot = None;
@@ -167,9 +166,9 @@ pub fn render_frame<P: Platform>(
         ..
     } = *session;
 
-    // SAFETY: script() and video_source() access disjoint fields
-    // on every Platform implementation. The borrow checker cannot see this
-    // through trait method calls, so we use a raw pointer to split the borrow.
+    // SAFETY: script() accesses only its own field on every Platform
+    // implementation. The borrow checker cannot see this through trait
+    // method calls, so we use a raw pointer to split the borrow.
     let platform_ptr: *mut P = platform;
     let script = unsafe { (*platform_ptr).script() };
 

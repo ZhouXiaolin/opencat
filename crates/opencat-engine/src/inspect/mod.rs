@@ -25,7 +25,7 @@ use crate::platform::EnginePlatform;
 use crate::resource::AssetPathStore;
 use crate::backend::SkiaCanvas2D;
 use opencat_core::scene::path_bounds::DefaultPathBounds;
-type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform, SkiaCanvas2D>;
+type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform>;
 
 #[derive(Clone, Debug)]
 pub struct FrameElementRect {

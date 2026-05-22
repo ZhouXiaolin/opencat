@@ -22,7 +22,7 @@ use crate::backend::SkiaCanvas2D;
 
 pub use crate::codec::encode::Mp4Config;
 /// Core generic RenderSession monomorphised for the engine's Skia platform.
-pub type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform, SkiaCanvas2D>;
+pub type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform>;
 
 pub enum OutputFormat {
     Mp4(Mp4Config),

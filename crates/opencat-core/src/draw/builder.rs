@@ -40,6 +40,7 @@ pub struct DrawOpBuilder {
     paint_state: DrawScriptPaintState,
 }
 
+
 impl DrawOpBuilder {
     /// Append a fully-formed DrawOp directly.
     pub fn push(&mut self, op: DrawOp) {
@@ -66,6 +67,16 @@ impl DrawOpBuilder {
         self.strings.push(s.to_string());
         self.string_dedup.insert(s.to_string(), id);
         id
+    }
+
+    /// Intern a slice of f32 values, returning an F32Range pointing into the pool.
+    pub fn intern_f32_range(&mut self, values: &[f32]) -> super::op::F32Range {
+        let start = self.f32_pool.len() as u32;
+        self.f32_pool.extend_from_slice(values);
+        super::op::F32Range {
+            start,
+            len: values.len() as u32,
+        }
     }
 
 

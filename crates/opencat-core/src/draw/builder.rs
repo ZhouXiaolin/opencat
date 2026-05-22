@@ -200,7 +200,8 @@ impl DrawOpBuilder {
     }
 
     /// Capture a DrawOpRange as a CachedDrawSegment for cache storage.
-    /// Clones all side-table data referenced by ops in the given range.
+    /// Clones all side-table data referenced by ops in the given range,
+    /// compacting indices to 0-based and remapping all IDs in the cloned ops.
     pub fn snapshot_range(&self, range: DrawOpRange) -> super::cache::CachedDrawSegment {
         use super::cache::CachedDrawSegment;
         let start = range.start_op as usize;
@@ -222,6 +223,23 @@ impl DrawOpBuilder {
             &mut effect_ids,
         );
 
+        // Build old→new index maps for compacted side-table entries
+        let paint_map: std::collections::BTreeMap<u32, u32> = paint_ids
+            .iter()
+            .enumerate()
+            .map(|(new_idx, &old_id)| (old_id, new_idx as u32))
+            .collect();
+        let path_map: std::collections::BTreeMap<u32, u32> = path_ids
+            .iter()
+            .enumerate()
+            .map(|(new_idx, &old_id)| (old_id, new_idx as u32))
+            .collect();
+        let effect_map: std::collections::BTreeMap<u32, u32> = effect_ids
+            .iter()
+            .enumerate()
+            .map(|(new_idx, &old_id)| (old_id, new_idx as u32))
+            .collect();
+
         let paints: Vec<_> = paint_ids
             .iter()
             .map(|&id| self.paints[id as usize].clone())
@@ -239,9 +257,14 @@ impl DrawOpBuilder {
                 flat_children.insert(i);
             }
         }
-        for idx in flat_children {
-            if (idx as usize) < self.children.len() {
-                children.push(self.children[idx as usize].clone());
+        let child_map: std::collections::BTreeMap<u32, u32> = flat_children
+            .iter()
+            .enumerate()
+            .map(|(new_idx, &old_id)| (old_id, new_idx as u32))
+            .collect();
+        for idx in &flat_children {
+            if (*idx as usize) < self.children.len() {
+                children.push(self.children[*idx as usize].clone());
             }
         }
 
@@ -255,8 +278,14 @@ impl DrawOpBuilder {
             .map(|&id| self.effects[id as usize].clone())
             .collect();
 
+        // Remap all IDs in cloned ops to match compacted side-tables
+        let ops: Vec<DrawOp> = ops_slice
+            .iter()
+            .map(|op| remap_op_snapshot(op, &paint_map, &path_map, &effect_map, &child_map))
+            .collect();
+
         CachedDrawSegment {
-            ops: ops_slice.to_vec(),
+            ops,
             paints,
             paths,
             children,
@@ -495,6 +524,146 @@ fn remap_op(
     }
 }
 
+/// Like remap_op but for snapshot compaction: maps old builder indices
+/// to new compacted indices using the provided maps.
+fn remap_op_snapshot(
+    op: &DrawOp,
+    paint_map: &std::collections::BTreeMap<u32, u32>,
+    path_map: &std::collections::BTreeMap<u32, u32>,
+    effect_map: &std::collections::BTreeMap<u32, u32>,
+    child_map: &std::collections::BTreeMap<u32, u32>,
+) -> DrawOp {
+    let remap_paint = |p: &PaintId| PaintId(*paint_map.get(&p.0).unwrap_or(&0));
+    let remap_path = |p: &PathId| PathId(*path_map.get(&p.0).unwrap_or(&0));
+    let remap_effect = |e: &EffectId| EffectId(*effect_map.get(&e.0).unwrap_or(&0));
+    let remap_child = |c: &ChildRange| ChildRange {
+        start: *child_map.get(&c.start).unwrap_or(&0),
+        len: c.len,
+    };
+
+    match op {
+        DrawOp::Rect { rect, paint } => DrawOp::Rect {
+            rect: *rect,
+            paint: remap_paint(paint),
+        },
+        DrawOp::RRect { rect, radii, paint } => DrawOp::RRect {
+            rect: *rect,
+            radii: *radii,
+            paint: remap_paint(paint),
+        },
+        DrawOp::DRRect {
+            outer,
+            inner,
+            paint,
+        } => DrawOp::DRRect {
+            outer: *outer,
+            inner: *inner,
+            paint: remap_paint(paint),
+        },
+        DrawOp::Oval { rect, paint } => DrawOp::Oval {
+            rect: *rect,
+            paint: remap_paint(paint),
+        },
+        DrawOp::Circle {
+            cx,
+            cy,
+            radius,
+            paint,
+        } => DrawOp::Circle {
+            cx: *cx,
+            cy: *cy,
+            radius: *radius,
+            paint: remap_paint(paint),
+        },
+        DrawOp::Arc {
+            rect,
+            start,
+            sweep,
+            use_center,
+            paint,
+        } => DrawOp::Arc {
+            rect: *rect,
+            start: *start,
+            sweep: *sweep,
+            use_center: *use_center,
+            paint: remap_paint(paint),
+        },
+        DrawOp::Line {
+            x0,
+            y0,
+            x1,
+            y1,
+            paint,
+        } => DrawOp::Line {
+            x0: *x0,
+            y0: *y0,
+            x1: *x1,
+            y1: *y1,
+            paint: remap_paint(paint),
+        },
+        DrawOp::Points {
+            mode,
+            points,
+            paint,
+        } => DrawOp::Points {
+            mode: *mode,
+            points: *points,
+            paint: remap_paint(paint),
+        },
+        DrawOp::DrawPath { path, paint } => DrawOp::DrawPath {
+            path: remap_path(path),
+            paint: remap_paint(paint),
+        },
+        DrawOp::Paint { paint } => DrawOp::Paint {
+            paint: remap_paint(paint),
+        },
+        DrawOp::RuntimeEffect {
+            effect,
+            uniforms,
+            children,
+            dst,
+        } => DrawOp::RuntimeEffect {
+            effect: remap_effect(effect),
+            uniforms: *uniforms,
+            children: remap_child(children),
+            dst: *dst,
+        },
+        DrawOp::SaveLayer {
+            bounds,
+            paint,
+            alpha,
+        } => DrawOp::SaveLayer {
+            bounds: *bounds,
+            paint: paint.as_ref().map(|p| remap_paint(p)),
+            alpha: *alpha,
+        },
+        DrawOp::Image {
+            image,
+            x,
+            y,
+            paint,
+        } => DrawOp::Image {
+            image: image.clone(),
+            x: *x,
+            y: *y,
+            paint: paint.as_ref().map(|p| remap_paint(p)),
+        },
+        DrawOp::ImageRect {
+            image,
+            src,
+            dst,
+            paint,
+        } => DrawOp::ImageRect {
+            image: image.clone(),
+            src: *src,
+            dst: *dst,
+            paint: paint.as_ref().map(|p| remap_paint(p)),
+        },
+        DrawOp::ReplayRange { range } => DrawOp::ReplayRange { range: *range },
+        other => other.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,5 +795,46 @@ mod tests {
 
         let frame = builder.finish();
         assert_eq!(frame.ops.len(), 1); // only the original Save
+    }
+
+    #[test]
+    fn snapshot_range_import_segment_roundtrip() {
+        use crate::draw::op::Rect4;
+
+        let mut builder = DrawOpBuilder::default();
+        let spec = PaintSpec {
+            style: PaintStyle::Fill,
+            fill: FillSpec::Solid([1.0, 0.0, 0.0, 1.0]),
+            ..Default::default()
+        };
+        let paint_id = builder.intern_paint(spec);
+
+        let marker = builder.begin_range();
+        builder.push(DrawOp::Save);
+        builder.push(DrawOp::Rect {
+            rect: Rect4 {
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 50.0,
+            },
+            paint: paint_id,
+        });
+        builder.push(DrawOp::Restore);
+        let range = builder.end_range(marker);
+
+        // Snapshot
+        let segment = builder.snapshot_range(range);
+
+        // New builder, import segment
+        let mut builder2 = DrawOpBuilder::default();
+        let _imported = builder2.import_segment(&segment);
+
+        let frame = builder2.finish();
+        // Should have 3 ops, with paint id remapped to 0
+        assert_eq!(frame.ops.len(), 3);
+        if let DrawOp::Rect { paint, .. } = &frame.ops[1] {
+            assert_eq!(paint.0, 0);
+        }
     }
 }

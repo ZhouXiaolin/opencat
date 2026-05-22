@@ -1,7 +1,6 @@
 //! opencat-engine — 桌面渲染引擎。
 //! 承载 IO / ffmpeg / quickjs / skia / 系统字体 / RenderSession。
 
-pub mod backend;
 pub mod codec;
 pub mod executor;
 pub mod fonts;

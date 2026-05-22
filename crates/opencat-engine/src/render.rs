@@ -244,7 +244,9 @@ pub fn render_frame_to_target(
         Some(&blob_store),
     )?;
 
-    let mut media = crate::media::EngineMedia;
+    let video_ptr: *mut crate::resource::media::MediaContext =
+        &mut session.platform.video;
+    let mut media = crate::media::EngineMedia::new(unsafe { &*asset_paths_ptr }, video_ptr);
     let prepared = media
         .prepare_frame(&media_plan, PrepareMode::Export)
         .map_err(|e| anyhow!("media prepare failed: {}", e))?;
@@ -288,7 +290,9 @@ pub fn render_frame_rgba(
         Some(&blob_store),
     )?;
 
-    let mut media = crate::media::EngineMedia;
+    let video_ptr: *mut crate::resource::media::MediaContext =
+        &mut session.platform.video;
+    let mut media = crate::media::EngineMedia::new(unsafe { &*asset_paths_ptr }, video_ptr);
     let prepared = media
         .prepare_frame(&media_plan, PrepareMode::Export)
         .map_err(|e| anyhow!("media prepare failed: {}", e))?;

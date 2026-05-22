@@ -19,7 +19,7 @@ pub struct BytesRangeId(pub u32);
 pub struct EffectId(pub u32);
 
 /// A range into the child table (DrawOpFrame.children).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ChildRange {
     pub start: u32,
     pub len: u32,
@@ -33,7 +33,7 @@ pub struct DrawOpRange {
 }
 
 /// Generic range into a side table: (start, len).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TableRange {
     pub start: u32,
     pub len: u32,
@@ -76,6 +76,8 @@ pub enum PathOp {
 }
 
 /// Path fill type for EncodedPath.
+/// Intentionally separate from crate::canvas::FillType to keep the draw IR
+/// module independent of platform-specific canvas types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FillType {
     Winding,
@@ -97,7 +99,10 @@ pub enum RuntimeEffectChildRef {
     Shader(ShaderSpec),
 }
 
-/// Shader specification (used by RuntimeEffect children and PaintSpec).
+/// IR-native shader specification for draw encoding.
+/// Note: This is separate from crate::canvas::paint::ShaderSpec to avoid coupling
+/// the draw IR to the canvas paint types. It uses a simpler encoding-oriented shape
+/// (tuple colors instead of separate stops/colors vectors, no tile_mode).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShaderSpec {
     pub shader_type: ShaderType,
@@ -135,10 +140,30 @@ mod tests {
 
     #[test]
     fn image_ref_static_holds_asset_id() {
-        let ref_ = ImageRef::Static { asset_id: "test.png".into() };
+        let ref_ = ImageRef::Static {
+            asset_id: "test.png".into(),
+        };
         match ref_ {
             ImageRef::Static { asset_id } => assert_eq!(asset_id, "test.png"),
             _ => panic!("expected Static"),
+        }
+    }
+
+    #[test]
+    fn image_ref_video_frame_holds_asset_and_frame() {
+        let ref_ = ImageRef::VideoFrame {
+            asset_id: "clip.mp4".into(),
+            frame_index: 42,
+        };
+        match ref_ {
+            ImageRef::VideoFrame {
+                asset_id,
+                frame_index,
+            } => {
+                assert_eq!(asset_id, "clip.mp4");
+                assert_eq!(frame_index, 42);
+            }
+            _ => panic!("expected VideoFrame"),
         }
     }
 
@@ -150,6 +175,33 @@ mod tests {
     }
 
     #[test]
+    fn draw_op_range_equality() {
+        let a = DrawOpRange {
+            start_op: 0,
+            op_len: 5,
+        };
+        let b = DrawOpRange {
+            start_op: 0,
+            op_len: 5,
+        };
+        let c = DrawOpRange {
+            start_op: 1,
+            op_len: 5,
+        };
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn resource_ref_equality() {
+        let a = ResourceRef::StaticImage("img.png".into());
+        let b = ResourceRef::StaticImage("img.png".into());
+        let c = ResourceRef::VideoFrame("vid.mp4".into(), 0);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
     fn effect_ref_holds_hash_and_sksl() {
         let ref_ = EffectRef {
             hash: 0xDEADBEEF,
@@ -157,5 +209,57 @@ mod tests {
         };
         assert_eq!(ref_.hash, 0xDEADBEEF);
         assert!(ref_.sksl.contains("half4"));
+    }
+
+    #[test]
+    fn encoded_path_constructs_with_ops() {
+        let path = EncodedPath {
+            fill_type: FillType::Winding,
+            ops: vec![
+                PathOp::MoveTo { x: 0.0, y: 0.0 },
+                PathOp::LineTo { x: 10.0, y: 10.0 },
+                PathOp::Close,
+            ],
+        };
+        assert_eq!(path.fill_type, FillType::Winding);
+        assert_eq!(path.ops.len(), 3);
+    }
+
+    #[test]
+    fn path_op_variants_exist() {
+        let move_to = PathOp::MoveTo { x: 1.0, y: 2.0 };
+        match move_to {
+            PathOp::MoveTo { x, y } => {
+                assert_eq!(x, 1.0);
+                assert_eq!(y, 2.0);
+            }
+            _ => panic!("expected MoveTo"),
+        }
+
+        let rect = PathOp::AddRect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 50.0,
+        };
+        assert!(matches!(rect, PathOp::AddRect { .. }));
+
+        let oval = PathOp::AddOval {
+            x: 0.0,
+            y: 0.0,
+            width: 80.0,
+            height: 60.0,
+        };
+        assert!(matches!(oval, PathOp::AddOval { .. }));
+
+        let arc = PathOp::AddArc {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+            start_angle: 0.0,
+            sweep_angle: 180.0,
+        };
+        assert!(matches!(arc, PathOp::AddArc { .. }));
     }
 }

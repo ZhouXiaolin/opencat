@@ -6,7 +6,9 @@ use super::types::*;
 
 /// Immediate-mode paint state for script canvas tracking.
 /// Mirrors the HTML5 CanvasRenderingContext2D state for paint properties.
+/// Currently populated by script canvas recording (to be integrated in Chunk 7).
 #[derive(Default)]
+#[allow(dead_code)]
 struct DrawScriptPaintState {
     fill_color: Option<super::op::ColorU8>,
     stroke_color: Option<super::op::ColorU8>,
@@ -34,6 +36,7 @@ pub struct DrawOpBuilder {
     f32_pool: Vec<f32>,
     ranges: Vec<DrawOpRange>,
     resources: Vec<ResourceRef>,
+    #[allow(dead_code)]
     paint_state: DrawScriptPaintState,
 }
 
@@ -94,11 +97,22 @@ impl DrawOpBuilder {
         let byte_ranges_off = self.byte_ranges.len() as u32;
         let ops_off = self.ops.len() as u32;
 
-        // Append side-table data from the segment
+        // Append side-table data from the segment, remapping child references
+        // that contain frame-local ranges (e.g., Picture(DrawOpRange))
         self.paints.extend(segment.paints.iter().cloned());
         self.paths.extend(segment.paths.iter().cloned());
         self.strings.extend(segment.strings.iter().cloned());
-        self.children.extend(segment.children.iter().cloned());
+        for child in &segment.children {
+            self.children.push(match child {
+                RuntimeEffectChildRef::Picture(range) => RuntimeEffectChildRef::Picture(
+                    DrawOpRange {
+                        start_op: range.start_op + ops_off,
+                        op_len: range.op_len,
+                    },
+                ),
+                other => other.clone(),
+            });
+        }
         self.bytes.extend_from_slice(&segment.bytes);
         self.byte_ranges.extend(segment.byte_ranges.iter().cloned());
         self.f32_pool.extend_from_slice(&segment.f32_pool);
@@ -369,5 +383,71 @@ mod tests {
         let range = builder.end_range(marker);
         assert_eq!(range.start_op, 0);
         assert_eq!(range.op_len, 2);
+    }
+
+    #[test]
+    fn builder_import_segment_remaps_paint_ids() {
+        use crate::draw::op::Rect4;
+        use crate::draw::cache::CachedDrawSegment;
+
+        // Create a cached segment with a paint-referencing op
+        let mut seg_builder = DrawOpBuilder::default();
+        let paint_id = seg_builder.intern_paint(PaintSpec {
+            style: PaintStyle::Fill,
+            fill: FillSpec::Solid([1.0, 0.0, 0.0, 1.0]),
+            ..Default::default()
+        });
+        seg_builder.push(DrawOp::Rect {
+            rect: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            paint: paint_id,
+        });
+        let segment = CachedDrawSegment {
+            ops: seg_builder.ops.clone(),
+            paints: seg_builder.paints.clone(),
+            ..Default::default()
+        };
+
+        // Import into a fresh builder that already has some paints
+        let mut builder = DrawOpBuilder::default();
+        // Add a pre-existing paint so the imported segment's offsets shift
+        builder.intern_paint(PaintSpec {
+            style: PaintStyle::Stroke,
+            fill: FillSpec::Solid([0.0, 0.0, 1.0, 1.0]),
+            ..Default::default()
+        });
+        let range = builder.import_segment(&segment);
+
+        assert_eq!(range.start_op, 0);
+        assert_eq!(range.op_len, 1);
+
+        // The imported op's paint_id should have been remapped: PaintId(0) -> PaintId(1)
+        let frame = builder.finish();
+        if let DrawOp::Rect { paint, .. } = &frame.ops[0] {
+            assert_eq!(paint.0, 1, "paint_id should be remapped from 0 to 1");
+        } else {
+            panic!("expected Rect op");
+        }
+    }
+
+    #[test]
+    fn builder_import_empty_segment_is_noop() {
+        use crate::draw::cache::CachedDrawSegment;
+
+        let mut builder = DrawOpBuilder::default();
+        builder.push(DrawOp::Save);
+
+        let segment = CachedDrawSegment::default();
+        let range = builder.import_segment(&segment);
+
+        assert_eq!(range.start_op, 1); // after the existing Save
+        assert_eq!(range.op_len, 0);
+
+        let frame = builder.finish();
+        assert_eq!(frame.ops.len(), 1); // only the original Save
     }
 }

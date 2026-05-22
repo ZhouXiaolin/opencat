@@ -63,7 +63,7 @@ fn render_cached_subtree(
     }
 
     ctx.builder.push(DrawOp::Save);
-    apply_transform(&mut ctx.builder, draw.transform);
+    apply_transform(ctx.builder, draw.transform);
 
     let opacity = draw.opacity;
     let backdrop_blur = draw.backdrop_blur_sigma;
@@ -139,8 +139,8 @@ fn render_cached_subtree(
     // Check cache
     {
         let hit_entry = cache.subtree_snapshots.get_cloned(&key);
-        if let Some(entry) = hit_entry {
-            if entry.secondary_fingerprint == fingerprint.secondary {
+        if let Some(entry) = hit_entry
+            && entry.secondary_fingerprint == fingerprint.secondary {
                 #[cfg(feature = "profile")]
                 event!(
                     target: "render.cache",
@@ -177,7 +177,6 @@ fn render_cached_subtree(
                     return Ok(());
                 }
             }
-        }
     }
 
     // Cache miss — record subtree into IR range
@@ -241,7 +240,7 @@ fn render_live_cached_node(
     if let Some(clip) = node.recorded_semantics().clip {
         ctx.builder.push(DrawOp::Save);
         let clip_rect4 = display_rect_to_rect4(clip.bounds);
-        clip_bounds_with_radius(&mut ctx.builder, clip_rect4, &clip.border_radius);
+        clip_bounds_with_radius(ctx.builder, clip_rect4, &clip.border_radius);
     }
     for child in &subtree.children {
         render_scene_op(ctx, child, tree, cache)?;
@@ -267,7 +266,7 @@ fn render_live_subtree(
     }
 
     ctx.builder.push(DrawOp::Save);
-    apply_transform(&mut ctx.builder, draw.transform);
+    apply_transform(ctx.builder, draw.transform);
 
     let opacity = draw.opacity;
     let backdrop_blur = draw.backdrop_blur_sigma;
@@ -336,9 +335,9 @@ fn render_live_subtree(
     }
 
     // Transition compositing: render from/to subtrees and blend them
-    if let DisplayItem::Timeline(timeline) = &node.item {
-        if let Some(ref transition) = timeline.transition {
-            if children.len() == 2 {
+    if let DisplayItem::Timeline(timeline) = &node.item
+        && let Some(ref transition) = timeline.transition
+            && children.len() == 2 {
                 let rect_item = RectDisplayItem {
                     bounds: timeline.bounds,
                     paint: timeline.paint.clone(),
@@ -349,7 +348,7 @@ fn render_live_subtree(
                     ctx.builder.push(DrawOp::Save);
                     let clip_bounds_rect4 = display_rect_to_rect4(clip.bounds);
                     clip_bounds_with_radius(
-                        &mut ctx.builder,
+                        ctx.builder,
                         clip_bounds_rect4,
                         &clip.border_radius,
                     );
@@ -394,8 +393,6 @@ fn render_live_subtree(
                 ctx.builder.push(DrawOp::Restore);
                 return Ok(());
             }
-        }
-    }
 
     match item_execution {
         LiveNodeItemExecution::Direct => {
@@ -422,7 +419,7 @@ fn render_live_subtree(
     if let Some(clip) = &node.clip {
         ctx.builder.push(DrawOp::Save);
         let clip_bounds_rect4 = display_rect_to_rect4(clip.bounds);
-        clip_bounds_with_radius(&mut ctx.builder, clip_bounds_rect4, &clip.border_radius);
+        clip_bounds_with_radius(ctx.builder, clip_bounds_rect4, &clip.border_radius);
     }
 
     for child in children {
@@ -595,8 +592,8 @@ fn clip_bounds_with_radius(builder: &mut DrawOpBuilder, rect: Rect4, radius: &Bo
         let y = rect.y;
         let x1 = x + rect.width;
         let y1 = y + rect.height;
-        builder.push(DrawOp::Path(PathOp::MoveTo { x: x + tl, y: y }));
-        builder.push(DrawOp::Path(PathOp::LineTo { x: x1 - tr, y: y }));
+        builder.push(DrawOp::Path(PathOp::MoveTo { x: x + tl, y }));
+        builder.push(DrawOp::Path(PathOp::LineTo { x: x1 - tr, y }));
         if tr > 0.0 {
             builder.push(DrawOp::Path(PathOp::QuadTo {
                 cx: x1,
@@ -619,17 +616,17 @@ fn clip_bounds_with_radius(builder: &mut DrawOpBuilder, rect: Rect4, radius: &Bo
             builder.push(DrawOp::Path(PathOp::QuadTo {
                 cx: x,
                 cy: y1,
-                x: x,
+                x,
                 y: y1 - bl,
             }));
         }
-        builder.push(DrawOp::Path(PathOp::LineTo { x: x, y: y + tl }));
+        builder.push(DrawOp::Path(PathOp::LineTo { x, y: y + tl }));
         if tl > 0.0 {
             builder.push(DrawOp::Path(PathOp::QuadTo {
                 cx: x,
                 cy: y,
                 x: x + tl,
-                y: y,
+                y,
             }));
         }
         builder.push(DrawOp::Path(PathOp::Close));

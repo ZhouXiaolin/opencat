@@ -107,7 +107,7 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
 
     let asset_id = item.asset_id.0.clone();
     let image_ref = if item.video_timing.is_some() {
-        let frame_index = ctx.frame_ctx.frame as u32;
+        let frame_index = ctx.frame_ctx.frame;
         ImageRef::VideoFrame {
             asset_id,
             frame_index,
@@ -164,7 +164,7 @@ pub fn render_bitmap_with_shadows(
     let bounds = item.bounds;
 
     if let Some(ref shadow) = style.box_shadow {
-        draw_box_shadow(&mut ctx.builder, bounds, &style.border_radius, shadow);
+        draw_box_shadow(ctx.builder, bounds, &style.border_radius, shadow);
     }
 
     if let Some(ref shadow) = style.drop_shadow {

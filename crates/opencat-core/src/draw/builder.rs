@@ -629,14 +629,14 @@ fn remap_op_snapshot(
             alpha,
         } => DrawOp::SaveLayer {
             bounds: *bounds,
-            paint: paint.as_ref().map(|p| remap_paint(p)),
+            paint: paint.as_ref().map(&remap_paint),
             alpha: *alpha,
         },
         DrawOp::Image { image, x, y, paint } => DrawOp::Image {
             image: image.clone(),
             x: *x,
             y: *y,
-            paint: paint.as_ref().map(|p| remap_paint(p)),
+            paint: paint.as_ref().map(&remap_paint),
         },
         DrawOp::ImageRect {
             image,
@@ -647,7 +647,7 @@ fn remap_op_snapshot(
             image: image.clone(),
             src: *src,
             dst: *dst,
-            paint: paint.as_ref().map(|p| remap_paint(p)),
+            paint: paint.as_ref().map(remap_paint),
         },
         DrawOp::ReplayRange { range } => DrawOp::ReplayRange { range: *range },
         other => other.clone(),

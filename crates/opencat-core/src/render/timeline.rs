@@ -173,7 +173,7 @@ fn wipe_clip_rect(dir: &WipeDirection, bounds: DisplayRect, progress: f32) -> Re
 }
 
 fn sinusoid_noise(x: f32, seed: f32) -> f32 {
-    ((x * 6.283185 + seed * 12.9898).sin() * 43758.5453).fract()
+    ((x * std::f32::consts::TAU + seed * 12.9898).sin() * 43_758.547).fract()
 }
 
 pub fn render_timeline(ctx: &mut RenderCtx, item: &TimelineDisplayItem) -> Result<(), RenderError> {
@@ -221,7 +221,7 @@ pub fn render_timeline(ctx: &mut RenderCtx, item: &TimelineDisplayItem) -> Resul
             alpha: layer_alpha,
         });
 
-        render_transition_overlay(&mut ctx.builder, bounds, transition);
+        render_transition_overlay(ctx.builder, bounds, transition);
         super::rect::render_rect_with_shadows(ctx, &rect_item)?;
 
         ctx.builder.push(DrawOp::Restore);

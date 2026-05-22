@@ -95,7 +95,7 @@ fn install_runtime<C: JsContext>(ctx: &C, user_source: &str) -> anyhow::Result<(
     )?;
 
     // 2. 注册唯一的 native 入口 __opencatCallNative。
-    ctx.install_dispatcher(|store, name, args| dispatch_binding(store, name, args))?;
+    ctx.install_dispatcher(dispatch_binding)?;
 
     // 3. 装载 shim：把每个 binding 名包成 wrapper 调用 __opencatCallNative。
     //    必须在 runtime JS 之前——runtime JS 在 eval 时即可能定义引用 __record_* 等的函数。

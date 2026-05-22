@@ -65,6 +65,7 @@ pub struct CachedDrawSegment {
     pub byte_ranges: Vec<TableRange>,
     pub f32_pool: Vec<f32>,
     pub resources: Vec<ResourceRef>,
+    pub effects: Vec<EffectRef>,
 }
 
 #[cfg(test)]
@@ -85,6 +86,7 @@ mod tests {
             byte_ranges: Vec::new(),
             f32_pool: Vec::new(),
             resources: Vec::new(),
+            effects: Vec::new(),
         };
         assert_eq!(segment.ops.len(), 2);
     }

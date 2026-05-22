@@ -14,6 +14,7 @@ pub struct DrawOpFrame {
     pub f32_pool: Vec<f32>,
     pub ranges: Vec<super::types::DrawOpRange>,
     pub resources: Vec<super::types::ResourceRef>,
+    pub effects: Vec<super::types::EffectRef>,
 }
 
 /// Reusable scratch buffers for binary encoding, owned by RenderSession.
@@ -63,6 +64,7 @@ mod tests {
         assert!(frame.f32_pool.is_empty());
         assert!(frame.ranges.is_empty());
         assert!(frame.resources.is_empty());
+        assert!(frame.effects.is_empty());
     }
 
     #[test]

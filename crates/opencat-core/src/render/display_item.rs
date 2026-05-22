@@ -105,7 +105,7 @@ fn render_display_item_direct<C: Canvas2D>(
         DisplayItem::Timeline(timeline) => {
             #[cfg(feature = "profile")]
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_timeline").entered();
-            super::timeline::render_timeline(canvas, timeline, ctx, cache)
+            super::timeline::render_timeline(ctx, timeline)
         }
         DisplayItem::Text(text) => {
             #[cfg(feature = "profile")]

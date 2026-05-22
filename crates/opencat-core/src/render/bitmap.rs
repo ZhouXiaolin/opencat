@@ -3,22 +3,14 @@ use tracing::{Level, event};
 
 use crate::canvas::Rect;
 use crate::display::list::BitmapDisplayItem;
-use crate::draw::op::{DrawOp, Rect4};
+use crate::draw::builder::DrawOpBuilder;
+use crate::draw::op::DrawOp;
 use crate::draw::types::ImageRef;
 use crate::style::ObjectFit;
 
 use super::paint_conv::background_fill_to_paint_spec;
-use super::rect::{clip_bounds, draw_box_shadow, draw_inset_shadow, draw_item_drop_shadow, draw_node_border, kurbo_rect};
+use super::rect::{clip_bounds, draw_box_shadow, draw_inset_shadow, draw_item_drop_shadow, draw_node_border, kurbo_rect, rect_to_rect4};
 use super::{RenderCtx, RenderError};
-
-fn rect_to_rect4(r: Rect) -> Rect4 {
-    Rect4 {
-        x: r.x0 as f32,
-        y: r.y0 as f32,
-        width: r.width() as f32,
-        height: r.height() as f32,
-    }
-}
 
 pub(crate) fn fitted_rect(src_width: f32, src_height: f32, dst: &Rect, cover: bool) -> Rect {
     let iw = src_width as f64;
@@ -55,18 +47,17 @@ pub(crate) fn cover_src_rect(src_width: f32, src_height: f32, dst: &Rect) -> Rec
 }
 
 fn draw_bitmap_image(
-    ctx: &mut RenderCtx,
+    builder: &mut DrawOpBuilder,
     image_ref: ImageRef,
     item: &BitmapDisplayItem,
     dst: &Rect,
     src_width: f32,
     src_height: f32,
 ) {
-    let builder = &mut ctx.builder;
     match item.object_fit {
         ObjectFit::Fill => {
             builder.push(DrawOp::ImageRect {
-                image: image_ref,
+                image: image_ref.clone(),
                 src: None,
                 dst: rect_to_rect4(*dst),
                 paint: None,
@@ -75,7 +66,7 @@ fn draw_bitmap_image(
         ObjectFit::Contain => {
             let fitted = fitted_rect(src_width, src_height, dst, false);
             builder.push(DrawOp::ImageRect {
-                image: image_ref,
+                image: image_ref.clone(),
                 src: None,
                 dst: rect_to_rect4(fitted),
                 paint: None,
@@ -110,15 +101,16 @@ pub fn render_bitmap(
     let style = &item.paint;
     let dst = kurbo_rect(item.bounds);
 
+    let asset_id = item.asset_id.0.clone();
     let image_ref = if item.video_timing.is_some() {
         let frame_index = ctx.frame_ctx.frame as u32;
         ImageRef::VideoFrame {
-            asset_id: item.asset_id.0.clone(),
+            asset_id,
             frame_index,
         }
     } else {
         ImageRef::Static {
-            asset_id: item.asset_id.0.clone(),
+            asset_id,
         }
     };
 
@@ -138,20 +130,20 @@ pub fn render_bitmap(
         });
     }
 
-    draw_bitmap_image(ctx, image_ref, item, &dst, src_width, src_height);
+    draw_bitmap_image(builder, image_ref, item, &dst, src_width, src_height);
 
     if let Some(ref shadow) = style.inset_shadow {
-        draw_inset_shadow(&mut ctx.builder, item.bounds, &style.border_radius, shadow);
+        draw_inset_shadow(builder, item.bounds, &style.border_radius, shadow);
     }
 
     draw_node_border(
-        &mut ctx.builder, &dst, &style.border_radius,
+        builder, &dst, &style.border_radius,
         style.border_width, style.border_top_width, style.border_right_width,
         style.border_bottom_width, style.border_left_width,
         style.border_color, style.border_style, style.blur_sigma,
     );
 
-    ctx.builder.push(DrawOp::Restore);
+    builder.push(DrawOp::Restore);
     Ok(())
 }
 

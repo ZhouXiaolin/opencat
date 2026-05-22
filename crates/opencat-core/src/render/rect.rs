@@ -16,7 +16,7 @@ use super::paint_conv::{
 };
 use super::{RenderCtx, RenderError};
 
-fn rect_to_rect4(r: Rect) -> Rect4 {
+pub(crate) fn rect_to_rect4(r: Rect) -> Rect4 {
     Rect4 {
         x: r.x0 as f32,
         y: r.y0 as f32,

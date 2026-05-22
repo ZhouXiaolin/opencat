@@ -1,5 +1,3 @@
-#[cfg(feature = "profile")]
-use tracing::{Level, event};
 
 use cosmic_text::Command;
 

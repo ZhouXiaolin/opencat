@@ -213,11 +213,11 @@ pub fn render_frame<P: Platform, C: Canvas2D>(
         ..
     } = *session;
 
-    // SAFETY: script_host() and video_source() access disjoint fields
+    // SAFETY: script() and video_source() access disjoint fields
     // on every Platform implementation. The borrow checker cannot see this
     // through trait method calls, so we use a raw pointer to split the borrow.
     let platform_ptr: *mut P = platform;
-    let script = unsafe { (*platform_ptr).script_host() };
+    let script = unsafe { (*platform_ptr).script() };
     let video = unsafe { (*platform_ptr).video_source() };
 
     render_frame_inner(

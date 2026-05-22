@@ -33,7 +33,9 @@ impl EngineDrawExecutor {
     pub fn begin_frame(&mut self) {
         self.current_path = None;
         self.current_fill_paint = Paint::default();
-        self.current_stroke_paint = Paint::default();
+        let mut sp = Paint::default();
+        sp.set_style(skia_safe::paint::Style::Stroke);
+        self.current_stroke_paint = sp;
         self.current_alpha = 1.0;
     }
 }

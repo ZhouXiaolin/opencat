@@ -9,10 +9,14 @@ pub enum PrepareMode {
     Export,
 }
 
-/// Stub: plan describing which media assets a frame needs.
-/// Will be fleshed out when the media pipeline is integrated.
+/// Plan for preparing media assets needed by a single frame.
 #[derive(Clone, Debug, Default)]
-pub struct FrameMediaPlan {}
+pub struct FrameMediaPlan {
+    /// Deduplicated image references needed for this frame.
+    pub images: Vec<crate::draw::types::ImageRef>,
+    /// Runtime effect references needed for this frame.
+    pub runtime_effects: Vec<crate::draw::types::EffectRef>,
+}
 
 /// Stub: a slice of an audio track to prepare for playback or export.
 #[derive(Clone, Debug, Default)]

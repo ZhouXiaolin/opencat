@@ -74,6 +74,7 @@ impl std::error::Error for RenderError {}
 
 pub mod cache;
 pub mod ctx;
+pub mod media_plan;
 pub mod state;
 
 // TODO: implement in later chunks

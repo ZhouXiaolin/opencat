@@ -1,14 +1,13 @@
 //! Generic per-render session: holds backend-agnostic state + platform state.
 //!
 //! engine / web each monomorphize this session with their concrete Platform
-//! and Canvas2D types.
+//! type. The cache is now IR-based and backend-agnostic.
 
 use std::sync::Arc;
 
-use crate::canvas::Canvas2D;
+use crate::draw::cache::RenderCache;
 use crate::layout::LayoutSession;
 use crate::platform::platform::Platform;
-use crate::render::RenderCache;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::runtime::compositor::ordered_scene::{OrderedSceneOp, OrderedSceneProgram};
 use crate::runtime::compositor::reuse::LiveNodeItemExecution;
@@ -16,16 +15,11 @@ use crate::runtime::annotation::AnnotatedNodeHandle;
 use crate::runtime::invalidation::CompositeHistory;
 use crate::text::default_font_db;
 
-/// Default cache capacity constants.
-const DEFAULT_IMAGE_CAP: usize = 128;
 const DEFAULT_SUBTREE_SNAPSHOT_CAP: usize = 256;
-const DEFAULT_SUBTREE_IMAGE_CAP: usize = 128;
-const DEFAULT_ITEM_PICTURE_CAP: usize = 64;
-const DEFAULT_GLYPH_PATH_CAP: usize = 1024;
-const DEFAULT_GLYPH_IMAGE_CAP: usize = 128;
-const DEFAULT_RUNTIME_EFFECT_CAP: usize = 64;
+const DEFAULT_SEGMENT_CAP: usize = 256;
+const DEFAULT_ITEM_RANGE_CAP: usize = 128;
 
-pub struct RenderSession<P: Platform, C: Canvas2D> {
+pub struct RenderSession<P: Platform> {
     /// per-render layout accumulator (node id -> measure cache)
     pub layout_session: LayoutSession,
 
@@ -41,8 +35,8 @@ pub struct RenderSession<P: Platform, C: Canvas2D> {
     /// last preflight root pointer, for skipping duplicate preflight
     pub prepared_root_ptr: Option<usize>,
 
-    /// LRU caches parameterised by the canvas backend.
-    pub cache: RenderCache<C>,
+    /// IR-based LRU caches (backend-agnostic).
+    pub cache: RenderCache,
 
     /// last ordered scene program from the most recent render_frame call
     pub last_ordered_scene: OrderedSceneProgram,
@@ -51,7 +45,7 @@ pub struct RenderSession<P: Platform, C: Canvas2D> {
     pub platform: P,
 }
 
-impl<P: Platform, C: Canvas2D> RenderSession<P, C> {
+impl<P: Platform> RenderSession<P> {
     pub fn new(platform: P) -> Self {
         Self {
             layout_session: LayoutSession::new(),
@@ -60,13 +54,9 @@ impl<P: Platform, C: Canvas2D> RenderSession<P, C> {
             catalog: HashMapResourceCatalog::from_json("{}").expect("empty catalog must parse"),
             prepared_root_ptr: None,
             cache: RenderCache::new(
-                DEFAULT_IMAGE_CAP,
                 DEFAULT_SUBTREE_SNAPSHOT_CAP,
-                DEFAULT_SUBTREE_IMAGE_CAP,
-                DEFAULT_ITEM_PICTURE_CAP,
-                DEFAULT_GLYPH_PATH_CAP,
-                DEFAULT_GLYPH_IMAGE_CAP,
-                DEFAULT_RUNTIME_EFFECT_CAP,
+                DEFAULT_SEGMENT_CAP,
+                DEFAULT_ITEM_RANGE_CAP,
             ),
             last_ordered_scene: OrderedSceneProgram {
                 root: OrderedSceneOp::LiveSubtree {

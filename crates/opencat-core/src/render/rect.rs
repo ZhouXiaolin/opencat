@@ -101,12 +101,11 @@ fn push_draw_rrect(builder: &mut DrawOpBuilder, rect: Rect, radii: [f32; 4], pai
 }
 
 pub fn draw_box_shadow(
-    ctx: &mut RenderCtx,
+    builder: &mut DrawOpBuilder,
     bounds: DisplayRect,
     border_radius: &BorderRadius,
     shadow: &BoxShadow,
 ) {
-    let builder = &mut ctx.builder;
     let shadow_bounds = if shadow.spread != 0.0 {
         bounds.outset(shadow.spread, shadow.spread, shadow.spread, shadow.spread)
     } else {
@@ -138,12 +137,11 @@ pub fn draw_box_shadow(
 }
 
 pub fn draw_inset_shadow(
-    ctx: &mut RenderCtx,
+    builder: &mut DrawOpBuilder,
     bounds: DisplayRect,
     border_radius: &BorderRadius,
     shadow: &InsetShadow,
 ) {
-    let builder = &mut ctx.builder;
     let shadow_bounds = if shadow.spread != 0.0 {
         bounds.outset(shadow.spread, shadow.spread, shadow.spread, shadow.spread)
     } else {
@@ -410,8 +408,8 @@ fn draw_per_side_borders(
             else if right_w > 0.0 && top_w == right_w { right - right_w } else { right };
         if x1 > x0 {
             let paint = build_stroke_paint(color, top_w, border_style, blur_sigma);
-            let pid = builder.intern_paint(paint);
-            builder.push(DrawOp::Line { x0, y0: y, x1, y1: y, paint: pid });
+            let paint_id = builder.intern_paint(paint);
+            builder.push(DrawOp::Line { x0, y0: y, x1, y1: y, paint: paint_id });
         }
     }
 
@@ -423,8 +421,8 @@ fn draw_per_side_borders(
             else if bottom_w > 0.0 && right_w == bottom_w { bottom - bottom_w } else { bottom };
         if y1 > y0 {
             let paint = build_stroke_paint(color, right_w, border_style, blur_sigma);
-            let pid = builder.intern_paint(paint);
-            builder.push(DrawOp::Line { x0: x, y0, x1: x, y1, paint: pid });
+            let paint_id = builder.intern_paint(paint);
+            builder.push(DrawOp::Line { x0: x, y0, x1: x, y1, paint: paint_id });
         }
     }
 
@@ -436,8 +434,8 @@ fn draw_per_side_borders(
             else if right_w > 0.0 && bottom_w == right_w { right - right_w } else { right };
         if x1 > x0 {
             let paint = build_stroke_paint(color, bottom_w, border_style, blur_sigma);
-            let pid = builder.intern_paint(paint);
-            builder.push(DrawOp::Line { x0, y0: y, x1, y1: y, paint: pid });
+            let paint_id = builder.intern_paint(paint);
+            builder.push(DrawOp::Line { x0, y0: y, x1, y1: y, paint: paint_id });
         }
     }
 
@@ -449,8 +447,8 @@ fn draw_per_side_borders(
             else if bottom_w > 0.0 && left_w == bottom_w { bottom - bottom_w } else { bottom };
         if y1 > y0 {
             let paint = build_stroke_paint(color, left_w, border_style, blur_sigma);
-            let pid = builder.intern_paint(paint);
-            builder.push(DrawOp::Line { x0: x, y0, x1: x, y1, paint: pid });
+            let paint_id = builder.intern_paint(paint);
+            builder.push(DrawOp::Line { x0: x, y0, x1: x, y1, paint: paint_id });
         }
     }
 
@@ -459,13 +457,13 @@ fn draw_per_side_borders(
         if arc_r <= 0.0 { return; }
         let oval = kurbo_rect_xywh(cx - arc_r, cy - arc_r, 2.0 * arc_r, 2.0 * arc_r);
         let paint = build_stroke_paint(color, width, border_style, blur_sigma);
-        let pid = builder.intern_paint(paint);
+        let paint_id = builder.intern_paint(paint);
         builder.push(DrawOp::Arc {
             rect: rect_to_rect4(oval),
             start: start_deg,
             sweep: 90.0,
             use_center: false,
-            paint: pid,
+            paint: paint_id,
         });
     };
 
@@ -523,10 +521,10 @@ pub fn render_rect(
                 mask_filter: None,
                 path_effect: None,
             };
-            let pid = builder.intern_paint(blur_paint);
+            let paint_id = builder.intern_paint(blur_paint);
             builder.push(DrawOp::SaveLayer {
                 bounds: Some(rect_to_rect4(rect)),
-                paint: Some(pid),
+                paint: Some(paint_id),
                 alpha: 1.0,
             });
         }
@@ -534,46 +532,16 @@ pub fn render_rect(
 
     if let Some(ref background) = style.background {
         let paint_spec = background_fill_to_paint_spec(background);
-        let pid = builder.intern_paint(paint_spec);
+        let paint_id = builder.intern_paint(paint_spec);
         if has_radius {
-            push_draw_rrect(builder, rect, radii, pid);
+            push_draw_rrect(builder, rect, radii, paint_id);
         } else {
-            builder.push(DrawOp::Rect { rect: rect_to_rect4(rect), paint: pid });
+            builder.push(DrawOp::Rect { rect: rect_to_rect4(rect), paint: paint_id });
         }
     }
 
     if let Some(ref shadow) = style.inset_shadow {
-        let shadow_bounds = if shadow.spread != 0.0 {
-            bounds.outset(shadow.spread, shadow.spread, shadow.spread, shadow.spread)
-        } else {
-            bounds
-        };
-        let shadow_rect = kurbo_rect(shadow_bounds.translate(shadow.offset_x, shadow.offset_y));
-        let sr = spread_radius(&style.border_radius, shadow.spread);
-        let shadow_radii = effective_corner_radius(&shadow_rect, &sr);
-
-        let (mask_filter, color) = inset_shadow_to_mask_filter(shadow);
-        let paint = PaintSpec {
-            fill: FillSpec::Solid(color),
-            style: PaintStyle::Fill,
-            stroke: None,
-            anti_alias: true,
-            blend_mode: BlendMode::SrcOver,
-            image_filter: None,
-            color_filter: None,
-            mask_filter: Some(mask_filter),
-            path_effect: None,
-        };
-        let pid = builder.intern_paint(paint);
-
-        builder.push(DrawOp::Save);
-        clip_bounds(builder, bounds, &style.border_radius);
-        if shadow_radii.iter().any(|&r| r > 0.0) {
-            push_draw_rrect(builder, shadow_rect, shadow_radii, pid);
-        } else {
-            builder.push(DrawOp::Rect { rect: rect_to_rect4(shadow_rect), paint: pid });
-        }
-        builder.push(DrawOp::Restore);
+        draw_inset_shadow(builder, bounds, &style.border_radius, shadow);
     }
 
     draw_node_border(
@@ -599,7 +567,7 @@ pub fn render_rect_with_shadows(
     let bounds = item.bounds;
 
     if let Some(ref shadow) = style.box_shadow {
-        draw_box_shadow(ctx, bounds, &style.border_radius, shadow);
+        draw_box_shadow(&mut ctx.builder, bounds, &style.border_radius, shadow);
     }
 
     if let Some(ref shadow) = style.drop_shadow {

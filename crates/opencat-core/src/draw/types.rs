@@ -61,14 +61,18 @@ pub enum ResourceRef {
     RuntimeEffect(EffectId),
 }
 
-/// Path construction operation.
+/// Path construction operations. Mirrors the Canvas2D PathBuilder interface.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PathOp {
-    MoveTo(f32, f32),
-    LineTo(f32, f32),
-    QuadTo(f32, f32, f32, f32),
-    CubicTo(f32, f32, f32, f32, f32, f32),
+    MoveTo { x: f32, y: f32 },
+    LineTo { x: f32, y: f32 },
+    QuadTo { cx: f32, cy: f32, x: f32, y: f32 },
+    CubicTo { c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32 },
     Close,
+    AddRect { x: f32, y: f32, width: f32, height: f32 },
+    AddRRect { x: f32, y: f32, width: f32, height: f32, radius: f32 },
+    AddOval { x: f32, y: f32, width: f32, height: f32 },
+    AddArc { x: f32, y: f32, width: f32, height: f32, start_angle: f32, sweep_angle: f32 },
 }
 
 /// Path fill type for EncodedPath.

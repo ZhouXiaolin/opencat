@@ -386,11 +386,10 @@ macro_rules! for_each_binding {
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_set_line_dash ($id: &str, intervals: Vec<f32>, phase: f32) {
-            let _ = intervals;
-            $rec . record_draw_op($id, DrawOp::SetLineDash {
-                intervals: F32Range { start: u32::MAX, len: 0 },
-                phase,
-            });
+            // Phase 2 limitation: setLineDash not yet supported with DrawOp pipeline.
+            // Dash intervals require f32_pool allocation in DrawOpBuilder which is not
+            // accessible from the MutationRecorder trait. Will be fixed in Phase 3.
+            let _ = (intervals, phase);
         }}
         $binding! { node $rec $id canvas_clear_line_dash ($id: &str) {
             $rec . record_draw_op($id, DrawOp::ClearLineDash);
@@ -501,14 +500,10 @@ macro_rules! for_each_binding {
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_draw_points ($id: &str, mode: String, points: Vec<f32>) {
-            let mode = point_mode_from_name(&mode)
-                .ok_or_else(|| $crate::script::helpers::script_error("drawPoints", format!("unsupported point mode `{mode}`")))?;
-            let _ = points;
-            $rec . record_draw_op($id, DrawOp::Points {
-                mode,
-                points: F32Range { start: u32::MAX, len: 0 },
-                paint: PaintId(u32::MAX - 1),
-            });
+            // Phase 2 limitation: drawPoints not yet supported with DrawOp pipeline.
+            // Points require f32_pool allocation in DrawOpBuilder which is not accessible
+            // from the MutationRecorder trait. Will be fixed in Phase 3.
+            let _ = (points, mode);
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_fill_drrect ($id: &str, coords: Vec<f32>) {

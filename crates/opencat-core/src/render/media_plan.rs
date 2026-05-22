@@ -10,7 +10,7 @@ use crate::platform::media::FrameMediaPlan;
 pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
     let mut images: Vec<ImageRef> = Vec::new();
     let mut seen_images: HashSet<ImageRef> = HashSet::new();
-    let mut _effect_ids: Vec<EffectId> = Vec::new();
+    let mut effect_ids: Vec<EffectId> = Vec::new();
 
     for op in &frame.ops {
         match op {
@@ -20,7 +20,7 @@ pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
                 }
             }
             DrawOp::RuntimeEffect { effect, .. } => {
-                _effect_ids.push(*effect);
+                effect_ids.push(*effect);
             }
             _ => {}
         }
@@ -28,7 +28,7 @@ pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
 
     FrameMediaPlan {
         images,
-        runtime_effects: Vec::new(),
+        runtime_effects: effect_ids,
     }
 }
 
@@ -121,5 +121,7 @@ mod tests {
         let plan = build_media_plan(&frame);
 
         assert!(plan.images.is_empty());
+        assert_eq!(plan.runtime_effects.len(), 1);
+        assert_eq!(plan.runtime_effects[0], EffectId(0));
     }
 }

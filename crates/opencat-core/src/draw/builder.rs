@@ -108,6 +108,11 @@ impl DrawOpBuilder {
     /// Intern an effect (hash + SkSL), returning a deduplicated EffectId.
     pub fn intern_effect(&mut self, hash: u64, sksl: &str) -> EffectId {
         if let Some(pos) = self.effects.iter().position(|e| e.hash == hash) {
+            #[cfg(debug_assertions)]
+            debug_assert_eq!(
+                self.effects[pos].sksl, sksl,
+                "effect hash collision: same hash={hash:#x} but different sksl"
+            );
             return EffectId(pos as u32);
         }
         let id = EffectId(self.effects.len() as u32);

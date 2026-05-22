@@ -2,12 +2,12 @@ pub mod paint;
 pub mod path;
 mod replay;
 
-use std::collections::HashMap;
-use opencat_core::draw::frame::DrawOpFrame;
 use opencat_core::draw::cache::CachedDrawRange;
+use opencat_core::draw::frame::DrawOpFrame;
 use opencat_core::draw::types::ImageRef;
 use opencat_core::platform::draw::{DrawError, DrawPlatform, DrawStats, RenderSessionHeader};
 use skia_safe::{Canvas, Image, Paint, PathBuilder, RuntimeEffect};
+use std::collections::HashMap;
 
 /// Engine-side draw executor. Owns the current canvas state
 /// and replays DrawOpFrame onto a skia_safe::Canvas.

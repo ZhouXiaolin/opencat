@@ -77,16 +77,14 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
                 req.image_sources.insert(image.source().clone());
             }
         }
-        NodeKind::Video(video) => {
-            match video.source() {
-                VideoSource::Path(p) => {
-                    req.video_paths.insert(p.clone());
-                }
-                VideoSource::Url(u) => {
-                    req.video_urls.insert(u.clone());
-                }
+        NodeKind::Video(video) => match video.source() {
+            VideoSource::Path(p) => {
+                req.video_paths.insert(p.clone());
             }
-        }
+            VideoSource::Url(u) => {
+                req.video_urls.insert(u.clone());
+            }
+        },
         NodeKind::Timeline(_) => {
             collect_sources_from_frame_state(&frame_state_for_root(node, frame_ctx), frame_ctx, req)
         }

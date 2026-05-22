@@ -10,21 +10,21 @@ use crate::draw::builder::DrawOpBuilder;
 use crate::draw::frame::DrawOpFrame;
 use crate::element::resolve::resolve_ui_tree_with_script_cache;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
+use crate::layout::LayoutSession;
 use crate::platform::media::FrameMediaPlan;
 use crate::platform::platform::Platform;
-use crate::render::media_plan::build_media_plan;
 use crate::render::RenderCtx;
+use crate::render::media_plan::build_media_plan;
 use crate::resource::blob_store::BlobStore;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints};
 use crate::runtime::compositor::{OrderedSceneProgram, plan_for_scene};
+use crate::runtime::invalidation::CompositeHistory;
 use crate::runtime::invalidation::mark_display_tree_composite_dirty;
 use crate::runtime::session::RenderSession;
 use crate::scene::composition::Composition;
 use crate::scene::path_bounds::DefaultPathBounds;
 use crate::scene::script::ScriptHost;
-use crate::layout::LayoutSession;
-use crate::runtime::invalidation::CompositeHistory;
 use crate::text::DefaultFontProvider;
 
 /// Per-frame pipeline: resolve → layout → display tree → annotate → plan → render.
@@ -91,11 +91,8 @@ pub fn render_frame_inner(
 
     // 2. layout (sub-spans emitted inside compute_layout_with_font_db)
     let provider = DefaultFontProvider::from_arc(font_db.clone());
-    let (layout_tree, layout_pass) = layout_session.compute_layout_with_provider(
-        &element_root,
-        &frame_ctx,
-        &provider,
-    )?;
+    let (layout_tree, layout_pass) =
+        layout_session.compute_layout_with_provider(&element_root, &frame_ctx, &provider)?;
 
     #[cfg(feature = "profile")]
     {

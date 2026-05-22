@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use crate::scene::{
     easing::{Easing, SpringConfig, easing_from_name},
     node::Node,
-    primitives::{ImageSource, VideoSource, canvas, caption, div, image, lucide, parse_srt, path, text, video, video_url},
+    primitives::{
+        ImageSource, VideoSource, canvas, caption, div, image, lucide, parse_srt, path, text,
+        video, video_url,
+    },
     script::ScriptDriver,
     transition::{
         Transition, clock_wipe, fade, gl_transition, iris, light_leak, slide, timeline, wipe,

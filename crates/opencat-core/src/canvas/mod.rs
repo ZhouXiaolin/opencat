@@ -19,8 +19,8 @@ pub enum PointMode {
     Polygon,
 }
 
-pub mod paint;
 pub mod glyph;
+pub mod paint;
 
-pub use paint::*;
 pub use glyph::*;
+pub use paint::*;

@@ -16,10 +16,10 @@ use crate::{
         render_registry,
     },
 };
-use opencat_core::scene::composition::Composition;
-use opencat_core::resource::AssetPathBlobStore;
 use opencat_core::platform::draw::{DrawPlatform, RenderSessionHeader};
 use opencat_core::platform::media::{MediaPlatform, PrepareMode};
+use opencat_core::resource::AssetPathBlobStore;
+use opencat_core::scene::composition::Composition;
 
 pub use crate::codec::encode::Mp4Config;
 /// Core generic RenderSession monomorphised for the engine's Skia platform.
@@ -186,33 +186,34 @@ fn render_mp4(
 ) -> Result<()> {
     let composition = composition.aligned_for_video_encoding();
     let profile_config = opencat_core::runtime::profile::ProfileConfig::from_env();
-    let (_, summary) = opencat_core::runtime::profile::profile_render(&profile_config, move || {
-        if let RenderBackend::Accelerated = backend {
-            return Err(anyhow!(
-                "accelerated backend not yet supported via core pipeline"
-            ));
-        }
-        let mut platform = EnginePlatform::new();
-        platform.set_video_preview_quality(VideoPreviewQuality::Exact);
-        let mut session = RenderSession::new(platform);
+    let (_, summary) =
+        opencat_core::runtime::profile::profile_render(&profile_config, move || {
+            if let RenderBackend::Accelerated = backend {
+                return Err(anyhow!(
+                    "accelerated backend not yet supported via core pipeline"
+                ));
+            }
+            let mut platform = EnginePlatform::new();
+            platform.set_video_preview_quality(VideoPreviewQuality::Exact);
+            let mut session = RenderSession::new(platform);
 
-        let audio_track = build_audio_track(&composition, &mut session)?;
-        crate::codec::encode::encode_rgba_frames(
-            output_path.as_ref(),
-            composition.width as u32,
-            composition.height as u32,
-            composition.fps,
-            composition.frames,
-            config,
-            audio_track.as_ref(),
-            on_video_frame_encoded,
-            |frame_index| {
-                let rgba = render_frame_rgba(&composition, frame_index, &mut session)?;
-                Ok(rgba)
-            },
-        )?;
-        Ok::<_, anyhow::Error>(())
-    })?;
+            let audio_track = build_audio_track(&composition, &mut session)?;
+            crate::codec::encode::encode_rgba_frames(
+                output_path.as_ref(),
+                composition.width as u32,
+                composition.height as u32,
+                composition.fps,
+                composition.frames,
+                config,
+                audio_track.as_ref(),
+                on_video_frame_encoded,
+                |frame_index| {
+                    let rgba = render_frame_rgba(&composition, frame_index, &mut session)?;
+                    Ok(rgba)
+                },
+            )?;
+            Ok::<_, anyhow::Error>(())
+        })?;
     if let Some(summary) = summary {
         opencat_core::runtime::profile::print_profile_summary(&summary, &profile_config)?;
     }
@@ -244,8 +245,7 @@ pub fn render_frame_to_target(
         Some(&blob_store),
     )?;
 
-    let video_ptr: *mut crate::resource::media::MediaContext =
-        &mut session.platform.video;
+    let video_ptr: *mut crate::resource::media::MediaContext = &mut session.platform.video;
     let mut media = crate::media::EngineMedia::new(unsafe { &*asset_paths_ptr }, video_ptr);
     let prepared = media
         .prepare_frame(&media_plan, PrepareMode::Export)
@@ -257,8 +257,7 @@ pub fn render_frame_to_target(
         frames: composition.frames,
     };
 
-    let canvas: &mut skia_safe::Canvas =
-        unsafe { &mut *(canvas_raw as *mut skia_safe::Canvas) };
+    let canvas: &mut skia_safe::Canvas = unsafe { &mut *(canvas_raw as *mut skia_safe::Canvas) };
     let mut executor = crate::executor::EngineDrawExecutor::new();
     executor
         .execute(&header, &draw_frame, &prepared, canvas)
@@ -290,8 +289,7 @@ pub fn render_frame_rgba(
         Some(&blob_store),
     )?;
 
-    let video_ptr: *mut crate::resource::media::MediaContext =
-        &mut session.platform.video;
+    let video_ptr: *mut crate::resource::media::MediaContext = &mut session.platform.video;
     let mut media = crate::media::EngineMedia::new(unsafe { &*asset_paths_ptr }, video_ptr);
     let prepared = media
         .prepare_frame(&media_plan, PrepareMode::Export)
@@ -304,11 +302,11 @@ pub fn render_frame_rgba(
     };
 
     // SAFETY: skia_safe::Canvas wraps a C++ ref-counted object with interior mutability.
-        // All draw methods take &self at the Rust level while mutating internal C++ state.
-        // The surface owns the canvas and no other references exist at this point.
-        #[allow(invalid_reference_casting)]
-        let canvas: &mut skia_safe::Canvas =
-            unsafe { &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas) };
+    // All draw methods take &self at the Rust level while mutating internal C++ state.
+    // The surface owns the canvas and no other references exist at this point.
+    #[allow(invalid_reference_casting)]
+    let canvas: &mut skia_safe::Canvas =
+        unsafe { &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas) };
     let mut executor = crate::executor::EngineDrawExecutor::new();
     executor
         .execute(&header, &draw_frame, &prepared, canvas)
@@ -844,7 +842,7 @@ mod tests {
 
     #[test]
     fn layered_caption_renders_above_timeline_transition() {
-        use crate::{Easing, SrtEntry, caption, fade, timeline, text};
+        use crate::{Easing, SrtEntry, caption, fade, text, timeline};
 
         let composition = Composition::new("layered_caption")
             .size(320, 180)
@@ -913,7 +911,13 @@ mod tests {
             .root(move |_| {
                 crate::div()
                     .id("root")
-                    .child(crate::div().id("scene").w_full().h_full().bg(crate::ColorToken::Blue500))
+                    .child(
+                        crate::div()
+                            .id("scene")
+                            .w_full()
+                            .h_full()
+                            .bg(crate::ColorToken::Blue500),
+                    )
                     .child(
                         caption()
                             .id("subs")
@@ -955,7 +959,13 @@ mod tests {
             .root(move |_| {
                 crate::div()
                     .id("root")
-                    .child(crate::div().id("scene").w_full().h_full().bg(crate::ColorToken::Blue500))
+                    .child(
+                        crate::div()
+                            .id("scene")
+                            .w_full()
+                            .h_full()
+                            .bg(crate::ColorToken::Blue500),
+                    )
                     .child(
                         caption()
                             .id("subs")
@@ -988,7 +998,7 @@ mod tests {
 
     #[test]
     fn timeline_caption_sibling_renders_above_transition() {
-        use crate::{Easing, SrtEntry, caption, fade, timeline, text};
+        use crate::{Easing, SrtEntry, caption, fade, text, timeline};
 
         let composition = Composition::new("timeline_caption")
             .size(320, 180)
@@ -1054,9 +1064,20 @@ mod tests {
             .root(move |_| {
                 let mut tl_kind = Node::from(
                     timeline()
-                        .sequence(10, crate::div().id("scene-a").w_full().h_full().bg_red().into())
+                        .sequence(
+                            10,
+                            crate::div().id("scene-a").w_full().h_full().bg_red().into(),
+                        )
                         .transition(fade().timing(Easing::Linear, 10))
-                        .sequence(10, crate::div().id("scene-b").w_full().h_full().bg_blue().into()),
+                        .sequence(
+                            10,
+                            crate::div()
+                                .id("scene-b")
+                                .w_full()
+                                .h_full()
+                                .bg_blue()
+                                .into(),
+                        ),
                 )
                 .kind()
                 .clone();
@@ -1104,9 +1125,20 @@ mod tests {
             .root(move |_| {
                 let mut tl_kind = Node::from(
                     timeline()
-                        .sequence(10, crate::div().id("scene-a").w_full().h_full().bg_red().into())
+                        .sequence(
+                            10,
+                            crate::div().id("scene-a").w_full().h_full().bg_red().into(),
+                        )
                         .transition(fade().timing(Easing::Linear, 10))
-                        .sequence(10, crate::div().id("scene-b").w_full().h_full().bg_blue().into()),
+                        .sequence(
+                            10,
+                            crate::div()
+                                .id("scene-b")
+                                .w_full()
+                                .h_full()
+                                .bg_blue()
+                                .into(),
+                        ),
                 )
                 .kind()
                 .clone();
@@ -1128,6 +1160,110 @@ mod tests {
         assert!(
             pixel[0] > 0 && pixel[2] > 0,
             "root timeline transition should be composited by the tl node itself, got {:?}",
+            pixel
+        );
+    }
+
+    #[test]
+    fn gltransition_runtime_effect_samples_timeline_children() {
+        use crate::{Easing, timeline};
+        use opencat_core::scene::node::Node;
+        use opencat_core::scene::transition::gl_transition;
+
+        let composition = Composition::new("gltransition_runtime_effect")
+            .size(80, 80)
+            .fps(30)
+            .frames(30)
+            .root(move |_| {
+                let mut tl_kind = Node::from(
+                    timeline()
+                        .sequence(
+                            10,
+                            crate::div().id("scene-a").w_full().h_full().bg_red().into(),
+                        )
+                        .transition(gl_transition("fade").timing(Easing::Linear, 10))
+                        .sequence(
+                            10,
+                            crate::div()
+                                .id("scene-b")
+                                .w_full()
+                                .h_full()
+                                .bg_blue()
+                                .into(),
+                        ),
+                )
+                .kind()
+                .clone();
+                let tl_style = tl_kind.style_mut();
+                tl_style.id = "tl".into();
+                tl_style.width_full = true;
+                tl_style.height_full = true;
+                tl_style.overflow_hidden = true;
+                Node::new(tl_kind)
+            })
+            .build()
+            .expect("composition should build");
+
+        let mut session = make_test_session();
+        let pixels =
+            render_frame_rgba(&composition, 15, &mut session).expect("frame should render");
+        let pixel = pixel_rgba(&pixels, 80, 40, 40);
+
+        assert!(
+            pixel[0] > 80 && pixel[0] < 220 && pixel[2] > 80 && pixel[2] < 220 && pixel[3] == 255,
+            "GLTransition fade should render a real mid-transition blend, got {:?}",
+            pixel
+        );
+    }
+
+    #[test]
+    fn light_leak_runtime_effect_samples_timeline_children() {
+        use crate::{Easing, timeline};
+        use opencat_core::scene::node::Node;
+        use opencat_core::scene::transition::light_leak;
+
+        let composition = Composition::new("light_leak_runtime_effect")
+            .size(80, 80)
+            .fps(30)
+            .frames(30)
+            .root(move |_| {
+                let mut tl_kind = Node::from(
+                    timeline()
+                        .sequence(
+                            10,
+                            crate::div().id("scene-a").w_full().h_full().bg_red().into(),
+                        )
+                        .transition(light_leak().timing(Easing::Linear, 10))
+                        .sequence(
+                            10,
+                            crate::div()
+                                .id("scene-b")
+                                .w_full()
+                                .h_full()
+                                .bg_blue()
+                                .into(),
+                        ),
+                )
+                .kind()
+                .clone();
+                let tl_style = tl_kind.style_mut();
+                tl_style.id = "tl".into();
+                tl_style.width_full = true;
+                tl_style.height_full = true;
+                tl_style.overflow_hidden = true;
+                Node::new(tl_kind)
+            })
+            .build()
+            .expect("composition should build");
+
+        let mut session = make_test_session();
+        let pixels =
+            render_frame_rgba(&composition, 15, &mut session).expect("frame should render");
+        let pixel = pixel_rgba(&pixels, 80, 40, 40);
+
+        assert!(
+            pixel[0] > 120 && pixel[1] > 80 && pixel[3] == 255,
+            "light leak transition should produce an opaque warm RuntimeEffect composite, got {:?}",
             pixel
         );
     }
@@ -1199,19 +1335,11 @@ mod tests {
         let mut session = make_test_session();
         let _ = render_frame_rgba(&composition, 12, &mut session)
             .expect("first transition frame should render");
-        let size_after_first = session
-            .cache
-            .subtree_snapshots
-            .borrow()
-            .len();
+        let size_after_first = session.cache.subtree_snapshots.len();
 
         let _ = render_frame_rgba(&composition, 13, &mut session)
             .expect("second transition frame should render");
-        let size_after_second = session
-            .cache
-            .subtree_snapshots
-            .borrow()
-            .len();
+        let size_after_second = session.cache.subtree_snapshots.len();
 
         assert!(
             size_after_first >= 2,

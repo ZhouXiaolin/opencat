@@ -1,10 +1,10 @@
 pub mod prepare;
 
+use crate::executor::EnginePreparedFrameMedia;
+use crate::resource::media::MediaContext;
 use opencat_core::platform::media::{
     AudioPlanSlice, FrameMediaPlan, MediaError, MediaPlatform, PrepareMode,
 };
-use crate::executor::EnginePreparedFrameMedia;
-use crate::resource::media::MediaContext;
 
 pub struct EngineMedia {
     asset_paths: *const crate::resource::AssetPathStore,
@@ -12,10 +12,7 @@ pub struct EngineMedia {
 }
 
 impl EngineMedia {
-    pub fn new(
-        asset_paths: &crate::resource::AssetPathStore,
-        video: *mut MediaContext,
-    ) -> Self {
+    pub fn new(asset_paths: &crate::resource::AssetPathStore, video: *mut MediaContext) -> Self {
         Self {
             asset_paths: asset_paths as *const _,
             video,
@@ -25,8 +22,6 @@ impl EngineMedia {
     fn asset_paths(&self) -> &crate::resource::AssetPathStore {
         unsafe { &*self.asset_paths }
     }
-
-    
 }
 
 impl MediaPlatform for EngineMedia {

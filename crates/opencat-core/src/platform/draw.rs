@@ -1,7 +1,7 @@
 //! Platform role for draw execution: consuming DrawOpFrame and producing pixels.
 
-use crate::draw::frame::DrawOpFrame;
 use crate::draw::cache::CachedDrawRange;
+use crate::draw::frame::DrawOpFrame;
 
 /// Platform role for draw execution (consuming DrawOpFrame and producing pixels).
 pub trait DrawPlatform {

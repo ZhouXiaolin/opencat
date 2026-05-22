@@ -16,11 +16,9 @@ use tracing_subscriber::{
     registry::LookupSpan,
 };
 
-#[cfg(feature = "profile")]
-use crate::runtime::profile::{
-    CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator,
-};
 use crate::runtime::profile::RenderProfileSummary;
+#[cfg(feature = "profile")]
+use crate::runtime::profile::{CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileOutputFormat {

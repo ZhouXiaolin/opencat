@@ -98,10 +98,7 @@ fn gradient_to_shader_spec(
     let (stops, colors) = match via {
         Some(mid) => {
             let mid_color = color_token_to_rgba(mid);
-            (
-                vec![0.0, 0.5, 1.0],
-                vec![from_color, mid_color, to_color],
-            )
+            (vec![0.0, 0.5, 1.0], vec![from_color, mid_color, to_color])
         }
         None => (vec![0.0, 1.0], vec![from_color, to_color]),
     };

@@ -19,18 +19,19 @@ pub fn parse_color(color: &str, op: &str) -> anyhow::Result<ColorU8> {
 
 /// Parse image rect coordinates for script bindings.
 pub fn parse_image_rect(op: &str, coords: &[f32]) -> anyhow::Result<[f32; 4]> {
-    parse_image_rect_coords(coords)
-        .ok_or_else(|| script_error(op, "expected source rect as [x, y, width, height]".to_string()))
+    parse_image_rect_coords(coords).ok_or_else(|| {
+        script_error(
+            op,
+            "expected source rect as [x, y, width, height]".to_string(),
+        )
+    })
 }
 
 /// Parse DRRect coordinates for script bindings.
 pub fn parse_drrect(
     op: &str,
     coords: &[f32],
-) -> anyhow::Result<(
-    f32, f32, f32, f32, f32,
-    f32, f32, f32, f32, f32,
-)> {
+) -> anyhow::Result<(f32, f32, f32, f32, f32, f32, f32, f32, f32, f32)> {
     parse_drrect_coords(coords)
         .ok_or_else(|| script_error(op, "expected 10 coordinate values".to_string()))
 }

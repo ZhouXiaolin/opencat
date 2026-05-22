@@ -3,7 +3,6 @@
 //! Plan B 填实状态栈/变换/裁剪/基础几何/paint converter；Plan C 填实 Image/Picture。
 //! 剩余 Text/RuntimeEffect（4 个 `todo!()`）将在 Plan D 填实。
 
-
 use opencat_core::canvas::{
     Canvas2D, ClipOp, FillType, PaintSpec, PathBuilder as CorePathBuilder, PointMode, RRect, Rect,
     RuntimeEffectChild,
@@ -89,29 +88,27 @@ impl Canvas2D for CanvasKitCanvas2D {
         tmp.set_alpha(alpha);
         let bounds_js = match bounds {
             Some(r) => crate::canvaskit::bindings::ck_ltrb_rect(
-                r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32,
+                r.x0 as f32,
+                r.y0 as f32,
+                r.x1 as f32,
+                r.y1 as f32,
             ),
             None => JsValue::NULL,
         };
-        CKCanvas::save_layer(
-            &self.canvas,
-            tmp.unchecked_ref(),
-            &bounds_js,
-        );
+        CKCanvas::save_layer(&self.canvas, tmp.unchecked_ref(), &bounds_js);
     }
     fn save_layer_with(&mut self, bounds: Option<Rect>, paint: &PaintSpec) {
         let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
         let bounds_js = match bounds {
             Some(r) => crate::canvaskit::bindings::ck_ltrb_rect(
-                r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32,
+                r.x0 as f32,
+                r.y0 as f32,
+                r.x1 as f32,
+                r.y1 as f32,
             ),
             None => JsValue::NULL,
         };
-        CKCanvas::save_layer(
-            &self.canvas,
-            target.unchecked_ref(),
-            &bounds_js,
-        );
+        CKCanvas::save_layer(&self.canvas, target.unchecked_ref(), &bounds_js);
     }
     fn restore(&mut self) {
         CKCanvas::restore(&self.canvas);
@@ -149,7 +146,10 @@ impl Canvas2D for CanvasKitCanvas2D {
 
     fn clip_rect(&mut self, rect: &Rect, op: ClipOp, anti_alias: bool) {
         let js_rect = crate::canvaskit::bindings::ck_ltrb_rect(
-            rect.x0 as f32, rect.y0 as f32, rect.x1 as f32, rect.y1 as f32,
+            rect.x0 as f32,
+            rect.y0 as f32,
+            rect.x1 as f32,
+            rect.y1 as f32,
         );
         let js_op = crate::canvaskit::convert::ck_clip_op(op);
         CKCanvas::clip_rect(&self.canvas, &js_rect, &js_op, anti_alias);
@@ -167,9 +167,8 @@ impl Canvas2D for CanvasKitCanvas2D {
     // ── Basic geometry ───────────────────────────────────────────
 
     fn clear(&mut self, color: [f32; 4]) {
-        let js_color = crate::canvaskit::bindings::ck_color4f(
-            color[0], color[1], color[2], color[3],
-        );
+        let js_color =
+            crate::canvaskit::bindings::ck_color4f(color[0], color[1], color[2], color[3]);
         CKCanvas::clear(&self.canvas, &js_color);
     }
     fn draw_paint(&mut self, paint: &PaintSpec) {
@@ -178,7 +177,10 @@ impl Canvas2D for CanvasKitCanvas2D {
     }
     fn draw_rect(&mut self, rect: &Rect, paint: &PaintSpec) {
         let js_rect = crate::canvaskit::bindings::ck_ltrb_rect(
-            rect.x0 as f32, rect.y0 as f32, rect.x1 as f32, rect.y1 as f32,
+            rect.x0 as f32,
+            rect.y0 as f32,
+            rect.x1 as f32,
+            rect.y1 as f32,
         );
         let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
         CKCanvas::draw_rect(&self.canvas, &js_rect, target.unchecked_ref());
@@ -196,7 +198,10 @@ impl Canvas2D for CanvasKitCanvas2D {
     }
     fn draw_oval(&mut self, oval: &Rect, paint: &PaintSpec) {
         let js_oval = crate::canvaskit::bindings::ck_ltrb_rect(
-            oval.x0 as f32, oval.y0 as f32, oval.x1 as f32, oval.y1 as f32,
+            oval.x0 as f32,
+            oval.y0 as f32,
+            oval.x1 as f32,
+            oval.y1 as f32,
         );
         let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
         CKCanvas::draw_oval(&self.canvas, &js_oval, target.unchecked_ref());
@@ -214,11 +219,19 @@ impl Canvas2D for CanvasKitCanvas2D {
         paint: &PaintSpec,
     ) {
         let js_oval = crate::canvaskit::bindings::ck_ltrb_rect(
-            oval.x0 as f32, oval.y0 as f32, oval.x1 as f32, oval.y1 as f32,
+            oval.x0 as f32,
+            oval.y0 as f32,
+            oval.x1 as f32,
+            oval.y1 as f32,
         );
         let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
         CKCanvas::draw_arc(
-            &self.canvas, &js_oval, start, sweep, use_center, target.unchecked_ref(),
+            &self.canvas,
+            &js_oval,
+            start,
+            sweep,
+            use_center,
+            target.unchecked_ref(),
         );
     }
     fn draw_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, paint: &PaintSpec) {
@@ -232,9 +245,7 @@ impl Canvas2D for CanvasKitCanvas2D {
             arr.set_index(i as u32, *v);
         }
         let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
-        CKCanvas::draw_points(
-            &self.canvas, &js_mode, &arr.into(), target.unchecked_ref(),
-        );
+        CKCanvas::draw_points(&self.canvas, &js_mode, &arr.into(), target.unchecked_ref());
     }
     fn draw_path(&mut self, path: &Self::Path, paint: &PaintSpec) {
         let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, paint);
@@ -243,13 +254,7 @@ impl Canvas2D for CanvasKitCanvas2D {
 
     // ── Image ────────────────────────────────────────────────────
 
-    fn draw_image(
-        &mut self,
-        image: &Self::Image,
-        x: f32,
-        y: f32,
-        paint: Option<&PaintSpec>,
-    ) {
+    fn draw_image(&mut self, image: &Self::Image, x: f32, y: f32, paint: Option<&PaintSpec>) {
         let target_opt = paint.map(|spec| {
             crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, spec)
         });
@@ -258,7 +263,13 @@ impl Canvas2D for CanvasKitCanvas2D {
             Some(t) => t.unchecked_ref(),
             None => &null_js,
         };
-        crate::canvaskit::bindings::CKCanvas::draw_image(&self.canvas, image.as_js(), x, y, paint_ref);
+        crate::canvaskit::bindings::CKCanvas::draw_image(
+            &self.canvas,
+            image.as_js(),
+            x,
+            y,
+            paint_ref,
+        );
     }
     fn draw_image_rect(
         &mut self,
@@ -269,7 +280,10 @@ impl Canvas2D for CanvasKitCanvas2D {
     ) {
         let src_js = match src {
             Some(r) => crate::canvaskit::bindings::ck_ltrb_rect(
-                r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32,
+                r.x0 as f32,
+                r.y0 as f32,
+                r.x1 as f32,
+                r.y1 as f32,
             ),
             None => {
                 let img_js = image.as_js();
@@ -280,7 +294,10 @@ impl Canvas2D for CanvasKitCanvas2D {
             }
         };
         let dst_js = crate::canvaskit::bindings::ck_ltrb_rect(
-            dst.x0 as f32, dst.y0 as f32, dst.x1 as f32, dst.y1 as f32,
+            dst.x0 as f32,
+            dst.y0 as f32,
+            dst.x1 as f32,
+            dst.y1 as f32,
         );
         let target_opt = paint.map(|spec| {
             crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, spec)
@@ -291,14 +308,15 @@ impl Canvas2D for CanvasKitCanvas2D {
             None => &null_js,
         };
         crate::canvaskit::bindings::CKCanvas::draw_image_rect(
-            &self.canvas, image.as_js(), &src_js, &dst_js, paint_ref,
+            &self.canvas,
+            image.as_js(),
+            &src_js,
+            &dst_js,
+            paint_ref,
         );
     }
 
     // ── Text ─────────────────────────────────────────────────────
-
-
-
 
     // ── Picture ──────────────────────────────────────────────────
 
@@ -308,19 +326,22 @@ impl Canvas2D for CanvasKitCanvas2D {
         Self: Sized,
     {
         let bounds_js = crate::canvaskit::bindings::ck_ltrb_rect(
-            bounds.x0 as f32, bounds.y0 as f32, bounds.x1 as f32, bounds.y1 as f32,
+            bounds.x0 as f32,
+            bounds.y0 as f32,
+            bounds.x1 as f32,
+            bounds.y1 as f32,
         );
         let recorder = crate::canvaskit::bindings::ck_new_picture_recorder()
             .expect("PictureRecorder() ctor failed; ensure init_canvaskit() was called");
-        let recording_canvas = crate::canvaskit::bindings::CKPictureRecorder::begin_recording(
-            &recorder, &bounds_js,
-        );
+        let recording_canvas =
+            crate::canvaskit::bindings::CKPictureRecorder::begin_recording(&recorder, &bounds_js);
 
         let mut temp = CanvasKitCanvas2D::new(recording_canvas);
         record(&mut temp);
         drop(temp);
 
-        let picture_js = crate::canvaskit::bindings::CKPictureRecorder::finish_recording_as_picture(&recorder);
+        let picture_js =
+            crate::canvaskit::bindings::CKPictureRecorder::finish_recording_as_picture(&recorder);
         crate::canvaskit::bindings::CKPictureRecorder::delete_recorder(&recorder);
         crate::canvaskit::handle::CKHandle::wrap(picture_js)
     }
@@ -336,7 +357,8 @@ impl Canvas2D for CanvasKitCanvas2D {
         }
 
         if let Some(spec) = paint {
-            let target = crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, spec);
+            let target =
+                crate::canvaskit::paint::apply_to(&self.fill_paint, &self.stroke_paint, spec);
             crate::canvaskit::bindings::CKCanvas::save_layer(
                 &self.canvas,
                 target.unchecked_ref(),
@@ -453,19 +475,30 @@ impl Canvas2D for CanvasKitCanvas2D {
                         Some(f) if f.is_function() => {
                             let func = f.unchecked_ref::<js_sys::Function>();
                             let m = crate::canvaskit::module::ck();
-                            let tile_clamp = js_sys::Reflect::get(m, &wasm_bindgen::JsValue::from_str("TileMode"))
+                            let tile_clamp = js_sys::Reflect::get(
+                                m,
+                                &wasm_bindgen::JsValue::from_str("TileMode"),
+                            )
+                            .ok()
+                            .and_then(|g| {
+                                js_sys::Reflect::get(&g, &wasm_bindgen::JsValue::from_str("Clamp"))
+                                    .ok()
+                            })
+                            .unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
+                            let filter_mode = js_sys::Reflect::get(
+                                m,
+                                &wasm_bindgen::JsValue::from_str("FilterMode"),
+                            )
+                            .ok()
+                            .and_then(|g| {
+                                js_sys::Reflect::get(&g, &wasm_bindgen::JsValue::from_str("Linear"))
+                                    .ok()
+                            })
+                            .unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
+                            match func
+                                .call3(pic_js, &tile_clamp, &tile_clamp, &filter_mode)
                                 .ok()
-                                .and_then(|g| {
-                                    js_sys::Reflect::get(&g, &wasm_bindgen::JsValue::from_str("Clamp")).ok()
-                                })
-                                .unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
-                            let filter_mode = js_sys::Reflect::get(m, &wasm_bindgen::JsValue::from_str("FilterMode"))
-                                .ok()
-                                .and_then(|g| {
-                                    js_sys::Reflect::get(&g, &wasm_bindgen::JsValue::from_str("Linear")).ok()
-                                })
-                                .unwrap_or(wasm_bindgen::JsValue::UNDEFINED);
-                            match func.call3(pic_js, &tile_clamp, &tile_clamp, &filter_mode).ok() {
+                            {
                                 Some(s) if !s.is_null() && !s.is_undefined() => s,
                                 _ => wasm_bindgen::JsValue::NULL,
                             }
@@ -554,7 +587,8 @@ impl Canvas2D for CanvasKitCanvas2D {
     {
         let surface = crate::canvaskit::bindings::ck_make_surface(width, height)
             .expect("CanvasKit.MakeSurface failed; check width/height");
-        let offscreen_canvas = crate::canvaskit::bindings::CKSurfaceJs::surface_get_canvas(&surface);
+        let offscreen_canvas =
+            crate::canvaskit::bindings::CKSurfaceJs::surface_get_canvas(&surface);
 
         let mut temp = CanvasKitCanvas2D::new(offscreen_canvas);
         draw(&mut temp);

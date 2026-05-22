@@ -12,9 +12,9 @@ use opencat_core::scene::node::{Node, NodeKind};
 use opencat_core::scene::primitives::ImageSource;
 use opencat_core::scene::time::FrameState;
 
+use crate::resource::AssetPathStore;
 use crate::resource::fetch::build_preload_runtime;
 use crate::resource::media::MediaContext;
-use crate::resource::AssetPathStore;
 use crate::resource::resolver::EngineAssetResolver;
 use crate::runtime::audio::{AudioIntervalCache, DecodedAudioCache};
 use crate::script::ScriptRuntimeCache;
@@ -70,10 +70,7 @@ impl EnginePlatform {
 
         let rt = build_preload_runtime("preflight")?;
         {
-            let mut resolver = EngineAssetResolver::new(
-                &mut self.asset_paths,
-                cache_dir,
-            )?;
+            let mut resolver = EngineAssetResolver::new(&mut self.asset_paths, cache_dir)?;
             rt.block_on(preload_all(req, &mut resolver, catalog))?;
         }
 

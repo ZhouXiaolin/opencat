@@ -1,7 +1,7 @@
+use crate::canvas::Rect;
 use crate::canvas::paint::{
     BlendMode, FillSpec, PaintSpec, PaintStyle, PathEffectSpec, StrokeCap, StrokeJoin, StrokeSpec,
 };
-use crate::canvas::Rect;
 use crate::display::list::{DisplayRect, SvgPathDisplayItem};
 use crate::draw::op::DrawOp;
 use crate::draw::types::{EncodedPath, FillType, PathOp};
@@ -12,7 +12,12 @@ use super::paint_conv::{background_fill_to_paint_spec, color_token_to_rgba};
 use super::{RenderCtx, RenderError};
 
 fn kurbo_rect(r: DisplayRect) -> Rect {
-    Rect::new(r.x as f64, r.y as f64, (r.x + r.width) as f64, (r.y + r.height) as f64)
+    Rect::new(
+        r.x as f64,
+        r.y as f64,
+        (r.x + r.width) as f64,
+        (r.y + r.height) as f64,
+    )
 }
 
 fn svg_path_to_ops(svg: &str) -> Option<Vec<PathOp>> {
@@ -58,10 +63,7 @@ fn svg_path_to_ops(svg: &str) -> Option<Vec<PathOp>> {
     Some(ops)
 }
 
-pub fn render_svg_path(
-    ctx: &mut RenderCtx,
-    item: &SvgPathDisplayItem,
-) -> Result<(), RenderError> {
+pub fn render_svg_path(ctx: &mut RenderCtx, item: &SvgPathDisplayItem) -> Result<(), RenderError> {
     let dst = kurbo_rect(item.bounds);
 
     let scale_x = dst.width() / item.view_box[2] as f64;

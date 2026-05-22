@@ -1,12 +1,15 @@
-use opencat_core::draw::op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
-use opencat_core::draw::op::{DRRectSpec, Radii4};
-use opencat_core::draw::frame::DrawOpFrame;
-use opencat_core::draw::types::{PathOp, RuntimeEffectChildRef};
-use skia_safe::{Canvas, Paint, PathBuilder, Point, Rect, RRect, Vector};
-use opencat_core::platform::draw::DrawError;
 use super::paint::paint_from_spec;
 use super::path::path_from_encoded;
 use super::{EngineDrawExecutor, EnginePreparedFrameMedia};
+use opencat_core::draw::frame::DrawOpFrame;
+use opencat_core::draw::op::{DRRectSpec, Radii4};
+use opencat_core::draw::op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
+use opencat_core::draw::types::{DrawOpRange, PathOp, RuntimeEffectChildRef};
+use opencat_core::platform::draw::DrawError;
+use skia_safe::{
+    Canvas, FilterMode, Paint, PathBuilder, Picture, PictureRecorder, Point, RRect, Rect, Shader,
+    TileMode, Vector,
+};
 
 fn apply_global_alpha(paint: &mut Paint, alpha: f32) {
     let a = (paint.color().a() as f32 / 255.0) * alpha;
@@ -30,6 +33,112 @@ pub fn replay_frame(
     Ok(stats)
 }
 
+fn replay_range(
+    exec: &mut EngineDrawExecutor,
+    canvas: &Canvas,
+    draw: &DrawOpFrame,
+    media: &EnginePreparedFrameMedia,
+    range: DrawOpRange,
+) -> Result<(), opencat_core::platform::draw::DrawError> {
+    let start = range.start_op as usize;
+    let end = start + range.op_len as usize;
+    if end > draw.ops.len() {
+        return Err(DrawError(format!(
+            "ReplayRange out of bounds: {start}..{end} (len={})",
+            draw.ops.len()
+        )));
+    }
+
+    for op in &draw.ops[start..end] {
+        replay_op(exec, canvas, draw, media, op)?;
+    }
+    Ok(())
+}
+
+fn rect_union(a: Rect, b: Rect) -> Rect {
+    Rect::new(
+        a.left.min(b.left),
+        a.top.min(b.top),
+        a.right.max(b.right),
+        a.bottom.max(b.bottom),
+    )
+}
+
+fn op_bounds(draw: &DrawOpFrame, op: &DrawOp) -> Option<Rect> {
+    match op {
+        DrawOp::SaveLayer {
+            bounds: Some(rect), ..
+        }
+        | DrawOp::Rect { rect, .. }
+        | DrawOp::RRect { rect, .. }
+        | DrawOp::Oval { rect, .. }
+        | DrawOp::Arc { rect, .. }
+        | DrawOp::RuntimeEffect { dst: rect, .. }
+        | DrawOp::ImageRect { dst: rect, .. } => Some(Rect::new(
+            rect.x,
+            rect.y,
+            rect.x + rect.width,
+            rect.y + rect.height,
+        )),
+        DrawOp::DRRect { outer, .. } => Some(Rect::new(
+            outer.rect.x,
+            outer.rect.y,
+            outer.rect.x + outer.rect.width,
+            outer.rect.y + outer.rect.height,
+        )),
+        DrawOp::Circle { cx, cy, radius, .. } => Some(Rect::new(
+            cx - radius,
+            cy - radius,
+            cx + radius,
+            cy + radius,
+        )),
+        DrawOp::Line { x0, y0, x1, y1, .. } => Some(Rect::new(
+            x0.min(*x1),
+            y0.min(*y1),
+            x0.max(*x1),
+            y0.max(*y1),
+        )),
+        DrawOp::ReplayRange { range } => range_bounds(draw, *range),
+        _ => None,
+    }
+}
+
+fn range_bounds(draw: &DrawOpFrame, range: DrawOpRange) -> Option<Rect> {
+    let start = range.start_op as usize;
+    let end = start.checked_add(range.op_len as usize)?;
+    let ops = draw.ops.get(start..end)?;
+    ops.iter()
+        .filter_map(|op| op_bounds(draw, op))
+        .reduce(rect_union)
+}
+
+fn picture_shader_for_range(
+    exec: &mut EngineDrawExecutor,
+    draw: &DrawOpFrame,
+    media: &EnginePreparedFrameMedia,
+    range: DrawOpRange,
+    fallback_bounds: Rect,
+) -> Result<Option<Shader>, opencat_core::platform::draw::DrawError> {
+    let bounds = range_bounds(draw, range).unwrap_or(fallback_bounds);
+    let mut recorder = PictureRecorder::new();
+    let picture_canvas = recorder.begin_recording(bounds, false);
+    let mut picture_exec = EngineDrawExecutor::new();
+    picture_exec.begin_frame();
+    replay_range(&mut picture_exec, picture_canvas, draw, media, range)?;
+    let Some(picture): Option<Picture> = recorder.finish_recording_as_picture(Some(&bounds)) else {
+        return Ok(None);
+    };
+    let shader = picture.to_shader(
+        (TileMode::Clamp, TileMode::Clamp),
+        FilterMode::Linear,
+        None::<&skia_safe::Matrix>,
+        Some(&bounds),
+    );
+    exec.compiled_pictures
+        .insert(picture.unique_id() as u64, picture);
+    Ok(Some(shader))
+}
+
 fn replay_op(
     exec: &mut EngineDrawExecutor,
     canvas: &Canvas,
@@ -46,10 +155,14 @@ fn replay_op(
             canvas.restore();
             Ok(())
         }
-        DrawOp::SaveLayer { bounds, paint, alpha } => {
-            let sk_paint = paint.as_ref().map(|pid| {
-                paint_from_spec(&draw.paints[pid.0 as usize])
-            });
+        DrawOp::SaveLayer {
+            bounds,
+            paint,
+            alpha,
+        } => {
+            let sk_paint = paint
+                .as_ref()
+                .map(|pid| paint_from_spec(&draw.paints[pid.0 as usize]));
             let sk_rect = bounds.map(|r| Rect::new(r.x, r.y, r.x + r.width, r.y + r.height));
             let mut rec = skia_safe::canvas::SaveLayerRec::default();
             if let Some(ref p) = sk_paint {
@@ -88,9 +201,8 @@ fn replay_op(
         }
         DrawOp::Concat { matrix } => {
             canvas.concat(&skia_safe::Matrix::new_all(
-                matrix[0], matrix[3], matrix[6],
-                matrix[1], matrix[4], matrix[7],
-                matrix[2], matrix[5], matrix[8],
+                matrix[0], matrix[3], matrix[6], matrix[1], matrix[4], matrix[7], matrix[2],
+                matrix[5], matrix[8],
             ));
             Ok(())
         }
@@ -138,7 +250,8 @@ fn replay_op(
             Ok(())
         }
         DrawOp::ClearLineDash => {
-            exec.current_stroke_paint.set_path_effect(None::<skia_safe::PathEffect>);
+            exec.current_stroke_paint
+                .set_path_effect(None::<skia_safe::PathEffect>);
             Ok(())
         }
         DrawOp::SetGlobalAlpha { alpha } => {
@@ -191,7 +304,12 @@ fn replay_op(
         }
 
         DrawOp::Clear { color } => {
-            canvas.clear(skia_safe::Color4f { r: color.r, g: color.g, b: color.b, a: color.a });
+            canvas.clear(skia_safe::Color4f {
+                r: color.r,
+                g: color.g,
+                b: color.b,
+                a: color.a,
+            });
             Ok(())
         }
         DrawOp::Paint { paint: pid } => {
@@ -209,7 +327,11 @@ fn replay_op(
             );
             Ok(())
         }
-        DrawOp::RRect { rect, radii, paint: pid } => {
+        DrawOp::RRect {
+            rect,
+            radii,
+            paint: pid,
+        } => {
             let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
             apply_global_alpha(&mut paint, exec.current_alpha);
             let r = RRect::new_rect_radii(
@@ -219,7 +341,11 @@ fn replay_op(
             canvas.draw_rrect(&r, &paint);
             Ok(())
         }
-        DrawOp::DRRect { outer, inner, paint: pid } => {
+        DrawOp::DRRect {
+            outer,
+            inner,
+            paint: pid,
+        } => {
             let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
             apply_global_alpha(&mut paint, exec.current_alpha);
             let o = drrect_to_skia(outer);
@@ -236,13 +362,24 @@ fn replay_op(
             );
             Ok(())
         }
-        DrawOp::Circle { cx, cy, radius, paint: pid } => {
+        DrawOp::Circle {
+            cx,
+            cy,
+            radius,
+            paint: pid,
+        } => {
             let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
             apply_global_alpha(&mut paint, exec.current_alpha);
             canvas.draw_circle((*cx, *cy), *radius, &paint);
             Ok(())
         }
-        DrawOp::Arc { rect, start, sweep, use_center, paint: pid } => {
+        DrawOp::Arc {
+            rect,
+            start,
+            sweep,
+            use_center,
+            paint: pid,
+        } => {
             let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
             apply_global_alpha(&mut paint, exec.current_alpha);
             canvas.draw_arc(
@@ -254,13 +391,23 @@ fn replay_op(
             );
             Ok(())
         }
-        DrawOp::Line { x0, y0, x1, y1, paint: pid } => {
+        DrawOp::Line {
+            x0,
+            y0,
+            x1,
+            y1,
+            paint: pid,
+        } => {
             let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
             apply_global_alpha(&mut paint, exec.current_alpha);
             canvas.draw_line((*x0, *y0), (*x1, *y1), &paint);
             Ok(())
         }
-        DrawOp::Points { mode, points, paint: pid } => {
+        DrawOp::Points {
+            mode,
+            points,
+            paint: pid,
+        } => {
             let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
             apply_global_alpha(&mut paint, exec.current_alpha);
             let start = points.start as usize;
@@ -287,7 +434,12 @@ fn replay_op(
             canvas.draw_path(&sk_path, &paint);
             Ok(())
         }
-        DrawOp::Image { image, x, y, paint: pid } => {
+        DrawOp::Image {
+            image,
+            x,
+            y,
+            paint: pid,
+        } => {
             if let Some(idx) = media.image_index.get(image) {
                 let sk_image = &media.images[*idx];
                 if let Some(pid) = pid {
@@ -300,12 +452,19 @@ fn replay_op(
             }
             Ok(())
         }
-        DrawOp::ImageRect { image, src, dst, paint: pid } => {
+        DrawOp::ImageRect {
+            image,
+            src,
+            dst,
+            paint: pid,
+        } => {
             if let Some(idx) = media.image_index.get(image) {
                 let sk_image = &media.images[*idx];
                 let src_rect = src.map(|r| Rect::new(r.x, r.y, r.x + r.width, r.y + r.height));
                 let dst_rect = Rect::new(dst.x, dst.y, dst.x + dst.width, dst.y + dst.height);
-                let src_arg = src_rect.as_ref().map(|r| (r, skia_safe::canvas::SrcRectConstraint::Fast));
+                let src_arg = src_rect
+                    .as_ref()
+                    .map(|r| (r, skia_safe::canvas::SrcRectConstraint::Fast));
                 if let Some(pid) = pid {
                     let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
                     apply_global_alpha(&mut paint, exec.current_alpha);
@@ -319,13 +478,20 @@ fn replay_op(
             Ok(())
         }
 
-        DrawOp::RuntimeEffect { effect, uniforms, children, dst } => {
+        DrawOp::RuntimeEffect {
+            effect,
+            uniforms,
+            children,
+            dst,
+        } => {
             let effect_idx = effect.0 as usize;
             if effect_idx < media.runtime_effects.len() {
                 let rt = &media.runtime_effects[effect_idx];
                 let uniform_idx = uniforms.0 as usize;
                 if uniform_idx >= draw.byte_ranges.len() {
-                    return Err(DrawError(format!("RuntimeEffect bytes_range out of bounds")));
+                    return Err(DrawError(format!(
+                        "RuntimeEffect bytes_range out of bounds"
+                    )));
                 }
                 let uniform_bytes = {
                     let start = draw.byte_ranges[uniform_idx].start as usize;
@@ -359,8 +525,18 @@ fn replay_op(
                                 inputs.push(skia_safe::shaders::empty().into());
                             }
                         }
-                        RuntimeEffectChildRef::Picture(_) => {
-                            inputs.push(skia_safe::shaders::empty().into());
+                        RuntimeEffectChildRef::Picture(range) => {
+                            let fallback_bounds =
+                                Rect::new(dst.x, dst.y, dst.x + dst.width, dst.y + dst.height);
+                            let shader = picture_shader_for_range(
+                                exec,
+                                draw,
+                                media,
+                                *range,
+                                fallback_bounds,
+                            )?
+                            .unwrap_or_else(skia_safe::shaders::empty);
+                            inputs.push(shader.into());
                         }
                         RuntimeEffectChildRef::Shader(_) => {
                             inputs.push(skia_safe::shaders::empty().into());
@@ -381,47 +557,68 @@ fn replay_op(
             Ok(())
         }
 
-        DrawOp::ReplayRange { range } => {
-            let start = range.start_op as usize;
-            let end = start + range.op_len as usize;
-            if end > draw.ops.len() {
-                return Err(DrawError(format!(
-                    "ReplayRange out of bounds: {start}..{end} (len={})", draw.ops.len()
-                )));
-            }
-            let ops = &draw.ops[start..end];
-            for op in ops {
-                replay_op(exec, canvas, draw, media, op)?;
-            }
-            Ok(())
-        }
+        DrawOp::ReplayRange { range } => replay_range(exec, canvas, draw, media, *range),
     }
 }
 
 fn apply_path_op(builder: &mut PathBuilder, op: &PathOp) {
     match *op {
-        PathOp::MoveTo { x, y } => { builder.move_to((x, y)); }
-        PathOp::LineTo { x, y } => { builder.line_to((x, y)); }
-        PathOp::QuadTo { cx, cy, x, y } => { builder.quad_to((cx, cy), (x, y)); }
-        PathOp::CubicTo { c1x, c1y, c2x, c2y, x, y } => {
+        PathOp::MoveTo { x, y } => {
+            builder.move_to((x, y));
+        }
+        PathOp::LineTo { x, y } => {
+            builder.line_to((x, y));
+        }
+        PathOp::QuadTo { cx, cy, x, y } => {
+            builder.quad_to((cx, cy), (x, y));
+        }
+        PathOp::CubicTo {
+            c1x,
+            c1y,
+            c2x,
+            c2y,
+            x,
+            y,
+        } => {
             builder.cubic_to((c1x, c1y), (c2x, c2y), (x, y));
         }
-        PathOp::Close => { builder.close(); }
-        PathOp::AddRect { x, y, width, height } => {
+        PathOp::Close => {
+            builder.close();
+        }
+        PathOp::AddRect {
+            x,
+            y,
+            width,
+            height,
+        } => {
             builder.add_rect(Rect::new(x, y, x + width, y + height), None, None);
         }
-        PathOp::AddRRect { x, y, width, height, radius } => {
-            let r = RRect::new_rect_xy(
-                Rect::new(x, y, x + width, y + height),
-                radius,
-                radius,
-            );
+        PathOp::AddRRect {
+            x,
+            y,
+            width,
+            height,
+            radius,
+        } => {
+            let r = RRect::new_rect_xy(Rect::new(x, y, x + width, y + height), radius, radius);
             builder.add_rrect(&r, None, None);
         }
-        PathOp::AddOval { x, y, width, height } => {
+        PathOp::AddOval {
+            x,
+            y,
+            width,
+            height,
+        } => {
             builder.add_oval(Rect::new(x, y, x + width, y + height), None, None);
         }
-        PathOp::AddArc { x, y, width, height, start_angle, sweep_angle } => {
+        PathOp::AddArc {
+            x,
+            y,
+            width,
+            height,
+            start_angle,
+            sweep_angle,
+        } => {
             builder.add_arc(
                 Rect::new(x, y, x + width, y + height),
                 start_angle,
@@ -447,8 +644,106 @@ fn drrect_to_skia(spec: &DRRectSpec) -> RRect {
         spec.rect.x + spec.rect.width,
         spec.rect.y + spec.rect.height,
     );
-    RRect::new_rect_radii(
-        rect,
-        &radii4_to_vectors(&spec.radii),
-    )
+    RRect::new_rect_radii(rect, &radii4_to_vectors(&spec.radii))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opencat_core::canvas::paint::{FillSpec, PaintSpec, PaintStyle};
+    use opencat_core::draw::op::Rect4;
+    use opencat_core::draw::types::{BytesRangeId, ChildRange, DrawOpRange, EffectId, EffectRef};
+    use skia_safe::{AlphaType, ColorType, ImageInfo, RuntimeEffect, image::CachingHint, surfaces};
+
+    fn pixel_rgba(frame: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
+        let index = (y * width + x) * 4;
+        [
+            frame[index],
+            frame[index + 1],
+            frame[index + 2],
+            frame[index + 3],
+        ]
+    }
+
+    #[test]
+    fn runtime_effect_picture_child_samples_draw_op_range() {
+        let sksl = r#"
+uniform shader child;
+
+half4 main(float2 coord) {
+    return child.eval(coord);
+}
+"#;
+        let rt = RuntimeEffect::make_for_shader(sksl, None).expect("runtime effect should compile");
+
+        let mut frame = DrawOpFrame::default();
+        frame.effects.push(EffectRef {
+            hash: 0xCAFE,
+            sksl: sksl.to_string(),
+        });
+        frame
+            .byte_ranges
+            .push(opencat_core::draw::types::TableRange { start: 0, len: 0 });
+        frame
+            .children
+            .push(RuntimeEffectChildRef::Picture(DrawOpRange {
+                start_op: 0,
+                op_len: 1,
+            }));
+        frame.paints.push(PaintSpec {
+            fill: FillSpec::Solid([0.0, 1.0, 0.0, 1.0]),
+            style: PaintStyle::Fill,
+            ..Default::default()
+        });
+        frame.ops.push(DrawOp::Rect {
+            rect: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 8.0,
+                height: 8.0,
+            },
+            paint: opencat_core::draw::types::PaintId(0),
+        });
+
+        let effect_op = DrawOp::RuntimeEffect {
+            effect: EffectId(0),
+            uniforms: BytesRangeId(0),
+            children: ChildRange { start: 0, len: 1 },
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 8.0,
+                height: 8.0,
+            },
+        };
+
+        let media = EnginePreparedFrameMedia {
+            runtime_effects: vec![rt],
+            ..Default::default()
+        };
+        let mut exec = EngineDrawExecutor::new();
+        exec.begin_frame();
+        let mut surface = surfaces::raster_n32_premul((8, 8)).expect("surface should create");
+        let canvas = surface.canvas();
+
+        replay_op(&mut exec, canvas, &frame, &media, &effect_op)
+            .expect("runtime effect op should replay");
+
+        let image = surface.image_snapshot();
+        let image_info = ImageInfo::new((8, 8), ColorType::RGBA8888, AlphaType::Premul, None);
+        let mut rgba = vec![0_u8; 8 * 8 * 4];
+        assert!(image.read_pixels(
+            &image_info,
+            rgba.as_mut_slice(),
+            8 * 4,
+            (0, 0),
+            CachingHint::Allow,
+        ));
+
+        assert_eq!(
+            pixel_rgba(&rgba, 8, 4, 4),
+            [0, 255, 0, 255],
+            "RuntimeEffect Picture child should sample the recorded draw range"
+        );
+    }
 }

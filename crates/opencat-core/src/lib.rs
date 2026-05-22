@@ -31,7 +31,10 @@ pub use self::resource::hash_map_catalog::{HashMapResourceCatalog, ResourceKind,
 pub use self::runtime::preflight_collect::{ResourceRequests, collect_resource_requests};
 pub use self::runtime::session::RenderSession;
 pub use self::scene::node::Node;
-pub use self::scene::script::{PrecomputedScriptHost, ScriptDriver, ScriptDriverId, ScriptHost, ScriptRunner, ScriptRuntimeCache};
+pub use self::scene::script::{
+    PrecomputedScriptHost, ScriptDriver, ScriptDriverId, ScriptHost, ScriptRunner,
+    ScriptRuntimeCache,
+};
 #[cfg(any(test, feature = "test-support"))]
 pub use self::test_support::TestCatalog;
 pub use self::text::{DefaultFontProvider, FontProvider};

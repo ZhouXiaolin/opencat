@@ -1,4 +1,3 @@
-
 use cosmic_text::Command;
 
 use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle};
@@ -13,7 +12,7 @@ use crate::text::{
 };
 
 use super::paint_conv::drop_shadow_to_image_filter;
-use super::{RenderError, RenderCtx};
+use super::{RenderCtx, RenderError};
 
 fn display_rect_to_rect4(r: DisplayRect) -> Rect4 {
     Rect4 {
@@ -59,10 +58,7 @@ fn build_glyph_path(commands: &[Command], scale: f32) -> EncodedPath {
     }
 }
 
-pub fn render_text(
-    ctx: &mut RenderCtx,
-    item: &TextDisplayItem,
-) -> Result<(), RenderError> {
+pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), RenderError> {
     let raster = rasterize_glyphs(
         &item.text,
         &item.style,

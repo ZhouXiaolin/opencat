@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use crate::canvas::paint::PaintSpec;
-use super::op::{DrawOp, F32Range};
 use super::frame::DrawOpFrame;
+use super::op::{DrawOp, F32Range};
 use super::types::*;
+use crate::canvas::paint::PaintSpec;
+use std::collections::HashMap;
 
 /// Immediate-mode paint state for script canvas tracking.
 /// Mirrors the HTML5 CanvasRenderingContext2D state for paint properties.
@@ -41,7 +41,6 @@ pub struct DrawOpBuilder {
     paint_state: DrawScriptPaintState,
 }
 
-
 impl DrawOpBuilder {
     /// Append a fully-formed DrawOp directly.
     pub fn push(&mut self, op: DrawOp) {
@@ -79,7 +78,6 @@ impl DrawOpBuilder {
             len: values.len() as u32,
         }
     }
-
 
     /// Intern an EncodedPath, returning a PathId.
     pub fn intern_path(&mut self, path: EncodedPath) -> PathId {
@@ -162,12 +160,12 @@ impl DrawOpBuilder {
         self.strings.extend(segment.strings.iter().cloned());
         for child in &segment.children {
             self.children.push(match child {
-                RuntimeEffectChildRef::Picture(range) => RuntimeEffectChildRef::Picture(
-                    DrawOpRange {
+                RuntimeEffectChildRef::Picture(range) => {
+                    RuntimeEffectChildRef::Picture(DrawOpRange {
                         start_op: range.start_op + ops_off,
                         op_len: range.op_len,
-                    },
-                ),
+                    })
+                }
                 other => other.clone(),
             });
         }
@@ -356,7 +354,9 @@ fn collect_references(
                     paint_ids.insert(p.0);
                 }
             }
-            DrawOp::RuntimeEffect { effect, children, .. } => {
+            DrawOp::RuntimeEffect {
+                effect, children, ..
+            } => {
                 effect_ids.insert(effect.0);
                 child_ranges.push(*children);
             }
@@ -497,12 +497,7 @@ fn remap_op(
                 op_len: range.op_len,
             },
         },
-        DrawOp::Image {
-            image,
-            x,
-            y,
-            paint,
-        } => DrawOp::Image {
+        DrawOp::Image { image, x, y, paint } => DrawOp::Image {
             image: image.clone(),
             x: *x,
             y: *y,
@@ -637,12 +632,7 @@ fn remap_op_snapshot(
             paint: paint.as_ref().map(|p| remap_paint(p)),
             alpha: *alpha,
         },
-        DrawOp::Image {
-            image,
-            x,
-            y,
-            paint,
-        } => DrawOp::Image {
+        DrawOp::Image { image, x, y, paint } => DrawOp::Image {
             image: image.clone(),
             x: *x,
             y: *y,
@@ -733,8 +723,8 @@ mod tests {
 
     #[test]
     fn builder_import_segment_remaps_paint_ids() {
-        use crate::draw::op::Rect4;
         use crate::draw::cache::CachedDrawSegment;
+        use crate::draw::op::Rect4;
 
         // Create a cached segment with a paint-referencing op
         let mut seg_builder = DrawOpBuilder::default();

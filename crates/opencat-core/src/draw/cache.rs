@@ -1,8 +1,8 @@
-use crate::cache::lru::BoundedLruCache;
-use crate::display::list::DisplayRect;
-use crate::canvas::paint::PaintSpec;
 use super::op::DrawOp;
 use super::types::*;
+use crate::cache::lru::BoundedLruCache;
+use crate::canvas::paint::PaintSpec;
+use crate::display::list::DisplayRect;
 
 /// IR-based render cache. Stores DrawOp IR segments instead of backend-specific
 /// objects, making cache data portable across platforms.
@@ -19,11 +19,7 @@ pub struct RenderCache {
 
 impl RenderCache {
     /// Create a new RenderCache with the given capacities.
-    pub fn new(
-        subtree_snapshot_cap: usize,
-        segment_cap: usize,
-        item_range_cap: usize,
-    ) -> Self {
+    pub fn new(subtree_snapshot_cap: usize, segment_cap: usize, item_range_cap: usize) -> Self {
         Self {
             subtree_snapshots: BoundedLruCache::new(subtree_snapshot_cap),
             segments: BoundedLruCache::new(segment_cap),
@@ -71,8 +67,8 @@ pub struct CachedDrawSegment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::op::DrawOp;
     use crate::display::list::DisplayRect;
+    use crate::draw::op::DrawOp;
 
     #[test]
     fn cached_draw_segment_holds_ir_data() {

@@ -6,7 +6,6 @@
 //!   `URL.createObjectURL` 等下游消费）。
 //! - [`clear_blobs`]: 清空 BlobStore（切换 composition 时调用）。
 
-
 use std::cell::RefCell;
 
 use js_sys::Uint8Array;
@@ -101,5 +100,3 @@ pub fn clear_blobs() {
 pub fn blob_count() -> usize {
     BLOB_STORE.with(|s| s.borrow().len())
 }
-
-

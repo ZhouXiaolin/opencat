@@ -1,8 +1,8 @@
+use crate::canvas::Rect;
 use crate::canvas::paint::{
     BlendMode, BlurStyle, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec, PaintStyle,
     PathEffectSpec, StrokeCap, StrokeSpec,
 };
-use crate::canvas::Rect;
 use crate::display::list::{DisplayRect, RectDisplayItem};
 use crate::draw::builder::DrawOpBuilder;
 use crate::draw::op::{DRRectSpec, DrawOp, Radii4, Rect4};
@@ -35,7 +35,12 @@ fn radii_to_radii4(r: [f32; 4]) -> Radii4 {
 }
 
 pub fn kurbo_rect(r: DisplayRect) -> Rect {
-    Rect::new(r.x as f64, r.y as f64, (r.x + r.width) as f64, (r.y + r.height) as f64)
+    Rect::new(
+        r.x as f64,
+        r.y as f64,
+        (r.x + r.width) as f64,
+        (r.y + r.height) as f64,
+    )
 }
 
 fn kurbo_rect_xywh(x: f32, y: f32, width: f32, height: f32) -> Rect {
@@ -46,10 +51,18 @@ fn effective_corner_radius(rect: &Rect, radius: &BorderRadius) -> [f32; 4] {
     let w = rect.width() as f32;
     let h = rect.height() as f32;
     let clamp = |r: f32| {
-        if r <= 0.0 { 0.0 }
-        else { r.min(w / 2.0).min(h / 2.0) }
+        if r <= 0.0 {
+            0.0
+        } else {
+            r.min(w / 2.0).min(h / 2.0)
+        }
     };
-    [clamp(radius.top_left), clamp(radius.top_right), clamp(radius.bottom_right), clamp(radius.bottom_left)]
+    [
+        clamp(radius.top_left),
+        clamp(radius.top_right),
+        clamp(radius.bottom_right),
+        clamp(radius.bottom_left),
+    ]
 }
 
 fn spread_radius(radius: &BorderRadius, spread: f32) -> BorderRadius {
@@ -75,19 +88,39 @@ fn push_rrect_path(builder: &mut DrawOpBuilder, r: Rect4, radii: Radii4) {
     builder.push(DrawOp::Path(PathOp::MoveTo { x: x + tl, y: y }));
     builder.push(DrawOp::Path(PathOp::LineTo { x: x1 - tr, y: y }));
     if tr > 0.0 {
-        builder.push(DrawOp::Path(PathOp::QuadTo { cx: x1, cy: y, x: x1, y: y + tr }));
+        builder.push(DrawOp::Path(PathOp::QuadTo {
+            cx: x1,
+            cy: y,
+            x: x1,
+            y: y + tr,
+        }));
     }
     builder.push(DrawOp::Path(PathOp::LineTo { x: x1, y: y1 - br }));
     if br > 0.0 {
-        builder.push(DrawOp::Path(PathOp::QuadTo { cx: x1, cy: y1, x: x1 - br, y: y1 }));
+        builder.push(DrawOp::Path(PathOp::QuadTo {
+            cx: x1,
+            cy: y1,
+            x: x1 - br,
+            y: y1,
+        }));
     }
     builder.push(DrawOp::Path(PathOp::LineTo { x: x + bl, y: y1 }));
     if bl > 0.0 {
-        builder.push(DrawOp::Path(PathOp::QuadTo { cx: x, cy: y1, x: x, y: y1 - bl }));
+        builder.push(DrawOp::Path(PathOp::QuadTo {
+            cx: x,
+            cy: y1,
+            x: x,
+            y: y1 - bl,
+        }));
     }
     builder.push(DrawOp::Path(PathOp::LineTo { x: x, y: y + tl }));
     if tl > 0.0 {
-        builder.push(DrawOp::Path(PathOp::QuadTo { cx: x, cy: y, x: x + tl, y: y }));
+        builder.push(DrawOp::Path(PathOp::QuadTo {
+            cx: x,
+            cy: y,
+            x: x + tl,
+            y: y,
+        }));
     }
     builder.push(DrawOp::Path(PathOp::Close));
 }
@@ -132,7 +165,10 @@ pub fn draw_box_shadow(
     if radii.iter().any(|&r| r > 0.0) {
         push_draw_rrect(builder, rect, radii, paint_id);
     } else {
-        builder.push(DrawOp::Rect { rect: rect_to_rect4(rect), paint: paint_id });
+        builder.push(DrawOp::Rect {
+            rect: rect_to_rect4(rect),
+            paint: paint_id,
+        });
     }
 }
 
@@ -170,7 +206,10 @@ pub fn draw_inset_shadow(
     if radii.iter().any(|&r| r > 0.0) {
         push_draw_rrect(builder, rect, radii, paint_id);
     } else {
-        builder.push(DrawOp::Rect { rect: rect_to_rect4(rect), paint: paint_id });
+        builder.push(DrawOp::Rect {
+            rect: rect_to_rect4(rect),
+            paint: paint_id,
+        });
     }
     builder.push(DrawOp::Restore);
 }
@@ -184,7 +223,12 @@ pub fn clip_bounds(builder: &mut DrawOpBuilder, bounds: DisplayRect, border_radi
     } else {
         let r4 = rect_to_rect4(rect);
         builder.push(DrawOp::BeginPath);
-        builder.push(DrawOp::Path(PathOp::AddRect { x: r4.x, y: r4.y, width: r4.width, height: r4.height }));
+        builder.push(DrawOp::Path(PathOp::AddRect {
+            x: r4.x,
+            y: r4.y,
+            width: r4.width,
+            height: r4.height,
+        }));
         builder.push(DrawOp::ClipPath { anti_alias: true });
     }
 }
@@ -235,7 +279,12 @@ fn apply_blur_effect(spec: &mut PaintSpec, blur_sigma: Option<f32>) {
     }
 }
 
-fn build_stroke_paint(color: &[f32; 4], width: f32, border_style: &BorderStyle, blur_sigma: Option<f32>) -> PaintSpec {
+fn build_stroke_paint(
+    color: &[f32; 4],
+    width: f32,
+    border_style: &BorderStyle,
+    blur_sigma: Option<f32>,
+) -> PaintSpec {
     let mut p = PaintSpec {
         fill: FillSpec::Solid(*color),
         style: PaintStyle::Stroke,
@@ -289,7 +338,9 @@ pub fn draw_node_border(
     border_style: Option<BorderStyle>,
     blur_sigma: Option<f32>,
 ) {
-    let Some(color) = border_color else { return; };
+    let Some(color) = border_color else {
+        return;
+    };
     let uniform = border_width.unwrap_or(0.0);
     let top_w = border_top_width.unwrap_or(uniform);
     let right_w = border_right_width.unwrap_or(uniform);
@@ -304,10 +355,23 @@ pub fn draw_node_border(
 
     match stroke_style {
         BorderStyle::Solid => {
-            draw_border_fill_ring(builder, rect, radius, top_w, right_w, bottom_w, left_w, &rgba, blur_sigma);
+            draw_border_fill_ring(
+                builder, rect, radius, top_w, right_w, bottom_w, left_w, &rgba, blur_sigma,
+            );
         }
         BorderStyle::Dashed | BorderStyle::Dotted => {
-            draw_per_side_borders(builder, rect, radius, top_w, right_w, bottom_w, left_w, &rgba, &stroke_style, blur_sigma);
+            draw_per_side_borders(
+                builder,
+                rect,
+                radius,
+                top_w,
+                right_w,
+                bottom_w,
+                left_w,
+                &rgba,
+                &stroke_style,
+                blur_sigma,
+            );
         }
     }
 }
@@ -402,59 +466,130 @@ fn draw_per_side_borders(
 
     if top_w > 0.0 {
         let y = top + top_w / 2.0;
-        let x0 = if top_w == left_w && r_tl > 0.0 { left + r_tl }
-            else if left_w > 0.0 && top_w == left_w { left + left_w } else { left };
-        let x1 = if top_w == right_w && r_tr > 0.0 { right - r_tr }
-            else if right_w > 0.0 && top_w == right_w { right - right_w } else { right };
+        let x0 = if top_w == left_w && r_tl > 0.0 {
+            left + r_tl
+        } else if left_w > 0.0 && top_w == left_w {
+            left + left_w
+        } else {
+            left
+        };
+        let x1 = if top_w == right_w && r_tr > 0.0 {
+            right - r_tr
+        } else if right_w > 0.0 && top_w == right_w {
+            right - right_w
+        } else {
+            right
+        };
         if x1 > x0 {
             let paint = build_stroke_paint(color, top_w, border_style, blur_sigma);
             let paint_id = builder.intern_paint(paint);
-            builder.push(DrawOp::Line { x0, y0: y, x1, y1: y, paint: paint_id });
+            builder.push(DrawOp::Line {
+                x0,
+                y0: y,
+                x1,
+                y1: y,
+                paint: paint_id,
+            });
         }
     }
 
     if right_w > 0.0 {
         let x = right - right_w / 2.0;
-        let y0 = if right_w == top_w && r_tr > 0.0 { top + r_tr }
-            else if top_w > 0.0 && right_w == top_w { top + top_w } else { top };
-        let y1 = if right_w == bottom_w && r_br > 0.0 { bottom - r_br }
-            else if bottom_w > 0.0 && right_w == bottom_w { bottom - bottom_w } else { bottom };
+        let y0 = if right_w == top_w && r_tr > 0.0 {
+            top + r_tr
+        } else if top_w > 0.0 && right_w == top_w {
+            top + top_w
+        } else {
+            top
+        };
+        let y1 = if right_w == bottom_w && r_br > 0.0 {
+            bottom - r_br
+        } else if bottom_w > 0.0 && right_w == bottom_w {
+            bottom - bottom_w
+        } else {
+            bottom
+        };
         if y1 > y0 {
             let paint = build_stroke_paint(color, right_w, border_style, blur_sigma);
             let paint_id = builder.intern_paint(paint);
-            builder.push(DrawOp::Line { x0: x, y0, x1: x, y1, paint: paint_id });
+            builder.push(DrawOp::Line {
+                x0: x,
+                y0,
+                x1: x,
+                y1,
+                paint: paint_id,
+            });
         }
     }
 
     if bottom_w > 0.0 {
         let y = bottom - bottom_w / 2.0;
-        let x0 = if bottom_w == left_w && r_bl > 0.0 { left + r_bl }
-            else if left_w > 0.0 && bottom_w == left_w { left + left_w } else { left };
-        let x1 = if bottom_w == right_w && r_br > 0.0 { right - r_br }
-            else if right_w > 0.0 && bottom_w == right_w { right - right_w } else { right };
+        let x0 = if bottom_w == left_w && r_bl > 0.0 {
+            left + r_bl
+        } else if left_w > 0.0 && bottom_w == left_w {
+            left + left_w
+        } else {
+            left
+        };
+        let x1 = if bottom_w == right_w && r_br > 0.0 {
+            right - r_br
+        } else if right_w > 0.0 && bottom_w == right_w {
+            right - right_w
+        } else {
+            right
+        };
         if x1 > x0 {
             let paint = build_stroke_paint(color, bottom_w, border_style, blur_sigma);
             let paint_id = builder.intern_paint(paint);
-            builder.push(DrawOp::Line { x0, y0: y, x1, y1: y, paint: paint_id });
+            builder.push(DrawOp::Line {
+                x0,
+                y0: y,
+                x1,
+                y1: y,
+                paint: paint_id,
+            });
         }
     }
 
     if left_w > 0.0 {
         let x = left + left_w / 2.0;
-        let y0 = if left_w == top_w && r_tl > 0.0 { top + r_tl }
-            else if top_w > 0.0 && left_w == top_w { top + top_w } else { top };
-        let y1 = if left_w == bottom_w && r_bl > 0.0 { bottom - r_bl }
-            else if bottom_w > 0.0 && left_w == bottom_w { bottom - bottom_w } else { bottom };
+        let y0 = if left_w == top_w && r_tl > 0.0 {
+            top + r_tl
+        } else if top_w > 0.0 && left_w == top_w {
+            top + top_w
+        } else {
+            top
+        };
+        let y1 = if left_w == bottom_w && r_bl > 0.0 {
+            bottom - r_bl
+        } else if bottom_w > 0.0 && left_w == bottom_w {
+            bottom - bottom_w
+        } else {
+            bottom
+        };
         if y1 > y0 {
             let paint = build_stroke_paint(color, left_w, border_style, blur_sigma);
             let paint_id = builder.intern_paint(paint);
-            builder.push(DrawOp::Line { x0: x, y0, x1: x, y1, paint: paint_id });
+            builder.push(DrawOp::Line {
+                x0: x,
+                y0,
+                x1: x,
+                y1,
+                paint: paint_id,
+            });
         }
     }
 
-    let draw_corner_arc = |builder: &mut DrawOpBuilder, cx: f32, cy: f32, corner_r: f32, width: f32, start_deg: f32| {
+    let draw_corner_arc = |builder: &mut DrawOpBuilder,
+                           cx: f32,
+                           cy: f32,
+                           corner_r: f32,
+                           width: f32,
+                           start_deg: f32| {
         let arc_r = (corner_r - width / 2.0).max(0.0);
-        if arc_r <= 0.0 { return; }
+        if arc_r <= 0.0 {
+            return;
+        }
         let oval = kurbo_rect_xywh(cx - arc_r, cy - arc_r, 2.0 * arc_r, 2.0 * arc_r);
         let paint = build_stroke_paint(color, width, border_style, blur_sigma);
         let paint_id = builder.intern_paint(paint);
@@ -481,10 +616,7 @@ fn draw_per_side_borders(
     }
 }
 
-pub fn render_rect(
-    ctx: &mut RenderCtx,
-    item: &RectDisplayItem,
-) -> Result<(), RenderError> {
+pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), RenderError> {
     let style = &item.paint;
     let has_any_border = style.border_width.is_some()
         || style.border_top_width.is_some()
@@ -536,7 +668,10 @@ pub fn render_rect(
         if has_radius {
             push_draw_rrect(builder, rect, radii, paint_id);
         } else {
-            builder.push(DrawOp::Rect { rect: rect_to_rect4(rect), paint: paint_id });
+            builder.push(DrawOp::Rect {
+                rect: rect_to_rect4(rect),
+                paint: paint_id,
+            });
         }
     }
 
@@ -545,10 +680,17 @@ pub fn render_rect(
     }
 
     draw_node_border(
-        builder, &rect, &style.border_radius,
-        style.border_width, style.border_top_width, style.border_right_width,
-        style.border_bottom_width, style.border_left_width,
-        style.border_color, style.border_style, style.blur_sigma,
+        builder,
+        &rect,
+        &style.border_radius,
+        style.border_width,
+        style.border_top_width,
+        style.border_right_width,
+        style.border_bottom_width,
+        style.border_left_width,
+        style.border_color,
+        style.border_style,
+        style.blur_sigma,
     );
 
     if style.backdrop_blur_sigma.unwrap_or(0.0) > 0.0 {
@@ -571,9 +713,7 @@ pub fn render_rect_with_shadows(
     }
 
     if let Some(ref shadow) = style.drop_shadow {
-        draw_item_drop_shadow(ctx, bounds, shadow, |ctx2| {
-            render_rect(ctx2, item)
-        })?;
+        draw_item_drop_shadow(ctx, bounds, shadow, |ctx2| render_rect(ctx2, item))?;
     }
     render_rect(ctx, item)?;
 

@@ -10,17 +10,15 @@
 use anyhow::{Result, anyhow};
 use serde_json::Value;
 
-use crate::draw::op::{
-    ColorF32, DRRectSpec, DrawOp, F32Range, Radii4, Rect4,
-};
+use crate::draw::op::{ColorF32, DRRectSpec, DrawOp, F32Range, Radii4, Rect4};
 use crate::draw::types::{ImageRef, PaintId, PathOp};
 use crate::for_each_binding;
 use crate::scene::script::mutations::TextUnitGranularity;
 use crate::scene::script::{
-    align_items_from_name, box_shadow_from_name, drop_shadow_from_name,
-    flex_direction_from_name, font_edging_from_name, inset_shadow_from_name,
-    justify_content_from_name, line_cap_from_name, line_join_from_name, object_fit_from_name,
-    point_mode_from_name, position_from_name, text_align_from_name,
+    align_items_from_name, box_shadow_from_name, drop_shadow_from_name, flex_direction_from_name,
+    font_edging_from_name, inset_shadow_from_name, justify_content_from_name, line_cap_from_name,
+    line_join_from_name, object_fit_from_name, point_mode_from_name, position_from_name,
+    text_align_from_name,
 };
 use crate::script::animate::state::{parse_easing_from_tag, random_from_seed};
 use crate::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
@@ -151,10 +149,18 @@ pub fn dispatch_binding(store: &mut MutationStore, name: &str, args: &[Value]) -
 /// 依次回调每条 binding 的名字。供 engine 在装载阶段生成 JS shim。
 pub fn for_each_binding_name(mut f: impl FnMut(&str)) {
     macro_rules! emit {
-        (node $rec:ident $id:ident $bn:ident $($rest:tt)*) => { f(stringify!($bn)); };
-        (cmd  $st:ident $bn:ident $($rest:tt)*) => { f(stringify!($bn)); };
-        (qry  $st:ident $bn:ident $($rest:tt)*) => { f(stringify!($bn)); };
-        (pure $bn:ident $($rest:tt)*) => { f(stringify!($bn)); };
+        (node $rec:ident $id:ident $bn:ident $($rest:tt)*) => {
+            f(stringify!($bn));
+        };
+        (cmd  $st:ident $bn:ident $($rest:tt)*) => {
+            f(stringify!($bn));
+        };
+        (qry  $st:ident $bn:ident $($rest:tt)*) => {
+            f(stringify!($bn));
+        };
+        (pure $bn:ident $($rest:tt)*) => {
+            f(stringify!($bn));
+        };
     }
     for_each_binding!(rec id store emit);
 }

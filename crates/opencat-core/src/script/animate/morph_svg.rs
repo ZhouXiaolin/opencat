@@ -462,8 +462,6 @@ fn fmt_num(v: f32) -> String {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;

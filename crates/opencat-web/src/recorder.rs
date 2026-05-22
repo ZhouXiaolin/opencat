@@ -1,8 +1,8 @@
 use wasm_bindgen::prelude::*;
 
+use opencat_core::draw::op::{ColorF32, ColorU8, DrawOp, Rect4};
+use opencat_core::draw::types::{ImageRef, PathOp};
 use opencat_core::scene::script::mutations::TextUnitGranularity;
-use opencat_core::draw::op::{DrawOp, ColorU8, ColorF32, Rect4};
-use opencat_core::draw::types::{PathOp, ImageRef};
 use opencat_core::scene::script::{
     ScriptTextSource, ScriptTextSourceKind, align_items_from_name, box_shadow_from_name,
     drop_shadow_from_name, flex_direction_from_name, inset_shadow_from_name,
@@ -11,9 +11,7 @@ use opencat_core::scene::script::{
 };
 use opencat_core::script::animate::state::{parse_easing_from_tag, random_from_seed};
 use opencat_core::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
-use opencat_core::style::{
-    BorderStyle, FontWeight, color_token_from_script_string,
-};
+use opencat_core::style::{BorderStyle, FontWeight, color_token_from_script_string};
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct WebMutationRecorder {
@@ -306,21 +304,34 @@ impl WebMutationRecorder {
         self.inner.record_draw_op(id, DrawOp::Restore);
     }
     pub fn record_canvas_translate(&mut self, id: &str, x: f32, y: f32) {
-        self.inner
-            .record_draw_op(id, DrawOp::Translate { x, y });
+        self.inner.record_draw_op(id, DrawOp::Translate { x, y });
     }
     pub fn record_canvas_scale(&mut self, id: &str, x: f32, y: f32) {
-        self.inner
-            .record_draw_op(id, DrawOp::Scale { x, y });
+        self.inner.record_draw_op(id, DrawOp::Scale { x, y });
     }
     pub fn record_canvas_rotate(&mut self, id: &str, degrees: f32) {
-        self.inner
-            .record_draw_op(id, DrawOp::Rotate { degrees, cx: 0.0, cy: 0.0 });
+        self.inner.record_draw_op(
+            id,
+            DrawOp::Rotate {
+                degrees,
+                cx: 0.0,
+                cy: 0.0,
+            },
+        );
     }
     pub fn record_canvas_clip_rect(&mut self, id: &str, x: f32, y: f32, w: f32, h: f32, _aa: bool) {
         self.inner.record_draw_op(id, DrawOp::BeginPath);
-        self.inner.record_draw_op(id, DrawOp::Path(PathOp::AddRect { x, y, width: w, height: h }));
-        self.inner.record_draw_op(id, DrawOp::ClipPath { anti_alias: true });
+        self.inner.record_draw_op(
+            id,
+            DrawOp::Path(PathOp::AddRect {
+                x,
+                y,
+                width: w,
+                height: h,
+            }),
+        );
+        self.inner
+            .record_draw_op(id, DrawOp::ClipPath { anti_alias: true });
     }
     pub fn record_canvas_fill_rect(
         &mut self,
@@ -337,45 +348,70 @@ impl WebMutationRecorder {
             b: 0,
             a: 0,
         });
-        self.inner.record_draw_op(id, DrawOp::SetFillStyle { color: c });
+        self.inner
+            .record_draw_op(id, DrawOp::SetFillStyle { color: c });
         self.inner.record_draw_op(id, DrawOp::BeginPath);
-        self.inner.record_draw_op(id, DrawOp::Path(PathOp::AddRect { x, y, width: w, height: h }));
+        self.inner.record_draw_op(
+            id,
+            DrawOp::Path(PathOp::AddRect {
+                x,
+                y,
+                width: w,
+                height: h,
+            }),
+        );
         self.inner.record_draw_op(id, DrawOp::FillPath);
     }
     pub fn record_canvas_fill_rrect(&mut self, id: &str, x: f32, y: f32, w: f32, h: f32, r: f32) {
         self.inner.record_draw_op(id, DrawOp::BeginPath);
-        self.inner.record_draw_op(id, DrawOp::Path(PathOp::AddRRect { x, y, width: w, height: h, radius: r }));
+        self.inner.record_draw_op(
+            id,
+            DrawOp::Path(PathOp::AddRRect {
+                x,
+                y,
+                width: w,
+                height: h,
+                radius: r,
+            }),
+        );
         self.inner.record_draw_op(id, DrawOp::FillPath);
     }
     pub fn record_canvas_fill_circle(&mut self, id: &str, cx: f32, cy: f32, r: f32) {
         self.inner.record_draw_op(id, DrawOp::BeginPath);
-        self.inner.record_draw_op(id, DrawOp::Path(PathOp::AddOval {
-            x: cx - r,
-            y: cy - r,
-            width: r * 2.0,
-            height: r * 2.0,
-        }));
+        self.inner.record_draw_op(
+            id,
+            DrawOp::Path(PathOp::AddOval {
+                x: cx - r,
+                y: cy - r,
+                width: r * 2.0,
+                height: r * 2.0,
+            }),
+        );
         self.inner.record_draw_op(id, DrawOp::FillPath);
     }
     pub fn record_canvas_stroke_circle(&mut self, id: &str, cx: f32, cy: f32, r: f32) {
         self.inner.record_draw_op(id, DrawOp::BeginPath);
-        self.inner.record_draw_op(id, DrawOp::Path(PathOp::AddOval {
-            x: cx - r,
-            y: cy - r,
-            width: r * 2.0,
-            height: r * 2.0,
-        }));
+        self.inner.record_draw_op(
+            id,
+            DrawOp::Path(PathOp::AddOval {
+                x: cx - r,
+                y: cy - r,
+                width: r * 2.0,
+                height: r * 2.0,
+            }),
+        );
         self.inner.record_draw_op(id, DrawOp::StrokePath);
     }
     pub fn record_canvas_draw_line(&mut self, id: &str, x0: f32, y0: f32, x1: f32, y1: f32) {
         self.inner.record_draw_op(id, DrawOp::BeginPath);
-        self.inner.record_draw_op(id, DrawOp::Path(PathOp::MoveTo { x: x0, y: y0 }));
-        self.inner.record_draw_op(id, DrawOp::Path(PathOp::LineTo { x: x1, y: y1 }));
+        self.inner
+            .record_draw_op(id, DrawOp::Path(PathOp::MoveTo { x: x0, y: y0 }));
+        self.inner
+            .record_draw_op(id, DrawOp::Path(PathOp::LineTo { x: x1, y: y1 }));
         self.inner.record_draw_op(id, DrawOp::StrokePath);
     }
     pub fn record_canvas_begin_path(&mut self, id: &str) {
-        self.inner
-            .record_draw_op(id, DrawOp::BeginPath);
+        self.inner.record_draw_op(id, DrawOp::BeginPath);
     }
     pub fn record_canvas_move_to(&mut self, id: &str, x: f32, y: f32) {
         self.inner
@@ -413,16 +449,13 @@ impl WebMutationRecorder {
         );
     }
     pub fn record_canvas_close_path(&mut self, id: &str) {
-        self.inner
-            .record_draw_op(id, DrawOp::Path(PathOp::Close));
+        self.inner.record_draw_op(id, DrawOp::Path(PathOp::Close));
     }
     pub fn record_canvas_fill_path(&mut self, id: &str) {
-        self.inner
-            .record_draw_op(id, DrawOp::FillPath);
+        self.inner.record_draw_op(id, DrawOp::FillPath);
     }
     pub fn record_canvas_stroke_path(&mut self, id: &str) {
-        self.inner
-            .record_draw_op(id, DrawOp::StrokePath);
+        self.inner.record_draw_op(id, DrawOp::StrokePath);
     }
     pub fn record_canvas_set_fill_style(&mut self, id: &str, color: &str) {
         let c = script_color_from_value(color).unwrap_or(ColorU8 {
@@ -467,8 +500,7 @@ impl WebMutationRecorder {
             },
             None => ColorF32::TRANSPARENT,
         };
-        self.inner
-            .record_draw_op(id, DrawOp::Clear { color: c });
+        self.inner.record_draw_op(id, DrawOp::Clear { color: c });
     }
     #[allow(clippy::too_many_arguments)]
     pub fn record_canvas_draw_image(
@@ -485,9 +517,16 @@ impl WebMutationRecorder {
         self.inner.record_draw_op(
             id,
             DrawOp::ImageRect {
-                image: ImageRef::Static { asset_id: asset_id.to_string() },
+                image: ImageRef::Static {
+                    asset_id: asset_id.to_string(),
+                },
                 src: None,
-                dst: Rect4 { x, y, width: w, height: h },
+                dst: Rect4 {
+                    x,
+                    y,
+                    width: w,
+                    height: h,
+                },
                 paint: None,
             },
         );
@@ -504,7 +543,9 @@ impl WebMutationRecorder {
         self.inner.record_draw_op(
             id,
             DrawOp::Image {
-                image: ImageRef::Static { asset_id: asset_id.to_string() },
+                image: ImageRef::Static {
+                    asset_id: asset_id.to_string(),
+                },
                 x,
                 y,
                 paint: None,
@@ -582,7 +623,9 @@ impl WebMutationRecorder {
 
     // ── Morph SVG ──
     pub fn morph_svg_create(&mut self, from_svg: &str, to_svg: &str, grid: u32) -> i32 {
-        self.inner.morph_svg_create(from_svg, to_svg, grid).unwrap_or(-1)
+        self.inner
+            .morph_svg_create(from_svg, to_svg, grid)
+            .unwrap_or(-1)
     }
     pub fn morph_svg_sample(&self, handle: i32, t: f32, tol: f32) -> String {
         self.inner.morph_svg_sample(handle, t, tol)

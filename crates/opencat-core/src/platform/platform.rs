@@ -1,7 +1,7 @@
 //! Platform facade trait — aggregates script, resource, media, and draw roles.
 //!
 //! Each platform crate (engine, web) implements `Platform`, core pipeline
-//! monomorphizes via `RenderSession<P: Platform, C: Canvas2D>`.
+//! monomorphises via `Platform` associated types.
 
 use crate::platform::video::VideoFrameProvider;
 use crate::scene::script::ScriptHost;

@@ -72,7 +72,6 @@ impl fmt::Display for RenderError {
 
 impl std::error::Error for RenderError {}
 
-pub mod cache;
 pub mod ctx;
 pub mod media_plan;
 pub mod state;
@@ -90,6 +89,5 @@ pub mod draw_script;
 pub mod timeline;
 pub mod transition;
 
-pub use cache::RenderCache;
 pub use ctx::RenderCtx;
 pub use state::DrawScriptPaintState;

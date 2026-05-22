@@ -25,8 +25,7 @@ use opencat_core::draw::cache::CachedDrawRange;
 use opencat_core::draw::frame::DrawOpFrame;
 use opencat_core::platform::draw::{DrawError, DrawPlatform, DrawStats, RenderSessionHeader};
 use opencat_core::platform::media::{
-    AudioPlanSlice, AudioPrepareMode, FrameMediaPlan, MediaError, MediaPlatform,
-    MediaPrepareMode,
+    AudioPlanSlice, PrepareMode, FrameMediaPlan, MediaError, MediaPlatform,
 };
 use opencat_core::platform::resource::ResourcePlatform;
 use opencat_core::resource::{AssetResolver, AssetSink, BlobStore, UrlFetcher};
@@ -170,14 +169,14 @@ impl MediaPlatform for StubMediaPlatform {
     fn prepare_frame(
         &mut self,
         _plan: &FrameMediaPlan,
-        _mode: MediaPrepareMode,
+        _mode: PrepareMode,
     ) -> Result<Self::PreparedFrameMedia, MediaError> {
         Err(MediaError("stub".into()))
     }
     fn prepare_audio_slice(
         &mut self,
         _slice: &AudioPlanSlice,
-        _mode: AudioPrepareMode,
+        _mode: PrepareMode,
     ) -> Result<Self::PreparedAudioSlice, MediaError> {
         Err(MediaError("stub".into()))
     }

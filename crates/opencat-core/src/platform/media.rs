@@ -1,16 +1,10 @@
 //! Platform role for media preparation: decoding video frames, audio slices,
 //! and compiling runtime effects.
 
-/// Mode for media preparation: Preview (fast, lower quality) or Export (full quality).
-#[derive(Clone, Copy, Debug)]
-pub enum MediaPrepareMode {
-    Preview,
-    Export,
-}
-
-/// Mode for audio preparation.
-#[derive(Clone, Copy, Debug)]
-pub enum AudioPrepareMode {
+/// Unified preparation mode for both media and audio.
+/// Preview favors speed over quality; Export favors quality over speed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrepareMode {
     Preview,
     Export,
 }
@@ -34,14 +28,14 @@ pub trait MediaPlatform {
     fn prepare_frame(
         &mut self,
         plan: &FrameMediaPlan,
-        mode: MediaPrepareMode,
+        mode: PrepareMode,
     ) -> Result<Self::PreparedFrameMedia, MediaError>;
 
     /// Prepare an audio slice for playback/export.
     fn prepare_audio_slice(
         &mut self,
         slice: &AudioPlanSlice,
-        mode: AudioPrepareMode,
+        mode: PrepareMode,
     ) -> Result<Self::PreparedAudioSlice, MediaError>;
 }
 

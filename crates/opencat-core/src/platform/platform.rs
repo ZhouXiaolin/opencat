@@ -41,7 +41,7 @@ mod tests {
     use crate::draw::cache::CachedDrawRange;
     use crate::draw::frame::DrawOpFrame;
     use crate::platform::draw::{RenderSessionHeader, DrawStats, DrawError};
-    use crate::platform::media::{FrameMediaPlan, AudioPlanSlice, MediaPrepareMode, AudioPrepareMode, MediaError};
+    use crate::platform::media::{FrameMediaPlan, AudioPlanSlice, PrepareMode, MediaError};
     use anyhow::Result;
     use std::future::Future;
 
@@ -132,7 +132,7 @@ mod tests {
         fn prepare_frame(
             &mut self,
             _plan: &FrameMediaPlan,
-            _mode: MediaPrepareMode,
+            _mode: PrepareMode,
         ) -> Result<Self::PreparedFrameMedia, MediaError> {
             Ok(MockPreparedFrameMedia)
         }
@@ -140,7 +140,7 @@ mod tests {
         fn prepare_audio_slice(
             &mut self,
             _slice: &AudioPlanSlice,
-            _mode: AudioPrepareMode,
+            _mode: PrepareMode,
         ) -> Result<Self::PreparedAudioSlice, MediaError> {
             Ok(MockPreparedAudioSlice)
         }

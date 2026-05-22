@@ -4,8 +4,9 @@ use tracing::{Level, event};
 use cosmic_text::Command;
 
 use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle};
-use crate::canvas::{Canvas2D, FillType, PathBuilder, Rect};
 use crate::display::list::{DisplayRect, TextDisplayItem};
+use crate::draw::op::{DrawOp, Rect4};
+use crate::draw::types::{EncodedPath, FillType, ImageRef, PathOp};
 use crate::scene::script::TextUnitOverride;
 use crate::style::TextAlign;
 use crate::text::{
@@ -14,41 +15,55 @@ use crate::text::{
 };
 
 use super::paint_conv::drop_shadow_to_image_filter;
-use super::{record_cache_pressure, RenderCache, RenderCtx, RenderError};
+use super::{RenderError, RenderCtx};
 
-fn kurbo_rect(r: DisplayRect) -> Rect {
-    Rect::new(r.x as f64, r.y as f64, (r.x + r.width) as f64, (r.y + r.height) as f64)
-}
-
-fn build_glyph_path<C: Canvas2D>(
-    canvas: &C,
-    commands: &[Command],
-    scale: f32,
-) -> C::Path {
-    let mut b = canvas.create_path_builder(FillType::Winding);
-    for cmd in commands {
-        match cmd {
-            Command::MoveTo(p) => b.move_to(p.x * scale, -p.y * scale),
-            Command::LineTo(p) => b.line_to(p.x * scale, -p.y * scale),
-            Command::QuadTo(c, p) => {
-                b.quad_to(c.x * scale, -c.y * scale, p.x * scale, -p.y * scale)
-            }
-            Command::CurveTo(c1, c2, p) => b.cubic_to(
-                c1.x * scale, -c1.y * scale,
-                c2.x * scale, -c2.y * scale,
-                p.x * scale, -p.y * scale,
-            ),
-            Command::Close => b.close(),
-        }
+fn display_rect_to_rect4(r: DisplayRect) -> Rect4 {
+    Rect4 {
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
     }
-    b.finish()
 }
 
-pub fn render_text<C: Canvas2D>(
-    canvas: &mut C,
+fn build_glyph_path(commands: &[Command], scale: f32) -> EncodedPath {
+    let ops = commands
+        .iter()
+        .map(|cmd| match cmd {
+            Command::MoveTo(p) => PathOp::MoveTo {
+                x: p.x * scale,
+                y: -p.y * scale,
+            },
+            Command::LineTo(p) => PathOp::LineTo {
+                x: p.x * scale,
+                y: -p.y * scale,
+            },
+            Command::QuadTo(c, p) => PathOp::QuadTo {
+                cx: c.x * scale,
+                cy: -c.y * scale,
+                x: p.x * scale,
+                y: -p.y * scale,
+            },
+            Command::CurveTo(c1, c2, p) => PathOp::CubicTo {
+                c1x: c1.x * scale,
+                c1y: -c1.y * scale,
+                c2x: c2.x * scale,
+                c2y: -c2.y * scale,
+                x: p.x * scale,
+                y: -p.y * scale,
+            },
+            Command::Close => PathOp::Close,
+        })
+        .collect();
+    EncodedPath {
+        fill_type: FillType::Winding,
+        ops,
+    }
+}
+
+pub fn render_text(
+    ctx: &mut RenderCtx,
     item: &TextDisplayItem,
-    _ctx: &RenderCtx<C>,
-    cache: &mut RenderCache<C>,
 ) -> Result<(), RenderError> {
     let raster = rasterize_glyphs(
         &item.text,
@@ -71,8 +86,12 @@ pub fn render_text<C: Canvas2D>(
         path_effect: None,
     };
 
+    let builder = &mut ctx.builder;
+    let paint_id = builder.intern_paint(paint);
+
     for line in &raster.lines {
-        let line_x_shift = compute_line_x_shift(line.width, item.bounds.width, item.style.text_align);
+        let line_x_shift =
+            compute_line_x_shift(line.width, item.bounds.width, item.style.text_align);
         for pos in &line.positions {
             let glyph_data = match raster.glyphs.get(&pos.cache_key) {
                 Some(data) => data,
@@ -85,86 +104,36 @@ pub fn render_text<C: Canvas2D>(
                 GlyphData::Outline(commands, upem) => {
                     let draw_scale = item.style.text_px / *upem;
                     let unscale = *upem / item.style.text_px;
-                    let path = {
-                        let mut lru = cache.glyph_paths.borrow_mut();
-                        if let Some(cached) = lru.get_cloned(&pos.outline_key) {
-                            #[cfg(feature = "profile")]
-                            event!(
-                                target: "render.cache",
-                                Level::TRACE,
-                                kind = "cache",
-                                name = "glyph_path",
-                                result = "hit",
-                                amount = 1_u64
-                            );
-                            cached
-                        } else {
-                            drop(lru);
-                            let p = build_glyph_path(canvas, commands, unscale);
-                            let weight = commands.len();
-                            let report = cache.glyph_paths.borrow_mut().insert_with_weight(pos.outline_key, p.clone(), weight.max(1));
-                            record_cache_pressure("glyph_path", &report);
-                            #[cfg(feature = "profile")]
-                            event!(
-                                target: "render.cache",
-                                Level::TRACE,
-                                kind = "cache",
-                                name = "glyph_path",
-                                result = "miss",
-                                amount = 1_u64
-                            );
-                            p
-                        }
-                    };
-                    canvas.save();
-                    canvas.translate(abs_x, abs_y);
+                    let encoded = build_glyph_path(commands, unscale);
+                    let path_id = builder.intern_path(encoded);
+                    builder.push(DrawOp::Save);
+                    builder.push(DrawOp::Translate { x: abs_x, y: abs_y });
                     if (draw_scale - 1.0).abs() > f32::EPSILON {
-                        canvas.scale(draw_scale, draw_scale);
+                        builder.push(DrawOp::Scale {
+                            x: draw_scale,
+                            y: draw_scale,
+                        });
                     }
-                    canvas.draw_path(&path, &paint);
-                    canvas.restore();
+                    builder.push(DrawOp::DrawPath {
+                        path: path_id,
+                        paint: paint_id,
+                    });
+                    builder.push(DrawOp::Restore);
                 }
                 GlyphData::ColorImage {
-                    rgba,
-                    width,
-                    height,
                     placement_left,
                     placement_top,
+                    ..
                 } => {
-                    let image = {
-                        let mut lru = cache.glyph_images.borrow_mut();
-                        if let Some(cached) = lru.get_cloned(&pos.cache_key) {
-                            #[cfg(feature = "profile")]
-                            event!(
-                                target: "render.cache",
-                                Level::TRACE,
-                                kind = "cache",
-                                name = "glyph_image",
-                                result = "hit",
-                                amount = 1_u64
-                            );
-                            cached
-                        } else {
-                            drop(lru);
-                            let weight = (*width * *height * 4) as usize;
-                            let img = canvas.make_image_from_rgba(rgba, *width, *height);
-                            let report = cache.glyph_images.borrow_mut().insert_with_weight(pos.cache_key, img.clone(), weight.max(1));
-                            record_cache_pressure("glyph_image", &report);
-                            #[cfg(feature = "profile")]
-                            event!(
-                                target: "render.cache",
-                                Level::TRACE,
-                                kind = "cache",
-                                name = "glyph_image",
-                                result = "miss",
-                                amount = 1_u64
-                            );
-                            img
-                        }
-                    };
+                    let asset_id = format!("glyph:{}", pos.cache_key);
                     let ix = abs_x + *placement_left as f32;
                     let iy = abs_y - *placement_top as f32;
-                    canvas.draw_image(&image, ix, iy, Some(&paint));
+                    builder.push(DrawOp::Image {
+                        image: ImageRef::Static { asset_id },
+                        x: ix,
+                        y: iy,
+                        paint: Some(paint_id),
+                    });
                 }
             }
         }
@@ -172,11 +141,9 @@ pub fn render_text<C: Canvas2D>(
     Ok(())
 }
 
-fn render_text_with_unit_overrides<C: Canvas2D>(
-    canvas: &mut C,
+fn render_text_with_unit_overrides(
+    ctx: &mut RenderCtx,
     item: &TextDisplayItem,
-    _ctx: &RenderCtx<C>,
-    cache: &mut RenderCache<C>,
 ) -> Result<(), RenderError> {
     let batch = item.text_unit_overrides.as_ref().unwrap();
     let rendered = apply_text_transform(&item.text, item.style.text_transform);
@@ -229,18 +196,17 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
         let mut max_x: f32 = f32::NEG_INFINITY;
         let mut max_y: f32 = f32::NEG_INFINITY;
 
-        struct GlyphEntry<P, I> {
-            kind: GlyphEntryKind<P, I>,
+        struct GlyphEntry {
+            encoded: Option<EncodedPath>,
+            cache_key: u64,
             abs_x: f32,
             abs_y: f32,
             scale: f32,
-        }
-        enum GlyphEntryKind<P, I> {
-            Path(P),
-            Image { image: I, rect: (f32, f32, f32, f32) },
+            ix: f32,
+            iy: f32,
         }
 
-        let mut entries: Vec<GlyphEntry<C::Path, C::Image>> = Vec::new();
+        let mut entries: Vec<GlyphEntry> = Vec::new();
 
         for line in &raster.lines {
             let line_x_shift = compute_line_x_shift(line.width, item.bounds.width, text_align);
@@ -259,40 +225,7 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                     GlyphData::Outline(commands, upem) => {
                         let draw_scale = item.style.text_px / *upem;
                         let unscale = *upem / item.style.text_px;
-                        let path = {
-                            let mut lru = cache.glyph_paths.borrow_mut();
-                            if let Some(cached) = lru.get_cloned(&pos.outline_key) {
-                                #[cfg(feature = "profile")]
-                                event!(
-                                    target: "render.cache",
-                                    Level::TRACE,
-                                    kind = "cache",
-                                    name = "glyph_path",
-                                    result = "hit",
-                                    amount = 1_u64
-                                );
-                                cached
-                            } else {
-                                drop(lru);
-                                let p = build_glyph_path(canvas, commands, unscale);
-                                let weight = commands.len();
-                                let report = cache
-                                    .glyph_paths
-                                    .borrow_mut()
-                                    .insert_with_weight(pos.outline_key, p.clone(), weight.max(1));
-                                record_cache_pressure("glyph_path", &report);
-                                #[cfg(feature = "profile")]
-                                event!(
-                                    target: "render.cache",
-                                    Level::TRACE,
-                                    kind = "cache",
-                                    name = "glyph_path",
-                                    result = "miss",
-                                    amount = 1_u64
-                                );
-                                p
-                            }
-                        };
+                        let encoded = build_glyph_path(commands, unscale);
                         let (bx, by, bw, bh) = outline_bounds(commands, unscale);
                         let gx = abs_x + bx * draw_scale;
                         let gy = abs_y + by * draw_scale;
@@ -303,18 +236,21 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                             max_y = max_y.max(gy + bh * draw_scale);
                         }
                         entries.push(GlyphEntry {
-                            kind: GlyphEntryKind::Path(path),
+                            encoded: Some(encoded),
+                            cache_key: pos.cache_key,
                             abs_x,
                             abs_y,
                             scale: draw_scale,
+                            ix: 0.0,
+                            iy: 0.0,
                         });
                     }
                     GlyphData::ColorImage {
-                        rgba,
                         width: im_w,
                         height: im_h,
                         placement_left,
                         placement_top,
+                        ..
                     } => {
                         let ix = abs_x + *placement_left as f32;
                         let iy = abs_y - *placement_top as f32;
@@ -325,48 +261,14 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
                         max_x = max_x.max(ix + iw);
                         max_y = max_y.max(iy + ih);
 
-                        let image = {
-                            let mut lru = cache.glyph_images.borrow_mut();
-                            if let Some(cached) = lru.get_cloned(&pos.cache_key) {
-                                #[cfg(feature = "profile")]
-                                event!(
-                                    target: "render.cache",
-                                    Level::TRACE,
-                                    kind = "cache",
-                                    name = "glyph_image",
-                                    result = "hit",
-                                    amount = 1_u64
-                                );
-                                cached
-                            } else {
-                                drop(lru);
-                                let weight = (*im_w * *im_h * 4) as usize;
-                                let img = canvas.make_image_from_rgba(rgba, *im_w, *im_h);
-                                let report = cache
-                                    .glyph_images
-                                    .borrow_mut()
-                                    .insert_with_weight(pos.cache_key, img.clone(), weight.max(1));
-                                record_cache_pressure("glyph_image", &report);
-                                #[cfg(feature = "profile")]
-                                event!(
-                                    target: "render.cache",
-                                    Level::TRACE,
-                                    kind = "cache",
-                                    name = "glyph_image",
-                                    result = "miss",
-                                    amount = 1_u64
-                                );
-                                img
-                            }
-                        };
                         entries.push(GlyphEntry {
-                            kind: GlyphEntryKind::Image {
-                                image,
-                                rect: (ix, iy, iw, ih),
-                            },
+                            encoded: None,
+                            cache_key: pos.cache_key,
                             abs_x,
                             abs_y,
                             scale: 1.0,
+                            ix,
+                            iy,
                         });
                     }
                 }
@@ -377,29 +279,6 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
             continue;
         }
 
-        let bw = (max_x - min_x).ceil().max(1.0) as u32;
-        let bh = (max_y - min_y).ceil().max(1.0) as u32;
-
-        let unit_image = canvas.render_to_image(bw, bh, |offscreen| {
-            offscreen.translate(-min_x, -min_y);
-            for entry in &entries {
-                match &entry.kind {
-                    GlyphEntryKind::Path(path) => {
-                        offscreen.save();
-                        offscreen.translate(entry.abs_x, entry.abs_y);
-                        if (entry.scale - 1.0).abs() > f32::EPSILON {
-                            offscreen.scale(entry.scale, entry.scale);
-                        }
-                        offscreen.draw_path(path, &unit_paint);
-                        offscreen.restore();
-                    }
-                    GlyphEntryKind::Image { image, rect } => {
-                        offscreen.draw_image(image, rect.0, rect.1, Some(&unit_paint));
-                    }
-                }
-            }
-        });
-
         let translate_x = ov.translate_x.unwrap_or(0.0);
         let translate_y = ov.translate_y.unwrap_or(0.0);
         let scale = ov.scale.unwrap_or(1.0);
@@ -407,32 +286,90 @@ fn render_text_with_unit_overrides<C: Canvas2D>(
         let pivot_x = (min_x + max_x) * 0.5;
         let pivot_y = (min_y + max_y) * 0.5;
 
-        let mut draw_paint = PaintSpec {
-            fill: FillSpec::Solid([1.0, 1.0, 1.0, 1.0]),
-            style: PaintStyle::Fill,
-            stroke: None,
-            anti_alias: true,
-            blend_mode: BlendMode::SrcOver,
-            image_filter: None,
-            color_filter: None,
-            mask_filter: None,
-            path_effect: None,
-        };
-        if opacity < 1.0 {
-            draw_paint.fill = FillSpec::Solid([1.0, 1.0, 1.0, opacity]);
-        }
+        let builder = &mut ctx.builder;
+        let unit_paint_id = builder.intern_paint(unit_paint);
 
-        canvas.save();
-        canvas.translate(pivot_x + translate_x, pivot_y + translate_y);
+        builder.push(DrawOp::Save);
+        builder.push(DrawOp::Translate {
+            x: pivot_x + translate_x,
+            y: pivot_y + translate_y,
+        });
         if rotation_deg != 0.0 {
-            canvas.rotate(rotation_deg, 0.0, 0.0);
+            builder.push(DrawOp::Rotate {
+                degrees: rotation_deg,
+                cx: 0.0,
+                cy: 0.0,
+            });
         }
         if (scale - 1.0).abs() > f32::EPSILON {
-            canvas.scale(scale, scale);
+            builder.push(DrawOp::Scale { x: scale, y: scale });
         }
-        canvas.translate(-pivot_x, -pivot_y);
-        canvas.draw_image(&unit_image, min_x, min_y, Some(&draw_paint));
-        canvas.restore();
+        builder.push(DrawOp::Translate {
+            x: -pivot_x,
+            y: -pivot_y,
+        });
+
+        if opacity < 1.0 {
+            let alpha_paint = PaintSpec {
+                fill: FillSpec::Solid([1.0, 1.0, 1.0, opacity]),
+                style: PaintStyle::Fill,
+                stroke: None,
+                anti_alias: true,
+                blend_mode: BlendMode::SrcOver,
+                image_filter: None,
+                color_filter: None,
+                mask_filter: None,
+                path_effect: None,
+            };
+            let alpha_id = builder.intern_paint(alpha_paint);
+            let bw = (max_x - min_x).ceil().max(1.0);
+            let bh = (max_y - min_y).ceil().max(1.0);
+            builder.push(DrawOp::SaveLayer {
+                bounds: Some(Rect4 {
+                    x: min_x,
+                    y: min_y,
+                    width: bw,
+                    height: bh,
+                }),
+                paint: Some(alpha_id),
+                alpha: 1.0,
+            });
+        }
+
+        for entry in &entries {
+            if let Some(ref encoded) = entry.encoded {
+                let path_id = builder.intern_path(encoded.clone());
+                builder.push(DrawOp::Save);
+                builder.push(DrawOp::Translate {
+                    x: entry.abs_x,
+                    y: entry.abs_y,
+                });
+                if (entry.scale - 1.0).abs() > f32::EPSILON {
+                    builder.push(DrawOp::Scale {
+                        x: entry.scale,
+                        y: entry.scale,
+                    });
+                }
+                builder.push(DrawOp::DrawPath {
+                    path: path_id,
+                    paint: unit_paint_id,
+                });
+                builder.push(DrawOp::Restore);
+            } else {
+                let asset_id = format!("glyph:{}", entry.cache_key);
+                builder.push(DrawOp::Image {
+                    image: ImageRef::Static { asset_id },
+                    x: entry.ix,
+                    y: entry.iy,
+                    paint: Some(unit_paint_id),
+                });
+            }
+        }
+
+        if opacity < 1.0 {
+            builder.push(DrawOp::Restore);
+        }
+        builder.push(DrawOp::Restore);
     }
 
     Ok(())
@@ -470,24 +407,22 @@ fn outline_bounds(commands: &[Command], scale: f32) -> (f32, f32, f32, f32) {
     (min_x, min_y, max_x - min_x, max_y - min_y)
 }
 
-pub fn render_text_with_shadows<C: Canvas2D>(
-    canvas: &mut C,
+pub fn render_text_with_shadows(
+    ctx: &mut RenderCtx,
     item: &TextDisplayItem,
-    ctx: &RenderCtx<C>,
-    cache: &mut RenderCache<C>,
 ) -> Result<(), RenderError> {
     let has_overrides = item.text_unit_overrides.is_some();
-    let render_fn = |c: &mut C, i: &TextDisplayItem, x: &RenderCtx<C>, ca: &mut RenderCache<C>| {
+    let render_fn = |ctx: &mut RenderCtx, item: &TextDisplayItem| {
         if has_overrides {
-            render_text_with_unit_overrides(c, i, x, ca)
+            render_text_with_unit_overrides(ctx, item)
         } else {
-            render_text(c, i, x, ca)
+            render_text(ctx, item)
         }
     };
 
     if let Some(ref shadow) = item.drop_shadow {
         let (left, top, right, bottom) = shadow.outsets();
-        let shadow_bounds = kurbo_rect(item.bounds.outset(left, top, right, bottom));
+        let shadow_bounds = item.bounds.outset(left, top, right, bottom);
         let (image_filter, _color) = drop_shadow_to_image_filter(shadow);
         let layer_paint = PaintSpec {
             fill: FillSpec::Solid([0.0; 4]),
@@ -500,10 +435,15 @@ pub fn render_text_with_shadows<C: Canvas2D>(
             mask_filter: None,
             path_effect: None,
         };
-        canvas.save_layer_with(Some(shadow_bounds), &layer_paint);
-        render_fn(canvas, item, ctx, cache)?;
-        canvas.restore();
+        let paint_id = ctx.builder.intern_paint(layer_paint);
+        ctx.builder.push(DrawOp::SaveLayer {
+            bounds: Some(display_rect_to_rect4(shadow_bounds)),
+            paint: Some(paint_id),
+            alpha: 1.0,
+        });
+        render_fn(ctx, item)?;
+        ctx.builder.push(DrawOp::Restore);
     }
-    render_fn(canvas, item, ctx, cache)?;
+    render_fn(ctx, item)?;
     Ok(())
 }

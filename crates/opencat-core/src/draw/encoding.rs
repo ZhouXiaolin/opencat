@@ -277,12 +277,7 @@ fn lookup_string_id(strings: &[String], s: &str) -> u32 {
 /// Write a single DrawOp into the binary ops buffer with header format:
 /// [opcode: u16 LE] [flags: u16 LE] [payload_len: u32 LE] [payload...]
 /// Each op is padded to 4-byte alignment.
-fn encode_op(
-    op: &DrawOp,
-    buf: &mut Vec<u8>,
-    _f32_pool: &mut Vec<f32>,
-    strings: &[String],
-) {
+fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: &[String]) {
     match op {
         // ===================================================================
         // Stack management — zero payload
@@ -337,7 +332,6 @@ fn encode_op(
         // ===================================================================
         // Transforms
         // ===================================================================
-
         DrawOp::Translate { x, y } => {
             write_op_header(buf, opcode::TRANSLATE, 8);
             write_f32(buf, *x);
@@ -373,7 +367,6 @@ fn encode_op(
         // ===================================================================
         // Paint state setters
         // ===================================================================
-
         DrawOp::SetFillStyle { color } => {
             write_op_header(buf, opcode::SET_FILL_STYLE, 4);
             write_u32(buf, encode_color_u8(*color));
@@ -421,7 +414,6 @@ fn encode_op(
         // ===================================================================
         // Path construction
         // ===================================================================
-
         DrawOp::BeginPath => write_op_header(buf, opcode::BEGIN_PATH, 0),
 
         DrawOp::Path(path_op) => encode_path_op(buf, path_op),
@@ -438,7 +430,6 @@ fn encode_op(
         // ===================================================================
         // Drawing — immediate-mode primitives
         // ===================================================================
-
         DrawOp::Clear { color } => {
             write_op_header(buf, opcode::CLEAR, 16); // ColorF32: 4 x f32
             write_f32(buf, color.r);
@@ -547,12 +538,7 @@ fn encode_op(
         // ===================================================================
         // Image — tag(1) + string_id(4) + frame_index(4) + x(4) + y(4) + paint_id(4)
         // ===================================================================
-        DrawOp::Image {
-            image,
-            x,
-            y,
-            paint,
-        } => {
+        DrawOp::Image { image, x, y, paint } => {
             // Payload: 1u8 + 4u32 + 4u32 + 4f32 + 4f32 + 4u32 = 21
             write_op_header(buf, opcode::IMAGE, 21);
             match image {
@@ -766,9 +752,11 @@ fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
 mod tests {
     use super::*;
     use crate::draw::builder::DrawOpBuilder;
-    use crate::draw::frame::DrawOpFrame;
     use crate::draw::frame::DrawFrameScratch;
-    use crate::draw::op::{ColorF32, ColorU8, F32Range, LineCap, LineJoin, PointMode, Rect4, Radii4};
+    use crate::draw::frame::DrawOpFrame;
+    use crate::draw::op::{
+        ColorF32, ColorU8, F32Range, LineCap, LineJoin, PointMode, Radii4, Rect4,
+    };
     use crate::draw::types::{ChildRange, DrawOpRange};
 
     // -----------------------------------------------------------------------
@@ -855,9 +843,7 @@ mod tests {
         });
         builder.push(DrawOp::Skew { sx: 0.5, sy: 0.0 });
         builder.push(DrawOp::Concat {
-            matrix: [
-                1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0,
-            ],
+            matrix: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         });
 
         // Paint state setters
@@ -878,7 +864,9 @@ mod tests {
             },
         });
         builder.push(DrawOp::SetLineWidth { width: 2.0 });
-        builder.push(DrawOp::SetLineCap { cap: LineCap::Round });
+        builder.push(DrawOp::SetLineCap {
+            cap: LineCap::Round,
+        });
         builder.push(DrawOp::SetLineJoin {
             join: LineJoin::Bevel,
         });
@@ -944,9 +932,7 @@ mod tests {
         builder.push(DrawOp::Clear {
             color: ColorF32::TRANSPARENT,
         });
-        builder.push(DrawOp::Paint {
-            paint: PaintId(0),
-        });
+        builder.push(DrawOp::Paint { paint: PaintId(0) });
         builder.push(DrawOp::Rect {
             rect: Rect4 {
                 x: 0.0,

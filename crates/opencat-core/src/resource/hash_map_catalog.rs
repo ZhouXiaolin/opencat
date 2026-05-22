@@ -1,4 +1,4 @@
-use crate::resource::asset_id::{asset_id_for_query, AssetId};
+use crate::resource::asset_id::{AssetId, asset_id_for_query};
 use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 use crate::scene::primitives::{AudioSource, ImageSource};
 use anyhow::Result;
@@ -197,7 +197,8 @@ mod tests {
 
     #[test]
     fn resolves_audio_url_with_prefix() {
-        let json = r#"{"audio:url:https://example.com/music.mp3":{"width":0,"height":0,"kind":"audio"}}"#;
+        let json =
+            r#"{"audio:url:https://example.com/music.mp3":{"width":0,"height":0,"kind":"audio"}}"#;
         let mut catalog = HashMapResourceCatalog::from_json(json).unwrap();
         let src = AudioSource::Url("https://example.com/music.mp3".to_string());
         let id = catalog.resolve_audio(&src).unwrap();

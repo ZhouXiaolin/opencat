@@ -27,8 +27,11 @@ impl VideoFrameCache {
         time_secs: f64,
         target_size: Option<(u32, u32)>,
     ) -> Option<Arc<Vec<u8>>> {
-        self.entries
-            .get_cloned(&VideoFrameKey::new(path, quantize_pts(time_secs), target_size))
+        self.entries.get_cloned(&VideoFrameKey::new(
+            path,
+            quantize_pts(time_secs),
+            target_size,
+        ))
     }
 
     pub fn insert(

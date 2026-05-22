@@ -4,9 +4,9 @@
 //! The `Platform` facade trait aggregates ScriptHost, ResourcePlatform,
 //! MediaPlatform, and DrawPlatform for each backend.
 
+pub mod draw;
+pub mod media;
 #[allow(clippy::module_inception)]
 pub mod platform;
-pub mod video;
 pub mod resource;
-pub mod media;
-pub mod draw;
+pub mod video;

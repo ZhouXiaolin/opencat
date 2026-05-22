@@ -1,7 +1,7 @@
-use opencat_core::platform::media::{FrameMediaPlan, MediaError, PrepareMode};
-use opencat_core::platform::video::VideoFrameProvider;
 use crate::executor::EnginePreparedFrameMedia;
 use crate::resource::media::MediaContext;
+use opencat_core::platform::media::{FrameMediaPlan, MediaError, PrepareMode};
+use opencat_core::platform::video::VideoFrameProvider;
 
 pub fn prepare_frame(
     plan: &FrameMediaPlan,
@@ -9,12 +9,12 @@ pub fn prepare_frame(
     asset_paths: &crate::resource::AssetPathStore,
     video: *mut MediaContext,
 ) -> Result<EnginePreparedFrameMedia, MediaError> {
-    use std::collections::HashMap;
     use opencat_core::draw::types::ImageRef;
     use opencat_core::resource::AssetPathBlobStore;
     use opencat_core::resource::asset_id::AssetId;
     use opencat_core::resource::blob_store::BlobStore;
-    use skia_safe::{images, Image, Data, AlphaType, ColorType, ImageInfo};
+    use skia_safe::{AlphaType, ColorType, Data, Image, ImageInfo, RuntimeEffect, images};
+    use std::collections::HashMap;
 
     let blob_store = AssetPathBlobStore::new(asset_paths);
     let mut images = Vec::new();
@@ -32,7 +32,10 @@ pub fn prepare_frame(
                     }
                 }
             }
-            ImageRef::VideoFrame { asset_id, frame_index } => {
+            ImageRef::VideoFrame {
+                asset_id,
+                frame_index,
+            } => {
                 let video_ref = unsafe { video.as_mut() };
                 if let Some(ctx) = video_ref {
                     let aid = AssetId(asset_id.clone());
@@ -58,9 +61,20 @@ pub fn prepare_frame(
         }
     }
 
+    let mut runtime_effects = Vec::with_capacity(plan.runtime_effects.len());
+    for effect_ref in &plan.runtime_effects {
+        let effect = RuntimeEffect::make_for_shader(&effect_ref.sksl, None).map_err(|error| {
+            MediaError(format!(
+                "RuntimeEffect {:#x} compile failed: {}",
+                effect_ref.hash, error
+            ))
+        })?;
+        runtime_effects.push(effect);
+    }
+
     Ok(EnginePreparedFrameMedia {
         images,
         image_index,
-        runtime_effects: Vec::new(),
+        runtime_effects,
     })
 }

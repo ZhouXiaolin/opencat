@@ -4,16 +4,16 @@ use tracing::{Level, event, span};
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayItem, DisplayRect, RectDisplayItem};
 use crate::draw::builder::DrawOpBuilder;
+use crate::draw::cache::{self as draw_cache, CachedSubtreeIr};
 use crate::draw::op::{DrawOp, Rect4};
 use crate::draw::types::{DrawOpRange, PathOp};
-use crate::draw::cache::{self as draw_cache, CachedSubtreeIr};
 use crate::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
 use crate::runtime::compositor::ordered_scene::{OrderedSceneOp, OrderedSceneProgram};
 use crate::runtime::compositor::reuse::LiveNodeItemExecution;
 use crate::scene::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::style::{BorderRadius, Transform};
 
-use super::{record_cache_pressure, RenderCtx, RenderError};
+use super::{RenderCtx, RenderError, record_cache_pressure};
 
 fn display_rect_to_rect4(r: DisplayRect) -> Rect4 {
     Rect4 {
@@ -42,9 +42,11 @@ fn render_scene_op(
         OrderedSceneOp::CachedSubtree { handle } => {
             render_cached_subtree(ctx, *handle, tree, cache)
         }
-        OrderedSceneOp::LiveSubtree { handle, item_execution, children } => {
-            render_live_subtree(ctx, *handle, *item_execution, children, tree, cache)
-        }
+        OrderedSceneOp::LiveSubtree {
+            handle,
+            item_execution,
+            children,
+        } => render_live_subtree(ctx, *handle, *item_execution, children, tree, cache),
     }
 }
 
@@ -66,7 +68,9 @@ fn render_cached_subtree(
     let opacity = draw.opacity;
     let backdrop_blur = draw.backdrop_blur_sigma;
     let layer_bounds = tree.layer_bounds(handle);
-    let fingerprint = tree.analysis(handle).snapshot_fingerprint
+    let fingerprint = tree
+        .analysis(handle)
+        .snapshot_fingerprint
         .expect("CachedSubtree node must have snapshot_fingerprint");
     let key = fingerprint.primary;
 
@@ -178,7 +182,8 @@ fn render_cached_subtree(
 
     // Cache miss — record subtree into IR range
     #[cfg(feature = "profile")]
-    let _record_span = span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record").entered();
+    let _record_span =
+        span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record").entered();
 
     let range_marker = ctx.builder.begin_range();
     render_live_cached_node(ctx, handle, tree, cache)?;
@@ -343,7 +348,11 @@ fn render_live_subtree(
                 if let Some(clip) = &node.clip {
                     ctx.builder.push(DrawOp::Save);
                     let clip_bounds_rect4 = display_rect_to_rect4(clip.bounds);
-                    clip_bounds_with_radius(&mut ctx.builder, clip_bounds_rect4, &clip.border_radius);
+                    clip_bounds_with_radius(
+                        &mut ctx.builder,
+                        clip_bounds_rect4,
+                        &clip.border_radius,
+                    );
                 }
 
                 let from_marker = ctx.builder.begin_range();
@@ -364,7 +373,14 @@ fn render_live_subtree(
                 .entered();
 
                 let p = transition.progress.clamp(0.0, 1.0);
-                render_transition_composite(ctx, from_range, to_range, p, &transition.kind, timeline.bounds);
+                render_transition_composite(
+                    ctx,
+                    from_range,
+                    to_range,
+                    p,
+                    &transition.kind,
+                    timeline.bounds,
+                );
 
                 if node.clip.is_some() {
                     ctx.builder.push(DrawOp::Restore);
@@ -389,7 +405,9 @@ fn render_live_subtree(
         }
         LiveNodeItemExecution::FrameLocalPicture => {
             #[cfg(feature = "profile")]
-            let _item_span = span!(target: "render.backend", Level::TRACE, "draw_item_frame_local_picture").entered();
+            let _item_span =
+                span!(target: "render.backend", Level::TRACE, "draw_item_frame_local_picture")
+                    .entered();
             let semantics = node.item.picture_semantics();
             ctx.builder.push(DrawOp::Save);
             ctx.builder.push(DrawOp::Translate {
@@ -580,19 +598,39 @@ fn clip_bounds_with_radius(builder: &mut DrawOpBuilder, rect: Rect4, radius: &Bo
         builder.push(DrawOp::Path(PathOp::MoveTo { x: x + tl, y: y }));
         builder.push(DrawOp::Path(PathOp::LineTo { x: x1 - tr, y: y }));
         if tr > 0.0 {
-            builder.push(DrawOp::Path(PathOp::QuadTo { cx: x1, cy: y, x: x1, y: y + tr }));
+            builder.push(DrawOp::Path(PathOp::QuadTo {
+                cx: x1,
+                cy: y,
+                x: x1,
+                y: y + tr,
+            }));
         }
         builder.push(DrawOp::Path(PathOp::LineTo { x: x1, y: y1 - br }));
         if br > 0.0 {
-            builder.push(DrawOp::Path(PathOp::QuadTo { cx: x1, cy: y1, x: x1 - br, y: y1 }));
+            builder.push(DrawOp::Path(PathOp::QuadTo {
+                cx: x1,
+                cy: y1,
+                x: x1 - br,
+                y: y1,
+            }));
         }
         builder.push(DrawOp::Path(PathOp::LineTo { x: x + bl, y: y1 }));
         if bl > 0.0 {
-            builder.push(DrawOp::Path(PathOp::QuadTo { cx: x, cy: y1, x: x, y: y1 - bl }));
+            builder.push(DrawOp::Path(PathOp::QuadTo {
+                cx: x,
+                cy: y1,
+                x: x,
+                y: y1 - bl,
+            }));
         }
         builder.push(DrawOp::Path(PathOp::LineTo { x: x, y: y + tl }));
         if tl > 0.0 {
-            builder.push(DrawOp::Path(PathOp::QuadTo { cx: x, cy: y, x: x + tl, y: y }));
+            builder.push(DrawOp::Path(PathOp::QuadTo {
+                cx: x,
+                cy: y,
+                x: x + tl,
+                y: y,
+            }));
         }
         builder.push(DrawOp::Path(PathOp::Close));
     } else {
@@ -616,7 +654,10 @@ fn transition_kind_str(kind: &TransitionKind) -> &'static str {
     }
 }
 
-fn apply_transform(builder: &mut DrawOpBuilder, transform: &crate::display::list::DisplayTransform) {
+fn apply_transform(
+    builder: &mut DrawOpBuilder,
+    transform: &crate::display::list::DisplayTransform,
+) {
     builder.push(DrawOp::Translate {
         x: transform.translation_x,
         y: transform.translation_y,
@@ -633,19 +674,37 @@ fn apply_transform(builder: &mut DrawOpBuilder, transform: &crate::display::list
             Transform::TranslateY { value } => builder.push(DrawOp::Translate { x: 0.0, y: value }),
             Transform::Translate { x, y } => builder.push(DrawOp::Translate { x, y }),
             Transform::Scale { value } => {
-                builder.push(DrawOp::Translate { x: center_x, y: center_y });
+                builder.push(DrawOp::Translate {
+                    x: center_x,
+                    y: center_y,
+                });
                 builder.push(DrawOp::Scale { x: value, y: value });
-                builder.push(DrawOp::Translate { x: -center_x, y: -center_y });
+                builder.push(DrawOp::Translate {
+                    x: -center_x,
+                    y: -center_y,
+                });
             }
             Transform::ScaleX { value } => {
-                builder.push(DrawOp::Translate { x: center_x, y: center_y });
+                builder.push(DrawOp::Translate {
+                    x: center_x,
+                    y: center_y,
+                });
                 builder.push(DrawOp::Scale { x: value, y: 1.0 });
-                builder.push(DrawOp::Translate { x: -center_x, y: -center_y });
+                builder.push(DrawOp::Translate {
+                    x: -center_x,
+                    y: -center_y,
+                });
             }
             Transform::ScaleY { value } => {
-                builder.push(DrawOp::Translate { x: center_x, y: center_y });
+                builder.push(DrawOp::Translate {
+                    x: center_x,
+                    y: center_y,
+                });
                 builder.push(DrawOp::Scale { x: 1.0, y: value });
-                builder.push(DrawOp::Translate { x: -center_x, y: -center_y });
+                builder.push(DrawOp::Translate {
+                    x: -center_x,
+                    y: -center_y,
+                });
             }
             Transform::RotateDeg { value: deg } => builder.push(DrawOp::Rotate {
                 degrees: deg,
@@ -653,28 +712,46 @@ fn apply_transform(builder: &mut DrawOpBuilder, transform: &crate::display::list
                 cy: center_y,
             }),
             Transform::SkewXDeg { value: deg } => {
-                builder.push(DrawOp::Translate { x: center_x, y: center_y });
+                builder.push(DrawOp::Translate {
+                    x: center_x,
+                    y: center_y,
+                });
                 builder.push(DrawOp::Skew {
                     sx: deg.to_radians().tan(),
                     sy: 0.0,
                 });
-                builder.push(DrawOp::Translate { x: -center_x, y: -center_y });
+                builder.push(DrawOp::Translate {
+                    x: -center_x,
+                    y: -center_y,
+                });
             }
             Transform::SkewYDeg { value: deg } => {
-                builder.push(DrawOp::Translate { x: center_x, y: center_y });
+                builder.push(DrawOp::Translate {
+                    x: center_x,
+                    y: center_y,
+                });
                 builder.push(DrawOp::Skew {
                     sx: 0.0,
                     sy: deg.to_radians().tan(),
                 });
-                builder.push(DrawOp::Translate { x: -center_x, y: -center_y });
+                builder.push(DrawOp::Translate {
+                    x: -center_x,
+                    y: -center_y,
+                });
             }
             Transform::SkewDeg { x: x_deg, y: y_deg } => {
-                builder.push(DrawOp::Translate { x: center_x, y: center_y });
+                builder.push(DrawOp::Translate {
+                    x: center_x,
+                    y: center_y,
+                });
                 builder.push(DrawOp::Skew {
                     sx: x_deg.to_radians().tan(),
                     sy: y_deg.to_radians().tan(),
                 });
-                builder.push(DrawOp::Translate { x: -center_x, y: -center_y });
+                builder.push(DrawOp::Translate {
+                    x: -center_x,
+                    y: -center_y,
+                });
             }
         }
     }

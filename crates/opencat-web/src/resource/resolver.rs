@@ -17,11 +17,7 @@ use crate::resource::fetch::fetch_bytes;
 pub struct WebFetcher;
 
 impl UrlFetcher for WebFetcher {
-    fn fetch_bytes(
-        &mut self,
-        _id: &AssetId,
-        url: &str,
-    ) -> impl Future<Output = Result<Vec<u8>>> {
+    fn fetch_bytes(&mut self, _id: &AssetId, url: &str) -> impl Future<Output = Result<Vec<u8>>> {
         let url = url.to_string();
         async move { fetch_bytes(&url).await }
     }

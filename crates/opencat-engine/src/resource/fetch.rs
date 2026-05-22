@@ -67,11 +67,7 @@ impl EngineFetcher {
 }
 
 impl UrlFetcher for EngineFetcher {
-    fn fetch_bytes(
-        &mut self,
-        id: &AssetId,
-        url: &str,
-    ) -> impl Future<Output = Result<Vec<u8>>> {
+    fn fetch_bytes(&mut self, id: &AssetId, url: &str) -> impl Future<Output = Result<Vec<u8>>> {
         let path = cache_file_path(&self.cache_dir, id);
         let client = self.client.clone();
         let url = url.to_string();
@@ -90,5 +86,3 @@ impl UrlFetcher for EngineFetcher {
         }
     }
 }
-
-

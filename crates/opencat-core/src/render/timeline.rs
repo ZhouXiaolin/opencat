@@ -176,10 +176,7 @@ fn sinusoid_noise(x: f32, seed: f32) -> f32 {
     ((x * 6.283185 + seed * 12.9898).sin() * 43758.5453).fract()
 }
 
-pub fn render_timeline(
-    ctx: &mut RenderCtx,
-    item: &TimelineDisplayItem,
-) -> Result<(), RenderError> {
+pub fn render_timeline(ctx: &mut RenderCtx, item: &TimelineDisplayItem) -> Result<(), RenderError> {
     let rect_item = crate::display::list::RectDisplayItem {
         bounds: item.bounds,
         paint: item.paint.clone(),

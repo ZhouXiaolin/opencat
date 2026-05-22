@@ -9,9 +9,9 @@ use crate::draw::cache::RenderCache;
 use crate::layout::LayoutSession;
 use crate::platform::platform::Platform;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
+use crate::runtime::annotation::AnnotatedNodeHandle;
 use crate::runtime::compositor::ordered_scene::{OrderedSceneOp, OrderedSceneProgram};
 use crate::runtime::compositor::reuse::LiveNodeItemExecution;
-use crate::runtime::annotation::AnnotatedNodeHandle;
 use crate::runtime::invalidation::CompositeHistory;
 use crate::text::default_font_db;
 

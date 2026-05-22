@@ -8,9 +8,9 @@ use skia_safe::{AlphaType, ColorType, Data, Image, ImageInfo, image::CachingHint
 
 use crate::codec::decode::VideoDecodeCache;
 use crate::runtime::cache::{CacheCaps, video_frames::VideoFrameCache};
+use opencat_core::resource::AssetPathStore;
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
-use opencat_core::resource::AssetPathStore;
 
 pub use crate::codec::decode::VideoInfo;
 pub use opencat_core::resource::types::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality};
@@ -213,10 +213,7 @@ impl opencat_core::platform::video::VideoFrameProvider for MediaContext {
 ///   1. If `path_store` is set, look up the cached local path.
 ///   2. Otherwise fall back to using the raw AssetId string as a path
 ///      (for legacy direct-path usage).
-fn resolve_asset_path<'a>(
-    id: &'a AssetId,
-    path_store: *const AssetPathStore,
-) -> &'a Path {
+fn resolve_asset_path<'a>(id: &'a AssetId, path_store: *const AssetPathStore) -> &'a Path {
     if !path_store.is_null() {
         // SAFETY: path_store points to an AssetPathStore on the owning
         // EnginePlatform, which outlives this MediaContext call.

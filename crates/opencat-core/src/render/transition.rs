@@ -3,11 +3,9 @@ use tracing::{Level, span};
 
 use crate::display::list::DisplayRect;
 use crate::draw::op::{DrawOp, Rect4};
-use crate::draw::types::{
-    ChildRange, DrawOpRange, RuntimeEffectChildRef,
-};
-use crate::scene::transition::{GlTransition, LightLeakTransition};
+use crate::draw::types::{ChildRange, DrawOpRange, RuntimeEffectChildRef};
 use crate::scene::gl_transition;
+use crate::scene::transition::{GlTransition, LightLeakTransition};
 
 use super::RenderCtx;
 
@@ -125,9 +123,7 @@ struct LightLeakCompositeUniforms {
 }
 
 fn as_bytes<T: Copy>(val: &T) -> &[u8] {
-    unsafe {
-        std::slice::from_raw_parts(val as *const T as *const u8, std::mem::size_of::<T>())
-    }
+    unsafe { std::slice::from_raw_parts(val as *const T as *const u8, std::mem::size_of::<T>()) }
 }
 
 pub(crate) fn render_light_leak_transition(
@@ -143,7 +139,8 @@ pub(crate) fn render_light_leak_transition(
     let h = bounds.height.max(1.0).round() as u32;
 
     let mask_effect_id = builder.intern_effect(MASK_EFFECT_KEY, LIGHT_LEAK_MASK_SKSL);
-    let composite_effect_id = builder.intern_effect(COMPOSITE_EFFECT_KEY, LIGHT_LEAK_COMPOSITE_SKSL);
+    let composite_effect_id =
+        builder.intern_effect(COMPOSITE_EFFECT_KEY, LIGHT_LEAK_COMPOSITE_SKSL);
 
     let normalized = progress.clamp(0.0, 1.0);
     let mask_uniforms = LightLeakMaskUniforms {
@@ -165,8 +162,7 @@ pub(crate) fn render_light_leak_transition(
 
     {
         #[cfg(feature = "profile")]
-        let _mask_span =
-            span!(target: "render.backend", Level::TRACE, "light_leak_mask").entered();
+        let _mask_span = span!(target: "render.backend", Level::TRACE, "light_leak_mask").entered();
 
         let mask_marker = builder.begin_range();
         builder.push(DrawOp::RuntimeEffect {

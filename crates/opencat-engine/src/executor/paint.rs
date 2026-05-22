@@ -3,9 +3,9 @@ use opencat_core::canvas::paint::{
     PaintStyle, PathEffectSpec, ShaderSpec, StrokeCap, StrokeJoin, TileMode,
 };
 use skia_safe::{
-    color_filters, gradient_shader, image_filters, BlendMode as SkBlendMode,
-    BlurStyle as SkBlurStyle, Color, ColorFilter, ImageFilter, MaskFilter, Paint,
-    PaintStyle as SkPaintStyle, PathEffect, Shader, TileMode as SkTileMode,
+    BlendMode as SkBlendMode, BlurStyle as SkBlurStyle, Color, ColorFilter, ImageFilter,
+    MaskFilter, Paint, PaintStyle as SkPaintStyle, PathEffect, Shader, TileMode as SkTileMode,
+    color_filters, gradient_shader, image_filters,
 };
 
 pub fn paint_from_spec(spec: &PaintSpec) -> Paint {
@@ -164,8 +164,7 @@ fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
             colors,
             tile_mode,
         } => {
-            let skia_colors: Vec<Color> =
-                colors.iter().map(|c| float4_to_color(*c)).collect();
+            let skia_colors: Vec<Color> = colors.iter().map(|c| float4_to_color(*c)).collect();
             gradient_shader::linear(
                 ((from[0], from[1]), (to[0], to[1])),
                 skia_colors.as_slice(),
@@ -182,8 +181,7 @@ fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
             colors,
             tile_mode,
         } => {
-            let skia_colors: Vec<Color> =
-                colors.iter().map(|c| float4_to_color(*c)).collect();
+            let skia_colors: Vec<Color> = colors.iter().map(|c| float4_to_color(*c)).collect();
             gradient_shader::radial(
                 (center[0], center[1]),
                 *radius,
@@ -206,9 +204,14 @@ fn build_skia_image_filter(spec: &ImageFilterSpec) -> Option<ImageFilter> {
             sigma_y,
             crop_rect,
         } => {
-            let crop = crop_rect.as_ref().map(|r| skia_safe::Rect::from_xywh(
-                r.x0 as f32, r.y0 as f32, r.width() as f32, r.height() as f32,
-            ));
+            let crop = crop_rect.as_ref().map(|r| {
+                skia_safe::Rect::from_xywh(
+                    r.x0 as f32,
+                    r.y0 as f32,
+                    r.width() as f32,
+                    r.height() as f32,
+                )
+            });
             image_filters::blur(
                 (*sigma_x, *sigma_y),
                 SkTileMode::Clamp,
@@ -256,18 +259,12 @@ fn build_skia_image_filter(spec: &ImageFilterSpec) -> Option<ImageFilter> {
 
 fn build_color_filter(spec: &ColorFilterSpec) -> Option<ColorFilter> {
     match spec {
-        ColorFilterSpec::Matrix(matrix) => {
-            Some(color_filters::matrix_row_major(matrix, None))
-        }
+        ColorFilterSpec::Matrix(matrix) => Some(color_filters::matrix_row_major(matrix, None)),
         ColorFilterSpec::BlendColor { color, mode } => {
             color_filters::blend(float4_to_color(*color), convert_blend_mode(*mode))
         }
-        ColorFilterSpec::LinearToSrgbGamma => {
-            Some(color_filters::linear_to_srgb_gamma())
-        }
-        ColorFilterSpec::SrgbToLinearGamma => {
-            Some(color_filters::srgb_to_linear_gamma())
-        }
+        ColorFilterSpec::LinearToSrgbGamma => Some(color_filters::linear_to_srgb_gamma()),
+        ColorFilterSpec::SrgbToLinearGamma => Some(color_filters::srgb_to_linear_gamma()),
     }
 }
 

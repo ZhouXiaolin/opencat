@@ -39,7 +39,11 @@ pub(crate) fn record_cache_pressure<K>(cache_name: &'static str, report: &CacheM
 }
 
 #[cfg(not(feature = "profile"))]
-pub(crate) fn record_cache_pressure<K>(_cache_name: &'static str, _report: &CacheMutationReport<K>) {}
+pub(crate) fn record_cache_pressure<K>(
+    _cache_name: &'static str,
+    _report: &CacheMutationReport<K>,
+) {
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenderError {
@@ -77,15 +81,15 @@ pub mod media_plan;
 pub mod state;
 
 // TODO: implement in later chunks
-pub mod paint_conv;
-pub mod script_conv;
-pub mod display_tree;
-pub mod display_item;
-pub mod rect;
-pub mod text;
 pub mod bitmap;
-pub mod svg_path;
+pub mod display_item;
+pub mod display_tree;
 pub mod draw_script;
+pub mod paint_conv;
+pub mod rect;
+pub mod script_conv;
+pub mod svg_path;
+pub mod text;
 pub mod timeline;
 pub mod transition;
 

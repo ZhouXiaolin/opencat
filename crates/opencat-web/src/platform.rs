@@ -6,7 +6,7 @@ use opencat_core::draw::cache::CachedDrawRange;
 use opencat_core::draw::frame::DrawOpFrame;
 use opencat_core::platform::draw::{DrawError, DrawPlatform, DrawStats, RenderSessionHeader};
 use opencat_core::platform::media::{
-    AudioPlanSlice, PrepareMode, FrameMediaPlan, MediaError, MediaPlatform,
+    AudioPlanSlice, FrameMediaPlan, MediaError, MediaPlatform, PrepareMode,
 };
 use opencat_core::platform::platform::Platform;
 use opencat_core::platform::resource::ResourcePlatform;

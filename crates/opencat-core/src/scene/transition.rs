@@ -369,7 +369,10 @@ impl LightLeakBuilder {
 impl GlTransitionBuilder {
     pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
         Transition {
-            presentation: Presentation::Gl(GlTransition { name: self.name, sksl: None }),
+            presentation: Presentation::Gl(GlTransition {
+                name: self.name,
+                sksl: None,
+            }),
             easing,
             duration_in_frames,
         }

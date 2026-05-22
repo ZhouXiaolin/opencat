@@ -3,10 +3,10 @@ pub mod mutations;
 pub mod precomputed_host;
 pub mod runtime_cache;
 
+pub use crate::script::script_runner::ScriptRunner;
 pub use host::{ScriptDriverId, ScriptHost};
 pub use mutations::*;
 pub use precomputed_host::PrecomputedScriptHost;
-pub use crate::script::script_runner::ScriptRunner;
 pub use runtime_cache::ScriptRuntimeCache;
 
 use crate::style::{

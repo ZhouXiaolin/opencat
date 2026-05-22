@@ -1,8 +1,8 @@
+use super::types::{
+    BytesRangeId, ChildRange, DrawOpRange, EffectId, ImageRef, PaintId, PathId, PathOp,
+};
 #[allow(unused_imports)]
 use crate::canvas::paint::BlendMode;
-use super::types::{
-    PaintId, PathId, ImageRef, EffectId, BytesRangeId, ChildRange, DrawOpRange, PathOp,
-};
 
 // ---------------------------------------------------------------------------
 // Line rendering enums
@@ -162,7 +162,6 @@ pub enum DrawOp {
     // =======================================================================
     // Stack management
     // =======================================================================
-
     /// Push a save point onto the transform/paint stack.
     Save,
 
@@ -178,96 +177,59 @@ pub enum DrawOp {
     Restore,
 
     /// Pop save points until the stack reaches `count` entries.
-    RestoreToCount {
-        count: i32,
-    },
+    RestoreToCount { count: i32 },
 
     // =======================================================================
     // Transforms
     // =======================================================================
-
     /// Apply a 2D translation to the current transform.
-    Translate {
-        x: f32,
-        y: f32,
-    },
+    Translate { x: f32, y: f32 },
 
     /// Apply a 2D uniform scale to the current transform.
-    Scale {
-        x: f32,
-        y: f32,
-    },
+    Scale { x: f32, y: f32 },
 
     /// Apply a 2D rotation (in degrees) around (cx, cy).
-    Rotate {
-        degrees: f32,
-        cx: f32,
-        cy: f32,
-    },
+    Rotate { degrees: f32, cx: f32, cy: f32 },
 
     /// Apply a 2D skew along the x and y axes.
-    Skew {
-        sx: f32,
-        sy: f32,
-    },
+    Skew { sx: f32, sy: f32 },
 
     /// Concatenate a 3x3 affine matrix with the current transform.
-    Concat {
-        matrix: Matrix3,
-    },
+    Concat { matrix: Matrix3 },
 
     // =======================================================================
     // Paint state setters (script canvas immediate-mode)
     // =======================================================================
-
     /// Set the fill color.
-    SetFillStyle {
-        color: ColorU8,
-    },
+    SetFillStyle { color: ColorU8 },
 
     /// Set the stroke color.
-    SetStrokeStyle {
-        color: ColorU8,
-    },
+    SetStrokeStyle { color: ColorU8 },
 
     /// Set the stroke width.
-    SetLineWidth {
-        width: f32,
-    },
+    SetLineWidth { width: f32 },
 
     /// Set the line cap style.
-    SetLineCap {
-        cap: LineCap,
-    },
+    SetLineCap { cap: LineCap },
 
     /// Set the line join style.
-    SetLineJoin {
-        join: LineJoin,
-    },
+    SetLineJoin { join: LineJoin },
 
     /// Set the dash pattern from a range of floats and a phase offset.
-    SetLineDash {
-        intervals: F32Range,
-        phase: f32,
-    },
+    SetLineDash { intervals: F32Range, phase: f32 },
 
     /// Clear any active dash pattern (restore solid lines).
     ClearLineDash,
 
     /// Set the global alpha multiplier (0.0-1.0).
-    SetGlobalAlpha {
-        alpha: f32,
-    },
+    SetGlobalAlpha { alpha: f32 },
 
     /// Toggle anti-aliasing.
-    SetAntiAlias {
-        enabled: bool,
-    },
+    SetAntiAlias { enabled: bool },
 
     // =======================================================================
     // Path construction
     // =======================================================================
-
     /// Begin a new path, discarding any previously recorded path.
     BeginPath,
 
@@ -281,29 +243,19 @@ pub enum DrawOp {
     StrokePath,
 
     /// Clip to the current path, with optional anti-aliasing.
-    ClipPath {
-        anti_alias: bool,
-    },
+    ClipPath { anti_alias: bool },
 
     // =======================================================================
     // Drawing — immediate-mode primitives
     // =======================================================================
-
     /// Clear the canvas to a solid float color.
-    Clear {
-        color: ColorF32,
-    },
+    Clear { color: ColorF32 },
 
     /// Draw a pre-built paint (covers the current clip).
-    Paint {
-        paint: PaintId,
-    },
+    Paint { paint: PaintId },
 
     /// Draw a filled rectangle.
-    Rect {
-        rect: Rect4,
-        paint: PaintId,
-    },
+    Rect { rect: Rect4, paint: PaintId },
 
     /// Draw a filled rounded rectangle.
     RRect {
@@ -320,10 +272,7 @@ pub enum DrawOp {
     },
 
     /// Draw a filled oval inscribed in `rect`.
-    Oval {
-        rect: Rect4,
-        paint: PaintId,
-    },
+    Oval { rect: Rect4, paint: PaintId },
 
     /// Draw a filled circle centered at (cx, cy).
     Circle {
@@ -359,10 +308,7 @@ pub enum DrawOp {
     },
 
     /// Draw a pre-encoded path from the frame path table.
-    DrawPath {
-        path: PathId,
-        paint: PaintId,
-    },
+    DrawPath { path: PathId, paint: PaintId },
 
     /// Draw an image at (x, y) with optional paint filter.
     Image {
@@ -389,9 +335,7 @@ pub enum DrawOp {
     },
 
     /// Replay a previously-encoded range of DrawOps.
-    ReplayRange {
-        range: DrawOpRange,
-    },
+    ReplayRange { range: DrawOpRange },
 }
 
 // ---------------------------------------------------------------------------
@@ -402,7 +346,11 @@ impl std::hash::Hash for DrawOp {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
             DrawOp::Save => 0_u8.hash(state),
-            DrawOp::SaveLayer { bounds, paint, alpha } => {
+            DrawOp::SaveLayer {
+                bounds,
+                paint,
+                alpha,
+            } => {
                 1_u8.hash(state);
                 bounds.hash(state);
                 paint.hash(state);
@@ -502,7 +450,11 @@ impl std::hash::Hash for DrawOp {
                 radii.hash(state);
                 paint.hash(state);
             }
-            DrawOp::DRRect { outer, inner, paint } => {
+            DrawOp::DRRect {
+                outer,
+                inner,
+                paint,
+            } => {
                 27_u8.hash(state);
                 outer.hash(state);
                 inner.hash(state);
@@ -513,14 +465,25 @@ impl std::hash::Hash for DrawOp {
                 rect.hash(state);
                 paint.hash(state);
             }
-            DrawOp::Circle { cx, cy, radius, paint } => {
+            DrawOp::Circle {
+                cx,
+                cy,
+                radius,
+                paint,
+            } => {
                 29_u8.hash(state);
                 cx.to_bits().hash(state);
                 cy.to_bits().hash(state);
                 radius.to_bits().hash(state);
                 paint.hash(state);
             }
-            DrawOp::Arc { rect, start, sweep, use_center, paint } => {
+            DrawOp::Arc {
+                rect,
+                start,
+                sweep,
+                use_center,
+                paint,
+            } => {
                 30_u8.hash(state);
                 rect.hash(state);
                 start.to_bits().hash(state);
@@ -528,7 +491,13 @@ impl std::hash::Hash for DrawOp {
                 use_center.hash(state);
                 paint.hash(state);
             }
-            DrawOp::Line { x0, y0, x1, y1, paint } => {
+            DrawOp::Line {
+                x0,
+                y0,
+                x1,
+                y1,
+                paint,
+            } => {
                 31_u8.hash(state);
                 x0.to_bits().hash(state);
                 y0.to_bits().hash(state);
@@ -536,7 +505,11 @@ impl std::hash::Hash for DrawOp {
                 y1.to_bits().hash(state);
                 paint.hash(state);
             }
-            DrawOp::Points { mode, points, paint } => {
+            DrawOp::Points {
+                mode,
+                points,
+                paint,
+            } => {
                 32_u8.hash(state);
                 mode.hash(state);
                 points.hash(state);
@@ -554,14 +527,24 @@ impl std::hash::Hash for DrawOp {
                 y.to_bits().hash(state);
                 paint.hash(state);
             }
-            DrawOp::ImageRect { image, src, dst, paint } => {
+            DrawOp::ImageRect {
+                image,
+                src,
+                dst,
+                paint,
+            } => {
                 35_u8.hash(state);
                 image.hash(state);
                 src.hash(state);
                 dst.hash(state);
                 paint.hash(state);
             }
-            DrawOp::RuntimeEffect { effect, uniforms, children, dst } => {
+            DrawOp::RuntimeEffect {
+                effect,
+                uniforms,
+                children,
+                dst,
+            } => {
                 36_u8.hash(state);
                 effect.hash(state);
                 uniforms.hash(state);
@@ -583,7 +566,7 @@ impl std::hash::Hash for DrawOp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::types::{PaintId, ImageRef};
+    use crate::draw::types::{ImageRef, PaintId};
 
     #[test]
     fn draw_op_roundtrip_save_restore_variants_exist() {

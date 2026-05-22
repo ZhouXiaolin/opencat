@@ -1,7 +1,5 @@
 use crate::frame_ctx::ScriptFrameCtx;
-use crate::scene::script::{
-    ScriptDriverId, ScriptHost, ScriptTextSource, StyleMutations,
-};
+use crate::scene::script::{ScriptDriverId, ScriptHost, ScriptTextSource, StyleMutations};
 use crate::script::recorder::MutationRecorder;
 use anyhow::Result;
 use std::collections::HashMap;

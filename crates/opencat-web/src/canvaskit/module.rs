@@ -2,7 +2,6 @@
 //! `globalThis.__canvasKit = CanvasKitInit(...)` 注入；Rust 端通过
 //! `init_canvaskit()` 把它装到全局 OnceCell 里。
 
-
 use once_cell::sync::OnceCell;
 use wasm_bindgen::prelude::*;
 

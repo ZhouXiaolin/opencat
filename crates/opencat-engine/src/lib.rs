@@ -26,10 +26,10 @@ pub use opencat_core::frame_ctx::FrameCtx;
 pub use opencat_core::scene::composition::Composition;
 pub use opencat_core::scene::easing::Easing;
 pub use opencat_core::scene::node::Node;
-pub use opencat_core::scene::primitives::{SrtEntry, caption, canvas, div, image, text};
-pub use opencat_core::style::ColorToken;
+pub use opencat_core::scene::primitives::{SrtEntry, canvas, caption, div, image, text};
 pub use opencat_core::scene::script::ScriptDriver;
 pub use opencat_core::scene::transition::{fade, timeline};
+pub use opencat_core::style::ColorToken;
 
 // Re-export engine types used in tests via `crate::` path
 // RenderSession is now a type alias for the core generic session monomorphised with EnginePlatform.

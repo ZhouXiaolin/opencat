@@ -6,12 +6,10 @@
 
 use std::collections::HashMap;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{
-    AudioBuffer, AudioBufferSourceNode, AudioContext, AudioContextOptions, GainNode,
-};
+use web_sys::{AudioBuffer, AudioBufferSourceNode, AudioContext, AudioContextOptions, GainNode};
 
 /// 解码后的音频 PCM 数据。
 #[derive(Clone)]
@@ -219,19 +217,13 @@ impl WebAudio {
 
     /// 暂停 AudioContext（释放音频资源）。
     pub fn suspend(&self) -> Result<()> {
-        let _ = self
-            .ctx
-            .suspend()
-            .map_err(|e| anyhow!("suspend: {e:?}"));
+        let _ = self.ctx.suspend().map_err(|e| anyhow!("suspend: {e:?}"));
         Ok(())
     }
 
     /// 恢复 AudioContext（需要用户手势后才能恢复）。
     pub fn resume(&self) -> Result<()> {
-        let _ = self
-            .ctx
-            .resume()
-            .map_err(|e| anyhow!("resume: {e:?}"));
+        let _ = self.ctx.resume().map_err(|e| anyhow!("resume: {e:?}"));
         Ok(())
     }
 

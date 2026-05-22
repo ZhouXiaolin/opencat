@@ -119,7 +119,8 @@ fn render_display_item_direct(
         }
         DisplayItem::Timeline(timeline) => {
             #[cfg(feature = "profile")]
-            let _span = span!(target: "render.backend", Level::TRACE, "draw_item_timeline").entered();
+            let _span =
+                span!(target: "render.backend", Level::TRACE, "draw_item_timeline").entered();
             super::timeline::render_timeline(ctx, timeline)
         }
         DisplayItem::Text(text) => {

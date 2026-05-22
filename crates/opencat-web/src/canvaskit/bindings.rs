@@ -4,10 +4,12 @@
 //! 添加新绑定的流程：① 在对应 extern 块加 `#[wasm_bindgen(method, ...)]` 行
 //! ② 在 `canvas2d.rs` 对应方法里调用它。
 
-
 use wasm_bindgen::prelude::*;
 
-use crate::canvaskit::handle::{CKHandle, CkColorFilterMarker, CkImageFilterMarker, CkImageMarker, CkMaskFilterMarker, CkPathEffectMarker, CkPathMarker, CkRuntimeEffectMarker, CkShaderMarker};
+use crate::canvaskit::handle::{
+    CKHandle, CkColorFilterMarker, CkImageFilterMarker, CkImageMarker, CkMaskFilterMarker,
+    CkPathEffectMarker, CkPathMarker, CkRuntimeEffectMarker, CkShaderMarker,
+};
 
 #[wasm_bindgen]
 extern "C" {
@@ -135,7 +137,15 @@ extern "C" {
     #[wasm_bindgen(method, js_name = "lineTo")]
     pub fn pb_line_to(this: &CKPathBuilder, x: f32, y: f32);
     #[wasm_bindgen(method, js_name = "cubicTo")]
-    pub fn pb_cubic_to(this: &CKPathBuilder, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32);
+    pub fn pb_cubic_to(
+        this: &CKPathBuilder,
+        c1x: f32,
+        c1y: f32,
+        c2x: f32,
+        c2y: f32,
+        x: f32,
+        y: f32,
+    );
     #[wasm_bindgen(method, js_name = "quadTo")]
     pub fn pb_quad_to(this: &CKPathBuilder, cx: f32, cy: f32, x: f32, y: f32);
     #[wasm_bindgen(method, js_name = "close")]
@@ -179,7 +189,11 @@ extern "C" {
     pub type CKRuntimeEffectJs;
 
     #[wasm_bindgen(method, js_name = "makeShader")]
-    pub fn make_shader(this: &CKRuntimeEffectJs, uniforms: &JsValue, local_matrix: &JsValue) -> JsValue;
+    pub fn make_shader(
+        this: &CKRuntimeEffectJs,
+        uniforms: &JsValue,
+        local_matrix: &JsValue,
+    ) -> JsValue;
     #[wasm_bindgen(method, js_name = "makeShaderWithChildren")]
     pub fn make_shader_with_children(
         this: &CKRuntimeEffectJs,
@@ -352,9 +366,7 @@ pub fn ck_make_surface(width: u32, height: u32) -> Option<CKSurfaceJs> {
 }
 
 /// `CanvasKit.RuntimeEffect.Make(sksl)` → `Option<CKHandle<CkRuntimeEffectMarker>>`.
-pub fn ck_make_runtime_effect(
-    sksl: &str,
-) -> Option<CKHandle<CkRuntimeEffectMarker>> {
+pub fn ck_make_runtime_effect(sksl: &str) -> Option<CKHandle<CkRuntimeEffectMarker>> {
     let m = crate::canvaskit::module::ck();
     let re_class = js_sys::Reflect::get(m, &JsValue::from_str("RuntimeEffect")).ok()?;
     let make_fn = js_sys::Reflect::get(&re_class, &JsValue::from_str("Make")).ok()?;
@@ -375,7 +387,8 @@ fn ck_tile_mode(tm: opencat_core::canvas::paint::TileMode) -> JsValue {
         TileMode::Decal => "Decal",
     };
     let m = crate::canvaskit::module::ck();
-    let group = js_sys::Reflect::get(m, &JsValue::from_str("TileMode")).unwrap_or(JsValue::UNDEFINED);
+    let group =
+        js_sys::Reflect::get(m, &JsValue::from_str("TileMode")).unwrap_or(JsValue::UNDEFINED);
     js_sys::Reflect::get(&group, &JsValue::from_str(v)).unwrap_or(JsValue::UNDEFINED)
 }
 
@@ -405,15 +418,26 @@ pub fn build_ck_shader(
             JsValue::NULL
         } else {
             let arr = js_sys::Float32Array::new_with_length(stops.len() as u32);
-            for (i, &v) in stops.iter().enumerate() { arr.set_index(i as u32, v); }
+            for (i, &v) in stops.iter().enumerate() {
+                arr.set_index(i as u32, v);
+            }
             arr.into()
         }
     };
 
     match spec {
-        ShaderSpec::LinearGradient { from, to, stops, colors, tile_mode, .. } => {
+        ShaderSpec::LinearGradient {
+            from,
+            to,
+            stops,
+            colors,
+            tile_mode,
+            ..
+        } => {
             let shader_class = js_sys::Reflect::get(m, &JsValue::from_str("Shader")).ok()?;
-            let make_fn = js_sys::Reflect::get(&shader_class, &JsValue::from_str("MakeLinearGradient")).ok()?;
+            let make_fn =
+                js_sys::Reflect::get(&shader_class, &JsValue::from_str("MakeLinearGradient"))
+                    .ok()?;
             let func = make_fn.dyn_ref::<js_sys::Function>()?;
 
             let color_arr = colors_to_arr(colors);
@@ -428,16 +452,33 @@ pub fn build_ck_shader(
 
             let tile_js = ck_tile_mode(*tile_mode);
 
-            let result = func.call5(
-                &shader_class,
-                &start_arr, &end_arr, &color_arr, &pos_js, &tile_js,
-            ).ok()?;
-            if result.is_null() || result.is_undefined() { return None; }
+            let result = func
+                .call5(
+                    &shader_class,
+                    &start_arr,
+                    &end_arr,
+                    &color_arr,
+                    &pos_js,
+                    &tile_js,
+                )
+                .ok()?;
+            if result.is_null() || result.is_undefined() {
+                return None;
+            }
             Some(CKHandle::wrap(result))
         }
-        ShaderSpec::RadialGradient { center, radius, stops, colors, tile_mode, .. } => {
+        ShaderSpec::RadialGradient {
+            center,
+            radius,
+            stops,
+            colors,
+            tile_mode,
+            ..
+        } => {
             let shader_class = js_sys::Reflect::get(m, &JsValue::from_str("Shader")).ok()?;
-            let make_fn = js_sys::Reflect::get(&shader_class, &JsValue::from_str("MakeRadialGradient")).ok()?;
+            let make_fn =
+                js_sys::Reflect::get(&shader_class, &JsValue::from_str("MakeRadialGradient"))
+                    .ok()?;
             let func = make_fn.dyn_ref::<js_sys::Function>()?;
 
             let color_arr = colors_to_arr(colors);
@@ -449,15 +490,19 @@ pub fn build_ck_shader(
 
             let tile_js = ck_tile_mode(*tile_mode);
 
-            let result = func.call5(
-                &shader_class,
-                &center_arr,
-                &JsValue::from_f64(*radius as f64),
-                &color_arr,
-                &pos_js,
-                &tile_js,
-            ).ok()?;
-            if result.is_null() || result.is_undefined() { return None; }
+            let result = func
+                .call5(
+                    &shader_class,
+                    &center_arr,
+                    &JsValue::from_f64(*radius as f64),
+                    &color_arr,
+                    &pos_js,
+                    &tile_js,
+                )
+                .ok()?;
+            if result.is_null() || result.is_undefined() {
+                return None;
+            }
             Some(CKHandle::wrap(result))
         }
     }
@@ -531,9 +576,7 @@ pub fn build_ck_image_filter(
 
     match spec {
         ImageFilterSpec::Blur {
-            sigma_x,
-            sigma_y,
-            ..
+            sigma_x, sigma_y, ..
         } => {
             let make_fn = js_sys::Reflect::get(&if_class, &JsValue::from_str("MakeBlur")).ok()?;
             let func = make_fn.dyn_ref::<js_sys::Function>()?;
@@ -613,7 +656,11 @@ pub fn build_ck_mask_filter(
     let m = crate::canvaskit::module::ck();
 
     match spec {
-        MaskFilterSpec::Blur { sigma, style, respect_ctm } => {
+        MaskFilterSpec::Blur {
+            sigma,
+            style,
+            respect_ctm,
+        } => {
             let mf_class = js_sys::Reflect::get(m, &JsValue::from_str("MaskFilter")).ok()?;
             let make_fn = js_sys::Reflect::get(&mf_class, &JsValue::from_str("MakeBlur")).ok()?;
             let func = make_fn.dyn_ref::<js_sys::Function>()?;
@@ -629,13 +676,17 @@ pub fn build_ck_mask_filter(
             let style_js = js_sys::Reflect::get(&bs_group, &JsValue::from_str(style_name))
                 .unwrap_or(JsValue::UNDEFINED);
 
-            let result = func.call3(
-                &mf_class,
-                &JsValue::from_f64(*sigma as f64),
-                &style_js,
-                &JsValue::from_bool(*respect_ctm),
-            ).ok()?;
-            if result.is_null() || result.is_undefined() { return None; }
+            let result = func
+                .call3(
+                    &mf_class,
+                    &JsValue::from_f64(*sigma as f64),
+                    &style_js,
+                    &JsValue::from_bool(*respect_ctm),
+                )
+                .ok()?;
+            if result.is_null() || result.is_undefined() {
+                return None;
+            }
             Some(CKHandle::wrap(result))
         }
     }
@@ -655,11 +706,16 @@ pub fn build_ck_path_effect(
             let func = make_fn.dyn_ref::<js_sys::Function>()?;
 
             let arr = js_sys::Float32Array::new_with_length(intervals.len() as u32);
-            for (i, &v) in intervals.iter().enumerate() { arr.set_index(i as u32, v); }
-            let result = func.call2(&pe_class, &arr, &JsValue::from_f64(*phase as f64)).ok()?;
-            if result.is_null() || result.is_undefined() { return None; }
+            for (i, &v) in intervals.iter().enumerate() {
+                arr.set_index(i as u32, v);
+            }
+            let result = func
+                .call2(&pe_class, &arr, &JsValue::from_f64(*phase as f64))
+                .ok()?;
+            if result.is_null() || result.is_undefined() {
+                return None;
+            }
             Some(CKHandle::wrap(result))
         }
     }
 }
-

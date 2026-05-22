@@ -23,8 +23,8 @@ impl PathBoundsComputer for DefaultPathBounds {
         let mut max_y = f64::MIN;
 
         for data in path_data {
-            let path = kurbo::BezPath::from_svg(data)
-                .map_err(|e| anyhow!("invalid SVG path: {}", e))?;
+            let path =
+                kurbo::BezPath::from_svg(data).map_err(|e| anyhow!("invalid SVG path: {}", e))?;
             let bbox = path.bounding_box();
             min_x = min_x.min(bbox.x0);
             min_y = min_y.min(bbox.y0);

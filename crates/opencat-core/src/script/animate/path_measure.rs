@@ -153,8 +153,6 @@ fn derivative(seg: &PathSeg, t: f64) -> kurbo::Vec2 {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;

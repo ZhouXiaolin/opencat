@@ -136,19 +136,16 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
                 drop_shadow: element.style.visual.drop_shadow,
                 backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
             },
-            transition: timeline
-                .transition
-                .as_ref()
-                .map(|transition| {
-                    let mut kind = transition.kind.clone();
-                    if let TransitionKind::Gl(ref mut gl) = kind {
-                        gl.fill_sksl();
-                    }
-                    TimelineTransitionDisplay {
-                        progress: transition.progress,
-                        kind,
-                    }
-                }),
+            transition: timeline.transition.as_ref().map(|transition| {
+                let mut kind = transition.kind.clone();
+                if let TransitionKind::Gl(ref mut gl) = kind {
+                    gl.fill_sksl();
+                }
+                TimelineTransitionDisplay {
+                    progress: transition.progress,
+                    kind,
+                }
+            }),
         }),
         ElementKind::Text(text) => {
             let (visual_expand_x, visual_expand_y) = conservative_text_visual_expansion(

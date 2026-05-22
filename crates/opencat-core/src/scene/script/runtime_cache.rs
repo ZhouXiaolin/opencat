@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::anyhow;
 
 use crate::frame_ctx::ScriptFrameCtx;
-use crate::scene::script::{driver_id_from_source, ScriptDriverId, ScriptHost, ScriptTextSource};
+use crate::scene::script::{ScriptDriverId, ScriptHost, ScriptTextSource, driver_id_from_source};
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::script_runner::ScriptRunner;

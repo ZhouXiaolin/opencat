@@ -37,6 +37,9 @@ fn render_display_item_cached(
     #[cfg(feature = "profile")]
     let _cached_span = span!(target: "render.backend", Level::TRACE, "draw_item_cached").entered();
 
+    let semantics = item.picture_semantics();
+
+    // Cache hit: import segment and replay with draw translation
     if let Some(cached_range) = cache.item_ranges.get_cloned(&cache_key) {
         if let Some(segment) = cache.segments.get_cloned(&cached_range.segment_key) {
             #[cfg(feature = "profile")]
@@ -49,13 +52,13 @@ fn render_display_item_cached(
                 amount = 1_u64
             );
 
-            let semantics = item.picture_semantics();
-            let imported = ctx.builder.import_segment(&segment);
-            let b = &mut ctx.builder;
-            b.push(DrawOp::Save);
-            b.push(DrawOp::Translate { x: semantics.draw_translation_x, y: semantics.draw_translation_y });
-            b.push(DrawOp::ReplayRange { range: imported });
-            b.push(DrawOp::Restore);
+            ctx.builder.push(DrawOp::Save);
+            ctx.builder.push(DrawOp::Translate {
+                x: semantics.draw_translation_x,
+                y: semantics.draw_translation_y,
+            });
+            ctx.builder.import_segment(&segment);
+            ctx.builder.push(DrawOp::Restore);
             return Ok(());
         }
     }
@@ -70,32 +73,33 @@ fn render_display_item_cached(
         amount = 1_u64
     );
 
-    let semantics = item.picture_semantics();
-
+    // Cache miss: render directly with draw_translation, snapshot, store
     ctx.builder.push(DrawOp::Save);
-    ctx.builder.push(DrawOp::Translate { x: semantics.record_translation_x, y: semantics.record_translation_y });
+    ctx.builder.push(DrawOp::Translate {
+        x: semantics.draw_translation_x,
+        y: semantics.draw_translation_y,
+    });
 
     let marker = ctx.builder.begin_range();
     render_display_item_direct(ctx, item, cache)?;
     let range = ctx.builder.end_range(marker);
 
+    ctx.builder.push(DrawOp::Restore);
+
+    // Snapshot and store in cache
     let segment = ctx.builder.snapshot_range(range);
     let segment_key = cache_key;
 
     cache.segments.insert(segment_key, segment);
-    cache.item_ranges.insert(cache_key, CachedDrawRange {
-        segment_range: range,
-        fingerprint: cache_key,
-        bounds: semantics.record_bounds,
-        segment_key,
-    });
-
-    ctx.builder.push(DrawOp::Restore);
-
-    ctx.builder.push(DrawOp::Save);
-    ctx.builder.push(DrawOp::Translate { x: semantics.draw_translation_x, y: semantics.draw_translation_y });
-    ctx.builder.push(DrawOp::ReplayRange { range });
-    ctx.builder.push(DrawOp::Restore);
+    cache.item_ranges.insert(
+        cache_key,
+        CachedDrawRange {
+            segment_range: range,
+            fingerprint: cache_key,
+            bounds: semantics.record_bounds,
+            segment_key,
+        },
+    );
 
     Ok(())
 }

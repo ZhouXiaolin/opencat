@@ -1,11 +1,12 @@
 #[cfg(feature = "profile")]
 use tracing::{Level, event, span};
 
-use crate::canvas::{Canvas2D, Rect};
 use crate::display::list::DisplayItem;
+use crate::draw::cache::{self as draw_cache, CachedDrawRange};
+use crate::draw::op::DrawOp;
 use crate::runtime::fingerprint::item_paint_fingerprint;
 
-use super::{record_cache_pressure, RenderCache, RenderCtx, RenderError};
+use super::{RenderCtx, RenderError};
 
 fn should_cache_item_picture(item: &DisplayItem) -> bool {
     matches!(
@@ -14,47 +15,49 @@ fn should_cache_item_picture(item: &DisplayItem) -> bool {
     )
 }
 
-pub fn render_display_item<C: Canvas2D>(
-    canvas: &mut C,
+pub fn render_display_item(
+    ctx: &mut RenderCtx,
     item: &DisplayItem,
-    ctx: &RenderCtx<C>,
-    cache: &mut RenderCache<C>,
+    cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     if should_cache_item_picture(item) {
         if let Some(cache_key) = item_paint_fingerprint(item) {
-            return render_display_item_cached(canvas, item, cache_key, ctx, cache);
+            return render_display_item_cached(ctx, item, cache_key, cache);
         }
     }
-    render_display_item_direct(canvas, item, ctx, cache)
+    render_display_item_direct(ctx, item, cache)
 }
 
-fn render_display_item_cached<C: Canvas2D>(
-    canvas: &mut C,
+fn render_display_item_cached(
+    ctx: &mut RenderCtx,
     item: &DisplayItem,
     cache_key: u64,
-    ctx: &RenderCtx<C>,
-    cache: &mut RenderCache<C>,
+    cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     #[cfg(feature = "profile")]
     let _cached_span = span!(target: "render.backend", Level::TRACE, "draw_item_cached").entered();
 
-    let semantics = item.picture_semantics();
+    if let Some(cached_range) = cache.item_ranges.get_cloned(&cache_key) {
+        if let Some(segment) = cache.segments.get_cloned(&cached_range.segment_key) {
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "item_picture",
+                result = "hit",
+                amount = 1_u64
+            );
 
-    if let Some(picture) = cache.item_pictures.borrow_mut().get_cloned(&cache_key) {
-        #[cfg(feature = "profile")]
-        event!(
-            target: "render.cache",
-            Level::TRACE,
-            kind = "cache",
-            name = "item_picture",
-            result = "hit",
-            amount = 1_u64
-        );
-        canvas.save();
-        canvas.translate(semantics.draw_translation_x, semantics.draw_translation_y);
-        canvas.draw_picture(&picture, None, None);
-        canvas.restore();
-        return Ok(());
+            let semantics = item.picture_semantics();
+            let imported = ctx.builder.import_segment(&segment);
+            let b = &mut ctx.builder;
+            b.push(DrawOp::Save);
+            b.push(DrawOp::Translate { x: semantics.draw_translation_x, y: semantics.draw_translation_y });
+            b.push(DrawOp::ReplayRange { range: imported });
+            b.push(DrawOp::Restore);
+            return Ok(());
+        }
     }
 
     #[cfg(feature = "profile")]
@@ -67,32 +70,40 @@ fn render_display_item_cached<C: Canvas2D>(
         amount = 1_u64
     );
 
-    let bounds = Rect::new(
-        0.0,
-        0.0,
-        semantics.record_bounds.width as f64,
-        semantics.record_bounds.height as f64,
-    );
-    let picture = canvas.make_picture(&bounds, |rec_canvas| {
-        rec_canvas.translate(semantics.record_translation_x, semantics.record_translation_y);
-        let _ = render_display_item_direct(rec_canvas, item, ctx, cache);
+    let semantics = item.picture_semantics();
+
+    ctx.builder.push(DrawOp::Save);
+    ctx.builder.push(DrawOp::Translate { x: semantics.record_translation_x, y: semantics.record_translation_y });
+
+    let marker = ctx.builder.begin_range();
+    render_display_item_direct(ctx, item, cache)?;
+    let range = ctx.builder.end_range(marker);
+
+    let segment = ctx.builder.snapshot_range(range);
+    let segment_key = cache_key;
+
+    cache.segments.insert(segment_key, segment);
+    cache.item_ranges.insert(cache_key, CachedDrawRange {
+        segment_range: range,
+        fingerprint: cache_key,
+        bounds: semantics.record_bounds,
+        segment_key,
     });
 
-    let report = cache.item_pictures.borrow_mut().insert(cache_key, picture.clone());
-    record_cache_pressure("item_picture", &report);
+    ctx.builder.push(DrawOp::Restore);
 
-    canvas.save();
-    canvas.translate(semantics.draw_translation_x, semantics.draw_translation_y);
-    canvas.draw_picture(&picture, None, None);
-    canvas.restore();
+    ctx.builder.push(DrawOp::Save);
+    ctx.builder.push(DrawOp::Translate { x: semantics.draw_translation_x, y: semantics.draw_translation_y });
+    ctx.builder.push(DrawOp::ReplayRange { range });
+    ctx.builder.push(DrawOp::Restore);
+
     Ok(())
 }
 
-fn render_display_item_direct<C: Canvas2D>(
-    canvas: &mut C,
+fn render_display_item_direct(
+    ctx: &mut RenderCtx,
     item: &DisplayItem,
-    ctx: &RenderCtx<C>,
-    cache: &mut RenderCache<C>,
+    _cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     match item {
         DisplayItem::Rect(rect) => {
@@ -100,7 +111,7 @@ fn render_display_item_direct<C: Canvas2D>(
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_rect").entered();
             #[cfg(feature = "profile")]
             event!(target: "render.draw", Level::TRACE, kind = "draw", name = "rect", result = "count", amount = 1_u64);
-            super::rect::render_rect_with_shadows(canvas, rect, ctx, cache)
+            super::rect::render_rect_with_shadows(ctx, rect)
         }
         DisplayItem::Timeline(timeline) => {
             #[cfg(feature = "profile")]
@@ -112,24 +123,24 @@ fn render_display_item_direct<C: Canvas2D>(
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_text").entered();
             #[cfg(feature = "profile")]
             event!(target: "render.draw", Level::TRACE, kind = "draw", name = "text", result = "count", amount = 1_u64);
-            super::text::render_text_with_shadows(canvas, text, ctx, cache)
+            super::text::render_text_with_shadows(ctx, text)
         }
         DisplayItem::Bitmap(bitmap) => {
             #[cfg(feature = "profile")]
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_bitmap").entered();
-            super::bitmap::render_bitmap_with_shadows(canvas, bitmap, ctx, cache)
+            super::bitmap::render_bitmap_with_shadows(ctx, bitmap)
         }
         DisplayItem::DrawScript(script) => {
             #[cfg(feature = "profile")]
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_script").entered();
             #[cfg(feature = "profile")]
             event!(target: "render.draw", Level::TRACE, kind = "draw", name = "script", result = "count", amount = 1_u64);
-            super::draw_script::render_draw_script(canvas, script, ctx, cache)
+            super::draw_script::render_draw_script(ctx, script)
         }
         DisplayItem::SvgPath(svg) => {
             #[cfg(feature = "profile")]
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_svg").entered();
-            super::svg_path::render_svg_path(canvas, svg, ctx, cache)
+            super::svg_path::render_svg_path(ctx, svg)
         }
     }
 }

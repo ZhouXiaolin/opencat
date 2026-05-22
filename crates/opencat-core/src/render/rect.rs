@@ -2,15 +2,37 @@ use crate::canvas::paint::{
     BlendMode, BlurStyle, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec, PaintStyle,
     PathEffectSpec, StrokeCap, StrokeSpec,
 };
-use crate::canvas::{Canvas2D, ClipOp, Rect, RRect};
+use crate::canvas::Rect;
 use crate::display::list::{DisplayRect, RectDisplayItem};
+use crate::draw::builder::DrawOpBuilder;
+use crate::draw::op::{DRRectSpec, DrawOp, Radii4, Rect4};
+use crate::draw::types::PaintId;
+use crate::draw::types::PathOp;
 use crate::style::{BorderRadius, BorderStyle, BoxShadow, ColorToken, DropShadow, InsetShadow};
 
 use super::paint_conv::{
     background_fill_to_paint_spec, box_shadow_to_mask_filter, color_token_to_rgba,
     drop_shadow_to_image_filter, inset_shadow_to_mask_filter,
 };
-use super::{RenderCache, RenderCtx, RenderError};
+use super::{RenderCtx, RenderError};
+
+fn rect_to_rect4(r: Rect) -> Rect4 {
+    Rect4 {
+        x: r.x0 as f32,
+        y: r.y0 as f32,
+        width: r.width() as f32,
+        height: r.height() as f32,
+    }
+}
+
+fn radii_to_radii4(r: [f32; 4]) -> Radii4 {
+    Radii4 {
+        top_left: r[0],
+        top_right: r[1],
+        bottom_right: r[2],
+        bottom_left: r[3],
+    }
+}
 
 pub fn kurbo_rect(r: DisplayRect) -> Rect {
     Rect::new(r.x as f64, r.y as f64, (r.x + r.width) as f64, (r.y + r.height) as f64)
@@ -18,12 +40,6 @@ pub fn kurbo_rect(r: DisplayRect) -> Rect {
 
 fn kurbo_rect_xywh(x: f32, y: f32, width: f32, height: f32) -> Rect {
     Rect::new(x as f64, y as f64, (x + width) as f64, (y + height) as f64)
-}
-
-fn kurbo_rrect(rect: &Rect, radius: &BorderRadius) -> RRect {
-    let radii = effective_corner_radius(rect, radius);
-    let r: (f64, f64, f64, f64) = (radii[0] as f64, radii[1] as f64, radii[2] as f64, radii[3] as f64);
-    RRect::new(rect.x0, rect.y0, rect.x1, rect.y1, r)
 }
 
 fn effective_corner_radius(rect: &Rect, radius: &BorderRadius) -> [f32; 4] {
@@ -45,12 +61,52 @@ fn spread_radius(radius: &BorderRadius, spread: f32) -> BorderRadius {
     }
 }
 
-pub fn draw_box_shadow<C: Canvas2D>(
-    canvas: &mut C,
+fn push_rrect_path(builder: &mut DrawOpBuilder, r: Rect4, radii: Radii4) {
+    let x = r.x;
+    let y = r.y;
+    let x1 = x + r.width;
+    let y1 = y + r.height;
+    let tl = radii.top_left;
+    let tr = radii.top_right;
+    let br = radii.bottom_right;
+    let bl = radii.bottom_left;
+
+    builder.push(DrawOp::BeginPath);
+    builder.push(DrawOp::Path(PathOp::MoveTo { x: x + tl, y: y }));
+    builder.push(DrawOp::Path(PathOp::LineTo { x: x1 - tr, y: y }));
+    if tr > 0.0 {
+        builder.push(DrawOp::Path(PathOp::QuadTo { cx: x1, cy: y, x: x1, y: y + tr }));
+    }
+    builder.push(DrawOp::Path(PathOp::LineTo { x: x1, y: y1 - br }));
+    if br > 0.0 {
+        builder.push(DrawOp::Path(PathOp::QuadTo { cx: x1, cy: y1, x: x1 - br, y: y1 }));
+    }
+    builder.push(DrawOp::Path(PathOp::LineTo { x: x + bl, y: y1 }));
+    if bl > 0.0 {
+        builder.push(DrawOp::Path(PathOp::QuadTo { cx: x, cy: y1, x: x, y: y1 - bl }));
+    }
+    builder.push(DrawOp::Path(PathOp::LineTo { x: x, y: y + tl }));
+    if tl > 0.0 {
+        builder.push(DrawOp::Path(PathOp::QuadTo { cx: x, cy: y, x: x + tl, y: y }));
+    }
+    builder.push(DrawOp::Path(PathOp::Close));
+}
+
+fn push_draw_rrect(builder: &mut DrawOpBuilder, rect: Rect, radii: [f32; 4], paint_id: PaintId) {
+    builder.push(DrawOp::RRect {
+        rect: rect_to_rect4(rect),
+        radii: radii_to_radii4(radii),
+        paint: paint_id,
+    });
+}
+
+pub fn draw_box_shadow(
+    ctx: &mut RenderCtx,
     bounds: DisplayRect,
     border_radius: &BorderRadius,
     shadow: &BoxShadow,
 ) {
+    let builder = &mut ctx.builder;
     let shadow_bounds = if shadow.spread != 0.0 {
         bounds.outset(shadow.spread, shadow.spread, shadow.spread, shadow.spread)
     } else {
@@ -72,21 +128,22 @@ pub fn draw_box_shadow<C: Canvas2D>(
         mask_filter: Some(mask_filter),
         path_effect: None,
     };
+    let paint_id = builder.intern_paint(paint);
 
     if radii.iter().any(|&r| r > 0.0) {
-        let rrect = kurbo_rrect(&rect, &sr);
-        canvas.draw_rrect(&rrect, &paint);
+        push_draw_rrect(builder, rect, radii, paint_id);
     } else {
-        canvas.draw_rect(&rect, &paint);
+        builder.push(DrawOp::Rect { rect: rect_to_rect4(rect), paint: paint_id });
     }
 }
 
-pub fn draw_inset_shadow<C: Canvas2D>(
-    canvas: &mut C,
+pub fn draw_inset_shadow(
+    ctx: &mut RenderCtx,
     bounds: DisplayRect,
     border_radius: &BorderRadius,
     shadow: &InsetShadow,
 ) {
+    let builder = &mut ctx.builder;
     let shadow_bounds = if shadow.spread != 0.0 {
         bounds.outset(shadow.spread, shadow.spread, shadow.spread, shadow.spread)
     } else {
@@ -108,38 +165,37 @@ pub fn draw_inset_shadow<C: Canvas2D>(
         mask_filter: Some(mask_filter),
         path_effect: None,
     };
+    let paint_id = builder.intern_paint(paint);
 
-    canvas.save();
-    clip_bounds(canvas, bounds, border_radius);
+    builder.push(DrawOp::Save);
+    clip_bounds(builder, bounds, border_radius);
     if radii.iter().any(|&r| r > 0.0) {
-        let rrect = kurbo_rrect(&rect, &sr);
-        canvas.draw_rrect(&rrect, &paint);
+        push_draw_rrect(builder, rect, radii, paint_id);
     } else {
-        canvas.draw_rect(&rect, &paint);
+        builder.push(DrawOp::Rect { rect: rect_to_rect4(rect), paint: paint_id });
     }
-    canvas.restore();
+    builder.push(DrawOp::Restore);
 }
 
-pub fn clip_bounds<C: Canvas2D>(
-    canvas: &mut C,
-    bounds: DisplayRect,
-    border_radius: &BorderRadius,
-) {
+pub fn clip_bounds(builder: &mut DrawOpBuilder, bounds: DisplayRect, border_radius: &BorderRadius) {
     let rect = kurbo_rect(bounds);
     let radii = effective_corner_radius(&rect, border_radius);
     if radii.iter().any(|&r| r > 0.0) {
-        let rrect = kurbo_rrect(&rect, border_radius);
-        canvas.clip_rrect(&rrect, ClipOp::Intersect, true);
+        push_rrect_path(builder, rect_to_rect4(rect), radii_to_radii4(radii));
+        builder.push(DrawOp::ClipPath { anti_alias: true });
     } else {
-        canvas.clip_rect(&rect, ClipOp::Intersect, true);
+        let r4 = rect_to_rect4(rect);
+        builder.push(DrawOp::BeginPath);
+        builder.push(DrawOp::Path(PathOp::AddRect { x: r4.x, y: r4.y, width: r4.width, height: r4.height }));
+        builder.push(DrawOp::ClipPath { anti_alias: true });
     }
 }
 
-pub fn draw_item_drop_shadow<C: Canvas2D>(
-    canvas: &mut C,
+pub fn draw_item_drop_shadow(
+    ctx: &mut RenderCtx,
     bounds: DisplayRect,
     shadow: &DropShadow,
-    draw: impl FnOnce(&mut C) -> Result<(), RenderError>,
+    draw: impl FnOnce(&mut RenderCtx) -> Result<(), RenderError>,
 ) -> Result<(), RenderError> {
     let (left, top, right, bottom) = shadow.outsets();
     let shadow_bounds = kurbo_rect(bounds.outset(left, top, right, bottom));
@@ -156,10 +212,16 @@ pub fn draw_item_drop_shadow<C: Canvas2D>(
         mask_filter: None,
         path_effect: None,
     };
+    let paint_id = ctx.builder.intern_paint(paint);
+    ctx.builder.push(DrawOp::SaveLayer {
+        bounds: Some(rect_to_rect4(shadow_bounds)),
+        paint: Some(paint_id),
+        alpha: 1.0,
+    });
 
-    canvas.save_layer_with(Some(shadow_bounds), &paint);
-    let result = draw(canvas);
-    canvas.restore();
+    let result = draw(ctx);
+
+    ctx.builder.push(DrawOp::Restore);
     result
 }
 
@@ -216,8 +278,8 @@ fn build_stroke_paint(color: &[f32; 4], width: f32, border_style: &BorderStyle, 
     p
 }
 
-pub fn draw_node_border<C: Canvas2D>(
-    canvas: &mut C,
+pub fn draw_node_border(
+    builder: &mut DrawOpBuilder,
     rect: &Rect,
     radius: &BorderRadius,
     border_width: Option<f32>,
@@ -244,16 +306,16 @@ pub fn draw_node_border<C: Canvas2D>(
 
     match stroke_style {
         BorderStyle::Solid => {
-            draw_border_fill_ring(canvas, rect, radius, top_w, right_w, bottom_w, left_w, &rgba, blur_sigma);
+            draw_border_fill_ring(builder, rect, radius, top_w, right_w, bottom_w, left_w, &rgba, blur_sigma);
         }
         BorderStyle::Dashed | BorderStyle::Dotted => {
-            draw_per_side_borders(canvas, rect, radius, top_w, right_w, bottom_w, left_w, &rgba, &stroke_style, blur_sigma);
+            draw_per_side_borders(builder, rect, radius, top_w, right_w, bottom_w, left_w, &rgba, &stroke_style, blur_sigma);
         }
     }
 }
 
-fn draw_border_fill_ring<C: Canvas2D>(
-    canvas: &mut C,
+fn draw_border_fill_ring(
+    builder: &mut DrawOpBuilder,
     outer_rect: &Rect,
     outer_radius: &BorderRadius,
     top_w: f32,
@@ -281,10 +343,17 @@ fn draw_border_fill_ring<C: Canvas2D>(
     };
     apply_blur_effect(&mut paint, blur_sigma);
 
-    let outer_rrect = kurbo_rrect(outer_rect, outer_radius);
+    let outer_rrect_r4 = rect_to_rect4(*outer_rect);
+    let outer_radii = effective_corner_radius(outer_rect, outer_radius);
+    let outer_rrect_radii = radii_to_radii4(outer_radii);
 
     if inner_right <= inner_left || inner_bottom <= inner_top {
-        canvas.draw_rrect(&outer_rrect, &paint);
+        let paint_id = builder.intern_paint(paint);
+        builder.push(DrawOp::RRect {
+            rect: outer_rrect_r4,
+            radii: outer_rrect_radii,
+            paint: paint_id,
+        });
         return;
     }
 
@@ -295,13 +364,24 @@ fn draw_border_fill_ring<C: Canvas2D>(
         bottom_right: (outer_radius.bottom_right - bottom_w.max(right_w)).max(0.0),
         bottom_left: (outer_radius.bottom_left - bottom_w.max(left_w)).max(0.0),
     };
-    let inner_rrect = kurbo_rrect(&inner_rect, &inner_radius);
+    let inner_radii = effective_corner_radius(&inner_rect, &inner_radius);
 
-    canvas.draw_drrect(&outer_rrect, &inner_rrect, &paint);
+    let paint_id = builder.intern_paint(paint);
+    builder.push(DrawOp::DRRect {
+        outer: DRRectSpec {
+            rect: outer_rrect_r4,
+            radii: outer_rrect_radii,
+        },
+        inner: DRRectSpec {
+            rect: rect_to_rect4(inner_rect),
+            radii: radii_to_radii4(inner_radii),
+        },
+        paint: paint_id,
+    });
 }
 
-fn draw_per_side_borders<C: Canvas2D>(
-    canvas: &mut C,
+fn draw_per_side_borders(
+    builder: &mut DrawOpBuilder,
     rect: &Rect,
     radius: &BorderRadius,
     top_w: f32,
@@ -330,7 +410,8 @@ fn draw_per_side_borders<C: Canvas2D>(
             else if right_w > 0.0 && top_w == right_w { right - right_w } else { right };
         if x1 > x0 {
             let paint = build_stroke_paint(color, top_w, border_style, blur_sigma);
-            canvas.draw_line(x0, y, x1, y, &paint);
+            let pid = builder.intern_paint(paint);
+            builder.push(DrawOp::Line { x0, y0: y, x1, y1: y, paint: pid });
         }
     }
 
@@ -342,7 +423,8 @@ fn draw_per_side_borders<C: Canvas2D>(
             else if bottom_w > 0.0 && right_w == bottom_w { bottom - bottom_w } else { bottom };
         if y1 > y0 {
             let paint = build_stroke_paint(color, right_w, border_style, blur_sigma);
-            canvas.draw_line(x, y0, x, y1, &paint);
+            let pid = builder.intern_paint(paint);
+            builder.push(DrawOp::Line { x0: x, y0, x1: x, y1, paint: pid });
         }
     }
 
@@ -354,7 +436,8 @@ fn draw_per_side_borders<C: Canvas2D>(
             else if right_w > 0.0 && bottom_w == right_w { right - right_w } else { right };
         if x1 > x0 {
             let paint = build_stroke_paint(color, bottom_w, border_style, blur_sigma);
-            canvas.draw_line(x0, y, x1, y, &paint);
+            let pid = builder.intern_paint(paint);
+            builder.push(DrawOp::Line { x0, y0: y, x1, y1: y, paint: pid });
         }
     }
 
@@ -366,37 +449,43 @@ fn draw_per_side_borders<C: Canvas2D>(
             else if bottom_w > 0.0 && left_w == bottom_w { bottom - bottom_w } else { bottom };
         if y1 > y0 {
             let paint = build_stroke_paint(color, left_w, border_style, blur_sigma);
-            canvas.draw_line(x, y0, x, y1, &paint);
+            let pid = builder.intern_paint(paint);
+            builder.push(DrawOp::Line { x0: x, y0, x1: x, y1, paint: pid });
         }
     }
 
-    let draw_corner_arc = |canvas: &mut C, cx: f32, cy: f32, corner_r: f32, width: f32, start_deg: f32| {
+    let draw_corner_arc = |builder: &mut DrawOpBuilder, cx: f32, cy: f32, corner_r: f32, width: f32, start_deg: f32| {
         let arc_r = (corner_r - width / 2.0).max(0.0);
         if arc_r <= 0.0 { return; }
         let oval = kurbo_rect_xywh(cx - arc_r, cy - arc_r, 2.0 * arc_r, 2.0 * arc_r);
         let paint = build_stroke_paint(color, width, border_style, blur_sigma);
-        canvas.draw_arc(&oval, start_deg, 90.0, false, &paint);
+        let pid = builder.intern_paint(paint);
+        builder.push(DrawOp::Arc {
+            rect: rect_to_rect4(oval),
+            start: start_deg,
+            sweep: 90.0,
+            use_center: false,
+            paint: pid,
+        });
     };
 
     if r_tl > 0.0 && top_w > 0.0 && top_w == left_w {
-        draw_corner_arc(canvas, left + r_tl, top + r_tl, r_tl, top_w, 180.0);
+        draw_corner_arc(builder, left + r_tl, top + r_tl, r_tl, top_w, 180.0);
     }
     if r_tr > 0.0 && top_w > 0.0 && top_w == right_w {
-        draw_corner_arc(canvas, right - r_tr, top + r_tr, r_tr, top_w, 270.0);
+        draw_corner_arc(builder, right - r_tr, top + r_tr, r_tr, top_w, 270.0);
     }
     if r_br > 0.0 && bottom_w > 0.0 && bottom_w == right_w {
-        draw_corner_arc(canvas, right - r_br, bottom - r_br, r_br, bottom_w, 0.0);
+        draw_corner_arc(builder, right - r_br, bottom - r_br, r_br, bottom_w, 0.0);
     }
     if r_bl > 0.0 && bottom_w > 0.0 && bottom_w == left_w {
-        draw_corner_arc(canvas, left + r_bl, bottom - r_bl, r_bl, bottom_w, 90.0);
+        draw_corner_arc(builder, left + r_bl, bottom - r_bl, r_bl, bottom_w, 90.0);
     }
 }
 
-pub fn render_rect<C: Canvas2D>(
-    canvas: &mut C,
+pub fn render_rect(
+    ctx: &mut RenderCtx,
     item: &RectDisplayItem,
-    _ctx: &RenderCtx<C>,
-    _cache: &mut RenderCache<C>,
 ) -> Result<(), RenderError> {
     let style = &item.paint;
     let has_any_border = style.border_width.is_some()
@@ -413,8 +502,9 @@ pub fn render_rect<C: Canvas2D>(
     let radii = effective_corner_radius(&rect, &style.border_radius);
     let has_radius = radii.iter().any(|&r| r > 0.0);
 
-    canvas.save();
-    clip_bounds(canvas, bounds, &style.border_radius);
+    let builder = &mut ctx.builder;
+    builder.push(DrawOp::Save);
+    clip_bounds(builder, bounds, &style.border_radius);
 
     if let Some(sigma) = style.backdrop_blur_sigma {
         if sigma > 0.0 {
@@ -433,58 +523,91 @@ pub fn render_rect<C: Canvas2D>(
                 mask_filter: None,
                 path_effect: None,
             };
-            canvas.save_layer_with(Some(rect), &blur_paint);
+            let pid = builder.intern_paint(blur_paint);
+            builder.push(DrawOp::SaveLayer {
+                bounds: Some(rect_to_rect4(rect)),
+                paint: Some(pid),
+                alpha: 1.0,
+            });
         }
     }
 
     if let Some(ref background) = style.background {
         let paint_spec = background_fill_to_paint_spec(background);
+        let pid = builder.intern_paint(paint_spec);
         if has_radius {
-            let rrect = kurbo_rrect(&rect, &style.border_radius);
-            canvas.draw_rrect(&rrect, &paint_spec);
+            push_draw_rrect(builder, rect, radii, pid);
         } else {
-            canvas.draw_rect(&rect, &paint_spec);
+            builder.push(DrawOp::Rect { rect: rect_to_rect4(rect), paint: pid });
         }
     }
 
     if let Some(ref shadow) = style.inset_shadow {
-        draw_inset_shadow(canvas, bounds, &style.border_radius, shadow);
+        let shadow_bounds = if shadow.spread != 0.0 {
+            bounds.outset(shadow.spread, shadow.spread, shadow.spread, shadow.spread)
+        } else {
+            bounds
+        };
+        let shadow_rect = kurbo_rect(shadow_bounds.translate(shadow.offset_x, shadow.offset_y));
+        let sr = spread_radius(&style.border_radius, shadow.spread);
+        let shadow_radii = effective_corner_radius(&shadow_rect, &sr);
+
+        let (mask_filter, color) = inset_shadow_to_mask_filter(shadow);
+        let paint = PaintSpec {
+            fill: FillSpec::Solid(color),
+            style: PaintStyle::Fill,
+            stroke: None,
+            anti_alias: true,
+            blend_mode: BlendMode::SrcOver,
+            image_filter: None,
+            color_filter: None,
+            mask_filter: Some(mask_filter),
+            path_effect: None,
+        };
+        let pid = builder.intern_paint(paint);
+
+        builder.push(DrawOp::Save);
+        clip_bounds(builder, bounds, &style.border_radius);
+        if shadow_radii.iter().any(|&r| r > 0.0) {
+            push_draw_rrect(builder, shadow_rect, shadow_radii, pid);
+        } else {
+            builder.push(DrawOp::Rect { rect: rect_to_rect4(shadow_rect), paint: pid });
+        }
+        builder.push(DrawOp::Restore);
     }
 
     draw_node_border(
-        canvas, &rect, &style.border_radius,
+        builder, &rect, &style.border_radius,
         style.border_width, style.border_top_width, style.border_right_width,
         style.border_bottom_width, style.border_left_width,
         style.border_color, style.border_style, style.blur_sigma,
     );
 
     if style.backdrop_blur_sigma.unwrap_or(0.0) > 0.0 {
-        canvas.restore();
+        builder.push(DrawOp::Restore);
     }
 
-    canvas.restore();
+    builder.push(DrawOp::Restore);
     Ok(())
 }
 
-pub fn render_rect_with_shadows<C: Canvas2D>(
-    canvas: &mut C,
+pub fn render_rect_with_shadows(
+    ctx: &mut RenderCtx,
     item: &RectDisplayItem,
-    ctx: &RenderCtx<C>,
-    cache: &mut RenderCache<C>,
 ) -> Result<(), RenderError> {
     let style = &item.paint;
     let bounds = item.bounds;
 
     if let Some(ref shadow) = style.box_shadow {
-        draw_box_shadow(canvas, bounds, &style.border_radius, shadow);
+        draw_box_shadow(ctx, bounds, &style.border_radius, shadow);
     }
 
     if let Some(ref shadow) = style.drop_shadow {
-        draw_item_drop_shadow(canvas, bounds, shadow, |c| {
-            render_rect(c, item, ctx, cache)
+        draw_item_drop_shadow(ctx, bounds, shadow, |ctx2| {
+            render_rect(ctx2, item)
         })?;
     }
-    render_rect(canvas, item, ctx, cache)?;
+    render_rect(ctx, item)?;
 
     Ok(())
 }

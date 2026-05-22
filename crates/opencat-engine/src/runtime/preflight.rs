@@ -8,12 +8,12 @@ pub fn ensure_assets_preloaded(
     session: &mut RenderSession,
 ) -> Result<()> {
     let root_ptr = Arc::as_ptr(&composition.root) as *const () as usize;
-    if session.prepared_root_ptr == Some(root_ptr) {
+    if session.core.prepared_root_ptr == Some(root_ptr) {
         return Ok(());
     }
     session
         .platform
-        .preflight(composition, &mut session.catalog)?;
-    session.prepared_root_ptr = Some(root_ptr);
+        .preflight(composition, &mut session.core.catalog)?;
+    session.core.prepared_root_ptr = Some(root_ptr);
     Ok(())
 }

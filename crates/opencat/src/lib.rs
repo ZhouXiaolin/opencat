@@ -52,7 +52,7 @@ pub use opencat_engine::render::{
 
 // Convenience: construct a default RenderSession.
 pub fn default_render_session() -> RenderSession {
-    RenderSession::new(EnginePlatform::new())
+    RenderSession::new()
 }
 pub use opencat_engine::resource::media::{
     VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality,

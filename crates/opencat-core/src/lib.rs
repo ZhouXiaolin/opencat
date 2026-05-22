@@ -23,7 +23,6 @@ pub mod test_support;
 
 pub use self::frame_ctx::FrameCtx;
 pub use self::jsonl::{ParsedComposition, parse};
-pub use self::platform::platform::Platform;
 pub use self::platform::video::{FrameBitmap, VideoFrameProvider};
 pub use self::resource::asset_id::AssetId;
 pub use self::resource::catalog::{ResourceCatalog, VideoInfoMeta};

@@ -1,11 +1,10 @@
-//! Engine-side Platform impl: aggregates quickjs script runtime, ffmpeg/skia
-//! media context, asset path table, audio caches.
+//! Engine-side runtime state: quickjs script runtime, ffmpeg/skia media
+//! context, asset path table, and audio caches.
 
 pub mod audio_runtime;
 
 use std::path::PathBuf;
 
-use opencat_core::Platform;
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::preload::preload_all;
 use opencat_core::scene::node::{Node, NodeKind};
@@ -21,7 +20,7 @@ use crate::script::ScriptRuntimeCache;
 
 pub use audio_runtime::AudioRuntime;
 
-/// Engine platform implementation.
+/// Engine runtime services owned by the engine render session.
 pub struct EnginePlatform {
     pub script: ScriptRuntimeCache,
     pub video: MediaContext,
@@ -31,8 +30,6 @@ pub struct EnginePlatform {
     pub audio_decode_cache: DecodedAudioCache,
     /// Audio interval cache for composition-level audio scheduling.
     pub audio_interval_cache: AudioIntervalCache,
-    /// Last preflight root pointer to skip duplicate preflight runs.
-    pub prepared_root_ptr: Option<usize>,
 }
 
 impl EnginePlatform {
@@ -44,7 +41,6 @@ impl EnginePlatform {
             audio: AudioRuntime::new(),
             audio_decode_cache: DecodedAudioCache::default(),
             audio_interval_cache: AudioIntervalCache::default(),
-            prepared_root_ptr: None,
         }
     }
 
@@ -93,34 +89,6 @@ impl EnginePlatform {
         }
 
         Ok(())
-    }
-}
-
-impl Platform for EnginePlatform {
-    type Script = ScriptRuntimeCache;
-    type Resource = crate::resource::EngineResourcePlatform;
-    type Media = crate::media::EngineMedia;
-    type Draw = crate::executor::EngineDrawExecutor;
-    type Video = MediaContext;
-
-    fn script(&mut self) -> &mut Self::Script {
-        &mut self.script
-    }
-
-    fn resources(&mut self) -> &mut Self::Resource {
-        unimplemented!("resources not wired")
-    }
-
-    fn media(&mut self) -> &mut Self::Media {
-        unimplemented!("media not wired")
-    }
-
-    fn draw(&mut self) -> &mut Self::Draw {
-        unimplemented!("draw not wired")
-    }
-
-    fn video_source(&mut self) -> &mut Self::Video {
-        &mut self.video
     }
 }
 
@@ -198,12 +166,10 @@ fn register_canvas_aliases_from_node(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use opencat_core::Platform;
 
     #[test]
-    fn engine_platform_constructs() {
-        let mut platform = EnginePlatform::new();
-        let _script = platform.script();
-        let _video = platform.video_source();
+    fn engine_platform_constructs_runtime_services() {
+        let platform = EnginePlatform::new();
+        assert!(platform.asset_paths.is_empty());
     }
 }

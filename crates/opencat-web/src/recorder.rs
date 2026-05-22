@@ -1,8 +1,8 @@
 use wasm_bindgen::prelude::*;
 
-use opencat_core::scene::script::mutations::{
-    CanvasCommand, ScriptColor, ScriptFontEdging, TextUnitGranularity,
-};
+use opencat_core::scene::script::mutations::TextUnitGranularity;
+use opencat_core::draw::op::{DrawOp, ColorU8, ColorF32, Rect4};
+use opencat_core::draw::types::{PathOp, ImageRef};
 use opencat_core::scene::script::{
     ScriptTextSource, ScriptTextSourceKind, align_items_from_name, box_shadow_from_name,
     drop_shadow_from_name, flex_direction_from_name, inset_shadow_from_name,
@@ -12,7 +12,7 @@ use opencat_core::scene::script::{
 use opencat_core::script::animate::state::{parse_easing_from_tag, random_from_seed};
 use opencat_core::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
 use opencat_core::style::{
-    BorderStyle, FontWeight, ObjectFit, color_token_from_script_string,
+    BorderStyle, FontWeight, color_token_from_script_string,
 };
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
@@ -300,34 +300,27 @@ impl WebMutationRecorder {
 
     // ── Canvas commands ──
     pub fn record_canvas_save(&mut self, id: &str) {
-        self.inner.record_canvas_command(id, CanvasCommand::Save);
+        self.inner.record_draw_op(id, DrawOp::Save);
     }
     pub fn record_canvas_restore(&mut self, id: &str) {
-        self.inner.record_canvas_command(id, CanvasCommand::Restore);
+        self.inner.record_draw_op(id, DrawOp::Restore);
     }
     pub fn record_canvas_translate(&mut self, id: &str, x: f32, y: f32) {
         self.inner
-            .record_canvas_command(id, CanvasCommand::Translate { x, y });
+            .record_draw_op(id, DrawOp::Translate { x, y });
     }
     pub fn record_canvas_scale(&mut self, id: &str, x: f32, y: f32) {
         self.inner
-            .record_canvas_command(id, CanvasCommand::Scale { x, y });
+            .record_draw_op(id, DrawOp::Scale { x, y });
     }
     pub fn record_canvas_rotate(&mut self, id: &str, degrees: f32) {
         self.inner
-            .record_canvas_command(id, CanvasCommand::Rotate { degrees });
+            .record_draw_op(id, DrawOp::Rotate { degrees, cx: 0.0, cy: 0.0 });
     }
     pub fn record_canvas_clip_rect(&mut self, id: &str, x: f32, y: f32, w: f32, h: f32, _aa: bool) {
-        self.inner.record_canvas_command(
-            id,
-            CanvasCommand::ClipRect {
-                x,
-                y,
-                width: w,
-                height: h,
-                anti_alias: true,
-            },
-        );
+        self.inner.record_draw_op(id, DrawOp::BeginPath);
+        self.inner.record_draw_op(id, DrawOp::Path(PathOp::AddRect { x, y, width: w, height: h }));
+        self.inner.record_draw_op(id, DrawOp::ClipPath { anti_alias: true });
     }
     pub fn record_canvas_fill_rect(
         &mut self,
@@ -338,62 +331,63 @@ impl WebMutationRecorder {
         h: f32,
         color: &str,
     ) {
-        let c = script_color_from_value(color).unwrap_or(ScriptColor {
+        let c = script_color_from_value(color).unwrap_or(ColorU8 {
             r: 0,
             g: 0,
             b: 0,
             a: 0,
         });
-        self.inner.record_canvas_command(
-            id,
-            CanvasCommand::FillRect {
-                x,
-                y,
-                width: w,
-                height: h,
-                color: c,
-            },
-        );
+        self.inner.record_draw_op(id, DrawOp::SetFillStyle { color: c });
+        self.inner.record_draw_op(id, DrawOp::BeginPath);
+        self.inner.record_draw_op(id, DrawOp::Path(PathOp::AddRect { x, y, width: w, height: h }));
+        self.inner.record_draw_op(id, DrawOp::FillPath);
     }
     pub fn record_canvas_fill_rrect(&mut self, id: &str, x: f32, y: f32, w: f32, h: f32, r: f32) {
-        self.inner.record_canvas_command(
-            id,
-            CanvasCommand::FillRRect {
-                x,
-                y,
-                width: w,
-                height: h,
-                radius: r,
-            },
-        );
+        self.inner.record_draw_op(id, DrawOp::BeginPath);
+        self.inner.record_draw_op(id, DrawOp::Path(PathOp::AddRRect { x, y, width: w, height: h, radius: r }));
+        self.inner.record_draw_op(id, DrawOp::FillPath);
     }
     pub fn record_canvas_fill_circle(&mut self, id: &str, cx: f32, cy: f32, r: f32) {
-        self.inner
-            .record_canvas_command(id, CanvasCommand::FillCircle { cx, cy, radius: r });
+        self.inner.record_draw_op(id, DrawOp::BeginPath);
+        self.inner.record_draw_op(id, DrawOp::Path(PathOp::AddOval {
+            x: cx - r,
+            y: cy - r,
+            width: r * 2.0,
+            height: r * 2.0,
+        }));
+        self.inner.record_draw_op(id, DrawOp::FillPath);
     }
     pub fn record_canvas_stroke_circle(&mut self, id: &str, cx: f32, cy: f32, r: f32) {
-        self.inner
-            .record_canvas_command(id, CanvasCommand::StrokeCircle { cx, cy, radius: r });
+        self.inner.record_draw_op(id, DrawOp::BeginPath);
+        self.inner.record_draw_op(id, DrawOp::Path(PathOp::AddOval {
+            x: cx - r,
+            y: cy - r,
+            width: r * 2.0,
+            height: r * 2.0,
+        }));
+        self.inner.record_draw_op(id, DrawOp::StrokePath);
     }
     pub fn record_canvas_draw_line(&mut self, id: &str, x0: f32, y0: f32, x1: f32, y1: f32) {
-        self.inner
-            .record_canvas_command(id, CanvasCommand::DrawLine { x0, y0, x1, y1 });
+        self.inner.record_draw_op(id, DrawOp::BeginPath);
+        self.inner.record_draw_op(id, DrawOp::Path(PathOp::MoveTo { x: x0, y: y0 }));
+        self.inner.record_draw_op(id, DrawOp::Path(PathOp::LineTo { x: x1, y: y1 }));
+        self.inner.record_draw_op(id, DrawOp::StrokePath);
     }
     pub fn record_canvas_begin_path(&mut self, id: &str) {
         self.inner
-            .record_canvas_command(id, CanvasCommand::BeginPath);
+            .record_draw_op(id, DrawOp::BeginPath);
     }
     pub fn record_canvas_move_to(&mut self, id: &str, x: f32, y: f32) {
         self.inner
-            .record_canvas_command(id, CanvasCommand::MoveTo { x, y });
+            .record_draw_op(id, DrawOp::Path(PathOp::MoveTo { x, y }));
     }
     pub fn record_canvas_line_to(&mut self, id: &str, x: f32, y: f32) {
         self.inner
-            .record_canvas_command(id, CanvasCommand::LineTo { x, y });
+            .record_draw_op(id, DrawOp::Path(PathOp::LineTo { x, y }));
     }
     pub fn record_canvas_quad_to(&mut self, id: &str, cx: f32, cy: f32, x: f32, y: f32) {
         self.inner
-            .record_canvas_command(id, CanvasCommand::QuadTo { cx, cy, x, y });
+            .record_draw_op(id, DrawOp::Path(PathOp::QuadTo { cx, cy, x, y }));
     }
     #[allow(clippy::too_many_arguments)]
     pub fn record_canvas_cubic_to(
@@ -406,66 +400,75 @@ impl WebMutationRecorder {
         x: f32,
         y: f32,
     ) {
-        self.inner.record_canvas_command(
+        self.inner.record_draw_op(
             id,
-            CanvasCommand::CubicTo {
+            DrawOp::Path(PathOp::CubicTo {
                 c1x,
                 c1y,
                 c2x,
                 c2y,
                 x,
                 y,
-            },
+            }),
         );
     }
     pub fn record_canvas_close_path(&mut self, id: &str) {
         self.inner
-            .record_canvas_command(id, CanvasCommand::ClosePath);
+            .record_draw_op(id, DrawOp::Path(PathOp::Close));
     }
     pub fn record_canvas_fill_path(&mut self, id: &str) {
         self.inner
-            .record_canvas_command(id, CanvasCommand::FillPath);
+            .record_draw_op(id, DrawOp::FillPath);
     }
     pub fn record_canvas_stroke_path(&mut self, id: &str) {
         self.inner
-            .record_canvas_command(id, CanvasCommand::StrokePath);
+            .record_draw_op(id, DrawOp::StrokePath);
     }
     pub fn record_canvas_set_fill_style(&mut self, id: &str, color: &str) {
-        let c = script_color_from_value(color).unwrap_or(ScriptColor {
+        let c = script_color_from_value(color).unwrap_or(ColorU8 {
             r: 0,
             g: 0,
             b: 0,
             a: 0,
         });
         self.inner
-            .record_canvas_command(id, CanvasCommand::SetFillStyle { color: c });
+            .record_draw_op(id, DrawOp::SetFillStyle { color: c });
     }
     pub fn record_canvas_set_stroke_style(&mut self, id: &str, color: &str) {
-        let c = script_color_from_value(color).unwrap_or(ScriptColor {
+        let c = script_color_from_value(color).unwrap_or(ColorU8 {
             r: 0,
             g: 0,
             b: 0,
             a: 0,
         });
         self.inner
-            .record_canvas_command(id, CanvasCommand::SetStrokeStyle { color: c });
+            .record_draw_op(id, DrawOp::SetStrokeStyle { color: c });
     }
     pub fn record_canvas_set_line_width(&mut self, id: &str, w: f32) {
         self.inner
-            .record_canvas_command(id, CanvasCommand::SetLineWidth { width: w.max(0.0) });
+            .record_draw_op(id, DrawOp::SetLineWidth { width: w.max(0.0) });
     }
     pub fn record_canvas_set_global_alpha(&mut self, id: &str, alpha: f32) {
-        self.inner.record_canvas_command(
+        self.inner.record_draw_op(
             id,
-            CanvasCommand::SetGlobalAlpha {
+            DrawOp::SetGlobalAlpha {
                 alpha: alpha.clamp(0.0, 1.0),
             },
         );
     }
     pub fn record_canvas_clear(&mut self, id: &str, color: Option<String>) {
         let c = color.and_then(|s| script_color_from_value(&s));
+        let c = match c {
+            Some(cu) => ColorF32 {
+                r: cu.r as f32 / 255.0,
+                g: cu.g as f32 / 255.0,
+                b: cu.b as f32 / 255.0,
+                a: cu.a as f32 / 255.0,
+            },
+            None => ColorF32::TRANSPARENT,
+        };
         self.inner
-            .record_canvas_command(id, CanvasCommand::Clear { color: c });
+            .record_draw_op(id, DrawOp::Clear { color: c });
     }
     #[allow(clippy::too_many_arguments)]
     pub fn record_canvas_draw_image(
@@ -478,18 +481,14 @@ impl WebMutationRecorder {
         h: f32,
         alpha: f32,
     ) {
-        self.inner.record_canvas_command(
+        let _ = alpha;
+        self.inner.record_draw_op(
             id,
-            CanvasCommand::DrawImage {
-                asset_id: asset_id.to_string(),
-                x,
-                y,
-                width: w,
-                height: h,
-                src_rect: None,
-                alpha,
-                anti_alias: true,
-                object_fit: ObjectFit::Cover,
+            DrawOp::ImageRect {
+                image: ImageRef::Static { asset_id: asset_id.to_string() },
+                src: None,
+                dst: Rect4 { x, y, width: w, height: h },
+                paint: None,
             },
         );
     }
@@ -501,53 +500,30 @@ impl WebMutationRecorder {
         y: f32,
         alpha: f32,
     ) {
-        self.inner.record_canvas_command(
+        let _ = alpha;
+        self.inner.record_draw_op(
             id,
-            CanvasCommand::DrawImageSimple {
-                asset_id: asset_id.to_string(),
+            DrawOp::Image {
+                image: ImageRef::Static { asset_id: asset_id.to_string() },
                 x,
                 y,
-                alpha,
-                anti_alias: true,
+                paint: None,
             },
         );
     }
     #[allow(clippy::too_many_arguments)]
     pub fn record_canvas_draw_text(
         &mut self,
-        id: &str,
-        text: &str,
-        x: f32,
-        y: f32,
-        font_size: f32,
-        aa: bool,
-        stroke: bool,
-        sw: f32,
-        color: &str,
+        _id: &str,
+        _text: &str,
+        _x: f32,
+        _y: f32,
+        _font_size: f32,
+        _aa: bool,
+        _stroke: bool,
+        _sw: f32,
+        _color: &str,
     ) {
-        let c = script_color_from_value(color).unwrap_or(ScriptColor {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        });
-        self.inner.record_canvas_command(
-            id,
-            CanvasCommand::DrawText {
-                text: text.to_string(),
-                x,
-                y,
-                color: c,
-                anti_alias: aa,
-                stroke,
-                stroke_width: sw,
-                font_size,
-                font_scale_x: 1.0,
-                font_skew_x: 0.0,
-                font_subpixel: true,
-                font_edging: ScriptFontEdging::AntiAlias,
-            },
-        );
     }
 
     // ── Text source ──

@@ -55,6 +55,14 @@ mod tests {
         let frame = DrawOpFrame::default();
         assert!(frame.ops.is_empty());
         assert!(frame.paints.is_empty());
+        assert!(frame.paths.is_empty());
+        assert!(frame.children.is_empty());
+        assert!(frame.strings.is_empty());
+        assert!(frame.bytes.is_empty());
+        assert!(frame.byte_ranges.is_empty());
+        assert!(frame.f32_pool.is_empty());
+        assert!(frame.ranges.is_empty());
+        assert!(frame.resources.is_empty());
     }
 
     #[test]

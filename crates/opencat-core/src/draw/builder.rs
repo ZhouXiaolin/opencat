@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use crate::canvas::paint::PaintSpec;
-use super::op::DrawOp;
+use super::op::{DrawOp, F32Range};
 use super::frame::DrawOpFrame;
 use super::types::*;
 
@@ -90,6 +90,9 @@ impl DrawOpBuilder {
         let string_offset = self.strings.len() as u32;
         let child_offset = self.children.len() as u32;
         let resource_offset = self.resources.len() as u32;
+        let f32_pool_off = self.f32_pool.len() as u32;
+        let byte_ranges_off = self.byte_ranges.len() as u32;
+        let ops_off = self.ops.len() as u32;
 
         // Append side-table data from the segment
         self.paints.extend(segment.paints.iter().cloned());
@@ -101,7 +104,6 @@ impl DrawOpBuilder {
         self.f32_pool.extend_from_slice(&segment.f32_pool);
         self.resources.extend(segment.resources.iter().cloned());
 
-        let start = self.ops.len() as u32;
         for op in &segment.ops {
             self.ops.push(remap_op(
                 op,
@@ -110,10 +112,13 @@ impl DrawOpBuilder {
                 string_offset,
                 child_offset,
                 resource_offset,
+                f32_pool_off,
+                byte_ranges_off,
+                ops_off,
             ));
         }
         let range = DrawOpRange {
-            start_op: start,
+            start_op: ops_off,
             op_len: segment.ops.len() as u32,
         };
         self.ranges.push(range);
@@ -142,16 +147,20 @@ pub struct RangeMarker {
     start: u32,
 }
 
-/// Remap PaintId offsets when importing a cached segment.
-/// All id types that reference side tables need offset adjustment.
-#[allow(unused_variables)]
+/// Remap id offsets when importing a cached segment.
+/// Every side-table id (PaintId, PathId, etc.) and range (F32Range,
+/// DrawOpRange, ChildRange, BytesRangeId) needs its start offset shifted
+/// so it indexes into the current builder's tables instead of the segment's.
 fn remap_op(
     op: &DrawOp,
     paint_off: u32,
     path_off: u32,
-    string_off: u32,
+    _string_off: u32,
     child_off: u32,
-    resource_off: u32,
+    _resource_off: u32,
+    f32_pool_off: u32,
+    byte_ranges_off: u32,
+    ops_off: u32,
 ) -> DrawOp {
     match op {
         DrawOp::Rect { rect, paint } => DrawOp::Rect {
@@ -219,8 +228,18 @@ fn remap_op(
             paint,
         } => DrawOp::Points {
             mode: *mode,
-            points: *points,
+            points: F32Range {
+                start: points.start + f32_pool_off,
+                len: points.len,
+            },
             paint: PaintId(paint.0 + paint_off),
+        },
+        DrawOp::SetLineDash { intervals, phase } => DrawOp::SetLineDash {
+            intervals: F32Range {
+                start: intervals.start + f32_pool_off,
+                len: intervals.len,
+            },
+            phase: *phase,
         },
         DrawOp::DrawPath { path, paint } => DrawOp::DrawPath {
             path: PathId(path.0 + path_off),
@@ -245,14 +264,19 @@ fn remap_op(
             dst,
         } => DrawOp::RuntimeEffect {
             effect: EffectId(effect.0),
-            uniforms: BytesRangeId(uniforms.0 + resource_off),
+            uniforms: BytesRangeId(uniforms.0 + byte_ranges_off),
             children: ChildRange {
                 start: children.start + child_off,
                 len: children.len,
             },
             dst: *dst,
         },
-        DrawOp::ReplayRange { range } => DrawOp::ReplayRange { range: *range },
+        DrawOp::ReplayRange { range } => DrawOp::ReplayRange {
+            range: DrawOpRange {
+                start_op: range.start_op + ops_off,
+                op_len: range.op_len,
+            },
+        },
         DrawOp::Image {
             image,
             x,

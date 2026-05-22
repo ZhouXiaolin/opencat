@@ -1,7 +1,7 @@
 use opencat_core::draw::op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
 use opencat_core::draw::op::{DRRectSpec, Radii4};
 use opencat_core::draw::frame::DrawOpFrame;
-use opencat_core::draw::types::{PaintId, PathOp, RuntimeEffectChildRef};
+use opencat_core::draw::types::{PathOp, RuntimeEffectChildRef};
 use skia_safe::{Canvas, Paint, PathBuilder, Point, Rect, RRect, Vector};
 use opencat_core::platform::draw::DrawError;
 use super::paint::paint_from_spec;

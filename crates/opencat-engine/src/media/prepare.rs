@@ -14,7 +14,7 @@ pub fn prepare_frame(
     use opencat_core::resource::AssetPathBlobStore;
     use opencat_core::resource::asset_id::AssetId;
     use opencat_core::resource::blob_store::BlobStore;
-    use skia_safe::{Data, Image, AlphaType, ColorType, ImageInfo};
+    use skia_safe::{images, Image, Data, AlphaType, ColorType, ImageInfo};
 
     let blob_store = AssetPathBlobStore::new(asset_paths);
     let mut images = Vec::new();
@@ -43,7 +43,7 @@ pub fn prepare_frame(
                             AlphaType::Unpremul,
                             None,
                         );
-                        if let Some(sk_image) = Image::from_raster_data(
+                        if let Some(sk_image) = images::raster_from_data(
                             &info,
                             Data::new_copy(&frame.data),
                             frame.width as usize * 4,

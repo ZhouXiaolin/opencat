@@ -19,7 +19,7 @@ pub fn replay_frame(
     draw: &DrawOpFrame,
     media: &EnginePreparedFrameMedia,
 ) -> Result<opencat_core::platform::draw::DrawStats, opencat_core::platform::draw::DrawError> {
-    let mut stats = opencat_core::platform::draw::DrawStats {
+    let stats = opencat_core::platform::draw::DrawStats {
         op_count: draw.ops.len() as u32,
         cache_hits: 0,
     };

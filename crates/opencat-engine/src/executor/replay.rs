@@ -96,12 +96,12 @@ fn replay_op(
         }
 
         DrawOp::SetFillStyle { color } => {
-            let c = skia_safe::Color::from_argb(255, color.r, color.g, color.b);
+            let c = skia_safe::Color::from_argb(color.a, color.r, color.g, color.b);
             exec.current_fill_paint.set_color(c);
             Ok(())
         }
         DrawOp::SetStrokeStyle { color } => {
-            let c = skia_safe::Color::from_argb(255, color.r, color.g, color.b);
+            let c = skia_safe::Color::from_argb(color.a, color.r, color.g, color.b);
             exec.current_stroke_paint.set_color(c);
             Ok(())
         }

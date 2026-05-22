@@ -9,16 +9,18 @@ use super::types::{
 // ---------------------------------------------------------------------------
 
 /// Line cap style for stroke operations.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LineCap {
+    #[default]
     Butt,
     Round,
     Square,
 }
 
 /// Line join style for stroke operations.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LineJoin {
+    #[default]
     Miter,
     Round,
     Bevel,

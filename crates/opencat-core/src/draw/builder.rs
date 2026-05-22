@@ -199,6 +199,76 @@ impl DrawOpBuilder {
         range
     }
 
+    /// Capture a DrawOpRange as a CachedDrawSegment for cache storage.
+    /// Clones all side-table data referenced by ops in the given range.
+    pub fn snapshot_range(&self, range: DrawOpRange) -> super::cache::CachedDrawSegment {
+        use super::cache::CachedDrawSegment;
+        let start = range.start_op as usize;
+        let end = start + range.op_len as usize;
+        let ops_slice = &self.ops[start..end];
+
+        let mut paint_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        let mut path_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        let mut child_ranges: Vec<ChildRange> = Vec::new();
+        let mut resource_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        let mut effect_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+
+        collect_references(
+            ops_slice,
+            &mut paint_ids,
+            &mut path_ids,
+            &mut child_ranges,
+            &mut resource_ids,
+            &mut effect_ids,
+        );
+
+        let paints: Vec<_> = paint_ids
+            .iter()
+            .map(|&id| self.paints[id as usize].clone())
+            .collect();
+
+        let paths: Vec<_> = path_ids
+            .iter()
+            .map(|&id| self.paths[id as usize].clone())
+            .collect();
+
+        let mut children = Vec::new();
+        let mut flat_children: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        for cr in &child_ranges {
+            for i in cr.start..cr.start + cr.len {
+                flat_children.insert(i);
+            }
+        }
+        for idx in flat_children {
+            if (idx as usize) < self.children.len() {
+                children.push(self.children[idx as usize].clone());
+            }
+        }
+
+        let resources: Vec<_> = resource_ids
+            .iter()
+            .map(|&id| self.resources[id as usize].clone())
+            .collect();
+
+        let effects: Vec<_> = effect_ids
+            .iter()
+            .map(|&id| self.effects[id as usize].clone())
+            .collect();
+
+        CachedDrawSegment {
+            ops: ops_slice.to_vec(),
+            paints,
+            paths,
+            children,
+            strings: self.strings.clone(),
+            bytes: self.bytes.clone(),
+            byte_ranges: self.byte_ranges.clone(),
+            f32_pool: self.f32_pool.clone(),
+            resources,
+            effects,
+        }
+    }
+
     /// Consume the builder and produce a DrawOpFrame.
     pub fn finish(self) -> DrawOpFrame {
         DrawOpFrame {
@@ -220,6 +290,51 @@ impl DrawOpBuilder {
 /// Opaque token returned by `begin_range`.
 pub struct RangeMarker {
     start: u32,
+}
+
+fn collect_references(
+    ops: &[DrawOp],
+    paint_ids: &mut std::collections::BTreeSet<u32>,
+    path_ids: &mut std::collections::BTreeSet<u32>,
+    child_ranges: &mut Vec<ChildRange>,
+    _resource_ids: &mut std::collections::BTreeSet<u32>,
+    effect_ids: &mut std::collections::BTreeSet<u32>,
+) {
+    for op in ops {
+        match op {
+            DrawOp::Rect { paint, .. }
+            | DrawOp::RRect { paint, .. }
+            | DrawOp::DRRect { paint, .. }
+            | DrawOp::Oval { paint, .. }
+            | DrawOp::Circle { paint, .. }
+            | DrawOp::Arc { paint, .. }
+            | DrawOp::Line { paint, .. }
+            | DrawOp::Points { paint, .. }
+            | DrawOp::Paint { paint } => {
+                paint_ids.insert(paint.0);
+            }
+            DrawOp::DrawPath { path, paint } => {
+                path_ids.insert(path.0);
+                paint_ids.insert(paint.0);
+            }
+            DrawOp::Image { paint, .. } | DrawOp::ImageRect { paint, .. } => {
+                if let Some(p) = paint {
+                    paint_ids.insert(p.0);
+                }
+            }
+            DrawOp::SaveLayer { paint, .. } => {
+                if let Some(p) = paint {
+                    paint_ids.insert(p.0);
+                }
+            }
+            DrawOp::RuntimeEffect { effect, children, .. } => {
+                effect_ids.insert(effect.0);
+                child_ranges.push(*children);
+            }
+            DrawOp::ReplayRange { .. } => {}
+            _ => {}
+        }
+    }
 }
 
 /// Remap id offsets when importing a cached segment.

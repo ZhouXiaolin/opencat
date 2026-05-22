@@ -3,3 +3,4 @@ pub mod op;
 pub mod cache;
 pub mod frame;
 pub mod builder;
+pub mod encoding;

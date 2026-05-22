@@ -8,8 +8,9 @@ mod store;
 
 pub use store::{AnimateEntry, MutationStore};
 
+use crate::draw::op::DrawOp;
 use crate::scene::script::ScriptTextSource;
-use crate::scene::script::mutations::{CanvasCommand, StyleMutations, TextUnitGranularity};
+use crate::scene::script::mutations::{StyleMutations, TextUnitGranularity};
 use crate::style::{
     AlignItems, BorderStyle, BoxShadow, ColorToken, DropShadow, FlexDirection, FontWeight,
     InsetShadow, JustifyContent, ObjectFit, Position, TextAlign, Transform,
@@ -102,7 +103,7 @@ pub trait MutationRecorder {
     );
     fn record_svg_path(&mut self, id: &str, data: String);
 
-    fn record_canvas_command(&mut self, id: &str, cmd: CanvasCommand);
+    fn record_draw_op(&mut self, id: &str, cmd: DrawOp);
 
     fn reset_for_frame(&mut self, current_frame: u32);
     fn snapshot_mutations(&self) -> StyleMutations;

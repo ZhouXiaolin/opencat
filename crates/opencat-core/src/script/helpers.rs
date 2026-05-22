@@ -3,7 +3,7 @@
 
 use anyhow::anyhow;
 
-use crate::scene::script::mutations::ScriptColor;
+use crate::draw::op::ColorU8;
 use crate::scene::script::{parse_drrect_coords, parse_image_rect_coords, script_color_from_value};
 
 /// Create a binding error from an operation name and message.
@@ -12,7 +12,7 @@ pub fn script_error(op: &str, message: String) -> anyhow::Error {
 }
 
 /// Parse a color string for script bindings.
-pub fn parse_color(color: &str, op: &str) -> anyhow::Result<ScriptColor> {
+pub fn parse_color(color: &str, op: &str) -> anyhow::Result<ColorU8> {
     script_color_from_value(color)
         .ok_or_else(|| script_error(op, format!("unsupported color `{color}`")))
 }

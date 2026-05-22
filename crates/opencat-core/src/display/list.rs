@@ -1,7 +1,8 @@
 use crate::{
+    draw::op::DrawOp,
     resource::asset_id::AssetId,
     resource::types::VideoFrameTiming,
-    scene::script::{CanvasCommand, TextUnitOverrideBatch},
+    scene::script::TextUnitOverrideBatch,
     scene::transition::TransitionKind,
     style::{
         BackgroundFill, BorderRadius, BorderStyle, BoxShadow, ColorToken, ComputedTextStyle,
@@ -169,7 +170,7 @@ pub struct BitmapDisplayItem {
 #[derive(Clone, Debug)]
 pub struct DrawScriptDisplayItem {
     pub bounds: DisplayRect,
-    pub commands: Vec<CanvasCommand>,
+    pub commands: Vec<DrawOp>,
     pub drop_shadow: Option<DropShadow>,
 }
 

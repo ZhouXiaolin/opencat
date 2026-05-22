@@ -212,102 +212,139 @@ macro_rules! for_each_binding {
         // ── Node: canvas commands (53 entries) ─────────────────────────────
 
         $binding! { node $rec $id canvas_save ($id: &str) {
-            $rec . record_canvas_command($id, CanvasCommand::Save);
+            $rec . record_draw_op($id, DrawOp::Save);
         }}
         $binding! { node $rec $id canvas_restore ($id: &str) {
-            $rec . record_canvas_command($id, CanvasCommand::Restore);
+            $rec . record_draw_op($id, DrawOp::Restore);
         }}
         $binding! { node $rec $id canvas_restore_to_count ($id: &str, count: i32) {
-            $rec . record_canvas_command($id, CanvasCommand::RestoreToCount { count: count.max(1) });
+            $rec . record_draw_op($id, DrawOp::RestoreToCount { count: count.max(1) });
         }}
         $binding! { node $rec $id canvas_translate ($id: &str, x: f32, y: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::Translate { x, y });
+            $rec . record_draw_op($id, DrawOp::Translate { x, y });
         }}
         $binding! { node $rec $id canvas_scale ($id: &str, x: f32, y: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::Scale { x, y });
+            $rec . record_draw_op($id, DrawOp::Scale { x, y });
         }}
         $binding! { node $rec $id canvas_rotate ($id: &str, degrees: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::Rotate { degrees });
+            $rec . record_draw_op($id, DrawOp::Rotate { degrees, cx: 0.0, cy: 0.0 });
         }}
         $binding! { node $rec $id canvas_clip_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, anti_alias: bool) {
-            $rec . record_canvas_command($id, CanvasCommand::ClipRect { x, y, width, height, anti_alias });
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRect { x, y, width, height }));
+            $rec . record_draw_op($id, DrawOp::ClipPath { anti_alias });
         }}
         $binding! { node $rec $id canvas_draw_line ($id: &str, x0: f32, y0: f32, x1: f32, y1: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::DrawLine { x0, y0, x1, y1 });
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::MoveTo { x: x0, y: y0 }));
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::LineTo { x: x1, y: y1 }));
+            $rec . record_draw_op($id, DrawOp::StrokePath);
         }}
         $binding! { node $rec $id canvas_fill_circle ($id: &str, cx: f32, cy: f32, radius: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::FillCircle { cx, cy, radius });
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddOval {
+                x: cx - radius, y: cy - radius,
+                width: radius * 2.0, height: radius * 2.0,
+            }));
+            $rec . record_draw_op($id, DrawOp::FillPath);
         }}
         $binding! { node $rec $id canvas_stroke_circle ($id: &str, cx: f32, cy: f32, radius: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::StrokeCircle { cx, cy, radius });
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddOval {
+                x: cx - radius, y: cy - radius,
+                width: radius * 2.0, height: radius * 2.0,
+            }));
+            $rec . record_draw_op($id, DrawOp::StrokePath);
         }}
         $binding! { node $rec $id canvas_fill_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::FillRRect { x, y, width, height, radius });
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRRect { x, y, width, height, radius }));
+            $rec . record_draw_op($id, DrawOp::FillPath);
         }}
         $binding! { node $rec $id canvas_stroke_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::StrokeRRect { x, y, width, height, radius });
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRRect { x, y, width, height, radius }));
+            $rec . record_draw_op($id, DrawOp::StrokePath);
         }}
         $binding! { node $rec $id canvas_begin_path ($id: &str) {
-            $rec . record_canvas_command($id, CanvasCommand::BeginPath);
+            $rec . record_draw_op($id, DrawOp::BeginPath);
         }}
         $binding! { node $rec $id canvas_move_to ($id: &str, x: f32, y: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::MoveTo { x, y });
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::MoveTo { x, y }));
         }}
         $binding! { node $rec $id canvas_line_to ($id: &str, x: f32, y: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::LineTo { x, y });
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::LineTo { x, y }));
         }}
         $binding! { node $rec $id canvas_quad_to ($id: &str, cx: f32, cy: f32, x: f32, y: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::QuadTo { cx, cy, x, y });
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::QuadTo { cx, cy, x, y }));
         }}
         $binding! { node $rec $id canvas_cubic_to ($id: &str, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::CubicTo { c1x, c1y, c2x, c2y, x, y });
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::CubicTo { c1x, c1y, c2x, c2y, x, y }));
         }}
         $binding! { node $rec $id canvas_close_path ($id: &str) {
-            $rec . record_canvas_command($id, CanvasCommand::ClosePath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::Close));
         }}
         $binding! { node $rec $id canvas_path_add_rect ($id: &str, x: f32, y: f32, width: f32, height: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::AddRectPath { x, y, width, height });
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRect { x, y, width, height }));
         }}
         $binding! { node $rec $id canvas_path_add_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::AddRRectPath { x, y, width, height, radius });
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRRect { x, y, width, height, radius }));
         }}
         $binding! { node $rec $id canvas_path_add_oval ($id: &str, x: f32, y: f32, width: f32, height: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::AddOvalPath { x, y, width, height });
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddOval { x, y, width, height }));
         }}
         $binding! { node $rec $id canvas_path_add_arc ($id: &str, x: f32, y: f32, width: f32, height: f32, start_angle: f32, sweep_angle: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::AddArcPath { x, y, width, height, start_angle, sweep_angle });
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddArc { x, y, width, height, start_angle, sweep_angle }));
         }}
         $binding! { node $rec $id canvas_fill_path ($id: &str) {
-            $rec . record_canvas_command($id, CanvasCommand::FillPath);
+            $rec . record_draw_op($id, DrawOp::FillPath);
         }}
         $binding! { node $rec $id canvas_stroke_path ($id: &str) {
-            $rec . record_canvas_command($id, CanvasCommand::StrokePath);
+            $rec . record_draw_op($id, DrawOp::StrokePath);
         }}
         $binding! { node $rec $id canvas_stroke_arc ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32, start_angle: f32, sweep_angle: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::StrokeArc { cx, cy, rx, ry, start_angle, sweep_angle });
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddArc {
+                x: cx - rx, y: cy - ry,
+                width: rx * 2.0, height: ry * 2.0,
+                start_angle, sweep_angle,
+            }));
+            $rec . record_draw_op($id, DrawOp::StrokePath);
         }}
         $binding! { node $rec $id canvas_fill_oval ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::FillOval { cx, cy, rx, ry });
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddOval {
+                x: cx - rx, y: cy - ry,
+                width: rx * 2.0, height: ry * 2.0,
+            }));
+            $rec . record_draw_op($id, DrawOp::FillPath);
         }}
         $binding! { node $rec $id canvas_stroke_oval ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::StrokeOval { cx, cy, rx, ry });
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddOval {
+                x: cx - rx, y: cy - ry,
+                width: rx * 2.0, height: ry * 2.0,
+            }));
+            $rec . record_draw_op($id, DrawOp::StrokePath);
         }}
         $binding! { node $rec $id canvas_clip_path ($id: &str, anti_alias: bool) {
-            $rec . record_canvas_command($id, CanvasCommand::ClipPath { anti_alias });
+            $rec . record_draw_op($id, DrawOp::ClipPath { anti_alias });
         }}
         $binding! { node $rec $id canvas_clip_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32, anti_alias: bool) {
-            $rec . record_canvas_command($id, CanvasCommand::ClipRRect { x, y, width, height, radius, anti_alias });
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRRect { x, y, width, height, radius }));
+            $rec . record_draw_op($id, DrawOp::ClipPath { anti_alias });
         }}
         $binding! { node $rec $id canvas_skew ($id: &str, sx: f32, sy: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::Skew { sx, sy });
+            $rec . record_draw_op($id, DrawOp::Skew { sx, sy });
         }}
         $binding! { node $rec $id canvas_draw_image_simple ($id: &str, asset_id: String, x: f32, y: f32, alpha: f32, anti_alias: bool) {
-            $rec . record_canvas_command($id, CanvasCommand::DrawImageSimple {
-                asset_id,
+            let _ = (alpha, anti_alias);
+            $rec . record_draw_op($id, DrawOp::Image {
+                image: ImageRef::Static { asset_id },
                 x,
                 y,
-                alpha: alpha.clamp(0.0, 1.0),
-                anti_alias,
+                paint: None,
             });
         }}
         $binding! { node $rec $id canvas_save_layer ($id: &str, alpha: f32, bounds: Option<Vec<f32>>) {
@@ -315,60 +352,78 @@ macro_rules! for_each_binding {
                 Some(b) => Some($crate::script::helpers::parse_image_rect("saveLayer", &b)?),
                 None => None,
             };
-            $rec . record_canvas_command($id, CanvasCommand::SaveLayer {
+            let bounds_rect = bounds.map(|bds| Rect4 { x: bds[0], y: bds[1], width: bds[2], height: bds[3] });
+            $rec . record_draw_op($id, DrawOp::SaveLayer {
+                bounds: bounds_rect,
+                paint: None,
                 alpha: alpha.clamp(0.0, 1.0),
-                bounds,
             });
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_set_fill_style ($id: &str, color: String) {
             let color = $crate::script::helpers::parse_color(&color, "setFillStyle")?;
-            $rec . record_canvas_command($id, CanvasCommand::SetFillStyle { color });
+            $rec . record_draw_op($id, DrawOp::SetFillStyle { color });
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_set_stroke_style ($id: &str, color: String) {
             let color = $crate::script::helpers::parse_color(&color, "setStrokeStyle")?;
-            $rec . record_canvas_command($id, CanvasCommand::SetStrokeStyle { color });
+            $rec . record_draw_op($id, DrawOp::SetStrokeStyle { color });
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_set_line_width ($id: &str, width: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::SetLineWidth { width: width.max(0.0) });
+            $rec . record_draw_op($id, DrawOp::SetLineWidth { width: width.max(0.0) });
         }}
         $binding! { node $rec $id canvas_set_line_cap ($id: &str, cap: String) {
             let cap = line_cap_from_name(&cap)
                 .ok_or_else(|| $crate::script::helpers::script_error("setLineCap", format!("unsupported line cap `{cap}`")))?;
-            $rec . record_canvas_command($id, CanvasCommand::SetLineCap { cap });
+            $rec . record_draw_op($id, DrawOp::SetLineCap { cap });
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_set_line_join ($id: &str, join: String) {
             let join = line_join_from_name(&join)
                 .ok_or_else(|| $crate::script::helpers::script_error("setLineJoin", format!("unsupported line join `{join}`")))?;
-            $rec . record_canvas_command($id, CanvasCommand::SetLineJoin { join });
+            $rec . record_draw_op($id, DrawOp::SetLineJoin { join });
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_set_line_dash ($id: &str, intervals: Vec<f32>, phase: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::SetLineDash { intervals, phase });
+            let _ = intervals;
+            $rec . record_draw_op($id, DrawOp::SetLineDash {
+                intervals: F32Range { start: u32::MAX, len: 0 },
+                phase,
+            });
         }}
         $binding! { node $rec $id canvas_clear_line_dash ($id: &str) {
-            $rec . record_canvas_command($id, CanvasCommand::ClearLineDash);
+            $rec . record_draw_op($id, DrawOp::ClearLineDash);
         }}
         $binding! { node $rec $id canvas_set_global_alpha ($id: &str, alpha: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::SetGlobalAlpha { alpha: alpha.clamp(0.0, 1.0) });
+            $rec . record_draw_op($id, DrawOp::SetGlobalAlpha { alpha: alpha.clamp(0.0, 1.0) });
         }}
         $binding! { node $rec $id canvas_set_anti_alias ($id: &str, enabled: bool) {
-            $rec . record_canvas_command($id, CanvasCommand::SetAntiAlias { enabled });
+            $rec . record_draw_op($id, DrawOp::SetAntiAlias { enabled });
         }}
         $binding! { node $rec $id canvas_clear ($id: &str, color: Option<String>) {
             let color = match color {
-                Some(c) => Some($crate::script::helpers::parse_color(&c, "clear")?),
+                Some(c) => {
+                    let c = $crate::script::helpers::parse_color(&c, "clear")?;
+                    Some(ColorF32 {
+                        r: c.r as f32 / 255.0,
+                        g: c.g as f32 / 255.0,
+                        b: c.b as f32 / 255.0,
+                        a: c.a as f32 / 255.0,
+                    })
+                }
                 None => None,
             };
-            $rec . record_canvas_command($id, CanvasCommand::Clear { color });
+            $rec . record_draw_op($id, DrawOp::Clear {
+                color: color.unwrap_or(ColorF32::TRANSPARENT),
+            });
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_draw_paint ($id: &str, color: String, anti_alias: bool) {
-            let color = $crate::script::helpers::parse_color(&color, "drawPaint")?;
-            $rec . record_canvas_command($id, CanvasCommand::DrawPaint { color, anti_alias });
+            let _color = $crate::script::helpers::parse_color(&color, "drawPaint")?;
+            $rec . record_draw_op($id, DrawOp::Paint {
+                paint: PaintId(u32::MAX),
+            });
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_draw_text ($id: &str, text: String, values: Vec<f32>, color: String, flags: Vec<bool>, font_edging: String) {
@@ -377,45 +432,33 @@ macro_rules! for_each_binding {
             } else if flags.len() < 3 {
                 Err($crate::script::helpers::script_error("drawText", "expected text flags [antiAlias, stroke, fontSubpixel]".to_string()))
             } else {
-                let color = $crate::script::helpers::parse_color(&color, "drawText")?;
-                let font_edging = font_edging_from_name(&font_edging)
+                let _color = $crate::script::helpers::parse_color(&color, "drawText")?;
+                let _font_edging = font_edging_from_name(&font_edging)
                     .ok_or_else(|| $crate::script::helpers::script_error("drawText", format!("unsupported font edging `{font_edging}`")))?;
-                $rec . record_canvas_command($id, CanvasCommand::DrawText {
-                    text,
-                    x: values[0],
-                    y: values[1],
-                    color,
-                    anti_alias: flags[0],
-                    stroke: flags[1],
-                    stroke_width: values[5].max(0.0),
-                    font_size: values[2].max(1.0),
-                    font_scale_x: values[3],
-                    font_skew_x: values[4],
-                    font_subpixel: flags[2],
-                    font_edging,
-                });
+                let _ = (text, values, flags);
+                // TODO: Phase 2 — draw text via glyph ops
                 Ok::<_, anyhow::Error>(())
             }
         }}
         $binding! { node $rec $id canvas_fill_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, color: String) {
             let color = $crate::script::helpers::parse_color(&color, "fillRect")?;
-            $rec . record_canvas_command($id, CanvasCommand::FillRect { x, y, width, height, color });
+            $rec . record_draw_op($id, DrawOp::SetFillStyle { color });
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRect { x, y, width, height }));
+            $rec . record_draw_op($id, DrawOp::FillPath);
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_stroke_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, color: String, stroke_width: f32) {
             let color = $crate::script::helpers::parse_color(&color, "strokeRect")?;
-            $rec . record_canvas_command($id, CanvasCommand::StrokeRect {
-                x,
-                y,
-                width,
-                height,
-                color,
-                stroke_width: stroke_width.max(0.0),
-            });
+            $rec . record_draw_op($id, DrawOp::SetStrokeStyle { color });
+            $rec . record_draw_op($id, DrawOp::SetLineWidth { width: stroke_width.max(0.0) });
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRect { x, y, width, height }));
+            $rec . record_draw_op($id, DrawOp::StrokePath);
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_draw_image ($id: &str, asset_id: String, values: Vec<f32>, fit: String, alpha: f32, anti_alias: bool) {
-            let object_fit = object_fit_from_name(&fit)
+            let _object_fit = object_fit_from_name(&fit)
                 .ok_or_else(|| $crate::script::helpers::script_error("drawImage", format!("unsupported objectFit `{fit}`")))?;
             let src_rect = if values.len() < 4 {
                 Err($crate::script::helpers::script_error("drawImageRect", "expected destination rect as [x, y, width, height]".to_string()))
@@ -426,44 +469,62 @@ macro_rules! for_each_binding {
                     _ => Err($crate::script::helpers::script_error("drawImageRect", "expected either 4 or 8 image rect values".to_string())),
                 }
             }?;
-            $rec . record_canvas_command($id, CanvasCommand::DrawImage {
-                asset_id,
-                x: values[0],
-                y: values[1],
-                width: values[2],
-                height: values[3],
-                src_rect,
-                alpha: alpha.clamp(0.0, 1.0),
-                anti_alias,
-                object_fit,
+            let img_ref = ImageRef::Static { asset_id };
+            let dst = Rect4 { x: values[0], y: values[1], width: values[2], height: values[3] };
+            let src = src_rect.map(|s| Rect4 { x: s[0], y: s[1], width: s[2], height: s[3] });
+            $rec . record_draw_op($id, DrawOp::ImageRect {
+                image: img_ref,
+                src,
+                dst,
+                paint: None,
             });
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_draw_arc ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32, start_angle: f32, sweep_angle: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::DrawArc {
-                cx, cy, rx, ry, start_angle, sweep_angle, use_center: false,
+            $rec . record_draw_op($id, DrawOp::Arc {
+                rect: Rect4 { x: cx - rx, y: cy - ry, width: rx * 2.0, height: ry * 2.0 },
+                start: start_angle,
+                sweep: sweep_angle,
+                use_center: false,
+                paint: PaintId(u32::MAX),
             });
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_draw_arc_to_center ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32, start_angle: f32, sweep_angle: f32) {
-            $rec . record_canvas_command($id, CanvasCommand::DrawArc {
-                cx, cy, rx, ry, start_angle, sweep_angle, use_center: true,
+            $rec . record_draw_op($id, DrawOp::Arc {
+                rect: Rect4 { x: cx - rx, y: cy - ry, width: rx * 2.0, height: ry * 2.0 },
+                start: start_angle,
+                sweep: sweep_angle,
+                use_center: true,
+                paint: PaintId(u32::MAX),
             });
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_draw_points ($id: &str, mode: String, points: Vec<f32>) {
             let mode = point_mode_from_name(&mode)
                 .ok_or_else(|| $crate::script::helpers::script_error("drawPoints", format!("unsupported point mode `{mode}`")))?;
-            $rec . record_canvas_command($id, CanvasCommand::DrawPoints { mode, points });
+            let _ = points;
+            $rec . record_draw_op($id, DrawOp::Points {
+                mode,
+                points: F32Range { start: u32::MAX, len: 0 },
+                paint: PaintId(u32::MAX - 1),
+            });
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_fill_drrect ($id: &str, coords: Vec<f32>) {
             let (outer_x, outer_y, outer_width, outer_height, outer_radius,
                  inner_x, inner_y, inner_width, inner_height, inner_radius) =
                 $crate::script::helpers::parse_drrect("fillDRRect", &coords)?;
-            $rec . record_canvas_command($id, CanvasCommand::FillDRRect {
-                outer_x, outer_y, outer_width, outer_height, outer_radius,
-                inner_x, inner_y, inner_width, inner_height, inner_radius,
+            $rec . record_draw_op($id, DrawOp::DRRect {
+                outer: DRRectSpec {
+                    rect: Rect4 { x: outer_x, y: outer_y, width: outer_width, height: outer_height },
+                    radii: Radii4 { top_left: outer_radius, top_right: outer_radius, bottom_right: outer_radius, bottom_left: outer_radius },
+                },
+                inner: DRRectSpec {
+                    rect: Rect4 { x: inner_x, y: inner_y, width: inner_width, height: inner_height },
+                    radii: Radii4 { top_left: inner_radius, top_right: inner_radius, bottom_right: inner_radius, bottom_left: inner_radius },
+                },
+                paint: PaintId(u32::MAX),
             });
             Ok::<_, anyhow::Error>(())
         }}
@@ -471,9 +532,16 @@ macro_rules! for_each_binding {
             let (outer_x, outer_y, outer_width, outer_height, outer_radius,
                  inner_x, inner_y, inner_width, inner_height, inner_radius) =
                 $crate::script::helpers::parse_drrect("strokeDRRect", &coords)?;
-            $rec . record_canvas_command($id, CanvasCommand::StrokeDRRect {
-                outer_x, outer_y, outer_width, outer_height, outer_radius,
-                inner_x, inner_y, inner_width, inner_height, inner_radius,
+            $rec . record_draw_op($id, DrawOp::DRRect {
+                outer: DRRectSpec {
+                    rect: Rect4 { x: outer_x, y: outer_y, width: outer_width, height: outer_height },
+                    radii: Radii4 { top_left: outer_radius, top_right: outer_radius, bottom_right: outer_radius, bottom_left: outer_radius },
+                },
+                inner: DRRectSpec {
+                    rect: Rect4 { x: inner_x, y: inner_y, width: inner_width, height: inner_height },
+                    radii: Radii4 { top_left: inner_radius, top_right: inner_radius, bottom_right: inner_radius, bottom_left: inner_radius },
+                },
+                paint: PaintId(u32::MAX - 1),
             });
             Ok::<_, anyhow::Error>(())
         }}
@@ -486,7 +554,7 @@ macro_rules! for_each_binding {
                     values[3], values[4], values[5],
                     values[6], values[7], values[8],
                 ];
-                $rec . record_canvas_command($id, CanvasCommand::Concat { matrix });
+                $rec . record_draw_op($id, DrawOp::Concat { matrix });
                 Ok::<_, anyhow::Error>(())
             }
         }}

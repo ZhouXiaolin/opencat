@@ -10,8 +10,12 @@
 use anyhow::{Result, anyhow};
 use serde_json::Value;
 
+use crate::draw::op::{
+    ColorF32, DRRectSpec, DrawOp, F32Range, Radii4, Rect4,
+};
+use crate::draw::types::{ImageRef, PaintId, PathOp};
 use crate::for_each_binding;
-use crate::scene::script::mutations::{CanvasCommand, TextUnitGranularity};
+use crate::scene::script::mutations::TextUnitGranularity;
 use crate::scene::script::{
     align_items_from_name, box_shadow_from_name, drop_shadow_from_name,
     flex_direction_from_name, font_edging_from_name, inset_shadow_from_name,

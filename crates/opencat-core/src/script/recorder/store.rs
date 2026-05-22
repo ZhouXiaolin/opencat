@@ -4,7 +4,7 @@ use super::{MutationRecorder, TextUnitValues};
 use crate::scene::easing::Easing;
 use crate::scene::script::ScriptTextSource;
 use crate::scene::script::mutations::{
-    CanvasCommand, CanvasMutations, NodeStyleMutations, StyleMutations, TextUnitGranularity,
+    CanvasMutations, NodeStyleMutations, StyleMutations, TextUnitGranularity,
     TextUnitOverride, TextUnitOverrideBatch,
 };
 use crate::script::animate::color::{hsla_to_rgba_string, lerp_hsla_clamped, parse_color};
@@ -477,7 +477,7 @@ impl MutationRecorder for MutationStore {
         self.entry(id).svg_path = Some(data);
     }
 
-    fn record_canvas_command(&mut self, id: &str, cmd: CanvasCommand) {
+    fn record_draw_op(&mut self, id: &str, cmd: crate::draw::op::DrawOp) {
         self.canvas_entry(id).commands.push(cmd);
     }
 

@@ -9,7 +9,7 @@ use super::types::{
 // ---------------------------------------------------------------------------
 
 /// Line cap style for stroke operations.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum LineCap {
     #[default]
     Butt,
@@ -18,7 +18,7 @@ pub enum LineCap {
 }
 
 /// Line join style for stroke operations.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum LineJoin {
     #[default]
     Miter,
@@ -27,7 +27,7 @@ pub enum LineJoin {
 }
 
 /// Point rendering mode — controls how point vertices are interpreted.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PointMode {
     Points,
     Lines,
@@ -47,6 +47,15 @@ pub struct Rect4 {
     pub height: f32,
 }
 
+impl std::hash::Hash for Rect4 {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.x.to_bits().hash(state);
+        self.y.to_bits().hash(state);
+        self.width.to_bits().hash(state);
+        self.height.to_bits().hash(state);
+    }
+}
+
 /// A 4-corner radius specification (top-left, top-right, bottom-right, bottom-left).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Radii4 {
@@ -56,12 +65,28 @@ pub struct Radii4 {
     pub bottom_left: f32,
 }
 
+impl std::hash::Hash for Radii4 {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.top_left.to_bits().hash(state);
+        self.top_right.to_bits().hash(state);
+        self.bottom_right.to_bits().hash(state);
+        self.bottom_left.to_bits().hash(state);
+    }
+}
+
 /// Specification for a rounded rectangle with separate outer/inner rects and radii.
 /// Used by `DrawOp::DRRect` for compound rounded rectangle drawing.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DRRectSpec {
     pub rect: Rect4,
     pub radii: Radii4,
+}
+
+impl std::hash::Hash for DRRectSpec {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.rect.hash(state);
+        self.radii.hash(state);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +101,7 @@ pub type Matrix3 = [f32; 9];
 // ---------------------------------------------------------------------------
 
 /// An 8-bit-per-channel RGBA color (0-255).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ColorU8 {
     pub r: u8,
     pub g: u8,
@@ -93,6 +118,15 @@ pub struct ColorF32 {
     pub a: f32,
 }
 
+impl std::hash::Hash for ColorF32 {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.r.to_bits().hash(state);
+        self.g.to_bits().hash(state);
+        self.b.to_bits().hash(state);
+        self.a.to_bits().hash(state);
+    }
+}
+
 impl ColorF32 {
     pub const TRANSPARENT: Self = ColorF32 {
         r: 0.0,
@@ -107,7 +141,7 @@ impl ColorF32 {
 // ---------------------------------------------------------------------------
 
 /// Range into the f32 pool. `start` and `len` index `DrawOpFrame.f32_pool`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct F32Range {
     pub start: u32,
     pub len: u32,
@@ -358,6 +392,188 @@ pub enum DrawOp {
     ReplayRange {
         range: DrawOpRange,
     },
+}
+
+// ---------------------------------------------------------------------------
+// Manual Hash impl for DrawOp (f32 fields can't derive Hash)
+// ---------------------------------------------------------------------------
+
+impl std::hash::Hash for DrawOp {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            DrawOp::Save => 0_u8.hash(state),
+            DrawOp::SaveLayer { bounds, paint, alpha } => {
+                1_u8.hash(state);
+                bounds.hash(state);
+                paint.hash(state);
+                alpha.to_bits().hash(state);
+            }
+            DrawOp::Restore => 2_u8.hash(state),
+            DrawOp::RestoreToCount { count } => {
+                3_u8.hash(state);
+                count.hash(state);
+            }
+            DrawOp::Translate { x, y } => {
+                4_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+            }
+            DrawOp::Scale { x, y } => {
+                5_u8.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+            }
+            DrawOp::Rotate { degrees, cx, cy } => {
+                6_u8.hash(state);
+                degrees.to_bits().hash(state);
+                cx.to_bits().hash(state);
+                cy.to_bits().hash(state);
+            }
+            DrawOp::Skew { sx, sy } => {
+                7_u8.hash(state);
+                sx.to_bits().hash(state);
+                sy.to_bits().hash(state);
+            }
+            DrawOp::Concat { matrix } => {
+                8_u8.hash(state);
+                matrix.map(f32::to_bits).hash(state);
+            }
+            DrawOp::SetFillStyle { color } => {
+                9_u8.hash(state);
+                color.hash(state);
+            }
+            DrawOp::SetStrokeStyle { color } => {
+                10_u8.hash(state);
+                color.hash(state);
+            }
+            DrawOp::SetLineWidth { width } => {
+                11_u8.hash(state);
+                width.to_bits().hash(state);
+            }
+            DrawOp::SetLineCap { cap } => {
+                12_u8.hash(state);
+                cap.hash(state);
+            }
+            DrawOp::SetLineJoin { join } => {
+                13_u8.hash(state);
+                join.hash(state);
+            }
+            DrawOp::SetLineDash { intervals, phase } => {
+                14_u8.hash(state);
+                intervals.hash(state);
+                phase.to_bits().hash(state);
+            }
+            DrawOp::ClearLineDash => 15_u8.hash(state),
+            DrawOp::SetGlobalAlpha { alpha } => {
+                16_u8.hash(state);
+                alpha.to_bits().hash(state);
+            }
+            DrawOp::SetAntiAlias { enabled } => {
+                17_u8.hash(state);
+                enabled.hash(state);
+            }
+            DrawOp::BeginPath => 18_u8.hash(state),
+            DrawOp::Path(p) => {
+                19_u8.hash(state);
+                p.hash(state);
+            }
+            DrawOp::FillPath => 20_u8.hash(state),
+            DrawOp::StrokePath => 21_u8.hash(state),
+            DrawOp::ClipPath { anti_alias } => {
+                22_u8.hash(state);
+                anti_alias.hash(state);
+            }
+            DrawOp::Clear { color } => {
+                23_u8.hash(state);
+                color.hash(state);
+            }
+            DrawOp::Paint { paint } => {
+                24_u8.hash(state);
+                paint.hash(state);
+            }
+            DrawOp::Rect { rect, paint } => {
+                25_u8.hash(state);
+                rect.hash(state);
+                paint.hash(state);
+            }
+            DrawOp::RRect { rect, radii, paint } => {
+                26_u8.hash(state);
+                rect.hash(state);
+                radii.hash(state);
+                paint.hash(state);
+            }
+            DrawOp::DRRect { outer, inner, paint } => {
+                27_u8.hash(state);
+                outer.hash(state);
+                inner.hash(state);
+                paint.hash(state);
+            }
+            DrawOp::Oval { rect, paint } => {
+                28_u8.hash(state);
+                rect.hash(state);
+                paint.hash(state);
+            }
+            DrawOp::Circle { cx, cy, radius, paint } => {
+                29_u8.hash(state);
+                cx.to_bits().hash(state);
+                cy.to_bits().hash(state);
+                radius.to_bits().hash(state);
+                paint.hash(state);
+            }
+            DrawOp::Arc { rect, start, sweep, use_center, paint } => {
+                30_u8.hash(state);
+                rect.hash(state);
+                start.to_bits().hash(state);
+                sweep.to_bits().hash(state);
+                use_center.hash(state);
+                paint.hash(state);
+            }
+            DrawOp::Line { x0, y0, x1, y1, paint } => {
+                31_u8.hash(state);
+                x0.to_bits().hash(state);
+                y0.to_bits().hash(state);
+                x1.to_bits().hash(state);
+                y1.to_bits().hash(state);
+                paint.hash(state);
+            }
+            DrawOp::Points { mode, points, paint } => {
+                32_u8.hash(state);
+                mode.hash(state);
+                points.hash(state);
+                paint.hash(state);
+            }
+            DrawOp::DrawPath { path, paint } => {
+                33_u8.hash(state);
+                path.hash(state);
+                paint.hash(state);
+            }
+            DrawOp::Image { image, x, y, paint } => {
+                34_u8.hash(state);
+                image.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                paint.hash(state);
+            }
+            DrawOp::ImageRect { image, src, dst, paint } => {
+                35_u8.hash(state);
+                image.hash(state);
+                src.hash(state);
+                dst.hash(state);
+                paint.hash(state);
+            }
+            DrawOp::RuntimeEffect { effect, uniforms, children, dst } => {
+                36_u8.hash(state);
+                effect.hash(state);
+                uniforms.hash(state);
+                children.hash(state);
+                dst.hash(state);
+            }
+            DrawOp::ReplayRange { range } => {
+                37_u8.hash(state);
+                range.hash(state);
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

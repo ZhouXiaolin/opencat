@@ -240,794 +240,11 @@ impl NodeStyleMutations {
 
 // ── Canvas mutations ──────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScriptColor {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
+use crate::draw::op::DrawOp;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ScriptLineCap {
-    Butt,
-    Round,
-    Square,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ScriptLineJoin {
-    Miter,
-    Round,
-    Bevel,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ScriptPointMode {
-    Points,
-    Lines,
-    Polygon,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ScriptFontEdging {
-    Alias,
-    AntiAlias,
-    SubpixelAntiAlias,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum CanvasCommand {
-    Save,
-    SaveLayer {
-        alpha: f32,
-        bounds: Option<[f32; 4]>,
-    },
-    Restore,
-    RestoreToCount {
-        count: i32,
-    },
-    SetFillStyle {
-        color: ScriptColor,
-    },
-    SetStrokeStyle {
-        color: ScriptColor,
-    },
-    SetLineWidth {
-        width: f32,
-    },
-    SetLineCap {
-        cap: ScriptLineCap,
-    },
-    SetLineJoin {
-        join: ScriptLineJoin,
-    },
-    SetLineDash {
-        intervals: Vec<f32>,
-        phase: f32,
-    },
-    ClearLineDash,
-    SetGlobalAlpha {
-        alpha: f32,
-    },
-    SetAntiAlias {
-        enabled: bool,
-    },
-    Translate {
-        x: f32,
-        y: f32,
-    },
-    Scale {
-        x: f32,
-        y: f32,
-    },
-    Rotate {
-        degrees: f32,
-    },
-    ClipRect {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        anti_alias: bool,
-    },
-    Clear {
-        color: Option<ScriptColor>,
-    },
-    DrawPaint {
-        color: ScriptColor,
-        anti_alias: bool,
-    },
-    DrawText {
-        text: String,
-        x: f32,
-        y: f32,
-        color: ScriptColor,
-        anti_alias: bool,
-        stroke: bool,
-        stroke_width: f32,
-        font_size: f32,
-        font_scale_x: f32,
-        font_skew_x: f32,
-        font_subpixel: bool,
-        font_edging: ScriptFontEdging,
-    },
-    FillRect {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        color: ScriptColor,
-    },
-    FillRRect {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        radius: f32,
-    },
-    StrokeRect {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        color: ScriptColor,
-        stroke_width: f32,
-    },
-    StrokeRRect {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        radius: f32,
-    },
-    DrawLine {
-        x0: f32,
-        y0: f32,
-        x1: f32,
-        y1: f32,
-    },
-    FillCircle {
-        cx: f32,
-        cy: f32,
-        radius: f32,
-    },
-    StrokeCircle {
-        cx: f32,
-        cy: f32,
-        radius: f32,
-    },
-    BeginPath,
-    MoveTo {
-        x: f32,
-        y: f32,
-    },
-    LineTo {
-        x: f32,
-        y: f32,
-    },
-    QuadTo {
-        cx: f32,
-        cy: f32,
-        x: f32,
-        y: f32,
-    },
-    CubicTo {
-        c1x: f32,
-        c1y: f32,
-        c2x: f32,
-        c2y: f32,
-        x: f32,
-        y: f32,
-    },
-    ClosePath,
-    AddRectPath {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-    },
-    AddRRectPath {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        radius: f32,
-    },
-    AddOvalPath {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-    },
-    AddArcPath {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        start_angle: f32,
-        sweep_angle: f32,
-    },
-    FillPath,
-    StrokePath,
-    DrawImage {
-        asset_id: String,
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        src_rect: Option<[f32; 4]>,
-        alpha: f32,
-        anti_alias: bool,
-        object_fit: ObjectFit,
-    },
-    DrawArc {
-        cx: f32,
-        cy: f32,
-        rx: f32,
-        ry: f32,
-        start_angle: f32,
-        sweep_angle: f32,
-        use_center: bool,
-    },
-    StrokeArc {
-        cx: f32,
-        cy: f32,
-        rx: f32,
-        ry: f32,
-        start_angle: f32,
-        sweep_angle: f32,
-    },
-    FillOval {
-        cx: f32,
-        cy: f32,
-        rx: f32,
-        ry: f32,
-    },
-    StrokeOval {
-        cx: f32,
-        cy: f32,
-        rx: f32,
-        ry: f32,
-    },
-    ClipPath {
-        anti_alias: bool,
-    },
-    ClipRRect {
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        radius: f32,
-        anti_alias: bool,
-    },
-    DrawPoints {
-        mode: ScriptPointMode,
-        points: Vec<f32>,
-    },
-    FillDRRect {
-        outer_x: f32,
-        outer_y: f32,
-        outer_width: f32,
-        outer_height: f32,
-        outer_radius: f32,
-        inner_x: f32,
-        inner_y: f32,
-        inner_width: f32,
-        inner_height: f32,
-        inner_radius: f32,
-    },
-    StrokeDRRect {
-        outer_x: f32,
-        outer_y: f32,
-        outer_width: f32,
-        outer_height: f32,
-        outer_radius: f32,
-        inner_x: f32,
-        inner_y: f32,
-        inner_width: f32,
-        inner_height: f32,
-        inner_radius: f32,
-    },
-    Skew {
-        sx: f32,
-        sy: f32,
-    },
-    DrawImageSimple {
-        asset_id: String,
-        x: f32,
-        y: f32,
-        alpha: f32,
-        anti_alias: bool,
-    },
-    Concat {
-        matrix: [f32; 9],
-    },
-}
-
-impl std::hash::Hash for CanvasCommand {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            CanvasCommand::Save => {
-                0_u8.hash(state);
-            }
-            CanvasCommand::SaveLayer { alpha, bounds } => {
-                45_u8.hash(state);
-                alpha.to_bits().hash(state);
-                bounds.map(|rect| rect.map(f32::to_bits)).hash(state);
-            }
-            CanvasCommand::Restore => {
-                1_u8.hash(state);
-            }
-            CanvasCommand::RestoreToCount { count } => {
-                43_u8.hash(state);
-                count.hash(state);
-            }
-            CanvasCommand::SetFillStyle { color } => {
-                2_u8.hash(state);
-                color.hash(state);
-            }
-            CanvasCommand::SetStrokeStyle { color } => {
-                3_u8.hash(state);
-                color.hash(state);
-            }
-            CanvasCommand::SetLineWidth { width } => {
-                4_u8.hash(state);
-                width.to_bits().hash(state);
-            }
-            CanvasCommand::SetLineCap { cap } => {
-                5_u8.hash(state);
-                cap.hash(state);
-            }
-            CanvasCommand::SetLineJoin { join } => {
-                6_u8.hash(state);
-                join.hash(state);
-            }
-            CanvasCommand::SetLineDash { intervals, phase } => {
-                7_u8.hash(state);
-                intervals
-                    .iter()
-                    .map(|value| value.to_bits())
-                    .collect::<Vec<_>>()
-                    .hash(state);
-                phase.to_bits().hash(state);
-            }
-            CanvasCommand::ClearLineDash => {
-                8_u8.hash(state);
-            }
-            CanvasCommand::SetGlobalAlpha { alpha } => {
-                9_u8.hash(state);
-                alpha.to_bits().hash(state);
-            }
-            CanvasCommand::SetAntiAlias { enabled } => {
-                44_u8.hash(state);
-                enabled.hash(state);
-            }
-            CanvasCommand::Translate { x, y } => {
-                10_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-            }
-            CanvasCommand::Scale { x, y } => {
-                11_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-            }
-            CanvasCommand::Rotate { degrees } => {
-                12_u8.hash(state);
-                degrees.to_bits().hash(state);
-            }
-            CanvasCommand::ClipRect {
-                x,
-                y,
-                width,
-                height,
-                anti_alias,
-            } => {
-                13_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                width.to_bits().hash(state);
-                height.to_bits().hash(state);
-                anti_alias.hash(state);
-            }
-            CanvasCommand::Clear { color } => {
-                14_u8.hash(state);
-                color.hash(state);
-            }
-            CanvasCommand::DrawPaint { color, anti_alias } => {
-                46_u8.hash(state);
-                color.hash(state);
-                anti_alias.hash(state);
-            }
-            CanvasCommand::DrawText {
-                text,
-                x,
-                y,
-                color,
-                anti_alias,
-                stroke,
-                stroke_width,
-                font_size,
-                font_scale_x,
-                font_skew_x,
-                font_subpixel,
-                font_edging,
-            } => {
-                51_u8.hash(state);
-                text.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                color.hash(state);
-                anti_alias.hash(state);
-                stroke.hash(state);
-                stroke_width.to_bits().hash(state);
-                font_size.to_bits().hash(state);
-                font_scale_x.to_bits().hash(state);
-                font_skew_x.to_bits().hash(state);
-                font_subpixel.hash(state);
-                font_edging.hash(state);
-            }
-            CanvasCommand::FillRect {
-                x,
-                y,
-                width,
-                height,
-                color,
-            } => {
-                15_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                width.to_bits().hash(state);
-                height.to_bits().hash(state);
-                color.hash(state);
-            }
-            CanvasCommand::FillRRect {
-                x,
-                y,
-                width,
-                height,
-                radius,
-            } => {
-                16_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                width.to_bits().hash(state);
-                height.to_bits().hash(state);
-                radius.to_bits().hash(state);
-            }
-            CanvasCommand::StrokeRect {
-                x,
-                y,
-                width,
-                height,
-                color,
-                stroke_width,
-            } => {
-                17_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                width.to_bits().hash(state);
-                height.to_bits().hash(state);
-                color.hash(state);
-                stroke_width.to_bits().hash(state);
-            }
-            CanvasCommand::StrokeRRect {
-                x,
-                y,
-                width,
-                height,
-                radius,
-            } => {
-                18_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                width.to_bits().hash(state);
-                height.to_bits().hash(state);
-                radius.to_bits().hash(state);
-            }
-            CanvasCommand::DrawLine { x0, y0, x1, y1 } => {
-                19_u8.hash(state);
-                x0.to_bits().hash(state);
-                y0.to_bits().hash(state);
-                x1.to_bits().hash(state);
-                y1.to_bits().hash(state);
-            }
-            CanvasCommand::FillCircle { cx, cy, radius } => {
-                20_u8.hash(state);
-                cx.to_bits().hash(state);
-                cy.to_bits().hash(state);
-                radius.to_bits().hash(state);
-            }
-            CanvasCommand::StrokeCircle { cx, cy, radius } => {
-                21_u8.hash(state);
-                cx.to_bits().hash(state);
-                cy.to_bits().hash(state);
-                radius.to_bits().hash(state);
-            }
-            CanvasCommand::BeginPath => {
-                22_u8.hash(state);
-            }
-            CanvasCommand::MoveTo { x, y } => {
-                23_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-            }
-            CanvasCommand::LineTo { x, y } => {
-                24_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-            }
-            CanvasCommand::QuadTo { cx, cy, x, y } => {
-                25_u8.hash(state);
-                cx.to_bits().hash(state);
-                cy.to_bits().hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-            }
-            CanvasCommand::CubicTo {
-                c1x,
-                c1y,
-                c2x,
-                c2y,
-                x,
-                y,
-            } => {
-                26_u8.hash(state);
-                c1x.to_bits().hash(state);
-                c1y.to_bits().hash(state);
-                c2x.to_bits().hash(state);
-                c2y.to_bits().hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-            }
-            CanvasCommand::ClosePath => {
-                27_u8.hash(state);
-            }
-            CanvasCommand::AddRectPath {
-                x,
-                y,
-                width,
-                height,
-            } => {
-                47_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                width.to_bits().hash(state);
-                height.to_bits().hash(state);
-            }
-            CanvasCommand::AddRRectPath {
-                x,
-                y,
-                width,
-                height,
-                radius,
-            } => {
-                48_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                width.to_bits().hash(state);
-                height.to_bits().hash(state);
-                radius.to_bits().hash(state);
-            }
-            CanvasCommand::AddOvalPath {
-                x,
-                y,
-                width,
-                height,
-            } => {
-                49_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                width.to_bits().hash(state);
-                height.to_bits().hash(state);
-            }
-            CanvasCommand::AddArcPath {
-                x,
-                y,
-                width,
-                height,
-                start_angle,
-                sweep_angle,
-            } => {
-                50_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                width.to_bits().hash(state);
-                height.to_bits().hash(state);
-                start_angle.to_bits().hash(state);
-                sweep_angle.to_bits().hash(state);
-            }
-            CanvasCommand::FillPath => {
-                28_u8.hash(state);
-            }
-            CanvasCommand::StrokePath => {
-                29_u8.hash(state);
-            }
-            CanvasCommand::DrawImage {
-                asset_id,
-                x,
-                y,
-                width,
-                height,
-                src_rect,
-                alpha,
-                anti_alias,
-                object_fit,
-            } => {
-                30_u8.hash(state);
-                asset_id.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                width.to_bits().hash(state);
-                height.to_bits().hash(state);
-                src_rect.map(|rect| rect.map(f32::to_bits)).hash(state);
-                alpha.to_bits().hash(state);
-                anti_alias.hash(state);
-                object_fit.hash(state);
-            }
-            CanvasCommand::DrawArc {
-                cx,
-                cy,
-                rx,
-                ry,
-                start_angle,
-                sweep_angle,
-                use_center,
-            } => {
-                31_u8.hash(state);
-                cx.to_bits().hash(state);
-                cy.to_bits().hash(state);
-                rx.to_bits().hash(state);
-                ry.to_bits().hash(state);
-                start_angle.to_bits().hash(state);
-                sweep_angle.to_bits().hash(state);
-                use_center.hash(state);
-            }
-            CanvasCommand::StrokeArc {
-                cx,
-                cy,
-                rx,
-                ry,
-                start_angle,
-                sweep_angle,
-            } => {
-                32_u8.hash(state);
-                cx.to_bits().hash(state);
-                cy.to_bits().hash(state);
-                rx.to_bits().hash(state);
-                ry.to_bits().hash(state);
-                start_angle.to_bits().hash(state);
-                sweep_angle.to_bits().hash(state);
-            }
-            CanvasCommand::FillOval { cx, cy, rx, ry } => {
-                33_u8.hash(state);
-                cx.to_bits().hash(state);
-                cy.to_bits().hash(state);
-                rx.to_bits().hash(state);
-                ry.to_bits().hash(state);
-            }
-            CanvasCommand::StrokeOval { cx, cy, rx, ry } => {
-                34_u8.hash(state);
-                cx.to_bits().hash(state);
-                cy.to_bits().hash(state);
-                rx.to_bits().hash(state);
-                ry.to_bits().hash(state);
-            }
-            CanvasCommand::ClipPath { anti_alias } => {
-                35_u8.hash(state);
-                anti_alias.hash(state);
-            }
-            CanvasCommand::ClipRRect {
-                x,
-                y,
-                width,
-                height,
-                radius,
-                anti_alias,
-            } => {
-                36_u8.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                width.to_bits().hash(state);
-                height.to_bits().hash(state);
-                radius.to_bits().hash(state);
-                anti_alias.hash(state);
-            }
-            CanvasCommand::DrawPoints { mode, points } => {
-                37_u8.hash(state);
-                mode.hash(state);
-                points
-                    .iter()
-                    .map(|value| value.to_bits())
-                    .collect::<Vec<_>>()
-                    .hash(state);
-            }
-            CanvasCommand::FillDRRect {
-                outer_x,
-                outer_y,
-                outer_width,
-                outer_height,
-                outer_radius,
-                inner_x,
-                inner_y,
-                inner_width,
-                inner_height,
-                inner_radius,
-            } => {
-                38_u8.hash(state);
-                outer_x.to_bits().hash(state);
-                outer_y.to_bits().hash(state);
-                outer_width.to_bits().hash(state);
-                outer_height.to_bits().hash(state);
-                outer_radius.to_bits().hash(state);
-                inner_x.to_bits().hash(state);
-                inner_y.to_bits().hash(state);
-                inner_width.to_bits().hash(state);
-                inner_height.to_bits().hash(state);
-                inner_radius.to_bits().hash(state);
-            }
-            CanvasCommand::StrokeDRRect {
-                outer_x,
-                outer_y,
-                outer_width,
-                outer_height,
-                outer_radius,
-                inner_x,
-                inner_y,
-                inner_width,
-                inner_height,
-                inner_radius,
-            } => {
-                39_u8.hash(state);
-                outer_x.to_bits().hash(state);
-                outer_y.to_bits().hash(state);
-                outer_width.to_bits().hash(state);
-                outer_height.to_bits().hash(state);
-                outer_radius.to_bits().hash(state);
-                inner_x.to_bits().hash(state);
-                inner_y.to_bits().hash(state);
-                inner_width.to_bits().hash(state);
-                inner_height.to_bits().hash(state);
-                inner_radius.to_bits().hash(state);
-            }
-            CanvasCommand::Skew { sx, sy } => {
-                40_u8.hash(state);
-                sx.to_bits().hash(state);
-                sy.to_bits().hash(state);
-            }
-            CanvasCommand::DrawImageSimple {
-                asset_id,
-                x,
-                y,
-                alpha,
-                anti_alias,
-            } => {
-                41_u8.hash(state);
-                asset_id.hash(state);
-                x.to_bits().hash(state);
-                y.to_bits().hash(state);
-                alpha.to_bits().hash(state);
-                anti_alias.hash(state);
-            }
-            CanvasCommand::Concat { matrix } => {
-                42_u8.hash(state);
-                matrix.map(f32::to_bits).hash(state);
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default)]
 pub struct CanvasMutations {
-    pub commands: Vec<CanvasCommand>,
+    pub commands: Vec<DrawOp>,
 }
 
 // ── Style mutations collection ────────────────────────────────────
@@ -1036,6 +253,7 @@ pub struct CanvasMutations {
 #[serde(rename_all = "camelCase")]
 pub struct StyleMutations {
     pub mutations: HashMap<String, NodeStyleMutations>,
+    #[serde(skip)]
     pub canvas_mutations: HashMap<String, CanvasMutations>,
 }
 
@@ -1058,7 +276,7 @@ impl StyleMutations {
         self.canvas_mutations.get(id)
     }
 
-    pub fn apply_to_canvas(&self, commands: &mut Vec<CanvasCommand>, id: &str) {
+    pub fn apply_to_canvas(&self, commands: &mut Vec<DrawOp>, id: &str) {
         if let Some(mutation) = self.canvas_mutations.get(id) {
             commands.extend(mutation.commands.iter().cloned());
         }
@@ -1076,7 +294,7 @@ impl StyleMutations {
         }
         for (canvas_id, canvas_mutations) in &self.canvas_mutations {
             for cmd in &canvas_mutations.commands {
-                recorder.record_canvas_command(canvas_id, cmd.clone());
+                recorder.record_draw_op(canvas_id, cmd.clone());
             }
         }
     }
@@ -1263,49 +481,47 @@ pub fn apply_node_to_recorder(
 
 // ── Name → enum parsing helpers (for script/JS bridge) ────────────
 
-pub fn line_cap_from_name(name: &str) -> Option<ScriptLineCap> {
+pub fn line_cap_from_name(name: &str) -> Option<crate::draw::op::LineCap> {
     match name {
-        "butt" => Some(ScriptLineCap::Butt),
-        "round" => Some(ScriptLineCap::Round),
-        "square" => Some(ScriptLineCap::Square),
+        "butt" => Some(crate::draw::op::LineCap::Butt),
+        "round" => Some(crate::draw::op::LineCap::Round),
+        "square" => Some(crate::draw::op::LineCap::Square),
         _ => None,
     }
 }
 
-pub fn line_join_from_name(name: &str) -> Option<ScriptLineJoin> {
+pub fn line_join_from_name(name: &str) -> Option<crate::draw::op::LineJoin> {
     match name {
-        "miter" => Some(ScriptLineJoin::Miter),
-        "round" => Some(ScriptLineJoin::Round),
-        "bevel" => Some(ScriptLineJoin::Bevel),
+        "miter" => Some(crate::draw::op::LineJoin::Miter),
+        "round" => Some(crate::draw::op::LineJoin::Round),
+        "bevel" => Some(crate::draw::op::LineJoin::Bevel),
         _ => None,
     }
 }
 
-pub fn point_mode_from_name(name: &str) -> Option<ScriptPointMode> {
+pub fn point_mode_from_name(name: &str) -> Option<crate::draw::op::PointMode> {
     match name {
-        "points" => Some(ScriptPointMode::Points),
-        "lines" => Some(ScriptPointMode::Lines),
-        "polygon" => Some(ScriptPointMode::Polygon),
+        "points" => Some(crate::draw::op::PointMode::Points),
+        "lines" => Some(crate::draw::op::PointMode::Lines),
+        "polygon" => Some(crate::draw::op::PointMode::Polygon),
         _ => None,
     }
 }
 
-pub fn font_edging_from_name(name: &str) -> Option<ScriptFontEdging> {
+pub fn font_edging_from_name(name: &str) -> Option<String> {
     match name {
-        "alias" => Some(ScriptFontEdging::Alias),
-        "antiAlias" => Some(ScriptFontEdging::AntiAlias),
-        "subpixelAntiAlias" => Some(ScriptFontEdging::SubpixelAntiAlias),
+        "alias" | "antiAlias" | "subpixelAntiAlias" => Some(name.to_string()),
         _ => None,
     }
 }
 
-// ── ScriptColor parsing ───────────────────────────────────────────
+// ── Color parsing ─────────────────────────────────────────────────
 
-pub fn script_color_from_value(value: &str) -> Option<ScriptColor> {
+pub fn script_color_from_value(value: &str) -> Option<crate::draw::op::ColorU8> {
     let color =
         crate::style::color_token_from_script_name(value).map(|color| color.rgba());
     if let Some((r, g, b, a)) = color {
-        return Some(ScriptColor { r, g, b, a });
+        return Some(crate::draw::op::ColorU8 { r, g, b, a });
     }
 
     if let Some(color) = parse_rgb_function(value) {
@@ -1336,7 +552,7 @@ pub fn script_color_from_value(value: &str) -> Option<ScriptColor> {
         _ => return None,
     };
 
-    Some(ScriptColor { r, g, b, a })
+    Some(crate::draw::op::ColorU8 { r, g, b, a })
 }
 
 fn parse_hex_nibble(byte: u8) -> Option<u8> {
@@ -1364,7 +580,7 @@ fn parse_alpha_channel(value: &str) -> Option<u8> {
     Some((alpha * 255.0).round() as u8)
 }
 
-fn parse_rgb_function(value: &str) -> Option<ScriptColor> {
+fn parse_rgb_function(value: &str) -> Option<crate::draw::op::ColorU8> {
     let (is_rgba, body) = if let Some(body) = value
         .strip_prefix("rgba(")
         .and_then(|body| body.strip_suffix(')'))
@@ -1391,7 +607,7 @@ fn parse_rgb_function(value: &str) -> Option<ScriptColor> {
         255
     };
 
-    Some(ScriptColor { r, g, b, a })
+    Some(crate::draw::op::ColorU8 { r, g, b, a })
 }
 
 // ── Coordinate parsing helpers ─────────────────────────────────────

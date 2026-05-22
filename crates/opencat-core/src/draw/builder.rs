@@ -68,6 +68,14 @@ impl DrawOpBuilder {
         id
     }
 
+
+    /// Intern an EncodedPath, returning a PathId.
+    pub fn intern_path(&mut self, path: EncodedPath) -> PathId {
+        let id = PathId(self.paths.len() as u32);
+        self.paths.push(path);
+        id
+    }
+
     /// Begin a range marker. Returns a token for `end_range`.
     pub fn begin_range(&mut self) -> RangeMarker {
         RangeMarker {

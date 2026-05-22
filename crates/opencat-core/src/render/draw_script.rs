@@ -1,7 +1,7 @@
 use crate::canvas::StrokeCap;
 use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle, StrokeSpec};
 use crate::display::list::DrawScriptDisplayItem;
-use crate::draw::op::{ColorF32, ColorU8, DrawOp, LineCap, LineJoin, Rect4};
+use crate::draw::op::{ColorU8, DrawOp, LineCap, LineJoin, Rect4};
 use crate::draw::types::PathOp;
 
 use super::RenderError;

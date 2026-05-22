@@ -15,7 +15,6 @@ pub use opencat_core::style;
 pub use opencat_core::text;
 
 // Backward-compatible module re-exports from engine
-pub use opencat_engine::backend;
 pub use opencat_engine::codec;
 pub use opencat_engine::fonts;
 pub use opencat_engine::inspect;

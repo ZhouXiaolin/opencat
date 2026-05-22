@@ -129,7 +129,7 @@ pub fn render_frame_inner(
     *last_ordered_scene = ordered_scene.clone();
 
     let mut builder = DrawOpBuilder::default();
-    let ctx = RenderCtx {
+    let mut ctx = RenderCtx {
         catalog,
         frame_ctx: &frame_ctx,
         display_tree: &annotated,
@@ -138,9 +138,7 @@ pub fn render_frame_inner(
         blob_store,
     };
 
-    // TODO (Chunk 6): render_display_tree will be adapted to take &mut RenderCtx
-    // instead of (canvas: &mut C, ctx: &RenderCtx<C>, cache: &mut RenderCache<C>).
-    // render_display_tree(canvas, &annotated, &ctx, cache)?;
+    crate::render::display_tree::render_display_tree(&mut ctx, &annotated, cache)?;
 
     let frame = builder.finish();
     let media_plan = build_media_plan(&frame);

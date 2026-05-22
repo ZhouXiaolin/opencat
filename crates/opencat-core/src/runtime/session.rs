@@ -1,13 +1,9 @@
-//! Generic per-render session: holds backend-agnostic state + platform state.
-//!
-//! engine / web each monomorphize this session with their concrete Platform
-//! type. The cache is now IR-based and backend-agnostic.
+//! Backend-agnostic per-render session state.
 
 use std::sync::Arc;
 
 use crate::draw::cache::RenderCache;
 use crate::layout::LayoutSession;
-use crate::platform::platform::Platform;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::runtime::annotation::AnnotatedNodeHandle;
 use crate::runtime::compositor::ordered_scene::{OrderedSceneOp, OrderedSceneProgram};
@@ -19,7 +15,7 @@ const DEFAULT_SUBTREE_SNAPSHOT_CAP: usize = 256;
 const DEFAULT_SEGMENT_CAP: usize = 256;
 const DEFAULT_ITEM_RANGE_CAP: usize = 128;
 
-pub struct RenderSession<P: Platform> {
+pub struct RenderSession {
     /// per-render layout accumulator (node id -> measure cache)
     pub layout_session: LayoutSession,
 
@@ -40,13 +36,10 @@ pub struct RenderSession<P: Platform> {
 
     /// last ordered scene program from the most recent render_frame call
     pub last_ordered_scene: OrderedSceneProgram,
-
-    /// platform's own stuff (script runtime, video source, IO etc)
-    pub platform: P,
 }
 
-impl<P: Platform> RenderSession<P> {
-    pub fn new(platform: P) -> Self {
+impl RenderSession {
+    pub fn new() -> Self {
         Self {
             layout_session: LayoutSession::new(),
             composite_history: CompositeHistory::default(),
@@ -65,7 +58,23 @@ impl<P: Platform> RenderSession<P> {
                     children: Vec::new(),
                 },
             },
-            platform,
         }
+    }
+}
+
+impl Default for RenderSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_session_new_does_not_require_platform() {
+        let session = RenderSession::new();
+        assert!(session.prepared_root_ptr.is_none());
     }
 }

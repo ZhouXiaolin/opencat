@@ -21,10 +21,9 @@ use opencat_core::{
 use opencat_core::resource::catalog::ResourceCatalog;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 
-use crate::platform::EnginePlatform;
 use crate::resource::AssetPathStore;
 use opencat_core::scene::path_bounds::DefaultPathBounds;
-type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform>;
+use crate::render::RenderSession;
 
 #[derive(Clone, Debug)]
 pub struct FrameElementRect {
@@ -94,7 +93,7 @@ fn collect_scene_rects(
     seed_asset_entries_for_inspect(
         scene,
         frame_ctx,
-        &mut session.catalog,
+        &mut session.core.catalog,
         &mut session.platform.asset_paths,
     );
 
@@ -105,14 +104,14 @@ fn collect_scene_rects(
         scene,
         frame_ctx,
         script_frame_ctx,
-        &mut session.catalog,
+        &mut session.core.catalog,
         None,
         &mut session.platform.script,
         &DefaultPathBounds,
     )?;
 
-    let font_db = session.font_db.clone();
-    let (layout_tree, _) = session.layout_session.compute_layout_with_font_db(
+    let font_db = session.core.font_db.clone();
+    let (layout_tree, _) = session.core.layout_session.compute_layout_with_font_db(
         &element_root,
         frame_ctx,
         font_db.as_ref(),

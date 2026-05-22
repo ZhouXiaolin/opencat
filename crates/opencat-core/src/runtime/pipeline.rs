@@ -12,7 +12,6 @@ use crate::element::resolve::resolve_ui_tree_with_script_cache;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
 use crate::layout::LayoutSession;
 use crate::platform::media::FrameMediaPlan;
-use crate::platform::platform::Platform;
 use crate::render::RenderCtx;
 use crate::render::media_plan::build_media_plan;
 use crate::resource::blob_store::BlobStore;
@@ -142,12 +141,13 @@ pub fn render_frame_inner(
     Ok((frame, media_plan))
 }
 
-/// Session-based wrapper: deconstructs `RenderSession<P>` and calls
+/// Session-based wrapper: deconstructs `RenderSession` and calls
 /// `render_frame_inner`.
-pub fn render_frame<P: Platform>(
+pub fn render_frame(
     composition: &Composition,
     frame_index: u32,
-    session: &mut RenderSession<P>,
+    session: &mut RenderSession,
+    script: &mut dyn ScriptHost,
     blob_store: Option<&dyn BlobStore>,
 ) -> Result<(DrawOpFrame, FrameMediaPlan)> {
     let RenderSession {
@@ -157,15 +157,8 @@ pub fn render_frame<P: Platform>(
         ref mut catalog,
         cache: ref mut cache_field,
         last_ordered_scene: ref mut last_ordered,
-        ref mut platform,
         ..
     } = *session;
-
-    // SAFETY: script() accesses only its own field on every Platform
-    // implementation. The borrow checker cannot see this through trait
-    // method calls, so we use a raw pointer to split the borrow.
-    let platform_ptr: *mut P = platform;
-    let script = unsafe { (*platform_ptr).script() };
 
     render_frame_inner(
         composition,

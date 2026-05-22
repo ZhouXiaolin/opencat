@@ -22,8 +22,32 @@ use opencat_core::resource::AssetPathBlobStore;
 use opencat_core::scene::composition::Composition;
 
 pub use crate::codec::encode::Mp4Config;
-/// Core generic RenderSession monomorphised for the engine's Skia platform.
-pub type RenderSession = opencat_core::runtime::session::RenderSession<EnginePlatform>;
+
+/// Engine render session: backend-agnostic core render state plus engine-owned
+/// runtime services. Core no longer owns a generic platform facade.
+pub struct RenderSession {
+    pub core: opencat_core::runtime::session::RenderSession,
+    pub platform: EnginePlatform,
+}
+
+impl RenderSession {
+    pub fn new() -> Self {
+        Self::with_platform(EnginePlatform::new())
+    }
+
+    pub fn with_platform(platform: EnginePlatform) -> Self {
+        Self {
+            core: opencat_core::runtime::session::RenderSession::new(),
+            platform,
+        }
+    }
+}
+
+impl Default for RenderSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub enum OutputFormat {
     Mp4(Mp4Config),
@@ -162,8 +186,7 @@ fn render_png(
                 "accelerated backend not yet supported via core pipeline"
             ));
         }
-        let platform = EnginePlatform::new();
-        let mut session = RenderSession::new(platform);
+        let mut session = RenderSession::new();
         let rgba = render_frame_rgba(composition, 0, &mut session)?;
         let image =
             image::RgbaImage::from_raw(composition.width as u32, composition.height as u32, rgba)
@@ -195,7 +218,7 @@ fn render_mp4(
             }
             let mut platform = EnginePlatform::new();
             platform.set_video_preview_quality(VideoPreviewQuality::Exact);
-            let mut session = RenderSession::new(platform);
+            let mut session = RenderSession::with_platform(platform);
 
             let audio_track = build_audio_track(&composition, &mut session)?;
             crate::codec::encode::encode_rgba_frames(
@@ -238,10 +261,11 @@ pub fn render_frame_to_target(
     // borrows when `render_frame` takes `&mut session`.
     let asset_paths_ptr: *const crate::resource::AssetPathStore = &session.platform.asset_paths;
     let blob_store = AssetPathBlobStore::new(unsafe { &*asset_paths_ptr });
-    let (draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame::<EnginePlatform>(
+    let (draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame(
         composition,
         frame_index,
-        session,
+        &mut session.core,
+        &mut session.platform.script,
         Some(&blob_store),
     )?;
 
@@ -282,10 +306,11 @@ pub fn render_frame_rgba(
     let asset_paths_ptr: *const crate::resource::AssetPathStore = &session.platform.asset_paths;
     let blob_store = AssetPathBlobStore::new(unsafe { &*asset_paths_ptr });
 
-    let (draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame::<EnginePlatform>(
+    let (draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame(
         composition,
         frame_index,
-        session,
+        &mut session.core,
+        &mut session.platform.script,
         Some(&blob_store),
     )?;
 
@@ -357,7 +382,7 @@ mod tests {
     use crate::{Composition, FrameCtx, platform::EnginePlatform};
 
     fn make_test_session() -> RenderSession {
-        RenderSession::new(EnginePlatform::new())
+        RenderSession::new()
     }
 
     fn write_test_png(path: &std::path::Path) {

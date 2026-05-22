@@ -331,8 +331,6 @@ pub fn glyph_outline_key(cache_key: &cosmic_text::CacheKey) -> u64 {
     hasher.finish()
 }
 
-
-
 pub fn apply_text_transform(text: &str, transform: TextTransform) -> String {
     match transform {
         TextTransform::None => text.to_string(),

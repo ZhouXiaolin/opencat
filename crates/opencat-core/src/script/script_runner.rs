@@ -54,8 +54,7 @@ impl<C: JsContext> ScriptRunner<C> {
 
         self.ctx
             .set_ctx_field("frame", json!(frame_ctx.frame as i64))?;
-        self.ctx
-            .set_ctx_field("fps", json!(frame_ctx.fps as i64))?;
+        self.ctx.set_ctx_field("fps", json!(frame_ctx.fps as i64))?;
         self.ctx
             .set_ctx_field("totalFrames", json!(frame_ctx.total_frames as i64))?;
         self.ctx
@@ -108,9 +107,7 @@ fn install_runtime<C: JsContext>(ctx: &C, user_source: &str) -> anyhow::Result<(
     ctx.eval(ANIMATION_RUNTIME)?;
 
     // 5. 把用户脚本包装为全局函数。
-    let run_fn_source = format!(
-        "globalThis.__opencatRunFrame = function() {{\n{user_source}\n}};"
-    );
+    let run_fn_source = format!("globalThis.__opencatRunFrame = function() {{\n{user_source}\n}};");
     ctx.eval(&run_fn_source)?;
 
     // 6. 把 ctx.__flushTimelines 别名为全局函数，与 call_global_fn 单一动词配套。

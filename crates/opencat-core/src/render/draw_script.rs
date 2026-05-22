@@ -1,13 +1,11 @@
-use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle, StrokeSpec};
 use crate::canvas::StrokeCap;
+use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle, StrokeSpec};
 use crate::display::list::DrawScriptDisplayItem;
-use crate::draw::op::{
-    ColorF32, ColorU8, DrawOp, LineCap, LineJoin, Rect4,
-};
+use crate::draw::op::{ColorF32, ColorU8, DrawOp, LineCap, LineJoin, Rect4};
 use crate::draw::types::PathOp;
 
-use super::ctx::RenderCtx;
 use super::RenderError;
+use super::ctx::RenderCtx;
 
 /// Sentinel: the stored DrawOp carries PaintId(u32::MAX) meaning "resolve to fill paint".
 const SENTINEL_FILL: u32 = u32::MAX;
@@ -29,8 +27,18 @@ struct LocalPaintState {
 impl Default for LocalPaintState {
     fn default() -> Self {
         Self {
-            fill_color: ColorU8 { r: 0, g: 0, b: 0, a: 255 },
-            stroke_color: ColorU8 { r: 0, g: 0, b: 0, a: 255 },
+            fill_color: ColorU8 {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            stroke_color: ColorU8 {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
             line_width: 1.0,
             line_cap: LineCap::Butt,
             line_join: LineJoin::Miter,
@@ -115,7 +123,12 @@ fn stroke_join_to_canvas(join: LineJoin) -> crate::canvas::StrokeJoin {
 }
 
 fn rect4_xywh(x: f32, y: f32, w: f32, h: f32) -> Rect4 {
-    Rect4 { x, y, width: w, height: h }
+    Rect4 {
+        x,
+        y,
+        width: w,
+        height: h,
+    }
 }
 
 pub fn render_draw_script(
@@ -127,11 +140,17 @@ pub fn render_draw_script(
 
     // Heuristic: Clear with fully transparent (a == 0.0) acts like "clear all"
     // In practice we check if any Clear exists
-    let needs_alpha_layer = item.commands.iter().any(|cmd| {
-        matches!(cmd, DrawOp::Clear { .. })
-    });
+    let needs_alpha_layer = item
+        .commands
+        .iter()
+        .any(|cmd| matches!(cmd, DrawOp::Clear { .. }));
 
-    let clip_rect = rect4_xywh(item.bounds.x, item.bounds.y, item.bounds.width, item.bounds.height);
+    let clip_rect = rect4_xywh(
+        item.bounds.x,
+        item.bounds.y,
+        item.bounds.width,
+        item.bounds.height,
+    );
 
     if needs_alpha_layer {
         b.push(DrawOp::SaveLayer {
@@ -166,11 +185,14 @@ fn execute_draw_op(
 ) -> Result<(), RenderError> {
     match op {
         // ── Stack management ──────────────────────────────────────────
-
         DrawOp::Save => {
             b.push(DrawOp::Save);
         }
-        DrawOp::SaveLayer { bounds, paint, alpha } => {
+        DrawOp::SaveLayer {
+            bounds,
+            paint,
+            alpha,
+        } => {
             b.push(DrawOp::SaveLayer {
                 bounds: *bounds,
                 paint: *paint,
@@ -185,7 +207,6 @@ fn execute_draw_op(
         }
 
         // ── Transforms ────────────────────────────────────────────────
-
         DrawOp::Translate { x, y } => {
             b.push(DrawOp::Translate { x: *x, y: *y });
         }
@@ -193,7 +214,11 @@ fn execute_draw_op(
             b.push(DrawOp::Scale { x: *x, y: *y });
         }
         DrawOp::Rotate { degrees, cx, cy } => {
-            b.push(DrawOp::Rotate { degrees: *degrees, cx: *cx, cy: *cy });
+            b.push(DrawOp::Rotate {
+                degrees: *degrees,
+                cx: *cx,
+                cy: *cy,
+            });
         }
         DrawOp::Skew { sx, sy } => {
             b.push(DrawOp::Skew { sx: *sx, sy: *sy });
@@ -203,7 +228,6 @@ fn execute_draw_op(
         }
 
         // ── Paint state setters ───────────────────────────────────────
-
         DrawOp::SetFillStyle { color } => {
             state.fill_color = *color;
             b.push(DrawOp::SetFillStyle { color: *color });
@@ -239,7 +263,9 @@ fn execute_draw_op(
         }
         DrawOp::SetGlobalAlpha { alpha } => {
             state.global_alpha = alpha.clamp(0.0, 1.0);
-            b.push(DrawOp::SetGlobalAlpha { alpha: state.global_alpha });
+            b.push(DrawOp::SetGlobalAlpha {
+                alpha: state.global_alpha,
+            });
         }
         DrawOp::SetAntiAlias { enabled } => {
             state.anti_alias = *enabled;
@@ -247,13 +273,11 @@ fn execute_draw_op(
         }
 
         // ── Clear ─────────────────────────────────────────────────────
-
         DrawOp::Clear { color } => {
             b.push(DrawOp::Clear { color: *color });
         }
 
         // ── Path ops (pushed as-is; paint state managed by executor) ──
-
         DrawOp::BeginPath => {
             b.push(DrawOp::BeginPath);
         }
@@ -267,14 +291,19 @@ fn execute_draw_op(
             b.push(DrawOp::StrokePath);
         }
         DrawOp::ClipPath { anti_alias } => {
-            b.push(DrawOp::ClipPath { anti_alias: *anti_alias });
+            b.push(DrawOp::ClipPath {
+                anti_alias: *anti_alias,
+            });
         }
 
         // ── Paint-bearing ops with sentinel resolution ────────────────
-
-        DrawOp::Arc { rect, start, sweep, use_center, paint }
-            if paint.0 == SENTINEL_FILL =>
-        {
+        DrawOp::Arc {
+            rect,
+            start,
+            sweep,
+            use_center,
+            paint,
+        } if paint.0 == SENTINEL_FILL => {
             let paint_id = b.intern_paint(state.fill_paint_spec());
             b.push(DrawOp::Arc {
                 rect: *rect,
@@ -284,9 +313,11 @@ fn execute_draw_op(
                 paint: paint_id,
             });
         }
-        DrawOp::Points { mode, points, paint }
-            if paint.0 == SENTINEL_STROKE =>
-        {
+        DrawOp::Points {
+            mode,
+            points,
+            paint,
+        } if paint.0 == SENTINEL_STROKE => {
             let paint_id = b.intern_paint(state.stroke_paint_spec());
             b.push(DrawOp::Points {
                 mode: *mode,
@@ -294,9 +325,11 @@ fn execute_draw_op(
                 paint: paint_id,
             });
         }
-        DrawOp::DRRect { outer, inner, paint }
-            if paint.0 == SENTINEL_FILL =>
-        {
+        DrawOp::DRRect {
+            outer,
+            inner,
+            paint,
+        } if paint.0 == SENTINEL_FILL => {
             let paint_id = b.intern_paint(state.fill_paint_spec());
             b.push(DrawOp::DRRect {
                 outer: *outer,
@@ -304,9 +337,11 @@ fn execute_draw_op(
                 paint: paint_id,
             });
         }
-        DrawOp::DRRect { outer, inner, paint }
-            if paint.0 == SENTINEL_STROKE =>
-        {
+        DrawOp::DRRect {
+            outer,
+            inner,
+            paint,
+        } if paint.0 == SENTINEL_STROKE => {
             let paint_id = b.intern_paint(state.stroke_paint_spec());
             b.push(DrawOp::DRRect {
                 outer: *outer,
@@ -314,15 +349,12 @@ fn execute_draw_op(
                 paint: paint_id,
             });
         }
-        DrawOp::Paint { paint }
-            if paint.0 == SENTINEL_FILL =>
-        {
+        DrawOp::Paint { paint } if paint.0 == SENTINEL_FILL => {
             let paint_id = b.intern_paint(state.fill_paint_spec());
             b.push(DrawOp::Paint { paint: paint_id });
         }
 
         // ── Image ops (push as-is) ────────────────────────────────────
-
         DrawOp::Image { image, x, y, paint } => {
             b.push(DrawOp::Image {
                 image: image.clone(),
@@ -331,7 +363,12 @@ fn execute_draw_op(
                 paint: *paint,
             });
         }
-        DrawOp::ImageRect { image, src, dst, paint } => {
+        DrawOp::ImageRect {
+            image,
+            src,
+            dst,
+            paint,
+        } => {
             b.push(DrawOp::ImageRect {
                 image: image.clone(),
                 src: *src,
@@ -341,23 +378,56 @@ fn execute_draw_op(
         }
 
         // ── Fallback: push remaining variants as-is ───────────────────
-
         DrawOp::Rect { rect, paint } => {
-            b.push(DrawOp::Rect { rect: *rect, paint: *paint });
+            b.push(DrawOp::Rect {
+                rect: *rect,
+                paint: *paint,
+            });
         }
         DrawOp::RRect { rect, radii, paint } => {
-            b.push(DrawOp::RRect { rect: *rect, radii: *radii, paint: *paint });
+            b.push(DrawOp::RRect {
+                rect: *rect,
+                radii: *radii,
+                paint: *paint,
+            });
         }
-        DrawOp::DRRect { outer, inner, paint } => {
-            b.push(DrawOp::DRRect { outer: *outer, inner: *inner, paint: *paint });
+        DrawOp::DRRect {
+            outer,
+            inner,
+            paint,
+        } => {
+            b.push(DrawOp::DRRect {
+                outer: *outer,
+                inner: *inner,
+                paint: *paint,
+            });
         }
         DrawOp::Oval { rect, paint } => {
-            b.push(DrawOp::Oval { rect: *rect, paint: *paint });
+            b.push(DrawOp::Oval {
+                rect: *rect,
+                paint: *paint,
+            });
         }
-        DrawOp::Circle { cx, cy, radius, paint } => {
-            b.push(DrawOp::Circle { cx: *cx, cy: *cy, radius: *radius, paint: *paint });
+        DrawOp::Circle {
+            cx,
+            cy,
+            radius,
+            paint,
+        } => {
+            b.push(DrawOp::Circle {
+                cx: *cx,
+                cy: *cy,
+                radius: *radius,
+                paint: *paint,
+            });
         }
-        DrawOp::Arc { rect, start, sweep, use_center, paint } => {
+        DrawOp::Arc {
+            rect,
+            start,
+            sweep,
+            use_center,
+            paint,
+        } => {
             b.push(DrawOp::Arc {
                 rect: *rect,
                 start: *start,
@@ -366,19 +436,47 @@ fn execute_draw_op(
                 paint: *paint,
             });
         }
-        DrawOp::Line { x0, y0, x1, y1, paint } => {
-            b.push(DrawOp::Line { x0: *x0, y0: *y0, x1: *x1, y1: *y1, paint: *paint });
+        DrawOp::Line {
+            x0,
+            y0,
+            x1,
+            y1,
+            paint,
+        } => {
+            b.push(DrawOp::Line {
+                x0: *x0,
+                y0: *y0,
+                x1: *x1,
+                y1: *y1,
+                paint: *paint,
+            });
         }
-        DrawOp::Points { mode, points, paint } => {
-            b.push(DrawOp::Points { mode: *mode, points: *points, paint: *paint });
+        DrawOp::Points {
+            mode,
+            points,
+            paint,
+        } => {
+            b.push(DrawOp::Points {
+                mode: *mode,
+                points: *points,
+                paint: *paint,
+            });
         }
         DrawOp::Paint { paint } => {
             b.push(DrawOp::Paint { paint: *paint });
         }
         DrawOp::DrawPath { path, paint } => {
-            b.push(DrawOp::DrawPath { path: *path, paint: *paint });
+            b.push(DrawOp::DrawPath {
+                path: *path,
+                paint: *paint,
+            });
         }
-        DrawOp::RuntimeEffect { effect, uniforms, children, dst } => {
+        DrawOp::RuntimeEffect {
+            effect,
+            uniforms,
+            children,
+            dst,
+        } => {
             b.push(DrawOp::RuntimeEffect {
                 effect: *effect,
                 uniforms: *uniforms,

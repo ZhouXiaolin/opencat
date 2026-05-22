@@ -488,19 +488,15 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
             VideoSource::Url(u) => format!("video:url:{u}"),
         };
 
-        let asset_id = cx
-            .assets
-            .register_dimensions(&locator, 0, 0);
+        let asset_id = cx.assets.register_dimensions(&locator, 0, 0);
         let info = cx.assets.video_info(&asset_id).unwrap_or(VideoInfoMeta {
             width: 0,
             height: 0,
             duration_secs: None,
         });
-        let asset_id = cx.assets.register_dimensions(
-            &locator,
-            info.width,
-            info.height,
-        );
+        let asset_id = cx
+            .assets
+            .register_dimensions(&locator, info.width, info.height);
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -876,11 +872,7 @@ fn apply_mutation_stack(style: &mut NodeStyle, stack: &[StyleMutations]) {
     }
 }
 
-fn apply_canvas_mutation_stack(
-    commands: &mut Vec<DrawOp>,
-    stack: &[StyleMutations],
-    id: &str,
-) {
+fn apply_canvas_mutation_stack(commands: &mut Vec<DrawOp>, stack: &[StyleMutations], id: &str) {
     for mutations in stack {
         mutations.apply_to_canvas(commands, id);
     }

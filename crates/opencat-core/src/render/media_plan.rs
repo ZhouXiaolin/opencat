@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::draw::frame::DrawOpFrame;
 use crate::draw::op::DrawOp;
-use crate::draw::types::{EffectId, EffectRef, ImageRef, RuntimeEffectChildRef};
+use crate::draw::types::{ImageRef, RuntimeEffectChildRef};
 use crate::platform::media::FrameMediaPlan;
 
 /// Extract all media references from a DrawOpFrame and build a FrameMediaPlan.
@@ -10,8 +10,6 @@ use crate::platform::media::FrameMediaPlan;
 pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
     let mut images: Vec<ImageRef> = Vec::new();
     let mut seen_images: HashSet<ImageRef> = HashSet::new();
-    let mut effects: Vec<EffectRef> = Vec::new();
-    let mut seen_effects: HashSet<EffectId> = HashSet::new();
 
     for op in &frame.ops {
         match op {
@@ -21,14 +19,7 @@ pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
                     images.push(img);
                 }
             }
-            DrawOp::RuntimeEffect {
-                effect, children, ..
-            } => {
-                if seen_effects.insert(*effect) {
-                    if let Some(effect_ref) = frame.effects.get(effect.0 as usize) {
-                        effects.push(effect_ref.clone());
-                    }
-                }
+            DrawOp::RuntimeEffect { children, .. } => {
                 let start = children.start as usize;
                 let end = start + children.len as usize;
                 for child in &frame.children[start..end] {
@@ -46,7 +37,7 @@ pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
 
     FrameMediaPlan {
         images,
-        runtime_effects: effects,
+        runtime_effects: frame.effects.clone(),
     }
 }
 
@@ -56,7 +47,9 @@ mod tests {
     use crate::draw::builder::DrawOpBuilder;
     use crate::draw::frame::DrawOpFrame;
     use crate::draw::op::{DrawOp, Rect4};
-    use crate::draw::types::{BytesRangeId, ChildRange, EffectId, EffectRef, ImageRef, RuntimeEffectChildRef};
+    use crate::draw::types::{
+        BytesRangeId, ChildRange, EffectId, EffectRef, ImageRef, RuntimeEffectChildRef,
+    };
 
     #[test]
     fn empty_frame_produces_empty_plan() {
@@ -64,6 +57,36 @@ mod tests {
         let plan = build_media_plan(&frame);
         assert!(plan.images.is_empty());
         assert!(plan.runtime_effects.is_empty());
+    }
+
+    #[test]
+    fn preserves_runtime_effect_table_order() {
+        let mut frame = DrawOpFrame::default();
+        frame.effects.push(EffectRef {
+            hash: 0xAA01,
+            sksl: "half4 main(float2 uv) { return half4(1); }".into(),
+        });
+        frame.effects.push(EffectRef {
+            hash: 0xAA02,
+            sksl: "half4 main(float2 uv) { return half4(0); }".into(),
+        });
+        frame.ops.push(DrawOp::RuntimeEffect {
+            effect: EffectId(1),
+            uniforms: BytesRangeId(0),
+            children: ChildRange { start: 0, len: 0 },
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 100.0,
+            },
+        });
+
+        let plan = build_media_plan(&frame);
+
+        assert_eq!(plan.runtime_effects.len(), 2);
+        assert_eq!(plan.runtime_effects[0].hash, 0xAA01);
+        assert_eq!(plan.runtime_effects[1].hash, 0xAA02);
     }
 
     #[test]

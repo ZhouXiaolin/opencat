@@ -518,8 +518,7 @@ pub fn font_edging_from_name(name: &str) -> Option<String> {
 // ── Color parsing ─────────────────────────────────────────────────
 
 pub fn script_color_from_value(value: &str) -> Option<crate::draw::op::ColorU8> {
-    let color =
-        crate::style::color_token_from_script_name(value).map(|color| color.rgba());
+    let color = crate::style::color_token_from_script_name(value).map(|color| color.rgba());
     if let Some((r, g, b, a)) = color {
         return Some(crate::draw::op::ColorU8 { r, g, b, a });
     }
@@ -626,7 +625,7 @@ pub fn parse_drrect_coords(coords: &[f32]) -> Option<DrRectCoords> {
         return None;
     }
     Some((
-        coords[0], coords[1], coords[2], coords[3], coords[4],
-        coords[5], coords[6], coords[7], coords[8], coords[9],
+        coords[0], coords[1], coords[2], coords[3], coords[4], coords[5], coords[6], coords[7],
+        coords[8], coords[9],
     ))
 }

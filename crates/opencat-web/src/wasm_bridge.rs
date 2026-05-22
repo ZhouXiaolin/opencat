@@ -1,6 +1,5 @@
 //! wasm-bindgen 桥：JS 端调用 `WebRenderer.build_frame(jsonl, frame, ck_canvas, resources_json)`.
 
-
 use wasm_bindgen::prelude::*;
 
 use opencat_core::resource::asset_id::AssetId;
@@ -9,8 +8,8 @@ use opencat_core::runtime::pipeline::render_frame;
 use opencat_core::runtime::session::RenderSession;
 use opencat_core::scene::composition::Composition;
 
-use crate::canvaskit::bindings::CKCanvas;
 use crate::canvaskit::CanvasKitCanvas2D;
+use crate::canvaskit::bindings::CKCanvas;
 use crate::codec::audio::WebAudio;
 use crate::platform::WebPlatform;
 
@@ -243,7 +242,8 @@ impl WebRenderer {
     ) -> String {
         match self.audio.get_pcm(&asset_id) {
             Some(pcm) => {
-                let samples = WebAudio::extract_samples(pcm, start_secs, duration_secs, target_rate);
+                let samples =
+                    WebAudio::extract_samples(pcm, start_secs, duration_secs, target_rate);
                 serde_json::json!({
                     "sample_rate": pcm.sample_rate,
                     "channels": pcm.channels,
@@ -303,5 +303,4 @@ impl WebRenderer {
     pub fn clear_image_blobs(&mut self) {
         self.blobs.clear();
     }
-
 }

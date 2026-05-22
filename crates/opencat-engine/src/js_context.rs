@@ -197,9 +197,11 @@ impl JsContext for RqJsContext {
                     let mut guard = store.lock().map_err(|e| {
                         JsError::new_from_js_message("script", "lock", &e.to_string())
                     })?;
-                    dispatcher(&mut guard, &name, &args).map(JsonReturn).map_err(|e| {
-                        JsError::new_from_js_message("script", "script", &e.to_string())
-                    })
+                    dispatcher(&mut guard, &name, &args)
+                        .map(JsonReturn)
+                        .map_err(|e| {
+                            JsError::new_from_js_message("script", "script", &e.to_string())
+                        })
                 },
             )?;
             ctx.globals().set("__opencatCallNative", f)?;

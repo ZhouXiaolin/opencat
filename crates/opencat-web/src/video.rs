@@ -1,4 +1,3 @@
-
 //! WebVideoSource — VideoFrameProvider for wasm target.
 //!
 //! The browser cannot synchronously decode during `frame_rgba`, so the JS side

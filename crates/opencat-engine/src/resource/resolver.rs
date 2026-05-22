@@ -11,12 +11,10 @@ use anyhow::{Context, Result};
 
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::probe::{probe_image_dims, probe_video};
-use opencat_core::resource::resolver::{
-    AssetResolver, AssetSink, AudioMeta, ImageMeta, VideoMeta,
-};
+use opencat_core::resource::resolver::{AssetResolver, AssetSink, AudioMeta, ImageMeta, VideoMeta};
 
-use crate::resource::fetch::EngineFetcher;
 use crate::resource::AssetPathStore;
+use crate::resource::fetch::EngineFetcher;
 use crate::resource::utils::cache_file_path;
 
 /// Engine 端 (id, bytes) → path_store 索引建立。
@@ -55,10 +53,7 @@ pub struct EngineAssetResolver<'a> {
 }
 
 impl<'a> EngineAssetResolver<'a> {
-    pub fn new(
-        path_store: &'a mut AssetPathStore,
-        cache_dir: PathBuf,
-    ) -> Result<Self> {
+    pub fn new(path_store: &'a mut AssetPathStore, cache_dir: PathBuf) -> Result<Self> {
         let fetcher = EngineFetcher::new(cache_dir.clone())?;
         let sink = EngineSink::new(path_store, cache_dir);
         Ok(Self { fetcher, sink })
@@ -118,5 +113,4 @@ impl<'a> AssetResolver for EngineAssetResolver<'a> {
             })
         }
     }
-
 }

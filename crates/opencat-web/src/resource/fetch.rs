@@ -17,7 +17,9 @@ fn js_err(val: wasm_bindgen::JsValue) -> anyhow::Error {
     if let Some(err) = val.dyn_ref::<js_sys::Error>() {
         anyhow::anyhow!("fetch failed: {}", err.message())
     } else {
-        let msg = val.as_string().unwrap_or_else(|| "unknown error".to_string());
+        let msg = val
+            .as_string()
+            .unwrap_or_else(|| "unknown error".to_string());
         anyhow::anyhow!("fetch failed: {msg}")
     }
 }
@@ -29,14 +31,12 @@ pub async fn fetch_bytes(url: &str) -> anyhow::Result<Vec<u8>> {
     opts.set_method("GET");
     opts.set_mode(RequestMode::Cors);
 
-    let request =
-        Request::new_with_str_and_init(&url, &opts).map_err(js_err)?;
+    let request = Request::new_with_str_and_init(&url, &opts).map_err(js_err)?;
 
     let window = web_sys::window().ok_or_else(|| anyhow::anyhow!("no window"))?;
-    let resp_value =
-        JsFuture::from(window.fetch_with_request(&request))
-            .await
-            .map_err(js_err)?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(js_err)?;
 
     let resp: Response = resp_value
         .dyn_into()

@@ -2,11 +2,10 @@
 //! CanvasKit 把 BlendMode/PaintStyle 等暴露成 `CK.BlendMode.SrcOver` 形式的 JS 对象，
 //! 不是数字。本文件统一通过 `Reflect::get` 拿到对应 JS 值供 `setBlendMode` 等使用。
 
-
 use wasm_bindgen::JsValue;
 
-use opencat_core::canvas::{BlendMode, ClipOp, FillType, PointMode};
 use opencat_core::canvas::paint::{PaintStyle, StrokeCap, StrokeJoin};
+use opencat_core::canvas::{BlendMode, ClipOp, FillType, PointMode};
 
 use crate::canvaskit::module::ck;
 

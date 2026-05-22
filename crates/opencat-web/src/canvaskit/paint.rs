@@ -1,10 +1,9 @@
 //! `PaintSpec` → `CKPaint` 转换。覆盖 Solid / Stroke / AA / BlendMode / PaintStyle。
 //! Shader / ImageFilter / ColorFilter / MaskFilter / PathEffect 已实现。
 
+use opencat_core::canvas::paint::{FillSpec, PaintSpec, PaintStyle};
 
-use opencat_core::canvas::paint::{FillSpec, PaintStyle, PaintSpec};
-
-use crate::canvaskit::bindings::{ck_color4f, CKPaint};
+use crate::canvaskit::bindings::{CKPaint, ck_color4f};
 use crate::canvaskit::convert::{ck_blend_mode, ck_paint_style, ck_stroke_cap, ck_stroke_join};
 
 /// 应用 `spec` 到 fill_paint 或 stroke_paint，返回应被使用的 paint 引用。

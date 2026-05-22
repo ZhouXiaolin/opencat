@@ -1,11 +1,10 @@
 //! 浏览器原生 JS 引擎后端：`JsContext` 的具体实现。
 
-
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use serde_json::Value as JsonValue;
-use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 use opencat_core::script::js_context::JsContext;
 use opencat_core::script::recorder::MutationStore;
@@ -24,8 +23,7 @@ impl JsContext for WebJsContext {
     }
 
     fn eval(&self, code: &str) -> anyhow::Result<()> {
-        js_sys::eval(code)
-            .map_err(|e| anyhow::anyhow!("script eval: {}", js_err_to_string(&e)))?;
+        js_sys::eval(code).map_err(|e| anyhow::anyhow!("script eval: {}", js_err_to_string(&e)))?;
         Ok(())
     }
 
@@ -56,8 +54,8 @@ impl JsContext for WebJsContext {
         F: Fn(&mut MutationStore, &str, &[JsonValue]) -> anyhow::Result<JsonValue> + 'static,
     {
         let store = self.store.clone();
-        let closure = Closure::wrap(Box::new(
-            move |name_js: JsValue, args_js: JsValue| -> JsValue {
+        let closure = Closure::wrap(
+            Box::new(move |name_js: JsValue, args_js: JsValue| -> JsValue {
                 let name = name_js.as_string().unwrap_or_default();
                 let args = js_array_to_json(&args_js).unwrap_or_default();
                 let mut guard = store.borrow_mut();
@@ -68,9 +66,8 @@ impl JsContext for WebJsContext {
                         JsValue::NULL
                     }
                 }
-            },
-        )
-            as Box<dyn FnMut(JsValue, JsValue) -> JsValue>);
+            }) as Box<dyn FnMut(JsValue, JsValue) -> JsValue>,
+        );
 
         let global = js_sys::global();
         js_sys::Reflect::set(
@@ -112,8 +109,7 @@ fn js_err_to_string(v: &JsValue) -> String {
 
 fn json_to_js(v: &JsonValue) -> anyhow::Result<JsValue> {
     let s = serde_json::to_string(v)?;
-    js_sys::JSON::parse(&s)
-        .map_err(|e| anyhow::anyhow!("json_to_js: {}", js_err_to_string(&e)))
+    js_sys::JSON::parse(&s).map_err(|e| anyhow::anyhow!("json_to_js: {}", js_err_to_string(&e)))
 }
 
 fn js_array_to_json(v: &JsValue) -> anyhow::Result<Vec<JsonValue>> {

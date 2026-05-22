@@ -9,7 +9,10 @@ use crate::draw::types::ImageRef;
 use crate::style::ObjectFit;
 
 use super::paint_conv::background_fill_to_paint_spec;
-use super::rect::{clip_bounds, draw_box_shadow, draw_inset_shadow, draw_item_drop_shadow, draw_node_border, kurbo_rect, rect_to_rect4};
+use super::rect::{
+    clip_bounds, draw_box_shadow, draw_inset_shadow, draw_item_drop_shadow, draw_node_border,
+    kurbo_rect, rect_to_rect4,
+};
 use super::{RenderCtx, RenderError};
 
 pub(crate) fn fitted_rect(src_width: f32, src_height: f32, dst: &Rect, cover: bool) -> Rect {
@@ -22,7 +25,11 @@ pub(crate) fn fitted_rect(src_width: f32, src_height: f32, dst: &Rect, cover: bo
     let dst_aspect = dst.width() / dst.height();
 
     let scale = if cover {
-        if src_aspect > dst_aspect { dst.height() / ih } else { dst.width() / iw }
+        if src_aspect > dst_aspect {
+            dst.height() / ih
+        } else {
+            dst.width() / iw
+        }
     } else if src_aspect > dst_aspect {
         dst.width() / iw
     } else {
@@ -84,10 +91,7 @@ fn draw_bitmap_image(
     }
 }
 
-pub fn render_bitmap(
-    ctx: &mut RenderCtx,
-    item: &BitmapDisplayItem,
-) -> Result<(), RenderError> {
+pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<(), RenderError> {
     #[cfg(feature = "profile")]
     event!(
         target: "render.draw",
@@ -109,9 +113,7 @@ pub fn render_bitmap(
             frame_index,
         }
     } else {
-        ImageRef::Static {
-            asset_id,
-        }
+        ImageRef::Static { asset_id }
     };
 
     let src_width = item.width as f32;
@@ -137,10 +139,17 @@ pub fn render_bitmap(
     }
 
     draw_node_border(
-        builder, &dst, &style.border_radius,
-        style.border_width, style.border_top_width, style.border_right_width,
-        style.border_bottom_width, style.border_left_width,
-        style.border_color, style.border_style, style.blur_sigma,
+        builder,
+        &dst,
+        &style.border_radius,
+        style.border_width,
+        style.border_top_width,
+        style.border_right_width,
+        style.border_bottom_width,
+        style.border_left_width,
+        style.border_color,
+        style.border_style,
+        style.blur_sigma,
     );
 
     builder.push(DrawOp::Restore);
@@ -159,9 +168,7 @@ pub fn render_bitmap_with_shadows(
     }
 
     if let Some(ref shadow) = style.drop_shadow {
-        draw_item_drop_shadow(ctx, bounds, shadow, |ctx2| {
-            render_bitmap(ctx2, item)
-        })?;
+        draw_item_drop_shadow(ctx, bounds, shadow, |ctx2| render_bitmap(ctx2, item))?;
     }
     render_bitmap(ctx, item)?;
 

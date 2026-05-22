@@ -3,11 +3,11 @@
 //! Each platform crate (engine, web) implements `Platform`, core pipeline
 //! monomorphises via `Platform` associated types.
 
+use super::draw::DrawPlatform;
+use super::media::MediaPlatform;
+use super::resource::ResourcePlatform;
 use crate::platform::video::VideoFrameProvider;
 use crate::scene::script::ScriptHost;
-use super::resource::ResourcePlatform;
-use super::media::MediaPlatform;
-use super::draw::DrawPlatform;
 
 /// Platform facade: each backend provides script, resource, media, and draw roles.
 /// The `Video` bridge is kept for backward compatibility during migration.
@@ -15,9 +15,7 @@ pub trait Platform: 'static {
     type Script: ScriptHost;
     type Resource: ResourcePlatform;
     type Media: MediaPlatform;
-    type Draw: DrawPlatform<
-        PreparedFrameMedia = <Self::Media as MediaPlatform>::PreparedFrameMedia,
-    >;
+    type Draw: DrawPlatform<PreparedFrameMedia = <Self::Media as MediaPlatform>::PreparedFrameMedia>;
     /// Legacy video bridge — will be folded into Media/Draw in a future phase.
     type Video: VideoFrameProvider;
 
@@ -32,16 +30,16 @@ pub trait Platform: 'static {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame_ctx::ScriptFrameCtx;
-    use crate::platform::video::{FrameBitmap, VideoFrameProvider};
-    use crate::resource::asset_id::AssetId;
-    use crate::resource::{AssetResolver, BlobStore, AssetSink, UrlFetcher};
-    use crate::scene::script::{ScriptDriverId, ScriptTextSource};
-    use crate::script::recorder::MutationRecorder;
     use crate::draw::cache::CachedDrawRange;
     use crate::draw::frame::DrawOpFrame;
-    use crate::platform::draw::{RenderSessionHeader, DrawStats, DrawError};
-    use crate::platform::media::{FrameMediaPlan, AudioPlanSlice, PrepareMode, MediaError};
+    use crate::frame_ctx::ScriptFrameCtx;
+    use crate::platform::draw::{DrawError, DrawStats, RenderSessionHeader};
+    use crate::platform::media::{AudioPlanSlice, FrameMediaPlan, MediaError, PrepareMode};
+    use crate::platform::video::{FrameBitmap, VideoFrameProvider};
+    use crate::resource::asset_id::AssetId;
+    use crate::resource::{AssetResolver, AssetSink, BlobStore, UrlFetcher};
+    use crate::scene::script::{ScriptDriverId, ScriptTextSource};
+    use crate::script::recorder::MutationRecorder;
     use anyhow::Result;
     use std::future::Future;
 

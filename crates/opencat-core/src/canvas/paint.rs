@@ -101,8 +101,6 @@ pub enum BlendMode {
     Luminosity,
 }
 
-
-
 #[derive(Clone, Debug)]
 pub enum ImageFilterSpec {
     Blur {
@@ -174,18 +172,27 @@ pub enum BlurStyle {
 
 #[derive(Clone, Debug)]
 pub enum PathEffectSpec {
-    Dash {
-        intervals: Vec<f32>,
-        phase: f32,
-    },
+    Dash { intervals: Vec<f32>, phase: f32 },
 }
 
 impl PartialEq for PathEffectSpec {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (PathEffectSpec::Dash { intervals: a_i, phase: a_p }, PathEffectSpec::Dash { intervals: b_i, phase: b_p }) => {
+            (
+                PathEffectSpec::Dash {
+                    intervals: a_i,
+                    phase: a_p,
+                },
+                PathEffectSpec::Dash {
+                    intervals: b_i,
+                    phase: b_p,
+                },
+            ) => {
                 a_i.len() == b_i.len()
-                    && a_i.iter().zip(b_i.iter()).all(|(a, b)| a.to_bits() == b.to_bits())
+                    && a_i
+                        .iter()
+                        .zip(b_i.iter())
+                        .all(|(a, b)| a.to_bits() == b.to_bits())
                     && a_p.to_bits() == b_p.to_bits()
             }
         }
@@ -207,10 +214,18 @@ impl Hash for PathEffectSpec {
 impl PartialEq for MaskFilterSpec {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (MaskFilterSpec::Blur { sigma: a_s, style: a_st, respect_ctm: a_rc },
-             MaskFilterSpec::Blur { sigma: b_s, style: b_st, respect_ctm: b_rc }) => {
-                a_s.to_bits() == b_s.to_bits() && a_st == b_st && a_rc == b_rc
-            }
+            (
+                MaskFilterSpec::Blur {
+                    sigma: a_s,
+                    style: a_st,
+                    respect_ctm: a_rc,
+                },
+                MaskFilterSpec::Blur {
+                    sigma: b_s,
+                    style: b_st,
+                    respect_ctm: b_rc,
+                },
+            ) => a_s.to_bits() == b_s.to_bits() && a_st == b_st && a_rc == b_rc,
         }
     }
 }
@@ -219,7 +234,11 @@ impl Hash for MaskFilterSpec {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            MaskFilterSpec::Blur { sigma, style, respect_ctm } => {
+            MaskFilterSpec::Blur {
+                sigma,
+                style,
+                respect_ctm,
+            } => {
                 sigma.to_bits().hash(state);
                 style.hash(state);
                 respect_ctm.hash(state);
@@ -232,8 +251,20 @@ impl PartialEq for ColorFilterSpec {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (ColorFilterSpec::Matrix(a), ColorFilterSpec::Matrix(b)) => a == b,
-            (ColorFilterSpec::BlendColor { color: ac, mode: am }, ColorFilterSpec::BlendColor { color: bc, mode: bm }) => {
-                ac.iter().zip(bc.iter()).all(|(a, b)| a.to_bits() == b.to_bits()) && am == bm
+            (
+                ColorFilterSpec::BlendColor {
+                    color: ac,
+                    mode: am,
+                },
+                ColorFilterSpec::BlendColor {
+                    color: bc,
+                    mode: bm,
+                },
+            ) => {
+                ac.iter()
+                    .zip(bc.iter())
+                    .all(|(a, b)| a.to_bits() == b.to_bits())
+                    && am == bm
             }
             (ColorFilterSpec::LinearToSrgbGamma, ColorFilterSpec::LinearToSrgbGamma) => true,
             (ColorFilterSpec::SrgbToLinearGamma, ColorFilterSpec::SrgbToLinearGamma) => true,
@@ -259,28 +290,60 @@ impl Hash for ColorFilterSpec {
 impl PartialEq for ImageFilterSpec {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (ImageFilterSpec::Blur { sigma_x: ax, sigma_y: ay, crop_rect: ar },
-             ImageFilterSpec::Blur { sigma_x: bx, sigma_y: by, crop_rect: br }) => {
-                ax.to_bits() == bx.to_bits() && ay.to_bits() == by.to_bits()
+            (
+                ImageFilterSpec::Blur {
+                    sigma_x: ax,
+                    sigma_y: ay,
+                    crop_rect: ar,
+                },
+                ImageFilterSpec::Blur {
+                    sigma_x: bx,
+                    sigma_y: by,
+                    crop_rect: br,
+                },
+            ) => {
+                ax.to_bits() == bx.to_bits()
+                    && ay.to_bits() == by.to_bits()
                     && match (ar, br) {
-                        (Some(a), Some(b)) => a.x0.to_bits() == b.x0.to_bits()
-                            && a.y0.to_bits() == b.y0.to_bits()
-                            && a.x1.to_bits() == b.x1.to_bits()
-                            && a.y1.to_bits() == b.y1.to_bits(),
+                        (Some(a), Some(b)) => {
+                            a.x0.to_bits() == b.x0.to_bits()
+                                && a.y0.to_bits() == b.y0.to_bits()
+                                && a.x1.to_bits() == b.x1.to_bits()
+                                && a.y1.to_bits() == b.y1.to_bits()
+                        }
                         (None, None) => true,
                         _ => false,
                     }
             }
-            (ImageFilterSpec::DropShadow { dx: ax, dy: ay, sigma_x: asx, sigma_y: asy, color: ac },
-             ImageFilterSpec::DropShadow { dx: bx, dy: by, sigma_x: bsx, sigma_y: bsy, color: bc }) => {
+            (
+                ImageFilterSpec::DropShadow {
+                    dx: ax,
+                    dy: ay,
+                    sigma_x: asx,
+                    sigma_y: asy,
+                    color: ac,
+                },
+                ImageFilterSpec::DropShadow {
+                    dx: bx,
+                    dy: by,
+                    sigma_x: bsx,
+                    sigma_y: bsy,
+                    color: bc,
+                },
+            ) => {
                 ax.to_bits() == bx.to_bits()
                     && ay.to_bits() == by.to_bits()
                     && asx.to_bits() == bsx.to_bits()
                     && asy.to_bits() == bsy.to_bits()
-                    && ac.iter().zip(bc.iter()).all(|(a, b)| a.to_bits() == b.to_bits())
+                    && ac
+                        .iter()
+                        .zip(bc.iter())
+                        .all(|(a, b)| a.to_bits() == b.to_bits())
             }
             (ImageFilterSpec::ColorFilter(a), ImageFilterSpec::ColorFilter(b)) => a == b,
-            (ImageFilterSpec::Compose(a1, a2), ImageFilterSpec::Compose(b1, b2)) => a1 == b1 && a2 == b2,
+            (ImageFilterSpec::Compose(a1, a2), ImageFilterSpec::Compose(b1, b2)) => {
+                a1 == b1 && a2 == b2
+            }
             _ => false,
         }
     }
@@ -290,7 +353,11 @@ impl Hash for ImageFilterSpec {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            ImageFilterSpec::Blur { sigma_x, sigma_y, crop_rect } => {
+            ImageFilterSpec::Blur {
+                sigma_x,
+                sigma_y,
+                crop_rect,
+            } => {
                 sigma_x.to_bits().hash(state);
                 sigma_y.to_bits().hash(state);
                 if let Some(r) = crop_rect {
@@ -303,7 +370,13 @@ impl Hash for ImageFilterSpec {
                     0u8.hash(state);
                 }
             }
-            ImageFilterSpec::DropShadow { dx, dy, sigma_x, sigma_y, color } => {
+            ImageFilterSpec::DropShadow {
+                dx,
+                dy,
+                sigma_x,
+                sigma_y,
+                color,
+            } => {
                 dx.to_bits().hash(state);
                 dy.to_bits().hash(state);
                 sigma_x.to_bits().hash(state);
@@ -322,30 +395,68 @@ impl Hash for ImageFilterSpec {
 impl PartialEq for ShaderSpec {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (ShaderSpec::LinearGradient { from: af, to: at, stops: as_stops, colors: ac, tile_mode: atm },
-             ShaderSpec::LinearGradient { from: bf, to: bt, stops: bs_stops, colors: bc, tile_mode: btm }) => {
+            (
+                ShaderSpec::LinearGradient {
+                    from: af,
+                    to: at,
+                    stops: as_stops,
+                    colors: ac,
+                    tile_mode: atm,
+                },
+                ShaderSpec::LinearGradient {
+                    from: bf,
+                    to: bt,
+                    stops: bs_stops,
+                    colors: bc,
+                    tile_mode: btm,
+                },
+            ) => {
                 af[0].to_bits() == bf[0].to_bits()
                     && af[1].to_bits() == bf[1].to_bits()
                     && at[0].to_bits() == bt[0].to_bits()
                     && at[1].to_bits() == bt[1].to_bits()
                     && as_stops.len() == bs_stops.len()
-                    && as_stops.iter().zip(bs_stops.iter()).all(|(a, b)| a.to_bits() == b.to_bits())
+                    && as_stops
+                        .iter()
+                        .zip(bs_stops.iter())
+                        .all(|(a, b)| a.to_bits() == b.to_bits())
                     && ac.len() == bc.len()
                     && ac.iter().zip(bc.iter()).all(|(ca, cb)| {
-                        ca.iter().zip(cb.iter()).all(|(a, b)| a.to_bits() == b.to_bits())
+                        ca.iter()
+                            .zip(cb.iter())
+                            .all(|(a, b)| a.to_bits() == b.to_bits())
                     })
                     && atm == btm
             }
-            (ShaderSpec::RadialGradient { center: ac, radius: ar, stops: as_stops, colors: acol, tile_mode: atm },
-             ShaderSpec::RadialGradient { center: bc, radius: br, stops: bs_stops, colors: bcol, tile_mode: btm }) => {
+            (
+                ShaderSpec::RadialGradient {
+                    center: ac,
+                    radius: ar,
+                    stops: as_stops,
+                    colors: acol,
+                    tile_mode: atm,
+                },
+                ShaderSpec::RadialGradient {
+                    center: bc,
+                    radius: br,
+                    stops: bs_stops,
+                    colors: bcol,
+                    tile_mode: btm,
+                },
+            ) => {
                 ac[0].to_bits() == bc[0].to_bits()
                     && ac[1].to_bits() == bc[1].to_bits()
                     && ar.to_bits() == br.to_bits()
                     && as_stops.len() == bs_stops.len()
-                    && as_stops.iter().zip(bs_stops.iter()).all(|(a, b)| a.to_bits() == b.to_bits())
+                    && as_stops
+                        .iter()
+                        .zip(bs_stops.iter())
+                        .all(|(a, b)| a.to_bits() == b.to_bits())
                     && acol.len() == bcol.len()
                     && acol.iter().zip(bcol.iter()).all(|(ca, cb)| {
-                        ca.iter().zip(cb.iter()).all(|(a, b)| a.to_bits() == b.to_bits())
+                        ca.iter()
+                            .zip(cb.iter())
+                            .all(|(a, b)| a.to_bits() == b.to_bits())
                     })
                     && atm == btm
             }
@@ -358,21 +469,37 @@ impl Hash for ShaderSpec {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            ShaderSpec::LinearGradient { from, to, stops, colors, tile_mode } => {
+            ShaderSpec::LinearGradient {
+                from,
+                to,
+                stops,
+                colors,
+                tile_mode,
+            } => {
                 from[0].to_bits().hash(state);
                 from[1].to_bits().hash(state);
                 to[0].to_bits().hash(state);
                 to[1].to_bits().hash(state);
                 stops.iter().for_each(|v| v.to_bits().hash(state));
-                colors.iter().for_each(|c| c.iter().for_each(|v| v.to_bits().hash(state)));
+                colors
+                    .iter()
+                    .for_each(|c| c.iter().for_each(|v| v.to_bits().hash(state)));
                 tile_mode.hash(state);
             }
-            ShaderSpec::RadialGradient { center, radius, stops, colors, tile_mode } => {
+            ShaderSpec::RadialGradient {
+                center,
+                radius,
+                stops,
+                colors,
+                tile_mode,
+            } => {
                 center[0].to_bits().hash(state);
                 center[1].to_bits().hash(state);
                 radius.to_bits().hash(state);
                 stops.iter().for_each(|v| v.to_bits().hash(state));
-                colors.iter().for_each(|c| c.iter().for_each(|v| v.to_bits().hash(state)));
+                colors
+                    .iter()
+                    .for_each(|c| c.iter().for_each(|v| v.to_bits().hash(state)));
                 tile_mode.hash(state);
             }
         }
@@ -400,9 +527,10 @@ impl Hash for StrokeSpec {
 impl PartialEq for FillSpec {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (FillSpec::Solid(a), FillSpec::Solid(b)) => {
-                a.iter().zip(b.iter()).all(|(x, y)| x.to_bits() == y.to_bits())
-            }
+            (FillSpec::Solid(a), FillSpec::Solid(b)) => a
+                .iter()
+                .zip(b.iter())
+                .all(|(x, y)| x.to_bits() == y.to_bits()),
             (FillSpec::Shader(a), FillSpec::Shader(b)) => a == b,
             _ => false,
         }

@@ -381,10 +381,14 @@ fn generate_items(colors: &[GeneratedColor]) -> String {
     output.push_str("        struct ColorTokenVisitor;\n");
     output.push_str("        impl<'de> de::Visitor<'de> for ColorTokenVisitor {\n");
     output.push_str("            type Value = ColorToken;\n");
-    output.push_str("            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {\n");
+    output.push_str(
+        "            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {\n",
+    );
     output.push_str("                f.write_str(\"a color name string or RGBA object\")\n");
     output.push_str("            }\n");
-    output.push_str("            fn visit_str<E: de::Error>(self, v: &str) -> Result<ColorToken, E> {\n");
+    output.push_str(
+        "            fn visit_str<E: de::Error>(self, v: &str) -> Result<ColorToken, E> {\n",
+    );
     output.push_str("                color_token_from_script_name(v).ok_or_else(|| de::Error::unknown_variant(v, &[]))\n");
     output.push_str("            }\n");
     output.push_str("            fn visit_borrowed_str<E: de::Error>(self, v: &'de str) -> Result<ColorToken, E> {\n");

@@ -272,9 +272,7 @@ mod tests {
         requests
             .video_urls
             .insert("https://example.com/v.mp4".into());
-        requests
-            .video_paths
-            .insert(PathBuf::from("/tmp/local.mp4"));
+        requests.video_paths.insert(PathBuf::from("/tmp/local.mp4"));
 
         let mut resolver = MockResolver::default();
         let mut catalog = HashMapResourceCatalog::from_json("{}").unwrap();

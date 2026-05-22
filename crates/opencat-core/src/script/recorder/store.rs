@@ -4,8 +4,8 @@ use super::{MutationRecorder, TextUnitValues};
 use crate::scene::easing::Easing;
 use crate::scene::script::ScriptTextSource;
 use crate::scene::script::mutations::{
-    CanvasMutations, NodeStyleMutations, StyleMutations, TextUnitGranularity,
-    TextUnitOverride, TextUnitOverrideBatch,
+    CanvasMutations, NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
+    TextUnitOverrideBatch,
 };
 use crate::script::animate::color::{hsla_to_rgba_string, lerp_hsla_clamped, parse_color};
 use crate::script::animate::morph_svg::MorphSvgEntry;

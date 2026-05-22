@@ -18,10 +18,7 @@ pub fn asset_id_for_query(query: &OpenverseQuery) -> AssetId {
             query.query, query.count, ar
         ))
     } else {
-        AssetId(format!(
-            "openverse:q={};count={}",
-            query.query, query.count
-        ))
+        AssetId(format!("openverse:q={};count={}", query.query, query.count))
     }
 }
 

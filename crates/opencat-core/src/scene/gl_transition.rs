@@ -422,10 +422,7 @@ fn replace_transition_uniforms(
             continue;
         }
 
-        let ty = params_types
-            .get(name)
-            .and_then(Value::as_str)
-            .unwrap_or(ty);
+        let ty = params_types.get(name).and_then(Value::as_str).unwrap_or(ty);
         let value = if let Some(v) = default_params.get(name) {
             default_param_to_sksl(ty, v).ok_or_else(|| {
                 anyhow!("GLTransition parameter `{name}` has unsupported default value `{v}`")
@@ -680,8 +677,14 @@ mod tests {
 
     #[test]
     fn normalize_name_removes_punctuation_and_lowercases() {
-        assert_eq!(normalize_gltransition_name("BowTieHorizontal"), "bowtiehorizontal");
-        assert_eq!(normalize_gltransition_name("bow-tie_horizontal"), "bowtiehorizontal");
+        assert_eq!(
+            normalize_gltransition_name("BowTieHorizontal"),
+            "bowtiehorizontal"
+        );
+        assert_eq!(
+            normalize_gltransition_name("bow-tie_horizontal"),
+            "bowtiehorizontal"
+        );
         assert_eq!(normalize_gltransition_name("  BookFlip  "), "bookflip");
     }
 

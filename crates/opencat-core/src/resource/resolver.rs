@@ -48,8 +48,7 @@ pub struct AudioMeta {
 /// 实现方可自由处理 cache 策略（Engine 写盘 + 命中复用；Web 直 fetch）。
 /// `id` 参数允许实现方基于稳定 hash 决定 cache 路径。
 pub trait UrlFetcher {
-    fn fetch_bytes(&mut self, id: &AssetId, url: &str)
-    -> impl Future<Output = Result<Vec<u8>>>;
+    fn fetch_bytes(&mut self, id: &AssetId, url: &str) -> impl Future<Output = Result<Vec<u8>>>;
 }
 
 /// 平台特定的字节持久化。Engine: 更新 path_store；Web: 写 BlobStore。

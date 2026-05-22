@@ -26,13 +26,7 @@ impl EngineMedia {
         unsafe { &*self.asset_paths }
     }
 
-    fn video_mut(&mut self) -> Option<&mut MediaContext> {
-        if self.video.is_null() {
-            None
-        } else {
-            Some(unsafe { &mut *self.video })
-        }
-    }
+    
 }
 
 impl MediaPlatform for EngineMedia {

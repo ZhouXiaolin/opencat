@@ -122,6 +122,10 @@ pub fn encode_draw_frame(
 ) -> EncodedDrawFrame {
     scratch.clear();
 
+    // Copy frame f32_pool into scratch so F32Range references in SetLineDash/Points
+    // can index into it. The data is preserved in the encoded output.
+    scratch.f32_pool.extend_from_slice(&frame.f32_pool);
+
     // Encode each DrawOp into the encoded_ops buffer
     let encoded_ops = &mut scratch.encoded_ops;
     for op in &frame.ops {
@@ -639,7 +643,7 @@ fn encode_op(
     }
 
     // Pad to 4-byte alignment after each op
-    while buf.len() % 4 != 0 {
+    while !buf.len().is_multiple_of(4) {
         buf.push(0);
     }
 }
@@ -1338,5 +1342,28 @@ mod tests {
 
         // 8 header + 8 payload = 16 bytes
         assert_eq!(encoded.ops.len(), 16);
+    }
+
+    #[test]
+    fn encode_f32_pool_preserves_set_line_dash_data() {
+        // Verify that F32Range references in SetLineDash actually point to
+        // valid data in the encoded f32_pool.
+        let mut builder = DrawOpBuilder::default();
+        builder.push(DrawOp::SetLineDash {
+            intervals: F32Range { start: 0, len: 3 },
+            phase: 2.0,
+        });
+        // Manually populate the frame's f32_pool with line dash intervals
+        let mut frame = builder.finish();
+        frame.f32_pool = vec![5.0, 3.0, 5.0]; // alternating dash pattern
+
+        let mut scratch = DrawFrameScratch::default();
+        let encoded = encode_draw_frame(&frame, &mut scratch);
+
+        // The f32_pool should contain the dash intervals
+        assert_eq!(encoded.f32_pool.len(), 3);
+        assert_eq!(encoded.f32_pool[0], 5.0);
+        assert_eq!(encoded.f32_pool[1], 3.0);
+        assert_eq!(encoded.f32_pool[2], 5.0);
     }
 }

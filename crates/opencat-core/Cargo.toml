@@ -22,6 +22,7 @@ imagesize = "0.14"
 nom-exif = "3.4.1"
 url = "2.5"
 bumpalo = "3.20.2"
+log = "0.4"
 
 [dependencies.tracing]
 version = "0.1"

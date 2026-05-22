@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use opencat_core::jsonl::{JsonLine, ParsedComposition, parse};
+use opencat_core::jsonl::{JsonLine, ParsedComposition, parse_with_base_dir as core_parse_with_base_dir};
 
 pub fn parse_file(path: impl AsRef<Path>) -> Result<ParsedComposition> {
     let path = path.as_ref();
@@ -49,7 +49,7 @@ pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<Parse
         rewritten.push_str(&serde_json::to_string(&resolved)?);
         rewritten.push('\n');
     }
-    parse(&rewritten)
+    core_parse_with_base_dir(&rewritten, base_dir)
 }
 
 #[cfg(test)]

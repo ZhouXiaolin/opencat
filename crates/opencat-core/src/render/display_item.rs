@@ -20,11 +20,10 @@ pub fn render_display_item(
     item: &DisplayItem,
     cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
-    if should_cache_item_picture(item) {
-        if let Some(cache_key) = item_paint_fingerprint(item) {
+    if should_cache_item_picture(item)
+        && let Some(cache_key) = item_paint_fingerprint(item) {
             return render_display_item_cached(ctx, item, cache_key, cache);
         }
-    }
     render_display_item_direct(ctx, item, cache)
 }
 
@@ -40,8 +39,8 @@ fn render_display_item_cached(
     let semantics = item.picture_semantics();
 
     // Cache hit: import segment and replay with draw translation
-    if let Some(cached_range) = cache.item_ranges.get_cloned(&cache_key) {
-        if let Some(segment) = cache.segments.get_cloned(&cached_range.segment_key) {
+    if let Some(cached_range) = cache.item_ranges.get_cloned(&cache_key)
+        && let Some(segment) = cache.segments.get_cloned(&cached_range.segment_key) {
             #[cfg(feature = "profile")]
             event!(
                 target: "render.cache",
@@ -61,7 +60,6 @@ fn render_display_item_cached(
             ctx.builder.push(DrawOp::Restore);
             return Ok(());
         }
-    }
 
     #[cfg(feature = "profile")]
     event!(

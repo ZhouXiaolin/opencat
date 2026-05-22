@@ -85,8 +85,8 @@ fn push_rrect_path(builder: &mut DrawOpBuilder, r: Rect4, radii: Radii4) {
     let bl = radii.bottom_left;
 
     builder.push(DrawOp::BeginPath);
-    builder.push(DrawOp::Path(PathOp::MoveTo { x: x + tl, y: y }));
-    builder.push(DrawOp::Path(PathOp::LineTo { x: x1 - tr, y: y }));
+    builder.push(DrawOp::Path(PathOp::MoveTo { x: x + tl, y }));
+    builder.push(DrawOp::Path(PathOp::LineTo { x: x1 - tr, y }));
     if tr > 0.0 {
         builder.push(DrawOp::Path(PathOp::QuadTo {
             cx: x1,
@@ -109,17 +109,17 @@ fn push_rrect_path(builder: &mut DrawOpBuilder, r: Rect4, radii: Radii4) {
         builder.push(DrawOp::Path(PathOp::QuadTo {
             cx: x,
             cy: y1,
-            x: x,
+            x,
             y: y1 - bl,
         }));
     }
-    builder.push(DrawOp::Path(PathOp::LineTo { x: x, y: y + tl }));
+    builder.push(DrawOp::Path(PathOp::LineTo { x, y: y + tl }));
     if tl > 0.0 {
         builder.push(DrawOp::Path(PathOp::QuadTo {
             cx: x,
             cy: y,
             x: x + tl,
-            y: y,
+            y,
         }));
     }
     builder.push(DrawOp::Path(PathOp::Close));
@@ -268,15 +268,14 @@ pub fn draw_item_drop_shadow(
 }
 
 fn apply_blur_effect(spec: &mut PaintSpec, blur_sigma: Option<f32>) {
-    if let Some(sigma) = blur_sigma {
-        if sigma > 0.0 {
+    if let Some(sigma) = blur_sigma
+        && sigma > 0.0 {
             spec.mask_filter = Some(MaskFilterSpec::Blur {
                 sigma,
                 style: BlurStyle::Normal,
                 respect_ctm: true,
             });
         }
-    }
 }
 
 fn build_stroke_paint(
@@ -636,8 +635,8 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
     builder.push(DrawOp::Save);
     clip_bounds(builder, bounds, &style.border_radius);
 
-    if let Some(sigma) = style.backdrop_blur_sigma {
-        if sigma > 0.0 {
+    if let Some(sigma) = style.backdrop_blur_sigma
+        && sigma > 0.0 {
             let blur_paint = PaintSpec {
                 fill: FillSpec::Solid([1.0; 4]),
                 style: PaintStyle::Fill,
@@ -660,7 +659,6 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
                 alpha: 1.0,
             });
         }
-    }
 
     if let Some(ref background) = style.background {
         let paint_spec = background_fill_to_paint_spec(background);
@@ -709,7 +707,7 @@ pub fn render_rect_with_shadows(
     let bounds = item.bounds;
 
     if let Some(ref shadow) = style.box_shadow {
-        draw_box_shadow(&mut ctx.builder, bounds, &style.border_radius, shadow);
+        draw_box_shadow(ctx.builder, bounds, &style.border_radius, shadow);
     }
 
     if let Some(ref shadow) = style.drop_shadow {

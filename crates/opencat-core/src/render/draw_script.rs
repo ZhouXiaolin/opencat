@@ -298,7 +298,7 @@ fn execute_canvas_command(
             };
             b.push(DrawOp::Clear { color: color_f32 });
         }
-        CanvasCommand::DrawPaint { color, .. } => {
+        CanvasCommand::DrawPaint { color, anti_alias } => {
             let paint_id = b.intern_paint(PaintSpec {
                 fill: FillSpec::Solid([
                     color.r as f32 / 255.0,
@@ -308,7 +308,7 @@ fn execute_canvas_command(
                 ]),
                 style: PaintStyle::Fill,
                 stroke: None,
-                anti_alias: state.anti_alias,
+                anti_alias: *anti_alias,
                 blend_mode: BlendMode::SrcOver,
                 image_filter: None,
                 color_filter: None,
@@ -330,12 +330,28 @@ fn execute_canvas_command(
         // ── Immediate rect / rrect ─────────────────────────────────────
 
         CanvasCommand::FillRect { x, y, width, height, color } => {
-            b.push(DrawOp::SetFillStyle {
-                color: script_color_to_color_u8(*color),
+            let mut rgba = script_color_to_color_u8(*color);
+            rgba.a = ((rgba.a as f32 * state.global_alpha).clamp(0.0, 255.0)) as u8;
+            let paint_id = b.intern_paint(PaintSpec {
+                fill: FillSpec::Solid([
+                    rgba.r as f32 / 255.0,
+                    rgba.g as f32 / 255.0,
+                    rgba.b as f32 / 255.0,
+                    rgba.a as f32 / 255.0,
+                ]),
+                style: PaintStyle::Fill,
+                stroke: None,
+                anti_alias: state.anti_alias,
+                blend_mode: BlendMode::SrcOver,
+                image_filter: None,
+                color_filter: None,
+                mask_filter: None,
+                path_effect: None,
             });
-            b.push(DrawOp::BeginPath);
-            b.push(DrawOp::Path(PathOp::AddRect { x: *x, y: *y, width: *width, height: *height }));
-            b.push(DrawOp::FillPath);
+            b.push(DrawOp::Rect {
+                rect: rect4_xywh(*x, *y, *width, *height),
+                paint: paint_id,
+            });
         }
         CanvasCommand::FillRRect { x, y, width, height, radius } => {
             b.push(DrawOp::BeginPath);
@@ -345,13 +361,33 @@ fn execute_canvas_command(
             b.push(DrawOp::FillPath);
         }
         CanvasCommand::StrokeRect { x, y, width, height, color, stroke_width } => {
-            b.push(DrawOp::SetStrokeStyle {
-                color: script_color_to_color_u8(*color),
+            let mut rgba = script_color_to_color_u8(*color);
+            rgba.a = ((rgba.a as f32 * state.global_alpha).clamp(0.0, 255.0)) as u8;
+            let paint_id = b.intern_paint(PaintSpec {
+                fill: FillSpec::Solid([
+                    rgba.r as f32 / 255.0,
+                    rgba.g as f32 / 255.0,
+                    rgba.b as f32 / 255.0,
+                    rgba.a as f32 / 255.0,
+                ]),
+                style: PaintStyle::Stroke,
+                stroke: Some(StrokeSpec {
+                    width: (*stroke_width).max(0.0),
+                    cap: stroke_cap_to_canvas(state.line_cap),
+                    join: stroke_join_to_canvas(state.line_join),
+                    miter_limit: 4.0,
+                }),
+                anti_alias: state.anti_alias,
+                blend_mode: BlendMode::SrcOver,
+                image_filter: None,
+                color_filter: None,
+                mask_filter: None,
+                path_effect: None,
             });
-            b.push(DrawOp::SetLineWidth { width: *stroke_width });
-            b.push(DrawOp::BeginPath);
-            b.push(DrawOp::Path(PathOp::AddRect { x: *x, y: *y, width: *width, height: *height }));
-            b.push(DrawOp::StrokePath);
+            b.push(DrawOp::Rect {
+                rect: rect4_xywh(*x, *y, *width, *height),
+                paint: paint_id,
+            });
         }
         CanvasCommand::StrokeRRect { x, y, width, height, radius } => {
             b.push(DrawOp::BeginPath);
@@ -402,14 +438,14 @@ fn execute_canvas_command(
             b.push(DrawOp::StrokePath);
         }
         CanvasCommand::DrawArc { cx, cy, rx, ry, start_angle, sweep_angle, use_center } => {
-            b.push(DrawOp::BeginPath);
-            b.push(DrawOp::Path(PathOp::AddArc {
-                x: cx - rx, y: cy - ry,
-                width: rx * 2.0, height: ry * 2.0,
-                start_angle: *start_angle, sweep_angle: *sweep_angle,
-            }));
-            let _ = use_center;
-            b.push(DrawOp::FillPath);
+            let paint_id = b.intern_paint(state.fill_paint_spec());
+            b.push(DrawOp::Arc {
+                rect: rect4_xywh(cx - rx, cy - ry, rx * 2.0, ry * 2.0),
+                start: *start_angle,
+                sweep: *sweep_angle,
+                use_center: *use_center,
+                paint: paint_id,
+            });
         }
         CanvasCommand::StrokeArc { cx, cy, rx, ry, start_angle, sweep_angle } => {
             b.push(DrawOp::BeginPath);
@@ -524,40 +560,70 @@ fn execute_canvas_command(
 
         // ── Images ─────────────────────────────────────────────────────
 
-        CanvasCommand::DrawImage { asset_id, x, y, width, height, src_rect, object_fit, .. } => {
+        CanvasCommand::DrawImage { asset_id, x, y, width, height, src_rect, object_fit, alpha, anti_alias } => {
             let img_ref = ImageRef::Static { asset_id: asset_id.clone() };
             let dst = rect4_xywh(*x, *y, *width, *height);
             let src = src_rect.map(|s| rect4_xywh(s[0], s[1], s[2], s[3]));
+            let paint_id = if *alpha < 1.0 || *anti_alias != state.anti_alias {
+                let mut spec = state.fill_paint_spec();
+                spec.anti_alias = *anti_alias;
+                let effective_alpha = (state.global_alpha * alpha).clamp(0.0, 1.0);
+                if let FillSpec::Solid(ref mut c) = spec.fill {
+                    c[3] = c[3] * effective_alpha;
+                }
+                Some(b.intern_paint(spec))
+            } else if (state.global_alpha - 1.0).abs() > f32::EPSILON {
+                let mut spec = state.fill_paint_spec();
+                if let FillSpec::Solid(ref mut c) = spec.fill {
+                    c[3] = c[3] * state.global_alpha;
+                }
+                Some(b.intern_paint(spec))
+            } else {
+                None
+            };
             match object_fit {
                 ObjectFit::Fill => {
                     b.push(DrawOp::ImageRect {
                         image: img_ref,
                         src,
                         dst,
-                        paint: None,
+                        paint: paint_id,
                     });
                 }
                 ObjectFit::Contain | ObjectFit::Cover => {
-                    // TODO: object-fit calculation needs intrinsic image dimensions,
-                    // which are not available at DrawOp recording time. For now,
-                    // emit ImageRect with Fill semantics. The media preparation
-                    // pass or executor can handle object-fit later.
                     b.push(DrawOp::ImageRect {
                         image: img_ref,
                         src,
                         dst,
-                        paint: None,
+                        paint: paint_id,
                     });
                 }
             }
         }
-        CanvasCommand::DrawImageSimple { asset_id, x, y, .. } => {
+        CanvasCommand::DrawImageSimple { asset_id, x, y, alpha, anti_alias } => {
             let img_ref = ImageRef::Static { asset_id: asset_id.clone() };
+            let paint_id = if *alpha < 1.0 || *anti_alias != state.anti_alias {
+                let mut spec = state.fill_paint_spec();
+                spec.anti_alias = *anti_alias;
+                let effective_alpha = (state.global_alpha * alpha).clamp(0.0, 1.0);
+                if let FillSpec::Solid(ref mut c) = spec.fill {
+                    c[3] = c[3] * effective_alpha;
+                }
+                Some(b.intern_paint(spec))
+            } else if (state.global_alpha - 1.0).abs() > f32::EPSILON {
+                let mut spec = state.fill_paint_spec();
+                if let FillSpec::Solid(ref mut c) = spec.fill {
+                    c[3] = c[3] * state.global_alpha;
+                }
+                Some(b.intern_paint(spec))
+            } else {
+                None
+            };
             b.push(DrawOp::Image {
                 image: img_ref,
                 x: *x,
                 y: *y,
-                paint: None,
+                paint: paint_id,
             });
         }
     }

@@ -240,6 +240,10 @@ impl<L: AssetLoader, S: JsContext> Pipeline for DefaultPipeline<L, S> {
         );
         compute_display_tree_fingerprints(&mut annotated);
 
+        let _plan = crate::analyze::compositor::plan_for_scene(
+            &layout_pass,
+            annotated.contains_time_variant(),
+        );
         self.cache.scene_snapshot = None;
         let ordered_scene = OrderedSceneProgram::build(&annotated);
         self.last_ordered_scene = ordered_scene.clone();
@@ -389,5 +393,15 @@ mod tests {
             let (f2, _) = p2.render_frame(i).expect("render p2");
             assert_eq!(f1.ops.len(), f2.ops.len(), "frame {i} op count mismatch");
         }
+    }
+
+    #[test]
+    fn open_pipeline_populates_audio_plan() {
+        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
+{"type":"div","id":"root","parentId":null}"##;
+        let pipeline = DefaultPipeline::<InMemoryLoader, NoopJsContext>::open(
+            jsonl, InMemoryLoader::default(), NoopJsContext::new().unwrap()
+        ).expect("open");
+        assert!(pipeline.info().audio_plan.segments.is_empty(), "no audio sources => empty plan");
     }
 }

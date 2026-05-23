@@ -93,6 +93,10 @@ impl crate::resource::catalog::ResourceCatalog for ResourceCatalog {
             self.images.insert(alias, meta);
         } else if let Some(meta) = self.videos.get(target).cloned() {
             self.videos.insert(alias, meta);
+        } else if self.audios.contains(target) {
+            self.audios.insert(alias);
+        } else if let Some(entries) = self.subtitles.get(target).cloned() {
+            self.subtitles.insert(alias, entries);
         }
         Ok(())
     }

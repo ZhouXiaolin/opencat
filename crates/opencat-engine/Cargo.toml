@@ -30,6 +30,7 @@ tokio = { version = "1.51.0", features = ["rt-multi-thread", "fs"] }
 
 [dev-dependencies]
 opencat-core = { path = "../opencat-core", features = ["test-support"] }
+tempfile = "3"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 skia-safe = { version = "0.93.1", features = ["binary-cache", "gl"] }

@@ -2537,6 +2537,7 @@ dependencies = [
  "serde_json",
  "skia-safe",
  "taffy",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

@@ -9,8 +9,8 @@ mod store;
 pub use store::{AnimateEntry, MutationStore};
 
 use crate::ir::draw_op::DrawOp;
-use crate::scene::script::ScriptTextSource;
-use crate::scene::script::mutations::{StyleMutations, TextUnitGranularity};
+use crate::script::ScriptTextSource;
+use crate::script::mutations::{StyleMutations, TextUnitGranularity};
 use crate::style::{
     AlignItems, BorderStyle, BoxShadow, ColorToken, DropShadow, FlexDirection, FontWeight,
     InsetShadow, JustifyContent, ObjectFit, Position, TextAlign, Transform,

@@ -6,7 +6,7 @@ use crate::{
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video},
         time::TimelineNode,
     },
-    scene::script::ScriptDriver,
+    script::ScriptDriver,
     style::NodeStyle,
 };
 

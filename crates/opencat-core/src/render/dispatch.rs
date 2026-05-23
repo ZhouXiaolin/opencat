@@ -2,17 +2,164 @@
 use tracing::{Level, event, span};
 
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
-use crate::display::list::{DisplayItem, DisplayRect, RectDisplayItem};
-use crate::ir::cache::{self as draw_cache, CachedSubtreeIr};
+use crate::display::list::{DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem};
+use crate::ir::cache::{self as draw_cache, CachedDrawRange, CachedSubtreeIr};
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, PathOp};
 use crate::parse::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::render::builder::DrawOpBuilder;
 use crate::analyze::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
 use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram, LiveNodeItemExecution};
+use crate::analyze::fingerprint::item_paint_fingerprint;
 use crate::style::{BorderRadius, Transform};
 
 use super::{RenderCtx, RenderError, record_cache_pressure};
+
+// ── Display Item dispatch ──────────────────────────────────────────────
+
+fn should_cache_item_picture(item: &DisplayItem) -> bool {
+    matches!(
+        item,
+        DisplayItem::Bitmap(_) | DisplayItem::DrawScript(_) | DisplayItem::SvgPath(_)
+    )
+}
+
+pub fn render_display_item(
+    ctx: &mut RenderCtx,
+    item: &DisplayItem,
+    cache: &mut draw_cache::RenderCache,
+) -> Result<(), RenderError> {
+    if should_cache_item_picture(item)
+        && let Some(cache_key) = item_paint_fingerprint(item)
+    {
+        return render_display_item_cached(ctx, item, cache_key, cache);
+    }
+    render_display_item_direct(ctx, item, cache)
+}
+
+fn render_display_item_cached(
+    ctx: &mut RenderCtx,
+    item: &DisplayItem,
+    cache_key: u64,
+    cache: &mut draw_cache::RenderCache,
+) -> Result<(), RenderError> {
+    #[cfg(feature = "profile")]
+    let _cached_span = span!(target: "render.backend", Level::TRACE, "draw_item_cached").entered();
+
+    let semantics = item.picture_semantics();
+
+    // Cache hit: import segment and replay with draw translation
+    if let Some(cached_range) = cache.item_ranges.get_cloned(&cache_key)
+        && let Some(segment) = cache.segments.get_cloned(&cached_range.segment_key)
+    {
+        #[cfg(feature = "profile")]
+        event!(
+            target: "render.cache",
+            Level::TRACE,
+            kind = "cache",
+            name = "item_picture",
+            result = "hit",
+            amount = 1_u64
+        );
+
+        ctx.builder.push(DrawOp::Save);
+        ctx.builder.push(DrawOp::Translate {
+            x: semantics.draw_translation_x,
+            y: semantics.draw_translation_y,
+        });
+        ctx.builder.import_segment(&segment);
+        ctx.builder.push(DrawOp::Restore);
+        return Ok(());
+    }
+
+    #[cfg(feature = "profile")]
+    event!(
+        target: "render.cache",
+        Level::TRACE,
+        kind = "cache",
+        name = "item_picture",
+        result = "miss",
+        amount = 1_u64
+    );
+
+    // Cache miss: render directly with draw_translation, snapshot, store
+    ctx.builder.push(DrawOp::Save);
+    ctx.builder.push(DrawOp::Translate {
+        x: semantics.draw_translation_x,
+        y: semantics.draw_translation_y,
+    });
+
+    let marker = ctx.builder.begin_range();
+    render_display_item_direct(ctx, item, cache)?;
+    let range = ctx.builder.end_range(marker);
+
+    ctx.builder.push(DrawOp::Restore);
+
+    // Snapshot and store in cache
+    let segment = ctx.builder.snapshot_range(range);
+    let segment_key = cache_key;
+
+    cache.segments.insert(segment_key, segment);
+    cache.item_ranges.insert(
+        cache_key,
+        CachedDrawRange {
+            segment_range: range,
+            fingerprint: cache_key,
+            bounds: semantics.record_bounds,
+            segment_key,
+        },
+    );
+
+    Ok(())
+}
+
+fn render_display_item_direct(
+    ctx: &mut RenderCtx,
+    item: &DisplayItem,
+    _cache: &mut draw_cache::RenderCache,
+) -> Result<(), RenderError> {
+    match item {
+        DisplayItem::Rect(rect) => {
+            #[cfg(feature = "profile")]
+            let _span = span!(target: "render.backend", Level::TRACE, "draw_item_rect").entered();
+            #[cfg(feature = "profile")]
+            event!(target: "render.draw", Level::TRACE, kind = "draw", name = "rect", result = "count", amount = 1_u64);
+            super::helpers::render_rect_with_shadows(ctx, rect)
+        }
+        DisplayItem::Timeline(timeline) => {
+            #[cfg(feature = "profile")]
+            let _span =
+                span!(target: "render.backend", Level::TRACE, "draw_item_timeline").entered();
+            super::helpers::render_timeline(ctx, timeline)
+        }
+        DisplayItem::Text(text) => {
+            #[cfg(feature = "profile")]
+            let _span = span!(target: "render.backend", Level::TRACE, "draw_item_text").entered();
+            #[cfg(feature = "profile")]
+            event!(target: "render.draw", Level::TRACE, kind = "draw", name = "text", result = "count", amount = 1_u64);
+            super::text::render_text_with_shadows(ctx, text)
+        }
+        DisplayItem::Bitmap(bitmap) => {
+            #[cfg(feature = "profile")]
+            let _span = span!(target: "render.backend", Level::TRACE, "draw_item_bitmap").entered();
+            super::helpers::render_bitmap_with_shadows(ctx, bitmap)
+        }
+        DisplayItem::DrawScript(script) => {
+            #[cfg(feature = "profile")]
+            let _span = span!(target: "render.backend", Level::TRACE, "draw_item_script").entered();
+            #[cfg(feature = "profile")]
+            event!(target: "render.draw", Level::TRACE, kind = "draw", name = "script", result = "count", amount = 1_u64);
+            super::helpers::render_draw_script(ctx, script)
+        }
+        DisplayItem::SvgPath(svg) => {
+            #[cfg(feature = "profile")]
+            let _span = span!(target: "render.backend", Level::TRACE, "draw_item_svg").entered();
+            super::helpers::render_svg_path(ctx, svg)
+        }
+    }
+}
+
+// ── Display Tree render ───────────────────────────────────────────────
 
 fn display_rect_to_rect4(r: DisplayRect) -> Rect4 {
     Rect4 {
@@ -235,7 +382,7 @@ fn render_live_cached_node(
     let node = tree.node(handle);
     let subtree = OrderedSceneProgram::build_subtree(tree, handle);
 
-    super::display_item::render_display_item(ctx, node.recorded_semantics().item, cache)?;
+    render_display_item(ctx, node.recorded_semantics().item, cache)?;
 
     if let Some(clip) = node.recorded_semantics().clip {
         ctx.builder.push(DrawOp::Save);
@@ -343,7 +490,7 @@ fn render_live_subtree(
             bounds: timeline.bounds,
             paint: timeline.paint.clone(),
         };
-        super::rect::render_rect_with_shadows(ctx, &rect_item)?;
+        super::helpers::render_rect_with_shadows(ctx, &rect_item)?;
 
         if let Some(clip) = &node.clip {
             ctx.builder.push(DrawOp::Save);
@@ -395,7 +542,7 @@ fn render_live_subtree(
         LiveNodeItemExecution::Direct => {
             #[cfg(feature = "profile")]
             let _item_span = span!(target: "render.backend", Level::TRACE, "draw_item").entered();
-            super::display_item::render_display_item(ctx, &node.item, cache)?;
+            render_display_item(ctx, &node.item, cache)?;
         }
         LiveNodeItemExecution::FrameLocalPicture => {
             #[cfg(feature = "profile")]
@@ -408,7 +555,7 @@ fn render_live_subtree(
                 x: semantics.draw_translation_x,
                 y: semantics.draw_translation_y,
             });
-            super::display_item::render_display_item(ctx, &node.item, cache)?;
+            render_display_item(ctx, &node.item, cache)?;
             ctx.builder.push(DrawOp::Restore);
         }
     }
@@ -544,12 +691,12 @@ fn render_transition_composite(
             ctx.builder.push(DrawOp::Restore);
         }
         TransitionKind::LightLeak(params) => {
-            super::transition::render_light_leak_transition(
+            super::helpers::render_light_leak_transition(
                 ctx, from_range, to_range, progress, params, bounds,
             );
         }
         TransitionKind::Gl(effect) => {
-            super::transition::render_gl_transition(
+            super::helpers::render_gl_transition(
                 ctx, from_range, to_range, progress, effect, bounds,
             );
         }
@@ -650,7 +797,7 @@ fn transition_kind_str(kind: &TransitionKind) -> &'static str {
 
 fn apply_transform(
     builder: &mut DrawOpBuilder,
-    transform: &crate::display::list::DisplayTransform,
+    transform: &DisplayTransform,
 ) {
     builder.push(DrawOp::Translate {
         x: transform.translation_x,

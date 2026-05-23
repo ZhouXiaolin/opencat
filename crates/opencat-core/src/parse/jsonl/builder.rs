@@ -11,7 +11,7 @@ use crate::parse::{
         Transition, clock_wipe, fade, gl_transition, iris, light_leak, slide, timeline, wipe,
     },
 };
-use crate::scene::script::ScriptDriver;
+use crate::script::ScriptDriver;
 
 use super::{ParsedElement, ParsedElementKind, ParsedTransition};
 

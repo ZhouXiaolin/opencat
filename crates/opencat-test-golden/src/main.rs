@@ -61,9 +61,7 @@ fn build_composition(jsonl: &Path) -> Result<Composition> {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    if !cli.generate && !cli.check {
-        bail!("must specify --generate or --check");
-    }
+    let is_check = cli.check || (!cli.generate && !cli.check);
 
     let manifest: Manifest = if cli.manifest.exists() {
         serde_json::from_str(&fs::read_to_string(&cli.manifest)?)?
@@ -121,7 +119,7 @@ fn main() -> Result<()> {
                 fs::write(&hash_path, &hash)?;
                 fs::write(&png_path, &png)?;
                 println!("WRITE {} frame {}", s.name, f);
-            } else {
+            } else if is_check {
                 let expected = fs::read_to_string(&hash_path)
                     .with_context(|| format!("baseline missing: {}", hash_path.display()))?;
                 if expected.trim() != hash {
@@ -136,6 +134,12 @@ fn main() -> Result<()> {
                 }
             }
         }
+    }
+
+    if cli.generate {
+        let manifest_json = serde_json::to_string_pretty(&manifest)?;
+        fs::write(&cli.manifest, manifest_json)?;
+        println!("WRITE manifest to {}", cli.manifest.display());
     }
 
     if !failures.is_empty() {

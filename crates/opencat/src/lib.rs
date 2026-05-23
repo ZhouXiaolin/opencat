@@ -8,7 +8,7 @@ pub use opencat_engine as host;
 pub use opencat_core::display;
 pub use opencat_core::element;
 pub use opencat_core::frame_ctx;
-pub use opencat_core::jsonl;
+pub use opencat_core::parse::jsonl;
 pub use opencat_core::layout;
 pub use opencat_core::scene;
 pub use opencat_core::style;
@@ -35,7 +35,7 @@ pub use opencat_core::parse::primitives::{
     AudioSource, Canvas, CanvasAsset, CaptionNode, Image, ImageSource, OpenverseQuery, Path,
     SrtEntry, canvas, caption, div, image, lucide, parse_srt, path, text, video,
 };
-pub use opencat_core::parse::script::{NodeStyleMutations, ScriptDriver, StyleMutations};
+pub use opencat_core::scene::script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use opencat_core::parse::transition::{
     ClockWipeBuilder, FadeBuilder, GlTransition, GlTransitionBuilder, IrisBuilder, SlideBuilder,
     SlideDirection, Timeline, TransitionKind, WipeBuilder, WipeDirection, clock_wipe, fade,

@@ -7,7 +7,7 @@ use crate::canvas::paint::{PaintSpec, PaintStyle, PathEffectSpec, StrokeCap, Str
 use crate::frame_ctx::FrameCtx;
 use crate::render::builder::DrawOpBuilder;
 use crate::resource::blob_store::BlobStore;
-use crate::resource::hash_map_catalog::HashMapResourceCatalog;
+use crate::resource::catalog::ResourceCatalog;
 use crate::analyze::annotation::AnnotatedDisplayTree;
 use crate::analyze::compositor::OrderedSceneProgram;
 
@@ -17,7 +17,7 @@ use crate::analyze::compositor::OrderedSceneProgram;
 /// that all render functions append `DrawOp`s into.
 pub struct RenderCtx<'a> {
     /// Asset catalog for resolving ImageRef asset_ids to binary data.
-    pub catalog: &'a HashMapResourceCatalog,
+    pub catalog: &'a dyn ResourceCatalog,
     /// Frame-level metadata (canvas size, mouse position, time, etc.).
     pub frame_ctx: &'a FrameCtx,
     /// The annotated display tree for this frame.

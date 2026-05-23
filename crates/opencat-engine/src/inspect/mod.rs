@@ -390,7 +390,10 @@ fn collect_source_metadata(
                 entry.text_content = caption
                     .active_text(frame_ctx.frame)
                     .map(|text| text.to_string());
-                entry.media_source = Some(format!("{:?}", caption.source()));
+                entry.media_source = match caption.source() {
+                    opencat_core::parse::primitives::SubtitleSource::Path(p) => Some(p.to_string_lossy().to_string()),
+                    opencat_core::parse::primitives::SubtitleSource::Url(u) => Some(u.clone()),
+                };
             }
         }
     }

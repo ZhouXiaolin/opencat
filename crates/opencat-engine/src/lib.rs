@@ -34,3 +34,6 @@ pub use opencat_core::style::ColorToken;
 // RenderSession is now a type alias for the core generic session monomorphised with EnginePlatform.
 pub use crate::render::RenderSession;
 pub use crate::resource::loader::{EngineAssetHandle, EngineLoader};
+
+// Pipeline integration: monomorphised pipeline type
+pub type EnginePipeline = opencat_core::pipeline::DefaultPipeline<EngineLoader, crate::js_context::RqJsContext>;

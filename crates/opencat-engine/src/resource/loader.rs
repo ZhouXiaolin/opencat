@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 use opencat_core::probe::{AssetHandle, AssetLoader, ResourceRequests};
 use opencat_core::probe::{AudioSource, ImageSource, SubtitleSource, VideoSource};
@@ -59,6 +59,7 @@ impl AssetLoader for EngineLoader {
     type Handle = EngineAssetHandle;
 
     fn load_all(&mut self, req: &ResourceRequests) -> Result<()> {
+        let base_dir = self._base_dir.clone();
         let cache_dir = self.cache_dir.clone();
         let mut new_handles: Vec<(AssetId, PathBuf)> = Vec::new();
 
@@ -70,9 +71,17 @@ impl AssetLoader for EngineLoader {
                         let _ = self.fetcher.fetch_bytes(&id, u).await?;
                     }
                     ImageSource::Path(p) => {
-                        copy_local_to_cache(p, &cache_dir, &id)?;
+                        copy_local_to_cache(p, &base_dir, &cache_dir, &id)?;
                     }
-                    ImageSource::Query(_) => continue,
+                    ImageSource::Query(q) => {
+                        let search_id = AssetId(format!("openverse:search:{}", q.query));
+                        let search_url = build_openverse_search_url(q);
+                        let search_bytes = self.fetcher.fetch_bytes(&search_id, &search_url).await
+                            .with_context(|| format!("failed to query Openverse for {:?}", q.query))?;
+                        let image_url = parse_openverse_response(&search_bytes)
+                            .with_context(|| format!("bad Openverse response for {:?}", q.query))?;
+                        let _ = self.fetcher.fetch_bytes(&id, &image_url).await?;
+                    }
                     ImageSource::Unset => continue,
                 }
                 new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
@@ -85,7 +94,7 @@ impl AssetLoader for EngineLoader {
                         let _ = self.fetcher.fetch_bytes(&id, u).await?;
                     }
                     VideoSource::Path(p) => {
-                        copy_local_to_cache(p, &cache_dir, &id)?;
+                        copy_local_to_cache(p, &base_dir, &cache_dir, &id)?;
                     }
                 }
                 new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
@@ -98,7 +107,7 @@ impl AssetLoader for EngineLoader {
                         let _ = self.fetcher.fetch_bytes(&id, u).await?;
                     }
                     AudioSource::Path(p) => {
-                        copy_local_to_cache(p, &cache_dir, &id)?;
+                        copy_local_to_cache(p, &base_dir, &cache_dir, &id)?;
                     }
                     AudioSource::Unset => continue,
                 }
@@ -112,7 +121,7 @@ impl AssetLoader for EngineLoader {
                         let _ = self.fetcher.fetch_bytes(&id, u).await?;
                     }
                     SubtitleSource::Path(p) => {
-                        copy_local_to_cache(p, &cache_dir, &id)?;
+                        copy_local_to_cache(p, &base_dir, &cache_dir, &id)?;
                     }
                 }
                 new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
@@ -163,14 +172,46 @@ fn subtitle_asset_id(s: &SubtitleSource) -> AssetId {
     }
 }
 
-fn copy_local_to_cache(src: &Path, cache_dir: &Path, id: &AssetId) -> Result<()> {
+fn copy_local_to_cache(src: &Path, base_dir: &Path, cache_dir: &Path, id: &AssetId) -> Result<()> {
+    let resolved = if src.is_relative() {
+        base_dir.join(src)
+    } else {
+        src.to_path_buf()
+    };
     let dst = cache_file_path(cache_dir, id);
     if dst.exists() {
         return Ok(());
     }
-    std::fs::copy(src, &dst)
-        .with_context(|| format!("copy {} -> {}", src.display(), dst.display()))?;
+    std::fs::copy(&resolved, &dst)
+        .with_context(|| format!("copy {} -> {}", resolved.display(), dst.display()))?;
     Ok(())
+}
+
+fn build_openverse_search_url(query: &opencat_core::parse::primitives::OpenverseQuery) -> String {
+    let page_size = query.count.max(1).to_string();
+    let mut url = format!("https://api.openverse.org/v1/images/?q={}&page_size={}", query.query, page_size);
+    if let Some(aspect_ratio) = &query.aspect_ratio {
+        url.push_str(&format!("&aspect_ratio={}", aspect_ratio));
+    }
+    url
+}
+
+fn parse_openverse_response(bytes: &[u8]) -> Result<String> {
+    #[derive(serde::Deserialize)]
+    struct ImageResult {
+        url: Option<String>,
+        thumbnail: Option<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct SearchResponse {
+        results: Vec<ImageResult>,
+    }
+
+    let resp: SearchResponse = serde_json::from_slice(bytes)?;
+    resp.results
+        .into_iter()
+        .find_map(|r| r.url.or(r.thumbnail))
+        .ok_or_else(|| anyhow!("Openverse returned no image"))
 }
 
 #[cfg(test)]

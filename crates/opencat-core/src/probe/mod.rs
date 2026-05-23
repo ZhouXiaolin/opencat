@@ -1,6 +1,8 @@
+pub mod bitmap_source;
 pub mod catalog;
 pub mod probe;
 
+pub use bitmap_source::*;
 pub use catalog::{
     AudioPlan, AudioSegment, ImageMeta, ResourceCatalog, ResourceRequests, VideoInfoMeta,
     VideoSource,
@@ -12,7 +14,7 @@ use std::path::Path;
 use anyhow::Result;
 
 pub use crate::parse::primitives::{AudioSource, ImageSource, SubtitleSource};
-pub use crate::resource::asset_id::AssetId;
+pub use crate::ir::asset_id::AssetId;
 
 pub trait AssetHandle: Clone + 'static {
     fn read_bytes(&self) -> Result<Cow<'_, [u8]>>;

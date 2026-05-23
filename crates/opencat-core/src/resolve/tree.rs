@@ -1,6 +1,7 @@
 use crate::ir::draw_op::DrawOp;
 use crate::parse::transition::TransitionKind;
-use crate::resource::{asset_id::AssetId, types::VideoFrameTiming};
+use crate::ir::asset_id::AssetId;
+use crate::resource::types::VideoFrameTiming;
 use crate::script::TextUnitOverrideBatch;
 use crate::style::ComputedTextStyle;
 

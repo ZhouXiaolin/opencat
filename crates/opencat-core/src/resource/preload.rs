@@ -63,7 +63,7 @@ mod tests {
 
     use super::*;
     use crate::parse::primitives::{OpenverseQuery, VideoSource};
-    use crate::resource::asset_id::{
+    use crate::ir::asset_id::{
         AssetId, asset_id_for_audio_url, asset_id_for_url, asset_id_for_video_url,
     };
     use crate::resource::hash_map_catalog::HashMapResourceCatalog;
@@ -136,7 +136,7 @@ mod tests {
             query: &OpenverseQuery,
         ) -> impl Future<Output = Result<ImageMeta>> {
             self.image_queries.push(query.clone());
-            let id = crate::resource::asset_id::asset_id_for_query(query);
+            let id = crate::ir::asset_id::asset_id_for_query(query);
             async move {
                 Ok(ImageMeta {
                     id,

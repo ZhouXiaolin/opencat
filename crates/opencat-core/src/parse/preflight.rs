@@ -30,7 +30,7 @@ pub fn collect_resource_requests(composition: &Composition) -> ResourceRequests 
 
 pub fn collect_audio_plan(comp: &Composition) -> crate::probe::catalog::AudioPlan {
     use crate::probe::catalog::{AudioPlan, AudioSegment};
-    use crate::resource::asset_id::{asset_id_for_audio_url, AssetId};
+    use crate::ir::asset_id::{asset_id_for_audio_url, AssetId};
 
     let fps = comp.fps.max(1) as u64;
     let ms_per_frame = 1000 / fps;

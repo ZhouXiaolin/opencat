@@ -21,7 +21,7 @@ use crate::render::builder::DrawOpBuilder;
 use crate::render::media_plan::build_media_plan;
 use crate::resolve::path_bounds::DefaultPathBounds;
 use crate::resolve::resolve::resolve_ui_tree_with_script_cache;
-use crate::resource::asset_id::{
+use crate::ir::asset_id::{
     asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
 };
 use crate::script::js_context::JsContext;

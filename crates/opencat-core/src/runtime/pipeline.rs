@@ -126,7 +126,7 @@ pub fn render_frame_inner(
 
     let mut builder = DrawOpBuilder::default();
     let mut ctx = RenderCtx {
-        catalog,
+        catalog: &*catalog,
         frame_ctx: &frame_ctx,
         display_tree: &annotated,
         ordered_scene: &ordered_scene,

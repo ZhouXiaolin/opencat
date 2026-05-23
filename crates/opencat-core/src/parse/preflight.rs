@@ -28,6 +28,34 @@ pub fn collect_resource_requests(composition: &Composition) -> ResourceRequests 
     req
 }
 
+pub fn collect_audio_plan(comp: &Composition) -> crate::probe::catalog::AudioPlan {
+    use crate::probe::catalog::{AudioPlan, AudioSegment};
+    use crate::resource::asset_id::{asset_id_for_audio_url, AssetId};
+
+    let fps = comp.fps.max(1) as u64;
+    let ms_per_frame = 1000 / fps;
+    let total_ms = (comp.frames as u64) * ms_per_frame;
+    let mut segments = Vec::new();
+
+    for s in comp.audio_sources() {
+        let asset = match &s.source {
+            AudioSource::Unset => continue,
+            AudioSource::Url(u) => asset_id_for_audio_url(u),
+            AudioSource::Path(p) => AssetId(format!("audio:path:{}", p.to_string_lossy())),
+        };
+        let (start_ms, end_ms) = match &s.attach {
+            crate::parse::composition::AudioAttachment::Timeline => (0, total_ms),
+            crate::parse::composition::AudioAttachment::Scene { .. } => {
+                let dur_ms = s.duration.map(|d| d as u64 * ms_per_frame).unwrap_or(total_ms);
+                (0, dur_ms)
+            }
+        };
+        segments.push(AudioSegment { asset, start_ms, end_ms });
+    }
+
+    AudioPlan { segments }
+}
+
 pub(crate) fn collect_sources_from_frame_state(
     state: &FrameState,
     frame_ctx: &FrameCtx,

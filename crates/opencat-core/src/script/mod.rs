@@ -15,6 +15,7 @@ pub mod dispatch;
 pub mod helpers;
 pub mod host;
 pub mod js_context;
+pub mod live_host;
 pub mod mutations;
 pub mod precomputed_host;
 pub mod recorder;
@@ -25,6 +26,7 @@ pub mod text_units;
 
 pub use host::{ScriptDriverId, ScriptHost, driver_id_from_source};
 pub use mutations::*;
+pub use live_host::LiveScriptHost;
 pub use precomputed_host::PrecomputedScriptHost;
 pub use runtime_cache::ScriptRuntimeCache;
 pub use script_runner::ScriptRunner;

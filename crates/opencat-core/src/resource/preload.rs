@@ -8,8 +8,8 @@
 
 use anyhow::Result;
 
-use crate::parse::preflight::ResourceRequests;
-use crate::parse::primitives::{AudioSource, ImageSource};
+use crate::parse::primitives::{AudioSource, ImageSource, VideoSource};
+use crate::probe::catalog::ResourceRequests;
 use crate::resource::catalog::ResourceCatalog;
 use crate::resource::resolver::AssetResolver;
 
@@ -18,7 +18,7 @@ pub async fn preload_all<R: AssetResolver, C: ResourceCatalog>(
     resolver: &mut R,
     catalog: &mut C,
 ) -> Result<()> {
-    for src in requests.image_sources {
+    for src in requests.images {
         let meta = match src {
             ImageSource::Unset => continue,
             ImageSource::Url(url) => resolver.resolve_image_url(&url).await?,
@@ -28,7 +28,7 @@ pub async fn preload_all<R: AssetResolver, C: ResourceCatalog>(
         catalog.register_dimensions(&meta.id.0, meta.width, meta.height);
     }
 
-    for src in requests.audio_sources {
+    for src in requests.audios {
         match src {
             AudioSource::Unset => continue,
             AudioSource::Url(url) => {
@@ -42,13 +42,11 @@ pub async fn preload_all<R: AssetResolver, C: ResourceCatalog>(
         }
     }
 
-    for url in requests.video_urls {
-        let meta = resolver.resolve_video_url(&url).await?;
-        catalog.register_video_dimensions(&meta.id.0, meta.width, meta.height, meta.duration_secs);
-    }
-
-    for path in requests.video_paths {
-        let meta = resolver.resolve_video_path(&path).await?;
+    for src in requests.videos {
+        let meta = match src {
+            VideoSource::Url(url) => resolver.resolve_video_url(&url).await?,
+            VideoSource::Path(path) => resolver.resolve_video_path(&path).await?,
+        };
         catalog.register_video_dimensions(&meta.id.0, meta.width, meta.height, meta.duration_secs);
     }
 
@@ -64,7 +62,7 @@ mod tests {
     use anyhow::Result;
 
     use super::*;
-    use crate::parse::primitives::OpenverseQuery;
+    use crate::parse::primitives::{OpenverseQuery, VideoSource};
     use crate::resource::asset_id::{
         AssetId, asset_id_for_audio_url, asset_id_for_url, asset_id_for_video_url,
     };
@@ -214,7 +212,7 @@ mod tests {
     fn routes_image_url_and_registers_dims() {
         let mut requests = ResourceRequests::default();
         requests
-            .image_sources
+            .images
             .insert(ImageSource::Url("https://example.com/a.png".to_string()));
         let mut resolver = MockResolver::default();
         let mut catalog = HashMapResourceCatalog::from_json("{}").unwrap();
@@ -230,8 +228,8 @@ mod tests {
     fn routes_video_url_with_duration() {
         let mut requests = ResourceRequests::default();
         requests
-            .video_urls
-            .insert("https://example.com/c.mp4".to_string());
+            .videos
+            .insert(VideoSource::Url("https://example.com/c.mp4".to_string()));
         let mut resolver = MockResolver::default();
         let mut catalog = HashMapResourceCatalog::from_json("{}").unwrap();
 
@@ -247,7 +245,7 @@ mod tests {
     #[test]
     fn skips_unset_image_source() {
         let mut requests = ResourceRequests::default();
-        requests.image_sources.insert(ImageSource::Unset);
+        requests.images.insert(ImageSource::Unset);
         let mut resolver = MockResolver::default();
         let mut catalog = HashMapResourceCatalog::from_json("{}").unwrap();
 
@@ -261,18 +259,18 @@ mod tests {
     fn routes_all_source_kinds() {
         let mut requests = ResourceRequests::default();
         requests
-            .image_sources
+            .images
             .insert(ImageSource::Url("https://example.com/img.png".into()));
         requests
-            .image_sources
+            .images
             .insert(ImageSource::Path(PathBuf::from("/tmp/local.png")));
         requests
-            .audio_sources
+            .audios
             .insert(AudioSource::Url("https://example.com/a.mp3".into()));
         requests
-            .video_urls
-            .insert("https://example.com/v.mp4".into());
-        requests.video_paths.insert(PathBuf::from("/tmp/local.mp4"));
+            .videos
+            .insert(VideoSource::Url("https://example.com/v.mp4".into()));
+        requests.videos.insert(VideoSource::Path(PathBuf::from("/tmp/local.mp4")));
 
         let mut resolver = MockResolver::default();
         let mut catalog = HashMapResourceCatalog::from_json("{}").unwrap();

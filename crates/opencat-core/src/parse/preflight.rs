@@ -1,24 +1,13 @@
-use std::collections::HashSet;
-use std::path::PathBuf;
-
 use crate::frame_ctx::FrameCtx;
 use crate::parse::composition::Composition;
 use crate::parse::node::{Node, NodeKind};
 use crate::parse::primitives::{AudioSource, ImageSource, SubtitleSource, VideoSource};
 use crate::parse::time::{FrameState, frame_state_for_root};
-
-#[derive(Default, Debug)]
-pub struct ResourceRequests {
-    pub image_sources: HashSet<ImageSource>,
-    pub audio_sources: HashSet<AudioSource>,
-    pub video_paths: HashSet<PathBuf>,
-    pub video_urls: HashSet<String>,
-    pub subtitle_sources: HashSet<SubtitleSource>,
-}
+use crate::probe::catalog::ResourceRequests;
 
 pub fn collect_resource_requests(composition: &Composition) -> ResourceRequests {
     let mut req = ResourceRequests::default();
-    req.audio_sources
+    req.audios
         .extend(composition.audio_sources().iter().map(|a| a.source.clone()));
 
     for frame in 0..composition.frames {
@@ -69,29 +58,24 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
         NodeKind::Canvas(canvas) => {
             for asset in canvas.assets_ref() {
                 if !matches!(asset.source, ImageSource::Unset) {
-                    req.image_sources.insert(asset.source.clone());
+                    req.images.insert(asset.source.clone());
                 }
             }
         }
         NodeKind::Image(image) => {
             if !matches!(image.source(), ImageSource::Unset) {
-                req.image_sources.insert(image.source().clone());
+                req.images.insert(image.source().clone());
             }
         }
-        NodeKind::Video(video) => match video.source() {
-            VideoSource::Path(p) => {
-                req.video_paths.insert(p.clone());
-            }
-            VideoSource::Url(u) => {
-                req.video_urls.insert(u.clone());
-            }
-        },
+        NodeKind::Video(video) => {
+            req.videos.insert(video.source().clone());
+        }
         NodeKind::Timeline(_) => {
             collect_sources_from_frame_state(&frame_state_for_root(node, frame_ctx), frame_ctx, req)
         }
         NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Path(_) => {}
         NodeKind::Caption(caption) => {
-            req.subtitle_sources.insert(caption.source().clone());
+            req.subtitles.insert(caption.source().clone());
         }
     }
 }
@@ -123,8 +107,8 @@ mod tests {
             .unwrap();
 
         let req = collect_resource_requests(&comp);
-        assert_eq!(req.image_sources.len(), 1);
-        assert_eq!(req.video_paths.len(), 1);
+        assert_eq!(req.images.len(), 1);
+        assert_eq!(req.videos.len(), 1);
     }
 
     #[test]
@@ -143,8 +127,9 @@ mod tests {
             .unwrap();
 
         let req = collect_resource_requests(&comp);
-        assert_eq!(req.video_urls.len(), 1);
-        assert!(req.video_urls.contains("https://example.com/v.mp4"));
-        assert!(req.video_paths.is_empty());
+        assert_eq!(req.videos.len(), 1);
+        assert!(req
+            .videos
+            .contains(&VideoSource::Url("https://example.com/v.mp4".to_string())));
     }
 }

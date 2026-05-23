@@ -11,9 +11,10 @@ pub mod types;
 
 pub use asset_id::AssetId;
 pub use blob_store::{AssetPathBlobStore, BlobStore};
-pub use catalog::{ResourceCatalog, VideoInfoMeta};
+pub use catalog::ResourceCatalog;
+pub use hash_map_catalog::{HashMapResourceCatalog, ResourceKind, ResourceMeta};
 pub use path_store::AssetPathStore;
 pub use preload::preload_all;
 pub use probe::{ImageDims, VideoProbe, probe_image_dims, probe_video};
-pub use resolver::{AssetResolver, AssetSink, AudioMeta, ImageMeta, UrlFetcher, VideoMeta};
+pub use resolver::{AssetResolver, AssetSink, AudioMeta, ImageMeta, VideoMeta, UrlFetcher};
 pub use types::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality};

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::resource::types::VideoFrameTiming;
 use crate::style::{NodeStyle, impl_node_style_api};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum VideoSource {
     Path(PathBuf),
     Url(String),

@@ -1,4 +1,9 @@
-use crate::runtime::{
+pub mod annotation;
+pub mod compositor;
+pub mod fingerprint;
+pub mod invalidation;
+
+use crate::analyze::{
     annotation::AnnotatedNodeHandle,
     fingerprint::{PaintVariance, SubtreeSnapshotFingerprint},
 };

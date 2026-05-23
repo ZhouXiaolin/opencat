@@ -8,9 +8,8 @@ use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, PathOp};
 use crate::parse::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::render::builder::DrawOpBuilder;
-use crate::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
-use crate::runtime::compositor::ordered_scene::{OrderedSceneOp, OrderedSceneProgram};
-use crate::runtime::compositor::reuse::LiveNodeItemExecution;
+use crate::analyze::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
+use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram, LiveNodeItemExecution};
 use crate::style::{BorderRadius, Transform};
 
 use super::{RenderCtx, RenderError, record_cache_pressure};

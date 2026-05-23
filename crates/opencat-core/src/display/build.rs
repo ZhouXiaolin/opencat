@@ -247,7 +247,7 @@ mod tests {
         resolve::resolve::resolve_ui_tree,
         parse,
         parse::primitives::{div, lucide},
-        runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
+        analyze::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
         style::{ColorToken, ObjectFit},
         test_support::MockScriptHost,
         test_support::TestCatalog,

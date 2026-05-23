@@ -5,10 +5,9 @@ use std::sync::Arc;
 use crate::ir::cache::RenderCache;
 use crate::layout::LayoutSession;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
-use crate::runtime::annotation::AnnotatedNodeHandle;
-use crate::runtime::compositor::ordered_scene::{OrderedSceneOp, OrderedSceneProgram};
-use crate::runtime::compositor::reuse::LiveNodeItemExecution;
-use crate::runtime::invalidation::CompositeHistory;
+use crate::analyze::annotation::AnnotatedNodeHandle;
+use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram, LiveNodeItemExecution};
+use crate::analyze::invalidation::CompositeHistory;
 use crate::text::default_font_db;
 
 const DEFAULT_SUBTREE_SNAPSHOT_CAP: usize = 256;

@@ -7,8 +7,8 @@ use crate::frame_ctx::FrameCtx;
 use crate::render::builder::DrawOpBuilder;
 use crate::resource::blob_store::BlobStore;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
-use crate::runtime::annotation::AnnotatedDisplayTree;
-use crate::runtime::compositor::ordered_scene::OrderedSceneProgram;
+use crate::analyze::annotation::AnnotatedDisplayTree;
+use crate::analyze::compositor::OrderedSceneProgram;
 
 /// Rendering context passed to all render functions.
 ///

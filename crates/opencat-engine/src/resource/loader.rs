@@ -144,7 +144,7 @@ fn image_asset_id(s: &ImageSource) -> AssetId {
 fn video_asset_id(s: &VideoSource) -> AssetId {
     match s {
         VideoSource::Url(u) => asset_id_for_video_url(u),
-        VideoSource::Path(p) => AssetId(p.to_string_lossy().into_owned()),
+        VideoSource::Path(p) => AssetId(format!("video:path:{}", p.to_string_lossy())),
     }
 }
 
@@ -158,8 +158,8 @@ fn audio_asset_id(s: &AudioSource) -> AssetId {
 
 fn subtitle_asset_id(s: &SubtitleSource) -> AssetId {
     match s {
-        SubtitleSource::Url(u) => AssetId(u.clone()),
-        SubtitleSource::Path(p) => AssetId(p.to_string_lossy().into_owned()),
+        SubtitleSource::Url(u) => AssetId(format!("subtitle:url:{u}")),
+        SubtitleSource::Path(p) => AssetId(format!("subtitle:path:{}", p.to_string_lossy())),
     }
 }
 
@@ -193,7 +193,7 @@ mod tests {
 
         loader.load_all(&req).unwrap();
 
-        let id = AssetId(test_file.to_string_lossy().into_owned());
+        let id = AssetId(format!("video:path:{}", test_file.to_string_lossy()));
         let h = loader.handle(&id).unwrap();
         assert!(h.local_path().is_some());
         assert!(h.local_path().unwrap().exists());

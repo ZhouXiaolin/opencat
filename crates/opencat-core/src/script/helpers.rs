@@ -4,7 +4,7 @@
 use anyhow::anyhow;
 
 use crate::ir::draw_op::ColorU8;
-use crate::scene::script::{parse_drrect_coords, parse_image_rect_coords, script_color_from_value};
+use crate::script::{parse_drrect_coords, parse_image_rect_coords, script_color_from_value};
 
 /// Create a binding error from an operation name and message.
 pub fn script_error(op: &str, message: String) -> anyhow::Error {

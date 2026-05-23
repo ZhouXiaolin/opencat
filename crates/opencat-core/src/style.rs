@@ -1,6 +1,6 @@
 use std::{hash::Hash, sync::Arc};
 
-use crate::scene::script::ScriptDriver;
+use crate::script::ScriptDriver;
 
 include!(concat!(env!("OUT_DIR"), "/tailwind_color_items.rs"));
 

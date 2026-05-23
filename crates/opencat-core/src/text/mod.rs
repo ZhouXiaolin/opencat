@@ -360,11 +360,11 @@ pub fn describe_grapheme_ranges(text: &str) -> Vec<Range<usize>> {
 /// Split text into word byte ranges (graheme-based for CJK).
 pub fn describe_text_unit_ranges(
     text: &str,
-    granularity: crate::scene::script::TextUnitGranularity,
+    granularity: crate::script::TextUnitGranularity,
 ) -> Vec<Range<usize>> {
     match granularity {
-        crate::scene::script::TextUnitGranularity::Grapheme => describe_grapheme_ranges(text),
-        crate::scene::script::TextUnitGranularity::Word => {
+        crate::script::TextUnitGranularity::Grapheme => describe_grapheme_ranges(text),
+        crate::script::TextUnitGranularity::Word => {
             if contains_cjk(text) {
                 return describe_grapheme_ranges(text);
             }

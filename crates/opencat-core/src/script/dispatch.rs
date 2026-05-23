@@ -13,8 +13,8 @@ use serde_json::Value;
 use crate::for_each_binding;
 use crate::ir::draw_op::{ColorF32, DRRectSpec, DrawOp, Radii4, Rect4};
 use crate::ir::draw_types::{ImageRef, PaintId, PathOp};
-use crate::scene::script::mutations::TextUnitGranularity;
-use crate::scene::script::{
+use crate::script::mutations::TextUnitGranularity;
+use crate::script::{
     align_items_from_name, box_shadow_from_name, drop_shadow_from_name, flex_direction_from_name,
     font_edging_from_name, inset_shadow_from_name, justify_content_from_name, line_cap_from_name,
     line_join_from_name, object_fit_from_name, position_from_name, text_align_from_name,

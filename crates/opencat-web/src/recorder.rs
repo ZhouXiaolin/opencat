@@ -2,8 +2,8 @@ use wasm_bindgen::prelude::*;
 
 use opencat_core::ir::op::{ColorF32, ColorU8, DrawOp, Rect4};
 use opencat_core::ir::types::{ImageRef, PathOp};
-use opencat_core::scene::script::mutations::TextUnitGranularity;
-use opencat_core::scene::script::{
+use opencat_core::script::mutations::TextUnitGranularity;
+use opencat_core::script::{
     ScriptTextSource, ScriptTextSourceKind, align_items_from_name, box_shadow_from_name,
     drop_shadow_from_name, flex_direction_from_name, inset_shadow_from_name,
     justify_content_from_name, object_fit_from_name, position_from_name, script_color_from_value,

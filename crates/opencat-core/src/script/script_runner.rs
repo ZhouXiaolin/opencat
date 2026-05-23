@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use serde_json::json;
 
 use crate::frame_ctx::ScriptFrameCtx;
-use crate::scene::script::ScriptTextSource;
+use crate::script::ScriptTextSource;
 use crate::script::dispatch::{binding_shim_js, dispatch_binding};
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;

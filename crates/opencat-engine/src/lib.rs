@@ -27,7 +27,7 @@ pub use opencat_core::parse::easing::Easing;
 pub use opencat_core::parse::node::Node;
 pub use opencat_core::parse::primitives::{SrtEntry, canvas, caption, div, image, text};
 pub use opencat_core::parse::transition::{fade, timeline};
-pub use opencat_core::scene::script::ScriptDriver;
+pub use opencat_core::script::ScriptDriver;
 pub use opencat_core::style::ColorToken;
 
 // Re-export engine types used in tests via `crate::` path

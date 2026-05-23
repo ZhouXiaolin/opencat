@@ -214,7 +214,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
 }
 
 fn conservative_text_visual_expansion(
-    batch: Option<&crate::scene::script::TextUnitOverrideBatch>,
+    batch: Option<&crate::script::TextUnitOverrideBatch>,
     text_px: f32,
 ) -> (f32, f32) {
     let Some(batch) = batch else {

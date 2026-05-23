@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use super::{MutationRecorder, TextUnitValues};
 use crate::parse::easing::Easing;
-use crate::scene::script::ScriptTextSource;
-use crate::scene::script::mutations::{
+use crate::script::ScriptTextSource;
+use crate::script::mutations::{
     CanvasMutations, NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
     TextUnitOverrideBatch,
 };
@@ -417,7 +417,7 @@ impl MutationRecorder for MutationStore {
             id.to_string(),
             ScriptTextSource {
                 text,
-                kind: crate::scene::script::ScriptTextSourceKind::TextNode,
+                kind: crate::script::ScriptTextSourceKind::TextNode,
             },
         );
     }

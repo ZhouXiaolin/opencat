@@ -10,6 +10,7 @@ pub mod layout;
 mod lucide_icons;
 pub mod parse;
 pub mod platform;
+pub mod probe;
 pub mod render;
 pub mod resource;
 pub mod runtime;
@@ -23,11 +24,15 @@ pub mod test_support;
 
 pub use self::frame_ctx::FrameCtx;
 pub use self::parse::node::Node;
-pub use self::parse::preflight::{ResourceRequests, collect_resource_requests};
+pub use self::parse::preflight::collect_resource_requests; // ResourceRequests now in probe
 pub use self::parse::{ParsedComposition, parse};
 pub use self::platform::video::{FrameBitmap, VideoFrameProvider};
+pub use self::probe::{
+    AssetHandle, AssetLoader, AudioPlan, AudioSegment, AudioSource, ImageMeta, ImageSource,
+    ResourceCatalog as ProbeResourceCatalog, SubtitleSource, VideoInfoMeta, VideoSource,
+};
 pub use self::resource::asset_id::AssetId;
-pub use self::resource::catalog::{ResourceCatalog, VideoInfoMeta};
+pub use self::resource::catalog::ResourceCatalog;
 pub use self::resource::hash_map_catalog::{HashMapResourceCatalog, ResourceKind, ResourceMeta};
 pub use self::runtime::session::RenderSession;
 pub use self::scene::script::{

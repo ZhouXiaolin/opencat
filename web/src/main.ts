@@ -12,6 +12,7 @@ import {
   prepareVideoSource,
   preloadAssets,
   registerVideoGlobals,
+  renderEncodedDrawFrame,
   setWasmBaseUrl,
   setWorkerBaseUrl,
   type CompositionInfo,
@@ -32,7 +33,7 @@ let playStartTime = 0;
 let playStartFrame = 0;
 let isExporting = false;
 
-// --- Resource Metadata for WASM build_frame ---
+// --- Resource Metadata for WASM build_frame_ir ---
 let resourceMeta: Record<string, ResourceMeta> = {};
 
 // --- DOM refs ---
@@ -399,11 +400,11 @@ async function renderFrameWithPipeline(
     if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
 
     const ckCanvas = surface.getCanvas();
-    renderer.build_frame(currentJsonlContent!, frame, ckCanvas, resourceMetaJson);
+    const ir = renderer.build_frame_ir(currentJsonlContent!, frame, resourceMetaJson);
+    renderEncodedDrawFrame(ir, ckCanvas, CK);
     surface.flush();
     surface.flush();
   } finally {
-    try { renderer.clear_video_cache(''); } catch { /* ignore */ }
     surface?.delete();
   }
 

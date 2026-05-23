@@ -3,9 +3,9 @@
 pub mod cache;
 pub mod canvas;
 pub mod display;
-pub mod draw;
 pub mod element;
 pub mod frame_ctx;
+pub mod ir;
 pub mod jsonl;
 pub mod layout;
 mod lucide_icons;

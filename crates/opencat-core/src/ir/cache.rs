@@ -1,5 +1,5 @@
-use super::op::DrawOp;
-use super::types::*;
+use super::draw_op::DrawOp;
+use super::draw_types::*;
 use crate::cache::lru::BoundedLruCache;
 use crate::canvas::paint::PaintSpec;
 use crate::display::list::DisplayRect;
@@ -68,7 +68,7 @@ pub struct CachedDrawSegment {
 mod tests {
     use super::*;
     use crate::display::list::DisplayRect;
-    use crate::draw::op::DrawOp;
+    use crate::ir::draw_op::DrawOp;
 
     #[test]
     fn cached_draw_segment_holds_ir_data() {

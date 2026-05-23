@@ -21,9 +21,9 @@ use opencat_core::{
 use opencat_core::resource::catalog::ResourceCatalog;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 
+use crate::render::RenderSession;
 use crate::resource::AssetPathStore;
 use opencat_core::scene::path_bounds::DefaultPathBounds;
-use crate::render::RenderSession;
 
 #[derive(Clone, Debug)]
 pub struct FrameElementRect {

@@ -1,10 +1,10 @@
 use super::paint::paint_from_spec;
 use super::path::path_from_encoded;
 use super::{EngineDrawExecutor, EnginePreparedFrameMedia};
-use opencat_core::draw::frame::DrawOpFrame;
-use opencat_core::draw::op::{DRRectSpec, Radii4};
-use opencat_core::draw::op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
-use opencat_core::draw::types::{DrawOpRange, PathOp, RuntimeEffectChildRef};
+use opencat_core::ir::draw_frame::DrawOpFrame;
+use opencat_core::ir::draw_op::{DRRectSpec, Radii4};
+use opencat_core::ir::draw_op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
+use opencat_core::ir::draw_types::{DrawOpRange, PathOp, RuntimeEffectChildRef};
 use opencat_core::platform::draw::DrawError;
 use skia_safe::{
     Canvas, FilterMode, Paint, PathBuilder, Picture, PictureRecorder, Point, RRect, Rect, Shader,
@@ -651,8 +651,10 @@ fn drrect_to_skia(spec: &DRRectSpec) -> RRect {
 mod tests {
     use super::*;
     use opencat_core::canvas::paint::{FillSpec, PaintSpec, PaintStyle};
-    use opencat_core::draw::op::Rect4;
-    use opencat_core::draw::types::{BytesRangeId, ChildRange, DrawOpRange, EffectId, EffectRef};
+    use opencat_core::ir::draw_op::Rect4;
+    use opencat_core::ir::draw_types::{
+        BytesRangeId, ChildRange, DrawOpRange, EffectId, EffectRef,
+    };
     use skia_safe::{AlphaType, ColorType, ImageInfo, RuntimeEffect, image::CachingHint, surfaces};
 
     fn pixel_rgba(frame: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
@@ -683,7 +685,7 @@ half4 main(float2 coord) {
         });
         frame
             .byte_ranges
-            .push(opencat_core::draw::types::TableRange { start: 0, len: 0 });
+            .push(opencat_core::ir::draw_types::TableRange { start: 0, len: 0 });
         frame
             .children
             .push(RuntimeEffectChildRef::Picture(DrawOpRange {
@@ -702,7 +704,7 @@ half4 main(float2 coord) {
                 width: 8.0,
                 height: 8.0,
             },
-            paint: opencat_core::draw::types::PaintId(0),
+            paint: opencat_core::ir::draw_types::PaintId(0),
         });
 
         let effect_op = DrawOp::RuntimeEffect {

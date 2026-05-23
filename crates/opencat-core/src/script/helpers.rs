@@ -3,7 +3,7 @@
 
 use anyhow::anyhow;
 
-use crate::draw::op::ColorU8;
+use crate::ir::draw_op::ColorU8;
 use crate::scene::script::{parse_drrect_coords, parse_image_rect_coords, script_color_from_value};
 
 /// Create a binding error from an operation name and message.

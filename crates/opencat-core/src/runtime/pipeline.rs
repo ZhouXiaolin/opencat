@@ -6,13 +6,13 @@ use anyhow::Result;
 use tracing::{Level, event, span};
 
 use crate::display::build::build_display_tree;
-use crate::draw::builder::DrawOpBuilder;
-use crate::draw::frame::DrawOpFrame;
 use crate::element::resolve::resolve_ui_tree_with_script_cache;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
+use crate::ir::draw_frame::DrawOpFrame;
 use crate::layout::LayoutSession;
 use crate::platform::media::FrameMediaPlan;
 use crate::render::RenderCtx;
+use crate::render::builder::DrawOpBuilder;
 use crate::render::media_plan::build_media_plan;
 use crate::resource::blob_store::BlobStore;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
@@ -38,7 +38,7 @@ pub fn render_frame_inner(
     composite_history: &mut CompositeHistory,
     font_db: &std::sync::Arc<fontdb::Database>,
     catalog: &mut HashMapResourceCatalog,
-    cache: &mut crate::draw::cache::RenderCache,
+    cache: &mut crate::ir::cache::RenderCache,
     last_ordered_scene: &mut OrderedSceneProgram,
     script: &mut dyn ScriptHost,
     blob_store: Option<&dyn BlobStore>,

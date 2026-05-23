@@ -3,8 +3,8 @@
 //! Carries scene data, frame metadata, and the `DrawOpBuilder` that
 //! all render functions write their draw-ops into.
 
-use crate::draw::builder::DrawOpBuilder;
 use crate::frame_ctx::FrameCtx;
+use crate::render::builder::DrawOpBuilder;
 use crate::resource::blob_store::BlobStore;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::runtime::annotation::AnnotatedDisplayTree;

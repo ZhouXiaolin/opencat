@@ -1,4 +1,4 @@
-use super::types::{
+use super::draw_types::{
     BytesRangeId, ChildRange, DrawOpRange, EffectId, ImageRef, PaintId, PathId, PathOp,
 };
 #[allow(unused_imports)]
@@ -566,7 +566,7 @@ impl std::hash::Hash for DrawOp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::types::{ImageRef, PaintId};
+    use crate::ir::draw_types::{ImageRef, PaintId};
 
     #[test]
     fn draw_op_roundtrip_save_restore_variants_exist() {

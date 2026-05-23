@@ -9,7 +9,7 @@ pub fn prepare_frame(
     asset_paths: &crate::resource::AssetPathStore,
     video: *mut MediaContext,
 ) -> Result<EnginePreparedFrameMedia, MediaError> {
-    use opencat_core::draw::types::ImageRef;
+    use opencat_core::ir::draw_types::ImageRef;
     use opencat_core::resource::AssetPathBlobStore;
     use opencat_core::resource::asset_id::AssetId;
     use opencat_core::resource::blob_store::BlobStore;

@@ -3,9 +3,9 @@ use clap::Parser;
 use opencat_core::scene::composition::Composition;
 use opencat_core::scene::script::ScriptDriver;
 use opencat_engine::jsonl_io::parse_file;
-use opencat_engine::render::{render_frame_rgba, RenderSession};
-use sha2::{Digest, Sha256};
+use opencat_engine::render::{RenderSession, render_frame_rgba};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -34,8 +34,7 @@ struct Sample {
 }
 
 fn build_composition(jsonl: &Path) -> Result<Composition> {
-    let parsed = parse_file(jsonl)
-        .with_context(|| format!("parse {}", jsonl.display()))?;
+    let parsed = parse_file(jsonl).with_context(|| format!("parse {}", jsonl.display()))?;
 
     let root = if let Some(script) = parsed.script.as_deref() {
         if script.trim().is_empty() {

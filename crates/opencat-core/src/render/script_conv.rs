@@ -1,6 +1,6 @@
 use crate::canvas::glyph::FontEdging;
 use crate::canvas::paint::{FillSpec, StrokeCap, StrokeJoin};
-use crate::draw::op::{ColorU8, LineCap, LineJoin, PointMode as DrawPointMode};
+use crate::ir::draw_op::{ColorU8, LineCap, LineJoin, PointMode as DrawPointMode};
 
 /// Convert `ColorU8` to `[f32; 4]` with channels in 0.0–1.0.
 pub fn script_color_to_rgba(c: ColorU8) -> [f32; 4] {

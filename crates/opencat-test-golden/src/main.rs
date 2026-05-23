@@ -1,13 +1,10 @@
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use opencat_core::parse::composition::Composition;
-use opencat_core::script::ScriptDriver;
-use opencat_engine::jsonl_io::parse_file;
-use opencat_engine::render::{RenderSession, render_frame_rgba};
+use opencat_engine::render::render_single_frame_from_jsonl;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 
 #[derive(Parser)]
 struct Cli {
@@ -31,30 +28,6 @@ struct Sample {
     name: String,
     jsonl: PathBuf,
     frames: Vec<u32>,
-}
-
-fn build_composition(jsonl: &Path) -> Result<Composition> {
-    let parsed = parse_file(jsonl).with_context(|| format!("parse {}", jsonl.display()))?;
-
-    let root = if let Some(script) = parsed.script.as_deref() {
-        if script.trim().is_empty() {
-            parsed.root
-        } else {
-            let driver = ScriptDriver::from_source(script)?;
-            parsed.root.script_driver(driver)
-        }
-    } else {
-        parsed.root
-    };
-
-    Composition::new("golden")
-        .size(parsed.width, parsed.height)
-        .fps(parsed.fps as u32)
-        .frames(parsed.frames as u32)
-        .audio_sources(parsed.audio_sources.clone())
-        .root(move |_ctx| root.clone())
-        .build()
-        .map_err(Into::into)
 }
 
 fn main() -> Result<()> {
@@ -92,15 +65,12 @@ fn main() -> Result<()> {
         let dir = cli.root.join(&s.name);
         fs::create_dir_all(&dir)?;
 
-        let composition = build_composition(&s.jsonl)?;
-        let mut session = RenderSession::new();
+        let jsonl_content = fs::read_to_string(&s.jsonl)
+            .with_context(|| format!("read {}", s.jsonl.display()))?;
 
         for &f in &s.frames {
-            let rgba = render_frame_rgba(&composition, f, &mut session)
+            let (rgba, width, height) = render_single_frame_from_jsonl(&jsonl_content, f)
                 .with_context(|| format!("render {} frame {}", s.name, f))?;
-
-            let width = composition.width as u32;
-            let height = composition.height as u32;
 
             let png = {
                 let img = image::RgbaImage::from_raw(width, height, rgba)

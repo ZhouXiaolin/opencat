@@ -1,4 +1,4 @@
-use opencat::{Composition, EncodingConfig, ScriptDriver, parse_file};
+use opencat_engine::render::{EncodingConfig, render_from_jsonl};
 
 fn main() -> anyhow::Result<()> {
     let path = if let Some(path) = std::env::args().nth(1) {
@@ -7,33 +7,14 @@ fn main() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("No input file provided"));
     };
 
-    let parsed = parse_file(&path)?;
+    let jsonl = std::fs::read_to_string(&path)?;
+    let output = std::env::args().nth(2).unwrap_or_else(|| "output.mp4".to_string());
 
-    println!("Parsed composition: {}x{}", parsed.width, parsed.height);
+    println!("Rendering {} -> {}", path, output);
 
-    let root = if let Some(script) = parsed.script.as_deref() {
-        if script.trim().is_empty() {
-            parsed.root
-        } else {
-            let driver = ScriptDriver::from_source(script)?;
-            parsed.root.script_driver(driver)
-        }
-    } else {
-        parsed.root
-    };
+    let config = EncodingConfig::mp4();
+    render_from_jsonl(&jsonl, &output, &config)?;
 
-    let composition = Composition::new("parsed")
-        .size(parsed.width, parsed.height)
-        .fps(parsed.fps as u32)
-        .frames(parsed.frames as u32)
-        .audio_sources(parsed.audio_sources.clone())
-        .root(move |_ctx| root.clone())
-        .build()?;
-
-    let encode_config = EncodingConfig::mp4();
-    std::fs::create_dir_all("out")?;
-    opencat::render::render(&composition, "out/parsed.mp4", &encode_config)?;
-    println!("Rendered out/parsed.mp4");
-
+    println!("Done: {}", output);
     Ok(())
 }

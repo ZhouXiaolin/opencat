@@ -64,6 +64,255 @@ pub struct EncodingConfig {
     pub format: OutputFormat,
 }
 
+/// New render path: parse JSONL → EnginePipeline → render frames.
+/// This is the primary entry point going forward; the old `render()` / `render_mp4()`
+/// functions remain for backward compatibility.
+pub fn render_from_jsonl(
+    jsonl: &str,
+    output_path: impl AsRef<Path>,
+    config: &EncodingConfig,
+) -> Result<()> {
+    use crate::js_context::RqJsContext;
+    use opencat_core::pipeline::Pipeline;
+    use opencat_core::probe::{AssetHandle, AssetLoader};
+    use opencat_core::script::js_context::JsContext;
+
+    let output_path = output_path.as_ref();
+    let base_dir = std::env::current_dir()?;
+    let cache_dir = base_dir.join(".opencat").join("assets");
+
+    let loader = crate::resource::loader::EngineLoader::new(base_dir, cache_dir)?;
+    let ctx = RqJsContext::new()?;
+    let mut pipeline = crate::EnginePipeline::open(jsonl, loader, ctx)?;
+    let info = pipeline.info().clone();
+
+    let mut media_ctx = crate::resource::media::MediaContext::new();
+    media_ctx.set_composition_fps(info.fps);
+
+    let mut surface = surfaces::raster_n32_premul((info.width as i32, info.height as i32))
+        .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
+
+    let audio_track = if !info.audio_plan.segments.is_empty() {
+        let mut mixed_samples = Vec::new();
+        let sample_rate: u32 = 48_000;
+        let channels: u16 = 2;
+        let total_sample_frames =
+            ((info.frames as u64 * sample_rate as u64) / info.fps as u64) as usize;
+        mixed_samples.resize(total_sample_frames * channels as usize, 0.0f32);
+
+        for seg in &info.audio_plan.segments {
+            let handle = pipeline.loader().handle(&seg.asset).ok_or_else(|| {
+                anyhow!("audio asset {:?} not found in loader", seg.asset)
+            })?;
+            let path = handle.local_path().ok_or_else(|| {
+                anyhow!("audio {:?}: local_path required", seg.asset)
+            })?;
+            let clip = crate::codec::decode::decode_audio_to_f32_stereo(path, sample_rate)?;
+            let start_sample = ((seg.start_ms as u64 * sample_rate as u64) / 1000) as usize;
+            let end_sample = ((seg.end_ms as u64 * sample_rate as u64) / 1000) as usize;
+            let copy_frames = end_sample.saturating_sub(start_sample).min(clip.sample_frames());
+            for i in 0..copy_frames {
+                let dst = (start_sample + i) * channels as usize;
+                let src = i * channels as usize;
+                if dst + 1 < mixed_samples.len() && src + 1 < clip.samples.len() {
+                    mixed_samples[dst] += clip.samples[src];
+                    mixed_samples[dst + 1] += clip.samples[src + 1];
+                }
+            }
+        }
+
+        for s in &mut mixed_samples {
+            *s = s.clamp(-1.0, 1.0);
+        }
+
+        Some(crate::codec::decode::AudioTrack::new(
+            sample_rate,
+            channels,
+            mixed_samples,
+        ))
+    } else {
+        None
+    };
+
+    match &config.format {
+        OutputFormat::Png => {
+            for i in 0..info.frames {
+                let (frame, media_plan) = pipeline.render_frame(i)?;
+                let prepared =
+                    crate::media::prepare::prepare_frame_with_loader(
+                        &media_plan,
+                        pipeline.loader(),
+                        &mut media_ctx,
+                    )?;
+
+                #[allow(invalid_reference_casting)]
+                let canvas: &mut skia_safe::Canvas = unsafe {
+                    &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
+                };
+                let header = opencat_core::platform::draw::RenderSessionHeader {
+                    composition_size: (info.width, info.height),
+                    fps: info.fps,
+                    frames: info.frames,
+                };
+                let mut executor = crate::executor::EngineDrawExecutor::new();
+                executor.execute(&header, &frame, &prepared, canvas)?;
+
+                let image = surface.image_snapshot();
+                let image_info = ImageInfo::new(
+                    (info.width as i32, info.height as i32),
+                    ColorType::RGBA8888,
+                    AlphaType::Premul,
+                    None,
+                );
+                let mut rgba = vec![0u8; (info.width as usize) * (info.height as usize) * 4];
+                let read_ok = image.read_pixels(
+                    &image_info,
+                    rgba.as_mut_slice(),
+                    info.width as usize * 4,
+                    (0, 0),
+                    skia_safe::image::CachingHint::Allow,
+                );
+                if !read_ok {
+                    return Err(anyhow!("failed to read pixels from skia surface"));
+                }
+
+                let img = image::RgbaImage::from_raw(info.width, info.height, rgba)
+                    .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
+                let filename = output_path.join(format!("frame_{:04}.png", i));
+                img.save(&filename)?;
+            }
+        }
+        OutputFormat::Mp4(mp4_config) => {
+            let aligned_info = if info.width % 2 != 0 || info.height % 2 != 0 {
+                let aw = (info.width + 1) & !1;
+                let ah = (info.height + 1) & !1;
+                (aw, ah)
+            } else {
+                (info.width, info.height)
+            };
+
+            crate::codec::encode::encode_rgba_frames(
+                output_path,
+                aligned_info.0,
+                aligned_info.1,
+                info.fps,
+                info.frames,
+                mp4_config,
+                audio_track.as_ref(),
+                |_, _| {},
+                |frame_index| {
+                    let (frame, media_plan) = pipeline.render_frame(frame_index)?;
+                    let prepared =
+                        crate::media::prepare::prepare_frame_with_loader(
+                            &media_plan,
+                            pipeline.loader(),
+                            &mut media_ctx,
+                        )?;
+
+                    #[allow(invalid_reference_casting)]
+                    let canvas: &mut skia_safe::Canvas = unsafe {
+                        &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
+                    };
+                    let header = opencat_core::platform::draw::RenderSessionHeader {
+                        composition_size: (info.width, info.height),
+                        fps: info.fps,
+                        frames: info.frames,
+                    };
+                    let mut executor = crate::executor::EngineDrawExecutor::new();
+                    executor.execute(&header, &frame, &prepared, canvas)?;
+
+                    let image = surface.image_snapshot();
+                    let image_info = ImageInfo::new(
+                        (aligned_info.0 as i32, aligned_info.1 as i32),
+                        ColorType::RGBA8888,
+                        AlphaType::Premul,
+                        None,
+                    );
+                    let mut rgba = vec![0u8; (aligned_info.0 as usize) * (aligned_info.1 as usize) * 4];
+                    let read_ok = image.read_pixels(
+                        &image_info,
+                        rgba.as_mut_slice(),
+                        aligned_info.0 as usize * 4,
+                        (0, 0),
+                        skia_safe::image::CachingHint::Allow,
+                    );
+                    if !read_ok {
+                        return Err(anyhow!("failed to read pixels from skia surface"));
+                    }
+                    Ok(rgba)
+                },
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Render a single frame from JSONL via EnginePipeline, returning raw RGBA bytes.
+pub fn render_single_frame_from_jsonl(
+    jsonl: &str,
+    frame_index: u32,
+) -> Result<(Vec<u8>, u32, u32)> {
+    use crate::js_context::RqJsContext;
+    use opencat_core::pipeline::Pipeline;
+    use opencat_core::script::js_context::JsContext;
+
+    let base_dir = std::env::current_dir()?;
+    let cache_dir = base_dir.join(".opencat").join("assets");
+
+    let loader = crate::resource::loader::EngineLoader::new(base_dir, cache_dir)?;
+    let ctx = RqJsContext::new()?;
+    let mut pipeline = crate::EnginePipeline::open(jsonl, loader, ctx)?;
+    let info = pipeline.info().clone();
+
+    let mut media_ctx = crate::resource::media::MediaContext::new();
+    media_ctx.set_composition_fps(info.fps);
+
+    let (frame, media_plan) = pipeline.render_frame(frame_index)?;
+    let prepared = crate::media::prepare::prepare_frame_with_loader(
+        &media_plan,
+        pipeline.loader(),
+        &mut media_ctx,
+    )?;
+
+    let mut surface = surfaces::raster_n32_premul((info.width as i32, info.height as i32))
+        .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
+
+    #[allow(invalid_reference_casting)]
+    let canvas: &mut skia_safe::Canvas = unsafe {
+        &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
+    };
+
+    let header = opencat_core::platform::draw::RenderSessionHeader {
+        composition_size: (info.width, info.height),
+        fps: info.fps,
+        frames: info.frames,
+    };
+    let mut executor = crate::executor::EngineDrawExecutor::new();
+    executor.execute(&header, &frame, &prepared, canvas)?;
+
+    let image = surface.image_snapshot();
+    let image_info = ImageInfo::new(
+        (info.width as i32, info.height as i32),
+        ColorType::RGBA8888,
+        AlphaType::Premul,
+        None,
+    );
+    let mut rgba = vec![0u8; (info.width as usize) * (info.height as usize) * 4];
+    let read_ok = image.read_pixels(
+        &image_info,
+        rgba.as_mut_slice(),
+        info.width as usize * 4,
+        (0, 0),
+        skia_safe::image::CachingHint::Allow,
+    );
+    if !read_ok {
+        return Err(anyhow!("failed to read pixels from skia surface"));
+    }
+
+    Ok((rgba, info.width, info.height))
+}
+
 impl EncodingConfig {
     pub fn mp4() -> Self {
         Self {

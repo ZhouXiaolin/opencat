@@ -16,9 +16,9 @@ use tracing_subscriber::{
     registry::LookupSpan,
 };
 
-use crate::runtime::profile::RenderProfileSummary;
+use crate::profile::RenderProfileSummary;
 #[cfg(feature = "profile")]
-use crate::runtime::profile::{CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator};
+use crate::profile::{CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileOutputFormat {
@@ -335,8 +335,8 @@ pub fn profile_render<T>(
 
 #[cfg(all(test, feature = "profile"))]
 mod tests {
-    use crate::runtime::profile::BackendSpanKey;
-    use crate::runtime::profile::{ProfileConfig, ProfileOutputFormat, profile_render};
+    use crate::profile::BackendSpanKey;
+    use crate::profile::{ProfileConfig, ProfileOutputFormat, profile_render};
     use anyhow::Result;
     use tracing::{Level, span};
 

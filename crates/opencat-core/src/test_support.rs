@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::parse::primitives::{AudioSource, ImageSource};
-use crate::resource::asset_id::AssetId;
+use crate::ir::asset_id::AssetId;
 use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 
 pub fn mock_font_provider() -> impl crate::text::FontProvider {
@@ -57,12 +57,12 @@ impl TestCatalog {
                 Ok(id)
             }
             ImageSource::Url(url) => {
-                let id = crate::resource::asset_id::asset_id_for_url(url);
+                let id = crate::ir::asset_id::asset_id_for_url(url);
                 self.dims.entry(id.clone()).or_insert((0, 0));
                 Ok(id)
             }
             ImageSource::Query(query) => {
-                let id = crate::resource::asset_id::asset_id_for_query(query);
+                let id = crate::ir::asset_id::asset_id_for_query(query);
                 self.dims.entry(id.clone()).or_insert((0, 0));
                 Ok(id)
             }
@@ -77,7 +77,7 @@ impl TestCatalog {
                 self.dims.entry(id.clone()).or_insert((0, 0));
                 Ok(id)
             }
-            AudioSource::Url(url) => Ok(crate::resource::asset_id::asset_id_for_audio_url(url)),
+            AudioSource::Url(url) => Ok(crate::ir::asset_id::asset_id_for_audio_url(url)),
         }
     }
 }

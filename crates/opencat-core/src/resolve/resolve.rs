@@ -17,7 +17,7 @@ use crate::{
             ElementSvgPath, ElementText, ElementTimeline, ElementTimelineTransition,
         },
     },
-    resource::asset_id::AssetId,
+    ir::asset_id::AssetId,
     resource::catalog::{ResourceCatalog, VideoInfoMeta},
     script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
     style::LengthPercentageAuto,

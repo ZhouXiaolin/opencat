@@ -5,6 +5,7 @@ members = [
     "crates/opencat-engine",
     "crates/opencat-web",
     "crates/opencat",
+    "crates/opencat-test-golden",
 ]
 
 [workspace.package]

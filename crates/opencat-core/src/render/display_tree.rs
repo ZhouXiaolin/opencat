@@ -6,11 +6,11 @@ use crate::display::list::{DisplayItem, DisplayRect, RectDisplayItem};
 use crate::ir::cache::{self as draw_cache, CachedSubtreeIr};
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, PathOp};
+use crate::parse::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::render::builder::DrawOpBuilder;
 use crate::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
 use crate::runtime::compositor::ordered_scene::{OrderedSceneOp, OrderedSceneProgram};
 use crate::runtime::compositor::reuse::LiveNodeItemExecution;
-use crate::scene::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::style::{BorderRadius, Transform};
 
 use super::{RenderCtx, RenderError, record_cache_pressure};

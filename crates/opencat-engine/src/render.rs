@@ -16,10 +16,10 @@ use crate::{
         render_registry,
     },
 };
+use opencat_core::parse::composition::Composition;
 use opencat_core::platform::draw::{DrawPlatform, RenderSessionHeader};
 use opencat_core::platform::media::{MediaPlatform, PrepareMode};
 use opencat_core::resource::AssetPathBlobStore;
-use opencat_core::scene::composition::Composition;
 
 pub use crate::codec::encode::Mp4Config;
 
@@ -1079,7 +1079,7 @@ mod tests {
     #[test]
     fn nested_timeline_transition_renders_real_composite() {
         use crate::{Easing, fade, timeline};
-        use opencat_core::scene::node::Node;
+        use opencat_core::parse::node::Node;
         use opencat_core::style::{LengthPercentageAuto, Position};
 
         let composition = Composition::new("nested_timeline_transition")
@@ -1141,7 +1141,7 @@ mod tests {
     #[test]
     fn root_timeline_renders_without_root_transition_special_case() {
         use crate::{Easing, fade, timeline};
-        use opencat_core::scene::node::Node;
+        use opencat_core::parse::node::Node;
 
         let composition = Composition::new("root_timeline_transition")
             .size(80, 80)
@@ -1192,8 +1192,8 @@ mod tests {
     #[test]
     fn gltransition_runtime_effect_samples_timeline_children() {
         use crate::{Easing, timeline};
-        use opencat_core::scene::node::Node;
-        use opencat_core::scene::transition::gl_transition;
+        use opencat_core::parse::node::Node;
+        use opencat_core::parse::transition::gl_transition;
 
         let composition = Composition::new("gltransition_runtime_effect")
             .size(80, 80)
@@ -1244,8 +1244,8 @@ mod tests {
     #[test]
     fn light_leak_runtime_effect_samples_timeline_children() {
         use crate::{Easing, timeline};
-        use opencat_core::scene::node::Node;
-        use opencat_core::scene::transition::light_leak;
+        use opencat_core::parse::node::Node;
+        use opencat_core::parse::transition::light_leak;
 
         let composition = Composition::new("light_leak_runtime_effect")
             .size(80, 80)
@@ -1296,7 +1296,7 @@ mod tests {
     #[test]
     fn transition_subtree_snapshots_are_reused_across_transition_frames() {
         use crate::{Easing, fade, timeline};
-        use opencat_core::scene::node::Node;
+        use opencat_core::parse::node::Node;
 
         let composition = Composition::new("transition_subtree_cache_reuse")
             .size(32, 32)

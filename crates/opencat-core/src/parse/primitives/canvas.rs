@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::{
-    scene::primitives::{ImageSource, OpenverseQuery},
+    parse::primitives::{ImageSource, OpenverseQuery},
     style::{NodeStyle, impl_node_style_api},
 };
 

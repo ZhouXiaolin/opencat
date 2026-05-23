@@ -1,7 +1,7 @@
 use anyhow::Result;
 
+use crate::parse::primitives::{AudioSource, ImageSource};
 use crate::resource::asset_id::AssetId;
-use crate::scene::primitives::{AudioSource, ImageSource};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VideoInfoMeta {
@@ -30,7 +30,7 @@ pub trait ResourceCatalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::primitives::ImageSource;
+    use crate::parse::primitives::ImageSource;
     use crate::test_support::TestCatalog;
 
     #[test]

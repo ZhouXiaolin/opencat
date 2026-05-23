@@ -6,9 +6,9 @@ pub mod display;
 pub mod element;
 pub mod frame_ctx;
 pub mod ir;
-pub mod jsonl;
 pub mod layout;
 mod lucide_icons;
+pub mod parse;
 pub mod platform;
 pub mod render;
 pub mod resource;
@@ -22,14 +22,14 @@ pub mod text;
 pub mod test_support;
 
 pub use self::frame_ctx::FrameCtx;
-pub use self::jsonl::{ParsedComposition, parse};
+pub use self::parse::node::Node;
+pub use self::parse::preflight::{ResourceRequests, collect_resource_requests};
+pub use self::parse::{ParsedComposition, parse};
 pub use self::platform::video::{FrameBitmap, VideoFrameProvider};
 pub use self::resource::asset_id::AssetId;
 pub use self::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 pub use self::resource::hash_map_catalog::{HashMapResourceCatalog, ResourceKind, ResourceMeta};
-pub use self::runtime::preflight_collect::{ResourceRequests, collect_resource_requests};
 pub use self::runtime::session::RenderSession;
-pub use self::scene::node::Node;
 pub use self::scene::script::{
     PrecomputedScriptHost, ScriptDriver, ScriptDriverId, ScriptHost, ScriptRunner,
     ScriptRuntimeCache,

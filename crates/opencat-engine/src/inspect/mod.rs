@@ -9,7 +9,7 @@ use opencat_core::{
     },
     frame_ctx::{FrameCtx, ScriptFrameCtx},
     layout::tree::LayoutNode,
-    scene::{
+    parse::{
         composition::Composition,
         node::{Node, NodeKind},
         primitives::{ImageSource, VideoSource},
@@ -23,7 +23,7 @@ use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 
 use crate::render::RenderSession;
 use crate::resource::AssetPathStore;
-use opencat_core::scene::path_bounds::DefaultPathBounds;
+use opencat_core::parse::path_bounds::DefaultPathBounds;
 
 #[derive(Clone, Debug)]
 pub struct FrameElementRect {
@@ -390,7 +390,7 @@ fn collect_source_metadata(
                 entry.text_content = caption
                     .active_text(frame_ctx.frame)
                     .map(|text| text.to_string());
-                entry.media_source = Some(caption.path_ref().to_string_lossy().to_string());
+                entry.media_source = Some(format!("{:?}", caption.source()));
             }
         }
     }

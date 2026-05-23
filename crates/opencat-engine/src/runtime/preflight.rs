@@ -1,6 +1,6 @@
 use crate::render::RenderSession;
 use anyhow::Result;
-use opencat_core::scene::composition::Composition;
+use opencat_core::parse::composition::Composition;
 use std::sync::Arc;
 
 pub fn ensure_assets_preloaded(

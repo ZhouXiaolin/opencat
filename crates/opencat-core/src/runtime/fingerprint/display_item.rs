@@ -99,29 +99,29 @@ impl Hash for DisplayItemFp<'_> {
     }
 }
 
-fn hash_transition_kind<H: Hasher>(kind: &crate::scene::transition::TransitionKind, state: &mut H) {
+fn hash_transition_kind<H: Hasher>(kind: &crate::parse::transition::TransitionKind, state: &mut H) {
     match kind {
-        crate::scene::transition::TransitionKind::Slide(direction) => {
+        crate::parse::transition::TransitionKind::Slide(direction) => {
             0_u8.hash(state);
             std::mem::discriminant(direction).hash(state);
         }
-        crate::scene::transition::TransitionKind::LightLeak(params) => {
+        crate::parse::transition::TransitionKind::LightLeak(params) => {
             1_u8.hash(state);
             F32Hash(params.seed).hash(state);
             F32Hash(params.hue_shift).hash(state);
             F32Hash(params.mask_scale).hash(state);
         }
-        crate::scene::transition::TransitionKind::Gl(effect) => {
+        crate::parse::transition::TransitionKind::Gl(effect) => {
             2_u8.hash(state);
             effect.name.hash(state);
         }
-        crate::scene::transition::TransitionKind::Fade => 3_u8.hash(state),
-        crate::scene::transition::TransitionKind::Wipe(direction) => {
+        crate::parse::transition::TransitionKind::Fade => 3_u8.hash(state),
+        crate::parse::transition::TransitionKind::Wipe(direction) => {
             4_u8.hash(state);
             std::mem::discriminant(direction).hash(state);
         }
-        crate::scene::transition::TransitionKind::ClockWipe => 5_u8.hash(state),
-        crate::scene::transition::TransitionKind::Iris => 6_u8.hash(state),
+        crate::parse::transition::TransitionKind::ClockWipe => 5_u8.hash(state),
+        crate::parse::transition::TransitionKind::Iris => 6_u8.hash(state),
     }
 }
 

@@ -1,6 +1,6 @@
 //! Animate utilities — easing parsing, stateless helpers.
 
-use crate::scene::easing::{Easing, SpringConfig};
+use crate::parse::easing::{Easing, SpringConfig};
 
 // AnimateEntry is now defined in `script::recorder`.
 // Re-export for convenience.
@@ -22,7 +22,7 @@ pub fn parse_easing_from_tag(tag: &str) -> Easing {
                     mass: parts[2].parse().unwrap_or(1.0),
                 })
             } else {
-                crate::scene::easing::easing_from_name(tag).unwrap_or(Easing::Linear)
+                crate::parse::easing::easing_from_name(tag).unwrap_or(Easing::Linear)
             }
         }
         b if b.starts_with("bezier:") => {
@@ -38,7 +38,7 @@ pub fn parse_easing_from_tag(tag: &str) -> Easing {
                 Easing::Linear
             }
         }
-        _ => crate::scene::easing::easing_from_name(tag).unwrap_or(Easing::Linear),
+        _ => crate::parse::easing::easing_from_name(tag).unwrap_or(Easing::Linear),
     }
 }
 

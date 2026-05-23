@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 
 use crate::{
     frame_ctx::FrameCtx,
-    scene::{node::Node, primitives::AudioSource},
+    parse::{node::Node, primitives::AudioSource},
 };
 
 type RootComponent = dyn Fn(&FrameCtx) -> Node + Send + Sync;

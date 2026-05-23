@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Result, anyhow};
 
 use opencat_core::frame_ctx::FrameCtx;
-use opencat_core::scene::{
+use opencat_core::parse::{
     composition::{AudioAttachment, Composition, CompositionAudioSource},
     primitives::AudioSource,
     time::{FrameState, frame_state_for_root},
@@ -228,7 +228,7 @@ fn composition_audio_cache_key(composition: &Composition) -> AudioIntervalCacheK
 }
 
 fn active_scene_ids(
-    root: &opencat_core::scene::node::Node,
+    root: &opencat_core::parse::node::Node,
     frame_ctx: &FrameCtx,
 ) -> HashSet<String> {
     let mut out = HashSet::new();
@@ -237,7 +237,7 @@ fn active_scene_ids(
 }
 
 fn collect_active_scene_ids(
-    root: &opencat_core::scene::node::Node,
+    root: &opencat_core::parse::node::Node,
     frame_ctx: &FrameCtx,
     out: &mut HashSet<String>,
 ) {

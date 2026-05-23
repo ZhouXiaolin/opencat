@@ -8,7 +8,7 @@ use skia_safe::{AlphaType, ColorType, Data, Image, ImageInfo, image::CachingHint
 
 use crate::codec::decode::VideoDecodeCache;
 use crate::runtime::cache::{CacheCaps, video_frames::VideoFrameCache};
-use opencat_core::resource::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
+use opencat_core::probe::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
 
 pub use crate::codec::decode::VideoInfo;
 pub use opencat_core::resource::types::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality};

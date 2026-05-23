@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::parse::primitives::{AudioSource, ImageSource, SrtEntry, SubtitleSource};
 pub use crate::parse::primitives::VideoSource;
-pub use crate::resource::asset_id::AssetId;
+pub use crate::ir::asset_id::AssetId;
 
 #[derive(Default, Clone, Debug)]
 pub struct ResourceRequests {
@@ -49,16 +49,16 @@ impl crate::resource::catalog::ResourceCatalog for ResourceCatalog {
     fn resolve_image(&mut self, src: &ImageSource) -> anyhow::Result<AssetId> {
         match src {
             ImageSource::Unset => anyhow::bail!("unset image source"),
-            ImageSource::Url(u) => Ok(crate::resource::asset_id::asset_id_for_url(u)),
+            ImageSource::Url(u) => Ok(crate::ir::asset_id::asset_id_for_url(u)),
             ImageSource::Path(p) => Ok(AssetId(p.to_string_lossy().into_owned())),
-            ImageSource::Query(q) => Ok(crate::resource::asset_id::asset_id_for_query(q)),
+            ImageSource::Query(q) => Ok(crate::ir::asset_id::asset_id_for_query(q)),
         }
     }
 
     fn resolve_audio(&mut self, src: &AudioSource) -> anyhow::Result<AssetId> {
         match src {
             AudioSource::Unset => anyhow::bail!("unset audio source"),
-            AudioSource::Url(u) => Ok(crate::resource::asset_id::asset_id_for_audio_url(u)),
+            AudioSource::Url(u) => Ok(crate::ir::asset_id::asset_id_for_audio_url(u)),
             AudioSource::Path(p) => Ok(AssetId(format!("audio:path:{}", p.to_string_lossy()))),
         }
     }

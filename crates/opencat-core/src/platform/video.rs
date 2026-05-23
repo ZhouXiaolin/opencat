@@ -4,7 +4,7 @@
 //! engine's MediaContext. Engine's MediaContext impls VideoFrameProvider; wasm
 //! will have its own WebVideoSource.
 
-use crate::resource::asset_id::AssetId;
+use crate::ir::asset_id::AssetId;
 use anyhow::Result;
 
 /// Decoded RGBA video frame.

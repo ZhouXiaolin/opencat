@@ -257,7 +257,7 @@ mod tests {
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
             DisplayTransform, DrawScriptDisplayItem, RectDisplayItem, RectPaintStyle,
         },
-        resource::asset_id::AssetId,
+        ir::asset_id::AssetId,
         style::{BorderRadius, ObjectFit, Transform},
     };
 

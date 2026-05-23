@@ -9,7 +9,8 @@ pub mod probe;
 pub mod resolver;
 pub mod types;
 
-pub use asset_id::AssetId;
+pub use crate::ir::asset_id::*;
+pub use crate::probe::bitmap_source::*;
 pub use blob_store::{AssetPathBlobStore, BlobStore};
 pub use catalog::ResourceCatalog;
 pub use hash_map_catalog::{HashMapResourceCatalog, ResourceKind, ResourceMeta};

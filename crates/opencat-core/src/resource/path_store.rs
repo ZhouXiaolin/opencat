@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 
-use crate::resource::asset_id::AssetId;
+use crate::ir::asset_id::AssetId;
 
 #[derive(Default, Debug)]
 pub struct AssetPathStore {

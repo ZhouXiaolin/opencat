@@ -1,3 +1,4 @@
 pub mod pipeline;
-pub mod profile;
 pub mod session;
+
+pub use crate::profile::*;

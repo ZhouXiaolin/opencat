@@ -1,7 +1,7 @@
 use crate::ir::draw_op::DrawOp;
+use crate::parse::transition::TransitionKind;
 use crate::resource::{asset_id::AssetId, types::VideoFrameTiming};
 use crate::scene::script::TextUnitOverrideBatch;
-use crate::scene::transition::TransitionKind;
 use crate::style::ComputedTextStyle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

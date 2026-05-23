@@ -1,9 +1,9 @@
 use crate::{
     ir::draw_op::DrawOp,
+    parse::transition::TransitionKind,
     resource::asset_id::AssetId,
     resource::types::VideoFrameTiming,
     scene::script::TextUnitOverrideBatch,
-    scene::transition::TransitionKind,
     style::{
         BackgroundFill, BorderRadius, BorderStyle, BoxShadow, ColorToken, ComputedTextStyle,
         DropShadow, InsetShadow, ObjectFit,

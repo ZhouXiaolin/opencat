@@ -1,6 +1,6 @@
+use crate::parse::primitives::{AudioSource, ImageSource};
 use crate::resource::asset_id::{AssetId, asset_id_for_query};
 use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
-use crate::scene::primitives::{AudioSource, ImageSource};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -159,8 +159,8 @@ impl ResourceCatalog for HashMapResourceCatalog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse::primitives::{AudioSource, ImageSource, OpenverseQuery};
     use crate::resource::catalog::ResourceCatalog;
-    use crate::scene::primitives::{AudioSource, ImageSource, OpenverseQuery};
     use std::path::PathBuf;
 
     #[test]

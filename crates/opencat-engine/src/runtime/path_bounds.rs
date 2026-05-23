@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 
-use opencat_core::scene::path_bounds::PathBoundsComputer;
+use opencat_core::parse::path_bounds::PathBoundsComputer;
 
 pub struct SkiaPathBounds;
 

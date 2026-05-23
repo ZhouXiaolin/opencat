@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use opencat_core::jsonl::{
+use opencat_core::parse::jsonl::{
     JsonLine, ParsedComposition, parse_with_base_dir as core_parse_with_base_dir,
 };
 
@@ -62,7 +62,7 @@ mod tests {
     };
 
     use super::parse_file;
-    use opencat_core::jsonl::parse;
+    use opencat_core::parse::jsonl::parse;
 
     #[test]
     fn resolves_script_path_relative_to_jsonl_file() {

@@ -1,7 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
 
+use super::SubtitleSource;
 use crate::style::{NodeStyle, impl_node_style_api};
 
 #[derive(Clone, Debug)]
@@ -14,24 +15,29 @@ pub struct SrtEntry {
 
 #[derive(Clone)]
 pub struct CaptionNode {
-    path: PathBuf,
+    source: SubtitleSource,
     entries: Vec<SrtEntry>,
     pub(crate) style: NodeStyle,
 }
 
 impl CaptionNode {
     pub fn path(mut self, path: impl Into<PathBuf>) -> Self {
-        self.path = path.into();
+        self.source = SubtitleSource::Path(path.into());
         self
+    }
+
+    pub fn url(mut self, url: impl Into<String>) -> Self {
+        self.source = SubtitleSource::Url(url.into());
+        self
+    }
+
+    pub fn source(&self) -> &SubtitleSource {
+        &self.source
     }
 
     pub fn entries(mut self, entries: Vec<SrtEntry>) -> Self {
         self.entries = entries;
         self
-    }
-
-    pub fn path_ref(&self) -> &Path {
-        &self.path
     }
 
     pub fn entries_ref(&self) -> &[SrtEntry] {
@@ -52,7 +58,7 @@ impl CaptionNode {
 
 pub fn caption() -> CaptionNode {
     CaptionNode {
-        path: PathBuf::new(),
+        source: SubtitleSource::Path(PathBuf::new()),
         entries: Vec::new(),
         style: NodeStyle::default(),
     }

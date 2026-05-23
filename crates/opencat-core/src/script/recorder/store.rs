@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::{MutationRecorder, TextUnitValues};
-use crate::scene::easing::Easing;
+use crate::parse::easing::Easing;
 use crate::scene::script::ScriptTextSource;
 use crate::scene::script::mutations::{
     CanvasMutations, NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
@@ -73,7 +73,7 @@ impl MutationStore {
         };
         let delay_u32 = delay as u32;
         let repeat_delay_u32 = repeat_delay.max(0.0) as u32;
-        let progress = crate::scene::easing::compute_progress(
+        let progress = crate::parse::easing::compute_progress(
             current_frame,
             duration_u32,
             delay_u32,
@@ -114,7 +114,7 @@ impl MutationStore {
 
     pub fn animate_value(&self, current_frame: u32, handle: i32, from: f32, to: f32) -> f32 {
         if let Some(entry) = self.animate_entries.get(&handle) {
-            crate::scene::easing::animate_value(
+            crate::parse::easing::animate_value(
                 current_frame,
                 entry.duration,
                 entry.delay,

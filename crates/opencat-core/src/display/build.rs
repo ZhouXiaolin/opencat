@@ -12,7 +12,7 @@ use crate::{
     },
     element::tree::{ElementKind, ElementNode},
     layout::tree::{LayoutNode, LayoutTree},
-    scene::transition::TransitionKind,
+    parse::transition::TransitionKind,
 };
 
 pub fn build_display_tree(
@@ -246,8 +246,8 @@ mod tests {
         FrameCtx,
         element::resolve::resolve_ui_tree,
         parse,
+        parse::primitives::{div, lucide},
         runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
-        scene::primitives::{div, lucide},
         style::{ColorToken, ObjectFit},
         test_support::MockScriptHost,
         test_support::TestCatalog,
@@ -278,7 +278,7 @@ mod tests {
         let element = div()
             .id("root")
             .child(
-                crate::scene::primitives::image()
+                crate::parse::primitives::image()
                     .id("bitmap")
                     .path("/tmp/test-display-bitmap.png")
                     .size(2.0, 2.0)
@@ -737,7 +737,7 @@ mod tests {
         };
         let mut assets = TestCatalog::new();
         let root = div().id("root").child(
-            crate::scene::primitives::path("M0 0 L 100 0 L 50 100 Z")
+            crate::parse::primitives::path("M0 0 L 100 0 L 50 100 Z")
                 .id("triangle")
                 .size(100.0, 100.0)
                 .fill_color(ColorToken::Red500)

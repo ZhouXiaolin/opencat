@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use crate::{
     frame_ctx::FrameCtx,
-    scene::{
+    parse::{
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video},
-        script::ScriptDriver,
         time::TimelineNode,
     },
+    scene::script::ScriptDriver,
     style::NodeStyle,
 };
 

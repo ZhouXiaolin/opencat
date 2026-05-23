@@ -5,6 +5,7 @@ mod div;
 mod image;
 mod lucide;
 mod path;
+mod subtitle;
 mod text;
 mod video;
 
@@ -16,5 +17,6 @@ pub use div::{Div, div};
 pub use image::{Image, ImageSource, OpenverseQuery, image};
 pub use lucide::{Lucide, lucide};
 pub use path::{Path, path};
+pub use subtitle::SubtitleSource;
 pub use text::{Text, text};
 pub use video::{Video, VideoSource, video, video_url};

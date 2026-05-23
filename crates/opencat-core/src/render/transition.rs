@@ -4,8 +4,8 @@ use tracing::{Level, span};
 use crate::display::list::DisplayRect;
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{ChildRange, DrawOpRange, RuntimeEffectChildRef};
-use crate::scene::gl_transition;
-use crate::scene::transition::{GlTransition, LightLeakTransition};
+use crate::parse::gl_transition;
+use crate::parse::transition::{GlTransition, LightLeakTransition};
 
 use super::RenderCtx;
 

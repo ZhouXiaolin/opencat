@@ -34,8 +34,8 @@ use reqwest::Client;
 use serde_json::{Value, json};
 
 use crate::{Composition, RenderSession};
-use opencat_core::jsonl::tailwind::parse_class_name;
-use opencat_core::scene::primitives::{div, text};
+use opencat_core::parse::jsonl::tailwind::parse_class_name;
+use opencat_core::parse::primitives::{div, text};
 
 use super::{FrameElementRect, collect_frame_layout_rects};
 

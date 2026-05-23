@@ -1,7 +1,7 @@
 use crate::{
     frame_ctx::FrameCtx,
     frame_ctx::ScriptFrameCtx,
-    scene::{
+    parse::{
         easing::Easing,
         node::{Node, NodeKind},
         primitives::div,
@@ -205,7 +205,7 @@ mod tests {
     use super::FrameState;
     use crate::{
         frame_ctx::FrameCtx,
-        scene::{
+        parse::{
             easing::Easing,
             node::NodeKind,
             primitives::{caption, div},

@@ -11,12 +11,12 @@ use std::cell::RefCell;
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 
-use opencat_core::jsonl::parse_with_base_dir;
+use opencat_core::parse::composition::Composition;
+use opencat_core::parse::jsonl::parse_with_base_dir;
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::resource::preload::preload_all;
 use opencat_core::runtime::preflight_collect::collect_resource_requests;
-use opencat_core::scene::composition::Composition;
 
 use crate::resource::blob_store::BlobStore;
 use crate::resource::resolver::WebAssetResolver;

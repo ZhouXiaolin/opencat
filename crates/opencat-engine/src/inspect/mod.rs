@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 
 use opencat_core::{
-    element::{
+    resolve::{
         resolve::resolve_ui_tree_with_script_cache,
         tree::{ElementKind, ElementNode},
     },
@@ -23,7 +23,7 @@ use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 
 use crate::render::RenderSession;
 use crate::resource::AssetPathStore;
-use opencat_core::parse::path_bounds::DefaultPathBounds;
+use opencat_core::resolve::path_bounds::DefaultPathBounds;
 
 #[derive(Clone, Debug)]
 pub struct FrameElementRect {

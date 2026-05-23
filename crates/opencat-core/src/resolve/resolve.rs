@@ -2,20 +2,20 @@ use anyhow::{Result, ensure};
 
 use crate::{
     FrameCtx, Node,
-    element::{
-        style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
-        tree::{
-            ElementBitmap, ElementCanvas, ElementDiv, ElementId, ElementKind, ElementNode,
-            ElementSvgPath, ElementText, ElementTimeline, ElementTimelineTransition,
-        },
-    },
     frame_ctx::ScriptFrameCtx,
-    parse::path_bounds::{DefaultPathBounds, PathBoundsComputer},
     parse::{
         node::{ComponentNode, NodeKind},
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video, VideoSource},
         time::TimelineNode,
         time::{FrameState, frame_state_for_root},
+    },
+    resolve::{
+        path_bounds::{DefaultPathBounds, PathBoundsComputer},
+        style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
+        tree::{
+            ElementBitmap, ElementCanvas, ElementDiv, ElementId, ElementKind, ElementNode,
+            ElementSvgPath, ElementText, ElementTimeline, ElementTimelineTransition,
+        },
     },
     resource::asset_id::AssetId,
     resource::catalog::{ResourceCatalog, VideoInfoMeta},
@@ -578,7 +578,7 @@ fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Resu
                 .unwrap_or([0.0, 0.0, 24.0, 24.0]);
             (pd, vb)
         } else {
-            let paths = crate::lucide_icons::lucide_icon_paths(icon)
+            let paths = crate::resolve::lucide_icons::lucide_icon_paths(icon)
                 .expect("already validated by ensure_valid_lucide_icon");
             let pd: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
             let vb = [0.0, 0.0, 24.0, 24.0];
@@ -656,7 +656,7 @@ fn normalize_lucide_icon_name(name: &str) -> &str {
 }
 
 fn ensure_valid_lucide_icon(name: &str) -> Result<()> {
-    if crate::lucide_icons::lucide_icon_paths(name).is_some() {
+    if crate::resolve::lucide_icons::lucide_icon_paths(name).is_some() {
         return Ok(());
     }
 
@@ -671,7 +671,7 @@ fn ensure_valid_lucide_icon(name: &str) -> Result<()> {
 }
 
 fn suggested_lucide_icons(name: &str) -> Vec<&'static str> {
-    let mut scored: Vec<(usize, &'static str)> = crate::lucide_icons::lucide_icon_names()
+    let mut scored: Vec<(usize, &'static str)> = crate::resolve::lucide_icons::lucide_icon_names()
         .iter()
         .map(|candidate| (levenshtein_distance(name, candidate), *candidate))
         .collect();
@@ -1071,7 +1071,7 @@ mod tests {
     use super::{merge_text_unit_overrides, resolve_ui_tree};
     use crate::{
         FrameCtx,
-        element::tree::ElementKind,
+        resolve::tree::ElementKind,
         parse::primitives::{SrtEntry, caption, div, lucide, text, video},
         scene::script::{
             NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
@@ -1238,7 +1238,7 @@ mod tests {
         let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
             panic!("child should resolve to svg path element");
         };
-        let expected_paths = crate::lucide_icons::lucide_icon_paths("house").expect("house icon");
+        let expected_paths = crate::resolve::lucide_icons::lucide_icon_paths("house").expect("house icon");
         assert_eq!(svg.path_data, expected_paths);
         assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
     }
@@ -1265,7 +1265,7 @@ mod tests {
             panic!("child should resolve to svg path element");
         };
         let expected_paths =
-            crate::lucide_icons::lucide_icon_paths("briefcase").expect("briefcase icon");
+            crate::resolve::lucide_icons::lucide_icon_paths("briefcase").expect("briefcase icon");
         assert_eq!(svg.path_data, expected_paths);
         assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
     }

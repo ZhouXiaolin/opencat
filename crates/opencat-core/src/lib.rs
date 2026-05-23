@@ -3,11 +3,10 @@
 pub mod cache;
 pub mod canvas;
 pub mod display;
-pub mod element;
+pub mod resolve;
 pub mod frame_ctx;
 pub mod ir;
 pub mod layout;
-mod lucide_icons;
 pub mod parse;
 pub mod platform;
 pub mod probe;

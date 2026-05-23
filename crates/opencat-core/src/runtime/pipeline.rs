@@ -6,12 +6,12 @@ use anyhow::Result;
 use tracing::{Level, event, span};
 
 use crate::display::build::build_display_tree;
-use crate::element::resolve::resolve_ui_tree_with_script_cache;
+use crate::resolve::resolve::resolve_ui_tree_with_script_cache;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
 use crate::ir::draw_frame::DrawOpFrame;
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
-use crate::parse::path_bounds::DefaultPathBounds;
+use crate::resolve::path_bounds::DefaultPathBounds;
 use crate::platform::media::FrameMediaPlan;
 use crate::render::RenderCtx;
 use crate::render::builder::DrawOpBuilder;

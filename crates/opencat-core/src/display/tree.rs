@@ -1,5 +1,5 @@
 use crate::display::list::{DisplayClip, DisplayItem, DisplayTransform};
-use crate::element::tree::ElementId;
+use crate::resolve::tree::ElementId;
 
 #[derive(Clone, Debug)]
 pub struct DisplayTree {

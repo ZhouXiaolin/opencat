@@ -9,6 +9,7 @@ pub mod frame_ctx;
 pub mod ir;
 pub mod layout;
 pub mod parse;
+pub mod pipeline;
 pub mod platform;
 pub mod probe;
 pub mod render;
@@ -25,6 +26,7 @@ pub use self::frame_ctx::FrameCtx;
 pub use self::parse::node::Node;
 pub use self::parse::preflight::collect_resource_requests; // ResourceRequests now in probe
 pub use self::parse::{ParsedComposition, parse};
+pub use self::pipeline::{DefaultPipeline, Pipeline};
 pub use self::platform::video::{FrameBitmap, VideoFrameProvider};
 pub use self::probe::{
     AssetHandle, AssetLoader, AudioPlan, AudioSegment, AudioSource, ImageMeta, ImageSource,

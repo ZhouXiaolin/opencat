@@ -19,7 +19,6 @@ declare module '../pkg/opencat_web.js' {
     audio_context_time(): number;
   }
 
-  export function init_canvaskit(): void;
   export function preload_assets(jsonl: string): Promise<string>;
   export function get_blob_bytes(asset_id: string): Uint8Array | undefined;
   export function clear_blobs(): void;

@@ -72,16 +72,25 @@ pub fn render_from_jsonl(
     output_path: impl AsRef<Path>,
     config: &EncodingConfig,
 ) -> Result<()> {
+    render_from_jsonl_with_base(jsonl, None, output_path, config)
+}
+
+pub fn render_from_jsonl_with_base(
+    jsonl: &str,
+    base_dir: Option<&Path>,
+    output_path: impl AsRef<Path>,
+    config: &EncodingConfig,
+) -> Result<()> {
     use crate::js_context::RqJsContext;
     use opencat_core::pipeline::Pipeline;
     use opencat_core::probe::{AssetHandle, AssetLoader};
     use opencat_core::script::js_context::JsContext;
 
     let output_path = output_path.as_ref();
-    let base_dir = std::env::current_dir()?;
-    let cache_dir = base_dir.join(".opencat").join("assets");
+    let cache_base = dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let cache_dir = cache_base.join(".opencat").join("assets");
 
-    let loader = crate::resource::loader::EngineLoader::new(base_dir, cache_dir)?;
+    let loader = crate::resource::loader::EngineLoader::new(base_dir.unwrap_or(&cache_base).to_path_buf(), cache_dir)?;
     let ctx = RqJsContext::new()?;
     let mut pipeline = crate::EnginePipeline::open(jsonl, loader, ctx)?;
     let info = pipeline.info().clone();
@@ -253,14 +262,23 @@ pub fn render_single_frame_from_jsonl(
     jsonl: &str,
     frame_index: u32,
 ) -> Result<(Vec<u8>, u32, u32)> {
+    render_single_frame_from_jsonl_with_base(jsonl, None, frame_index)
+}
+
+/// Render a single frame with explicit base directory for resolving relative asset paths.
+pub fn render_single_frame_from_jsonl_with_base(
+    jsonl: &str,
+    base_dir: Option<&Path>,
+    frame_index: u32,
+) -> Result<(Vec<u8>, u32, u32)> {
     use crate::js_context::RqJsContext;
     use opencat_core::pipeline::Pipeline;
     use opencat_core::script::js_context::JsContext;
 
-    let base_dir = std::env::current_dir()?;
-    let cache_dir = base_dir.join(".opencat").join("assets");
+    let cache_base = dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let cache_dir = cache_base.join(".opencat").join("assets");
 
-    let loader = crate::resource::loader::EngineLoader::new(base_dir, cache_dir)?;
+    let loader = crate::resource::loader::EngineLoader::new(base_dir.unwrap_or(&cache_base).to_path_buf(), cache_dir)?;
     let ctx = RqJsContext::new()?;
     let mut pipeline = crate::EnginePipeline::open(jsonl, loader, ctx)?;
     let info = pipeline.info().clone();

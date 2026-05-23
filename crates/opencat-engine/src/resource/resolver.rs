@@ -109,7 +109,7 @@ impl<'a> AssetResolver for EngineAssetResolver<'a> {
                 id,
                 width: probe.width,
                 height: probe.height,
-                duration_secs: probe.duration_secs,
+                duration_secs: probe.duration_ms.map(|ms| ms as f64 / 1000.0),
             })
         }
     }

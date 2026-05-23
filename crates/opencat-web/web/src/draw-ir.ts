@@ -973,14 +973,12 @@ function buildRuntimeChildShader(
   }
   const width = Math.max(1, Math.ceil(dst.x + dst.width));
   const height = Math.max(1, Math.ceil(dst.y + dst.height));
-  const surface = CK.MakeSurface(width, height);
-  if (!surface) return null;
-  const canvas = surface.getCanvas();
+  const recorder = new CK.PictureRecorder();
+  const canvas = recorder.beginRecording(CK.XYWHRect(0, 0, width, height));
   executeRangeOnCanvas(canvas, child.range.start, child.range.len);
-  surface.flush?.();
-  const picture = surface.makeImageSnapshot();
-  surface.delete?.();
-  return picture?.makeShaderOptions?.(CK.TileMode.Clamp, CK.TileMode.Clamp, CK.FilterMode?.Linear, false, null) ?? null;
+  const picture = recorder.finishRecordingAsPicture();
+  recorder.delete();
+  return picture?.makeShader?.(CK.TileMode.Clamp, CK.TileMode.Clamp, CK.FilterMode?.Linear) ?? null;
 }
 
 function readRect4(payload: Payload): Rect4 {

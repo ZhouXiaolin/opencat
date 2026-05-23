@@ -76,6 +76,7 @@ impl fmt::Display for RenderError {
 
 impl std::error::Error for RenderError {}
 
+pub mod builder;
 pub mod ctx;
 pub mod media_plan;
 pub mod state;

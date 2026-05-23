@@ -1,4 +1,4 @@
-use opencat_core::draw::types::{EncodedPath, FillType, PathOp};
+use opencat_core::ir::draw_types::{EncodedPath, FillType, PathOp};
 use skia_safe::{PathBuilder, PathFillType, RRect, Rect};
 
 pub fn path_from_encoded(encoded: &EncodedPath) -> skia_safe::Path {

@@ -1,43 +1,21 @@
 //! Platform role for media preparation: decoding video frames, audio slices,
 //! and compiling runtime effects.
 
-use crate::draw::types::{EffectRef, ImageRef};
+pub use crate::ir::media_plan::FrameMediaPlan;
 
-/// Unified preparation mode for both media and audio.
-/// Preview favors speed over quality; Export favors quality over speed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PrepareMode {
-    Preview,
-    Export,
-}
-
-/// Plan for preparing media assets needed by a single frame.
-#[derive(Clone, Debug, Default)]
-pub struct FrameMediaPlan {
-    /// Deduplicated image references needed for this frame.
-    pub images: Vec<ImageRef>,
-    /// Runtime effect metadata (hash + SkSL) needed for this frame.
-    pub runtime_effects: Vec<EffectRef>,
-}
-
-/// Stub: a slice of an audio track to prepare for playback or export.
 #[derive(Clone, Debug, Default)]
 pub struct AudioPlanSlice {}
 
-/// Platform role for media preparation (decoding video frames, audio slices,
-/// compiling runtime effects).
 pub trait MediaPlatform {
     type PreparedFrameMedia;
     type PreparedAudioSlice;
 
-    /// Prepare a frame's media assets for rendering.
     fn prepare_frame(
         &mut self,
         plan: &FrameMediaPlan,
         mode: PrepareMode,
     ) -> Result<Self::PreparedFrameMedia, MediaError>;
 
-    /// Prepare an audio slice for playback/export.
     fn prepare_audio_slice(
         &mut self,
         slice: &AudioPlanSlice,
@@ -45,7 +23,12 @@ pub trait MediaPlatform {
     ) -> Result<Self::PreparedAudioSlice, MediaError>;
 }
 
-/// Error type for media preparation failures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrepareMode {
+    Preview,
+    Export,
+}
+
 #[derive(Debug)]
 pub struct MediaError(pub String);
 

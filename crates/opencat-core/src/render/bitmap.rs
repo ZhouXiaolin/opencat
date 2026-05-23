@@ -3,9 +3,9 @@ use tracing::{Level, event};
 
 use crate::canvas::Rect;
 use crate::display::list::BitmapDisplayItem;
-use crate::draw::builder::DrawOpBuilder;
-use crate::draw::op::DrawOp;
-use crate::draw::types::ImageRef;
+use crate::ir::draw_op::DrawOp;
+use crate::ir::draw_types::ImageRef;
+use crate::render::builder::DrawOpBuilder;
 use crate::style::ObjectFit;
 
 use super::paint_conv::background_fill_to_paint_spec;

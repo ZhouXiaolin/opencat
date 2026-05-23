@@ -1,7 +1,7 @@
-use super::frame::DrawOpFrame;
-use super::op::{DrawOp, F32Range};
-use super::types::*;
 use crate::canvas::paint::PaintSpec;
+use crate::ir::draw_frame::DrawOpFrame;
+use crate::ir::draw_op::{DrawOp, F32Range};
+use crate::ir::draw_types::*;
 use std::collections::HashMap;
 
 /// Immediate-mode paint state for script canvas tracking.
@@ -10,11 +10,11 @@ use std::collections::HashMap;
 #[derive(Default)]
 #[allow(dead_code)]
 struct DrawScriptPaintState {
-    fill_color: Option<super::op::ColorU8>,
-    stroke_color: Option<super::op::ColorU8>,
+    fill_color: Option<crate::ir::draw_op::ColorU8>,
+    stroke_color: Option<crate::ir::draw_op::ColorU8>,
     line_width: f32,
-    line_cap: super::op::LineCap,
-    line_join: super::op::LineJoin,
+    line_cap: crate::ir::draw_op::LineCap,
+    line_join: crate::ir::draw_op::LineJoin,
     line_dash: Option<(Vec<f32>, f32)>,
     global_alpha: f32,
     anti_alias: bool,
@@ -70,10 +70,10 @@ impl DrawOpBuilder {
     }
 
     /// Intern a slice of f32 values, returning an F32Range pointing into the pool.
-    pub fn intern_f32_range(&mut self, values: &[f32]) -> super::op::F32Range {
+    pub fn intern_f32_range(&mut self, values: &[f32]) -> crate::ir::draw_op::F32Range {
         let start = self.f32_pool.len() as u32;
         self.f32_pool.extend_from_slice(values);
-        super::op::F32Range {
+        crate::ir::draw_op::F32Range {
             start,
             len: values.len() as u32,
         }
@@ -142,7 +142,7 @@ impl DrawOpBuilder {
 
     /// Import a cached segment into the current builder, remapping all id
     /// offsets so they index correctly into this builder's side tables.
-    pub fn import_segment(&mut self, segment: &super::cache::CachedDrawSegment) -> DrawOpRange {
+    pub fn import_segment(&mut self, segment: &crate::ir::cache::CachedDrawSegment) -> DrawOpRange {
         let paint_offset = self.paints.len() as u32;
         let path_offset = self.paths.len() as u32;
         let string_offset = self.strings.len() as u32;
@@ -200,8 +200,8 @@ impl DrawOpBuilder {
     /// Capture a DrawOpRange as a CachedDrawSegment for cache storage.
     /// Clones all side-table data referenced by ops in the given range,
     /// compacting indices to 0-based and remapping all IDs in the cloned ops.
-    pub fn snapshot_range(&self, range: DrawOpRange) -> super::cache::CachedDrawSegment {
-        use super::cache::CachedDrawSegment;
+    pub fn snapshot_range(&self, range: DrawOpRange) -> crate::ir::cache::CachedDrawSegment {
+        use crate::ir::cache::CachedDrawSegment;
         let start = range.start_op as usize;
         let end = start + range.op_len as usize;
         let ops_slice = &self.ops[start..end];
@@ -723,8 +723,8 @@ mod tests {
 
     #[test]
     fn builder_import_segment_remaps_paint_ids() {
-        use crate::draw::cache::CachedDrawSegment;
-        use crate::draw::op::Rect4;
+        use crate::ir::cache::CachedDrawSegment;
+        use crate::ir::draw_op::Rect4;
 
         // Create a cached segment with a paint-referencing op
         let mut seg_builder = DrawOpBuilder::default();
@@ -772,7 +772,7 @@ mod tests {
 
     #[test]
     fn builder_import_empty_segment_is_noop() {
-        use crate::draw::cache::CachedDrawSegment;
+        use crate::ir::cache::CachedDrawSegment;
 
         let mut builder = DrawOpBuilder::default();
         builder.push(DrawOp::Save);
@@ -789,7 +789,7 @@ mod tests {
 
     #[test]
     fn snapshot_range_import_segment_roundtrip() {
-        use crate::draw::op::Rect4;
+        use crate::ir::draw_op::Rect4;
 
         let mut builder = DrawOpBuilder::default();
         let spec = PaintSpec {

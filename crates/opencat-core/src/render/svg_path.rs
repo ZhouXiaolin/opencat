@@ -3,8 +3,8 @@ use crate::canvas::paint::{
     BlendMode, FillSpec, PaintSpec, PaintStyle, PathEffectSpec, StrokeCap, StrokeJoin, StrokeSpec,
 };
 use crate::display::list::{DisplayRect, SvgPathDisplayItem};
-use crate::draw::op::DrawOp;
-use crate::draw::types::{EncodedPath, FillType, PathOp};
+use crate::ir::draw_op::DrawOp;
+use crate::ir::draw_types::{EncodedPath, FillType, PathOp};
 
 use kurbo::BezPath;
 
@@ -101,13 +101,14 @@ pub fn render_svg_path(ctx: &mut RenderCtx, item: &SvgPathDisplayItem) -> Result
             path_effect: None,
         };
         if let Some(dash_len) = item.paint.stroke_dasharray
-            && dash_len > 0.0 {
-                let offset = item.paint.stroke_dashoffset.unwrap_or(0.0);
-                spec.path_effect = Some(PathEffectSpec::Dash {
-                    intervals: vec![dash_len, dash_len],
-                    phase: offset,
-                });
-            }
+            && dash_len > 0.0
+        {
+            let offset = item.paint.stroke_dashoffset.unwrap_or(0.0);
+            spec.path_effect = Some(PathEffectSpec::Dash {
+                intervals: vec![dash_len, dash_len],
+                phase: offset,
+            });
+        }
         Some(spec)
     });
 

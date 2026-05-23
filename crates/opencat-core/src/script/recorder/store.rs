@@ -477,7 +477,7 @@ impl MutationRecorder for MutationStore {
         self.entry(id).svg_path = Some(data);
     }
 
-    fn record_draw_op(&mut self, id: &str, cmd: crate::draw::op::DrawOp) {
+    fn record_draw_op(&mut self, id: &str, cmd: crate::ir::draw_op::DrawOp) {
         self.canvas_entry(id).commands.push(cmd);
     }
 

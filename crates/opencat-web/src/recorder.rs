@@ -1,7 +1,7 @@
 use wasm_bindgen::prelude::*;
 
-use opencat_core::draw::op::{ColorF32, ColorU8, DrawOp, Rect4};
-use opencat_core::draw::types::{ImageRef, PathOp};
+use opencat_core::ir::op::{ColorF32, ColorU8, DrawOp, Rect4};
+use opencat_core::ir::types::{ImageRef, PathOp};
 use opencat_core::scene::script::mutations::TextUnitGranularity;
 use opencat_core::scene::script::{
     ScriptTextSource, ScriptTextSourceKind, align_items_from_name, box_shadow_from_name,

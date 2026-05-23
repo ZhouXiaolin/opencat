@@ -1,4 +1,4 @@
-use crate::ir::draw_types::{EffectRef, ImageRef};
+use super::draw_types::{EffectRef, ImageRef};
 
 #[derive(Clone, Debug, Default)]
 pub struct FrameMediaPlan {

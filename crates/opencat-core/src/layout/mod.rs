@@ -19,7 +19,7 @@ use taffy::{
 
 use crate::{
     FrameCtx,
-    element::tree::{ElementKind, ElementNode},
+    resolve::tree::{ElementKind, ElementNode},
     layout::tree::{LayoutNode, LayoutRect, LayoutTree},
     parse::primitives::{AlignItems, JustifyContent, Position},
     style::{ComputedTextStyle, LengthPercentageAuto},
@@ -502,7 +502,7 @@ impl Hash for CompositeFingerprint<'_> {
     }
 }
 
-struct LayoutStyleFingerprint<'a>(&'a crate::element::style::ComputedLayoutStyle);
+struct LayoutStyleFingerprint<'a>(&'a crate::resolve::style::ComputedLayoutStyle);
 
 impl Hash for LayoutStyleFingerprint<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -559,7 +559,7 @@ impl Hash for LayoutStyleFingerprint<'_> {
     }
 }
 
-struct RasterVisualStyleFingerprint<'a>(&'a crate::element::style::ComputedVisualStyle);
+struct RasterVisualStyleFingerprint<'a>(&'a crate::resolve::style::ComputedVisualStyle);
 
 impl Hash for RasterVisualStyleFingerprint<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -585,7 +585,7 @@ impl Hash for RasterVisualStyleFingerprint<'_> {
     }
 }
 
-struct CompositeVisualStyleFingerprint<'a>(&'a crate::element::style::ComputedVisualStyle);
+struct CompositeVisualStyleFingerprint<'a>(&'a crate::resolve::style::ComputedVisualStyle);
 
 impl Hash for CompositeVisualStyleFingerprint<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -1103,7 +1103,7 @@ mod tests {
     };
     use crate::{
         FrameCtx,
-        element::resolve::resolve_ui_tree,
+        resolve::resolve::resolve_ui_tree,
         parse::jsonl::tailwind::parse_class_name,
         parse::primitives::{div, lucide, path, text},
         style::{ColorToken, ComputedTextStyle},

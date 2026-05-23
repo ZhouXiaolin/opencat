@@ -6,7 +6,7 @@ pub use opencat_engine as host;
 
 // Backward-compatible module re-exports from core
 pub use opencat_core::display;
-pub use opencat_core::element;
+pub use opencat_core::resolve;
 pub use opencat_core::frame_ctx;
 pub use opencat_core::parse::jsonl;
 pub use opencat_core::layout;

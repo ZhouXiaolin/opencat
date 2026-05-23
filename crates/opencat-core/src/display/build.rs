@@ -10,7 +10,7 @@ use crate::{
         },
         tree::{DisplayNode, DisplayTree},
     },
-    element::tree::{ElementKind, ElementNode},
+    resolve::tree::{ElementKind, ElementNode},
     layout::tree::{LayoutNode, LayoutTree},
     parse::transition::TransitionKind,
 };
@@ -244,7 +244,7 @@ mod tests {
     use super::build_display_tree;
     use crate::{
         FrameCtx,
-        element::resolve::resolve_ui_tree,
+        resolve::resolve::resolve_ui_tree,
         parse,
         parse::primitives::{div, lucide},
         runtime::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
@@ -811,7 +811,7 @@ mod tests {
         .expect("tree should resolve");
 
         let child = &resolved.children[0];
-        let crate::element::tree::ElementKind::SvgPath(svg) = &child.kind else {
+        let crate::resolve::tree::ElementKind::SvgPath(svg) = &child.kind else {
             panic!("expected SvgPath element, got {:?}", child.kind);
         };
         assert!(!svg.path_data.is_empty());

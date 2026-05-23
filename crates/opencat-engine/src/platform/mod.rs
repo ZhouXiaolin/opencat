@@ -170,6 +170,6 @@ mod tests {
     #[test]
     fn engine_platform_constructs_runtime_services() {
         let platform = EnginePlatform::new();
-        assert!(platform.asset_paths.is_empty());
+        assert!(platform.asset_paths.entries.is_empty());
     }
 }

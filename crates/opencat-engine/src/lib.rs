@@ -16,10 +16,9 @@ pub mod script;
 
 // 转发 core 中位于 runtime/ 的纯算法模块
 pub use opencat_core::parse::preflight as preflight_collect;
-pub use opencat_core::runtime::analysis;
-pub use opencat_core::runtime::annotation;
-pub use opencat_core::runtime::fingerprint;
-pub use opencat_core::runtime::invalidation;
+pub use opencat_core::analyze::annotation;
+pub use opencat_core::analyze::fingerprint;
+pub use opencat_core::analyze::invalidation;
 
 // Re-export core types used in engine tests (via `crate::` path)
 pub use opencat_core::frame_ctx::FrameCtx;

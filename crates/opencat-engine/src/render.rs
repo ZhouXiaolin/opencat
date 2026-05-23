@@ -1360,11 +1360,11 @@ mod tests {
         let mut session = make_test_session();
         let _ = render_frame_rgba(&composition, 12, &mut session)
             .expect("first transition frame should render");
-        let size_after_first = session.cache.subtree_snapshots.len();
+        let size_after_first = session.core.cache.subtree_snapshots.len();
 
         let _ = render_frame_rgba(&composition, 13, &mut session)
             .expect("second transition frame should render");
-        let size_after_second = session.cache.subtree_snapshots.len();
+        let size_after_second = session.core.cache.subtree_snapshots.len();
 
         assert!(
             size_after_first >= 2,

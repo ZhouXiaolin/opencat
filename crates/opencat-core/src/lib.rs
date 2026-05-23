@@ -1,5 +1,6 @@
 //! opencat-core — 纯数据 + trait + 算法，零 IO/平台依赖。
 
+pub mod analyze;
 pub mod cache;
 pub mod canvas;
 pub mod display;

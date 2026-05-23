@@ -6,7 +6,6 @@ import {
   exportPngFrame,
   getBlobBytes,
   getRendererOrThrow,
-  initCanvasKitWasm,
   initWasm,
   injectVideoFramesForRender,
   prepareVideoSource,
@@ -84,7 +83,6 @@ async function boot() {
     ckStatusEl.className = 'status-badge loading';
     const CK = await CanvasKitInit({ locateFile: (f: string) => '/canvaskit/' + f });
     (globalThis as any).__canvasKit = CK;
-    initCanvasKitWasm();
     ckStatusEl.textContent = 'CanvasKit ready';
     ckStatusEl.className = 'status-badge ready';
 

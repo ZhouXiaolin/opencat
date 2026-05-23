@@ -10,7 +10,6 @@ export {
   getBlobBytes,
   getRenderer,
   getRendererOrThrow,
-  initCanvasKitWasm,
   initWasm,
   preloadAssets,
   setWasmBaseUrl,

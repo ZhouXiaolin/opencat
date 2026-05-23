@@ -3,7 +3,6 @@ type WasmModule = {
   WebRenderer: {
     new(): WebRendererInstance;
   };
-  init_canvaskit(): void;
   preload_assets(jsonl: string): Promise<string>;
   get_blob_bytes(asset_id: string): Uint8Array | undefined;
   clear_blobs(): void;
@@ -41,11 +40,6 @@ export async function initWasm(wasmBaseUrl?: string): Promise<void> {
   await mod.default();
   wasmModule = mod as unknown as WasmModule;
   renderer = new wasmModule.WebRenderer();
-}
-
-export function initCanvasKitWasm(): void {
-  if (!wasmModule) throw new Error('WASM not initialized');
-  wasmModule.init_canvaskit();
 }
 
 // ── 资源预加载（下载 + 元数据探测在 Rust 侧完成） ──

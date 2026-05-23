@@ -1,6 +1,7 @@
 import type { CompositionInfo, ResourceMeta } from './types';
 import { getRendererOrThrow } from './wasm';
 import { injectVideoFramesForRender } from './video-frame-injector';
+import { renderEncodedDrawFrame } from './draw-ir';
 import type { IClip } from '@webav/av-cliper';
 
 type ProgressCallback = (current: number, total: number) => void;
@@ -79,7 +80,8 @@ class ExportClip implements IClip {
       if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
 
       const ckCanvas = surface.getCanvas();
-      renderer.build_frame(this.jsonlContent, frameNum, ckCanvas, this.resourceMetaJson);
+      const ir = renderer.build_frame_ir(this.jsonlContent, frameNum, this.resourceMetaJson);
+      renderEncodedDrawFrame(ir, ckCanvas, CK);
       surface.flush();
 
       const startSecs = timeSecs;
@@ -100,7 +102,6 @@ class ExportClip implements IClip {
 
       return { video: bitmap, audio: audioChannels, state: 'success' };
     } finally {
-      try { renderer.clear_video_cache(''); } catch { /* ignore */ }
       surface?.delete();
     }
 
@@ -265,7 +266,8 @@ export async function exportPngFrame(
     if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
     const ckCanvas = surface.getCanvas();
 
-    renderer.build_frame(jsonlContent, frame, ckCanvas, resourceMetaJson);
+    const ir = renderer.build_frame_ir(jsonlContent, frame, resourceMetaJson);
+    renderEncodedDrawFrame(ir, ckCanvas, CK);
     surface.flush();
 
     const blob = await new Promise<Blob | null>((resolve) => {
@@ -276,7 +278,6 @@ export async function exportPngFrame(
 
     downloadBlob(blob, `frame_${String(frame).padStart(4, '0')}.png`);
   } finally {
-    try { renderer.clear_video_cache(''); } catch { /* ignore */ }
     surface?.delete();
   }
 }

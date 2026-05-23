@@ -4,8 +4,11 @@ import {
   exportPngFrame,
   getDecodedFrameRgba,
   initWasm,
+  renderEncodedDrawFrame,
   type CompositionInfo,
+  type EncodedDrawFrame,
   type ResourceMeta,
+  type WebRendererInstance,
 } from 'opencat-web';
 
 describe('opencat-web browser API', () => {
@@ -29,5 +32,21 @@ describe('opencat-web browser API', () => {
     expect(typeof getDecodedFrameRgba).toBe('function');
     expect(typeof exportMp4).toBe('function');
     expect(typeof exportPngFrame).toBe('function');
+    expect(typeof renderEncodedDrawFrame).toBe('function');
+  });
+
+  test('models wasm drawop IR as the web renderer boundary', () => {
+    const frame: EncodedDrawFrame = new Uint8Array([
+      0x4f, 0x43, 0x49, 0x52,
+      1, 0, 0, 0,
+    ]);
+
+    expect(frame).toBeInstanceOf(Uint8Array);
+
+    const renderer = {
+      build_frame_ir: () => frame,
+    } satisfies Pick<WebRendererInstance, 'build_frame_ir'>;
+
+    expect(renderer.build_frame_ir('', 0, '{}')).toBe(frame);
   });
 });

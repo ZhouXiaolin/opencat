@@ -17,6 +17,35 @@ interface InjectVideoFramesOptions {
   quality: VideoPreviewQuality;
 }
 
+interface CachedVideoFrameRgba {
+  rgba: Uint8Array;
+  width: number;
+  height: number;
+}
+
+const decodedFrameCache = new Map<string, CachedVideoFrameRgba>();
+
+function videoFrameKey(assetId: string, frame: number): string {
+  return `${assetId}\0${frame}`;
+}
+
+export function getCachedVideoFrameRgba(
+  assetId: string,
+  frame: number,
+): CachedVideoFrameRgba | undefined {
+  return decodedFrameCache.get(videoFrameKey(assetId, frame));
+}
+
+export function clearCachedVideoFrames(assetId?: string): void {
+  if (!assetId) {
+    decodedFrameCache.clear();
+    return;
+  }
+  for (const key of decodedFrameCache.keys()) {
+    if (key.startsWith(`${assetId}\0`)) decodedFrameCache.delete(key);
+  }
+}
+
 export async function injectVideoFramesForRender({
   renderer,
   jsonlContent,
@@ -24,7 +53,7 @@ export async function injectVideoFramesForRender({
   resourcesJson,
   quality,
 }: InjectVideoFramesOptions): Promise<void> {
-  renderer.clear_video_cache('');
+  decodedFrameCache.clear();
 
   let plan: VideoFramePlanItem[] = [];
   try {
@@ -61,13 +90,7 @@ export async function injectVideoFramesForRender({
           return;
         }
 
-        renderer.inject_video_frame(
-          item.assetId,
-          frame,
-          decoded.rgba,
-          decoded.width,
-          decoded.height,
-        );
+        decodedFrameCache.set(videoFrameKey(item.assetId, frame), decoded);
       } catch (err) {
         console.warn(
           `[renderer f=${frame}] decode failed asset=${item.assetId} t=${item.localTimeSecs.toFixed(3)}s:`,

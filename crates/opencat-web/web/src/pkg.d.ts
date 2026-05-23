@@ -4,7 +4,7 @@ declare module '../pkg/opencat_web.js' {
 
   export class WebRenderer {
     constructor();
-    build_frame(jsonl: string, frame: number, ck_canvas: unknown, resources_json: string): void;
+    build_frame_ir(jsonl: string, frame: number, resources_json: string): Uint8Array;
     inject_video_frame(asset_id: string, frame: number, rgba: Uint8Array, width: number, height: number): void;
     clear_video_cache(asset_id: string): void;
     plan_video_frames(jsonl: string, frame: number, resources_json: string): string;

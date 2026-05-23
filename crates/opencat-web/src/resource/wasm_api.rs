@@ -39,7 +39,7 @@ fn put_blobs(blobs: BlobStore) {
 /// `{ "<asset_id>": { "width": w, "height": h, "kind": "image"|"video"|"audio",
 ///                    "duration_secs": Option<f64> }, ... }`
 ///
-/// JS 把这个串原样传给后续 `WebRenderer.build_frame(resource_meta=...)`。
+/// JS 把这个串原样传给后续 `WebRenderer.build_frame_ir(resources_json=...)`。
 #[wasm_bindgen]
 pub async fn preload_assets(jsonl: &str) -> Result<String, JsValue> {
     // 1) 用 core 的解析器解析 JSONL → ParsedComposition。

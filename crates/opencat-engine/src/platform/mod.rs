@@ -70,7 +70,6 @@ impl EnginePlatform {
             rt.block_on(preload_all(req, &mut resolver, catalog))?;
         }
 
-        self.video.set_path_store(&self.asset_paths);
         self.video.set_composition_fps(composition.fps);
 
         // Register canvas asset aliases in both catalogs so that canvas

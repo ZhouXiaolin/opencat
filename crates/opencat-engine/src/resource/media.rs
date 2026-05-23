@@ -8,8 +8,6 @@ use skia_safe::{AlphaType, ColorType, Data, Image, ImageInfo, image::CachingHint
 
 use crate::codec::decode::VideoDecodeCache;
 use crate::runtime::cache::{CacheCaps, video_frames::VideoFrameCache};
-use opencat_core::resource::AssetPathStore;
-use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
 
 pub use crate::codec::decode::VideoInfo;
@@ -69,10 +67,6 @@ pub struct MediaContext {
     video_frame_cache: VideoFrameCache,
     video_preview_quality: VideoPreviewQuality,
     composition_fps: u32,
-    /// Raw pointer to an [`AssetPathStore`] on the owning platform.
-    /// Used to resolve URL-based AssetIds to local cached file paths.
-    /// Set via [`MediaContext::set_path_store`] after preflight.
-    path_store: *const AssetPathStore,
 }
 
 impl MediaContext {
@@ -87,14 +81,7 @@ impl MediaContext {
             video_frame_cache: VideoFrameCache::new(caps.video_frames),
             video_preview_quality: VideoPreviewQuality::Realtime,
             composition_fps: 30,
-            path_store: std::ptr::null(),
         }
-    }
-
-    /// Attach an [`AssetPathStore`] so URL-based AssetIds can be resolved
-    /// to local cached file paths. Must be called after preflight.
-    pub fn set_path_store(&mut self, store: &AssetPathStore) {
-        self.path_store = store as *const AssetPathStore;
     }
 
     pub fn set_video_preview_quality(&mut self, quality: VideoPreviewQuality) {
@@ -178,21 +165,12 @@ impl MediaContext {
             }
         }
     }
-}
 
-impl Default for MediaContext {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl opencat_core::platform::video::VideoFrameProvider for MediaContext {
-    fn frame_rgba(
+    pub fn frame_rgba_by_path(
         &mut self,
-        id: &opencat_core::resource::asset_id::AssetId,
+        path: &Path,
         frame: u32,
-    ) -> anyhow::Result<opencat_core::platform::video::FrameBitmap> {
-        let path = resolve_asset_path(id, self.path_store);
+    ) -> Result<opencat_core::platform::video::FrameBitmap> {
         let composition_time_secs = frame as f64 / self.composition_fps.max(1) as f64;
         let request = VideoFrameRequest {
             composition_time_secs,
@@ -209,21 +187,13 @@ impl opencat_core::platform::video::VideoFrameProvider for MediaContext {
     }
 }
 
-/// Resolve an [`AssetId`] to a file path:
-///   1. If `path_store` is set, look up the cached local path.
-///   2. Otherwise fall back to using the raw AssetId string as a path
-///      (for legacy direct-path usage).
-fn resolve_asset_path<'a>(id: &'a AssetId, path_store: *const AssetPathStore) -> &'a Path {
-    if !path_store.is_null() {
-        // SAFETY: path_store points to an AssetPathStore on the owning
-        // EnginePlatform, which outlives this MediaContext call.
-        let store = unsafe { &*path_store };
-        if let Some(p) = store.path(id) {
-            return p;
-        }
+impl Default for MediaContext {
+    fn default() -> Self {
+        Self::new()
     }
-    Path::new(&id.0)
 }
+
+
 
 fn load_image_bitmap(path: &Path) -> Result<(Arc<Vec<u8>>, u32, u32)> {
     let encoded = fs::read(path)
@@ -262,14 +232,12 @@ fn load_image_bitmap(path: &Path) -> Result<(Arc<Vec<u8>>, u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use opencat_core::platform::video::VideoFrameProvider;
-    use opencat_core::resource::asset_id::AssetId;
 
     #[test]
-    fn provider_returns_err_for_missing_video_path() {
+    fn frame_rgba_by_path_returns_err_for_missing_video() {
         let mut ctx = MediaContext::new();
         ctx.set_composition_fps(30);
-        let result = ctx.frame_rgba(&AssetId("/nonexistent/video.mp4".into()), 0);
+        let result = ctx.frame_rgba_by_path(Path::new("/nonexistent/video.mp4"), 0);
         assert!(result.is_err());
     }
 

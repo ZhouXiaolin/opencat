@@ -265,6 +265,12 @@ pub fn render_single_frame_from_jsonl(
     let mut pipeline = crate::EnginePipeline::open(jsonl, loader, ctx)?;
     let info = pipeline.info().clone();
 
+    if frame_index >= info.frames {
+        anyhow::bail!(
+            "frame_index {} out of range (composition has {} frames)", frame_index, info.frames
+        );
+    }
+
     let mut media_ctx = crate::resource::media::MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
 

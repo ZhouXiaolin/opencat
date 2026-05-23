@@ -18,6 +18,13 @@ export {
 export type { WebRendererInstance } from './wasm';
 
 export {
+  renderEncodedDrawFrame,
+} from './draw-ir';
+export type {
+  EncodedDrawFrame,
+} from './draw-ir';
+
+export {
   clearVideoCache,
   getDecodedFrameRgba,
   getDecodedVideoFrame,
@@ -33,6 +40,8 @@ export type {
 } from './video-decoder';
 
 export {
+  clearCachedVideoFrames,
+  getCachedVideoFrameRgba,
   injectVideoFramesForRender,
 } from './video-frame-injector';
 

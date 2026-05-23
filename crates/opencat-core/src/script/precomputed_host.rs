@@ -1,5 +1,5 @@
 use crate::frame_ctx::ScriptFrameCtx;
-use crate::scene::script::{ScriptDriverId, ScriptHost, ScriptTextSource, StyleMutations};
+use crate::script::{ScriptDriverId, ScriptHost, ScriptTextSource, StyleMutations};
 use crate::script::recorder::MutationRecorder;
 use anyhow::Result;
 use std::collections::HashMap;
@@ -46,7 +46,7 @@ impl Default for PrecomputedScriptHost {
 
 impl ScriptHost for PrecomputedScriptHost {
     fn install(&mut self, source: &str) -> Result<ScriptDriverId> {
-        Ok(crate::scene::script::driver_id_from_source(source))
+        Ok(crate::script::driver_id_from_source(source))
     }
 
     fn register_text_source(&mut self, _node_id: &str, _source: ScriptTextSource) {

@@ -23,7 +23,7 @@ use crate::analyze::compositor::{OrderedSceneProgram, plan_for_scene};
 use crate::analyze::invalidation::CompositeHistory;
 use crate::analyze::invalidation::mark_display_tree_composite_dirty;
 use crate::runtime::session::RenderSession;
-use crate::scene::script::ScriptHost;
+use crate::script::ScriptHost;
 use crate::text::DefaultFontProvider;
 
 /// Per-frame pipeline: resolve → layout → display tree → annotate → plan → render.
@@ -134,7 +134,7 @@ pub fn render_frame_inner(
         blob_store,
     };
 
-    crate::render::display_tree::render_display_tree(&mut ctx, &annotated, cache)?;
+    crate::render::dispatch::render_display_tree(&mut ctx, &annotated, cache)?;
 
     let frame = builder.finish();
     let media_plan = build_media_plan(&frame);

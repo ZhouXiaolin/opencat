@@ -1,6 +1,6 @@
 //! Text unit segmentation (graphemes / words) for script-driven per-unit overrides.
 
-use crate::scene::script::mutations::TextUnitGranularity;
+use crate::script::mutations::TextUnitGranularity;
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Debug, Clone)]

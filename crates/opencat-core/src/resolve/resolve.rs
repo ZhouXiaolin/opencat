@@ -19,7 +19,7 @@ use crate::{
     },
     resource::asset_id::AssetId,
     resource::catalog::{ResourceCatalog, VideoInfoMeta},
-    scene::script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
+    script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
     style::LengthPercentageAuto,
     style::{NodeStyle, resolve_text_style},
 };
@@ -794,9 +794,9 @@ fn seed_text_sources_for_visible_subtree(
                 .unwrap_or_else(|| text.content().to_string());
             script_runtime.register_text_source(
                 id,
-                crate::scene::script::ScriptTextSource {
+                crate::script::ScriptTextSource {
                     text: content,
-                    kind: crate::scene::script::ScriptTextSourceKind::TextNode,
+                    kind: crate::script::ScriptTextSourceKind::TextNode,
                 },
             );
         }
@@ -813,9 +813,9 @@ fn seed_text_sources_for_visible_subtree(
             if let Some(content) = content {
                 script_runtime.register_text_source(
                     id,
-                    crate::scene::script::ScriptTextSource {
+                    crate::script::ScriptTextSource {
                         text: content,
-                        kind: crate::scene::script::ScriptTextSourceKind::Caption,
+                        kind: crate::script::ScriptTextSourceKind::Caption,
                     },
                 );
             }
@@ -886,7 +886,7 @@ fn text_content_from_stack(stack: &[StyleMutations], id: &str) -> Option<String>
 }
 
 fn merge_text_unit_overrides(stack: &[StyleMutations], id: &str) -> Option<TextUnitOverrideBatch> {
-    use crate::scene::script::TextUnitOverride;
+    use crate::script::TextUnitOverride;
     let mut merged: Option<TextUnitOverrideBatch> = None;
     for layer in stack {
         let Some(batch) = layer.get(id).and_then(|m| m.text_unit_overrides.as_ref()) else {
@@ -1073,7 +1073,7 @@ mod tests {
         FrameCtx,
         resolve::tree::ElementKind,
         parse::primitives::{SrtEntry, caption, div, lucide, text, video},
-        scene::script::{
+        script::{
             NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
             TextUnitOverrideBatch,
         },

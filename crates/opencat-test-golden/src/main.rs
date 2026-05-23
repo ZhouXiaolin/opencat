@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use opencat_core::parse::composition::Composition;
-use opencat_core::scene::script::ScriptDriver;
+use opencat_core::script::ScriptDriver;
 use opencat_engine::jsonl_io::parse_file;
 use opencat_engine::render::{RenderSession, render_frame_rgba};
 use serde::{Deserialize, Serialize};

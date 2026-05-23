@@ -4,14 +4,14 @@ use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayRect, TextDisplayItem};
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{EncodedPath, FillType, ImageRef, PathOp};
-use crate::scene::script::TextUnitOverride;
+use crate::script::TextUnitOverride;
 use crate::style::TextAlign;
 use crate::text::{
     GlyphData, apply_text_transform, compute_line_x_shift, describe_text_unit_ranges,
     ranges_overlap, rasterize_glyphs,
 };
 
-use super::paint_conv::drop_shadow_to_image_filter;
+use super::helpers::drop_shadow_to_image_filter;
 use super::{RenderCtx, RenderError};
 
 fn display_rect_to_rect4(r: DisplayRect) -> Rect4 {
@@ -67,7 +67,7 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
         item.truncate,
     );
 
-    let rgba = super::paint_conv::color_token_to_rgba(&item.style.color);
+    let rgba = super::helpers::color_token_to_rgba(&item.style.color);
     let paint = PaintSpec {
         fill: FillSpec::Solid(rgba),
         style: PaintStyle::Fill,
@@ -149,7 +149,7 @@ fn render_text_with_unit_overrides(
         false,
     );
 
-    let base_rgba = super::paint_conv::color_token_to_rgba(&item.style.color);
+    let base_rgba = super::helpers::color_token_to_rgba(&item.style.color);
     let text_align = if item.allow_wrap {
         item.style.text_align
     } else {
@@ -171,7 +171,7 @@ fn render_text_with_unit_overrides(
         let unit_rgba = ov
             .color
             .as_ref()
-            .map(super::paint_conv::color_token_to_rgba)
+            .map(super::helpers::color_token_to_rgba)
             .unwrap_or(base_rgba);
         let unit_paint = PaintSpec {
             fill: FillSpec::Solid(unit_rgba),

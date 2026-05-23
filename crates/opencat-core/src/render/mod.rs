@@ -5,7 +5,6 @@ use tracing::{Level, event};
 
 use crate::cache::lru::CacheMutationReport;
 
-/// Emit tracing events for LRU cache eviction / replacement / utilization.
 #[cfg(feature = "profile")]
 pub(crate) fn record_cache_pressure<K>(cache_name: &'static str, report: &CacheMutationReport<K>) {
     if !report.evicted.is_empty() {
@@ -76,23 +75,14 @@ impl fmt::Display for RenderError {
 
 impl std::error::Error for RenderError {}
 
-pub mod builder;
-pub mod ctx;
-pub mod media_plan;
-pub mod state;
+pub(crate) mod builder;
+pub(crate) mod ctx;
+pub(crate) mod dispatch;
+pub(crate) mod helpers;
+pub(crate) mod media_plan;
+pub(crate) mod text;
 
-// TODO: implement in later chunks
-pub mod bitmap;
-pub mod display_item;
-pub mod display_tree;
-pub mod draw_script;
-pub mod paint_conv;
-pub mod rect;
-pub mod script_conv;
-pub mod svg_path;
-pub mod text;
-pub mod timeline;
-pub mod transition;
-
-pub use ctx::RenderCtx;
-pub use state::DrawScriptPaintState;
+pub(crate) use builder::DrawOpBuilder;
+pub(crate) use ctx::RenderCtx;
+pub(crate) use dispatch::render_display_tree;
+pub(crate) use media_plan::build_media_plan;

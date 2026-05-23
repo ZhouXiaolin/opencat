@@ -1,11 +1,18 @@
 use anyhow::Result;
 
 use crate::frame_ctx::ScriptFrameCtx;
-use crate::scene::script::ScriptTextSource;
+use crate::script::ScriptTextSource;
 use crate::script::recorder::MutationRecorder;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ScriptDriverId(pub u64);
+
+pub fn driver_id_from_source(source: &str) -> ScriptDriverId {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    source.hash(&mut h);
+    ScriptDriverId(h.finish())
+}
 
 pub trait ScriptHost {
     fn install(&mut self, source: &str) -> Result<ScriptDriverId>;

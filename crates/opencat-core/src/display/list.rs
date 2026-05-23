@@ -3,7 +3,7 @@ use crate::{
     parse::transition::TransitionKind,
     resource::asset_id::AssetId,
     resource::types::VideoFrameTiming,
-    scene::script::TextUnitOverrideBatch,
+    script::TextUnitOverrideBatch,
     style::{
         BackgroundFill, BorderRadius, BorderStyle, BoxShadow, ColorToken, ComputedTextStyle,
         DropShadow, InsetShadow, ObjectFit,
@@ -340,7 +340,7 @@ impl DisplayItem {
 mod tests {
     use super::{DisplayItem, DisplayRect, TextDisplayItem};
     use crate::{
-        scene::script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
+        script::{TextUnitGranularity, TextUnitOverride, TextUnitOverrideBatch},
         style::ComputedTextStyle,
     };
 

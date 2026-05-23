@@ -14,7 +14,6 @@ pub mod probe;
 pub mod render;
 pub mod resource;
 pub mod runtime;
-pub mod scene;
 pub mod script;
 pub mod style;
 pub mod text;
@@ -35,7 +34,7 @@ pub use self::resource::asset_id::AssetId;
 pub use self::resource::catalog::ResourceCatalog;
 pub use self::resource::hash_map_catalog::{HashMapResourceCatalog, ResourceKind, ResourceMeta};
 pub use self::runtime::session::RenderSession;
-pub use self::scene::script::{
+pub use self::script::{
     PrecomputedScriptHost, ScriptDriver, ScriptDriverId, ScriptHost, ScriptRunner,
     ScriptRuntimeCache,
 };

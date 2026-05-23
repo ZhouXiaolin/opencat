@@ -5,5 +5,5 @@
 
 pub use crate::js_context::RqJsContext;
 
-pub type ScriptRunner = opencat_core::scene::script::ScriptRunner<RqJsContext>;
-pub type ScriptRuntimeCache = opencat_core::scene::script::ScriptRuntimeCache<RqJsContext>;
+pub type ScriptRunner = opencat_core::script::ScriptRunner<RqJsContext>;
+pub type ScriptRuntimeCache = opencat_core::script::ScriptRuntimeCache<RqJsContext>;

@@ -2,4 +2,4 @@
 
 pub use crate::js_context::WebJsContext;
 
-pub type ScriptRuntimeCache = opencat_core::scene::script::ScriptRuntimeCache<WebJsContext>;
+pub type ScriptRuntimeCache = opencat_core::script::ScriptRuntimeCache<WebJsContext>;

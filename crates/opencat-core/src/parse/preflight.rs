@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use crate::frame_ctx::FrameCtx;
-use crate::scene::composition::Composition;
-use crate::scene::node::{Node, NodeKind};
-use crate::scene::primitives::{AudioSource, ImageSource, VideoSource};
-use crate::scene::time::{FrameState, frame_state_for_root};
+use crate::parse::composition::Composition;
+use crate::parse::node::{Node, NodeKind};
+use crate::parse::primitives::{AudioSource, ImageSource, SubtitleSource, VideoSource};
+use crate::parse::time::{FrameState, frame_state_for_root};
 
 #[derive(Default, Debug)]
 pub struct ResourceRequests {
@@ -13,6 +13,7 @@ pub struct ResourceRequests {
     pub audio_sources: HashSet<AudioSource>,
     pub video_paths: HashSet<PathBuf>,
     pub video_urls: HashSet<String>,
+    pub subtitle_sources: HashSet<SubtitleSource>,
 }
 
 pub fn collect_resource_requests(composition: &Composition) -> ResourceRequests {
@@ -88,7 +89,10 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
         NodeKind::Timeline(_) => {
             collect_sources_from_frame_state(&frame_state_for_root(node, frame_ctx), frame_ctx, req)
         }
-        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Path(_) | NodeKind::Caption(_) => {}
+        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Path(_) => {}
+        NodeKind::Caption(caption) => {
+            req.subtitle_sources.insert(caption.source().clone());
+        }
     }
 }
 
@@ -97,7 +101,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::scene::{
+    use crate::parse::{
         composition::Composition,
         primitives::{div, image, video, video_url},
     };

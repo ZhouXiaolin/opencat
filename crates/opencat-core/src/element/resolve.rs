@@ -10,16 +10,16 @@ use crate::{
         },
     },
     frame_ctx::ScriptFrameCtx,
-    resource::asset_id::AssetId,
-    resource::catalog::{ResourceCatalog, VideoInfoMeta},
-    scene::path_bounds::{DefaultPathBounds, PathBoundsComputer},
-    scene::script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
-    scene::{
+    parse::path_bounds::{DefaultPathBounds, PathBoundsComputer},
+    parse::{
         node::{ComponentNode, NodeKind},
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video, VideoSource},
         time::TimelineNode,
         time::{FrameState, frame_state_for_root},
     },
+    resource::asset_id::AssetId,
+    resource::catalog::{ResourceCatalog, VideoInfoMeta},
+    scene::script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
     style::LengthPercentageAuto,
     style::{NodeStyle, resolve_text_style},
 };
@@ -212,7 +212,7 @@ fn resolve_with_script_frame_ctx(
 fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     let mut style = child.style.clone();
     style.id = format!("{}::__timeline_fill", style.id);
-    style.layout.position = crate::scene::primitives::Position::Absolute;
+    style.layout.position = crate::parse::primitives::Position::Absolute;
     style.layout.inset_left = Some(LengthPercentageAuto::Length(0.0));
     style.layout.inset_top = Some(LengthPercentageAuto::Length(0.0));
     style.layout.inset_right = Some(LengthPercentageAuto::Length(0.0));
@@ -1072,7 +1072,7 @@ mod tests {
     use crate::{
         FrameCtx,
         element::tree::ElementKind,
-        scene::primitives::{SrtEntry, caption, div, lucide, text, video},
+        parse::primitives::{SrtEntry, caption, div, lucide, text, video},
         scene::script::{
             NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
             TextUnitOverrideBatch,

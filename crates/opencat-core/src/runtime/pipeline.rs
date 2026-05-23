@@ -10,6 +10,8 @@ use crate::element::resolve::resolve_ui_tree_with_script_cache;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
 use crate::ir::draw_frame::DrawOpFrame;
 use crate::layout::LayoutSession;
+use crate::parse::composition::Composition;
+use crate::parse::path_bounds::DefaultPathBounds;
 use crate::platform::media::FrameMediaPlan;
 use crate::render::RenderCtx;
 use crate::render::builder::DrawOpBuilder;
@@ -21,8 +23,6 @@ use crate::runtime::compositor::{OrderedSceneProgram, plan_for_scene};
 use crate::runtime::invalidation::CompositeHistory;
 use crate::runtime::invalidation::mark_display_tree_composite_dirty;
 use crate::runtime::session::RenderSession;
-use crate::scene::composition::Composition;
-use crate::scene::path_bounds::DefaultPathBounds;
 use crate::scene::script::ScriptHost;
 use crate::text::DefaultFontProvider;
 

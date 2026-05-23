@@ -5,11 +5,11 @@ pub mod audio_runtime;
 
 use std::path::PathBuf;
 
+use opencat_core::parse::node::{Node, NodeKind};
+use opencat_core::parse::primitives::ImageSource;
+use opencat_core::parse::time::FrameState;
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::preload::preload_all;
-use opencat_core::scene::node::{Node, NodeKind};
-use opencat_core::scene::primitives::ImageSource;
-use opencat_core::scene::time::FrameState;
 
 use crate::resource::AssetPathStore;
 use crate::resource::fetch::build_preload_runtime;
@@ -53,10 +53,10 @@ impl EnginePlatform {
 
     pub fn preflight(
         &mut self,
-        composition: &opencat_core::scene::composition::Composition,
+        composition: &opencat_core::parse::composition::Composition,
         catalog: &mut opencat_core::resource::hash_map_catalog::HashMapResourceCatalog,
     ) -> anyhow::Result<()> {
-        let req = opencat_core::runtime::preflight_collect::collect_resource_requests(composition);
+        let req = opencat_core::parse::preflight::collect_resource_requests(composition);
 
         let cache_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -84,7 +84,7 @@ impl EnginePlatform {
                 frames: composition.frames,
             };
             let root = composition.root_node(&frame_ctx);
-            let state = opencat_core::scene::time::frame_state_for_root(&root, &frame_ctx);
+            let state = opencat_core::parse::time::frame_state_for_root(&root, &frame_ctx);
             register_canvas_asset_aliases(&state, &frame_ctx, catalog, &mut self.asset_paths);
         }
 
@@ -144,10 +144,10 @@ fn register_canvas_aliases_from_node(
         NodeKind::Timeline(timeline) => {
             for segment in timeline.segments() {
                 match segment {
-                    opencat_core::scene::time::TimelineSegment::Scene { scene, .. } => {
+                    opencat_core::parse::time::TimelineSegment::Scene { scene, .. } => {
                         register_canvas_aliases_from_node(scene, frame_ctx, catalog, path_store);
                     }
-                    opencat_core::scene::time::TimelineSegment::Transition { from, to, .. } => {
+                    opencat_core::parse::time::TimelineSegment::Transition { from, to, .. } => {
                         register_canvas_aliases_from_node(from, frame_ctx, catalog, path_store);
                         register_canvas_aliases_from_node(to, frame_ctx, catalog, path_store);
                     }

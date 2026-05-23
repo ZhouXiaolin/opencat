@@ -2,11 +2,11 @@
 
 use wasm_bindgen::prelude::*;
 
+use opencat_core::parse::composition::Composition;
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::runtime::pipeline::render_frame;
 use opencat_core::runtime::session::RenderSession;
-use opencat_core::scene::composition::Composition;
 
 use crate::canvaskit::CanvasKitCanvas2D;
 use crate::canvaskit::bindings::CKCanvas;
@@ -43,7 +43,7 @@ impl WebRenderer {
     ) -> Result<(), JsValue> {
         #[cfg(feature = "profile")]
         tracing::info!(frame, "build_frame start");
-        let parsed = opencat_core::jsonl::parse(jsonl)
+        let parsed = opencat_core::parse::jsonl::parse(jsonl)
             .map_err(|e| JsValue::from_str(&format!("parse: {e}")))?;
         let root_node = parsed.root.clone();
         let composition = Composition::new("web")
@@ -118,13 +118,13 @@ impl WebRenderer {
         resources_json: &str,
     ) -> Result<String, JsValue> {
         use opencat_core::frame_ctx::FrameCtx;
+        use opencat_core::parse::node::NodeKind;
+        use opencat_core::parse::primitives::VideoSource;
+        use opencat_core::parse::time::{FrameState, frame_state_for_root};
         use opencat_core::resource::catalog::{ResourceCatalog, VideoInfoMeta};
         use opencat_core::resource::types::{VideoFrameRequest, VideoPreviewQuality};
-        use opencat_core::scene::node::NodeKind;
-        use opencat_core::scene::primitives::VideoSource;
-        use opencat_core::scene::time::{FrameState, frame_state_for_root};
 
-        let parsed = opencat_core::jsonl::parse(jsonl)
+        let parsed = opencat_core::parse::jsonl::parse(jsonl)
             .map_err(|e| JsValue::from_str(&format!("plan_video_frames parse: {e}")))?;
         let catalog = HashMapResourceCatalog::from_json(resources_json)
             .map_err(|e| JsValue::from_str(&format!("plan_video_frames catalog: {e}")))?;
@@ -141,7 +141,7 @@ impl WebRenderer {
         let mut plan: Vec<serde_json::Value> = Vec::new();
 
         fn walk(
-            node: &opencat_core::scene::node::Node,
+            node: &opencat_core::parse::node::Node,
             ctx: &FrameCtx,
             composition_time_secs: f64,
             catalog: &HashMapResourceCatalog,

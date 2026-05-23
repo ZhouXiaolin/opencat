@@ -8,10 +8,10 @@
 
 use anyhow::Result;
 
+use crate::parse::preflight::ResourceRequests;
+use crate::parse::primitives::{AudioSource, ImageSource};
 use crate::resource::catalog::ResourceCatalog;
 use crate::resource::resolver::AssetResolver;
-use crate::runtime::preflight_collect::ResourceRequests;
-use crate::scene::primitives::{AudioSource, ImageSource};
 
 pub async fn preload_all<R: AssetResolver, C: ResourceCatalog>(
     requests: ResourceRequests,
@@ -64,12 +64,12 @@ mod tests {
     use anyhow::Result;
 
     use super::*;
+    use crate::parse::primitives::OpenverseQuery;
     use crate::resource::asset_id::{
         AssetId, asset_id_for_audio_url, asset_id_for_url, asset_id_for_video_url,
     };
     use crate::resource::hash_map_catalog::HashMapResourceCatalog;
     use crate::resource::resolver::{AssetSink, AudioMeta, ImageMeta, UrlFetcher, VideoMeta};
-    use crate::scene::primitives::OpenverseQuery;
 
     /// 测试用空实现，永远不被实际调用（MockResolver override 了所有方法）。
     #[derive(Default)]

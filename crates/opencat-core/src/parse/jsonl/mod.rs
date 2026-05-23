@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::scene::{
+use crate::parse::{
     composition::{AudioAttachment, CompositionAudioSource},
     node::Node,
     primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource},
@@ -702,7 +702,7 @@ fn parse_class_name_with_context(class_name: &str, node_id: &str, line_number: u
 mod tests {
     use super::{parse, parse_class_name};
     use crate::{
-        scene::{composition::AudioAttachment, node::NodeKind},
+        parse::{composition::AudioAttachment, node::NodeKind},
         style::{
             AlignItems, ColorToken, FlexDirection, FlexWrap, GradientDirection, JustifyContent,
             LengthPercentageAuto, Position, TextAlign,

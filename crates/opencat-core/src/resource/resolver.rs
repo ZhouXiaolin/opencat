@@ -1,8 +1,8 @@
 //! AssetResolver trait — 统一资源解析接口。
 //!
-//! 输入：[`crate::scene::primitives::ImageSource`] /
-//! [`crate::scene::primitives::AudioSource`] /
-//! [`crate::scene::primitives::VideoSource`] / Path / Openverse query。
+//! 输入：[`crate::parse::primitives::ImageSource`] /
+//! [`crate::parse::primitives::AudioSource`] /
+//! [`crate::parse::primitives::VideoSource`] / Path / Openverse query。
 //! 输出：`*Meta`（含 [`AssetId`] + 宽高/时长等元数据）。
 //!
 //! 设计：core 持有 URL 变体 + Openverse 查询的完整流水线（id → fetch → probe → store），
@@ -17,11 +17,11 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
 
+use crate::parse::primitives::OpenverseQuery;
 use crate::resource::asset_id::{
     AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
 };
 use crate::resource::probe::{probe_image_dims, probe_video};
-use crate::scene::primitives::OpenverseQuery;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ImageMeta {

@@ -14,7 +14,7 @@ use skia_safe::gpu::{self, backend_render_targets, mtl};
 use skia_safe::{AlphaType, ColorType, ImageInfo};
 
 #[cfg(target_os = "macos")]
-use opencat_core::scene::composition::Composition;
+use opencat_core::parse::composition::Composition;
 
 #[cfg(target_os = "macos")]
 use crate::{

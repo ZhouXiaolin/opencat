@@ -21,7 +21,7 @@ use crate::{
     FrameCtx,
     element::tree::{ElementKind, ElementNode},
     layout::tree::{LayoutNode, LayoutRect, LayoutTree},
-    scene::primitives::{AlignItems, JustifyContent, Position},
+    parse::primitives::{AlignItems, JustifyContent, Position},
     style::{ComputedTextStyle, LengthPercentageAuto},
 };
 
@@ -1104,8 +1104,8 @@ mod tests {
     use crate::{
         FrameCtx,
         element::resolve::resolve_ui_tree,
-        jsonl::tailwind::parse_class_name,
-        scene::primitives::{div, lucide, path, text},
+        parse::jsonl::tailwind::parse_class_name,
+        parse::primitives::{div, lucide, path, text},
         style::{ColorToken, ComputedTextStyle},
         test_support::MockScriptHost,
         test_support::TestCatalog,
@@ -1116,7 +1116,7 @@ mod tests {
         id: &'static str,
         class_name: &'static str,
         children: Vec<crate::Node>,
-    ) -> crate::scene::primitives::Div {
+    ) -> crate::parse::primitives::Div {
         let mut node = div();
         node.style = parse_class_name(class_name);
         node.style.id = id.to_string();
@@ -1128,7 +1128,7 @@ mod tests {
         id: &'static str,
         class_name: &'static str,
         content: &'static str,
-    ) -> crate::scene::primitives::Text {
+    ) -> crate::parse::primitives::Text {
         let mut node = text(content);
         node.style = parse_class_name(class_name);
         node.style.id = id.to_string();

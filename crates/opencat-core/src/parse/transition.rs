@@ -1,4 +1,4 @@
-use crate::scene::{
+use crate::parse::{
     easing::Easing,
     node::Node,
     time::{TimelineNode, TimelineSegment},
@@ -87,7 +87,7 @@ impl GlTransition {
     /// Fill the `sksl` field using the GLSL-to-SKSL conversion in core.
     pub fn fill_sksl(&mut self) {
         if self.sksl.is_none() {
-            self.sksl = crate::scene::gl_transition::gl_transition_sksl(&self.name).ok();
+            self.sksl = crate::parse::gl_transition::gl_transition_sksl(&self.name).ok();
         }
     }
 }

@@ -35,7 +35,7 @@ impl AssetHandle for EngineAssetHandle {
 }
 
 pub struct EngineLoader {
-    base_dir: PathBuf,
+    _base_dir: PathBuf,
     cache_dir: PathBuf,
     fetcher: EngineFetcher,
     runtime: tokio::runtime::Runtime,
@@ -47,7 +47,7 @@ impl EngineLoader {
         std::fs::create_dir_all(&cache_dir).ok();
         Ok(Self {
             fetcher: EngineFetcher::new(cache_dir.clone())?,
-            base_dir,
+            _base_dir: base_dir,
             cache_dir,
             runtime: build_preload_runtime("engine-loader")?,
             handles: HashMap::new(),
@@ -75,12 +75,7 @@ impl AssetLoader for EngineLoader {
                     ImageSource::Query(_) => continue,
                     ImageSource::Unset => continue,
                 }
-                let path = cache_file_path(&cache_dir, &id);
-                if path.exists() {
-                    new_handles.push((id.clone(), path));
-                } else if let ImageSource::Path(p) = src {
-                    new_handles.push((id, p.clone()));
-                }
+                new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
             }
 
             for src in &req.videos {
@@ -181,7 +176,6 @@ fn copy_local_to_cache(src: &Path, cache_dir: &Path, id: &AssetId) -> Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
 
     #[test]
     fn load_all_with_local_path_registers_handle() {

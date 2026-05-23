@@ -2,8 +2,8 @@
 
 use std::future::Future;
 
-use opencat_core::draw::cache::CachedDrawRange;
-use opencat_core::draw::frame::DrawOpFrame;
+use opencat_core::ir::cache::CachedDrawRange;
+use opencat_core::ir::frame::DrawOpFrame;
 use opencat_core::platform::draw::{DrawError, DrawPlatform, DrawStats, RenderSessionHeader};
 use opencat_core::platform::media::{
     AudioPlanSlice, FrameMediaPlan, MediaError, MediaPlatform, PrepareMode,

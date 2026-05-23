@@ -301,9 +301,6 @@ impl WebRenderer {
     }
 }
 
-#[wasm_bindgen]
-pub fn init_canvaskit() {}
-
 fn encode_ir_envelope(
     draw: &DrawOpFrame,
     encoded: &EncodedDrawFrame,

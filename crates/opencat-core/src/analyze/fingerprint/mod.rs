@@ -24,11 +24,11 @@ fn new_secondary_hasher() -> ahash::AHasher {
 }
 
 use crate::{
-    display::list::DisplayItem,
-    runtime::{
-        analysis::{DisplayAnalysisTable, DisplayInvalidationTable},
+    analyze::{
+        DisplayAnalysisTable, DisplayInvalidationTable,
         annotation::{AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics},
     },
+    display::list::DisplayItem,
 };
 
 use display_item::{ClipFp, DisplayItemFp, F32Hash, item_is_time_variant};
@@ -246,20 +246,18 @@ fn hash_draw_composite_semantics<H: Hasher>(
 mod tests {
     use super::*;
     use crate::{
+        analyze::{
+            DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
+            DisplayNodeInvalidation,
+            annotation::{
+                AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey,
+            },
+        },
         display::list::{
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
             DisplayTransform, DrawScriptDisplayItem, RectDisplayItem, RectPaintStyle,
         },
         resource::asset_id::AssetId,
-        runtime::{
-            analysis::{
-                DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
-                DisplayNodeInvalidation,
-            },
-            annotation::{
-                AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey,
-            },
-        },
         style::{BorderRadius, ObjectFit, Transform},
     };
 

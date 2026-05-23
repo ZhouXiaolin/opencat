@@ -1,14 +1,12 @@
 use crate::{
+    analyze::{
+        DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
+        DisplayNodeInvalidation,
+        fingerprint::{self, PaintVariance},
+    },
     display::{
         list::{DisplayClip, DisplayItem, DisplayRect, DisplayTransform},
         tree::{DisplayNode, DisplayTree},
-    },
-    runtime::{
-        analysis::{
-            DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
-            DisplayNodeInvalidation,
-        },
-        fingerprint::{self, PaintVariance},
     },
 };
 

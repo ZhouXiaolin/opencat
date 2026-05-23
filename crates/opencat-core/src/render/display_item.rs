@@ -4,7 +4,7 @@ use tracing::{Level, event, span};
 use crate::display::list::DisplayItem;
 use crate::ir::cache::{self as draw_cache, CachedDrawRange};
 use crate::ir::draw_op::DrawOp;
-use crate::runtime::fingerprint::item_paint_fingerprint;
+use crate::analyze::fingerprint::item_paint_fingerprint;
 
 use super::{RenderCtx, RenderError};
 

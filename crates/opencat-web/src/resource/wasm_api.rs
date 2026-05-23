@@ -16,7 +16,7 @@ use opencat_core::parse::jsonl::parse_with_base_dir;
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::resource::preload::preload_all;
-use opencat_core::runtime::preflight_collect::collect_resource_requests;
+use opencat_core::parse::preflight::collect_resource_requests;
 
 use crate::resource::blob_store::BlobStore;
 use crate::resource::resolver::WebAssetResolver;

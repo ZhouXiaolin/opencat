@@ -1,4 +1,4 @@
-use crate::draw::op::DrawOp;
+use crate::ir::draw_op::DrawOp;
 use crate::resource::{asset_id::AssetId, types::VideoFrameTiming};
 use crate::scene::script::TextUnitOverrideBatch;
 use crate::scene::transition::TransitionKind;

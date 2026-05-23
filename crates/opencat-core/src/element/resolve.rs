@@ -24,7 +24,7 @@ use crate::{
     style::{NodeStyle, resolve_text_style},
 };
 
-use crate::draw::op::DrawOp;
+use crate::ir::draw_op::DrawOp;
 use crate::script::recorder::MutationRecorder;
 
 #[derive(Default)]

@@ -240,7 +240,7 @@ impl NodeStyleMutations {
 
 // ── Canvas mutations ──────────────────────────────────────────────
 
-use crate::draw::op::DrawOp;
+use crate::ir::draw_op::DrawOp;
 
 #[derive(Debug, Clone, Default)]
 pub struct CanvasMutations {
@@ -481,29 +481,29 @@ pub fn apply_node_to_recorder(
 
 // ── Name → enum parsing helpers (for script/JS bridge) ────────────
 
-pub fn line_cap_from_name(name: &str) -> Option<crate::draw::op::LineCap> {
+pub fn line_cap_from_name(name: &str) -> Option<crate::ir::draw_op::LineCap> {
     match name {
-        "butt" => Some(crate::draw::op::LineCap::Butt),
-        "round" => Some(crate::draw::op::LineCap::Round),
-        "square" => Some(crate::draw::op::LineCap::Square),
+        "butt" => Some(crate::ir::draw_op::LineCap::Butt),
+        "round" => Some(crate::ir::draw_op::LineCap::Round),
+        "square" => Some(crate::ir::draw_op::LineCap::Square),
         _ => None,
     }
 }
 
-pub fn line_join_from_name(name: &str) -> Option<crate::draw::op::LineJoin> {
+pub fn line_join_from_name(name: &str) -> Option<crate::ir::draw_op::LineJoin> {
     match name {
-        "miter" => Some(crate::draw::op::LineJoin::Miter),
-        "round" => Some(crate::draw::op::LineJoin::Round),
-        "bevel" => Some(crate::draw::op::LineJoin::Bevel),
+        "miter" => Some(crate::ir::draw_op::LineJoin::Miter),
+        "round" => Some(crate::ir::draw_op::LineJoin::Round),
+        "bevel" => Some(crate::ir::draw_op::LineJoin::Bevel),
         _ => None,
     }
 }
 
-pub fn point_mode_from_name(name: &str) -> Option<crate::draw::op::PointMode> {
+pub fn point_mode_from_name(name: &str) -> Option<crate::ir::draw_op::PointMode> {
     match name {
-        "points" => Some(crate::draw::op::PointMode::Points),
-        "lines" => Some(crate::draw::op::PointMode::Lines),
-        "polygon" => Some(crate::draw::op::PointMode::Polygon),
+        "points" => Some(crate::ir::draw_op::PointMode::Points),
+        "lines" => Some(crate::ir::draw_op::PointMode::Lines),
+        "polygon" => Some(crate::ir::draw_op::PointMode::Polygon),
         _ => None,
     }
 }
@@ -517,10 +517,10 @@ pub fn font_edging_from_name(name: &str) -> Option<String> {
 
 // ── Color parsing ─────────────────────────────────────────────────
 
-pub fn script_color_from_value(value: &str) -> Option<crate::draw::op::ColorU8> {
+pub fn script_color_from_value(value: &str) -> Option<crate::ir::draw_op::ColorU8> {
     let color = crate::style::color_token_from_script_name(value).map(|color| color.rgba());
     if let Some((r, g, b, a)) = color {
-        return Some(crate::draw::op::ColorU8 { r, g, b, a });
+        return Some(crate::ir::draw_op::ColorU8 { r, g, b, a });
     }
 
     if let Some(color) = parse_rgb_function(value) {
@@ -551,7 +551,7 @@ pub fn script_color_from_value(value: &str) -> Option<crate::draw::op::ColorU8> 
         _ => return None,
     };
 
-    Some(crate::draw::op::ColorU8 { r, g, b, a })
+    Some(crate::ir::draw_op::ColorU8 { r, g, b, a })
 }
 
 fn parse_hex_nibble(byte: u8) -> Option<u8> {
@@ -579,7 +579,7 @@ fn parse_alpha_channel(value: &str) -> Option<u8> {
     Some((alpha * 255.0).round() as u8)
 }
 
-fn parse_rgb_function(value: &str) -> Option<crate::draw::op::ColorU8> {
+fn parse_rgb_function(value: &str) -> Option<crate::ir::draw_op::ColorU8> {
     let (is_rgba, body) = if let Some(body) = value
         .strip_prefix("rgba(")
         .and_then(|body| body.strip_suffix(')'))
@@ -606,7 +606,7 @@ fn parse_rgb_function(value: &str) -> Option<crate::draw::op::ColorU8> {
         255
     };
 
-    Some(crate::draw::op::ColorU8 { r, g, b, a })
+    Some(crate::ir::draw_op::ColorU8 { r, g, b, a })
 }
 
 // ── Coordinate parsing helpers ─────────────────────────────────────

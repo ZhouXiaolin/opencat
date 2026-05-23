@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use crate::draw::frame::DrawOpFrame;
-use crate::draw::op::DrawOp;
-use crate::draw::types::{ImageRef, RuntimeEffectChildRef};
+use crate::ir::draw_frame::DrawOpFrame;
+use crate::ir::draw_op::DrawOp;
+use crate::ir::draw_types::{ImageRef, RuntimeEffectChildRef};
 use crate::platform::media::FrameMediaPlan;
 
 /// Extract all media references from a DrawOpFrame and build a FrameMediaPlan.
@@ -44,12 +44,12 @@ pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::builder::DrawOpBuilder;
-    use crate::draw::frame::DrawOpFrame;
-    use crate::draw::op::{DrawOp, Rect4};
-    use crate::draw::types::{
+    use crate::ir::draw_frame::DrawOpFrame;
+    use crate::ir::draw_op::{DrawOp, Rect4};
+    use crate::ir::draw_types::{
         BytesRangeId, ChildRange, EffectId, EffectRef, ImageRef, RuntimeEffectChildRef,
     };
+    use crate::render::builder::DrawOpBuilder;
 
     #[test]
     fn empty_frame_produces_empty_plan() {

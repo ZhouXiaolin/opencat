@@ -4,10 +4,10 @@ use crate::canvas::paint::{
     PathEffectSpec, StrokeCap, StrokeSpec,
 };
 use crate::display::list::{DisplayRect, RectDisplayItem};
-use crate::draw::builder::DrawOpBuilder;
-use crate::draw::op::{DRRectSpec, DrawOp, Radii4, Rect4};
-use crate::draw::types::PaintId;
-use crate::draw::types::PathOp;
+use crate::ir::draw_op::{DRRectSpec, DrawOp, Radii4, Rect4};
+use crate::ir::draw_types::PaintId;
+use crate::ir::draw_types::PathOp;
+use crate::render::builder::DrawOpBuilder;
 use crate::style::{BorderRadius, BorderStyle, BoxShadow, ColorToken, DropShadow, InsetShadow};
 
 use super::paint_conv::{
@@ -269,13 +269,14 @@ pub fn draw_item_drop_shadow(
 
 fn apply_blur_effect(spec: &mut PaintSpec, blur_sigma: Option<f32>) {
     if let Some(sigma) = blur_sigma
-        && sigma > 0.0 {
-            spec.mask_filter = Some(MaskFilterSpec::Blur {
-                sigma,
-                style: BlurStyle::Normal,
-                respect_ctm: true,
-            });
-        }
+        && sigma > 0.0
+    {
+        spec.mask_filter = Some(MaskFilterSpec::Blur {
+            sigma,
+            style: BlurStyle::Normal,
+            respect_ctm: true,
+        });
+    }
 }
 
 fn build_stroke_paint(
@@ -636,29 +637,30 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
     clip_bounds(builder, bounds, &style.border_radius);
 
     if let Some(sigma) = style.backdrop_blur_sigma
-        && sigma > 0.0 {
-            let blur_paint = PaintSpec {
-                fill: FillSpec::Solid([1.0; 4]),
-                style: PaintStyle::Fill,
-                stroke: None,
-                anti_alias: true,
-                blend_mode: BlendMode::SrcOver,
-                image_filter: Some(ImageFilterSpec::Blur {
-                    sigma_x: sigma,
-                    sigma_y: sigma,
-                    crop_rect: None,
-                }),
-                color_filter: None,
-                mask_filter: None,
-                path_effect: None,
-            };
-            let paint_id = builder.intern_paint(blur_paint);
-            builder.push(DrawOp::SaveLayer {
-                bounds: Some(rect_to_rect4(rect)),
-                paint: Some(paint_id),
-                alpha: 1.0,
-            });
-        }
+        && sigma > 0.0
+    {
+        let blur_paint = PaintSpec {
+            fill: FillSpec::Solid([1.0; 4]),
+            style: PaintStyle::Fill,
+            stroke: None,
+            anti_alias: true,
+            blend_mode: BlendMode::SrcOver,
+            image_filter: Some(ImageFilterSpec::Blur {
+                sigma_x: sigma,
+                sigma_y: sigma,
+                crop_rect: None,
+            }),
+            color_filter: None,
+            mask_filter: None,
+            path_effect: None,
+        };
+        let paint_id = builder.intern_paint(blur_paint);
+        builder.push(DrawOp::SaveLayer {
+            bounds: Some(rect_to_rect4(rect)),
+            paint: Some(paint_id),
+            alpha: 1.0,
+        });
+    }
 
     if let Some(ref background) = style.background {
         let paint_spec = background_fill_to_paint_spec(background);

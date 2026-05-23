@@ -2,8 +2,8 @@ use cosmic_text::Command;
 
 use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayRect, TextDisplayItem};
-use crate::draw::op::{DrawOp, Rect4};
-use crate::draw::types::{EncodedPath, FillType, ImageRef, PathOp};
+use crate::ir::draw_op::{DrawOp, Rect4};
+use crate::ir::draw_types::{EncodedPath, FillType, ImageRef, PathOp};
 use crate::scene::script::TextUnitOverride;
 use crate::style::TextAlign;
 use crate::text::{

@@ -1,5 +1,5 @@
 use crate::{
-    draw::op::DrawOp,
+    ir::draw_op::DrawOp,
     resource::asset_id::AssetId,
     resource::types::VideoFrameTiming,
     scene::script::TextUnitOverrideBatch,

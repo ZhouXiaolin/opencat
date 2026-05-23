@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::draw::cache::RenderCache;
+use crate::ir::cache::RenderCache;
 use crate::layout::LayoutSession;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::runtime::annotation::AnnotatedNodeHandle;

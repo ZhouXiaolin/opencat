@@ -1,8 +1,8 @@
 use crate::canvas::StrokeCap;
 use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle, StrokeSpec};
 use crate::display::list::DrawScriptDisplayItem;
-use crate::draw::op::{ColorU8, DrawOp, LineCap, LineJoin, Rect4};
-use crate::draw::types::PathOp;
+use crate::ir::draw_op::{ColorU8, DrawOp, LineCap, LineJoin, Rect4};
+use crate::ir::draw_types::PathOp;
 
 use super::RenderError;
 use super::ctx::RenderCtx;
@@ -179,7 +179,7 @@ pub fn render_draw_script(
 }
 
 fn execute_draw_op(
-    b: &mut crate::draw::builder::DrawOpBuilder,
+    b: &mut crate::render::builder::DrawOpBuilder,
     op: &DrawOp,
     state: &mut LocalPaintState,
 ) -> Result<(), RenderError> {

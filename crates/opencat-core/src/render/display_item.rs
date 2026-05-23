@@ -2,8 +2,8 @@
 use tracing::{Level, event, span};
 
 use crate::display::list::DisplayItem;
-use crate::draw::cache::{self as draw_cache, CachedDrawRange};
-use crate::draw::op::DrawOp;
+use crate::ir::cache::{self as draw_cache, CachedDrawRange};
+use crate::ir::draw_op::DrawOp;
 use crate::runtime::fingerprint::item_paint_fingerprint;
 
 use super::{RenderCtx, RenderError};
@@ -21,9 +21,10 @@ pub fn render_display_item(
     cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     if should_cache_item_picture(item)
-        && let Some(cache_key) = item_paint_fingerprint(item) {
-            return render_display_item_cached(ctx, item, cache_key, cache);
-        }
+        && let Some(cache_key) = item_paint_fingerprint(item)
+    {
+        return render_display_item_cached(ctx, item, cache_key, cache);
+    }
     render_display_item_direct(ctx, item, cache)
 }
 
@@ -40,26 +41,27 @@ fn render_display_item_cached(
 
     // Cache hit: import segment and replay with draw translation
     if let Some(cached_range) = cache.item_ranges.get_cloned(&cache_key)
-        && let Some(segment) = cache.segments.get_cloned(&cached_range.segment_key) {
-            #[cfg(feature = "profile")]
-            event!(
-                target: "render.cache",
-                Level::TRACE,
-                kind = "cache",
-                name = "item_picture",
-                result = "hit",
-                amount = 1_u64
-            );
+        && let Some(segment) = cache.segments.get_cloned(&cached_range.segment_key)
+    {
+        #[cfg(feature = "profile")]
+        event!(
+            target: "render.cache",
+            Level::TRACE,
+            kind = "cache",
+            name = "item_picture",
+            result = "hit",
+            amount = 1_u64
+        );
 
-            ctx.builder.push(DrawOp::Save);
-            ctx.builder.push(DrawOp::Translate {
-                x: semantics.draw_translation_x,
-                y: semantics.draw_translation_y,
-            });
-            ctx.builder.import_segment(&segment);
-            ctx.builder.push(DrawOp::Restore);
-            return Ok(());
-        }
+        ctx.builder.push(DrawOp::Save);
+        ctx.builder.push(DrawOp::Translate {
+            x: semantics.draw_translation_x,
+            y: semantics.draw_translation_y,
+        });
+        ctx.builder.import_segment(&segment);
+        ctx.builder.push(DrawOp::Restore);
+        return Ok(());
+    }
 
     #[cfg(feature = "profile")]
     event!(

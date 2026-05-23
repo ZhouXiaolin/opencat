@@ -1,8 +1,8 @@
 use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayRect, TimelineDisplayItem, TimelineTransitionDisplay};
-use crate::draw::builder::DrawOpBuilder;
-use crate::draw::op::{DrawOp, Rect4};
-use crate::draw::types::PathOp;
+use crate::ir::draw_op::{DrawOp, Rect4};
+use crate::ir::draw_types::PathOp;
+use crate::render::builder::DrawOpBuilder;
 use crate::scene::transition::{SlideDirection, TransitionKind, WipeDirection};
 
 use super::rect::{kurbo_rect, rect_to_rect4};

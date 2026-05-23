@@ -1,4 +1,4 @@
-use super::op::DrawOp;
+use super::draw_op::DrawOp;
 
 /// Typed in-memory render frame consumed by platform executors directly.
 /// Contains all side-table data that DrawOp IDs reference.
@@ -6,15 +6,15 @@ use super::op::DrawOp;
 pub struct DrawOpFrame {
     pub ops: Vec<DrawOp>,
     pub paints: Vec<crate::canvas::paint::PaintSpec>,
-    pub paths: Vec<super::types::EncodedPath>,
-    pub children: Vec<super::types::RuntimeEffectChildRef>,
+    pub paths: Vec<super::draw_types::EncodedPath>,
+    pub children: Vec<super::draw_types::RuntimeEffectChildRef>,
     pub strings: Vec<String>,
     pub bytes: Vec<u8>,
-    pub byte_ranges: Vec<super::types::TableRange>,
+    pub byte_ranges: Vec<super::draw_types::TableRange>,
     pub f32_pool: Vec<f32>,
-    pub ranges: Vec<super::types::DrawOpRange>,
-    pub resources: Vec<super::types::ResourceRef>,
-    pub effects: Vec<super::types::EffectRef>,
+    pub ranges: Vec<super::draw_types::DrawOpRange>,
+    pub resources: Vec<super::draw_types::ResourceRef>,
+    pub effects: Vec<super::draw_types::EffectRef>,
 }
 
 /// Reusable scratch buffers for binary encoding, owned by RenderSession.
@@ -23,13 +23,13 @@ pub struct DrawOpFrame {
 pub struct DrawFrameScratch {
     pub ops: Vec<DrawOp>,
     pub encoded_ops: Vec<u8>,
-    pub children: Vec<super::types::RuntimeEffectChildRef>,
+    pub children: Vec<super::draw_types::RuntimeEffectChildRef>,
     pub encoded_children: Vec<u8>,
     pub f32_pool: Vec<f32>,
     pub bytes: Vec<u8>,
-    pub byte_ranges: Vec<super::types::TableRange>,
+    pub byte_ranges: Vec<super::draw_types::TableRange>,
     pub strings_utf8: Vec<u8>,
-    pub string_ranges: Vec<super::types::TableRange>,
+    pub string_ranges: Vec<super::draw_types::TableRange>,
 }
 
 impl DrawFrameScratch {
@@ -69,7 +69,7 @@ mod tests {
 
     #[test]
     fn frame_from_builder_roundtrips() {
-        let mut builder = crate::draw::builder::DrawOpBuilder::default();
+        let mut builder = crate::render::builder::DrawOpBuilder::default();
         builder.push(DrawOp::Save);
         builder.push(DrawOp::Restore);
         let frame = builder.finish();

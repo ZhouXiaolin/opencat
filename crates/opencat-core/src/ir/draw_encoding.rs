@@ -10,8 +10,8 @@
 // Each op is padded to 4-byte alignment after its payload.
 // ---------------------------------------------------------------------------
 
-use super::op::*;
-use super::types::*;
+use super::draw_op::*;
+use super::draw_types::*;
 
 // ---------------------------------------------------------------------------
 // Magic and version constants
@@ -117,8 +117,8 @@ pub struct EncodedDrawRange {
 /// The caller owns the returned EncodedDrawFrame. Scratch is cleared on entry
 /// and can be reused across frames to avoid allocations.
 pub fn encode_draw_frame(
-    frame: &super::frame::DrawOpFrame,
-    scratch: &mut super::frame::DrawFrameScratch,
+    frame: &super::draw_frame::DrawOpFrame,
+    scratch: &mut super::draw_frame::DrawFrameScratch,
 ) -> EncodedDrawFrame {
     scratch.clear();
 
@@ -751,13 +751,13 @@ fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::builder::DrawOpBuilder;
-    use crate::draw::frame::DrawFrameScratch;
-    use crate::draw::frame::DrawOpFrame;
-    use crate::draw::op::{
+    use crate::ir::draw_frame::DrawFrameScratch;
+    use crate::ir::draw_frame::DrawOpFrame;
+    use crate::ir::draw_op::{
         ColorF32, ColorU8, F32Range, LineCap, LineJoin, PointMode, Radii4, Rect4,
     };
-    use crate::draw::types::{ChildRange, DrawOpRange};
+    use crate::ir::draw_types::{ChildRange, DrawOpRange};
+    use crate::render::builder::DrawOpBuilder;
 
     // -----------------------------------------------------------------------
     // Required tests from the task specification

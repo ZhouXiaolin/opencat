@@ -3,10 +3,10 @@ use tracing::{Level, event, span};
 
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayItem, DisplayRect, RectDisplayItem};
-use crate::draw::builder::DrawOpBuilder;
-use crate::draw::cache::{self as draw_cache, CachedSubtreeIr};
-use crate::draw::op::{DrawOp, Rect4};
-use crate::draw::types::{DrawOpRange, PathOp};
+use crate::ir::cache::{self as draw_cache, CachedSubtreeIr};
+use crate::ir::draw_op::{DrawOp, Rect4};
+use crate::ir::draw_types::{DrawOpRange, PathOp};
+use crate::render::builder::DrawOpBuilder;
 use crate::runtime::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
 use crate::runtime::compositor::ordered_scene::{OrderedSceneOp, OrderedSceneProgram};
 use crate::runtime::compositor::reuse::LiveNodeItemExecution;
@@ -140,43 +140,44 @@ fn render_cached_subtree(
     {
         let hit_entry = cache.subtree_snapshots.get_cloned(&key);
         if let Some(entry) = hit_entry
-            && entry.secondary_fingerprint == fingerprint.secondary {
-                #[cfg(feature = "profile")]
-                event!(
-                    target: "render.cache",
-                    Level::TRACE,
-                    kind = "cache",
-                    name = "subtree_snapshot",
-                    result = "hit",
-                    amount = 1_u64
-                );
-                #[cfg(feature = "profile")]
-                event!(
-                    target: "render.cache",
-                    Level::TRACE,
-                    kind = "consecutive",
-                    name = "subtree_snapshot",
-                    result = "count",
-                    amount = entry.consecutive_hits as u64
-                );
-                if let Some(segment) = cache.segments.get_cloned(&entry.segment_key) {
-                    ctx.builder.import_segment(&segment);
-                    let updated = CachedSubtreeIr {
-                        consecutive_hits: entry.consecutive_hits + 1,
-                        ..entry
-                    };
-                    let report = cache.subtree_snapshots.insert(key, updated);
-                    record_cache_pressure("subtree_snapshot", &report);
-                    if uses_layer {
-                        ctx.builder.push(DrawOp::Restore);
-                        if has_backdrop_clip {
-                            ctx.builder.push(DrawOp::Restore);
-                        }
-                    }
+            && entry.secondary_fingerprint == fingerprint.secondary
+        {
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "subtree_snapshot",
+                result = "hit",
+                amount = 1_u64
+            );
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "consecutive",
+                name = "subtree_snapshot",
+                result = "count",
+                amount = entry.consecutive_hits as u64
+            );
+            if let Some(segment) = cache.segments.get_cloned(&entry.segment_key) {
+                ctx.builder.import_segment(&segment);
+                let updated = CachedSubtreeIr {
+                    consecutive_hits: entry.consecutive_hits + 1,
+                    ..entry
+                };
+                let report = cache.subtree_snapshots.insert(key, updated);
+                record_cache_pressure("subtree_snapshot", &report);
+                if uses_layer {
                     ctx.builder.push(DrawOp::Restore);
-                    return Ok(());
+                    if has_backdrop_clip {
+                        ctx.builder.push(DrawOp::Restore);
+                    }
                 }
+                ctx.builder.push(DrawOp::Restore);
+                return Ok(());
             }
+        }
     }
 
     // Cache miss — record subtree into IR range
@@ -337,62 +338,59 @@ fn render_live_subtree(
     // Transition compositing: render from/to subtrees and blend them
     if let DisplayItem::Timeline(timeline) = &node.item
         && let Some(ref transition) = timeline.transition
-            && children.len() == 2 {
-                let rect_item = RectDisplayItem {
-                    bounds: timeline.bounds,
-                    paint: timeline.paint.clone(),
-                };
-                super::rect::render_rect_with_shadows(ctx, &rect_item)?;
+        && children.len() == 2
+    {
+        let rect_item = RectDisplayItem {
+            bounds: timeline.bounds,
+            paint: timeline.paint.clone(),
+        };
+        super::rect::render_rect_with_shadows(ctx, &rect_item)?;
 
-                if let Some(clip) = &node.clip {
-                    ctx.builder.push(DrawOp::Save);
-                    let clip_bounds_rect4 = display_rect_to_rect4(clip.bounds);
-                    clip_bounds_with_radius(
-                        ctx.builder,
-                        clip_bounds_rect4,
-                        &clip.border_radius,
-                    );
-                }
+        if let Some(clip) = &node.clip {
+            ctx.builder.push(DrawOp::Save);
+            let clip_bounds_rect4 = display_rect_to_rect4(clip.bounds);
+            clip_bounds_with_radius(ctx.builder, clip_bounds_rect4, &clip.border_radius);
+        }
 
-                let from_marker = ctx.builder.begin_range();
-                render_scene_op(ctx, &children[0], tree, cache)?;
-                let from_range = ctx.builder.end_range(from_marker);
+        let from_marker = ctx.builder.begin_range();
+        render_scene_op(ctx, &children[0], tree, cache)?;
+        let from_range = ctx.builder.end_range(from_marker);
 
-                let to_marker = ctx.builder.begin_range();
-                render_scene_op(ctx, &children[1], tree, cache)?;
-                let to_range = ctx.builder.end_range(to_marker);
+        let to_marker = ctx.builder.begin_range();
+        render_scene_op(ctx, &children[1], tree, cache)?;
+        let to_range = ctx.builder.end_range(to_marker);
 
-                #[cfg(feature = "profile")]
-                let _trans_span = span!(
-                    target: "render.transition",
-                    Level::TRACE,
-                    "draw_transition",
-                    transition_kind = transition_kind_str(&transition.kind),
-                )
-                .entered();
+        #[cfg(feature = "profile")]
+        let _trans_span = span!(
+            target: "render.transition",
+            Level::TRACE,
+            "draw_transition",
+            transition_kind = transition_kind_str(&transition.kind),
+        )
+        .entered();
 
-                let p = transition.progress.clamp(0.0, 1.0);
-                render_transition_composite(
-                    ctx,
-                    from_range,
-                    to_range,
-                    p,
-                    &transition.kind,
-                    timeline.bounds,
-                );
+        let p = transition.progress.clamp(0.0, 1.0);
+        render_transition_composite(
+            ctx,
+            from_range,
+            to_range,
+            p,
+            &transition.kind,
+            timeline.bounds,
+        );
 
-                if node.clip.is_some() {
-                    ctx.builder.push(DrawOp::Restore);
-                }
-                if uses_layer {
-                    ctx.builder.push(DrawOp::Restore);
-                    if has_backdrop_clip {
-                        ctx.builder.push(DrawOp::Restore);
-                    }
-                }
+        if node.clip.is_some() {
+            ctx.builder.push(DrawOp::Restore);
+        }
+        if uses_layer {
+            ctx.builder.push(DrawOp::Restore);
+            if has_backdrop_clip {
                 ctx.builder.push(DrawOp::Restore);
-                return Ok(());
             }
+        }
+        ctx.builder.push(DrawOp::Restore);
+        return Ok(());
+    }
 
     match item_execution {
         LiveNodeItemExecution::Direct => {

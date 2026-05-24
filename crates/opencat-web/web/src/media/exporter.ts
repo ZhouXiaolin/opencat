@@ -12,7 +12,7 @@ class ExportClip implements IClip {
   readonly meta: { width: number; height: number; duration: number };
   readonly ready: Promise<{ width: number; height: number; duration: number }>;
 
-  private canvas: HTMLCanvasElement;
+  private canvas: HTMLCanvasElement | OffscreenCanvas;
   private jsonlContent: string;
   private resourceMetaJson: string;
   private comp: CompositionInfo;
@@ -23,7 +23,7 @@ class ExportClip implements IClip {
   private audioIds: string[];
 
   constructor(
-    canvas: HTMLCanvasElement,
+    canvas: HTMLCanvasElement | OffscreenCanvas,
     jsonlContent: string,
     resourceMetaJson: string,
     comp: CompositionInfo,
@@ -81,22 +81,14 @@ class ExportClip implements IClip {
 
       const ckCanvas = surface.getCanvas();
       const ir = renderer.build_frame_ir(this.jsonlContent, frameNum, this.resourceMetaJson);
-      renderEncodedDrawFrame(ir, ckCanvas, CK);
+      renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
       surface.flush();
 
       const startSecs = timeSecs;
       const durationSecs = 1.0 / this.fps;
       const audioChannels = this.mixAudioForFrame(startSecs, durationSecs);
 
-      const blob = await new Promise<Blob | null>((resolve) => {
-        this.canvas.toBlob(resolve, 'image/png');
-      });
-
-      if (!blob) {
-        return { video: null, audio: audioChannels, state: 'success' };
-      }
-
-      const bitmap = await createImageBitmap(blob);
+      const bitmap = await snapshotCanvasToImageBitmap(this.canvas);
 
       this.onProgress(frameNum + 1, this.totalFrames);
 
@@ -152,6 +144,58 @@ class ExportClip implements IClip {
   destroy(): void {}
 }
 
+export async function snapshotCanvasToImageBitmap(
+  canvas: HTMLCanvasElement | OffscreenCanvas,
+): Promise<ImageBitmap | null> {
+  const transferable = canvas as OffscreenCanvas;
+  if (typeof transferable.transferToImageBitmap === 'function') {
+    return transferable.transferToImageBitmap();
+  }
+
+  if (typeof createImageBitmap === 'function') {
+    try {
+      return await createImageBitmap(canvas);
+    } catch {
+      // Safari historically lacks this overload; fall through to Blob fallback.
+    }
+  }
+
+  if (typeof createImageBitmap !== 'function') return null;
+
+  if ('toBlob' in canvas && typeof canvas.toBlob === 'function') {
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/png');
+    });
+    return blob ? createImageBitmap(blob) : null;
+  }
+
+  if ('convertToBlob' in canvas && typeof canvas.convertToBlob === 'function') {
+    const blob = await canvas.convertToBlob({ type: 'image/png' });
+    return createImageBitmap(blob);
+  }
+
+  return null;
+}
+
+function createExportCanvas(
+  source: HTMLCanvasElement,
+  width: number,
+  height: number,
+): HTMLCanvasElement | OffscreenCanvas {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    return new OffscreenCanvas(width, height);
+  }
+
+  if (source.width === width && source.height === height) {
+    return source;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+}
+
 // ── Public API ──
 
 async function isAacEncodingSupported(): Promise<boolean> {
@@ -187,14 +231,14 @@ export async function exportMp4(
 
   const { Combinator, OffscreenSprite } = await import('@webav/av-cliper');
 
-  const clip = new ExportClip(canvas, jsonlContent, resourceMetaJson, comp, onProgress, audioIds);
+  const renderCanvas = createExportCanvas(canvas, width, height);
+  const clip = new ExportClip(renderCanvas, jsonlContent, resourceMetaJson, comp, onProgress, audioIds);
   const spr = new OffscreenSprite(clip);
 
   let hasAudio = audioIds.length > 0;
   if (hasAudio) {
     const aacSupported = await isAacEncodingSupported();
     if (!aacSupported) {
-      console.warn('[export] AAC audio encoding not supported by this browser, exporting video only');
       hasAudio = false;
     }
   }
@@ -212,9 +256,7 @@ export async function exportMp4(
     const pct = Math.round(progress * 100);
     onProgress(Math.round(comp.frames * progress), comp.frames);
   });
-  com.on('error', (err) => {
-    console.error('[export] Combinator error:', err);
-  });
+  com.on('error', () => { /* keep WebAV error events handled without logging */ });
 
   await com.addSprite(spr, { main: true });
 
@@ -267,7 +309,7 @@ export async function exportPngFrame(
     const ckCanvas = surface.getCanvas();
 
     const ir = renderer.build_frame_ir(jsonlContent, frame, resourceMetaJson);
-    renderEncodedDrawFrame(ir, ckCanvas, CK);
+    renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
     surface.flush();
 
     const blob = await new Promise<Blob | null>((resolve) => {

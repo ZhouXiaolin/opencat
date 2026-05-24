@@ -93,7 +93,7 @@ cargo run --example hello_world
 
 ```bash
 # 1. 构建 opencat-web
-cd crates/opencat-web/web
+cd crates/opencat-web
 npm run build
 
 # 2. 在你的 Web 项目中使用

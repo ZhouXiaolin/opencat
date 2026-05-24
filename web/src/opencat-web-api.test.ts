@@ -44,7 +44,7 @@ describe('opencat-web browser API', () => {
     expect(frame).toBeInstanceOf(Uint8Array);
 
     const renderer = {
-      build_frame_ir: () => frame,
+      build_frame_ir: (_jsonl: string, _frame: number, _resources: string) => frame,
     } satisfies Pick<WebRendererInstance, 'build_frame_ir'>;
 
     expect(renderer.build_frame_ir('', 0, '{}')).toBe(frame);

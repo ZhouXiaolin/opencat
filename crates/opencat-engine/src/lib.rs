@@ -8,7 +8,6 @@ pub mod fonts;
 pub mod inspect;
 pub mod js_context;
 pub mod jsonl_io;
-pub mod media;
 pub mod platform;
 pub mod render;
 pub mod resource;

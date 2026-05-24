@@ -3,13 +3,13 @@
 //! Carries scene data, frame metadata, and the `DrawOpBuilder` that
 //! all render functions write their draw-ops into.
 
+use crate::analyze::annotation::AnnotatedDisplayTree;
+use crate::analyze::compositor::OrderedSceneProgram;
 use crate::canvas::paint::{PaintSpec, PaintStyle, PathEffectSpec, StrokeCap, StrokeJoin};
 use crate::frame_ctx::FrameCtx;
 use crate::render::builder::DrawOpBuilder;
 use crate::resource::blob_store::BlobStore;
 use crate::resource::catalog::ResourceCatalog;
-use crate::analyze::annotation::AnnotatedDisplayTree;
-use crate::analyze::compositor::OrderedSceneProgram;
 
 /// Rendering context passed to all render functions.
 ///

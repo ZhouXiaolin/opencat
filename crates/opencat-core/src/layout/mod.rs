@@ -19,9 +19,9 @@ use taffy::{
 
 use crate::{
     FrameCtx,
-    resolve::tree::{ElementKind, ElementNode},
     layout::tree::{LayoutNode, LayoutRect, LayoutTree},
     parse::primitives::{AlignItems, JustifyContent, Position},
+    resolve::tree::{ElementKind, ElementNode},
     style::{ComputedTextStyle, LengthPercentageAuto},
 };
 
@@ -1103,9 +1103,9 @@ mod tests {
     };
     use crate::{
         FrameCtx,
-        resolve::resolve::resolve_ui_tree,
         parse::jsonl::tailwind::parse_class_name,
         parse::primitives::{div, lucide, path, text},
+        resolve::resolve::resolve_ui_tree,
         style::{ColorToken, ComputedTextStyle},
         test_support::MockScriptHost,
         test_support::TestCatalog,
@@ -1454,6 +1454,75 @@ mod tests {
             text_node.rect.width > 0.0,
             "text node should have non-zero width even under indefinite parent"
         );
+    }
+
+    #[test]
+    fn alipay_finance_amount_text_keeps_intrinsic_width_in_flex_column() {
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("repo root");
+        let jsonl = std::fs::read_to_string(repo.join("json/alipay-finance-homepage.jsonl"))
+            .expect("sample JSONL should be readable");
+        let parsed = crate::parse::jsonl::parse(&jsonl).expect("sample JSONL should parse");
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: parsed.fps as u32,
+            width: parsed.width,
+            height: parsed.height,
+            frames: parsed.frames as u32,
+        };
+        let mut assets = TestCatalog::new();
+        let resolved = resolve_ui_tree(
+            &parsed.root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
+
+        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
+            .expect("layout should succeed");
+
+        let yuebao_num = find_layout_node(&layout.root, "yuebao-num").expect("yuebao-num layout");
+        let huabei_num = find_layout_node(&layout.root, "huabei-num").expect("huabei-num layout");
+        let yuebao_width = measure_text_width("¥12,846.53", 22.0, crate::style::FontWeight(700));
+        let huabei_width = measure_text_width("¥8,000.00", 22.0, crate::style::FontWeight(700));
+
+        assert!(
+            yuebao_num.rect.width + 0.5 >= yuebao_width,
+            "yuebao amount layout width {} should fit measured width {}",
+            yuebao_num.rect.width,
+            yuebao_width
+        );
+        assert!(
+            huabei_num.rect.width + 0.5 >= huabei_width,
+            "huabei amount layout width {} should fit measured width {}",
+            huabei_num.rect.width,
+            huabei_width
+        );
+    }
+
+    fn find_layout_node<'a>(
+        node: &'a crate::layout::tree::LayoutNode,
+        id: &str,
+    ) -> Option<&'a crate::layout::tree::LayoutNode> {
+        if node.id == id {
+            return Some(node);
+        }
+        node.children
+            .iter()
+            .find_map(|child| find_layout_node(child, id))
+    }
+
+    fn measure_text_width(text: &str, text_px: f32, font_weight: crate::style::FontWeight) -> f32 {
+        let style = ComputedTextStyle {
+            text_px,
+            font_weight,
+            ..ComputedTextStyle::default()
+        };
+        crate::text::measure_text(text, &style, f32::INFINITY, false, &default_font_db()).width
     }
 
     #[test]

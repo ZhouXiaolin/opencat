@@ -3,10 +3,6 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 
 use opencat_core::{
-    resolve::{
-        resolve::resolve_ui_tree_with_script_cache,
-        tree::{ElementKind, ElementNode},
-    },
     frame_ctx::{FrameCtx, ScriptFrameCtx},
     layout::tree::LayoutNode,
     parse::{
@@ -14,6 +10,10 @@ use opencat_core::{
         node::{Node, NodeKind},
         primitives::{ImageSource, VideoSource},
         time::TimelineSegment,
+    },
+    resolve::{
+        resolve::resolve_ui_tree_with_script_cache,
+        tree::{ElementKind, ElementNode},
     },
     style::NodeStyle,
 };
@@ -391,7 +391,9 @@ fn collect_source_metadata(
                     .active_text(frame_ctx.frame)
                     .map(|text| text.to_string());
                 entry.media_source = match caption.source() {
-                    opencat_core::parse::primitives::SubtitleSource::Path(p) => Some(p.to_string_lossy().to_string()),
+                    opencat_core::parse::primitives::SubtitleSource::Path(p) => {
+                        Some(p.to_string_lossy().to_string())
+                    }
                     opencat_core::parse::primitives::SubtitleSource::Url(u) => Some(u.clone()),
                 };
             }
@@ -437,3 +439,6 @@ mod browser_layout_integration_tests;
 
 #[cfg(test)]
 mod browser_layout_tests;
+
+#[cfg(test)]
+mod web_frame_oracle_tests;

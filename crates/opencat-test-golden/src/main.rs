@@ -4,7 +4,7 @@ use opencat_engine::render::render_single_frame_from_jsonl;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 struct Cli {
@@ -65,8 +65,8 @@ fn main() -> Result<()> {
         let dir = cli.root.join(&s.name);
         fs::create_dir_all(&dir)?;
 
-        let jsonl_content = fs::read_to_string(&s.jsonl)
-            .with_context(|| format!("read {}", s.jsonl.display()))?;
+        let jsonl_content =
+            fs::read_to_string(&s.jsonl).with_context(|| format!("read {}", s.jsonl.display()))?;
 
         for &f in &s.frames {
             let (rgba, width, height) = render_single_frame_from_jsonl(&jsonl_content, f)

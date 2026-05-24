@@ -81,6 +81,7 @@ pub fn default_font_db_with_embedded_only() -> fontdb::Database {
     let mut db = fontdb::Database::new();
     db.load_font_data(NOTO_SANS_SC.to_vec());
     db.load_font_data(NOTO_COLOR_EMOJI.to_vec());
+    db.set_sans_serif_family("Noto Sans SC");
     db
 }
 
@@ -528,7 +529,7 @@ mod tests {
         DefaultFontProvider, FontProvider, apply_text_transform, default_font_db, measure_text,
         rasterize_glyphs,
     };
-    use crate::style::{ComputedTextStyle, TextTransform};
+    use crate::style::{ComputedTextStyle, FontWeight, TextTransform};
 
     #[test]
     fn cosmic_text_measures_short_english_text() {
@@ -555,6 +556,13 @@ mod tests {
             count >= 2,
             "embedded NotoSansSC + NotoColorEmoji should be present, got {count}"
         );
+    }
+
+    #[test]
+    fn embedded_font_db_maps_sans_serif_to_noto_sans_sc() {
+        let db = default_font_db(&[]);
+
+        assert_eq!(db.family_name(&fontdb::Family::SansSerif), "Noto Sans SC");
     }
 
     #[test]
@@ -590,6 +598,36 @@ mod tests {
                 assert!(
                     result.glyphs.contains_key(&pos.cache_key),
                     "position cache_key not found in glyphs map"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rasterize_glyphs_bold_amount_every_position_key_found_in_glyphs() {
+        let style = ComputedTextStyle {
+            text_px: 22.0,
+            font_weight: FontWeight::BOLD,
+            ..ComputedTextStyle::default()
+        };
+        let result = rasterize_glyphs("¥12,846.53", &style, f32::INFINITY, false, false);
+
+        let total_positions: usize = result.lines.iter().map(|l| l.positions.len()).sum();
+        assert_eq!(total_positions, 10);
+        for line in &result.lines {
+            for pos in &line.positions {
+                assert!(
+                    result.glyphs.contains_key(&pos.cache_key),
+                    "position cache_key {:?} not found in glyphs map for bold amount",
+                    pos.cache_key
+                );
+                assert!(
+                    matches!(
+                        result.glyphs.get(&pos.cache_key),
+                        Some(super::GlyphData::Outline(_, _))
+                    ),
+                    "bold amount glyph should use outline data, got {:?}",
+                    result.glyphs.get(&pos.cache_key)
                 );
             }
         }

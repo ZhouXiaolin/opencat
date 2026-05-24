@@ -706,6 +706,84 @@ mod tests {
         false
     }
 
+    fn dark_pixel_count_in_rect(
+        frame: &[u8],
+        width: usize,
+        left: usize,
+        top: usize,
+        rect_width: usize,
+        rect_height: usize,
+    ) -> usize {
+        let mut count = 0;
+        for y in top..top + rect_height {
+            for x in left..left + rect_width {
+                let px = pixel_rgba(frame, width, x, y);
+                if px[0] < 80 && px[1] < 80 && px[2] < 80 && px[3] > 200 {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    #[test]
+    fn bold_amount_text_renders_every_ascii_glyph() {
+        let amount = "¥12,846.53";
+        let text_style = opencat_core::style::ComputedTextStyle {
+            text_px: 22.0,
+            font_weight: opencat_core::style::FontWeight::BOLD,
+            ..Default::default()
+        };
+        let scene = crate::div().id("root").w_full().h_full().bg_white().child(
+            crate::text(amount)
+                .id("amount")
+                .absolute()
+                .left(12.0)
+                .top(8.0)
+                .w(220.0)
+                .h(42.0)
+                .text_px(22.0)
+                .font_weight(opencat_core::style::FontWeight::BOLD)
+                .text_color(crate::ColorToken::Black),
+        );
+
+        let composition = Composition::new("bold_amount_text")
+            .size(260, 70)
+            .fps(30)
+            .frames(1)
+            .root(move |_ctx: &FrameCtx| scene.clone().into())
+            .build()
+            .expect("composition should build");
+
+        let mut session = make_test_session();
+        let frame = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+
+        let raster =
+            opencat_core::text::rasterize_glyphs(amount, &text_style, f32::INFINITY, false, false);
+        for line in &raster.lines {
+            let mut missing = Vec::new();
+            for (index, pos) in line.positions.iter().enumerate() {
+                let label = &amount[pos.byte_range.clone()];
+                let left = (12.0 + pos.x).floor().max(0.0) as usize;
+                let next_x = line
+                    .positions
+                    .get(index + 1)
+                    .map(|next| 12.0 + next.x)
+                    .unwrap_or(line.width + 12.0);
+                let window_width = (next_x.ceil().max(left as f32 + 4.0) as usize - left).max(4);
+                let count = dark_pixel_count_in_rect(&frame, 260, left, 12, window_width, 28);
+                if count <= 4 {
+                    missing.push(format!("{label}({count})"));
+                }
+            }
+            assert!(
+                missing.is_empty(),
+                "glyphs should contribute visible dark pixels: {}",
+                missing.join(", ")
+            );
+        }
+    }
+
     #[test]
     fn subtree_cache_does_not_apply_node_opacity_twice() {
         let scene = crate::div()

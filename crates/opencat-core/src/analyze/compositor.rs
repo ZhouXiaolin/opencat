@@ -112,7 +112,7 @@ fn build_scene_op(
 
 #[cfg(test)]
 mod ordered_scene_tests {
-    use super::{OrderedSceneOp, OrderedSceneProgram, LiveNodeItemExecution};
+    use super::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram};
     use crate::{
         analyze::{
             DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,

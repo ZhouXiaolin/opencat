@@ -15,7 +15,11 @@ fn main() -> anyhow::Result<()> {
     let output = if let Some(out) = std::env::args().nth(2) {
         out
     } else {
-        let stem = Path::new(&path).file_stem().unwrap_or_default().to_string_lossy().into_owned();
+        let stem = Path::new(&path)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let out_dir = "out";
         std::fs::create_dir_all(out_dir)?;
         format!("{out_dir}/{stem}.mp4")

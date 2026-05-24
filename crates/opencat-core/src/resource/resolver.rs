@@ -17,10 +17,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::parse::primitives::OpenverseQuery;
 use crate::ir::asset_id::{
     AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
 };
+use crate::parse::primitives::OpenverseQuery;
 use crate::resource::probe::{probe_image_dims, probe_video};
 
 #[derive(Clone, Debug, PartialEq)]

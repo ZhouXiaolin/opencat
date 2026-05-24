@@ -76,8 +76,13 @@ impl AssetLoader for EngineLoader {
                     ImageSource::Query(q) => {
                         let search_id = AssetId(format!("openverse:search:{}", q.query));
                         let search_url = build_openverse_search_url(q);
-                        let search_bytes = self.fetcher.fetch_bytes(&search_id, &search_url).await
-                            .with_context(|| format!("failed to query Openverse for {:?}", q.query))?;
+                        let search_bytes = self
+                            .fetcher
+                            .fetch_bytes(&search_id, &search_url)
+                            .await
+                            .with_context(|| {
+                                format!("failed to query Openverse for {:?}", q.query)
+                            })?;
                         let image_url = parse_openverse_response(&search_bytes)
                             .with_context(|| format!("bad Openverse response for {:?}", q.query))?;
                         let _ = self.fetcher.fetch_bytes(&id, &image_url).await?;
@@ -131,7 +136,8 @@ impl AssetLoader for EngineLoader {
         })?;
 
         for (id, path) in new_handles {
-            self.handles.insert(id, EngineAssetHandle { cached_path: path });
+            self.handles
+                .insert(id, EngineAssetHandle { cached_path: path });
         }
         Ok(())
     }
@@ -189,7 +195,10 @@ fn copy_local_to_cache(src: &Path, base_dir: &Path, cache_dir: &Path, id: &Asset
 
 fn build_openverse_search_url(query: &opencat_core::parse::primitives::OpenverseQuery) -> String {
     let page_size = query.count.max(1).to_string();
-    let mut url = format!("https://api.openverse.org/v1/images/?q={}&page_size={}", query.query, page_size);
+    let mut url = format!(
+        "https://api.openverse.org/v1/images/?q={}&page_size={}",
+        query.query, page_size
+    );
     if let Some(aspect_ratio) = &query.aspect_ratio {
         url.push_str(&format!("&aspect_ratio={}", aspect_ratio));
     }

@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::parse::primitives::{AudioSource, ImageSource};
 use crate::ir::asset_id::AssetId;
+use crate::parse::primitives::{AudioSource, ImageSource};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VideoInfoMeta {

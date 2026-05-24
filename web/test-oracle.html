@@ -1,0 +1,138 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>OpenCat Web Frame Oracle</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+      }
+
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="frame"></canvas>
+    <script src="/canvaskit/canvaskit.js"></script>
+    <script type="module">
+      import {
+        clearBlobs,
+        clearVideoCache,
+        getRendererOrThrow,
+        initWasm,
+        injectVideoFramesForRender,
+        preloadAssets,
+        registerVideoGlobals,
+        renderEncodedDrawFrame,
+        setWasmBaseUrl,
+        setWorkerBaseUrl,
+      } from '/opencat-web.js';
+
+      const canvas = document.getElementById('frame');
+
+      function parseCompositionInfo(jsonl) {
+        for (const line of jsonl.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          const item = JSON.parse(trimmed);
+          if (item.type === 'composition') {
+            return {
+              width: item.width,
+              height: item.height,
+              fps: item.fps,
+              frames: item.frames,
+            };
+          }
+        }
+        throw new Error('JSONL composition header not found');
+      }
+
+      function bytesToHex(bytes) {
+        let out = '';
+        for (let i = 0; i < bytes.length; i++) {
+          out += bytes[i].toString(16).padStart(2, '0');
+        }
+        return out;
+      }
+
+      const ready = (async () => {
+        setWasmBaseUrl('/wasm/');
+        setWorkerBaseUrl('/wasm/');
+        await initWasm();
+        const CK = await globalThis.CanvasKitInit({
+          locateFile: (file) => `/canvaskit/${file}`,
+        });
+        globalThis.__canvasKit = CK;
+        registerVideoGlobals();
+      })();
+
+      async function renderFrame(jsonl, frame) {
+        await ready;
+
+        clearBlobs();
+        await clearVideoCache();
+
+        const comp = parseCompositionInfo(jsonl);
+        if (frame < 0 || frame >= comp.frames) {
+          throw new Error(`frame ${frame} out of range 0..${comp.frames - 1}`);
+        }
+
+        canvas.width = comp.width;
+        canvas.height = comp.height;
+
+        const resourceMetaJson = await preloadAssets(jsonl);
+        const renderer = getRendererOrThrow();
+
+        await injectVideoFramesForRender({
+          renderer,
+          jsonlContent: jsonl,
+          frame,
+          resourcesJson: resourceMetaJson,
+          quality: 'exact',
+        });
+
+        const CK = globalThis.__canvasKit;
+        let surface;
+        try {
+          surface = CK.MakeWebGLCanvasSurface(canvas, undefined, {
+            alphaType: CK.AlphaType.Premul,
+          });
+          if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
+
+          const ckCanvas = surface.getCanvas();
+          const ir = renderer.build_frame_ir(jsonl, frame, resourceMetaJson);
+          renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
+          surface.flush();
+
+          const snapshot = surface.makeImageSnapshot();
+          try {
+            const pixels = snapshot.readPixels(0, 0, {
+              width: comp.width,
+              height: comp.height,
+              colorType: CK.ColorType.RGBA_8888,
+              alphaType: CK.AlphaType.Premul,
+              colorSpace: CK.ColorSpace.SRGB,
+            });
+            if (!pixels) throw new Error('readPixels returned null');
+            return {
+              width: comp.width,
+              height: comp.height,
+              rgbaHex: bytesToHex(pixels),
+            };
+          } finally {
+            snapshot.delete();
+          }
+        } finally {
+          surface?.delete();
+        }
+      }
+
+      globalThis.__opencatOracle = { renderFrame };
+    </script>
+  </body>
+</html>

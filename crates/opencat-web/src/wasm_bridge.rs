@@ -7,7 +7,7 @@ use opencat_core::canvas::paint::{
     BlendMode, BlurStyle, ColorFilterSpec, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec,
     PaintStyle, PathEffectSpec, ShaderSpec as PaintShaderSpec, StrokeCap, StrokeJoin, TileMode,
 };
-use opencat_core::ir::draw_encoding::{EncodedDrawFrame, encode_draw_frame};
+use opencat_core::ir::draw_encoding::EncodedDrawFrame;
 use opencat_core::ir::draw_frame::{DrawFrameScratch, DrawOpFrame};
 use opencat_core::ir::draw_op::DrawOp;
 use opencat_core::ir::draw_types::{
@@ -88,7 +88,7 @@ impl WebRenderer {
             .map_err(|e| JsValue::from_str(&format!("catalog: {e}")))?;
 
         let blob_store_ref: &dyn opencat_core::resource::BlobStore = &self.blobs;
-        let (mut draw, _media_plan) = render_frame(
+        let (mut draw, media_plan) = render_frame(
             &composition,
             frame,
             &mut self.session,
@@ -97,9 +97,17 @@ impl WebRenderer {
         )
         .map_err(|e| JsValue::from_str(&format!("render_frame: {e}")))?;
 
-        intern_image_strings(&mut draw);
-        let encoded = encode_draw_frame(&draw, &mut self.scratch);
-        encode_ir_envelope(&draw, &encoded)
+        use opencat_core::platform::frame_consumer::FrameConsumer;
+
+        let header = opencat_core::platform::frame_consumer::RenderSessionHeader {
+            composition_size: (parsed.width as u32, parsed.height as u32),
+            fps: parsed.fps as u32,
+            frames: parsed.frames as u32,
+        };
+
+        let mut consumer = crate::consumer::WebFrameConsumer { scratch: &mut self.scratch };
+        consumer.consume_frame(&header, &mut draw, &media_plan)
+            .map_err(JsValue::from)
     }
 
     // Retained for API compatibility. Video frames now live in JS-side caches

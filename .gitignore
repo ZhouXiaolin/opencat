@@ -3,6 +3,6 @@ out/
 .DS_Store
 .serena
 .qwen
-codedb.snapshot
 .alma-snapshots
 .trae
+.codegraph

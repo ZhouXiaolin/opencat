@@ -1,5 +1,4 @@
-//! Backend-facing draw/media/resource helper traits.
+//! Backend-facing draw/video helper traits.
 
 pub mod draw;
-pub mod media;
 pub mod video;

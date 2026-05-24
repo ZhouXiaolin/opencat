@@ -1,5 +1,6 @@
 //! opencat-web — WASM/Web rendering target for opencat-core.
 
+pub mod consumer;
 pub mod codec;
 pub mod js_context;
 pub mod resource;

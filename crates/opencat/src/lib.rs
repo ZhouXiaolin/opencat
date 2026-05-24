@@ -6,10 +6,10 @@ pub use opencat_engine as host;
 
 // Backward-compatible module re-exports from core
 pub use opencat_core::display;
-pub use opencat_core::resolve;
 pub use opencat_core::frame_ctx;
-pub use opencat_core::parse::jsonl;
 pub use opencat_core::layout;
+pub use opencat_core::parse::jsonl;
+pub use opencat_core::resolve;
 pub use opencat_core::style;
 pub use opencat_core::text;
 
@@ -34,12 +34,12 @@ pub use opencat_core::parse::primitives::{
     AudioSource, Canvas, CanvasAsset, CaptionNode, Image, ImageSource, OpenverseQuery, Path,
     SrtEntry, canvas, caption, div, image, lucide, parse_srt, path, text, video,
 };
-pub use opencat_core::script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use opencat_core::parse::transition::{
     ClockWipeBuilder, FadeBuilder, GlTransition, GlTransitionBuilder, IrisBuilder, SlideBuilder,
     SlideDirection, Timeline, TransitionKind, WipeBuilder, WipeDirection, clock_wipe, fade,
     gl_transition, iris, light_leak, slide, timeline, wipe,
 };
+pub use opencat_core::script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use opencat_engine::inspect::{FrameElementRect, collect_frame_layout_rects};
 pub use opencat_engine::jsonl_io::{parse_file, parse_with_base_dir};
 pub use opencat_engine::platform::EnginePlatform;

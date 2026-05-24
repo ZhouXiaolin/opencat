@@ -2,11 +2,16 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::analyze::annotation::{AnnotatedNodeHandle, annotate_display_tree, compute_display_tree_fingerprints};
+use crate::analyze::annotation::{
+    AnnotatedNodeHandle, annotate_display_tree, compute_display_tree_fingerprints,
+};
 use crate::analyze::compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::invalidation::{CompositeHistory, mark_display_tree_composite_dirty};
 use crate::display::build::build_display_tree;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
+use crate::ir::asset_id::{
+    asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
+};
 use crate::ir::cache::RenderCache;
 use crate::ir::{CompositionInfo, DrawOpFrame, FrameMediaPlan};
 use crate::layout::LayoutSession;
@@ -15,15 +20,12 @@ use crate::parse::preflight::collect_resource_requests;
 use crate::parse::primitives::{AudioSource, ImageSource, SubtitleSource, VideoSource};
 use crate::probe::catalog::ResourceCatalog;
 use crate::probe::probe::{probe_image, probe_video};
-use crate::probe::{AssetHandle, AssetLoader, AssetId};
+use crate::probe::{AssetHandle, AssetId, AssetLoader};
 use crate::render::RenderCtx;
 use crate::render::builder::DrawOpBuilder;
 use crate::render::media_plan::build_media_plan;
 use crate::resolve::path_bounds::DefaultPathBounds;
 use crate::resolve::resolve::resolve_ui_tree_with_script_cache;
-use crate::ir::asset_id::{
-    asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
-};
 use crate::script::js_context::JsContext;
 use crate::text::{DefaultFontProvider, default_font_db};
 
@@ -228,8 +230,11 @@ impl<L: AssetLoader, S: JsContext> Pipeline for DefaultPipeline<L, S> {
         )?;
 
         let provider = DefaultFontProvider::from_arc(self.font_db.clone());
-        let (layout_tree, layout_pass) =
-            self.layout_session.compute_layout_with_provider(&element_root, &frame_ctx, &provider)?;
+        let (layout_tree, layout_pass) = self.layout_session.compute_layout_with_provider(
+            &element_root,
+            &frame_ctx,
+            &provider,
+        )?;
 
         let display_tree = build_display_tree(&element_root, &layout_tree)?;
         let mut annotated = annotate_display_tree(&display_tree);
@@ -323,11 +328,7 @@ mod tests {
         }
         fn install_dispatcher<F>(&self, _dispatcher: F) -> Result<()>
         where
-            F: Fn(
-                    &mut MutationStore,
-                    &str,
-                    &[serde_json::Value],
-                ) -> Result<serde_json::Value>
+            F: Fn(&mut MutationStore, &str, &[serde_json::Value]) -> Result<serde_json::Value>
                 + 'static,
         {
             Ok(())
@@ -400,8 +401,14 @@ mod tests {
         let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
 {"type":"div","id":"root","parentId":null}"##;
         let pipeline = DefaultPipeline::<InMemoryLoader, NoopJsContext>::open(
-            jsonl, InMemoryLoader::default(), NoopJsContext::new().unwrap()
-        ).expect("open");
-        assert!(pipeline.info().audio_plan.segments.is_empty(), "no audio sources => empty plan");
+            jsonl,
+            InMemoryLoader::default(),
+            NoopJsContext::new().unwrap(),
+        )
+        .expect("open");
+        assert!(
+            pipeline.info().audio_plan.segments.is_empty(),
+            "no audio sources => empty plan"
+        );
     }
 }

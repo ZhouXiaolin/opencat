@@ -9,24 +9,24 @@ use crate::display::list::{
     TimelineDisplayItem, TimelineTransitionDisplay,
 };
 use crate::ir::draw_op::{
-    ColorU8, DRRectSpec, DrawOp, LineCap, LineJoin, Radii4, Rect4,
-    PointMode as DrawPointMode,
-};
-use crate::ir::draw_types::{
-    ChildRange,
-    DrawOpRange, EncodedPath, FillType, PaintId, PathOp, RuntimeEffectChildRef,
+    ColorU8, DRRectSpec, DrawOp, LineCap, LineJoin, PointMode as DrawPointMode, Radii4, Rect4,
 };
 use crate::ir::draw_types::ImageRef;
+use crate::ir::draw_types::{
+    ChildRange, DrawOpRange, EncodedPath, FillType, PaintId, PathOp, RuntimeEffectChildRef,
+};
 use crate::parse::gl_transition;
-use crate::parse::transition::{GlTransition, LightLeakTransition, SlideDirection, TransitionKind, WipeDirection};
+use crate::parse::transition::{
+    GlTransition, LightLeakTransition, SlideDirection, TransitionKind, WipeDirection,
+};
 use crate::render::builder::DrawOpBuilder;
 use crate::style::{
-    BackgroundFill, BorderRadius, BorderStyle, BoxShadow, ColorToken, DropShadow, GradientDirection,
-    InsetShadow, ObjectFit,
+    BackgroundFill, BorderRadius, BorderStyle, BoxShadow, ColorToken, DropShadow,
+    GradientDirection, InsetShadow, ObjectFit,
 };
 
-use super::ctx::RenderCtx;
 use super::RenderError;
+use super::ctx::RenderCtx;
 
 use kurbo::BezPath;
 
@@ -34,7 +34,6 @@ use kurbo::BezPath;
 use tracing::{Level, event, span};
 
 // ── Paint conversion ─────────────────────────────────────────────────
-
 
 /// Convert `ColorToken` to `[f32; 4]` with channels in 0.0–1.0.
 pub fn color_token_to_rgba(ct: &ColorToken) -> [f32; 4] {
@@ -158,7 +157,6 @@ fn direction_endpoints(dir: &GradientDirection) -> ([f32; 2], [f32; 2]) {
 
 // ── Script conversion ────────────────────────────────────────────────
 
-
 /// Convert `ColorU8` to `[f32; 4]` with channels in 0.0–1.0.
 pub fn script_color_to_rgba(c: ColorU8) -> [f32; 4] {
     [
@@ -219,7 +217,6 @@ pub fn script_font_edging(name: &str) -> FontEdging {
 }
 
 // ── Rect helpers ─────────────────────────────────────────────────────
-
 
 pub(crate) fn rect_to_rect4(r: Rect) -> Rect4 {
     Rect4 {
@@ -927,7 +924,6 @@ pub fn render_rect_with_shadows(
 
 // ── Draw script ──────────────────────────────────────────────────────
 
-
 /// Sentinel: the stored DrawOp carries PaintId(u32::MAX) meaning "resolve to fill paint".
 const SENTINEL_FILL: u32 = u32::MAX;
 /// Sentinel: the stored DrawOp carries PaintId(u32::MAX - 1) meaning "resolve to stroke paint".
@@ -1559,7 +1555,6 @@ pub fn render_svg_path(ctx: &mut RenderCtx, item: &SvgPathDisplayItem) -> Result
 
 // ── Timeline ─────────────────────────────────────────────────────────
 
-
 fn render_transition_overlay(
     builder: &mut DrawOpBuilder,
     bounds: DisplayRect,
@@ -1786,7 +1781,6 @@ pub fn render_timeline(ctx: &mut RenderCtx, item: &TimelineDisplayItem) -> Resul
 }
 
 // ── Transition ───────────────────────────────────────────────────────
-
 
 const LIGHT_LEAK_MASK_SKSL: &str = r#"
 uniform float evolveProgress;
@@ -2062,7 +2056,6 @@ pub(crate) fn render_gl_transition(
 }
 
 // ── Bitmap ───────────────────────────────────────────────────────────
-
 
 pub(crate) fn fitted_rect(src_width: f32, src_height: f32, dst: &Rect, cover: bool) -> Rect {
     let iw = src_width as f64;

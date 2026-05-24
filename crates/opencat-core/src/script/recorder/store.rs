@@ -3,13 +3,13 @@ use std::collections::HashMap;
 use super::{MutationRecorder, TextUnitValues};
 use crate::parse::easing::Easing;
 use crate::script::ScriptTextSource;
+use crate::script::animate::color::{hsla_to_rgba_string, lerp_hsla_clamped, parse_color};
+use crate::script::animate::morph_svg::MorphSvgEntry;
+use crate::script::animate::path_measure::PathMeasureEntry;
 use crate::script::mutations::{
     CanvasMutations, NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
     TextUnitOverrideBatch,
 };
-use crate::script::animate::color::{hsla_to_rgba_string, lerp_hsla_clamped, parse_color};
-use crate::script::animate::morph_svg::MorphSvgEntry;
-use crate::script::animate::path_measure::PathMeasureEntry;
 use crate::style::{
     AlignItems, BorderStyle, BoxShadow, ColorToken, DropShadow, FlexDirection, FontWeight,
     InsetShadow, JustifyContent, ObjectFit, Position, TextAlign, Transform,

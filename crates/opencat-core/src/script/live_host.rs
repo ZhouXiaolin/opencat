@@ -2,11 +2,11 @@ use anyhow::Result;
 use serde_json::json;
 
 use crate::frame_ctx::ScriptFrameCtx;
+use crate::script::dispatch::{binding_shim_js, dispatch_binding};
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{ANIMATION_RUNTIME, CANVAS_API_RUNTIME, NODE_STYLE_RUNTIME};
 use crate::script::{ScriptDriverId, ScriptHost, ScriptTextSource, driver_id_from_source};
-use crate::script::dispatch::{binding_shim_js, dispatch_binding};
 
 pub struct LiveScriptHost<C: JsContext> {
     ctx: C,
@@ -51,9 +51,7 @@ impl<C: JsContext> LiveScriptHost<C> {
 impl<C: JsContext> ScriptHost for LiveScriptHost<C> {
     fn install(&mut self, source: &str) -> Result<ScriptDriverId> {
         self.ensure_runtime()?;
-        let run_fn = format!(
-            "globalThis.__opencatRunFrame = function() {{\n{source}\n}};"
-        );
+        let run_fn = format!("globalThis.__opencatRunFrame = function() {{\n{source}\n}};");
         self.ctx.eval(&run_fn)?;
         Ok(driver_id_from_source(source))
     }

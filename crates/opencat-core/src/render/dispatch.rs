@@ -1,6 +1,9 @@
 #[cfg(feature = "profile")]
 use tracing::{Level, event, span};
 
+use crate::analyze::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
+use crate::analyze::compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram};
+use crate::analyze::fingerprint::item_paint_fingerprint;
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem};
 use crate::ir::cache::{self as draw_cache, CachedDrawRange, CachedSubtreeIr};
@@ -8,9 +11,6 @@ use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, PathOp};
 use crate::parse::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::render::builder::DrawOpBuilder;
-use crate::analyze::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
-use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram, LiveNodeItemExecution};
-use crate::analyze::fingerprint::item_paint_fingerprint;
 use crate::style::{BorderRadius, Transform};
 
 use super::{RenderCtx, RenderError, record_cache_pressure};
@@ -795,10 +795,7 @@ fn transition_kind_str(kind: &TransitionKind) -> &'static str {
     }
 }
 
-fn apply_transform(
-    builder: &mut DrawOpBuilder,
-    transform: &DisplayTransform,
-) {
+fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTransform) {
     builder.push(DrawOp::Translate {
         x: transform.translation_x,
         y: transform.translation_y,

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::ir::draw_frame::DrawOpFrame;
 use crate::ir::draw_op::DrawOp;
 use crate::ir::draw_types::{ImageRef, RuntimeEffectChildRef};
-use crate::platform::media::FrameMediaPlan;
+use crate::ir::media_plan::FrameMediaPlan;
 
 /// Extract all media references from a DrawOpFrame and build a FrameMediaPlan.
 /// Deduplicates references so each image/effect appears only once.

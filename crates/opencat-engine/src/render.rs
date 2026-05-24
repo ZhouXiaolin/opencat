@@ -18,7 +18,6 @@ use crate::{
 };
 use opencat_core::parse::composition::Composition;
 use opencat_core::platform::draw::{DrawPlatform, RenderSessionHeader};
-use opencat_core::platform::media::{MediaPlatform, PrepareMode};
 use opencat_core::resource::AssetPathBlobStore;
 
 pub use crate::codec::encode::Mp4Config;
@@ -529,23 +528,19 @@ pub fn render_frame_to_target(
     let frame_view_handle = target.resolve_frame_view(frame_surface)?;
     let canvas_raw: *mut std::ffi::c_void = frame_view_handle.raw();
 
-    // SAFETY: The raw pointer is derived from a valid reference to `asset_paths`
-    // which outlives this scope. We use a raw pointer to avoid conflicting
-    // borrows when `render_frame` takes `&mut session`.
-    let asset_paths_ptr: *const crate::resource::AssetPathStore = &session.platform.asset_paths;
-    let blob_store = AssetPathBlobStore::new(unsafe { &*asset_paths_ptr });
+    let RenderSession { core, platform } = session;
+    let EnginePlatform { script, asset_paths, video, .. } = platform;
+    let blob_store = AssetPathBlobStore::new(asset_paths);
     let (draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame(
         composition,
         frame_index,
-        &mut session.core,
-        &mut session.platform.script,
+        core,
+        script,
         Some(&blob_store),
     )?;
+    drop(blob_store);
 
-    let video_ptr: *mut crate::resource::media::MediaContext = &mut session.platform.video;
-    let mut media = crate::media::EngineMedia::new(unsafe { &*asset_paths_ptr }, video_ptr);
-    let prepared = media
-        .prepare_frame(&media_plan, PrepareMode::Export)
+    let prepared = crate::media::prepare::prepare_frame(&media_plan, asset_paths, video)
         .map_err(|e| anyhow!("media prepare failed: {}", e))?;
 
     let header = RenderSessionHeader {
@@ -573,24 +568,20 @@ pub fn render_frame_rgba(
     let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
 
-    // SAFETY: The raw pointer is derived from a valid reference to `asset_paths`
-    // which outlives this scope. We use a raw pointer to avoid conflicting
-    // borrows when `render_frame` takes `&mut session`.
-    let asset_paths_ptr: *const crate::resource::AssetPathStore = &session.platform.asset_paths;
-    let blob_store = AssetPathBlobStore::new(unsafe { &*asset_paths_ptr });
+    let RenderSession { core, platform } = session;
+    let EnginePlatform { script, asset_paths, video, .. } = platform;
+    let blob_store = AssetPathBlobStore::new(asset_paths);
 
     let (draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame(
         composition,
         frame_index,
-        &mut session.core,
-        &mut session.platform.script,
+        core,
+        script,
         Some(&blob_store),
     )?;
+    drop(blob_store);
 
-    let video_ptr: *mut crate::resource::media::MediaContext = &mut session.platform.video;
-    let mut media = crate::media::EngineMedia::new(unsafe { &*asset_paths_ptr }, video_ptr);
-    let prepared = media
-        .prepare_frame(&media_plan, PrepareMode::Export)
+    let prepared = crate::media::prepare::prepare_frame(&media_plan, asset_paths, video)
         .map_err(|e| anyhow!("media prepare failed: {}", e))?;
 
     let header = RenderSessionHeader {

@@ -12,7 +12,7 @@ use crate::ir::draw_frame::DrawOpFrame;
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
 use crate::resolve::path_bounds::DefaultPathBounds;
-use crate::platform::media::FrameMediaPlan;
+use crate::ir::media_plan::FrameMediaPlan;
 use crate::render::RenderCtx;
 use crate::render::builder::DrawOpBuilder;
 use crate::render::media_plan::build_media_plan;

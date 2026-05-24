@@ -17,7 +17,7 @@ use crate::{
     },
 };
 use opencat_core::parse::composition::Composition;
-use opencat_core::platform::draw::{DrawPlatform, RenderSessionHeader};
+use opencat_core::platform::frame_consumer::RenderSessionHeader;
 use opencat_core::resource::AssetPathBlobStore;
 
 pub use crate::codec::encode::Mp4Config;
@@ -157,7 +157,7 @@ pub fn render_from_jsonl_with_base(
                 let canvas: &mut skia_safe::Canvas = unsafe {
                     &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
                 };
-                let header = opencat_core::platform::draw::RenderSessionHeader {
+                let header = RenderSessionHeader {
                     composition_size: (info.width, info.height),
                     fps: info.fps,
                     frames: info.frames,
@@ -221,7 +221,7 @@ pub fn render_from_jsonl_with_base(
                     let canvas: &mut skia_safe::Canvas = unsafe {
                         &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
                     };
-                    let header = opencat_core::platform::draw::RenderSessionHeader {
+                    let header = RenderSessionHeader {
                         composition_size: (info.width, info.height),
                         fps: info.fps,
                         frames: info.frames,
@@ -306,7 +306,7 @@ pub fn render_single_frame_from_jsonl_with_base(
         &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
     };
 
-    let header = opencat_core::platform::draw::RenderSessionHeader {
+    let header = RenderSessionHeader {
         composition_size: (info.width, info.height),
         fps: info.fps,
         frames: info.frames,

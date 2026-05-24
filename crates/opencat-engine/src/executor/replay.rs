@@ -5,7 +5,7 @@ use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_op::{DRRectSpec, Radii4};
 use opencat_core::ir::draw_op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
 use opencat_core::ir::draw_types::{DrawOpRange, PathOp, RuntimeEffectChildRef};
-use opencat_core::platform::draw::DrawError;
+use super::{DrawError, DrawStats};
 use skia_safe::{
     Canvas, FilterMode, Paint, PathBuilder, Picture, PictureRecorder, Point, RRect, Rect, Shader,
     TileMode, Vector,
@@ -21,8 +21,8 @@ pub fn replay_frame(
     canvas: &Canvas,
     draw: &DrawOpFrame,
     media: &EnginePreparedFrameMedia,
-) -> Result<opencat_core::platform::draw::DrawStats, opencat_core::platform::draw::DrawError> {
-    let stats = opencat_core::platform::draw::DrawStats {
+) -> Result<DrawStats, DrawError> {
+    let stats = DrawStats {
         op_count: draw.ops.len() as u32,
         cache_hits: 0,
     };
@@ -39,7 +39,7 @@ fn replay_range(
     draw: &DrawOpFrame,
     media: &EnginePreparedFrameMedia,
     range: DrawOpRange,
-) -> Result<(), opencat_core::platform::draw::DrawError> {
+) -> Result<(), DrawError> {
     let start = range.start_op as usize;
     let end = start + range.op_len as usize;
     if end > draw.ops.len() {
@@ -118,7 +118,7 @@ fn picture_shader_for_range(
     media: &EnginePreparedFrameMedia,
     range: DrawOpRange,
     fallback_bounds: Rect,
-) -> Result<Option<Shader>, opencat_core::platform::draw::DrawError> {
+) -> Result<Option<Shader>, DrawError> {
     let bounds = range_bounds(draw, range).unwrap_or(fallback_bounds);
     let mut recorder = PictureRecorder::new();
     let picture_canvas = recorder.begin_recording(bounds, false);
@@ -145,7 +145,7 @@ fn replay_op(
     draw: &DrawOpFrame,
     media: &EnginePreparedFrameMedia,
     op: &DrawOp,
-) -> Result<(), opencat_core::platform::draw::DrawError> {
+) -> Result<(), DrawError> {
     match op {
         DrawOp::Save => {
             canvas.save();

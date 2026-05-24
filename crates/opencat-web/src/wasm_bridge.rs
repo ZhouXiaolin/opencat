@@ -20,7 +20,7 @@ use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::runtime::pipeline::render_frame;
 use opencat_core::runtime::session::RenderSession;
 
-use crate::codec::audio::WebAudio;
+use crate::media::WebAudio;
 use crate::script::ScriptRuntimeCache;
 
 const IR_MAGIC: &[u8; 4] = b"OCIR";
@@ -105,8 +105,11 @@ impl WebRenderer {
             frames: parsed.frames as u32,
         };
 
-        let mut consumer = crate::consumer::WebFrameConsumer { scratch: &mut self.scratch };
-        consumer.consume_frame(&header, &mut draw, &media_plan)
+        let mut consumer = crate::consumer::WebFrameConsumer {
+            scratch: &mut self.scratch,
+        };
+        consumer
+            .consume_frame(&header, &mut draw, &media_plan)
             .map_err(JsValue::from)
     }
 
@@ -131,11 +134,11 @@ impl WebRenderer {
         resources_json: &str,
     ) -> Result<String, JsValue> {
         use opencat_core::frame_ctx::FrameCtx;
+        use opencat_core::media::{VideoFrameRequest, VideoPreviewQuality};
         use opencat_core::parse::node::NodeKind;
         use opencat_core::parse::primitives::VideoSource;
         use opencat_core::parse::time::{FrameState, frame_state_for_root};
         use opencat_core::resource::catalog::{ResourceCatalog, VideoInfoMeta};
-        use opencat_core::resource::types::{VideoFrameRequest, VideoPreviewQuality};
 
         let parsed = opencat_core::parse::jsonl::parse_with_base_dir(jsonl, None)
             .map_err(|e| JsValue::from_str(&format!("plan_video_frames parse: {e}")))?;
@@ -322,7 +325,10 @@ pub(crate) fn encode_ir_envelope(
         (SECTION_STRING_RANGES, encode_ranges(&encoded.string_ranges)),
         (SECTION_PAINTS, encode_paints(&draw.paints)?),
         (SECTION_PATHS, encode_paths(&draw.paths)),
-        (SECTION_CHILDREN, encode_children(&draw.children, &draw.strings)?),
+        (
+            SECTION_CHILDREN,
+            encode_children(&draw.children, &draw.strings)?,
+        ),
         (SECTION_EFFECTS, encode_effects(&draw.effects)),
     ];
 
@@ -668,7 +674,10 @@ fn encode_path_op(out: &mut Vec<u8>, op: &PathOp) {
     }
 }
 
-fn encode_children(children: &[RuntimeEffectChildRef], strings: &[String]) -> Result<Vec<u8>, JsValue> {
+fn encode_children(
+    children: &[RuntimeEffectChildRef],
+    strings: &[String],
+) -> Result<Vec<u8>, JsValue> {
     let mut out = Vec::new();
     write_u32(&mut out, children.len() as u32);
     for child in children {
@@ -694,7 +703,11 @@ fn encode_children(children: &[RuntimeEffectChildRef], strings: &[String]) -> Re
     Ok(out)
 }
 
-fn encode_image_ref(out: &mut Vec<u8>, image: &ImageRef, strings: &[String]) -> Result<(), JsValue> {
+fn encode_image_ref(
+    out: &mut Vec<u8>,
+    image: &ImageRef,
+    strings: &[String],
+) -> Result<(), JsValue> {
     match image {
         ImageRef::Static { asset_id } => {
             write_u8(out, 0);

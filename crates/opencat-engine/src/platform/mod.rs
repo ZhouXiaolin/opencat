@@ -11,11 +11,10 @@ use opencat_core::parse::time::FrameState;
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::preload::preload_all;
 
+use crate::media::{AudioIntervalCache, DecodedAudioCache, MediaContext, VideoPreviewQuality};
 use crate::resource::AssetPathStore;
 use crate::resource::fetch::build_preload_runtime;
-use crate::resource::media::MediaContext;
 use crate::resource::resolver::EngineAssetResolver;
-use crate::runtime::audio::{AudioIntervalCache, DecodedAudioCache};
 use crate::script::ScriptRuntimeCache;
 
 pub use audio_runtime::AudioRuntime;
@@ -44,10 +43,7 @@ impl EnginePlatform {
         }
     }
 
-    pub fn set_video_preview_quality(
-        &mut self,
-        quality: crate::resource::media::VideoPreviewQuality,
-    ) {
+    pub fn set_video_preview_quality(&mut self, quality: VideoPreviewQuality) {
         self.video.set_video_preview_quality(quality);
     }
 

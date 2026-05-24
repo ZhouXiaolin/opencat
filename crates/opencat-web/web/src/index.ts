@@ -32,21 +32,21 @@ export {
   prepareVideoSource,
   registerVideoGlobals,
   setWorkerBaseUrl,
-} from './video-decoder';
+} from './media/video-decoder';
 export type {
   VideoPreviewQuality,
   VideoSourceMeta,
-} from './video-decoder';
+} from './media/video-decoder';
 
 export {
   clearCachedVideoFrames,
   getCachedVideoFrameRgba,
   injectVideoFramesForRender,
-} from './video-frame-injector';
+} from './media/video-frame-injector';
 
 export {
   downloadMp4,
   exportMp4,
   exportPngFrame,
   initFFmpeg,
-} from './exporter';
+} from './media/exporter';

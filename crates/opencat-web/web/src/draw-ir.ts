@@ -1,5 +1,5 @@
 import { getBlobBytes } from './wasm';
-import { getCachedVideoFrameRgba } from './video-frame-injector';
+import { getCachedVideoFrameRgba } from './media/video-frame-injector';
 
 export type EncodedDrawFrame = Uint8Array;
 

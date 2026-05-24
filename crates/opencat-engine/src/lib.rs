@@ -8,6 +8,7 @@ pub mod fonts;
 pub mod inspect;
 pub mod js_context;
 pub mod jsonl_io;
+pub mod media;
 pub mod platform;
 pub mod render;
 pub mod resource;
@@ -15,10 +16,10 @@ pub mod runtime;
 pub mod script;
 
 // 转发 core 中位于 runtime/ 的纯算法模块
-pub use opencat_core::parse::preflight as preflight_collect;
 pub use opencat_core::analyze::annotation;
 pub use opencat_core::analyze::fingerprint;
 pub use opencat_core::analyze::invalidation;
+pub use opencat_core::parse::preflight as preflight_collect;
 
 // Re-export core types used in engine tests (via `crate::` path)
 pub use opencat_core::frame_ctx::FrameCtx;
@@ -36,4 +37,5 @@ pub use crate::render::RenderSession;
 pub use crate::resource::loader::{EngineAssetHandle, EngineLoader};
 
 // Pipeline integration: monomorphised pipeline type
-pub type EnginePipeline = opencat_core::pipeline::DefaultPipeline<EngineLoader, crate::js_context::RqJsContext>;
+pub type EnginePipeline =
+    opencat_core::pipeline::DefaultPipeline<EngineLoader, crate::js_context::RqJsContext>;

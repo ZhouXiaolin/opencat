@@ -62,10 +62,10 @@ mod tests {
     use anyhow::Result;
 
     use super::*;
-    use crate::parse::primitives::{OpenverseQuery, VideoSource};
     use crate::ir::asset_id::{
         AssetId, asset_id_for_audio_url, asset_id_for_url, asset_id_for_video_url,
     };
+    use crate::parse::primitives::{OpenverseQuery, VideoSource};
     use crate::resource::hash_map_catalog::HashMapResourceCatalog;
     use crate::resource::resolver::{AssetSink, AudioMeta, ImageMeta, UrlFetcher, VideoMeta};
 
@@ -270,7 +270,9 @@ mod tests {
         requests
             .videos
             .insert(VideoSource::Url("https://example.com/v.mp4".into()));
-        requests.videos.insert(VideoSource::Path(PathBuf::from("/tmp/local.mp4")));
+        requests
+            .videos
+            .insert(VideoSource::Path(PathBuf::from("/tmp/local.mp4")));
 
         let mut resolver = MockResolver::default();
         let mut catalog = HashMapResourceCatalog::from_json("{}").unwrap();

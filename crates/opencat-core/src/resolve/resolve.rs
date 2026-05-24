@@ -3,6 +3,7 @@ use anyhow::{Result, ensure};
 use crate::{
     FrameCtx, Node,
     frame_ctx::ScriptFrameCtx,
+    ir::asset_id::AssetId,
     parse::{
         node::{ComponentNode, NodeKind},
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video, VideoSource},
@@ -17,7 +18,6 @@ use crate::{
             ElementSvgPath, ElementText, ElementTimeline, ElementTimelineTransition,
         },
     },
-    ir::asset_id::AssetId,
     resource::catalog::{ResourceCatalog, VideoInfoMeta},
     script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
     style::LengthPercentageAuto,
@@ -1071,8 +1071,8 @@ mod tests {
     use super::{merge_text_unit_overrides, resolve_ui_tree};
     use crate::{
         FrameCtx,
-        resolve::tree::ElementKind,
         parse::primitives::{SrtEntry, caption, div, lucide, text, video},
+        resolve::tree::ElementKind,
         script::{
             NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
             TextUnitOverrideBatch,
@@ -1238,7 +1238,8 @@ mod tests {
         let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
             panic!("child should resolve to svg path element");
         };
-        let expected_paths = crate::resolve::lucide_icons::lucide_icon_paths("house").expect("house icon");
+        let expected_paths =
+            crate::resolve::lucide_icons::lucide_icon_paths("house").expect("house icon");
         assert_eq!(svg.path_data, expected_paths);
         assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
     }

@@ -29,8 +29,8 @@ pub fn collect_resource_requests(composition: &Composition) -> ResourceRequests 
 }
 
 pub fn collect_audio_plan(comp: &Composition) -> crate::probe::catalog::AudioPlan {
+    use crate::ir::asset_id::{AssetId, asset_id_for_audio_url};
     use crate::probe::catalog::{AudioPlan, AudioSegment};
-    use crate::ir::asset_id::{asset_id_for_audio_url, AssetId};
 
     let fps = comp.fps.max(1) as u64;
     let ms_per_frame = 1000 / fps;
@@ -46,11 +46,18 @@ pub fn collect_audio_plan(comp: &Composition) -> crate::probe::catalog::AudioPla
         let (start_ms, end_ms) = match &s.attach {
             crate::parse::composition::AudioAttachment::Timeline => (0, total_ms),
             crate::parse::composition::AudioAttachment::Scene { .. } => {
-                let dur_ms = s.duration.map(|d| d as u64 * ms_per_frame).unwrap_or(total_ms);
+                let dur_ms = s
+                    .duration
+                    .map(|d| d as u64 * ms_per_frame)
+                    .unwrap_or(total_ms);
                 (0, dur_ms)
             }
         };
-        segments.push(AudioSegment { asset, start_ms, end_ms });
+        segments.push(AudioSegment {
+            asset,
+            start_ms,
+            end_ms,
+        });
     }
 
     AudioPlan { segments }
@@ -156,8 +163,9 @@ mod tests {
 
         let req = collect_resource_requests(&comp);
         assert_eq!(req.videos.len(), 1);
-        assert!(req
-            .videos
-            .contains(&VideoSource::Url("https://example.com/v.mp4".to_string())));
+        assert!(
+            req.videos
+                .contains(&VideoSource::Url("https://example.com/v.mp4".to_string()))
+        );
     }
 }

@@ -13,8 +13,8 @@ use std::path::Path;
 
 use anyhow::Result;
 
-pub use crate::parse::primitives::{AudioSource, ImageSource, SubtitleSource};
 pub use crate::ir::asset_id::AssetId;
+pub use crate::parse::primitives::{AudioSource, ImageSource, SubtitleSource};
 
 pub trait AssetHandle: Clone + 'static {
     fn read_bytes(&self) -> Result<Cow<'_, [u8]>>;

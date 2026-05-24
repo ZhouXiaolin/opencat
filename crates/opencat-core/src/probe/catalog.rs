@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::parse::primitives::{AudioSource, ImageSource, SrtEntry, SubtitleSource};
-pub use crate::parse::primitives::VideoSource;
 pub use crate::ir::asset_id::AssetId;
+pub use crate::parse::primitives::VideoSource;
+use crate::parse::primitives::{AudioSource, ImageSource, SrtEntry, SubtitleSource};
 
 #[derive(Default, Clone, Debug)]
 pub struct ResourceRequests {
@@ -65,7 +65,9 @@ impl crate::resource::catalog::ResourceCatalog for ResourceCatalog {
 
     fn register_dimensions(&mut self, locator: &str, width: u32, height: u32) -> AssetId {
         let id = AssetId(locator.to_owned());
-        self.images.entry(id.clone()).or_insert(ImageMeta { width, height });
+        self.images
+            .entry(id.clone())
+            .or_insert(ImageMeta { width, height });
         id
     }
 
@@ -78,7 +80,11 @@ impl crate::resource::catalog::ResourceCatalog for ResourceCatalog {
     ) -> AssetId {
         let id = AssetId(locator.to_owned());
         let duration_ms = duration_secs.map(|s| (s * 1000.0) as u64);
-        self.videos.entry(id.clone()).or_insert(VideoInfoMeta { width, height, duration_ms });
+        self.videos.entry(id.clone()).or_insert(VideoInfoMeta {
+            width,
+            height,
+            duration_ms,
+        });
         id
     }
 
@@ -102,7 +108,9 @@ impl crate::resource::catalog::ResourceCatalog for ResourceCatalog {
     }
 
     fn dimensions(&self, id: &AssetId) -> (u32, u32) {
-        self.images.get(id).map(|m| (m.width, m.height))
+        self.images
+            .get(id)
+            .map(|m| (m.width, m.height))
             .or_else(|| self.videos.get(id).map(|m| (m.width, m.height)))
             .unwrap_or((0, 0))
     }

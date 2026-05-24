@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::parse::primitives::{AudioSource, ImageSource};
 use crate::ir::asset_id::AssetId;
+use crate::parse::primitives::{AudioSource, ImageSource};
 use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 
 pub fn mock_font_provider() -> impl crate::text::FontProvider {

@@ -10,9 +10,9 @@ use crate::{
         },
         tree::{DisplayNode, DisplayTree},
     },
-    resolve::tree::{ElementKind, ElementNode},
     layout::tree::{LayoutNode, LayoutTree},
     parse::transition::TransitionKind,
+    resolve::tree::{ElementKind, ElementNode},
 };
 
 pub fn build_display_tree(
@@ -244,10 +244,10 @@ mod tests {
     use super::build_display_tree;
     use crate::{
         FrameCtx,
-        resolve::resolve::resolve_ui_tree,
+        analyze::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
         parse,
         parse::primitives::{div, lucide},
-        analyze::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
+        resolve::resolve::resolve_ui_tree,
         style::{ColorToken, ObjectFit},
         test_support::MockScriptHost,
         test_support::TestCatalog,

@@ -1,4 +1,4 @@
-//! Backend-facing draw/video helper traits.
+//! Backend-facing helper traits.
 
-pub mod draw;
+pub mod frame_consumer;
 pub mod video;

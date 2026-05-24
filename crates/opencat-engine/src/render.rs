@@ -17,7 +17,7 @@ use crate::{
     },
 };
 use opencat_core::parse::composition::Composition;
-use opencat_core::platform::frame_consumer::RenderSessionHeader;
+use opencat_core::platform::frame_consumer::{FrameConsumer, RenderSessionHeader};
 use opencat_core::resource::AssetPathBlobStore;
 
 pub use crate::codec::encode::Mp4Config;
@@ -145,13 +145,7 @@ pub fn render_from_jsonl_with_base(
     match &config.format {
         OutputFormat::Png => {
             for i in 0..info.frames {
-                let (frame, media_plan) = pipeline.render_frame(i)?;
-                let prepared =
-                    crate::media::prepare::prepare_frame_with_loader(
-                        &media_plan,
-                        pipeline.loader(),
-                        &mut media_ctx,
-                    )?;
+                let (mut frame, media_plan) = pipeline.render_frame(i)?;
 
                 #[allow(invalid_reference_casting)]
                 let canvas: &mut skia_safe::Canvas = unsafe {
@@ -163,7 +157,13 @@ pub fn render_from_jsonl_with_base(
                     frames: info.frames,
                 };
                 let mut executor = crate::executor::EngineDrawExecutor::new();
-                executor.execute(&header, &frame, &prepared, canvas)?;
+                let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
+                    executor: &mut executor,
+                    loader: pipeline.loader(),
+                    media_ctx: &mut media_ctx,
+                    canvas,
+                };
+                consumer.consume_frame(&header, &mut frame, &media_plan)?;
 
                 let image = surface.image_snapshot();
                 let image_info = ImageInfo::new(
@@ -209,13 +209,7 @@ pub fn render_from_jsonl_with_base(
                 audio_track.as_ref(),
                 |_, _| {},
                 |frame_index| {
-                    let (frame, media_plan) = pipeline.render_frame(frame_index)?;
-                    let prepared =
-                        crate::media::prepare::prepare_frame_with_loader(
-                            &media_plan,
-                            pipeline.loader(),
-                            &mut media_ctx,
-                        )?;
+                    let (mut frame, media_plan) = pipeline.render_frame(frame_index)?;
 
                     #[allow(invalid_reference_casting)]
                     let canvas: &mut skia_safe::Canvas = unsafe {
@@ -227,7 +221,13 @@ pub fn render_from_jsonl_with_base(
                         frames: info.frames,
                     };
                     let mut executor = crate::executor::EngineDrawExecutor::new();
-                    executor.execute(&header, &frame, &prepared, canvas)?;
+                    let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
+                        executor: &mut executor,
+                        loader: pipeline.loader(),
+                        media_ctx: &mut media_ctx,
+                        canvas,
+                    };
+                    consumer.consume_frame(&header, &mut frame, &media_plan)?;
 
                     let image = surface.image_snapshot();
                     let image_info = ImageInfo::new(
@@ -291,12 +291,7 @@ pub fn render_single_frame_from_jsonl_with_base(
     let mut media_ctx = crate::resource::media::MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
 
-    let (frame, media_plan) = pipeline.render_frame(frame_index)?;
-    let prepared = crate::media::prepare::prepare_frame_with_loader(
-        &media_plan,
-        pipeline.loader(),
-        &mut media_ctx,
-    )?;
+    let (mut frame, media_plan) = pipeline.render_frame(frame_index)?;
 
     let mut surface = surfaces::raster_n32_premul((info.width as i32, info.height as i32))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
@@ -312,7 +307,13 @@ pub fn render_single_frame_from_jsonl_with_base(
         frames: info.frames,
     };
     let mut executor = crate::executor::EngineDrawExecutor::new();
-    executor.execute(&header, &frame, &prepared, canvas)?;
+    let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
+        executor: &mut executor,
+        loader: pipeline.loader(),
+        media_ctx: &mut media_ctx,
+        canvas,
+    };
+    consumer.consume_frame(&header, &mut frame, &media_plan)?;
 
     let image = surface.image_snapshot();
     let image_info = ImageInfo::new(
@@ -531,7 +532,7 @@ pub fn render_frame_to_target(
     let RenderSession { core, platform } = session;
     let EnginePlatform { script, asset_paths, video, .. } = platform;
     let blob_store = AssetPathBlobStore::new(asset_paths);
-    let (draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame(
+    let (mut draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame(
         composition,
         frame_index,
         core,
@@ -539,9 +540,6 @@ pub fn render_frame_to_target(
         Some(&blob_store),
     )?;
     drop(blob_store);
-
-    let prepared = crate::media::prepare::prepare_frame(&media_plan, asset_paths, video)
-        .map_err(|e| anyhow!("media prepare failed: {}", e))?;
 
     let header = RenderSessionHeader {
         composition_size: (composition.width as u32, composition.height as u32),
@@ -551,9 +549,13 @@ pub fn render_frame_to_target(
 
     let canvas: &mut skia_safe::Canvas = unsafe { &mut *(canvas_raw as *mut skia_safe::Canvas) };
     let mut executor = crate::executor::EngineDrawExecutor::new();
-    executor
-        .execute(&header, &draw_frame, &prepared, canvas)
-        .map_err(|e| anyhow!("draw execute failed: {}", e))?;
+    let mut consumer = crate::consumer::EngineFrameConsumer {
+        executor: &mut executor,
+        paths: asset_paths,
+        media_ctx: video,
+        canvas,
+    };
+    consumer.consume_frame(&header, &mut draw_frame, &media_plan)?;
 
     target.end_frame()
 }
@@ -572,7 +574,7 @@ pub fn render_frame_rgba(
     let EnginePlatform { script, asset_paths, video, .. } = platform;
     let blob_store = AssetPathBlobStore::new(asset_paths);
 
-    let (draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame(
+    let (mut draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame(
         composition,
         frame_index,
         core,
@@ -580,9 +582,6 @@ pub fn render_frame_rgba(
         Some(&blob_store),
     )?;
     drop(blob_store);
-
-    let prepared = crate::media::prepare::prepare_frame(&media_plan, asset_paths, video)
-        .map_err(|e| anyhow!("media prepare failed: {}", e))?;
 
     let header = RenderSessionHeader {
         composition_size: (composition.width as u32, composition.height as u32),
@@ -597,9 +596,13 @@ pub fn render_frame_rgba(
     let canvas: &mut skia_safe::Canvas =
         unsafe { &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas) };
     let mut executor = crate::executor::EngineDrawExecutor::new();
-    executor
-        .execute(&header, &draw_frame, &prepared, canvas)
-        .map_err(|e| anyhow!("draw execute failed: {}", e))?;
+    let mut consumer = crate::consumer::EngineFrameConsumer {
+        executor: &mut executor,
+        paths: asset_paths,
+        media_ctx: video,
+        canvas,
+    };
+    consumer.consume_frame(&header, &mut draw_frame, &media_plan)?;
 
     let image = surface.image_snapshot();
     let image_info = ImageInfo::new(

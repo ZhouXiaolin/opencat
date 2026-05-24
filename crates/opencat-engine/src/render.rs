@@ -3,13 +3,15 @@ use std::path::Path;
 use anyhow::{Result, anyhow};
 use skia_safe::{AlphaType, ColorType, ImageInfo, image::CachingHint, surfaces};
 
+pub use crate::media::Mp4Config;
+
 use crate::{
     media::audio::{
         AudioBuffer, build_audio_track as build_runtime_audio_track,
         render_audio_chunk as render_runtime_audio_chunk,
     },
     media::{
-        AudioTrack, MediaContext, Mp4Config, VideoPreviewQuality, decode_audio_to_f32_stereo,
+        AudioTrack, MediaContext, VideoPreviewQuality, decode_audio_to_f32_stereo,
         encode_rgba_frames,
     },
     platform::EnginePlatform,

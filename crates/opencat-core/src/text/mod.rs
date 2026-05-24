@@ -145,13 +145,14 @@ pub fn measure_text(
 
     let mut font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), font_db.clone());
     let mut buffer = Buffer::new(&mut font_system, metrics);
-    buffer.set_size(&mut font_system, layout_width, None);
+    buffer.set_size(layout_width, None);
 
     let attrs = Attrs::new()
         .family(cosmic_text::Family::SansSerif)
         .weight(cosmic_text::Weight(style.font_weight.0));
     let transformed = apply_text_transform(text, style.text_transform);
-    buffer.set_text(&mut font_system, &transformed, attrs, Shaping::Advanced);
+    buffer.set_text(&transformed, &attrs, Shaping::Advanced, None);
+    buffer.shape_until_scroll(&mut font_system, false);
 
     let mut measured_width: f32 = 0.0;
     let mut measured_height: f32 = 0.0;
@@ -204,12 +205,13 @@ pub fn rasterize_glyphs(
 
     with_font_system(|font_system| {
         let mut buffer = Buffer::new(font_system, metrics);
-        buffer.set_size(font_system, layout_width, None);
+        buffer.set_size(layout_width, None);
 
         let attrs = Attrs::new()
             .family(cosmic_text::Family::SansSerif)
             .weight(cosmic_text::Weight(style.font_weight.0));
-        buffer.set_text(font_system, &rendered, attrs, Shaping::Advanced);
+        buffer.set_text(&rendered, &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(font_system, false);
 
         let mut glyphs: FxHashMap<u64, GlyphData> = FxHashMap::default();
         let mut lines: Vec<TextLine> = Vec::new();
@@ -271,7 +273,7 @@ pub fn rasterize_glyphs(
                         swash_cache.get_outline_commands(font_system, physical.cache_key)
                     {
                         let upem = font_system
-                            .get_font(physical.cache_key.font_id)
+                            .get_font(physical.cache_key.font_id, physical.cache_key.font_weight)
                             .map(|f| f.as_swash().metrics(&[]).units_per_em as f32)
                             .unwrap_or(1000.0);
                         glyphs.insert(ck, GlyphData::Outline(commands.to_vec(), upem));
@@ -304,9 +306,10 @@ pub fn measure_script_text_width(text: &str, font_size: f32, scale_x: f32) -> f3
     let font_db = default_font_db_with_embedded_only();
     let mut font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), font_db);
     let mut buffer = Buffer::new(&mut font_system, metrics);
-    buffer.set_size(&mut font_system, None, None);
+    buffer.set_size(None, None);
     let attrs = Attrs::new().family(cosmic_text::Family::SansSerif);
-    buffer.set_text(&mut font_system, text, attrs, Shaping::Advanced);
+    buffer.set_text(text, &attrs, Shaping::Advanced, None);
+    buffer.shape_until_scroll(&mut font_system, false);
     let mut width: f32 = 0.0;
     for run in buffer.layout_runs() {
         width = width.max(run.line_w);

@@ -1,0 +1,11 @@
+{
+  "name": "opencat-web-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm --prefix web run build",
+    "build:wasm": "npm --prefix web run build:wasm",
+    "build:lib": "npm --prefix web run build:lib",
+    "build:types": "npm --prefix web run build:types"
+  }
+}

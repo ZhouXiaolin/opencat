@@ -5,7 +5,16 @@ use crate::resource::loader::EngineLoader;
 use crate::resource::media::MediaContext;
 use anyhow::Result;
 use opencat_core::ir::draw_types::ImageRef;
-use opencat_core::platform::media::{FrameMediaPlan, MediaError, PrepareMode};
+use opencat_core::ir::media_plan::FrameMediaPlan;
+
+#[derive(Debug)]
+pub struct MediaError(pub String);
+impl std::fmt::Display for MediaError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MediaError: {}", self.0)
+    }
+}
+impl std::error::Error for MediaError {}
 use opencat_core::probe::{AssetHandle, AssetLoader};
 use opencat_core::resource::asset_id::AssetId;
 use skia_safe::{AlphaType, ColorType, Data, Image, ImageInfo, RuntimeEffect, images};
@@ -84,9 +93,8 @@ pub fn prepare_frame_with_loader(
 
 pub fn prepare_frame(
     plan: &FrameMediaPlan,
-    _mode: PrepareMode,
     asset_paths: &crate::resource::AssetPathStore,
-    video: *mut MediaContext,
+    video: &mut MediaContext,
 ) -> Result<EnginePreparedFrameMedia, MediaError> {
     use opencat_core::resource::AssetPathBlobStore;
     use opencat_core::resource::asset_id::AssetId;
@@ -112,26 +120,23 @@ pub fn prepare_frame(
                 asset_id,
                 frame_index,
             } => {
-                let video_ref = unsafe { video.as_mut() };
-                if let Some(ctx) = video_ref {
-                    let aid = AssetId(asset_id.clone());
-                    let path = asset_paths.path(&aid).unwrap_or_else(|| std::path::Path::new(&aid.0));
-                    if let Ok(frame) = ctx.frame_rgba_by_path(path, *frame_index) {
-                        let info = ImageInfo::new(
-                            (frame.width as i32, frame.height as i32),
-                            ColorType::RGBA8888,
-                            AlphaType::Unpremul,
-                            None,
-                        );
-                        if let Some(sk_image) = images::raster_from_data(
-                            &info,
-                            Data::new_copy(&frame.data),
-                            frame.width as usize * 4,
-                        ) {
-                            let idx = images.len();
-                            images.push(sk_image);
-                            image_index.insert(image_ref.clone(), idx);
-                        }
+                let aid = AssetId(asset_id.clone());
+                let path = asset_paths.path(&aid).unwrap_or_else(|| std::path::Path::new(&aid.0));
+                if let Ok(frame) = video.frame_rgba_by_path(path, *frame_index) {
+                    let info = ImageInfo::new(
+                        (frame.width as i32, frame.height as i32),
+                        ColorType::RGBA8888,
+                        AlphaType::Unpremul,
+                        None,
+                    );
+                    if let Some(sk_image) = images::raster_from_data(
+                        &info,
+                        Data::new_copy(&frame.data),
+                        frame.width as usize * 4,
+                    ) {
+                        let idx = images.len();
+                        images.push(sk_image);
+                        image_index.insert(image_ref.clone(), idx);
                     }
                 }
             }

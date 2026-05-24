@@ -193,7 +193,30 @@ impl Default for MediaContext {
     }
 }
 
+// ---------------------------------------------------------------------------
+// VideoFrameProvider adapter
+// ---------------------------------------------------------------------------
 
+use opencat_core::platform::video::{FrameBitmap, VideoFrameProvider};
+use opencat_core::resource::AssetPathStore;
+use opencat_core::ir::asset_id::AssetId;
+
+/// Adapter pairing a [`MediaContext`] with an [`AssetPathStore`] so it can
+/// serve [`VideoFrameProvider`]'s `AssetId`-indexed contract.
+pub struct EngineVideoProvider<'a> {
+    pub media: &'a mut MediaContext,
+    pub paths: &'a AssetPathStore,
+}
+
+impl VideoFrameProvider for EngineVideoProvider<'_> {
+    fn frame_rgba(&mut self, id: &AssetId, frame: u32) -> anyhow::Result<FrameBitmap> {
+        let path = self
+            .paths
+            .path(id)
+            .ok_or_else(|| anyhow::anyhow!("video asset {:?} not in path store", id))?;
+        self.media.frame_rgba_by_path(path, frame)
+    }
+}
 
 fn load_image_bitmap(path: &Path) -> Result<(Arc<Vec<u8>>, u32, u32)> {
     let encoded = fs::read(path)
@@ -280,6 +303,20 @@ mod tests {
         );
         // values below the alignment floor get clamped to 16
         assert_eq!(quantize_target_size(Some((4, 4)), &info), Some((16, 16)));
+    }
+
+    #[test]
+    fn engine_video_provider_returns_err_for_missing_path() {
+        use opencat_core::platform::video::VideoFrameProvider;
+
+        let mut mc = MediaContext::new();
+        let paths = opencat_core::resource::AssetPathStore::new();
+        let mut provider = super::EngineVideoProvider {
+            media: &mut mc,
+            paths: &paths,
+        };
+        let id = opencat_core::ir::asset_id::AssetId("nonexistent".into());
+        assert!(provider.frame_rgba(&id, 0).is_err());
     }
 
     #[test]

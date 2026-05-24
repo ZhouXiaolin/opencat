@@ -15,5 +15,5 @@
     "esModuleInterop": true
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/workers/*.test.ts"]
+  "exclude": ["src/**/*.test.ts", "src/media/workers/*.test.ts"]
 }

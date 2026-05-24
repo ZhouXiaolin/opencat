@@ -4,23 +4,20 @@ use anyhow::{Result, anyhow};
 use skia_safe::{AlphaType, ColorType, ImageInfo, image::CachingHint, surfaces};
 
 use crate::{
-    codec::decode::AudioTrack,
-    platform::EnginePlatform,
-    resource::media::VideoPreviewQuality,
-    runtime::{
-        audio::{
-            AudioBuffer, build_audio_track as build_runtime_audio_track,
-            render_audio_chunk as render_runtime_audio_chunk,
-        },
-        preflight::ensure_assets_preloaded,
-        render_registry,
+    media::audio::{
+        AudioBuffer, build_audio_track as build_runtime_audio_track,
+        render_audio_chunk as render_runtime_audio_chunk,
     },
+    media::{
+        AudioTrack, MediaContext, Mp4Config, VideoPreviewQuality, decode_audio_to_f32_stereo,
+        encode_rgba_frames,
+    },
+    platform::EnginePlatform,
+    runtime::{preflight::ensure_assets_preloaded, render_registry},
 };
 use opencat_core::parse::composition::Composition;
 use opencat_core::platform::frame_consumer::{FrameConsumer, RenderSessionHeader};
 use opencat_core::resource::AssetPathBlobStore;
-
-pub use crate::codec::encode::Mp4Config;
 
 /// Engine render session: backend-agnostic core render state plus engine-owned
 /// runtime services. Core no longer owns a generic platform facade.
@@ -86,15 +83,19 @@ pub fn render_from_jsonl_with_base(
     use opencat_core::script::js_context::JsContext;
 
     let output_path = output_path.as_ref();
-    let cache_base = dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let cache_base =
+        dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let cache_dir = cache_base.join(".opencat").join("assets");
 
-    let loader = crate::resource::loader::EngineLoader::new(base_dir.unwrap_or(&cache_base).to_path_buf(), cache_dir)?;
+    let loader = crate::resource::loader::EngineLoader::new(
+        base_dir.unwrap_or(&cache_base).to_path_buf(),
+        cache_dir,
+    )?;
     let ctx = RqJsContext::new()?;
     let mut pipeline = crate::EnginePipeline::open(jsonl, loader, ctx)?;
     let info = pipeline.info().clone();
 
-    let mut media_ctx = crate::resource::media::MediaContext::new();
+    let mut media_ctx = MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
 
     let mut surface = surfaces::raster_n32_premul((info.width as i32, info.height as i32))
@@ -109,16 +110,19 @@ pub fn render_from_jsonl_with_base(
         mixed_samples.resize(total_sample_frames * channels as usize, 0.0f32);
 
         for seg in &info.audio_plan.segments {
-            let handle = pipeline.loader().handle(&seg.asset).ok_or_else(|| {
-                anyhow!("audio asset {:?} not found in loader", seg.asset)
-            })?;
-            let path = handle.local_path().ok_or_else(|| {
-                anyhow!("audio {:?}: local_path required", seg.asset)
-            })?;
-            let clip = crate::codec::decode::decode_audio_to_f32_stereo(path, sample_rate)?;
+            let handle = pipeline
+                .loader()
+                .handle(&seg.asset)
+                .ok_or_else(|| anyhow!("audio asset {:?} not found in loader", seg.asset))?;
+            let path = handle
+                .local_path()
+                .ok_or_else(|| anyhow!("audio {:?}: local_path required", seg.asset))?;
+            let clip = decode_audio_to_f32_stereo(path, sample_rate)?;
             let start_sample = ((seg.start_ms as u64 * sample_rate as u64) / 1000) as usize;
             let end_sample = ((seg.end_ms as u64 * sample_rate as u64) / 1000) as usize;
-            let copy_frames = end_sample.saturating_sub(start_sample).min(clip.sample_frames());
+            let copy_frames = end_sample
+                .saturating_sub(start_sample)
+                .min(clip.sample_frames());
             for i in 0..copy_frames {
                 let dst = (start_sample + i) * channels as usize;
                 let src = i * channels as usize;
@@ -133,11 +137,7 @@ pub fn render_from_jsonl_with_base(
             *s = s.clamp(-1.0, 1.0);
         }
 
-        Some(crate::codec::decode::AudioTrack::new(
-            sample_rate,
-            channels,
-            mixed_samples,
-        ))
+        Some(AudioTrack::new(sample_rate, channels, mixed_samples))
     } else {
         None
     };
@@ -199,7 +199,7 @@ pub fn render_from_jsonl_with_base(
                 (info.width, info.height)
             };
 
-            crate::codec::encode::encode_rgba_frames(
+            encode_rgba_frames(
                 output_path,
                 aligned_info.0,
                 aligned_info.1,
@@ -213,7 +213,8 @@ pub fn render_from_jsonl_with_base(
 
                     #[allow(invalid_reference_casting)]
                     let canvas: &mut skia_safe::Canvas = unsafe {
-                        &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
+                        &mut *(surface.canvas() as *const skia_safe::Canvas
+                            as *mut skia_safe::Canvas)
                     };
                     let header = RenderSessionHeader {
                         composition_size: (info.width, info.height),
@@ -236,7 +237,8 @@ pub fn render_from_jsonl_with_base(
                         AlphaType::Premul,
                         None,
                     );
-                    let mut rgba = vec![0u8; (aligned_info.0 as usize) * (aligned_info.1 as usize) * 4];
+                    let mut rgba =
+                        vec![0u8; (aligned_info.0 as usize) * (aligned_info.1 as usize) * 4];
                     let read_ok = image.read_pixels(
                         &image_info,
                         rgba.as_mut_slice(),
@@ -274,21 +276,27 @@ pub fn render_single_frame_from_jsonl_with_base(
     use opencat_core::pipeline::Pipeline;
     use opencat_core::script::js_context::JsContext;
 
-    let cache_base = dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let cache_base =
+        dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let cache_dir = cache_base.join(".opencat").join("assets");
 
-    let loader = crate::resource::loader::EngineLoader::new(base_dir.unwrap_or(&cache_base).to_path_buf(), cache_dir)?;
+    let loader = crate::resource::loader::EngineLoader::new(
+        base_dir.unwrap_or(&cache_base).to_path_buf(),
+        cache_dir,
+    )?;
     let ctx = RqJsContext::new()?;
     let mut pipeline = crate::EnginePipeline::open(jsonl, loader, ctx)?;
     let info = pipeline.info().clone();
 
     if frame_index >= info.frames {
         anyhow::bail!(
-            "frame_index {} out of range (composition has {} frames)", frame_index, info.frames
+            "frame_index {} out of range (composition has {} frames)",
+            frame_index,
+            info.frames
         );
     }
 
-    let mut media_ctx = crate::resource::media::MediaContext::new();
+    let mut media_ctx = MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
 
     let (mut frame, media_plan) = pipeline.render_frame(frame_index)?;
@@ -297,9 +305,8 @@ pub fn render_single_frame_from_jsonl_with_base(
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
 
     #[allow(invalid_reference_casting)]
-    let canvas: &mut skia_safe::Canvas = unsafe {
-        &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
-    };
+    let canvas: &mut skia_safe::Canvas =
+        unsafe { &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas) };
 
     let header = RenderSessionHeader {
         composition_size: (info.width, info.height),
@@ -482,34 +489,33 @@ fn render_mp4(
 ) -> Result<()> {
     let composition = composition.aligned_for_video_encoding();
     let profile_config = opencat_core::profile::ProfileConfig::from_env();
-    let (_, summary) =
-        opencat_core::profile::profile_render(&profile_config, move || {
-            if let RenderBackend::Accelerated = backend {
-                return Err(anyhow!(
-                    "accelerated backend not yet supported via core pipeline"
-                ));
-            }
-            let mut platform = EnginePlatform::new();
-            platform.set_video_preview_quality(VideoPreviewQuality::Exact);
-            let mut session = RenderSession::with_platform(platform);
+    let (_, summary) = opencat_core::profile::profile_render(&profile_config, move || {
+        if let RenderBackend::Accelerated = backend {
+            return Err(anyhow!(
+                "accelerated backend not yet supported via core pipeline"
+            ));
+        }
+        let mut platform = EnginePlatform::new();
+        platform.set_video_preview_quality(VideoPreviewQuality::Exact);
+        let mut session = RenderSession::with_platform(platform);
 
-            let audio_track = build_audio_track(&composition, &mut session)?;
-            crate::codec::encode::encode_rgba_frames(
-                output_path.as_ref(),
-                composition.width as u32,
-                composition.height as u32,
-                composition.fps,
-                composition.frames,
-                config,
-                audio_track.as_ref(),
-                on_video_frame_encoded,
-                |frame_index| {
-                    let rgba = render_frame_rgba(&composition, frame_index, &mut session)?;
-                    Ok(rgba)
-                },
-            )?;
-            Ok::<_, anyhow::Error>(())
-        })?;
+        let audio_track = build_audio_track(&composition, &mut session)?;
+        encode_rgba_frames(
+            output_path.as_ref(),
+            composition.width as u32,
+            composition.height as u32,
+            composition.fps,
+            composition.frames,
+            config,
+            audio_track.as_ref(),
+            on_video_frame_encoded,
+            |frame_index| {
+                let rgba = render_frame_rgba(&composition, frame_index, &mut session)?;
+                Ok(rgba)
+            },
+        )?;
+        Ok::<_, anyhow::Error>(())
+    })?;
     if let Some(summary) = summary {
         opencat_core::profile::print_profile_summary(&summary, &profile_config)?;
     }
@@ -530,7 +536,12 @@ pub fn render_frame_to_target(
     let canvas_raw: *mut std::ffi::c_void = frame_view_handle.raw();
 
     let RenderSession { core, platform } = session;
-    let EnginePlatform { script, asset_paths, video, .. } = platform;
+    let EnginePlatform {
+        script,
+        asset_paths,
+        video,
+        ..
+    } = platform;
     let blob_store = AssetPathBlobStore::new(asset_paths);
     let (mut draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame(
         composition,
@@ -571,7 +582,12 @@ pub fn render_frame_rgba(
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
 
     let RenderSession { core, platform } = session;
-    let EnginePlatform { script, asset_paths, video, .. } = platform;
+    let EnginePlatform {
+        script,
+        asset_paths,
+        video,
+        ..
+    } = platform;
     let blob_store = AssetPathBlobStore::new(asset_paths);
 
     let (mut draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame(
@@ -646,7 +662,7 @@ pub fn render_frame_rgb(
 #[cfg(test)]
 mod tests {
     use super::{RenderSession, render_frame_rgba};
-    use crate::{Composition, FrameCtx, platform::EnginePlatform};
+    use crate::{Composition, FrameCtx};
 
     fn make_test_session() -> RenderSession {
         RenderSession::new()

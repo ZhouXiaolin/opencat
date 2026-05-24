@@ -1,4 +1,4 @@
-import type { WebRendererInstance } from './wasm';
+import type { WebRendererInstance } from '../wasm';
 import {
   getDecodedFrameRgba,
   type VideoPreviewQuality,

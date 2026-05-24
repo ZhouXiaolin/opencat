@@ -5,9 +5,28 @@ mod replay;
 use opencat_core::ir::cache::CachedDrawRange;
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
-use opencat_core::platform::draw::{DrawError, DrawPlatform, DrawStats, RenderSessionHeader};
+use opencat_core::platform::frame_consumer::RenderSessionHeader;
 use skia_safe::{Canvas, Image, Paint, PathBuilder, RuntimeEffect};
 use std::collections::HashMap;
+
+/// Statistics returned after a frame execution.
+#[derive(Debug, Default)]
+pub struct DrawStats {
+    pub op_count: u32,
+    pub cache_hits: u32,
+}
+
+/// Error type for draw execution failures.
+#[derive(Debug)]
+pub struct DrawError(pub String);
+
+impl std::fmt::Display for DrawError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "DrawError: {}", self.0)
+    }
+}
+
+impl std::error::Error for DrawError {}
 
 /// Engine-side draw executor. Owns the current canvas state
 /// and replays DrawOpFrame onto a skia_safe::Canvas.
@@ -54,22 +73,19 @@ pub struct EnginePreparedFrameMedia {
     pub runtime_effects: Vec<RuntimeEffect>,
 }
 
-impl DrawPlatform for EngineDrawExecutor {
-    type Target = Canvas;
-    type PreparedFrameMedia = EnginePreparedFrameMedia;
-
-    fn execute(
+impl EngineDrawExecutor {
+    pub fn execute(
         &mut self,
         _header: &RenderSessionHeader,
         draw: &DrawOpFrame,
-        media: &Self::PreparedFrameMedia,
-        target: &mut Self::Target,
+        media: &EnginePreparedFrameMedia,
+        target: &mut Canvas,
     ) -> Result<DrawStats, DrawError> {
         self.begin_frame();
         replay::replay_frame(self, target, draw, media)
     }
 
-    fn compile_range(
+    pub fn compile_range(
         &mut self,
         _cached: &CachedDrawRange,
         _draw: &DrawOpFrame,
@@ -79,7 +95,7 @@ impl DrawPlatform for EngineDrawExecutor {
         Ok(())
     }
 
-    fn evict_range(&mut self, fingerprint: u64) {
+    pub fn evict_range(&mut self, fingerprint: u64) {
         self.compiled_pictures.remove(&fingerprint);
     }
 }

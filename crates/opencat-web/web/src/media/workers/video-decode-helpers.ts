@@ -50,10 +50,51 @@ export function seekFeedMarginUs(quality: VideoPreviewQuality): number {
     case 'scrubbing':
       return 120_000;
     case 'realtime':
-      return 350_000;
+      return 1_000_000;
     case 'exact':
       return 500_000;
   }
+}
+
+export function shouldCacheDecodedFrame(
+  frameUs: number,
+  targetUs: number,
+  coverUs: number,
+  behindUs: number,
+  toleranceUs = 50_000,
+): boolean {
+  const lowerUs = Math.max(0, targetUs - Math.max(0, behindUs));
+  const upperUs = Math.max(targetUs, coverUs);
+  return (
+    Math.abs(frameUs - targetUs) <= Math.max(0, toleranceUs) ||
+    (frameUs >= lowerUs && frameUs <= upperUs)
+  );
+}
+
+export function realtimeCacheWindowUs(
+  targetUs: number,
+  frameDurationUs: number,
+  behindFrames: number,
+  aheadFrames: number,
+): { minUs: number; maxUs: number } {
+  const frameUs = Math.max(1, Math.round(frameDurationUs));
+  return {
+    minUs: Math.max(0, Math.round(targetUs) - Math.max(0, behindFrames) * frameUs),
+    maxUs: Math.round(targetUs) + Math.max(0, aheadFrames) * frameUs,
+  };
+}
+
+export function shouldStartRealtimePump(
+  aheadFrames: number,
+  lowWaterFrames: number,
+  highWaterFrames: number,
+  force = false,
+): boolean {
+  const ahead = Math.max(0, Math.floor(aheadFrames));
+  const high = Math.max(0, Math.floor(highWaterFrames));
+  if (ahead >= high) return false;
+  if (force) return true;
+  return ahead < Math.max(0, Math.floor(lowWaterFrames));
 }
 
 /** Chunk descriptor — sequencing format used internally by the worker. */

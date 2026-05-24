@@ -26,6 +26,14 @@ export interface GetFrameRequest {
   quality: VideoPreviewQuality;
 }
 
+export interface PrefetchFrameRequest {
+  type: 'prefetchFrame';
+  id: number;
+  assetId: string;
+  timeSecs: number;
+  quality: VideoPreviewQuality;
+}
+
 export interface ReleaseRequest {
   type: 'release';
   id: number;
@@ -35,6 +43,7 @@ export interface ReleaseRequest {
 export type WorkerRequest =
   | PrepareRequest
   | GetFrameRequest
+  | PrefetchFrameRequest
   | ReleaseRequest;
 
 // ── Responses (worker → main) ──
@@ -51,6 +60,12 @@ export interface GetFrameResponse {
   frame: VideoFrame | null; // transferred
 }
 
+export interface PrefetchFrameResponse {
+  type: 'prefetchFrame';
+  id: number;
+  ok: boolean;
+}
+
 export interface ReleaseResponse {
   type: 'release';
   id: number;
@@ -65,5 +80,6 @@ export interface ErrorResponse {
 export type WorkerResponse =
   | PrepareResponse
   | GetFrameResponse
+  | PrefetchFrameResponse
   | ReleaseResponse
   | ErrorResponse;

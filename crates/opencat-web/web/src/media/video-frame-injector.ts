@@ -1,6 +1,7 @@
 import type { WebRendererInstance } from '../wasm';
 import {
-  getDecodedFrameRgba,
+  getDecodedVideoFrame,
+  prefetchDecodedVideoFrame,
   type VideoPreviewQuality,
 } from './video-decoder';
 
@@ -23,7 +24,14 @@ interface CachedVideoFrameRgba {
   height: number;
 }
 
-const decodedFrameCache = new Map<string, CachedVideoFrameRgba>();
+export interface CachedVideoFrameSource {
+  source: VideoFrame;
+  width: number;
+  height: number;
+}
+
+const decodedFrameRgbaCache = new Map<string, CachedVideoFrameRgba>();
+const decodedFrameSourceCache = new Map<string, CachedVideoFrameSource>();
 
 function videoFrameKey(assetId: string, frame: number): string {
   return `${assetId}\0${frame}`;
@@ -33,17 +41,35 @@ export function getCachedVideoFrameRgba(
   assetId: string,
   frame: number,
 ): CachedVideoFrameRgba | undefined {
-  return decodedFrameCache.get(videoFrameKey(assetId, frame));
+  return decodedFrameRgbaCache.get(videoFrameKey(assetId, frame));
+}
+
+export function getCachedVideoFrameSource(
+  assetId: string,
+  frame: number,
+): CachedVideoFrameSource | undefined {
+  return decodedFrameSourceCache.get(videoFrameKey(assetId, frame));
 }
 
 export function clearCachedVideoFrames(assetId?: string): void {
   if (!assetId) {
-    decodedFrameCache.clear();
+    for (const cached of decodedFrameSourceCache.values()) closeFrameSource(cached);
+    decodedFrameSourceCache.clear();
+    decodedFrameRgbaCache.clear();
     return;
   }
-  for (const key of decodedFrameCache.keys()) {
-    if (key.startsWith(`${assetId}\0`)) decodedFrameCache.delete(key);
+  for (const [key, cached] of decodedFrameSourceCache) {
+    if (!key.startsWith(`${assetId}\0`)) continue;
+    closeFrameSource(cached);
+    decodedFrameSourceCache.delete(key);
   }
+  for (const key of decodedFrameRgbaCache.keys()) {
+    if (key.startsWith(`${assetId}\0`)) decodedFrameRgbaCache.delete(key);
+  }
+}
+
+function closeFrameSource(cached: CachedVideoFrameSource): void {
+  try { cached.source.close(); } catch { /* ignore already-closed frames */ }
 }
 
 export async function injectVideoFramesForRender({
@@ -53,23 +79,17 @@ export async function injectVideoFramesForRender({
   resourcesJson,
   quality,
 }: InjectVideoFramesOptions): Promise<void> {
-  decodedFrameCache.clear();
+  clearCachedVideoFrames();
 
   let plan: VideoFramePlanItem[] = [];
   try {
     plan = JSON.parse(renderer.plan_video_frames(jsonlContent, frame, resourcesJson));
-  } catch (err) {
-    console.warn('[renderer] plan_video_frames failed:', err);
+  } catch {
+    return;
   }
 
   const byAsset = new Map<string, VideoFramePlanItem>();
   for (const item of plan) {
-    const existing = byAsset.get(item.assetId);
-    if (existing && Math.abs(existing.localTimeSecs - item.localTimeSecs) > 1e-6) {
-      console.warn(
-        `[renderer f=${frame}] duplicate video asset ${item.assetId} has multiple local times; using the last one`,
-      );
-    }
     byAsset.set(item.assetId, item);
   }
 
@@ -78,25 +98,53 @@ export async function injectVideoFramesForRender({
   await Promise.all(
     Array.from(byAsset.values()).map(async (item) => {
       try {
-        const decoded = await getDecodedFrameRgba(
+        const decoded = await getDecodedVideoFrame(
           item.assetId,
           item.localTimeSecs,
           quality,
         );
-        if (!decoded) {
-          console.warn(
-            `[renderer f=${frame}] decode NULL: asset=${item.assetId} t=${item.localTimeSecs.toFixed(3)}s`,
-          );
+        if (!decoded) return;
+
+        const width = decoded.displayWidth || decoded.codedWidth || 0;
+        const height = decoded.displayHeight || decoded.codedHeight || 0;
+        if (width <= 0 || height <= 0) {
+          try { decoded.close(); } catch { /* ignore */ }
           return;
         }
 
-        decodedFrameCache.set(videoFrameKey(item.assetId, frame), decoded);
-      } catch (err) {
-        console.warn(
-          `[renderer f=${frame}] decode failed asset=${item.assetId} t=${item.localTimeSecs.toFixed(3)}s:`,
-          err,
-        );
+        decodedFrameSourceCache.set(videoFrameKey(item.assetId, frame), {
+          source: decoded,
+          width,
+          height,
+        });
+      } catch {
+        return;
       }
     }),
+  );
+}
+
+export async function prefetchVideoFramesForRender({
+  renderer,
+  jsonlContent,
+  frame,
+  resourcesJson,
+  quality,
+}: InjectVideoFramesOptions): Promise<void> {
+  let plan: VideoFramePlanItem[] = [];
+  try {
+    plan = JSON.parse(renderer.plan_video_frames(jsonlContent, frame, resourcesJson));
+  } catch {
+    return;
+  }
+
+  const byAsset = new Map<string, VideoFramePlanItem>();
+  for (const item of plan) byAsset.set(item.assetId, item);
+  if (byAsset.size === 0) return;
+
+  await Promise.all(
+    Array.from(byAsset.values()).map((item) => (
+      prefetchDecodedVideoFrame(item.assetId, item.localTimeSecs, quality)
+    )),
   );
 }

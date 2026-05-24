@@ -30,6 +30,7 @@ export {
   getVideoDimensions,
   getVideoDurationSecs,
   prepareVideoSource,
+  prefetchDecodedVideoFrame,
   registerVideoGlobals,
   setWorkerBaseUrl,
 } from './media/video-decoder';
@@ -42,6 +43,7 @@ export {
   clearCachedVideoFrames,
   getCachedVideoFrameRgba,
   injectVideoFramesForRender,
+  prefetchVideoFramesForRender,
 } from './media/video-frame-injector';
 
 export {

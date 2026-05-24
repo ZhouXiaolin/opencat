@@ -1,5 +1,8 @@
 import { getBlobBytes } from './wasm';
-import { getCachedVideoFrameRgba } from './media/video-frame-injector';
+import {
+  getCachedVideoFrameRgba,
+  getCachedVideoFrameSource,
+} from './media/video-frame-injector';
 
 export type EncodedDrawFrame = Uint8Array;
 
@@ -106,6 +109,9 @@ type ShaderSpec =
 type RuntimeEffectSpec = { hash: bigint; sksl: string };
 type OpEntry = { opcode: number; payloadOffset: number; payloadLen: number };
 type ExecuteRangeOnCanvas = (targetCanvas: any, start: number, len: number) => void;
+type RenderEncodedDrawFrameOptions = {
+  surface?: any;
+};
 
 type DecodedFrame = {
   bytes: Uint8Array;
@@ -203,9 +209,15 @@ export function renderEncodedDrawFrame(
   encoded: EncodedDrawFrame,
   ckCanvas: any,
   CK: any,
+  options: RenderEncodedDrawFrameOptions = {},
 ): void {
   const frame = decodeFrame(encoded);
   const entries = parseOps(frame.ops);
+  const transientImageCache = new Map<string, any>();
+
+  const resolveFrameImage = (image: DecodedImageRef): any | null => (
+    resolveImage(CK, image, options.surface, transientImageCache)
+  );
 
   const executeRangeOnCanvas = (targetCanvas: any, start: number, len: number) => {
     const state = initialRenderState();
@@ -381,7 +393,7 @@ export function renderEncodedDrawFrame(
           const x = p.f32();
           const y = p.f32();
           const paintId = p.u32();
-          const ckImage = resolveImage(CK, image);
+          const ckImage = resolveFrameImage(image);
           if (ckImage) targetCanvas.drawImage(ckImage, x, y, paintId === NO_PAINT ? null : buildPaintById(CK, frame, paintId));
           break;
         }
@@ -391,14 +403,14 @@ export function renderEncodedDrawFrame(
           const src = readRect4(p);
           const dst = readRect4(p);
           const paintId = p.u32();
-          const ckImage = resolveImage(CK, image);
+          const ckImage = resolveFrameImage(image);
           if (!ckImage) break;
           const sourceRect = hasSrc ? ckRect(CK, src) : imageBounds(CK, ckImage);
           targetCanvas.drawImageRect(ckImage, sourceRect, ckRect(CK, dst), paintId === NO_PAINT ? null : buildPaintById(CK, frame, paintId));
           break;
         }
         case OP_RUNTIME_EFFECT:
-          drawRuntimeEffect(CK, targetCanvas, frame, p, executeRangeOnCanvas);
+          drawRuntimeEffect(CK, targetCanvas, frame, p, executeRangeOnCanvas, resolveFrameImage);
           break;
         case OP_REPLAY_RANGE:
           executeRange(p.u32(), p.u32());
@@ -412,7 +424,15 @@ export function renderEncodedDrawFrame(
     currentPathBuilder?.delete?.();
   };
 
-  executeRangeOnCanvas(ckCanvas, 0, entries.length);
+  try {
+    executeRangeOnCanvas(ckCanvas, 0, entries.length);
+  } finally {
+    try { options.surface?.flush?.(); } catch { /* ignore CanvasKit cleanup flush failures */ }
+    for (const image of transientImageCache.values()) {
+      try { image.delete?.(); } catch { /* ignore CanvasKit cleanup failures */ }
+    }
+    transientImageCache.clear();
+  }
 }
 
 class Payload {
@@ -901,7 +921,12 @@ function applyPathCommand(CK: any, builder: any, op: PathCommand): void {
   }
 }
 
-function resolveImage(CK: any, image: DecodedImageRef): any | null {
+function resolveImage(
+  CK: any,
+  image: DecodedImageRef,
+  surface: any | undefined,
+  transientImageCache: Map<string, any>,
+): any | null {
   if (image.type === 'static') {
     const existing = staticImageCache.get(image.assetId);
     if (existing) return existing;
@@ -911,9 +936,32 @@ function resolveImage(CK: any, image: DecodedImageRef): any | null {
     if (ckImage) staticImageCache.set(image.assetId, ckImage);
     return ckImage;
   }
+
+  const transientKey = `${image.assetId}\0${image.frame}`;
+  const existing = transientImageCache.get(transientKey);
+  if (existing) return existing;
+
+  const source = getCachedVideoFrameSource(image.assetId, image.frame);
+  if (source) {
+    const info = {
+      width: source.width,
+      height: source.height,
+      colorType: CK.ColorType.RGBA_8888,
+      alphaType: CK.AlphaType.Unpremul,
+      colorSpace: CK.ColorSpace.SRGB,
+    };
+    const ckImage = typeof surface?.makeImageFromTextureSource === 'function'
+      ? surface.makeImageFromTextureSource(source.source as any, info)
+      : CK.MakeLazyImageFromTextureSource?.(source.source as any, info);
+    if (ckImage) {
+      transientImageCache.set(transientKey, ckImage);
+      return ckImage;
+    }
+  }
+
   const cached = getCachedVideoFrameRgba(image.assetId, image.frame);
   if (!cached) return null;
-  return CK.MakeImage(
+  const ckImage = CK.MakeImage(
     {
       width: cached.width,
       height: cached.height,
@@ -924,6 +972,8 @@ function resolveImage(CK: any, image: DecodedImageRef): any | null {
     cached.rgba,
     cached.width * 4,
   );
+  if (ckImage) transientImageCache.set(transientKey, ckImage);
+  return ckImage;
 }
 
 function drawRuntimeEffect(
@@ -932,6 +982,7 @@ function drawRuntimeEffect(
   frame: DecodedFrame,
   payload: Payload,
   executeRangeOnCanvas: ExecuteRangeOnCanvas,
+  resolveFrameImage: (image: DecodedImageRef) => any | null,
 ): void {
   const effectId = payload.u32();
   const uniformRangeId = payload.u32();
@@ -950,7 +1001,7 @@ function drawRuntimeEffect(
   const bytes = range ? frame.rawBytes.subarray(range.start, range.start + range.len) : new Uint8Array();
   const uniforms = new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
   const children = frame.children.slice(childStart, childStart + childLen)
-    .map((child) => buildRuntimeChildShader(CK, frame, child, dst, executeRangeOnCanvas))
+    .map((child) => buildRuntimeChildShader(CK, frame, child, dst, executeRangeOnCanvas, resolveFrameImage))
     .filter(Boolean);
   const shader = children.length > 0 ? effect.makeShaderWithChildren(uniforms, children) : effect.makeShader(uniforms);
   const paint = new CK.Paint();
@@ -964,10 +1015,11 @@ function buildRuntimeChildShader(
   child: ChildRef,
   dst: Rect4,
   executeRangeOnCanvas: ExecuteRangeOnCanvas,
+  resolveFrameImage: (image: DecodedImageRef) => any | null,
 ): any | null {
   if (child.type === 'shader') return buildShader(CK, child.shader);
   if (child.type === 'image') {
-    const img = resolveImage(CK, child.image);
+    const img = resolveFrameImage(child.image);
     if (!img?.makeShaderOptions) return null;
     return img.makeShaderOptions(CK.TileMode.Clamp, CK.TileMode.Clamp, CK.FilterMode?.Linear, false, null);
   }

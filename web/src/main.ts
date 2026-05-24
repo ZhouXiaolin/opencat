@@ -9,6 +9,7 @@ import {
   initWasm,
   injectVideoFramesForRender,
   prepareVideoSource,
+  prefetchVideoFramesForRender,
   preloadAssets,
   registerVideoGlobals,
   renderEncodedDrawFrame,
@@ -18,8 +19,10 @@ import {
   type JsonlFile,
   type ResourceMeta,
   type VideoPreviewQuality,
+  type WebRendererInstance,
 } from 'opencat-web';
 import CanvasKitInit from 'canvaskit-wasm/full';
+import { audioPlaybackWindow, playbackPosition } from './playback';
 
 // --- State ---
 let currentComposition: CompositionInfo | null = null;
@@ -30,6 +33,7 @@ let isPlaying = false;
 let playRafId: number | null = null;
 let playStartTime = 0;
 let playStartFrame = 0;
+let playAudioLoopIndex = 0;
 let isExporting = false;
 
 // --- Resource Metadata for WASM build_frame_ir ---
@@ -221,23 +225,18 @@ async function preloadResources(
       if (raw) {
         try {
           const videoBuf = new Uint8Array(raw).buffer;
-          const { width, height, durationSecs } = await prepareVideoSource(
+          await prepareVideoSource(
             assetId,
             videoBuf,
           );
-
-        } catch (err) {
-          console.error(`Video source prep failed for ${assetId}:`, err);
-        }
+        } catch { /* ignore */ }
       }
     } else if (meta.kind === 'audio') {
       const raw = getBlobBytes(assetId);
       if (raw) {
         try {
           await renderer.decode_audio_file(assetId, raw);
-        } catch (err) {
-          console.error(`Audio decode failed for ${assetId}:`, err);
-        }
+        } catch { /* ignore */ }
       }
     }
 
@@ -327,12 +326,9 @@ async function loadJsonl(file: JsonlFile) {
       }
     }
 
-    try {
-      await preloadResources(currentJsonlContent, (done, total) => {
-        drawDownloadProgress(done, total);
-      });
-    } finally {
-    }
+    await preloadResources(currentJsonlContent, (done, total) => {
+      drawDownloadProgress(done, total);
+    });
 
     await renderFrameAsync(0);
   } catch (err) {
@@ -360,9 +356,7 @@ async function renderFrameAsync(frame: number, quality: VideoPreviewQuality = 'r
 
   try {
     await renderFrameWithPipeline(frame, comp, quality);
-  } catch (err) {
-    console.error('Pipeline render error:', err);
-  }
+  } catch { /* ignore */ }
 
   renderPending = false;
 
@@ -399,7 +393,7 @@ async function renderFrameWithPipeline(
 
     const ckCanvas = surface.getCanvas();
     const ir = renderer.build_frame_ir(currentJsonlContent!, frame, resourceMetaJson);
-    renderEncodedDrawFrame(ir, ckCanvas, CK);
+    renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
     surface.flush();
     surface.flush();
   } finally {
@@ -428,26 +422,60 @@ function hasAudioSources(): boolean {
   return false;
 }
 
+function audioResourceIds(): string[] {
+  return Object.entries(resourceMeta)
+    .filter(([, meta]) => meta.kind === 'audio')
+    .map(([id]) => id);
+}
+
+function schedulePreviewAudio(
+  renderer: WebRendererInstance,
+  frame: number,
+): void {
+  if (!currentComposition) return;
+
+  const audioIds = audioResourceIds();
+  if (audioIds.length === 0) return;
+
+  const { offsetSecs, durationSecs } = audioPlaybackWindow(
+    frame,
+    currentComposition.fps,
+    currentComposition.frames,
+  );
+
+  for (const id of audioIds) {
+    try {
+      renderer.play_audio_at(id, offsetSecs, durationSecs);
+    } catch { /* ignore */ }
+  }
+}
+
+function prefetchPreviewVideoFrame(frame: number): void {
+  if (!currentJsonlContent || !currentComposition) return;
+
+  try {
+    const renderer = getRendererOrThrow();
+    const resourcesJson = JSON.stringify(resourceMeta);
+    void prefetchVideoFramesForRender({
+      renderer,
+      jsonlContent: currentJsonlContent,
+      frame,
+      resourcesJson,
+      quality: 'realtime',
+    }).catch(() => { /* ignore */ });
+  } catch { /* ignore */ }
+}
+
 function play() {
   if (!currentComposition || isPlaying) return;
   isPlaying = true;
   btnPlay.textContent = '⏸';
 
   const renderer = getRendererOrThrow();
-  const fps = currentComposition.fps;
-  const totalFrames = currentComposition.frames;
-  const totalDuration = totalFrames / fps;
-  const startTime = currentFrame / fps;
-
-  for (const [id, meta] of Object.entries(resourceMeta)) {
-    if (meta.kind === 'audio') {
-      try {
-        renderer.play_audio_at(id, startTime, totalDuration - startTime);
-      } catch { /* ignore */ }
-    }
-  }
-
   const useAudioClock = hasAudioSources();
+  playAudioLoopIndex = 0;
+  schedulePreviewAudio(renderer, currentFrame);
+  prefetchPreviewVideoFrame(currentFrame);
   playStartFrame = currentFrame;
   playStartTime = useAudioClock ? renderer.audio_context_time() : performance.now() / 1000;
 
@@ -460,11 +488,20 @@ function play() {
 
     const compFps = currentComposition.fps;
     const compFrames = currentComposition.frames;
-    const rawFrame = Math.floor((playStartFrame + elapsed * compFps) % compFrames);
-    const frame = rawFrame < 0 ? rawFrame + compFrames : rawFrame;
+    const position = playbackPosition(playStartFrame, elapsed, compFps, compFrames);
+    const frame = position.frame;
+
+    if (useAudioClock && position.loopIndex !== playAudioLoopIndex) {
+      playAudioLoopIndex = position.loopIndex;
+      try {
+        renderer.stop_audio();
+      } catch { /* ignore */ }
+      schedulePreviewAudio(renderer, frame);
+    }
 
     if (frame !== currentFrame) {
       currentFrame = frame;
+      prefetchPreviewVideoFrame(frame);
       renderFrameAsync(frame);
       updateFrameInfo();
     }
@@ -594,9 +631,7 @@ async function handleExportPng() {
 
   try {
     await exportPngFrame(currentJsonlContent, previewCanvas, currentComposition, currentFrame, resourceMeta);
-  } catch (err) {
-    console.error('PNG export error:', err);
-  } finally {
+  } catch { /* ignore */ } finally {
     isExporting = false;
     btnExportPng.disabled = false;
   }

@@ -43,7 +43,6 @@ function ensureWorker(): Worker {
     else handler.resolve(res);
   };
   worker.onerror = (e) => {
-    console.error('[video-decoder] worker error:', e.message);
     for (const { reject } of pending.values()) {
       reject(new Error(`worker crashed: ${e.message}`));
     }
@@ -95,12 +94,7 @@ export async function getDecodedVideoFrame(
   timeSecs: number,
   quality: VideoPreviewQuality = 'realtime',
 ): Promise<VideoFrame | null> {
-  if (!metaCache.has(url)) {
-    console.warn(
-      `[video-decoder] getFrame skipped: asset not prepared asset=${url}`,
-    );
-    return null;
-  }
+  if (!metaCache.has(url)) return null;
   const id = nextId();
   const res = await rpc<{
     type: 'getFrame';
@@ -110,37 +104,36 @@ export async function getDecodedVideoFrame(
   return res.frame;
 }
 
+export async function prefetchDecodedVideoFrame(
+  url: string,
+  timeSecs: number,
+  quality: VideoPreviewQuality = 'realtime',
+): Promise<void> {
+  if (!metaCache.has(url)) return;
+  const id = nextId();
+  await rpc<{
+    type: 'prefetchFrame';
+    id: number;
+    ok: boolean;
+  }>({ type: 'prefetchFrame', id, assetId: url, timeSecs, quality });
+}
+
 export async function getDecodedFrameRgba(
   url: string,
   timeSecs: number,
   quality: VideoPreviewQuality = 'realtime',
 ): Promise<{ rgba: Uint8Array; width: number; height: number } | null> {
   const meta = metaCache.get(url);
-  if (!meta) {
-    console.warn(
-      `[video-decoder] rgba skipped: asset not prepared asset=${url}`,
-    );
-    return null;
-  }
+  if (!meta) return null;
   const frame = await getDecodedVideoFrame(url, timeSecs, quality);
-  if (!frame) {
-    console.warn(
-      `[video-decoder] rgba NULL asset=${url}`,
-    );
-    return null;
-  }
+  if (!frame) return null;
 
   try {
     const w = frame.displayWidth || meta.width;
     const h = frame.displayHeight || meta.height;
     const off = new OffscreenCanvas(w, h);
     const ctx = off.getContext('2d', { willReadFrequently: true });
-    if (!ctx) {
-      console.warn(
-        `[video-decoder] rgba failed: no 2d context asset=${url} size=${w}x${h}`,
-      );
-      return null;
-    }
+    if (!ctx) return null;
     ctx.drawImage(frame, 0, 0);
     const img = ctx.getImageData(0, 0, w, h);
     return {

@@ -4,16 +4,17 @@ pub mod analyze;
 pub mod cache;
 pub mod canvas;
 pub mod display;
-pub mod resolve;
 pub mod frame_ctx;
 pub mod ir;
 pub mod layout;
+pub mod media;
 pub mod parse;
 pub mod pipeline;
 pub mod platform;
 pub mod probe;
 pub mod profile;
 pub mod render;
+pub mod resolve;
 pub mod resource;
 pub mod runtime;
 pub mod script;
@@ -24,6 +25,8 @@ pub mod text;
 pub mod test_support;
 
 pub use self::frame_ctx::FrameCtx;
+pub use self::ir::asset_id::AssetId;
+pub use self::media::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality};
 pub use self::parse::node::Node;
 pub use self::parse::preflight::collect_resource_requests; // ResourceRequests now in probe
 pub use self::parse::{ParsedComposition, parse};
@@ -33,7 +36,6 @@ pub use self::probe::{
     AssetHandle, AssetLoader, AudioPlan, AudioSegment, AudioSource, ImageMeta, ImageSource,
     ResourceCatalog as ProbeResourceCatalog, SubtitleSource, VideoInfoMeta, VideoSource,
 };
-pub use self::ir::asset_id::AssetId;
 pub use self::resource::catalog::ResourceCatalog;
 pub use self::resource::hash_map_catalog::{HashMapResourceCatalog, ResourceKind, ResourceMeta};
 pub use self::runtime::session::RenderSession;

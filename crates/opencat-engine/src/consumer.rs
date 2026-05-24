@@ -11,7 +11,7 @@ use opencat_core::resource::asset_id::AssetId;
 use skia_safe::{AlphaType, Canvas, ColorType, Data, Image, ImageInfo, RuntimeEffect, images};
 
 use crate::executor::{DrawError, EngineDrawExecutor, EnginePreparedFrameMedia};
-use crate::resource::media::MediaContext;
+use crate::media::MediaContext;
 
 // ---------------------------------------------------------------------------
 // ConsumerError: bridges anyhow::Error / DrawError → std::error::Error
@@ -160,7 +160,8 @@ impl FrameConsumer for EngineFrameConsumer<'_> {
         plan: &FrameMediaPlan,
     ) -> Result<(), ConsumerError> {
         let prepared = prepare_frame(plan, self.paths, self.media_ctx)?;
-        self.executor.execute(header, draw, &prepared, self.canvas)?;
+        self.executor
+            .execute(header, draw, &prepared, self.canvas)?;
         Ok(())
     }
 }
@@ -188,7 +189,8 @@ impl FrameConsumer for EngineLoaderFrameConsumer<'_> {
         plan: &FrameMediaPlan,
     ) -> Result<(), ConsumerError> {
         let prepared = prepare_frame(plan, self.loader, self.media_ctx)?;
-        self.executor.execute(header, draw, &prepared, self.canvas)?;
+        self.executor
+            .execute(header, draw, &prepared, self.canvas)?;
         Ok(())
     }
 }

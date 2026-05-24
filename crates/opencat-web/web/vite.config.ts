@@ -6,7 +6,7 @@ export default defineConfig({
     lib: {
       entry: {
         'opencat-web': resolve(__dirname, 'src/index.ts'),
-        'workers/video-decode-worker': resolve(__dirname, 'src/workers/video-decode-worker.ts'),
+        'workers/video-decode-worker': resolve(__dirname, 'src/media/workers/video-decode-worker.ts'),
       },
       formats: ['es'],
     },

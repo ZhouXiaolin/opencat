@@ -1,7 +1,7 @@
-import type { CompositionInfo, ResourceMeta } from './types';
-import { getRendererOrThrow } from './wasm';
+import type { CompositionInfo, ResourceMeta } from '../types';
+import { getRendererOrThrow } from '../wasm';
 import { injectVideoFramesForRender } from './video-frame-injector';
-import { renderEncodedDrawFrame } from './draw-ir';
+import { renderEncodedDrawFrame } from '../draw-ir';
 import type { IClip } from '@webav/av-cliper';
 
 type ProgressCallback = (current: number, total: number) => void;

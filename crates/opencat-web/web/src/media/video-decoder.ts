@@ -1,5 +1,5 @@
 // RPC client shell for the video-decode worker.
-// All decoding happens in crates/opencat-web/web/src/workers/video-decode-worker.ts;
+// All decoding happens in crates/opencat-web/web/src/media/workers/video-decode-worker.ts;
 // this file just routes calls through postMessage.
 
 import type {

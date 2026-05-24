@@ -2,6 +2,7 @@
 //! 承载 IO / ffmpeg / quickjs / skia / 系统字体 / RenderSession。
 
 pub mod codec;
+pub mod consumer;
 pub mod executor;
 pub mod fonts;
 pub mod inspect;

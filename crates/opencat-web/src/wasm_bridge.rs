@@ -301,7 +301,7 @@ impl WebRenderer {
     }
 }
 
-fn encode_ir_envelope(
+pub(crate) fn encode_ir_envelope(
     draw: &DrawOpFrame,
     encoded: &EncodedDrawFrame,
 ) -> Result<Vec<u8>, JsValue> {
@@ -349,7 +349,7 @@ fn encode_ir_envelope(
     Ok(out)
 }
 
-fn intern_image_strings(draw: &mut DrawOpFrame) {
+pub(crate) fn intern_image_strings(draw: &mut DrawOpFrame) {
     fn push_unique(strings: &mut Vec<String>, asset_id: &str) {
         if !strings.iter().any(|item| item == asset_id) {
             strings.push(asset_id.to_string());

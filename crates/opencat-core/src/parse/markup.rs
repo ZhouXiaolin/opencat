@@ -998,6 +998,32 @@ mod tests {
     }
 
     #[test]
+    fn markup_allows_canvas_hidden_visual_children() {
+        let parsed = parse(
+            r#"<opencat>
+  <div id="root">
+    <canvas id="stage">
+      <text id="hidden">Hidden</text>
+    </canvas>
+  </div>
+</opencat>"#,
+        )
+        .expect("canvas hidden children should parse");
+
+        assert_eq!(parsed.root.style_ref().id, "root");
+    }
+
+    #[test]
+    fn markup_rejects_audio_inside_canvas_hidden_subtree() {
+        let err = parse(
+            r#"<opencat><canvas id="stage"><audio id="bad" path="/tmp/a.wav" /></canvas></opencat>"#,
+        )
+        .expect_err("audio inside canvas should fail");
+
+        assert!(err.to_string().contains("audio is not allowed inside canvas"));
+    }
+
+    #[test]
     fn rejects_bad_markup_transitions() {
         let cases = [
             (

@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::{
+    parse::node::Node,
     parse::primitives::{ImageSource, OpenverseQuery},
     style::{NodeStyle, impl_node_style_api},
 };
@@ -15,6 +16,7 @@ pub struct CanvasAsset {
 pub struct Canvas {
     pub(crate) style: NodeStyle,
     pub(crate) assets: Vec<CanvasAsset>,
+    pub(crate) hidden_children: Vec<Node>,
 }
 
 impl Canvas {
@@ -76,12 +78,22 @@ impl Canvas {
     pub fn assets_ref(&self) -> &[CanvasAsset] {
         &self.assets
     }
+
+    pub fn hidden_child(mut self, child: Node) -> Self {
+        self.hidden_children.push(child);
+        self
+    }
+
+    pub fn hidden_children_ref(&self) -> &[Node] {
+        &self.hidden_children
+    }
 }
 
 pub fn canvas() -> Canvas {
     Canvas {
         style: NodeStyle::default(),
         assets: Vec::new(),
+        hidden_children: Vec::new(),
     }
 }
 

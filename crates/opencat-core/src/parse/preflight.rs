@@ -96,6 +96,9 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
                     req.images.insert(asset.source.clone());
                 }
             }
+            for child in canvas.hidden_children_ref() {
+                collect_sources(child, frame_ctx, req);
+            }
         }
         NodeKind::Image(image) => {
             if !matches!(image.source(), ImageSource::Unset) {

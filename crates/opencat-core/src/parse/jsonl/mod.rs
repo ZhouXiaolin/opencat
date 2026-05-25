@@ -14,7 +14,7 @@ use crate::style::NodeStyle;
 
 pub mod tailwind;
 
-use crate::parse::document::{build_tree, build_tree_with_tl, join_scripts};
+use crate::parse::document::{build_tree, build_tree_with_tl, join_scripts, validate_unique_ids};
 
 #[derive(Debug, Deserialize, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -451,6 +451,8 @@ pub fn parse_with_base_dir(
             }
         }
     }
+
+    validate_unique_ids(&elements, &audio_elements)?;
 
     let has_explicit_tl = !timeline_ids.is_empty();
     if !has_explicit_tl && !transitions.is_empty() {
@@ -1449,6 +1451,19 @@ mod tests {
         .expect_err("JSONL canvas children stay unsupported");
 
         assert!(err.to_string().contains("canvas node `stage` cannot have child nodes"));
+    }
+
+    #[test]
+    fn jsonl_rejects_duplicate_visual_ids() {
+        let err = parse(
+            r#"{"type":"composition","width":320,"height":180,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"dup","parentId":"root","type":"div","className":""}
+{"id":"dup","parentId":"root","type":"text","className":"","text":"x"}"#,
+        )
+        .expect_err("duplicate ids should fail");
+
+        assert!(err.to_string().contains("duplicate id `dup`"));
     }
 
     #[test]

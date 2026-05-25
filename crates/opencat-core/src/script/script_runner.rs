@@ -13,6 +13,7 @@ use crate::script::dispatch::{binding_shim_js, dispatch_binding};
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{ANIMATION_RUNTIME, CANVAS_API_RUNTIME, NODE_STYLE_RUNTIME};
+use crate::script::ScriptTargetRegistry;
 
 pub struct ScriptRunner<C: JsContext> {
     ctx: C,
@@ -20,6 +21,7 @@ pub struct ScriptRunner<C: JsContext> {
     first_frame: bool,
     run_fn_source: String,
     flush_fn_source: String,
+    target_registry: Option<ScriptTargetRegistry>,
 }
 
 impl<C: JsContext> ScriptRunner<C> {
@@ -31,6 +33,7 @@ impl<C: JsContext> ScriptRunner<C> {
             first_frame: true,
             run_fn_source,
             flush_fn_source,
+            target_registry: None,
         })
     }
 
@@ -41,6 +44,10 @@ impl<C: JsContext> ScriptRunner<C> {
                 s.register_text_source(id, src.clone());
             }
         });
+    }
+
+    pub fn set_target_registry(&mut self, registry: ScriptTargetRegistry) {
+        self.target_registry = Some(registry);
     }
 
     pub fn run_into(
@@ -66,6 +73,10 @@ impl<C: JsContext> ScriptRunner<C> {
             json!(current_node_id.unwrap_or("")),
         )?;
 
+        if let Some(registry) = &self.target_registry {
+            apply_target_registry(&self.ctx, registry)?;
+        }
+
         // Web 端共享全局作用域，多个 runner 的 __opencatCallNative 会互相覆盖。
         // 必须在执行脚本前重新绑定，确保 native 调用路由到本 runner 的 store。
         self.ctx.rebind_dispatcher()?;
@@ -85,12 +96,50 @@ impl<C: JsContext> ScriptRunner<C> {
     }
 }
 
+pub fn apply_target_registry<C: JsContext>(
+    ctx: &C,
+    registry: &ScriptTargetRegistry,
+) -> anyhow::Result<()> {
+    let visual: serde_json::Map<String, serde_json::Value> = registry
+        .visual_ids
+        .iter()
+        .map(|k| (k.clone(), serde_json::Value::Bool(true)))
+        .collect();
+    let canvas: serde_json::Map<String, serde_json::Value> = registry
+        .canvas_ids
+        .iter()
+        .map(|k| (k.clone(), serde_json::Value::Bool(true)))
+        .collect();
+    let non_visual: serde_json::Map<String, serde_json::Value> = registry
+        .non_visual_ids
+        .iter()
+        .map(|k| (k.clone(), serde_json::Value::Bool(true)))
+        .collect();
+    ctx.set_ctx_field(
+        "__targetRegistry",
+        json!({
+            "visual": visual,
+            "canvas": canvas,
+            "nonVisual": non_visual,
+        }),
+    )
+}
+
 fn install_runtime<C: JsContext>(ctx: &C, user_source: &str) -> anyhow::Result<(String, String)> {
     // 1. 兜底 globalThis.ctx（端侧 new() 已建过，这里只在尚未存在时初始化）。
     ctx.eval(
         "globalThis.ctx = globalThis.ctx || {\
             frame:0, fps:0, totalFrames:0, currentFrame:0, sceneFrames:0, \
             __currentCanvasTarget:''\
+         };",
+    )?;
+
+    // 1b. Initialize empty target registry (will be populated by apply_target_registry).
+    ctx.eval(
+        "ctx.__targetRegistry = ctx.__targetRegistry || {\
+            visual: Object.create(null),\
+            canvas: Object.create(null),\
+            nonVisual: Object.create(null)\
          };",
     )?;
 

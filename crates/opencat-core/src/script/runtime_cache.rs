@@ -6,11 +6,12 @@ use crate::frame_ctx::ScriptFrameCtx;
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::script_runner::ScriptRunner;
-use crate::script::{ScriptDriverId, ScriptHost, ScriptTextSource, driver_id_from_source};
+use crate::script::{ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source};
 
 pub struct ScriptRuntimeCache<C: JsContext> {
     runners: HashMap<u64, ScriptRunner<C>>,
     text_sources: HashMap<String, ScriptTextSource>,
+    target_registry: Option<ScriptTargetRegistry>,
 }
 
 impl<C: JsContext> Default for ScriptRuntimeCache<C> {
@@ -18,6 +19,7 @@ impl<C: JsContext> Default for ScriptRuntimeCache<C> {
         Self {
             runners: HashMap::new(),
             text_sources: HashMap::new(),
+            target_registry: None,
         }
     }
 }
@@ -61,6 +63,13 @@ impl<C: JsContext> ScriptHost for ScriptRuntimeCache<C> {
             .get_mut(&driver.0)
             .ok_or_else(|| anyhow!("script driver {} not installed", driver.0))?;
         runner.set_text_sources(&self.text_sources);
+        if let Some(reg) = &self.target_registry {
+            runner.set_target_registry(reg.clone());
+        }
         runner.run_into(frame_ctx, current_node_id, recorder)
+    }
+
+    fn set_target_registry(&mut self, registry: ScriptTargetRegistry) {
+        self.target_registry = Some(registry);
     }
 }

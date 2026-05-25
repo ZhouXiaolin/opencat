@@ -24,7 +24,7 @@ pub mod runtime_cache;
 pub mod script_runner;
 pub mod text_units;
 
-pub use host::{ScriptDriverId, ScriptHost, driver_id_from_source};
+pub use host::{ScriptDriverId, ScriptHost, ScriptTargetRegistry, driver_id_from_source};
 pub use live_host::LiveScriptHost;
 pub use mutations::*;
 pub use precomputed_host::PrecomputedScriptHost;

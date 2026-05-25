@@ -13,7 +13,7 @@ use crate::parse::{
 };
 use crate::script::ScriptDriver;
 
-use super::{ParsedElement, ParsedElementKind, ParsedTransition};
+use crate::parse::document::{ParsedElement, ParsedElementKind, ParsedTransition};
 
 pub(super) fn join_scripts(scripts: Vec<String>) -> Option<String> {
     if scripts.is_empty() {

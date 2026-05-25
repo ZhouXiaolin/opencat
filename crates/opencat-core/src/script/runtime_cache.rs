@@ -6,7 +6,9 @@ use crate::frame_ctx::ScriptFrameCtx;
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::script_runner::ScriptRunner;
-use crate::script::{ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source};
+use crate::script::{
+    ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
+};
 
 pub struct ScriptRuntimeCache<C: JsContext> {
     runners: HashMap<u64, ScriptRunner<C>>,

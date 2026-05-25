@@ -6,7 +6,9 @@ use crate::script::dispatch::{binding_shim_js, dispatch_binding};
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{ANIMATION_RUNTIME, CANVAS_API_RUNTIME, NODE_STYLE_RUNTIME};
-use crate::script::{ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source};
+use crate::script::{
+    ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
+};
 
 pub struct LiveScriptHost<C: JsContext> {
     ctx: C,

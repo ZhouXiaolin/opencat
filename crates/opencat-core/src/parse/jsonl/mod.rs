@@ -1450,7 +1450,10 @@ mod tests {
         )
         .expect_err("JSONL canvas children stay unsupported");
 
-        assert!(err.to_string().contains("canvas node `stage` cannot have child nodes"));
+        assert!(
+            err.to_string()
+                .contains("canvas node `stage` cannot have child nodes")
+        );
     }
 
     #[test]

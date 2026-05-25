@@ -35,3 +35,70 @@ pub fn parse_drrect(
     parse_drrect_coords(coords)
         .ok_or_else(|| script_error(op, "expected 10 coordinate values".to_string()))
 }
+
+#[derive(serde::Deserialize, Debug)]
+#[serde(tag = "__opencatShader")]
+pub enum ScriptChildSpec {
+    #[serde(rename = "image")]
+    Image {
+        #[serde(rename = "assetId")] asset_id: String,
+        #[serde(rename = "tileX", default = "default_tile_mode")] tile_x: TileModeName,
+        #[serde(rename = "tileY", default = "default_tile_mode")] tile_y: TileModeName,
+    },
+}
+
+#[derive(serde::Deserialize, Debug, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum TileModeName {
+    Clamp,
+    Repeat,
+    Mirror,
+    Decal,
+}
+
+fn default_tile_mode() -> TileModeName {
+    TileModeName::Clamp
+}
+
+impl ScriptChildSpec {
+    pub fn to_ir_child_ref(&self) -> crate::ir::draw_types::RuntimeEffectChildRef {
+        match self {
+            ScriptChildSpec::Image { asset_id, .. } => {
+                crate::ir::draw_types::RuntimeEffectChildRef::Image(
+                    crate::ir::draw_types::ImageRef::Static {
+                        asset_id: asset_id.clone(),
+                    },
+                )
+            }
+        }
+    }
+}
+
+pub fn parse_script_children(json: &str) -> Result<Vec<ScriptChildSpec>, anyhow::Error> {
+    serde_json::from_str(json)
+        .map_err(|e| anyhow::anyhow!("children_json decode: {e}"))
+}
+
+#[cfg(test)]
+mod script_children_tests {
+    use super::*;
+
+    #[test]
+    fn parses_image_child_spec_with_tile_modes() {
+        let specs = parse_script_children(
+            r#"[{"__opencatShader":"image","assetId":"decor","tileX":"clamp","tileY":"repeat"}]"#,
+        ).unwrap();
+        assert_eq!(specs.len(), 1);
+        match &specs[0] {
+            ScriptChildSpec::Image { asset_id, .. } => assert_eq!(asset_id, "decor"),
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_shader_kind() {
+        let err = parse_script_children(
+            r#"[{"__opencatShader":"picture","ownerId":"foo"}]"#,
+        ).err().expect("should reject picture child for now");
+        assert!(err.to_string().contains("decode"));
+    }
+}

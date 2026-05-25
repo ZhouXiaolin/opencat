@@ -558,6 +558,29 @@ macro_rules! for_each_binding {
             $rec . record_draw_picture($id, &owner_id, x, y);
         }}
 
+        $binding! { node $rec $id canvas_runtime_effect_draw ($id: &str, sksl: String, uniforms: Vec<f32>, children_json: String, dst_x: f32, dst_y: f32, dst_w: f32, dst_h: f32) {
+            let specs = $crate::script::helpers::parse_script_children(&children_json)?;
+            let child_refs: Vec<$crate::ir::draw_types::RuntimeEffectChildRef> =
+                specs.iter().map(|c| c.to_ir_child_ref()).collect();
+            let uniforms_bytes: Vec<u8> = uniforms
+                .iter()
+                .flat_map(|v| v.to_ne_bytes())
+                .collect();
+            $rec . record_canvas_runtime_effect(
+                $id,
+                sksl,
+                uniforms_bytes,
+                child_refs,
+                $crate::ir::draw_op::Rect4 {
+                    x: dst_x,
+                    y: dst_y,
+                    width: dst_w,
+                    height: dst_h,
+                },
+            );
+            Ok::<_, anyhow::Error>(())
+        }}
+
         // ── Node: text unit overrides (complex Object destructuring) ──────
         $binding! { node $rec $id record_text_unit_override ($id: &str, granularity: String, index: u32, values: serde_json::Map<String, serde_json::Value>) {
             let index = index as usize;

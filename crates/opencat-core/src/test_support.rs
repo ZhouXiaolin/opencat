@@ -167,4 +167,5 @@ impl crate::script::ScriptHost for MockScriptHost {
     ) -> anyhow::Result<()> {
         Ok(())
     }
+    fn set_target_registry(&mut self, _: crate::script::ScriptTargetRegistry) {}
 }

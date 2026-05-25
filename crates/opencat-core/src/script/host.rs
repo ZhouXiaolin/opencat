@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 
 use crate::frame_ctx::ScriptFrameCtx;
@@ -14,6 +16,27 @@ pub fn driver_id_from_source(source: &str) -> ScriptDriverId {
     ScriptDriverId(h.finish())
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ScriptTargetRegistry {
+    pub visual_ids: HashSet<String>,
+    pub canvas_ids: HashSet<String>,
+    pub non_visual_ids: HashSet<String>,
+}
+
+impl ScriptTargetRegistry {
+    pub fn contains_visual(&self, id: &str) -> bool {
+        self.visual_ids.contains(id)
+    }
+
+    pub fn contains_canvas(&self, id: &str) -> bool {
+        self.canvas_ids.contains(id)
+    }
+
+    pub fn contains_non_visual(&self, id: &str) -> bool {
+        self.non_visual_ids.contains(id)
+    }
+}
+
 pub trait ScriptHost {
     fn install(&mut self, source: &str) -> Result<ScriptDriverId>;
     fn register_text_source(&mut self, node_id: &str, source: ScriptTextSource);
@@ -25,6 +48,7 @@ pub trait ScriptHost {
         current_node_id: Option<&str>,
         recorder: &mut dyn MutationRecorder,
     ) -> Result<()>;
+    fn set_target_registry(&mut self, registry: ScriptTargetRegistry);
 }
 
 #[cfg(test)]

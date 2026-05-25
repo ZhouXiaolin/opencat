@@ -140,9 +140,11 @@ pub(crate) fn extract_raw_script(input: &str) -> anyhow::Result<ExtractedMarkup>
 use std::path::PathBuf;
 
 use crate::parse::composition::{AudioAttachment, CompositionAudioSource};
+use std::collections::HashMap;
+
 use crate::parse::document::{
     BuildOptions, CanvasChildrenMode, ParsedAudioElement, ParsedComposition, ParsedDocumentParts,
-    ParsedElement, ParsedElementKind, build_tree_with_options,
+    ParsedElement, ParsedElementKind, ParsedTransition, build_tree_with_tl_options,
 };
 use crate::parse::primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource};
 
@@ -199,9 +201,18 @@ pub fn parse_with_base_dir(
         })
         .collect();
 
-    let built_root = build_tree_with_options(
+    let transitions_by_tl: HashMap<String, Vec<&ParsedTransition>> = {
+        let mut map: HashMap<String, Vec<&ParsedTransition>> = HashMap::new();
+        for t in &parts.transitions {
+            map.entry(t.parent_id.clone()).or_default().push(t);
+        }
+        map
+    };
+
+    let built_root = build_tree_with_tl_options(
         &parts.elements,
         &parts.scripts_by_parent,
+        &transitions_by_tl,
         parts.fps as u32,
         BuildOptions {
             canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree,
@@ -229,6 +240,10 @@ const ICON_ATTRS: &[&str] = &["id", "class", "duration", "icon"];
 const TL_ATTRS: &[&str] = &["id", "class"];
 const CAPTION_ATTRS: &[&str] = &["id", "class", "duration", "path"];
 const PATH_ATTRS: &[&str] = &["id", "class", "duration", "d"];
+const TRANSITION_ATTRS: &[&str] = &[
+    "from", "to", "effect", "duration", "direction", "timing",
+    "damping", "stiffness", "mass", "seed", "hueShift", "maskScale",
+];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ParentContext {
@@ -265,7 +280,7 @@ fn parse_opencat_children(
                         parse_visual_node(child, None, base_dir, parts, ParentContext::Root)?;
                     }
                     "transition" => {
-                        anyhow::bail!("<transition> must be a direct child of <tl>");
+                        anyhow::bail!("transition must be a direct child of <tl>");
                     }
                     other => anyhow::bail!("unknown element <{other}>"),
                 }
@@ -331,7 +346,7 @@ fn parse_visual_node(
                                 )?;
                             }
                             "transition" => {
-                                anyhow::bail!("<transition> must be a direct child of <tl>");
+                                anyhow::bail!("transition must be a direct child of <tl>");
                             }
                             other => anyhow::bail!("unknown element <{other}>"),
                         }
@@ -401,7 +416,7 @@ fn parse_visual_node(
                                 anyhow::bail!("audio is not allowed inside canvas");
                             }
                             "transition" => {
-                                anyhow::bail!("<transition> must be a direct child of <tl>");
+                                anyhow::bail!("transition must be a direct child of <tl>");
                             }
                             other => anyhow::bail!("unknown element <{other}>"),
                         }
@@ -676,15 +691,95 @@ fn parse_video_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<VideoSour
 
 fn parse_transition_node(
     node: roxmltree::Node<'_, '_>,
-    _parent_tl_id: &str,
-    _parts: &mut ParsedDocumentParts,
+    parent_tl_id: &str,
+    parts: &mut ParsedDocumentParts,
 ) -> anyhow::Result<()> {
-    let _from = required_attr(node, "from")?;
-    let _to = required_attr(node, "to")?;
-    let _effect = required_attr(node, "effect")?;
-    let _duration_attr = required_attr(node, "duration")?;
+    ensure_allowed_attrs(node, TRANSITION_ATTRS)?;
+
+    let from = required_non_empty_attr(node, "from")?.to_string();
+    let to = required_non_empty_attr(node, "to")?.to_string();
+    let effect = required_non_empty_attr(node, "effect")?.to_string();
+    let duration: u32 = {
+        let val = required_non_empty_attr(node, "duration")?;
+        if !val.bytes().all(|b| b.is_ascii_digit()) {
+            anyhow::bail!("<transition> `duration` must be a positive integer (got `{val}`)");
+        }
+        if val.starts_with('0') && val.len() > 1 {
+            anyhow::bail!("<transition> `duration` must not have leading zeros");
+        }
+        let n: u32 = val
+            .parse()
+            .map_err(|e| anyhow::anyhow!("<transition> `duration`: {e}"))?;
+        if n == 0 {
+            anyhow::bail!("<transition> `duration` must be positive");
+        }
+        n
+    };
+
+    if from == to {
+        anyhow::bail!("<transition> `from` and `to` must be distinct");
+    }
+
+    let direction = node.attribute("direction").map(|s| s.to_string());
+    let timing = node.attribute("timing").map(|s| s.to_string());
+    let damping = parse_optional_f32_positive(node, "damping")?;
+    let stiffness = parse_optional_f32_positive(node, "stiffness")?;
+    let mass = parse_optional_f32_positive(node, "mass")?;
+    let seed = parse_optional_f32(node, "seed")?;
+    let hue_shift = parse_optional_f32(node, "hueShift")?;
+    let mask_scale = parse_optional_f32_positive(node, "maskScale")?;
+
+    parts.transitions.push(ParsedTransition {
+        parent_id: parent_tl_id.to_string(),
+        from,
+        to,
+        effect,
+        duration,
+        direction,
+        timing,
+        damping,
+        stiffness,
+        mass,
+        seed,
+        hue_shift,
+        mask_scale,
+    });
+
     validate_no_element_children(node, "transition")?;
     Ok(())
+}
+
+fn parse_optional_f32(
+    node: roxmltree::Node<'_, '_>,
+    name: &str,
+) -> anyhow::Result<Option<f32>> {
+    match node.attribute(name) {
+        None => Ok(None),
+        Some(val) => {
+            let n: f32 = val
+                .parse()
+                .map_err(|e| anyhow::anyhow!("`{name}`: {e}"))?;
+            if !n.is_finite() {
+                anyhow::bail!("`{name}` must be finite");
+            }
+            Ok(Some(n))
+        }
+    }
+}
+
+fn parse_optional_f32_positive(
+    node: roxmltree::Node<'_, '_>,
+    name: &str,
+) -> anyhow::Result<Option<f32>> {
+    match parse_optional_f32(node, name)? {
+        None => Ok(None),
+        Some(val) => {
+            if val <= 0.0 {
+                anyhow::bail!("`{name}` must be positive");
+            }
+            Ok(Some(val))
+        }
+    }
 }
 
 fn required_attr<'a>(node: roxmltree::Node<'a, '_>, name: &str) -> anyhow::Result<&'a str> {
@@ -917,6 +1012,53 @@ mod tests {
             (r#"<opencat><path id="p" /></opencat>"#, "d"),
             (r#"<opencat><icon id="i" /></opencat>"#, "icon"),
         ];
+
+        for (input, expected) in cases {
+            let err = parse(input).expect_err(input);
+            assert!(err.to_string().contains(expected), "{input}: {err}");
+        }
+    }
+
+    #[test]
+    fn parses_timeline_with_adjacent_transition() {
+        let parsed = parse(
+            r#"<opencat>
+  <tl id="main">
+    <div id="scene-a" duration="30" />
+    <transition from="scene-a" to="scene-b" effect="fade" duration="10" timing="linear" />
+    <div id="scene-b" duration="30" />
+  </tl>
+</opencat>"#,
+        )
+        .expect("timeline should parse");
+
+        assert_eq!(parsed.root.style_ref().id, "main");
+    }
+
+    #[test]
+    fn rejects_bad_markup_transitions() {
+        let cases = [
+            (
+                r#"<opencat><div id="root"><transition from="a" to="b" effect="fade" duration="1" /></div></opencat>"#,
+                "transition must be a direct child of <tl>",
+            ),
+            (
+                r#"<opencat><tl id="tl"><div id="a" duration="1" /><div id="b" duration="1" /></tl></opencat>"#,
+                "missing transition",
+            ),
+            (
+                r#"<opencat><tl id="tl"><div id="a" /><transition from="a" to="b" effect="fade" duration="1" /><div id="b" duration="1" /></tl></opencat>"#,
+                "missing a duration",
+            ),
+        (
+            r#"<opencat><tl id="tl"><div id="a" duration="1" /><transition from="a" to="a" effect="fade" duration="1" /><div id="b" duration="1" /></tl></opencat>"#,
+            "distinct",
+        ),
+        (
+            r#"<opencat><tl id="tl"><div id="a" duration="1" /><transition from="a" to="b" effect="fade" duration="0" /><div id="b" duration="1" /></tl></opencat>"#,
+            "duration",
+        ),
+    ];
 
         for (input, expected) in cases {
             let err = parse(input).expect_err(input);

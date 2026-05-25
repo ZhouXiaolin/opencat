@@ -259,6 +259,71 @@ pub enum ShaderType {
     },
 }
 
+impl std::hash::Hash for ShaderType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            ShaderType::LinearGradient {
+                start,
+                end,
+                colors,
+            } => {
+                0_u8.hash(state);
+                start.0.to_bits().hash(state);
+                start.1.to_bits().hash(state);
+                end.0.to_bits().hash(state);
+                end.1.to_bits().hash(state);
+                for (stop, rgba) in colors {
+                    stop.to_bits().hash(state);
+                    for c in rgba {
+                        c.to_bits().hash(state);
+                    }
+                }
+            }
+            ShaderType::RadialGradient {
+                center,
+                radius,
+                colors,
+            } => {
+                1_u8.hash(state);
+                center.0.to_bits().hash(state);
+                center.1.to_bits().hash(state);
+                radius.to_bits().hash(state);
+                for (stop, rgba) in colors {
+                    stop.to_bits().hash(state);
+                    for c in rgba {
+                        c.to_bits().hash(state);
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl std::hash::Hash for ShaderSpec {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.shader_type.hash(state);
+    }
+}
+
+impl std::hash::Hash for RuntimeEffectChildRef {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            RuntimeEffectChildRef::Image(img) => {
+                0_u8.hash(state);
+                img.hash(state);
+            }
+            RuntimeEffectChildRef::Picture(range) => {
+                1_u8.hash(state);
+                range.hash(state);
+            }
+            RuntimeEffectChildRef::Shader(spec) => {
+                2_u8.hash(state);
+                spec.hash(state);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

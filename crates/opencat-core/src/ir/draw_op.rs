@@ -1,5 +1,6 @@
 use super::draw_types::{
     BytesRangeId, ChildRange, DrawOpRange, EffectId, ImageRef, PaintId, PathId, PathOp,
+    RuntimeEffectChildRef,
 };
 #[allow(unused_imports)]
 use crate::canvas::paint::BlendMode;
@@ -393,6 +394,16 @@ pub enum DrawOp {
         x: f32,
         y: f32,
     },
+
+    /// Script-originated runtime effect (pre-intern intermediate form).
+    /// Translated to `DrawOp::RuntimeEffect` during `execute_draw_op`.
+    /// Engine replay treats this as a no-op; the binary encoder must never see it.
+    ScriptRuntimeEffect {
+        sksl: String,
+        uniforms_bytes: Vec<u8>,
+        children: Vec<RuntimeEffectChildRef>,
+        dst: Rect4,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -618,6 +629,18 @@ impl std::hash::Hash for DrawOp {
                 x.to_bits().hash(state);
                 y.to_bits().hash(state);
             }
+            DrawOp::ScriptRuntimeEffect {
+                sksl,
+                uniforms_bytes,
+                children,
+                dst,
+            } => {
+                39_u8.hash(state);
+                sksl.hash(state);
+                uniforms_bytes.hash(state);
+                children.hash(state);
+                dst.hash(state);
+            }
         }
     }
 }
@@ -685,5 +708,42 @@ mod tests {
         assert_ne!(LineCap::Butt, LineCap::Round);
         assert_ne!(LineJoin::Miter, LineJoin::Round);
         assert_ne!(PointMode::Points, PointMode::Lines);
+    }
+
+    #[test]
+    fn script_runtime_effect_holds_inline_payload() {
+        use crate::ir::draw_types::{ImageRef, RuntimeEffectChildRef};
+        let op = DrawOp::ScriptRuntimeEffect {
+            sksl: "half4 main(float2 p){return half4(1);}".to_string(),
+            uniforms_bytes: vec![0u8, 1, 2, 3],
+            children: vec![RuntimeEffectChildRef::Image(ImageRef::Static {
+                asset_id: "img".into(),
+            })],
+            dst: Rect4 { x: 0.0, y: 0.0, width: 10.0, height: 10.0 },
+        };
+        match &op {
+            DrawOp::ScriptRuntimeEffect { sksl, uniforms_bytes, children, dst } => {
+                assert!(sksl.contains("half4"));
+                assert_eq!(uniforms_bytes.len(), 4);
+                assert_eq!(children.len(), 1);
+                assert_eq!(dst.width, 10.0);
+            }
+            _ => panic!("expected ScriptRuntimeEffect"),
+        }
+    }
+
+    #[test]
+    fn script_runtime_effect_hash_differs_by_sksl() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let make = |s: &str| DrawOp::ScriptRuntimeEffect {
+            sksl: s.to_string(),
+            uniforms_bytes: Vec::new(),
+            children: Vec::new(),
+            dst: Rect4 { x: 0.0, y: 0.0, width: 1.0, height: 1.0 },
+        };
+        let mut h1 = DefaultHasher::new(); make("a").hash(&mut h1);
+        let mut h2 = DefaultHasher::new(); make("b").hash(&mut h2);
+        assert_ne!(h1.finish(), h2.finish());
     }
 }

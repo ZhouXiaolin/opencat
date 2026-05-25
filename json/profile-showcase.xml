@@ -1,5 +1,10 @@
 <opencat width="1280" height="720" fps="30" frames="414">
-  <audio id="bgm" url="http://127.0.0.1:8080/mp3/1.mp3" />
+  <soundtrack>
+    <audio id="bgm" url="http://127.0.0.1:8080/mp3/1.mp3" attach="scene1" />
+    <audio id="bgm" url="http://127.0.0.1:8080/mp3/1.mp3" attach="scene2" />
+    <audio id="bgm" url="http://127.0.0.1:8080/mp3/1.mp3" attach="scene3" />
+
+  </soundtrack>
 
   <script>
 // s1-canvas draw script — grid + radar + pulsing dot

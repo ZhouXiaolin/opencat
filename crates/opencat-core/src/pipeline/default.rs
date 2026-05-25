@@ -49,8 +49,13 @@ pub struct DefaultPipeline<L: AssetLoader, S: JsContext> {
 }
 
 impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
-    pub fn open(jsonl: &str, mut loader: L, scripts: S) -> Result<Self> {
-        let parsed = crate::parse::jsonl::parse(jsonl)?;
+    pub fn open(input: &str, mut loader: L, scripts: S) -> Result<Self> {
+        let trimmed = input.trim();
+        let parsed = if trimmed.starts_with('{') {
+            crate::parse::jsonl::parse(input)?
+        } else {
+            crate::parse::markup::parse(input)?
+        };
 
         let root_node = parsed.root;
         let composition = Composition::new("pipeline")
@@ -411,5 +416,19 @@ mod tests {
             pipeline.info().audio_plan.segments.is_empty(),
             "no audio sources => empty plan"
         );
+    }
+
+    #[test]
+    fn open_from_xml() {
+        let xml = r#"<opencat width="200" height="100" fps="30" frames="1">
+  <div id="root" />
+</opencat>"#;
+        let loader = InMemoryLoader::default();
+        let ctx = NoopJsContext::new().expect("js context");
+        let pipeline = DefaultPipeline::open(xml, loader, ctx).expect("open xml");
+        assert_eq!(pipeline.info().width, 200);
+        assert_eq!(pipeline.info().height, 100);
+        assert_eq!(pipeline.info().fps, 30);
+        assert_eq!(pipeline.info().frames, 1);
     }
 }

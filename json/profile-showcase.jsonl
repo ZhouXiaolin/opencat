@@ -1,7 +1,7 @@
 {"type": "composition", "width": 1280, "height": 720, "fps": 30, "frames": 414}
 {"id": "root", "parentId": null, "type": "div", "className": "relative w-[1280px] h-[720px] bg-slate-950"}
 {"id": "main-tl", "parentId": "root", "type": "tl", "className": "absolute inset-0"}
-{"id": "bgm", "parentId": null, "type": "audio", "url": "http://127.0.0.1:8080/mp3/1.mp3"}
+{"id": "bgm", "parentId": null, "type": "audio", "url": "http://127.0.0.1:8080/mp3/1.mp3", "attach": "main-tl"}
 {"id": "scene1", "parentId": "main-tl", "type": "div", "className": "relative w-[1280px] h-[720px] bg-slate-950", "duration": 90}
 {"id": "s1-canvas", "parentId": "scene1", "type": "canvas", "className": "absolute inset-0 w-[1280px] h-[720px]"}
 {"type": "script", "parentId": "s1-canvas", "content": "const CK=ctx.CanvasKit;const c=ctx.getCanvasById('s1-canvas');const fill=(x)=>{const p=new CK.Paint();p.setStyle(CK.PaintStyle.Fill);p.setColor(CK.parseColorString(x));return p;};const stroke=(x,w)=>{const p=new CK.Paint();p.setStyle(CK.PaintStyle.Stroke);p.setColor(CK.parseColorString(x));p.setStrokeWidth(w);return p;};const t=ctx.frame/ctx.fps;c.clear();for(let i=0;i<8;i++){const y=80+i*80;const off=Math.sin(t*1.2+i*0.4)*30;c.drawLine(-40+off,y,1320+off,y,stroke('#38bdf833',1));}c.save();c.translate(960,360);c.rotate(t*12);for(let i=0;i<5;i++){c.drawCircle(0,0,60+i*30,stroke('#22d3ee44',2));}c.restore();c.drawCircle(960,360,20+Math.sin(t*3)*8,fill('#22d3ee'));"}

@@ -9,7 +9,7 @@ fn main() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("No input file provided"));
     };
 
-    let jsonl = std::fs::read_to_string(&path)?;
+    let source = std::fs::read_to_string(&path)?;
     let base_dir = Path::new(&path).parent();
 
     let output = if let Some(out) = std::env::args().nth(2) {
@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
     println!("Rendering {} -> {}", path, output);
 
     let config = EncodingConfig::mp4();
-    render_from_jsonl_with_base(&jsonl, base_dir, &output, &config)?;
+    render_from_jsonl_with_base(&source, base_dir, &output, &config)?;
 
     println!("Done: {}", output);
     Ok(())

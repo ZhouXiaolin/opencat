@@ -137,10 +137,14 @@ pub(crate) fn extract_raw_script(input: &str) -> anyhow::Result<ExtractedMarkup>
     })
 }
 
+use std::path::PathBuf;
+
+use crate::parse::composition::{AudioAttachment, CompositionAudioSource};
 use crate::parse::document::{
-    BuildOptions, CanvasChildrenMode, ParsedComposition, ParsedDocumentParts, ParsedElement,
-    ParsedElementKind, build_tree_with_options,
+    BuildOptions, CanvasChildrenMode, ParsedAudioElement, ParsedComposition, ParsedDocumentParts,
+    ParsedElement, ParsedElementKind, build_tree_with_options,
 };
+use crate::parse::primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource};
 
 pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     parse_with_base_dir(input, None)
@@ -165,13 +169,43 @@ pub fn parse_with_base_dir(
         markup_root_script: extracted.script,
         ..Default::default()
     };
-    parse_visual_children(root, base_dir, &mut parts)?;
+    parse_opencat_children(root, base_dir, &mut parts)?;
+
+    let audio_sources: Vec<CompositionAudioSource> = parts
+        .audio_elements
+        .iter()
+        .map(|audio| {
+            let attach = audio
+                .parent_id
+                .as_ref()
+                .and_then(|pid| {
+                    parts
+                        .elements
+                        .iter()
+                        .find(|el| {
+                            el.id == *pid && matches!(el.kind, ParsedElementKind::Timeline)
+                        })
+                        .map(|_| AudioAttachment::Scene {
+                            scene_id: pid.clone(),
+                        })
+                })
+                .unwrap_or(AudioAttachment::Timeline);
+            CompositionAudioSource {
+                id: audio.id.clone(),
+                source: audio.source.clone(),
+                attach,
+                duration: audio.duration,
+            }
+        })
+        .collect();
 
     let built_root = build_tree_with_options(
         &parts.elements,
         &parts.scripts_by_parent,
         parts.fps as u32,
-        BuildOptions { canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree },
+        BuildOptions {
+            canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree,
+        },
     )?;
 
     Ok(ParsedComposition {
@@ -181,36 +215,57 @@ pub fn parse_with_base_dir(
         frames: parts.frames,
         root: built_root,
         script: None,
-        audio_sources: Vec::new(),
+        audio_sources,
     })
 }
 
-fn parse_visual_children(
+const DIV_ATTRS: &[&str] = &["id", "class", "duration"];
+const TEXT_ATTRS: &[&str] = &["id", "class", "duration"];
+const CANVAS_ATTRS: &[&str] = &["id", "class", "duration"];
+const IMAGE_ATTRS: &[&str] = &["id", "class", "duration", "path", "url", "query", "queryCount", "aspectRatio"];
+const AUDIO_ATTRS: &[&str] = &["id", "duration", "path", "url", "class"];
+const VIDEO_ATTRS: &[&str] = &["id", "class", "duration", "path", "url"];
+const ICON_ATTRS: &[&str] = &["id", "class", "duration", "icon"];
+const TL_ATTRS: &[&str] = &["id", "class"];
+const CAPTION_ATTRS: &[&str] = &["id", "class", "duration", "path"];
+const PATH_ATTRS: &[&str] = &["id", "class", "duration", "d"];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ParentContext {
+    Root,
+    Div,
+    Text,
+    Canvas,
+    Timeline,
+    Transition,
+}
+
+fn parse_opencat_children(
     root: roxmltree::Node<'_, '_>,
-    _base_dir: Option<&std::path::Path>,
+    base_dir: Option<&std::path::Path>,
     parts: &mut ParsedDocumentParts,
 ) -> anyhow::Result<()> {
+    let mut visual_root: Option<String> = None;
+
     for child in root.children() {
         match child.node_type() {
             roxmltree::NodeType::Element => {
                 let tag = child.tag_name().name();
                 match tag {
-                    "div" => {
-                        let id = child
-                            .attribute("id")
-                            .ok_or_else(|| anyhow::anyhow!("<div> requires `id` attribute"))?
-                            .to_string();
-                        let mut style = crate::style::NodeStyle::default();
-                        if let Some(class) = child.attribute("class") {
-                            style = crate::parse::jsonl::tailwind::parse_class_name(class);
+                    "audio" => {
+                        parse_audio_element(child, None, base_dir, parts)?;
+                    }
+                    "div" | "text" | "canvas" | "image" | "video" | "icon" | "path"
+                    | "caption" | "tl" => {
+                        let id = required_attr(child, "id")?;
+                        if visual_root.is_some() {
+                            anyhow::bail!("multiple visual root elements found");
                         }
-                        parts.elements.push(ParsedElement {
-                            id,
-                            parent_id: None,
-                            duration: None,
-                            style,
-                            kind: ParsedElementKind::Div,
-                        });
+                        visual_root = Some(id.to_string());
+                        parse_visual_node(child, None, base_dir, parts, ParentContext::Root)?;
+                    }
+                    "transition" => {
+                        anyhow::bail!("<transition> must be a direct child of <tl>");
                     }
                     other => anyhow::bail!("unknown element <{other}>"),
                 }
@@ -221,7 +276,465 @@ fn parse_visual_children(
                     anyhow::bail!("non-whitespace text outside elements is not allowed");
                 }
             }
-            _ => anyhow::bail!("processing instructions and other node types are not allowed"),
+            _ => {
+                anyhow::bail!("processing instructions and other node types are not allowed")
+            }
+        }
+    }
+
+    if visual_root.is_none() {
+        anyhow::bail!("markup document must have a visual root element");
+    }
+
+    Ok(())
+}
+
+fn parse_visual_node(
+    node: roxmltree::Node<'_, '_>,
+    parent_id: Option<&str>,
+    base_dir: Option<&std::path::Path>,
+    parts: &mut ParsedDocumentParts,
+    _parent_context: ParentContext,
+) -> anyhow::Result<()> {
+    let tag = node.tag_name().name();
+    let id = required_attr(node, "id")?;
+    let mut style = crate::style::NodeStyle::default();
+    if let Some(class) = node.attribute("class") {
+        style = crate::parse::jsonl::tailwind::parse_class_name(class);
+    }
+    let duration = parse_optional_u32_attr(node, "duration")?;
+
+    match tag {
+        "div" => {
+            ensure_allowed_attrs(node, DIV_ATTRS)?;
+            let parent_id = parent_id.map(|s| s.to_string());
+            parts.elements.push(ParsedElement {
+                id: id.to_string(),
+                parent_id,
+                duration,
+                style,
+                kind: ParsedElementKind::Div,
+            });
+            for child in node.children() {
+                match child.node_type() {
+                    roxmltree::NodeType::Element => {
+                        let child_tag = child.tag_name().name();
+                        match child_tag {
+                            "div" | "text" | "canvas" | "image" | "video" | "icon" | "path"
+                            | "caption" | "audio" | "tl" => {
+                                parse_visual_node(
+                                    child,
+                                    Some(&id),
+                                    base_dir,
+                                    parts,
+                                    ParentContext::Div,
+                                )?;
+                            }
+                            "transition" => {
+                                anyhow::bail!("<transition> must be a direct child of <tl>");
+                            }
+                            other => anyhow::bail!("unknown element <{other}>"),
+                        }
+                    }
+                    roxmltree::NodeType::Comment => {}
+                    roxmltree::NodeType::Text => {
+                        if !child.text().unwrap_or("").trim().is_empty() {
+                            anyhow::bail!(
+                                "non-whitespace text is not allowed outside <text> elements"
+                            );
+                        }
+                    }
+                    _ => anyhow::bail!("processing instructions not allowed"),
+                }
+            }
+        }
+        "text" => {
+            ensure_allowed_attrs(node, TEXT_ATTRS)?;
+            let mut content = String::new();
+            for child in node.children() {
+                match child.node_type() {
+                    roxmltree::NodeType::Text => {
+                        content.push_str(child.text().unwrap_or(""));
+                    }
+                    roxmltree::NodeType::Element => {
+                        anyhow::bail!("<text> cannot contain child elements");
+                    }
+                    roxmltree::NodeType::Comment => {}
+                    _ => {}
+                }
+            }
+            let parent_id = parent_id.map(|s| s.to_string());
+            parts.elements.push(ParsedElement {
+                id: id.to_string(),
+                parent_id,
+                duration,
+                style,
+                kind: ParsedElementKind::Text { content },
+            });
+        }
+        "canvas" => {
+            ensure_allowed_attrs(node, CANVAS_ATTRS)?;
+            let parent_id = parent_id.map(|s| s.to_string());
+            parts.elements.push(ParsedElement {
+                id: id.to_string(),
+                parent_id,
+                duration,
+                style,
+                kind: ParsedElementKind::Canvas,
+            });
+            for child in node.children() {
+                match child.node_type() {
+                    roxmltree::NodeType::Element => {
+                        let child_tag = child.tag_name().name();
+                        match child_tag {
+                            "div" | "text" | "canvas" | "image" | "video" | "icon" | "path"
+                            | "caption" | "tl" => {
+                                parse_visual_node(
+                                    child,
+                                    Some(&id),
+                                    base_dir,
+                                    parts,
+                                    ParentContext::Canvas,
+                                )?;
+                            }
+                            "audio" => {
+                                anyhow::bail!("audio is not allowed inside canvas");
+                            }
+                            "transition" => {
+                                anyhow::bail!("<transition> must be a direct child of <tl>");
+                            }
+                            other => anyhow::bail!("unknown element <{other}>"),
+                        }
+                    }
+                    roxmltree::NodeType::Comment => {}
+                    roxmltree::NodeType::Text => {
+                        if !child.text().unwrap_or("").trim().is_empty() {
+                            anyhow::bail!(
+                                "non-whitespace text is not allowed outside <text> elements"
+                            );
+                        }
+                    }
+                    _ => anyhow::bail!("processing instructions not allowed"),
+                }
+            }
+        }
+        "image" => {
+            ensure_allowed_attrs(node, IMAGE_ATTRS)?;
+            let source = parse_image_source(node)?;
+            let parent_id = parent_id.map(|s| s.to_string());
+            parts.elements.push(ParsedElement {
+                id: id.to_string(),
+                parent_id,
+                duration,
+                style,
+                kind: ParsedElementKind::Image { source },
+            });
+            validate_no_element_children(node, "image")?;
+        }
+        "video" => {
+            ensure_allowed_attrs(node, VIDEO_ATTRS)?;
+            let source = parse_video_source(node)?;
+            let parent_id = parent_id.map(|s| s.to_string());
+            parts.elements.push(ParsedElement {
+                id: id.to_string(),
+                parent_id,
+                duration,
+                style,
+                kind: ParsedElementKind::Video { source },
+            });
+            validate_no_element_children(node, "video")?;
+        }
+        "icon" => {
+            ensure_allowed_attrs(node, ICON_ATTRS)?;
+            let icon_value = required_attr(node, "icon")?;
+            let parent_id = parent_id.map(|s| s.to_string());
+            parts.elements.push(ParsedElement {
+                id: id.to_string(),
+                parent_id,
+                duration,
+                style,
+                kind: ParsedElementKind::Icon {
+                    name: icon_value.to_string(),
+                },
+            });
+            validate_no_element_children(node, "icon")?;
+        }
+        "path" => {
+            ensure_allowed_attrs(node, PATH_ATTRS)?;
+            let d = required_attr(node, "d")?;
+            let parent_id = parent_id.map(|s| s.to_string());
+            parts.elements.push(ParsedElement {
+                id: id.to_string(),
+                parent_id,
+                duration,
+                style,
+                kind: ParsedElementKind::Path {
+                    data: d.to_string(),
+                },
+            });
+            validate_no_element_children(node, "path")?;
+        }
+        "caption" => {
+            ensure_allowed_attrs(node, CAPTION_ATTRS)?;
+            let path_str = required_attr(node, "path")?;
+            let path = PathBuf::from(&path_str);
+            let parent_id = parent_id.map(|s| s.to_string());
+            parts.elements.push(ParsedElement {
+                id: id.to_string(),
+                parent_id,
+                duration,
+                style,
+                kind: ParsedElementKind::Caption { path },
+            });
+            validate_no_element_children(node, "caption")?;
+        }
+        "tl" => {
+            ensure_allowed_attrs(node, TL_ATTRS)?;
+            let parent_id = parent_id.map(|s| s.to_string());
+            parts.elements.push(ParsedElement {
+                id: id.to_string(),
+                parent_id,
+                duration: None,
+                style: style.clone(),
+                kind: ParsedElementKind::Timeline,
+            });
+            for child in node.children() {
+                match child.node_type() {
+                    roxmltree::NodeType::Element => {
+                        let child_tag = child.tag_name().name();
+                        match child_tag {
+                            "div" | "text" | "canvas" | "image" | "video" | "icon" | "path"
+                            | "caption" | "tl" => {
+                                parse_visual_node(
+                                    child,
+                                    Some(&id),
+                                    base_dir,
+                                    parts,
+                                    ParentContext::Timeline,
+                                )?;
+                            }
+                            "transition" => {
+                                parse_transition_node(child, &id, parts)?;
+                            }
+                            "audio" => {
+                                parse_audio_element(child, Some(&id), base_dir, parts)?;
+                            }
+                            other => anyhow::bail!("unknown element <{other}>"),
+                        }
+                    }
+                    roxmltree::NodeType::Comment => {}
+                    roxmltree::NodeType::Text => {
+                        if !child.text().unwrap_or("").trim().is_empty() {
+                            anyhow::bail!("non-whitespace text is not allowed inside <tl>");
+                        }
+                    }
+                    _ => anyhow::bail!("processing instructions not allowed"),
+                }
+            }
+        }
+        "audio" => {
+            parse_audio_element(node, parent_id, base_dir, parts)?;
+        }
+        _ => anyhow::bail!("unknown element <{tag}>"),
+    }
+
+    Ok(())
+}
+
+fn parse_audio_element(
+    node: roxmltree::Node<'_, '_>,
+    parent_id: Option<&str>,
+    _base_dir: Option<&std::path::Path>,
+    parts: &mut ParsedDocumentParts,
+) -> anyhow::Result<()> {
+    let id = required_non_empty_attr(node, "id")?;
+    let duration = parse_optional_u32_attr(node, "duration")?;
+
+    let source = match (node.attribute("path"), node.attribute("url")) {
+        (Some(p), None) => {
+            if p.is_empty() {
+                anyhow::bail!("<audio> `path` must not be empty");
+            }
+            AudioSource::Path(PathBuf::from(p))
+        }
+        (None, Some(u)) => {
+            if u.is_empty() {
+                anyhow::bail!("<audio> `url` must not be empty");
+            }
+            AudioSource::Url(u.to_string())
+        }
+        (None, None) => {
+            anyhow::bail!("<audio> requires one of: path, url");
+        }
+        (Some(_), Some(_)) => {
+            anyhow::bail!("<audio> requires only one of: path, url");
+        }
+    };
+
+    for attr in node.attributes() {
+        let name = attr.name();
+        if matches!(name, "className" | "parentId" | "style") {
+            anyhow::bail!("attribute `{name}` is not allowed in markup");
+        }
+        if !AUDIO_ATTRS.contains(&name) {
+            anyhow::bail!("unknown attribute `{name}` on <audio>");
+        }
+    }
+
+    let parent_id = parent_id.map(|s| s.to_string());
+    parts.audio_elements.push(ParsedAudioElement {
+        id: id.to_string(),
+        parent_id,
+        duration,
+        source,
+    });
+
+    validate_no_element_children(node, "audio")?;
+    Ok(())
+}
+
+fn parse_image_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<ImageSource> {
+    let path = node.attribute("path");
+    let url = node.attribute("url");
+    let query = node.attribute("query");
+
+    if node.attribute("queryCount").is_some() && query.is_none() {
+        anyhow::bail!("<image> `queryCount` requires `query`");
+    }
+    if node.attribute("aspectRatio").is_some() && query.is_none() {
+        anyhow::bail!("<image> `aspectRatio` requires `query`");
+    }
+
+    let count = [path.is_some(), url.is_some(), query.is_some()]
+        .iter()
+        .filter(|&&b| b)
+        .count();
+
+    if count == 0 {
+        anyhow::bail!("<image> requires one of: path, url, query");
+    }
+    if count > 1 {
+        anyhow::bail!("<image> requires only one of: path, url, query");
+    }
+
+    if let Some(p) = path {
+        if p.is_empty() {
+            anyhow::bail!("<image> `path` must not be empty");
+        }
+        return Ok(ImageSource::Path(PathBuf::from(p)));
+    }
+    if let Some(u) = url {
+        if u.is_empty() {
+            anyhow::bail!("<image> `url` must not be empty");
+        }
+        return Ok(ImageSource::Url(u.to_string()));
+    }
+    if let Some(q) = query {
+        if q.is_empty() {
+            anyhow::bail!("<image> `query` must not be empty");
+        }
+        let count = node
+            .attribute("queryCount")
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(1);
+        if count == 0 {
+            anyhow::bail!("<image> `queryCount` must be positive");
+        }
+        let aspect_ratio = node.attribute("aspectRatio").map(|s| s.to_string());
+        return Ok(ImageSource::Query(OpenverseQuery {
+            query: q.to_string(),
+            count,
+            aspect_ratio,
+        }));
+    }
+
+    unreachable!()
+}
+
+fn parse_video_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<VideoSource> {
+    match (node.attribute("path"), node.attribute("url")) {
+        (Some(p), None) => {
+            if p.is_empty() {
+                anyhow::bail!("<video> `path` must not be empty");
+            }
+            Ok(VideoSource::Path(PathBuf::from(p)))
+        }
+        (None, Some(u)) => {
+            if u.is_empty() {
+                anyhow::bail!("<video> `url` must not be empty");
+            }
+            Ok(VideoSource::Url(u.to_string()))
+        }
+        (None, None) => {
+            anyhow::bail!("<video> requires one of: path, url");
+        }
+        (Some(_), Some(_)) => {
+            anyhow::bail!("<video> requires only one of: path, url");
+        }
+    }
+}
+
+fn parse_transition_node(
+    node: roxmltree::Node<'_, '_>,
+    _parent_tl_id: &str,
+    _parts: &mut ParsedDocumentParts,
+) -> anyhow::Result<()> {
+    let _from = required_attr(node, "from")?;
+    let _to = required_attr(node, "to")?;
+    let _effect = required_attr(node, "effect")?;
+    let _duration_attr = required_attr(node, "duration")?;
+    validate_no_element_children(node, "transition")?;
+    Ok(())
+}
+
+fn required_attr<'a>(node: roxmltree::Node<'a, '_>, name: &str) -> anyhow::Result<&'a str> {
+    node.attribute(name).ok_or_else(|| {
+        anyhow::anyhow!("<{}> requires `{name}`", node.tag_name().name())
+    })
+}
+
+fn required_non_empty_attr<'a>(
+    node: roxmltree::Node<'a, '_>,
+    name: &str,
+) -> anyhow::Result<&'a str> {
+    let value = required_attr(node, name)?;
+    if value.is_empty() {
+        anyhow::bail!("<{}> `{name}` must not be empty", node.tag_name().name());
+    }
+    Ok(value)
+}
+
+fn parse_optional_u32_attr(
+    node: roxmltree::Node<'_, '_>,
+    name: &str,
+) -> anyhow::Result<Option<u32>> {
+    match node.attribute(name) {
+        None => Ok(None),
+        Some(value) => {
+            if value.is_empty() {
+                anyhow::bail!("`{name}` must not be empty");
+            }
+            if !value.bytes().all(|b| b.is_ascii_digit()) {
+                anyhow::bail!("`{name}` must be a positive integer (got `{value}`)");
+            }
+            if value.starts_with('0') && value.len() > 1 {
+                anyhow::bail!("`{name}` must not have leading zeros");
+            }
+            let n: u32 = value
+                .parse()
+                .map_err(|e| anyhow::anyhow!("`{name}`: {e}"))?;
+            if n == 0 {
+                anyhow::bail!("`{name}` must be positive");
+            }
+            Ok(Some(n))
+        }
+    }
+}
+
+fn validate_no_element_children(node: roxmltree::Node<'_, '_>, tag: &str) -> anyhow::Result<()> {
+    for child in node.children() {
+        if child.is_element() {
+            anyhow::bail!("<{tag}> cannot have child elements");
         }
     }
     Ok(())
@@ -354,5 +867,60 @@ mod tests {
             .expect_err("unknown root attribute should fail");
 
         assert!(err.to_string().contains("unknown attribute `foo` on <opencat>"));
+    }
+
+    #[test]
+    fn parses_nested_visual_nodes_and_xml_text_content() {
+        let parsed = parse(
+            r#"<opencat width="320" height="180" fps="30" frames="1">
+  <div id="root" class="flex">
+    <text id="title" class="text-[32px]">Open&amp;Cat<![CDATA[!]]></text>
+    <image id="img" path="/tmp/a.png" />
+    <video id="vid" url="https://example.test/a.mp4" />
+    <icon id="icon" icon="play" />
+    <path id="curve" d="M0 0 L10 10" />
+  </div>
+</opencat>"#,
+        )
+        .expect("markup should parse");
+
+        assert_eq!(parsed.root.style_ref().id, "root");
+    }
+
+    #[test]
+    fn accepts_direct_and_nested_audio() {
+        let parsed = parse(
+            r#"<opencat>
+  <audio id="music" path="/tmp/music.wav" duration="30" />
+  <div id="root">
+    <audio id="scene-audio" url="https://example.test/a.wav" />
+  </div>
+</opencat>"#,
+        )
+        .expect("markup should parse");
+
+        assert_eq!(parsed.audio_sources.len(), 2);
+    }
+
+    #[test]
+    fn rejects_disallowed_attributes_and_bad_resources() {
+        let cases = [
+            (r#"<opencat><div id="root" className="x" /></opencat>"#, "className"),
+            (r#"<opencat><div id="root" parentId="x" /></opencat>"#, "parentId"),
+            (r#"<opencat><div id="root" style="color:red" /></opencat>"#, "style"),
+            (r#"<opencat><image id="img" /></opencat>"#, "requires one of"),
+            (r#"<opencat><image id="img" path="a" url="b" /></opencat>"#, "only one"),
+            (r#"<opencat><image id="img" path="a" queryCount="2" /></opencat>"#, "queryCount"),
+            (r#"<opencat><video id="v" /></opencat>"#, "requires one of"),
+            (r#"<opencat><audio id="a" /></opencat>"#, "requires one of"),
+            (r#"<opencat><caption id="c" /></opencat>"#, "path"),
+            (r#"<opencat><path id="p" /></opencat>"#, "d"),
+            (r#"<opencat><icon id="i" /></opencat>"#, "icon"),
+        ];
+
+        for (input, expected) in cases {
+            let err = parse(input).expect_err(input);
+            assert!(err.to_string().contains(expected), "{input}: {err}");
+        }
     }
 }

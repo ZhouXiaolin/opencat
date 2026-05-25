@@ -20,6 +20,44 @@ pub enum CanvasChildrenMode {
     HiddenPictureSubtree,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedIdKind {
+    Visual,
+    Audio,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct ParsedDocumentParts {
+    pub width: i32,
+    pub height: i32,
+    pub fps: i32,
+    pub frames: i32,
+    pub elements: Vec<ParsedElement>,
+    pub transitions: Vec<ParsedTransition>,
+    pub audio_elements: Vec<ParsedAudioElement>,
+    pub scripts_by_parent: std::collections::HashMap<String, Vec<String>>,
+    pub global_scripts: Vec<String>,
+    pub markup_root_script: Option<String>,
+}
+
+pub fn validate_unique_ids(
+    elements: &[ParsedElement],
+    audio: &[ParsedAudioElement],
+) -> anyhow::Result<std::collections::HashMap<String, ParsedIdKind>> {
+    let mut ids = std::collections::HashMap::new();
+    for element in elements {
+        if ids.insert(element.id.clone(), ParsedIdKind::Visual).is_some() {
+            anyhow::bail!("duplicate id `{}`", element.id);
+        }
+    }
+    for audio in audio {
+        if ids.insert(audio.id.clone(), ParsedIdKind::Audio).is_some() {
+            anyhow::bail!("duplicate id `{}`", audio.id);
+        }
+    }
+    Ok(ids)
+}
+
 #[derive(Debug, Clone)]
 pub enum ParsedElementKind {
     Timeline,

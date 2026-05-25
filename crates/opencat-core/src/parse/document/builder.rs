@@ -13,7 +13,11 @@ use crate::parse::{
 };
 use crate::script::ScriptDriver;
 
-use crate::parse::document::{CanvasChildrenMode, ParsedElement, ParsedElementKind, ParsedTransition};
+use crate::parse::composition::{AudioAttachment, CompositionAudioSource};
+use crate::parse::document::{
+    CanvasChildrenMode, ParsedComposition, ParsedDocumentParts, ParsedElement,
+    ParsedElementKind, ParsedTransition,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BuildOptions {
@@ -36,6 +40,76 @@ pub fn join_scripts(scripts: Vec<String>) -> Option<String> {
     } else {
         Some(scripts.join("\n"))
     }
+}
+
+pub fn build_parsed_document(
+    parts: ParsedDocumentParts,
+    options: BuildOptions,
+) -> anyhow::Result<ParsedComposition> {
+    let audio_sources: Vec<CompositionAudioSource> = parts
+        .audio_elements
+        .iter()
+        .map(|audio| {
+            let attach = audio
+                .parent_id
+                .as_ref()
+                .and_then(|pid| {
+                    parts
+                        .elements
+                        .iter()
+                        .find(|el| el.id == *pid && matches!(el.kind, ParsedElementKind::Timeline))
+                        .map(|_| AudioAttachment::Scene {
+                            scene_id: pid.clone(),
+                        })
+                })
+                .unwrap_or(AudioAttachment::Timeline);
+            CompositionAudioSource {
+                id: audio.id.clone(),
+                source: audio.source.clone(),
+                attach,
+                duration: audio.duration,
+            }
+        })
+        .collect();
+
+    let transitions_by_tl: HashMap<String, Vec<&ParsedTransition>> = {
+        let mut map: HashMap<String, Vec<&ParsedTransition>> = HashMap::new();
+        for t in &parts.transitions {
+            map.entry(t.parent_id.clone()).or_default().push(t);
+        }
+        map
+    };
+
+    let mut root = if parts.transitions.is_empty() {
+        build_tree_with_options(
+            &parts.elements,
+            &parts.scripts_by_parent,
+            parts.fps as u32,
+            options,
+        )?
+    } else {
+        build_tree_with_tl_options(
+            &parts.elements,
+            &parts.scripts_by_parent,
+            &transitions_by_tl,
+            parts.fps as u32,
+            options,
+        )?
+    };
+
+    if let Some(script) = parts.markup_root_script {
+        root = root.script_source(&script)?;
+    }
+
+    Ok(ParsedComposition {
+        width: parts.width,
+        height: parts.height,
+        fps: parts.fps,
+        frames: parts.frames,
+        root,
+        script: join_scripts(parts.global_scripts),
+        audio_sources,
+    })
 }
 
 fn index_elements(

@@ -10,7 +10,7 @@ use crate::style::NodeStyle;
 mod builder;
 
 pub use builder::{
-    BuildOptions, build_tree, build_tree_with_tl, build_tree_with_options,
+    BuildOptions, build_parsed_document, build_tree, build_tree_with_tl, build_tree_with_options,
     build_tree_with_tl_options, join_scripts,
 };
 

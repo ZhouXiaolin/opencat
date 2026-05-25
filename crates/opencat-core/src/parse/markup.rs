@@ -139,12 +139,9 @@ pub(crate) fn extract_raw_script(input: &str) -> anyhow::Result<ExtractedMarkup>
 
 use std::path::PathBuf;
 
-use crate::parse::composition::{AudioAttachment, CompositionAudioSource};
-use std::collections::HashMap;
-
 use crate::parse::document::{
     BuildOptions, CanvasChildrenMode, ParsedAudioElement, ParsedComposition, ParsedDocumentParts,
-    ParsedElement, ParsedElementKind, ParsedTransition, build_tree_with_tl_options,
+    ParsedElement, ParsedElementKind, ParsedTransition, build_parsed_document,
 };
 use crate::parse::primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource};
 
@@ -173,61 +170,12 @@ pub fn parse_with_base_dir(
     };
     parse_opencat_children(root, base_dir, &mut parts)?;
 
-    let audio_sources: Vec<CompositionAudioSource> = parts
-        .audio_elements
-        .iter()
-        .map(|audio| {
-            let attach = audio
-                .parent_id
-                .as_ref()
-                .and_then(|pid| {
-                    parts
-                        .elements
-                        .iter()
-                        .find(|el| {
-                            el.id == *pid && matches!(el.kind, ParsedElementKind::Timeline)
-                        })
-                        .map(|_| AudioAttachment::Scene {
-                            scene_id: pid.clone(),
-                        })
-                })
-                .unwrap_or(AudioAttachment::Timeline);
-            CompositionAudioSource {
-                id: audio.id.clone(),
-                source: audio.source.clone(),
-                attach,
-                duration: audio.duration,
-            }
-        })
-        .collect();
-
-    let transitions_by_tl: HashMap<String, Vec<&ParsedTransition>> = {
-        let mut map: HashMap<String, Vec<&ParsedTransition>> = HashMap::new();
-        for t in &parts.transitions {
-            map.entry(t.parent_id.clone()).or_default().push(t);
-        }
-        map
-    };
-
-    let built_root = build_tree_with_tl_options(
-        &parts.elements,
-        &parts.scripts_by_parent,
-        &transitions_by_tl,
-        parts.fps as u32,
+    build_parsed_document(
+        parts,
         BuildOptions {
             canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree,
         },
-    )?;
-
-    Ok(ParsedComposition {
-        width: parts.width,
-        height: parts.height,
-        fps: parts.fps,
-        frames: parts.frames,
-        root: built_root,
-        script: None,
-        audio_sources,
-    })
+    )
 }
 
 const DIV_ATTRS: &[&str] = &["id", "class", "duration"];
@@ -1033,6 +981,20 @@ mod tests {
         .expect("timeline should parse");
 
         assert_eq!(parsed.root.style_ref().id, "main");
+    }
+
+    #[test]
+    fn attaches_markup_script_to_visual_root_not_global_script_field() {
+        let parsed = parse(
+            r#"<opencat>
+  <script>ctx.getNode('root').opacity(0.5);</script>
+  <div id="root" />
+</opencat>"#,
+        )
+        .expect("markup with script should parse");
+
+        assert!(parsed.script.is_none(), "markup does not use ParsedComposition.script");
+        assert!(parsed.root.style_ref().script_driver.is_some());
     }
 
     #[test]

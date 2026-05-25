@@ -554,6 +554,10 @@ macro_rules! for_each_binding {
             }
         }}
 
+        $binding! { node $rec $id canvas_draw_picture ($id: &str, owner_id: String, x: f32, y: f32) {
+            $rec . record_draw_picture($id, &owner_id, x, y);
+        }}
+
         // ── Node: text unit overrides (complex Object destructuring) ──────
         $binding! { node $rec $id record_text_unit_override ($id: &str, granularity: String, index: u32, values: serde_json::Map<String, serde_json::Value>) {
             let index = index as usize;

@@ -1404,6 +1404,13 @@ fn execute_draw_op(
         DrawOp::ReplayRange { range } => {
             b.push(DrawOp::ReplayRange { range: *range });
         }
+        DrawOp::DrawSubtreePicture { owner_id, x, y } => {
+            b.push(DrawOp::DrawSubtreePicture {
+                owner_id: owner_id.clone(),
+                x: *x,
+                y: *y,
+            });
+        }
     }
     Ok(())
 }

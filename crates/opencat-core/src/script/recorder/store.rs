@@ -481,6 +481,14 @@ impl MutationRecorder for MutationStore {
         self.canvas_entry(id).commands.push(cmd);
     }
 
+    fn record_draw_picture(&mut self, target_id: &str, owner_id: &str, x: f32, y: f32) {
+        self.record_draw_op(target_id, crate::ir::draw_op::DrawOp::DrawSubtreePicture {
+            owner_id: owner_id.to_string(),
+            x,
+            y,
+        });
+    }
+
     fn reset_for_frame(&mut self, current_frame: u32) {
         self.styles.clear();
         self.canvases.clear();
@@ -560,5 +568,23 @@ mod tests {
         store.reset_for_frame(7);
         let snap = store.snapshot_mutations();
         assert!(snap.mutations.is_empty());
+    }
+
+    #[test]
+    fn record_draw_picture_stores_subtree_reference() {
+        let mut store = MutationStore::default();
+        store.record_draw_picture("stage", "stage", 4.0, 5.0);
+
+        let snap = store.snapshot_mutations();
+        let commands = &snap.canvas_mutations.get("stage").unwrap().commands;
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            crate::ir::draw_op::DrawOp::DrawSubtreePicture { owner_id, x, y } => {
+                assert_eq!(owner_id, "stage");
+                assert_eq!(*x, 4.0);
+                assert_eq!(*y, 5.0);
+            }
+            other => panic!("expected DrawSubtreePicture, got {:?}", other),
+        }
     }
 }

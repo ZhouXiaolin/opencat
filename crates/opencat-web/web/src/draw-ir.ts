@@ -55,6 +55,7 @@ const OP_IMAGE = 34;
 const OP_IMAGE_RECT = 35;
 const OP_RUNTIME_EFFECT = 36;
 const OP_REPLAY_RANGE = 37;
+const OP_DRAW_SUBTREE_PICTURE = 38;
 
 const NO_PAINT = 0xffff_ffff;
 
@@ -414,6 +415,9 @@ export function renderEncodedDrawFrame(
           break;
         case OP_REPLAY_RANGE:
           executeRange(p.u32(), p.u32());
+          break;
+        case OP_DRAW_SUBTREE_PICTURE:
+          p.u32(); p.f32(); p.f32();
           break;
         default:
           throw new Error(`Unsupported DrawOp opcode ${entry.opcode}`);

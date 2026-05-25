@@ -137,6 +137,145 @@ pub(crate) fn extract_raw_script(input: &str) -> anyhow::Result<ExtractedMarkup>
     })
 }
 
+use crate::parse::document::{
+    BuildOptions, CanvasChildrenMode, ParsedComposition, ParsedDocumentParts, ParsedElement,
+    ParsedElementKind, build_tree_with_options,
+};
+
+pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
+    parse_with_base_dir(input, None)
+}
+
+pub fn parse_with_base_dir(
+    input: &str,
+    base_dir: Option<&std::path::Path>,
+) -> anyhow::Result<ParsedComposition> {
+    let extracted = extract_raw_script(input)?;
+    let doc = roxmltree::Document::parse(&extracted.xml)?;
+    let root = doc.root_element();
+    if root.tag_name().name() != "opencat" {
+        anyhow::bail!("markup document root must be <opencat>");
+    }
+    ensure_allowed_attrs(root, &["width", "height", "fps", "frames"])?;
+    let mut parts = ParsedDocumentParts {
+        width: parse_positive_i32_attr(root, "width", 1920)?,
+        height: parse_positive_i32_attr(root, "height", 1080)?,
+        fps: parse_positive_i32_attr(root, "fps", 30)?,
+        frames: parse_positive_i32_attr(root, "frames", 90)?,
+        markup_root_script: extracted.script,
+        ..Default::default()
+    };
+    parse_visual_children(root, base_dir, &mut parts)?;
+
+    let built_root = build_tree_with_options(
+        &parts.elements,
+        &parts.scripts_by_parent,
+        parts.fps as u32,
+        BuildOptions { canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree },
+    )?;
+
+    Ok(ParsedComposition {
+        width: parts.width,
+        height: parts.height,
+        fps: parts.fps,
+        frames: parts.frames,
+        root: built_root,
+        script: None,
+        audio_sources: Vec::new(),
+    })
+}
+
+fn parse_visual_children(
+    root: roxmltree::Node<'_, '_>,
+    _base_dir: Option<&std::path::Path>,
+    parts: &mut ParsedDocumentParts,
+) -> anyhow::Result<()> {
+    for child in root.children() {
+        match child.node_type() {
+            roxmltree::NodeType::Element => {
+                let tag = child.tag_name().name();
+                match tag {
+                    "div" => {
+                        let id = child
+                            .attribute("id")
+                            .ok_or_else(|| anyhow::anyhow!("<div> requires `id` attribute"))?
+                            .to_string();
+                        let mut style = crate::style::NodeStyle::default();
+                        if let Some(class) = child.attribute("class") {
+                            style = crate::parse::jsonl::tailwind::parse_class_name(class);
+                        }
+                        parts.elements.push(ParsedElement {
+                            id,
+                            parent_id: None,
+                            duration: None,
+                            style,
+                            kind: ParsedElementKind::Div,
+                        });
+                    }
+                    other => anyhow::bail!("unknown element <{other}>"),
+                }
+            }
+            roxmltree::NodeType::Comment => {}
+            roxmltree::NodeType::Text => {
+                if !child.text().unwrap_or("").trim().is_empty() {
+                    anyhow::bail!("non-whitespace text outside elements is not allowed");
+                }
+            }
+            _ => anyhow::bail!("processing instructions and other node types are not allowed"),
+        }
+    }
+    Ok(())
+}
+
+fn parse_positive_i32(value: &str) -> anyhow::Result<i32> {
+    if value.is_empty() {
+        anyhow::bail!("value must not be empty");
+    }
+    if !value.bytes().all(|b| b.is_ascii_digit()) {
+        anyhow::bail!("value must be a positive integer (got `{value}`)");
+    }
+    if value.starts_with('0') && value.len() > 1 {
+        anyhow::bail!("value must not have leading zeros");
+    }
+    let n: i32 = value.parse().map_err(|e| anyhow::anyhow!("{e}"))?;
+    if n <= 0 {
+        anyhow::bail!("value must be positive");
+    }
+    Ok(n)
+}
+
+fn parse_positive_i32_attr(
+    node: roxmltree::Node<'_, '_>,
+    name: &str,
+    default: i32,
+) -> anyhow::Result<i32> {
+    match node.attribute(name) {
+        None => Ok(default),
+        Some(value) => {
+            parse_positive_i32(value).map_err(|e| anyhow::anyhow!("`{name}`: {e}"))
+        }
+    }
+}
+
+fn ensure_allowed_attrs(
+    node: roxmltree::Node<'_, '_>,
+    allowed: &[&str],
+) -> anyhow::Result<()> {
+    for attr in node.attributes() {
+        let name = attr.name();
+        if matches!(name, "className" | "parentId" | "style") {
+            anyhow::bail!("attribute `{name}` is not allowed in markup");
+        }
+        if !allowed.contains(&name) {
+            anyhow::bail!(
+                "unknown attribute `{name}` on <{}>",
+                node.tag_name().name()
+            );
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,5 +318,41 @@ mod tests {
         assert!(
             extract_raw_script("<opencat><script /><div id=\"root\" /></opencat>").is_err()
         );
+    }
+
+    #[test]
+    fn parses_opencat_defaults() {
+        let parsed = parse(r#"<opencat><div id="root" /></opencat>"#)
+            .expect("markup should parse");
+
+        assert_eq!(parsed.width, 1920);
+        assert_eq!(parsed.height, 1080);
+        assert_eq!(parsed.fps, 30);
+        assert_eq!(parsed.frames, 90);
+        assert_eq!(parsed.root.style_ref().id, "root");
+    }
+
+    #[test]
+    fn parses_explicit_positive_integer_envelope() {
+        let parsed = parse(r#"<opencat width="640" height="360" fps="24" frames="120"><div id="root" /></opencat>"#)
+            .expect("markup should parse");
+
+        assert_eq!((parsed.width, parsed.height, parsed.fps, parsed.frames), (640, 360, 24, 120));
+    }
+
+    #[test]
+    fn rejects_invalid_envelope_numbers() {
+        for attr in ["width=\"0\"", "height=\"-1\"", "fps=\"30.0\"", "frames=\"90px\""] {
+            let input = format!(r#"<opencat {attr}><div id="root" /></opencat>"#);
+            assert!(parse(&input).is_err(), "{attr} should fail");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_opencat_attribute() {
+        let err = parse(r#"<opencat foo="bar"><div id="root" /></opencat>"#)
+            .expect_err("unknown root attribute should fail");
+
+        assert!(err.to_string().contains("unknown attribute `foo` on <opencat>"));
     }
 }

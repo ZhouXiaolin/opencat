@@ -81,6 +81,8 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
         None
     };
 
+    let hidden_subtree = build_hidden_subtree(element, bounds);
+
     let draw_slot = if element.draw_slot.commands.is_empty() {
         None
     } else {
@@ -88,11 +90,9 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
             bounds,
             commands: element.draw_slot.commands.clone(),
             drop_shadow: None,
-            hidden_subtree: Vec::new(),
+            hidden_subtree: hidden_subtree.clone(),
         })
     };
-
-    let hidden_subtree = build_hidden_subtree(element, bounds);
 
     Ok(DisplayNode {
         transform: DisplayTransform {

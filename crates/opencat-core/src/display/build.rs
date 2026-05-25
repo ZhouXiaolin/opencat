@@ -81,6 +81,16 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
         None
     };
 
+    let draw_slot = if element.draw_slot.commands.is_empty() {
+        None
+    } else {
+        Some(DrawScriptDisplayItem {
+            bounds,
+            commands: element.draw_slot.commands.clone(),
+            drop_shadow: None,
+        })
+    };
+
     Ok(DisplayNode {
         transform: DisplayTransform {
             translation_x: layout.rect.x,
@@ -94,6 +104,7 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
         clip,
         item,
         children,
+        draw_slot,
     })
 }
 

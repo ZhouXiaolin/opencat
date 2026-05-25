@@ -1,4 +1,4 @@
-use crate::display::list::{DisplayClip, DisplayItem, DisplayTransform};
+use crate::display::list::{DisplayClip, DisplayItem, DisplayTransform, DrawScriptDisplayItem};
 use crate::resolve::tree::ElementId;
 
 #[derive(Clone, Debug)]
@@ -15,4 +15,5 @@ pub struct DisplayNode {
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,
     pub children: Vec<DisplayNode>,
+    pub draw_slot: Option<DrawScriptDisplayItem>,
 }

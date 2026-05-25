@@ -566,6 +566,12 @@ fn render_live_subtree(
         clip_bounds_with_radius(ctx.builder, clip_bounds_rect4, &clip.border_radius);
     }
 
+    if let Some(ref slot) = node.draw_slot {
+        if !slot.commands.is_empty() {
+            super::helpers::render_draw_script(ctx, slot)?;
+        }
+    }
+
     for child in children {
         render_scene_op(ctx, child, tree, cache)?;
     }

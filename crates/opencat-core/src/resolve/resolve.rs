@@ -14,7 +14,7 @@ use crate::{
         path_bounds::{DefaultPathBounds, PathBoundsComputer},
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
-            ElementBitmap, ElementCanvas, ElementDiv, ElementId, ElementKind, ElementNode,
+            ElementBitmap, ElementCanvas, ElementDiv, ElementDrawSlot, ElementId, ElementKind, ElementNode,
             ElementSvgPath, ElementText, ElementTimeline, ElementTimelineTransition,
         },
     },
@@ -182,8 +182,9 @@ fn resolve_timeline(timeline: &TimelineNode, cx: &mut ResolveContext<'_>) -> Res
         Ok(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Timeline(ElementTimeline { transition }),
-            style: computed,
+            style: computed.clone(),
             children,
+            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
         })
     })();
     if pushed {
@@ -251,6 +252,7 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
         kind: ElementKind::Div(ElementDiv),
         style,
         children: vec![child],
+        draw_slot: ElementDrawSlot::default(),
     }
 }
 
@@ -296,6 +298,7 @@ fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
         kind: ElementKind::Div(ElementDiv),
         style: compute_style(&style, cx.inherited_style),
         children: Vec::new(),
+        draw_slot: ElementDrawSlot::default(),
     }
 }
 
@@ -355,8 +358,9 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
         Ok(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Div(ElementDiv),
-            style: computed,
+            style: computed.clone(),
             children,
+            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
         })
     })();
     if pushed {
@@ -388,8 +392,9 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
                 text_style: computed.text,
                 text_unit_overrides,
             }),
-            style: computed,
+            style: computed.clone(),
             children: Vec::new(),
+            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
         })
     })();
     if pushed {
@@ -433,8 +438,9 @@ fn resolve_caption(
                 text_style: computed.text,
                 text_unit_overrides,
             }),
-            style: computed,
+            style: computed.clone(),
             children: Vec::new(),
+            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
         }))
     })();
     if pushed {
@@ -465,8 +471,9 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
         Ok(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Canvas(ElementCanvas { commands }),
-            style: computed,
+            style: computed.clone(),
             children: Vec::new(),
+            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
         })
     })();
     if pushed {
@@ -509,8 +516,9 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
                 height: info.height,
                 video_timing: Some(video.timing()),
             }),
-            style: computed,
+            style: computed.clone(),
             children: Vec::new(),
+            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
         })
     })();
     if pushed {
@@ -541,8 +549,9 @@ fn resolve_image(image: &Image, cx: &mut ResolveContext<'_>) -> Result<ElementNo
                 height,
                 video_timing: None,
             }),
-            style: computed,
+            style: computed.clone(),
             children: Vec::new(),
+            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
         })
     })();
     if pushed {
@@ -595,8 +604,9 @@ fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Resu
                 view_box,
                 intrinsic_size: Some((24.0, 24.0)),
             }),
-            style: computed,
+            style: computed.clone(),
             children: Vec::new(),
+            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
         })
     })();
     if pushed {
@@ -638,8 +648,9 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
                 view_box,
                 intrinsic_size: None,
             }),
-            style: computed,
+            style: computed.clone(),
             children: Vec::new(),
+            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
         })
     })();
     if pushed {
@@ -879,6 +890,12 @@ fn apply_canvas_mutation_stack(commands: &mut Vec<DrawOp>, stack: &[StyleMutatio
     for mutations in stack {
         mutations.apply_to_canvas(commands, id);
     }
+}
+
+fn draw_slot_for(style_id: &str, stack: &[StyleMutations]) -> ElementDrawSlot {
+    let mut commands = Vec::new();
+    apply_canvas_mutation_stack(&mut commands, stack, style_id);
+    ElementDrawSlot { commands }
 }
 
 fn text_content_from_stack(stack: &[StyleMutations], id: &str) -> Option<String> {

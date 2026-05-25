@@ -409,7 +409,7 @@ fn parse_visual_node(
         }
         "icon" => {
             ensure_allowed_attrs(node, ICON_ATTRS)?;
-            let icon_value = required_attr(node, "icon")?;
+            let icon_value = required_non_empty_attr(node, "icon")?;
             let parent_id = parent_id.map(|s| s.to_string());
             parts.elements.push(ParsedElement {
                 id: id.to_string(),
@@ -424,7 +424,7 @@ fn parse_visual_node(
         }
         "path" => {
             ensure_allowed_attrs(node, PATH_ATTRS)?;
-            let d = required_attr(node, "d")?;
+            let d = required_non_empty_attr(node, "d")?;
             let parent_id = parent_id.map(|s| s.to_string());
             parts.elements.push(ParsedElement {
                 id: id.to_string(),
@@ -439,7 +439,7 @@ fn parse_visual_node(
         }
         "caption" => {
             ensure_allowed_attrs(node, CAPTION_ATTRS)?;
-            let path_str = required_attr(node, "path")?;
+            let path_str = required_non_empty_attr(node, "path")?;
             let path = PathBuf::from(&path_str);
             let parent_id = parent_id.map(|s| s.to_string());
             parts.elements.push(ParsedElement {
@@ -1051,6 +1051,55 @@ mod tests {
         for (input, expected) in cases {
             let err = parse(input).expect_err(input);
             assert!(err.to_string().contains(expected), "{input}: {err}");
+        }
+    }
+
+    #[test]
+    fn public_markup_parse_entrypoint_works() {
+        let parsed = crate::parse::markup::parse(r#"<opencat><div id="root" /></opencat>"#)
+            .expect("markup should parse");
+
+        assert_eq!(parsed.root.style_ref().id, "root");
+    }
+
+    #[test]
+    fn rejects_strict_numeric_violations() {
+        let cases = [
+            r#"<opencat width=" 1"><div id="root" /></opencat>"#,
+            r#"<opencat width="+1"><div id="root" /></opencat>"#,
+            r#"<opencat width="１２"><div id="root" /></opencat>"#,
+            r#"<opencat><div id="root" duration="1.5" /></opencat>"#,
+            r#"<opencat><image id="img" query="cat" queryCount="0" /></opencat>"#,
+            r#"<opencat><transition from="a" to="b" effect="fade" duration="999999999999999999999" /></opencat>"#,
+        ];
+
+        for input in cases {
+            assert!(parse(input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn validates_xml_text_and_processing_instructions() {
+        assert!(parse(r#"<opencat><div id="root">bad</div></opencat>"#).is_err());
+        assert!(parse(r#"<opencat><?bad test?><div id="root" /></opencat>"#).is_err());
+        assert!(parse(r#"<opencat><text id="t"><span /></text></opencat>"#).is_err());
+
+        let parsed = parse(r#"<opencat><text id="t"> ordinary <![CDATA[cdata]]> &amp; entity </text></opencat>"#)
+            .expect("text content should parse");
+        assert_eq!(parsed.root.style_ref().id, "t");
+    }
+
+    #[test]
+    fn rejects_empty_required_markup_attributes() {
+        for input in [
+            r#"<opencat><image id="img" path="" /></opencat>"#,
+            r#"<opencat><video id="vid" url="" /></opencat>"#,
+            r#"<opencat><audio id="aud" path="" /></opencat>"#,
+            r#"<opencat><caption id="cap" path="" /></opencat>"#,
+            r#"<opencat><path id="path" d="" /></opencat>"#,
+            r#"<opencat><icon id="icon" icon="" /></opencat>"#,
+        ] {
+            assert!(parse(input).is_err(), "{input}");
         }
     }
 }

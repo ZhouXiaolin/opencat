@@ -9,6 +9,7 @@ pub use opencat_core::display;
 pub use opencat_core::frame_ctx;
 pub use opencat_core::layout;
 pub use opencat_core::parse::jsonl;
+pub use opencat_core::parse::markup;
 pub use opencat_core::resolve;
 pub use opencat_core::style;
 pub use opencat_core::text;

@@ -719,7 +719,11 @@ fn render_transition_composite(
     }
 }
 
-fn clip_bounds_with_radius(builder: &mut DrawOpBuilder, rect: Rect4, radius: &BorderRadius) {
+pub(crate) fn clip_bounds_with_radius(
+    builder: &mut DrawOpBuilder,
+    rect: Rect4,
+    radius: &BorderRadius,
+) {
     let w = rect.width;
     let h = rect.height;
     let clamp = |r: f32| {
@@ -801,7 +805,7 @@ fn transition_kind_str(kind: &TransitionKind) -> &'static str {
     }
 }
 
-fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTransform) {
+pub(crate) fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTransform) {
     builder.push(DrawOp::Translate {
         x: transform.translation_x,
         y: transform.translation_y,

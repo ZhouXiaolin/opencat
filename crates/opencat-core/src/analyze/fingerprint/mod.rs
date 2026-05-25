@@ -361,6 +361,7 @@ mod tests {
                 clip: self.clip,
                 item: self.item,
                 children: Vec::new(),
+                draw_slot: None,
             }
         }
     }
@@ -413,6 +414,7 @@ mod tests {
             clip: node.clip,
             item: node.item,
             children,
+            draw_slot: None,
         };
 
         let subtree_contains_time_variant =

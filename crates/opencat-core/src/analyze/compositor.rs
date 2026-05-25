@@ -169,6 +169,7 @@ mod ordered_scene_tests {
                 },
             }),
             children,
+            draw_slot: None,
         }
     }
 
@@ -290,6 +291,7 @@ mod ordered_scene_tests {
                         drop_shadow: None,
                     }),
                     children: Vec::new(),
+                    draw_slot: None,
                 },
             ],
             keys: vec![RenderNodeKey(1), RenderNodeKey(2), RenderNodeKey(3)],
@@ -382,6 +384,7 @@ mod ordered_scene_tests {
                         drop_shadow: None,
                     }),
                     children: Vec::new(),
+                    draw_slot: None,
                 },
             ],
             keys: vec![
@@ -816,6 +819,7 @@ mod reuse_tests {
             clip: None,
             item,
             children,
+            draw_slot: None,
         }
     }
 

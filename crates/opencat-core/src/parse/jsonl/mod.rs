@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::parse::{
     composition::{AudioAttachment, CompositionAudioSource},
-    node::Node,
+    document::{
+        ParsedAudioElement, ParsedComposition, ParsedElement, ParsedElementKind, ParsedTransition,
+    },
     primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource},
 };
 use crate::style::NodeStyle;
@@ -157,63 +159,6 @@ pub enum JsonLine {
         d: String,
         duration: Option<u32>,
     },
-}
-
-#[derive(Debug, Clone)]
-enum ParsedElementKind {
-    Timeline,
-    Div,
-    Text { content: String },
-    Canvas,
-    Image { source: ImageSource },
-    Icon { name: String },
-    Path { data: String },
-    Video { source: VideoSource },
-    Caption { path: PathBuf },
-}
-
-#[derive(Debug, Clone)]
-struct ParsedElement {
-    id: String,
-    parent_id: Option<String>,
-    duration: Option<u32>,
-    style: NodeStyle,
-    kind: ParsedElementKind,
-}
-
-#[derive(Debug, Clone)]
-struct ParsedTransition {
-    parent_id: String,
-    from: String,
-    to: String,
-    effect: String,
-    duration: u32,
-    direction: Option<String>,
-    timing: Option<String>,
-    damping: Option<f32>,
-    stiffness: Option<f32>,
-    mass: Option<f32>,
-    seed: Option<f32>,
-    hue_shift: Option<f32>,
-    mask_scale: Option<f32>,
-}
-
-#[derive(Debug, Clone)]
-struct ParsedAudioElement {
-    id: String,
-    parent_id: Option<String>,
-    duration: Option<u32>,
-    source: AudioSource,
-}
-
-pub struct ParsedComposition {
-    pub width: i32,
-    pub height: i32,
-    pub fps: i32,
-    pub frames: i32,
-    pub root: Node,
-    pub script: Option<String>,
-    pub audio_sources: Vec<CompositionAudioSource>,
 }
 
 pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
@@ -708,6 +653,18 @@ mod tests {
             LengthPercentageAuto, Position, TextAlign,
         },
     };
+
+    #[test]
+    fn jsonl_parser_uses_shared_parsed_composition_type() {
+        let parsed: crate::parse::document::ParsedComposition = parse(
+            r#"{"type":"composition","width":320,"height":180,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}"#,
+        )
+        .expect("jsonl should parse");
+
+        assert_eq!(parsed.width, 320);
+        assert_eq!(parsed.root.style_ref().id, "root");
+    }
 
     #[test]
     fn parser_maps_full_size_alignment_and_tailwind_colors() {

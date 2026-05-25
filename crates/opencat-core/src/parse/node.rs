@@ -13,6 +13,12 @@ use crate::{
 #[derive(Clone)]
 pub struct Node(Arc<NodeKind>);
 
+impl std::fmt::Debug for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Node").field(&self.0).finish()
+    }
+}
+
 impl Node {
     pub fn new<T>(node: T) -> Self
     where
@@ -57,6 +63,23 @@ pub enum NodeKind {
     Video(Video),
     Timeline(TimelineNode),
     Caption(CaptionNode),
+}
+
+impl std::fmt::Debug for NodeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Component(_) => write!(f, "Component(..)"),
+            Self::Div(_) => write!(f, "Div(..)"),
+            Self::Canvas(_) => write!(f, "Canvas(..)"),
+            Self::Text(_) => write!(f, "Text(..)"),
+            Self::Image(_) => write!(f, "Image(..)"),
+            Self::Lucide(_) => write!(f, "Lucide(..)"),
+            Self::Path(_) => write!(f, "Path(..)"),
+            Self::Video(_) => write!(f, "Video(..)"),
+            Self::Timeline(_) => write!(f, "Timeline(..)"),
+            Self::Caption(_) => write!(f, "Caption(..)"),
+        }
+    }
 }
 
 impl NodeKind {

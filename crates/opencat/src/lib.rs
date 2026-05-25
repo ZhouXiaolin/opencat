@@ -28,7 +28,7 @@ pub use opencat_engine::script;
 pub use opencat_core::frame_ctx::FrameCtx;
 pub use opencat_core::parse::composition::{AudioAttachment, Composition, CompositionAudioSource};
 pub use opencat_core::parse::easing::{Easing, SpringConfig, animate_value, easing_from_name};
-pub use opencat_core::parse::jsonl::{ParsedComposition, parse};
+pub use opencat_core::parse::{document::ParsedComposition, jsonl::parse};
 pub use opencat_core::parse::node::{Node, NodeKind, component_node, component_node_with_duration};
 pub use opencat_core::parse::primitives::{
     AudioSource, Canvas, CanvasAsset, CaptionNode, Image, ImageSource, OpenverseQuery, Path,

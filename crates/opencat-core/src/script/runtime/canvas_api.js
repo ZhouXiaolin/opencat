@@ -1141,19 +1141,22 @@
             delete() {}
         };
     };
-    ctx.getCanvas = function() {
-        const id = ctx.__currentCanvasTarget;
-        if (!id) {
-            return new Proxy({}, {
-                get(target, prop) {
-                    if (prop === '__opencatCanvas' || prop === 'then') return undefined;
-                    if (typeof prop === 'string' && !prop.startsWith('_')) {
-                        return function() { return this; };
-                    }
-                    return undefined;
-                }
-            });
+    function assertCanvasTarget(id, apiName) {
+        var key = String(id);
+        var registry = ctx.__targetRegistry || {};
+        if (registry.visual && registry.visual[key]) return key;
+        if (registry.nonVisual && registry.nonVisual[key]) {
+            throw new Error(apiName + ": non-visual id '" + key + "' cannot be targeted");
         }
+        throw new Error(apiName + ": unknown id '" + key + "'");
+    }
+
+    ctx.getCanvas = function() {
+        throw new Error("ctx.getCanvas is not available; use ctx.getCanvasById(id)");
+    };
+
+    ctx.getCanvasById = function(id) {
+        id = assertCanvasTarget(id, 'ctx.getCanvasById');
         if (!canvasCache[id]) {
             canvasCache[id] = makeCanvas(id);
         }

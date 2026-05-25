@@ -8,12 +8,12 @@ use std::collections::HashMap;
 use serde_json::json;
 
 use crate::frame_ctx::ScriptFrameCtx;
+use crate::script::ScriptTargetRegistry;
 use crate::script::ScriptTextSource;
 use crate::script::dispatch::{binding_shim_js, dispatch_binding};
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{ANIMATION_RUNTIME, CANVAS_API_RUNTIME, NODE_STYLE_RUNTIME};
-use crate::script::ScriptTargetRegistry;
 
 pub struct ScriptRunner<C: JsContext> {
     ctx: C,

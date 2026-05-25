@@ -10,7 +10,7 @@ use crate::style::NodeStyle;
 mod builder;
 
 pub use builder::{
-    BuildOptions, build_parsed_document, build_tree, build_tree_with_tl, build_tree_with_options,
+    BuildOptions, build_parsed_document, build_tree, build_tree_with_options, build_tree_with_tl,
     build_tree_with_tl_options, join_scripts,
 };
 
@@ -46,7 +46,10 @@ pub fn validate_unique_ids(
 ) -> anyhow::Result<std::collections::HashMap<String, ParsedIdKind>> {
     let mut ids = std::collections::HashMap::new();
     for element in elements {
-        if ids.insert(element.id.clone(), ParsedIdKind::Visual).is_some() {
+        if ids
+            .insert(element.id.clone(), ParsedIdKind::Visual)
+            .is_some()
+        {
             anyhow::bail!("duplicate id `{}`", element.id);
         }
     }

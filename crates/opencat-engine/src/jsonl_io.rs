@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use opencat_core::parse::jsonl::{JsonLine, parse_with_base_dir as core_parse_with_base_dir};
 use opencat_core::parse::document::ParsedComposition;
+use opencat_core::parse::jsonl::{JsonLine, parse_with_base_dir as core_parse_with_base_dir};
 
 pub fn parse_file(path: impl AsRef<Path>) -> Result<ParsedComposition> {
     let path = path.as_ref();

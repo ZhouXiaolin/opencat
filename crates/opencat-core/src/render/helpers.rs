@@ -1126,24 +1126,12 @@ fn render_hidden_child_item(
     _bounds: &DisplayRect,
 ) -> Result<(), RenderError> {
     match item {
-        DisplayItem::Rect(rect) => {
-            super::helpers::render_rect_with_shadows(ctx, rect)
-        }
-        DisplayItem::Text(text) => {
-            super::text::render_text_with_shadows(ctx, text)
-        }
-        DisplayItem::DrawScript(script) => {
-            super::helpers::render_draw_script(ctx, script)
-        }
-        DisplayItem::SvgPath(svg) => {
-            super::helpers::render_svg_path(ctx, svg)
-        }
-        DisplayItem::Bitmap(bitmap) => {
-            super::helpers::render_bitmap_with_shadows(ctx, bitmap)
-        }
-        DisplayItem::Timeline(timeline) => {
-            super::helpers::render_timeline(ctx, timeline)
-        }
+        DisplayItem::Rect(rect) => super::helpers::render_rect_with_shadows(ctx, rect),
+        DisplayItem::Text(text) => super::text::render_text_with_shadows(ctx, text),
+        DisplayItem::DrawScript(script) => super::helpers::render_draw_script(ctx, script),
+        DisplayItem::SvgPath(svg) => super::helpers::render_svg_path(ctx, svg),
+        DisplayItem::Bitmap(bitmap) => super::helpers::render_bitmap_with_shadows(ctx, bitmap),
+        DisplayItem::Timeline(timeline) => super::helpers::render_timeline(ctx, timeline),
     }
 }
 

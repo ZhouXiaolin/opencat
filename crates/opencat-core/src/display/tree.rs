@@ -1,4 +1,6 @@
-use crate::display::list::{DisplayClip, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem};
+use crate::display::list::{
+    DisplayClip, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem,
+};
 use crate::resolve::tree::ElementId;
 
 #[derive(Clone, Debug)]

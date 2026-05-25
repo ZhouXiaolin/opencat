@@ -14,8 +14,8 @@ use crate::{
         path_bounds::{DefaultPathBounds, PathBoundsComputer},
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
-            ElementBitmap, ElementCanvas, ElementDiv, ElementDrawSlot, ElementId, ElementKind, ElementNode,
-            ElementSvgPath, ElementText, ElementTimeline, ElementTimelineTransition,
+            ElementBitmap, ElementCanvas, ElementDiv, ElementDrawSlot, ElementId, ElementKind,
+            ElementNode, ElementSvgPath, ElementText, ElementTimeline, ElementTimelineTransition,
         },
     },
     resource::catalog::{ResourceCatalog, VideoInfoMeta},
@@ -917,10 +917,7 @@ fn seed_text_sources_for_visible_subtree(
                 );
             }
         }
-        NodeKind::Image(_)
-        | NodeKind::Lucide(_)
-        | NodeKind::Path(_)
-        | NodeKind::Video(_) => {}
+        NodeKind::Image(_) | NodeKind::Lucide(_) | NodeKind::Path(_) | NodeKind::Video(_) => {}
     }
 }
 

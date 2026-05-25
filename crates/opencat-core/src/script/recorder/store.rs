@@ -482,11 +482,14 @@ impl MutationRecorder for MutationStore {
     }
 
     fn record_draw_picture(&mut self, target_id: &str, owner_id: &str, x: f32, y: f32) {
-        self.record_draw_op(target_id, crate::ir::draw_op::DrawOp::DrawSubtreePicture {
-            owner_id: owner_id.to_string(),
-            x,
-            y,
-        });
+        self.record_draw_op(
+            target_id,
+            crate::ir::draw_op::DrawOp::DrawSubtreePicture {
+                owner_id: owner_id.to_string(),
+                x,
+                y,
+            },
+        );
     }
 
     fn reset_for_frame(&mut self, current_frame: u32) {

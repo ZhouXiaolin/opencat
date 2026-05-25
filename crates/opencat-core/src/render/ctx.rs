@@ -16,18 +16,13 @@ use crate::resource::catalog::ResourceCatalog;
 /// Carries scene data, frame metadata, and the `DrawOpBuilder`
 /// that all render functions append `DrawOp`s into.
 pub struct RenderCtx<'a> {
-    /// Asset catalog for resolving ImageRef asset_ids to binary data.
     pub catalog: &'a dyn ResourceCatalog,
-    /// Frame-level metadata (canvas size, mouse position, time, etc.).
     pub frame_ctx: &'a FrameCtx,
-    /// The annotated display tree for this frame.
     pub display_tree: &'a AnnotatedDisplayTree,
-    /// Precomputed scene program (order of display items to render).
     pub ordered_scene: &'a OrderedSceneProgram,
-    /// The DrawOp builder — all render functions append ops here.
     pub builder: &'a mut DrawOpBuilder,
-    /// Optional blob store for reading cached binary data.
     pub blob_store: Option<&'a dyn BlobStore>,
+    pub hidden_picture_stack: Vec<String>,
 }
 
 /// Mutable drawing state carried through a draw-script execution.

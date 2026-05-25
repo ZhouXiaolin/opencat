@@ -468,9 +468,15 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
         let mut commands = Vec::new();
         apply_canvas_mutation_stack(&mut commands, cx.mutation_stack, &style.id);
 
+        let hidden_inherited_style = InheritedStyle::for_child(&computed);
+        let hidden_children = resolve_hidden_children(canvas, cx, &hidden_inherited_style)?;
+
         Ok(ElementNode {
             id: cx.ids.alloc(),
-            kind: ElementKind::Canvas(ElementCanvas { commands }),
+            kind: ElementKind::Canvas(ElementCanvas {
+                commands,
+                hidden_children,
+            }),
             style: computed.clone(),
             children: Vec::new(),
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
@@ -480,6 +486,35 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
         cx.mutation_stack.pop();
     }
     result
+}
+
+fn resolve_hidden_children(
+    canvas: &Canvas,
+    cx: &mut ResolveContext<'_>,
+    inherited_style: &InheritedStyle,
+) -> Result<Vec<ElementNode>> {
+    let hidden = canvas.hidden_children_ref();
+    if hidden.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut children = Vec::with_capacity(hidden.len());
+    for child in hidden {
+        let mut child_cx = ResolveContext {
+            frame_ctx: cx.frame_ctx,
+            script_frame_ctx: cx.script_frame_ctx,
+            ids: &mut *cx.ids,
+            inherited_style,
+            assets: &mut *cx.assets,
+
+            script_runtime: &mut *cx.script_runtime,
+            mutation_stack: &mut *cx.mutation_stack,
+            path_bounds: cx.path_bounds,
+        };
+        if let Some(child_node) = resolve_node_optional(child, &mut child_cx)? {
+            children.push(child_node);
+        }
+    }
+    Ok(children)
 }
 
 fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {

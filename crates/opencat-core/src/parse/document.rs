@@ -7,6 +7,13 @@ use crate::parse::{
 };
 use crate::style::NodeStyle;
 
+mod builder;
+
+pub use builder::{
+    BuildOptions, build_tree, build_tree_with_tl, build_tree_with_options,
+    build_tree_with_tl_options, join_scripts,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CanvasChildrenMode {
     Forbid,

@@ -6,11 +6,12 @@ use crate::script::dispatch::{binding_shim_js, dispatch_binding};
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{ANIMATION_RUNTIME, CANVAS_API_RUNTIME, NODE_STYLE_RUNTIME};
-use crate::script::{ScriptDriverId, ScriptHost, ScriptTextSource, driver_id_from_source};
+use crate::script::{ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source};
 
 pub struct LiveScriptHost<C: JsContext> {
     ctx: C,
     runtime_installed: bool,
+    target_registry: Option<ScriptTargetRegistry>,
 }
 
 impl<C: JsContext> LiveScriptHost<C> {
@@ -18,6 +19,7 @@ impl<C: JsContext> LiveScriptHost<C> {
         Ok(Self {
             ctx,
             runtime_installed: false,
+            target_registry: None,
         })
     }
 
@@ -28,7 +30,8 @@ impl<C: JsContext> LiveScriptHost<C> {
         self.ctx.eval(
             "globalThis.ctx = globalThis.ctx || {\
              frame:0, fps:0, totalFrames:0, currentFrame:0, sceneFrames:0, \
-             __currentCanvasTarget:''\
+             __currentCanvasTarget:'',\
+             __targetRegistry:{visual:Object.create(null),canvas:Object.create(null),nonVisual:Object.create(null)}\
          };",
         )?;
         self.ctx.install_dispatcher(dispatch_binding)?;
@@ -43,6 +46,9 @@ impl<C: JsContext> LiveScriptHost<C> {
          };",
         );
         self.ctx.eval(&flush_fn)?;
+        if let Some(registry) = &self.target_registry {
+            crate::script::script_runner::apply_target_registry(&self.ctx, registry)?;
+        }
         self.runtime_installed = true;
         Ok(())
     }
@@ -100,5 +106,9 @@ impl<C: JsContext> ScriptHost for LiveScriptHost<C> {
         snap.apply_to_recorder(recorder);
 
         Ok(())
+    }
+
+    fn set_target_registry(&mut self, registry: ScriptTargetRegistry) {
+        self.target_registry = Some(registry);
     }
 }

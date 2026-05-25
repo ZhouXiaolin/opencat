@@ -19,7 +19,7 @@ use crate::{
         },
     },
     resource::catalog::{ResourceCatalog, VideoInfoMeta},
-    script::{ScriptHost, StyleMutations, TextUnitOverrideBatch},
+    script::{ScriptHost, ScriptTargetRegistry, StyleMutations, TextUnitOverrideBatch},
     style::LengthPercentageAuto,
     style::{NodeStyle, resolve_text_style},
 };
@@ -86,6 +86,9 @@ pub fn resolve_ui_tree_with_script_cache(
     if let Some(mutations) = mutations.filter(|mutations| !mutations.is_empty()) {
         mutation_stack.push(mutations.clone());
     }
+    let mut registry = ScriptTargetRegistry::default();
+    collect_visual_script_targets(node, &mut registry);
+    script_runtime.set_target_registry(registry);
     script_runtime.clear_text_sources();
     let mut cx = ResolveContext {
         frame_ctx,
@@ -1063,6 +1066,57 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
         },
         text,
         id: style.id.clone(),
+    }
+}
+
+fn collect_visual_script_targets(node: &Node, registry: &mut ScriptTargetRegistry) {
+    let id = node.style_ref().id.as_str();
+    if !id.is_empty() {
+        registry.visual_ids.insert(id.to_string());
+        if matches!(node.kind(), NodeKind::Canvas(_)) {
+            registry.canvas_ids.insert(id.to_string());
+        }
+    }
+    match node.kind() {
+        NodeKind::Component(component) => {
+            let rendered = component.render(&crate::FrameCtx {
+                frame: 0,
+                fps: 30,
+                width: 1,
+                height: 1,
+                frames: 1,
+            });
+            collect_visual_script_targets(&rendered, registry);
+        }
+        NodeKind::Div(div) => {
+            for child in div.children_ref() {
+                collect_visual_script_targets(child, registry);
+            }
+        }
+        NodeKind::Canvas(canvas) => {
+            for child in canvas.hidden_children_ref() {
+                collect_visual_script_targets(child, registry);
+            }
+        }
+        NodeKind::Timeline(timeline) => {
+            for segment in timeline.segments() {
+                match segment {
+                    crate::parse::time::TimelineSegment::Scene { scene, .. } => {
+                        collect_visual_script_targets(scene, registry);
+                    }
+                    crate::parse::time::TimelineSegment::Transition { from, to, .. } => {
+                        collect_visual_script_targets(from, registry);
+                        collect_visual_script_targets(to, registry);
+                    }
+                }
+            }
+        }
+        NodeKind::Text(_)
+        | NodeKind::Image(_)
+        | NodeKind::Lucide(_)
+        | NodeKind::Path(_)
+        | NodeKind::Video(_)
+        | NodeKind::Caption(_) => {}
     }
 }
 

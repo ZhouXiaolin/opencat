@@ -1,6 +1,6 @@
 use crate::frame_ctx::ScriptFrameCtx;
 use crate::script::recorder::MutationRecorder;
-use crate::script::{ScriptDriverId, ScriptHost, ScriptTextSource, StyleMutations};
+use crate::script::{ScriptDriverId, ScriptHost, ScriptTargetRegistry, StyleMutations, ScriptTextSource};
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -80,4 +80,6 @@ impl ScriptHost for PrecomputedScriptHost {
         }
         Ok(())
     }
+
+    fn set_target_registry(&mut self, _registry: ScriptTargetRegistry) {}
 }

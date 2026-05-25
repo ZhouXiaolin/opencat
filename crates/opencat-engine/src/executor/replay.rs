@@ -560,8 +560,6 @@ fn replay_op(
         DrawOp::ReplayRange { range } => replay_range(exec, canvas, draw, media, *range),
 
         DrawOp::DrawSubtreePicture { .. } => Ok(()),
-
-        DrawOp::ScriptRuntimeEffect { .. } => Ok(()),
     }
 }
 

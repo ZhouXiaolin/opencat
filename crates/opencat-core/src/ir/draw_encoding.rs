@@ -636,9 +636,6 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             write_f32(buf, *y);
         }
 
-        DrawOp::ScriptRuntimeEffect { .. } => {
-            panic!("ScriptRuntimeEffect must be lowered to RuntimeEffect before encoding");
-        }
     }
 
     // Pad to 4-byte alignment after each op

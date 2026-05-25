@@ -196,7 +196,7 @@ fn build_node_inner(
     scripts_by_parent: &HashMap<String, Vec<String>>,
     transitions_by_tl: &HashMap<String, Vec<&ParsedTransition>>,
     fps: u32,
-    _options: BuildOptions,
+    options: BuildOptions,
 ) -> anyhow::Result<Node> {
     let mut style = el.style.clone();
     style.id = el.id.clone();
@@ -289,7 +289,7 @@ fn build_node_inner(
                     scripts_by_parent,
                     transitions_by_tl,
                     fps,
-                    _options,
+                    options,
                 )?;
                 tl_builder = tl_builder.sequence(duration, node);
 
@@ -319,8 +319,8 @@ fn build_node_inner(
                         scripts_by_parent,
                         transitions_by_tl,
                         fps,
-                        _options,
-                    )?;
+                    options,
+                )?;
                     div_node = div_node.child(child_node);
                 }
             }
@@ -333,17 +333,26 @@ fn build_node_inner(
             Ok(Node::new(text_node))
         }
         ParsedElementKind::Canvas => {
-            if children_map
-                .get(el.id.as_str())
-                .is_some_and(|children| !children.is_empty())
-            {
-                return Err(anyhow::anyhow!(
-                    "canvas node `{}` cannot have child nodes",
-                    el.id
-                ));
-            }
+            let children = children_map.get(el.id.as_str()).map(|c| c.as_slice()).unwrap_or(&[]);
             let mut canvas_node = canvas();
             canvas_node.style = style;
+            match options.canvas_children_mode {
+                CanvasChildrenMode::Forbid if !children.is_empty() => {
+                    return Err(anyhow::anyhow!(
+                        "canvas node `{}` cannot have child nodes",
+                        el.id
+                    ));
+                }
+                CanvasChildrenMode::Forbid => {}
+                CanvasChildrenMode::HiddenPictureSubtree => {
+                    for child in children {
+                        let child_node = build_node_inner(
+                            child, children_map, scripts_by_parent, transitions_by_tl, fps, options,
+                        )?;
+                        canvas_node = canvas_node.hidden_child(child_node);
+                    }
+                }
+            }
             Ok(Node::new(canvas_node))
         }
         ParsedElementKind::Image { source } => {

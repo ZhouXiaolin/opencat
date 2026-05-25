@@ -135,6 +135,9 @@ fn register_canvas_aliases_from_node(
                     }
                 }
             }
+            for child in canvas.hidden_children_ref() {
+                register_canvas_aliases_from_node(child, frame_ctx, catalog, path_store);
+            }
         }
         NodeKind::Timeline(timeline) => {
             for segment in timeline.segments() {

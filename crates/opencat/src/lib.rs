@@ -18,7 +18,7 @@ pub use opencat_core::text;
 pub use opencat_engine::codec;
 pub use opencat_engine::fonts;
 pub use opencat_engine::inspect;
-pub use opencat_engine::jsonl_io;
+pub use opencat_engine::source_io;
 pub use opencat_engine::platform;
 pub use opencat_engine::render;
 pub use opencat_engine::resource;
@@ -42,7 +42,7 @@ pub use opencat_core::parse::transition::{
 pub use opencat_core::parse::{document::ParsedComposition, jsonl::parse};
 pub use opencat_core::script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use opencat_engine::inspect::{FrameElementRect, collect_frame_layout_rects};
-pub use opencat_engine::jsonl_io::{parse_file, parse_with_base_dir};
+pub use opencat_engine::source_io::{parse_file, parse_with_base_dir};
 pub use opencat_engine::platform::EnginePlatform;
 pub use opencat_engine::render::{
     EncodingConfig, Mp4Config, OutputFormat, RenderBackend, RenderSession, build_audio_track,

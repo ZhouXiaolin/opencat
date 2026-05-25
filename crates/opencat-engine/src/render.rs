@@ -74,7 +74,7 @@ pub fn render_from_jsonl(
 }
 
 pub fn render_from_jsonl_with_base(
-    jsonl: &str,
+    input: &str,
     base_dir: Option<&Path>,
     output_path: impl AsRef<Path>,
     config: &EncodingConfig,
@@ -94,7 +94,7 @@ pub fn render_from_jsonl_with_base(
         cache_dir,
     )?;
     let ctx = RqJsContext::new()?;
-    let mut pipeline = crate::EnginePipeline::open(jsonl, loader, ctx)?;
+    let mut pipeline = crate::EnginePipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
 
     let mut media_ctx = MediaContext::new();
@@ -270,7 +270,7 @@ pub fn render_single_frame_from_jsonl(
 
 /// Render a single frame with explicit base directory for resolving relative asset paths.
 pub fn render_single_frame_from_jsonl_with_base(
-    jsonl: &str,
+    input: &str,
     base_dir: Option<&Path>,
     frame_index: u32,
 ) -> Result<(Vec<u8>, u32, u32)> {
@@ -287,7 +287,7 @@ pub fn render_single_frame_from_jsonl_with_base(
         cache_dir,
     )?;
     let ctx = RqJsContext::new()?;
-    let mut pipeline = crate::EnginePipeline::open(jsonl, loader, ctx)?;
+    let mut pipeline = crate::EnginePipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
 
     if frame_index >= info.frames {
@@ -837,7 +837,7 @@ mod tests {
             .parent()
             .unwrap()
             .join("json/split_text_demo.jsonl");
-        let parsed = crate::jsonl_io::parse_file(&jsonl_path).expect("parse");
+        let parsed = crate::source_io::parse_file(&jsonl_path).expect("parse");
         let root = if let Some(script) = parsed.script.as_deref() {
             if script.trim().is_empty() {
                 parsed.root

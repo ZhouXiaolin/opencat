@@ -1,19 +1,25 @@
-# Implementation Notes: Task 2 — Move JSONL Builder To Shared Builder Module
+# Implementation Notes — Task 6: Parse Visual Nodes, Text Content, Audio, And Resources
 
-## Decisions
+## Decisions Not in Spec
 
-- **`_options` parameter in `build_node_inner`**: Passed `BuildOptions` through but prefixed with `_` since `CanvasChildrenMode::HiddenPictureSubtree` can't be implemented yet (needs `Canvas::hidden_child()` from Task 9). The Canvas arm keeps the existing rejection logic unchanged.
-- **Backward-compatible wrappers**: `build_tree()` and `build_tree_with_tl()` kept as thin wrappers that delegate to `_with_options` variants with `BuildOptions::JSONL`. JSONL module uses these wrappers unchanged.
-- **Deleted `jsonl/builder.rs`** entirely rather than keeping as re-export — cleaner, no indirection.
+### roxmltree NodeType Differences
+The spec referenced `NodeType::Cdata` and `NodeType::EntityReference`, but roxmltree 0.21.x merges CDATA sections and resolved entity references into `NodeType::Text` nodes. The `<text>` content handler only needs to match `NodeType::Text` — XML entity references like `&amp;` and CDATA content are both included in text nodes automatically. This is why the test `Open&amp;Cat<![CDATA[!]]>` produces `OpenCat!` as expected.
+
+### `&str` vs `String` for `required_attr`
+The spec showed `id.clone()` in several places, but `required_attr` returns `&str` (borrowed from the roxmltree document), not `String`. Changed all `.clone()` calls on `id` to `.to_string()` where the field expects `String`.
+
+### `queryCount`/`aspectRatio` Validation
+The spec's `IMAGE_ATTRS` whitelist includes `queryCount` and `aspectRatio`, meaning `ensure_allowed_attrs` alone won't reject them. Added explicit checks in `parse_image_source` that `queryCount` requires `query` and `aspectRatio` requires `query`, matching the test expectation.
+
+### `ParentContext` Enum
+Defined but only used as a parameter — currently no branching logic depends on it. It's reserved for future validation (e.g., restricting which elements can appear in certain contexts).
+
+### `parse_transition_node` Stub
+Only validates `from`, `to`, `effect`, `duration` are present and no children. Full implementation deferred to Task 7.
+
+### Audio Source Resolution
+Top-level `<audio>` elements get `AudioAttachment::Timeline`, audio inside a `<tl>` gets `AudioAttachment::Scene { scene_id }`, and audio inside other visual elements (div, etc.) gets `AudioAttachment::Timeline` as fallback.
 
 ## Tradeoffs
-
-- `BuildOptions` uses `const` associated constants (`JSONL`, `MARKUP`) rather than constructors — zero-cost, compile-time known.
-- `MARKUP` constant references `HiddenPictureSubtree` which isn't functional yet — it compiles but the canvas arm doesn't branch on it. This is intentional to avoid dead-code warnings; the branching logic arrives in Task 9.
-
-## Files Changed
-
-- **Created**: `crates/opencat-core/src/parse/document/builder.rs` — all builder code moved from `jsonl/builder.rs` plus `BuildOptions`
-- **Modified**: `crates/opencat-core/src/parse/document.rs` — added `mod builder` and re-exports
-- **Modified**: `crates/opencat-core/src/parse/jsonl/mod.rs` — switched import to `crate::parse::document::*`, added regression test
-- **Deleted**: `crates/opencat-core/src/parse/jsonl/builder.rs`
+- Attribute whitelists are static `&[&str]` constants rather than computed sets — simple and zero-cost
+- `parse_optional_u32_attr` duplicates logic from `parse_positive_i32` but for `u32` — kept separate for type clarity

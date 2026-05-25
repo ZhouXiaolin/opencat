@@ -3,6 +3,7 @@ pub mod document;
 pub mod easing;
 pub mod gl_transition;
 pub mod jsonl;
+pub mod markup;
 pub mod node;
 pub mod preflight;
 pub mod primitives;

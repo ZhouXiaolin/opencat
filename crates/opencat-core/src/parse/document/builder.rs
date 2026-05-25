@@ -15,8 +15,8 @@ use crate::script::ScriptDriver;
 
 use crate::parse::composition::{AudioAttachment, CompositionAudioSource};
 use crate::parse::document::{
-    CanvasChildrenMode, ParsedComposition, ParsedDocumentParts, ParsedElement,
-    ParsedElementKind, ParsedTransition,
+    CanvasChildrenMode, ParsedComposition, ParsedDocumentParts, ParsedElement, ParsedElementKind,
+    ParsedTransition,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -144,7 +144,14 @@ pub fn build_tree_with_options(
         .into_iter()
         .next()
         .ok_or_else(|| anyhow::anyhow!("no root element found"))?;
-    build_node_inner(root, &children_map, scripts_by_parent, &HashMap::new(), fps, options)
+    build_node_inner(
+        root,
+        &children_map,
+        scripts_by_parent,
+        &HashMap::new(),
+        fps,
+        options,
+    )
 }
 
 pub fn build_tree_with_tl_options(
@@ -187,7 +194,13 @@ pub fn build_tree_with_tl(
     transitions_by_tl: &HashMap<String, Vec<&ParsedTransition>>,
     fps: u32,
 ) -> anyhow::Result<Node> {
-    build_tree_with_tl_options(elements, scripts_by_parent, transitions_by_tl, fps, BuildOptions::JSONL)
+    build_tree_with_tl_options(
+        elements,
+        scripts_by_parent,
+        transitions_by_tl,
+        fps,
+        BuildOptions::JSONL,
+    )
 }
 
 fn build_node_inner(
@@ -319,8 +332,8 @@ fn build_node_inner(
                         scripts_by_parent,
                         transitions_by_tl,
                         fps,
-                    options,
-                )?;
+                        options,
+                    )?;
                     div_node = div_node.child(child_node);
                 }
             }
@@ -333,7 +346,10 @@ fn build_node_inner(
             Ok(Node::new(text_node))
         }
         ParsedElementKind::Canvas => {
-            let children = children_map.get(el.id.as_str()).map(|c| c.as_slice()).unwrap_or(&[]);
+            let children = children_map
+                .get(el.id.as_str())
+                .map(|c| c.as_slice())
+                .unwrap_or(&[]);
             let mut canvas_node = canvas();
             canvas_node.style = style;
             match options.canvas_children_mode {
@@ -347,7 +363,12 @@ fn build_node_inner(
                 CanvasChildrenMode::HiddenPictureSubtree => {
                     for child in children {
                         let child_node = build_node_inner(
-                            child, children_map, scripts_by_parent, transitions_by_tl, fps, options,
+                            child,
+                            children_map,
+                            scripts_by_parent,
+                            transitions_by_tl,
+                            fps,
+                            options,
                         )?;
                         canvas_node = canvas_node.hidden_child(child_node);
                     }

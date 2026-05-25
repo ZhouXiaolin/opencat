@@ -181,7 +181,16 @@ pub fn parse_with_base_dir(
 const DIV_ATTRS: &[&str] = &["id", "class", "duration"];
 const TEXT_ATTRS: &[&str] = &["id", "class", "duration"];
 const CANVAS_ATTRS: &[&str] = &["id", "class", "duration"];
-const IMAGE_ATTRS: &[&str] = &["id", "class", "duration", "path", "url", "query", "queryCount", "aspectRatio"];
+const IMAGE_ATTRS: &[&str] = &[
+    "id",
+    "class",
+    "duration",
+    "path",
+    "url",
+    "query",
+    "queryCount",
+    "aspectRatio",
+];
 const AUDIO_ATTRS: &[&str] = &["id", "duration", "path", "url", "class"];
 const VIDEO_ATTRS: &[&str] = &["id", "class", "duration", "path", "url"];
 const ICON_ATTRS: &[&str] = &["id", "class", "duration", "icon"];
@@ -189,8 +198,18 @@ const TL_ATTRS: &[&str] = &["id", "class"];
 const CAPTION_ATTRS: &[&str] = &["id", "class", "duration", "path"];
 const PATH_ATTRS: &[&str] = &["id", "class", "duration", "d"];
 const TRANSITION_ATTRS: &[&str] = &[
-    "from", "to", "effect", "duration", "direction", "timing",
-    "damping", "stiffness", "mass", "seed", "hueShift", "maskScale",
+    "from",
+    "to",
+    "effect",
+    "duration",
+    "direction",
+    "timing",
+    "damping",
+    "stiffness",
+    "mass",
+    "seed",
+    "hueShift",
+    "maskScale",
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -218,8 +237,8 @@ fn parse_opencat_children(
                     "audio" => {
                         parse_audio_element(child, None, base_dir, parts)?;
                     }
-                    "div" | "text" | "canvas" | "image" | "video" | "icon" | "path"
-                    | "caption" | "tl" => {
+                    "div" | "text" | "canvas" | "image" | "video" | "icon" | "path" | "caption"
+                    | "tl" => {
                         let id = required_attr(child, "id")?;
                         if visual_root.is_some() {
                             anyhow::bail!("multiple visual root elements found");
@@ -697,16 +716,11 @@ fn parse_transition_node(
     Ok(())
 }
 
-fn parse_optional_f32(
-    node: roxmltree::Node<'_, '_>,
-    name: &str,
-) -> anyhow::Result<Option<f32>> {
+fn parse_optional_f32(node: roxmltree::Node<'_, '_>, name: &str) -> anyhow::Result<Option<f32>> {
     match node.attribute(name) {
         None => Ok(None),
         Some(val) => {
-            let n: f32 = val
-                .parse()
-                .map_err(|e| anyhow::anyhow!("`{name}`: {e}"))?;
+            let n: f32 = val.parse().map_err(|e| anyhow::anyhow!("`{name}`: {e}"))?;
             if !n.is_finite() {
                 anyhow::bail!("`{name}` must be finite");
             }
@@ -731,9 +745,8 @@ fn parse_optional_f32_positive(
 }
 
 fn required_attr<'a>(node: roxmltree::Node<'a, '_>, name: &str) -> anyhow::Result<&'a str> {
-    node.attribute(name).ok_or_else(|| {
-        anyhow::anyhow!("<{}> requires `{name}`", node.tag_name().name())
-    })
+    node.attribute(name)
+        .ok_or_else(|| anyhow::anyhow!("<{}> requires `{name}`", node.tag_name().name()))
 }
 
 fn required_non_empty_attr<'a>(
@@ -807,26 +820,18 @@ fn parse_positive_i32_attr(
 ) -> anyhow::Result<i32> {
     match node.attribute(name) {
         None => Ok(default),
-        Some(value) => {
-            parse_positive_i32(value).map_err(|e| anyhow::anyhow!("`{name}`: {e}"))
-        }
+        Some(value) => parse_positive_i32(value).map_err(|e| anyhow::anyhow!("`{name}`: {e}")),
     }
 }
 
-fn ensure_allowed_attrs(
-    node: roxmltree::Node<'_, '_>,
-    allowed: &[&str],
-) -> anyhow::Result<()> {
+fn ensure_allowed_attrs(node: roxmltree::Node<'_, '_>, allowed: &[&str]) -> anyhow::Result<()> {
     for attr in node.attributes() {
         let name = attr.name();
         if matches!(name, "className" | "parentId" | "style") {
             anyhow::bail!("attribute `{name}` is not allowed in markup");
         }
         if !allowed.contains(&name) {
-            anyhow::bail!(
-                "unknown attribute `{name}` on <{}>",
-                node.tag_name().name()
-            );
+            anyhow::bail!("unknown attribute `{name}` on <{}>", node.tag_name().name());
         }
     }
     Ok(())
@@ -859,27 +864,27 @@ mod tests {
 
     #[test]
     fn rejects_nested_script_island() {
-        let err = extract_raw_script("<opencat><div id=\"root\"><script>x</script></div></opencat>")
-            .expect_err("nested script should fail");
+        let err =
+            extract_raw_script("<opencat><div id=\"root\"><script>x</script></div></opencat>")
+                .expect_err("nested script should fail");
 
         assert!(err.to_string().contains("direct child of <opencat>"));
     }
 
     #[test]
     fn rejects_script_attributes_and_self_closing_script() {
-        assert!(extract_raw_script(
-            "<opencat><script type=\"js\">x</script><div id=\"root\" /></opencat>"
-        )
-        .is_err());
         assert!(
-            extract_raw_script("<opencat><script /><div id=\"root\" /></opencat>").is_err()
+            extract_raw_script(
+                "<opencat><script type=\"js\">x</script><div id=\"root\" /></opencat>"
+            )
+            .is_err()
         );
+        assert!(extract_raw_script("<opencat><script /><div id=\"root\" /></opencat>").is_err());
     }
 
     #[test]
     fn parses_opencat_defaults() {
-        let parsed = parse(r#"<opencat><div id="root" /></opencat>"#)
-            .expect("markup should parse");
+        let parsed = parse(r#"<opencat><div id="root" /></opencat>"#).expect("markup should parse");
 
         assert_eq!(parsed.width, 1920);
         assert_eq!(parsed.height, 1080);
@@ -893,12 +898,20 @@ mod tests {
         let parsed = parse(r#"<opencat width="640" height="360" fps="24" frames="120"><div id="root" /></opencat>"#)
             .expect("markup should parse");
 
-        assert_eq!((parsed.width, parsed.height, parsed.fps, parsed.frames), (640, 360, 24, 120));
+        assert_eq!(
+            (parsed.width, parsed.height, parsed.fps, parsed.frames),
+            (640, 360, 24, 120)
+        );
     }
 
     #[test]
     fn rejects_invalid_envelope_numbers() {
-        for attr in ["width=\"0\"", "height=\"-1\"", "fps=\"30.0\"", "frames=\"90px\""] {
+        for attr in [
+            "width=\"0\"",
+            "height=\"-1\"",
+            "fps=\"30.0\"",
+            "frames=\"90px\"",
+        ] {
             let input = format!(r#"<opencat {attr}><div id="root" /></opencat>"#);
             assert!(parse(&input).is_err(), "{attr} should fail");
         }
@@ -909,7 +922,10 @@ mod tests {
         let err = parse(r#"<opencat foo="bar"><div id="root" /></opencat>"#)
             .expect_err("unknown root attribute should fail");
 
-        assert!(err.to_string().contains("unknown attribute `foo` on <opencat>"));
+        assert!(
+            err.to_string()
+                .contains("unknown attribute `foo` on <opencat>")
+        );
     }
 
     #[test]
@@ -948,12 +964,30 @@ mod tests {
     #[test]
     fn rejects_disallowed_attributes_and_bad_resources() {
         let cases = [
-            (r#"<opencat><div id="root" className="x" /></opencat>"#, "className"),
-            (r#"<opencat><div id="root" parentId="x" /></opencat>"#, "parentId"),
-            (r#"<opencat><div id="root" style="color:red" /></opencat>"#, "style"),
-            (r#"<opencat><image id="img" /></opencat>"#, "requires one of"),
-            (r#"<opencat><image id="img" path="a" url="b" /></opencat>"#, "only one"),
-            (r#"<opencat><image id="img" path="a" queryCount="2" /></opencat>"#, "queryCount"),
+            (
+                r#"<opencat><div id="root" className="x" /></opencat>"#,
+                "className",
+            ),
+            (
+                r#"<opencat><div id="root" parentId="x" /></opencat>"#,
+                "parentId",
+            ),
+            (
+                r#"<opencat><div id="root" style="color:red" /></opencat>"#,
+                "style",
+            ),
+            (
+                r#"<opencat><image id="img" /></opencat>"#,
+                "requires one of",
+            ),
+            (
+                r#"<opencat><image id="img" path="a" url="b" /></opencat>"#,
+                "only one",
+            ),
+            (
+                r#"<opencat><image id="img" path="a" queryCount="2" /></opencat>"#,
+                "queryCount",
+            ),
             (r#"<opencat><video id="v" /></opencat>"#, "requires one of"),
             (r#"<opencat><audio id="a" /></opencat>"#, "requires one of"),
             (r#"<opencat><caption id="c" /></opencat>"#, "path"),
@@ -993,7 +1027,10 @@ mod tests {
         )
         .expect("markup with script should parse");
 
-        assert!(parsed.script.is_none(), "markup does not use ParsedComposition.script");
+        assert!(
+            parsed.script.is_none(),
+            "markup does not use ParsedComposition.script"
+        );
         assert!(parsed.root.style_ref().script_driver.is_some());
     }
 
@@ -1020,7 +1057,10 @@ mod tests {
         )
         .expect_err("audio inside canvas should fail");
 
-        assert!(err.to_string().contains("audio is not allowed inside canvas"));
+        assert!(
+            err.to_string()
+                .contains("audio is not allowed inside canvas")
+        );
     }
 
     #[test]
@@ -1038,15 +1078,15 @@ mod tests {
                 r#"<opencat><tl id="tl"><div id="a" /><transition from="a" to="b" effect="fade" duration="1" /><div id="b" duration="1" /></tl></opencat>"#,
                 "missing a duration",
             ),
-        (
-            r#"<opencat><tl id="tl"><div id="a" duration="1" /><transition from="a" to="a" effect="fade" duration="1" /><div id="b" duration="1" /></tl></opencat>"#,
-            "distinct",
-        ),
-        (
-            r#"<opencat><tl id="tl"><div id="a" duration="1" /><transition from="a" to="b" effect="fade" duration="0" /><div id="b" duration="1" /></tl></opencat>"#,
-            "duration",
-        ),
-    ];
+            (
+                r#"<opencat><tl id="tl"><div id="a" duration="1" /><transition from="a" to="a" effect="fade" duration="1" /><div id="b" duration="1" /></tl></opencat>"#,
+                "distinct",
+            ),
+            (
+                r#"<opencat><tl id="tl"><div id="a" duration="1" /><transition from="a" to="b" effect="fade" duration="0" /><div id="b" duration="1" /></tl></opencat>"#,
+                "duration",
+            ),
+        ];
 
         for (input, expected) in cases {
             let err = parse(input).expect_err(input);
@@ -1084,8 +1124,10 @@ mod tests {
         assert!(parse(r#"<opencat><?bad test?><div id="root" /></opencat>"#).is_err());
         assert!(parse(r#"<opencat><text id="t"><span /></text></opencat>"#).is_err());
 
-        let parsed = parse(r#"<opencat><text id="t"> ordinary <![CDATA[cdata]]> &amp; entity </text></opencat>"#)
-            .expect("text content should parse");
+        let parsed = parse(
+            r#"<opencat><text id="t"> ordinary <![CDATA[cdata]]> &amp; entity </text></opencat>"#,
+        )
+        .expect("text content should parse");
         assert_eq!(parsed.root.style_ref().id, "t");
     }
 

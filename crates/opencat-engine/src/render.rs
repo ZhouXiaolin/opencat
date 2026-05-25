@@ -1747,11 +1747,7 @@ mod tests {
             .id("stage")
             .size(32.0, 32.0)
             .hidden_child(Node::new(
-                crate::div()
-                    .id("hidden")
-                    .w_full()
-                    .h_full()
-                    .bg_red(),
+                crate::div().id("hidden").w_full().h_full().bg_red(),
             ))
             .script_source(
                 r#"
@@ -1787,11 +1783,7 @@ mod tests {
                     .id("inner")
                     .size(32.0, 32.0)
                     .hidden_child(Node::new(
-                        crate::div()
-                            .id("inner-child")
-                            .w_full()
-                            .h_full()
-                            .bg_green(),
+                        crate::div().id("inner-child").w_full().h_full().bg_green(),
                     )),
             ))
             .script_source(

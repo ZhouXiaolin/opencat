@@ -12,10 +12,9 @@ use crate::parse::{
 };
 use crate::style::NodeStyle;
 
-mod builder;
 pub mod tailwind;
 
-use builder::{build_tree, build_tree_with_tl, join_scripts};
+use crate::parse::document::{build_tree, build_tree_with_tl, join_scripts};
 
 #[derive(Debug, Deserialize, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -1437,6 +1436,19 @@ mod tests {
         .expect("tl without transitions should fail");
 
         assert!(err.to_string().contains("missing transition"));
+    }
+
+    #[test]
+    fn jsonl_still_rejects_canvas_children_after_builder_move() {
+        let err = parse(
+            r#"{"type":"composition","width":320,"height":180,"fps":30,"frames":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"stage","parentId":"root","type":"canvas","className":"w-full h-full"}
+{"id":"hidden","parentId":"stage","type":"text","className":"text-[12px]","text":"hidden"}"#,
+        )
+        .expect_err("JSONL canvas children stay unsupported");
+
+        assert!(err.to_string().contains("canvas node `stage` cannot have child nodes"));
     }
 
     #[test]

@@ -13,9 +13,24 @@ use crate::parse::{
 };
 use crate::script::ScriptDriver;
 
-use crate::parse::document::{ParsedElement, ParsedElementKind, ParsedTransition};
+use crate::parse::document::{CanvasChildrenMode, ParsedElement, ParsedElementKind, ParsedTransition};
 
-pub(super) fn join_scripts(scripts: Vec<String>) -> Option<String> {
+#[derive(Debug, Clone, Copy)]
+pub struct BuildOptions {
+    pub canvas_children_mode: CanvasChildrenMode,
+}
+
+impl BuildOptions {
+    pub const JSONL: Self = Self {
+        canvas_children_mode: CanvasChildrenMode::Forbid,
+    };
+
+    pub const MARKUP: Self = Self {
+        canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree,
+    };
+}
+
+pub fn join_scripts(scripts: Vec<String>) -> Option<String> {
     if scripts.is_empty() {
         None
     } else {
@@ -40,10 +55,11 @@ fn index_elements(
     (children_map, roots)
 }
 
-pub(super) fn build_tree(
+pub fn build_tree_with_options(
     elements: &[ParsedElement],
     scripts_by_parent: &HashMap<String, Vec<String>>,
     fps: u32,
+    options: BuildOptions,
 ) -> anyhow::Result<Node> {
     let (children_map, roots) = index_elements(elements);
     if roots.len() > 1 {
@@ -54,14 +70,15 @@ pub(super) fn build_tree(
         .into_iter()
         .next()
         .ok_or_else(|| anyhow::anyhow!("no root element found"))?;
-    build_node_inner(root, &children_map, scripts_by_parent, &HashMap::new(), fps)
+    build_node_inner(root, &children_map, scripts_by_parent, &HashMap::new(), fps, options)
 }
 
-pub(super) fn build_tree_with_tl(
+pub fn build_tree_with_tl_options(
     elements: &[ParsedElement],
     scripts_by_parent: &HashMap<String, Vec<String>>,
     transitions_by_tl: &HashMap<String, Vec<&ParsedTransition>>,
     fps: u32,
+    options: BuildOptions,
 ) -> anyhow::Result<Node> {
     let (children_map, roots) = index_elements(elements);
     if roots.len() > 1 {
@@ -78,7 +95,25 @@ pub(super) fn build_tree_with_tl(
         scripts_by_parent,
         transitions_by_tl,
         fps,
+        options,
     )
+}
+
+pub fn build_tree(
+    elements: &[ParsedElement],
+    scripts_by_parent: &HashMap<String, Vec<String>>,
+    fps: u32,
+) -> anyhow::Result<Node> {
+    build_tree_with_options(elements, scripts_by_parent, fps, BuildOptions::JSONL)
+}
+
+pub fn build_tree_with_tl(
+    elements: &[ParsedElement],
+    scripts_by_parent: &HashMap<String, Vec<String>>,
+    transitions_by_tl: &HashMap<String, Vec<&ParsedTransition>>,
+    fps: u32,
+) -> anyhow::Result<Node> {
+    build_tree_with_tl_options(elements, scripts_by_parent, transitions_by_tl, fps, BuildOptions::JSONL)
 }
 
 fn build_node_inner(
@@ -87,6 +122,7 @@ fn build_node_inner(
     scripts_by_parent: &HashMap<String, Vec<String>>,
     transitions_by_tl: &HashMap<String, Vec<&ParsedTransition>>,
     fps: u32,
+    _options: BuildOptions,
 ) -> anyhow::Result<Node> {
     let mut style = el.style.clone();
     style.id = el.id.clone();
@@ -179,6 +215,7 @@ fn build_node_inner(
                     scripts_by_parent,
                     transitions_by_tl,
                     fps,
+                    _options,
                 )?;
                 tl_builder = tl_builder.sequence(duration, node);
 
@@ -208,6 +245,7 @@ fn build_node_inner(
                         scripts_by_parent,
                         transitions_by_tl,
                         fps,
+                        _options,
                     )?;
                     div_node = div_node.child(child_node);
                 }
@@ -341,7 +379,6 @@ fn build_transition(transition: &ParsedTransition) -> anyhow::Result<Transition>
 }
 
 fn parse_transition_easing(transition: &ParsedTransition) -> anyhow::Result<Easing> {
-    // Explicit spring parameters override timing field
     if transition.damping.is_some() || transition.stiffness.is_some() || transition.mass.is_some() {
         let mut config = SpringConfig::default();
         if let Some(damping) = transition.damping {

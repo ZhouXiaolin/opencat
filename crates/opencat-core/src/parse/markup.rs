@@ -191,7 +191,7 @@ const IMAGE_ATTRS: &[&str] = &[
     "queryCount",
     "aspectRatio",
 ];
-const AUDIO_ATTRS: &[&str] = &["id", "duration", "path", "url", "class"];
+const AUDIO_ATTRS: &[&str] = &["id", "duration", "path", "url"];
 const VIDEO_ATTRS: &[&str] = &["id", "class", "duration", "path", "url"];
 const ICON_ATTRS: &[&str] = &["id", "class", "duration", "icon"];
 const TL_ATTRS: &[&str] = &["id", "class"];
@@ -630,7 +630,7 @@ fn parse_image_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<ImageSour
         }));
     }
 
-    unreachable!()
+    anyhow::bail!("image must have one of: path, url, query")
 }
 
 fn parse_video_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<VideoSource> {

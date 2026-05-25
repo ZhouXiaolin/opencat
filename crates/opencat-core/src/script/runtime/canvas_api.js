@@ -712,6 +712,20 @@
         }
     }
 
+    function makeSubTreeHandle(ownerId) {
+        return {
+            __opencatSubTreePicture: true,
+            ownerId: String(ownerId)
+        };
+    }
+
+    function ensureSubTreeHandle(value) {
+        if (!value || value.__opencatSubTreePicture !== true) {
+            throw new Error("drawPicture expects a handle returned by getSubTree()");
+        }
+        return value;
+    }
+
     function makeCanvas(id) {
         return {
             __saveCount: 1,
@@ -1127,6 +1141,19 @@
                     values.push(toFiniteNumber(matrix[i]));
                 }
                 __canvas_concat(id, values);
+                return this;
+            },
+
+            getSubTree() {
+                if (!ctx.__targetRegistry || !ctx.__targetRegistry.canvas || !ctx.__targetRegistry.canvas[String(id)]) {
+                    throw new Error("getSubTree is only available for canvas nodes: " + id);
+                }
+                return makeSubTreeHandle(id);
+            },
+
+            drawPicture(handle, x = 0, y = 0) {
+                const resolved = ensureSubTreeHandle(handle);
+                __canvas_draw_picture(id, resolved.ownerId, toFiniteNumber(x), toFiniteNumber(y));
                 return this;
             }
         };

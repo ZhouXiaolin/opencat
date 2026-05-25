@@ -560,8 +560,8 @@ macro_rules! for_each_binding {
 
         $binding! { node $rec $id canvas_runtime_effect_draw ($id: &str, sksl: String, uniforms: Vec<f32>, children_json: String, dst_x: f32, dst_y: f32, dst_w: f32, dst_h: f32) {
             let specs = $crate::script::helpers::parse_script_children(&children_json)?;
-            let child_refs: Vec<$crate::ir::draw_types::RuntimeEffectChildRef> =
-                specs.iter().map(|c| c.to_ir_child_ref()).collect();
+            let child_refs: Vec<$crate::ir::draw_types::ScriptRuntimeEffectChild> =
+                specs.iter().map(|c| c.to_script_child()).collect();
             let uniforms_bytes: Vec<u8> = uniforms
                 .iter()
                 .flat_map(|v| v.to_ne_bytes())

@@ -1,6 +1,6 @@
 use super::draw_types::{
     BytesRangeId, ChildRange, DrawOpRange, EffectId, ImageRef, PaintId, PathId, PathOp,
-    RuntimeEffectChildRef,
+    RuntimeEffectChildRef, ScriptRuntimeEffectChild,
 };
 #[allow(unused_imports)]
 use crate::canvas::paint::BlendMode;
@@ -401,7 +401,7 @@ pub enum DrawOp {
     ScriptRuntimeEffect {
         sksl: String,
         uniforms_bytes: Vec<u8>,
-        children: Vec<RuntimeEffectChildRef>,
+        children: Vec<ScriptRuntimeEffectChild>,
         dst: Rect4,
     },
 }
@@ -712,11 +712,11 @@ mod tests {
 
     #[test]
     fn script_runtime_effect_holds_inline_payload() {
-        use crate::ir::draw_types::{ImageRef, RuntimeEffectChildRef};
+        use crate::ir::draw_types::{ImageRef, ScriptRuntimeEffectChild};
         let op = DrawOp::ScriptRuntimeEffect {
             sksl: "half4 main(float2 p){return half4(1);}".to_string(),
             uniforms_bytes: vec![0u8, 1, 2, 3],
-            children: vec![RuntimeEffectChildRef::Image(ImageRef::Static {
+            children: vec![ScriptRuntimeEffectChild::Image(ImageRef::Static {
                 asset_id: "img".into(),
             })],
             dst: Rect4 { x: 0.0, y: 0.0, width: 10.0, height: 10.0 },

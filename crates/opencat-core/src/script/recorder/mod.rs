@@ -112,7 +112,7 @@ pub trait MutationRecorder {
         id: &str,
         sksl: String,
         uniforms_bytes: Vec<u8>,
-        children: Vec<crate::ir::draw_types::RuntimeEffectChildRef>,
+        children: Vec<crate::ir::draw_types::ScriptRuntimeEffectChild>,
         dst: crate::ir::draw_op::Rect4,
     );
 

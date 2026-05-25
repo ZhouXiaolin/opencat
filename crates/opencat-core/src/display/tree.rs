@@ -1,5 +1,5 @@
 use crate::display::list::{
-    DisplayClip, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem,
+    DisplayClip, DisplayItem, DisplayTransform, DrawScriptDisplayItem,
 };
 use crate::resolve::tree::ElementId;
 
@@ -10,8 +10,7 @@ pub struct DisplayTree {
 
 #[derive(Clone, Debug)]
 pub struct HiddenChildDisplayNode {
-    pub item: DisplayItem,
-    pub bounds: DisplayRect,
+    pub node: DisplayNode,
     pub owner_id: String,
 }
 

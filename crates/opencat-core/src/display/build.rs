@@ -81,7 +81,7 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
         None
     };
 
-    let hidden_subtree = build_hidden_subtree(element, bounds);
+    let hidden_subtree = build_hidden_subtree(element, layout)?;
 
     let draw_slot = if element.draw_slot.commands.is_empty() {
         None
@@ -112,30 +112,31 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
     })
 }
 
-fn build_hidden_subtree(element: &ElementNode, bounds: DisplayRect) -> Vec<HiddenChildDisplayNode> {
+fn build_hidden_subtree(
+    element: &ElementNode,
+    layout: &LayoutNode,
+) -> Result<Vec<HiddenChildDisplayNode>> {
     let ElementKind::Canvas(canvas) = &element.kind else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     if canvas.hidden_children.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
+    }
+    if canvas.hidden_children.len() != layout.hidden_children.len() {
+        return Err(anyhow!(
+            "canvas hidden child count mismatch while building display tree"
+        ));
     }
     let owner_id = element.style.id.clone();
     canvas
         .hidden_children
         .iter()
-        .map(|child| {
-            let child_bounds = DisplayRect {
-                x: 0.0,
-                y: 0.0,
-                width: bounds.width,
-                height: bounds.height,
-            };
-            let item = display_item_for_node(child, child_bounds);
-            HiddenChildDisplayNode {
-                item,
-                bounds: child_bounds,
+        .zip(layout.hidden_children.iter())
+        .map(|(child, child_layout)| {
+            Ok(HiddenChildDisplayNode {
+                node: build_display_node(child, child_layout)?,
                 owner_id: owner_id.clone(),
-            }
+            })
         })
         .collect()
 }
@@ -306,6 +307,21 @@ mod tests {
             id: id.to_string(),
             rect,
             children,
+            hidden_children: Vec::new(),
+        }
+    }
+
+    fn simple_layout_with_hidden(
+        id: &str,
+        rect: LayoutRect,
+        children: Vec<LayoutNode>,
+        hidden_children: Vec<LayoutNode>,
+    ) -> LayoutNode {
+        LayoutNode {
+            id: id.to_string(),
+            rect,
+            children,
+            hidden_children,
         }
     }
 
@@ -832,6 +848,125 @@ mod tests {
             svg.paint.fill,
             Some(crate::style::BackgroundFill::Solid(ColorToken::Red500))
         );
+    }
+
+    #[test]
+    fn canvas_hidden_subtree_preserves_nested_structure_and_layout() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 240,
+            frames: 1,
+        };
+        let mut assets = TestCatalog::new();
+        let parsed = crate::parse::markup::parse(
+            r#"<opencat width="320" height="240" fps="30" frames="1">
+  <canvas id="stage" class="w-[200px] h-[120px]">
+    <div id="card" class="absolute left-[12px] top-[18px] w-[80px] h-[40px] bg-white">
+      <text id="label" class="absolute left-[6px] top-[8px] text-[12px] text-black">Hi</text>
+    </div>
+  </canvas>
+</opencat>"#,
+        )
+        .expect("markup should parse");
+        let resolved = resolve_ui_tree(
+            &parsed.root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
+        let layout_tree = LayoutTree {
+            root: simple_layout_with_hidden(
+                "stage",
+                LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 200.0,
+                    height: 120.0,
+                },
+                Vec::new(),
+                vec![simple_layout(
+                    "card",
+                    LayoutRect {
+                        x: 12.0,
+                        y: 18.0,
+                        width: 80.0,
+                        height: 40.0,
+                    },
+                    vec![simple_layout(
+                        "label",
+                        LayoutRect {
+                            x: 6.0,
+                            y: 8.0,
+                            width: 20.0,
+                            height: 12.0,
+                        },
+                        Vec::new(),
+                    )],
+                )],
+            ),
+        };
+
+        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        assert_eq!(tree.root.hidden_subtree.len(), 1);
+
+        let hidden = &tree.root.hidden_subtree[0].node;
+        assert_eq!(hidden.transform.translation_x, 12.0);
+        assert_eq!(hidden.transform.translation_y, 18.0);
+        assert_eq!(hidden.children.len(), 1);
+
+        let nested = &hidden.children[0];
+        assert_eq!(nested.transform.translation_x, 6.0);
+        assert_eq!(nested.transform.translation_y, 8.0);
+        let DisplayItem::Text(text) = &nested.item else {
+            panic!("expected nested text item");
+        };
+        assert_eq!(text.text, "Hi");
+    }
+
+    #[test]
+    #[ignore]
+    fn debug_canvas_ripple_card_hidden_layout() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 800,
+            height: 700,
+            frames: 180,
+        };
+        let mut assets = TestCatalog::new();
+        let xml = std::fs::read_to_string(format!(
+            "{}/../../json/canvas-ripple-card.xml",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect("read xml");
+        let parsed = crate::parse::markup::parse(&xml).expect("markup should parse");
+        let resolved = resolve_ui_tree(
+            &parsed.root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
+        let layout_tree =
+            crate::layout::compute_layout(&resolved, &frame_ctx).expect("layout should compute");
+        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let canvas = &tree.root.children[0];
+
+        for hidden in canvas.hidden_subtree.iter().take(12) {
+            println!(
+                "hidden root tx={} ty={} w={} h={} children={}",
+                hidden.node.transform.translation_x,
+                hidden.node.transform.translation_y,
+                hidden.node.transform.bounds.width,
+                hidden.node.transform.bounds.height,
+                hidden.node.children.len()
+            );
+        }
     }
 
     #[test]

@@ -9,12 +9,18 @@ use crate::style::ComputedTextStyle;
 #[serde(transparent)]
 pub struct ElementId(pub u64);
 
+#[derive(Clone, Debug, Default)]
+pub struct ElementDrawSlot {
+    pub commands: Vec<DrawOp>,
+}
+
 #[derive(Clone, Debug)]
 pub struct ElementNode {
     pub id: ElementId,
     pub kind: ElementKind,
     pub style: super::style::ComputedStyle,
     pub children: Vec<ElementNode>,
+    pub draw_slot: ElementDrawSlot,
 }
 
 #[derive(Clone, Debug)]

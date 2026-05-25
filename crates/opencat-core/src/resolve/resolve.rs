@@ -906,8 +906,18 @@ fn seed_text_sources_for_visible_subtree(
                 }
             }
         }
-        NodeKind::Canvas(_)
-        | NodeKind::Image(_)
+        NodeKind::Canvas(canvas) => {
+            for child in canvas.hidden_children_ref() {
+                seed_text_sources_for_visible_subtree(
+                    child,
+                    frame_ctx,
+                    script_frame_ctx,
+                    mutation_stack,
+                    script_runtime,
+                );
+            }
+        }
+        NodeKind::Image(_)
         | NodeKind::Lucide(_)
         | NodeKind::Path(_)
         | NodeKind::Video(_) => {}

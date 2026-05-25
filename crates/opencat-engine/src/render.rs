@@ -1738,4 +1738,128 @@ mod tests {
             "consecutive transition frames should hit cache, not grow it"
         );
     }
+
+    #[test]
+    fn script_can_target_hidden_canvas_descendant() {
+        use opencat_core::parse::node::Node;
+
+        let scene = crate::canvas()
+            .id("stage")
+            .size(32.0, 32.0)
+            .hidden_child(Node::new(
+                crate::div()
+                    .id("hidden")
+                    .w_full()
+                    .h_full()
+                    .bg_red(),
+            ))
+            .script_source(
+                r#"
+                ctx.getNode('hidden').bg('#00ff00');
+                var c = ctx.getCanvasById('stage');
+                c.drawPicture(c.getSubTree(), 0, 0);
+                "#,
+            )
+            .expect("script should compile");
+
+        let composition = Composition::new("hidden_descendant_script_target")
+            .size(32, 32)
+            .fps(30)
+            .frames(1)
+            .root(move |_ctx: &FrameCtx| scene.clone().into())
+            .build()
+            .expect("composition should build");
+
+        let mut session = make_test_session();
+        let rgba = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+        assert_eq!(pixel_rgba(&rgba, 32, 16, 16), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn nested_canvas_hidden_children_not_visible_without_explicit_draw_picture() {
+        use opencat_core::parse::node::Node;
+
+        let scene = crate::canvas()
+            .id("outer")
+            .size(32.0, 32.0)
+            .hidden_child(Node::new(
+                crate::canvas()
+                    .id("inner")
+                    .size(32.0, 32.0)
+                    .hidden_child(Node::new(
+                        crate::div()
+                            .id("inner-child")
+                            .w_full()
+                            .h_full()
+                            .bg_green(),
+                    )),
+            ))
+            .script_source(
+                r#"
+                var c = ctx.getCanvasById('outer');
+                c.drawPicture(c.getSubTree(), 0, 0);
+                "#,
+            )
+            .expect("script should compile");
+
+        let composition = Composition::new("nested_canvas_hidden_invisible")
+            .size(32, 32)
+            .fps(30)
+            .frames(1)
+            .root(move |_ctx: &FrameCtx| scene.clone().into())
+            .build()
+            .expect("composition should build");
+
+        let mut session = make_test_session();
+        let rgba = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+        assert_eq!(pixel_rgba(&rgba, 32, 16, 16), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn indirect_canvas_recursion_returns_error() {
+        use opencat_core::parse::node::Node;
+
+        let inner_script = r#"
+            ctx.getCanvasById('inner').drawPicture(
+                ctx.getCanvasById('outer').getSubTree(), 0, 0
+            );
+        "#;
+        let outer_script = r#"
+            var c = ctx.getCanvasById('outer');
+            c.drawPicture(c.getSubTree(), 0, 0);
+        "#;
+
+        let inner_canvas = crate::canvas()
+            .id("inner")
+            .size(32.0, 32.0)
+            .script_source(inner_script)
+            .expect("inner script should compile");
+
+        let scene = crate::canvas()
+            .id("outer")
+            .size(32.0, 32.0)
+            .hidden_child(Node::new(inner_canvas))
+            .script_source(outer_script)
+            .expect("outer script should compile");
+
+        let composition = Composition::new("indirect_canvas_recursion")
+            .size(32, 32)
+            .fps(30)
+            .frames(1)
+            .root(move |_ctx: &FrameCtx| scene.clone().into())
+            .build()
+            .expect("composition should build");
+
+        let mut session = make_test_session();
+        let result = render_frame_rgba(&composition, 0, &mut session);
+        assert!(
+            result.is_err(),
+            "indirect canvas recursion should return an error"
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("recursive hidden canvas picture"),
+            "error should mention recursive hidden canvas picture, got: {err}"
+        );
+    }
 }

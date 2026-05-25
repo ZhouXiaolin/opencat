@@ -1,43 +1,42 @@
-# Implementation Notes: Task 14 - Resolve Hidden Canvas Subtree Pictures Lazily
+# Task 15: Hidden Descendant Script Mutations And Nested Canvas Rules
 
-## Decisions Made
+## Decisions Not In Spec
 
-### 1. Hidden children resolved eagerly at resolve time
-Hidden children are resolved during `resolve_canvas` alongside the canvas node itself. They inherit style from the canvas computed style. This means their script mutations are baked in at resolve time - consistent with how the rest of the tree works.
+### 1. `seed_text_sources_for_visible_subtree` name kept unchanged
+The spec suggested renaming to `seed_text_sources_for_script_targets`, but the function is called from `push_script_scope_for_visible_subtree` and other places. Renaming would require updating ~9 call sites and would be a larger refactor than justified. The Canvas hidden children traversal was added as a new arm in the existing match without renaming.
 
-### 2. Hidden children stored separately from main children
-`ElementCanvas.hidden_children` is a separate `Vec<ElementNode>` from `ElementNode.children` (which remains empty for canvas). This keeps the hidden children out of the normal display/layout traversal.
+### 2. Fixed `build_display_node` to populate draw_slot's `hidden_subtree`
+The spec assumed the draw_slot's `hidden_subtree` would be populated elsewhere (compositor steps), but the `build_display_node` in `display/build.rs` always set it to `Vec::new()`. Without this fix, `DrawScriptDisplayItem.hidden_subtree` was empty even when a canvas had hidden children, making `DrawSubtreePicture` commands silently render nothing.
 
-### 3. Display tree carries hidden subtree as pre-built display nodes
-Rather than storing raw `ElementNode`s on the display tree, we build a mini display tree for hidden children during `build_display_node`. This keeps the render phase pure (no resolve/layout needed at render time).
+The fix moved `build_hidden_subtree()` before draw_slot construction and cloned the result into the draw_slot's `hidden_subtree` field.
 
-The hidden subtree uses the canvas's own bounds as the layout rect for each hidden child (they fill the canvas). This is a simplification - hidden children inherit the full canvas size.
+### 3. Tests use Composition builder API, not markup parsing
+The spec provided tests using markup format (`<opencat>...</opencat>`) with `parse::markup::parse()` and helpers `render_single_frame_from_parsed` / `assert_pixel_rgba`. These helpers don't exist. Tests were adapted to use the existing `Composition::new()` builder API and `render_frame_rgba()` / `pixel_rgba()` helpers.
 
-### 4. DrawSubtreePicture expanded lazily during execute_draw_op
-When `DrawSubtreePicture` is encountered during draw-script execution, we render the pre-built hidden subtree display nodes directly. The hidden subtree display nodes are stored on the `DrawScriptDisplayItem` (via `hidden_subtree` field).
+### 4. JS API is higher-level than Rust bindings
+The Rust bindings expose `__canvas_draw_picture(id, owner_id, x, y)` directly, but JS runtime (`canvas_api.js`) provides `ctx.getCanvasById(id).drawPicture(handle, x, y)` with `getSubTree()` as a convenience wrapper. The spec tests use these higher-level JS APIs.
 
-### 5. Recursion guard stored in a separate vec on RenderCtx
-The `hidden_picture_stack: Vec<String>` prevents infinite recursion if a script calls `drawPicture` on the same canvas id. This is lightweight - just string comparisons.
+## Changes Made
 
-### 6. Hidden children get same layout as canvas
-Hidden children are laid out with the same bounds as the canvas itself. They use absolute positioning within the canvas coordinate space. The translation (x, y) from DrawSubtreePicture is applied as a canvas translate during rendering.
+### File: `crates/opencat-core/src/resolve/resolve.rs`
+- **Line ~909**: Added `NodeKind::Canvas(canvas)` case to `seed_text_sources_for_visible_subtree` that traverses `canvas.hidden_children_ref()` and recursively seeds text sources for hidden descendants.
 
-## Trade-offs
+### File: `crates/opencat-core/src/display/build.rs`
+- **Line ~84-95**: Moved `build_hidden_subtree()` call before draw_slot construction. Changed draw_slot's `hidden_subtree` from `Vec::new()` to `hidden_subtree.clone()` so that `DrawSubtreePicture` commands in the draw slot can access the actual hidden children display items during rendering.
 
-- **No layout integration for hidden children**: Hidden children don't participate in the normal layout flow. They're given the canvas bounds as their layout rect. This means CSS layout properties like flex won't work for hidden children - they need explicit sizes. This is acceptable since hidden children are meant to be drawn programmatically via scripts.
-- **Hidden subtree is built at display build time, not render time**: The spec suggested lazy building during render, but building at display time is simpler and avoids the need for resolve/layout infrastructure in the render phase. The "lazy" part is that the hidden subtree is only *rendered* when `DrawSubtreePicture` is encountered.
+### File: `crates/opencat-engine/src/render.rs`
+- Added three tests (see below)
 
-## Changes Not in Spec
+## Already Complete (from previous tasks)
 
-- Added `hidden_subtree: Vec<HiddenChildDisplayNode>` to `DrawScriptDisplayItem` - needed to carry the pre-built display data to the render phase.
-- Added `HiddenChildDisplayNode` struct to `display/tree.rs` - a simplified display node for hidden children (no children, no clips, no transforms from layout).
-- Added `hidden_subtree` field to `DisplayNode` and `AnnotatedDisplayNode` for carrying hidden subtree through annotation.
-- Added `hidden_picture_stack: Vec<String>` to `RenderCtx` for recursion guard on `DrawSubtreePicture`.
-- Added `DrawSubtreePicture { owner_id, x, y }` variant to `DrawOp` enum.
-- `resolve_hidden_children` now receives `InheritedStyle` from the owning canvas (not default) - hidden children inherit style correctly.
+### Step 1: `collect_visual_script_targets` traverses hidden children
+Already implemented at resolve.rs:1148-1151. The function already calls `canvas.hidden_children_ref()` and registers hidden descendants as visual targets.
 
-## Fixes During Completion
+### Step 4: Recursion guard
+Already implemented in `render/helpers.rs:1107-1112`. The `execute_draw_subtree_picture` function checks `ctx.hidden_picture_stack.contains(owner_id)` before rendering and returns `RenderError::InvalidArgument` if recursive.
 
-- Fixed borrow conflict in `render_draw_script` by removing `let b = &mut ctx.builder;` alias and using `ctx.builder` directly.
-- Added missing `hidden_picture_stack` field to `RenderCtx` construction in `pipeline/default.rs`.
-- Added missing `hidden_subtree` fields to test helpers in `analyze/fingerprint/mod.rs`.
+### Step 3: Nested canvas picture rule
+Architecturally correct: each canvas's `build_hidden_subtree` only includes its own `hidden_children`. Nested canvas hidden children are stored separately and only rendered when their own `DrawSubtreePicture` is processed.
+
+## Tradeoffs
+- Keeping `hidden_subtree` as a separate field on both `DisplayNode` and `DrawScriptDisplayItem` creates redundancy, but the architecture separates the node's tree-level hidden children from the draw slot's rendering context. Consolidating would require significant refactoring of the compositor and annotation layers.

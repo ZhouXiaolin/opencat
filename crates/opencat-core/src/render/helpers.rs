@@ -1451,10 +1451,6 @@ fn execute_draw_op(
                 y: *y,
             });
         }
-        DrawOp::ScriptRuntimeEffect { .. } => {
-            // Handled in Tasks 4/5: lowered to RuntimeEffect during execution.
-            // Placeholder arm to satisfy exhaustiveness.
-        }
     }
     Ok(())
 }

@@ -1451,6 +1451,32 @@ fn execute_draw_op(
                 y: *y,
             });
         }
+        DrawOp::ScriptRuntimeEffect {
+            sksl,
+            uniforms_bytes,
+            children,
+            dst,
+        } => {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = rustc_hash::FxHasher::default();
+            sksl.as_bytes().hash(&mut hasher);
+            let hash = hasher.finish();
+            let effect_id = b.intern_effect(hash, sksl);
+            let uniforms_id = b.intern_bytes(uniforms_bytes);
+            let child_start = b.children_len() as u32;
+            for c in children {
+                b.push_child(c.clone());
+            }
+            b.push(DrawOp::RuntimeEffect {
+                effect: effect_id,
+                uniforms: uniforms_id,
+                children: ChildRange {
+                    start: child_start,
+                    len: children.len() as u32,
+                },
+                dst: *dst,
+            });
+        }
     }
     Ok(())
 }
@@ -2262,4 +2288,73 @@ pub fn render_bitmap_with_shadows(
     render_bitmap(ctx, item)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod script_runtime_effect_tests {
+    use super::*;
+    use crate::ir::draw_op::{DrawOp, Rect4};
+    use crate::ir::draw_types::{ChildRange, ImageRef, RuntimeEffectChildRef};
+    use crate::render::builder::DrawOpBuilder;
+
+    fn make_script_op(sksl: &str) -> DrawOp {
+        DrawOp::ScriptRuntimeEffect {
+            sksl: sksl.to_string(),
+            uniforms_bytes: vec![0u8, 0, 0, 0, 0, 0, 128, 63],
+            children: vec![RuntimeEffectChildRef::Image(ImageRef::Static {
+                asset_id: "img".into(),
+            })],
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 32.0,
+                height: 32.0,
+            },
+        }
+    }
+
+    #[test]
+    fn execute_draw_op_translates_script_runtime_effect_to_canonical() {
+        let mut b = DrawOpBuilder::default();
+        let mut state = LocalPaintState::default();
+        let op = make_script_op("half4 main(float2 p){return half4(1);}");
+        execute_draw_op(&mut b, &op, &mut state).unwrap();
+        let frame = b.finish();
+        assert_eq!(frame.ops.len(), 1);
+        match &frame.ops[0] {
+            DrawOp::RuntimeEffect {
+                effect,
+                uniforms,
+                children,
+                dst,
+            } => {
+                assert_eq!(effect.0, 0);
+                assert_eq!(uniforms.0, 0);
+                assert_eq!(*children, ChildRange { start: 0, len: 1 });
+                assert_eq!(dst.width, 32.0);
+            }
+            other => panic!("expected RuntimeEffect after translate, got {:?}", other),
+        }
+        assert_eq!(frame.effects.len(), 1);
+        assert_eq!(frame.children.len(), 1);
+        assert_eq!(frame.byte_ranges.len(), 1);
+    }
+
+    #[test]
+    fn execute_draw_op_dedups_same_sksl() {
+        let mut b = DrawOpBuilder::default();
+        let mut state = LocalPaintState::default();
+        let op = make_script_op("half4 main(float2 p){return half4(0.5);}");
+        execute_draw_op(&mut b, &op, &mut state).unwrap();
+        execute_draw_op(&mut b, &op, &mut state).unwrap();
+        let frame = b.finish();
+        assert_eq!(frame.ops.len(), 2);
+        assert_eq!(
+            frame.effects.len(),
+            1,
+            "same SkSL must dedupe via intern_effect"
+        );
+        assert_eq!(frame.children.len(), 2);
+        assert_eq!(frame.byte_ranges.len(), 2);
+    }
 }

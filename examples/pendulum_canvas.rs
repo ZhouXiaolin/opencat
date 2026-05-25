@@ -2,7 +2,7 @@ use opencat::{Composition, EncodingConfig, FrameCtx, Node, canvas, div, style::C
 
 const PENDULUM_SCRIPT: &str = r##"
 const CK = ctx.CanvasKit;
-const canvas = ctx.getCanvas();
+const canvas = ctx.getCanvasById('pendulum-canvas');
 const fill = (color) => {
     const paint = new CK.Paint();
     paint.setStyle(CK.PaintStyle.Fill);

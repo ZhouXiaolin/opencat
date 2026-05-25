@@ -172,6 +172,7 @@ pub struct DrawScriptDisplayItem {
     pub bounds: DisplayRect,
     pub commands: Vec<DrawOp>,
     pub drop_shadow: Option<DropShadow>,
+    pub hidden_subtree: Vec<crate::display::tree::HiddenChildDisplayNode>,
 }
 
 #[derive(Clone, Debug)]

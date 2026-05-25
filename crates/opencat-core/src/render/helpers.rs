@@ -5,8 +5,8 @@ use crate::canvas::paint::{
     PathEffectSpec, ShaderSpec, StrokeCap, StrokeJoin, StrokeSpec, TileMode,
 };
 use crate::display::list::{
-    BitmapDisplayItem, DisplayRect, DrawScriptDisplayItem, RectDisplayItem, SvgPathDisplayItem,
-    TimelineDisplayItem, TimelineTransitionDisplay,
+    BitmapDisplayItem, DisplayItem, DisplayRect, DrawScriptDisplayItem, RectDisplayItem,
+    SvgPathDisplayItem, TimelineDisplayItem, TimelineTransitionDisplay,
 };
 use crate::ir::draw_op::{
     ColorU8, DRRectSpec, DrawOp, LineCap, LineJoin, PointMode as DrawPointMode, Radii4, Rect4,
@@ -1053,10 +1053,7 @@ pub fn render_draw_script(
     item: &DrawScriptDisplayItem,
 ) -> Result<(), RenderError> {
     let mut state = LocalPaintState::default();
-    let b = &mut ctx.builder;
 
-    // Heuristic: Clear with fully transparent (a == 0.0) acts like "clear all"
-    // In practice we check if any Clear exists
     let needs_alpha_layer = item
         .commands
         .iter()
@@ -1070,29 +1067,84 @@ pub fn render_draw_script(
     );
 
     if needs_alpha_layer {
-        b.push(DrawOp::SaveLayer {
+        ctx.builder.push(DrawOp::SaveLayer {
             bounds: Some(clip_rect),
             paint: None,
             alpha: 1.0,
         });
     } else {
-        b.push(DrawOp::Save);
-        b.push(DrawOp::BeginPath);
-        b.push(DrawOp::Path(PathOp::AddRect {
+        ctx.builder.push(DrawOp::Save);
+        ctx.builder.push(DrawOp::BeginPath);
+        ctx.builder.push(DrawOp::Path(PathOp::AddRect {
             x: item.bounds.x,
             y: item.bounds.y,
             width: item.bounds.width,
             height: item.bounds.height,
         }));
-        b.push(DrawOp::ClipPath { anti_alias: true });
+        ctx.builder.push(DrawOp::ClipPath { anti_alias: true });
     }
 
     for command in &item.commands {
-        execute_draw_op(b, command, &mut state)?;
+        if matches!(command, DrawOp::DrawSubtreePicture { .. }) {
+            execute_draw_subtree_picture(ctx, command, &item.hidden_subtree)?;
+        } else {
+            execute_draw_op(&mut ctx.builder, command, &mut state)?;
+        }
     }
 
-    b.push(DrawOp::Restore);
+    ctx.builder.push(DrawOp::Restore);
     Ok(())
+}
+
+fn execute_draw_subtree_picture(
+    ctx: &mut RenderCtx,
+    op: &DrawOp,
+    hidden_subtree: &[crate::display::tree::HiddenChildDisplayNode],
+) -> Result<(), RenderError> {
+    let DrawOp::DrawSubtreePicture { owner_id, x, y } = op else {
+        return Ok(());
+    };
+    if ctx.hidden_picture_stack.contains(owner_id) {
+        return Err(RenderError::InvalidArgument(format!(
+            "recursive hidden canvas picture `{owner_id}`"
+        )));
+    }
+    ctx.hidden_picture_stack.push(owner_id.clone());
+    ctx.builder.push(DrawOp::Save);
+    ctx.builder.push(DrawOp::Translate { x: *x, y: *y });
+    for child in hidden_subtree {
+        render_hidden_child_item(ctx, &child.item, &child.bounds)?;
+    }
+    ctx.builder.push(DrawOp::Restore);
+    ctx.hidden_picture_stack.pop();
+    Ok(())
+}
+
+fn render_hidden_child_item(
+    ctx: &mut RenderCtx,
+    item: &DisplayItem,
+    _bounds: &DisplayRect,
+) -> Result<(), RenderError> {
+    match item {
+        DisplayItem::Rect(rect) => {
+            super::helpers::render_rect_with_shadows(ctx, rect)
+        }
+        DisplayItem::Text(text) => {
+            super::text::render_text_with_shadows(ctx, text)
+        }
+        DisplayItem::DrawScript(script) => {
+            super::helpers::render_draw_script(ctx, script)
+        }
+        DisplayItem::SvgPath(svg) => {
+            super::helpers::render_svg_path(ctx, svg)
+        }
+        DisplayItem::Bitmap(bitmap) => {
+            super::helpers::render_bitmap_with_shadows(ctx, bitmap)
+        }
+        DisplayItem::Timeline(timeline) => {
+            super::helpers::render_timeline(ctx, timeline)
+        }
+    }
 }
 
 fn execute_draw_op(

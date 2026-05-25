@@ -170,6 +170,7 @@ mod ordered_scene_tests {
             }),
             children,
             draw_slot: None,
+            hidden_subtree: Vec::new(),
         }
     }
 
@@ -289,9 +290,11 @@ mod ordered_scene_tests {
                         bounds: rect_bounds(),
                         commands: Vec::new(),
                         drop_shadow: None,
+                        hidden_subtree: Vec::new(),
                     }),
                     children: Vec::new(),
                     draw_slot: None,
+                    hidden_subtree: Vec::new(),
                 },
             ],
             keys: vec![RenderNodeKey(1), RenderNodeKey(2), RenderNodeKey(3)],
@@ -382,9 +385,11 @@ mod ordered_scene_tests {
                         bounds: rect_bounds(),
                         commands: Vec::new(),
                         drop_shadow: None,
+                        hidden_subtree: Vec::new(),
                     }),
                     children: Vec::new(),
                     draw_slot: None,
+                    hidden_subtree: Vec::new(),
                 },
             ],
             keys: vec![
@@ -820,6 +825,7 @@ mod reuse_tests {
             item,
             children,
             draw_slot: None,
+            hidden_subtree: Vec::new(),
         }
     }
 
@@ -1062,6 +1068,7 @@ mod reuse_tests {
                     bounds: rect_bounds(),
                     commands: Vec::new(),
                     drop_shadow: None,
+                    hidden_subtree: Vec::new(),
                 }),
                 Vec::new(),
             )],
@@ -1093,6 +1100,7 @@ mod reuse_tests {
                     bounds: rect_bounds(),
                     commands: Vec::new(),
                     drop_shadow: None,
+                    hidden_subtree: Vec::new(),
                 }),
                 Vec::new(),
             )],

@@ -1,9 +1,16 @@
-use crate::display::list::{DisplayClip, DisplayItem, DisplayTransform, DrawScriptDisplayItem};
+use crate::display::list::{DisplayClip, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem};
 use crate::resolve::tree::ElementId;
 
 #[derive(Clone, Debug)]
 pub struct DisplayTree {
     pub root: DisplayNode,
+}
+
+#[derive(Clone, Debug)]
+pub struct HiddenChildDisplayNode {
+    pub item: DisplayItem,
+    pub bounds: DisplayRect,
+    pub owner_id: String,
 }
 
 #[derive(Clone, Debug)]
@@ -16,4 +23,5 @@ pub struct DisplayNode {
     pub item: DisplayItem,
     pub children: Vec<DisplayNode>,
     pub draw_slot: Option<DrawScriptDisplayItem>,
+    pub hidden_subtree: Vec<HiddenChildDisplayNode>,
 }

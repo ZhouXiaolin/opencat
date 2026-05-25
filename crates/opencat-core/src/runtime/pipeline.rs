@@ -132,6 +132,7 @@ pub fn render_frame_inner(
         ordered_scene: &ordered_scene,
         builder: &mut builder,
         blob_store,
+        hidden_picture_stack: Vec::new(),
     };
 
     crate::render::dispatch::render_display_tree(&mut ctx, &annotated, cache)?;

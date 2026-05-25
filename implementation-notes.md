@@ -1,30 +1,43 @@
-# Implementation Notes: JSONL Normalization
+# Implementation Notes: Task 14 - Resolve Hidden Canvas Subtree Pictures Lazily
 
-## Task
-Normalize JSONL example files - consolidate scripts, migrate `ctx.getCanvas()` to `ctx.getCanvasById()`.
+## Decisions Made
 
-## Findings
+### 1. Hidden children resolved eagerly at resolve time
+Hidden children are resolved during `resolve_canvas` alongside the canvas node itself. They inherit style from the canvas computed style. This means their script mutations are baked in at resolve time - consistent with how the rest of the tree works.
 
-### 1. `ctx.getCanvas()` Migration
-- **No `ctx.getCanvas()` calls found** in any JSONL file under `json/`
-- The only canvas-using file (`profile-showcase.jsonl`) already uses `ctx.getCanvasById('s1-canvas')`
-- The runtime (`canvas_api.js:1154`) already throws an error for `ctx.getCanvas()` telling users to use `getCanvasById()`
-- **No changes needed** for this part
+### 2. Hidden children stored separately from main children
+`ElementCanvas.hidden_children` is a separate `Vec<ElementNode>` from `ElementNode.children` (which remains empty for canvas). This keeps the hidden children out of the normal display/layout traversal.
 
-### 2. Script Consolidation
-- 3 files have multiple script nodes:
-  - `ecommerce.jsonl`: 3 scripts (parentIds: `login`, `home`, `product`)
-  - `opencat-promo.jsonl`: 4 scripts (parentIds: `scene1`, `scene2`, `scene3`, `root`)
-  - `kepler-laws/kepler-laws.jsonl`: 10 scripts (parentIds: `s1-bg`, `scene1`, `s2-canvas`, `scene2`, `s3-canvas`, `scene3`, `s4-bg`, `scene4`, `s5-bg`, `scene5`)
-- **All scripts have unique parentIds** - no file has multiple scripts sharing the same parent
-- Scripts are scoped to their parent scene/div, so consolidating would break scene-level scoping
-- **No consolidation performed** - would change behavior incorrectly
+### 3. Display tree carries hidden subtree as pre-built display nodes
+Rather than storing raw `ElementNode`s on the display tree, we build a mini display tree for hidden children during `build_display_node`. This keeps the render phase pure (no resolve/layout needed at render time).
 
-### 3. Decision: No Changes Needed
-After thorough analysis:
-- All `ctx.getCanvas()` calls already migrated
-- All multi-script files have valid reasons for multiple scripts (different parent scopes)
-- The JSONL files are already in their normalized form
+The hidden subtree uses the canvas's own bounds as the layout rect for each hidden child (they fill the canvas). This is a simplification - hidden children inherit the full canvas size.
 
-## Tradeoffs
-- **Not consolidating**: The spec asked for "one script per composition" but doing so would require moving scene-scoped animations to a root-level script with explicit scene activation logic, which is a significant behavioral change and potentially fragile. The current per-scene script pattern is the idiomatic approach.
+### 4. DrawSubtreePicture expanded lazily during execute_draw_op
+When `DrawSubtreePicture` is encountered during draw-script execution, we render the pre-built hidden subtree display nodes directly. The hidden subtree display nodes are stored on the `DrawScriptDisplayItem` (via `hidden_subtree` field).
+
+### 5. Recursion guard stored in a separate vec on RenderCtx
+The `hidden_picture_stack: Vec<String>` prevents infinite recursion if a script calls `drawPicture` on the same canvas id. This is lightweight - just string comparisons.
+
+### 6. Hidden children get same layout as canvas
+Hidden children are laid out with the same bounds as the canvas itself. They use absolute positioning within the canvas coordinate space. The translation (x, y) from DrawSubtreePicture is applied as a canvas translate during rendering.
+
+## Trade-offs
+
+- **No layout integration for hidden children**: Hidden children don't participate in the normal layout flow. They're given the canvas bounds as their layout rect. This means CSS layout properties like flex won't work for hidden children - they need explicit sizes. This is acceptable since hidden children are meant to be drawn programmatically via scripts.
+- **Hidden subtree is built at display build time, not render time**: The spec suggested lazy building during render, but building at display time is simpler and avoids the need for resolve/layout infrastructure in the render phase. The "lazy" part is that the hidden subtree is only *rendered* when `DrawSubtreePicture` is encountered.
+
+## Changes Not in Spec
+
+- Added `hidden_subtree: Vec<HiddenChildDisplayNode>` to `DrawScriptDisplayItem` - needed to carry the pre-built display data to the render phase.
+- Added `HiddenChildDisplayNode` struct to `display/tree.rs` - a simplified display node for hidden children (no children, no clips, no transforms from layout).
+- Added `hidden_subtree` field to `DisplayNode` and `AnnotatedDisplayNode` for carrying hidden subtree through annotation.
+- Added `hidden_picture_stack: Vec<String>` to `RenderCtx` for recursion guard on `DrawSubtreePicture`.
+- Added `DrawSubtreePicture { owner_id, x, y }` variant to `DrawOp` enum.
+- `resolve_hidden_children` now receives `InheritedStyle` from the owning canvas (not default) - hidden children inherit style correctly.
+
+## Fixes During Completion
+
+- Fixed borrow conflict in `render_draw_script` by removing `let b = &mut ctx.builder;` alias and using `ctx.builder` directly.
+- Added missing `hidden_picture_stack` field to `RenderCtx` construction in `pipeline/default.rs`.
+- Added missing `hidden_subtree` fields to test helpers in `analyze/fingerprint/mod.rs`.

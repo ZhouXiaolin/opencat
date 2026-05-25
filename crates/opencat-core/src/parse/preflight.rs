@@ -30,6 +30,7 @@ pub fn collect_resource_requests(composition: &Composition) -> ResourceRequests 
 
 pub fn collect_audio_plan(comp: &Composition) -> crate::probe::catalog::AudioPlan {
     use crate::ir::asset_id::{AssetId, asset_id_for_audio_url};
+    use crate::parse::composition::AudioAttachment;
     use crate::probe::catalog::{AudioPlan, AudioSegment};
 
     let fps = comp.fps.max(1) as u64;
@@ -44,13 +45,24 @@ pub fn collect_audio_plan(comp: &Composition) -> crate::probe::catalog::AudioPla
             AudioSource::Path(p) => AssetId(format!("audio:path:{}", p.to_string_lossy())),
         };
         let (start_ms, end_ms) = match &s.attach {
-            crate::parse::composition::AudioAttachment::Timeline => (0, total_ms),
-            crate::parse::composition::AudioAttachment::Scene { .. } => {
-                let dur_ms = s
-                    .duration
-                    .map(|d| d as u64 * ms_per_frame)
-                    .unwrap_or(total_ms);
-                (0, dur_ms)
+            AudioAttachment::Timeline => (0, total_ms),
+            AudioAttachment::Scene { scene_id } => {
+                let timing = find_scene_timing(comp, scene_id);
+                match timing {
+                    Some((start_frame, scene_duration)) => {
+                        let start_ms = start_frame as u64 * ms_per_frame;
+                        let dur_frames = s.duration.unwrap_or(scene_duration);
+                        let end_ms = (start_frame as u64 + dur_frames as u64) * ms_per_frame;
+                        (start_ms, end_ms)
+                    }
+                    None => {
+                        let dur_ms = s
+                            .duration
+                            .map(|d| d as u64 * ms_per_frame)
+                            .unwrap_or(total_ms);
+                        (0, dur_ms)
+                    }
+                }
             }
         };
         segments.push(AudioSegment {
@@ -61,6 +73,60 @@ pub fn collect_audio_plan(comp: &Composition) -> crate::probe::catalog::AudioPla
     }
 
     AudioPlan { segments }
+}
+
+fn find_scene_timing(comp: &Composition, scene_id: &str) -> Option<(u32, u32)> {
+    let probe_ctx = FrameCtx {
+        frame: 0,
+        fps: comp.fps,
+        width: comp.width,
+        height: comp.height,
+        frames: comp.frames,
+    };
+    let root = comp.root_node(&probe_ctx);
+    find_scene_timing_in_node(&root, scene_id, &probe_ctx)
+}
+
+fn find_scene_timing_in_node(
+    node: &Node,
+    scene_id: &str,
+    ctx: &FrameCtx,
+) -> Option<(u32, u32)> {
+    use crate::parse::time::TimelineSegment;
+
+    match node.kind() {
+        NodeKind::Timeline(tl) => {
+            if tl.style_ref().id == scene_id {
+                return Some((0, tl.duration_in_frames()));
+            }
+            for segment in tl.segments() {
+                if let TimelineSegment::Scene {
+                    start_frame,
+                    duration_in_frames,
+                    scene,
+                } = segment
+                {
+                    if scene.style_ref().id == scene_id {
+                        return Some((*start_frame, *duration_in_frames));
+                    }
+                }
+            }
+            None
+        }
+        NodeKind::Div(div) => {
+            for child in div.children_ref() {
+                if let Some(result) = find_scene_timing_in_node(child, scene_id, ctx) {
+                    return Some(result);
+                }
+            }
+            None
+        }
+        NodeKind::Component(component) => {
+            let rendered = component.render(ctx);
+            find_scene_timing_in_node(&rendered, scene_id, ctx)
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn collect_sources_from_frame_state(
@@ -124,8 +190,9 @@ mod tests {
 
     use super::*;
     use crate::parse::{
-        composition::Composition,
-        primitives::{div, image, video, video_url},
+        composition::{AudioAttachment, Composition, CompositionAudioSource},
+        primitives::{div, image, video, video_url, AudioSource},
+        transition::{fade, timeline},
     };
 
     #[test]
@@ -170,5 +237,67 @@ mod tests {
             req.videos
                 .contains(&VideoSource::Url("https://example.com/v.mp4".to_string()))
         );
+    }
+
+    #[test]
+    fn scene_audio_uses_correct_offset() {
+        let root_node: Node = timeline()
+            .sequence(10, div().id("scene-a").into())
+            .transition(fade().timing(crate::parse::easing::Easing::Linear, 5))
+            .sequence(20, div().id("scene-b").into())
+            .into();
+
+        let root = Arc::new(move |_ctx: &FrameCtx| root_node.clone());
+        let comp = Composition::new("test")
+            .size(100, 100)
+            .fps(30)
+            .frames(35)
+            .root(move |ctx| root(ctx))
+            .audio_sources(vec![
+                CompositionAudioSource::scene("audio-a", AudioSource::Url("a.mp3".into()), "scene-a"),
+                CompositionAudioSource::scene("audio-b", AudioSource::Url("b.mp3".into()), "scene-b"),
+            ])
+            .build()
+            .unwrap();
+
+        let plan = collect_audio_plan(&comp);
+        assert_eq!(plan.segments.len(), 2);
+
+        // scene-a starts at frame 0, duration 10 frames at 30fps => 0ms to 330ms
+        assert_eq!(plan.segments[0].start_ms, 0);
+        assert_eq!(plan.segments[0].end_ms, 330);
+
+        // scene-b starts at frame 15 (10 scene + 5 transition), duration 20 frames => 495ms to 1155ms
+        assert_eq!(plan.segments[1].start_ms, 495);
+        assert_eq!(plan.segments[1].end_ms, 1155);
+    }
+
+    #[test]
+    fn timeline_audio_uses_full_duration() {
+        let root_node: Node = timeline()
+            .sequence(10, div().id("scene-a").into())
+            .transition(fade().timing(crate::parse::easing::Easing::Linear, 5))
+            .sequence(20, div().id("scene-b").into())
+            .into();
+
+        let root = Arc::new(move |_ctx: &FrameCtx| root_node.clone());
+        let comp = Composition::new("test")
+            .size(100, 100)
+            .fps(30)
+            .frames(35)
+            .root(move |ctx| root(ctx))
+            .audio_sources(vec![CompositionAudioSource {
+                id: "bgm".into(),
+                source: AudioSource::Url("bgm.mp3".into()),
+                attach: AudioAttachment::Timeline,
+                duration: None,
+            }])
+            .build()
+            .unwrap();
+
+        let plan = collect_audio_plan(&comp);
+        assert_eq!(plan.segments.len(), 1);
+        assert_eq!(plan.segments[0].start_ms, 0);
+        assert_eq!(plan.segments[0].end_ms, 1155);
     }
 }

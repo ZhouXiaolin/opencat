@@ -1,29 +1,53 @@
 <opencat width="1280" height="720" fps="30" frames="414">
   <soundtrack>
-    <audio id="bgm" url="http://127.0.0.1:8080/mp3/1.mp3" attach="scene1" />
-    <audio id="bgm" url="http://127.0.0.1:8080/mp3/1.mp3" attach="scene2" />
-    <audio id="bgm" url="http://127.0.0.1:8080/mp3/1.mp3" attach="scene3" />
+    <audio id="bgm0" url="http://127.0.0.1:8080/mp3/1.mp3" attach="scene1" />
+    <audio id="bgm1" url="http://127.0.0.1:8080/mp3/1.mp3" attach="scene2" />
+    <audio id="bgm2" url="http://127.0.0.1:8080/mp3/1.mp3" attach="scene3" />
 
   </soundtrack>
 
   <script>
-// s1-canvas draw script — grid + radar + pulsing dot
+// ── s1-canvas: water ripple (SkSL RuntimeEffect) ──────────────────────
 const CK=ctx.CanvasKit;
 const c=ctx.getCanvasById('s1-canvas');
-const fill=(x)=>{const p=new CK.Paint();p.setStyle(CK.PaintStyle.Fill);p.setColor(CK.parseColorString(x));return p;};
-const stroke=(x,w)=>{const p=new CK.Paint();p.setStyle(CK.PaintStyle.Stroke);p.setColor(CK.parseColorString(x));p.setStrokeWidth(w);return p;};
-const t=ctx.frame/ctx.fps;
-c.clear();
-for(let i=0;i<8;i++){const y=80+i*80;const off=Math.sin(t*1.2+i*0.4)*30;c.drawLine(-40+off,y,1320+off,y,stroke('#38bdf833',1));}
-c.save();c.translate(960,360);c.rotate(t*12);
-for(let i=0;i<5;i++){c.drawCircle(0,0,60+i*30,stroke('#22d3ee44',2));}
-c.restore();
-c.drawCircle(960,360,20+Math.sin(t*3)*8,fill('#22d3ee'));
+const imgShader=ctx.getImage('s1-decor-img').makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
+
+// Ripple SkSL — radial sine displacement
+const sksl=[
+  'uniform shader image;',
+  'uniform float  progress;',
+  'uniform float  amplitude;',
+  'uniform float  frequency;',
+  'uniform float  decay;',
+  '',
+  'half4 main(float2 xy) {',
+  '  float2 uv=xy;',
+  '  float dist=distance(uv,float2(180,240));',
+  '  float ripple=sin(dist*frequency-progress*6.2832);',
+  '  float falloff=exp(-dist*decay);',
+  '  float d=ripple*amplitude*falloff;',
+  '  float2 dir=dist<1.0?float2(0):normalize(uv-float2(180,240));',
+  '  return image.eval(uv+dir*d);',
+  '}',
+].join('\n');
+
+var effect=CK.RuntimeEffect.Make(sksl);
+if(effect){
+  var p=ctx.currentFrame/ctx.sceneFrames;
+  var shader=effect.makeShaderWithChildren(
+    [p, 6.0, 0.035, 0.006],
+    [imgShader]
+  );
+  var paint=new CK.Paint();
+  paint.setShader(shader);
+  c.drawRect(CK.LTRBRect(0,0,360,480),paint);
+}
+// If effect is null (empty SkSL), the canvas falls back to rendering its
+// hidden image child normally — no explicit fallback needed.
 
 // scene1 — entrance animations
 ctx.fromTo(['s1-kicker','s1-title','s1-desc'],{opacity:0,y:24},{opacity:1,y:0,stagger:6,duration:24,ease:'spring.gentle'});
 ctx.fromTo(['s1-chip-1','s1-chip-2','s1-chip-3'],{opacity:0,scale:0.7},{opacity:1,scale:1,stagger:5,duration:20,ease:'spring.default'});
-ctx.fromTo('s1-decor',{opacity:0,x:60},{opacity:1,x:0,duration:40,delay:6,ease:'spring.gentle'});
 
 // scene2 — card grid entrance
 ctx.fromTo(['s2-card-1','s2-card-2','s2-card-3','s2-card-4','s2-card-5','s2-card-6'],{opacity:0,y:30,scale:0.94},{opacity:1,y:0,scale:1,stagger:4,duration:22,ease:'spring.default'});
@@ -46,7 +70,6 @@ ctx.timeline().fromTo('s4-metric-1',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,s
   <div id="root" class="relative w-[1280px] h-[720px] bg-slate-950">
     <tl id="main-tl" class="absolute inset-0">
       <div id="scene1" class="relative w-[1280px] h-[720px] bg-slate-950" duration="90">
-        <canvas id="s1-canvas" class="absolute inset-0 w-[1280px] h-[720px]"></canvas>
         <div id="s1-copy" class="absolute left-[80px] top-[200px] flex flex-col gap-[22px] w-[720px]">
           <text id="s1-kicker" class="text-[22px] font-semibold tracking-[6px] text-cyan-300">PROFILE BENCHMARK</text>
           <text id="s1-title" class="text-[92px] font-bold text-white leading-[0.95]">Every surface at once</text>
@@ -66,9 +89,9 @@ ctx.timeline().fromTo('s4-metric-1',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,s
             </div>
           </div>
         </div>
-        <div id="s1-decor" class="absolute right-[80px] top-[120px] w-[360px] h-[480px] rounded-[32px] overflow-hidden border border-slate-800">
+        <canvas id="s1-canvas" class="absolute right-[80px] top-[120px] w-[360px] h-[480px] rounded-[32px] overflow-hidden border border-slate-800">
           <image id="s1-decor-img" class="w-[360px] h-[480px] object-cover" url="http://127.0.0.1:8080/png/3.png" />
-        </div>
+        </canvas>
       </div>
 
       <transition from="scene1" to="scene2" effect="fade" duration="18" timing="ease-in-out" />

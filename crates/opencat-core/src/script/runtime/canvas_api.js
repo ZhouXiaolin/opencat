@@ -314,6 +314,7 @@
             this._strokeJoin = 'miter';
             this._pathEffect = null;
             this._antiAlias = true;
+            this._shader = null;
         }
 
         copy() {
@@ -333,6 +334,7 @@
                 }
                 : null;
             copy._antiAlias = this._antiAlias;
+            copy._shader = this._shader;
             return copy;
         }
 
@@ -421,6 +423,19 @@
                 phase: resolved.phase,
                 delete() {}
             };
+            return this;
+        }
+
+        setShader(shader) {
+            if (shader == null) {
+                this._shader = null;
+                return this;
+            }
+            if (shader.__opencatShader !== 'runtime'
+                && shader.__opencatShader !== 'image') {
+                throw new Error('setShader expects a shader handle');
+            }
+            this._shader = shader;
             return this;
         }
     }
@@ -539,6 +554,46 @@
         }
     }
 
+    class RuntimeEffect {
+        constructor(sksl) {
+            this.__opencatRuntimeEffect = true;
+            this._sksl = String(sksl);
+        }
+        delete() {}
+
+        makeShader(uniforms) {
+            return makeRuntimeShader(this, uniforms, []);
+        }
+
+        makeShaderWithChildren(uniforms, children) {
+            return makeRuntimeShader(this, uniforms, children);
+        }
+    }
+
+    function makeRuntimeShader(effect, uniforms, children) {
+        return {
+            __opencatShader: 'runtime',
+            effect,
+            uniforms: Array.from(uniforms || [], toFiniteNumber),
+            children: (children || []).map(ensureChildShader),
+        };
+    }
+
+    function ensureChildShader(c) {
+        if (!c) throw new Error('child shader is null');
+        if (c.__opencatShader === 'image') return c;
+        throw new Error(
+            'only image child shaders are supported; gradient/picture not implemented'
+        );
+    }
+
+    function normalizeTileMode(value) {
+        if (value == null) return 'clamp';
+        const v = String(value).toLowerCase();
+        if (v === 'clamp' || v === 'repeat' || v === 'mirror' || v === 'decal') return v;
+        throw new Error(`unsupported TileMode: ${value}`);
+    }
+
     const CanvasKit = {
         Color(r, g, b, a = 1) {
             return [
@@ -652,6 +707,18 @@
             Points: 'points',
             Lines: 'lines',
             Polygon: 'polygon'
+        },
+        TileMode: {
+            Clamp: 'clamp',
+            Repeat: 'repeat',
+            Mirror: 'mirror',
+            Decal: 'decal'
+        },
+        RuntimeEffect: {
+            Make(sksl) {
+                if (typeof sksl !== 'string' || sksl.length === 0) return null;
+                return new RuntimeEffect(sksl);
+            }
         },
         BLACK: [0, 0, 0, 1],
         WHITE: [1, 1, 1, 1]
@@ -862,6 +929,21 @@
             drawRect(rect, paint) {
                 const normalized = normalizeRect(rect);
                 const resolvedPaint = ensurePaint(paint);
+                if (resolvedPaint._shader
+                    && resolvedPaint._shader.__opencatShader === 'runtime') {
+                    const sh = resolvedPaint._shader;
+                    __canvas_runtime_effect_draw(
+                        id,
+                        sh.effect._sksl,
+                        sh.uniforms,
+                        JSON.stringify(sh.children),
+                        normalized.x,
+                        normalized.y,
+                        normalized.width,
+                        normalized.height,
+                    );
+                    return this;
+                }
                 __canvas_set_anti_alias(id, resolvedPaint._antiAlias);
                 if (resolvedPaint._style === CanvasKit.PaintStyle.Stroke) {
                     __canvas_stroke_rect(
@@ -1162,11 +1244,20 @@
     globalThis.CanvasKit = CanvasKit;
     ctx.CanvasKit = CanvasKit;
     ctx.getImage = function(assetId) {
-        return {
+        const handle = {
             __opencatImage: true,
             assetId: String(assetId),
             delete() {}
         };
+        handle.makeShader = function(tileX, tileY) {
+            return {
+                __opencatShader: 'image',
+                assetId: handle.assetId,
+                tileX: normalizeTileMode(tileX),
+                tileY: normalizeTileMode(tileY),
+            };
+        };
+        return handle;
     };
     function assertCanvasTarget(id, apiName) {
         var key = String(id);

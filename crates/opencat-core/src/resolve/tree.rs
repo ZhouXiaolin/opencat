@@ -65,6 +65,7 @@ pub struct ElementBitmap {
 #[derive(Clone, Debug)]
 pub struct ElementCanvas {
     pub commands: Vec<DrawOp>,
+    pub hidden_children: Vec<ElementNode>,
 }
 
 #[derive(Clone, Debug)]

@@ -8,7 +8,7 @@ use crate::{
             SvgPathDisplayItem, SvgPathPaintStyle, TextDisplayItem, TimelineDisplayItem,
             TimelineTransitionDisplay,
         },
-        tree::{DisplayNode, DisplayTree},
+        tree::{DisplayNode, DisplayTree, HiddenChildDisplayNode},
     },
     layout::tree::{LayoutNode, LayoutTree},
     parse::transition::TransitionKind,
@@ -88,8 +88,11 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
             bounds,
             commands: element.draw_slot.commands.clone(),
             drop_shadow: None,
+            hidden_subtree: Vec::new(),
         })
     };
+
+    let hidden_subtree = build_hidden_subtree(element, bounds);
 
     Ok(DisplayNode {
         transform: DisplayTransform {
@@ -105,7 +108,36 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
         item,
         children,
         draw_slot,
+        hidden_subtree,
     })
+}
+
+fn build_hidden_subtree(element: &ElementNode, bounds: DisplayRect) -> Vec<HiddenChildDisplayNode> {
+    let ElementKind::Canvas(canvas) = &element.kind else {
+        return Vec::new();
+    };
+    if canvas.hidden_children.is_empty() {
+        return Vec::new();
+    }
+    let owner_id = element.style.id.clone();
+    canvas
+        .hidden_children
+        .iter()
+        .map(|child| {
+            let child_bounds = DisplayRect {
+                x: 0.0,
+                y: 0.0,
+                width: bounds.width,
+                height: bounds.height,
+            };
+            let item = display_item_for_node(child, child_bounds);
+            HiddenChildDisplayNode {
+                item,
+                bounds: child_bounds,
+                owner_id: owner_id.clone(),
+            }
+        })
+        .collect()
 }
 
 fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayItem {
@@ -207,6 +239,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
             bounds,
             commands: canvas.commands.clone(),
             drop_shadow: element.style.visual.drop_shadow,
+            hidden_subtree: Vec::new(),
         }),
         ElementKind::SvgPath(svg) => DisplayItem::SvgPath(SvgPathDisplayItem {
             bounds,

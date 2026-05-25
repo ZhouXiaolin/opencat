@@ -362,6 +362,7 @@ mod tests {
                 item: self.item,
                 children: Vec::new(),
                 draw_slot: None,
+                hidden_subtree: Vec::new(),
             }
         }
     }
@@ -415,6 +416,7 @@ mod tests {
             item: node.item,
             children,
             draw_slot: None,
+            hidden_subtree: Vec::new(),
         };
 
         let subtree_contains_time_variant =
@@ -816,6 +818,7 @@ mod tests {
             bounds: empty_bounds(),
             commands: Vec::new(),
             drop_shadow: None,
+            hidden_subtree: Vec::new(),
         });
 
         // 命令序列空 → hash 稳定 → Stable

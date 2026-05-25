@@ -6,7 +6,7 @@ use crate::{
     },
     display::{
         list::{DisplayClip, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem},
-        tree::{DisplayNode, DisplayTree},
+        tree::{DisplayNode, DisplayTree, HiddenChildDisplayNode},
     },
 };
 
@@ -35,6 +35,7 @@ pub struct AnnotatedDisplayNode {
     pub item: DisplayItem,
     pub children: Vec<AnnotatedNodeHandle>,
     pub draw_slot: Option<DrawScriptDisplayItem>,
+    pub hidden_subtree: Vec<HiddenChildDisplayNode>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -159,6 +160,7 @@ fn annotate_display_node(
         item: node.item.clone(),
         children,
         draw_slot: node.draw_slot.clone(),
+        hidden_subtree: node.hidden_subtree.clone(),
     };
 
     let paint_variance = fingerprint::classify_paint(&node.item);

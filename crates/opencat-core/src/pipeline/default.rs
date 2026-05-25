@@ -261,6 +261,7 @@ impl<L: AssetLoader, S: JsContext> Pipeline for DefaultPipeline<L, S> {
             ordered_scene: &ordered_scene,
             builder: &mut builder,
             blob_store: None,
+            hidden_picture_stack: Vec::new(),
         };
 
         crate::render::dispatch::render_display_tree(&mut ctx, &annotated, &mut self.cache)?;

@@ -140,6 +140,12 @@ impl DrawOpBuilder {
         idx
     }
 
+    /// Current size of the child table; used by callers that need to record
+    /// the start index of a new `ChildRange` before pushing children.
+    pub fn children_len(&self) -> usize {
+        self.children.len()
+    }
+
     /// Import a cached segment into the current builder, remapping all id
     /// offsets so they index correctly into this builder's side tables.
     pub fn import_segment(&mut self, segment: &crate::ir::cache::CachedDrawSegment) -> DrawOpRange {
@@ -826,5 +832,16 @@ mod tests {
         if let DrawOp::Rect { paint, .. } = &frame.ops[1] {
             assert_eq!(paint.0, 0);
         }
+    }
+
+    #[test]
+    fn builder_children_len_tracks_pushes() {
+        use crate::ir::draw_types::{ImageRef, RuntimeEffectChildRef};
+        let mut b = DrawOpBuilder::default();
+        assert_eq!(b.children_len(), 0);
+        b.push_child(RuntimeEffectChildRef::Image(ImageRef::Static {
+            asset_id: "x".into(),
+        }));
+        assert_eq!(b.children_len(), 1);
     }
 }

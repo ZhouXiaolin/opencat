@@ -336,6 +336,12 @@ pub enum DrawOp {
 
     /// Replay a previously-encoded range of DrawOps.
     ReplayRange { range: DrawOpRange },
+
+    DrawSubtreePicture {
+        owner_id: String,
+        x: f32,
+        y: f32,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -554,6 +560,12 @@ impl std::hash::Hash for DrawOp {
             DrawOp::ReplayRange { range } => {
                 37_u8.hash(state);
                 range.hash(state);
+            }
+            DrawOp::DrawSubtreePicture { owner_id, x, y } => {
+                38_u8.hash(state);
+                owner_id.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
             }
         }
     }

@@ -105,6 +105,8 @@ pub trait MutationRecorder {
 
     fn record_draw_op(&mut self, id: &str, cmd: DrawOp);
 
+    fn record_draw_picture(&mut self, target_id: &str, owner_id: &str, x: f32, y: f32);
+
     fn reset_for_frame(&mut self, current_frame: u32);
     fn snapshot_mutations(&self) -> StyleMutations;
 

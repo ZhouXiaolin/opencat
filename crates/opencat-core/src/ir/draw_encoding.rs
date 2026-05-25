@@ -69,6 +69,7 @@ pub mod opcode {
     pub const IMAGE_RECT: u16 = 35;
     pub const RUNTIME_EFFECT: u16 = 36;
     pub const REPLAY_RANGE: u16 = 37;
+    pub const DRAW_SUBTREE_PICTURE: u16 = 38;
 
     // PathOp sub-opcodes (embedded in PATH_OP payload)
     pub const PATH_MOVE_TO: u16 = 0;
@@ -625,6 +626,14 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             write_op_header(buf, opcode::REPLAY_RANGE, 8);
             write_u32(buf, range.start_op);
             write_u32(buf, range.op_len);
+        }
+
+        DrawOp::DrawSubtreePicture { owner_id, x, y } => {
+            let sid = lookup_string_id(strings, owner_id);
+            write_op_header(buf, opcode::DRAW_SUBTREE_PICTURE, 12);
+            write_u32(buf, sid);
+            write_f32(buf, *x);
+            write_f32(buf, *y);
         }
     }
 

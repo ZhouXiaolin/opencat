@@ -7,36 +7,47 @@
   </soundtrack>
 
   <script>
-// ── s1-canvas: water ripple (SkSL RuntimeEffect) ──────────────────────
+// ── s1-canvas: subtree ripple + chromatic split ───────────────────────
 const CK=ctx.CanvasKit;
 const c=ctx.getCanvasById('s1-canvas');
-const imgShader=ctx.getImage('s1-decor-img').makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
+const subtree=c.getSubTree();
+const subtreeShader=subtree.makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
 
-// Ripple SkSL — radial sine displacement
 const sksl=[
   'uniform shader image;',
   'uniform float  progress;',
   'uniform float  amplitude;',
   'uniform float  frequency;',
+  'uniform float  speed;',
   'uniform float  decay;',
+  'uniform float  split;',
   '',
   'half4 main(float2 xy) {',
+  '  float2 center=float2(202, 224);',
   '  float2 uv=xy;',
-  '  float dist=distance(uv,float2(180,240));',
-  '  float ripple=sin(dist*frequency-progress*6.2832);',
+  '  float dist=distance(uv, center);',
+  '  float ripple=sin(dist*frequency-progress*speed);',
   '  float falloff=exp(-dist*decay);',
-  '  float d=ripple*amplitude*falloff;',
-  '  float2 dir=dist<1.0?float2(0):normalize(uv-float2(180,240));',
-  '  return image.eval(uv+dir*d);',
+  '  float disp=ripple*amplitude*falloff;',
+  '  float2 dir=dist<1.0 ? float2(0) : normalize(uv-center);',
+  '  float2 tangent=float2(-dir.y, dir.x);',
+  '  float splitAmt=split*(0.35+0.65*falloff)*(0.4+0.6*abs(ripple));',
+  '  float2 baseUv=uv+dir*disp;',
+  '  half4 r=image.eval(baseUv+tangent*splitAmt);',
+  '  half4 g=image.eval(baseUv);',
+  '  half4 b=image.eval(baseUv-tangent*splitAmt);',
+  '  half3 rgb=half3(r.r, g.g, b.b);',
+  '  half a=max(max(r.a, g.a), b.a);',
+  '  return half4(rgb, a);',
   '}',
 ].join('\n');
 
 var effect=CK.RuntimeEffect.Make(sksl);
 if(effect){
-  var p=ctx.currentFrame/ctx.sceneFrames;
+  var p=ctx.currentFrame/30.0;
   var shader=effect.makeShaderWithChildren(
-    [p, 6.0, 0.035, 0.006],
-    [imgShader]
+    [p, 10.0, 0.045, 7.2, 0.0105, 6.5],
+    [subtreeShader]
   );
   var paint=new CK.Paint();
   paint.setShader(shader);
@@ -89,8 +100,21 @@ ctx.timeline().fromTo('s4-metric-1',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,s
             </div>
           </div>
         </div>
-        <canvas id="s1-canvas" class="absolute right-[80px] top-[120px] w-[360px] h-[480px] rounded-[32px] overflow-hidden border border-slate-800">
+        <canvas id="s1-canvas" class="absolute right-[80px] top-[120px] w-[360px] h-[480px] rounded-[32px] overflow-hidden border border-slate-800 bg-slate-950">
           <image id="s1-decor-img" class="w-[360px] h-[480px] object-cover" url="http://127.0.0.1:8080/png/3.png" />
+          <div id="s1-decor-vignette" class="absolute inset-0 bg-slate-950/20"></div>
+          <div id="s1-decor-badge" class="absolute left-[18px] top-[18px] px-[12px] py-[8px] rounded-full bg-slate-950/55 border border-cyan-400/30">
+            <text id="s1-decor-badge-text" class="text-[12px] font-semibold tracking-[2px] text-cyan-200">LIVE SUBTREE</text>
+          </div>
+          <div id="s1-decor-panel" class="absolute left-[18px] right-[18px] bottom-[18px] p-[16px] rounded-[20px] bg-slate-950/60 border border-white/10 flex flex-col gap-[10px]">
+            <text id="s1-decor-title" class="text-[22px] font-bold text-white">Shader Surface</text>
+            <text id="s1-decor-body" class="text-[13px] leading-[1.45] text-slate-300">subtree texture + RuntimeEffect ripple + RGB split</text>
+            <div id="s1-decor-bars" class="flex flex-col gap-[8px] pt-[4px]">
+              <div id="s1-decor-bar-1" class="w-[220px] h-[6px] rounded-full bg-cyan-400/80"></div>
+              <div id="s1-decor-bar-2" class="w-[168px] h-[6px] rounded-full bg-fuchsia-400/75"></div>
+              <div id="s1-decor-bar-3" class="w-[124px] h-[6px] rounded-full bg-amber-300/70"></div>
+            </div>
+          </div>
         </canvas>
       </div>
 

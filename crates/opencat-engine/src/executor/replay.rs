@@ -119,7 +119,15 @@ fn picture_shader_for_range(
     range: DrawOpRange,
     fallback_bounds: Rect,
 ) -> Result<Option<Shader>, DrawError> {
-    let bounds = range_bounds(draw, range).unwrap_or(fallback_bounds);
+    // RuntimeEffect picture children are sampled in the destination shader
+    // space (`dst`/`xy`), not in a tight local content box. If we pass only
+    // the recorded ops' minimal bounds here, Skia will clamp sampling to that
+    // narrow strip and the rest of the destination will smear the edge pixel.
+    // Keep the picture shader aligned to at least the destination bounds while
+    // still expanding to include any recorded content that spills outside it.
+    let bounds = range_bounds(draw, range)
+        .map(|recorded| rect_union(recorded, fallback_bounds))
+        .unwrap_or(fallback_bounds);
     let mut recorder = PictureRecorder::new();
     let picture_canvas = recorder.begin_recording(bounds, false);
     let mut picture_exec = EngineDrawExecutor::new();
@@ -750,6 +758,182 @@ half4 main(float2 coord) {
             pixel_rgba(&rgba, 8, 4, 4),
             [0, 255, 0, 255],
             "RuntimeEffect Picture child should sample the recorded draw range"
+        );
+    }
+
+    #[test]
+    fn runtime_effect_picture_child_respects_translated_range_bounds() {
+        let sksl = r#"
+uniform shader child;
+
+half4 main(float2 coord) {
+    return child.eval(coord);
+}
+"#;
+        let rt = RuntimeEffect::make_for_shader(sksl, None).expect("runtime effect should compile");
+
+        let mut frame = DrawOpFrame::default();
+        frame.effects.push(EffectRef {
+            hash: 0xBEEF,
+            sksl: sksl.to_string(),
+        });
+        frame
+            .byte_ranges
+            .push(opencat_core::ir::draw_types::TableRange { start: 0, len: 0 });
+        frame
+            .children
+            .push(RuntimeEffectChildRef::Picture(DrawOpRange {
+                start_op: 0,
+                op_len: 2,
+            }));
+        frame.paints.push(PaintSpec {
+            fill: FillSpec::Solid([0.0, 1.0, 0.0, 1.0]),
+            style: PaintStyle::Fill,
+            ..Default::default()
+        });
+        frame.ops.push(DrawOp::Translate { x: 4.0, y: 2.0 });
+        frame.ops.push(DrawOp::Rect {
+            rect: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 8.0,
+                height: 8.0,
+            },
+            paint: opencat_core::ir::draw_types::PaintId(0),
+        });
+
+        let effect_op = DrawOp::RuntimeEffect {
+            effect: EffectId(0),
+            uniforms: BytesRangeId(0),
+            children: ChildRange { start: 0, len: 1 },
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 16.0,
+                height: 16.0,
+            },
+        };
+
+        let media = EnginePreparedFrameMedia {
+            runtime_effects: vec![rt],
+            ..Default::default()
+        };
+        let mut exec = EngineDrawExecutor::new();
+        exec.begin_frame();
+        let mut surface = surfaces::raster_n32_premul((16, 16)).expect("surface should create");
+        let canvas = surface.canvas();
+
+        replay_op(&mut exec, canvas, &frame, &media, &effect_op)
+            .expect("runtime effect op should replay");
+
+        let image = surface.image_snapshot();
+        let image_info = ImageInfo::new((16, 16), ColorType::RGBA8888, AlphaType::Premul, None);
+        let mut rgba = vec![0_u8; 16 * 16 * 4];
+        assert!(image.read_pixels(
+            &image_info,
+            rgba.as_mut_slice(),
+            16 * 4,
+            (0, 0),
+            CachingHint::Allow,
+        ));
+
+        assert_eq!(
+            pixel_rgba(&rgba, 16, 6, 4),
+            [0, 255, 0, 255],
+            "Picture child shader should preserve translated content bounds"
+        );
+        assert_eq!(
+            pixel_rgba(&rgba, 16, 1, 1),
+            [0, 0, 0, 0],
+            "Pixels outside the translated picture should remain transparent"
+        );
+    }
+
+    #[test]
+    fn runtime_effect_picture_child_samples_content_translated_outside_local_op_bounds() {
+        let sksl = r#"
+uniform shader child;
+
+half4 main(float2 coord) {
+    return child.eval(coord);
+}
+"#;
+        let rt = RuntimeEffect::make_for_shader(sksl, None).expect("runtime effect should compile");
+
+        let mut frame = DrawOpFrame::default();
+        frame.effects.push(EffectRef {
+            hash: 0xFACE,
+            sksl: sksl.to_string(),
+        });
+        frame
+            .byte_ranges
+            .push(opencat_core::ir::draw_types::TableRange { start: 0, len: 0 });
+        frame
+            .children
+            .push(RuntimeEffectChildRef::Picture(DrawOpRange {
+                start_op: 0,
+                op_len: 2,
+            }));
+        frame.paints.push(PaintSpec {
+            fill: FillSpec::Solid([0.0, 1.0, 0.0, 1.0]),
+            style: PaintStyle::Fill,
+            ..Default::default()
+        });
+        frame.ops.push(DrawOp::Translate { x: 12.0, y: 4.0 });
+        frame.ops.push(DrawOp::Rect {
+            rect: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 4.0,
+                height: 4.0,
+            },
+            paint: opencat_core::ir::draw_types::PaintId(0),
+        });
+
+        let effect_op = DrawOp::RuntimeEffect {
+            effect: EffectId(0),
+            uniforms: BytesRangeId(0),
+            children: ChildRange { start: 0, len: 1 },
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 20.0,
+                height: 12.0,
+            },
+        };
+
+        let media = EnginePreparedFrameMedia {
+            runtime_effects: vec![rt],
+            ..Default::default()
+        };
+        let mut exec = EngineDrawExecutor::new();
+        exec.begin_frame();
+        let mut surface = surfaces::raster_n32_premul((20, 12)).expect("surface should create");
+        let canvas = surface.canvas();
+
+        replay_op(&mut exec, canvas, &frame, &media, &effect_op)
+            .expect("runtime effect op should replay");
+
+        let image = surface.image_snapshot();
+        let image_info = ImageInfo::new((20, 12), ColorType::RGBA8888, AlphaType::Premul, None);
+        let mut rgba = vec![0_u8; 20 * 12 * 4];
+        assert!(image.read_pixels(
+            &image_info,
+            rgba.as_mut_slice(),
+            20 * 4,
+            (0, 0),
+            CachingHint::Allow,
+        ));
+
+        assert_eq!(
+            pixel_rgba(&rgba, 20, 13, 5),
+            [0, 255, 0, 255],
+            "Picture child shader should sample translated content even when it lies outside the local op bounds"
+        );
+        assert_eq!(
+            pixel_rgba(&rgba, 20, 1, 1),
+            [0, 0, 0, 0],
+            "Pixels outside the translated content should remain transparent"
         );
     }
 }

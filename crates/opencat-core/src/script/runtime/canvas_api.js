@@ -582,8 +582,9 @@
     function ensureChildShader(c) {
         if (!c) throw new Error('child shader is null');
         if (c.__opencatShader === 'image') return c;
+        if (c.__opencatShader === 'picture') return c;
         throw new Error(
-            'only image child shaders are supported; gradient/picture not implemented'
+            'only image and picture child shaders are supported; gradient not implemented'
         );
     }
 
@@ -780,10 +781,22 @@
     }
 
     function makeSubTreeHandle(ownerId) {
-        return {
+        const handle = {
             __opencatSubTreePicture: true,
             ownerId: String(ownerId)
         };
+        // Picture-as-shader child for RuntimeEffect.makeShaderWithChildren.
+        // Tile modes are accepted for CanvasKit API parity but the engine
+        // currently samples picture pictures with TileMode::Clamp.
+        handle.makeShader = function(tileX, tileY) {
+            return {
+                __opencatShader: 'picture',
+                ownerId: handle.ownerId,
+                tileX: normalizeTileMode(tileX),
+                tileY: normalizeTileMode(tileY),
+            };
+        };
+        return handle;
     }
 
     function ensureSubTreeHandle(value) {

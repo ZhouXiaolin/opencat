@@ -497,7 +497,7 @@ impl MutationRecorder for MutationStore {
         id: &str,
         sksl: String,
         uniforms_bytes: Vec<u8>,
-        children: Vec<crate::ir::draw_types::RuntimeEffectChildRef>,
+        children: Vec<crate::ir::draw_types::ScriptRuntimeEffectChild>,
         dst: crate::ir::draw_op::Rect4,
     ) {
         self.record_draw_op(
@@ -613,13 +613,13 @@ mod tests {
     #[test]
     fn record_canvas_runtime_effect_pushes_script_effect() {
         use crate::ir::draw_op::Rect4;
-        use crate::ir::draw_types::{ImageRef, RuntimeEffectChildRef};
+        use crate::ir::draw_types::{ImageRef, ScriptRuntimeEffectChild};
         let mut store = MutationStore::default();
         store.record_canvas_runtime_effect(
             "s1-canvas",
             "half4 main(float2 p){return half4(1);}".to_string(),
             vec![1u8, 2, 3, 4, 5, 6, 7, 8],
-            vec![RuntimeEffectChildRef::Image(ImageRef::Static {
+            vec![ScriptRuntimeEffectChild::Image(ImageRef::Static {
                 asset_id: "decor".into(),
             })],
             Rect4 { x: 0.0, y: 0.0, width: 360.0, height: 480.0 },

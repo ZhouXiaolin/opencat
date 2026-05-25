@@ -45,6 +45,14 @@ pub enum ScriptChildSpec {
         #[serde(rename = "tileX", default = "default_tile_mode")] tile_x: TileModeName,
         #[serde(rename = "tileY", default = "default_tile_mode")] tile_y: TileModeName,
     },
+    #[serde(rename = "picture")]
+    Picture {
+        #[serde(rename = "ownerId")] owner_id: String,
+        // Tile modes accepted for parity with the JS API; the engine currently
+        // samples picture-as-shader with TileMode::Clamp regardless.
+        #[serde(rename = "tileX", default = "default_tile_mode")] _tile_x: TileModeName,
+        #[serde(rename = "tileY", default = "default_tile_mode")] _tile_y: TileModeName,
+    },
 }
 
 #[derive(serde::Deserialize, Debug, Clone, Copy)]
@@ -61,14 +69,19 @@ fn default_tile_mode() -> TileModeName {
 }
 
 impl ScriptChildSpec {
-    pub fn to_ir_child_ref(&self) -> crate::ir::draw_types::RuntimeEffectChildRef {
+    pub fn to_script_child(&self) -> crate::ir::draw_types::ScriptRuntimeEffectChild {
         match self {
             ScriptChildSpec::Image { asset_id, .. } => {
-                crate::ir::draw_types::RuntimeEffectChildRef::Image(
+                crate::ir::draw_types::ScriptRuntimeEffectChild::Image(
                     crate::ir::draw_types::ImageRef::Static {
                         asset_id: asset_id.clone(),
                     },
                 )
+            }
+            ScriptChildSpec::Picture { owner_id, .. } => {
+                crate::ir::draw_types::ScriptRuntimeEffectChild::PictureSubtree {
+                    owner_id: owner_id.clone(),
+                }
             }
         }
     }
@@ -91,14 +104,19 @@ mod script_children_tests {
         assert_eq!(specs.len(), 1);
         match &specs[0] {
             ScriptChildSpec::Image { asset_id, .. } => assert_eq!(asset_id, "decor"),
+            other => panic!("expected image spec, got {other:?}"),
         }
     }
 
     #[test]
-    fn rejects_unknown_shader_kind() {
-        let err = parse_script_children(
-            r#"[{"__opencatShader":"picture","ownerId":"foo"}]"#,
-        ).err().expect("should reject picture child for now");
-        assert!(err.to_string().contains("decode"));
+    fn parses_picture_child_spec() {
+        let specs = parse_script_children(
+            r#"[{"__opencatShader":"picture","ownerId":"c-card","tileX":"clamp","tileY":"clamp"}]"#,
+        ).unwrap();
+        assert_eq!(specs.len(), 1);
+        match &specs[0] {
+            ScriptChildSpec::Picture { owner_id, .. } => assert_eq!(owner_id, "c-card"),
+            other => panic!("expected picture spec, got {other:?}"),
+        }
     }
 }

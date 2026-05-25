@@ -236,6 +236,31 @@ pub enum RuntimeEffectChildRef {
     Shader(ShaderSpec),
 }
 
+/// Deferred child reference recorded by `DrawOp::ScriptRuntimeEffect`.
+/// `PictureSubtree` carries a canvas owner id rather than a `DrawOpRange`,
+/// because the range cannot be materialised until the subtree ops are emitted
+/// into the main builder during `render_draw_script` expansion.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ScriptRuntimeEffectChild {
+    Image(ImageRef),
+    PictureSubtree { owner_id: String },
+}
+
+impl std::hash::Hash for ScriptRuntimeEffectChild {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            ScriptRuntimeEffectChild::Image(img) => {
+                0_u8.hash(state);
+                img.hash(state);
+            }
+            ScriptRuntimeEffectChild::PictureSubtree { owner_id } => {
+                1_u8.hash(state);
+                owner_id.hash(state);
+            }
+        }
+    }
+}
+
 /// IR-native shader specification for draw encoding.
 /// Note: This is separate from crate::canvas::paint::ShaderSpec to avoid coupling
 /// the draw IR to the canvas paint types. It uses a simpler encoding-oriented shape

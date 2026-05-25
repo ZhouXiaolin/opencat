@@ -149,7 +149,7 @@ impl LayoutSession {
             )?;
 
             let layout_tree = LayoutTree {
-                root: build_layout_tree(root, &self.taffy, root_id)?,
+                root: build_layout_tree(root, &self.taffy, root_id, font_db)?,
             };
             self.cached_layout_tree = Some(layout_tree.clone());
             self.last_layout_size = Some(viewport_size);
@@ -291,6 +291,17 @@ fn ordered_children(element: &ElementNode) -> Vec<(usize, &ElementNode)> {
     children
 }
 
+fn ordered_hidden_children(element: &ElementNode) -> Vec<(usize, &ElementNode)> {
+    let ElementKind::Canvas(canvas) = &element.kind else {
+        return Vec::new();
+    };
+    let mut children = canvas.hidden_children.iter().enumerate().collect::<Vec<_>>();
+    if element.style.layout.is_flex || element.style.layout.is_grid {
+        children.sort_by_key(|(index, child)| (child.style.layout.order, *index));
+    }
+    children
+}
+
 fn update_cached_subtree(
     element: &ElementNode,
     cached: &mut CachedLayoutNode,
@@ -364,7 +375,11 @@ fn same_structure(cached: &CachedLayoutNode, element: &ElementNode, sibling_inde
 }
 
 fn count_nodes(element: &ElementNode) -> usize {
-    1 + element.children.iter().map(count_nodes).sum::<usize>()
+    let hidden_nodes = match &element.kind {
+        ElementKind::Canvas(canvas) => canvas.hidden_children.iter().map(count_nodes).sum(),
+        _ => 0,
+    };
+    1 + element.children.iter().map(count_nodes).sum::<usize>() + hidden_nodes
 }
 
 fn cached_node_kind(element: &ElementNode) -> CachedNodeKind {
@@ -460,6 +475,13 @@ impl Hash for LayoutFingerprint<'_> {
                     .hash(state);
             }
         }
+
+        if let ElementKind::Canvas(canvas) = &self.0.kind {
+            canvas.hidden_children.len().hash(state);
+            for child in &canvas.hidden_children {
+                LayoutFingerprint(child).hash(state);
+            }
+        }
     }
 }
 
@@ -483,6 +505,10 @@ impl Hash for RasterFingerprint<'_> {
             }
             ElementKind::Canvas(canvas) => {
                 canvas.commands.hash(state);
+                canvas.hidden_children.len().hash(state);
+                for child in &canvas.hidden_children {
+                    RasterFingerprint(child).hash(state);
+                }
             }
             ElementKind::SvgPath(svg) => {
                 for data in &svg.path_data {
@@ -910,6 +936,7 @@ fn build_layout_tree(
     element: &ElementNode,
     taffy: &TaffyTree<TextMeasureContext>,
     node_id: taffy::NodeId,
+    font_db: &fontdb::Database,
 ) -> Result<LayoutNode> {
     let layout = taffy.layout(node_id)?;
     let mut children = Vec::new();
@@ -918,8 +945,11 @@ fn build_layout_tree(
     for ((_, element_child), taffy_child) in
         ordered_children(element).into_iter().zip(taffy_children)
     {
-        children.push(build_layout_tree(element_child, taffy, taffy_child)?);
+        children.push(build_layout_tree(element_child, taffy, taffy_child, font_db)?);
     }
+
+    let hidden_children =
+        build_hidden_layout_nodes(element, layout.size.width, layout.size.height, font_db)?;
 
     Ok(LayoutNode {
         id: element.style.id.clone(),
@@ -930,7 +960,54 @@ fn build_layout_tree(
             height: layout.size.height,
         },
         children,
+        hidden_children,
     })
+}
+
+fn build_hidden_layout_nodes(
+    element: &ElementNode,
+    width: f32,
+    height: f32,
+    font_db: &fontdb::Database,
+) -> Result<Vec<LayoutNode>> {
+    let ElementKind::Canvas(canvas) = &element.kind else {
+        return Ok(Vec::new());
+    };
+    if canvas.hidden_children.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut taffy = TaffyTree::new();
+    let ordered = ordered_hidden_children(element);
+    let mut child_ids = Vec::with_capacity(ordered.len());
+    for (index, child) in ordered.iter().copied() {
+        let (child_id, _) = build_taffy_subtree(&mut taffy, child, index)?;
+        child_ids.push(child_id);
+    }
+
+    let mut root_style = taffy_style_for_element(element);
+    root_style.size = taffy::geometry::Size {
+        width: Dimension::length(width),
+        height: Dimension::length(height),
+    };
+    let root_id = taffy.new_with_children(root_style, &child_ids)?;
+    taffy.compute_layout_with_measure(
+        root_id,
+        taffy::geometry::Size {
+            width: AvailableSpace::Definite(width),
+            height: AvailableSpace::Definite(height),
+        },
+        |known_dimensions, available_space, _node_id, node_context, _style| {
+            measure_node(known_dimensions, available_space, node_context, font_db)
+        },
+    )?;
+
+    let mut hidden_children = Vec::with_capacity(ordered.len());
+    let taffy_children = taffy.children(root_id)?;
+    for ((_, child), child_id) in ordered.into_iter().zip(taffy_children) {
+        hidden_children.push(build_layout_tree(child, &taffy, child_id, font_db)?);
+    }
+    Ok(hidden_children)
 }
 
 fn base_style(element: &ElementNode) -> Style {

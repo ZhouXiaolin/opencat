@@ -29,7 +29,7 @@ pub use self::ir::asset_id::AssetId;
 pub use self::media::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality};
 pub use self::parse::node::Node;
 pub use self::parse::preflight::collect_resource_requests; // ResourceRequests now in probe
-pub use self::parse::{ParsedComposition, parse};
+pub use self::parse::{markup, ParsedComposition, parse};
 pub use self::pipeline::{DefaultPipeline, Pipeline};
 pub use self::platform::video::{FrameBitmap, VideoFrameProvider};
 pub use self::probe::{

@@ -1,0 +1,159 @@
+<opencat width="1280" height="720" fps="30" frames="414">
+  <audio id="bgm" url="http://127.0.0.1:8080/mp3/1.mp3" />
+
+  <script>
+// s1-canvas draw script — grid + radar + pulsing dot
+const CK=ctx.CanvasKit;
+const c=ctx.getCanvasById('s1-canvas');
+const fill=(x)=>{const p=new CK.Paint();p.setStyle(CK.PaintStyle.Fill);p.setColor(CK.parseColorString(x));return p;};
+const stroke=(x,w)=>{const p=new CK.Paint();p.setStyle(CK.PaintStyle.Stroke);p.setColor(CK.parseColorString(x));p.setStrokeWidth(w);return p;};
+const t=ctx.frame/ctx.fps;
+c.clear();
+for(let i=0;i<8;i++){const y=80+i*80;const off=Math.sin(t*1.2+i*0.4)*30;c.drawLine(-40+off,y,1320+off,y,stroke('#38bdf833',1));}
+c.save();c.translate(960,360);c.rotate(t*12);
+for(let i=0;i<5;i++){c.drawCircle(0,0,60+i*30,stroke('#22d3ee44',2));}
+c.restore();
+c.drawCircle(960,360,20+Math.sin(t*3)*8,fill('#22d3ee'));
+
+// scene1 — entrance animations
+ctx.fromTo(['s1-kicker','s1-title','s1-desc'],{opacity:0,y:24},{opacity:1,y:0,stagger:6,duration:24,ease:'spring.gentle'});
+ctx.fromTo(['s1-chip-1','s1-chip-2','s1-chip-3'],{opacity:0,scale:0.7},{opacity:1,scale:1,stagger:5,duration:20,ease:'spring.default'});
+ctx.fromTo('s1-decor',{opacity:0,x:60},{opacity:1,x:0,duration:40,delay:6,ease:'spring.gentle'});
+
+// scene2 — card grid entrance
+ctx.fromTo(['s2-card-1','s2-card-2','s2-card-3','s2-card-4','s2-card-5','s2-card-6'],{opacity:0,y:30,scale:0.94},{opacity:1,y:0,scale:1,stagger:4,duration:22,ease:'spring.default'});
+ctx.fromTo('s2-header',{opacity:0,x:-24},{opacity:1,x:0,duration:26,ease:'spring.gentle'});
+ctx.fromTo('s2-preview',{opacity:0,scale:0.9},{opacity:1,scale:1,duration:28,delay:8,ease:'spring.default'});
+
+// scene3 — video shell wobble + typewriter + thumbnails
+ctx.to('s3-typewriter',{text:'Video plays live while the script overlay types this description frame by frame.',duration:72,delay:6,ease:'linear'});
+ctx.to('s3-video-shell',{keyframes:{rotate:[{at:0,value:-6},{at:0.5,value:4,easing:'ease-in-out'},{at:1,value:0}],scale:[1,1.02,1]},duration:90});
+ctx.fromTo(['s3-thumb-a','s3-thumb-b','s3-thumb-c'],{opacity:0,y:20,scale:0.9},{opacity:1,y:0,scale:1,stagger:4,duration:22,delay:24,ease:'spring.default'});
+ctx.fromTo(['s3-kicker','s3-title'],{opacity:0,x:30},{opacity:1,x:0,duration:26,ease:'spring.gentle'});
+
+// scene4 — orbs + metrics reveal
+ctx.to('s4-orb',{keyframes:{rotate:[{at:0,value:0},{at:1,value:360}],scale:[{at:0,value:0.8},{at:0.5,value:1.15,easing:'ease-in-out'},{at:1,value:0.95}]},duration:90});
+ctx.to('s4-orb-inner',{keyframes:{rotate:[{at:0,value:0},{at:1,value:-540}],y:[0,-20,0,20,0]},duration:90});
+ctx.fromTo(['s4-title','s4-sub'],{opacity:0,y:30},{opacity:1,y:0,duration:28,ease:'spring.gentle'});
+ctx.timeline().fromTo('s4-metric-1',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,scale:1,duration:20,ease:'spring.default'}).fromTo('s4-metric-2',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,scale:1,duration:20,ease:'spring.default'},'-=12').fromTo('s4-metric-3',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,scale:1,duration:20,ease:'spring.default'},'-=12');
+  </script>
+
+  <div id="root" class="relative w-[1280px] h-[720px] bg-slate-950">
+    <tl id="main-tl" class="absolute inset-0">
+      <div id="scene1" class="relative w-[1280px] h-[720px] bg-slate-950" duration="90">
+        <canvas id="s1-canvas" class="absolute inset-0 w-[1280px] h-[720px]"></canvas>
+        <div id="s1-copy" class="absolute left-[80px] top-[200px] flex flex-col gap-[22px] w-[720px]">
+          <text id="s1-kicker" class="text-[22px] font-semibold tracking-[6px] text-cyan-300">PROFILE BENCHMARK</text>
+          <text id="s1-title" class="text-[92px] font-bold text-white leading-[0.95]">Every surface at once</text>
+          <text id="s1-desc" class="text-[22px] text-slate-400 leading-[1.5] w-[620px]">Four scenes exercise text, image, video, canvas, icons, transforms and script animations — a single golden sample for render profile comparisons.</text>
+          <div id="s1-chip-row" class="flex flex-row gap-[12px] pt-[14px]">
+            <div id="s1-chip-1" class="flex flex-row items-center gap-[8px] px-[18px] py-[10px] rounded-full bg-slate-900 border border-slate-800">
+              <icon id="s1-chip-1-icon" class="w-[16px] h-[16px] stroke-cyan-300" icon="type" />
+              <text id="s1-chip-1-text" class="text-[16px] font-semibold text-cyan-200">Text</text>
+            </div>
+            <div id="s1-chip-2" class="flex flex-row items-center gap-[8px] px-[18px] py-[10px] rounded-full bg-slate-900 border border-slate-800">
+              <icon id="s1-chip-2-icon" class="w-[16px] h-[16px] stroke-fuchsia-300" icon="image" />
+              <text id="s1-chip-2-text" class="text-[16px] font-semibold text-fuchsia-200">Image</text>
+            </div>
+            <div id="s1-chip-3" class="flex flex-row items-center gap-[8px] px-[18px] py-[10px] rounded-full bg-slate-900 border border-slate-800">
+              <icon id="s1-chip-3-icon" class="w-[16px] h-[16px] stroke-amber-300" icon="video" />
+              <text id="s1-chip-3-text" class="text-[16px] font-semibold text-amber-200">Video</text>
+            </div>
+          </div>
+        </div>
+        <div id="s1-decor" class="absolute right-[80px] top-[120px] w-[360px] h-[480px] rounded-[32px] overflow-hidden border border-slate-800">
+          <image id="s1-decor-img" class="w-[360px] h-[480px] object-cover" url="http://127.0.0.1:8080/png/3.png" />
+        </div>
+      </div>
+
+      <transition from="scene1" to="scene2" effect="fade" duration="18" timing="ease-in-out" />
+
+      <div id="scene2" class="relative w-[1280px] h-[720px] bg-slate-100" duration="90">
+        <div id="s2-header" class="absolute left-[80px] top-[70px] flex flex-col gap-[10px]">
+          <text id="s2-kicker" class="text-[18px] font-semibold tracking-[5px] text-sky-600">SECTION / 02</text>
+          <text id="s2-title" class="text-[56px] font-bold text-slate-900 leading-tight">A grid of stable subtrees</text>
+        </div>
+        <div id="s2-preview" class="absolute right-[80px] top-[70px] w-[320px] h-[180px] rounded-[20px] overflow-hidden border border-slate-300">
+          <video id="s2-preview-video" class="w-[320px] h-[180px] object-cover" url="http://127.0.0.1:8080/mp4/2.mp4" />
+        </div>
+        <div id="s2-grid" class="absolute left-[80px] top-[280px] grid grid-cols-3 gap-[22px] w-[1120px]">
+          <div id="s2-card-1" class="flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200">
+            <icon id="s2-card-1-icon" class="w-[28px] h-[28px] stroke-cyan-500" icon="zap" />
+            <text id="s2-card-1-title" class="text-[20px] font-semibold text-slate-900">Fast paths</text>
+            <text id="s2-card-1-body" class="text-[14px] text-slate-500 leading-relaxed">Stable subtrees skip record.</text>
+          </div>
+          <div id="s2-card-2" class="flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200">
+            <icon id="s2-card-2-icon" class="w-[28px] h-[28px] stroke-rose-500" icon="layers" />
+            <text id="s2-card-2-title" class="text-[20px] font-semibold text-slate-900">Layered caches</text>
+            <text id="s2-card-2-body" class="text-[14px] text-slate-500 leading-relaxed">Picture + image tiers.</text>
+          </div>
+          <div id="s2-card-3" class="flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200">
+            <icon id="s2-card-3-icon" class="w-[28px] h-[28px] stroke-emerald-500" icon="gauge" />
+            <text id="s2-card-3-title" class="text-[20px] font-semibold text-slate-900">Measured</text>
+            <text id="s2-card-3-body" class="text-[14px] text-slate-500 leading-relaxed">Profile every transition.</text>
+          </div>
+          <div id="s2-card-4" class="flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200">
+            <icon id="s2-card-4-icon" class="w-[28px] h-[28px] stroke-amber-500" icon="sparkles" />
+            <text id="s2-card-4-title" class="text-[20px] font-semibold text-slate-900">Animated</text>
+            <text id="s2-card-4-body" class="text-[14px] text-slate-500 leading-relaxed">Script-driven motion.</text>
+          </div>
+          <div id="s2-card-5" class="flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200">
+            <icon id="s2-card-5-icon" class="w-[28px] h-[28px] stroke-violet-500" icon="shapes" />
+            <text id="s2-card-5-title" class="text-[20px] font-semibold text-slate-900">Canvas</text>
+            <text id="s2-card-5-body" class="text-[14px] text-slate-500 leading-relaxed">CanvasKit draw script.</text>
+          </div>
+          <div id="s2-card-6" class="flex flex-col gap-[10px] p-[22px] rounded-[18px] bg-white border border-slate-200">
+            <icon id="s2-card-6-icon" class="w-[28px] h-[28px] stroke-teal-500" icon="move-3d" />
+            <text id="s2-card-6-title" class="text-[20px] font-semibold text-slate-900">Transforms</text>
+            <text id="s2-card-6-body" class="text-[14px] text-slate-500 leading-relaxed">Stack stays composited.</text>
+          </div>
+        </div>
+      </div>
+
+      <transition from="scene2" to="scene3" effect="slide" direction="from_right" duration="18" timing="spring-default" />
+
+      <div id="scene3" class="relative w-[1280px] h-[720px] bg-slate-900" duration="90">
+        <image id="s3-bg" class="absolute inset-0 w-[1280px] h-[720px] object-cover opacity-25" url="http://127.0.0.1:8080/png/3.png" />
+        <div id="s3-video-shell" class="absolute left-[80px] top-[100px] w-[640px] h-[520px] rounded-[28px] overflow-hidden border border-slate-700">
+          <video id="s3-video" class="w-[640px] h-[520px] object-cover" url="http://127.0.0.1:8080/mp4/2.mp4" />
+        </div>
+        <div id="s3-right" class="absolute right-[80px] top-[110px] flex flex-col gap-[20px] w-[420px]">
+          <text id="s3-kicker" class="text-[18px] font-semibold tracking-[5px] text-amber-300">SECTION / 03</text>
+          <text id="s3-title" class="text-[56px] font-bold text-white leading-[1.0]">Video + image + text</text>
+          <text id="s3-typewriter" class="text-[18px] text-slate-300 leading-[1.5]"></text>
+          <div id="s3-thumb" class="flex flex-row gap-[12px] pt-[12px]">
+            <image id="s3-thumb-a" class="w-[120px] h-[120px] rounded-[16px] object-cover border border-slate-700" url="http://127.0.0.1:8080/png/3.png" />
+            <image id="s3-thumb-b" class="w-[120px] h-[120px] rounded-[16px] object-cover border border-slate-700" url="http://127.0.0.1:8080/png/3.png" />
+            <image id="s3-thumb-c" class="w-[120px] h-[120px] rounded-[16px] object-cover border border-slate-700" url="http://127.0.0.1:8080/png/3.png" />
+          </div>
+        </div>
+      </div>
+
+      <transition from="scene3" to="scene4" effect="light_leak" duration="18" seed="5" hueShift="45" />
+
+      <div id="scene4" class="relative w-[1280px] h-[720px] bg-gradient-to-br from-indigo-950 to-slate-950" duration="90">
+        <div id="s4-orb" class="absolute left-[520px] top-[160px] w-[240px] h-[240px] rounded-full bg-fuchsia-500 opacity-40"></div>
+        <div id="s4-orb-inner" class="absolute left-[580px] top-[220px] w-[120px] h-[120px] rounded-full bg-cyan-300"></div>
+        <div id="s4-metrics" class="absolute left-[80px] bottom-[100px] flex flex-row gap-[22px] w-[1120px]">
+          <div id="s4-metric-1" class="flex flex-col gap-[8px] p-[22px] rounded-[20px] bg-slate-900 border border-slate-800 w-[360px]">
+            <icon id="s4-metric-1-icon" class="w-[28px] h-[28px] stroke-cyan-300" icon="activity" />
+            <text id="s4-metric-1-value" class="text-[44px] font-bold text-white leading-none">4.8%</text>
+            <text id="s4-metric-1-label" class="text-[16px] text-slate-400">subtree_snapshot_record ↓</text>
+          </div>
+          <div id="s4-metric-2" class="flex flex-col gap-[8px] p-[22px] rounded-[20px] bg-slate-900 border border-slate-800 w-[360px]">
+            <icon id="s4-metric-2-icon" class="w-[28px] h-[28px] stroke-fuchsia-300" icon="layers" />
+            <text id="s4-metric-2-value" class="text-[44px] font-bold text-white leading-none">+10.7%</text>
+            <text id="s4-metric-2-label" class="text-[16px] text-slate-400">subtree cache utilisation</text>
+          </div>
+          <div id="s4-metric-3" class="flex flex-col gap-[8px] p-[22px] rounded-[18px] bg-slate-900 border border-slate-800 w-[360px]">
+            <icon id="s4-metric-3-icon" class="w-[28px] h-[28px] stroke-amber-300" icon="rocket" />
+            <text id="s4-metric-3-value" class="text-[44px] font-bold text-white leading-none">11.1</text>
+            <text id="s4-metric-3-label" class="text-[16px] text-slate-400">effective fps</text>
+          </div>
+        </div>
+        <text id="s4-title" class="absolute left-[80px] top-[110px] text-[68px] font-bold text-white leading-[1.0] w-[1120px]">Profile benchmark complete</text>
+        <text id="s4-sub" class="absolute left-[80px] top-[220px] text-[22px] text-slate-400 leading-[1.4] w-[520px]">One golden sample. Every render surface. Compare before/after a change in a single run.</text>
+      </div>
+    </tl>
+  </div>
+</opencat>

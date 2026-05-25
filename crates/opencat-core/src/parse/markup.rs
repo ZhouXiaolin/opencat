@@ -85,15 +85,55 @@ fn find_script_close(input: &str, from: usize) -> anyhow::Result<(usize, usize)>
 fn ensure_direct_opencat_child(input: &str, open_start: usize) -> anyhow::Result<()> {
     let before_script = &input[..open_start];
 
-    if let Some(last_open) = before_script.rfind('<') {
-        let preceding = &before_script[last_open..];
-        if !preceding.starts_with("<?")
-            && !preceding.starts_with("<![CDATA[")
-            && !preceding.starts_with("<!--")
-            && !preceding.starts_with("<opencat")
-        {
-            anyhow::bail!("<script> must be a direct child of <opencat>");
+    let mut depth = 0i32;
+    let mut i = 0;
+    let bytes = before_script.as_bytes();
+
+    while i < before_script.len() {
+        if bytes[i] == b'<' {
+            let rest = &before_script[i..];
+
+            if rest.starts_with("<!--") {
+                if let Some(e) = rest.find("-->") {
+                    i += e + 3;
+                    continue;
+                }
+                i += 1;
+                continue;
+            }
+            if rest.starts_with("<?") {
+                if let Some(e) = rest.find("?>") {
+                    i += e + 2;
+                    continue;
+                }
+                i += 1;
+                continue;
+            }
+            if rest.starts_with("<![CDATA[") {
+                if let Some(e) = rest.find("]]>") {
+                    i += e + 3;
+                    continue;
+                }
+                i += 1;
+                continue;
+            }
+
+            if let Some(e) = rest.find('>') {
+                let trimmed = rest[1..e].trim_end();
+                if rest.starts_with("</") {
+                    depth -= 1;
+                } else if !trimmed.ends_with('/') {
+                    depth += 1;
+                }
+                i += e + 1;
+                continue;
+            }
         }
+        i += 1;
+    }
+
+    if depth != 1 {
+        anyhow::bail!("<script> must be a direct child of <opencat>");
     }
     Ok(())
 }
@@ -867,6 +907,25 @@ mod tests {
         let err =
             extract_raw_script("<opencat><div id=\"root\"><script>x</script></div></opencat>")
                 .expect_err("nested script should fail");
+
+        assert!(err.to_string().contains("direct child of <opencat>"));
+    }
+
+    #[test]
+    fn script_works_after_audio_sibling() {
+        let extracted = extract_raw_script(
+            "<opencat><audio id=\"bgm\" url=\"x.mp3\" /><script>ctx.doSomething();</script><div id=\"root\" /></opencat>",
+        )
+        .expect("script after audio should extract");
+        assert_eq!(extracted.script.as_deref(), Some("ctx.doSomething();"));
+    }
+
+    #[test]
+    fn rejects_script_nested_in_div() {
+        let err = extract_raw_script(
+            "<opencat><div id=\"root\"><div id=\"inner\"><script>x</script></div></div></opencat>",
+        )
+        .expect_err("script nested in div>div should fail");
 
         assert!(err.to_string().contains("direct child of <opencat>"));
     }

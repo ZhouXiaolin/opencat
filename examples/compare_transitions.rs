@@ -11,7 +11,7 @@ const TRANSITION_FRAMES: u32 = 24;
 
 const CANVAS_SCRIPT_A: &str = r##"
 const CK = ctx.CanvasKit;
-const canvas = ctx.getCanvas();
+const canvas = ctx.getCanvasById('compare-canvas-a');
 const fill = (color) => {
     const paint = new CK.Paint();
     paint.setStyle(CK.PaintStyle.Fill);
@@ -62,7 +62,7 @@ canvas.drawRRect(
 
 const CANVAS_SCRIPT_B: &str = r##"
 const CK = ctx.CanvasKit;
-const canvas = ctx.getCanvas();
+const canvas = ctx.getCanvasById('compare-canvas-b');
 const fill = (color) => {
     const paint = new CK.Paint();
     paint.setStyle(CK.PaintStyle.Fill);

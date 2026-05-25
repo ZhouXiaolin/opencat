@@ -12,7 +12,7 @@ const IMAGE_PATH: &str = "/Users/solaren/Resources/png/3.png";
 const AUDIO_PATH: &str = "/Users/solaren/Resources/mp3/mixkit-hip-hop-02-738.mp3";
 const STAGE_CANVAS_SCRIPT: &str = r##"
 const CK = ctx.CanvasKit;
-const canvas = ctx.getCanvas();
+const canvas = ctx.getCanvasById('scene-one-canvas');
 const fill = (color) => {
     const paint = new CK.Paint();
     paint.setStyle(CK.PaintStyle.Fill);

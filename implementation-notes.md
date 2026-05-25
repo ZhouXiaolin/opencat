@@ -1,25 +1,43 @@
-# Implementation Notes — Task 6: Parse Visual Nodes, Text Content, Audio, And Resources
+# Implementation Notes — Task 11: Replace `ctx.getCanvas()` With `ctx.getCanvasById(id)`
 
-## Decisions Not in Spec
+## What changed
 
-### roxmltree NodeType Differences
-The spec referenced `NodeType::Cdata` and `NodeType::EntityReference`, but roxmltree 0.21.x merges CDATA sections and resolved entity references into `NodeType::Text` nodes. The `<text>` content handler only needs to match `NodeType::Text` — XML entity references like `&amp;` and CDATA content are both included in text nodes automatically. This is why the test `Open&amp;Cat<![CDATA[!]]>` produces `OpenCat!` as expected.
+### `canvas_api.js`
+- **Removed** the old `ctx.getCanvas()` implementation (which read `ctx.__currentCanvasTarget` and returned a no-op Proxy when no target was set)
+- **Added** `ctx.getCanvas()` that throws: `"ctx.getCanvas is not available; use ctx.getCanvasById(id)"`
+- **Added** `ctx.getCanvasById(id)` that validates the id via `assertCanvasTarget()` and returns a canvas drawing object
+- **Added** `assertCanvasTarget(id, apiName)` — local helper in the canvas_api IIFE that mirrors `assertVisualTarget` from `node_style.js` (checks `ctx.__targetRegistry.visual`)
 
-### `&str` vs `String` for `required_attr`
-The spec showed `id.clone()` in several places, but `required_attr` returns `&str` (borrowed from the roxmltree document), not `String`. Changed all `.clone()` calls on `id` to `.to_string()` where the field expects `String`.
+### All usage sites migrated
+| File | Old | New |
+|------|-----|-----|
+| `examples/typewriter_canvas.rs` | `ctx.getCanvas()` | `ctx.getCanvasById('typewriter-canvas')` |
+| `examples/pendulum_canvas.rs` | `ctx.getCanvas()` | `ctx.getCanvasById('pendulum-canvas')` |
+| `examples/compare_transitions.rs` (A) | `ctx.getCanvas()` | `ctx.getCanvasById('compare-canvas-a')` |
+| `examples/compare_transitions.rs` (B) | `ctx.getCanvas()` | `ctx.getCanvasById('compare-canvas-b')` |
+| `examples/video_playback.rs` | `ctx.getCanvas()` | `ctx.getCanvasById('scene-one-canvas')` |
+| `crates/opencat-engine/src/render.rs` | `ctx.getCanvas()` | `ctx.getCanvasById('canvas')` |
+| `json/kepler-laws/s1-canvas.js` | `ctx.getCanvas()` | `ctx.getCanvasById('s1-bg')` |
+| `json/kepler-laws/s2-canvas.js` | `ctx.getCanvas()` | `ctx.getCanvasById('s2-canvas')` |
+| `json/kepler-laws/s3-canvas.js` | `ctx.getCanvas()` | `ctx.getCanvasById('s3-canvas')` |
+| `json/kepler-laws/stars-bg.js` | `ctx.getCanvas()` | `ctx.getCanvasById(ctx.__currentCanvasTarget)` |
+| `json/profile-showcase.jsonl` | `ctx.getCanvas()` | `ctx.getCanvasById('s1-canvas')` |
 
-### `queryCount`/`aspectRatio` Validation
-The spec's `IMAGE_ATTRS` whitelist includes `queryCount` and `aspectRatio`, meaning `ensure_allowed_attrs` alone won't reject them. Added explicit checks in `parse_image_source` that `queryCount` requires `query` and `aspectRatio` requires `query`, matching the test expectation.
+## Design decision: `stars-bg.js` shared script
 
-### `ParentContext` Enum
-Defined but only used as a parameter — currently no branching logic depends on it. It's reserved for future validation (e.g., restricting which elements can appear in certain contexts).
+`stars-bg.js` is used as a shared background script referenced by two different canvas nodes (`s4-bg` in scene4, `s5-bg` in scene5). Since the script cannot hardcode a single id, it uses `ctx.getCanvasById(ctx.__currentCanvasTarget)`.
 
-### `parse_transition_node` Stub
-Only validates `from`, `to`, `effect`, `duration` are present and no children. Full implementation deferred to Task 7.
+**Tradeoff:** This exposes the internal `__currentCanvasTarget` field to user scripts. A cleaner API would be a `ctx.getOwnCanvas()` method, but that was out of scope for this task. The alternative (duplicating the script) would violate DRY.
 
-### Audio Source Resolution
-Top-level `<audio>` elements get `AudioAttachment::Timeline`, audio inside a `<tl>` gets `AudioAttachment::Scene { scene_id }`, and audio inside other visual elements (div, etc.) gets `AudioAttachment::Timeline` as fallback.
+## Design decision: duplicated `assertCanvasTarget` vs sharing
 
-## Tradeoffs
-- Attribute whitelists are static `&[&str]` constants rather than computed sets — simple and zero-cost
-- `parse_optional_u32_attr` duplicates logic from `parse_positive_i32` but for `u32` — kept separate for type clarity
+`assertCanvasTarget` in `canvas_api.js` is a near-copy of `assertVisualTarget` in `node_style.js`. Both are defined inside their respective IIFEs and don't share scope. Options considered:
+
+1. **Duplicate in both files** (chosen) — simple, no coupling between runtime files
+2. **Attach to `ctx`** — would work but pollutes the ctx API surface
+3. **Extract to shared file** — would require changes to the runtime loading order
+
+## Not changed
+
+- `pendulum_canvas.rs` line 98 — contains `ctx.getCanvas()` in a descriptive text string shown to users, not executable code
+- `crates/opencat-web/web/src/media/exporter.ts` — uses `surface.getCanvas()` (Skia Surface API), not `ctx.getCanvas()`

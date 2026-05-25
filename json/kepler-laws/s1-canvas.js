@@ -1,5 +1,5 @@
 var CK = ctx.CanvasKit;
-var c = ctx.getCanvas();
+var c = ctx.getCanvasById('s1-bg');
 c.clear(CK.parseColorString('#020617'));
 var p = new CK.Paint();
 p.setStyle(CK.PaintStyle.Fill);

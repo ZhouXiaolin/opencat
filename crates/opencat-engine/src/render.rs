@@ -999,7 +999,7 @@ mod tests {
                 r#"
                 const CK = ctx.CanvasKit;
                 const image = ctx.getImage("hero");
-                ctx.getCanvas().drawImageRect(
+                ctx.getCanvasById('canvas').drawImageRect(
                     image,
                     CK.XYWHRect(0, 0, 2, 1),
                     CK.XYWHRect(0, 0, 2, 1),

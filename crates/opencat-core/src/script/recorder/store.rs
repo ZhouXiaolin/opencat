@@ -492,6 +492,25 @@ impl MutationRecorder for MutationStore {
         );
     }
 
+    fn record_canvas_runtime_effect(
+        &mut self,
+        id: &str,
+        sksl: String,
+        uniforms_bytes: Vec<u8>,
+        children: Vec<crate::ir::draw_types::RuntimeEffectChildRef>,
+        dst: crate::ir::draw_op::Rect4,
+    ) {
+        self.record_draw_op(
+            id,
+            crate::ir::draw_op::DrawOp::ScriptRuntimeEffect {
+                sksl,
+                uniforms_bytes,
+                children,
+                dst,
+            },
+        );
+    }
+
     fn reset_for_frame(&mut self, current_frame: u32) {
         self.styles.clear();
         self.canvases.clear();
@@ -588,6 +607,37 @@ mod tests {
                 assert_eq!(*y, 5.0);
             }
             other => panic!("expected DrawSubtreePicture, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn record_canvas_runtime_effect_pushes_script_effect() {
+        use crate::ir::draw_op::Rect4;
+        use crate::ir::draw_types::{ImageRef, RuntimeEffectChildRef};
+        let mut store = MutationStore::default();
+        store.record_canvas_runtime_effect(
+            "s1-canvas",
+            "half4 main(float2 p){return half4(1);}".to_string(),
+            vec![1u8, 2, 3, 4, 5, 6, 7, 8],
+            vec![RuntimeEffectChildRef::Image(ImageRef::Static {
+                asset_id: "decor".into(),
+            })],
+            Rect4 { x: 0.0, y: 0.0, width: 360.0, height: 480.0 },
+        );
+
+        let snap = store.snapshot_mutations();
+        let commands = &snap.canvas_mutations.get("s1-canvas").unwrap().commands;
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            crate::ir::draw_op::DrawOp::ScriptRuntimeEffect {
+                sksl, uniforms_bytes, children, dst,
+            } => {
+                assert!(sksl.contains("half4"));
+                assert_eq!(uniforms_bytes.len(), 8);
+                assert_eq!(children.len(), 1);
+                assert_eq!(dst.width, 360.0);
+            }
+            other => panic!("expected ScriptRuntimeEffect, got {:?}", other),
         }
     }
 }

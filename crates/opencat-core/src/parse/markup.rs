@@ -231,7 +231,7 @@ const IMAGE_ATTRS: &[&str] = &[
     "queryCount",
     "aspectRatio",
 ];
-const AUDIO_ATTRS: &[&str] = &["id", "duration", "path", "url"];
+const AUDIO_ATTRS: &[&str] = &["id", "duration", "path", "url", "attach"];
 const VIDEO_ATTRS: &[&str] = &["id", "class", "duration", "path", "url"];
 const ICON_ATTRS: &[&str] = &["id", "class", "duration", "icon"];
 const TL_ATTRS: &[&str] = &["id", "class"];
@@ -274,8 +274,8 @@ fn parse_opencat_children(
             roxmltree::NodeType::Element => {
                 let tag = child.tag_name().name();
                 match tag {
-                    "audio" => {
-                        parse_audio_element(child, None, base_dir, parts)?;
+                    "soundtrack" => {
+                        parse_soundtrack(child, base_dir, parts)?;
                     }
                     "div" | "text" | "canvas" | "image" | "video" | "icon" | "path" | "caption"
                     | "tl" => {
@@ -285,6 +285,9 @@ fn parse_opencat_children(
                         }
                         visual_root = Some(id.to_string());
                         parse_visual_node(child, None, base_dir, parts, ParentContext::Root)?;
+                    }
+                    "audio" => {
+                        anyhow::bail!("<audio> must be inside <soundtrack>");
                     }
                     "transition" => {
                         anyhow::bail!("transition must be a direct child of <tl>");
@@ -343,7 +346,7 @@ fn parse_visual_node(
                         let child_tag = child.tag_name().name();
                         match child_tag {
                             "div" | "text" | "canvas" | "image" | "video" | "icon" | "path"
-                            | "caption" | "audio" | "tl" => {
+                            | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
                                     Some(&id),
@@ -418,9 +421,6 @@ fn parse_visual_node(
                                     parts,
                                     ParentContext::Canvas,
                                 )?;
-                            }
-                            "audio" => {
-                                anyhow::bail!("audio is not allowed inside canvas");
                             }
                             "transition" => {
                                 anyhow::bail!("transition must be a direct child of <tl>");
@@ -538,9 +538,6 @@ fn parse_visual_node(
                             "transition" => {
                                 parse_transition_node(child, &id, parts)?;
                             }
-                            "audio" => {
-                                parse_audio_element(child, Some(&id), base_dir, parts)?;
-                            }
                             other => anyhow::bail!("unknown element <{other}>"),
                         }
                     }
@@ -554,22 +551,48 @@ fn parse_visual_node(
                 }
             }
         }
-        "audio" => {
-            parse_audio_element(node, parent_id, base_dir, parts)?;
-        }
         _ => anyhow::bail!("unknown element <{tag}>"),
     }
 
     Ok(())
 }
 
-fn parse_audio_element(
+fn parse_soundtrack(
     node: roxmltree::Node<'_, '_>,
-    parent_id: Option<&str>,
+    base_dir: Option<&std::path::Path>,
+    parts: &mut ParsedDocumentParts,
+) -> anyhow::Result<()> {
+    for child in node.children() {
+        match child.node_type() {
+            roxmltree::NodeType::Element => {
+                if child.tag_name().name() == "audio" {
+                    parse_audio_element_in_soundtrack(child, base_dir, parts)?;
+                } else {
+                    anyhow::bail!(
+                        "unknown element <{}> inside <soundtrack>",
+                        child.tag_name().name()
+                    );
+                }
+            }
+            roxmltree::NodeType::Comment => {}
+            roxmltree::NodeType::Text => {
+                if !child.text().unwrap_or("").trim().is_empty() {
+                    anyhow::bail!("non-whitespace text is not allowed inside <soundtrack>");
+                }
+            }
+            _ => anyhow::bail!("processing instructions not allowed inside <soundtrack>"),
+        }
+    }
+    Ok(())
+}
+
+fn parse_audio_element_in_soundtrack(
+    node: roxmltree::Node<'_, '_>,
     _base_dir: Option<&std::path::Path>,
     parts: &mut ParsedDocumentParts,
 ) -> anyhow::Result<()> {
     let id = required_non_empty_attr(node, "id")?;
+    let attach = required_non_empty_attr(node, "attach")?;
     let duration = parse_optional_u32_attr(node, "duration")?;
 
     let source = match (node.attribute("path"), node.attribute("url")) {
@@ -603,10 +626,9 @@ fn parse_audio_element(
         }
     }
 
-    let parent_id = parent_id.map(|s| s.to_string());
     parts.audio_elements.push(ParsedAudioElement {
         id: id.to_string(),
-        parent_id,
+        attach: attach.to_string(),
         duration,
         source,
     });
@@ -914,7 +936,7 @@ mod tests {
     #[test]
     fn script_works_after_audio_sibling() {
         let extracted = extract_raw_script(
-            "<opencat><audio id=\"bgm\" url=\"x.mp3\" /><script>ctx.doSomething();</script><div id=\"root\" /></opencat>",
+            "<opencat><soundtrack><audio id=\"bgm\" url=\"x.mp3\" attach=\"main-tl\" /></soundtrack><script>ctx.doSomething();</script><div id=\"root\" /></opencat>",
         )
         .expect("script after audio should extract");
         assert_eq!(extracted.script.as_deref(), Some("ctx.doSomething();"));
@@ -1006,13 +1028,18 @@ mod tests {
     }
 
     #[test]
-    fn accepts_direct_and_nested_audio() {
+    fn parses_soundtrack_audio() {
         let parsed = parse(
             r#"<opencat>
-  <audio id="music" path="/tmp/music.wav" duration="30" />
-  <div id="root">
-    <audio id="scene-audio" url="https://example.test/a.wav" />
-  </div>
+  <soundtrack>
+    <audio id="music" path="/tmp/music.wav" attach="tl-1" duration="30" />
+    <audio id="scene-audio" url="https://example.test/a.wav" attach="scene-1" />
+  </soundtrack>
+  <tl id="tl-1">
+    <div id="scene-1" duration="30" />
+    <transition from="scene-1" to="scene-2" effect="fade" duration="10" />
+    <div id="scene-2" duration="30" />
+  </tl>
 </opencat>"#,
         )
         .expect("markup should parse");
@@ -1048,7 +1075,10 @@ mod tests {
                 "queryCount",
             ),
             (r#"<opencat><video id="v" /></opencat>"#, "requires one of"),
-            (r#"<opencat><audio id="a" /></opencat>"#, "requires one of"),
+            (
+                r#"<opencat><soundtrack><audio id="a" attach="x" /></soundtrack></opencat>"#,
+                "requires one of",
+            ),
             (r#"<opencat><caption id="c" /></opencat>"#, "path"),
             (r#"<opencat><path id="p" /></opencat>"#, "d"),
             (r#"<opencat><icon id="i" /></opencat>"#, "icon"),
@@ -1118,7 +1148,7 @@ mod tests {
 
         assert!(
             err.to_string()
-                .contains("audio is not allowed inside canvas")
+                .contains("unknown element <audio>")
         );
     }
 
@@ -1195,7 +1225,7 @@ mod tests {
         for input in [
             r#"<opencat><image id="img" path="" /></opencat>"#,
             r#"<opencat><video id="vid" url="" /></opencat>"#,
-            r#"<opencat><audio id="aud" path="" /></opencat>"#,
+            r#"<opencat><soundtrack><audio id="aud" path="" attach="main-tl" /></soundtrack></opencat>"#,
             r#"<opencat><caption id="cap" path="" /></opencat>"#,
             r#"<opencat><path id="path" d="" /></opencat>"#,
             r#"<opencat><icon id="icon" icon="" /></opencat>"#,

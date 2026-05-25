@@ -50,27 +50,27 @@ pub fn build_parsed_document(
         .audio_elements
         .iter()
         .map(|audio| {
-            let attach = audio
-                .parent_id
-                .as_ref()
-                .and_then(|pid| {
-                    parts
-                        .elements
-                        .iter()
-                        .find(|el| el.id == *pid && matches!(el.kind, ParsedElementKind::Timeline))
-                        .map(|_| AudioAttachment::Scene {
-                            scene_id: pid.clone(),
-                        })
-                })
-                .unwrap_or(AudioAttachment::Timeline);
-            CompositionAudioSource {
+            let attach = audio.attach.clone();
+            let element = parts.elements.iter().find(|el| el.id == attach);
+            let attachment = match element {
+                Some(el) if matches!(el.kind, ParsedElementKind::Timeline) => {
+                    AudioAttachment::Timeline
+                }
+                Some(_) => AudioAttachment::Scene { scene_id: attach },
+                None => anyhow::bail!(
+                    "audio `{}` attach references non-existent element `{}`",
+                    audio.id,
+                    attach
+                ),
+            };
+            Ok(CompositionAudioSource {
                 id: audio.id.clone(),
                 source: audio.source.clone(),
-                attach,
+                attach: attachment,
                 duration: audio.duration,
-            }
+            })
         })
-        .collect();
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     let transitions_by_tl: HashMap<String, Vec<&ParsedTransition>> = {
         let mut map: HashMap<String, Vec<&ParsedTransition>> = HashMap::new();

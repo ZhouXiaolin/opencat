@@ -8,49 +8,58 @@ use opencat_core::parse::jsonl::{JsonLine, parse_with_base_dir as core_parse_wit
 pub fn parse_file(path: impl AsRef<Path>) -> Result<ParsedComposition> {
     let path = path.as_ref();
     let input = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read jsonl file: {}", path.display()))?;
+        .with_context(|| format!("failed to read file: {}", path.display()))?;
     let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    parse_with_base_dir(&input, Some(base_dir))
+
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("xml") => opencat_core::parse::markup::parse_with_base_dir(&input, Some(base_dir)),
+        _ => parse_with_base_dir(&input, Some(base_dir)),
+    }
 }
 
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
-    let mut rewritten = String::new();
-    for (idx, line) in input.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            rewritten.push('\n');
-            continue;
-        }
-        let parsed: JsonLine = serde_json::from_str(trimmed)
-            .with_context(|| format!("line {}: invalid json", idx + 1))?;
-        let resolved = match parsed {
-            JsonLine::Script {
-                parent_id,
-                src: None,
-                path: Some(p),
-            } => {
-                let resolved_path = if Path::new(&p).is_absolute() {
-                    PathBuf::from(&p)
-                } else if let Some(b) = base_dir {
-                    b.join(&p)
-                } else {
-                    PathBuf::from(&p)
-                };
-                let src = std::fs::read_to_string(&resolved_path).with_context(|| {
-                    format!("failed to read script file: {}", resolved_path.display())
-                })?;
+    let trimmed = input.trim();
+    if trimmed.starts_with('{') {
+        let mut rewritten = String::new();
+        for (idx, line) in input.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                rewritten.push('\n');
+                continue;
+            }
+            let parsed: JsonLine = serde_json::from_str(trimmed)
+                .with_context(|| format!("line {}: invalid json", idx + 1))?;
+            let resolved = match parsed {
                 JsonLine::Script {
                     parent_id,
-                    src: Some(src),
-                    path: None,
+                    src: None,
+                    path: Some(p),
+                } => {
+                    let resolved_path = if Path::new(&p).is_absolute() {
+                        PathBuf::from(&p)
+                    } else if let Some(b) = base_dir {
+                        b.join(&p)
+                    } else {
+                        PathBuf::from(&p)
+                    };
+                    let src = std::fs::read_to_string(&resolved_path).with_context(|| {
+                        format!("failed to read script file: {}", resolved_path.display())
+                    })?;
+                    JsonLine::Script {
+                        parent_id,
+                        src: Some(src),
+                        path: None,
+                    }
                 }
-            }
-            other => other,
-        };
-        rewritten.push_str(&serde_json::to_string(&resolved)?);
-        rewritten.push('\n');
+                other => other,
+            };
+            rewritten.push_str(&serde_json::to_string(&resolved)?);
+            rewritten.push('\n');
+        }
+        core_parse_with_base_dir(&rewritten, base_dir)
+    } else {
+        opencat_core::parse::markup::parse_with_base_dir(input, base_dir)
     }
-    core_parse_with_base_dir(&rewritten, base_dir)
 }
 
 #[cfg(test)]
@@ -141,5 +150,18 @@ mod tests {
             .expect("system time should be after unix epoch")
             .as_nanos();
         std::env::temp_dir().join(format!("opencat-{name}-{nanos}"))
+    }
+
+    #[test]
+    fn parse_xml_file() {
+        let fixture_dir = unique_test_dir("xml-parse");
+        fs::create_dir_all(&fixture_dir).expect("fixture dir");
+        let xml_path = fixture_dir.join("test.xml");
+        fs::write(&xml_path, r#"<opencat width="320" height="240" fps="30" frames="1"><div id="root" /></opencat>"#)
+            .expect("xml fixture");
+        let parsed = parse_file(&xml_path).expect("xml should parse");
+        assert_eq!(parsed.width, 320);
+        assert_eq!(parsed.height, 240);
+        fs::remove_dir_all(&fixture_dir).ok();
     }
 }

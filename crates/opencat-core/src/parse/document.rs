@@ -103,7 +103,7 @@ pub struct ParsedTransition {
 #[derive(Debug, Clone)]
 pub struct ParsedAudioElement {
     pub id: String,
-    pub parent_id: Option<String>,
+    pub attach: String,
     pub duration: Option<u32>,
     pub source: AudioSource,
 }

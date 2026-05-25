@@ -81,8 +81,7 @@ pub enum JsonLine {
     #[serde(rename = "audio")]
     Audio {
         id: String,
-        #[serde(rename = "parentId")]
-        parent_id: Option<String>,
+        attach: String,
         #[allow(dead_code)]
         #[serde(rename = "className")]
         class_name: Option<String>,
@@ -295,7 +294,7 @@ pub fn parse_with_base_dir(
             }
             JsonLine::Audio {
                 id,
-                parent_id,
+                attach,
                 class_name: _,
                 path,
                 url,
@@ -304,7 +303,7 @@ pub fn parse_with_base_dir(
                 let source = parse_audio_source(path, url)?;
                 audio_elements.push(ParsedAudioElement {
                     id,
-                    parent_id,
+                    attach,
                     duration,
                     source,
                 });
@@ -515,7 +514,7 @@ fn resolve_script_source(
     match (src, path) {
         (Some(source), None) => Ok(source),
         (None, Some(_)) => anyhow::bail!(
-            "script with path: must be parsed via host::jsonl_io::parse_with_base_dir"
+            "script with path: must be parsed via host::source_io::parse_with_base_dir"
         ),
         (Some(_), Some(_)) => anyhow::bail!("script node must use only one of src/content or path"),
         (None, None) => anyhow::bail!("script node requires either src/content or path"),
@@ -526,37 +525,23 @@ fn resolve_audio_source(
     audio: ParsedAudioElement,
     elements_by_id: &HashMap<&str, &ParsedElement>,
 ) -> anyhow::Result<CompositionAudioSource> {
-    let attach = match audio.parent_id.as_deref() {
-        None => AudioAttachment::Timeline,
-        Some(parent_id) => AudioAttachment::Scene {
-            scene_id: resolve_scene_root_id(parent_id, elements_by_id)?.to_string(),
-        },
+    let attach = audio.attach;
+    let element = elements_by_id.get(attach.as_str()).copied();
+    let attachment = match element {
+        Some(el) if matches!(el.kind, ParsedElementKind::Timeline) => AudioAttachment::Timeline,
+        Some(_) => AudioAttachment::Scene { scene_id: attach },
+        None => anyhow::bail!(
+            "audio `{}` attach references non-existent element `{}`",
+            audio.id,
+            attach
+        ),
     };
-
     Ok(CompositionAudioSource {
         id: audio.id,
         source: audio.source,
-        attach,
+        attach: attachment,
         duration: audio.duration,
     })
-}
-
-fn resolve_scene_root_id<'a>(
-    start_id: &'a str,
-    elements_by_id: &HashMap<&'a str, &'a ParsedElement>,
-) -> anyhow::Result<&'a str> {
-    let mut current_id = start_id;
-
-    loop {
-        let element = elements_by_id.get(current_id).copied().ok_or_else(|| {
-            anyhow::anyhow!("audio node references missing visual parent `{current_id}`")
-        })?;
-
-        match element.parent_id.as_deref() {
-            Some(parent_id) => current_id = parent_id,
-            None => return Ok(element.id.as_str()),
-        }
-    }
 }
 
 fn parse_image_source(
@@ -1260,42 +1245,43 @@ mod tests {
         parse(
             r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
-{"id":"bgm","parentId":"root","type":"audio","path":"/tmp/demo.mp3"}"#,
+{"id":"bgm","attach":"root","type":"audio","path":"/tmp/demo.mp3"}"#,
         )
         .expect("jsonl with audio path should parse");
 
         parse(
             r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
-{"id":"stream","parentId":"root","type":"audio","url":"https://example.com/demo.mp3"}"#,
+{"id":"stream","attach":"root","type":"audio","url":"https://example.com/demo.mp3"}"#,
         )
         .expect("jsonl with audio url should parse");
     }
 
     #[test]
-    fn parser_treats_root_audio_as_timeline_audio_source() {
+    fn parser_treats_timeline_attached_audio_as_timeline_audio_source() {
         let parsed = parse(
             r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
-{"id":"bgm","parentId":null,"type":"audio","path":"/tmp/demo.mp3"}
-{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}"#,
+{"id":"main-tl","parentId":null,"type":"tl","className":"absolute inset-0"}
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"w-full h-full","duration":30}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"w-full h-full","duration":30}
+{"id":"bgm","attach":"main-tl","type":"audio","path":"/tmp/demo.mp3"}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":1}"#,
         )
-        .expect("jsonl with global audio should parse");
+        .expect("jsonl with timeline-attached audio should parse");
 
         assert_eq!(parsed.audio_sources.len(), 1);
         assert!(matches!(
             parsed.audio_sources[0].attach,
             AudioAttachment::Timeline
         ));
-        assert!(matches!(parsed.root.kind(), NodeKind::Div(_)));
     }
 
     #[test]
-    fn parser_attaches_nested_audio_to_owning_scene() {
+    fn parser_attaches_audio_to_owning_scene() {
         let parsed = parse(
             r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
 {"id":"scene-a","parentId":null,"type":"div","className":"w-full h-full","duration":30}
-{"id":"content","parentId":"scene-a","type":"div","className":"w-full h-full"}
-{"id":"voice","parentId":"content","type":"audio","path":"/tmp/voice.mp3"}"#,
+{"id":"voice","attach":"scene-a","type":"audio","path":"/tmp/voice.mp3"}"#,
         )
         .expect("jsonl with scene audio should parse");
 

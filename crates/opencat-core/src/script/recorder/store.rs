@@ -640,4 +640,27 @@ mod tests {
             other => panic!("expected ScriptRuntimeEffect, got {:?}", other),
         }
     }
+
+    #[test]
+    fn dispatch_canvas_runtime_effect_draw_records_script_effect() {
+        use crate::script::dispatch::dispatch_binding;
+        use serde_json::json;
+        let mut store = MutationStore::default();
+        let args = vec![
+            json!("s1-canvas"),
+            json!("half4 main(float2 p){return half4(1);}"),
+            json!([0.5, 1.0, 0.0, 0.0]),
+            json!(r#"[{"__opencatShader":"image","assetId":"decor","tileX":"clamp","tileY":"clamp"}]"#),
+            json!(0.0), json!(0.0), json!(360.0), json!(480.0),
+        ];
+        dispatch_binding(&mut store, "canvas_runtime_effect_draw", &args)
+            .expect("binding should dispatch");
+        let snap = store.snapshot_mutations();
+        let commands = &snap.canvas_mutations.get("s1-canvas").unwrap().commands;
+        assert_eq!(commands.len(), 1);
+        matches!(
+            commands[0],
+            crate::ir::draw_op::DrawOp::ScriptRuntimeEffect { .. }
+        );
+    }
 }

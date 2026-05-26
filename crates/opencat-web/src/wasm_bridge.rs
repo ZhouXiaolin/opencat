@@ -161,9 +161,6 @@ impl WebRenderer {
             out: &mut Vec<Value>,
         ) {
             match node.kind() {
-                NodeKind::Component(c) => {
-                    walk(&c.render(ctx), ctx, composition_time_secs, catalog, out)
-                }
                 NodeKind::Div(div) => {
                     for child in div.children_ref() {
                         walk(child, ctx, composition_time_secs, catalog, out);

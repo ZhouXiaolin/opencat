@@ -28,7 +28,9 @@ fn main() -> anyhow::Result<()> {
     println!("Rendering {} -> {}", path, output);
 
     let config = EncodingConfig::mp4();
-    render_from_jsonl_with_base(&source, base_dir, &output, &config)?;
+    opencat_core::profile::run_from_env(|| {
+        render_from_jsonl_with_base(&source, base_dir, &output, &config)
+    })?;
 
     println!("Done: {}", output);
     Ok(())

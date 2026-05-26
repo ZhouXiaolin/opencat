@@ -12,7 +12,6 @@ use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 
 use opencat_core::parse::composition::Composition;
-use opencat_core::parse::jsonl::parse_with_base_dir;
 use opencat_core::parse::preflight::collect_resource_requests;
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
@@ -43,7 +42,7 @@ fn put_blobs(blobs: BlobStore) {
 #[wasm_bindgen]
 pub async fn preload_assets(jsonl: &str) -> Result<String, JsValue> {
     // 1) 用 core 的解析器解析 JSONL → ParsedComposition。
-    let parsed = parse_with_base_dir(jsonl, None)
+    let parsed = crate::source::parse_source(jsonl)
         .map_err(|e| JsValue::from_str(&format!("preload_assets: parse failed: {e}")))?;
 
     // 2) 组装 Composition（复用 parsed 的场景树 + 音频源），让 collect_resource_requests 能遍历。

@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::profile::{
-    BackendSpanAggregate, BackendSpanKey, FrameProfile, ProfileConfig, ProfileOutputFormat,
-    RenderProfileSummary,
+    BackendSpanAggregate, BackendSpanKey, FrameProfile, RenderProfileSummary,
 };
 
 pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
@@ -122,43 +121,8 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
     out
 }
 
-pub(crate) fn render_profile_json(summary: &RenderProfileSummary) -> anyhow::Result<String> {
-    let frame_count = summary.frames.len();
-    let json = if frame_count > 0 {
-        format!(
-            r#"{{"type":"render_profile_summary","frames":{},"avg_ms_per_frame":{{"script":{:.2},"frame_state":{:.2},"resolve":{:.2},"layout":{:.2},"display":{:.2},"backend":{:.2},"transition":{:.2}}}}}"#,
-            frame_count,
-            average(summary, |f| f.script_ms),
-            average(summary, |f| f.frame_state_ms),
-            average(summary, |f| f.resolve_ms),
-            average(summary, |f| f.layout_ms),
-            average(summary, |f| f.display_ms),
-            average(summary, |f| f.backend_ms),
-            average(summary, |f| f.transition_ms),
-        )
-    } else {
-        r#"{"type":"render_profile_summary","frames":0}"#.to_string()
-    };
-    Ok(json)
-}
-
-pub fn print_profile_summary(
-    summary: &RenderProfileSummary,
-    config: &ProfileConfig,
-) -> anyhow::Result<()> {
-    match config.output_format {
-        ProfileOutputFormat::Text => {
-            eprintln!("{}", render_profile_text(summary));
-        }
-        ProfileOutputFormat::Json => {
-            eprintln!("{}", render_profile_json(summary)?);
-        }
-        ProfileOutputFormat::Both => {
-            eprintln!("{}", render_profile_text(summary));
-            eprintln!("{}", render_profile_json(summary)?);
-        }
-    }
-    Ok(())
+pub fn print_profile_summary(summary: &RenderProfileSummary) {
+    eprintln!("{}", render_profile_text(summary));
 }
 
 fn average(summary: &RenderProfileSummary, map: impl Fn(&FrameProfile) -> f64) -> f64 {
@@ -279,7 +243,7 @@ fn append_backend_span_node(
 
 #[cfg(test)]
 mod tests {
-    use super::{render_profile_json, render_profile_text};
+    use super::render_profile_text;
     use crate::profile::{BackendSpanAggregate, BackendSpanKey, RenderProfileSummary};
 
     #[test]
@@ -309,14 +273,5 @@ mod tests {
         assert!(text.contains("Render profile:"));
         assert!(text.contains("avg ms/frame"));
         assert!(text.contains("backend avg spans/frame"));
-    }
-
-    #[test]
-    fn json_output_contains_summary_type_and_frame_count() {
-        let summary = RenderProfileSummary::default();
-        let json = render_profile_json(&summary).expect("json should serialize");
-
-        assert!(json.contains("\"type\":\"render_profile_summary\""));
-        assert!(json.contains("\"frames\":0"));
     }
 }

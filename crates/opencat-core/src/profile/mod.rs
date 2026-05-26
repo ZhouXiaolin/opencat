@@ -9,8 +9,17 @@ use crate::layout::LayoutPassStats;
 pub use aggregator::{
     CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator, RenderProfileSummary,
 };
-pub use layer::{ProfileConfig, ProfileOutputFormat, profile_render};
+pub use layer::{ProfileConfig, profile_render};
 pub use output::print_profile_summary;
+
+pub fn run_from_env<T>(f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
+    let config = ProfileConfig::from_env();
+    let (result, summary) = profile_render(&config, f)?;
+    if let Some(summary) = summary {
+        print_profile_summary(&summary);
+    }
+    Ok(result)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BackendSpanKey {

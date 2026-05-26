@@ -24,6 +24,7 @@ type StaticDir = {
 const DEFAULT_STATIC_MIME: Record<string, string> = {
   jsonl: 'application/jsonl',
   json: 'application/json',
+  xml: 'application/xml',
   svg: 'image/svg+xml',
 };
 
@@ -100,7 +101,7 @@ function serveStaticDirs(dirs: StaticDir[]): Plugin {
           }
 
           if (stat.isDirectory()) {
-            const files = fs.readdirSync(filePath).filter((file) => file.endsWith('.jsonl') || file.endsWith('.svg'));
+            const files = fs.readdirSync(filePath).filter((file) => file.endsWith('.jsonl') || file.endsWith('.xml') || file.endsWith('.svg'));
             const base = (req.url || '').replace(/\/$/, '');
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(files.map((file) => `<a href="${base}/${file}">${file}</a>`).join('\n'));

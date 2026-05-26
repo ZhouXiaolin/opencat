@@ -1,15 +1,14 @@
 {
-  "name": "opencat-web",
-  "private": true,
+  "name": "opencat.js",
   "version": "0.1.0",
   "type": "module",
-  "main": "./dist/opencat-web.js",
+  "main": "./dist/opencat.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/opencat-web.js",
-      "default": "./dist/opencat-web.js"
+      "import": "./dist/opencat.js",
+      "default": "./dist/opencat.js"
     }
   },
   "files": ["dist"],
@@ -22,9 +21,11 @@
   },
   "peerDependencies": {
     "@webav/av-cliper": "^1.2.8",
+    "canvaskit-wasm": "^0.41.1",
     "web-demuxer": "^4.0.0"
   },
   "devDependencies": {
+    "canvaskit-wasm": "^0.41.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.13"
   }

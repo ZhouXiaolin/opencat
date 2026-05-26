@@ -40,6 +40,7 @@ function ensureCanvaskitWasm(): void {
 function ensureOpencatWasm(): void {
   ensureDir(WASM_PUBLIC_DIR);
   const files = [
+    'opencat.js',
     'opencat_web.js',
     'opencat_web_bg.wasm',
     'workers/video-decode-worker.js',

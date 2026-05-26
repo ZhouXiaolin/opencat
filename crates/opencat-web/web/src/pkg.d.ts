@@ -4,10 +4,10 @@ declare module '../pkg/opencat_web.js' {
 
   export class WebRenderer {
     constructor();
-    build_frame_ir(jsonl: string, frame: number, resources_json: string): Uint8Array;
+    build_frame_ir(compositionSource: string, frame: number, resources_json: string): Uint8Array;
     inject_video_frame(asset_id: string, frame: number, rgba: Uint8Array, width: number, height: number): void;
     clear_video_cache(asset_id: string): void;
-    plan_video_frames(jsonl: string, frame: number, resources_json: string): string;
+    plan_video_frames(compositionSource: string, frame: number, resources_json: string): string;
     inject_image_bytes(asset_id: string, bytes: Uint8Array): void;
     clear_image_blobs(): void;
     decode_audio_file(asset_id: string, data: Uint8Array): Promise<void>;
@@ -19,7 +19,7 @@ declare module '../pkg/opencat_web.js' {
     audio_context_time(): number;
   }
 
-  export function preload_assets(jsonl: string): Promise<string>;
+  export function preload_assets(compositionSource: string): Promise<string>;
   export function get_blob_bytes(asset_id: string): Uint8Array | undefined;
   export function clear_blobs(): void;
   export function blob_count(): number;

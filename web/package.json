@@ -18,7 +18,7 @@
   "dependencies": {
     "@webav/av-cliper": "^1.2.8",
     "canvaskit-wasm": "^0.41.1",
-    "opencat-web": "link:../crates/opencat-web/web",
+    "opencat.js": "link:opencat.js",
     "web-demuxer": "^4.0.0"
   }
 }

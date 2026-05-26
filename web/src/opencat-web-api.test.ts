@@ -9,9 +9,9 @@ import {
   type EncodedDrawFrame,
   type ResourceMeta,
   type WebRendererInstance,
-} from 'opencat-web';
+} from 'opencat.js';
 
-describe('opencat-web browser API', () => {
+describe('opencat.js browser API', () => {
   test('exposes wasm, decode, and encode entry points from the package facade', () => {
     const comp: CompositionInfo = {
       width: 1920,

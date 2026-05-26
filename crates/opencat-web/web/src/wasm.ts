@@ -3,17 +3,17 @@ type WasmModule = {
   WebRenderer: {
     new(): WebRendererInstance;
   };
-  preload_assets(jsonl: string): Promise<string>;
+  preload_assets(compositionSource: string): Promise<string>;
   get_blob_bytes(asset_id: string): Uint8Array | undefined;
   clear_blobs(): void;
   blob_count(): number;
 };
 
 export interface WebRendererInstance {
-  build_frame_ir(jsonl: string, frame: number, resources_json: string): Uint8Array;
+  build_frame_ir(compositionSource: string, frame: number, resources_json: string): Uint8Array;
   inject_video_frame(asset_id: string, frame: number, rgba: Uint8Array, width: number, height: number): void;
   clear_video_cache(asset_id: string): void;
-  plan_video_frames(jsonl: string, frame: number, resources_json: string): string;
+  plan_video_frames(compositionSource: string, frame: number, resources_json: string): string;
   inject_image_bytes(asset_id: string, bytes: Uint8Array): void;
   clear_image_blobs(): void;
   decode_audio_file(asset_id: string, data: Uint8Array): Promise<void>;
@@ -44,9 +44,9 @@ export async function initWasm(wasmBaseUrl?: string): Promise<void> {
 
 // ── 资源预加载（下载 + 元数据探测在 Rust 侧完成） ──
 
-export async function preloadAssets(jsonl: string): Promise<string> {
+export async function preloadAssets(compositionSource: string): Promise<string> {
   if (!wasmModule) throw new Error('WASM not initialized');
-  return await wasmModule.preload_assets(jsonl);
+  return await wasmModule.preload_assets(compositionSource);
 }
 
 export function getBlobBytes(assetId: string): Uint8Array | undefined {

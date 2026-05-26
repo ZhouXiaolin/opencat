@@ -5,7 +5,6 @@ members = [
     "crates/opencat-engine",
     "crates/opencat-web",
     "crates/opencat",
-    "crates/opencat-test-golden",
     "crates/faac",
 ]
 
@@ -15,4 +14,6 @@ edition = "2024"
 
 [workspace.dependencies]
 anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 tracing = "0.1"

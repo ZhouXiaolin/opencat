@@ -8,19 +8,13 @@ path = "src/lib.rs"
 
 [dependencies]
 opencat-core = { path = "../opencat-core" }
-anyhow = "1.0"
-taffy = "0.10.0"
+anyhow.workspace = true
 image = "0.25.10"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-ahash = "0.8"
-rustc-hash = "2.1"
-unicode-segmentation = "1.11"
+serde.workspace = true
+serde_json.workspace = true
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["registry"] }
 num_cpus = "1.17.0"
-cosmic-text = "0.19.0"
-fontdb = "0.23.0"
 dirs = "6.0.0"
 
 ffmpeg-next = "8.1.0"

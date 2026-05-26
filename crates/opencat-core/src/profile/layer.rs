@@ -20,38 +20,18 @@ use crate::profile::RenderProfileSummary;
 #[cfg(feature = "profile")]
 use crate::profile::{CompletedProfileSpan, ProfileCountEvent, RenderProfileAggregator};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProfileOutputFormat {
-    Text,
-    Json,
-    Both,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileConfig {
     pub enabled: bool,
-    pub output_format: ProfileOutputFormat,
-    pub emit_frame_records: bool,
 }
 
 impl ProfileConfig {
     pub fn from_env() -> Self {
-        let enabled = std::env::var("OPENCAT_PROFILE")
-            .map(|value| value == "1")
-            .unwrap_or(false);
-        let output_format = match std::env::var("OPENCAT_PROFILE_FORMAT").as_deref() {
-            Ok("json") => ProfileOutputFormat::Json,
-            Ok("both") => ProfileOutputFormat::Both,
-            _ => ProfileOutputFormat::Text,
-        };
-        let emit_frame_records = std::env::var("OPENCAT_PROFILE_FRAMES")
-            .map(|value| value == "1")
-            .unwrap_or(false);
-        Self {
-            enabled,
-            output_format,
-            emit_frame_records,
-        }
+        #[cfg(feature = "profile")]
+        let enabled = true;
+        #[cfg(not(feature = "profile"))]
+        let enabled = false;
+        Self { enabled }
     }
 }
 
@@ -336,7 +316,7 @@ pub fn profile_render<T>(
 #[cfg(all(test, feature = "profile"))]
 mod tests {
     use crate::profile::BackendSpanKey;
-    use crate::profile::{ProfileConfig, ProfileOutputFormat, profile_render};
+    use crate::profile::{ProfileConfig, profile_render};
     use anyhow::Result;
     use tracing::{Level, span};
 
@@ -344,8 +324,6 @@ mod tests {
     fn backend_span_depth_ignores_non_backend_ancestors() -> Result<()> {
         let config = ProfileConfig {
             enabled: true,
-            output_format: ProfileOutputFormat::Text,
-            emit_frame_records: false,
         };
         let (_, summary) = profile_render(&config, || {
             let frame = span!(
@@ -392,40 +370,22 @@ mod tests {
     }
 
     #[test]
-    fn profile_config_reads_env_flags() {
-        unsafe {
-            std::env::set_var("OPENCAT_PROFILE", "1");
-            std::env::set_var("OPENCAT_PROFILE_FORMAT", "json");
-            std::env::set_var("OPENCAT_PROFILE_FRAMES", "1");
-        }
-
+    fn profile_config_uses_feature_as_enable_flag() {
         let config = ProfileConfig::from_env();
 
         assert!(config.enabled);
-        assert_eq!(config.output_format, ProfileOutputFormat::Json);
-        assert!(config.emit_frame_records);
-
-        unsafe {
-            std::env::remove_var("OPENCAT_PROFILE");
-            std::env::remove_var("OPENCAT_PROFILE_FORMAT");
-            std::env::remove_var("OPENCAT_PROFILE_FRAMES");
-        }
     }
 
     #[test]
     fn profile_render_returns_summary_only_when_enabled() -> Result<()> {
         let disabled = ProfileConfig {
             enabled: false,
-            output_format: ProfileOutputFormat::Text,
-            emit_frame_records: false,
         };
         let (_, disabled_summary) = profile_render(&disabled, || Ok::<_, anyhow::Error>(42))?;
         assert!(disabled_summary.is_none());
 
         let enabled = ProfileConfig {
             enabled: true,
-            output_format: ProfileOutputFormat::Text,
-            emit_frame_records: false,
         };
         let (_, enabled_summary) = profile_render(&enabled, || {
             let root = span!(target: "render.pipeline", Level::TRACE, "frame", frame = 0_u64, width = 1920_i64, height = 1080_i64, fps = 30_i64, mode = "scene");
@@ -443,8 +403,6 @@ mod tests {
 
         let config = ProfileConfig {
             enabled: true,
-            output_format: ProfileOutputFormat::Text,
-            emit_frame_records: false,
         };
         let (_, summary) = profile_render(&config, || {
             let frame_span = span!(
@@ -488,8 +446,6 @@ mod tests {
 
         let config = ProfileConfig {
             enabled: true,
-            output_format: ProfileOutputFormat::Text,
-            emit_frame_records: false,
         };
         let (_, summary) = profile_render(&config, || {
             let frame_span = span!(

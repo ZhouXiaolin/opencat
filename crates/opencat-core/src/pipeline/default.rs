@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::analyze::annotation::{
     AnnotatedNodeHandle, annotate_display_tree, compute_display_tree_fingerprints,
 };
-use crate::analyze::compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram};
+use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::invalidation::{CompositeHistory, mark_display_tree_composite_dirty};
 use crate::display::build::build_display_tree;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
@@ -102,7 +102,6 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
             last_ordered_scene: OrderedSceneProgram {
                 root: OrderedSceneOp::LiveSubtree {
                     handle: AnnotatedNodeHandle(0),
-                    item_execution: LiveNodeItemExecution::Direct,
                     children: Vec::new(),
                 },
             },
@@ -241,7 +240,7 @@ impl<L: AssetLoader, S: JsContext> Pipeline for DefaultPipeline<L, S> {
             &provider,
         )?;
 
-        let display_tree = build_display_tree(&element_root, &layout_tree)?;
+        let display_tree = build_display_tree(&element_root, &layout_tree, &frame_ctx)?;
         let mut annotated = annotate_display_tree(&display_tree);
         mark_display_tree_composite_dirty(
             &mut self.composite_history,
@@ -250,10 +249,7 @@ impl<L: AssetLoader, S: JsContext> Pipeline for DefaultPipeline<L, S> {
         );
         compute_display_tree_fingerprints(&mut annotated);
 
-        let _plan = crate::analyze::compositor::plan_for_scene(
-            &layout_pass,
-            annotated.contains_time_variant(),
-        );
+        let _plan = crate::analyze::compositor::plan_for_scene(&layout_pass);
         self.cache.scene_snapshot = None;
         let ordered_scene = OrderedSceneProgram::build(&annotated);
         self.last_ordered_scene = ordered_scene.clone();

@@ -3,8 +3,8 @@ mod coder;
 mod config;
 
 pub use channels::{ChannelInfo, ElementType};
-pub use config::{Configuration, SrInfo};
 pub use coder::{CoderInfo, SpectralData};
+pub use config::{Configuration, SrInfo};
 
 use std::f64::consts::PI;
 

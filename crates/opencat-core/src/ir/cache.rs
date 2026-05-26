@@ -129,11 +129,6 @@ mod tests {
         cache.subtree_snapshots.insert(1, entry);
 
         assert!(cache.segments.get_cloned(&1).is_some());
-        assert!(
-            cache
-                .subtree_snapshots
-                .get_cloned(&1)
-                .is_some()
-        );
+        assert!(cache.subtree_snapshots.get_cloned(&1).is_some());
     }
 }

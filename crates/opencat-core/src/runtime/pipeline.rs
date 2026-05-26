@@ -105,7 +105,7 @@ pub fn render_frame_inner(
     // 3. display tree + annotation + fingerprint
     #[cfg(feature = "profile")]
     let _display_span = span!(target: "render.scene", Level::TRACE, "build_display_tree").entered();
-    let display_tree = build_display_tree(&element_root, &layout_tree)?;
+    let display_tree = build_display_tree(&element_root, &layout_tree, &frame_ctx)?;
     let mut annotated = annotate_display_tree(&display_tree);
     mark_display_tree_composite_dirty(
         composite_history,
@@ -117,7 +117,7 @@ pub fn render_frame_inner(
     drop(_display_span);
 
     // 4. plan
-    let _scene_plan = plan_for_scene(&layout_pass, annotated.contains_time_variant());
+    let _scene_plan = plan_for_scene(&layout_pass);
 
     // 5/6. Build DrawOp IR via builder + RenderCtx
     cache.scene_snapshot = None;

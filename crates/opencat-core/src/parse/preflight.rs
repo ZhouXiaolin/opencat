@@ -87,11 +87,7 @@ fn find_scene_timing(comp: &Composition, scene_id: &str) -> Option<(u32, u32)> {
     find_scene_timing_in_node(&root, scene_id, &probe_ctx)
 }
 
-fn find_scene_timing_in_node(
-    node: &Node,
-    scene_id: &str,
-    ctx: &FrameCtx,
-) -> Option<(u32, u32)> {
+fn find_scene_timing_in_node(node: &Node, scene_id: &str, ctx: &FrameCtx) -> Option<(u32, u32)> {
     use crate::parse::time::TimelineSegment;
 
     match node.kind() {
@@ -183,7 +179,7 @@ mod tests {
     use super::*;
     use crate::parse::{
         composition::{AudioAttachment, Composition, CompositionAudioSource},
-        primitives::{div, image, video, video_url, AudioSource},
+        primitives::{AudioSource, div, image, video, video_url},
         transition::{fade, timeline},
     };
 
@@ -246,8 +242,16 @@ mod tests {
             .frames(35)
             .root(move |ctx| root(ctx))
             .audio_sources(vec![
-                CompositionAudioSource::scene("audio-a", AudioSource::Url("a.mp3".into()), "scene-a"),
-                CompositionAudioSource::scene("audio-b", AudioSource::Url("b.mp3".into()), "scene-b"),
+                CompositionAudioSource::scene(
+                    "audio-a",
+                    AudioSource::Url("a.mp3".into()),
+                    "scene-a",
+                ),
+                CompositionAudioSource::scene(
+                    "audio-b",
+                    AudioSource::Url("b.mp3".into()),
+                    "scene-b",
+                ),
             ])
             .build()
             .unwrap();

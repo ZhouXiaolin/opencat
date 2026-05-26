@@ -6,13 +6,13 @@ pub mod consumer;
 pub mod executor;
 pub mod inspect;
 pub mod js_context;
-pub mod source_io;
 pub mod media;
 pub mod platform;
 pub mod render;
 pub mod resource;
 pub mod runtime;
 pub mod script;
+pub mod source_io;
 
 // 转发 core 中位于 runtime/ 的纯算法模块
 pub use opencat_core::analyze::annotation;

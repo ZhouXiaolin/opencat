@@ -3,15 +3,10 @@ pub mod compositor;
 pub mod fingerprint;
 pub mod invalidation;
 
-use crate::analyze::{
-    annotation::AnnotatedNodeHandle,
-    fingerprint::{PaintVariance, SubtreeSnapshotFingerprint},
-};
+use crate::analyze::{annotation::AnnotatedNodeHandle, fingerprint::SubtreeSnapshotFingerprint};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DisplayNodeAnalysis {
-    pub paint_variance: PaintVariance,
-    pub subtree_contains_time_variant: bool,
     pub paint_fingerprint: Option<u64>,
     pub snapshot_fingerprint: Option<SubtreeSnapshotFingerprint>,
 }

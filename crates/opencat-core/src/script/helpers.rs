@@ -41,17 +41,23 @@ pub fn parse_drrect(
 pub enum ScriptChildSpec {
     #[serde(rename = "image")]
     Image {
-        #[serde(rename = "assetId")] asset_id: String,
-        #[serde(rename = "tileX", default = "default_tile_mode")] tile_x: TileModeName,
-        #[serde(rename = "tileY", default = "default_tile_mode")] tile_y: TileModeName,
+        #[serde(rename = "assetId")]
+        asset_id: String,
+        #[serde(rename = "tileX", default = "default_tile_mode")]
+        tile_x: TileModeName,
+        #[serde(rename = "tileY", default = "default_tile_mode")]
+        tile_y: TileModeName,
     },
     #[serde(rename = "picture")]
     Picture {
-        #[serde(rename = "ownerId")] owner_id: String,
+        #[serde(rename = "ownerId")]
+        owner_id: String,
         // Tile modes accepted for parity with the JS API; the engine currently
         // samples picture-as-shader with TileMode::Clamp regardless.
-        #[serde(rename = "tileX", default = "default_tile_mode")] _tile_x: TileModeName,
-        #[serde(rename = "tileY", default = "default_tile_mode")] _tile_y: TileModeName,
+        #[serde(rename = "tileX", default = "default_tile_mode")]
+        _tile_x: TileModeName,
+        #[serde(rename = "tileY", default = "default_tile_mode")]
+        _tile_y: TileModeName,
     },
 }
 
@@ -88,8 +94,7 @@ impl ScriptChildSpec {
 }
 
 pub fn parse_script_children(json: &str) -> Result<Vec<ScriptChildSpec>, anyhow::Error> {
-    serde_json::from_str(json)
-        .map_err(|e| anyhow::anyhow!("children_json decode: {e}"))
+    serde_json::from_str(json).map_err(|e| anyhow::anyhow!("children_json decode: {e}"))
 }
 
 #[cfg(test)]
@@ -100,7 +105,8 @@ mod script_children_tests {
     fn parses_image_child_spec_with_tile_modes() {
         let specs = parse_script_children(
             r#"[{"__opencatShader":"image","assetId":"decor","tileX":"clamp","tileY":"repeat"}]"#,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(specs.len(), 1);
         match &specs[0] {
             ScriptChildSpec::Image { asset_id, .. } => assert_eq!(asset_id, "decor"),
@@ -112,7 +118,8 @@ mod script_children_tests {
     fn parses_picture_child_spec() {
         let specs = parse_script_children(
             r#"[{"__opencatShader":"picture","ownerId":"c-card","tileX":"clamp","tileY":"clamp"}]"#,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(specs.len(), 1);
         match &specs[0] {
             ScriptChildSpec::Picture { owner_id, .. } => assert_eq!(owner_id, "c-card"),

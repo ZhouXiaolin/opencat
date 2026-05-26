@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::analyze::annotation::AnnotatedNodeHandle;
-use crate::analyze::compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram};
+use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::invalidation::CompositeHistory;
 use crate::ir::cache::RenderCache;
 use crate::layout::LayoutSession;
@@ -53,7 +53,6 @@ impl RenderSession {
             last_ordered_scene: OrderedSceneProgram {
                 root: OrderedSceneOp::LiveSubtree {
                     handle: AnnotatedNodeHandle(0),
-                    item_execution: LiveNodeItemExecution::Direct,
                     children: Vec::new(),
                 },
             },

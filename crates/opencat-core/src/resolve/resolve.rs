@@ -5,7 +5,7 @@ use crate::{
     frame_ctx::ScriptFrameCtx,
     ir::asset_id::AssetId,
     parse::{
-        node::{NodeKind},
+        node::NodeKind,
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video, VideoSource},
         time::TimelineNode,
         time::{FrameState, frame_state_for_root},
@@ -262,7 +262,6 @@ fn resolve_node_optional(node: &Node, cx: &mut ResolveContext<'_>) -> Result<Opt
     }
 }
 
-
 fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
     let style = NodeStyle {
         id: "__empty_root".to_string(),
@@ -276,7 +275,6 @@ fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
         draw_slot: ElementDrawSlot::default(),
     }
 }
-
 
 fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(div, div.style_ref(), cx)?;

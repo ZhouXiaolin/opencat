@@ -10,13 +10,13 @@
 
 use std::sync::OnceLock;
 
+use crate::bitstream::{
+    HCB_INTENSITY, HCB_INTENSITY2, HCB_NONE, HCB_PNS, HCB_ZERO, MAX_HUFF_ESC_VAL, SF_MIN,
+    SF_OFFSET, SF_PNS_OFFSET, clamp_sf_diff,
+};
 use crate::codec::{
     BLOCK_LEN_LONG, BLOCK_LEN_SHORT, CoderInfo, MAX_SCFAC_BANDS, MAX_SHORT_WINDOWS, NSFB_SHORT,
     SrInfo, WindowType,
-};
-use crate::bitstream::{
-    HCB_INTENSITY, HCB_INTENSITY2, HCB_NONE, HCB_PNS, HCB_ZERO, MAX_HUFF_ESC_VAL, SF_MIN, SF_OFFSET,
-    SF_PNS_OFFSET, clamp_sf_diff,
 };
 use crate::util::lrint;
 
@@ -271,7 +271,8 @@ fn qlevel(
         } else {
             let mut xi_pos = 0usize;
             for win in 0..gsize {
-                let xr = &xr0[win * BLOCK_LEN_SHORT + start..win * BLOCK_LEN_SHORT + start + end_off];
+                let xr =
+                    &xr0[win * BLOCK_LEN_SHORT + start..win * BLOCK_LEN_SHORT + start + end_off];
                 quantize_scalar(xr, &mut xitab[xi_pos..xi_pos + end_off], end_off, sfacfix);
                 xi_pos += end_off;
             }
@@ -384,13 +385,7 @@ impl CoderInfo {
         self.groups.n = 0;
         for win in 1..MAX_SHORT_WINDOWS as i32 {
             let start = win as usize * BLOCK_LEN_SHORT;
-            calce(
-                &mut xr[start..],
-                &self.sfb_offset,
-                &mut e,
-                maxsfb,
-                maxl,
-            );
+            calce(&mut xr[start..], &self.sfb_offset, &mut e, maxsfb, maxl);
 
             let mut fast = 0i32;
             for sfb in MINSFB..maxsfb {
@@ -423,7 +418,10 @@ impl AACQuantCfg {
         let mut max = ((*bw as i64) * ((BLOCK_LEN_SHORT << 1) as i64) / rate as i64) as i32;
         let mut l = 0i32;
         let mut cnt = 0usize;
-        for (i, &w) in sr.cb_width_short[..sr.num_cb_short as usize].iter().enumerate() {
+        for (i, &w) in sr.cb_width_short[..sr.num_cb_short as usize]
+            .iter()
+            .enumerate()
+        {
             if l >= max {
                 break;
             }
@@ -438,7 +436,10 @@ impl AACQuantCfg {
         max = ((*bw as i64) * ((BLOCK_LEN_LONG << 1) as i64) / rate as i64) as i32;
         l = 0;
         cnt = 0;
-        for (i, &w) in sr.cb_width_long[..sr.num_cb_long as usize].iter().enumerate() {
+        for (i, &w) in sr.cb_width_long[..sr.num_cb_long as usize]
+            .iter()
+            .enumerate()
+        {
             if l >= max {
                 break;
             }
@@ -467,7 +468,12 @@ fn calce(xr: &mut [f64], bands: &[i32], e: &mut [f64; NSFB_SHORT], maxsfb: usize
     }
 }
 
-fn resete(min: &mut [f64; NSFB_SHORT], max: &mut [f64; NSFB_SHORT], e: &[f64; NSFB_SHORT], maxsfb: usize) {
+fn resete(
+    min: &mut [f64; NSFB_SHORT],
+    max: &mut [f64; NSFB_SHORT],
+    e: &[f64; NSFB_SHORT],
+    maxsfb: usize,
+) {
     for sfb in MINSFB..maxsfb {
         min[sfb] = e[sfb];
         max[sfb] = e[sfb];

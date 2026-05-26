@@ -2,7 +2,7 @@
 use tracing::{Level, event, span};
 
 use crate::analyze::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
-use crate::analyze::compositor::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram};
+use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::fingerprint::item_paint_fingerprint;
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem};
@@ -188,11 +188,9 @@ fn render_scene_op(
         OrderedSceneOp::CachedSubtree { handle } => {
             render_cached_subtree(ctx, *handle, tree, cache)
         }
-        OrderedSceneOp::LiveSubtree {
-            handle,
-            item_execution,
-            children,
-        } => render_live_subtree(ctx, *handle, *item_execution, children, tree, cache),
+        OrderedSceneOp::LiveSubtree { handle, children } => {
+            render_live_subtree(ctx, *handle, children, tree, cache)
+        }
     }
 }
 
@@ -398,7 +396,6 @@ fn render_live_cached_node(
 fn render_live_subtree(
     ctx: &mut RenderCtx,
     handle: AnnotatedNodeHandle,
-    item_execution: LiveNodeItemExecution,
     children: &[OrderedSceneOp],
     tree: &AnnotatedDisplayTree,
     cache: &mut draw_cache::RenderCache,
@@ -535,27 +532,9 @@ fn render_live_subtree(
         return Ok(());
     }
 
-    match item_execution {
-        LiveNodeItemExecution::Direct => {
-            #[cfg(feature = "profile")]
-            let _item_span = span!(target: "render.backend", Level::TRACE, "draw_item").entered();
-            render_display_item(ctx, &node.item, cache)?;
-        }
-        LiveNodeItemExecution::FrameLocalPicture => {
-            #[cfg(feature = "profile")]
-            let _item_span =
-                span!(target: "render.backend", Level::TRACE, "draw_item_frame_local_picture")
-                    .entered();
-            let semantics = node.item.picture_semantics();
-            ctx.builder.push(DrawOp::Save);
-            ctx.builder.push(DrawOp::Translate {
-                x: semantics.draw_translation_x,
-                y: semantics.draw_translation_y,
-            });
-            render_display_item(ctx, &node.item, cache)?;
-            ctx.builder.push(DrawOp::Restore);
-        }
-    }
+    #[cfg(feature = "profile")]
+    let _item_span = span!(target: "render.backend", Level::TRACE, "draw_item").entered();
+    render_display_item(ctx, &node.item, cache)?;
 
     if let Some(clip) = &node.clip {
         ctx.builder.push(DrawOp::Save);

@@ -72,7 +72,13 @@ impl FftTables {
         }
         let logm = logm as usize;
         self.reorder2(xr, xi, logm);
-        fft_proc(xr, xi, &self.costbl[logm], &self.negsintbl[logm], 1usize << logm);
+        fft_proc(
+            xr,
+            xi,
+            &self.costbl[logm],
+            &self.negsintbl[logm],
+            1usize << logm,
+        );
     }
 
     // rfft(): real-input FFT. Caller passes one buffer of length 1<<logm

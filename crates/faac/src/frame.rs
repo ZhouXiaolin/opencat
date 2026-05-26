@@ -2,22 +2,18 @@
 
 #![allow(dead_code)]
 
-use crate::bitstream::BitStream;
-use crate::analysis::{
-    GlobalPsyInfo, PsyInfo, block_switch, psy_calculate,
-};
-use crate::codec::{ChannelInfo, ElementType};
-use crate::codec::{
-    CoderInfo, Configuration, FRAME_LEN, InputFormat, JointMode, LOW, MAX_CHANNELS, MPEG2,
-    MPEG4, ShortControl, SrInfo, StreamFormat, WindowShape, WindowType,
-};
 use crate::analysis::FftTables;
 use crate::analysis::FilterBankBuffers;
-use crate::coding::{
-    AACQuantCfg, MAXQUAL, MAXQUALADTS, MINQUAL, quantize_init,
+use crate::analysis::{GlobalPsyInfo, PsyInfo, block_switch, psy_calculate};
+use crate::bitstream::BitStream;
+use crate::bitstream::{ADTS_FRAMESIZE, FrameCtx, write_bitstream};
+use crate::codec::{ChannelInfo, ElementType};
+use crate::codec::{
+    CoderInfo, Configuration, FRAME_LEN, InputFormat, JointMode, LOW, MAX_CHANNELS, MPEG2, MPEG4,
+    ShortControl, SrInfo, StreamFormat, WindowShape, WindowType,
 };
 use crate::coding::aac_stereo;
-use crate::bitstream::{ADTS_FRAMESIZE, FrameCtx, write_bitstream};
+use crate::coding::{AACQuantCfg, MAXQUAL, MAXQUALADTS, MINQUAL, quantize_init};
 use crate::tables::sr_info_table;
 use crate::util::{get_sr_index, max_bitrate};
 
@@ -233,7 +229,8 @@ impl FrameEncoder {
         self.aacquant_cfg.quality = new_config.quantqual as f64;
 
         let mut bw = self.config.band_width;
-        self.aacquant_cfg.calc_bw(&mut bw, self.sample_rate as i32, &self.sr_info);
+        self.aacquant_cfg
+            .calc_bw(&mut bw, self.sample_rate as i32, &self.sr_info);
         self.config.band_width = bw;
 
         // channel_map copy.
@@ -258,7 +255,11 @@ impl FrameEncoder {
         }
 
         let num_channels = self.num_channels as usize;
-        ChannelInfo::assign_elements(&mut self.channel_info, num_channels as i32, self.config.use_lfe);
+        ChannelInfo::assign_elements(
+            &mut self.channel_info,
+            num_channels as i32,
+            self.config.use_lfe,
+        );
 
         self.ingest_samples(input, samples_input);
 
@@ -290,7 +291,10 @@ impl FrameEncoder {
             if self.sample_buff[channel].is_empty() {
                 self.sample_buff[channel] = vec![0.0f64; FRAME_LEN];
             }
-            std::mem::swap(&mut self.sample_buff[channel], &mut self.next3_sample_buff[channel]);
+            std::mem::swap(
+                &mut self.sample_buff[channel],
+                &mut self.next3_sample_buff[channel],
+            );
 
             let dst = &mut self.next3_sample_buff[channel];
             if samples_input == 0 {
@@ -383,10 +387,8 @@ impl FrameEncoder {
                     offset += self.sr_info.cb_width_short[sb];
                 }
                 self.coder_info[channel].sfb_offset[sfbn] = offset;
-                self.coder_info[channel].group_short_blocks(
-                    &mut self.fb.freq_buff[channel],
-                    &self.aacquant_cfg,
-                );
+                self.coder_info[channel]
+                    .group_short_blocks(&mut self.fb.freq_buff[channel], &self.aacquant_cfg);
             } else {
                 self.coder_info[channel].sfbn = self.aacquant_cfg.max_cbl;
                 self.coder_info[channel].groups.n = 1;
@@ -493,8 +495,7 @@ impl FrameEncoder {
             StreamFormat::Adts => MAXQUALADTS,
             StreamFormat::Raw => MAXQUAL,
         };
-        let desbits = (self.num_channels as i64
-            * (self.config.bit_rate as i64 * FRAME_LEN as i64))
+        let desbits = (self.num_channels as i64 * (self.config.bit_rate as i64 * FRAME_LEN as i64))
             / self.sample_rate as i64;
         let mut fix = desbits as f64 / (frame_bytes as f64 * 8.0);
         if fix < 1.0 - RC_DEADBAND_THRESHOLD {
@@ -506,6 +507,9 @@ impl FrameEncoder {
         }
         fix = (fix - 1.0) * RC_DAMPING_FACTOR + 1.0;
         self.aacquant_cfg.quality *= fix;
-        self.aacquant_cfg.quality = self.aacquant_cfg.quality.clamp(MINQUAL as f64, maxqual as f64);
+        self.aacquant_cfg.quality = self
+            .aacquant_cfg
+            .quality
+            .clamp(MINQUAL as f64, maxqual as f64);
     }
 }

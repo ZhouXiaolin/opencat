@@ -34,7 +34,6 @@ impl RenderCache {
 #[derive(Clone, Debug)]
 pub struct CachedSubtreeIr {
     pub segment_key: u64,
-    pub secondary_fingerprint: u64,
     pub consecutive_hits: usize,
     pub recorded_bounds: DisplayRect,
 }
@@ -91,7 +90,6 @@ mod tests {
     fn cached_subtree_ir_tracks_hits() {
         let entry = CachedSubtreeIr {
             segment_key: 42,
-            secondary_fingerprint: 1234,
             consecutive_hits: 0,
             recorded_bounds: DisplayRect {
                 x: 0.0,
@@ -118,7 +116,6 @@ mod tests {
         let segment = CachedDrawSegment::default();
         let entry = CachedSubtreeIr {
             segment_key: 1,
-            secondary_fingerprint: 100,
             consecutive_hits: 0,
             recorded_bounds: DisplayRect {
                 x: 0.0,
@@ -132,13 +129,11 @@ mod tests {
         cache.subtree_snapshots.insert(1, entry);
 
         assert!(cache.segments.get_cloned(&1).is_some());
-        assert_eq!(
+        assert!(
             cache
                 .subtree_snapshots
                 .get_cloned(&1)
-                .unwrap()
-                .secondary_fingerprint,
-            100
+                .is_some()
         );
     }
 }

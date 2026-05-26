@@ -1197,7 +1197,7 @@ fn execute_script_runtime_effect(
     }
 
     use std::hash::{Hash, Hasher};
-    let mut hasher = rustc_hash::FxHasher::default();
+    let mut hasher = ahash::AHasher::default();
     sksl.as_bytes().hash(&mut hasher);
     let hash = hasher.finish();
     let effect_id = ctx.builder.intern_effect(hash, sksl);

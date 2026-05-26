@@ -1,6 +1,6 @@
 //! `#[wasm_bindgen]` 暴露给 JS 的资源预加载 API。
 //!
-//! - [`preload_assets`]: 解析 JSONL → 收集资源请求 → 并通过 [`AssetResolver`]
+//! - [`preload_assets`]: 解析 composition source(JSONL/XML) → 收集资源请求 → 并通过 [`AssetResolver`]
 //!   下载 + 读元数据 → 把字节灌进全局 `BlobStore`，返回 catalog JSON 给 JS。
 //! - [`get_blob_bytes`]: JS 用 AssetId 拉回已下载的字节（用于 CanvasKit 解码、
 //!   `URL.createObjectURL` 等下游消费）。
@@ -32,7 +32,7 @@ fn put_blobs(blobs: BlobStore) {
     BLOB_STORE.with(|s| *s.borrow_mut() = blobs);
 }
 
-/// 下载 JSONL 引用的全部资源，把字节放进 BlobStore，返回 catalog JSON。
+/// 下载 composition source 引用的全部资源，把字节放进 BlobStore，返回 catalog JSON。
 ///
 /// 返回的 JSON 形态与 [`HashMapResourceCatalog::from_json`] 接受的相同：
 /// `{ "<asset_id>": { "width": w, "height": h, "kind": "image"|"video"|"audio",
@@ -40,9 +40,9 @@ fn put_blobs(blobs: BlobStore) {
 ///
 /// JS 把这个串原样传给后续 `WebRenderer.build_frame_ir(resources_json=...)`。
 #[wasm_bindgen]
-pub async fn preload_assets(jsonl: &str) -> Result<String, JsValue> {
-    // 1) 用 core 的解析器解析 JSONL → ParsedComposition。
-    let parsed = crate::source::parse_source(jsonl)
+pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
+    // 1) 用 core 的解析器解析 JSONL/XML → ParsedComposition。
+    let parsed = crate::source::parse_source(source)
         .map_err(|e| JsValue::from_str(&format!("preload_assets: parse failed: {e}")))?;
 
     // 2) 组装 Composition（复用 parsed 的场景树 + 音频源），让 collect_resource_requests 能遍历。

@@ -1,6 +1,6 @@
 export type {
+  CompositionFile,
   CompositionInfo,
-  JsonlFile,
   ResourceMeta,
 } from './types';
 

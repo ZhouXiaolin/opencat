@@ -3,8 +3,10 @@ import { getRendererOrThrow } from '../wasm';
 import { injectVideoFramesForRender } from './video-frame-injector';
 import { renderEncodedDrawFrame } from '../draw-ir';
 import type { IClip } from '@webav/av-cliper';
+import type { CanvasKit, Surface } from 'canvaskit-wasm';
 
 type ProgressCallback = (current: number, total: number) => void;
+type CanvasKitGlobal = typeof globalThis & { __canvasKit?: CanvasKit };
 
 // ── Custom IClip that renders frames on-demand via CanvasKit ──
 
@@ -64,7 +66,8 @@ class ExportClip implements IClip {
     const timeSecs = time / 1_000_000;
 
     const renderer = getRendererOrThrow();
-    const CK = (globalThis as any).__canvasKit;
+    const CK = (globalThis as CanvasKitGlobal).__canvasKit;
+    if (!CK) throw new Error('CanvasKit is not initialized');
 
     await injectVideoFramesForRender({
       renderer,
@@ -74,7 +77,7 @@ class ExportClip implements IClip {
       quality: 'exact',
     });
 
-    let surface;
+    let surface: Surface | null = null;
     try {
       surface = CK.MakeWebGLCanvasSurface(this.canvas);
       if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
@@ -292,7 +295,8 @@ export async function exportPngFrame(
   const resourceMetaJson = JSON.stringify(resourceMeta);
 
   const renderer = getRendererOrThrow();
-  const CK = (globalThis as any).__canvasKit;
+  const CK = (globalThis as CanvasKitGlobal).__canvasKit;
+  if (!CK) throw new Error('CanvasKit is not initialized');
 
   await injectVideoFramesForRender({
     renderer,
@@ -302,7 +306,7 @@ export async function exportPngFrame(
     quality: 'exact',
   });
 
-  let surface;
+  let surface: Surface | null = null;
   try {
     surface = CK.MakeWebGLCanvasSurface(canvas);
     if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
@@ -335,5 +339,5 @@ function downloadBlob(blob: Blob, name: string): void {
 
 export function downloadMp4(data: Uint8Array, name: string): void {
   const blob = new Blob([data as BlobPart], { type: 'video/mp4' });
-  downloadBlob(blob, name.replace(/\.jsonl$/, '') + '.mp4');
+  downloadBlob(blob, name.replace(/\.(jsonl|xml)$/i, '') + '.mp4');
 }

@@ -15,19 +15,22 @@ import {
   renderEncodedDrawFrame,
   setWasmBaseUrl,
   setWorkerBaseUrl,
+  type CompositionFile,
   type CompositionInfo,
-  type JsonlFile,
   type ResourceMeta,
   type VideoPreviewQuality,
   type WebRendererInstance,
-} from 'opencat-web';
+} from 'opencat.js';
 import CanvasKitInit from 'canvaskit-wasm/full';
+import type { CanvasKit, Surface } from 'canvaskit-wasm';
 import { audioPlaybackWindow, playbackPosition } from './playback';
+
+type CanvasKitGlobal = typeof globalThis & { __canvasKit?: CanvasKit };
 
 // --- State ---
 let currentComposition: CompositionInfo | null = null;
-let currentJsonlContent: string | null = null;
-let currentFile: JsonlFile | null = null;
+let currentCompositionSource: string | null = null;
+let currentFile: CompositionFile | null = null;
 let currentFrame = 0;
 let isPlaying = false;
 let playRafId: number | null = null;
@@ -86,7 +89,7 @@ async function boot() {
     ckStatusEl.textContent = 'CanvasKit loading...';
     ckStatusEl.className = 'status-badge loading';
     const CK = await CanvasKitInit({ locateFile: (f: string) => '/canvaskit/' + f });
-    (globalThis as any).__canvasKit = CK;
+    (globalThis as CanvasKitGlobal).__canvasKit = CK;
     ckStatusEl.textContent = 'CanvasKit ready';
     ckStatusEl.className = 'status-badge ready';
 
@@ -114,7 +117,7 @@ async function loadFileList() {
     const parser = new DOMParser();
     const doc = parser.parseFromString(text, 'text/html');
     const links = Array.from(doc.querySelectorAll('a'));
-    const jsonlFiles: JsonlFile[] = links
+    const compositionFiles: CompositionFile[] = links
       .map((a) => a.getAttribute('href'))
       .filter((h): h is string => !!h && COMPOSITION_FILE_EXTENSIONS.some((ext) => h.endsWith(ext)))
       .map((h) => ({
@@ -122,22 +125,22 @@ async function loadFileList() {
         path: `/json/${h.replace(/^\/+/, '')}`,
       }));
 
-    if (jsonlFiles.length === 0) {
+    if (compositionFiles.length === 0) {
       fileListEl.innerHTML = '<p class="hint">No composition files found</p>';
       return;
     }
 
     fileListEl.innerHTML = '';
-    for (const file of jsonlFiles) {
+    for (const file of compositionFiles) {
       const item = document.createElement('div');
       item.className = 'file-item';
       item.textContent = file.name;
-      item.addEventListener('click', () => loadJsonl(file));
+      item.addEventListener('click', () => loadComposition(file));
       fileListEl.appendChild(item);
     }
 
-    if (jsonlFiles.length > 0) {
-      loadJsonl(jsonlFiles[0]);
+    if (compositionFiles.length > 0) {
+      loadComposition(compositionFiles[0]);
     }
   } catch {
     fileListEl.innerHTML = '<p class="hint">Cannot list files. Try known files:</p>';
@@ -146,7 +149,7 @@ async function loadFileList() {
       const item = document.createElement('div');
       item.className = 'file-item';
       item.textContent = name;
-      item.addEventListener('click', () => loadJsonl({ name, path: `/json/${name}` }));
+      item.addEventListener('click', () => loadComposition({ name, path: `/json/${name}` }));
       fileListEl.appendChild(item);
     }
   }
@@ -154,24 +157,26 @@ async function loadFileList() {
 
 // --- Helpers ---
 
-function parseCompInfo(jsonlContent: string): CompositionInfo | null {
-  const trimmedContent = jsonlContent.trim();
+function parseCompInfo(compositionSource: string): CompositionInfo | null {
+  const trimmedContent = compositionSource.trim();
   if (trimmedContent.startsWith('<')) {
-    const doc = new DOMParser().parseFromString(trimmedContent, 'application/xml');
-    if (doc.querySelector('parsererror')) return null;
-    const root = doc.documentElement;
-    if (root.tagName !== 'opencat') return null;
-    const width = Number(root.getAttribute('width'));
-    const height = Number(root.getAttribute('height'));
-    const fps = Number(root.getAttribute('fps'));
-    const frames = Number(root.getAttribute('frames'));
+    const rootTag = trimmedContent.match(/<opencat\b([^>]*)>/i);
+    if (!rootTag) return null;
+    const attrs = new Map<string, string>();
+    for (const match of rootTag[1].matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/g)) {
+      attrs.set(match[1], match[3]);
+    }
+    const width = Number(attrs.get('width'));
+    const height = Number(attrs.get('height'));
+    const fps = Number(attrs.get('fps'));
+    const frames = Number(attrs.get('frames'));
     if (Number.isFinite(width) && Number.isFinite(height) && Number.isFinite(fps) && Number.isFinite(frames)) {
       return { width, height, fps, frames };
     }
     return null;
   }
 
-  for (const line of jsonlContent.split('\n')) {
+  for (const line of compositionSource.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
@@ -193,12 +198,12 @@ function parseCompInfo(jsonlContent: string): CompositionInfo | null {
  * 过滤掉 JSONL 中带有 `path` 字段的非媒体元素（本地文件路径，Web 端无法解析）。
  * 保留 image/video/audio 等媒体类型 — 它们的 path 是可通过 HTTP 获取的 URL。
  */
-function stripLocalPathElements(jsonlContent: string): string {
-  if (jsonlContent.trim().startsWith('<')) {
-    return jsonlContent;
+function stripLocalPathElements(compositionSource: string): string {
+  if (compositionSource.trim().startsWith('<')) {
+    return compositionSource;
   }
 
-  return jsonlContent
+  return compositionSource
     .split('\n')
     .filter(line => {
       const trimmed = line.trim();
@@ -220,12 +225,12 @@ function stripLocalPathElements(jsonlContent: string): string {
 // --- Resource Preloading ---
 
 async function preloadResources(
-  jsonlContent: string,
+  compositionSource: string,
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<void> {
   resourceMeta = {};
 
-  const catalogJson = await preloadAssets(jsonlContent);
+  const catalogJson = await preloadAssets(compositionSource);
   const catalog = JSON.parse(catalogJson) as Record<string, ResourceMeta>;
   resourceMeta = catalog;
 
@@ -270,7 +275,7 @@ async function preloadResources(
 // --- Download Progress Canvas Overlay ---
 
 function drawDownloadProgress(loaded: number, total: number): void {
-  const CK = (globalThis as any).__canvasKit;
+  const CK = (globalThis as CanvasKitGlobal).__canvasKit;
   if (!CK || !currentComposition) return;
 
   const surface = CK.MakeWebGLCanvasSurface(previewCanvas);
@@ -300,21 +305,21 @@ function drawDownloadProgress(loaded: number, total: number): void {
   surface.delete();
 }
 
-// --- Load JSONL ---
-async function loadJsonl(file: JsonlFile) {
+// --- Load Composition ---
+async function loadComposition(file: CompositionFile) {
   try {
     const resp = await fetch(file.path);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    currentJsonlContent = stripLocalPathElements(await resp.text());
+    currentCompositionSource = stripLocalPathElements(await resp.text());
     currentFile = file;
 
     // Worker-side decoder pool needs to be reset when switching files. SkImages
     // are per-frame so nothing to clean on this side.
     await clearVideoCache();
 
-    const comp = parseCompInfo(currentJsonlContent);
+    const comp = parseCompInfo(currentCompositionSource);
     if (!comp) {
-      fileInfoEl.textContent = `Invalid JSONL: ${file.name}`;
+      fileInfoEl.textContent = `Invalid composition: ${file.name}`;
       return;
     }
 
@@ -348,7 +353,7 @@ async function loadJsonl(file: JsonlFile) {
       }
     }
 
-    await preloadResources(currentJsonlContent, (done, total) => {
+    await preloadResources(currentCompositionSource, (done, total) => {
       drawDownloadProgress(done, total);
     });
 
@@ -365,7 +370,7 @@ let renderQueuedFrame = -1;
 let renderQueuedQuality: VideoPreviewQuality = 'realtime';
 
 async function renderFrameAsync(frame: number, quality: VideoPreviewQuality = 'realtime') {
-  if (!currentJsonlContent || !currentComposition) return;
+  if (!currentCompositionSource || !currentComposition) return;
 
   if (renderPending) {
     renderQueuedFrame = frame;
@@ -397,24 +402,25 @@ async function renderFrameWithPipeline(
   quality: VideoPreviewQuality,
 ): Promise<void> {
   const renderer = getRendererOrThrow();
-  const CK = (globalThis as any).__canvasKit;
+  const CK = (globalThis as CanvasKitGlobal).__canvasKit;
+  if (!CK) throw new Error('CanvasKit is not initialized');
   const resourceMetaJson = JSON.stringify(resourceMeta);
 
   await injectVideoFramesForRender({
     renderer,
-    jsonlContent: currentJsonlContent!,
+    jsonlContent: currentCompositionSource!,
     frame,
     resourcesJson: resourceMetaJson,
     quality,
   });
 
-  let surface;
+  let surface: Surface | null = null;
   try {
-    surface = CK.MakeWebGLCanvasSurface(previewCanvas, undefined, { alphaType: CK.AlphaType.Premul });
+    surface = CK.MakeWebGLCanvasSurface(previewCanvas);
     if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
 
     const ckCanvas = surface.getCanvas();
-    const ir = renderer.build_frame_ir(currentJsonlContent!, frame, resourceMetaJson);
+    const ir = renderer.build_frame_ir(currentCompositionSource!, frame, resourceMetaJson);
     renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
     surface.flush();
     surface.flush();
@@ -473,14 +479,14 @@ function schedulePreviewAudio(
 }
 
 function prefetchPreviewVideoFrame(frame: number): void {
-  if (!currentJsonlContent || !currentComposition) return;
+  if (!currentCompositionSource || !currentComposition) return;
 
   try {
     const renderer = getRendererOrThrow();
     const resourcesJson = JSON.stringify(resourceMeta);
     void prefetchVideoFramesForRender({
       renderer,
-      jsonlContent: currentJsonlContent,
+      jsonlContent: currentCompositionSource,
       frame,
       resourcesJson,
       quality: 'realtime',
@@ -600,7 +606,7 @@ document.addEventListener('keydown', (e: KeyboardEvent) => {
 
 // --- Export ---
 async function handleExport() {
-  if (!currentJsonlContent || !currentComposition || !currentFile) return;
+  if (!currentCompositionSource || !currentComposition || !currentFile) return;
   if (isExporting) return;
 
   isExporting = true;
@@ -618,7 +624,7 @@ async function handleExport() {
       .filter(([, meta]) => meta.kind === 'audio')
       .map(([id]) => id);
 
-    const data = await exportMp4(currentJsonlContent, previewCanvas, comp, resourceMeta, (current, total) => {
+    const data = await exportMp4(currentCompositionSource, previewCanvas, comp, resourceMeta, (current, total) => {
       const pct = Math.round((current / total) * 100);
       exportProgressFill.style.width = `${pct}%`;
       btnExport.textContent = `⏳ ${current}/${total}`;
@@ -645,14 +651,14 @@ async function handleExport() {
 }
 
 async function handleExportPng() {
-  if (!currentJsonlContent || !currentComposition || !currentFile) return;
+  if (!currentCompositionSource || !currentComposition || !currentFile) return;
   if (isExporting) return;
 
   isExporting = true;
   btnExportPng.disabled = true;
 
   try {
-    await exportPngFrame(currentJsonlContent, previewCanvas, currentComposition, currentFrame, resourceMeta);
+    await exportPngFrame(currentCompositionSource, previewCanvas, currentComposition, currentFrame, resourceMeta);
   } catch { /* ignore */ } finally {
     isExporting = false;
     btnExportPng.disabled = false;

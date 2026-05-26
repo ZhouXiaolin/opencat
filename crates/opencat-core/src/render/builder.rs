@@ -25,6 +25,7 @@ struct DrawScriptPaintState {
 #[derive(Default)]
 pub struct DrawOpBuilder {
     ops: Vec<DrawOp>,
+    subtrees: Vec<Vec<DrawOp>>,
     paints: Vec<PaintSpec>,
     paint_dedup: HashMap<PaintSpec, PaintId>,
     paths: Vec<EncodedPath>,
@@ -101,6 +102,28 @@ impl DrawOpBuilder {
         };
         self.ranges.push(range);
         range
+    }
+
+    /// Record a hidden subtree as an isolated draw program.
+    ///
+    /// The closure shares all side tables with the main builder, but its ops
+    /// are captured into DrawOpFrame.subtrees instead of being appended to the
+    /// main program.
+    pub fn record_subtree<F, E>(&mut self, f: F) -> Result<SubtreeId, E>
+    where
+        F: FnOnce(&mut Self) -> Result<(), E>,
+    {
+        let main_ops = std::mem::take(&mut self.ops);
+        let result = f(self);
+        let subtree_ops = std::mem::replace(&mut self.ops, main_ops);
+        match result {
+            Ok(()) => {
+                let id = SubtreeId(self.subtrees.len() as u32);
+                self.subtrees.push(subtree_ops);
+                Ok(id)
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Intern an effect (hash + SkSL), returning a deduplicated EffectId.
@@ -306,6 +329,7 @@ impl DrawOpBuilder {
     pub fn finish(self) -> DrawOpFrame {
         DrawOpFrame {
             ops: self.ops,
+            subtrees: self.subtrees,
             paints: self.paints,
             paths: self.paths,
             children: self.children,
@@ -843,5 +867,40 @@ mod tests {
             asset_id: "x".into(),
         }));
         assert_eq!(b.children_len(), 1);
+    }
+
+    #[test]
+    fn record_subtree_keeps_subtree_ops_out_of_main_program() {
+        use crate::ir::draw_types::SubtreeId;
+
+        let mut builder = DrawOpBuilder::default();
+        builder.push(DrawOp::Save);
+        let subtree = builder
+            .record_subtree(|b| {
+                b.push(DrawOp::Translate { x: 10.0, y: 20.0 });
+                b.push(DrawOp::Restore);
+                Ok::<(), ()>(())
+            })
+            .expect("subtree records");
+        builder.push(DrawOp::ReplaySubtreePicture {
+            subtree,
+            x: 4.0,
+            y: 5.0,
+        });
+
+        let frame = builder.finish();
+        assert_eq!(subtree, SubtreeId(0));
+        assert_eq!(frame.ops.len(), 2);
+        assert_eq!(frame.subtrees.len(), 1);
+        assert_eq!(frame.subtrees[0].len(), 2);
+        assert!(matches!(frame.ops[0], DrawOp::Save));
+        assert!(matches!(
+            frame.ops[1],
+            DrawOp::ReplaySubtreePicture {
+                subtree: SubtreeId(0),
+                x: 4.0,
+                y: 5.0,
+            }
+        ));
     }
 }

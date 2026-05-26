@@ -1,6 +1,6 @@
 use super::draw_types::{
     BytesRangeId, ChildRange, DrawOpRange, EffectId, ImageRef, PaintId, PathId, PathOp,
-    RuntimeEffectChildRef, ScriptRuntimeEffectChild,
+    ScriptRuntimeEffectChild, SubtreeId,
 };
 #[allow(unused_imports)]
 use crate::canvas::paint::BlendMode;
@@ -395,6 +395,12 @@ pub enum DrawOp {
         y: f32,
     },
 
+    ReplaySubtreePicture {
+        subtree: SubtreeId,
+        x: f32,
+        y: f32,
+    },
+
     /// Script-originated runtime effect (pre-intern intermediate form).
     /// Translated to `DrawOp::RuntimeEffect` during `execute_draw_op`.
     /// Engine replay treats this as a no-op; the binary encoder must never see it.
@@ -629,13 +635,19 @@ impl std::hash::Hash for DrawOp {
                 x.to_bits().hash(state);
                 y.to_bits().hash(state);
             }
+            DrawOp::ReplaySubtreePicture { subtree, x, y } => {
+                39_u8.hash(state);
+                subtree.hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+            }
             DrawOp::ScriptRuntimeEffect {
                 sksl,
                 uniforms_bytes,
                 children,
                 dst,
             } => {
-                39_u8.hash(state);
+                40_u8.hash(state);
                 sksl.hash(state);
                 uniforms_bytes.hash(state);
                 children.hash(state);

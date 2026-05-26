@@ -15,7 +15,7 @@ use crate::ir::draw_op::{
 use crate::ir::draw_types::ImageRef;
 use crate::ir::draw_types::{
     ChildRange, DrawOpRange, EncodedPath, FillType, PaintId, PathOp, RuntimeEffectChildRef,
-    ScriptRuntimeEffectChild,
+    ScriptRuntimeEffectChild, SubtreeId,
 };
 use crate::parse::gl_transition;
 use crate::parse::transition::{
@@ -1117,23 +1117,53 @@ fn execute_draw_subtree_picture(
             "recursive hidden canvas picture `{owner_id}`"
         )));
     }
-    ctx.hidden_picture_stack.push(owner_id.clone());
-    ctx.builder.push(DrawOp::Save);
-    ctx.builder.push(DrawOp::Translate { x: *x, y: *y });
-    for child in hidden_subtree {
-        render_hidden_child_node(ctx, &child.node)?;
-    }
-    ctx.builder.push(DrawOp::Restore);
-    ctx.hidden_picture_stack.pop();
+    let subtree = record_hidden_subtree(ctx, owner_id, hidden_subtree)?;
+    ctx.builder.push(DrawOp::ReplaySubtreePicture {
+        subtree,
+        x: *x,
+        y: *y,
+    });
     Ok(())
 }
 
+fn record_hidden_subtree(
+    ctx: &mut RenderCtx,
+    owner_id: &str,
+    hidden_subtree: &[HiddenChildDisplayNode],
+) -> Result<SubtreeId, RenderError> {
+    if ctx.hidden_picture_stack.iter().any(|item| item == owner_id) {
+        return Err(RenderError::InvalidArgument(format!(
+            "recursive hidden canvas picture `{owner_id}`"
+        )));
+    }
+    ctx.hidden_picture_stack.push(owner_id.to_string());
+
+    let stack = ctx.hidden_picture_stack.clone();
+    let result = ctx.builder.record_subtree(|builder| {
+        let mut subtree_ctx = RenderCtx {
+            catalog: ctx.catalog,
+            frame_ctx: ctx.frame_ctx,
+            display_tree: ctx.display_tree,
+            ordered_scene: ctx.ordered_scene,
+            builder,
+            blob_store: ctx.blob_store,
+            hidden_picture_stack: stack,
+        };
+        for child in hidden_subtree {
+            if child.owner_id == owner_id {
+                render_hidden_child_node(&mut subtree_ctx, &child.node)?;
+            }
+        }
+        Ok(())
+    });
+
+    ctx.hidden_picture_stack.pop();
+    result
+}
+
 /// Expand a `DrawOp::ScriptRuntimeEffect` into a canonical `DrawOp::RuntimeEffect`,
-/// resolving `ScriptRuntimeEffectChild::PictureSubtree` children by recording
-/// the matching hidden-subtree ops into the main builder and capturing their
-/// `DrawOpRange`. The recorded picture ops are wrapped in a
-/// `SaveLayer { alpha: 0.0 }` so they contribute nothing to the main canvas
-/// while remaining accessible to `picture_shader_for_range` during replay.
+/// resolving `ScriptRuntimeEffectChild::PictureSubtree` children into isolated
+/// subtree programs referenced by `RuntimeEffectChildRef::SubtreePicture`.
 fn execute_script_runtime_effect(
     ctx: &mut RenderCtx,
     op: &DrawOp,
@@ -1160,34 +1190,8 @@ fn execute_script_runtime_effect(
                 resolved.push(RuntimeEffectChildRef::Image(img.clone()));
             }
             ScriptRuntimeEffectChild::PictureSubtree { owner_id } => {
-                if ctx.hidden_picture_stack.contains(owner_id) {
-                    return Err(RenderError::InvalidArgument(format!(
-                        "recursive hidden canvas picture `{owner_id}` via PictureSubtree shader"
-                    )));
-                }
-                ctx.hidden_picture_stack.push(owner_id.clone());
-
-                // Hide picture ops from main flow: SaveLayer with alpha=0
-                // turns the inner draws into a fully-transparent composite.
-                // The `DrawOpRange` we hand to `RuntimeEffect.children`
-                // points strictly at the inner ops, so picture-shader replay
-                // does not see the wrapping save/restore.
-                ctx.builder.push(DrawOp::SaveLayer {
-                    bounds: Some(*dst),
-                    paint: None,
-                    alpha: 0.0,
-                });
-                let marker = ctx.builder.begin_range();
-                for child in hidden_subtree {
-                    if child.owner_id == *owner_id {
-                        render_hidden_child_node(ctx, &child.node)?;
-                    }
-                }
-                let range = ctx.builder.end_range(marker);
-                ctx.builder.push(DrawOp::Restore);
-                ctx.hidden_picture_stack.pop();
-
-                resolved.push(RuntimeEffectChildRef::Picture(range));
+                let subtree = record_hidden_subtree(ctx, owner_id, hidden_subtree)?;
+                resolved.push(RuntimeEffectChildRef::SubtreePicture(subtree));
             }
         }
     }
@@ -1596,6 +1600,13 @@ fn execute_draw_op(
         DrawOp::DrawSubtreePicture { owner_id, x, y } => {
             b.push(DrawOp::DrawSubtreePicture {
                 owner_id: owner_id.clone(),
+                x: *x,
+                y: *y,
+            });
+        }
+        DrawOp::ReplaySubtreePicture { subtree, x, y } => {
+            b.push(DrawOp::ReplaySubtreePicture {
+                subtree: *subtree,
                 x: *x,
                 y: *y,
             });

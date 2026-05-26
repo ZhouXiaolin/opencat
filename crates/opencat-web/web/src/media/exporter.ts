@@ -5,8 +5,28 @@ import { renderEncodedDrawFrame } from '../draw-ir';
 import type { IClip } from '@webav/av-cliper';
 import type { CanvasKit, Surface } from 'canvaskit-wasm';
 
-type ProgressCallback = (current: number, total: number) => void;
+export type ExportProgressStage =
+  | 'loading'
+  | 'preparing'
+  | 'rendering'
+  | 'encoding'
+  | 'muxing';
+type ProgressCallback = (current: number, total: number, stage?: ExportProgressStage) => void;
 type CanvasKitGlobal = typeof globalThis & { __canvasKit?: CanvasKit };
+
+function createExportSurface(CK: CanvasKit, canvas: HTMLCanvasElement | OffscreenCanvas): Surface | null {
+  return CK.MakeWebGLCanvasSurface(canvas);
+}
+
+async function yieldToBrowser(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => setTimeout(resolve, 0));
+      return;
+    }
+    setTimeout(resolve, 0);
+  });
+}
 
 // ── Custom IClip that renders frames on-demand via CanvasKit ──
 
@@ -23,6 +43,7 @@ class ExportClip implements IClip {
   private sampleRate: number;
   private onProgress: ProgressCallback;
   private audioIds: string[];
+  private surface: Surface | null;
 
   constructor(
     canvas: HTMLCanvasElement | OffscreenCanvas,
@@ -41,6 +62,7 @@ class ExportClip implements IClip {
     this.sampleRate = 48000;
     this.onProgress = onProgress;
     this.audioIds = audioIds;
+    this.surface = null;
 
     this.meta = {
       width: comp.width,
@@ -48,6 +70,12 @@ class ExportClip implements IClip {
       duration: Math.round((comp.frames / comp.fps) * 1_000_000),
     };
     this.ready = Promise.resolve(this.meta);
+  }
+
+  private getSurface(CK: CanvasKit): Surface {
+    this.surface ??= createExportSurface(CK, this.canvas);
+    if (!this.surface) throw new Error('createExportSurface failed');
+    return this.surface;
   }
 
   async tick(time: number): Promise<{
@@ -69,6 +97,9 @@ class ExportClip implements IClip {
     const CK = (globalThis as CanvasKitGlobal).__canvasKit;
     if (!CK) throw new Error('CanvasKit is not initialized');
 
+    this.onProgress(frameNum, this.totalFrames, 'rendering');
+    if (frameNum === 0 || frameNum % 5 === 0) await yieldToBrowser();
+
     await injectVideoFramesForRender({
       renderer,
       jsonlContent: this.jsonlContent,
@@ -77,28 +108,22 @@ class ExportClip implements IClip {
       quality: 'exact',
     });
 
-    let surface: Surface | null = null;
-    try {
-      surface = CK.MakeWebGLCanvasSurface(this.canvas);
-      if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
+    const surface = this.getSurface(CK);
 
-      const ckCanvas = surface.getCanvas();
-      const ir = renderer.build_frame_ir(this.jsonlContent, frameNum, this.resourceMetaJson);
-      renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
-      surface.flush();
+    const ckCanvas = surface.getCanvas();
+    const ir = renderer.build_frame_ir(this.jsonlContent, frameNum, this.resourceMetaJson);
+    renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
+    surface.flush();
 
-      const startSecs = timeSecs;
-      const durationSecs = 1.0 / this.fps;
-      const audioChannels = this.mixAudioForFrame(startSecs, durationSecs);
+    const startSecs = timeSecs;
+    const durationSecs = 1.0 / this.fps;
+    const audioChannels = this.mixAudioForFrame(startSecs, durationSecs);
 
-      const bitmap = await snapshotCanvasToImageBitmap(this.canvas);
+    const bitmap = await snapshotCanvasToImageBitmap(this.canvas);
 
-      this.onProgress(frameNum + 1, this.totalFrames);
+    this.onProgress(frameNum + 1, this.totalFrames, 'encoding');
 
-      return { video: bitmap, audio: audioChannels, state: 'success' };
-    } finally {
-      surface?.delete();
-    }
+    return { video: bitmap, audio: audioChannels, state: 'success' };
 
   }
 
@@ -144,7 +169,10 @@ class ExportClip implements IClip {
     return this;
   }
 
-  destroy(): void {}
+  destroy(): void {
+    try { this.surface?.delete(); } catch { /* ignore CanvasKit cleanup failures */ }
+    this.surface = null;
+  }
 }
 
 export async function snapshotCanvasToImageBitmap(
@@ -199,6 +227,31 @@ function createExportCanvas(
   return canvas;
 }
 
+function createIsolatedExportCanvas(width: number, height: number): HTMLCanvasElement | OffscreenCanvas {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    return new OffscreenCanvas(width, height);
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+}
+
+async function canvasToPngBlob(canvas: HTMLCanvasElement | OffscreenCanvas): Promise<Blob | null> {
+  if ('toBlob' in canvas && typeof canvas.toBlob === 'function') {
+    return await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/png');
+    });
+  }
+
+  if ('convertToBlob' in canvas && typeof canvas.convertToBlob === 'function') {
+    return await canvas.convertToBlob({ type: 'image/png' });
+  }
+
+  return null;
+}
+
 // ── Public API ──
 
 async function isAacEncodingSupported(): Promise<boolean> {
@@ -232,8 +285,12 @@ export async function exportMp4(
   const { width, height, fps } = comp;
   const resourceMetaJson = JSON.stringify(resourceMeta);
 
+  onProgress(0, comp.frames, 'loading');
+  await yieldToBrowser();
   const { Combinator, OffscreenSprite } = await import('@webav/av-cliper');
 
+  onProgress(0, comp.frames, 'preparing');
+  await yieldToBrowser();
   const renderCanvas = createExportCanvas(canvas, width, height);
   const clip = new ExportClip(renderCanvas, jsonlContent, resourceMetaJson, comp, onProgress, audioIds);
   const spr = new OffscreenSprite(clip);
@@ -257,11 +314,17 @@ export async function exportMp4(
 
   com.on('OutputProgress', (progress) => {
     const pct = Math.round(progress * 100);
-    onProgress(Math.round(comp.frames * progress), comp.frames);
+    onProgress(Math.round(comp.frames * progress), comp.frames, 'muxing');
   });
   com.on('error', () => { /* keep WebAV error events handled without logging */ });
 
+  onProgress(0, comp.frames, 'encoding');
+  await yieldToBrowser();
+
   await com.addSprite(spr, { main: true });
+
+  onProgress(0, comp.frames, 'muxing');
+  await yieldToBrowser();
 
   const reader = com.output().getReader();
   const chunks: Uint8Array[] = [];
@@ -287,7 +350,7 @@ export async function exportMp4(
 
 export async function exportPngFrame(
   jsonlContent: string,
-  canvas: HTMLCanvasElement,
+  _canvas: HTMLCanvasElement,
   comp: CompositionInfo,
   frame: number,
   resourceMeta: Record<string, ResourceMeta>,
@@ -306,19 +369,18 @@ export async function exportPngFrame(
     quality: 'exact',
   });
 
+  const canvas = createIsolatedExportCanvas(comp.width, comp.height);
   let surface: Surface | null = null;
   try {
-    surface = CK.MakeWebGLCanvasSurface(canvas);
-    if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
+    surface = createExportSurface(CK, canvas);
+    if (!surface) throw new Error('createExportSurface failed');
     const ckCanvas = surface.getCanvas();
 
     const ir = renderer.build_frame_ir(jsonlContent, frame, resourceMetaJson);
     renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
     surface.flush();
 
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, 'image/png');
-    });
+    const blob = await canvasToPngBlob(canvas);
 
     if (!blob) return;
 

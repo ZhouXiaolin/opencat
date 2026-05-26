@@ -32,6 +32,10 @@ pub struct DrawOpRange {
     pub op_len: u32,
 }
 
+/// Index into DrawOpFrame.subtrees.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SubtreeId(pub u32);
+
 /// Generic range into a side table: (start, len).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TableRange {
@@ -233,6 +237,7 @@ pub struct EncodedPath {
 pub enum RuntimeEffectChildRef {
     Image(ImageRef),
     Picture(DrawOpRange),
+    SubtreePicture(SubtreeId),
     Shader(ShaderSpec),
 }
 
@@ -341,8 +346,12 @@ impl std::hash::Hash for RuntimeEffectChildRef {
                 1_u8.hash(state);
                 range.hash(state);
             }
-            RuntimeEffectChildRef::Shader(spec) => {
+            RuntimeEffectChildRef::SubtreePicture(id) => {
                 2_u8.hash(state);
+                id.hash(state);
+            }
+            RuntimeEffectChildRef::Shader(spec) => {
+                3_u8.hash(state);
                 spec.hash(state);
             }
         }

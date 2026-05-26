@@ -36,6 +36,7 @@ const SECTION_PAINTS: u32 = 7;
 const SECTION_PATHS: u32 = 8;
 const SECTION_CHILDREN: u32 = 9;
 const SECTION_EFFECTS: u32 = 10;
+const SECTION_SUBTREES: u32 = 11;
 
 #[wasm_bindgen]
 pub struct WebRenderer {
@@ -315,6 +316,7 @@ pub(crate) fn encode_ir_envelope(
 ) -> Result<Vec<u8>, JsValue> {
     let sections = [
         (SECTION_OPS, encoded.ops.clone()),
+        (SECTION_SUBTREES, encoded.subtrees.clone()),
         (SECTION_F32_POOL, encode_f32_slice(&encoded.f32_pool)),
         (SECTION_BYTES, draw.bytes.clone()),
         (SECTION_BYTE_RANGES, encode_ranges(&draw.byte_ranges)),
@@ -368,16 +370,25 @@ pub(crate) fn intern_image_strings(draw: &mut DrawOpFrame) {
     }
 
     for op in &draw.ops {
-        match op {
-            DrawOp::Image { image, .. } | DrawOp::ImageRect { image, .. } => {
-                intern_image_ref(&mut draw.strings, image);
-            }
-            _ => {}
-        }
+        intern_image_strings_in_ops(&mut draw.strings, std::slice::from_ref(op));
+    }
+    for subtree in &draw.subtrees {
+        intern_image_strings_in_ops(&mut draw.strings, subtree);
     }
     for child in &draw.children {
         if let RuntimeEffectChildRef::Image(image) = child {
             intern_image_ref(&mut draw.strings, image);
+        }
+    }
+
+    fn intern_image_strings_in_ops(strings: &mut Vec<String>, ops: &[DrawOp]) {
+        for op in ops {
+            match op {
+                DrawOp::Image { image, .. } | DrawOp::ImageRect { image, .. } => {
+                    intern_image_ref(strings, image);
+                }
+                _ => {}
+            }
         }
     }
 
@@ -688,6 +699,10 @@ fn encode_children(
                 write_u8(&mut record, 1);
                 write_u32(&mut record, range.start_op);
                 write_u32(&mut record, range.op_len);
+            }
+            RuntimeEffectChildRef::SubtreePicture(subtree) => {
+                write_u8(&mut record, 3);
+                write_u32(&mut record, subtree.0);
             }
             RuntimeEffectChildRef::Shader(shader) => {
                 write_u8(&mut record, 2);

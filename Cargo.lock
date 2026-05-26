@@ -2599,6 +2599,7 @@ name = "opencat-web"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "faac-rs",
  "getrandom 0.3.4",
  "js-sys",
  "once_cell",

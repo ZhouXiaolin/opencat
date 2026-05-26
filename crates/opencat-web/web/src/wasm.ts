@@ -1,7 +1,12 @@
+import type { WasmFaacEncoder } from './media/faac-audio-encoder';
+
 type WasmModule = {
   default(): Promise<void>;
   WebRenderer: {
     new(): WebRendererInstance;
+  };
+  WebFaacEncoder: {
+    new(sample_rate: number, channels: number, bit_rate: number): WasmFaacEncoderInstance;
   };
   preload_assets(compositionSource: string): Promise<string>;
   get_blob_bytes(asset_id: string): Uint8Array | undefined;
@@ -23,6 +28,14 @@ export interface WebRendererInstance {
   set_audio_volume(volume: number): void;
   clear_audio_cache(): void;
   audio_context_time(): number;
+}
+
+interface WasmFaacEncoderInstance {
+  readonly input_samples: number;
+  readonly audio_specific_config: Uint8Array;
+  encode_f32_interleaved(samples: Float32Array): Uint8Array[];
+  flush(): Uint8Array[];
+  free(): void;
 }
 
 let wasmModule: WasmModule | null = null;
@@ -73,4 +86,30 @@ export function getRenderer(): WebRendererInstance | null {
 export function getRendererOrThrow(): WebRendererInstance {
   if (!renderer) throw new Error('WASM renderer not initialized');
   return renderer;
+}
+
+export function createWasmFaacEncoder(config: AudioEncoderConfig): WasmFaacEncoder {
+  if (!wasmModule) throw new Error('WASM not initialized');
+  const encoder = new wasmModule.WebFaacEncoder(
+    config.sampleRate,
+    config.numberOfChannels,
+    config.bitrate ?? 128_000,
+  );
+  return {
+    get inputSamples() {
+      return encoder.input_samples;
+    },
+    get audioSpecificConfig() {
+      return encoder.audio_specific_config;
+    },
+    encodeF32Interleaved(samples) {
+      return encoder.encode_f32_interleaved(samples);
+    },
+    flush() {
+      return encoder.flush();
+    },
+    free() {
+      encoder.free();
+    },
+  };
 }

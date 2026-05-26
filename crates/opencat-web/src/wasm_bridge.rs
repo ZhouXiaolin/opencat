@@ -69,10 +69,7 @@ impl WebRenderer {
         frame: u32,
         resources_json: &str,
     ) -> Result<Vec<u8>, JsValue> {
-        #[cfg(feature = "profile")]
-        tracing::info!(frame, "build_frame_ir start");
-
-        let parsed = opencat_core::parse::jsonl::parse_with_base_dir(jsonl, None)
+        let parsed = crate::source::parse_source(jsonl)
             .map_err(|e| JsValue::from_str(&format!("parse: {e}")))?;
         let root_node = parsed.root.clone();
         let composition = Composition::new("web")
@@ -140,7 +137,7 @@ impl WebRenderer {
         use opencat_core::parse::time::{FrameState, frame_state_for_root};
         use opencat_core::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 
-        let parsed = opencat_core::parse::jsonl::parse_with_base_dir(jsonl, None)
+        let parsed = crate::source::parse_source(jsonl)
             .map_err(|e| JsValue::from_str(&format!("plan_video_frames parse: {e}")))?;
         let catalog = HashMapResourceCatalog::from_json(resources_json)
             .map_err(|e| JsValue::from_str(&format!("plan_video_frames catalog: {e}")))?;

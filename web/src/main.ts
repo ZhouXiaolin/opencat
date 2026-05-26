@@ -105,6 +105,8 @@ async function boot() {
 }
 
 // --- File list ---
+const COMPOSITION_FILE_EXTENSIONS = ['.jsonl', '.xml'];
+
 async function loadFileList() {
   try {
     const resp = await fetch('/json/');
@@ -114,14 +116,14 @@ async function loadFileList() {
     const links = Array.from(doc.querySelectorAll('a'));
     const jsonlFiles: JsonlFile[] = links
       .map((a) => a.getAttribute('href'))
-      .filter((h): h is string => !!h && h.endsWith('.jsonl'))
+      .filter((h): h is string => !!h && COMPOSITION_FILE_EXTENSIONS.some((ext) => h.endsWith(ext)))
       .map((h) => ({
         name: h.replace(/^\/+/, ''),
         path: `/json/${h.replace(/^\/+/, '')}`,
       }));
 
     if (jsonlFiles.length === 0) {
-      fileListEl.innerHTML = '<p class="hint">No .jsonl files found</p>';
+      fileListEl.innerHTML = '<p class="hint">No composition files found</p>';
       return;
     }
 
@@ -139,7 +141,7 @@ async function loadFileList() {
     }
   } catch {
     fileListEl.innerHTML = '<p class="hint">Cannot list files. Try known files:</p>';
-    const knownFiles = ['morph.jsonl', 'opencat-promo.jsonl', 'animation_showcase.jsonl'];
+    const knownFiles = ['profile-showcase.xml', 'morph.jsonl', 'opencat-promo.jsonl', 'animation_showcase.jsonl'];
     for (const name of knownFiles) {
       const item = document.createElement('div');
       item.className = 'file-item';
@@ -153,6 +155,22 @@ async function loadFileList() {
 // --- Helpers ---
 
 function parseCompInfo(jsonlContent: string): CompositionInfo | null {
+  const trimmedContent = jsonlContent.trim();
+  if (trimmedContent.startsWith('<')) {
+    const doc = new DOMParser().parseFromString(trimmedContent, 'application/xml');
+    if (doc.querySelector('parsererror')) return null;
+    const root = doc.documentElement;
+    if (root.tagName !== 'opencat') return null;
+    const width = Number(root.getAttribute('width'));
+    const height = Number(root.getAttribute('height'));
+    const fps = Number(root.getAttribute('fps'));
+    const frames = Number(root.getAttribute('frames'));
+    if (Number.isFinite(width) && Number.isFinite(height) && Number.isFinite(fps) && Number.isFinite(frames)) {
+      return { width, height, fps, frames };
+    }
+    return null;
+  }
+
   for (const line of jsonlContent.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -176,6 +194,10 @@ function parseCompInfo(jsonlContent: string): CompositionInfo | null {
  * 保留 image/video/audio 等媒体类型 — 它们的 path 是可通过 HTTP 获取的 URL。
  */
 function stripLocalPathElements(jsonlContent: string): string {
+  if (jsonlContent.trim().startsWith('<')) {
+    return jsonlContent;
+  }
+
   return jsonlContent
     .split('\n')
     .filter(line => {

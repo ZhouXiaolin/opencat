@@ -461,24 +461,17 @@ fn render_png(
     output_path: impl AsRef<Path>,
     backend: RenderBackend,
 ) -> Result<()> {
-    let profile_config = opencat_core::profile::ProfileConfig::from_env();
-    let (_, summary) = opencat_core::profile::profile_render(&profile_config, || {
-        if let RenderBackend::Accelerated = backend {
-            return Err(anyhow!(
-                "accelerated backend not yet supported via core pipeline"
-            ));
-        }
-        let mut session = RenderSession::new();
-        let rgba = render_frame_rgba(composition, 0, &mut session)?;
-        let image =
-            image::RgbaImage::from_raw(composition.width as u32, composition.height as u32, rgba)
-                .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
-        image.save(&output_path)?;
-        Ok::<_, anyhow::Error>(())
-    })?;
-    if let Some(summary) = summary {
-        opencat_core::profile::print_profile_summary(&summary, &profile_config)?;
+    if let RenderBackend::Accelerated = backend {
+        return Err(anyhow!(
+            "accelerated backend not yet supported via core pipeline"
+        ));
     }
+    let mut session = RenderSession::new();
+    let rgba = render_frame_rgba(composition, 0, &mut session)?;
+    let image =
+        image::RgbaImage::from_raw(composition.width as u32, composition.height as u32, rgba)
+            .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
+    image.save(&output_path)?;
     Ok(())
 }
 
@@ -490,37 +483,30 @@ fn render_mp4(
     on_video_frame_encoded: impl FnMut(u32, u32),
 ) -> Result<()> {
     let composition = composition.aligned_for_video_encoding();
-    let profile_config = opencat_core::profile::ProfileConfig::from_env();
-    let (_, summary) = opencat_core::profile::profile_render(&profile_config, move || {
-        if let RenderBackend::Accelerated = backend {
-            return Err(anyhow!(
-                "accelerated backend not yet supported via core pipeline"
-            ));
-        }
-        let mut platform = EnginePlatform::new();
-        platform.set_video_preview_quality(VideoPreviewQuality::Exact);
-        let mut session = RenderSession::with_platform(platform);
-
-        let audio_track = build_audio_track(&composition, &mut session)?;
-        encode_rgba_frames(
-            output_path.as_ref(),
-            composition.width as u32,
-            composition.height as u32,
-            composition.fps,
-            composition.frames,
-            config,
-            audio_track.as_ref(),
-            on_video_frame_encoded,
-            |frame_index| {
-                let rgba = render_frame_rgba(&composition, frame_index, &mut session)?;
-                Ok(rgba)
-            },
-        )?;
-        Ok::<_, anyhow::Error>(())
-    })?;
-    if let Some(summary) = summary {
-        opencat_core::profile::print_profile_summary(&summary, &profile_config)?;
+    if let RenderBackend::Accelerated = backend {
+        return Err(anyhow!(
+            "accelerated backend not yet supported via core pipeline"
+        ));
     }
+    let mut platform = EnginePlatform::new();
+    platform.set_video_preview_quality(VideoPreviewQuality::Exact);
+    let mut session = RenderSession::with_platform(platform);
+
+    let audio_track = build_audio_track(&composition, &mut session)?;
+    encode_rgba_frames(
+        output_path.as_ref(),
+        composition.width as u32,
+        composition.height as u32,
+        composition.fps,
+        composition.frames,
+        config,
+        audio_track.as_ref(),
+        on_video_frame_encoded,
+        |frame_index| {
+            let rgba = render_frame_rgba(&composition, frame_index, &mut session)?;
+            Ok(rgba)
+        },
+    )?;
     Ok(())
 }
 

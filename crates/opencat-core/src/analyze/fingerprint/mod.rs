@@ -13,13 +13,7 @@ mod display_item;
 
 use std::hash::{Hash, Hasher};
 
-use rustc_hash::FxHasher;
-
-fn new_primary_hasher() -> FxHasher {
-    FxHasher::default()
-}
-
-fn new_secondary_hasher() -> ahash::AHasher {
+fn new_hasher() -> ahash::AHasher {
     ahash::AHasher::default()
 }
 
@@ -33,16 +27,9 @@ use crate::{
 
 use display_item::{ClipFp, DisplayItemFp, F32Hash, item_is_time_variant};
 
-/// subtree picture cache 的双 hash fingerprint。
-///
-/// `primary` 用于 `HashMap` 查表；`secondary` 在命中后做二次验证，
-/// 规避 64-bit hash 碰撞。两个 hasher 必须 feed 完全相同的字节流，
-/// 但底层 hash 算法独立。
+/// subtree picture cache 的 fingerprint。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SubtreeSnapshotFingerprint {
-    pub primary: u64,
-    pub secondary: u64,
-}
+pub struct SubtreeSnapshotFingerprint(pub u64);
 
 /// 每个节点的 paint variance 分类。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,7 +66,7 @@ impl CompositeSig {
     }
 
     fn from_draw_composite(draw: &DrawCompositeSemantics<'_>) -> Self {
-        let mut transforms_hasher = new_primary_hasher();
+        let mut transforms_hasher = new_hasher();
         draw.transform.transforms.hash(&mut transforms_hasher);
         Self {
             translation_x_bits: draw.transform.translation_x.to_bits(),
@@ -110,7 +97,7 @@ pub fn item_paint_fingerprint(item: &DisplayItem) -> Option<u64> {
     if item_is_time_variant(item) {
         return None;
     }
-    let mut hasher = new_primary_hasher();
+    let mut hasher = new_hasher();
     DisplayItemFp(item).hash(&mut hasher);
     Some(hasher.finish())
 }
@@ -126,7 +113,7 @@ pub(crate) fn annotated_subtree_paint_fingerprint(
     if subtree_contains_time_variant {
         return None;
     }
-    let mut hasher = new_primary_hasher();
+    let mut hasher = new_hasher();
     hash_node_recorded_paint(node, &mut hasher);
     node.children.len().hash(&mut hasher);
     for &child_handle in &node.children {
@@ -159,32 +146,23 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
         return None;
     }
 
-    let mut primary = new_primary_hasher();
-    let mut secondary = new_secondary_hasher();
+    let mut hasher = new_hasher();
 
-    hash_node_recorded_paint(node, &mut primary);
-    hash_node_recorded_paint(node, &mut secondary);
-
-    node.children.len().hash(&mut primary);
-    node.children.len().hash(&mut secondary);
+    hash_node_recorded_paint(node, &mut hasher);
+    node.children.len().hash(&mut hasher);
 
     for &child_handle in &node.children {
         let child = &nodes[child_handle.0];
-        hash_node_draw_time_composite(child, &mut primary);
-        hash_node_draw_time_composite(child, &mut secondary);
+        hash_node_draw_time_composite(child, &mut hasher);
 
         let child_fp = analysis
             .require(child_handle)
             .snapshot_fingerprint
             .expect("stable annotated child must carry snapshot_fingerprint");
-        child_fp.primary.hash(&mut primary);
-        child_fp.secondary.hash(&mut secondary);
+        child_fp.0.hash(&mut hasher);
     }
 
-    Some(SubtreeSnapshotFingerprint {
-        primary: primary.finish(),
-        secondary: secondary.finish(),
-    })
+    Some(SubtreeSnapshotFingerprint(hasher.finish()))
 }
 
 /// 子树（**不含** `node` 自身）中是否存在"本帧 composite 跨帧变化"的后代。
@@ -830,35 +808,13 @@ mod tests {
     }
 
     #[test]
-    fn subtree_snapshot_fingerprint_primary_and_secondary_are_independent() {
+    fn snapshot_fingerprint_is_stable() {
         use std::hash::Hasher;
 
-        let mut primary = new_primary_hasher();
-        let mut secondary = new_secondary_hasher();
-        primary.write_u64(0xdead_beef);
-        secondary.write_u64(0xdead_beef);
-
-        let fp = SubtreeSnapshotFingerprint {
-            primary: primary.finish(),
-            secondary: secondary.finish(),
-        };
-
-        assert_ne!(
-            fp.primary, fp.secondary,
-            "两个独立 hasher 在相同输入下必须产出不同结果"
-        );
-    }
-
-    #[test]
-    fn primary_and_secondary_hashers_stay_independent() {
-        use std::hash::Hasher;
-
-        let mut primary = new_primary_hasher();
-        let mut secondary = new_secondary_hasher();
-        primary.write_u64(0xfeed_face);
-        secondary.write_u64(0xfeed_face);
-
-        assert_ne!(primary.finish(), secondary.finish());
+        let mut hasher = new_hasher();
+        hasher.write_u64(0xdead_beef);
+        let fp = SubtreeSnapshotFingerprint(hasher.finish());
+        assert_eq!(fp.0, fp.0);
     }
 
     #[test]

@@ -7,7 +7,7 @@ use std::{
 };
 
 use cosmic_text::{Attrs, Buffer, Command, FontSystem, Metrics, Shaping, SwashCache, SwashContent};
-use rustc_hash::{FxHashMap, FxHasher};
+use hashbrown::HashMap;
 
 use crate::style::{ComputedTextStyle, TextAlign, TextTransform};
 use unicode_segmentation::UnicodeSegmentation;
@@ -70,7 +70,7 @@ pub struct TextLine {
 #[derive(Clone, Debug)]
 pub struct TextRasterization {
     /// Deduplicated glyph data keyed by cache_key
-    pub glyphs: FxHashMap<u64, GlyphData>,
+    pub glyphs: HashMap<u64, GlyphData>,
     /// Lines with positioned glyphs
     pub lines: Vec<TextLine>,
 }
@@ -186,7 +186,7 @@ pub fn rasterize_glyphs(
     let rendered = apply_text_transform(text, style.text_transform);
     if truncate && (!max_width.is_finite() || max_width <= 0.0) {
         return TextRasterization {
-            glyphs: FxHashMap::default(),
+            glyphs: HashMap::default(),
             lines: Vec::new(),
         };
     }
@@ -214,7 +214,7 @@ pub fn rasterize_glyphs(
         buffer.set_text(&rendered, &attrs, Shaping::Advanced, None);
         buffer.shape_until_scroll(font_system, false);
 
-        let mut glyphs: FxHashMap<u64, GlyphData> = FxHashMap::default();
+        let mut glyphs: HashMap<u64, GlyphData> = HashMap::default();
         let mut lines: Vec<TextLine> = Vec::new();
 
         with_swash_cache(|swash_cache| {
@@ -322,14 +322,14 @@ pub fn measure_script_text_width(text: &str, font_size: f32, scale_x: f32) -> f3
 
 /// Compute a stable u64 key from a cosmic-text CacheKey.
 pub fn glyph_cache_key(cache_key: &cosmic_text::CacheKey) -> u64 {
-    let mut hasher = FxHasher::default();
+    let mut hasher = ahash::AHasher::default();
     cache_key.hash(&mut hasher);
     hasher.finish()
 }
 
 /// Key for the outline path cache — only `(font_id, glyph_id)` matters for shape.
 pub fn glyph_outline_key(cache_key: &cosmic_text::CacheKey) -> u64 {
-    let mut hasher = FxHasher::default();
+    let mut hasher = ahash::AHasher::default();
     cache_key.font_id.hash(&mut hasher);
     cache_key.glyph_id.hash(&mut hasher);
     hasher.finish()

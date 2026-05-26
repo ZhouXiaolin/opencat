@@ -218,7 +218,7 @@ fn render_cached_subtree(
         .analysis(handle)
         .snapshot_fingerprint
         .expect("CachedSubtree node must have snapshot_fingerprint");
-    let key = fingerprint.primary;
+    let key = fingerprint.0;
 
     let uses_layer = opacity < 1.0 || backdrop_blur.is_some();
     let mut has_backdrop_clip = false;
@@ -285,9 +285,7 @@ fn render_cached_subtree(
     // Check cache
     {
         let hit_entry = cache.subtree_snapshots.get_cloned(&key);
-        if let Some(entry) = hit_entry
-            && entry.secondary_fingerprint == fingerprint.secondary
-        {
+        if let Some(entry) = hit_entry {
             #[cfg(feature = "profile")]
             event!(
                 target: "render.cache",
@@ -345,7 +343,6 @@ fn render_cached_subtree(
 
     let snapshot = CachedSubtreeIr {
         segment_key,
-        secondary_fingerprint: fingerprint.secondary,
         consecutive_hits: 0,
         recorded_bounds: layer_bounds,
     };

@@ -662,7 +662,6 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
                  by execute_draw_op before binary encoding"
             );
         }
-
     }
 
     // Pad to 4-byte alignment after each op

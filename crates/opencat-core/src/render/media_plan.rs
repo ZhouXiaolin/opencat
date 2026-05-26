@@ -169,11 +169,7 @@ fn collect_subtree(
     );
 }
 
-fn push_image(
-    image: &ImageRef,
-    images: &mut Vec<ImageRef>,
-    seen_images: &mut HashSet<ImageRef>,
-) {
+fn push_image(image: &ImageRef, images: &mut Vec<ImageRef>, seen_images: &mut HashSet<ImageRef>) {
     let img = image.clone();
     if seen_images.insert(img.clone()) {
         images.push(img);

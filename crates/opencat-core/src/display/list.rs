@@ -163,6 +163,7 @@ pub struct BitmapDisplayItem {
     pub width: u32,
     pub height: u32,
     pub video_timing: Option<VideoFrameTiming>,
+    pub paint_epoch: u64,
     pub object_fit: ObjectFit,
     pub paint: BitmapPaintStyle,
 }

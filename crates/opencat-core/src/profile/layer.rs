@@ -322,9 +322,7 @@ mod tests {
 
     #[test]
     fn backend_span_depth_ignores_non_backend_ancestors() -> Result<()> {
-        let config = ProfileConfig {
-            enabled: true,
-        };
+        let config = ProfileConfig { enabled: true };
         let (_, summary) = profile_render(&config, || {
             let frame = span!(
                 target: "render.pipeline",
@@ -378,15 +376,11 @@ mod tests {
 
     #[test]
     fn profile_render_returns_summary_only_when_enabled() -> Result<()> {
-        let disabled = ProfileConfig {
-            enabled: false,
-        };
+        let disabled = ProfileConfig { enabled: false };
         let (_, disabled_summary) = profile_render(&disabled, || Ok::<_, anyhow::Error>(42))?;
         assert!(disabled_summary.is_none());
 
-        let enabled = ProfileConfig {
-            enabled: true,
-        };
+        let enabled = ProfileConfig { enabled: true };
         let (_, enabled_summary) = profile_render(&enabled, || {
             let root = span!(target: "render.pipeline", Level::TRACE, "frame", frame = 0_u64, width = 1920_i64, height = 1080_i64, fps = 30_i64, mode = "scene");
             let _guard = root.enter();
@@ -401,9 +395,7 @@ mod tests {
     fn tracing_layer_captures_backend_spans_and_events() -> anyhow::Result<()> {
         use tracing::{Level, event, span};
 
-        let config = ProfileConfig {
-            enabled: true,
-        };
+        let config = ProfileConfig { enabled: true };
         let (_, summary) = profile_render(&config, || {
             let frame_span = span!(
                 target: "render.pipeline",
@@ -444,9 +436,7 @@ mod tests {
     fn tracing_layer_propagates_transition_kind() -> anyhow::Result<()> {
         use tracing::{Level, span};
 
-        let config = ProfileConfig {
-            enabled: true,
-        };
+        let config = ProfileConfig { enabled: true };
         let (_, summary) = profile_render(&config, || {
             let frame_span = span!(
                 target: "render.pipeline",

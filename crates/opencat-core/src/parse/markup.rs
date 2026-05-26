@@ -1146,10 +1146,7 @@ mod tests {
         )
         .expect_err("audio inside canvas should fail");
 
-        assert!(
-            err.to_string()
-                .contains("unknown element <audio>")
-        );
+        assert!(err.to_string().contains("unknown element <audio>"));
     }
 
     #[test]

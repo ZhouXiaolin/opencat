@@ -86,7 +86,6 @@ impl Default for TnsInfo {
     }
 }
 
-
 const TNS_MIN_BAND_NUMBER_LONG: [u16; 12] = [11, 12, 15, 16, 17, 20, 25, 26, 24, 28, 30, 31];
 const TNS_MIN_BAND_NUMBER_SHORT: [u16; 12] = [2, 2, 2, 3, 3, 4, 6, 6, 8, 10, 10, 12];
 
@@ -140,7 +139,8 @@ impl TnsInfo {
             window_data.coef_resolution = DEF_TNS_COEFF_RES;
 
             let start_index = w * window_size + sfb_offset[start_band as usize] as usize;
-            let length = (sfb_offset[stop_band as usize] - sfb_offset[start_band as usize]) as usize;
+            let length =
+                (sfb_offset[stop_band as usize] - sfb_offset[start_band as usize]) as usize;
 
             let tns_filter = &mut window_data.tns_filter[0];
             let mut k = [0.0f64; TNS_MAX_ORDER + 1];
@@ -158,7 +158,12 @@ impl TnsInfo {
                 tns_filter.order = truncated_order;
                 tns_filter.k_coeffs.copy_from_slice(&k);
                 step_up(truncated_order, &k, &mut tns_filter.a_coeffs);
-                tns_inv_filter(length, &mut spec[start_index..start_index + length], tns_filter, temp);
+                tns_inv_filter(
+                    length,
+                    &mut spec[start_index..start_index + length],
+                    tns_filter,
+                    temp,
+                );
             }
         }
     }
@@ -197,10 +202,16 @@ impl TnsInfo {
             let tns_filter = &window_data.tns_filter[0];
 
             let start_index = w * window_size + sfb_offset[start_band as usize] as usize;
-            let length = (sfb_offset[stop_band as usize] - sfb_offset[start_band as usize]) as usize;
+            let length =
+                (sfb_offset[stop_band as usize] - sfb_offset[start_band as usize]) as usize;
 
             if self.tns_data_present && window_data.num_filters != 0 {
-                tns_inv_filter(length, &mut spec[start_index..start_index + length], tns_filter, temp);
+                tns_inv_filter(
+                    length,
+                    &mut spec[start_index..start_index + length],
+                    tns_filter,
+                    temp,
+                );
             }
         }
     }
@@ -267,7 +278,12 @@ fn truncate_coeffs(f_order: i32, threshold: f64, k_array: &mut [f64]) -> i32 {
     0
 }
 
-fn quantize_reflection_coeffs(f_order: i32, coeff_res: i32, k_array: &mut [f64], index_array: &mut [i32]) {
+fn quantize_reflection_coeffs(
+    f_order: i32,
+    coeff_res: i32,
+    k_array: &mut [f64],
+    index_array: &mut [i32],
+) {
     let iqfac = ((1i32 << (coeff_res - 1)) as f64 - 0.5) / (std::f64::consts::FRAC_PI_2);
     let iqfac_m = ((1i32 << (coeff_res - 1)) as f64 + 0.5) / (std::f64::consts::FRAC_PI_2);
 

@@ -1,5 +1,5 @@
-use crate::codec::*;
 use crate::analysis::FftTables;
+use crate::codec::*;
 
 pub struct Windows {
     pub sin_long: Vec<f64>,
@@ -19,7 +19,9 @@ pub struct FilterBankBuffers {
 
 impl FilterBankBuffers {
     pub fn new(num_channels: usize) -> Self {
-        let freq_buff = (0..num_channels).map(|_| vec![0.0f64; 2 * FRAME_LEN]).collect();
+        let freq_buff = (0..num_channels)
+            .map(|_| vec![0.0f64; 2 * FRAME_LEN])
+            .collect();
         let overlap_buff = (0..num_channels).map(|_| vec![0.0f64; FRAME_LEN]).collect();
 
         let sin_window_long: Vec<f64> = (0..BLOCK_LEN_LONG)
@@ -102,7 +104,13 @@ impl FilterBankBuffers {
                     p_out_mdct[i + BLOCK_LEN_LONG] =
                         transf_buf[i + BLOCK_LEN_LONG] * second_window[BLOCK_LEN_LONG - 1 - i];
                 }
-                mdct(fft_tables, p_out_mdct, 2 * BLOCK_LEN_LONG, &mut self.mdct_xr, &mut self.mdct_xi);
+                mdct(
+                    fft_tables,
+                    p_out_mdct,
+                    2 * BLOCK_LEN_LONG,
+                    &mut self.mdct_xr,
+                    &mut self.mdct_xi,
+                );
             }
             WindowType::LongShortWindow => {
                 for i in 0..BLOCK_LEN_LONG {
@@ -120,7 +128,13 @@ impl FilterBankBuffers {
                 {
                     p_out_mdct[i] = 0.0;
                 }
-                mdct(fft_tables, p_out_mdct, 2 * BLOCK_LEN_LONG, &mut self.mdct_xr, &mut self.mdct_xi);
+                mdct(
+                    fft_tables,
+                    p_out_mdct,
+                    2 * BLOCK_LEN_LONG,
+                    &mut self.mdct_xr,
+                    &mut self.mdct_xi,
+                );
             }
             WindowType::ShortLongWindow => {
                 for i in 0..NFLAT_LS {
@@ -138,7 +152,13 @@ impl FilterBankBuffers {
                     p_out_mdct[i + BLOCK_LEN_LONG] =
                         transf_buf[i + BLOCK_LEN_LONG] * second_window[BLOCK_LEN_LONG - i - 1];
                 }
-                mdct(fft_tables, p_out_mdct, 2 * BLOCK_LEN_LONG, &mut self.mdct_xr, &mut self.mdct_xi);
+                mdct(
+                    fft_tables,
+                    p_out_mdct,
+                    2 * BLOCK_LEN_LONG,
+                    &mut self.mdct_xr,
+                    &mut self.mdct_xi,
+                );
             }
             WindowType::OnlyShortWindow => {
                 let mut p_o_offset = NFLAT_LS;
@@ -146,8 +166,7 @@ impl FilterBankBuffers {
                 let mut first_win = first_window;
                 for _k in 0..MAX_SHORT_WINDOWS {
                     for i in 0..BLOCK_LEN_SHORT {
-                        p_out_mdct[p_out_offset + i] =
-                            transf_buf[p_o_offset + i] * first_win[i];
+                        p_out_mdct[p_out_offset + i] = transf_buf[p_o_offset + i] * first_win[i];
                         p_out_mdct[p_out_offset + i + BLOCK_LEN_SHORT] = transf_buf
                             [p_o_offset + i + BLOCK_LEN_SHORT]
                             * second_window[BLOCK_LEN_SHORT - i - 1];
@@ -291,4 +310,3 @@ pub fn mdct(fft_tables: &FftTables, data: &mut [f64], n: usize, xr: &mut [f64], 
         n2_idx += 2;
     }
 }
-

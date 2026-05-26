@@ -2,9 +2,9 @@
 
 #![allow(dead_code)]
 
-use crate::codec::{ChannelInfo, ElementType};
-use crate::codec::{BLOCK_LEN_SHORT, CoderInfo, JointMode, WindowType};
 use crate::bitstream::{HCB_INTENSITY, HCB_INTENSITY2, HCB_NONE, HCB_ZERO};
+use crate::codec::{BLOCK_LEN_SHORT, CoderInfo, JointMode, WindowType};
+use crate::codec::{ChannelInfo, ElementType};
 use crate::util::lrint;
 
 fn stereo(
@@ -330,7 +330,9 @@ pub fn aac_stereo(
             let end = start + cl.groups.len[group as usize];
             match mode {
                 JointMode::Ms => {
-                    midside(cl, ch_l, sl_buf, sr_buf, &mut sfcnt, start, end, thrmid, thrside);
+                    midside(
+                        cl, ch_l, sl_buf, sr_buf, &mut sfcnt, start, end, thrmid, thrside,
+                    );
                 }
                 JointMode::Is => {
                     stereo(cl, cr, sl_buf, sr_buf, &mut sfcnt, start, end, isthr);

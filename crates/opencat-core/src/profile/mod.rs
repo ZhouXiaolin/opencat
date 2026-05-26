@@ -103,7 +103,6 @@ pub struct SceneBuildStats {
     pub layout_ms: f64,
     pub display_ms: f64,
     pub layout_pass: LayoutPassStats,
-    pub contains_time_variant_paint: bool,
 }
 
 #[derive(Clone, Debug, Default)]

@@ -124,7 +124,6 @@ impl NodeKind {
     }
 }
 
-
 impl From<Div> for NodeKind {
     fn from(value: Div) -> Self {
         Self::Div(value)

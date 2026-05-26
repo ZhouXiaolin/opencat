@@ -17,12 +17,12 @@ pub use opencat_core::text;
 // Backward-compatible module re-exports from engine
 pub use opencat_engine::codec;
 pub use opencat_engine::inspect;
-pub use opencat_engine::source_io;
 pub use opencat_engine::platform;
 pub use opencat_engine::render;
 pub use opencat_engine::resource;
 pub use opencat_engine::runtime;
 pub use opencat_engine::script;
+pub use opencat_engine::source_io;
 
 // Top-level re-exports
 pub use opencat_core::frame_ctx::FrameCtx;
@@ -41,7 +41,6 @@ pub use opencat_core::parse::transition::{
 pub use opencat_core::parse::{document::ParsedComposition, jsonl::parse};
 pub use opencat_core::script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use opencat_engine::inspect::{FrameElementRect, collect_frame_layout_rects};
-pub use opencat_engine::source_io::{parse_file, parse_with_base_dir};
 pub use opencat_engine::platform::EnginePlatform;
 pub use opencat_engine::render::{
     EncodingConfig, Mp4Config, OutputFormat, RenderBackend, RenderSession, build_audio_track,
@@ -49,6 +48,7 @@ pub use opencat_engine::render::{
     render_frame_with_target, render_from_jsonl, render_single_frame_from_jsonl,
     render_with_backend_progress, render_with_progress,
 };
+pub use opencat_engine::source_io::{parse_file, parse_with_base_dir};
 
 // Convenience: construct a default RenderSession.
 pub fn default_render_session() -> RenderSession {

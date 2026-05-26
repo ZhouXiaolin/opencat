@@ -622,7 +622,12 @@ mod tests {
             vec![ScriptRuntimeEffectChild::Image(ImageRef::Static {
                 asset_id: "decor".into(),
             })],
-            Rect4 { x: 0.0, y: 0.0, width: 360.0, height: 480.0 },
+            Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 360.0,
+                height: 480.0,
+            },
         );
 
         let snap = store.snapshot_mutations();
@@ -630,7 +635,10 @@ mod tests {
         assert_eq!(commands.len(), 1);
         match &commands[0] {
             crate::ir::draw_op::DrawOp::ScriptRuntimeEffect {
-                sksl, uniforms_bytes, children, dst,
+                sksl,
+                uniforms_bytes,
+                children,
+                dst,
             } => {
                 assert!(sksl.contains("half4"));
                 assert_eq!(uniforms_bytes.len(), 8);
@@ -650,8 +658,13 @@ mod tests {
             json!("s1-canvas"),
             json!("half4 main(float2 p){return half4(1);}"),
             json!([0.5, 1.0, 0.0, 0.0]),
-            json!(r#"[{"__opencatShader":"image","assetId":"decor","tileX":"clamp","tileY":"clamp"}]"#),
-            json!(0.0), json!(0.0), json!(360.0), json!(480.0),
+            json!(
+                r#"[{"__opencatShader":"image","assetId":"decor","tileX":"clamp","tileY":"clamp"}]"#
+            ),
+            json!(0.0),
+            json!(0.0),
+            json!(360.0),
+            json!(480.0),
         ];
         dispatch_binding(&mut store, "canvas_runtime_effect_draw", &args)
             .expect("binding should dispatch");

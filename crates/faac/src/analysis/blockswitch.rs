@@ -7,10 +7,10 @@
 
 #![allow(dead_code)]
 
-use crate::codec::{ChannelInfo, ElementType};
-use crate::codec::{BLOCK_LEN_LONG, BLOCK_LEN_SHORT, CoderInfo, NSFB_SHORT, WindowType};
 use crate::analysis::FftTables;
 use crate::analysis::mdct;
+use crate::codec::{BLOCK_LEN_LONG, BLOCK_LEN_SHORT, CoderInfo, NSFB_SHORT, WindowType};
+use crate::codec::{ChannelInfo, ElementType};
 
 // Energies are stored as `float` (f32) in the C original via `typedef float
 // psyfloat`, even when faac_real is double. Match that for bit-exactness.
@@ -96,11 +96,7 @@ impl PsyInfo {
 }
 
 impl GlobalPsyInfo {
-    pub fn new(
-        psy: &mut [PsyInfo],
-        num_channels: u32,
-        sample_rate: u32,
-    ) -> Self {
+    pub fn new(psy: &mut [PsyInfo], num_channels: u32, sample_rate: u32) -> Self {
         let hann_window: Vec<f64> = (0..BLOCK_LEN_LONG * 2)
             .map(|i| {
                 let arg =
@@ -267,8 +263,7 @@ pub fn block_switch(coder: &mut [CoderInfo], psy: &[PsyInfo], num_channels: u32)
             } else {
                 coder[channel].block_type = WindowType::OnlyShortWindow;
             }
-        } else if lasttype == WindowType::OnlyShortWindow
-            || lasttype == WindowType::LongShortWindow
+        } else if lasttype == WindowType::OnlyShortWindow || lasttype == WindowType::LongShortWindow
         {
             coder[channel].block_type = WindowType::ShortLongWindow;
         } else {

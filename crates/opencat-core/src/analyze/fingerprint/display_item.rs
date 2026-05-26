@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use crate::{
-    display::list::{BitmapDisplayItem, DisplayClip, DisplayItem, TextDisplayItem},
+    display::list::{DisplayClip, DisplayItem, TextDisplayItem},
     style::ComputedTextStyle,
 };
 
@@ -73,6 +73,7 @@ impl Hash for DisplayItemFp<'_> {
                 bitmap.width.hash(state);
                 bitmap.height.hash(state);
                 bitmap.video_timing.hash(state);
+                bitmap.paint_epoch.hash(state);
                 bitmap.object_fit.hash(state);
                 F32Hash(bitmap.bounds.width).hash(state);
                 F32Hash(bitmap.bounds.height).hash(state);
@@ -208,63 +209,5 @@ impl Hash for SvgPathPaintFp<'_> {
         paint.drop_shadow.hash(state);
         paint.stroke_dasharray.map(F32Hash).hash(state);
         paint.stroke_dashoffset.map(F32Hash).hash(state);
-    }
-}
-
-pub(super) fn item_is_time_variant(item: &DisplayItem) -> bool {
-    match item {
-        DisplayItem::Timeline(_) => true,
-        DisplayItem::Bitmap(bitmap) => bitmap_is_video(bitmap),
-        DisplayItem::DrawScript(_) => false,
-        DisplayItem::Text(text) => text.text_unit_overrides.is_some(),
-        DisplayItem::Rect(_) | DisplayItem::SvgPath(_) => false,
-    }
-}
-
-pub(super) fn bitmap_is_video(bitmap: &BitmapDisplayItem) -> bool {
-    bitmap.video_timing.is_some()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::item_is_time_variant;
-    use crate::display::list::{DisplayItem, DisplayRect, RectPaintStyle, TimelineDisplayItem};
-
-    fn bounds() -> DisplayRect {
-        DisplayRect {
-            x: 0.0,
-            y: 0.0,
-            width: 100.0,
-            height: 100.0,
-        }
-    }
-
-    #[test]
-    fn timeline_display_item_is_always_time_variant() {
-        let item = DisplayItem::Timeline(TimelineDisplayItem {
-            bounds: bounds(),
-            paint: RectPaintStyle {
-                background: None,
-                border_radius: crate::style::BorderRadius::default(),
-                border_width: None,
-                border_top_width: None,
-                border_right_width: None,
-                border_bottom_width: None,
-                border_left_width: None,
-                border_color: None,
-                border_style: None,
-                blur_sigma: None,
-                box_shadow: None,
-                inset_shadow: None,
-                drop_shadow: None,
-                backdrop_blur_sigma: None,
-            },
-            transition: None,
-        });
-
-        assert!(
-            item_is_time_variant(&item),
-            "timeline node itself should stay on the live path"
-        );
     }
 }

@@ -10,7 +10,6 @@ pub struct OrderedSceneProgram {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct OrderedSubtreeProgram {
     pub handle: AnnotatedNodeHandle,
-    pub item_execution: LiveNodeItemExecution,
     pub children: Vec<OrderedSceneOp>,
 }
 
@@ -18,7 +17,6 @@ pub struct OrderedSubtreeProgram {
 pub enum OrderedSceneOp {
     LiveSubtree {
         handle: AnnotatedNodeHandle,
-        item_execution: LiveNodeItemExecution,
         children: Vec<OrderedSceneOp>,
     },
     CachedSubtree {
@@ -48,7 +46,6 @@ impl OrderedSceneProgram {
     ) -> OrderedSubtreeProgram {
         OrderedSubtreeProgram {
             handle,
-            item_execution: analyze_live_node_item_execution(display_tree, handle),
             children: display_tree
                 .children(handle)
                 .iter()
@@ -103,16 +100,12 @@ fn build_scene_op(
         .map(|&child_handle| build_scene_op(display_tree, child_handle))
         .collect();
 
-    OrderedSceneOp::LiveSubtree {
-        handle,
-        item_execution: analyze_live_node_item_execution(display_tree, handle),
-        children,
-    }
+    OrderedSceneOp::LiveSubtree { handle, children }
 }
 
 #[cfg(test)]
 mod ordered_scene_tests {
-    use super::{LiveNodeItemExecution, OrderedSceneOp, OrderedSceneProgram};
+    use super::{OrderedSceneOp, OrderedSceneProgram};
     use crate::{
         analyze::{
             DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
@@ -120,7 +113,7 @@ mod ordered_scene_tests {
             annotation::{
                 AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey,
             },
-            fingerprint::{PaintVariance, SubtreeSnapshotFingerprint},
+            fingerprint::SubtreeSnapshotFingerprint,
         },
         display::list::{
             DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem, RectDisplayItem,
@@ -187,8 +180,6 @@ mod ordered_scene_tests {
                 table.insert(
                     root,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: false,
                         paint_fingerprint: Some(11),
                         snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(22)),
                     },
@@ -212,7 +203,6 @@ mod ordered_scene_tests {
             program.root,
             OrderedSceneOp::LiveSubtree {
                 handle: root,
-                item_execution: LiveNodeItemExecution::Direct,
                 children: Vec::new(),
             }
         );
@@ -232,8 +222,6 @@ mod ordered_scene_tests {
                 table.insert(
                     root,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: false,
                         paint_fingerprint: Some(11),
                         snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(22)),
                     },
@@ -241,8 +229,6 @@ mod ordered_scene_tests {
                 table.insert(
                     child,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: false,
                         paint_fingerprint: Some(33),
                         snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(44)),
                     },
@@ -257,7 +243,7 @@ mod ordered_scene_tests {
     }
 
     #[test]
-    fn time_variant_scene_stays_live_in_order() {
+    fn missing_snapshot_scene_stays_live_in_order() {
         let root = AnnotatedNodeHandle(0);
         let static_child = AnnotatedNodeHandle(1);
         let dynamic_child = AnnotatedNodeHandle(2);
@@ -295,8 +281,6 @@ mod ordered_scene_tests {
                 table.insert(
                     root,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: true,
                         paint_fingerprint: None,
                         snapshot_fingerprint: None,
                     },
@@ -304,8 +288,6 @@ mod ordered_scene_tests {
                 table.insert(
                     static_child,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: false,
                         paint_fingerprint: Some(12),
                         snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(13)),
                     },
@@ -313,8 +295,6 @@ mod ordered_scene_tests {
                 table.insert(
                     dynamic_child,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::TimeVariant,
-                        subtree_contains_time_variant: true,
                         paint_fingerprint: None,
                         snapshot_fingerprint: None,
                     },
@@ -329,16 +309,13 @@ mod ordered_scene_tests {
             program.root,
             OrderedSceneOp::LiveSubtree {
                 handle: root,
-                item_execution: LiveNodeItemExecution::Direct,
                 children: vec![
                     OrderedSceneOp::LiveSubtree {
                         handle: static_child,
-                        item_execution: LiveNodeItemExecution::Direct,
                         children: Vec::new(),
                     },
                     OrderedSceneOp::LiveSubtree {
                         handle: dynamic_child,
-                        item_execution: LiveNodeItemExecution::FrameLocalPicture,
                         children: Vec::new(),
                     },
                 ],
@@ -392,8 +369,6 @@ mod ordered_scene_tests {
                 table.insert(
                     root,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: true,
                         paint_fingerprint: None,
                         snapshot_fingerprint: None,
                     },
@@ -401,8 +376,6 @@ mod ordered_scene_tests {
                 table.insert(
                     stable_child,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: false,
                         paint_fingerprint: Some(12),
                         snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(13)),
                     },
@@ -410,8 +383,6 @@ mod ordered_scene_tests {
                 table.insert(
                     stable_grandchild,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: false,
                         paint_fingerprint: Some(14),
                         snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(15)),
                     },
@@ -419,8 +390,6 @@ mod ordered_scene_tests {
                 table.insert(
                     dynamic_child,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::TimeVariant,
-                        subtree_contains_time_variant: true,
                         paint_fingerprint: None,
                         snapshot_fingerprint: None,
                     },
@@ -435,14 +404,12 @@ mod ordered_scene_tests {
             program.root,
             OrderedSceneOp::LiveSubtree {
                 handle: root,
-                item_execution: LiveNodeItemExecution::Direct,
                 children: vec![
                     OrderedSceneOp::CachedSubtree {
                         handle: stable_child,
                     },
                     OrderedSceneOp::LiveSubtree {
                         handle: dynamic_child,
-                        item_execution: LiveNodeItemExecution::FrameLocalPicture,
                         children: Vec::new(),
                     },
                 ],
@@ -489,8 +456,6 @@ mod ordered_scene_tests {
                 table.insert(
                     root,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: false,
                         paint_fingerprint: Some(11),
                         snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(12)),
                     },
@@ -498,8 +463,6 @@ mod ordered_scene_tests {
                 table.insert(
                     stable_child,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: false,
                         paint_fingerprint: Some(21),
                         snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(22)),
                     },
@@ -507,8 +470,6 @@ mod ordered_scene_tests {
                 table.insert(
                     stable_grandchild,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: false,
                         paint_fingerprint: Some(31),
                         snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(32)),
                     },
@@ -520,7 +481,6 @@ mod ordered_scene_tests {
 
         let subtree = OrderedSceneProgram::build_subtree(&tree, root);
         assert_eq!(subtree.handle, root);
-        assert_eq!(subtree.item_execution, LiveNodeItemExecution::Direct);
         assert_eq!(
             subtree.children,
             vec![OrderedSceneOp::CachedSubtree {
@@ -567,8 +527,6 @@ mod ordered_scene_tests {
                 table.insert(
                     root,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: false,
                         paint_fingerprint: Some(11),
                         snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(12)),
                     },
@@ -576,8 +534,6 @@ mod ordered_scene_tests {
                 table.insert(
                     child,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: false,
                         paint_fingerprint: Some(21),
                         snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(22)),
                     },
@@ -585,8 +541,6 @@ mod ordered_scene_tests {
                 table.insert(
                     grandchild,
                     DisplayNodeAnalysis {
-                        paint_variance: PaintVariance::Stable,
-                        subtree_contains_time_variant: false,
                         paint_fingerprint: Some(31),
                         snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(32)),
                     },
@@ -601,7 +555,6 @@ mod ordered_scene_tests {
             program.root,
             OrderedSceneOp::LiveSubtree {
                 handle: root,
-                item_execution: LiveNodeItemExecution::Direct,
                 children: vec![OrderedSceneOp::CachedSubtree { handle: child }],
             }
         );
@@ -613,26 +566,20 @@ pub struct SceneRenderPlan {
 }
 
 impl SceneRenderPlan {
-    pub fn from_layout_pass(
-        layout_pass: &LayoutPassStats,
-        contains_time_variant_paint: bool,
-    ) -> Self {
+    pub fn from_layout_pass(layout_pass: &LayoutPassStats) -> Self {
         let has_structural_change = layout_pass.structure_rebuild
             || layout_pass.layout_dirty_nodes > 0
             || layout_pass.raster_dirty_nodes > 0
             || layout_pass.composite_dirty_nodes > 0;
 
         Self {
-            allows_scene_snapshot_cache: !contains_time_variant_paint && !has_structural_change,
+            allows_scene_snapshot_cache: !has_structural_change,
         }
     }
 }
 
-pub fn plan_for_scene(
-    layout_pass: &LayoutPassStats,
-    contains_time_variant_paint: bool,
-) -> SceneRenderPlan {
-    SceneRenderPlan::from_layout_pass(layout_pass, contains_time_variant_paint)
+pub fn plan_for_scene(layout_pass: &LayoutPassStats) -> SceneRenderPlan {
+    SceneRenderPlan::from_layout_pass(layout_pass)
 }
 
 #[cfg(test)]
@@ -641,24 +588,13 @@ mod plan_tests {
     use crate::layout::LayoutPassStats;
 
     #[test]
-    fn time_variant_paint_scene_disables_scene_snapshot_cache() {
-        let plan = SceneRenderPlan::from_layout_pass(&LayoutPassStats::default(), true);
-        assert_eq!(
-            plan,
-            SceneRenderPlan {
-                allows_scene_snapshot_cache: false,
-            }
-        );
-    }
-
-    #[test]
     fn composite_only_scene_disables_scene_snapshot_cache() {
         let layout_pass = LayoutPassStats {
             composite_dirty_nodes: 2,
             ..LayoutPassStats::default()
         };
 
-        let plan = SceneRenderPlan::from_layout_pass(&layout_pass, false);
+        let plan = SceneRenderPlan::from_layout_pass(&layout_pass);
         assert_eq!(
             plan,
             SceneRenderPlan {
@@ -669,7 +605,7 @@ mod plan_tests {
 
     #[test]
     fn clean_scene_reuses_scene_snapshot_cache() {
-        let plan = SceneRenderPlan::from_layout_pass(&LayoutPassStats::default(), false);
+        let plan = SceneRenderPlan::from_layout_pass(&LayoutPassStats::default());
         assert_eq!(
             plan,
             SceneRenderPlan {
@@ -689,12 +625,6 @@ pub enum StableNodeReuse {
     TextSnapshotLeaf,
     /// 稳定的非叶子子树，由 `SubtreeSnapshotCache` 跨帧复用。
     SubtreeSnapshot,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
-pub enum LiveNodeItemExecution {
-    Direct,
-    FrameLocalPicture,
 }
 
 pub fn analyze_stable_node_reuse(
@@ -721,35 +651,9 @@ pub fn analyze_stable_node_reuse(
     }
 }
 
-pub fn analyze_live_node_item_execution(
-    display_tree: &AnnotatedDisplayTree,
-    handle: AnnotatedNodeHandle,
-) -> LiveNodeItemExecution {
-    match &display_tree.node(handle).item {
-        DisplayItem::DrawScript(_) => {
-            // Stable DrawScript 有 paint fingerprint → 交给 draw_display_item 走 ItemPictureCache。
-            // TimeVariant 保留 FrameLocalPicture 兜底,避免给 cache 塞永远 miss 的短命 key。
-            match display_tree.analysis(handle).paint_variance {
-                crate::analyze::fingerprint::PaintVariance::Stable => LiveNodeItemExecution::Direct,
-                crate::analyze::fingerprint::PaintVariance::TimeVariant => {
-                    LiveNodeItemExecution::FrameLocalPicture
-                }
-            }
-        }
-        DisplayItem::Timeline(_) => LiveNodeItemExecution::Direct,
-        DisplayItem::Rect(_)
-        | DisplayItem::Text(_)
-        | DisplayItem::Bitmap(_)
-        | DisplayItem::SvgPath(_) => LiveNodeItemExecution::Direct,
-    }
-}
-
 #[cfg(test)]
 mod reuse_tests {
-    use super::{
-        LiveNodeItemExecution, StableNodeReuse, analyze_live_node_item_execution,
-        analyze_stable_node_reuse,
-    };
+    use super::{StableNodeReuse, analyze_stable_node_reuse};
     use crate::{
         analyze::{
             DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
@@ -757,11 +661,11 @@ mod reuse_tests {
             annotation::{
                 AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey,
             },
-            fingerprint::{PaintVariance, SubtreeSnapshotFingerprint},
+            fingerprint::SubtreeSnapshotFingerprint,
         },
         display::list::{
-            DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem, RectDisplayItem,
-            RectPaintStyle, TextDisplayItem,
+            DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem, RectPaintStyle,
+            TextDisplayItem,
         },
         style::{BorderRadius, ComputedTextStyle},
     };
@@ -825,8 +729,6 @@ mod reuse_tests {
         analysis.insert(
             AnnotatedNodeHandle(0),
             DisplayNodeAnalysis {
-                paint_variance: PaintVariance::Stable,
-                subtree_contains_time_variant: false,
                 paint_fingerprint: Some(1),
                 snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(2)),
             },
@@ -869,8 +771,6 @@ mod reuse_tests {
         analysis.insert(
             AnnotatedNodeHandle(0),
             DisplayNodeAnalysis {
-                paint_variance: PaintVariance::Stable,
-                subtree_contains_time_variant: false,
                 paint_fingerprint: Some(1),
                 snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(2)),
             },
@@ -908,8 +808,6 @@ mod reuse_tests {
         analysis.insert(
             AnnotatedNodeHandle(0),
             DisplayNodeAnalysis {
-                paint_variance: PaintVariance::Stable,
-                subtree_contains_time_variant: false,
                 paint_fingerprint: Some(1),
                 snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(2)),
             },
@@ -957,8 +855,6 @@ mod reuse_tests {
         analysis.insert(
             AnnotatedNodeHandle(0),
             DisplayNodeAnalysis {
-                paint_variance: PaintVariance::Stable,
-                subtree_contains_time_variant: false,
                 paint_fingerprint: Some(1),
                 snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(3)),
             },
@@ -971,6 +867,7 @@ mod reuse_tests {
                     width: 10,
                     height: 10,
                     video_timing: None,
+                    paint_epoch: 0,
                     object_fit: ObjectFit::Fill,
                     paint: BitmapPaintStyle {
                         background: None,
@@ -996,70 +893,6 @@ mod reuse_tests {
         assert_eq!(
             analyze_stable_node_reuse(&display_tree, AnnotatedNodeHandle(0)),
             StableNodeReuse::ItemPictureLeaf
-        );
-    }
-
-    #[test]
-    fn draw_script_stable_prefers_direct_execution() {
-        let mut analysis = DisplayAnalysisTable::default();
-        analysis.insert(
-            AnnotatedNodeHandle(0),
-            DisplayNodeAnalysis {
-                paint_variance: PaintVariance::Stable,
-                subtree_contains_time_variant: false,
-                paint_fingerprint: Some(7),
-                snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(8)),
-            },
-        );
-        let display_tree = tree(
-            vec![node(
-                DisplayItem::DrawScript(DrawScriptDisplayItem {
-                    bounds: rect_bounds(),
-                    commands: Vec::new(),
-                    drop_shadow: None,
-                    hidden_subtree: Vec::new(),
-                }),
-                Vec::new(),
-            )],
-            analysis,
-        );
-
-        assert_eq!(
-            analyze_live_node_item_execution(&display_tree, AnnotatedNodeHandle(0)),
-            LiveNodeItemExecution::Direct,
-            "Stable DrawScript 应走 Direct 路径,由 draw_display_item 接 ItemPictureCache"
-        );
-    }
-
-    #[test]
-    fn draw_script_time_variant_falls_back_to_frame_local_picture() {
-        let mut analysis = DisplayAnalysisTable::default();
-        analysis.insert(
-            AnnotatedNodeHandle(0),
-            DisplayNodeAnalysis {
-                paint_variance: PaintVariance::TimeVariant,
-                subtree_contains_time_variant: true,
-                paint_fingerprint: None,
-                snapshot_fingerprint: None,
-            },
-        );
-        let display_tree = tree(
-            vec![node(
-                DisplayItem::DrawScript(DrawScriptDisplayItem {
-                    bounds: rect_bounds(),
-                    commands: Vec::new(),
-                    drop_shadow: None,
-                    hidden_subtree: Vec::new(),
-                }),
-                Vec::new(),
-            )],
-            analysis,
-        );
-
-        assert_eq!(
-            analyze_live_node_item_execution(&display_tree, AnnotatedNodeHandle(0)),
-            LiveNodeItemExecution::FrameLocalPicture,
-            "TimeVariant DrawScript 走 FrameLocalPicture 兜底,不污染 ItemPictureCache"
         );
     }
 }

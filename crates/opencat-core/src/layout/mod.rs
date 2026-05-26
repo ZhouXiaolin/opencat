@@ -295,7 +295,11 @@ fn ordered_hidden_children(element: &ElementNode) -> Vec<(usize, &ElementNode)> 
     let ElementKind::Canvas(canvas) = &element.kind else {
         return Vec::new();
     };
-    let mut children = canvas.hidden_children.iter().enumerate().collect::<Vec<_>>();
+    let mut children = canvas
+        .hidden_children
+        .iter()
+        .enumerate()
+        .collect::<Vec<_>>();
     if element.style.layout.is_flex || element.style.layout.is_grid {
         children.sort_by_key(|(index, child)| (child.style.layout.order, *index));
     }
@@ -945,7 +949,12 @@ fn build_layout_tree(
     for ((_, element_child), taffy_child) in
         ordered_children(element).into_iter().zip(taffy_children)
     {
-        children.push(build_layout_tree(element_child, taffy, taffy_child, font_db)?);
+        children.push(build_layout_tree(
+            element_child,
+            taffy,
+            taffy_child,
+            font_db,
+        )?);
     }
 
     let hidden_children =

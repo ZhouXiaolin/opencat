@@ -1,6 +1,6 @@
 use super::{
-    FAAC_CFG_VERSION, InputFormat, JointMode, LOW, MAX_CHANNELS, MPEG4,
-    NSFB_LONG, NSFB_SHORT, ShortControl, StreamFormat,
+    FAAC_CFG_VERSION, InputFormat, JointMode, LOW, MAX_CHANNELS, MPEG4, NSFB_LONG, NSFB_SHORT,
+    ShortControl, StreamFormat,
 };
 
 #[derive(Clone)]

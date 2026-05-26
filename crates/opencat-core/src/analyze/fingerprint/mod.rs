@@ -5,7 +5,6 @@
 //!   不含当前节点自己的 composite，但递归包含所有后代 composite，因为后代会被烘焙进当前节点 picture。
 //! - [`composite_signature`]：每帧比对用的合成参数摘要（transform/opacity/blur），
 //!   **不进入缓存键**。
-//! - [`classify_paint`]：判定单个 DisplayItem 的 paint variance。
 //!
 //! 这个模块是纯函数、无副作用、无状态、不依赖 profile。
 
@@ -25,20 +24,11 @@ use crate::{
     display::list::DisplayItem,
 };
 
-use display_item::{ClipFp, DisplayItemFp, F32Hash, item_is_time_variant};
+use display_item::{ClipFp, DisplayItemFp, F32Hash};
 
 /// subtree picture cache 的 fingerprint。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SubtreeSnapshotFingerprint(pub u64);
-
-/// 每个节点的 paint variance 分类。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PaintVariance {
-    /// 画面内容跨帧稳定。
-    Stable,
-    /// 画面内容每帧都可能变。
-    TimeVariant,
-}
 
 /// 合成参数摘要：transform、opacity、blur。
 ///
@@ -78,25 +68,12 @@ impl CompositeSig {
     }
 }
 
-/// 判定单个 DisplayItem 的 paint variance。
-pub fn classify_paint(item: &DisplayItem) -> PaintVariance {
-    if item_is_time_variant(item) {
-        PaintVariance::TimeVariant
-    } else {
-        PaintVariance::Stable
-    }
-}
-
 /// 计算单个 DisplayItem 的 paint fingerprint(作为 `ItemPictureCache` key)。
 ///
 /// 语义:
-/// - TimeVariant 项(包含视频 Bitmap) → None(不进 cache)
-///   视频帧数据由下层 `video_frame_cache` 按 pts 做复用,Picture 层无需再缓存。
-/// - Stable 项 → Some(基于 `DisplayItemFp` 全量 hash)
+/// - 稳定内容的 paint epoch 固定为 0。
+/// - 跟随时间变化的内容把当前帧身份写入 DisplayItem,直接进入 hash。
 pub fn item_paint_fingerprint(item: &DisplayItem) -> Option<u64> {
-    if item_is_time_variant(item) {
-        return None;
-    }
     let mut hasher = new_hasher();
     DisplayItemFp(item).hash(&mut hasher);
     Some(hasher.finish())
@@ -108,11 +85,7 @@ pub fn item_paint_fingerprint(item: &DisplayItem) -> Option<u64> {
 pub(crate) fn annotated_subtree_paint_fingerprint(
     node: &AnnotatedDisplayNode,
     analysis: &DisplayAnalysisTable,
-    subtree_contains_time_variant: bool,
 ) -> Option<u64> {
-    if subtree_contains_time_variant {
-        return None;
-    }
     let mut hasher = new_hasher();
     hash_node_recorded_paint(node, &mut hasher);
     node.children.len().hash(&mut hasher);
@@ -136,12 +109,7 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
     nodes: &[AnnotatedDisplayNode],
     analysis: &DisplayAnalysisTable,
     invalidation: &DisplayInvalidationTable,
-    subtree_contains_time_variant: bool,
 ) -> Option<SubtreeSnapshotFingerprint> {
-    if subtree_contains_time_variant {
-        return None;
-    }
-
     if subtree_has_dirty_descendant_composite(node, nodes, invalidation) {
         return None;
     }
@@ -245,7 +213,6 @@ mod tests {
         opacity: f32,
         backdrop_blur_sigma: Option<f32>,
         clip: Option<DisplayClip>,
-        paint_variance: PaintVariance,
         composite_dirty: bool,
         children: Vec<TestAnnotatedNode>,
         background: Option<crate::style::BackgroundFill>,
@@ -259,7 +226,6 @@ mod tests {
                 opacity: 1.0,
                 backdrop_blur_sigma: None,
                 clip: None,
-                paint_variance: PaintVariance::Stable,
                 composite_dirty: false,
                 children: Vec::new(),
                 background: None,
@@ -276,7 +242,6 @@ mod tests {
         clip: Option<DisplayClip>,
         item: DisplayItem,
         children: Vec<TestAnnotatedNode>,
-        paint_variance: PaintVariance,
         composite_dirty: bool,
     }
 
@@ -325,7 +290,6 @@ mod tests {
                 },
             }),
             children: config.children,
-            paint_variance: config.paint_variance,
             composite_dirty: config.composite_dirty,
         }
     }
@@ -397,32 +361,15 @@ mod tests {
             hidden_subtree: Vec::new(),
         };
 
-        let subtree_contains_time_variant =
-            matches!(node.paint_variance, PaintVariance::TimeVariant)
-                || annotated.children.iter().any(|&child_handle| {
-                    analysis.require(child_handle).subtree_contains_time_variant
-                });
-
-        let mut node_analysis = DisplayNodeAnalysis {
-            paint_variance: node.paint_variance,
-            subtree_contains_time_variant,
-            paint_fingerprint: None,
-            snapshot_fingerprint: None,
-        };
-        if !subtree_contains_time_variant {
-            node_analysis.paint_fingerprint = annotated_subtree_paint_fingerprint(
-                &annotated,
-                analysis,
-                subtree_contains_time_variant,
-            );
-            node_analysis.snapshot_fingerprint = annotated_subtree_snapshot_fingerprint(
+        let node_analysis = DisplayNodeAnalysis {
+            paint_fingerprint: annotated_subtree_paint_fingerprint(&annotated, analysis),
+            snapshot_fingerprint: annotated_subtree_snapshot_fingerprint(
                 &annotated,
                 nodes,
                 analysis,
                 invalidation,
-                subtree_contains_time_variant,
-            );
-        }
+            ),
+        };
         let mut node_layer_bounds = annotated.item.visual_bounds();
         for &child_handle in &annotated.children {
             let child = &nodes[child_handle.0];
@@ -756,14 +703,15 @@ mod tests {
     }
 
     #[test]
-    fn bitmap_time_variant_for_video_asset() {
+    fn video_bitmap_fingerprint_tracks_paint_epoch() {
         let asset_id = AssetId("/tmp/fake.mp4".into());
-        let bitmap_item = DisplayItem::Bitmap(BitmapDisplayItem {
+        let item_a = DisplayItem::Bitmap(BitmapDisplayItem {
             bounds: empty_bounds(),
-            asset_id,
+            asset_id: asset_id.clone(),
             width: 10,
             height: 10,
             video_timing: Some(crate::resource::types::VideoFrameTiming::default()),
+            paint_epoch: 10,
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
                 background: None,
@@ -781,12 +729,34 @@ mod tests {
                 drop_shadow: None,
             },
         });
-        assert_eq!(classify_paint(&bitmap_item), PaintVariance::TimeVariant);
-        // 视频 Bitmap 不再进 ItemPictureCache —— 解码层的 video_frame_cache 已按
-        // pts 复用帧数据,Picture 层冻帧会破坏"视频视为变化"的设计原则。
-        assert!(
-            item_paint_fingerprint(&bitmap_item).is_none(),
-            "video bitmap 不应有 paint fingerprint,避免 ItemPictureCache 冻帧"
+        let item_b = DisplayItem::Bitmap(BitmapDisplayItem {
+            bounds: empty_bounds(),
+            asset_id,
+            width: 10,
+            height: 10,
+            video_timing: Some(crate::resource::types::VideoFrameTiming::default()),
+            paint_epoch: 11,
+            object_fit: ObjectFit::Fill,
+            paint: BitmapPaintStyle {
+                background: None,
+                border_radius: BorderRadius::default(),
+                border_width: None,
+                border_top_width: None,
+                border_right_width: None,
+                border_bottom_width: None,
+                border_left_width: None,
+                border_color: None,
+                border_style: None,
+                blur_sigma: None,
+                box_shadow: None,
+                inset_shadow: None,
+                drop_shadow: None,
+            },
+        });
+        assert_ne!(
+            item_paint_fingerprint(&item_a),
+            item_paint_fingerprint(&item_b),
+            "video bitmap fingerprint must change with current frame epoch"
         );
     }
 
@@ -799,11 +769,9 @@ mod tests {
             hidden_subtree: Vec::new(),
         });
 
-        // 命令序列空 → hash 稳定 → Stable
-        assert_eq!(classify_paint(&script_item), PaintVariance::Stable);
         assert!(
             item_paint_fingerprint(&script_item).is_some(),
-            "Stable DrawScript 必须有 paint fingerprint 作为 ItemPictureCache 的 key"
+            "DrawScript 必须有 paint fingerprint 作为 ItemPictureCache 的 key"
         );
     }
 
@@ -818,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    fn video_bitmap_paint_fingerprint_is_none() {
+    fn video_bitmap_paint_fingerprint_is_some() {
         let asset_id = AssetId("/tmp/fake.mp4".into());
 
         let item = DisplayItem::Bitmap(BitmapDisplayItem {
@@ -831,6 +799,7 @@ mod tests {
                 playback_rate: 1.0,
                 looping: false,
             }),
+            paint_epoch: 42,
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
                 background: None,
@@ -850,43 +819,8 @@ mod tests {
         });
 
         assert!(
-            item_paint_fingerprint(&item).is_none(),
-            "视频 bitmap 绕过 ItemPictureCache,保证每帧重新走 draw_bitmap 解码路径"
-        );
-    }
-
-    #[test]
-    fn video_bitmap_paint_variance_stays_time_variant() {
-        let asset_id = AssetId("/tmp/fake.mp4".into());
-
-        let item = DisplayItem::Bitmap(BitmapDisplayItem {
-            bounds: empty_bounds(),
-            asset_id,
-            width: 10,
-            height: 10,
-            video_timing: Some(crate::resource::types::VideoFrameTiming::default()),
-            object_fit: ObjectFit::Fill,
-            paint: BitmapPaintStyle {
-                background: None,
-                border_radius: BorderRadius::default(),
-                border_width: None,
-                border_top_width: None,
-                border_right_width: None,
-                border_bottom_width: None,
-                border_left_width: None,
-                border_color: None,
-                border_style: None,
-                blur_sigma: None,
-                box_shadow: None,
-                inset_shadow: None,
-                drop_shadow: None,
-            },
-        });
-
-        assert_eq!(
-            classify_paint(&item),
-            PaintVariance::TimeVariant,
-            "Video Bitmap 在子树层面仍是 TimeVariant,避免父子树 snapshot 误命中"
+            item_paint_fingerprint(&item).is_some(),
+            "视频 bitmap 应用当前帧 epoch 参与 fingerprint"
         );
     }
 }

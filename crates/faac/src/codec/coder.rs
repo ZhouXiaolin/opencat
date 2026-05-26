@@ -1,6 +1,4 @@
-use super::{
-    WindowShape, WindowType, DATASIZE, MAX_SCFAC_BANDS, MAX_SHORT_WINDOWS, NSFB_LONG,
-};
+use super::{DATASIZE, MAX_SCFAC_BANDS, MAX_SHORT_WINDOWS, NSFB_LONG, WindowShape, WindowType};
 use crate::coding::TnsInfo;
 
 #[derive(Clone, Copy)]

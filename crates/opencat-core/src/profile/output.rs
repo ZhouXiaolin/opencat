@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::profile::{
-    BackendSpanAggregate, BackendSpanKey, FrameProfile, RenderProfileSummary,
-};
+use crate::profile::{BackendSpanAggregate, BackendSpanKey, FrameProfile, RenderProfileSummary};
 
 pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
     let frame_count = summary.frames.len();

@@ -10,6 +10,7 @@ use crate::{
         },
         tree::{DisplayNode, DisplayTree, HiddenChildDisplayNode},
     },
+    frame_ctx::FrameCtx,
     layout::tree::{LayoutNode, LayoutTree},
     parse::transition::TransitionKind,
     resolve::tree::{ElementKind, ElementNode},
@@ -18,13 +19,18 @@ use crate::{
 pub fn build_display_tree(
     element_root: &ElementNode,
     layout_tree: &LayoutTree,
+    frame_ctx: &FrameCtx,
 ) -> Result<DisplayTree> {
     Ok(DisplayTree {
-        root: build_display_node(element_root, &layout_tree.root)?,
+        root: build_display_node(element_root, &layout_tree.root, frame_ctx)?,
     })
 }
 
-fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<DisplayNode> {
+fn build_display_node(
+    element: &ElementNode,
+    layout: &LayoutNode,
+    frame_ctx: &FrameCtx,
+) -> Result<DisplayNode> {
     if element.children.len() != layout.children.len() {
         return Err(anyhow!(
             "element/layout child count mismatch while building display tree"
@@ -45,10 +51,10 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
         .collect::<Vec<_>>();
     child_pairs.sort_by_key(|(child, _)| child.style.layout.z_index);
 
-    let item = display_item_for_node(element, bounds);
+    let item = display_item_for_node(element, bounds, frame_ctx);
     let children = child_pairs
         .into_iter()
-        .map(|(child, child_layout)| build_display_node(child, child_layout))
+        .map(|(child, child_layout)| build_display_node(child, child_layout, frame_ctx))
         .collect::<Result<Vec<_>>>()?;
 
     let visual = &element.style.visual;
@@ -81,7 +87,7 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
         None
     };
 
-    let hidden_subtree = build_hidden_subtree(element, layout)?;
+    let hidden_subtree = build_hidden_subtree(element, layout, frame_ctx)?;
 
     let draw_slot = if element.draw_slot.commands.is_empty() {
         None
@@ -115,6 +121,7 @@ fn build_display_node(element: &ElementNode, layout: &LayoutNode) -> Result<Disp
 fn build_hidden_subtree(
     element: &ElementNode,
     layout: &LayoutNode,
+    frame_ctx: &FrameCtx,
 ) -> Result<Vec<HiddenChildDisplayNode>> {
     let ElementKind::Canvas(canvas) = &element.kind else {
         return Ok(Vec::new());
@@ -134,14 +141,18 @@ fn build_hidden_subtree(
         .zip(layout.hidden_children.iter())
         .map(|(child, child_layout)| {
             Ok(HiddenChildDisplayNode {
-                node: build_display_node(child, child_layout)?,
+                node: build_display_node(child, child_layout, frame_ctx)?,
                 owner_id: owner_id.clone(),
             })
         })
         .collect()
 }
 
-fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayItem {
+fn display_item_for_node(
+    element: &ElementNode,
+    bounds: DisplayRect,
+    frame_ctx: &FrameCtx,
+) -> DisplayItem {
     match &element.kind {
         ElementKind::Div(_) => DisplayItem::Rect(RectDisplayItem {
             bounds,
@@ -219,6 +230,7 @@ fn display_item_for_node(element: &ElementNode, bounds: DisplayRect) -> DisplayI
             width: bitmap.width,
             height: bitmap.height,
             video_timing: bitmap.video_timing,
+            paint_epoch: bitmap.video_timing.map_or(0, |_| frame_ctx.frame as u64),
             object_fit: element.style.visual.object_fit,
             paint: BitmapPaintStyle {
                 background: element.style.visual.background,
@@ -375,7 +387,8 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree, &frame_ctx)
+            .expect("display tree should build");
         let DisplayItem::Bitmap(bitmap) = &tree.root.children[0].item else {
             panic!("expected bitmap draw item");
         };
@@ -446,7 +459,8 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree, &frame_ctx)
+            .expect("display tree should build");
         let texts = tree
             .root
             .children
@@ -506,7 +520,8 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree, &frame_ctx)
+            .expect("display tree should build");
         let clip = tree.root.clip.as_ref();
         assert!(clip.is_some());
         assert_eq!(
@@ -579,7 +594,8 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree, &frame_ctx)
+            .expect("display tree should build");
         let texts = tree
             .root
             .children
@@ -661,8 +677,10 @@ mod tests {
             ),
         };
 
-        let tree_a = build_display_tree(&resolved, &layout_a).expect("display tree should build");
-        let tree_b = build_display_tree(&resolved, &layout_b).expect("display tree should build");
+        let tree_a = build_display_tree(&resolved, &layout_a, &frame_ctx)
+            .expect("display tree should build");
+        let tree_b = build_display_tree(&resolved, &layout_b, &frame_ctx)
+            .expect("display tree should build");
         let mut annotated_a = annotate_display_tree(&tree_a);
         compute_display_tree_fingerprints(&mut annotated_a);
         let mut annotated_b = annotate_display_tree(&tree_b);
@@ -732,7 +750,8 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree, &frame_ctx)
+            .expect("display tree should build");
         let DisplayItem::SvgPath(svg) = &tree.root.children[0].item else {
             panic!("expected svg path item");
         };
@@ -782,7 +801,8 @@ mod tests {
             ),
         };
 
-        let err = build_display_tree(&resolved, &layout_tree).expect_err("expected mismatch");
+        let err =
+            build_display_tree(&resolved, &layout_tree, &frame_ctx).expect_err("expected mismatch");
         assert!(err.to_string().contains("child count mismatch"));
     }
 
@@ -834,7 +854,8 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree, &frame_ctx)
+            .expect("display tree should build");
         let DisplayItem::SvgPath(svg) = &tree.root.children[0].item else {
             panic!(
                 "expected svg path item, got {:?}",
@@ -910,7 +931,8 @@ mod tests {
             ),
         };
 
-        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree, &frame_ctx)
+            .expect("display tree should build");
         assert_eq!(tree.root.hidden_subtree.len(), 1);
 
         let hidden = &tree.root.hidden_subtree[0].node;
@@ -954,7 +976,8 @@ mod tests {
         .expect("tree should resolve");
         let layout_tree =
             crate::layout::compute_layout(&resolved, &frame_ctx).expect("layout should compute");
-        let tree = build_display_tree(&resolved, &layout_tree).expect("display tree should build");
+        let tree = build_display_tree(&resolved, &layout_tree, &frame_ctx)
+            .expect("display tree should build");
         let canvas = &tree.root.children[0];
 
         for hidden in canvas.hidden_subtree.iter().take(12) {

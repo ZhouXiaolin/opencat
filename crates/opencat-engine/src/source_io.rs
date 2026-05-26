@@ -157,8 +157,11 @@ mod tests {
         let fixture_dir = unique_test_dir("xml-parse");
         fs::create_dir_all(&fixture_dir).expect("fixture dir");
         let xml_path = fixture_dir.join("test.xml");
-        fs::write(&xml_path, r#"<opencat width="320" height="240" fps="30" frames="1"><div id="root" /></opencat>"#)
-            .expect("xml fixture");
+        fs::write(
+            &xml_path,
+            r#"<opencat width="320" height="240" fps="30" frames="1"><div id="root" /></opencat>"#,
+        )
+        .expect("xml fixture");
         let parsed = parse_file(&xml_path).expect("xml should parse");
         assert_eq!(parsed.width, 320);
         assert_eq!(parsed.height, 240);

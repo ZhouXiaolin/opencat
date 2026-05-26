@@ -731,10 +731,20 @@ mod tests {
             children: vec![ScriptRuntimeEffectChild::Image(ImageRef::Static {
                 asset_id: "img".into(),
             })],
-            dst: Rect4 { x: 0.0, y: 0.0, width: 10.0, height: 10.0 },
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
         };
         match &op {
-            DrawOp::ScriptRuntimeEffect { sksl, uniforms_bytes, children, dst } => {
+            DrawOp::ScriptRuntimeEffect {
+                sksl,
+                uniforms_bytes,
+                children,
+                dst,
+            } => {
                 assert!(sksl.contains("half4"));
                 assert_eq!(uniforms_bytes.len(), 4);
                 assert_eq!(children.len(), 1);
@@ -752,10 +762,17 @@ mod tests {
             sksl: s.to_string(),
             uniforms_bytes: Vec::new(),
             children: Vec::new(),
-            dst: Rect4 { x: 0.0, y: 0.0, width: 1.0, height: 1.0 },
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            },
         };
-        let mut h1 = DefaultHasher::new(); make("a").hash(&mut h1);
-        let mut h2 = DefaultHasher::new(); make("b").hash(&mut h2);
+        let mut h1 = DefaultHasher::new();
+        make("a").hash(&mut h1);
+        let mut h2 = DefaultHasher::new();
+        make("b").hash(&mut h2);
         assert_ne!(h1.finish(), h2.finish());
     }
 }

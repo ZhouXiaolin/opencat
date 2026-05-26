@@ -1219,10 +1219,7 @@ fn execute_script_runtime_effect(
     Ok(())
 }
 
-fn render_hidden_child_node(
-    ctx: &mut RenderCtx,
-    node: &DisplayNode,
-) -> Result<(), RenderError> {
+fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(), RenderError> {
     if node.opacity <= 0.0 {
         return Ok(());
     }

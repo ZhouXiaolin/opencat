@@ -18,9 +18,9 @@ use super::writer::{
     LEN_TNS_NFILTS, LEN_TNS_ORDERL, LEN_TNS_ORDERS, LEN_TNS_PRES, LEN_WIN_SEQ, LEN_WIN_SH,
     bit2byte,
 };
+use crate::codec::StreamFormat;
 use crate::codec::{ChannelInfo, ElementType};
 use crate::codec::{CoderInfo, DEF_TNS_RES_OFFSET, MAX_SHORT_WINDOWS, WindowType};
-use crate::codec::StreamFormat;
 
 pub const ADTS_FRAMESIZE: usize = 1 << 13;
 
@@ -157,7 +157,12 @@ impl CoderInfo {
 
         let (num_windows, len_tns_nfilt, len_tns_length, len_tns_order) =
             if self.block_type == WindowType::OnlyShortWindow {
-                (MAX_SHORT_WINDOWS as i32, LEN_TNS_NFILTS, LEN_TNS_LENGTHS, LEN_TNS_ORDERS)
+                (
+                    MAX_SHORT_WINDOWS as i32,
+                    LEN_TNS_NFILTS,
+                    LEN_TNS_LENGTHS,
+                    LEN_TNS_ORDERS,
+                )
             } else {
                 (1, LEN_TNS_NFILTL, LEN_TNS_LENGTHL, LEN_TNS_ORDERL)
             };
@@ -374,7 +379,11 @@ fn write_aac_fill_bits(stream: &mut BitStream, num_bits: i32, write: bool) -> i3
 }
 
 fn byte_align(stream: &mut BitStream, write: bool, bits_so_far: i32) -> i32 {
-    let len = if write { stream.num_bit as i32 } else { bits_so_far };
+    let len = if write {
+        stream.num_bit as i32
+    } else {
+        bits_so_far
+    };
     let mut j = (8 - (len % 8)) % 8;
     if len % 8 == 0 {
         j = 0;
@@ -419,13 +428,7 @@ fn count_bitstream(
             }
         } else if channel[ch].ch_is_left {
             let rch = channel[ch].paired_ch as usize;
-            bits += write_cpe(
-                &coder[ch],
-                &coder[rch],
-                &channel[ch],
-                stream,
-                false,
-            );
+            bits += write_cpe(&coder[ch], &coder[rch], &channel[ch], stream, false);
         }
     }
 
@@ -495,13 +498,7 @@ pub fn write_bitstream(
             }
         } else if channel[ch].ch_is_left {
             let rch = channel[ch].paired_ch as usize;
-            bits += write_cpe(
-                &coder[ch],
-                &coder[rch],
-                &channel[ch],
-                stream,
-                true,
-            );
+            bits += write_cpe(&coder[ch], &coder[rch], &channel[ch], stream, true);
         }
     }
 

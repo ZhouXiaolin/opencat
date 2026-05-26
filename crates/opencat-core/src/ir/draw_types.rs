@@ -292,11 +292,7 @@ pub enum ShaderType {
 impl std::hash::Hash for ShaderType {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            ShaderType::LinearGradient {
-                start,
-                end,
-                colors,
-            } => {
+            ShaderType::LinearGradient { start, end, colors } => {
                 0_u8.hash(state);
                 start.0.to_bits().hash(state);
                 start.1.to_bits().hash(state);

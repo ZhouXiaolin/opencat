@@ -1,5 +1,6 @@
 import type { WebRendererInstance } from '../wasm';
 import {
+  getDecodedFrameRgba,
   getDecodedVideoFrame,
   prefetchDecodedVideoFrame,
   type VideoPreviewQuality,
@@ -16,6 +17,7 @@ interface InjectVideoFramesOptions {
   frame: number;
   resourcesJson: string;
   quality: VideoPreviewQuality;
+  frameOutput?: 'source' | 'rgba';
 }
 
 interface CachedVideoFrameRgba {
@@ -78,6 +80,7 @@ export async function injectVideoFramesForRender({
   frame,
   resourcesJson,
   quality,
+  frameOutput = 'source',
 }: InjectVideoFramesOptions): Promise<void> {
   clearCachedVideoFrames();
 
@@ -98,6 +101,18 @@ export async function injectVideoFramesForRender({
   await Promise.all(
     Array.from(byAsset.values()).map(async (item) => {
       try {
+        if (frameOutput === 'rgba') {
+          const decoded = await getDecodedFrameRgba(
+            item.assetId,
+            item.localTimeSecs,
+            quality,
+          );
+          if (!decoded) return;
+
+          decodedFrameRgbaCache.set(videoFrameKey(item.assetId, frame), decoded);
+          return;
+        }
+
         const decoded = await getDecodedVideoFrame(
           item.assetId,
           item.localTimeSecs,

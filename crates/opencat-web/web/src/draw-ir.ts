@@ -86,6 +86,7 @@ const SECTION_PAINTS = 7;
 const SECTION_PATHS = 8;
 const SECTION_CHILDREN = 9;
 const SECTION_EFFECTS = 10;
+const SECTION_SUBTREES = 11;
 
 const OP_SAVE = 0;
 const OP_SAVE_LAYER = 1;
@@ -171,6 +172,7 @@ type PathCommand = { kind: number; values: number[] };
 type ChildRef =
   | { type: 'image'; image: DecodedImageRef }
   | { type: 'picture'; range: Range }
+  | { type: 'subtreePicture'; subtree: number }
   | { type: 'shader'; shader: ShaderSpec };
 
 type ShaderSpec =
@@ -180,6 +182,7 @@ type ShaderSpec =
 type RuntimeEffectSpec = { hash: bigint; sksl: string };
 type OpEntry = { opcode: number; payloadOffset: number; payloadLen: number };
 type ExecuteRangeOnCanvas = (targetCanvas: Canvas, start: number, len: number) => void;
+type ExecuteSubtreeOnCanvas = (targetCanvas: Canvas, subtree: number) => void;
 type RenderEncodedDrawFrameOptions = {
   surface?: Surface;
 };
@@ -188,6 +191,7 @@ type DecodedFrame = {
   bytes: Uint8Array;
   dataView: DataView;
   ops: Uint8Array;
+  subtrees: Uint8Array[];
   f32Pool: number[];
   rawBytes: Uint8Array;
   byteRanges: Range[];
@@ -284,13 +288,14 @@ export function renderEncodedDrawFrame(
 ): void {
   const frame = decodeFrame(encoded);
   const entries = parseOps(frame.ops);
+  const subtreeEntries = new Map<number, OpEntry[]>();
   const transientImageCache = new Map<string, Image>();
 
   const resolveFrameImage = (image: DecodedImageRef): Image | null => (
     resolveImage(CK, image, options.surface, transientImageCache)
   );
 
-  const executeRangeOnCanvas = (targetCanvas: Canvas, start: number, len: number) => {
+  const executeOpsOnCanvas = (targetCanvas: Canvas, opBytes: Uint8Array, opEntries: OpEntry[], start: number, len: number) => {
     const state = initialRenderState();
     let currentPathBuilder: PathBuilder | undefined;
 
@@ -305,12 +310,12 @@ export function renderEncodedDrawFrame(
     };
 
     const executeRange = (rangeStart: number, rangeLen: number) => {
-      const end = Math.min(entries.length, rangeStart + rangeLen);
-      for (let i = rangeStart; i < end; i++) executeOp(entries[i]);
+      const end = Math.min(opEntries.length, rangeStart + rangeLen);
+      for (let i = rangeStart; i < end; i++) executeOp(opEntries[i]);
     };
 
     const executeOp = (entry: OpEntry) => {
-      const p = new Payload(frame.ops, entry.payloadOffset, entry.payloadLen);
+      const p = new Payload(opBytes, entry.payloadOffset, entry.payloadLen);
       switch (entry.opcode) {
         case OP_SAVE:
           targetCanvas.save();
@@ -481,13 +486,19 @@ export function renderEncodedDrawFrame(
           break;
         }
         case OP_RUNTIME_EFFECT:
-          drawRuntimeEffect(CK, targetCanvas, frame, p, executeRangeOnCanvas, resolveFrameImage);
+          drawRuntimeEffect(CK, targetCanvas, frame, p, executeRangeOnCanvas, executeSubtreeOnCanvas, resolveFrameImage);
           break;
         case OP_REPLAY_RANGE:
           executeRange(p.u32(), p.u32());
           break;
         case OP_DRAW_SUBTREE_PICTURE:
-          p.u32(); p.f32(); p.f32();
+          const subtree = p.u32();
+          const x = p.f32();
+          const y = p.f32();
+          targetCanvas.save();
+          targetCanvas.translate(x, y);
+          executeSubtreeOnCanvas(targetCanvas, subtree);
+          targetCanvas.restore();
           break;
         default:
           throw new Error(`Unsupported DrawOp opcode ${entry.opcode}`);
@@ -496,6 +507,21 @@ export function renderEncodedDrawFrame(
 
     executeRange(start, len);
     currentPathBuilder?.delete();
+  };
+
+  const executeRangeOnCanvas: ExecuteRangeOnCanvas = (targetCanvas, start, len) => {
+    executeOpsOnCanvas(targetCanvas, frame.ops, entries, start, len);
+  };
+
+  const executeSubtreeOnCanvas: ExecuteSubtreeOnCanvas = (targetCanvas, subtree) => {
+    const opBytes = frame.subtrees[subtree];
+    if (!opBytes) return;
+    let opEntries = subtreeEntries.get(subtree);
+    if (!opEntries) {
+      opEntries = parseOps(opBytes);
+      subtreeEntries.set(subtree, opEntries);
+    }
+    executeOpsOnCanvas(targetCanvas, opBytes, opEntries, 0, opEntries.length);
   };
 
   try {
@@ -582,6 +608,7 @@ function decodeFrame(bytes: Uint8Array): DecodedFrame {
     bytes,
     dataView: view,
     ops: requireSection(sections, SECTION_OPS),
+    subtrees: parseSubtrees(requireSection(sections, SECTION_SUBTREES)),
     f32Pool: parseF32Pool(requireSection(sections, SECTION_F32_POOL)),
     rawBytes: requireSection(sections, SECTION_BYTES),
     byteRanges: parseRanges(requireSection(sections, SECTION_BYTE_RANGES)),
@@ -629,6 +656,14 @@ function parseRanges(bytes: Uint8Array): Range[] {
     ranges.push({ start: reader.u32(), len: reader.u32() });
   }
   return ranges;
+}
+
+function parseSubtrees(bytes: Uint8Array): Uint8Array[] {
+  const reader = new BinaryReader(bytes);
+  const count = reader.u32();
+  const out: Uint8Array[] = [];
+  for (let i = 0; i < count; i++) out.push(reader.bytesWithLen());
+  return out;
 }
 
 function parsePaints(bytes: Uint8Array): PaintSpec[] {
@@ -764,6 +799,7 @@ function parseChildren(bytes: Uint8Array, strings: string[]): ChildRef[] {
     const kind = r.u8();
     if (kind === 0) out.push({ type: 'image', image: readImageRefFromReader(r, strings) });
     else if (kind === 1) out.push({ type: 'picture', range: { start: r.u32(), len: r.u32() } });
+    else if (kind === 3) out.push({ type: 'subtreePicture', subtree: r.u32() });
     else out.push({ type: 'shader', shader: parseIrShader(r) });
   }
   return out;
@@ -1057,6 +1093,7 @@ function drawRuntimeEffect(
   frame: DecodedFrame,
   payload: Payload,
   executeRangeOnCanvas: ExecuteRangeOnCanvas,
+  executeSubtreeOnCanvas: ExecuteSubtreeOnCanvas,
   resolveFrameImage: (image: DecodedImageRef) => Image | null,
 ): void {
   const effectId = payload.u32();
@@ -1077,7 +1114,7 @@ function drawRuntimeEffect(
   const bytes = range ? frame.rawBytes.subarray(range.start, range.start + range.len) : new Uint8Array();
   const uniforms = new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
   const children = frame.children.slice(childStart, childStart + childLen)
-    .map((child) => buildRuntimeChildShader(CK, frame, child, dst, executeRangeOnCanvas, resolveFrameImage))
+    .map((child) => buildRuntimeChildShader(CK, frame, child, dst, executeRangeOnCanvas, executeSubtreeOnCanvas, resolveFrameImage))
     .filter((child): child is Shader => child !== null);
   const shader = children.length > 0 ? effect.makeShaderWithChildren(uniforms, children) : effect.makeShader(uniforms);
   const paint = new CK.Paint();
@@ -1091,6 +1128,7 @@ function buildRuntimeChildShader(
   child: ChildRef,
   dst: Rect4,
   executeRangeOnCanvas: ExecuteRangeOnCanvas,
+  executeSubtreeOnCanvas: ExecuteSubtreeOnCanvas,
   resolveFrameImage: (image: DecodedImageRef) => Image | null,
 ): Shader | null {
   if (child.type === 'shader') return buildShader(CK, child.shader);
@@ -1103,7 +1141,8 @@ function buildRuntimeChildShader(
   const height = Math.max(1, Math.ceil(dst.y + dst.height));
   const recorder = new CK.PictureRecorder();
   const canvas = recorder.beginRecording(CK.XYWHRect(0, 0, width, height));
-  executeRangeOnCanvas(canvas, child.range.start, child.range.len);
+  if (child.type === 'subtreePicture') executeSubtreeOnCanvas(canvas, child.subtree);
+  else executeRangeOnCanvas(canvas, child.range.start, child.range.len);
   const picture = recorder.finishRecordingAsPicture();
   recorder.delete();
   return picture?.makeShader?.(CK.TileMode.Clamp, CK.TileMode.Clamp, CK.FilterMode?.Linear) ?? null;

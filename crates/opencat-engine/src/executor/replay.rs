@@ -5,7 +5,7 @@ use super::{EngineDrawExecutor, EnginePreparedFrameMedia};
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_op::{DRRectSpec, Radii4};
 use opencat_core::ir::draw_op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
-use opencat_core::ir::draw_types::{DrawOpRange, PathOp, RuntimeEffectChildRef};
+use opencat_core::ir::draw_types::{DrawOpRange, PathOp, RuntimeEffectChildRef, SubtreeId};
 use skia_safe::{
     Canvas, FilterMode, Paint, PathBuilder, Picture, PictureRecorder, Point, RRect, Rect, Shader,
     TileMode, Vector,
@@ -99,6 +99,7 @@ fn op_bounds(draw: &DrawOpFrame, op: &DrawOp) -> Option<Rect> {
             y0.max(*y1),
         )),
         DrawOp::ReplayRange { range } => range_bounds(draw, *range),
+        DrawOp::ReplaySubtreePicture { subtree, .. } => subtree_bounds(draw, *subtree),
         _ => None,
     }
 }
@@ -107,6 +108,33 @@ fn range_bounds(draw: &DrawOpFrame, range: DrawOpRange) -> Option<Rect> {
     let start = range.start_op as usize;
     let end = start.checked_add(range.op_len as usize)?;
     let ops = draw.ops.get(start..end)?;
+    ops.iter()
+        .filter_map(|op| op_bounds(draw, op))
+        .reduce(rect_union)
+}
+
+fn replay_subtree(
+    exec: &mut EngineDrawExecutor,
+    canvas: &Canvas,
+    draw: &DrawOpFrame,
+    media: &EnginePreparedFrameMedia,
+    subtree: SubtreeId,
+) -> Result<(), DrawError> {
+    let Some(ops) = draw.subtrees.get(subtree.0 as usize) else {
+        return Err(DrawError(format!(
+            "Subtree out of bounds: {} (len={})",
+            subtree.0,
+            draw.subtrees.len()
+        )));
+    };
+    for op in ops {
+        replay_op(exec, canvas, draw, media, op)?;
+    }
+    Ok(())
+}
+
+fn subtree_bounds(draw: &DrawOpFrame, subtree: SubtreeId) -> Option<Rect> {
+    let ops = draw.subtrees.get(subtree.0 as usize)?;
     ops.iter()
         .filter_map(|op| op_bounds(draw, op))
         .reduce(rect_union)
@@ -133,6 +161,33 @@ fn picture_shader_for_range(
     let mut picture_exec = EngineDrawExecutor::new();
     picture_exec.begin_frame();
     replay_range(&mut picture_exec, picture_canvas, draw, media, range)?;
+    let Some(picture): Option<Picture> = recorder.finish_recording_as_picture(Some(&bounds)) else {
+        return Ok(None);
+    };
+    let shader = picture.to_shader(
+        (TileMode::Clamp, TileMode::Clamp),
+        FilterMode::Linear,
+        None::<&skia_safe::Matrix>,
+        Some(&bounds),
+    );
+    exec.compiled_pictures
+        .insert(picture.unique_id() as u64, picture);
+    Ok(Some(shader))
+}
+
+fn picture_shader_for_subtree(
+    exec: &mut EngineDrawExecutor,
+    draw: &DrawOpFrame,
+    media: &EnginePreparedFrameMedia,
+    subtree: SubtreeId,
+    fallback_bounds: Rect,
+) -> Result<Option<Shader>, DrawError> {
+    let bounds = subtree_bounds(draw, subtree).unwrap_or(fallback_bounds);
+    let mut recorder = PictureRecorder::new();
+    let picture_canvas = recorder.begin_recording(bounds, false);
+    let mut picture_exec = EngineDrawExecutor::new();
+    picture_exec.begin_frame();
+    replay_subtree(&mut picture_exec, picture_canvas, draw, media, subtree)?;
     let Some(picture): Option<Picture> = recorder.finish_recording_as_picture(Some(&bounds)) else {
         return Ok(None);
     };
@@ -546,6 +601,19 @@ fn replay_op(
                             .unwrap_or_else(skia_safe::shaders::empty);
                             inputs.push(shader.into());
                         }
+                        RuntimeEffectChildRef::SubtreePicture(subtree) => {
+                            let fallback_bounds =
+                                Rect::new(dst.x, dst.y, dst.x + dst.width, dst.y + dst.height);
+                            let shader = picture_shader_for_subtree(
+                                exec,
+                                draw,
+                                media,
+                                *subtree,
+                                fallback_bounds,
+                            )?
+                            .unwrap_or_else(skia_safe::shaders::empty);
+                            inputs.push(shader.into());
+                        }
                         RuntimeEffectChildRef::Shader(_) => {
                             inputs.push(skia_safe::shaders::empty().into());
                         }
@@ -566,6 +634,14 @@ fn replay_op(
         }
 
         DrawOp::ReplayRange { range } => replay_range(exec, canvas, draw, media, *range),
+
+        DrawOp::ReplaySubtreePicture { subtree, x, y } => {
+            canvas.save();
+            canvas.translate(Vector::new(*x, *y));
+            let result = replay_subtree(exec, canvas, draw, media, *subtree);
+            canvas.restore();
+            result
+        }
 
         DrawOp::DrawSubtreePicture { .. } => Ok(()),
 

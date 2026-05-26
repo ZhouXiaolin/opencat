@@ -5,7 +5,7 @@ use crate::{
     frame_ctx::ScriptFrameCtx,
     ir::asset_id::AssetId,
     parse::{
-        node::{ComponentNode, NodeKind},
+        node::{NodeKind},
         primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video, VideoSource},
         time::TimelineNode,
         time::{FrameState, frame_state_for_root},
@@ -106,7 +106,6 @@ pub fn resolve_ui_tree_with_script_cache(
 
 fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     match node.kind() {
-        NodeKind::Component(component) => resolve_component(component, cx),
         NodeKind::Video(video) => resolve_video(video, cx),
         NodeKind::Image(image) => resolve_image(image, cx),
         NodeKind::Div(div) => resolve_div(div, cx),
@@ -258,35 +257,11 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
 
 fn resolve_node_optional(node: &Node, cx: &mut ResolveContext<'_>) -> Result<Option<ElementNode>> {
     match node.kind() {
-        NodeKind::Component(component) => resolve_component_optional(component, cx),
         NodeKind::Caption(caption) => resolve_caption(caption, cx),
         _ => resolve_node(node, cx).map(Some),
     }
 }
 
-fn resolve_component_optional(
-    component: &ComponentNode,
-    cx: &mut ResolveContext<'_>,
-) -> Result<Option<ElementNode>> {
-    let resolved = component.render(cx.frame_ctx);
-    let pushed = if component.style_ref().script_driver.is_some() {
-        seed_text_sources_for_visible_subtree(
-            &resolved,
-            cx.frame_ctx,
-            cx.script_frame_ctx,
-            cx.mutation_stack,
-            cx.script_runtime,
-        );
-        push_script_scope(component.style_ref(), cx)?
-    } else {
-        false
-    };
-    let result = resolve_node_optional(&resolved, cx);
-    if pushed {
-        cx.mutation_stack.pop();
-    }
-    result
-}
 
 fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
     let style = NodeStyle {
@@ -302,29 +277,6 @@ fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
     }
 }
 
-fn resolve_component(
-    component: &ComponentNode,
-    cx: &mut ResolveContext<'_>,
-) -> Result<ElementNode> {
-    let resolved = component.render(cx.frame_ctx);
-    let pushed = if component.style_ref().script_driver.is_some() {
-        seed_text_sources_for_visible_subtree(
-            &resolved,
-            cx.frame_ctx,
-            cx.script_frame_ctx,
-            cx.mutation_stack,
-            cx.script_runtime,
-        );
-        push_script_scope(component.style_ref(), cx)?
-    } else {
-        false
-    };
-    let result = resolve_node(&resolved, cx);
-    if pushed {
-        cx.mutation_stack.pop();
-    }
-    result
-}
 
 fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(div, div.style_ref(), cx)?;
@@ -813,16 +765,6 @@ fn seed_text_sources_for_visible_subtree(
     script_runtime: &mut dyn ScriptHost,
 ) {
     match node.kind() {
-        NodeKind::Component(component) => {
-            let rendered = component.render(frame_ctx);
-            seed_text_sources_for_visible_subtree(
-                &rendered,
-                frame_ctx,
-                script_frame_ctx,
-                mutation_stack,
-                script_runtime,
-            );
-        }
         NodeKind::Div(div) => {
             for child in div.children_ref() {
                 seed_text_sources_for_visible_subtree(
@@ -1137,16 +1079,6 @@ fn collect_visual_script_targets(node: &Node, registry: &mut ScriptTargetRegistr
         }
     }
     match node.kind() {
-        NodeKind::Component(component) => {
-            let rendered = component.render(&crate::FrameCtx {
-                frame: 0,
-                fps: 30,
-                width: 1,
-                height: 1,
-                frames: 1,
-            });
-            collect_visual_script_targets(&rendered, registry);
-        }
         NodeKind::Div(div) => {
             for child in div.children_ref() {
                 collect_visual_script_targets(child, registry);

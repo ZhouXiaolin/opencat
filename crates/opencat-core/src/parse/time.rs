@@ -76,7 +76,6 @@ pub enum FrameState {
 
 pub fn frame_state_for_root(root: &Node, ctx: &FrameCtx) -> FrameState {
     match root.kind() {
-        NodeKind::Component(component) => frame_state_for_root(&component.render(ctx), ctx),
         NodeKind::Timeline(timeline) => frame_state_for_timeline(timeline, ctx),
         NodeKind::Div(_) => FrameState::Scene {
             scene: root.clone(),

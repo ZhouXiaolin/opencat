@@ -1,0 +1,9 @@
+[package]
+name = "faac-rs"
+version = "0.1.0"
+edition = "2024"
+license = "LGPL-2.1-or-later"
+description = "Pure Rust port of FAAC (Freeware Advanced Audio Coder)"
+
+[dependencies]
+

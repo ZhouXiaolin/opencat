@@ -1,7 +1,11 @@
 import type { CompositionInfo, ResourceMeta } from '../types';
-import { getRendererOrThrow } from '../wasm';
+import { createWasmFaacEncoder, getRendererOrThrow } from '../wasm';
 import { injectVideoFramesForRender } from './video-frame-injector';
 import { renderEncodedDrawFrame } from '../draw-ir';
+import {
+  canUseFaacAudioEncoderFallback,
+  installFaacAudioEncoderFallback,
+} from './faac-audio-encoder';
 import type { IClip } from '@webav/av-cliper';
 import type { CanvasKit, Surface } from 'canvaskit-wasm';
 
@@ -296,10 +300,17 @@ export async function exportMp4(
   const spr = new OffscreenSprite(clip);
 
   let hasAudio = audioIds.length > 0;
+  let restoreAudioEncoder: (() => void) | null = null;
   if (hasAudio) {
     const aacSupported = await isAacEncodingSupported();
     if (!aacSupported) {
-      hasAudio = false;
+      if (canUseFaacAudioEncoderFallback()) {
+        restoreAudioEncoder = installFaacAudioEncoderFallback({
+          createEncoder: createWasmFaacEncoder,
+        });
+      } else {
+        hasAudio = false;
+      }
     }
   }
 
@@ -326,26 +337,30 @@ export async function exportMp4(
   onProgress(0, comp.frames, 'muxing');
   await yieldToBrowser();
 
-  const reader = com.output().getReader();
-  const chunks: Uint8Array[] = [];
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) chunks.push(value);
+  try {
+    const reader = com.output().getReader();
+    const chunks: Uint8Array[] = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value);
+    }
+
+    if (chunks.length === 0) return null;
+
+    const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+    const result = new Uint8Array(totalLen);
+    let offset = 0;
+    for (const c of chunks) {
+      result.set(c, offset);
+      offset += c.length;
+    }
+
+    return result;
+  } finally {
+    restoreAudioEncoder?.();
+    com.destroy();
   }
-
-  if (chunks.length === 0) return null;
-
-  const totalLen = chunks.reduce((s, c) => s + c.length, 0);
-  const result = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const c of chunks) {
-    result.set(c, offset);
-    offset += c.length;
-  }
-
-  com.destroy();
-  return result;
 }
 
 export async function exportPngFrame(

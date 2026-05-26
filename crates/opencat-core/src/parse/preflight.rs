@@ -121,10 +121,6 @@ fn find_scene_timing_in_node(
             }
             None
         }
-        NodeKind::Component(component) => {
-            let rendered = component.render(ctx);
-            find_scene_timing_in_node(&rendered, scene_id, ctx)
-        }
         _ => None,
     }
 }
@@ -147,10 +143,6 @@ pub(crate) fn collect_sources_from_frame_state(
 
 pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut ResourceRequests) {
     match node.kind() {
-        NodeKind::Component(component) => {
-            let rendered = component.render(frame_ctx);
-            collect_sources(&rendered, frame_ctx, req);
-        }
         NodeKind::Div(div) => {
             for child in div.children_ref() {
                 collect_sources(child, frame_ctx, req);

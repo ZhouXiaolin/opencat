@@ -113,10 +113,6 @@ fn register_canvas_aliases_from_node(
 ) {
     use opencat_core::resource::catalog::ResourceCatalog;
     match node.kind() {
-        NodeKind::Component(component) => {
-            let rendered = component.render(frame_ctx);
-            register_canvas_aliases_from_node(&rendered, frame_ctx, catalog, path_store);
-        }
         NodeKind::Div(div) => {
             for child in div.children_ref() {
                 register_canvas_aliases_from_node(child, frame_ctx, catalog, path_store);

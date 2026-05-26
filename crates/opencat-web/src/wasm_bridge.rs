@@ -65,11 +65,11 @@ impl WebRenderer {
 
     pub fn build_frame_ir(
         &mut self,
-        jsonl: &str,
+        source: &str,
         frame: u32,
         resources_json: &str,
     ) -> Result<Vec<u8>, JsValue> {
-        let parsed = crate::source::parse_source(jsonl)
+        let parsed = crate::source::parse_source(source)
             .map_err(|e| JsValue::from_str(&format!("parse: {e}")))?;
         let root_node = parsed.root.clone();
         let composition = Composition::new("web")
@@ -126,7 +126,7 @@ impl WebRenderer {
 
     pub fn plan_video_frames(
         &self,
-        jsonl: &str,
+        source: &str,
         frame: u32,
         resources_json: &str,
     ) -> Result<String, JsValue> {
@@ -137,7 +137,7 @@ impl WebRenderer {
         use opencat_core::parse::time::{FrameState, frame_state_for_root};
         use opencat_core::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 
-        let parsed = crate::source::parse_source(jsonl)
+        let parsed = crate::source::parse_source(source)
             .map_err(|e| JsValue::from_str(&format!("plan_video_frames parse: {e}")))?;
         let catalog = HashMapResourceCatalog::from_json(resources_json)
             .map_err(|e| JsValue::from_str(&format!("plan_video_frames catalog: {e}")))?;

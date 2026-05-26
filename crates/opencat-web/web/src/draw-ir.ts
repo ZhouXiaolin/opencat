@@ -3,6 +3,76 @@ import {
   getCachedVideoFrameRgba,
   getCachedVideoFrameSource,
 } from './media/video-frame-injector';
+import type {
+  BlendMode,
+  BlurStyle,
+  Canvas,
+  CanvasKit,
+  ClipOp,
+  ColorFilter,
+  FillType,
+  FilterMode,
+  Image,
+  ImageFilter,
+  MaskFilter,
+  Paint,
+  PaintStyle,
+  Path,
+  PathBuilder,
+  PathEffect,
+  PointMode,
+  Rect,
+  RuntimeEffect,
+  Shader,
+  StrokeCap,
+  StrokeJoin,
+  Surface,
+  TextureSource,
+  TileMode,
+} from 'canvaskit-wasm';
+
+type BlendModeName =
+  | 'Clear'
+  | 'Src'
+  | 'Dst'
+  | 'SrcOver'
+  | 'DstOver'
+  | 'SrcIn'
+  | 'DstIn'
+  | 'SrcOut'
+  | 'DstOut'
+  | 'SrcATop'
+  | 'DstATop'
+  | 'Xor'
+  | 'Plus'
+  | 'Modulate'
+  | 'Screen'
+  | 'Overlay'
+  | 'Darken'
+  | 'Lighten'
+  | 'ColorDodge'
+  | 'ColorBurn'
+  | 'HardLight'
+  | 'SoftLight'
+  | 'Difference'
+  | 'Exclusion'
+  | 'Multiply'
+  | 'Hue'
+  | 'Saturation'
+  | 'Color'
+  | 'Luminosity';
+
+type CanvasKitEnum =
+  | BlendMode
+  | BlurStyle
+  | ClipOp
+  | FillType
+  | FilterMode
+  | PaintStyle
+  | PointMode
+  | StrokeCap
+  | StrokeJoin
+  | TileMode;
 
 export type EncodedDrawFrame = Uint8Array;
 
@@ -109,9 +179,9 @@ type ShaderSpec =
 
 type RuntimeEffectSpec = { hash: bigint; sksl: string };
 type OpEntry = { opcode: number; payloadOffset: number; payloadLen: number };
-type ExecuteRangeOnCanvas = (targetCanvas: any, start: number, len: number) => void;
+type ExecuteRangeOnCanvas = (targetCanvas: Canvas, start: number, len: number) => void;
 type RenderEncodedDrawFrameOptions = {
-  surface?: any;
+  surface?: Surface;
 };
 
 type DecodedFrame = {
@@ -189,9 +259,9 @@ class BinaryReader {
   }
 }
 
-const staticImageCache = new Map<string, any>();
-const pathCache = new WeakMap<object, any>();
-const effectCache = new Map<bigint, any>();
+const staticImageCache = new Map<string, Image>();
+const pathCache = new WeakMap<object, Path>();
+const effectCache = new Map<bigint, RuntimeEffect>();
 
 function initialRenderState(): RenderState {
   return {
@@ -208,29 +278,29 @@ function initialRenderState(): RenderState {
 
 export function renderEncodedDrawFrame(
   encoded: EncodedDrawFrame,
-  ckCanvas: any,
-  CK: any,
+  ckCanvas: Canvas,
+  CK: CanvasKit,
   options: RenderEncodedDrawFrameOptions = {},
 ): void {
   const frame = decodeFrame(encoded);
   const entries = parseOps(frame.ops);
-  const transientImageCache = new Map<string, any>();
+  const transientImageCache = new Map<string, Image>();
 
-  const resolveFrameImage = (image: DecodedImageRef): any | null => (
+  const resolveFrameImage = (image: DecodedImageRef): Image | null => (
     resolveImage(CK, image, options.surface, transientImageCache)
   );
 
-  const executeRangeOnCanvas = (targetCanvas: any, start: number, len: number) => {
+  const executeRangeOnCanvas = (targetCanvas: Canvas, start: number, len: number) => {
     const state = initialRenderState();
-    let currentPathBuilder: any | null = null;
+    let currentPathBuilder: PathBuilder | undefined;
 
     const ensurePathBuilder = () => {
-      if (!currentPathBuilder) currentPathBuilder = new CK.PathBuilder();
+      currentPathBuilder ??= new CK.PathBuilder();
       return currentPathBuilder;
     };
 
     const snapshotPath = () => {
-      if (!currentPathBuilder) currentPathBuilder = new CK.PathBuilder();
+      currentPathBuilder ??= new CK.PathBuilder();
       return currentPathBuilder.snapshot();
     };
 
@@ -311,7 +381,7 @@ export function renderEncodedDrawFrame(
           state.antiAlias = p.u8() !== 0;
           break;
         case OP_BEGIN_PATH:
-          currentPathBuilder?.delete?.();
+          currentPathBuilder?.delete();
           currentPathBuilder = new CK.PathBuilder();
           break;
         case OP_PATH:
@@ -407,7 +477,7 @@ export function renderEncodedDrawFrame(
           const ckImage = resolveFrameImage(image);
           if (!ckImage) break;
           const sourceRect = hasSrc ? ckRect(CK, src) : imageBounds(CK, ckImage);
-          targetCanvas.drawImageRect(ckImage, sourceRect, ckRect(CK, dst), paintId === NO_PAINT ? null : buildPaintById(CK, frame, paintId));
+          targetCanvas.drawImageRect(ckImage, sourceRect, ckRect(CK, dst), paintId === NO_PAINT ? new CK.Paint() : buildPaintById(CK, frame, paintId));
           break;
         }
         case OP_RUNTIME_EFFECT:
@@ -425,7 +495,7 @@ export function renderEncodedDrawFrame(
     };
 
     executeRange(start, len);
-    currentPathBuilder?.delete?.();
+    currentPathBuilder?.delete();
   };
 
   try {
@@ -768,11 +838,11 @@ function readImageRefFromReader(reader: BinaryReader, strings: string[]): Decode
   return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, frame: frameIndex };
 }
 
-function buildPaintById(CK: any, frame: DecodedFrame, paintId: number): any {
+function buildPaintById(CK: CanvasKit, frame: DecodedFrame, paintId: number): Paint {
   return buildPaint(CK, frame.paints[paintId], 1);
 }
 
-function buildPaint(CK: any, spec: PaintSpec | undefined, alpha: number): any {
+function buildPaint(CK: CanvasKit, spec: PaintSpec | undefined, alpha: number): Paint {
   const paint = new CK.Paint();
   if (!spec) return paint;
   paint.setAntiAlias(spec.antiAlias);
@@ -792,7 +862,7 @@ function buildPaint(CK: any, spec: PaintSpec | undefined, alpha: number): any {
   return paint;
 }
 
-function buildScriptPaint(CK: any, state: RenderState, style: 'fill' | 'stroke'): any {
+function buildScriptPaint(CK: CanvasKit, state: RenderState, style: 'fill' | 'stroke'): Paint {
   const paint = new CK.Paint();
   const color = [...(style === 'fill' ? state.fillColor : state.strokeColor)] as [number, number, number, number];
   color[3] *= state.globalAlpha;
@@ -810,7 +880,7 @@ function buildScriptPaint(CK: any, state: RenderState, style: 'fill' | 'stroke')
   return paint;
 }
 
-function applyFill(CK: any, paint: any, fill: FillSpec, alpha: number): void {
+function applyFill(CK: CanvasKit, paint: Paint, fill: FillSpec, alpha: number): void {
   if (fill.type === 'solid') {
     paint.setColor(CK.Color4f(fill.color[0], fill.color[1], fill.color[2], fill.color[3] * alpha));
     paint.setShader(null);
@@ -820,7 +890,7 @@ function applyFill(CK: any, paint: any, fill: FillSpec, alpha: number): void {
   paint.setShader(shader);
 }
 
-function buildShader(CK: any, fill: GradientFillSpec | ShaderSpec): any {
+function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec): Shader {
   if (fill.type === 'linearGradient') {
     return CK.Shader.MakeLinearGradient(
       'from' in fill ? fill.from : fill.start,
@@ -839,7 +909,7 @@ function buildShader(CK: any, fill: GradientFillSpec | ShaderSpec): any {
   );
 }
 
-function buildImageFilter(CK: any, spec: ImageFilterSpec): any {
+function buildImageFilter(CK: CanvasKit, spec: ImageFilterSpec): ImageFilter | null {
   if (spec.type === 'blur') return CK.ImageFilter.MakeBlur(spec.sigmaX, spec.sigmaY, CK.TileMode.Decal ?? CK.TileMode.Clamp, null);
   if (spec.type === 'dropShadow') {
     return CK.ImageFilter.MakeDropShadow(
@@ -855,22 +925,22 @@ function buildImageFilter(CK: any, spec: ImageFilterSpec): any {
   return CK.ImageFilter.MakeCompose(buildImageFilter(CK, spec.outer), buildImageFilter(CK, spec.inner));
 }
 
-function buildColorFilter(CK: any, spec: ColorFilterSpec): any {
+function buildColorFilter(CK: CanvasKit, spec: ColorFilterSpec): ColorFilter {
   if (spec.type === 'matrix') return CK.ColorFilter.MakeMatrix(spec.matrix);
   if (spec.type === 'blendColor') return CK.ColorFilter.MakeBlend(CK.Color4f(spec.color[0], spec.color[1], spec.color[2], spec.color[3]), mapBlendMode(CK, spec.mode));
   if (spec.type === 'linearToSrgbGamma') return CK.ColorFilter.MakeLinearToSRGBGamma();
   return CK.ColorFilter.MakeSRGBToLinearGamma();
 }
 
-function buildMaskFilter(CK: any, spec: MaskFilterSpec): any {
+function buildMaskFilter(CK: CanvasKit, spec: MaskFilterSpec): MaskFilter {
   return CK.MaskFilter.MakeBlur(mapBlurStyle(CK, spec.style), spec.sigma, spec.respectCtm);
 }
 
-function buildPathEffect(CK: any, spec: PathEffectSpec): any {
+function buildPathEffect(CK: CanvasKit, spec: PathEffectSpec): PathEffect {
   return CK.PathEffect.MakeDash(spec.intervals, spec.phase);
 }
 
-function buildPathById(CK: any, frame: DecodedFrame, id: number): any {
+function buildPathById(CK: CanvasKit, frame: DecodedFrame, id: number): Path {
   const spec = frame.paths[id];
   if (!spec) throw new Error(`Missing path ${id}`);
   const cached = pathCache.get(spec);
@@ -884,13 +954,13 @@ function buildPathById(CK: any, frame: DecodedFrame, id: number): any {
   return path;
 }
 
-function applyPathPayload(CK: any, builder: any, payload: Payload): void {
+function applyPathPayload(CK: CanvasKit, builder: PathBuilder, payload: Payload): void {
   const kind = payload.u16();
   const width = [2, 2, 4, 6, 0, 4, 5, 4, 6][kind] ?? 0;
   applyPathCommand(CK, builder, { kind, values: payload.f32Array(width) });
 }
 
-function applyPathCommand(CK: any, builder: any, op: PathCommand): void {
+function applyPathCommand(CK: CanvasKit, builder: PathBuilder, op: PathCommand): void {
   const v = op.values;
   switch (op.kind) {
     case 0:
@@ -926,11 +996,11 @@ function applyPathCommand(CK: any, builder: any, op: PathCommand): void {
 }
 
 function resolveImage(
-  CK: any,
+  CK: CanvasKit,
   image: DecodedImageRef,
-  surface: any | undefined,
-  transientImageCache: Map<string, any>,
-): any | null {
+  surface: Surface | undefined,
+  transientImageCache: Map<string, Image>,
+): Image | null {
   if (image.type === 'static') {
     const existing = staticImageCache.get(image.assetId);
     if (existing) return existing;
@@ -954,9 +1024,10 @@ function resolveImage(
       alphaType: CK.AlphaType.Unpremul,
       colorSpace: CK.ColorSpace.SRGB,
     };
+    const textureSource = source.source as unknown as TextureSource;
     const ckImage = typeof surface?.makeImageFromTextureSource === 'function'
-      ? surface.makeImageFromTextureSource(source.source as any, info)
-      : CK.MakeLazyImageFromTextureSource?.(source.source as any, info);
+      ? surface.makeImageFromTextureSource(textureSource, info)
+      : CK.MakeLazyImageFromTextureSource?.(textureSource, info);
     if (ckImage) {
       transientImageCache.set(transientKey, ckImage);
       return ckImage;
@@ -981,12 +1052,12 @@ function resolveImage(
 }
 
 function drawRuntimeEffect(
-  CK: any,
-  canvas: any,
+  CK: CanvasKit,
+  canvas: Canvas,
   frame: DecodedFrame,
   payload: Payload,
   executeRangeOnCanvas: ExecuteRangeOnCanvas,
-  resolveFrameImage: (image: DecodedImageRef) => any | null,
+  resolveFrameImage: (image: DecodedImageRef) => Image | null,
 ): void {
   const effectId = payload.u32();
   const uniformRangeId = payload.u32();
@@ -995,10 +1066,11 @@ function drawRuntimeEffect(
   const dst = readRect4(payload);
   const spec = frame.effects[effectId];
   if (!spec) return;
-  let effect = effectCache.get(spec.hash);
+  let effect: RuntimeEffect | undefined = effectCache.get(spec.hash);
   if (!effect) {
-    effect = CK.RuntimeEffect.Make(spec.sksl);
-    if (!effect) return;
+    const compiled = CK.RuntimeEffect.Make(spec.sksl);
+    if (!compiled) return;
+    effect = compiled;
     effectCache.set(spec.hash, effect);
   }
   const range = frame.byteRanges[uniformRangeId];
@@ -1006,7 +1078,7 @@ function drawRuntimeEffect(
   const uniforms = new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
   const children = frame.children.slice(childStart, childStart + childLen)
     .map((child) => buildRuntimeChildShader(CK, frame, child, dst, executeRangeOnCanvas, resolveFrameImage))
-    .filter(Boolean);
+    .filter((child): child is Shader => child !== null);
   const shader = children.length > 0 ? effect.makeShaderWithChildren(uniforms, children) : effect.makeShader(uniforms);
   const paint = new CK.Paint();
   paint.setShader(shader);
@@ -1014,18 +1086,18 @@ function drawRuntimeEffect(
 }
 
 function buildRuntimeChildShader(
-  CK: any,
+  CK: CanvasKit,
   frame: DecodedFrame,
   child: ChildRef,
   dst: Rect4,
   executeRangeOnCanvas: ExecuteRangeOnCanvas,
-  resolveFrameImage: (image: DecodedImageRef) => any | null,
-): any | null {
+  resolveFrameImage: (image: DecodedImageRef) => Image | null,
+): Shader | null {
   if (child.type === 'shader') return buildShader(CK, child.shader);
   if (child.type === 'image') {
     const img = resolveFrameImage(child.image);
     if (!img?.makeShaderOptions) return null;
-    return img.makeShaderOptions(CK.TileMode.Clamp, CK.TileMode.Clamp, CK.FilterMode?.Linear, false, null);
+    return img.makeShaderOptions(CK.TileMode.Clamp, CK.TileMode.Clamp, CK.FilterMode.Linear, CK.MipmapMode.None);
   }
   const width = Math.max(1, Math.ceil(dst.x + dst.width));
   const height = Math.max(1, Math.ceil(dst.y + dst.height));
@@ -1045,8 +1117,8 @@ function readDRRect(payload: Payload): { rect: Rect4; radii: number[] } {
   return { rect: readRect4(payload), radii: payload.f32Array(4) };
 }
 
-function ckRect(CK: any, rect: Rect4): any {
-  return CK.XYWHRect ? CK.XYWHRect(rect.x, rect.y, rect.width, rect.height) : [rect.x, rect.y, rect.x + rect.width, rect.y + rect.height];
+function ckRect(CK: CanvasKit, rect: Rect4): Rect {
+  return CK.XYWHRect ? CK.XYWHRect(rect.x, rect.y, rect.width, rect.height) : Float32Array.of(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
 }
 
 function ckRRect(rect: Rect4, radii: number[]): Float32Array {
@@ -1066,7 +1138,7 @@ function ckRRect(rect: Rect4, radii: number[]): Float32Array {
   );
 }
 
-function imageBounds(CK: any, image: any): any {
+function imageBounds(CK: CanvasKit, image: Image): Rect {
   const width = typeof image.width === 'function' ? image.width() : 0;
   const height = typeof image.height === 'function' ? image.height() : 0;
   return CK.XYWHRect(0, 0, width, height);
@@ -1081,44 +1153,44 @@ function colorU32ToF32(color: number): [number, number, number, number] {
   ];
 }
 
-function mapPaintStyle(CK: any, value: number): any {
+function mapPaintStyle(CK: CanvasKit, value: number): CanvasKitEnum {
   return value === 1 ? CK.PaintStyle.Stroke : CK.PaintStyle.Fill;
 }
 
-function mapBlendMode(CK: any, value: number): any {
-  const names = ['Clear', 'Src', 'Dst', 'SrcOver', 'DstOver', 'SrcIn', 'DstIn', 'SrcOut', 'DstOut', 'SrcATop', 'DstATop', 'Xor', 'Plus', 'Modulate', 'Screen', 'Overlay', 'Darken', 'Lighten', 'ColorDodge', 'ColorBurn', 'HardLight', 'SoftLight', 'Difference', 'Exclusion', 'Multiply', 'Hue', 'Saturation', 'Color', 'Luminosity'];
+function mapBlendMode(CK: CanvasKit, value: number): CanvasKitEnum {
+  const names: BlendModeName[] = ['Clear', 'Src', 'Dst', 'SrcOver', 'DstOver', 'SrcIn', 'DstIn', 'SrcOut', 'DstOut', 'SrcATop', 'DstATop', 'Xor', 'Plus', 'Modulate', 'Screen', 'Overlay', 'Darken', 'Lighten', 'ColorDodge', 'ColorBurn', 'HardLight', 'SoftLight', 'Difference', 'Exclusion', 'Multiply', 'Hue', 'Saturation', 'Color', 'Luminosity'];
   return CK.BlendMode[names[value] ?? 'SrcOver'];
 }
 
-function mapStrokeCap(CK: any, value: number): any {
+function mapStrokeCap(CK: CanvasKit, value: number): CanvasKitEnum {
   return [CK.StrokeCap.Butt, CK.StrokeCap.Round, CK.StrokeCap.Square][value] ?? CK.StrokeCap.Butt;
 }
 
-function mapStrokeJoin(CK: any, value: number): any {
+function mapStrokeJoin(CK: CanvasKit, value: number): CanvasKitEnum {
   return [CK.StrokeJoin.Miter, CK.StrokeJoin.Round, CK.StrokeJoin.Bevel][value] ?? CK.StrokeJoin.Miter;
 }
 
-function mapLineCap(CK: any, value: number): any {
+function mapLineCap(CK: CanvasKit, value: number): CanvasKitEnum {
   return mapStrokeCap(CK, value);
 }
 
-function mapLineJoin(CK: any, value: number): any {
+function mapLineJoin(CK: CanvasKit, value: number): CanvasKitEnum {
   return mapStrokeJoin(CK, value);
 }
 
-function mapTileMode(CK: any, value: number): any {
+function mapTileMode(CK: CanvasKit, value: number): CanvasKitEnum {
   return [CK.TileMode.Clamp, CK.TileMode.Repeat, CK.TileMode.Mirror, CK.TileMode.Decal][value] ?? CK.TileMode.Clamp;
 }
 
-function mapBlurStyle(CK: any, value: number): any {
+function mapBlurStyle(CK: CanvasKit, value: number): CanvasKitEnum {
   return [CK.BlurStyle.Normal, CK.BlurStyle.Inner, CK.BlurStyle.Solid, CK.BlurStyle.Outer][value] ?? CK.BlurStyle.Normal;
 }
 
-function mapFillType(CK: any, value: number): any {
+function mapFillType(CK: CanvasKit, value: number): CanvasKitEnum {
   return value === 1 ? CK.FillType.EvenOdd : CK.FillType.Winding;
 }
 
-function mapPointMode(CK: any, value: number): any {
+function mapPointMode(CK: CanvasKit, value: number): CanvasKitEnum {
   return [CK.PointMode.Points, CK.PointMode.Lines, CK.PointMode.Polygon][value] ?? CK.PointMode.Points;
 }
 

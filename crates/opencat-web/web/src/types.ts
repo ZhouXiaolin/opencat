@@ -7,7 +7,7 @@ export interface CompositionInfo {
   frames: number;
 }
 
-export interface JsonlFile {
+export interface CompositionFile {
   name: string;
   path: string;
 }

@@ -26,6 +26,7 @@ import type { CanvasKit, Surface } from 'canvaskit-wasm';
 import { audioPlaybackWindow, playbackPosition } from './playback';
 
 type CanvasKitGlobal = typeof globalThis & { __canvasKit?: CanvasKit };
+type ExportProgressStage = 'loading' | 'preparing' | 'rendering' | 'encoding' | 'muxing';
 
 // --- State ---
 let currentComposition: CompositionInfo | null = null;
@@ -605,6 +606,23 @@ document.addEventListener('keydown', (e: KeyboardEvent) => {
 });
 
 // --- Export ---
+function exportStageLabel(stage?: ExportProgressStage): string {
+  switch (stage) {
+    case 'loading':
+      return 'Loading encoder...';
+    case 'preparing':
+      return 'Preparing export...';
+    case 'rendering':
+      return 'Rendering frames...';
+    case 'encoding':
+      return 'Encoding MP4...';
+    case 'muxing':
+      return 'Muxing MP4...';
+    default:
+      return 'Exporting MP4...';
+  }
+}
+
 async function handleExport() {
   if (!currentCompositionSource || !currentComposition || !currentFile) return;
   if (isExporting) return;
@@ -624,10 +642,15 @@ async function handleExport() {
       .filter(([, meta]) => meta.kind === 'audio')
       .map(([id]) => id);
 
-    const data = await exportMp4(currentCompositionSource, previewCanvas, comp, resourceMeta, (current, total) => {
+    const data = await exportMp4(currentCompositionSource, previewCanvas, comp, resourceMeta, (
+      current: number,
+      total: number,
+      stage?: ExportProgressStage,
+    ) => {
       const pct = Math.round((current / total) * 100);
       exportProgressFill.style.width = `${pct}%`;
       btnExport.textContent = `⏳ ${current}/${total}`;
+      exportInfoEl.textContent = exportStageLabel(stage);
     }, audioIds);
 
     if (data) {
@@ -659,7 +682,10 @@ async function handleExportPng() {
 
   try {
     await exportPngFrame(currentCompositionSource, previewCanvas, currentComposition, currentFrame, resourceMeta);
-  } catch { /* ignore */ } finally {
+  } catch (err) {
+    console.error('PNG export failed:', err);
+    exportInfoEl.textContent = `PNG export error: ${err}`;
+  } finally {
     isExporting = false;
     btnExportPng.disabled = false;
   }

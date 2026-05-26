@@ -5,6 +5,7 @@ use super::draw_op::DrawOp;
 #[derive(Clone, Debug, Default)]
 pub struct DrawOpFrame {
     pub ops: Vec<DrawOp>,
+    pub subtrees: Vec<Vec<DrawOp>>,
     pub paints: Vec<crate::canvas::paint::PaintSpec>,
     pub paths: Vec<super::draw_types::EncodedPath>,
     pub children: Vec<super::draw_types::RuntimeEffectChildRef>,
@@ -22,7 +23,9 @@ pub struct DrawOpFrame {
 #[derive(Default)]
 pub struct DrawFrameScratch {
     pub ops: Vec<DrawOp>,
+    pub subtrees: Vec<Vec<DrawOp>>,
     pub encoded_ops: Vec<u8>,
+    pub encoded_subtrees: Vec<u8>,
     pub children: Vec<super::draw_types::RuntimeEffectChildRef>,
     pub encoded_children: Vec<u8>,
     pub f32_pool: Vec<f32>,
@@ -36,7 +39,9 @@ impl DrawFrameScratch {
     /// Clear all buffers for reuse.
     pub fn clear(&mut self) {
         self.ops.clear();
+        self.subtrees.clear();
         self.encoded_ops.clear();
+        self.encoded_subtrees.clear();
         self.children.clear();
         self.encoded_children.clear();
         self.f32_pool.clear();
@@ -55,6 +60,7 @@ mod tests {
     fn empty_frame_has_empty_tables() {
         let frame = DrawOpFrame::default();
         assert!(frame.ops.is_empty());
+        assert!(frame.subtrees.is_empty());
         assert!(frame.paints.is_empty());
         assert!(frame.paths.is_empty());
         assert!(frame.children.is_empty());
@@ -80,14 +86,18 @@ mod tests {
     fn scratch_is_empty_on_create() {
         let scratch = DrawFrameScratch::default();
         assert!(scratch.ops.is_empty());
+        assert!(scratch.subtrees.is_empty());
         assert!(scratch.encoded_ops.is_empty());
+        assert!(scratch.encoded_subtrees.is_empty());
     }
 
     #[test]
     fn scratch_can_be_cleared_and_reused() {
         let mut scratch = DrawFrameScratch::default();
         scratch.ops.push(DrawOp::Save);
+        scratch.subtrees.push(vec![DrawOp::Restore]);
         scratch.clear();
         assert!(scratch.ops.is_empty());
+        assert!(scratch.subtrees.is_empty());
     }
 }

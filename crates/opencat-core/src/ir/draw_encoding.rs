@@ -93,6 +93,7 @@ pub struct EncodedDrawFrame {
     pub magic: [u8; 4],
     pub version: u32,
     pub ops: Vec<u8>,
+    pub subtrees: Vec<u8>,
     pub f32_pool: Vec<f32>,
     pub bytes: Vec<u8>,
     pub byte_ranges: Vec<TableRange>,
@@ -132,6 +133,18 @@ pub fn encode_draw_frame(
     for op in &frame.ops {
         encode_op(op, encoded_ops, &mut scratch.f32_pool, &frame.strings);
     }
+    let encoded_subtrees = &mut scratch.encoded_subtrees;
+    write_u32(encoded_subtrees, frame.subtrees.len() as u32);
+    for subtree in &frame.subtrees {
+        let start = encoded_subtrees.len();
+        write_u32(encoded_subtrees, 0);
+        let body_start = encoded_subtrees.len();
+        for op in subtree {
+            encode_op(op, encoded_subtrees, &mut scratch.f32_pool, &frame.strings);
+        }
+        let byte_len = (encoded_subtrees.len() - body_start) as u32;
+        encoded_subtrees[start..start + 4].copy_from_slice(&byte_len.to_le_bytes());
+    }
     let f32_pool_out = std::mem::take(&mut scratch.f32_pool);
     let bytes_out = std::mem::take(&mut scratch.bytes);
     let byte_ranges_out = std::mem::take(&mut scratch.byte_ranges);
@@ -157,6 +170,7 @@ pub fn encode_draw_frame(
         magic: MAGIC,
         version: VERSION,
         ops: std::mem::take(encoded_ops),
+        subtrees: std::mem::take(encoded_subtrees),
         f32_pool: f32_pool_out,
         bytes: bytes_out,
         byte_ranges: byte_ranges_out,
@@ -628,12 +642,18 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             write_u32(buf, range.op_len);
         }
 
-        DrawOp::DrawSubtreePicture { owner_id, x, y } => {
-            let sid = lookup_string_id(strings, owner_id);
+        DrawOp::ReplaySubtreePicture { subtree, x, y } => {
             write_op_header(buf, opcode::DRAW_SUBTREE_PICTURE, 12);
-            write_u32(buf, sid);
+            write_u32(buf, subtree.0);
             write_f32(buf, *x);
             write_f32(buf, *y);
+        }
+
+        DrawOp::DrawSubtreePicture { .. } => {
+            unreachable!(
+                "DrawOp::DrawSubtreePicture must be translated into ReplaySubtreePicture \
+                 before binary encoding"
+            );
         }
 
         DrawOp::ScriptRuntimeEffect { .. } => {

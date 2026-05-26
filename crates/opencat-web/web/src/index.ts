@@ -52,3 +52,4 @@ export {
   exportPngFrame,
   initFFmpeg,
 } from './media/exporter';
+export type { ExportProgressStage } from './media/exporter';

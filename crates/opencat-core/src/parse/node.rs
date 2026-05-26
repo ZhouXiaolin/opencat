@@ -53,7 +53,6 @@ impl Node {
 
 #[derive(Clone)]
 pub enum NodeKind {
-    Component(ComponentNode),
     Div(Div),
     Canvas(Canvas),
     Text(Text),
@@ -68,7 +67,6 @@ pub enum NodeKind {
 impl std::fmt::Debug for NodeKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Component(_) => write!(f, "Component(..)"),
             Self::Div(_) => write!(f, "Div(..)"),
             Self::Canvas(_) => write!(f, "Canvas(..)"),
             Self::Text(_) => write!(f, "Text(..)"),
@@ -85,7 +83,6 @@ impl std::fmt::Debug for NodeKind {
 impl NodeKind {
     pub fn style_ref(&self) -> &NodeStyle {
         match self {
-            Self::Component(node) => node.style_ref(),
             Self::Div(node) => node.style_ref(),
             Self::Canvas(node) => node.style_ref(),
             Self::Text(node) => node.style_ref(),
@@ -100,7 +97,6 @@ impl NodeKind {
 
     pub fn duration_in_frames(&self, ctx: &FrameCtx) -> Option<u32> {
         match self {
-            Self::Component(node) => node.duration_in_frames(ctx),
             Self::Div(node) => node.duration_in_frames(ctx),
             Self::Timeline(node) => Some(node.duration_in_frames()),
             Self::Text(_)
@@ -115,7 +111,6 @@ impl NodeKind {
 
     pub fn style_mut(&mut self) -> &mut NodeStyle {
         match self {
-            Self::Component(node) => &mut node.style,
             Self::Div(node) => &mut node.style,
             Self::Canvas(node) => &mut node.style,
             Self::Text(node) => &mut node.style,
@@ -129,74 +124,6 @@ impl NodeKind {
     }
 }
 
-#[derive(Clone)]
-pub struct ComponentNode {
-    render: Arc<dyn Fn(&FrameCtx) -> Node + Send + Sync>,
-    duration_in_frames: Option<Arc<dyn Fn() -> u32 + Send + Sync>>,
-    style: NodeStyle,
-}
-
-impl ComponentNode {
-    pub fn new<F>(render: F) -> Self
-    where
-        F: Fn(&FrameCtx) -> Node + Send + Sync + 'static,
-    {
-        Self {
-            render: Arc::new(render),
-            duration_in_frames: None,
-            style: NodeStyle::default(),
-        }
-    }
-
-    pub fn with_duration<F, D>(render: F, duration_in_frames: D) -> Self
-    where
-        F: Fn(&FrameCtx) -> Node + Send + Sync + 'static,
-        D: Fn() -> u32 + Send + Sync + 'static,
-    {
-        Self {
-            render: Arc::new(render),
-            duration_in_frames: Some(Arc::new(duration_in_frames)),
-            style: NodeStyle::default(),
-        }
-    }
-
-    pub fn render(&self, ctx: &FrameCtx) -> Node {
-        (self.render)(ctx)
-    }
-
-    pub fn style_ref(&self) -> &NodeStyle {
-        &self.style
-    }
-
-    pub fn duration_in_frames(&self, ctx: &FrameCtx) -> Option<u32> {
-        if let Some(duration_in_frames) = &self.duration_in_frames {
-            return Some(duration_in_frames());
-        }
-
-        self.render(ctx).duration_in_frames(ctx)
-    }
-}
-
-pub fn component_node<F>(render: F) -> Node
-where
-    F: Fn(&FrameCtx) -> Node + Send + Sync + 'static,
-{
-    Node::new(ComponentNode::new(render))
-}
-
-pub fn component_node_with_duration<F, D>(render: F, duration_in_frames: D) -> Node
-where
-    F: Fn(&FrameCtx) -> Node + Send + Sync + 'static,
-    D: Fn() -> u32 + Send + Sync + 'static,
-{
-    Node::new(ComponentNode::with_duration(render, duration_in_frames))
-}
-
-impl From<ComponentNode> for NodeKind {
-    fn from(value: ComponentNode) -> Self {
-        Self::Component(value)
-    }
-}
 
 impl From<Div> for NodeKind {
     fn from(value: Div) -> Self {
@@ -249,12 +176,6 @@ impl From<TimelineNode> for NodeKind {
 impl From<CaptionNode> for NodeKind {
     fn from(value: CaptionNode) -> Self {
         Self::Caption(value)
-    }
-}
-
-impl From<ComponentNode> for Node {
-    fn from(value: ComponentNode) -> Self {
-        Self::new(value)
     }
 }
 

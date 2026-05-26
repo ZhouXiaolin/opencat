@@ -148,10 +148,6 @@ fn seed_asset_entries_for_inspect(
     path_store: &mut AssetPathStore,
 ) {
     match node.kind() {
-        NodeKind::Component(component) => {
-            let rendered = component.render(frame_ctx);
-            seed_asset_entries_for_inspect(&rendered, frame_ctx, catalog, path_store);
-        }
         NodeKind::Div(div) => {
             for child in div.children_ref() {
                 seed_asset_entries_for_inspect(child, frame_ctx, catalog, path_store);
@@ -313,10 +309,6 @@ fn collect_source_metadata(
     out: &mut HashMap<String, SourceNodeMeta>,
 ) {
     match node.kind() {
-        NodeKind::Component(component) => {
-            let rendered = component.render(frame_ctx);
-            collect_source_metadata(&rendered, frame_ctx, out);
-        }
         NodeKind::Div(div) => {
             let entry = upsert_style_meta(div.style_ref(), "div", out);
             if let Some(entry) = entry {

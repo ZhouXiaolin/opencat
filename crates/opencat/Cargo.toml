@@ -10,7 +10,7 @@ profile = ["opencat-core/profile"]
 opencat-core = { path = "../opencat-core" }
 opencat-engine = { path = "../opencat-engine" }
 
-anyhow = "1.0"
+anyhow.workspace = true
 dirs = "6.0.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["registry"] }

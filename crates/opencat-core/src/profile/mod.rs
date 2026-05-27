@@ -119,6 +119,7 @@ pub struct FrameProfile {
     pub slide_transition_frames: usize,
     pub light_leak_transition_frames: usize,
     pub reused_nodes: usize,
+    pub merkle_skipped_subtrees: usize,
     pub layout_dirty_nodes: usize,
     pub raster_dirty_nodes: usize,
     pub composite_dirty_nodes: usize,

@@ -36,6 +36,7 @@ struct TextMeasureContext {
 pub struct LayoutPassStats {
     pub structure_rebuild: bool,
     pub reused_nodes: usize,
+    pub merkle_skipped_subtrees: usize,
     pub layout_dirty_nodes: usize,
     pub raster_dirty_nodes: usize,
     pub composite_dirty_nodes: usize,
@@ -61,9 +62,14 @@ struct CachedLayoutNode {
     identity: u64,
     kind: CachedNodeKind,
     taffy_node: taffy::NodeId,
-    layout_hash: u64,
-    raster_hash: u64,
-    composite_hash: u64,
+    structure_subtree_hash: u64,
+    layout_input_subtree_hash: u64,
+    paint_input_subtree_hash: u64,
+    composite_input_subtree_hash: u64,
+    node_count: usize,
+    layout_input_local_hash: u64,
+    paint_input_local_hash: u64,
+    composite_input_local_hash: u64,
     children: Vec<CachedLayoutNode>,
 }
 
@@ -275,9 +281,14 @@ fn build_taffy_subtree(
             identity: node_identity(element, sibling_index),
             kind: cached_node_kind(element),
             taffy_node: id,
-            layout_hash: layout_affect_hash(element),
-            raster_hash: raster_affect_hash(element),
-            composite_hash: composite_affect_hash(element),
+            structure_subtree_hash: element.fingerprints.structure_subtree,
+            layout_input_subtree_hash: element.fingerprints.layout_input_subtree,
+            paint_input_subtree_hash: element.fingerprints.paint_input_subtree,
+            composite_input_subtree_hash: element.fingerprints.composite_input_subtree,
+            node_count: element.fingerprints.node_count,
+            layout_input_local_hash: element.fingerprints.layout_input_local,
+            paint_input_local_hash: element.fingerprints.paint_input_local,
+            composite_input_local_hash: element.fingerprints.composite_input_local,
             children,
         },
     ))
@@ -298,32 +309,42 @@ fn update_cached_subtree(
     taffy: &mut TaffyTree<TextMeasureContext>,
     stats: &mut LayoutPassStats,
 ) -> Result<()> {
+    if cached.structure_subtree_hash == element.fingerprints.structure_subtree
+        && cached.layout_input_subtree_hash == element.fingerprints.layout_input_subtree
+        && cached.paint_input_subtree_hash == element.fingerprints.paint_input_subtree
+        && cached.composite_input_subtree_hash == element.fingerprints.composite_input_subtree
+    {
+        stats.reused_nodes += cached.node_count;
+        stats.merkle_skipped_subtrees += 1;
+        return Ok(());
+    }
+
     cached.identity = node_identity(element, sibling_index);
 
-    let next_layout_hash = layout_affect_hash(element);
-    let next_raster_hash = raster_affect_hash(element);
-    let next_composite_hash = composite_affect_hash(element);
+    let next_layout_hash = element.fingerprints.layout_input_local;
+    let next_paint_hash = element.fingerprints.paint_input_local;
+    let next_composite_hash = element.fingerprints.composite_input_local;
 
-    if cached.layout_hash != next_layout_hash {
+    if cached.layout_input_local_hash != next_layout_hash {
         taffy.set_style(cached.taffy_node, taffy_style_for_element(element))?;
         taffy.set_node_context(cached.taffy_node, text_measure_context_for_element(element))?;
-        cached.layout_hash = next_layout_hash;
-        cached.raster_hash = next_raster_hash;
-        cached.composite_hash = next_composite_hash;
+        cached.layout_input_local_hash = next_layout_hash;
+        cached.paint_input_local_hash = next_paint_hash;
+        cached.composite_input_local_hash = next_composite_hash;
         stats.layout_dirty_nodes += 1;
     } else {
-        let raster_changed = cached.raster_hash != next_raster_hash;
-        let composite_changed = cached.composite_hash != next_composite_hash;
-        cached.raster_hash = next_raster_hash;
-        cached.composite_hash = next_composite_hash;
+        let paint_changed = cached.paint_input_local_hash != next_paint_hash;
+        let composite_changed = cached.composite_input_local_hash != next_composite_hash;
+        cached.paint_input_local_hash = next_paint_hash;
+        cached.composite_input_local_hash = next_composite_hash;
 
-        if raster_changed {
+        if paint_changed {
             stats.raster_dirty_nodes += 1;
         }
         if composite_changed {
             stats.composite_dirty_nodes += 1;
         }
-        if !raster_changed && !composite_changed {
+        if !paint_changed && !composite_changed {
             stats.reused_nodes += 1;
         }
     }
@@ -334,6 +355,12 @@ fn update_cached_subtree(
     {
         update_cached_subtree(child, cached_child, index, taffy, stats)?;
     }
+
+    cached.structure_subtree_hash = element.fingerprints.structure_subtree;
+    cached.layout_input_subtree_hash = element.fingerprints.layout_input_subtree;
+    cached.paint_input_subtree_hash = element.fingerprints.paint_input_subtree;
+    cached.composite_input_subtree_hash = element.fingerprints.composite_input_subtree;
+    cached.node_count = element.fingerprints.node_count;
 
     Ok(())
 }
@@ -384,249 +411,6 @@ fn node_identity(element: &ElementNode, sibling_index: usize) -> u64 {
     sibling_index.hash(&mut hasher);
     element.style.id.hash(&mut hasher);
     hasher.finish()
-}
-
-fn layout_affect_hash(element: &ElementNode) -> u64 {
-    calculate_hash(&LayoutFingerprint(element))
-}
-
-fn raster_affect_hash(element: &ElementNode) -> u64 {
-    calculate_hash(&RasterFingerprint(element))
-}
-
-fn composite_affect_hash(element: &ElementNode) -> u64 {
-    calculate_hash(&CompositeFingerprint(element))
-}
-
-fn calculate_hash(value: &impl Hash) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
-    hasher.finish()
-}
-
-#[derive(Clone, Copy)]
-struct F32Hash(f32);
-
-impl Hash for F32Hash {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.to_bits().hash(state);
-    }
-}
-
-struct LayoutFingerprint<'a>(&'a ElementNode);
-
-impl Hash for LayoutFingerprint<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        LayoutStyleFingerprint(&self.0.style.layout).hash(state);
-        self.0.style.visual.border_width.map(F32Hash).hash(state);
-        self.0
-            .style
-            .visual
-            .border_top_width
-            .map(F32Hash)
-            .hash(state);
-        self.0
-            .style
-            .visual
-            .border_right_width
-            .map(F32Hash)
-            .hash(state);
-        self.0
-            .style
-            .visual
-            .border_bottom_width
-            .map(F32Hash)
-            .hash(state);
-        self.0
-            .style
-            .visual
-            .border_left_width
-            .map(F32Hash)
-            .hash(state);
-
-        match &self.0.kind {
-            ElementKind::Div(_) | ElementKind::Timeline(_) | ElementKind::Canvas(_) => {}
-            ElementKind::Text(text) => {
-                text.text.hash(state);
-                TextLayoutStyleFingerprint(&text.text_style).hash(state);
-            }
-            ElementKind::Bitmap(bitmap) => {
-                bitmap.width.hash(state);
-                bitmap.height.hash(state);
-            }
-            ElementKind::SvgPath(svg) => {
-                svg.intrinsic_size
-                    .map(|(w, h)| (F32Hash(w), F32Hash(h)))
-                    .hash(state);
-            }
-        }
-    }
-}
-
-struct RasterFingerprint<'a>(&'a ElementNode);
-
-impl Hash for RasterFingerprint<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        RasterVisualStyleFingerprint(&self.0.style.visual).hash(state);
-
-        match &self.0.kind {
-            ElementKind::Div(_) | ElementKind::Timeline(_) => {}
-            ElementKind::Text(text) => {
-                text.text.hash(state);
-                TextRasterStyleFingerprint(&text.text_style).hash(state);
-            }
-            ElementKind::Bitmap(bitmap) => {
-                bitmap.asset_id.hash(state);
-                bitmap.width.hash(state);
-                bitmap.height.hash(state);
-                bitmap.video_timing.hash(state);
-            }
-            ElementKind::Canvas(canvas) => {
-                canvas.commands.hash(state);
-            }
-            ElementKind::SvgPath(svg) => {
-                for data in &svg.path_data {
-                    data.hash(state);
-                }
-                svg.view_box.map(F32Hash).hash(state);
-            }
-        }
-    }
-}
-
-struct CompositeFingerprint<'a>(&'a ElementNode);
-
-impl Hash for CompositeFingerprint<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        CompositeVisualStyleFingerprint(&self.0.style.visual).hash(state);
-    }
-}
-
-struct LayoutStyleFingerprint<'a>(&'a crate::resolve::style::ComputedLayoutStyle);
-
-impl Hash for LayoutStyleFingerprint<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let style = self.0;
-        style.position.hash(state);
-        style.inset_left.hash(state);
-        style.inset_top.hash(state);
-        style.inset_right.hash(state);
-        style.inset_bottom.hash(state);
-        style.width.map(F32Hash).hash(state);
-        style.width_percent.map(F32Hash).hash(state);
-        style.height.map(F32Hash).hash(state);
-        style.max_width.map(F32Hash).hash(state);
-        style.width_full.hash(state);
-        style.height_full.hash(state);
-        F32Hash(style.padding_top).hash(state);
-        F32Hash(style.padding_right).hash(state);
-        F32Hash(style.padding_bottom).hash(state);
-        F32Hash(style.padding_left).hash(state);
-        style.margin_top.hash(state);
-        style.margin_right.hash(state);
-        style.margin_bottom.hash(state);
-        style.margin_left.hash(state);
-        style.min_height.hash(state);
-        style.is_flex.hash(state);
-        style.is_grid.hash(state);
-        style.grid_template_columns.hash(state);
-        style.grid_template_rows.hash(state);
-        style.grid_auto_flow.hash(state);
-        style.grid_auto_rows.hash(state);
-        style.col_start.hash(state);
-        style.col_end.hash(state);
-        style.row_start.hash(state);
-        style.row_end.hash(state);
-        style.auto_size.hash(state);
-        style.flex_direction.hash(state);
-        style.justify_content.hash(state);
-        style.align_items.hash(state);
-        style.flex_wrap.hash(state);
-        style.align_content.hash(state);
-        style.align_self.hash(state);
-        style.justify_items.hash(state);
-        style.justify_self.hash(state);
-        F32Hash(style.gap).hash(state);
-        style.gap_x.map(F32Hash).hash(state);
-        style.gap_y.map(F32Hash).hash(state);
-        style.order.hash(state);
-        style.aspect_ratio.map(F32Hash).hash(state);
-        style.flex_basis.hash(state);
-        F32Hash(style.flex_grow).hash(state);
-        style.flex_shrink.map(F32Hash).hash(state);
-        style.z_index.hash(state);
-        style.truncate.hash(state);
-    }
-}
-
-struct RasterVisualStyleFingerprint<'a>(&'a crate::resolve::style::ComputedVisualStyle);
-
-impl Hash for RasterVisualStyleFingerprint<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let style = self.0;
-        style.background.hash(state);
-        style.fill.hash(state);
-        style.border_radius.hash(state);
-        style.border_width.map(F32Hash).hash(state);
-        style.border_top_width.map(F32Hash).hash(state);
-        style.border_right_width.map(F32Hash).hash(state);
-        style.border_bottom_width.map(F32Hash).hash(state);
-        style.border_left_width.map(F32Hash).hash(state);
-        style.border_color.hash(state);
-        style.stroke_color.hash(state);
-        style.stroke_width.map(F32Hash).hash(state);
-        style.border_style.hash(state);
-        style.blur_sigma.map(F32Hash).hash(state);
-        style.object_fit.hash(state);
-        style.clip_contents.hash(state);
-        style.box_shadow.hash(state);
-        style.inset_shadow.hash(state);
-        style.drop_shadow.hash(state);
-    }
-}
-
-struct CompositeVisualStyleFingerprint<'a>(&'a crate::resolve::style::ComputedVisualStyle);
-
-impl Hash for CompositeVisualStyleFingerprint<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let style = self.0;
-        F32Hash(style.opacity).hash(state);
-        style.backdrop_blur_sigma.map(F32Hash).hash(state);
-        style.transforms.hash(state);
-    }
-}
-
-struct TextRasterStyleFingerprint<'a>(&'a ComputedTextStyle);
-
-impl Hash for TextRasterStyleFingerprint<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let style = self.0;
-        style.color.hash(state);
-        F32Hash(style.text_px).hash(state);
-        style.font_weight.hash(state);
-        F32Hash(style.letter_spacing).hash(state);
-        style.text_align.hash(state);
-        F32Hash(style.line_height).hash(state);
-        style.line_height_px.map(F32Hash).hash(state);
-        style.text_transform.hash(state);
-        style.wrap_text.hash(state);
-        style.line_through.hash(state);
-    }
-}
-
-struct TextLayoutStyleFingerprint<'a>(&'a ComputedTextStyle);
-
-impl Hash for TextLayoutStyleFingerprint<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let style = self.0;
-        F32Hash(style.text_px).hash(state);
-        style.font_weight.hash(state);
-        F32Hash(style.letter_spacing).hash(state);
-        F32Hash(style.line_height).hash(state);
-        style.line_height_px.map(F32Hash).hash(state);
-        style.text_transform.hash(state);
-        style.wrap_text.hash(state);
-    }
 }
 
 fn text_measure_context_for_element(element: &ElementNode) -> Option<TextMeasureContext> {
@@ -1634,6 +1418,58 @@ mod tests {
         assert!(second_stats.composite_dirty_nodes >= 1);
         assert_eq!(second_layout.root.rect.width, 320.0);
         assert_eq!(second_layout.root.children[0].id, "label");
+    }
+
+    #[test]
+    fn layout_session_skips_identical_merkle_subtree_without_descending() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        };
+        let mut assets = TestCatalog::new();
+        let mut session = LayoutSession::new();
+
+        let root = div()
+            .id("root")
+            .child(div().id("panel").child(text("A").id("label")))
+            .into();
+
+        let first_resolved = resolve_ui_tree(
+            &root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("first tree should resolve");
+        let second_resolved = resolve_ui_tree(
+            &root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("second tree should resolve");
+
+        session
+            .compute_layout(&first_resolved, &frame_ctx)
+            .expect("first layout should succeed");
+        let (_, second_stats) = session
+            .compute_layout(&second_resolved, &frame_ctx)
+            .expect("second layout should succeed");
+
+        assert_eq!(second_stats.layout_dirty_nodes, 0);
+        assert_eq!(
+            second_stats.reused_nodes, second_resolved.fingerprints.node_count,
+            "a Merkle hit should account for the whole reused subtree"
+        );
+        assert_eq!(
+            second_stats.merkle_skipped_subtrees, 1,
+            "the identical root subtree should be skipped before descending"
+        );
     }
 
     #[test]

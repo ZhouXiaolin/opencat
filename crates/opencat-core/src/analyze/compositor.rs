@@ -683,11 +683,11 @@ pub struct SceneRenderPlan {
 }
 
 impl SceneRenderPlan {
-    pub fn from_layout_pass(layout_pass: &LayoutPassStats) -> Self {
+    pub fn from_layout_pass(layout_pass: &LayoutPassStats, composite_dirty_nodes: usize) -> Self {
         let has_structural_change = layout_pass.structure_rebuild
             || layout_pass.layout_dirty_nodes > 0
             || layout_pass.raster_dirty_nodes > 0
-            || layout_pass.composite_dirty_nodes > 0;
+            || composite_dirty_nodes > 0;
 
         Self {
             allows_scene_snapshot_cache: !has_structural_change,
@@ -695,8 +695,11 @@ impl SceneRenderPlan {
     }
 }
 
-pub fn plan_for_scene(layout_pass: &LayoutPassStats) -> SceneRenderPlan {
-    SceneRenderPlan::from_layout_pass(layout_pass)
+pub fn plan_for_scene(
+    layout_pass: &LayoutPassStats,
+    composite_dirty_nodes: usize,
+) -> SceneRenderPlan {
+    SceneRenderPlan::from_layout_pass(layout_pass, composite_dirty_nodes)
 }
 
 #[cfg(test)]
@@ -706,12 +709,7 @@ mod plan_tests {
 
     #[test]
     fn composite_only_scene_disables_scene_snapshot_cache() {
-        let layout_pass = LayoutPassStats {
-            composite_dirty_nodes: 2,
-            ..LayoutPassStats::default()
-        };
-
-        let plan = SceneRenderPlan::from_layout_pass(&layout_pass);
+        let plan = SceneRenderPlan::from_layout_pass(&LayoutPassStats::default(), 2);
         assert_eq!(
             plan,
             SceneRenderPlan {
@@ -722,7 +720,7 @@ mod plan_tests {
 
     #[test]
     fn clean_scene_reuses_scene_snapshot_cache() {
-        let plan = SceneRenderPlan::from_layout_pass(&LayoutPassStats::default());
+        let plan = SceneRenderPlan::from_layout_pass(&LayoutPassStats::default(), 0);
         assert_eq!(
             plan,
             SceneRenderPlan {

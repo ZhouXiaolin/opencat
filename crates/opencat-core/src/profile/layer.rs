@@ -257,7 +257,12 @@ where
         let metadata = event.metadata();
         if !matches!(
             metadata.target(),
-            "render.analyze" | "render.cache" | "render.draw" | "render.layer" | "render.layout"
+            "render.analyze"
+                | "render.cache"
+                | "render.display"
+                | "render.draw"
+                | "render.layer"
+                | "render.layout"
         ) {
             return;
         }

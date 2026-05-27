@@ -756,8 +756,8 @@ mod tests {
 
     #[test]
     fn script_runtime_effect_hash_differs_by_sksl() {
-        use std::hash::{Hash, Hasher};
         use ahash::AHasher;
+        use std::hash::{Hash, Hasher};
         let make = |s: &str| DrawOp::ScriptRuntimeEffect {
             sksl: s.to_string(),
             uniforms_bytes: Vec::new(),

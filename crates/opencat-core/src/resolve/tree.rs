@@ -3,6 +3,7 @@ use crate::ir::draw_op::DrawOp;
 use crate::parse::transition::TransitionKind;
 use crate::resource::types::VideoFrameTiming;
 use crate::script::TextUnitOverrideBatch;
+use crate::semantic::fingerprint::ElementInputFingerprints;
 use crate::style::ComputedTextStyle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -21,6 +22,7 @@ pub struct ElementNode {
     pub style: super::style::ComputedStyle,
     pub children: Vec<ElementNode>,
     pub draw_slot: ElementDrawSlot,
+    pub fingerprints: ElementInputFingerprints,
 }
 
 #[derive(Clone, Debug)]

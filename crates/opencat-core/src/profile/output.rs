@@ -52,8 +52,9 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
             .sum::<usize>(),
     ));
     out.push_str(&format!(
-        "  avg nodes/frame: reused {:.1}, layout_dirty {:.1}, raster_dirty {:.1}, composite_dirty {:.1}, structure_rebuilds {:.2}\n",
+        "  avg nodes/frame: reused {:.1}, merkle_skipped {:.1}, layout_dirty {:.1}, raster_dirty {:.1}, composite_dirty {:.1}, structure_rebuilds {:.2}\n",
         average_usize(summary, |frame| frame.reused_nodes),
+        average_usize(summary, |frame| frame.merkle_skipped_subtrees),
         average_usize(summary, |frame| frame.layout_dirty_nodes),
         average_usize(summary, |frame| frame.raster_dirty_nodes),
         average_usize(summary, |frame| frame.composite_dirty_nodes),
@@ -253,6 +254,7 @@ mod tests {
         frame.display_ms = 0.19;
         frame.backend_ms = 77.29;
         frame.transition_ms = 3.71;
+        frame.merkle_skipped_subtrees = 5;
         frame.backend_spans.insert(
             BackendSpanKey {
                 depth: 0,
@@ -270,6 +272,7 @@ mod tests {
 
         assert!(text.contains("Render profile:"));
         assert!(text.contains("avg ms/frame"));
+        assert!(text.contains("merkle_skipped"));
         assert!(text.contains("backend avg spans/frame"));
     }
 }

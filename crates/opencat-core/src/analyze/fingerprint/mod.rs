@@ -163,6 +163,7 @@ pub fn subtree_has_dirty_descendant_composite(
 }
 
 fn hash_node_recorded_paint<H: Hasher>(node: &AnnotatedDisplayNode, hasher: &mut H) {
+    node.input_fingerprints.paint_input_subtree.hash(hasher);
     hash_recorded_semantics(&node.recorded_semantics(), hasher);
 }
 
@@ -301,6 +302,7 @@ mod tests {
     impl TestAnnotatedNode {
         fn into_annotated_node(self) -> AnnotatedDisplayNode {
             AnnotatedDisplayNode {
+                input_fingerprints: Default::default(),
                 transform: self.transform,
                 opacity: self.opacity,
                 backdrop_blur_sigma: self.backdrop_blur_sigma,
@@ -355,6 +357,7 @@ mod tests {
 
         let handle = AnnotatedNodeHandle(nodes.len());
         let annotated = AnnotatedDisplayNode {
+            input_fingerprints: Default::default(),
             transform: node.transform,
             opacity: node.opacity,
             backdrop_blur_sigma: node.backdrop_blur_sigma,
@@ -790,6 +793,7 @@ mod tests {
                     owner_id: "canvas".to_string(),
                     node: DisplayNode {
                         element_id: ElementId(7),
+                        input_fingerprints: Default::default(),
                         transform: rect_transform(0.0, 0.0),
                         opacity: 1.0,
                         backdrop_blur_sigma: None,

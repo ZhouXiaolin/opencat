@@ -382,6 +382,49 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "profile")]
+    #[test]
+    fn profile_showcase_jsonl_records_split_merkle_profile() {
+        let jsonl = include_str!("../../../../json/profile-showcase.jsonl");
+
+        let config = crate::profile::ProfileConfig { enabled: true };
+        let (_, summary) = crate::profile::profile_render(&config, || {
+            let mut pipeline = DefaultPipeline::open(
+                jsonl,
+                InMemoryLoader::default(),
+                NoopJsContext::new().expect("js context"),
+            )
+            .expect("open profile showcase jsonl");
+
+            for frame_index in 0..pipeline.info().frames {
+                let _ = pipeline.render_frame(frame_index)?;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .expect("profile render");
+
+        let summary = summary.expect("summary should exist");
+        let full_hit_nodes = summary
+            .frames
+            .values()
+            .map(|frame| frame.input_merkle_full_hit_nodes)
+            .sum::<usize>();
+        let layout_skipped_nodes = summary
+            .frames
+            .values()
+            .map(|frame| frame.layout_merkle_skipped_nodes)
+            .sum::<usize>();
+
+        assert!(
+            full_hit_nodes > 0,
+            "profile-showcase jsonl should exercise full input Merkle hits"
+        );
+        assert!(
+            layout_skipped_nodes >= full_hit_nodes,
+            "layout Merkle skip should include full hits and layout-only clean subtrees"
+        );
+    }
+
     #[test]
     fn open_pipeline_populates_audio_plan() {
         let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}

@@ -388,7 +388,10 @@ mod tests {
     #[cfg(feature = "profile")]
     #[test]
     fn profile_showcase_jsonl_records_split_merkle_profile() {
-        let jsonl = include_str!("../../../../json/profile-showcase.jsonl");
+        let jsonl = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../json/profile-showcase.jsonl"
+        ));
 
         let config = crate::profile::ProfileConfig { enabled: true };
         let (_, summary) = crate::profile::profile_render(&config, || {
@@ -423,6 +426,77 @@ mod tests {
             .map(|frame| frame.analyze_merkle_skipped_nodes)
             .sum::<usize>();
 
+        let analyze_recorded_hit_nodes = summary
+            .frames
+            .values()
+            .map(|frame| frame.analyze_recorded_hit_nodes)
+            .sum::<usize>();
+        let analyze_composite_blocked_nodes = summary
+            .frames
+            .values()
+            .map(|frame| frame.analyze_composite_blocked_nodes)
+            .sum::<usize>();
+        let analyze_snapshot_eligibility_hit_nodes = summary
+            .frames
+            .values()
+            .map(|frame| frame.analyze_snapshot_eligibility_hit_nodes)
+            .sum::<usize>();
+        let subtree_snapshot_cache_hits = summary
+            .frames
+            .values()
+            .map(|frame| frame.backend.subtree_snapshot_cache_hits)
+            .sum::<usize>();
+        let subtree_snapshot_cache_misses = summary
+            .frames
+            .values()
+            .map(|frame| frame.backend.subtree_snapshot_cache_misses)
+            .sum::<usize>();
+        let subtree_snapshot_cache_evictions = summary
+            .frames
+            .values()
+            .map(|frame| frame.backend.subtree_snapshot_cache_evictions)
+            .sum::<usize>();
+        let subtree_snapshot_artifact_hits = summary
+            .frames
+            .values()
+            .map(|frame| frame.backend.subtree_snapshot_artifact_hits)
+            .sum::<usize>();
+        let subtree_snapshot_artifact_first_record = summary
+            .frames
+            .values()
+            .map(|frame| frame.backend.subtree_snapshot_artifact_first_record)
+            .sum::<usize>();
+        let subtree_snapshot_artifact_evicted_or_absent = summary
+            .frames
+            .values()
+            .map(|frame| frame.backend.subtree_snapshot_artifact_evicted_or_absent)
+            .sum::<usize>();
+        let subtree_snapshot_request_after_analyze_fresh = summary
+            .frames
+            .values()
+            .map(|frame| frame.backend.subtree_snapshot_request_after_analyze_fresh)
+            .sum::<usize>();
+        let subtree_snapshot_request_after_analyze_reused = summary
+            .frames
+            .values()
+            .map(|frame| frame.backend.subtree_snapshot_request_after_analyze_reused)
+            .sum::<usize>();
+        let subtree_snapshot_request_after_analyze_composite_blocked = summary
+            .frames
+            .values()
+            .map(|frame| {
+                frame
+                    .backend
+                    .subtree_snapshot_request_after_analyze_composite_blocked
+            })
+            .sum::<usize>();
+
+        let subtree_snapshot_artifact_replaced = summary
+            .frames
+            .values()
+            .map(|frame| frame.backend.subtree_snapshot_artifact_replaced)
+            .sum::<usize>();
+
         assert!(
             full_hit_nodes > 0,
             "profile-showcase jsonl should exercise full input Merkle hits"
@@ -434,6 +508,58 @@ mod tests {
         assert!(
             analyze_skipped_nodes > 0,
             "profile-showcase jsonl should exercise analyze Merkle fingerprint skips"
+        );
+        assert!(
+            analyze_recorded_hit_nodes > 0,
+            "analyze_recorded_hit_nodes should be > 0 in the showcase scene"
+        );
+        assert!(
+            subtree_snapshot_cache_hits > 0,
+            "subtree_snapshot_cache_hits should be > 0 in the showcase scene"
+        );
+        assert!(
+            subtree_snapshot_cache_misses > 0,
+            "subtree_snapshot_cache_misses should be > 0 in the showcase scene"
+        );
+        assert!(
+            subtree_snapshot_cache_evictions > 0,
+            "subtree_snapshot_cache_evictions should be > 0 in the showcase scene"
+        );
+        assert!(
+            subtree_snapshot_artifact_hits > 0,
+            "subtree_snapshot_artifact_hits should be > 0 in the showcase scene"
+        );
+        assert!(
+            subtree_snapshot_artifact_first_record > 0,
+            "subtree_snapshot_artifact_first_record should be > 0 in the showcase scene"
+        );
+        assert!(
+            subtree_snapshot_request_after_analyze_fresh > 0,
+            "subtree_snapshot_request_after_analyze_fresh should be > 0 in the showcase scene"
+        );
+        assert!(
+            subtree_snapshot_request_after_analyze_reused > 0,
+            "subtree_snapshot_request_after_analyze_reused should be > 0 in the showcase scene"
+        );
+
+        assert_eq!(
+            analyze_recorded_hit_nodes,
+            analyze_snapshot_eligibility_hit_nodes + analyze_composite_blocked_nodes,
+            "recorded_hit_nodes should equal snapshot_eligibility_hit_nodes + composite_blocked_nodes"
+        );
+
+        let _ = subtree_snapshot_artifact_replaced;
+        let _ = subtree_snapshot_request_after_analyze_composite_blocked;
+
+        assert_eq!(
+            subtree_snapshot_artifact_hits + subtree_snapshot_artifact_evicted_or_absent,
+            subtree_snapshot_cache_hits,
+            "artifact_hits + evicted_or_absent must equal cache_hits: every cache hit checks the artifact"
+        );
+        assert_eq!(
+            subtree_snapshot_artifact_first_record + subtree_snapshot_artifact_evicted_or_absent,
+            subtree_snapshot_cache_misses,
+            "first_record (no cache entry) + evicted_or_absent (cache hit, segment gone) must equal cache_misses"
         );
     }
 

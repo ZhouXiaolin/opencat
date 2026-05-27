@@ -756,8 +756,8 @@ mod tests {
 
     #[test]
     fn script_runtime_effect_hash_differs_by_sksl() {
-        use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
+        use ahash::AHasher;
         let make = |s: &str| DrawOp::ScriptRuntimeEffect {
             sksl: s.to_string(),
             uniforms_bytes: Vec::new(),
@@ -769,9 +769,9 @@ mod tests {
                 height: 1.0,
             },
         };
-        let mut h1 = DefaultHasher::new();
+        let mut h1 = AHasher::default();
         make("a").hash(&mut h1);
-        let mut h2 = DefaultHasher::new();
+        let mut h2 = AHasher::default();
         make("b").hash(&mut h2);
         assert_ne!(h1.finish(), h2.finish());
     }

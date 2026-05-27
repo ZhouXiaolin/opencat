@@ -29,6 +29,7 @@ pub struct AnnotatedDisplayTree {
     pub layer_bounds: Vec<DisplayRect>,
     pub analysis: DisplayAnalysisTable,
     pub invalidation: DisplayInvalidationTable,
+    pub analyze_reuse: Vec<AnalyzeReuseState>,
 }
 
 #[derive(Clone, Debug)]
@@ -58,11 +59,27 @@ pub struct AnalyzeFingerprintStats {
     pub composite_blocked_nodes: usize,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AnalyzeReuseState {
+    #[default]
+    Fresh,
+    ReusedFromHistory,
+    CompositeBlocked,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct AnalyzeFingerprintHistoryEntry {
     recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint,
     has_dirty_descendant_composite: bool,
+    node_count: usize,
     analysis: DisplayNodeAnalysis,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AnalyzeFingerprintDecision {
+    Miss,
+    Reused { nodes: usize },
+    CompositeBlocked { nodes: usize },
 }
 
 #[derive(Default)]
@@ -72,13 +89,13 @@ pub struct AnalyzeFingerprintHistory {
 
 impl AnalyzeFingerprintHistory {
     fn previous(
-        &self,
+        &mut self,
         structure_rebuild: bool,
     ) -> HashMap<RenderNodeKey, AnalyzeFingerprintHistoryEntry> {
         if structure_rebuild {
             HashMap::new()
         } else {
-            self.entries.clone()
+            std::mem::take(&mut self.entries)
         }
     }
 }
@@ -98,6 +115,26 @@ pub struct DrawCompositeSemantics<'a> {
 }
 
 impl AnnotatedDisplayTree {
+    pub fn new(
+        root: AnnotatedNodeHandle,
+        nodes: Vec<AnnotatedDisplayNode>,
+        keys: Vec<RenderNodeKey>,
+        layer_bounds: Vec<DisplayRect>,
+        analysis: DisplayAnalysisTable,
+        invalidation: DisplayInvalidationTable,
+    ) -> Self {
+        let analyze_reuse = vec![AnalyzeReuseState::Fresh; nodes.len()];
+        Self {
+            root,
+            nodes,
+            keys,
+            layer_bounds,
+            analysis,
+            invalidation,
+            analyze_reuse,
+        }
+    }
+
     pub fn root_node(&self) -> &AnnotatedDisplayNode {
         self.node(self.root)
     }
@@ -120,6 +157,17 @@ impl AnnotatedDisplayTree {
 
     pub fn layer_bounds(&self, handle: AnnotatedNodeHandle) -> DisplayRect {
         self.layer_bounds[handle.0]
+    }
+
+    pub fn analyze_reuse_state(&self, handle: AnnotatedNodeHandle) -> AnalyzeReuseState {
+        self.analyze_reuse
+            .get(handle.0)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn set_analyze_reuse_state(&mut self, handle: AnnotatedNodeHandle, state: AnalyzeReuseState) {
+        self.analyze_reuse[handle.0] = state;
     }
 }
 
@@ -157,14 +205,7 @@ pub fn annotate_display_tree(display_tree: &DisplayTree) -> AnnotatedDisplayTree
         &mut invalidation,
     );
 
-    AnnotatedDisplayTree {
-        root,
-        nodes,
-        keys,
-        layer_bounds,
-        analysis,
-        invalidation,
-    }
+    AnnotatedDisplayTree::new(root, nodes, keys, layer_bounds, analysis, invalidation)
 }
 
 fn count_display_nodes(node: &DisplayNode) -> usize {
@@ -270,11 +311,15 @@ fn compute_node_fingerprint(
         fingerprint::subtree_has_dirty_descendant_composite(node, &tree.nodes, &tree.invalidation)
     };
 
-    if let Some(entry) = previous.get(&key)
-        && entry.recorded_subtree_fingerprint == recorded_subtree_fingerprint
-    {
-        if entry.has_dirty_descendant_composite == has_dirty_descendant_composite {
-            let skipped_nodes = copy_subtree_analysis_from_history(handle, tree, previous, next);
+    match classify_analyze_fingerprint_decision(
+        handle,
+        tree,
+        previous,
+        recorded_subtree_fingerprint,
+        has_dirty_descendant_composite,
+    ) {
+        AnalyzeFingerprintDecision::Reused { .. } => {
+            let skipped_nodes = copy_subtree_analysis_and_mark_reused(handle, tree, previous, next);
             stats.recorded_hit_subtrees += 1;
             stats.recorded_hit_nodes += skipped_nodes;
             stats.snapshot_eligibility_hit_subtrees += 1;
@@ -283,17 +328,20 @@ fn compute_node_fingerprint(
             stats.merkle_skipped_nodes += skipped_nodes;
             return skipped_nodes;
         }
-
-        let blocked_nodes = annotated_subtree_node_count(handle, tree);
-        stats.recorded_hit_subtrees += 1;
-        stats.recorded_hit_nodes += blocked_nodes;
-        stats.composite_blocked_subtrees += 1;
-        stats.composite_blocked_nodes += blocked_nodes;
+        AnalyzeFingerprintDecision::CompositeBlocked { nodes } => {
+            mark_analyze_reuse_subtree(tree, handle, AnalyzeReuseState::CompositeBlocked);
+            stats.recorded_hit_subtrees += 1;
+            stats.recorded_hit_nodes += nodes;
+            stats.composite_blocked_subtrees += 1;
+            stats.composite_blocked_nodes += nodes;
+        }
+        AnalyzeFingerprintDecision::Miss => {}
     }
 
-    let children = tree.node(handle).children.clone();
+    let child_count = tree.node(handle).children.len();
     let mut node_count = 1;
-    for child in children {
+    for i in 0..child_count {
+        let child = tree.node(handle).children[i];
         node_count += compute_node_fingerprint(child, tree, previous, next, stats);
     }
 
@@ -316,23 +364,41 @@ fn compute_node_fingerprint(
         AnalyzeFingerprintHistoryEntry {
             recorded_subtree_fingerprint,
             has_dirty_descendant_composite,
+            node_count,
             analysis,
         },
     );
     node_count
 }
 
-fn annotated_subtree_node_count(handle: AnnotatedNodeHandle, tree: &AnnotatedDisplayTree) -> usize {
-    1 + tree
-        .node(handle)
-        .children
-        .iter()
-        .copied()
-        .map(|child| annotated_subtree_node_count(child, tree))
-        .sum::<usize>()
+fn classify_analyze_fingerprint_decision(
+    handle: AnnotatedNodeHandle,
+    tree: &AnnotatedDisplayTree,
+    previous: &HashMap<RenderNodeKey, AnalyzeFingerprintHistoryEntry>,
+    recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint,
+    has_dirty_descendant_composite: bool,
+) -> AnalyzeFingerprintDecision {
+    let key = tree.key(handle);
+    let Some(entry) = previous.get(&key) else {
+        return AnalyzeFingerprintDecision::Miss;
+    };
+
+    if entry.recorded_subtree_fingerprint != recorded_subtree_fingerprint {
+        return AnalyzeFingerprintDecision::Miss;
+    }
+
+    if entry.has_dirty_descendant_composite == has_dirty_descendant_composite {
+        AnalyzeFingerprintDecision::Reused {
+            nodes: entry.node_count,
+        }
+    } else {
+        AnalyzeFingerprintDecision::CompositeBlocked {
+            nodes: entry.node_count,
+        }
+    }
 }
 
-fn copy_subtree_analysis_from_history(
+fn copy_subtree_analysis_and_mark_reused(
     handle: AnnotatedNodeHandle,
     tree: &mut AnnotatedDisplayTree,
     previous: &HashMap<RenderNodeKey, AnalyzeFingerprintHistoryEntry>,
@@ -341,14 +407,30 @@ fn copy_subtree_analysis_from_history(
     let key = tree.key(handle);
     if let Some(entry) = previous.get(&key) {
         tree.analysis.insert(handle, entry.analysis);
+        tree.set_analyze_reuse_state(handle, AnalyzeReuseState::ReusedFromHistory);
         next.insert(key, *entry);
     }
 
-    let children = tree.node(handle).children.clone();
-    1 + children
-        .into_iter()
-        .map(|child| copy_subtree_analysis_from_history(child, tree, previous, next))
-        .sum::<usize>()
+    let child_count = tree.node(handle).children.len();
+    let mut count = 1usize;
+    for i in 0..child_count {
+        let child = tree.node(handle).children[i];
+        count += copy_subtree_analysis_and_mark_reused(child, tree, previous, next);
+    }
+    count
+}
+
+fn mark_analyze_reuse_subtree(
+    tree: &mut AnnotatedDisplayTree,
+    handle: AnnotatedNodeHandle,
+    state: AnalyzeReuseState,
+) {
+    tree.set_analyze_reuse_state(handle, state);
+    let child_count = tree.node(handle).children.len();
+    for i in 0..child_count {
+        let child = tree.node(handle).children[i];
+        mark_analyze_reuse_subtree(tree, child, state);
+    }
 }
 
 #[cfg(test)]
@@ -456,6 +538,7 @@ mod tests {
             layer_bounds: vec![rect_bounds(), rect_bounds()],
             analysis,
             invalidation,
+            analyze_reuse: vec![AnalyzeReuseState::default(); 2],
         }
     }
 
@@ -482,6 +565,155 @@ mod tests {
         assert_eq!(
             first.analysis(AnnotatedNodeHandle(0)),
             second.analysis(AnnotatedNodeHandle(0))
+        );
+    }
+
+    #[test]
+    fn analyze_decision_misses_when_recorded_fingerprint_changes() {
+        let mut history = AnalyzeFingerprintHistory::default();
+        let mut first = two_node_tree(false);
+        compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
+
+        let previous = history.previous(false);
+        let mut second = two_node_tree(false);
+        second.nodes[second.root.0].recorded_subtree_fingerprint =
+            DisplayRecordedSubtreeFingerprint(99);
+
+        let decision = classify_analyze_fingerprint_decision(
+            second.root,
+            &second,
+            &previous,
+            second.node(second.root).recorded_subtree_fingerprint,
+            false,
+        );
+
+        assert_eq!(decision, AnalyzeFingerprintDecision::Miss);
+    }
+
+    #[test]
+    fn analyze_decision_reuses_when_recorded_and_eligibility_match() {
+        let mut history = AnalyzeFingerprintHistory::default();
+        let mut first = two_node_tree(false);
+        compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
+
+        let previous = history.previous(false);
+        let second = two_node_tree(false);
+        let decision = classify_analyze_fingerprint_decision(
+            second.root,
+            &second,
+            &previous,
+            second.node(second.root).recorded_subtree_fingerprint,
+            false,
+        );
+
+        assert_eq!(decision, AnalyzeFingerprintDecision::Reused { nodes: 2 });
+    }
+
+    #[test]
+    fn analyze_decision_blocks_when_recorded_matches_but_eligibility_changes() {
+        let mut history = AnalyzeFingerprintHistory::default();
+        let mut first = two_node_tree(false);
+        compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
+
+        let previous = history.previous(false);
+        let second = two_node_tree(true);
+        let decision = classify_analyze_fingerprint_decision(
+            second.root,
+            &second,
+            &previous,
+            second.node(second.root).recorded_subtree_fingerprint,
+            true,
+        );
+
+        assert_eq!(
+            decision,
+            AnalyzeFingerprintDecision::CompositeBlocked { nodes: 2 }
+        );
+    }
+
+    #[test]
+    fn reused_from_history_propagates_to_child_and_root() {
+        let mut history = AnalyzeFingerprintHistory::default();
+        let mut first = two_node_tree(false);
+        compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
+
+        let mut second = two_node_tree(false);
+        compute_display_tree_fingerprints_with_history(&mut second, &mut history, false);
+
+        let child = AnnotatedNodeHandle(0);
+        let root = AnnotatedNodeHandle(1);
+        assert_eq!(
+            second.analyze_reuse_state(child),
+            AnalyzeReuseState::ReusedFromHistory,
+            "reused child should have ReusedFromHistory"
+        );
+        assert_eq!(
+            second.analyze_reuse_state(root),
+            AnalyzeReuseState::ReusedFromHistory,
+            "reused root should have ReusedFromHistory"
+        );
+    }
+
+    #[test]
+    fn composite_blocked_propagates_to_child_and_root() {
+        let mut history = AnalyzeFingerprintHistory::default();
+        let mut first = two_node_tree(false);
+        compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
+
+        let mut second = two_node_tree(true);
+        compute_display_tree_fingerprints_with_history(&mut second, &mut history, false);
+
+        let root = AnnotatedNodeHandle(1);
+        assert_eq!(
+            second.analyze_reuse_state(root),
+            AnalyzeReuseState::CompositeBlocked,
+            "root with dirty descendant composite should have CompositeBlocked"
+        );
+    }
+
+    #[test]
+    fn structure_rebuild_clears_fingerprint_history() {
+        let mut history = AnalyzeFingerprintHistory::default();
+        let mut first = two_node_tree(false);
+        compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
+
+        assert_eq!(
+            first.analyze_reuse_state(AnnotatedNodeHandle(0)),
+            AnalyzeReuseState::Fresh,
+            "first call always computes fresh"
+        );
+        assert_eq!(
+            first.analyze_reuse_state(AnnotatedNodeHandle(1)),
+            AnalyzeReuseState::Fresh,
+            "first call always computes fresh"
+        );
+
+        let mut second = two_node_tree(false);
+        compute_display_tree_fingerprints_with_history(&mut second, &mut history, false);
+
+        assert_eq!(
+            second.analyze_reuse_state(AnnotatedNodeHandle(0)),
+            AnalyzeReuseState::ReusedFromHistory,
+            "second call without rebuild should reuse from history"
+        );
+
+        let mut third = two_node_tree(false);
+        compute_display_tree_fingerprints_with_history(&mut third, &mut history, true);
+
+        assert_eq!(
+            third.analyze_reuse_state(AnnotatedNodeHandle(0)),
+            AnalyzeReuseState::Fresh,
+            "structure_rebuild=true should discard history and treat as fresh"
+        );
+        assert_eq!(
+            third.analyze_reuse_state(AnnotatedNodeHandle(1)),
+            AnalyzeReuseState::Fresh,
+            "structure_rebuild=true should discard history for all nodes"
+        );
+        assert_eq!(
+            third.analysis(AnnotatedNodeHandle(0)),
+            third.analysis(AnnotatedNodeHandle(0)),
+            "fresh analysis should be computed (not panic)"
         );
     }
 }

@@ -1,5 +1,5 @@
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use ahash::AHasher;
 
 use crate::parse::primitives::OpenverseQuery;
 
@@ -31,7 +31,7 @@ pub fn asset_id_for_video_url(url: &str) -> AssetId {
 }
 
 pub fn stable_hash(value: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = AHasher::default();
     value.hash(&mut hasher);
     hasher.finish()
 }

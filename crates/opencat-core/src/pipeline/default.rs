@@ -2,13 +2,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::analyze::annotation::{
-    AnnotatedNodeHandle, annotate_display_tree, compute_display_tree_fingerprints,
-};
+use crate::analyze::annotation::AnnotatedNodeHandle;
 use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
-use crate::analyze::invalidation::{CompositeHistory, mark_display_tree_composite_dirty};
-use crate::display::build::build_display_tree;
-use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
+use crate::analyze::invalidation::CompositeHistory;
 use crate::ir::asset_id::{
     asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
 };
@@ -21,13 +17,8 @@ use crate::parse::primitives::{AudioSource, ImageSource, SubtitleSource, VideoSo
 use crate::probe::catalog::ResourceCatalog;
 use crate::probe::probe::{probe_image, probe_video};
 use crate::probe::{AssetHandle, AssetId, AssetLoader};
-use crate::render::RenderCtx;
-use crate::render::builder::DrawOpBuilder;
-use crate::render::media_plan::build_media_plan;
-use crate::resolve::path_bounds::DefaultPathBounds;
-use crate::resolve::resolve::resolve_ui_tree_with_script_cache;
 use crate::script::js_context::JsContext;
-use crate::text::{DefaultFontProvider, default_font_db};
+use crate::text::default_font_db;
 
 use super::Pipeline;
 
@@ -210,66 +201,18 @@ impl<L: AssetLoader, S: JsContext> Pipeline for DefaultPipeline<L, S> {
     }
 
     fn render_frame(&mut self, frame_index: u32) -> Result<(DrawOpFrame, FrameMediaPlan)> {
-        let path_bounds = DefaultPathBounds;
-
-        let frame_ctx = FrameCtx {
-            frame: frame_index,
-            fps: self.composition.fps,
-            width: self.composition.width,
-            height: self.composition.height,
-            frames: self.composition.frames,
-        };
-
-        let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
-
-        let root = self.composition.root_node(&frame_ctx);
-        let element_root = resolve_ui_tree_with_script_cache(
-            &root,
-            &frame_ctx,
-            &script_frame_ctx,
-            &mut self.catalog,
-            None,
-            &mut self.scripts,
-            &path_bounds,
-        )?;
-
-        let provider = DefaultFontProvider::from_arc(self.font_db.clone());
-        let (layout_tree, layout_pass) = self.layout_session.compute_layout_with_provider(
-            &element_root,
-            &frame_ctx,
-            &provider,
-        )?;
-
-        let display_tree = build_display_tree(&element_root, &layout_tree, &frame_ctx)?;
-        let mut annotated = annotate_display_tree(&display_tree);
-        mark_display_tree_composite_dirty(
+        super::frame::render_frame_with_state(
+            &self.composition,
+            frame_index,
+            &mut self.layout_session,
             &mut self.composite_history,
-            &mut annotated,
-            layout_pass.structure_rebuild,
-        );
-        compute_display_tree_fingerprints(&mut annotated);
-
-        let _plan = crate::analyze::compositor::plan_for_scene(&layout_pass);
-        self.cache.scene_snapshot = None;
-        let ordered_scene = OrderedSceneProgram::build(&annotated);
-        self.last_ordered_scene = ordered_scene.clone();
-
-        let mut builder = DrawOpBuilder::default();
-        let mut ctx = RenderCtx {
-            catalog: &self.catalog,
-            frame_ctx: &frame_ctx,
-            display_tree: &annotated,
-            ordered_scene: &ordered_scene,
-            builder: &mut builder,
-            blob_store: None,
-            hidden_picture_stack: Vec::new(),
-        };
-
-        crate::render::dispatch::render_display_tree(&mut ctx, &annotated, &mut self.cache)?;
-
-        let frame = builder.finish();
-        let media_plan = build_media_plan(&frame);
-        Ok((frame, media_plan))
+            &self.font_db,
+            &mut self.catalog,
+            &mut self.cache,
+            &mut self.last_ordered_scene,
+            &mut self.scripts,
+            None,
+        )
     }
 
     fn loader(&self) -> &Self::Loader {
@@ -396,6 +339,47 @@ mod tests {
             let (f2, _) = p2.render_frame(i).expect("render p2");
             assert_eq!(f1.ops.len(), f2.ops.len(), "frame {i} op count mismatch");
         }
+    }
+
+    #[cfg(feature = "profile")]
+    #[test]
+    fn render_frame_emits_profile_events_for_each_frame() {
+        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"frames":2}
+{"type":"div","id":"root","parentId":null,"bg":"#00ff00","w":100,"h":100}"##;
+
+        let config = crate::profile::ProfileConfig { enabled: true };
+        let (_, summary) = crate::profile::profile_render(&config, || {
+            let mut pipeline = DefaultPipeline::open(
+                jsonl,
+                InMemoryLoader::default(),
+                NoopJsContext::new().expect("js context"),
+            )
+            .expect("open");
+
+            for frame_index in 0..2 {
+                let _ = pipeline.render_frame(frame_index)?;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .expect("profile render");
+
+        let summary = summary.expect("summary should exist");
+        assert!(
+            summary.frames.contains_key(&0),
+            "frame 0 profile should be present, got {:?}",
+            summary.frames.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            summary.frames.contains_key(&1),
+            "frame 1 profile should be present, got {:?}",
+            summary.frames.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(summary.frames[&0].structure_rebuilds, 1);
+        assert_eq!(summary.frames[&1].structure_rebuilds, 0);
+        assert!(
+            summary.frames[&1].reused_nodes > 0,
+            "second frame should record layout reuse stats"
+        );
     }
 
     #[test]

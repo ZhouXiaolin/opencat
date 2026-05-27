@@ -253,11 +253,11 @@ where
         });
     }
 
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
+    fn on_event(&self, event: &tracing::Event<'_>, ctx: Context<'_, S>) {
         let metadata = event.metadata();
         if !matches!(
             metadata.target(),
-            "render.cache" | "render.draw" | "render.layer"
+            "render.cache" | "render.draw" | "render.layer" | "render.layout"
         ) {
             return;
         }
@@ -274,11 +274,20 @@ where
         let Some(result) = fields.result else { return };
 
         let mut shared = self.shared.lock().expect("profile state lock");
-        let frame = shared
-            .spans
-            .values()
-            .filter_map(|s| s.frame)
-            .last()
+        let frame = ctx
+            .current_span()
+            .id()
+            .and_then(|id| {
+                let mut cursor = Some(id.clone());
+                while let Some(current_id) = cursor {
+                    match shared.spans.get(&current_id) {
+                        Some(state) if state.frame.is_some() => return state.frame,
+                        Some(state) => cursor = state.parent_id.clone(),
+                        None => break,
+                    }
+                }
+                None
+            })
             .unwrap_or(0);
         shared.aggregator.record_count(ProfileCountEvent {
             frame,
@@ -429,6 +438,58 @@ mod tests {
         let frame = summary.frames.get(&7).expect("frame summary should exist");
         assert!(frame.backend.subtree_snapshot_record_ms >= 0.0);
         assert_eq!(frame.backend.subtree_snapshot_cache_misses, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn tracing_layer_reads_u32_frame_fields() -> anyhow::Result<()> {
+        use tracing::{Level, event, span};
+
+        let config = ProfileConfig { enabled: true };
+        let (_, summary) = profile_render(&config, || {
+            for frame_index in 0_u32..2 {
+                let frame_span = span!(
+                    target: "render.pipeline",
+                    Level::TRACE,
+                    "frame",
+                    frame = frame_index,
+                    width = 1920_i64,
+                    height = 1080_i64,
+                    fps = 30_i64,
+                    mode = "scene"
+                );
+                let _frame_guard = frame_span.enter();
+                event!(
+                    target: "render.cache",
+                    Level::TRACE,
+                    kind = "cache",
+                    name = "subtree_snapshot",
+                    result = "miss",
+                    amount = 1_u64
+                );
+            }
+            Ok::<_, anyhow::Error>(())
+        })?;
+
+        let summary = summary.expect("summary should exist");
+        assert!(
+            summary.frames.contains_key(&0),
+            "frame 0 should be present, got {:?}",
+            summary.frames.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            summary.frames.contains_key(&1),
+            "frame 1 should be present, got {:?}",
+            summary.frames.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            summary.frames[&0].backend.subtree_snapshot_cache_misses,
+            1
+        );
+        assert_eq!(
+            summary.frames[&1].backend.subtree_snapshot_cache_misses,
+            1
+        );
         Ok(())
     }
 

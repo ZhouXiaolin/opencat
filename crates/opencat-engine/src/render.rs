@@ -531,7 +531,7 @@ pub fn render_frame_to_target(
         ..
     } = platform;
     let blob_store = AssetPathBlobStore::new(asset_paths);
-    let (mut draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame(
+    let (mut draw_frame, media_plan) = opencat_core::pipeline::frame::render_frame(
         composition,
         frame_index,
         core,
@@ -578,7 +578,7 @@ pub fn render_frame_rgba(
     } = platform;
     let blob_store = AssetPathBlobStore::new(asset_paths);
 
-    let (mut draw_frame, media_plan) = opencat_core::runtime::pipeline::render_frame(
+    let (mut draw_frame, media_plan) = opencat_core::pipeline::frame::render_frame(
         composition,
         frame_index,
         core,

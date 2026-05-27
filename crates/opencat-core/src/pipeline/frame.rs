@@ -1,4 +1,6 @@
-//! Per-frame pipeline — core manages the entire chain from element resolve to canvas draw.
+//! Shared per-frame executor for pipeline implementations.
+
+use std::sync::Arc;
 
 use anyhow::Result;
 
@@ -7,12 +9,11 @@ use tracing::{Level, event, span};
 
 use crate::analyze::annotation::{annotate_display_tree, compute_display_tree_fingerprints};
 use crate::analyze::compositor::{OrderedSceneProgram, plan_for_scene};
-use crate::analyze::invalidation::CompositeHistory;
-use crate::analyze::invalidation::mark_display_tree_composite_dirty;
+use crate::analyze::invalidation::{CompositeHistory, mark_display_tree_composite_dirty};
 use crate::display::build::build_display_tree;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
-use crate::ir::draw_frame::DrawOpFrame;
-use crate::ir::media_plan::FrameMediaPlan;
+use crate::ir::cache::RenderCache;
+use crate::ir::{DrawOpFrame, FrameMediaPlan};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
 use crate::render::RenderCtx;
@@ -21,24 +22,20 @@ use crate::render::media_plan::build_media_plan;
 use crate::resolve::path_bounds::DefaultPathBounds;
 use crate::resolve::resolve::resolve_ui_tree_with_script_cache;
 use crate::resource::blob_store::BlobStore;
-use crate::resource::hash_map_catalog::HashMapResourceCatalog;
+use crate::resource::catalog::ResourceCatalog;
 use crate::runtime::session::RenderSession;
 use crate::script::ScriptHost;
 use crate::text::DefaultFontProvider;
 
-/// Per-frame pipeline: resolve → layout → display tree → annotate → plan → render.
-///
-/// Returns a `(DrawOpFrame, FrameMediaPlan)` instead of drawing directly to a
-/// canvas. The caller (or executor) consumes these to produce pixels.
-#[allow(unused_variables)]
-pub fn render_frame_inner(
+#[allow(clippy::too_many_arguments)]
+pub fn render_frame_with_state(
     composition: &Composition,
     frame_index: u32,
     layout_session: &mut LayoutSession,
     composite_history: &mut CompositeHistory,
-    font_db: &std::sync::Arc<fontdb::Database>,
-    catalog: &mut HashMapResourceCatalog,
-    cache: &mut crate::ir::cache::RenderCache,
+    font_db: &Arc<fontdb::Database>,
+    catalog: &mut dyn ResourceCatalog,
+    cache: &mut RenderCache,
     last_ordered_scene: &mut OrderedSceneProgram,
     script: &mut dyn ScriptHost,
     blob_store: Option<&dyn BlobStore>,
@@ -57,7 +54,6 @@ pub fn render_frame_inner(
     .entered();
 
     let path_bounds = DefaultPathBounds;
-
     let frame_ctx = FrameCtx {
         frame: frame_index,
         fps: composition.fps,
@@ -65,10 +61,8 @@ pub fn render_frame_inner(
         height: composition.height,
         frames: composition.frames,
     };
-
     let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
 
-    // 1. element resolve (with script)
     #[cfg(feature = "profile")]
     let _resolve_span = span!(target: "render.scene", Level::TRACE, "resolve_ui_tree").entered();
     let root = composition.root_node(&frame_ctx);
@@ -88,7 +82,6 @@ pub fn render_frame_inner(
     #[cfg(feature = "profile")]
     drop(_resolve_span);
 
-    // 2. layout (sub-spans emitted inside compute_layout_with_font_db)
     let provider = DefaultFontProvider::from_arc(font_db.clone());
     let (layout_tree, layout_pass) =
         layout_session.compute_layout_with_provider(&element_root, &frame_ctx, &provider)?;
@@ -102,7 +95,6 @@ pub fn render_frame_inner(
         event!(target: "render.layout", Level::TRACE, kind = "layout", name = "structure_rebuild", result = "count", amount = layout_pass.structure_rebuild as u64);
     }
 
-    // 3. display tree + annotation + fingerprint
     #[cfg(feature = "profile")]
     let _display_span = span!(target: "render.scene", Level::TRACE, "build_display_tree").entered();
     let display_tree = build_display_tree(&element_root, &layout_tree, &frame_ctx)?;
@@ -116,10 +108,7 @@ pub fn render_frame_inner(
     #[cfg(feature = "profile")]
     drop(_display_span);
 
-    // 4. plan
     let _scene_plan = plan_for_scene(&layout_pass);
-
-    // 5/6. Build DrawOp IR via builder + RenderCtx
     cache.scene_snapshot = None;
     let ordered_scene = OrderedSceneProgram::build(&annotated);
     *last_ordered_scene = ordered_scene.clone();
@@ -142,8 +131,6 @@ pub fn render_frame_inner(
     Ok((frame, media_plan))
 }
 
-/// Session-based wrapper: deconstructs `RenderSession` and calls
-/// `render_frame_inner`.
 pub fn render_frame(
     composition: &Composition,
     frame_index: u32,
@@ -161,7 +148,7 @@ pub fn render_frame(
         ..
     } = *session;
 
-    render_frame_inner(
+    render_frame_with_state(
         composition,
         frame_index,
         layout_session,

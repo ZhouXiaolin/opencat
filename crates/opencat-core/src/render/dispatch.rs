@@ -9,6 +9,7 @@ use crate::display::list::{DisplayItem, DisplayRect, DisplayTransform, RectDispl
 use crate::ir::cache::{self as draw_cache, CachedDrawRange, CachedSubtreeIr};
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, PathOp};
+use crate::layout::tree::LayoutOutputFingerprint;
 use crate::parse::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::render::builder::DrawOpBuilder;
 use crate::style::{BorderRadius, Transform};
@@ -27,10 +28,11 @@ fn should_cache_item_picture(item: &DisplayItem) -> bool {
 pub fn render_display_item(
     ctx: &mut RenderCtx,
     item: &DisplayItem,
+    layout_output_fingerprint: LayoutOutputFingerprint,
     cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     if should_cache_item_picture(item)
-        && let Some(cache_key) = item_paint_fingerprint(item)
+        && let Some(cache_key) = item_paint_fingerprint(item, layout_output_fingerprint)
     {
         return render_display_item_cached(ctx, item, cache_key, cache);
     }
@@ -376,10 +378,16 @@ fn render_live_cached_node(
 ) -> Result<(), RenderError> {
     let node = tree.node(handle);
     let subtree = OrderedSceneProgram::build_subtree(tree, handle);
+    let recorded = node.recorded_semantics();
 
-    render_display_item(ctx, node.recorded_semantics().item, cache)?;
+    render_display_item(
+        ctx,
+        recorded.item,
+        recorded.layout_output_fingerprint,
+        cache,
+    )?;
 
-    if let Some(clip) = node.recorded_semantics().clip {
+    if let Some(clip) = recorded.clip {
         ctx.builder.push(DrawOp::Save);
         let clip_rect4 = display_rect_to_rect4(clip.bounds);
         clip_bounds_with_radius(ctx.builder, clip_rect4, &clip.border_radius);
@@ -387,7 +395,7 @@ fn render_live_cached_node(
     for child in &subtree.children {
         render_scene_op(ctx, child, tree, cache)?;
     }
-    if node.recorded_semantics().clip.is_some() {
+    if recorded.clip.is_some() {
         ctx.builder.push(DrawOp::Restore);
     }
     Ok(())
@@ -534,7 +542,7 @@ fn render_live_subtree(
 
     #[cfg(feature = "profile")]
     let _item_span = span!(target: "render.backend", Level::TRACE, "draw_item").entered();
-    render_display_item(ctx, &node.item, cache)?;
+    render_display_item(ctx, &node.item, node.layout_output_fingerprint, cache)?;
 
     if let Some(clip) = &node.clip {
         ctx.builder.push(DrawOp::Save);

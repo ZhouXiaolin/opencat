@@ -115,6 +115,7 @@ fn build_display_node(
 
     Ok(DisplayNode {
         input_fingerprints: element.fingerprints,
+        layout_output_fingerprint: layout.output_fingerprint,
         transform: DisplayTransform {
             translation_x: layout.rect.x,
             translation_y: layout.rect.y,
@@ -303,6 +304,7 @@ mod tests {
         LayoutNode {
             id: id.to_string(),
             rect,
+            output_fingerprint: Default::default(),
             children,
         }
     }

@@ -1,4 +1,5 @@
 use crate::display::list::{DisplayClip, DisplayItem, DisplayTransform, DrawScriptDisplayItem};
+use crate::layout::tree::LayoutOutputFingerprint;
 use crate::resolve::tree::ElementId;
 use crate::semantic::fingerprint::ElementInputFingerprints;
 
@@ -17,6 +18,7 @@ pub struct HiddenChildDisplayNode {
 pub struct DisplayNode {
     pub element_id: ElementId,
     pub input_fingerprints: ElementInputFingerprints,
+    pub layout_output_fingerprint: LayoutOutputFingerprint,
     pub transform: DisplayTransform,
     pub opacity: f32,
     pub backdrop_blur_sigma: Option<f32>,

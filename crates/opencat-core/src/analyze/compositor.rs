@@ -135,6 +135,7 @@ mod ordered_scene_tests {
     fn rect_node(children: Vec<AnnotatedNodeHandle>) -> AnnotatedDisplayNode {
         AnnotatedDisplayNode {
             input_fingerprints: Default::default(),
+            layout_output_fingerprint: Default::default(),
             transform: DisplayTransform {
                 translation_x: 0.0,
                 translation_y: 0.0,
@@ -257,6 +258,7 @@ mod ordered_scene_tests {
                 rect_node(Vec::new()),
                 AnnotatedDisplayNode {
                     input_fingerprints: Default::default(),
+                    layout_output_fingerprint: Default::default(),
                     transform: DisplayTransform {
                         translation_x: 0.0,
                         translation_y: 0.0,
@@ -341,6 +343,7 @@ mod ordered_scene_tests {
                 rect_node(Vec::new()),
                 AnnotatedDisplayNode {
                     input_fingerprints: Default::default(),
+                    layout_output_fingerprint: Default::default(),
                     transform: DisplayTransform {
                         translation_x: 0.0,
                         translation_y: 0.0,
@@ -574,6 +577,7 @@ mod ordered_scene_tests {
             nodes: vec![
                 AnnotatedDisplayNode {
                     input_fingerprints: Default::default(),
+                    layout_output_fingerprint: Default::default(),
                     transform: DisplayTransform {
                         translation_x: 0.0,
                         translation_y: 0.0,
@@ -790,6 +794,7 @@ mod reuse_tests {
     fn node(item: DisplayItem, children: Vec<AnnotatedNodeHandle>) -> AnnotatedDisplayNode {
         AnnotatedDisplayNode {
             input_fingerprints: Default::default(),
+            layout_output_fingerprint: Default::default(),
             transform: DisplayTransform {
                 translation_x: 0.0,
                 translation_y: 0.0,

@@ -23,8 +23,6 @@ impl Hash for TextFp<'_> {
         TextStyleFp(&self.0.style).hash(state);
         self.0.allow_wrap.hash(state);
         self.0.truncate.hash(state);
-        F32Hash(self.0.bounds.width).hash(state);
-        F32Hash(self.0.bounds.height).hash(state);
         self.0.drop_shadow.hash(state);
         F32Hash(self.0.visual_expand_x).hash(state);
         F32Hash(self.0.visual_expand_y).hash(state);
@@ -50,14 +48,10 @@ impl Hash for DisplayItemFp<'_> {
         match self.0 {
             DisplayItem::Rect(rect) => {
                 0_u8.hash(state);
-                F32Hash(rect.bounds.width).hash(state);
-                F32Hash(rect.bounds.height).hash(state);
                 RectPaintFp(&rect.paint).hash(state);
             }
             DisplayItem::Timeline(timeline) => {
                 5_u8.hash(state);
-                F32Hash(timeline.bounds.width).hash(state);
-                F32Hash(timeline.bounds.height).hash(state);
                 RectPaintFp(&timeline.paint).hash(state);
                 if let Some(transition) = timeline.transition.as_ref() {
                     F32Hash(transition.progress).hash(state);
@@ -76,16 +70,12 @@ impl Hash for DisplayItemFp<'_> {
                 bitmap.video_timing.hash(state);
                 bitmap.paint_epoch.hash(state);
                 bitmap.object_fit.hash(state);
-                F32Hash(bitmap.bounds.width).hash(state);
-                F32Hash(bitmap.bounds.height).hash(state);
                 BitmapPaintFp(&bitmap.paint).hash(state);
             }
             DisplayItem::DrawScript(script) => {
                 3_u8.hash(state);
                 script.commands.hash(state);
                 script.drop_shadow.hash(state);
-                F32Hash(script.bounds.width).hash(state);
-                F32Hash(script.bounds.height).hash(state);
                 script.hidden_subtree.len().hash(state);
                 for child in &script.hidden_subtree {
                     HiddenChildFp(child).hash(state);
@@ -98,8 +88,6 @@ impl Hash for DisplayItemFp<'_> {
                 }
                 svg.view_box.map(F32Hash).hash(state);
                 SvgPathPaintFp(&svg.paint).hash(state);
-                F32Hash(svg.bounds.width).hash(state);
-                F32Hash(svg.bounds.height).hash(state);
             }
         }
     }
@@ -120,10 +108,9 @@ impl Hash for DisplayNodeFp<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let node = self.0;
         node.element_id.hash(state);
+        node.layout_output_fingerprint.record_size.hash(state);
         F32Hash(node.transform.translation_x).hash(state);
         F32Hash(node.transform.translation_y).hash(state);
-        F32Hash(node.transform.bounds.width).hash(state);
-        F32Hash(node.transform.bounds.height).hash(state);
         node.transform.transforms.hash(state);
         F32Hash(node.opacity).hash(state);
         node.backdrop_blur_sigma.map(F32Hash).hash(state);

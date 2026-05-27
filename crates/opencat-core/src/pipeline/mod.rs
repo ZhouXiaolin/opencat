@@ -5,6 +5,7 @@ use crate::probe::AssetLoader;
 use crate::script::js_context::JsContext;
 
 pub mod default;
+pub mod frame;
 pub use default::DefaultPipeline;
 
 pub trait Pipeline {

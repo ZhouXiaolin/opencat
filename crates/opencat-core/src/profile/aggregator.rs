@@ -154,14 +154,34 @@ impl RenderProfileAggregator {
             ("cache", "subtree_snapshot", "miss") => {
                 frame.backend.subtree_snapshot_cache_misses += event.amount;
             }
+            ("cache", "subtree_snapshot_artifact", "hit") => {
+                frame.backend.subtree_snapshot_artifact_hits += event.amount;
+            }
+            ("cache", "subtree_snapshot_artifact", "first_record") => {
+                frame.backend.subtree_snapshot_artifact_first_record += event.amount;
+            }
+            ("cache", "subtree_snapshot_artifact", "evicted_or_absent") => {
+                frame.backend.subtree_snapshot_artifact_evicted_or_absent += event.amount;
+            }
+            ("cache", "subtree_snapshot_artifact", "replaced") => {
+                frame.backend.subtree_snapshot_artifact_replaced += event.amount;
+            }
+            ("cache", "subtree_snapshot_request_after_analyze", "fresh") => {
+                frame.backend.subtree_snapshot_request_after_analyze_fresh += event.amount;
+            }
+            ("cache", "subtree_snapshot_request_after_analyze", "reused") => {
+                frame.backend.subtree_snapshot_request_after_analyze_reused += event.amount;
+            }
+            ("cache", "subtree_snapshot_request_after_analyze", "composite_blocked") => {
+                frame
+                    .backend
+                    .subtree_snapshot_request_after_analyze_composite_blocked += event.amount;
+            }
             ("cache", "scene_snapshot", "hit") => {
                 frame.backend.scene_snapshot_cache_hits += event.amount;
             }
             ("cache", "scene_snapshot", "miss") => {
                 frame.backend.scene_snapshot_cache_misses += event.amount;
-            }
-            ("cache", "subtree_snapshot", "collision_rejected") => {
-                frame.backend.subtree_snapshot_collision_rejected += event.amount;
             }
             ("cache", "subtree_snapshot_composite_dirty", "hit") => {
                 frame.backend.subtree_snapshot_composite_dirty_hits += event.amount;
@@ -402,5 +422,103 @@ mod tests {
 
         let summary = aggregator.finish();
         assert_eq!(summary.frames[&7].analyze_recorded_hit_nodes, 12);
+    }
+
+    #[test]
+    fn count_events_record_subtree_snapshot_artifact_reasons() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 7,
+            kind: "cache",
+            name: "subtree_snapshot_artifact",
+            result: "hit",
+            amount: 2,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 7,
+            kind: "cache",
+            name: "subtree_snapshot_artifact",
+            result: "first_record",
+            amount: 3,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 7,
+            kind: "cache",
+            name: "subtree_snapshot_artifact",
+            result: "evicted_or_absent",
+            amount: 5,
+        });
+
+        let summary = aggregator.finish();
+        let frame = &summary.frames[&7];
+        assert_eq!(frame.backend.subtree_snapshot_artifact_hits, 2);
+        assert_eq!(frame.backend.subtree_snapshot_artifact_first_record, 3);
+        assert_eq!(frame.backend.subtree_snapshot_artifact_evicted_or_absent, 5);
+    }
+
+    #[test]
+    fn count_events_subtree_snapshot_artifact_replaced() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 3,
+            kind: "cache",
+            name: "subtree_snapshot_artifact",
+            result: "replaced",
+            amount: 7,
+        });
+
+        let summary = aggregator.finish();
+        assert_eq!(
+            summary.frames[&3]
+                .backend
+                .subtree_snapshot_artifact_replaced,
+            7
+        );
+    }
+
+    #[test]
+    fn count_events_subtree_snapshot_request_after_analyze_reasons() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 7,
+            kind: "cache",
+            name: "subtree_snapshot_request_after_analyze",
+            result: "fresh",
+            amount: 4,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 7,
+            kind: "cache",
+            name: "subtree_snapshot_request_after_analyze",
+            result: "reused",
+            amount: 6,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 7,
+            kind: "cache",
+            name: "subtree_snapshot_request_after_analyze",
+            result: "composite_blocked",
+            amount: 2,
+        });
+
+        let summary = aggregator.finish();
+        let frame = &summary.frames[&7];
+        assert_eq!(
+            frame.backend.subtree_snapshot_request_after_analyze_fresh,
+            4
+        );
+        assert_eq!(
+            frame.backend.subtree_snapshot_request_after_analyze_reused,
+            6
+        );
+        assert_eq!(
+            frame
+                .backend
+                .subtree_snapshot_request_after_analyze_composite_blocked,
+            2
+        );
     }
 }

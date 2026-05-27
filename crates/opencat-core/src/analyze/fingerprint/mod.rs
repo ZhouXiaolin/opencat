@@ -151,11 +151,11 @@ impl CompositeSig {
 pub fn item_paint_fingerprint(
     item: &DisplayItem,
     layout_output_fingerprint: LayoutOutputFingerprint,
-) -> Option<u64> {
+) -> u64 {
     let mut hasher = new_hasher();
     layout_output_fingerprint.record_size.hash(&mut hasher);
     DisplayItemFp(item).hash(&mut hasher);
-    Some(hasher.finish())
+    hasher.finish()
 }
 
 /// 基于已注解节点计算子树 paint fingerprint。
@@ -169,11 +169,12 @@ pub(crate) fn annotated_subtree_paint_fingerprint(
     hash_node_recorded_paint(node, &mut hasher);
     node.children.len().hash(&mut hasher);
     for &child_handle in &node.children {
-        analysis
-            .require(child_handle)
-            .paint_fingerprint
-            .expect("stable annotated child must carry paint_fingerprint")
-            .hash(&mut hasher);
+        let child_fp = analysis.require(child_handle).paint_fingerprint;
+        debug_assert!(
+            child_fp.is_some(),
+            "invariant: stable annotated child must carry paint_fingerprint"
+        );
+        child_fp.unwrap_or(0).hash(&mut hasher);
     }
     Some(hasher.finish())
 }
@@ -202,11 +203,15 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
         let child = &nodes[child_handle.0];
         hash_node_draw_time_composite(child, &mut hasher);
 
-        let child_fp = analysis
-            .require(child_handle)
-            .snapshot_fingerprint
-            .expect("stable annotated child must carry snapshot_fingerprint");
-        child_fp.0.hash(&mut hasher);
+        let child_fp = analysis.require(child_handle).snapshot_fingerprint;
+        debug_assert!(
+            child_fp.is_some(),
+            "invariant: stable annotated child must carry snapshot_fingerprint"
+        );
+        child_fp
+            .unwrap_or(SubtreeSnapshotFingerprint(0))
+            .0
+            .hash(&mut hasher);
     }
 
     Some(SubtreeSnapshotFingerprint(hasher.finish()))
@@ -294,7 +299,8 @@ mod tests {
             DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
             DisplayNodeInvalidation,
             annotation::{
-                AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey,
+                AnalyzeReuseState, AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle,
+                RenderNodeKey,
             },
         },
         display::{
@@ -433,6 +439,7 @@ mod tests {
             &mut analysis,
             &mut invalidation,
         );
+        let node_count = nodes.len();
         AnnotatedDisplayTree {
             root,
             nodes,
@@ -440,6 +447,7 @@ mod tests {
             layer_bounds,
             analysis,
             invalidation,
+            analyze_reuse: vec![AnalyzeReuseState::Fresh; node_count],
         }
     }
 
@@ -1055,8 +1063,9 @@ mod tests {
             hidden_subtree: Vec::new(),
         });
 
-        assert!(
-            item_paint_fingerprint(&script_item, LayoutOutputFingerprint::default()).is_some(),
+        let fp = item_paint_fingerprint(&script_item, LayoutOutputFingerprint::default());
+        assert_ne!(
+            fp, 0,
             "DrawScript 必须有 paint fingerprint 作为 ItemPictureCache 的 key"
         );
     }
@@ -1163,9 +1172,7 @@ mod tests {
             },
         });
 
-        assert!(
-            item_paint_fingerprint(&item, LayoutOutputFingerprint::default()).is_some(),
-            "视频 bitmap 应用当前帧 epoch 参与 fingerprint"
-        );
+        let fp = item_paint_fingerprint(&item, LayoutOutputFingerprint::default());
+        assert_ne!(fp, 0, "视频 bitmap 应用当前帧 epoch 参与 fingerprint");
     }
 }

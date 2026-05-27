@@ -128,8 +128,10 @@ where
                 .min_by(|(rank_a, key_a), (rank_b, key_b)| {
                     let weight_a = *self.weights.get(key_a).unwrap_or(&1);
                     let weight_b = *self.weights.get(key_b).unwrap_or(&1);
-                    let score_a = (*rank_a as f64) / (weight_a as f64);
-                    let score_b = (*rank_b as f64) / (weight_b as f64);
+                    // +1 avoids rank=0 yielding score=0 regardless of weight.
+                    // Lower score = evicted first: penalizes old (low rank) + heavy (high weight).
+                    let score_a = (*rank_a as f64 + 1.0) / (weight_a as f64);
+                    let score_b = (*rank_b as f64 + 1.0) / (weight_b as f64);
                     score_a
                         .partial_cmp(&score_b)
                         .unwrap_or(std::cmp::Ordering::Equal)
@@ -213,6 +215,19 @@ mod tests {
         let mut cache = BoundedLruCache::new(2);
         cache.insert_with_weight("heavy", 1, 32);
         cache.insert_with_weight("light", 2, 1);
+        let report = cache.insert_with_weight("fresh", 3, 1);
+
+        assert_eq!(report.evicted, vec!["heavy"]);
+        assert_eq!(cache.get_cloned(&"heavy"), None);
+        assert_eq!(cache.get_cloned(&"light"), Some(2));
+        assert_eq!(cache.get_cloned(&"fresh"), Some(3));
+    }
+
+    #[test]
+    fn heavier_entry_is_evicted_even_when_inserted_after_lighter() {
+        let mut cache = BoundedLruCache::new(2);
+        cache.insert_with_weight("light", 2, 1);
+        cache.insert_with_weight("heavy", 1, 32);
         let report = cache.insert_with_weight("fresh", 3, 1);
 
         assert_eq!(report.evicted, vec!["heavy"]);

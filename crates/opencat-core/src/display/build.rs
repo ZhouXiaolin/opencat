@@ -114,6 +114,7 @@ fn build_display_node(
     };
 
     Ok(DisplayNode {
+        input_fingerprints: element.fingerprints,
         transform: DisplayTransform {
             translation_x: layout.rect.x,
             translation_y: layout.rect.y,

@@ -274,6 +274,9 @@ impl RenderProfileAggregator {
             ("layout", "reused_nodes", "count") => {
                 frame.reused_nodes += event.amount;
             }
+            ("layout", "merkle_skipped_subtrees", "count") => {
+                frame.merkle_skipped_subtrees += event.amount;
+            }
             ("layout", "layout_dirty", "count") => {
                 frame.layout_dirty_nodes += event.amount;
             }
@@ -297,5 +300,26 @@ impl RenderProfileAggregator {
         RenderProfileSummary {
             frames: self.frames,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ProfileCountEvent, RenderProfileAggregator};
+
+    #[test]
+    fn count_events_record_merkle_skipped_subtrees() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 7,
+            kind: "layout",
+            name: "merkle_skipped_subtrees",
+            result: "count",
+            amount: 3,
+        });
+
+        let summary = aggregator.finish();
+        assert_eq!(summary.frames[&7].merkle_skipped_subtrees, 3);
     }
 }

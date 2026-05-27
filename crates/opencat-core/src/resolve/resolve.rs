@@ -20,6 +20,7 @@ use crate::{
     },
     resource::catalog::{ResourceCatalog, VideoInfoMeta},
     script::{ScriptHost, ScriptTargetRegistry, StyleMutations, TextUnitOverrideBatch},
+    semantic::fingerprint::compute_element_input_fingerprints,
     style::LengthPercentageAuto,
     style::{NodeStyle, resolve_text_style},
 };
@@ -101,7 +102,9 @@ pub fn resolve_ui_tree_with_script_cache(
         mutation_stack: &mut mutation_stack,
         path_bounds,
     };
-    Ok(resolve_node_optional(node, &mut cx)?.unwrap_or_else(|| empty_root_div(&mut cx)))
+    let mut root = resolve_node_optional(node, &mut cx)?.unwrap_or_else(|| empty_root_div(&mut cx));
+    compute_element_input_fingerprints(&mut root);
+    Ok(root)
 }
 
 fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
@@ -184,6 +187,7 @@ fn resolve_timeline(timeline: &TimelineNode, cx: &mut ResolveContext<'_>) -> Res
             style: computed.clone(),
             children,
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            fingerprints: Default::default(),
         })
     })();
     if pushed {
@@ -252,6 +256,7 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
         style,
         children: vec![child],
         draw_slot: ElementDrawSlot::default(),
+        fingerprints: Default::default(),
     }
 }
 
@@ -273,6 +278,7 @@ fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
         style: compute_style(&style, cx.inherited_style),
         children: Vec::new(),
         draw_slot: ElementDrawSlot::default(),
+        fingerprints: Default::default(),
     }
 }
 
@@ -311,6 +317,7 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             style: computed.clone(),
             children,
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            fingerprints: Default::default(),
         })
     })();
     if pushed {
@@ -345,6 +352,7 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
             style: computed.clone(),
             children: Vec::new(),
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            fingerprints: Default::default(),
         })
     })();
     if pushed {
@@ -391,6 +399,7 @@ fn resolve_caption(
             style: computed.clone(),
             children: Vec::new(),
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            fingerprints: Default::default(),
         }))
     })();
     if pushed {
@@ -427,6 +436,7 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
             style: computed.clone(),
             children,
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            fingerprints: Default::default(),
         })
     })();
     if pushed {
@@ -501,6 +511,7 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
             style: computed.clone(),
             children: Vec::new(),
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            fingerprints: Default::default(),
         })
     })();
     if pushed {
@@ -534,6 +545,7 @@ fn resolve_image(image: &Image, cx: &mut ResolveContext<'_>) -> Result<ElementNo
             style: computed.clone(),
             children: Vec::new(),
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            fingerprints: Default::default(),
         })
     })();
     if pushed {
@@ -589,6 +601,7 @@ fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Resu
             style: computed.clone(),
             children: Vec::new(),
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            fingerprints: Default::default(),
         })
     })();
     if pushed {
@@ -633,6 +646,7 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
             style: computed.clone(),
             children: Vec::new(),
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            fingerprints: Default::default(),
         })
     })();
     if pushed {
@@ -1208,6 +1222,52 @@ mod tests {
         assert_eq!(resolved.children[0].style.visual.border_width, None);
         assert_eq!(resolved.children[1].style.visual.background, None);
         assert_eq!(resolved.children[1].style.visual.border_color, None);
+    }
+
+    #[test]
+    fn resolved_merkle_separates_layout_paint_and_composite_input_semantics() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut assets = TestCatalog::new();
+
+        let first = div()
+            .id("root")
+            .w(200.0)
+            .bg_red()
+            .child(text("A").id("label"));
+        let second = div()
+            .id("root")
+            .w(200.0)
+            .bg_blue()
+            .child(text("A").id("label"));
+        let third = div()
+            .id("root")
+            .w(240.0)
+            .bg_red()
+            .child(text("A").id("label"));
+
+        let first = resolve(&first.into(), &frame_ctx, &mut assets).expect("tree should resolve");
+        let second = resolve(&second.into(), &frame_ctx, &mut assets).expect("tree should resolve");
+        let third = resolve(&third.into(), &frame_ctx, &mut assets).expect("tree should resolve");
+
+        assert_eq!(
+            first.fingerprints.layout_input_subtree, second.fingerprints.layout_input_subtree,
+            "paint-only changes must not dirty layout input semantics"
+        );
+        assert_ne!(
+            first.fingerprints.paint_input_subtree, second.fingerprints.paint_input_subtree,
+            "paint-only changes must dirty paint input semantics"
+        );
+        assert_ne!(
+            first.fingerprints.layout_input_subtree, third.fingerprints.layout_input_subtree,
+            "layout changes must dirty layout input semantics"
+        );
+        assert_eq!(first.fingerprints.node_count, 2);
     }
 
     #[test]

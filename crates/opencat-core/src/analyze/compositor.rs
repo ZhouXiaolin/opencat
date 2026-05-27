@@ -117,8 +117,9 @@ mod ordered_scene_tests {
         },
         display::list::{
             DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem, RectDisplayItem,
-            RectPaintStyle,
+            RectPaintStyle, TimelineDisplayItem, TimelineTransitionDisplay,
         },
+        parse::transition::TransitionKind,
         style::BorderRadius,
     };
 
@@ -133,6 +134,7 @@ mod ordered_scene_tests {
 
     fn rect_node(children: Vec<AnnotatedNodeHandle>) -> AnnotatedDisplayNode {
         AnnotatedDisplayNode {
+            input_fingerprints: Default::default(),
             transform: DisplayTransform {
                 translation_x: 0.0,
                 translation_y: 0.0,
@@ -254,6 +256,7 @@ mod ordered_scene_tests {
                 rect_node(vec![static_child, dynamic_child]),
                 rect_node(Vec::new()),
                 AnnotatedDisplayNode {
+                    input_fingerprints: Default::default(),
                     transform: DisplayTransform {
                         translation_x: 0.0,
                         translation_y: 0.0,
@@ -337,6 +340,7 @@ mod ordered_scene_tests {
                 rect_node(vec![stable_grandchild]),
                 rect_node(Vec::new()),
                 AnnotatedDisplayNode {
+                    input_fingerprints: Default::default(),
                     transform: DisplayTransform {
                         translation_x: 0.0,
                         translation_y: 0.0,
@@ -559,6 +563,104 @@ mod ordered_scene_tests {
             }
         );
     }
+
+    #[test]
+    fn active_transition_timeline_stays_live_for_compositing() {
+        let root = AnnotatedNodeHandle(0);
+        let from = AnnotatedNodeHandle(1);
+        let to = AnnotatedNodeHandle(2);
+        let tree = AnnotatedDisplayTree {
+            root,
+            nodes: vec![
+                AnnotatedDisplayNode {
+                    input_fingerprints: Default::default(),
+                    transform: DisplayTransform {
+                        translation_x: 0.0,
+                        translation_y: 0.0,
+                        bounds: rect_bounds(),
+                        transforms: Vec::new(),
+                    },
+                    opacity: 1.0,
+                    backdrop_blur_sigma: None,
+                    clip: None,
+                    item: DisplayItem::Timeline(TimelineDisplayItem {
+                        bounds: rect_bounds(),
+                        paint: RectPaintStyle {
+                            background: None,
+                            border_radius: BorderRadius::default(),
+                            border_width: None,
+                            border_top_width: None,
+                            border_right_width: None,
+                            border_bottom_width: None,
+                            border_left_width: None,
+                            border_color: None,
+                            border_style: None,
+                            blur_sigma: None,
+                            box_shadow: None,
+                            inset_shadow: None,
+                            drop_shadow: None,
+                            backdrop_blur_sigma: None,
+                        },
+                        transition: Some(TimelineTransitionDisplay {
+                            progress: 0.5,
+                            kind: TransitionKind::Fade,
+                        }),
+                    }),
+                    children: vec![from, to],
+                    draw_slot: None,
+                    hidden_subtree: Vec::new(),
+                },
+                rect_node(Vec::new()),
+                rect_node(Vec::new()),
+            ],
+            keys: vec![RenderNodeKey(1), RenderNodeKey(2), RenderNodeKey(3)],
+            layer_bounds: vec![rect_bounds(), rect_bounds(), rect_bounds()],
+            analysis: {
+                let mut table = DisplayAnalysisTable::default();
+                table.insert(
+                    root,
+                    DisplayNodeAnalysis {
+                        paint_fingerprint: Some(11),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(12)),
+                    },
+                );
+                table.insert(
+                    from,
+                    DisplayNodeAnalysis {
+                        paint_fingerprint: Some(21),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(22)),
+                    },
+                );
+                table.insert(
+                    to,
+                    DisplayNodeAnalysis {
+                        paint_fingerprint: Some(31),
+                        snapshot_fingerprint: Some(SubtreeSnapshotFingerprint(32)),
+                    },
+                );
+                table
+            },
+            invalidation: DisplayInvalidationTable::with_len(3),
+        };
+
+        let program = OrderedSceneProgram::build(&tree);
+        assert_eq!(
+            program.root,
+            OrderedSceneOp::LiveSubtree {
+                handle: root,
+                children: vec![
+                    OrderedSceneOp::LiveSubtree {
+                        handle: from,
+                        children: Vec::new(),
+                    },
+                    OrderedSceneOp::LiveSubtree {
+                        handle: to,
+                        children: Vec::new(),
+                    },
+                ],
+            }
+        );
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SceneRenderPlan {
@@ -632,6 +734,12 @@ pub fn analyze_stable_node_reuse(
     handle: AnnotatedNodeHandle,
 ) -> StableNodeReuse {
     let node = display_tree.node(handle);
+    if let DisplayItem::Timeline(timeline) = &node.item
+        && timeline.transition.is_some()
+    {
+        return StableNodeReuse::DirectLeaf;
+    }
+
     if !node.children.is_empty() {
         return StableNodeReuse::SubtreeSnapshot;
     }
@@ -681,6 +789,7 @@ mod reuse_tests {
 
     fn node(item: DisplayItem, children: Vec<AnnotatedNodeHandle>) -> AnnotatedDisplayNode {
         AnnotatedDisplayNode {
+            input_fingerprints: Default::default(),
             transform: DisplayTransform {
                 translation_x: 0.0,
                 translation_y: 0.0,

@@ -18,6 +18,7 @@ pub mod resolve;
 pub mod resource;
 pub mod runtime;
 pub mod script;
+pub mod semantic;
 pub mod style;
 pub mod text;
 

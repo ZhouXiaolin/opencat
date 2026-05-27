@@ -7,6 +7,7 @@ use crate::{
         list::{DisplayClip, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem},
         tree::{DisplayNode, DisplayTree, HiddenChildDisplayNode},
     },
+    semantic::fingerprint::ElementInputFingerprints,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -27,6 +28,7 @@ pub struct AnnotatedDisplayTree {
 
 #[derive(Clone, Debug)]
 pub struct AnnotatedDisplayNode {
+    pub input_fingerprints: ElementInputFingerprints,
     pub transform: DisplayTransform,
     pub opacity: f32,
     pub backdrop_blur_sigma: Option<f32>,
@@ -148,6 +150,7 @@ fn annotate_display_node(
     let render_key = RenderNodeKey(node.element_id.0);
     let handle = AnnotatedNodeHandle(nodes.len());
     let annotated = AnnotatedDisplayNode {
+        input_fingerprints: node.input_fingerprints,
         transform: node.transform.clone(),
         opacity: node.opacity,
         backdrop_blur_sigma: node.backdrop_blur_sigma,

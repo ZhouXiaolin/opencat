@@ -13,11 +13,9 @@ pub struct ElementInputFingerprints {
     pub structure_local: u64,
     pub layout_input_local: u64,
     pub paint_input_local: u64,
-    pub composite_input_local: u64,
     pub structure_subtree: u64,
     pub layout_input_subtree: u64,
     pub paint_input_subtree: u64,
-    pub composite_input_subtree: u64,
     pub node_count: usize,
 }
 
@@ -45,14 +43,12 @@ fn compute_node(node: &mut ElementNode) -> ElementInputFingerprints {
     let structure_local = hash_value(&StructureLocal(node));
     let layout_local = hash_value(&LayoutInputLocal(node));
     let paint_local = hash_value(&PaintInputLocal(node));
-    let composite_local = hash_value(&CompositeInputLocal(node));
     let node_count = 1 + child_fps.iter().map(|fp| fp.node_count).sum::<usize>();
 
     let fingerprints = ElementInputFingerprints {
         structure_local,
         layout_input_local: layout_local,
         paint_input_local: paint_local,
-        composite_input_local: composite_local,
         structure_subtree: hash_subtree(
             structure_local,
             child_fps.iter().map(|fp| fp.structure_subtree),
@@ -64,10 +60,6 @@ fn compute_node(node: &mut ElementNode) -> ElementInputFingerprints {
         paint_input_subtree: hash_subtree(
             paint_local,
             child_fps.iter().map(|fp| fp.paint_input_subtree),
-        ),
-        composite_input_subtree: hash_subtree(
-            composite_local,
-            child_fps.iter().map(|fp| fp.composite_input_subtree),
         ),
         node_count,
     };
@@ -184,17 +176,6 @@ impl Hash for PaintInputLocal<'_> {
         }
 
         self.0.draw_slot.commands.hash(state);
-    }
-}
-
-struct CompositeInputLocal<'a>(&'a ElementNode);
-
-impl Hash for CompositeInputLocal<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let style = &self.0.style.visual;
-        F32Hash(style.opacity).hash(state);
-        style.backdrop_blur_sigma.map(F32Hash).hash(state);
-        style.transforms.hash(state);
     }
 }
 

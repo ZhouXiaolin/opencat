@@ -41,13 +41,6 @@ pub struct LayoutPassStats {
     pub layout_merkle_skipped_nodes: usize,
     pub layout_dirty_nodes: usize,
     pub raster_dirty_nodes: usize,
-    pub composite_dirty_nodes: usize,
-}
-
-impl LayoutPassStats {
-    pub fn paint_dirty_nodes(&self) -> usize {
-        self.raster_dirty_nodes + self.composite_dirty_nodes
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -67,11 +60,9 @@ struct CachedLayoutNode {
     structure_subtree_hash: u64,
     layout_input_subtree_hash: u64,
     paint_input_subtree_hash: u64,
-    composite_input_subtree_hash: u64,
     node_count: usize,
     layout_input_local_hash: u64,
     paint_input_local_hash: u64,
-    composite_input_local_hash: u64,
     children: Vec<CachedLayoutNode>,
 }
 
@@ -286,11 +277,9 @@ fn build_taffy_subtree(
             structure_subtree_hash: element.fingerprints.structure_subtree,
             layout_input_subtree_hash: element.fingerprints.layout_input_subtree,
             paint_input_subtree_hash: element.fingerprints.paint_input_subtree,
-            composite_input_subtree_hash: element.fingerprints.composite_input_subtree,
             node_count: element.fingerprints.node_count,
             layout_input_local_hash: element.fingerprints.layout_input_local,
             paint_input_local_hash: element.fingerprints.paint_input_local,
-            composite_input_local_hash: element.fingerprints.composite_input_local,
             children,
         },
     ))
@@ -315,7 +304,6 @@ fn update_cached_subtree(
     if cached.structure_subtree_hash == element.fingerprints.structure_subtree
         && cached.layout_input_subtree_hash == element.fingerprints.layout_input_subtree
         && cached.paint_input_subtree_hash == element.fingerprints.paint_input_subtree
-        && cached.composite_input_subtree_hash == element.fingerprints.composite_input_subtree
     {
         stats.reused_nodes += cached.node_count;
         stats.input_merkle_full_hit_subtrees += 1;
@@ -339,28 +327,20 @@ fn update_cached_subtree(
 
     let next_layout_hash = element.fingerprints.layout_input_local;
     let next_paint_hash = element.fingerprints.paint_input_local;
-    let next_composite_hash = element.fingerprints.composite_input_local;
 
     if cached.layout_input_local_hash != next_layout_hash {
         taffy.set_style(cached.taffy_node, taffy_style_for_element(element))?;
         taffy.set_node_context(cached.taffy_node, text_measure_context_for_element(element))?;
         cached.layout_input_local_hash = next_layout_hash;
         cached.paint_input_local_hash = next_paint_hash;
-        cached.composite_input_local_hash = next_composite_hash;
         stats.layout_dirty_nodes += 1;
     } else {
         let paint_changed = cached.paint_input_local_hash != next_paint_hash;
-        let composite_changed = cached.composite_input_local_hash != next_composite_hash;
         cached.paint_input_local_hash = next_paint_hash;
-        cached.composite_input_local_hash = next_composite_hash;
 
         if paint_changed {
             stats.raster_dirty_nodes += 1;
-        }
-        if composite_changed {
-            stats.composite_dirty_nodes += 1;
-        }
-        if !paint_changed && !composite_changed {
+        } else {
             stats.reused_nodes += 1;
         }
     }
@@ -382,7 +362,6 @@ fn update_cached_subtree(
     cached.structure_subtree_hash = element.fingerprints.structure_subtree;
     cached.layout_input_subtree_hash = element.fingerprints.layout_input_subtree;
     cached.paint_input_subtree_hash = element.fingerprints.paint_input_subtree;
-    cached.composite_input_subtree_hash = element.fingerprints.composite_input_subtree;
     cached.node_count = element.fingerprints.node_count;
 
     Ok(())
@@ -1520,7 +1499,6 @@ mod tests {
         assert!(first_stats.structure_rebuild);
         assert_eq!(second_stats.layout_dirty_nodes, 0);
         assert!(second_stats.raster_dirty_nodes >= 1);
-        assert!(second_stats.composite_dirty_nodes >= 1);
         assert_eq!(second_layout.root.rect.width, 320.0);
         assert_eq!(second_layout.root.children[0].id, "label");
     }
@@ -1816,101 +1794,6 @@ mod tests {
     }
 
     #[test]
-    fn layout_session_marks_opacity_change_as_composite_dirty() {
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 2,
-        };
-        let mut assets = TestCatalog::new();
-        let mut session = LayoutSession::new();
-
-        let first = div().id("root").child(text("A").id("label")).into();
-        let second = div()
-            .id("root")
-            .opacity(0.5)
-            .child(text("A").id("label"))
-            .into();
-
-        let first_resolved = resolve_ui_tree(
-            &first,
-            &frame_ctx,
-            &mut assets,
-            None,
-            &mut MockScriptHost::default(),
-        )
-        .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(
-            &second,
-            &frame_ctx,
-            &mut assets,
-            None,
-            &mut MockScriptHost::default(),
-        )
-        .expect("second tree should resolve");
-
-        session
-            .compute_layout(&first_resolved, &frame_ctx)
-            .expect("first layout should succeed");
-        let (_, second_stats) = session
-            .compute_layout(&second_resolved, &frame_ctx)
-            .expect("second layout should succeed");
-
-        assert_eq!(second_stats.layout_dirty_nodes, 0);
-        assert_eq!(second_stats.raster_dirty_nodes, 0);
-        assert!(second_stats.composite_dirty_nodes >= 1);
-    }
-
-    #[test]
-    fn layout_session_marks_transform_change_as_composite_dirty() {
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 2,
-        };
-        let mut assets = TestCatalog::new();
-        let mut session = LayoutSession::new();
-
-        let first = div().id("root").child(text("A").id("label")).into();
-        let second = div()
-            .id("root")
-            .rotate_deg(12.0)
-            .child(text("A").id("label"))
-            .into();
-
-        let first_resolved = resolve_ui_tree(
-            &first,
-            &frame_ctx,
-            &mut assets,
-            None,
-            &mut MockScriptHost::default(),
-        )
-        .expect("first tree should resolve");
-        let second_resolved = resolve_ui_tree(
-            &second,
-            &frame_ctx,
-            &mut assets,
-            None,
-            &mut MockScriptHost::default(),
-        )
-        .expect("second tree should resolve");
-
-        session
-            .compute_layout(&first_resolved, &frame_ctx)
-            .expect("first layout should succeed");
-        let (_, second_stats) = session
-            .compute_layout(&second_resolved, &frame_ctx)
-            .expect("second layout should succeed");
-
-        assert_eq!(second_stats.layout_dirty_nodes, 0);
-        assert_eq!(second_stats.raster_dirty_nodes, 0);
-        assert!(second_stats.composite_dirty_nodes >= 1);
-    }
-
     #[test]
     fn svg_path_layout_uses_icon_intrinsic_size_only() {
         let frame_ctx = FrameCtx {

@@ -312,11 +312,14 @@ impl RenderProfileAggregator {
             ("layout", "raster_dirty", "count") => {
                 frame.raster_dirty_nodes += event.amount;
             }
-            ("layout", "composite_dirty", "count") => {
-                frame.composite_dirty_nodes += event.amount;
-            }
             ("layout", "structure_rebuild", "count") => {
                 frame.structure_rebuilds += event.amount;
+            }
+            ("display", "display_recorded_subtree_identical_subtrees", "count") => {
+                frame.display_recorded_subtree_identical_subtrees += event.amount;
+            }
+            ("display", "display_recorded_subtree_identical_nodes", "count") => {
+                frame.display_recorded_subtree_identical_nodes += event.amount;
             }
             ("analyze", "analyze_merkle_skipped_subtrees", "count") => {
                 frame.analyze_merkle_skipped_subtrees += event.amount;
@@ -341,6 +344,9 @@ impl RenderProfileAggregator {
             }
             ("analyze", "analyze_composite_blocked_nodes", "count") => {
                 frame.analyze_composite_blocked_nodes += event.amount;
+            }
+            ("analyze", "analyze_composite_dirty_nodes", "count") => {
+                frame.analyze_composite_dirty_nodes += event.amount;
             }
             ("consecutive", "subtree_snapshot", "count") => {
                 frame.backend.subtree_snapshot_consecutive_hits_total += event.amount;
@@ -422,6 +428,36 @@ mod tests {
 
         let summary = aggregator.finish();
         assert_eq!(summary.frames[&7].analyze_recorded_hit_nodes, 12);
+    }
+
+    #[test]
+    fn count_events_record_display_recorded_subtree_identical() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 7,
+            kind: "display",
+            name: "display_recorded_subtree_identical_subtrees",
+            result: "count",
+            amount: 3,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 7,
+            kind: "display",
+            name: "display_recorded_subtree_identical_nodes",
+            result: "count",
+            amount: 15,
+        });
+
+        let summary = aggregator.finish();
+        assert_eq!(
+            summary.frames[&7].display_recorded_subtree_identical_subtrees,
+            3
+        );
+        assert_eq!(
+            summary.frames[&7].display_recorded_subtree_identical_nodes,
+            15
+        );
     }
 
     #[test]

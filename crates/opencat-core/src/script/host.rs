@@ -10,8 +10,8 @@ use crate::script::recorder::MutationRecorder;
 pub struct ScriptDriverId(pub u64);
 
 pub fn driver_id_from_source(source: &str) -> ScriptDriverId {
-    use std::hash::{Hash, Hasher};
     use ahash::AHasher;
+    use std::hash::{Hash, Hasher};
     let mut h = AHasher::default();
     source.hash(&mut h);
     ScriptDriverId(h.finish())

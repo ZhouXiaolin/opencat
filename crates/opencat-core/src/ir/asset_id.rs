@@ -1,5 +1,5 @@
-use std::hash::{Hash, Hasher};
 use ahash::AHasher;
+use std::hash::{Hash, Hasher};
 
 use crate::parse::primitives::OpenverseQuery;
 

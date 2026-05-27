@@ -1,6 +1,8 @@
 #[cfg(feature = "profile")]
 use tracing::{Level, event, span};
 
+#[cfg(feature = "profile")]
+use crate::analyze::annotation::AnalyzeReuseState;
 use crate::analyze::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
 use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::fingerprint::item_paint_fingerprint;
@@ -31,9 +33,8 @@ pub fn render_display_item(
     layout_output_fingerprint: LayoutOutputFingerprint,
     cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
-    if should_cache_item_picture(item)
-        && let Some(cache_key) = item_paint_fingerprint(item, layout_output_fingerprint)
-    {
+    if should_cache_item_picture(item) {
+        let cache_key = item_paint_fingerprint(item, layout_output_fingerprint);
         return render_display_item_cached(ctx, item, cache_key, cache);
     }
     render_display_item_direct(ctx, item, cache)
@@ -172,255 +173,17 @@ fn display_rect_to_rect4(r: DisplayRect) -> Rect4 {
     }
 }
 
-pub fn render_display_tree(
-    ctx: &mut RenderCtx,
-    tree: &AnnotatedDisplayTree,
-    cache: &mut draw_cache::RenderCache,
-) -> Result<(), RenderError> {
-    render_scene_op(ctx, &ctx.ordered_scene.root, tree, cache)
+struct BackdropLayerState {
+    uses_layer: bool,
+    has_backdrop_clip: bool,
 }
 
-fn render_scene_op(
+fn save_backdrop_blur_layer(
     ctx: &mut RenderCtx,
-    op: &OrderedSceneOp,
-    tree: &AnnotatedDisplayTree,
-    cache: &mut draw_cache::RenderCache,
-) -> Result<(), RenderError> {
-    match op {
-        OrderedSceneOp::CachedSubtree { handle } => {
-            render_cached_subtree(ctx, *handle, tree, cache)
-        }
-        OrderedSceneOp::LiveSubtree { handle, children } => {
-            render_live_subtree(ctx, *handle, children, tree, cache)
-        }
-    }
-}
-
-fn render_cached_subtree(
-    ctx: &mut RenderCtx,
-    handle: AnnotatedNodeHandle,
-    tree: &AnnotatedDisplayTree,
-    cache: &mut draw_cache::RenderCache,
-) -> Result<(), RenderError> {
-    let node = tree.node(handle);
-    let draw = node.draw_composite_semantics();
-    if draw.opacity <= 0.0 {
-        return Ok(());
-    }
-
-    ctx.builder.push(DrawOp::Save);
-    apply_transform(ctx.builder, draw.transform);
-
-    let opacity = draw.opacity;
-    let backdrop_blur = draw.backdrop_blur_sigma;
-    let layer_bounds = tree.layer_bounds(handle);
-    let fingerprint = tree
-        .analysis(handle)
-        .snapshot_fingerprint
-        .expect("CachedSubtree node must have snapshot_fingerprint");
-    let key = fingerprint.0;
-
-    let uses_layer = opacity < 1.0 || backdrop_blur.is_some();
-    let mut has_backdrop_clip = false;
-    if uses_layer {
-        #[cfg(feature = "profile")]
-        event!(
-            target: "render.layer",
-            Level::TRACE,
-            kind = "layer",
-            name = "save_layer",
-            result = "count",
-            amount = 1_u64
-        );
-        let bounds_rect4 = display_rect_to_rect4(layer_bounds);
-        if let Some(sigma) = backdrop_blur {
-            if sigma > 0.0 {
-                let paint = PaintSpec {
-                    fill: FillSpec::Solid([1.0, 1.0, 1.0, opacity]),
-                    style: PaintStyle::Fill,
-                    stroke: None,
-                    anti_alias: true,
-                    blend_mode: BlendMode::SrcOver,
-                    image_filter: Some(ImageFilterSpec::Blur {
-                        sigma_x: sigma,
-                        sigma_y: sigma,
-                        crop_rect: None,
-                    }),
-                    color_filter: None,
-                    mask_filter: None,
-                    path_effect: None,
-                };
-                let paint_id = ctx.builder.intern_paint(paint);
-                ctx.builder.push(DrawOp::Save);
-                ctx.builder.push(DrawOp::BeginPath);
-                ctx.builder.push(DrawOp::Path(PathOp::AddRect {
-                    x: bounds_rect4.x,
-                    y: bounds_rect4.y,
-                    width: bounds_rect4.width,
-                    height: bounds_rect4.height,
-                }));
-                ctx.builder.push(DrawOp::ClipPath { anti_alias: false });
-                has_backdrop_clip = true;
-                ctx.builder.push(DrawOp::SaveLayer {
-                    bounds: Some(bounds_rect4),
-                    paint: Some(paint_id),
-                    alpha: 1.0,
-                });
-            } else {
-                ctx.builder.push(DrawOp::SaveLayer {
-                    bounds: Some(bounds_rect4),
-                    paint: None,
-                    alpha: opacity,
-                });
-            }
-        } else {
-            ctx.builder.push(DrawOp::SaveLayer {
-                bounds: Some(bounds_rect4),
-                paint: None,
-                alpha: opacity,
-            });
-        }
-    }
-
-    // Check cache
-    {
-        let hit_entry = cache.subtree_snapshots.get_cloned(&key);
-        if let Some(entry) = hit_entry {
-            #[cfg(feature = "profile")]
-            event!(
-                target: "render.cache",
-                Level::TRACE,
-                kind = "cache",
-                name = "subtree_snapshot",
-                result = "hit",
-                amount = 1_u64
-            );
-            #[cfg(feature = "profile")]
-            event!(
-                target: "render.cache",
-                Level::TRACE,
-                kind = "consecutive",
-                name = "subtree_snapshot",
-                result = "count",
-                amount = entry.consecutive_hits as u64
-            );
-            if let Some(segment) = cache.segments.get_cloned(&entry.segment_key) {
-                ctx.builder.import_segment(&segment);
-                let updated = CachedSubtreeIr {
-                    consecutive_hits: entry.consecutive_hits + 1,
-                    ..entry
-                };
-                let report = cache.subtree_snapshots.insert(key, updated);
-                record_cache_pressure("subtree_snapshot", &report);
-                if uses_layer {
-                    ctx.builder.push(DrawOp::Restore);
-                    if has_backdrop_clip {
-                        ctx.builder.push(DrawOp::Restore);
-                    }
-                }
-                ctx.builder.push(DrawOp::Restore);
-                return Ok(());
-            }
-        }
-    }
-
-    // Cache miss — record subtree into IR range
-    #[cfg(feature = "profile")]
-    let _record_span =
-        span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record").entered();
-
-    let range_marker = ctx.builder.begin_range();
-    render_live_cached_node(ctx, handle, tree, cache)?;
-    let range = ctx.builder.end_range(range_marker);
-
-    #[cfg(feature = "profile")]
-    drop(_record_span);
-
-    let segment = ctx.builder.snapshot_range(range);
-    let segment_key = key;
-
-    cache.segments.insert(segment_key, segment);
-
-    let snapshot = CachedSubtreeIr {
-        segment_key,
-        consecutive_hits: 0,
-        recorded_bounds: layer_bounds,
-    };
-    {
-        let report = cache.subtree_snapshots.insert(key, snapshot);
-        record_cache_pressure("subtree_snapshot", &report);
-    }
-    #[cfg(feature = "profile")]
-    event!(
-        target: "render.cache",
-        Level::TRACE,
-        kind = "cache",
-        name = "subtree_snapshot",
-        result = "miss",
-        amount = 1_u64
-    );
-
-    if uses_layer {
-        ctx.builder.push(DrawOp::Restore);
-        if has_backdrop_clip {
-            ctx.builder.push(DrawOp::Restore);
-        }
-    }
-    ctx.builder.push(DrawOp::Restore);
-    Ok(())
-}
-
-fn render_live_cached_node(
-    ctx: &mut RenderCtx,
-    handle: AnnotatedNodeHandle,
-    tree: &AnnotatedDisplayTree,
-    cache: &mut draw_cache::RenderCache,
-) -> Result<(), RenderError> {
-    let node = tree.node(handle);
-    let subtree = OrderedSceneProgram::build_subtree(tree, handle);
-    let recorded = node.recorded_semantics();
-
-    render_display_item(
-        ctx,
-        recorded.item,
-        recorded.layout_output_fingerprint,
-        cache,
-    )?;
-
-    if let Some(clip) = recorded.clip {
-        ctx.builder.push(DrawOp::Save);
-        let clip_rect4 = display_rect_to_rect4(clip.bounds);
-        clip_bounds_with_radius(ctx.builder, clip_rect4, &clip.border_radius);
-    }
-    for child in &subtree.children {
-        render_scene_op(ctx, child, tree, cache)?;
-    }
-    if recorded.clip.is_some() {
-        ctx.builder.push(DrawOp::Restore);
-    }
-    Ok(())
-}
-
-fn render_live_subtree(
-    ctx: &mut RenderCtx,
-    handle: AnnotatedNodeHandle,
-    children: &[OrderedSceneOp],
-    tree: &AnnotatedDisplayTree,
-    cache: &mut draw_cache::RenderCache,
-) -> Result<(), RenderError> {
-    let node = tree.node(handle);
-    let draw = node.draw_composite_semantics();
-    if draw.opacity <= 0.0 {
-        return Ok(());
-    }
-
-    ctx.builder.push(DrawOp::Save);
-    apply_transform(ctx.builder, draw.transform);
-
-    let opacity = draw.opacity;
-    let backdrop_blur = draw.backdrop_blur_sigma;
-    let bounds = tree.layer_bounds(handle);
-
+    opacity: f32,
+    backdrop_blur: Option<f32>,
+    bounds: DisplayRect,
+) -> BackdropLayerState {
     let uses_layer = opacity < 1.0 || backdrop_blur.is_some();
     let mut has_backdrop_clip = false;
     if uses_layer {
@@ -482,6 +245,259 @@ fn render_live_subtree(
             });
         }
     }
+    BackdropLayerState {
+        uses_layer,
+        has_backdrop_clip,
+    }
+}
+
+fn restore_backdrop_blur_layer(ctx: &mut RenderCtx, state: &BackdropLayerState) {
+    if state.uses_layer {
+        ctx.builder.push(DrawOp::Restore);
+        if state.has_backdrop_clip {
+            ctx.builder.push(DrawOp::Restore);
+        }
+    }
+}
+
+pub fn render_display_tree(
+    ctx: &mut RenderCtx,
+    tree: &AnnotatedDisplayTree,
+    cache: &mut draw_cache::RenderCache,
+) -> Result<(), RenderError> {
+    render_scene_op(ctx, &ctx.ordered_scene.root, tree, cache)
+}
+
+fn render_scene_op(
+    ctx: &mut RenderCtx,
+    op: &OrderedSceneOp,
+    tree: &AnnotatedDisplayTree,
+    cache: &mut draw_cache::RenderCache,
+) -> Result<(), RenderError> {
+    match op {
+        OrderedSceneOp::CachedSubtree { handle } => {
+            render_cached_subtree(ctx, *handle, tree, cache)
+        }
+        OrderedSceneOp::LiveSubtree { handle, children } => {
+            render_live_subtree(ctx, *handle, children, tree, cache)
+        }
+    }
+}
+
+fn render_cached_subtree(
+    ctx: &mut RenderCtx,
+    handle: AnnotatedNodeHandle,
+    tree: &AnnotatedDisplayTree,
+    cache: &mut draw_cache::RenderCache,
+) -> Result<(), RenderError> {
+    let node = tree.node(handle);
+    let draw = node.draw_composite_semantics();
+    if draw.opacity <= 0.0 {
+        return Ok(());
+    }
+
+    ctx.builder.push(DrawOp::Save);
+    apply_transform(ctx.builder, draw.transform);
+
+    let layer_bounds = tree.layer_bounds(handle);
+    let layer_state =
+        save_backdrop_blur_layer(ctx, draw.opacity, draw.backdrop_blur_sigma, layer_bounds);
+    let fingerprint = tree.analysis(handle).snapshot_fingerprint.ok_or_else(|| {
+        RenderError::InvalidArgument(
+            "CachedSubtree node must have snapshot_fingerprint".to_string(),
+        )
+    })?;
+    let key = fingerprint.0;
+
+    {
+        #[cfg(feature = "profile")]
+        {
+            let result = match tree.analyze_reuse_state(handle) {
+                AnalyzeReuseState::Fresh => "fresh",
+                AnalyzeReuseState::ReusedFromHistory => "reused",
+                AnalyzeReuseState::CompositeBlocked => "composite_blocked",
+            };
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "subtree_snapshot_request_after_analyze",
+                result = result,
+                amount = 1_u64
+            );
+        }
+    }
+
+    // Check cache
+    {
+        let hit_entry = cache.subtree_snapshots.get_cloned(&key);
+        if let Some(entry) = hit_entry {
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "subtree_snapshot",
+                result = "hit",
+                amount = 1_u64
+            );
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "consecutive",
+                name = "subtree_snapshot",
+                result = "count",
+                amount = entry.consecutive_hits as u64
+            );
+            if let Some(segment) = cache.segments.get_cloned(&entry.segment_key) {
+                #[cfg(feature = "profile")]
+                event!(
+                    target: "render.cache",
+                    Level::TRACE,
+                    kind = "cache",
+                    name = "subtree_snapshot_artifact",
+                    result = "hit",
+                    amount = 1_u64
+                );
+                ctx.builder.import_segment(&segment);
+                let updated = CachedSubtreeIr {
+                    consecutive_hits: entry.consecutive_hits + 1,
+                    ..entry
+                };
+                let report = cache.subtree_snapshots.insert(key, updated);
+                record_cache_pressure("subtree_snapshot", &report);
+                restore_backdrop_blur_layer(ctx, &layer_state);
+                ctx.builder.push(DrawOp::Restore);
+                return Ok(());
+            }
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "subtree_snapshot_artifact",
+                result = "evicted_or_absent",
+                amount = 1_u64
+            );
+        } else {
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "subtree_snapshot_artifact",
+                result = "first_record",
+                amount = 1_u64
+            );
+        }
+    }
+
+    // Cache miss — record subtree into IR range
+    #[cfg(feature = "profile")]
+    let _record_span =
+        span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record").entered();
+
+    let range_marker = ctx.builder.begin_range();
+    render_live_cached_node(ctx, handle, tree, cache)?;
+    let range = ctx.builder.end_range(range_marker);
+
+    #[cfg(feature = "profile")]
+    drop(_record_span);
+
+    let segment = ctx.builder.snapshot_range(range);
+    let segment_key = key;
+
+    cache.segments.insert(segment_key, segment);
+
+    let snapshot = CachedSubtreeIr {
+        segment_key,
+        consecutive_hits: 0,
+        recorded_bounds: layer_bounds,
+    };
+    {
+        let report = cache.subtree_snapshots.insert(key, snapshot);
+        if report.replaced {
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "subtree_snapshot_artifact",
+                result = "replaced",
+                amount = 1_u64
+            );
+        }
+        record_cache_pressure("subtree_snapshot", &report);
+    }
+    #[cfg(feature = "profile")]
+    event!(
+        target: "render.cache",
+        Level::TRACE,
+        kind = "cache",
+        name = "subtree_snapshot",
+        result = "miss",
+        amount = 1_u64
+    );
+
+    restore_backdrop_blur_layer(ctx, &layer_state);
+    ctx.builder.push(DrawOp::Restore);
+    Ok(())
+}
+
+fn render_live_cached_node(
+    ctx: &mut RenderCtx,
+    handle: AnnotatedNodeHandle,
+    tree: &AnnotatedDisplayTree,
+    cache: &mut draw_cache::RenderCache,
+) -> Result<(), RenderError> {
+    let node = tree.node(handle);
+    let subtree = OrderedSceneProgram::build_subtree(tree, handle);
+    let recorded = node.recorded_semantics();
+
+    render_display_item(
+        ctx,
+        recorded.item,
+        recorded.layout_output_fingerprint,
+        cache,
+    )?;
+
+    if let Some(clip) = recorded.clip {
+        ctx.builder.push(DrawOp::Save);
+        let clip_rect4 = display_rect_to_rect4(clip.bounds);
+        clip_bounds_with_radius(ctx.builder, clip_rect4, &clip.border_radius);
+    }
+    for child in &subtree.children {
+        render_scene_op(ctx, child, tree, cache)?;
+    }
+    if recorded.clip.is_some() {
+        ctx.builder.push(DrawOp::Restore);
+    }
+    Ok(())
+}
+
+fn render_live_subtree(
+    ctx: &mut RenderCtx,
+    handle: AnnotatedNodeHandle,
+    children: &[OrderedSceneOp],
+    tree: &AnnotatedDisplayTree,
+    cache: &mut draw_cache::RenderCache,
+) -> Result<(), RenderError> {
+    let node = tree.node(handle);
+    let draw = node.draw_composite_semantics();
+    if draw.opacity <= 0.0 {
+        return Ok(());
+    }
+
+    ctx.builder.push(DrawOp::Save);
+    apply_transform(ctx.builder, draw.transform);
+
+    let layer_state = save_backdrop_blur_layer(
+        ctx,
+        draw.opacity,
+        draw.backdrop_blur_sigma,
+        tree.layer_bounds(handle),
+    );
 
     // Transition compositing: render from/to subtrees and blend them
     if let DisplayItem::Timeline(timeline) = &node.item
@@ -530,12 +546,7 @@ fn render_live_subtree(
         if node.clip.is_some() {
             ctx.builder.push(DrawOp::Restore);
         }
-        if uses_layer {
-            ctx.builder.push(DrawOp::Restore);
-            if has_backdrop_clip {
-                ctx.builder.push(DrawOp::Restore);
-            }
-        }
+        restore_backdrop_blur_layer(ctx, &layer_state);
         ctx.builder.push(DrawOp::Restore);
         return Ok(());
     }
@@ -563,12 +574,7 @@ fn render_live_subtree(
     if node.clip.is_some() {
         ctx.builder.push(DrawOp::Restore);
     }
-    if uses_layer {
-        ctx.builder.push(DrawOp::Restore);
-        if has_backdrop_clip {
-            ctx.builder.push(DrawOp::Restore);
-        }
-    }
+    restore_backdrop_blur_layer(ctx, &layer_state);
     ctx.builder.push(DrawOp::Restore);
     Ok(())
 }

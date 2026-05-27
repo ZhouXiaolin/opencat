@@ -85,7 +85,7 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average(summary, |frame| frame.backend.light_leak_composite_ms),
     ));
     out.push_str(&format!(
-        "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, glyph_path_hit {:.2}, glyph_path_miss {:.2}, glyph_img_hit {:.2}, glyph_img_miss {:.2}, item_hit {:.2}, item_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, subtree_dirty_hit {:.2}, subtree_dirty_miss {:.2}, subtree_collision_rejected {:.2}, subtree_image_hit {:.2}, subtree_image_miss {:.2}, subtree_image_promote {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}\n",
+        "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, glyph_path_hit {:.2}, glyph_path_miss {:.2}, glyph_img_hit {:.2}, glyph_img_miss {:.2}, item_hit {:.2}, item_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, subtree_artifact_hit {:.2}, subtree_artifact_first_record {:.2}, subtree_artifact_evicted_or_absent {:.2}, subtree_request_after_fresh {:.2}, subtree_request_after_reused {:.2}, subtree_request_after_composite_blocked {:.2}, subtree_dirty_hit {:.2}, subtree_dirty_miss {:.2}, subtree_artifact_replaced {:.2}, subtree_image_hit {:.2}, subtree_image_miss {:.2}, subtree_image_promote {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}\n",
         average_usize(summary, |frame| frame.backend.draw_rect_count),
         average_usize(summary, |frame| frame.backend.draw_text_count),
         average_usize(summary, |frame| frame.backend.draw_bitmap_count),
@@ -101,9 +101,25 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.backend.scene_snapshot_cache_misses),
         average_usize(summary, |frame| frame.backend.subtree_snapshot_cache_hits),
         average_usize(summary, |frame| frame.backend.subtree_snapshot_cache_misses),
+        average_usize(summary, |frame| frame.backend.subtree_snapshot_artifact_hits),
+        average_usize(summary, |frame| frame
+            .backend
+            .subtree_snapshot_artifact_first_record),
+        average_usize(summary, |frame| frame
+            .backend
+            .subtree_snapshot_artifact_evicted_or_absent),
+        average_usize(summary, |frame| frame
+            .backend
+            .subtree_snapshot_request_after_analyze_fresh),
+        average_usize(summary, |frame| frame
+            .backend
+            .subtree_snapshot_request_after_analyze_reused),
+        average_usize(summary, |frame| frame
+            .backend
+            .subtree_snapshot_request_after_analyze_composite_blocked),
         average_usize(summary, |frame| frame.backend.subtree_snapshot_composite_dirty_hits),
         average_usize(summary, |frame| frame.backend.subtree_snapshot_composite_dirty_misses),
-        average_usize(summary, |frame| frame.backend.subtree_snapshot_collision_rejected),
+        average_usize(summary, |frame| frame.backend.subtree_snapshot_artifact_replaced),
         average_usize(summary, |frame| frame.backend.subtree_image_cache_hits),
         average_usize(summary, |frame| frame.backend.subtree_image_cache_misses),
         average_usize(summary, |frame| frame.backend.subtree_image_promotions),
@@ -281,6 +297,14 @@ mod tests {
         frame.analyze_snapshot_eligibility_hit_nodes = 11;
         frame.analyze_composite_blocked_subtrees = 1;
         frame.analyze_composite_blocked_nodes = 1;
+        frame.backend.subtree_snapshot_artifact_hits = 2;
+        frame.backend.subtree_snapshot_artifact_first_record = 3;
+        frame.backend.subtree_snapshot_artifact_evicted_or_absent = 5;
+        frame.backend.subtree_snapshot_request_after_analyze_fresh = 10;
+        frame.backend.subtree_snapshot_request_after_analyze_reused = 7;
+        frame
+            .backend
+            .subtree_snapshot_request_after_analyze_composite_blocked = 3;
         frame.backend_spans.insert(
             BackendSpanKey {
                 depth: 0,
@@ -305,6 +329,15 @@ mod tests {
         assert!(text.contains("recorded_hit_nodes"));
         assert!(text.contains("snapshot_eligibility_hit_nodes"));
         assert!(text.contains("composite_blocked_nodes"));
+        assert!(text.contains("subtree_snapshot_hit"));
+        assert!(text.contains("subtree_snapshot_miss"));
+        assert!(text.contains("subtree_evict"));
+        assert!(text.contains("subtree_artifact_hit"));
+        assert!(text.contains("subtree_artifact_first_record"));
+        assert!(text.contains("subtree_artifact_evicted_or_absent"));
+        assert!(text.contains("subtree_request_after_fresh"));
+        assert!(text.contains("subtree_request_after_reused"));
+        assert!(text.contains("subtree_request_after_composite_blocked"));
         assert!(text.contains("backend avg spans/frame"));
     }
 }

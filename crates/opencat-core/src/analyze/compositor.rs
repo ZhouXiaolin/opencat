@@ -200,6 +200,7 @@ mod ordered_scene_tests {
                 );
                 table
             },
+            analyze_reuse: vec![],
         };
 
         let program = OrderedSceneProgram::build(&tree);
@@ -240,6 +241,7 @@ mod ordered_scene_tests {
                 table
             },
             invalidation: DisplayInvalidationTable::with_len(2),
+            analyze_reuse: vec![],
         };
 
         let program = OrderedSceneProgram::build(&tree);
@@ -309,6 +311,7 @@ mod ordered_scene_tests {
                 table
             },
             invalidation: DisplayInvalidationTable::with_len(3),
+            analyze_reuse: vec![],
         };
 
         let program = OrderedSceneProgram::build(&tree);
@@ -407,6 +410,7 @@ mod ordered_scene_tests {
                 table
             },
             invalidation: DisplayInvalidationTable::with_len(4),
+            analyze_reuse: vec![],
         };
 
         let program = OrderedSceneProgram::build(&tree);
@@ -487,6 +491,7 @@ mod ordered_scene_tests {
                 table
             },
             invalidation: DisplayInvalidationTable::with_len(3),
+            analyze_reuse: vec![],
         };
 
         let subtree = OrderedSceneProgram::build_subtree(&tree, root);
@@ -558,6 +563,7 @@ mod ordered_scene_tests {
                 table
             },
             invalidation: DisplayInvalidationTable::with_len(3),
+            analyze_reuse: vec![],
         };
 
         let program = OrderedSceneProgram::build(&tree);
@@ -649,6 +655,7 @@ mod ordered_scene_tests {
                 table
             },
             invalidation: DisplayInvalidationTable::with_len(3),
+            analyze_reuse: vec![],
         };
 
         let program = OrderedSceneProgram::build(&tree);
@@ -839,6 +846,7 @@ mod reuse_tests {
                 }
                 table
             },
+            analyze_reuse: vec![],
         }
     }
 

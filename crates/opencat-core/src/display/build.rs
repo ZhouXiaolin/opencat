@@ -101,7 +101,17 @@ fn build_display_node(
         (built_children, Vec::new())
     };
 
-    let item = display_item_for_node(element, bounds, frame_ctx, hidden_subtree.clone());
+    let hidden_is_empty = hidden_subtree.is_empty();
+    let item = display_item_for_node(
+        element,
+        bounds,
+        frame_ctx,
+        if hidden_is_empty {
+            Vec::new()
+        } else {
+            hidden_subtree.clone()
+        },
+    );
 
     let draw_slot = if element.draw_slot.commands.is_empty() {
         None
@@ -110,7 +120,11 @@ fn build_display_node(
             bounds,
             commands: element.draw_slot.commands.clone(),
             drop_shadow: None,
-            hidden_subtree: hidden_subtree.clone(),
+            hidden_subtree: if hidden_is_empty {
+                Vec::new()
+            } else {
+                hidden_subtree.clone()
+            },
         })
     };
 

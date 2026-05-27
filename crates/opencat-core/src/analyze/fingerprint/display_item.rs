@@ -2,6 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use crate::{
     display::list::{DisplayClip, DisplayItem, TextDisplayItem},
+    display::tree::{DisplayNode, HiddenChildDisplayNode},
     style::ComputedTextStyle,
 };
 
@@ -85,6 +86,10 @@ impl Hash for DisplayItemFp<'_> {
                 script.drop_shadow.hash(state);
                 F32Hash(script.bounds.width).hash(state);
                 F32Hash(script.bounds.height).hash(state);
+                script.hidden_subtree.len().hash(state);
+                for child in &script.hidden_subtree {
+                    HiddenChildFp(child).hash(state);
+                }
             }
             DisplayItem::SvgPath(svg) => {
                 4_u8.hash(state);
@@ -96,6 +101,42 @@ impl Hash for DisplayItemFp<'_> {
                 F32Hash(svg.bounds.width).hash(state);
                 F32Hash(svg.bounds.height).hash(state);
             }
+        }
+    }
+}
+
+struct HiddenChildFp<'a>(&'a HiddenChildDisplayNode);
+
+impl Hash for HiddenChildFp<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.owner_id.hash(state);
+        DisplayNodeFp(&self.0.node).hash(state);
+    }
+}
+
+struct DisplayNodeFp<'a>(&'a DisplayNode);
+
+impl Hash for DisplayNodeFp<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let node = self.0;
+        node.element_id.hash(state);
+        F32Hash(node.transform.translation_x).hash(state);
+        F32Hash(node.transform.translation_y).hash(state);
+        F32Hash(node.transform.bounds.width).hash(state);
+        F32Hash(node.transform.bounds.height).hash(state);
+        node.transform.transforms.hash(state);
+        F32Hash(node.opacity).hash(state);
+        node.backdrop_blur_sigma.map(F32Hash).hash(state);
+        ClipFp(node.clip.as_ref()).hash(state);
+        DisplayItemFp(&node.item).hash(state);
+        node.draw_slot.is_some().hash(state);
+        if let Some(slot) = &node.draw_slot {
+            let item = DisplayItem::DrawScript(slot.clone());
+            DisplayItemFp(&item).hash(state);
+        }
+        node.children.len().hash(state);
+        for child in &node.children {
+            DisplayNodeFp(child).hash(state);
         }
     }
 }

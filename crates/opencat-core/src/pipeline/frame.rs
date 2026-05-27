@@ -7,7 +7,10 @@ use anyhow::Result;
 #[cfg(feature = "profile")]
 use tracing::{Level, event, span};
 
-use crate::analyze::annotation::{annotate_display_tree, compute_display_tree_fingerprints};
+use crate::analyze::annotation::{
+    AnalyzeFingerprintHistory, annotate_display_tree,
+    compute_display_tree_fingerprints_with_history,
+};
 use crate::analyze::compositor::{OrderedSceneProgram, plan_for_scene};
 use crate::analyze::invalidation::{CompositeHistory, mark_display_tree_composite_dirty};
 use crate::display::build::build_display_tree;
@@ -33,6 +36,7 @@ pub fn render_frame_with_state(
     frame_index: u32,
     layout_session: &mut LayoutSession,
     composite_history: &mut CompositeHistory,
+    analyze_fingerprint_history: &mut AnalyzeFingerprintHistory,
     font_db: &Arc<fontdb::Database>,
     catalog: &mut dyn ResourceCatalog,
     cache: &mut RenderCache,
@@ -108,7 +112,23 @@ pub fn render_frame_with_state(
         &mut annotated,
         layout_pass.structure_rebuild,
     );
-    compute_display_tree_fingerprints(&mut annotated);
+    #[cfg(feature = "profile")]
+    let analyze_stats = compute_display_tree_fingerprints_with_history(
+        &mut annotated,
+        analyze_fingerprint_history,
+        layout_pass.structure_rebuild,
+    );
+    #[cfg(not(feature = "profile"))]
+    compute_display_tree_fingerprints_with_history(
+        &mut annotated,
+        analyze_fingerprint_history,
+        layout_pass.structure_rebuild,
+    );
+    #[cfg(feature = "profile")]
+    {
+        event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_merkle_skipped_subtrees", result = "count", amount = analyze_stats.merkle_skipped_subtrees as u64);
+        event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_merkle_skipped_nodes", result = "count", amount = analyze_stats.merkle_skipped_nodes as u64);
+    }
     #[cfg(feature = "profile")]
     drop(_display_span);
 
@@ -145,6 +165,7 @@ pub fn render_frame(
     let RenderSession {
         ref mut layout_session,
         ref mut composite_history,
+        ref mut analyze_fingerprint_history,
         ref font_db,
         ref mut catalog,
         cache: ref mut cache_field,
@@ -157,6 +178,7 @@ pub fn render_frame(
         frame_index,
         layout_session,
         composite_history,
+        analyze_fingerprint_history,
         font_db,
         catalog,
         cache_field,

@@ -3,7 +3,6 @@ pub mod tree;
 #[cfg(feature = "profile")]
 use tracing::Level;
 
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use anyhow::Result;
@@ -430,7 +429,7 @@ fn cached_node_kind(element: &ElementNode) -> CachedNodeKind {
 }
 
 fn node_identity(element: &ElementNode, sibling_index: usize) -> u64 {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = ahash::AHasher::default();
     cached_node_kind(element).hash(&mut hasher);
     sibling_index.hash(&mut hasher);
     element.style.id.hash(&mut hasher);
@@ -710,19 +709,19 @@ fn build_layout_tree(
 }
 
 fn layout_output_fingerprint(rect: LayoutRect, children: &[LayoutNode]) -> LayoutOutputFingerprint {
-    let mut record_size_hasher = DefaultHasher::new();
+    let mut record_size_hasher = ahash::AHasher::default();
     F32Bits(rect.width).hash(&mut record_size_hasher);
     F32Bits(rect.height).hash(&mut record_size_hasher);
     let record_size = record_size_hasher.finish();
 
-    let mut local_hasher = DefaultHasher::new();
+    let mut local_hasher = ahash::AHasher::default();
     F32Bits(rect.x).hash(&mut local_hasher);
     F32Bits(rect.y).hash(&mut local_hasher);
     F32Bits(rect.width).hash(&mut local_hasher);
     F32Bits(rect.height).hash(&mut local_hasher);
     let local = local_hasher.finish();
 
-    let mut subtree_hasher = DefaultHasher::new();
+    let mut subtree_hasher = ahash::AHasher::default();
     local.hash(&mut subtree_hasher);
     children.len().hash(&mut subtree_hasher);
     for child in children {

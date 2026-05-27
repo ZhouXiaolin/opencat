@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
 
 use crate::{
+    analyze::fingerprint::display_recorded_subtree_fingerprint,
     display::{
         list::{
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
@@ -113,9 +114,10 @@ fn build_display_node(
         })
     };
 
-    Ok(DisplayNode {
+    let mut node = DisplayNode {
         input_fingerprints: element.fingerprints,
         layout_output_fingerprint: layout.output_fingerprint,
+        recorded_subtree_fingerprint: Default::default(),
         transform: DisplayTransform {
             translation_x: layout.rect.x,
             translation_y: layout.rect.y,
@@ -130,7 +132,9 @@ fn build_display_node(
         children,
         draw_slot,
         hidden_subtree,
-    })
+    };
+    node.recorded_subtree_fingerprint = display_recorded_subtree_fingerprint(&node);
+    Ok(node)
 }
 
 fn display_item_for_node(

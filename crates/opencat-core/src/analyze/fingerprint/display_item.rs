@@ -1,8 +1,9 @@
 use std::hash::{Hash, Hasher};
 
 use crate::{
-    display::list::{DisplayClip, DisplayItem, TextDisplayItem},
-    display::tree::{DisplayNode, HiddenChildDisplayNode},
+    analyze::fingerprint::hash_hidden_child_display_node,
+    display::list::{DisplayItem, TextDisplayItem},
+    display::tree::HiddenChildDisplayNode,
     style::ComputedTextStyle,
 };
 
@@ -97,34 +98,7 @@ struct HiddenChildFp<'a>(&'a HiddenChildDisplayNode);
 
 impl Hash for HiddenChildFp<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.owner_id.hash(state);
-        DisplayNodeFp(&self.0.node).hash(state);
-    }
-}
-
-struct DisplayNodeFp<'a>(&'a DisplayNode);
-
-impl Hash for DisplayNodeFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let node = self.0;
-        node.element_id.hash(state);
-        node.layout_output_fingerprint.record_size.hash(state);
-        F32Hash(node.transform.translation_x).hash(state);
-        F32Hash(node.transform.translation_y).hash(state);
-        node.transform.transforms.hash(state);
-        F32Hash(node.opacity).hash(state);
-        node.backdrop_blur_sigma.map(F32Hash).hash(state);
-        ClipFp(node.clip.as_ref()).hash(state);
-        DisplayItemFp(&node.item).hash(state);
-        node.draw_slot.is_some().hash(state);
-        if let Some(slot) = &node.draw_slot {
-            let item = DisplayItem::DrawScript(slot.clone());
-            DisplayItemFp(&item).hash(state);
-        }
-        node.children.len().hash(state);
-        for child in &node.children {
-            DisplayNodeFp(child).hash(state);
-        }
+        hash_hidden_child_display_node(self.0, state);
     }
 }
 
@@ -151,19 +125,6 @@ fn hash_transition_kind<H: Hasher>(kind: &crate::parse::transition::TransitionKi
         }
         crate::parse::transition::TransitionKind::ClockWipe => 5_u8.hash(state),
         crate::parse::transition::TransitionKind::Iris => 6_u8.hash(state),
-    }
-}
-
-pub(super) struct ClipFp<'a>(pub(super) Option<&'a DisplayClip>);
-
-impl Hash for ClipFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.is_some().hash(state);
-        if let Some(clip) = self.0 {
-            F32Hash(clip.bounds.width).hash(state);
-            F32Hash(clip.bounds.height).hash(state);
-            clip.border_radius.hash(state);
-        }
     }
 }
 

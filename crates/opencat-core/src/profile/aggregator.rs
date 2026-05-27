@@ -298,6 +298,12 @@ impl RenderProfileAggregator {
             ("layout", "structure_rebuild", "count") => {
                 frame.structure_rebuilds += event.amount;
             }
+            ("analyze", "analyze_merkle_skipped_subtrees", "count") => {
+                frame.analyze_merkle_skipped_subtrees += event.amount;
+            }
+            ("analyze", "analyze_merkle_skipped_nodes", "count") => {
+                frame.analyze_merkle_skipped_nodes += event.amount;
+            }
             ("consecutive", "subtree_snapshot", "count") => {
                 frame.backend.subtree_snapshot_consecutive_hits_total += event.amount;
             }
@@ -346,5 +352,21 @@ mod tests {
 
         let summary = aggregator.finish();
         assert_eq!(summary.frames[&7].layout_merkle_skipped_nodes, 12);
+    }
+
+    #[test]
+    fn count_events_record_analyze_merkle_skipped_nodes() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 7,
+            kind: "analyze",
+            name: "analyze_merkle_skipped_nodes",
+            result: "count",
+            amount: 12,
+        });
+
+        let summary = aggregator.finish();
+        assert_eq!(summary.frames[&7].analyze_merkle_skipped_nodes, 12);
     }
 }

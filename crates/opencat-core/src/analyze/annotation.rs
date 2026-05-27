@@ -7,6 +7,7 @@ use crate::{
         list::{DisplayClip, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem},
         tree::{DisplayNode, DisplayTree, HiddenChildDisplayNode},
     },
+    layout::tree::LayoutOutputFingerprint,
     semantic::fingerprint::ElementInputFingerprints,
 };
 
@@ -29,6 +30,7 @@ pub struct AnnotatedDisplayTree {
 #[derive(Clone, Debug)]
 pub struct AnnotatedDisplayNode {
     pub input_fingerprints: ElementInputFingerprints,
+    pub layout_output_fingerprint: LayoutOutputFingerprint,
     pub transform: DisplayTransform,
     pub opacity: f32,
     pub backdrop_blur_sigma: Option<f32>,
@@ -41,7 +43,7 @@ pub struct AnnotatedDisplayNode {
 
 #[derive(Clone, Copy, Debug)]
 pub struct RecordedNodeSemantics<'a> {
-    pub bounds: DisplayRect,
+    pub layout_output_fingerprint: LayoutOutputFingerprint,
     pub item: &'a DisplayItem,
     pub clip: Option<&'a DisplayClip>,
 }
@@ -82,7 +84,7 @@ impl AnnotatedDisplayTree {
 impl AnnotatedDisplayNode {
     pub fn recorded_semantics(&self) -> RecordedNodeSemantics<'_> {
         RecordedNodeSemantics {
-            bounds: self.transform.bounds,
+            layout_output_fingerprint: self.layout_output_fingerprint,
             item: &self.item,
             clip: self.clip.as_ref(),
         }
@@ -151,6 +153,7 @@ fn annotate_display_node(
     let handle = AnnotatedNodeHandle(nodes.len());
     let annotated = AnnotatedDisplayNode {
         input_fingerprints: node.input_fingerprints,
+        layout_output_fingerprint: node.layout_output_fingerprint,
         transform: node.transform.clone(),
         opacity: node.opacity,
         backdrop_blur_sigma: node.backdrop_blur_sigma,

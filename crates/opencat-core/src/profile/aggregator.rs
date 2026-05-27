@@ -274,8 +274,17 @@ impl RenderProfileAggregator {
             ("layout", "reused_nodes", "count") => {
                 frame.reused_nodes += event.amount;
             }
-            ("layout", "merkle_skipped_subtrees", "count") => {
-                frame.merkle_skipped_subtrees += event.amount;
+            ("layout", "input_merkle_full_hit_subtrees", "count") => {
+                frame.input_merkle_full_hit_subtrees += event.amount;
+            }
+            ("layout", "input_merkle_full_hit_nodes", "count") => {
+                frame.input_merkle_full_hit_nodes += event.amount;
+            }
+            ("layout", "layout_merkle_skipped_subtrees", "count") => {
+                frame.layout_merkle_skipped_subtrees += event.amount;
+            }
+            ("layout", "layout_merkle_skipped_nodes", "count") => {
+                frame.layout_merkle_skipped_nodes += event.amount;
             }
             ("layout", "layout_dirty", "count") => {
                 frame.layout_dirty_nodes += event.amount;
@@ -308,18 +317,34 @@ mod tests {
     use super::{ProfileCountEvent, RenderProfileAggregator};
 
     #[test]
-    fn count_events_record_merkle_skipped_subtrees() {
+    fn count_events_record_input_merkle_full_hit_subtrees() {
         let mut aggregator = RenderProfileAggregator::default();
 
         aggregator.record_count(ProfileCountEvent {
             frame: 7,
             kind: "layout",
-            name: "merkle_skipped_subtrees",
+            name: "input_merkle_full_hit_subtrees",
             result: "count",
             amount: 3,
         });
 
         let summary = aggregator.finish();
-        assert_eq!(summary.frames[&7].merkle_skipped_subtrees, 3);
+        assert_eq!(summary.frames[&7].input_merkle_full_hit_subtrees, 3);
+    }
+
+    #[test]
+    fn count_events_record_layout_merkle_skipped_nodes() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 7,
+            kind: "layout",
+            name: "layout_merkle_skipped_nodes",
+            result: "count",
+            amount: 12,
+        });
+
+        let summary = aggregator.finish();
+        assert_eq!(summary.frames[&7].layout_merkle_skipped_nodes, 12);
     }
 }

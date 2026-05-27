@@ -19,7 +19,7 @@ use taffy::{
 
 use crate::{
     FrameCtx,
-    layout::tree::{LayoutNode, LayoutRect, LayoutTree},
+    layout::tree::{LayoutNode, LayoutOutputFingerprint, LayoutRect, LayoutTree},
     parse::primitives::{AlignItems, JustifyContent, Position},
     resolve::tree::{ElementKind, ElementNode},
     style::{ComputedTextStyle, LengthPercentageAuto},
@@ -36,7 +36,10 @@ struct TextMeasureContext {
 pub struct LayoutPassStats {
     pub structure_rebuild: bool,
     pub reused_nodes: usize,
-    pub merkle_skipped_subtrees: usize,
+    pub input_merkle_full_hit_subtrees: usize,
+    pub input_merkle_full_hit_nodes: usize,
+    pub layout_merkle_skipped_subtrees: usize,
+    pub layout_merkle_skipped_nodes: usize,
     pub layout_dirty_nodes: usize,
     pub raster_dirty_nodes: usize,
     pub composite_dirty_nodes: usize,
@@ -122,7 +125,7 @@ impl LayoutSession {
             .is_some_and(|cached| same_structure(cached, root, 0))
         {
             let cached = self.root.as_mut().expect("root checked above");
-            update_cached_subtree(root, cached, 0, &mut self.taffy, &mut stats)?;
+            update_cached_subtree(root, cached, 0, &mut self.taffy, &mut stats, false)?;
             cached.taffy_node
         } else {
             self.rebuild(root, &mut stats)?
@@ -308,6 +311,7 @@ fn update_cached_subtree(
     sibling_index: usize,
     taffy: &mut TaffyTree<TextMeasureContext>,
     stats: &mut LayoutPassStats,
+    layout_skip_already_counted: bool,
 ) -> Result<()> {
     if cached.structure_subtree_hash == element.fingerprints.structure_subtree
         && cached.layout_input_subtree_hash == element.fingerprints.layout_input_subtree
@@ -315,8 +319,21 @@ fn update_cached_subtree(
         && cached.composite_input_subtree_hash == element.fingerprints.composite_input_subtree
     {
         stats.reused_nodes += cached.node_count;
-        stats.merkle_skipped_subtrees += 1;
+        stats.input_merkle_full_hit_subtrees += 1;
+        stats.input_merkle_full_hit_nodes += cached.node_count;
+        if !layout_skip_already_counted {
+            stats.layout_merkle_skipped_subtrees += 1;
+            stats.layout_merkle_skipped_nodes += cached.node_count;
+        }
         return Ok(());
+    }
+
+    let layout_subtree_skipped = cached.layout_input_subtree_hash
+        == element.fingerprints.layout_input_subtree
+        && !layout_skip_already_counted;
+    if layout_subtree_skipped {
+        stats.layout_merkle_skipped_subtrees += 1;
+        stats.layout_merkle_skipped_nodes += cached.node_count;
     }
 
     cached.identity = node_identity(element, sibling_index);
@@ -353,7 +370,14 @@ fn update_cached_subtree(
         .into_iter()
         .zip(cached.children.iter_mut())
     {
-        update_cached_subtree(child, cached_child, index, taffy, stats)?;
+        update_cached_subtree(
+            child,
+            cached_child,
+            index,
+            taffy,
+            stats,
+            layout_skip_already_counted || layout_subtree_skipped,
+        )?;
     }
 
     cached.structure_subtree_hash = element.fingerprints.structure_subtree;
@@ -669,16 +693,56 @@ fn build_layout_tree(
         )?);
     }
 
+    let rect = LayoutRect {
+        x: layout.location.x,
+        y: layout.location.y,
+        width: layout.size.width,
+        height: layout.size.height,
+    };
+    let output_fingerprint = layout_output_fingerprint(rect, &children);
+
     Ok(LayoutNode {
         id: element.style.id.clone(),
-        rect: LayoutRect {
-            x: layout.location.x,
-            y: layout.location.y,
-            width: layout.size.width,
-            height: layout.size.height,
-        },
+        rect,
+        output_fingerprint,
         children,
     })
+}
+
+fn layout_output_fingerprint(rect: LayoutRect, children: &[LayoutNode]) -> LayoutOutputFingerprint {
+    let mut record_size_hasher = DefaultHasher::new();
+    F32Bits(rect.width).hash(&mut record_size_hasher);
+    F32Bits(rect.height).hash(&mut record_size_hasher);
+    let record_size = record_size_hasher.finish();
+
+    let mut local_hasher = DefaultHasher::new();
+    F32Bits(rect.x).hash(&mut local_hasher);
+    F32Bits(rect.y).hash(&mut local_hasher);
+    F32Bits(rect.width).hash(&mut local_hasher);
+    F32Bits(rect.height).hash(&mut local_hasher);
+    let local = local_hasher.finish();
+
+    let mut subtree_hasher = DefaultHasher::new();
+    local.hash(&mut subtree_hasher);
+    children.len().hash(&mut subtree_hasher);
+    for child in children {
+        child.output_fingerprint.subtree.hash(&mut subtree_hasher);
+    }
+
+    LayoutOutputFingerprint {
+        local,
+        subtree: subtree_hasher.finish(),
+        record_size,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct F32Bits(f32);
+
+impl Hash for F32Bits {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
 }
 
 fn base_style(element: &ElementNode) -> Style {
@@ -847,10 +911,11 @@ fn map_align_content(value: JustifyContent) -> TaffyAlignContent {
 mod tests {
     use super::{
         LayoutSession, TextMeasureContext, compute_layout_with_font_db_fn, default_font_db,
-        measure_node,
+        layout_output_fingerprint, measure_node,
     };
     use crate::{
         FrameCtx,
+        layout::tree::LayoutRect,
         parse::jsonl::tailwind::parse_class_name,
         parse::primitives::{canvas, div, lucide, path, text},
         resolve::resolve::resolve_ui_tree,
@@ -921,6 +986,47 @@ mod tests {
         assert!(
             measured.width > 80.0,
             "expected auto-width text to ignore narrow available width and remain single-line"
+        );
+    }
+
+    #[test]
+    fn layout_output_fingerprint_separates_record_size_from_position() {
+        let a = layout_output_fingerprint(
+            LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 50.0,
+            },
+            &[],
+        );
+        let moved = layout_output_fingerprint(
+            LayoutRect {
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 50.0,
+            },
+            &[],
+        );
+        let resized = layout_output_fingerprint(
+            LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: 120.0,
+                height: 50.0,
+            },
+            &[],
+        );
+
+        assert_ne!(a.local, moved.local, "position is part of layout output");
+        assert_eq!(
+            a.record_size, moved.record_size,
+            "recorded paint size must be invariant under position changes"
+        );
+        assert_ne!(
+            a.record_size, resized.record_size,
+            "recorded paint size must change when layout size changes"
         );
     }
 
@@ -1466,9 +1572,15 @@ mod tests {
             second_stats.reused_nodes, second_resolved.fingerprints.node_count,
             "a Merkle hit should account for the whole reused subtree"
         );
+        assert_eq!(second_stats.input_merkle_full_hit_subtrees, 1);
         assert_eq!(
-            second_stats.merkle_skipped_subtrees, 1,
-            "the identical root subtree should be skipped before descending"
+            second_stats.input_merkle_full_hit_nodes,
+            second_resolved.fingerprints.node_count
+        );
+        assert_eq!(second_stats.layout_merkle_skipped_subtrees, 1);
+        assert_eq!(
+            second_stats.layout_merkle_skipped_nodes,
+            second_resolved.fingerprints.node_count
         );
     }
 
@@ -1570,6 +1682,80 @@ mod tests {
             second_stats.layout_dirty_nodes >= 1,
             "truncate changes text measurement semantics and must dirty layout, got {:?}",
             second_stats
+        );
+    }
+
+    #[test]
+    fn layout_session_separates_layout_merkle_skip_from_full_input_hit() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        };
+        let mut assets = TestCatalog::new();
+        let mut session = LayoutSession::new();
+
+        let first = classed_div(
+            "root",
+            "w-full h-full",
+            vec![
+                classed_div(
+                    "panel",
+                    "w-[120px] h-[80px] bg-red-500",
+                    vec![classed_text("label", "text-[16px]", "A").into()],
+                )
+                .into(),
+            ],
+        )
+        .into();
+        let second = classed_div(
+            "root",
+            "w-full h-full",
+            vec![
+                classed_div(
+                    "panel",
+                    "w-[120px] h-[80px] bg-blue-500",
+                    vec![classed_text("label", "text-[16px]", "A").into()],
+                )
+                .into(),
+            ],
+        )
+        .into();
+
+        let first_resolved = resolve_ui_tree(
+            &first,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("first tree should resolve");
+        let second_resolved = resolve_ui_tree(
+            &second,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("second tree should resolve");
+
+        session
+            .compute_layout(&first_resolved, &frame_ctx)
+            .expect("first layout should succeed");
+        let (_, second_stats) = session
+            .compute_layout(&second_resolved, &frame_ctx)
+            .expect("second layout should succeed");
+
+        assert_eq!(second_stats.layout_dirty_nodes, 0);
+        assert_eq!(second_stats.raster_dirty_nodes, 1);
+        assert_eq!(second_stats.input_merkle_full_hit_subtrees, 1);
+        assert_eq!(second_stats.input_merkle_full_hit_nodes, 1);
+        assert_eq!(second_stats.layout_merkle_skipped_subtrees, 1);
+        assert_eq!(
+            second_stats.layout_merkle_skipped_nodes, second_resolved.fingerprints.node_count,
+            "paint-only changes keep the whole layout subtree clean"
         );
     }
 

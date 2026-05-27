@@ -22,6 +22,7 @@ use crate::{
         annotation::{AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics},
     },
     display::list::DisplayItem,
+    layout::tree::LayoutOutputFingerprint,
 };
 
 use display_item::{ClipFp, DisplayItemFp, F32Hash};
@@ -73,8 +74,12 @@ impl CompositeSig {
 /// 语义:
 /// - 稳定内容的 paint epoch 固定为 0。
 /// - 跟随时间变化的内容把当前帧身份写入 DisplayItem,直接进入 hash。
-pub fn item_paint_fingerprint(item: &DisplayItem) -> Option<u64> {
+pub fn item_paint_fingerprint(
+    item: &DisplayItem,
+    layout_output_fingerprint: LayoutOutputFingerprint,
+) -> Option<u64> {
     let mut hasher = new_hasher();
+    layout_output_fingerprint.record_size.hash(&mut hasher);
     DisplayItemFp(item).hash(&mut hasher);
     Some(hasher.finish())
 }
@@ -172,8 +177,7 @@ fn hash_node_draw_time_composite<H: Hasher>(node: &AnnotatedDisplayNode, hasher:
 }
 
 fn hash_recorded_semantics<H: Hasher>(semantics: &RecordedNodeSemantics<'_>, hasher: &mut H) {
-    F32Hash(semantics.bounds.width).hash(hasher);
-    F32Hash(semantics.bounds.height).hash(hasher);
+    semantics.layout_output_fingerprint.record_size.hash(hasher);
     DisplayItemFp(semantics.item).hash(hasher);
     ClipFp(semantics.clip).hash(hasher);
 }
@@ -208,6 +212,7 @@ mod tests {
             tree::{DisplayNode, HiddenChildDisplayNode},
         },
         ir::asset_id::AssetId,
+        layout::tree::LayoutOutputFingerprint,
         resolve::tree::ElementId,
         style::{BorderRadius, ObjectFit, Transform},
     };
@@ -221,6 +226,7 @@ mod tests {
         composite_dirty: bool,
         children: Vec<TestAnnotatedNode>,
         background: Option<crate::style::BackgroundFill>,
+        layout_output_fingerprint: LayoutOutputFingerprint,
     }
 
     impl Default for AnnotatedRectConfig {
@@ -234,6 +240,7 @@ mod tests {
                 composite_dirty: false,
                 children: Vec::new(),
                 background: None,
+                layout_output_fingerprint: LayoutOutputFingerprint::default(),
             }
         }
     }
@@ -248,6 +255,7 @@ mod tests {
         item: DisplayItem,
         children: Vec<TestAnnotatedNode>,
         composite_dirty: bool,
+        layout_output_fingerprint: LayoutOutputFingerprint,
     }
 
     fn empty_bounds() -> DisplayRect {
@@ -296,6 +304,7 @@ mod tests {
             }),
             children: config.children,
             composite_dirty: config.composite_dirty,
+            layout_output_fingerprint: config.layout_output_fingerprint,
         }
     }
 
@@ -303,6 +312,7 @@ mod tests {
         fn into_annotated_node(self) -> AnnotatedDisplayNode {
             AnnotatedDisplayNode {
                 input_fingerprints: Default::default(),
+                layout_output_fingerprint: self.layout_output_fingerprint,
                 transform: self.transform,
                 opacity: self.opacity,
                 backdrop_blur_sigma: self.backdrop_blur_sigma,
@@ -358,6 +368,7 @@ mod tests {
         let handle = AnnotatedNodeHandle(nodes.len());
         let annotated = AnnotatedDisplayNode {
             input_fingerprints: Default::default(),
+            layout_output_fingerprint: node.layout_output_fingerprint,
             transform: node.transform,
             opacity: node.opacity,
             backdrop_blur_sigma: node.backdrop_blur_sigma,
@@ -412,6 +423,46 @@ mod tests {
         let fp_b = b.analysis(b.root).paint_fingerprint;
         assert_eq!(fp_a, fp_b, "translation must not affect paint fingerprint");
         assert!(fp_a.is_some());
+    }
+
+    #[test]
+    fn paint_fingerprint_tracks_layout_record_size_not_transform_position() {
+        let size_a = LayoutOutputFingerprint {
+            record_size: 11,
+            ..LayoutOutputFingerprint::default()
+        };
+        let size_b = LayoutOutputFingerprint {
+            record_size: 22,
+            ..LayoutOutputFingerprint::default()
+        };
+        let a = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
+            layout_output_fingerprint: size_a,
+            transform: rect_transform(10.0, 20.0),
+            ..Default::default()
+        }));
+        let moved_same_size = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
+            layout_output_fingerprint: size_a,
+            transform: rect_transform(50.0, 80.0),
+            ..Default::default()
+        }));
+        let resized = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
+            layout_output_fingerprint: size_b,
+            transform: rect_transform(10.0, 20.0),
+            ..Default::default()
+        }));
+
+        assert_eq!(
+            a.analysis(a.root).paint_fingerprint,
+            moved_same_size
+                .analysis(moved_same_size.root)
+                .paint_fingerprint,
+            "recorded paint fingerprint must ignore position changes"
+        );
+        assert_ne!(
+            a.analysis(a.root).paint_fingerprint,
+            resized.analysis(resized.root).paint_fingerprint,
+            "recorded paint fingerprint must change when layout record size changes"
+        );
     }
 
     #[test]
@@ -761,9 +812,91 @@ mod tests {
             },
         });
         assert_ne!(
-            item_paint_fingerprint(&item_a),
-            item_paint_fingerprint(&item_b),
+            item_paint_fingerprint(&item_a, LayoutOutputFingerprint::default()),
+            item_paint_fingerprint(&item_b, LayoutOutputFingerprint::default()),
             "video bitmap fingerprint must change with current frame epoch"
+        );
+    }
+
+    #[test]
+    fn item_paint_fingerprint_uses_layout_record_size_not_item_bounds() {
+        let asset_id = AssetId("/tmp/image.png".into());
+        let same_record_size = LayoutOutputFingerprint {
+            record_size: 11,
+            ..LayoutOutputFingerprint::default()
+        };
+        let other_record_size = LayoutOutputFingerprint {
+            record_size: 22,
+            ..LayoutOutputFingerprint::default()
+        };
+        let item_a = DisplayItem::Bitmap(BitmapDisplayItem {
+            bounds: DisplayRect {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 50.0,
+            },
+            asset_id: asset_id.clone(),
+            width: 100,
+            height: 50,
+            video_timing: None,
+            paint_epoch: 0,
+            object_fit: ObjectFit::Fill,
+            paint: BitmapPaintStyle {
+                background: None,
+                border_radius: BorderRadius::default(),
+                border_width: None,
+                border_top_width: None,
+                border_right_width: None,
+                border_bottom_width: None,
+                border_left_width: None,
+                border_color: None,
+                border_style: None,
+                blur_sigma: None,
+                box_shadow: None,
+                inset_shadow: None,
+                drop_shadow: None,
+            },
+        });
+        let item_b = DisplayItem::Bitmap(BitmapDisplayItem {
+            bounds: DisplayRect {
+                x: 0.0,
+                y: 0.0,
+                width: 160.0,
+                height: 90.0,
+            },
+            asset_id,
+            width: 100,
+            height: 50,
+            video_timing: None,
+            paint_epoch: 0,
+            object_fit: ObjectFit::Fill,
+            paint: BitmapPaintStyle {
+                background: None,
+                border_radius: BorderRadius::default(),
+                border_width: None,
+                border_top_width: None,
+                border_right_width: None,
+                border_bottom_width: None,
+                border_left_width: None,
+                border_color: None,
+                border_style: None,
+                blur_sigma: None,
+                box_shadow: None,
+                inset_shadow: None,
+                drop_shadow: None,
+            },
+        });
+
+        assert_eq!(
+            item_paint_fingerprint(&item_a, same_record_size),
+            item_paint_fingerprint(&item_b, same_record_size),
+            "item bounds must not be an independent size semantic"
+        );
+        assert_ne!(
+            item_paint_fingerprint(&item_a, same_record_size),
+            item_paint_fingerprint(&item_a, other_record_size),
+            "layout record size must drive item picture cache sizing semantics"
         );
     }
 
@@ -777,7 +910,7 @@ mod tests {
         });
 
         assert!(
-            item_paint_fingerprint(&script_item).is_some(),
+            item_paint_fingerprint(&script_item, LayoutOutputFingerprint::default()).is_some(),
             "DrawScript 必须有 paint fingerprint 作为 ItemPictureCache 的 key"
         );
     }
@@ -794,6 +927,7 @@ mod tests {
                     node: DisplayNode {
                         element_id: ElementId(7),
                         input_fingerprints: Default::default(),
+                        layout_output_fingerprint: Default::default(),
                         transform: rect_transform(0.0, 0.0),
                         opacity: 1.0,
                         backdrop_blur_sigma: None,
@@ -829,8 +963,8 @@ mod tests {
         let blue = script_item_with_hidden_rect(crate::style::ColorToken::Blue);
 
         assert_ne!(
-            item_paint_fingerprint(&red),
-            item_paint_fingerprint(&blue),
+            item_paint_fingerprint(&red, LayoutOutputFingerprint::default()),
+            item_paint_fingerprint(&blue, LayoutOutputFingerprint::default()),
             "DrawScript fingerprint must change when getSubTree()/drawPicture content changes"
         );
     }
@@ -879,7 +1013,7 @@ mod tests {
         });
 
         assert!(
-            item_paint_fingerprint(&item).is_some(),
+            item_paint_fingerprint(&item, LayoutOutputFingerprint::default()).is_some(),
             "视频 bitmap 应用当前帧 epoch 参与 fingerprint"
         );
     }

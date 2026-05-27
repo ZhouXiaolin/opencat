@@ -418,17 +418,14 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
         let mut commands = Vec::new();
         apply_canvas_mutation_stack(&mut commands, cx.mutation_stack, &style.id);
 
-        let hidden_inherited_style = InheritedStyle::for_child(&computed);
-        let hidden_children = resolve_hidden_children(canvas, cx, &hidden_inherited_style)?;
+        let child_inherited_style = InheritedStyle::for_child(&computed);
+        let children = resolve_hidden_children(canvas, cx, &child_inherited_style)?;
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
-            kind: ElementKind::Canvas(ElementCanvas {
-                commands,
-                hidden_children,
-            }),
+            kind: ElementKind::Canvas(ElementCanvas { commands }),
             style: computed.clone(),
-            children: Vec::new(),
+            children,
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
         })
     })();

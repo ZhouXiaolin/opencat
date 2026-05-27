@@ -291,21 +291,6 @@ fn ordered_children(element: &ElementNode) -> Vec<(usize, &ElementNode)> {
     children
 }
 
-fn ordered_hidden_children(element: &ElementNode) -> Vec<(usize, &ElementNode)> {
-    let ElementKind::Canvas(canvas) = &element.kind else {
-        return Vec::new();
-    };
-    let mut children = canvas
-        .hidden_children
-        .iter()
-        .enumerate()
-        .collect::<Vec<_>>();
-    if element.style.layout.is_flex || element.style.layout.is_grid {
-        children.sort_by_key(|(index, child)| (child.style.layout.order, *index));
-    }
-    children
-}
-
 fn update_cached_subtree(
     element: &ElementNode,
     cached: &mut CachedLayoutNode,
@@ -379,11 +364,7 @@ fn same_structure(cached: &CachedLayoutNode, element: &ElementNode, sibling_inde
 }
 
 fn count_nodes(element: &ElementNode) -> usize {
-    let hidden_nodes = match &element.kind {
-        ElementKind::Canvas(canvas) => canvas.hidden_children.iter().map(count_nodes).sum(),
-        _ => 0,
-    };
-    1 + element.children.iter().map(count_nodes).sum::<usize>() + hidden_nodes
+    1 + element.children.iter().map(count_nodes).sum::<usize>()
 }
 
 fn cached_node_kind(element: &ElementNode) -> CachedNodeKind {
@@ -479,13 +460,6 @@ impl Hash for LayoutFingerprint<'_> {
                     .hash(state);
             }
         }
-
-        if let ElementKind::Canvas(canvas) = &self.0.kind {
-            canvas.hidden_children.len().hash(state);
-            for child in &canvas.hidden_children {
-                LayoutFingerprint(child).hash(state);
-            }
-        }
     }
 }
 
@@ -509,10 +483,6 @@ impl Hash for RasterFingerprint<'_> {
             }
             ElementKind::Canvas(canvas) => {
                 canvas.commands.hash(state);
-                canvas.hidden_children.len().hash(state);
-                for child in &canvas.hidden_children {
-                    RasterFingerprint(child).hash(state);
-                }
             }
             ElementKind::SvgPath(svg) => {
                 for data in &svg.path_data {
@@ -677,7 +647,7 @@ fn text_measure_context_for_element(element: &ElementNode) -> Option<TextMeasure
 fn taffy_style_for_element(element: &ElementNode) -> Style {
     let layout = &element.style.layout;
     match &element.kind {
-        ElementKind::Div(_) | ElementKind::Timeline(_) => Style {
+        ElementKind::Div(_) | ElementKind::Timeline(_) | ElementKind::Canvas(_) => Style {
             display: if layout.is_grid {
                 taffy::prelude::Display::Grid
             } else if layout.is_flex {
@@ -837,48 +807,6 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             },
             ..base_style(element)
         },
-        ElementKind::Canvas(_) => Style {
-            display: taffy::prelude::Display::Block,
-            size: match layout.position {
-                Position::Absolute => taffy::geometry::Size {
-                    width: resolve_dimension(
-                        layout.width,
-                        layout.width_percent,
-                        layout.width_full,
-                        Dimension::auto(),
-                    ),
-                    height: resolve_dimension(
-                        layout.height,
-                        None,
-                        layout.height_full,
-                        Dimension::auto(),
-                    ),
-                },
-                Position::Relative => taffy::geometry::Size {
-                    width: resolve_dimension(
-                        layout.width,
-                        layout.width_percent,
-                        layout.width_full,
-                        if layout.auto_size {
-                            Dimension::auto()
-                        } else {
-                            Dimension::percent(1.0)
-                        },
-                    ),
-                    height: resolve_dimension(
-                        layout.height,
-                        None,
-                        layout.height_full,
-                        if layout.auto_size {
-                            Dimension::auto()
-                        } else {
-                            Dimension::percent(1.0)
-                        },
-                    ),
-                },
-            },
-            ..base_style(element)
-        },
         ElementKind::SvgPath(svg) => {
             let default_size = svg
                 .intrinsic_size
@@ -957,9 +885,6 @@ fn build_layout_tree(
         )?);
     }
 
-    let hidden_children =
-        build_hidden_layout_nodes(element, layout.size.width, layout.size.height, font_db)?;
-
     Ok(LayoutNode {
         id: element.style.id.clone(),
         rect: LayoutRect {
@@ -969,54 +894,7 @@ fn build_layout_tree(
             height: layout.size.height,
         },
         children,
-        hidden_children,
     })
-}
-
-fn build_hidden_layout_nodes(
-    element: &ElementNode,
-    width: f32,
-    height: f32,
-    font_db: &fontdb::Database,
-) -> Result<Vec<LayoutNode>> {
-    let ElementKind::Canvas(canvas) = &element.kind else {
-        return Ok(Vec::new());
-    };
-    if canvas.hidden_children.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut taffy = TaffyTree::new();
-    let ordered = ordered_hidden_children(element);
-    let mut child_ids = Vec::with_capacity(ordered.len());
-    for (index, child) in ordered.iter().copied() {
-        let (child_id, _) = build_taffy_subtree(&mut taffy, child, index)?;
-        child_ids.push(child_id);
-    }
-
-    let mut root_style = taffy_style_for_element(element);
-    root_style.size = taffy::geometry::Size {
-        width: Dimension::length(width),
-        height: Dimension::length(height),
-    };
-    let root_id = taffy.new_with_children(root_style, &child_ids)?;
-    taffy.compute_layout_with_measure(
-        root_id,
-        taffy::geometry::Size {
-            width: AvailableSpace::Definite(width),
-            height: AvailableSpace::Definite(height),
-        },
-        |known_dimensions, available_space, _node_id, node_context, _style| {
-            measure_node(known_dimensions, available_space, node_context, font_db)
-        },
-    )?;
-
-    let mut hidden_children = Vec::with_capacity(ordered.len());
-    let taffy_children = taffy.children(root_id)?;
-    for ((_, child), child_id) in ordered.into_iter().zip(taffy_children) {
-        hidden_children.push(build_layout_tree(child, &taffy, child_id, font_db)?);
-    }
-    Ok(hidden_children)
 }
 
 fn base_style(element: &ElementNode) -> Style {
@@ -1190,7 +1068,7 @@ mod tests {
     use crate::{
         FrameCtx,
         parse::jsonl::tailwind::parse_class_name,
-        parse::primitives::{div, lucide, path, text},
+        parse::primitives::{canvas, div, lucide, path, text},
         resolve::resolve::resolve_ui_tree,
         style::{ColorToken, ComputedTextStyle},
         test_support::MockScriptHost,
@@ -1218,6 +1096,20 @@ mod tests {
         let mut node = text(content);
         node.style = parse_class_name(class_name);
         node.style.id = id.to_string();
+        node
+    }
+
+    fn classed_canvas(
+        id: &'static str,
+        class_name: &'static str,
+        hidden_children: Vec<crate::Node>,
+    ) -> crate::parse::primitives::Canvas {
+        let mut node = canvas();
+        node.style = parse_class_name(class_name);
+        node.style.id = id.to_string();
+        for child in hidden_children {
+            node = node.hidden_child(child);
+        }
         node
     }
 
@@ -1539,6 +1431,88 @@ mod tests {
         assert!(
             text_node.rect.width > 0.0,
             "text node should have non-zero width even under indefinite parent"
+        );
+    }
+
+    #[test]
+    fn canvas_hidden_children_participate_in_layout_like_div_children() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 240,
+            frames: 1,
+        };
+        let mut assets = TestCatalog::new();
+        let div_root = classed_div(
+            "root",
+            "w-full h-full",
+            vec![
+                classed_div(
+                    "container",
+                    "w-[200px] p-[20px]",
+                    vec![classed_text("label", "text-[16px]", "Canvas layout parity").into()],
+                )
+                .into(),
+            ],
+        )
+        .into();
+        let canvas_root = classed_div(
+            "root",
+            "w-full h-full",
+            vec![
+                classed_canvas(
+                    "container",
+                    "w-[200px] p-[20px]",
+                    vec![classed_text("label", "text-[16px]", "Canvas layout parity").into()],
+                )
+                .into(),
+            ],
+        )
+        .into();
+
+        let div_resolved = resolve_ui_tree(
+            &div_root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("div tree should resolve");
+        let canvas_resolved = resolve_ui_tree(
+            &canvas_root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("canvas tree should resolve");
+
+        let div_layout =
+            compute_layout_with_font_db_fn(&div_resolved, &frame_ctx, &default_font_db())
+                .expect("div layout should succeed");
+        let canvas_layout =
+            compute_layout_with_font_db_fn(&canvas_resolved, &frame_ctx, &default_font_db())
+                .expect("canvas layout should succeed");
+
+        let div_container = &div_layout.root.children[0];
+        let div_label = &div_container.children[0];
+        let canvas_container = &canvas_layout.root.children[0];
+        let canvas_label = &canvas_container.children[0];
+
+        assert_eq!(canvas_container.children.len(), 1);
+        assert_eq!(canvas_label.id, "label");
+        assert!(
+            (canvas_label.rect.x - div_label.rect.x).abs() < 0.5,
+            "canvas child x {} should match div child x {}",
+            canvas_label.rect.x,
+            div_label.rect.x
+        );
+        assert!(
+            (canvas_label.rect.width - div_label.rect.width).abs() < 0.5,
+            "canvas child width {} should match div child width {}",
+            canvas_label.rect.width,
+            div_label.rect.width
         );
     }
 

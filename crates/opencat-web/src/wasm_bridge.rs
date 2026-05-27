@@ -15,9 +15,9 @@ use opencat_core::ir::draw_types::{
     ShaderType, TableRange,
 };
 use opencat_core::parse::composition::Composition;
+use opencat_core::pipeline::frame::render_frame;
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
-use opencat_core::pipeline::frame::render_frame;
 use opencat_core::runtime::session::RenderSession;
 
 use crate::media::WebAudio;

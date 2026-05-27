@@ -199,11 +199,15 @@ mod tests {
                 AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey,
             },
         },
-        display::list::{
-            BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
-            DisplayTransform, DrawScriptDisplayItem, RectDisplayItem, RectPaintStyle,
+        display::{
+            list::{
+                BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
+                DisplayTransform, DrawScriptDisplayItem, RectDisplayItem, RectPaintStyle,
+            },
+            tree::{DisplayNode, HiddenChildDisplayNode},
         },
         ir::asset_id::AssetId,
+        resolve::tree::ElementId,
         style::{BorderRadius, ObjectFit, Transform},
     };
 
@@ -772,6 +776,58 @@ mod tests {
         assert!(
             item_paint_fingerprint(&script_item).is_some(),
             "DrawScript 必须有 paint fingerprint 作为 ItemPictureCache 的 key"
+        );
+    }
+
+    #[test]
+    fn draw_script_paint_fingerprint_tracks_hidden_subtree_paint() {
+        fn script_item_with_hidden_rect(color: crate::style::ColorToken) -> DisplayItem {
+            DisplayItem::DrawScript(DrawScriptDisplayItem {
+                bounds: empty_bounds(),
+                commands: Vec::new(),
+                drop_shadow: None,
+                hidden_subtree: vec![HiddenChildDisplayNode {
+                    owner_id: "canvas".to_string(),
+                    node: DisplayNode {
+                        element_id: ElementId(7),
+                        transform: rect_transform(0.0, 0.0),
+                        opacity: 1.0,
+                        backdrop_blur_sigma: None,
+                        clip: None,
+                        item: DisplayItem::Rect(RectDisplayItem {
+                            bounds: empty_bounds(),
+                            paint: RectPaintStyle {
+                                background: Some(crate::style::BackgroundFill::Solid(color)),
+                                border_radius: BorderRadius::default(),
+                                border_width: None,
+                                border_top_width: None,
+                                border_right_width: None,
+                                border_bottom_width: None,
+                                border_left_width: None,
+                                border_color: None,
+                                border_style: None,
+                                blur_sigma: None,
+                                box_shadow: None,
+                                inset_shadow: None,
+                                drop_shadow: None,
+                                backdrop_blur_sigma: None,
+                            },
+                        }),
+                        children: Vec::new(),
+                        draw_slot: None,
+                        hidden_subtree: Vec::new(),
+                    },
+                }],
+            })
+        }
+
+        let red = script_item_with_hidden_rect(crate::style::ColorToken::Red);
+        let blue = script_item_with_hidden_rect(crate::style::ColorToken::Blue);
+
+        assert_ne!(
+            item_paint_fingerprint(&red),
+            item_paint_fingerprint(&blue),
+            "DrawScript fingerprint must change when getSubTree()/drawPicture content changes"
         );
     }
 

@@ -2240,7 +2240,7 @@ pub(crate) fn render_gl_transition(
 
     let cache_key = {
         use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = ahash::AHasher::default();
         effect.name.hash(&mut hasher);
         hasher.finish() | 0xBB00_0000_0000_0000
     };

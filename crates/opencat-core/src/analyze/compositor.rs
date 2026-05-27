@@ -136,6 +136,7 @@ mod ordered_scene_tests {
         AnnotatedDisplayNode {
             input_fingerprints: Default::default(),
             layout_output_fingerprint: Default::default(),
+            recorded_subtree_fingerprint: Default::default(),
             transform: DisplayTransform {
                 translation_x: 0.0,
                 translation_y: 0.0,
@@ -259,6 +260,7 @@ mod ordered_scene_tests {
                 AnnotatedDisplayNode {
                     input_fingerprints: Default::default(),
                     layout_output_fingerprint: Default::default(),
+                    recorded_subtree_fingerprint: Default::default(),
                     transform: DisplayTransform {
                         translation_x: 0.0,
                         translation_y: 0.0,
@@ -344,6 +346,7 @@ mod ordered_scene_tests {
                 AnnotatedDisplayNode {
                     input_fingerprints: Default::default(),
                     layout_output_fingerprint: Default::default(),
+                    recorded_subtree_fingerprint: Default::default(),
                     transform: DisplayTransform {
                         translation_x: 0.0,
                         translation_y: 0.0,
@@ -578,6 +581,7 @@ mod ordered_scene_tests {
                 AnnotatedDisplayNode {
                     input_fingerprints: Default::default(),
                     layout_output_fingerprint: Default::default(),
+                    recorded_subtree_fingerprint: Default::default(),
                     transform: DisplayTransform {
                         translation_x: 0.0,
                         translation_y: 0.0,
@@ -795,6 +799,7 @@ mod reuse_tests {
         AnnotatedDisplayNode {
             input_fingerprints: Default::default(),
             layout_output_fingerprint: Default::default(),
+            recorded_subtree_fingerprint: Default::default(),
             transform: DisplayTransform {
                 translation_x: 0.0,
                 translation_y: 0.0,

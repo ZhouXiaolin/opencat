@@ -123,6 +123,8 @@ pub struct FrameProfile {
     pub input_merkle_full_hit_nodes: usize,
     pub layout_merkle_skipped_subtrees: usize,
     pub layout_merkle_skipped_nodes: usize,
+    pub analyze_merkle_skipped_subtrees: usize,
+    pub analyze_merkle_skipped_nodes: usize,
     pub layout_dirty_nodes: usize,
     pub raster_dirty_nodes: usize,
     pub composite_dirty_nodes: usize,

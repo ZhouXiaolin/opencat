@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::analyze::annotation::AnnotatedNodeHandle;
+use crate::analyze::annotation::{AnalyzeFingerprintHistory, AnnotatedNodeHandle};
 use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::invalidation::CompositeHistory;
 use crate::ir::cache::RenderCache;
@@ -20,6 +20,9 @@ pub struct RenderSession {
 
     /// cross-frame composite dirty history
     pub composite_history: CompositeHistory,
+
+    /// cross-frame analyze fingerprint history
+    pub analyze_fingerprint_history: AnalyzeFingerprintHistory,
 
     /// fontdb (platform-agnostic, cosmic-text reuses)
     pub font_db: Arc<fontdb::Database>,
@@ -42,6 +45,7 @@ impl RenderSession {
         Self {
             layout_session: LayoutSession::new(),
             composite_history: CompositeHistory::default(),
+            analyze_fingerprint_history: AnalyzeFingerprintHistory::default(),
             font_db: Arc::new(default_font_db(&[])),
             catalog: HashMapResourceCatalog::from_json("{}").expect("empty catalog must parse"),
             prepared_root_ptr: None,

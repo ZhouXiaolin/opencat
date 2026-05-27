@@ -257,7 +257,7 @@ where
         let metadata = event.metadata();
         if !matches!(
             metadata.target(),
-            "render.cache" | "render.draw" | "render.layer" | "render.layout"
+            "render.analyze" | "render.cache" | "render.draw" | "render.layer" | "render.layout"
         ) {
             return;
         }

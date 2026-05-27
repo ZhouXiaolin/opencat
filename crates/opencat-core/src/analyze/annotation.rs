@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     analyze::{
         DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
@@ -5,7 +7,9 @@ use crate::{
     },
     display::{
         list::{DisplayClip, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem},
-        tree::{DisplayNode, DisplayTree, HiddenChildDisplayNode},
+        tree::{
+            DisplayNode, DisplayRecordedSubtreeFingerprint, DisplayTree, HiddenChildDisplayNode,
+        },
     },
     layout::tree::LayoutOutputFingerprint,
     semantic::fingerprint::ElementInputFingerprints,
@@ -31,6 +35,7 @@ pub struct AnnotatedDisplayTree {
 pub struct AnnotatedDisplayNode {
     pub input_fingerprints: ElementInputFingerprints,
     pub layout_output_fingerprint: LayoutOutputFingerprint,
+    pub recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint,
     pub transform: DisplayTransform,
     pub opacity: f32,
     pub backdrop_blur_sigma: Option<f32>,
@@ -39,6 +44,37 @@ pub struct AnnotatedDisplayNode {
     pub children: Vec<AnnotatedNodeHandle>,
     pub draw_slot: Option<DrawScriptDisplayItem>,
     pub hidden_subtree: Vec<HiddenChildDisplayNode>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AnalyzeFingerprintStats {
+    pub merkle_skipped_subtrees: usize,
+    pub merkle_skipped_nodes: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AnalyzeFingerprintHistoryEntry {
+    recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint,
+    has_dirty_descendant_composite: bool,
+    analysis: DisplayNodeAnalysis,
+}
+
+#[derive(Default)]
+pub struct AnalyzeFingerprintHistory {
+    entries: HashMap<RenderNodeKey, AnalyzeFingerprintHistoryEntry>,
+}
+
+impl AnalyzeFingerprintHistory {
+    fn previous(
+        &self,
+        structure_rebuild: bool,
+    ) -> HashMap<RenderNodeKey, AnalyzeFingerprintHistoryEntry> {
+        if structure_rebuild {
+            HashMap::new()
+        } else {
+            self.entries.clone()
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -154,6 +190,7 @@ fn annotate_display_node(
     let annotated = AnnotatedDisplayNode {
         input_fingerprints: node.input_fingerprints,
         layout_output_fingerprint: node.layout_output_fingerprint,
+        recorded_subtree_fingerprint: node.recorded_subtree_fingerprint,
         transform: node.transform.clone(),
         opacity: node.opacity,
         backdrop_blur_sigma: node.backdrop_blur_sigma,
@@ -196,25 +233,93 @@ fn annotate_display_node(
 /// annotation 阶段只建结构；fingerprint 计算需要读 invalidation 表（由 mark_dirty 写入），
 /// 因此必须排在 mark_dirty 之后才能拿到真实的 `composite_dirty` 值。
 pub fn compute_display_tree_fingerprints(tree: &mut AnnotatedDisplayTree) {
-    let node_count = tree.nodes.len();
-    for handle_idx in 0..node_count {
-        let handle = AnnotatedNodeHandle(handle_idx);
+    let mut history = AnalyzeFingerprintHistory::default();
+    compute_display_tree_fingerprints_with_history(tree, &mut history, false);
+}
 
-        let node = &tree.nodes[handle_idx];
-        let paint_fp = fingerprint::annotated_subtree_paint_fingerprint(node, &tree.analysis);
-        let snapshot_fp = fingerprint::annotated_subtree_snapshot_fingerprint(
-            node,
-            &tree.nodes,
-            &tree.analysis,
-            &tree.invalidation,
-        );
+pub fn compute_display_tree_fingerprints_with_history(
+    tree: &mut AnnotatedDisplayTree,
+    history: &mut AnalyzeFingerprintHistory,
+    structure_rebuild: bool,
+) -> AnalyzeFingerprintStats {
+    let previous = history.previous(structure_rebuild);
+    let mut next = HashMap::with_capacity(tree.nodes.len());
+    let mut stats = AnalyzeFingerprintStats::default();
+    compute_node_fingerprint(tree.root, tree, &previous, &mut next, &mut stats);
+    history.entries = next;
+    stats
+}
 
-        tree.analysis.insert(
-            handle,
-            DisplayNodeAnalysis {
-                paint_fingerprint: paint_fp,
-                snapshot_fingerprint: snapshot_fp,
-            },
-        );
+fn compute_node_fingerprint(
+    handle: AnnotatedNodeHandle,
+    tree: &mut AnnotatedDisplayTree,
+    previous: &HashMap<RenderNodeKey, AnalyzeFingerprintHistoryEntry>,
+    next: &mut HashMap<RenderNodeKey, AnalyzeFingerprintHistoryEntry>,
+    stats: &mut AnalyzeFingerprintStats,
+) -> usize {
+    let key = tree.key(handle);
+    let recorded_subtree_fingerprint = tree.node(handle).recorded_subtree_fingerprint;
+    let has_dirty_descendant_composite = {
+        let node = tree.node(handle);
+        fingerprint::subtree_has_dirty_descendant_composite(node, &tree.nodes, &tree.invalidation)
+    };
+
+    if let Some(entry) = previous.get(&key)
+        && entry.recorded_subtree_fingerprint == recorded_subtree_fingerprint
+        && entry.has_dirty_descendant_composite == has_dirty_descendant_composite
+    {
+        let skipped_nodes = copy_subtree_analysis_from_history(handle, tree, previous, next);
+        stats.merkle_skipped_subtrees += 1;
+        stats.merkle_skipped_nodes += skipped_nodes;
+        return skipped_nodes;
     }
+
+    let children = tree.node(handle).children.clone();
+    let mut node_count = 1;
+    for child in children {
+        node_count += compute_node_fingerprint(child, tree, previous, next, stats);
+    }
+
+    let node = tree.node(handle);
+    let paint_fp = fingerprint::annotated_subtree_paint_fingerprint(node, &tree.analysis);
+    let snapshot_fp = fingerprint::annotated_subtree_snapshot_fingerprint(
+        node,
+        &tree.nodes,
+        &tree.analysis,
+        &tree.invalidation,
+    );
+    let analysis = DisplayNodeAnalysis {
+        paint_fingerprint: paint_fp,
+        snapshot_fingerprint: snapshot_fp,
+    };
+
+    tree.analysis.insert(handle, analysis);
+    next.insert(
+        key,
+        AnalyzeFingerprintHistoryEntry {
+            recorded_subtree_fingerprint,
+            has_dirty_descendant_composite,
+            analysis,
+        },
+    );
+    node_count
+}
+
+fn copy_subtree_analysis_from_history(
+    handle: AnnotatedNodeHandle,
+    tree: &mut AnnotatedDisplayTree,
+    previous: &HashMap<RenderNodeKey, AnalyzeFingerprintHistoryEntry>,
+    next: &mut HashMap<RenderNodeKey, AnalyzeFingerprintHistoryEntry>,
+) -> usize {
+    let key = tree.key(handle);
+    if let Some(entry) = previous.get(&key) {
+        tree.analysis.insert(handle, entry.analysis);
+        next.insert(key, *entry);
+    }
+
+    let children = tree.node(handle).children.clone();
+    1 + children
+        .into_iter()
+        .map(|child| copy_subtree_analysis_from_history(child, tree, previous, next))
+        .sum::<usize>()
 }

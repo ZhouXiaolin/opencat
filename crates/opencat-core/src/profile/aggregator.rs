@@ -304,6 +304,24 @@ impl RenderProfileAggregator {
             ("analyze", "analyze_merkle_skipped_nodes", "count") => {
                 frame.analyze_merkle_skipped_nodes += event.amount;
             }
+            ("analyze", "analyze_recorded_hit_subtrees", "count") => {
+                frame.analyze_recorded_hit_subtrees += event.amount;
+            }
+            ("analyze", "analyze_recorded_hit_nodes", "count") => {
+                frame.analyze_recorded_hit_nodes += event.amount;
+            }
+            ("analyze", "analyze_snapshot_eligibility_hit_subtrees", "count") => {
+                frame.analyze_snapshot_eligibility_hit_subtrees += event.amount;
+            }
+            ("analyze", "analyze_snapshot_eligibility_hit_nodes", "count") => {
+                frame.analyze_snapshot_eligibility_hit_nodes += event.amount;
+            }
+            ("analyze", "analyze_composite_blocked_subtrees", "count") => {
+                frame.analyze_composite_blocked_subtrees += event.amount;
+            }
+            ("analyze", "analyze_composite_blocked_nodes", "count") => {
+                frame.analyze_composite_blocked_nodes += event.amount;
+            }
             ("consecutive", "subtree_snapshot", "count") => {
                 frame.backend.subtree_snapshot_consecutive_hits_total += event.amount;
             }
@@ -368,5 +386,21 @@ mod tests {
 
         let summary = aggregator.finish();
         assert_eq!(summary.frames[&7].analyze_merkle_skipped_nodes, 12);
+    }
+
+    #[test]
+    fn count_events_record_analyze_recorded_hit_nodes() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 7,
+            kind: "analyze",
+            name: "analyze_recorded_hit_nodes",
+            result: "count",
+            amount: 12,
+        });
+
+        let summary = aggregator.finish();
+        assert_eq!(summary.frames[&7].analyze_recorded_hit_nodes, 12);
     }
 }

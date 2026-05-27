@@ -50,6 +50,12 @@ pub struct AnnotatedDisplayNode {
 pub struct AnalyzeFingerprintStats {
     pub merkle_skipped_subtrees: usize,
     pub merkle_skipped_nodes: usize,
+    pub recorded_hit_subtrees: usize,
+    pub recorded_hit_nodes: usize,
+    pub snapshot_eligibility_hit_subtrees: usize,
+    pub snapshot_eligibility_hit_nodes: usize,
+    pub composite_blocked_subtrees: usize,
+    pub composite_blocked_nodes: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -266,12 +272,23 @@ fn compute_node_fingerprint(
 
     if let Some(entry) = previous.get(&key)
         && entry.recorded_subtree_fingerprint == recorded_subtree_fingerprint
-        && entry.has_dirty_descendant_composite == has_dirty_descendant_composite
     {
-        let skipped_nodes = copy_subtree_analysis_from_history(handle, tree, previous, next);
-        stats.merkle_skipped_subtrees += 1;
-        stats.merkle_skipped_nodes += skipped_nodes;
-        return skipped_nodes;
+        if entry.has_dirty_descendant_composite == has_dirty_descendant_composite {
+            let skipped_nodes = copy_subtree_analysis_from_history(handle, tree, previous, next);
+            stats.recorded_hit_subtrees += 1;
+            stats.recorded_hit_nodes += skipped_nodes;
+            stats.snapshot_eligibility_hit_subtrees += 1;
+            stats.snapshot_eligibility_hit_nodes += skipped_nodes;
+            stats.merkle_skipped_subtrees += 1;
+            stats.merkle_skipped_nodes += skipped_nodes;
+            return skipped_nodes;
+        }
+
+        let blocked_nodes = annotated_subtree_node_count(handle, tree);
+        stats.recorded_hit_subtrees += 1;
+        stats.recorded_hit_nodes += blocked_nodes;
+        stats.composite_blocked_subtrees += 1;
+        stats.composite_blocked_nodes += blocked_nodes;
     }
 
     let children = tree.node(handle).children.clone();
@@ -305,6 +322,16 @@ fn compute_node_fingerprint(
     node_count
 }
 
+fn annotated_subtree_node_count(handle: AnnotatedNodeHandle, tree: &AnnotatedDisplayTree) -> usize {
+    1 + tree
+        .node(handle)
+        .children
+        .iter()
+        .copied()
+        .map(|child| annotated_subtree_node_count(child, tree))
+        .sum::<usize>()
+}
+
 fn copy_subtree_analysis_from_history(
     handle: AnnotatedNodeHandle,
     tree: &mut AnnotatedDisplayTree,
@@ -322,4 +349,139 @@ fn copy_subtree_analysis_from_history(
         .into_iter()
         .map(|child| copy_subtree_analysis_from_history(child, tree, previous, next))
         .sum::<usize>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        analyze::{DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeInvalidation},
+        display::list::{
+            DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem, RectPaintStyle,
+        },
+        style::BorderRadius,
+    };
+
+    fn rect_bounds() -> DisplayRect {
+        DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+        }
+    }
+
+    fn rect_node(
+        recorded_subtree_fingerprint: u64,
+        children: Vec<AnnotatedNodeHandle>,
+    ) -> AnnotatedDisplayNode {
+        AnnotatedDisplayNode {
+            input_fingerprints: Default::default(),
+            layout_output_fingerprint: Default::default(),
+            recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint(
+                recorded_subtree_fingerprint,
+            ),
+            transform: DisplayTransform {
+                translation_x: 0.0,
+                translation_y: 0.0,
+                bounds: rect_bounds(),
+                transforms: Vec::new(),
+            },
+            opacity: 1.0,
+            backdrop_blur_sigma: None,
+            clip: None,
+            item: DisplayItem::Rect(RectDisplayItem {
+                bounds: rect_bounds(),
+                paint: RectPaintStyle {
+                    background: None,
+                    border_radius: BorderRadius::default(),
+                    border_width: None,
+                    border_top_width: None,
+                    border_right_width: None,
+                    border_bottom_width: None,
+                    border_left_width: None,
+                    border_color: None,
+                    border_style: None,
+                    blur_sigma: None,
+                    box_shadow: None,
+                    inset_shadow: None,
+                    drop_shadow: None,
+                    backdrop_blur_sigma: None,
+                },
+            }),
+            children,
+            draw_slot: None,
+            hidden_subtree: Vec::new(),
+        }
+    }
+
+    fn two_node_tree(child_composite_dirty: bool) -> AnnotatedDisplayTree {
+        let child = AnnotatedNodeHandle(0);
+        let root = AnnotatedNodeHandle(1);
+
+        let mut analysis = DisplayAnalysisTable::with_capacity(2);
+        analysis.insert(
+            child,
+            DisplayNodeAnalysis {
+                paint_fingerprint: None,
+                snapshot_fingerprint: None,
+            },
+        );
+        analysis.insert(
+            root,
+            DisplayNodeAnalysis {
+                paint_fingerprint: None,
+                snapshot_fingerprint: None,
+            },
+        );
+
+        let mut invalidation = DisplayInvalidationTable::with_capacity(2);
+        invalidation.insert(
+            child,
+            DisplayNodeInvalidation {
+                composite_dirty: child_composite_dirty,
+            },
+        );
+        invalidation.insert(
+            root,
+            DisplayNodeInvalidation {
+                composite_dirty: false,
+            },
+        );
+
+        AnnotatedDisplayTree {
+            root,
+            nodes: vec![rect_node(11, Vec::new()), rect_node(22, vec![child])],
+            keys: vec![RenderNodeKey(2), RenderNodeKey(1)],
+            layer_bounds: vec![rect_bounds(), rect_bounds()],
+            analysis,
+            invalidation,
+        }
+    }
+
+    #[test]
+    fn recorded_hit_with_changed_descendant_composite_blocks_parent_skip_only() {
+        let mut history = AnalyzeFingerprintHistory::default();
+        let mut first = two_node_tree(false);
+        compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
+
+        let mut second = two_node_tree(true);
+        let stats =
+            compute_display_tree_fingerprints_with_history(&mut second, &mut history, false);
+
+        assert_eq!(stats.recorded_hit_subtrees, 2);
+        assert_eq!(stats.recorded_hit_nodes, 3);
+        assert_eq!(stats.composite_blocked_subtrees, 1);
+        assert_eq!(stats.composite_blocked_nodes, 2);
+        assert_eq!(stats.snapshot_eligibility_hit_subtrees, 1);
+        assert_eq!(stats.snapshot_eligibility_hit_nodes, 1);
+        assert_eq!(stats.merkle_skipped_subtrees, 1);
+        assert_eq!(stats.merkle_skipped_nodes, 1);
+
+        assert_ne!(first.analysis(first.root), second.analysis(second.root));
+        assert_eq!(
+            first.analysis(AnnotatedNodeHandle(0)),
+            second.analysis(AnnotatedNodeHandle(0))
+        );
+    }
 }

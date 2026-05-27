@@ -128,6 +128,12 @@ pub fn render_frame_with_state(
     {
         event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_merkle_skipped_subtrees", result = "count", amount = analyze_stats.merkle_skipped_subtrees as u64);
         event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_merkle_skipped_nodes", result = "count", amount = analyze_stats.merkle_skipped_nodes as u64);
+        event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_recorded_hit_subtrees", result = "count", amount = analyze_stats.recorded_hit_subtrees as u64);
+        event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_recorded_hit_nodes", result = "count", amount = analyze_stats.recorded_hit_nodes as u64);
+        event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_snapshot_eligibility_hit_subtrees", result = "count", amount = analyze_stats.snapshot_eligibility_hit_subtrees as u64);
+        event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_snapshot_eligibility_hit_nodes", result = "count", amount = analyze_stats.snapshot_eligibility_hit_nodes as u64);
+        event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_composite_blocked_subtrees", result = "count", amount = analyze_stats.composite_blocked_subtrees as u64);
+        event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_composite_blocked_nodes", result = "count", amount = analyze_stats.composite_blocked_nodes as u64);
     }
     #[cfg(feature = "profile")]
     drop(_display_span);

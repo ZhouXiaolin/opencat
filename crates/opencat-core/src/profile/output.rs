@@ -64,9 +64,16 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.structure_rebuilds),
     ));
     out.push_str(&format!(
-        "  analyze avg/frame: merkle_skipped_subtrees {:.1}, merkle_skipped_nodes {:.1}\n",
+        "  analyze avg/frame: merkle_skipped_subtrees {:.1}, merkle_skipped_nodes {:.1}, recorded_hit_subtrees {:.1}, recorded_hit_nodes {:.1}, snapshot_eligibility_hit_subtrees {:.1}, snapshot_eligibility_hit_nodes {:.1}, composite_blocked_subtrees {:.1}, composite_blocked_nodes {:.1}\n",
         average_usize(summary, |frame| frame.analyze_merkle_skipped_subtrees),
         average_usize(summary, |frame| frame.analyze_merkle_skipped_nodes),
+        average_usize(summary, |frame| frame.analyze_recorded_hit_subtrees),
+        average_usize(summary, |frame| frame.analyze_recorded_hit_nodes),
+        average_usize(summary, |frame| frame
+            .analyze_snapshot_eligibility_hit_subtrees),
+        average_usize(summary, |frame| frame.analyze_snapshot_eligibility_hit_nodes),
+        average_usize(summary, |frame| frame.analyze_composite_blocked_subtrees),
+        average_usize(summary, |frame| frame.analyze_composite_blocked_nodes),
     ));
     out.push_str(&format!(
         "  backend avg ms/frame: subtree_snapshot_record {:.2}, subtree_snapshot_draw {:.2}, subtree_image_rasterize {:.2}, subtree_image_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}\n",
@@ -268,6 +275,12 @@ mod tests {
         frame.layout_merkle_skipped_nodes = 21;
         frame.analyze_merkle_skipped_subtrees = 3;
         frame.analyze_merkle_skipped_nodes = 11;
+        frame.analyze_recorded_hit_subtrees = 4;
+        frame.analyze_recorded_hit_nodes = 12;
+        frame.analyze_snapshot_eligibility_hit_subtrees = 3;
+        frame.analyze_snapshot_eligibility_hit_nodes = 11;
+        frame.analyze_composite_blocked_subtrees = 1;
+        frame.analyze_composite_blocked_nodes = 1;
         frame.backend_spans.insert(
             BackendSpanKey {
                 depth: 0,
@@ -289,6 +302,9 @@ mod tests {
         assert!(text.contains("layout_skipped_nodes"));
         assert!(text.contains("analyze avg/frame"));
         assert!(text.contains("merkle_skipped_nodes"));
+        assert!(text.contains("recorded_hit_nodes"));
+        assert!(text.contains("snapshot_eligibility_hit_nodes"));
+        assert!(text.contains("composite_blocked_nodes"));
         assert!(text.contains("backend avg spans/frame"));
     }
 }

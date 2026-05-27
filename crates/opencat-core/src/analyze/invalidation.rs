@@ -31,7 +31,7 @@ pub fn mark_display_tree_composite_dirty(
     history: &mut CompositeHistory,
     display_tree: &mut AnnotatedDisplayTree,
     structure_rebuild: bool,
-) {
+) -> CompositeDirtyStats {
     let empty = HashMap::new();
     let previous = if structure_rebuild {
         &empty
@@ -40,6 +40,7 @@ pub fn mark_display_tree_composite_dirty(
     };
     let mut next = HashMap::new();
     let mut invalidation = DisplayInvalidationTable::with_len(display_tree.analysis.len());
+    let mut stats = CompositeDirtyStats::default();
     mark_display_node_composite_dirty(
         display_tree.root,
         display_tree,
@@ -47,9 +48,16 @@ pub fn mark_display_tree_composite_dirty(
         &mut invalidation,
         previous,
         &mut next,
+        &mut stats,
     );
     display_tree.invalidation = invalidation;
     *history.history_mut() = next;
+    stats
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+pub struct CompositeDirtyStats {
+    pub composite_dirty_nodes: usize,
 }
 
 #[allow(clippy::only_used_in_recursion)]
@@ -60,6 +68,7 @@ fn mark_display_node_composite_dirty(
     invalidation: &mut DisplayInvalidationTable,
     previous: &HashMap<RenderNodeKey, CompositeSig>,
     next: &mut HashMap<RenderNodeKey, CompositeSig>,
+    stats: &mut CompositeDirtyStats,
 ) {
     let node = display_tree.node(handle);
     let node_key = display_tree.key(handle);
@@ -67,6 +76,9 @@ fn mark_display_node_composite_dirty(
     let composite_dirty = previous
         .get(&node_key)
         .is_some_and(|previous_sig| *previous_sig != current_sig);
+    if composite_dirty {
+        stats.composite_dirty_nodes += 1;
+    }
     next.insert(node_key, current_sig);
 
     for &child_handle in &node.children {
@@ -77,6 +89,7 @@ fn mark_display_node_composite_dirty(
             invalidation,
             previous,
             next,
+            stats,
         );
     }
     invalidation.insert(handle, DisplayNodeInvalidation { composite_dirty });

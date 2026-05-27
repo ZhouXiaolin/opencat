@@ -11,7 +11,6 @@ pub struct LayoutNode {
     pub id: String,
     pub rect: LayoutRect,
     pub children: Vec<LayoutNode>,
-    pub hidden_children: Vec<LayoutNode>,
 }
 
 #[derive(Clone, Debug)]

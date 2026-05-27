@@ -482,14 +482,8 @@ mod tests {
             "frame 1 should be present, got {:?}",
             summary.frames.keys().collect::<Vec<_>>()
         );
-        assert_eq!(
-            summary.frames[&0].backend.subtree_snapshot_cache_misses,
-            1
-        );
-        assert_eq!(
-            summary.frames[&1].backend.subtree_snapshot_cache_misses,
-            1
-        );
+        assert_eq!(summary.frames[&0].backend.subtree_snapshot_cache_misses, 1);
+        assert_eq!(summary.frames[&1].backend.subtree_snapshot_cache_misses, 1);
         Ok(())
     }
 

@@ -51,8 +51,7 @@ fn build_display_node(
         .collect::<Vec<_>>();
     child_pairs.sort_by_key(|(child, _)| child.style.layout.z_index);
 
-    let item = display_item_for_node(element, bounds, frame_ctx);
-    let children = child_pairs
+    let built_children = child_pairs
         .into_iter()
         .map(|(child, child_layout)| build_display_node(child, child_layout, frame_ctx))
         .collect::<Result<Vec<_>>>()?;
@@ -87,7 +86,21 @@ fn build_display_node(
         None
     };
 
-    let hidden_subtree = build_hidden_subtree(element, layout, frame_ctx)?;
+    let (children, hidden_subtree) = if matches!(&element.kind, ElementKind::Canvas(_)) {
+        let owner_id = element.style.id.clone();
+        let hidden_subtree = built_children
+            .into_iter()
+            .map(|node| HiddenChildDisplayNode {
+                node,
+                owner_id: owner_id.clone(),
+            })
+            .collect::<Vec<_>>();
+        (Vec::new(), hidden_subtree)
+    } else {
+        (built_children, Vec::new())
+    };
+
+    let item = display_item_for_node(element, bounds, frame_ctx, hidden_subtree.clone());
 
     let draw_slot = if element.draw_slot.commands.is_empty() {
         None
@@ -118,40 +131,11 @@ fn build_display_node(
     })
 }
 
-fn build_hidden_subtree(
-    element: &ElementNode,
-    layout: &LayoutNode,
-    frame_ctx: &FrameCtx,
-) -> Result<Vec<HiddenChildDisplayNode>> {
-    let ElementKind::Canvas(canvas) = &element.kind else {
-        return Ok(Vec::new());
-    };
-    if canvas.hidden_children.is_empty() {
-        return Ok(Vec::new());
-    }
-    if canvas.hidden_children.len() != layout.hidden_children.len() {
-        return Err(anyhow!(
-            "canvas hidden child count mismatch while building display tree"
-        ));
-    }
-    let owner_id = element.style.id.clone();
-    canvas
-        .hidden_children
-        .iter()
-        .zip(layout.hidden_children.iter())
-        .map(|(child, child_layout)| {
-            Ok(HiddenChildDisplayNode {
-                node: build_display_node(child, child_layout, frame_ctx)?,
-                owner_id: owner_id.clone(),
-            })
-        })
-        .collect()
-}
-
 fn display_item_for_node(
     element: &ElementNode,
     bounds: DisplayRect,
     frame_ctx: &FrameCtx,
+    hidden_subtree: Vec<HiddenChildDisplayNode>,
 ) -> DisplayItem {
     match &element.kind {
         ElementKind::Div(_) => DisplayItem::Rect(RectDisplayItem {
@@ -252,7 +236,7 @@ fn display_item_for_node(
             bounds,
             commands: canvas.commands.clone(),
             drop_shadow: element.style.visual.drop_shadow,
-            hidden_subtree: Vec::new(),
+            hidden_subtree,
         }),
         ElementKind::SvgPath(svg) => DisplayItem::SvgPath(SvgPathDisplayItem {
             bounds,
@@ -319,21 +303,6 @@ mod tests {
             id: id.to_string(),
             rect,
             children,
-            hidden_children: Vec::new(),
-        }
-    }
-
-    fn simple_layout_with_hidden(
-        id: &str,
-        rect: LayoutRect,
-        children: Vec<LayoutNode>,
-        hidden_children: Vec<LayoutNode>,
-    ) -> LayoutNode {
-        LayoutNode {
-            id: id.to_string(),
-            rect,
-            children,
-            hidden_children,
         }
     }
 
@@ -900,7 +869,7 @@ mod tests {
         )
         .expect("tree should resolve");
         let layout_tree = LayoutTree {
-            root: simple_layout_with_hidden(
+            root: simple_layout(
                 "stage",
                 LayoutRect {
                     x: 0.0,
@@ -908,7 +877,6 @@ mod tests {
                     width: 200.0,
                     height: 120.0,
                 },
-                Vec::new(),
                 vec![simple_layout(
                     "card",
                     LayoutRect {

@@ -21,15 +21,89 @@ use crate::{
         DisplayAnalysisTable, DisplayInvalidationTable,
         annotation::{AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics},
     },
-    display::list::DisplayItem,
+    display::{
+        list::{DisplayClip, DisplayItem},
+        tree::{DisplayNode, DisplayRecordedSubtreeFingerprint, HiddenChildDisplayNode},
+    },
     layout::tree::LayoutOutputFingerprint,
 };
 
-use display_item::{ClipFp, DisplayItemFp, F32Hash};
+use display_item::{DisplayItemFp, F32Hash};
 
 /// subtree picture cache 的 fingerprint。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SubtreeSnapshotFingerprint(pub u64);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DisplayClipFingerprint(pub u64);
+
+impl DisplayClipFingerprint {
+    pub fn from_clip(clip: Option<&DisplayClip>) -> Self {
+        let mut hasher = new_hasher();
+        clip.is_some().hash(&mut hasher);
+        if let Some(clip) = clip {
+            F32Hash(clip.bounds.width).hash(&mut hasher);
+            F32Hash(clip.bounds.height).hash(&mut hasher);
+            clip.border_radius.hash(&mut hasher);
+        }
+        Self(hasher.finish())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DisplayRecordedFingerprint(pub u64);
+
+impl DisplayRecordedFingerprint {
+    pub fn from_recorded(semantics: &RecordedNodeSemantics<'_>) -> Self {
+        Self::from_parts(
+            semantics.layout_output_fingerprint,
+            semantics.item,
+            semantics.clip,
+        )
+    }
+
+    pub fn from_display_node(node: &DisplayNode) -> Self {
+        Self::from_parts(
+            node.layout_output_fingerprint,
+            &node.item,
+            node.clip.as_ref(),
+        )
+    }
+
+    pub fn from_parts(
+        layout_output_fingerprint: LayoutOutputFingerprint,
+        item: &DisplayItem,
+        clip: Option<&DisplayClip>,
+    ) -> Self {
+        let mut hasher = new_hasher();
+        layout_output_fingerprint.record_size.hash(&mut hasher);
+        DisplayItemFp(item).hash(&mut hasher);
+        DisplayClipFingerprint::from_clip(clip).hash(&mut hasher);
+        Self(hasher.finish())
+    }
+}
+
+pub fn display_recorded_subtree_fingerprint(
+    node: &DisplayNode,
+) -> DisplayRecordedSubtreeFingerprint {
+    let mut hasher = new_hasher();
+    node.element_id.hash(&mut hasher);
+    node.input_fingerprints
+        .paint_input_subtree
+        .hash(&mut hasher);
+    DisplayRecordedFingerprint::from_display_node(node).hash(&mut hasher);
+    node.draw_slot.is_some().hash(&mut hasher);
+    if let Some(slot) = &node.draw_slot {
+        let item = DisplayItem::DrawScript(slot.clone());
+        DisplayRecordedFingerprint::from_parts(node.layout_output_fingerprint, &item, None)
+            .hash(&mut hasher);
+    }
+    node.children.len().hash(&mut hasher);
+    for child in &node.children {
+        child.recorded_subtree_fingerprint.hash(&mut hasher);
+    }
+    DisplayRecordedSubtreeFingerprint(hasher.finish())
+}
 
 /// 合成参数摘要：transform、opacity、blur。
 ///
@@ -169,17 +243,11 @@ pub fn subtree_has_dirty_descendant_composite(
 
 fn hash_node_recorded_paint<H: Hasher>(node: &AnnotatedDisplayNode, hasher: &mut H) {
     node.input_fingerprints.paint_input_subtree.hash(hasher);
-    hash_recorded_semantics(&node.recorded_semantics(), hasher);
+    DisplayRecordedFingerprint::from_recorded(&node.recorded_semantics()).hash(hasher);
 }
 
 fn hash_node_draw_time_composite<H: Hasher>(node: &AnnotatedDisplayNode, hasher: &mut H) {
     hash_draw_composite_semantics(&node.draw_composite_semantics(), hasher);
-}
-
-fn hash_recorded_semantics<H: Hasher>(semantics: &RecordedNodeSemantics<'_>, hasher: &mut H) {
-    semantics.layout_output_fingerprint.record_size.hash(hasher);
-    DisplayItemFp(semantics.item).hash(hasher);
-    ClipFp(semantics.clip).hash(hasher);
 }
 
 fn hash_draw_composite_semantics<H: Hasher>(
@@ -191,6 +259,31 @@ fn hash_draw_composite_semantics<H: Hasher>(
     F32Hash(semantics.opacity).hash(hasher);
     semantics.backdrop_blur_sigma.map(F32Hash).hash(hasher);
     semantics.transform.transforms.hash(hasher);
+}
+
+pub(super) fn hash_hidden_child_display_node<H: Hasher>(
+    child: &HiddenChildDisplayNode,
+    hasher: &mut H,
+) {
+    child.owner_id.hash(hasher);
+    child.node.recorded_subtree_fingerprint.hash(hasher);
+    hash_display_node_composite_subtree(&child.node, hasher);
+}
+
+fn hash_display_node_composite_subtree<H: Hasher>(node: &DisplayNode, hasher: &mut H) {
+    hash_display_node_composite(node, hasher);
+    node.children.len().hash(hasher);
+    for child in &node.children {
+        hash_display_node_composite_subtree(child, hasher);
+    }
+}
+
+fn hash_display_node_composite<H: Hasher>(node: &DisplayNode, hasher: &mut H) {
+    F32Hash(node.transform.translation_x).hash(hasher);
+    F32Hash(node.transform.translation_y).hash(hasher);
+    F32Hash(node.opacity).hash(hasher);
+    node.backdrop_blur_sigma.map(F32Hash).hash(hasher);
+    node.transform.transforms.hash(hasher);
 }
 
 #[cfg(test)]
@@ -313,6 +406,7 @@ mod tests {
             AnnotatedDisplayNode {
                 input_fingerprints: Default::default(),
                 layout_output_fingerprint: self.layout_output_fingerprint,
+                recorded_subtree_fingerprint: Default::default(),
                 transform: self.transform,
                 opacity: self.opacity,
                 backdrop_blur_sigma: self.backdrop_blur_sigma,
@@ -369,6 +463,7 @@ mod tests {
         let annotated = AnnotatedDisplayNode {
             input_fingerprints: Default::default(),
             layout_output_fingerprint: node.layout_output_fingerprint,
+            recorded_subtree_fingerprint: Default::default(),
             transform: node.transform,
             opacity: node.opacity,
             backdrop_blur_sigma: node.backdrop_blur_sigma,
@@ -462,6 +557,57 @@ mod tests {
             a.analysis(a.root).paint_fingerprint,
             resized.analysis(resized.root).paint_fingerprint,
             "recorded paint fingerprint must change when layout record size changes"
+        );
+    }
+
+    #[test]
+    fn display_recorded_fingerprint_is_explicit_recorded_semantics_api() {
+        let base = annotated_rect_node(AnnotatedRectConfig {
+            layout_output_fingerprint: LayoutOutputFingerprint {
+                record_size: 11,
+                ..LayoutOutputFingerprint::default()
+            },
+            ..Default::default()
+        })
+        .into_annotated_node();
+        let clipped = annotated_rect_node(AnnotatedRectConfig {
+            layout_output_fingerprint: LayoutOutputFingerprint {
+                record_size: 11,
+                ..LayoutOutputFingerprint::default()
+            },
+            clip: Some(DisplayClip {
+                bounds: DisplayRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 80.0,
+                    height: 50.0,
+                },
+                border_radius: BorderRadius {
+                    top_left: 8.0,
+                    top_right: 8.0,
+                    bottom_right: 8.0,
+                    bottom_left: 8.0,
+                },
+            }),
+            ..Default::default()
+        })
+        .into_annotated_node();
+
+        let base_fp = DisplayRecordedFingerprint::from_recorded(&base.recorded_semantics());
+        let clipped_fp = DisplayRecordedFingerprint::from_recorded(&clipped.recorded_semantics());
+
+        assert_ne!(
+            base_fp, clipped_fp,
+            "clip is recorded display semantics and must be captured explicitly"
+        );
+        assert_eq!(
+            base_fp,
+            DisplayRecordedFingerprint::from_parts(
+                base.layout_output_fingerprint,
+                &base.item,
+                base.clip.as_ref()
+            ),
+            "recorded fingerprint must be constructible without re-reading AnnotatedDisplayNode"
         );
     }
 
@@ -918,43 +1064,48 @@ mod tests {
     #[test]
     fn draw_script_paint_fingerprint_tracks_hidden_subtree_paint() {
         fn script_item_with_hidden_rect(color: crate::style::ColorToken) -> DisplayItem {
+            let mut hidden_node = DisplayNode {
+                element_id: ElementId(7),
+                input_fingerprints: Default::default(),
+                layout_output_fingerprint: Default::default(),
+                recorded_subtree_fingerprint: Default::default(),
+                transform: rect_transform(0.0, 0.0),
+                opacity: 1.0,
+                backdrop_blur_sigma: None,
+                clip: None,
+                item: DisplayItem::Rect(RectDisplayItem {
+                    bounds: empty_bounds(),
+                    paint: RectPaintStyle {
+                        background: Some(crate::style::BackgroundFill::Solid(color)),
+                        border_radius: BorderRadius::default(),
+                        border_width: None,
+                        border_top_width: None,
+                        border_right_width: None,
+                        border_bottom_width: None,
+                        border_left_width: None,
+                        border_color: None,
+                        border_style: None,
+                        blur_sigma: None,
+                        box_shadow: None,
+                        inset_shadow: None,
+                        drop_shadow: None,
+                        backdrop_blur_sigma: None,
+                    },
+                }),
+                children: Vec::new(),
+                draw_slot: None,
+                hidden_subtree: Vec::new(),
+            };
+            hidden_node.recorded_subtree_fingerprint =
+                display_recorded_subtree_fingerprint(&hidden_node);
+
             DisplayItem::DrawScript(DrawScriptDisplayItem {
                 bounds: empty_bounds(),
                 commands: Vec::new(),
                 drop_shadow: None,
                 hidden_subtree: vec![HiddenChildDisplayNode {
                     owner_id: "canvas".to_string(),
-                    node: DisplayNode {
-                        element_id: ElementId(7),
-                        input_fingerprints: Default::default(),
-                        layout_output_fingerprint: Default::default(),
-                        transform: rect_transform(0.0, 0.0),
-                        opacity: 1.0,
-                        backdrop_blur_sigma: None,
-                        clip: None,
-                        item: DisplayItem::Rect(RectDisplayItem {
-                            bounds: empty_bounds(),
-                            paint: RectPaintStyle {
-                                background: Some(crate::style::BackgroundFill::Solid(color)),
-                                border_radius: BorderRadius::default(),
-                                border_width: None,
-                                border_top_width: None,
-                                border_right_width: None,
-                                border_bottom_width: None,
-                                border_left_width: None,
-                                border_color: None,
-                                border_style: None,
-                                blur_sigma: None,
-                                box_shadow: None,
-                                inset_shadow: None,
-                                drop_shadow: None,
-                                backdrop_blur_sigma: None,
-                            },
-                        }),
-                        children: Vec::new(),
-                        draw_slot: None,
-                        hidden_subtree: Vec::new(),
-                    },
+                    node: hidden_node,
                 }],
             })
         }

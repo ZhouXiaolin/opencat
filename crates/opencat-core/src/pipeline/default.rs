@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::analyze::annotation::AnnotatedNodeHandle;
+use crate::analyze::annotation::{AnalyzeFingerprintHistory, AnnotatedNodeHandle};
 use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::invalidation::CompositeHistory;
 use crate::ir::asset_id::{
@@ -34,6 +34,7 @@ pub struct DefaultPipeline<L: AssetLoader, S: JsContext> {
     scripts: crate::script::LiveScriptHost<S>,
     layout_session: LayoutSession,
     composite_history: CompositeHistory,
+    analyze_fingerprint_history: AnalyzeFingerprintHistory,
     font_db: Arc<fontdb::Database>,
     cache: RenderCache,
     last_ordered_scene: OrderedSceneProgram,
@@ -84,6 +85,7 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
             scripts: live_host,
             layout_session: LayoutSession::new(),
             composite_history: CompositeHistory::default(),
+            analyze_fingerprint_history: AnalyzeFingerprintHistory::default(),
             font_db: Arc::new(default_font_db(&[])),
             cache: RenderCache::new(
                 DEFAULT_SUBTREE_SNAPSHOT_CAP,
@@ -206,6 +208,7 @@ impl<L: AssetLoader, S: JsContext> Pipeline for DefaultPipeline<L, S> {
             frame_index,
             &mut self.layout_session,
             &mut self.composite_history,
+            &mut self.analyze_fingerprint_history,
             &self.font_db,
             &mut self.catalog,
             &mut self.cache,
@@ -414,6 +417,11 @@ mod tests {
             .values()
             .map(|frame| frame.layout_merkle_skipped_nodes)
             .sum::<usize>();
+        let analyze_skipped_nodes = summary
+            .frames
+            .values()
+            .map(|frame| frame.analyze_merkle_skipped_nodes)
+            .sum::<usize>();
 
         assert!(
             full_hit_nodes > 0,
@@ -422,6 +430,10 @@ mod tests {
         assert!(
             layout_skipped_nodes >= full_hit_nodes,
             "layout Merkle skip should include full hits and layout-only clean subtrees"
+        );
+        assert!(
+            analyze_skipped_nodes > 0,
+            "profile-showcase jsonl should exercise analyze Merkle fingerprint skips"
         );
     }
 

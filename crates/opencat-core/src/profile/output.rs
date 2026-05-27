@@ -64,6 +64,11 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.structure_rebuilds),
     ));
     out.push_str(&format!(
+        "  analyze avg/frame: merkle_skipped_subtrees {:.1}, merkle_skipped_nodes {:.1}\n",
+        average_usize(summary, |frame| frame.analyze_merkle_skipped_subtrees),
+        average_usize(summary, |frame| frame.analyze_merkle_skipped_nodes),
+    ));
+    out.push_str(&format!(
         "  backend avg ms/frame: subtree_snapshot_record {:.2}, subtree_snapshot_draw {:.2}, subtree_image_rasterize {:.2}, subtree_image_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}\n",
         average(summary, |frame| frame.backend.subtree_snapshot_record_ms),
         average(summary, |frame| frame.backend.subtree_snapshot_draw_ms),
@@ -261,6 +266,8 @@ mod tests {
         frame.input_merkle_full_hit_nodes = 13;
         frame.layout_merkle_skipped_subtrees = 7;
         frame.layout_merkle_skipped_nodes = 21;
+        frame.analyze_merkle_skipped_subtrees = 3;
+        frame.analyze_merkle_skipped_nodes = 11;
         frame.backend_spans.insert(
             BackendSpanKey {
                 depth: 0,
@@ -280,6 +287,8 @@ mod tests {
         assert!(text.contains("avg ms/frame"));
         assert!(text.contains("input_full_hit_nodes"));
         assert!(text.contains("layout_skipped_nodes"));
+        assert!(text.contains("analyze avg/frame"));
+        assert!(text.contains("merkle_skipped_nodes"));
         assert!(text.contains("backend avg spans/frame"));
     }
 }

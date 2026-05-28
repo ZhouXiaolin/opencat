@@ -328,7 +328,10 @@ fn render_cached_subtree(
         }
     }
 
-    // Check cache
+    let has_clip = node.clip.is_some();
+    let subtree = OrderedSceneProgram::build_subtree(tree, handle);
+
+    // Check cache for parent's own segment (item + open clip, no children)
     {
         let hit_entry = cache.subtree_snapshots.get_cloned(&key);
         if let Some(entry) = hit_entry {
@@ -367,6 +370,14 @@ fn render_cached_subtree(
                 };
                 let report = cache.subtree_snapshots.insert(key, updated);
                 record_cache_pressure("subtree_snapshot", &report);
+
+                // Render children dynamically (composite applied at replay time)
+                for child in &subtree.children {
+                    render_scene_op(ctx, child, tree, cache)?;
+                }
+                if has_clip {
+                    ctx.builder.push(DrawOp::Restore);
+                }
                 restore_backdrop_blur_layer(ctx, &layer_state);
                 ctx.builder.push(DrawOp::Restore);
                 return Ok(());
@@ -393,19 +404,31 @@ fn render_cached_subtree(
         }
     }
 
-    // Cache miss — record subtree into IR range
+    // Cache miss — record parent's own rendering as a segment
     #[cfg(feature = "profile")]
     let _record_span =
         span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record").entered();
 
-    let range_marker = ctx.builder.begin_range();
-    render_live_cached_node(ctx, handle, tree, cache)?;
-    let range = ctx.builder.end_range(range_marker);
+    let recorded = node.recorded_semantics();
+
+    let parent_marker = ctx.builder.begin_range();
+    render_display_item(
+        ctx,
+        recorded.item,
+        recorded.layout_output_fingerprint,
+        cache,
+    )?;
+    if let Some(clip) = &recorded.clip {
+        ctx.builder.push(DrawOp::Save);
+        let clip_rect4 = display_rect_to_rect4(clip.bounds);
+        clip_bounds_with_radius(ctx.builder, clip_rect4, &clip.border_radius);
+    }
+    let parent_range = ctx.builder.end_range(parent_marker);
 
     #[cfg(feature = "profile")]
     drop(_record_span);
 
-    let segment = ctx.builder.snapshot_range(range);
+    let segment = ctx.builder.snapshot_range(parent_range);
     let segment_key = key;
 
     cache.segments.insert(segment_key, segment);
@@ -440,39 +463,16 @@ fn render_cached_subtree(
         amount = 1_u64
     );
 
-    restore_backdrop_blur_layer(ctx, &layer_state);
-    ctx.builder.push(DrawOp::Restore);
-    Ok(())
-}
-
-fn render_live_cached_node(
-    ctx: &mut RenderCtx,
-    handle: AnnotatedNodeHandle,
-    tree: &AnnotatedDisplayTree,
-    cache: &mut draw_cache::RenderCache,
-) -> Result<(), RenderError> {
-    let node = tree.node(handle);
-    let subtree = OrderedSceneProgram::build_subtree(tree, handle);
-    let recorded = node.recorded_semantics();
-
-    render_display_item(
-        ctx,
-        recorded.item,
-        recorded.layout_output_fingerprint,
-        cache,
-    )?;
-
-    if let Some(clip) = recorded.clip {
-        ctx.builder.push(DrawOp::Save);
-        let clip_rect4 = display_rect_to_rect4(clip.bounds);
-        clip_bounds_with_radius(ctx.builder, clip_rect4, &clip.border_radius);
-    }
+    // Render children dynamically (not baked into parent segment)
     for child in &subtree.children {
         render_scene_op(ctx, child, tree, cache)?;
     }
-    if recorded.clip.is_some() {
+    if has_clip {
         ctx.builder.push(DrawOp::Restore);
     }
+
+    restore_backdrop_blur_layer(ctx, &layer_state);
+    ctx.builder.push(DrawOp::Restore);
     Ok(())
 }
 

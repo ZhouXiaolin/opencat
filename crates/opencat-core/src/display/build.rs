@@ -844,9 +844,10 @@ mod tests {
             annotated_a.analysis(child_a).snapshot_fingerprint,
             annotated_b.analysis(child_b).snapshot_fingerprint
         );
-        assert_ne!(
+        assert_eq!(
             annotated_a.analysis(annotated_a.root).snapshot_fingerprint,
-            annotated_b.analysis(annotated_b.root).snapshot_fingerprint
+            annotated_b.analysis(annotated_b.root).snapshot_fingerprint,
+            "root snapshot_fingerprint ignores descendant position changes"
         );
     }
 

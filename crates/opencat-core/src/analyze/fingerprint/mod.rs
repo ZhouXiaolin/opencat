@@ -18,7 +18,7 @@ fn new_hasher() -> ahash::AHasher {
 
 use crate::{
     analyze::{
-        DisplayAnalysisTable, DisplayInvalidationTable,
+        DisplayAnalysisTable,
         annotation::{AnnotatedDisplayNode, DrawCompositeSemantics, RecordedNodeSemantics},
     },
     display::{
@@ -182,31 +182,24 @@ pub(crate) fn annotated_subtree_paint_fingerprint(
 /// 基于已注解节点计算 subtree snapshot fingerprint。
 ///
 /// 要求所有后代的 `snapshot_fingerprint` 已经自底向上填充完成。
-/// 若子树中存在 `composite_dirty` 的后代，返回 `None`——这些子树每帧 fingerprint 都在抖动，
-/// 入 cache 只会污染（一次性 key、consecutive_hits=0、永不再查）。
+///
+/// 仅 hash paint 内容（节点自身 paint + 子节点 snapshot_fingerprint 递归），
+/// 不含任何 composite（transform/opacity/blur）。
+/// composite 在 replay 时由 render dispatch 动态 apply。
 pub(crate) fn annotated_subtree_snapshot_fingerprint(
     node: &AnnotatedDisplayNode,
-    nodes: &[AnnotatedDisplayNode],
     analysis: &DisplayAnalysisTable,
-    invalidation: &DisplayInvalidationTable,
 ) -> Option<SubtreeSnapshotFingerprint> {
-    if subtree_has_dirty_descendant_composite(node, nodes, invalidation) {
-        return None;
-    }
-
     let mut hasher = new_hasher();
 
     hash_node_recorded_paint(node, &mut hasher);
     node.children.len().hash(&mut hasher);
 
     for &child_handle in &node.children {
-        let child = &nodes[child_handle.0];
-        hash_node_draw_time_composite(child, &mut hasher);
-
         let child_fp = analysis.require(child_handle).snapshot_fingerprint;
         debug_assert!(
             child_fp.is_some(),
-            "invariant: stable annotated child must carry snapshot_fingerprint"
+            "invariant: annotated child must carry snapshot_fingerprint"
         );
         child_fp
             .unwrap_or(SubtreeSnapshotFingerprint(0))
@@ -217,53 +210,11 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
     Some(SubtreeSnapshotFingerprint(hasher.finish()))
 }
 
-/// 子树（**不含** `node` 自身）中是否存在"本帧 composite 跨帧变化"的后代。
-///
-/// 读 `DisplayInvalidationTable.composite_dirty`——该字段由
-/// `mark_display_tree_composite_dirty` 在 pipeline 前段写入，比较前后帧同
-/// `RenderNodeKey` 的 `CompositeSig`（translation/transforms/opacity/backdrop_blur）。
-///
-/// 精准诊断：命中时 hit 几乎不可能为 dirty（key 相同是 composite 稳定的证据）；
-/// miss 里 dirty 的部分即"由子 composite 抖动导致的 fingerprint 抖动"，可被
-/// "composite-stable only" 新规则救回。非 dirty 的 miss 归因于首次出现或 paint 变化。
-pub fn subtree_has_dirty_descendant_composite(
-    node: &AnnotatedDisplayNode,
-    nodes: &[AnnotatedDisplayNode],
-    invalidation: &DisplayInvalidationTable,
-) -> bool {
-    for &child_handle in &node.children {
-        if invalidation
-            .get(child_handle)
-            .is_some_and(|inv| inv.composite_dirty)
-        {
-            return true;
-        }
-        let child = &nodes[child_handle.0];
-        if subtree_has_dirty_descendant_composite(child, nodes, invalidation) {
-            return true;
-        }
-    }
-    false
-}
+
 
 fn hash_node_recorded_paint<H: Hasher>(node: &AnnotatedDisplayNode, hasher: &mut H) {
     node.input_fingerprints.paint_input_subtree.hash(hasher);
     DisplayRecordedFingerprint::from_recorded(&node.recorded_semantics()).hash(hasher);
-}
-
-fn hash_node_draw_time_composite<H: Hasher>(node: &AnnotatedDisplayNode, hasher: &mut H) {
-    hash_draw_composite_semantics(&node.draw_composite_semantics(), hasher);
-}
-
-fn hash_draw_composite_semantics<H: Hasher>(
-    semantics: &DrawCompositeSemantics<'_>,
-    hasher: &mut H,
-) {
-    F32Hash(semantics.transform.translation_x).hash(hasher);
-    F32Hash(semantics.transform.translation_y).hash(hasher);
-    F32Hash(semantics.opacity).hash(hasher);
-    semantics.backdrop_blur_sigma.map(F32Hash).hash(hasher);
-    semantics.transform.transforms.hash(hasher);
 }
 
 pub(super) fn hash_hidden_child_display_node<H: Hasher>(
@@ -486,9 +437,7 @@ mod tests {
             paint_fingerprint: annotated_subtree_paint_fingerprint(&annotated, analysis),
             snapshot_fingerprint: annotated_subtree_snapshot_fingerprint(
                 &annotated,
-                nodes,
                 analysis,
-                invalidation,
             ),
         };
         let mut node_layer_bounds = annotated.item.visual_bounds();
@@ -620,89 +569,6 @@ mod tests {
     }
 
     #[test]
-    fn descendant_composite_dirty_detection_reads_invalidation_table() {
-        // 契约：`subtree_has_dirty_descendant_composite` 递归读 `DisplayInvalidationTable`
-        // 的 `composite_dirty` 字段。只返回"实际跨帧变化"的信号，不把"恒定非零 composite"
-        // 误判为 dirty。
-
-        // 1. 单节点、无后代 → false
-        let leaf = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig::default()));
-        assert!(
-            !subtree_has_dirty_descendant_composite(
-                leaf.root_node(),
-                &leaf.nodes,
-                &leaf.invalidation,
-            ),
-            "leaf with no descendants must be non-dirty"
-        );
-
-        // 2. 后代虽有非零 translation 但 composite_dirty=false（恒定位移）→ false
-        //    与之前的 non-identity 上界版本的关键差别。
-        let stable_translating_child = annotated_rect_node(AnnotatedRectConfig {
-            key: RenderNodeKey(2),
-            transform: rect_transform(100.0, 200.0),
-            composite_dirty: false,
-            ..Default::default()
-        });
-        let stable = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
-            children: vec![stable_translating_child],
-            ..Default::default()
-        }));
-        assert!(
-            !subtree_has_dirty_descendant_composite(
-                stable.root_node(),
-                &stable.nodes,
-                &stable.invalidation,
-            ),
-            "constant non-zero translation must NOT be marked dirty"
-        );
-
-        // 3. 后代 composite_dirty=true → true
-        let dirty_child = annotated_rect_node(AnnotatedRectConfig {
-            key: RenderNodeKey(2),
-            composite_dirty: true,
-            ..Default::default()
-        });
-        let dirty = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
-            children: vec![dirty_child],
-            ..Default::default()
-        }));
-        assert!(
-            subtree_has_dirty_descendant_composite(
-                dirty.root_node(),
-                &dirty.nodes,
-                &dirty.invalidation,
-            ),
-            "dirty direct descendant must be detected"
-        );
-
-        // 4. 深层 dirty 孙节点 → true（必须递归穿过 clean 的中间节点）
-        let dirty_grandchild = annotated_rect_node(AnnotatedRectConfig {
-            key: RenderNodeKey(3),
-            composite_dirty: true,
-            ..Default::default()
-        });
-        let clean_middle = annotated_rect_node(AnnotatedRectConfig {
-            key: RenderNodeKey(2),
-            composite_dirty: false,
-            children: vec![dirty_grandchild],
-            ..Default::default()
-        });
-        let deep = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
-            children: vec![clean_middle],
-            ..Default::default()
-        }));
-        assert!(
-            subtree_has_dirty_descendant_composite(
-                deep.root_node(),
-                &deep.nodes,
-                &deep.invalidation,
-            ),
-            "dirty grandchild must be detected via recursion through clean middle"
-        );
-    }
-
-    #[test]
     fn paint_fingerprint_is_invariant_under_opacity() {
         let a = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig::default()));
         let b = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
@@ -793,7 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_fingerprint_tracks_descendant_transform_changes() {
+    fn snapshot_fingerprint_ignores_descendant_transform_changes() {
         let mut a = annotated_rect_node(AnnotatedRectConfig::default());
         let mut b = annotated_rect_node(AnnotatedRectConfig::default());
         let mut child_transform_a = rect_transform(0.0, 0.0);
@@ -817,15 +683,17 @@ mod tests {
 
         let fp_a = a.analysis(a.root).snapshot_fingerprint;
         let fp_b = b.analysis(b.root).snapshot_fingerprint;
-        assert_ne!(
+        assert_eq!(
             fp_a, fp_b,
-            "descendant transform is baked into the parent snapshot and must affect the key"
+            "descendant transform is applied dynamically at replay and must not affect the cache key"
         );
+        assert!(fp_a.is_some(), "snapshot_fingerprint is always Some");
     }
 
     #[test]
-    fn snapshot_fingerprint_returns_none_for_dirty_descendant() {
-        // 直接后代 composite_dirty → 父节点 snapshot_fingerprint = None
+    fn snapshot_fingerprint_always_some_even_with_dirty_descendant() {
+        // composite_dirty no longer blocks snapshot_fingerprint — composite is
+        // applied dynamically at replay, not baked into the cache key.
         let dirty_child = annotated_rect_node(AnnotatedRectConfig {
             key: RenderNodeKey(2),
             composite_dirty: true,
@@ -836,16 +704,15 @@ mod tests {
             ..Default::default()
         }));
         assert!(
-            tree.analysis(tree.root).snapshot_fingerprint.is_none(),
-            "parent with dirty descendant must have no snapshot_fingerprint"
+            tree.analysis(tree.root).snapshot_fingerprint.is_some(),
+            "parent with dirty descendant should still have snapshot_fingerprint"
         );
-        // paint fingerprint 不受 composite_dirty 影响
         assert!(
             tree.analysis(tree.root).paint_fingerprint.is_some(),
             "paint fingerprint is independent of composite dirty"
         );
 
-        // 深层 dirty 孙节点 → 所有祖先 snapshot_fingerprint = None
+        // 深层 dirty 孙节点 → ancestors still have snapshot_fingerprint
         let dirty_grandchild = annotated_rect_node(AnnotatedRectConfig {
             key: RenderNodeKey(3),
             composite_dirty: true,
@@ -862,8 +729,8 @@ mod tests {
             ..Default::default()
         }));
         assert!(
-            deep.analysis(deep.root).snapshot_fingerprint.is_none(),
-            "root with dirty grandchild must have no snapshot_fingerprint"
+            deep.analysis(deep.root).snapshot_fingerprint.is_some(),
+            "root with dirty grandchild should still have snapshot_fingerprint"
         );
 
         // clean 树 → snapshot_fingerprint = Some

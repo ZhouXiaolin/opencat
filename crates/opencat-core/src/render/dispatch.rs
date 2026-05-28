@@ -8,7 +8,7 @@ use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::fingerprint::{DisplayRecordedFingerprint, item_paint_fingerprint};
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem};
-use crate::ir::cache::{self as draw_cache, CachedDrawRange, CachedSubtreeIr};
+use crate::ir::cache::{self as draw_cache, CachedDrawRange, CachedNodeOwnIr};
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, PathOp};
 use crate::layout::tree::LayoutOutputFingerprint;
@@ -332,11 +332,11 @@ fn render_cached_subtree(
     let subtree = OrderedSceneProgram::build_subtree(tree, handle);
     let own_key = DisplayRecordedFingerprint::from_recorded(&node.recorded_semantics()).0;
 
-    // First, try the parent-own cache (keyed by the parent's own content only,
+    // First, try the node-own cache (keyed by this node's own content only,
     // independent of child fingerprints). This avoids unnecessary re-recording
-    // of the parent's item when only descendants have changed.
+    // of the node's item when only descendants have changed.
     {
-        let own_hit = cache.parent_own_segments.get_cloned(&own_key);
+        let own_hit = cache.node_own_segments.get_cloned(&own_key);
         if let Some(entry) = own_hit {
             if let Some(segment) = cache.segments.get_cloned(&entry.segment_key) {
                 #[cfg(feature = "profile")]
@@ -350,11 +350,11 @@ fn render_cached_subtree(
                 );
 
                 ctx.builder.import_segment(&segment);
-                let updated = CachedSubtreeIr {
+                let updated = CachedNodeOwnIr {
                     consecutive_hits: entry.consecutive_hits + 1,
                     ..entry
                 };
-                let report = cache.parent_own_segments.insert(own_key, updated);
+                let report = cache.node_own_segments.insert(own_key, updated);
                 record_cache_pressure("node_own", &report);
 
                 for child in &subtree.children {
@@ -403,7 +403,7 @@ fn render_cached_subtree(
                     amount = 1_u64
                 );
                 ctx.builder.import_segment(&segment);
-                let updated = CachedSubtreeIr {
+                let updated = CachedNodeOwnIr {
                     consecutive_hits: entry.consecutive_hits + 1,
                     ..entry
                 };
@@ -481,17 +481,17 @@ fn render_cached_subtree(
 
     cache.segments.insert(segment_key, segment);
 
-    // Also store in parent-own cache for reuse when children change but parent doesn't
+    // Also store in node-own cache for reuse when children change but this node doesn't.
     {
-        let own_snapshot = CachedSubtreeIr {
+        let own_snapshot = CachedNodeOwnIr {
             segment_key,
             consecutive_hits: 0,
             recorded_bounds: layer_bounds,
         };
         #[cfg(feature = "profile")]
-        let own_report = cache.parent_own_segments.insert(own_key, own_snapshot);
+        let own_report = cache.node_own_segments.insert(own_key, own_snapshot);
         #[cfg(not(feature = "profile"))]
-        let _own_report = cache.parent_own_segments.insert(own_key, own_snapshot);
+        let _own_report = cache.node_own_segments.insert(own_key, own_snapshot);
         #[cfg(feature = "profile")]
         {
             if own_report.replaced {
@@ -508,7 +508,7 @@ fn render_cached_subtree(
         }
     }
 
-    let snapshot = CachedSubtreeIr {
+    let snapshot = CachedNodeOwnIr {
         segment_key,
         consecutive_hits: 0,
         recorded_bounds: layer_bounds,

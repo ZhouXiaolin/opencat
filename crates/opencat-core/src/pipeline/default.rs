@@ -452,15 +452,15 @@ mod tests {
             .values()
             .map(|frame| frame.backend.subtree_snapshot_cache_hits)
             .sum::<usize>();
-        let parent_own_segment_hits = summary
+        let node_own_segment_hits = summary
             .frames
             .values()
-            .map(|frame| frame.backend.parent_own_segment_hits)
+            .map(|frame| frame.backend.node_own_segment_hits)
             .sum::<usize>();
-        let parent_own_segment_first_record = summary
+        let node_own_segment_records = summary
             .frames
             .values()
-            .map(|frame| frame.backend.parent_own_segment_first_record)
+            .map(|frame| frame.backend.node_own_segment_records)
             .sum::<usize>();
         let subtree_snapshot_cache_misses = summary
             .frames
@@ -540,16 +540,16 @@ mod tests {
             "analyze_recorded_hit_nodes should be > 0 in the showcase scene"
         );
         assert!(
-            subtree_snapshot_cache_hits + parent_own_segment_hits > 0,
-            "subtree_snapshot_cache_hits + parent_own_segment_hits should be > 0 in the showcase scene"
+            subtree_snapshot_cache_hits + node_own_segment_hits > 0,
+            "subtree_snapshot_cache_hits + node_own_segment_hits should be > 0 in the showcase scene"
         );
         assert!(
             subtree_snapshot_cache_misses > 0,
             "subtree_snapshot_cache_misses should be > 0 in the showcase scene"
         );
         assert!(
-            parent_own_segment_hits + parent_own_segment_first_record > 0,
-            "parent_own_segment_hits + parent_own_segment_first_record should be > 0 in the showcase scene"
+            node_own_segment_hits + node_own_segment_records > 0,
+            "node_own_segment_hits + node_own_segment_records should be > 0 in the showcase scene"
         );
         // Scene snapshot cache should fire at least once on idle stretches.
         assert!(
@@ -565,8 +565,8 @@ mod tests {
         // stay at 0. Keep the read so the counter is exercised end-to-end.
         let _ = subtree_snapshot_cache_evictions;
         assert!(
-            subtree_snapshot_artifact_hits + parent_own_segment_hits > 0,
-            "subtree_snapshot_artifact_hits + parent_own_segment_hits should be > 0 in the showcase scene"
+            subtree_snapshot_artifact_hits + node_own_segment_hits > 0,
+            "subtree_snapshot_artifact_hits + node_own_segment_hits should be > 0 in the showcase scene"
         );
         assert!(
             subtree_snapshot_artifact_first_record > 0,

@@ -183,8 +183,8 @@ impl RenderProfileAggregator {
             ("cache", "scene_snapshot_plan_blocked", "raster") => {
                 frame.backend.scene_snapshot_plan_blocked_by_raster += event.amount;
             }
-            ("cache", "scene_snapshot_plan_blocked", "composite") => {
-                frame.backend.scene_snapshot_plan_blocked_by_composite += event.amount;
+            ("cache", "scene_snapshot_plan_blocked", "apply_change") => {
+                frame.backend.scene_snapshot_plan_blocked_by_apply_change += event.amount;
             }
             ("cache", "subtree_image", "hit") => {
                 frame.backend.subtree_image_cache_hits += event.amount;
@@ -345,8 +345,8 @@ impl RenderProfileAggregator {
             ("analyze", "analyze_composite_blocked_nodes", "count") => {
                 frame.analyze_composite_blocked_nodes += event.amount;
             }
-            ("analyze", "analyze_composite_dirty_nodes", "count") => {
-                frame.analyze_composite_dirty_nodes += event.amount;
+            ("analyze", "analyze_apply_changed_nodes", "count") => {
+                frame.analyze_apply_changed_nodes += event.amount;
             }
             ("cache", "node_own_segment", "hit") => {
                 frame.backend.node_own_segment_hits += event.amount;
@@ -646,7 +646,7 @@ mod tests {
             frame: 1,
             kind: "cache",
             name: "scene_snapshot_plan_blocked",
-            result: "composite",
+            result: "apply_change",
             amount: 5,
         });
 
@@ -655,6 +655,6 @@ mod tests {
         assert_eq!(backend.scene_snapshot_plan_blocked_by_structure, 2);
         assert_eq!(backend.scene_snapshot_plan_blocked_by_layout, 3);
         assert_eq!(backend.scene_snapshot_plan_blocked_by_raster, 4);
-        assert_eq!(backend.scene_snapshot_plan_blocked_by_composite, 5);
+        assert_eq!(backend.scene_snapshot_plan_blocked_by_apply_change, 5);
     }
 }

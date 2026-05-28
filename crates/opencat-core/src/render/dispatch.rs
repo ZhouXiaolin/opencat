@@ -426,8 +426,12 @@ fn begin_apply_frame_cached(
     let frame = emit_apply_prefix(builder, plan);
     let range = builder.end_range(marker);
     let segment = builder.snapshot_range(range);
-    let report = cache.apply_segments.insert(key, segment);
-    record_cache_pressure("apply", &report);
+    if cache.apply_segment_candidates.get_cloned(&key).is_some() {
+        let report = cache.apply_segments.insert(key, segment);
+        record_cache_pressure("apply", &report);
+    } else {
+        cache.apply_segment_candidates.insert(key, ());
+    }
     frame
 }
 
@@ -1229,7 +1233,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_prefix_is_cached_by_apply_segment_key() {
+    fn apply_prefix_is_admitted_after_repeated_apply_segment_key() {
         let mut cache = draw_cache::RenderCache::new(16, 16, 16);
         let transform = transform(7.0, 9.0);
         let bounds = DisplayRect {
@@ -1253,8 +1257,8 @@ mod tests {
         let first_ops = first_builder.finish().ops;
 
         assert!(
-            cache.apply_segments.get_cloned(&segment_key).is_some(),
-            "first prefix emission should record an apply segment"
+            cache.apply_segments.get_cloned(&segment_key).is_none(),
+            "first prefix emission should only mark the apply segment as a candidate"
         );
 
         let mut second_builder = DrawOpBuilder::default();
@@ -1263,7 +1267,20 @@ mod tests {
         finish_apply_frame(&mut second_builder, &second_frame);
         let second_ops = second_builder.finish().ops;
 
+        assert!(
+            cache.apply_segments.get_cloned(&segment_key).is_some(),
+            "second prefix emission should admit the repeated apply segment"
+        );
         assert_eq!(first_ops, second_ops);
+
+        let mut third_builder = DrawOpBuilder::default();
+        let third_frame = begin_apply_frame_cached(&mut third_builder, &plan, &mut cache);
+        third_builder.push(DrawOp::BeginPath);
+        finish_apply_frame(&mut third_builder, &third_frame);
+        let third_ops = third_builder.finish().ops;
+
+        assert_eq!(first_ops, second_ops);
+        assert_eq!(first_ops, third_ops);
     }
 
     #[test]

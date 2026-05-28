@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{Result, anyhow};
 
 use crate::{
@@ -17,13 +19,17 @@ use crate::{
     resolve::tree::{ElementId, ElementKind, ElementNode},
 };
 
-/// L3 子树 merkle 缓存。命中条件三轴全等：
+/// L3 子树 merkle 缓存。命中条件：
 /// - element.fingerprints.paint_input_subtree —— 子树内所有 paint 输入
-/// - element.fingerprints.apply_input_subtree —— 子树内所有 opacity/transforms/backdrop_blur
 /// - layout.output_fingerprint.subtree —— 子树内所有 rect (x/y/w/h)
-/// 三轴全等 + element_id + child_count 也相同 -> 上一帧 DisplayNode 整段克隆复用。
+/// 以上两轴 + element_id + node_count 全等 -> 命中缓存。
 ///
-/// 任一轴不等就在该节点失效,但 children 仍可按各自键继续命中。结构变化（child_count
+/// 命中后分两条路：
+/// - apply_input_subtree 也相同 → 完整命中，直接克隆复用。
+/// - apply_input_subtree 不同 → 仅 apply 字段（opacity/transforms/backdrop_blur）
+///   变化，走 patch 路径，原地更新 apply 字段，跳过 DisplayItem 重建。
+///
+/// 任一轴不等就在该节点失效，但 children 仍可按各自键继续命中。结构变化（child_count
 /// 不等 / element_id 不等）则整棵替换，避免错位复用。
 pub struct DisplayBuildSession {
     root: Option<CachedDisplayNode>,
@@ -45,6 +51,7 @@ pub struct DisplayBuildStats {
     pub subtree_full_hit_subtrees: usize,
     pub subtree_full_hit_nodes: usize,
     pub rebuilt_nodes: usize,
+    pub apply_only_nodes: usize,
 }
 
 impl DisplayBuildSession {
@@ -88,9 +95,62 @@ impl Default for DisplayBuildSession {
 fn cached_matches(cached: &CachedDisplayNode, element: &ElementNode, layout: &LayoutNode) -> bool {
     cached.element_id == element.id
         && cached.paint_input_subtree == element.fingerprints.paint_input_subtree
-        && cached.apply_input_subtree == element.fingerprints.apply_input_subtree
         && cached.layout_output_subtree == layout.output_fingerprint.subtree
         && cached.node_count == element.fingerprints.node_count
+}
+
+fn refresh_paint_epochs(node: &mut DisplayNode, frame: u64) {
+    if let DisplayItem::Bitmap(bitmap) = &mut node.item {
+        if bitmap.video_timing.is_some() {
+            bitmap.paint_epoch = frame;
+        }
+    }
+    for child in &mut node.children {
+        refresh_paint_epochs(child, frame);
+    }
+    for hidden in &mut node.hidden_subtree {
+        refresh_paint_epochs(&mut hidden.node, frame);
+    }
+    node.recorded_subtree_fingerprint = display_recorded_subtree_fingerprint(node);
+}
+
+fn patch_cached_subtree_apply(
+    mut cached: CachedDisplayNode,
+    element: &ElementNode,
+    layout: &LayoutNode,
+    frame_ctx: &FrameCtx,
+) -> CachedDisplayNode {
+    let mut child_map: HashMap<ElementId, CachedDisplayNode> = cached
+        .children
+        .into_iter()
+        .map(|c| (c.element_id, c))
+        .collect();
+
+    let child_pairs: Vec<_> = element.children.iter().zip(layout.children.iter()).collect();
+    let mut built_children: Vec<DisplayNode> = Vec::with_capacity(child_pairs.len());
+    let mut cached_children: Vec<CachedDisplayNode> = Vec::with_capacity(child_pairs.len());
+
+    for (child_elem, child_layout) in child_pairs {
+        let mut prev = child_map
+            .remove(&child_elem.id)
+            .expect("structure must match when cached_matches passed");
+        if prev.apply_input_subtree == child_elem.fingerprints.apply_input_subtree {
+            refresh_paint_epochs(&mut prev.node, frame_ctx.frame as u64);
+            built_children.push(prev.node.clone());
+            cached_children.push(prev);
+        } else {
+            let patched = patch_cached_subtree_apply(prev, child_elem, child_layout, frame_ctx);
+            built_children.push(patched.node.clone());
+            cached_children.push(patched);
+        }
+    }
+
+    let node = assemble_display_node(element, layout, frame_ctx, built_children);
+
+    cached.apply_input_subtree = element.fingerprints.apply_input_subtree;
+    cached.node = node;
+    cached.children = cached_children;
+    cached
 }
 
 fn update_or_build(
@@ -102,10 +162,20 @@ fn update_or_build(
 ) -> Result<(DisplayNode, CachedDisplayNode)> {
     if let Some(entry) = cached.as_ref() {
         if cached_matches(entry, element, layout) {
-            stats.subtree_full_hit_subtrees += 1;
-            stats.subtree_full_hit_nodes += entry.node_count;
-            let cached = cached.expect("just checked Some");
-            return Ok((cached.node.clone(), cached));
+            if entry.apply_input_subtree == element.fingerprints.apply_input_subtree {
+                stats.subtree_full_hit_subtrees += 1;
+                stats.subtree_full_hit_nodes += entry.node_count;
+                let mut cached = cached.expect("just checked Some");
+                let mut node = cached.node.clone();
+                refresh_paint_epochs(&mut node, frame_ctx.frame as u64);
+                cached.node = node;
+                return Ok((cached.node.clone(), cached));
+            }
+
+            stats.apply_only_nodes += entry.node_count;
+            let entry = cached.expect("just checked Some");
+            let patched = patch_cached_subtree_apply(entry, element, layout, frame_ctx);
+            return Ok((patched.node.clone(), patched));
         }
     }
 
@@ -1336,7 +1406,7 @@ mod tests {
     }
 
     #[test]
-    fn session_apply_change_invalidates_cache() {
+    fn session_apply_change_uses_patch_path() {
         let mut session = DisplayBuildSession::new();
 
         let first = resolve_root(
@@ -1357,18 +1427,97 @@ mod tests {
                 .into(),
         );
         let layout2 = fingerprint_only_layout_root(&second);
-        let (_, stats) = session
+        let (tree, stats) = session
             .build_with_cache(&second, &layout2, &small_frame_ctx())
             .expect("frame 1");
 
         assert_eq!(
+            stats.apply_only_nodes, element_node_count(&second),
+            "apply-only change should patch the whole subtree"
+        );
+        assert_eq!(
+            stats.rebuilt_nodes, 0,
+            "apply-only change should not trigger any rebuild"
+        );
+        assert_eq!(
             stats.subtree_full_hit_subtrees, 0,
-            "apply change must invalidate root cache"
+            "apply-only change is not a full hit"
         );
+        assert_eq!(
+            tree.root.children[0].opacity, 0.3,
+            "patched node must reflect new opacity"
+        );
+    }
+
+    fn element_node_count(element: &ElementNode) -> usize {
+        1 + element
+            .children
+            .iter()
+            .map(element_node_count)
+            .sum::<usize>()
+    }
+
+    #[test]
+    fn session_apply_patch_updates_video_paint_epoch() {
+        let frame_ctx_0 = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        };
+        let frame_ctx_1 = FrameCtx {
+            frame: 1,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        };
+
+        let mut session = DisplayBuildSession::new();
+
+        let first = resolve_root(
+            div()
+                .id("root")
+                .opacity(1.0)
+                .child(crate::parse::primitives::video("test.mp4").id("v"))
+                .into(),
+        );
+        let layout1 = fingerprint_only_layout_root(&first);
+        let _ = session
+            .build_with_cache(&first, &layout1, &frame_ctx_0)
+            .expect("frame 0");
+
+        let second = resolve_root(
+            div()
+                .id("root")
+                .opacity(0.5)
+                .child(crate::parse::primitives::video("test.mp4").id("v"))
+                .into(),
+        );
+        let layout2 = fingerprint_only_layout_root(&second);
+        let (tree, stats) = session
+            .build_with_cache(&second, &layout2, &frame_ctx_1)
+            .expect("frame 1");
+
         assert!(
-            stats.rebuilt_nodes >= 2,
-            "root + changed child must rebuild, got {stats:?}"
+            stats.apply_only_nodes > 0,
+            "apply-only patch should be used"
         );
+        assert_eq!(
+            stats.rebuilt_nodes, 0,
+            "no rebuilds for apply-only change"
+        );
+
+        let video_node = &tree.root.children[0];
+        if let DisplayItem::Bitmap(ref bitmap) = video_node.item {
+            assert_eq!(
+                bitmap.paint_epoch, 1,
+                "video paint_epoch should be updated to current frame"
+            );
+        } else {
+            panic!("expected Bitmap display item for video");
+        }
     }
 
     #[test]

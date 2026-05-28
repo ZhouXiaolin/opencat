@@ -330,6 +330,9 @@ impl RenderProfileAggregator {
             ("display", "display_rebuilt_nodes", "count") => {
                 frame.display_rebuilt_nodes += event.amount;
             }
+            ("display", "display_apply_only_nodes", "count") => {
+                frame.display_apply_only_nodes += event.amount;
+            }
             ("analyze", "analyze_merkle_skipped_subtrees", "count") => {
                 frame.analyze_merkle_skipped_subtrees += event.amount;
             }

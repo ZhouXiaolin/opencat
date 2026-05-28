@@ -174,6 +174,18 @@ impl RenderProfileAggregator {
             ("cache", "scene_snapshot_miss", "root_fingerprint_changed") => {
                 frame.backend.scene_snapshot_miss_root_fingerprint_changed += event.amount;
             }
+            ("cache", "scene_snapshot_plan_blocked", "structure") => {
+                frame.backend.scene_snapshot_plan_blocked_by_structure += event.amount;
+            }
+            ("cache", "scene_snapshot_plan_blocked", "layout") => {
+                frame.backend.scene_snapshot_plan_blocked_by_layout += event.amount;
+            }
+            ("cache", "scene_snapshot_plan_blocked", "raster") => {
+                frame.backend.scene_snapshot_plan_blocked_by_raster += event.amount;
+            }
+            ("cache", "scene_snapshot_plan_blocked", "composite") => {
+                frame.backend.scene_snapshot_plan_blocked_by_composite += event.amount;
+            }
             ("cache", "subtree_image", "hit") => {
                 frame.backend.subtree_image_cache_hits += event.amount;
             }
@@ -603,5 +615,46 @@ mod tests {
         assert_eq!(backend.scene_snapshot_miss_empty, 3);
         assert_eq!(backend.scene_snapshot_miss_viewport_changed, 4);
         assert_eq!(backend.scene_snapshot_miss_root_fingerprint_changed, 5);
+    }
+
+    #[test]
+    fn count_events_record_scene_snapshot_plan_block_reasons() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "scene_snapshot_plan_blocked",
+            result: "structure",
+            amount: 2,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "scene_snapshot_plan_blocked",
+            result: "layout",
+            amount: 3,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "scene_snapshot_plan_blocked",
+            result: "raster",
+            amount: 4,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "scene_snapshot_plan_blocked",
+            result: "composite",
+            amount: 5,
+        });
+
+        let summary = aggregator.finish();
+        let backend = &summary.frames[&1].backend;
+        assert_eq!(backend.scene_snapshot_plan_blocked_by_structure, 2);
+        assert_eq!(backend.scene_snapshot_plan_blocked_by_layout, 3);
+        assert_eq!(backend.scene_snapshot_plan_blocked_by_raster, 4);
+        assert_eq!(backend.scene_snapshot_plan_blocked_by_composite, 5);
     }
 }

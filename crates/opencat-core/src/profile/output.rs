@@ -142,6 +142,21 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
             .scene_snapshot_miss_root_fingerprint_changed),
     ));
     out.push_str(&format!(
+        "  scene snapshot plan blocked avg/frame: scene_snapshot_plan_blocked_by_structure {:.2}, scene_snapshot_plan_blocked_by_layout {:.2}, scene_snapshot_plan_blocked_by_raster {:.2}, scene_snapshot_plan_blocked_by_composite {:.2}\n",
+        average_usize(summary, |frame| frame
+            .backend
+            .scene_snapshot_plan_blocked_by_structure),
+        average_usize(summary, |frame| frame
+            .backend
+            .scene_snapshot_plan_blocked_by_layout),
+        average_usize(summary, |frame| frame
+            .backend
+            .scene_snapshot_plan_blocked_by_raster),
+        average_usize(summary, |frame| frame
+            .backend
+            .scene_snapshot_plan_blocked_by_composite),
+    ));
+    out.push_str(&format!(
         "  cache pressure avg/frame: item_evict {:.2}, item_repeat {:.2}, item_util {:.2}, subtree_image_evict {:.2}, subtree_image_repeat {:.2}, subtree_image_util {:.2}, glyph_path_evict {:.2}, glyph_path_repeat {:.2}, glyph_path_util {:.2}, image_evict {:.2}, image_repeat {:.2}, image_util {:.2}, node_own_evict {:.2}, node_own_repeat {:.2}, node_own_util {:.2}\n",
         average_usize(summary, |frame| frame.backend.item_picture_cache_evictions),
         average_usize(summary, |frame| frame.backend.item_picture_cache_record_repeats),
@@ -313,6 +328,10 @@ mod tests {
         frame.backend.scene_snapshot_miss_empty = 3;
         frame.backend.scene_snapshot_miss_viewport_changed = 4;
         frame.backend.scene_snapshot_miss_root_fingerprint_changed = 5;
+        frame.backend.scene_snapshot_plan_blocked_by_structure = 6;
+        frame.backend.scene_snapshot_plan_blocked_by_layout = 7;
+        frame.backend.scene_snapshot_plan_blocked_by_raster = 8;
+        frame.backend.scene_snapshot_plan_blocked_by_composite = 9;
         frame.backend.subtree_snapshot_request_after_analyze_fresh = 10;
         frame.backend.subtree_snapshot_request_after_analyze_reused = 7;
         frame
@@ -362,6 +381,10 @@ mod tests {
         assert!(text.contains("scene_snapshot_miss_empty"));
         assert!(text.contains("scene_snapshot_miss_viewport_changed"));
         assert!(text.contains("scene_snapshot_miss_root_fingerprint_changed"));
+        assert!(text.contains("scene_snapshot_plan_blocked_by_structure"));
+        assert!(text.contains("scene_snapshot_plan_blocked_by_layout"));
+        assert!(text.contains("scene_snapshot_plan_blocked_by_raster"));
+        assert!(text.contains("scene_snapshot_plan_blocked_by_composite"));
         assert!(text.contains("node_own_evict"));
         assert!(text.contains("node_own_repeat"));
         assert!(text.contains("node_own_util"));

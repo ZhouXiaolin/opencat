@@ -680,17 +680,29 @@ mod ordered_scene_tests {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SceneRenderPlan {
     pub allows_scene_snapshot_cache: bool,
+    pub scene_snapshot_blocked_by_structure: bool,
+    pub scene_snapshot_blocked_by_layout: bool,
+    pub scene_snapshot_blocked_by_raster: bool,
+    pub scene_snapshot_blocked_by_composite: bool,
 }
 
 impl SceneRenderPlan {
     pub fn from_layout_pass(layout_pass: &LayoutPassStats, composite_dirty_nodes: usize) -> Self {
-        let has_structural_change = layout_pass.structure_rebuild
-            || layout_pass.layout_dirty_nodes > 0
-            || layout_pass.raster_dirty_nodes > 0
-            || composite_dirty_nodes > 0;
+        let scene_snapshot_blocked_by_structure = layout_pass.structure_rebuild;
+        let scene_snapshot_blocked_by_layout = layout_pass.layout_dirty_nodes > 0;
+        let scene_snapshot_blocked_by_raster = layout_pass.raster_dirty_nodes > 0;
+        let scene_snapshot_blocked_by_composite = composite_dirty_nodes > 0;
+        let allows_scene_snapshot_cache = !(scene_snapshot_blocked_by_structure
+            || scene_snapshot_blocked_by_layout
+            || scene_snapshot_blocked_by_raster
+            || scene_snapshot_blocked_by_composite);
 
         Self {
-            allows_scene_snapshot_cache: !has_structural_change,
+            allows_scene_snapshot_cache,
+            scene_snapshot_blocked_by_structure,
+            scene_snapshot_blocked_by_layout,
+            scene_snapshot_blocked_by_raster,
+            scene_snapshot_blocked_by_composite,
         }
     }
 }
@@ -714,6 +726,10 @@ mod plan_tests {
             plan,
             SceneRenderPlan {
                 allows_scene_snapshot_cache: false,
+                scene_snapshot_blocked_by_structure: false,
+                scene_snapshot_blocked_by_layout: false,
+                scene_snapshot_blocked_by_raster: false,
+                scene_snapshot_blocked_by_composite: true,
             }
         );
     }
@@ -725,8 +741,30 @@ mod plan_tests {
             plan,
             SceneRenderPlan {
                 allows_scene_snapshot_cache: true,
+                scene_snapshot_blocked_by_structure: false,
+                scene_snapshot_blocked_by_layout: false,
+                scene_snapshot_blocked_by_raster: false,
+                scene_snapshot_blocked_by_composite: false,
             }
         );
+    }
+
+    #[test]
+    fn layout_pass_records_scene_snapshot_block_reasons() {
+        let layout_pass = LayoutPassStats {
+            structure_rebuild: true,
+            layout_dirty_nodes: 2,
+            raster_dirty_nodes: 3,
+            ..Default::default()
+        };
+
+        let plan = SceneRenderPlan::from_layout_pass(&layout_pass, 4);
+
+        assert!(!plan.allows_scene_snapshot_cache);
+        assert!(plan.scene_snapshot_blocked_by_structure);
+        assert!(plan.scene_snapshot_blocked_by_layout);
+        assert!(plan.scene_snapshot_blocked_by_raster);
+        assert!(plan.scene_snapshot_blocked_by_composite);
     }
 }
 

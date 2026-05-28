@@ -45,25 +45,16 @@ impl BackendSpanAggregate {
 
 #[derive(Clone, Debug, Default)]
 pub struct BackendProfile {
-    pub subtree_snapshot_record_ms: f64,
-    pub subtree_snapshot_draw_ms: f64,
+    pub node_own_segment_record_ms: f64,
     pub subtree_image_rasterize_ms: f64,
     pub subtree_image_draw_ms: f64,
     pub light_leak_mask_ms: f64,
     pub light_leak_composite_ms: f64,
     pub scene_snapshot_cache_hits: usize,
     pub scene_snapshot_cache_misses: usize,
-    pub subtree_snapshot_cache_hits: usize,
-    pub subtree_snapshot_cache_misses: usize,
-    pub subtree_snapshot_artifact_hits: usize,
-    pub subtree_snapshot_artifact_first_record: usize,
-    pub subtree_snapshot_artifact_evicted_or_absent: usize,
     pub subtree_snapshot_request_after_analyze_fresh: usize,
     pub subtree_snapshot_request_after_analyze_reused: usize,
     pub subtree_snapshot_request_after_analyze_composite_blocked: usize,
-    pub subtree_snapshot_artifact_replaced: usize,
-    pub subtree_snapshot_composite_dirty_hits: usize,
-    pub subtree_snapshot_composite_dirty_misses: usize,
     pub subtree_image_cache_hits: usize,
     pub subtree_image_cache_misses: usize,
     pub subtree_image_promotions: usize,
@@ -89,9 +80,6 @@ pub struct BackendProfile {
     pub item_picture_cache_evictions: usize,
     pub item_picture_cache_record_repeats: usize,
     pub item_picture_cache_capacity_utilization: usize,
-    pub subtree_snapshot_cache_evictions: usize,
-    pub subtree_snapshot_cache_record_repeats: usize,
-    pub subtree_snapshot_cache_capacity_utilization: usize,
     pub subtree_image_cache_evictions: usize,
     pub subtree_image_cache_record_repeats: usize,
     pub subtree_image_cache_capacity_utilization: usize,
@@ -104,9 +92,6 @@ pub struct BackendProfile {
     pub node_own_cache_evictions: usize,
     pub node_own_cache_record_repeats: usize,
     pub node_own_cache_capacity_utilization: usize,
-    /// 所有 subtree_snapshot hit 的 consecutive_hits 累加值。
-    /// 平均值 = total / subtree_snapshot_cache_hits。
-    pub subtree_snapshot_consecutive_hits_total: usize,
 }
 
 #[derive(Default)]

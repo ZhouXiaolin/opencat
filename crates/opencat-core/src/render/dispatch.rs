@@ -3,7 +3,7 @@ use tracing::{Level, event, span};
 
 #[cfg(feature = "profile")]
 use crate::analyze::annotation::AnalyzeReuseState;
-use crate::analyze::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
+use crate::analyze::annotation::{AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle};
 use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::fingerprint::{DisplayRecordedFingerprint, item_paint_fingerprint};
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
@@ -307,7 +307,7 @@ fn render_cached_subtree(
             "CachedSubtree node must have snapshot_fingerprint".to_string(),
         )
     })?;
-    let key = fingerprint.0;
+    let _snapshot_fingerprint = fingerprint;
 
     {
         #[cfg(feature = "profile")]
@@ -330,7 +330,7 @@ fn render_cached_subtree(
 
     let has_clip = node.clip.is_some();
     let subtree = OrderedSceneProgram::build_subtree(tree, handle);
-    let own_key = DisplayRecordedFingerprint::from_recorded(&node.recorded_semantics()).0;
+    let own_key = node_own_segment_key(node);
 
     // First, try the node-own cache (keyed by this node's own content only,
     // independent of child fingerprints). This avoids unnecessary re-recording
@@ -370,92 +370,20 @@ fn render_cached_subtree(
         }
     }
 
-    // Check cache for parent's own segment (item + open clip, no children)
-    {
-        let hit_entry = cache.subtree_snapshots.get_cloned(&key);
-        if let Some(entry) = hit_entry {
-            #[cfg(feature = "profile")]
-            event!(
-                target: "render.cache",
-                Level::TRACE,
-                kind = "cache",
-                name = "subtree_snapshot",
-                result = "hit",
-                amount = 1_u64
-            );
-            #[cfg(feature = "profile")]
-            event!(
-                target: "render.cache",
-                Level::TRACE,
-                kind = "consecutive",
-                name = "subtree_snapshot",
-                result = "count",
-                amount = entry.consecutive_hits as u64
-            );
-            if let Some(segment) = cache.segments.get_cloned(&entry.segment_key) {
-                #[cfg(feature = "profile")]
-                event!(
-                    target: "render.cache",
-                    Level::TRACE,
-                    kind = "cache",
-                    name = "subtree_snapshot_artifact",
-                    result = "hit",
-                    amount = 1_u64
-                );
-                ctx.builder.import_segment(&segment);
-                let updated = CachedNodeOwnIr {
-                    consecutive_hits: entry.consecutive_hits + 1,
-                    ..entry
-                };
-                let report = cache.subtree_snapshots.insert(key, updated);
-                record_cache_pressure("subtree_snapshot", &report);
-
-                // Render children dynamically (composite applied at replay time)
-                for child in &subtree.children {
-                    render_scene_op(ctx, child, tree, cache)?;
-                }
-                if has_clip {
-                    ctx.builder.push(DrawOp::Restore);
-                }
-                restore_backdrop_blur_layer(ctx, &layer_state);
-                ctx.builder.push(DrawOp::Restore);
-                return Ok(());
-            }
-            #[cfg(feature = "profile")]
-            event!(
-                target: "render.cache",
-                Level::TRACE,
-                kind = "cache",
-                name = "subtree_snapshot_artifact",
-                result = "evicted_or_absent",
-                amount = 1_u64
-            );
-        } else {
-            #[cfg(feature = "profile")]
-            event!(
-                target: "render.cache",
-                Level::TRACE,
-                kind = "cache",
-                name = "subtree_snapshot_artifact",
-                result = "first_record",
-                amount = 1_u64
-            );
-            #[cfg(feature = "profile")]
-            event!(
-                target: "render.cache",
-                Level::TRACE,
-                kind = "cache",
-                name = "node_own_segment",
-                result = "record",
-                amount = 1_u64
-            );
-        }
-    }
+    #[cfg(feature = "profile")]
+    event!(
+        target: "render.cache",
+        Level::TRACE,
+        kind = "cache",
+        name = "node_own_segment",
+        result = "record",
+        amount = 1_u64
+    );
 
     // Cache miss — record parent's own rendering as a segment
     #[cfg(feature = "profile")]
     let _record_span =
-        span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record").entered();
+        span!(target: "render.backend", Level::TRACE, "node_own_segment_record").entered();
 
     let recorded = node.recorded_semantics();
 
@@ -508,36 +436,6 @@ fn render_cached_subtree(
         }
     }
 
-    let snapshot = CachedNodeOwnIr {
-        segment_key,
-        consecutive_hits: 0,
-        recorded_bounds: layer_bounds,
-    };
-    {
-        let report = cache.subtree_snapshots.insert(key, snapshot);
-        if report.replaced {
-            #[cfg(feature = "profile")]
-            event!(
-                target: "render.cache",
-                Level::TRACE,
-                kind = "cache",
-                name = "subtree_snapshot_artifact",
-                result = "replaced",
-                amount = 1_u64
-            );
-        }
-        record_cache_pressure("subtree_snapshot", &report);
-    }
-    #[cfg(feature = "profile")]
-    event!(
-        target: "render.cache",
-        Level::TRACE,
-        kind = "cache",
-        name = "subtree_snapshot",
-        result = "miss",
-        amount = 1_u64
-    );
-
     // Render children dynamically (not baked into parent segment)
     for child in &subtree.children {
         render_scene_op(ctx, child, tree, cache)?;
@@ -549,6 +447,10 @@ fn render_cached_subtree(
     restore_backdrop_blur_layer(ctx, &layer_state);
     ctx.builder.push(DrawOp::Restore);
     Ok(())
+}
+
+fn node_own_segment_key(node: &AnnotatedDisplayNode) -> u64 {
+    DisplayRecordedFingerprint::from_recorded(&node.recorded_semantics()).0
 }
 
 fn render_live_subtree(
@@ -967,5 +869,120 @@ pub(crate) fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTr
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        analyze::annotation::AnnotatedDisplayNode,
+        display::{
+            list::{DisplayItem, RectPaintStyle},
+            tree::DisplayRecordedSubtreeFingerprint,
+        },
+        layout::tree::LayoutOutputFingerprint,
+        semantic::fingerprint::ElementInputFingerprints,
+        style::{BackgroundFill, ColorToken},
+    };
+
+    fn rect_node(
+        background: Option<BackgroundFill>,
+        transform: DisplayTransform,
+        children: Vec<AnnotatedNodeHandle>,
+    ) -> AnnotatedDisplayNode {
+        let bounds = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+        };
+        AnnotatedDisplayNode {
+            input_fingerprints: ElementInputFingerprints::default(),
+            layout_output_fingerprint: LayoutOutputFingerprint::default(),
+            recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint::default(),
+            transform,
+            opacity: 1.0,
+            backdrop_blur_sigma: None,
+            clip: None,
+            item: DisplayItem::Rect(RectDisplayItem {
+                bounds,
+                paint: RectPaintStyle {
+                    background,
+                    border_radius: BorderRadius::default(),
+                    border_width: None,
+                    border_top_width: None,
+                    border_right_width: None,
+                    border_bottom_width: None,
+                    border_left_width: None,
+                    border_color: None,
+                    border_style: None,
+                    blur_sigma: None,
+                    box_shadow: None,
+                    inset_shadow: None,
+                    drop_shadow: None,
+                    backdrop_blur_sigma: None,
+                },
+            }),
+            children,
+            draw_slot: None,
+            hidden_subtree: Vec::new(),
+        }
+    }
+
+    fn transform(translation_x: f32, translation_y: f32) -> DisplayTransform {
+        DisplayTransform {
+            translation_x,
+            translation_y,
+            bounds: DisplayRect {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 100.0,
+            },
+            transforms: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn node_own_segment_key_tracks_parent_paint_not_children() {
+        let parent_without_child = rect_node(
+            Some(BackgroundFill::Solid(ColorToken::Custom(10, 20, 30, 255))),
+            transform(0.0, 0.0),
+            Vec::new(),
+        );
+        let parent_with_changed_child = rect_node(
+            Some(BackgroundFill::Solid(ColorToken::Custom(10, 20, 30, 255))),
+            transform(0.0, 0.0),
+            vec![AnnotatedNodeHandle(1)],
+        );
+        let parent_with_changed_paint = rect_node(
+            Some(BackgroundFill::Solid(ColorToken::Custom(30, 20, 10, 255))),
+            transform(0.0, 0.0),
+            vec![AnnotatedNodeHandle(1)],
+        );
+
+        assert_eq!(
+            node_own_segment_key(&parent_without_child),
+            node_own_segment_key(&parent_with_changed_child),
+            "child changes must not invalidate the parent's own segment"
+        );
+        assert_ne!(
+            node_own_segment_key(&parent_without_child),
+            node_own_segment_key(&parent_with_changed_paint),
+            "parent recorded paint changes must invalidate the parent's own segment"
+        );
+    }
+
+    #[test]
+    fn node_own_segment_key_ignores_apply_transform() {
+        let stationary = rect_node(None, transform(0.0, 0.0), vec![AnnotatedNodeHandle(1)]);
+        let moved = rect_node(None, transform(24.0, 12.0), vec![AnnotatedNodeHandle(1)]);
+
+        assert_eq!(
+            node_own_segment_key(&stationary),
+            node_own_segment_key(&moved),
+            "apply transform is replayed around the segment and must not invalidate it"
+        );
     }
 }

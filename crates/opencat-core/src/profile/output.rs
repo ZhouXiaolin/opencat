@@ -85,16 +85,15 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.analyze_composite_dirty_nodes),
     ));
     out.push_str(&format!(
-        "  backend avg ms/frame: subtree_snapshot_record {:.2}, subtree_snapshot_draw {:.2}, subtree_image_rasterize {:.2}, subtree_image_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}\n",
-        average(summary, |frame| frame.backend.subtree_snapshot_record_ms),
-        average(summary, |frame| frame.backend.subtree_snapshot_draw_ms),
+        "  backend avg ms/frame: node_own_record {:.2}, subtree_image_rasterize {:.2}, subtree_image_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}\n",
+        average(summary, |frame| frame.backend.node_own_segment_record_ms),
         average(summary, |frame| frame.backend.subtree_image_rasterize_ms),
         average(summary, |frame| frame.backend.subtree_image_draw_ms),
         average(summary, |frame| frame.backend.light_leak_mask_ms),
         average(summary, |frame| frame.backend.light_leak_composite_ms),
     ));
     out.push_str(&format!(
-        "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, glyph_path_hit {:.2}, glyph_path_miss {:.2}, glyph_img_hit {:.2}, glyph_img_miss {:.2}, item_hit {:.2}, item_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_snapshot_hit {:.2}, subtree_snapshot_miss {:.2}, subtree_artifact_hit {:.2}, subtree_artifact_first_record {:.2}, subtree_artifact_evicted_or_absent {:.2}, subtree_request_after_fresh {:.2}, subtree_request_after_reused {:.2}, subtree_request_after_composite_blocked {:.2}, subtree_dirty_hit {:.2}, subtree_dirty_miss {:.2}, subtree_artifact_replaced {:.2}, node_own_hit {:.2}, node_own_record {:.2}, node_own_replaced {:.2}, subtree_image_hit {:.2}, subtree_image_miss {:.2}, subtree_image_promote {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}\n",
+        "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, glyph_path_hit {:.2}, glyph_path_miss {:.2}, glyph_img_hit {:.2}, glyph_img_miss {:.2}, item_hit {:.2}, item_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_request_after_fresh {:.2}, subtree_request_after_reused {:.2}, subtree_request_after_composite_blocked {:.2}, node_own_hit {:.2}, node_own_record {:.2}, node_own_replaced {:.2}, subtree_image_hit {:.2}, subtree_image_miss {:.2}, subtree_image_promote {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}\n",
         average_usize(summary, |frame| frame.backend.draw_rect_count),
         average_usize(summary, |frame| frame.backend.draw_text_count),
         average_usize(summary, |frame| frame.backend.draw_bitmap_count),
@@ -108,15 +107,6 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.backend.item_picture_cache_misses),
         average_usize(summary, |frame| frame.backend.scene_snapshot_cache_hits),
         average_usize(summary, |frame| frame.backend.scene_snapshot_cache_misses),
-        average_usize(summary, |frame| frame.backend.subtree_snapshot_cache_hits),
-        average_usize(summary, |frame| frame.backend.subtree_snapshot_cache_misses),
-        average_usize(summary, |frame| frame.backend.subtree_snapshot_artifact_hits),
-        average_usize(summary, |frame| frame
-            .backend
-            .subtree_snapshot_artifact_first_record),
-        average_usize(summary, |frame| frame
-            .backend
-            .subtree_snapshot_artifact_evicted_or_absent),
         average_usize(summary, |frame| frame
             .backend
             .subtree_snapshot_request_after_analyze_fresh),
@@ -126,9 +116,6 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame
             .backend
             .subtree_snapshot_request_after_analyze_composite_blocked),
-        average_usize(summary, |frame| frame.backend.subtree_snapshot_composite_dirty_hits),
-        average_usize(summary, |frame| frame.backend.subtree_snapshot_composite_dirty_misses),
-        average_usize(summary, |frame| frame.backend.subtree_snapshot_artifact_replaced),
         average_usize(summary, |frame| frame.backend.node_own_segment_hits),
         average_usize(summary, |frame| frame.backend.node_own_segment_records),
         average_usize(summary, |frame| frame.backend.node_own_segment_replaced),
@@ -142,13 +129,10 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.backend.video_frame_decodes),
     ));
     out.push_str(&format!(
-        "  cache pressure avg/frame: item_evict {:.2}, item_repeat {:.2}, item_util {:.2}, subtree_evict {:.2}, subtree_repeat {:.2}, subtree_util {:.2}, subtree_image_evict {:.2}, subtree_image_repeat {:.2}, subtree_image_util {:.2}, glyph_path_evict {:.2}, glyph_path_repeat {:.2}, glyph_path_util {:.2}, image_evict {:.2}, image_repeat {:.2}, image_util {:.2}, node_own_evict {:.2}, node_own_repeat {:.2}, node_own_util {:.2}\n",
+        "  cache pressure avg/frame: item_evict {:.2}, item_repeat {:.2}, item_util {:.2}, subtree_image_evict {:.2}, subtree_image_repeat {:.2}, subtree_image_util {:.2}, glyph_path_evict {:.2}, glyph_path_repeat {:.2}, glyph_path_util {:.2}, image_evict {:.2}, image_repeat {:.2}, image_util {:.2}, node_own_evict {:.2}, node_own_repeat {:.2}, node_own_util {:.2}\n",
         average_usize(summary, |frame| frame.backend.item_picture_cache_evictions),
         average_usize(summary, |frame| frame.backend.item_picture_cache_record_repeats),
         average_usize(summary, |frame| frame.backend.item_picture_cache_capacity_utilization),
-        average_usize(summary, |frame| frame.backend.subtree_snapshot_cache_evictions),
-        average_usize(summary, |frame| frame.backend.subtree_snapshot_cache_record_repeats),
-        average_usize(summary, |frame| frame.backend.subtree_snapshot_cache_capacity_utilization),
         average_usize(summary, |frame| frame.backend.subtree_image_cache_evictions),
         average_usize(summary, |frame| frame.backend.subtree_image_cache_record_repeats),
         average_usize(summary, |frame| frame.backend.subtree_image_cache_capacity_utilization),
@@ -312,9 +296,6 @@ mod tests {
         frame.analyze_snapshot_eligibility_hit_nodes = 11;
         frame.analyze_composite_blocked_subtrees = 1;
         frame.analyze_composite_blocked_nodes = 1;
-        frame.backend.subtree_snapshot_artifact_hits = 2;
-        frame.backend.subtree_snapshot_artifact_first_record = 3;
-        frame.backend.subtree_snapshot_artifact_evicted_or_absent = 5;
         frame.backend.subtree_snapshot_request_after_analyze_fresh = 10;
         frame.backend.subtree_snapshot_request_after_analyze_reused = 7;
         frame
@@ -353,12 +334,7 @@ mod tests {
         assert!(text.contains("recorded_hit_nodes"));
         assert!(text.contains("snapshot_eligibility_hit_nodes"));
         assert!(text.contains("composite_blocked_nodes"));
-        assert!(text.contains("subtree_snapshot_hit"));
-        assert!(text.contains("subtree_snapshot_miss"));
-        assert!(text.contains("subtree_evict"));
-        assert!(text.contains("subtree_artifact_hit"));
-        assert!(text.contains("subtree_artifact_first_record"));
-        assert!(text.contains("subtree_artifact_evicted_or_absent"));
+        assert!(text.contains("node_own_record"));
         assert!(text.contains("subtree_request_after_fresh"));
         assert!(text.contains("subtree_request_after_reused"));
         assert!(text.contains("subtree_request_after_composite_blocked"));

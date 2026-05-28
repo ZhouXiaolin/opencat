@@ -536,6 +536,42 @@ git add docs/superpowers/specs/2026-05-29-merkle-cache-design.md docs/superpower
 git commit -m "docs: record merkle cache cleanup results"
 ```
 
+## Implementation Results
+
+Accepted implementation commits:
+
+- `334af71 refactor: rename parent-own profile counters`
+- `2753028 refactor: rename node-own render cache`
+- `fe53fce refactor: type render segment keys`
+- `7815398 refactor: simplify node-own render cache lookup`
+
+Final render cache shape:
+
+- `RenderCache::node_own_segments` is the sole node-own entry map.
+- `RenderCache::segments` uses typed `SegmentKey::{Item, NodeOwn}` artifact keys.
+- `RenderCache::item_ranges` remains the item picture range cache.
+- `RenderCache::last_scene_snapshot` remains the whole-frame scene snapshot.
+- `RenderCache::subtree_snapshots` and the `subtree_snapshot_artifact_*` profile path were removed.
+- `OrderedSceneOp::CachedSubtree` remains an analyze/compositor planning operation; it no longer implies a second render artifact lookup.
+
+Final profile comparison after Chunk 4:
+
+```text
+frames: 414
+avg ms/frame: script 0.64, resolve 0.64, layout 0.06, display 0.06, backend 0.25
+display avg/frame: merkle_skipped_nodes 12.8, rebuilt_nodes 2.9, apply_only_patched_nodes 9.9
+analyze avg/frame: merkle_skipped_nodes 20.0, recorded_hit_nodes 20.0, composite_dirty_nodes 1.4
+backend avg counts/frame: scene_snapshot_hit 0.00, scene_snapshot_miss 1.00, subtree_request_after_fresh 3.97, subtree_request_after_reused 5.64, node_own_hit 9.55, node_own_record 0.06
+cache pressure avg/frame: node_own_evict 0.00, node_own_repeat 9.55, node_own_util 55.21
+```
+
+Final verification commands run before the Chunk 4 commit:
+
+```bash
+cargo test -p opencat-core
+cargo run --bin opencat --release --features profile -- json/profile-showcase.jsonl
+```
+
 ## Execution Notes
 
 - Do not touch `implementation-notes.md` or `json/four-corners.xml` unless Solaren explicitly asks; they were pre-existing untracked files.

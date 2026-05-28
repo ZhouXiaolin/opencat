@@ -97,6 +97,8 @@ pub struct BackendProfile {
     pub node_own_segment_hits: usize,
     pub node_own_segment_records: usize,
     pub node_own_segment_replaced: usize,
+    pub apply_segment_hits: usize,
+    pub apply_segment_misses: usize,
     pub node_own_cache_evictions: usize,
     pub node_own_cache_record_repeats: usize,
     pub node_own_cache_capacity_utilization: usize,

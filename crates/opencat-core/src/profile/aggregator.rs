@@ -357,6 +357,12 @@ impl RenderProfileAggregator {
             ("cache", "node_own_segment", "replaced") => {
                 frame.backend.node_own_segment_replaced += event.amount;
             }
+            ("cache", "apply_segment", "hit") => {
+                frame.backend.apply_segment_hits += event.amount;
+            }
+            ("cache", "apply_segment", "miss") => {
+                frame.backend.apply_segment_misses += event.amount;
+            }
             ("eviction", "node_own", "count") => {
                 frame.backend.node_own_cache_evictions += event.amount;
             }
@@ -574,6 +580,31 @@ mod tests {
         assert_eq!(backend.node_own_cache_evictions, 4);
         assert_eq!(backend.node_own_cache_record_repeats, 5);
         assert_eq!(backend.node_own_cache_capacity_utilization, 6);
+    }
+
+    #[test]
+    fn count_events_record_apply_segment_activity() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "apply_segment",
+            result: "hit",
+            amount: 2,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "apply_segment",
+            result: "miss",
+            amount: 3,
+        });
+
+        let summary = aggregator.finish();
+        let backend = &summary.frames[&1].backend;
+        assert_eq!(backend.apply_segment_hits, 2);
+        assert_eq!(backend.apply_segment_misses, 3);
     }
 
     #[test]

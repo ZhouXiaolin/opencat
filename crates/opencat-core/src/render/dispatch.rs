@@ -179,7 +179,7 @@ struct BackdropLayerState {
 }
 
 fn save_backdrop_blur_layer(
-    ctx: &mut RenderCtx,
+    builder: &mut DrawOpBuilder,
     opacity: f32,
     backdrop_blur: Option<f32>,
     bounds: DisplayRect,
@@ -214,31 +214,31 @@ fn save_backdrop_blur_layer(
                     mask_filter: None,
                     path_effect: None,
                 };
-                let paint_id = ctx.builder.intern_paint(paint);
-                ctx.builder.push(DrawOp::Save);
-                ctx.builder.push(DrawOp::BeginPath);
-                ctx.builder.push(DrawOp::Path(PathOp::AddRect {
+                let paint_id = builder.intern_paint(paint);
+                builder.push(DrawOp::Save);
+                builder.push(DrawOp::BeginPath);
+                builder.push(DrawOp::Path(PathOp::AddRect {
                     x: bounds_rect4.x,
                     y: bounds_rect4.y,
                     width: bounds_rect4.width,
                     height: bounds_rect4.height,
                 }));
-                ctx.builder.push(DrawOp::ClipPath { anti_alias: false });
+                builder.push(DrawOp::ClipPath { anti_alias: false });
                 has_backdrop_clip = true;
-                ctx.builder.push(DrawOp::SaveLayer {
+                builder.push(DrawOp::SaveLayer {
                     bounds: Some(bounds_rect4),
                     paint: Some(paint_id),
                     alpha: 1.0,
                 });
             } else {
-                ctx.builder.push(DrawOp::SaveLayer {
+                builder.push(DrawOp::SaveLayer {
                     bounds: Some(bounds_rect4),
                     paint: None,
                     alpha: opacity,
                 });
             }
         } else {
-            ctx.builder.push(DrawOp::SaveLayer {
+            builder.push(DrawOp::SaveLayer {
                 bounds: Some(bounds_rect4),
                 paint: None,
                 alpha: opacity,
@@ -251,13 +251,35 @@ fn save_backdrop_blur_layer(
     }
 }
 
-fn restore_backdrop_blur_layer(ctx: &mut RenderCtx, state: &BackdropLayerState) {
+fn restore_backdrop_blur_layer(builder: &mut DrawOpBuilder, state: &BackdropLayerState) {
     if state.uses_layer {
-        ctx.builder.push(DrawOp::Restore);
+        builder.push(DrawOp::Restore);
         if state.has_backdrop_clip {
-            ctx.builder.push(DrawOp::Restore);
+            builder.push(DrawOp::Restore);
         }
     }
+}
+
+struct ApplyFrame {
+    layer_state: BackdropLayerState,
+}
+
+fn begin_apply_frame(
+    builder: &mut DrawOpBuilder,
+    transform: &DisplayTransform,
+    opacity: f32,
+    backdrop_blur: Option<f32>,
+    layer_bounds: DisplayRect,
+) -> ApplyFrame {
+    builder.push(DrawOp::Save);
+    apply_transform(builder, transform);
+    let layer_state = save_backdrop_blur_layer(builder, opacity, backdrop_blur, layer_bounds);
+    ApplyFrame { layer_state }
+}
+
+fn finish_apply_frame(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
+    restore_backdrop_blur_layer(builder, &frame.layer_state);
+    builder.push(DrawOp::Restore);
 }
 
 pub fn render_display_tree(
@@ -296,12 +318,14 @@ fn render_reused_subtree(
         return Ok(());
     }
 
-    ctx.builder.push(DrawOp::Save);
-    apply_transform(ctx.builder, draw.transform);
-
     let layer_bounds = tree.layer_bounds(handle);
-    let layer_state =
-        save_backdrop_blur_layer(ctx, draw.opacity, draw.backdrop_blur_sigma, layer_bounds);
+    let apply_frame = begin_apply_frame(
+        ctx.builder,
+        draw.transform,
+        draw.opacity,
+        draw.backdrop_blur_sigma,
+        layer_bounds,
+    );
     let fingerprint = tree.analysis(handle).snapshot_fingerprint.ok_or_else(|| {
         RenderError::InvalidArgument(
             "ReusedSubtree node must have snapshot_fingerprint".to_string(),
@@ -363,8 +387,7 @@ fn render_reused_subtree(
                 if has_clip {
                     ctx.builder.push(DrawOp::Restore);
                 }
-                restore_backdrop_blur_layer(ctx, &layer_state);
-                ctx.builder.push(DrawOp::Restore);
+                finish_apply_frame(ctx.builder, &apply_frame);
                 return Ok(());
             }
         }
@@ -444,8 +467,7 @@ fn render_reused_subtree(
         ctx.builder.push(DrawOp::Restore);
     }
 
-    restore_backdrop_blur_layer(ctx, &layer_state);
-    ctx.builder.push(DrawOp::Restore);
+    finish_apply_frame(ctx.builder, &apply_frame);
     Ok(())
 }
 
@@ -466,11 +488,9 @@ fn render_live_subtree(
         return Ok(());
     }
 
-    ctx.builder.push(DrawOp::Save);
-    apply_transform(ctx.builder, draw.transform);
-
-    let layer_state = save_backdrop_blur_layer(
-        ctx,
+    let apply_frame = begin_apply_frame(
+        ctx.builder,
+        draw.transform,
         draw.opacity,
         draw.backdrop_blur_sigma,
         tree.layer_bounds(handle),
@@ -523,8 +543,7 @@ fn render_live_subtree(
         if node.clip.is_some() {
             ctx.builder.push(DrawOp::Restore);
         }
-        restore_backdrop_blur_layer(ctx, &layer_state);
-        ctx.builder.push(DrawOp::Restore);
+        finish_apply_frame(ctx.builder, &apply_frame);
         return Ok(());
     }
 
@@ -551,8 +570,7 @@ fn render_live_subtree(
     if node.clip.is_some() {
         ctx.builder.push(DrawOp::Restore);
     }
-    restore_backdrop_blur_layer(ctx, &layer_state);
-    ctx.builder.push(DrawOp::Restore);
+    finish_apply_frame(ctx.builder, &apply_frame);
     Ok(())
 }
 
@@ -984,5 +1002,42 @@ mod tests {
             node_own_segment_key(&moved),
             "apply transform is replayed around the segment and must not invalidate it"
         );
+    }
+
+    #[test]
+    fn apply_frame_wraps_body_with_transform_and_layer() {
+        let mut builder = DrawOpBuilder::default();
+        let mut transform = transform(10.0, 20.0);
+        transform.transforms = vec![Transform::Scale { value: 2.0 }];
+        let bounds = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 80.0,
+        };
+        transform.bounds = bounds;
+
+        let frame = begin_apply_frame(&mut builder, &transform, 0.5, None, bounds);
+        builder.push(DrawOp::BeginPath);
+        finish_apply_frame(&mut builder, &frame);
+        let ops = builder.finish().ops;
+
+        assert_eq!(ops[0], DrawOp::Save);
+        assert_eq!(ops[1], DrawOp::Translate { x: 10.0, y: 20.0 });
+        assert_eq!(ops[2], DrawOp::Translate { x: 50.0, y: 40.0 });
+        assert_eq!(ops[3], DrawOp::Scale { x: 2.0, y: 2.0 });
+        assert_eq!(ops[4], DrawOp::Translate { x: -50.0, y: -40.0 });
+        assert_eq!(
+            ops[5],
+            DrawOp::SaveLayer {
+                bounds: Some(display_rect_to_rect4(bounds)),
+                paint: None,
+                alpha: 0.5,
+            }
+        );
+        assert_eq!(ops[6], DrawOp::BeginPath);
+        assert_eq!(ops[7], DrawOp::Restore);
+        assert_eq!(ops[8], DrawOp::Restore);
+        assert_eq!(ops.len(), 9);
     }
 }

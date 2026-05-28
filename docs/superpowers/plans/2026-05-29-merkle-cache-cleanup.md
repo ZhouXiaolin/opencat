@@ -346,7 +346,7 @@ Lookups must pass `&cached_range.segment_key`.
 
 - [ ] **Step 5: Update node-own cache path**
 
-In `render_cached_subtree`:
+In `render_reused_subtree`:
 
 ```rust
 let segment_key = SegmentKey::NodeOwn(own_key);
@@ -447,7 +447,7 @@ If `subtree_snapshots` only points at the same node-own segment artifact:
 - remove `subtree_snapshots` from `RenderCache`;
 - remove `CachedSubtreeIr` remnants;
 - remove `subtree_snapshot_artifact_*` events;
-- keep ordered-scene `CachedSubtree` as a planning operation if still useful.
+- keep ordered-scene subtree reuse as a planning operation if still useful.
 
 If removal creates ambiguity or profile loses useful visibility, stop and keep the cache with clearer names instead.
 
@@ -552,7 +552,7 @@ Final render cache shape:
 - `RenderCache::item_ranges` remains the item picture range cache.
 - `RenderCache::last_scene_snapshot` remains the whole-frame scene snapshot.
 - `RenderCache::subtree_snapshots` and the `subtree_snapshot_artifact_*` profile path were removed.
-- `OrderedSceneOp::CachedSubtree` remains an analyze/compositor planning operation; it no longer implies a second render artifact lookup.
+- `OrderedSceneOp::ReusedSubtree` remains an analyze/compositor planning operation; it no longer implies a second render artifact lookup.
 
 Final profile comparison after Chunk 4:
 

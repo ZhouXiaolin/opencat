@@ -250,7 +250,10 @@ impl RenderProfileAggregator {
                 frame.backend.glyph_path_cache_record_repeats += event.amount;
             }
             ("utilization", "glyph_path", "count") => {
-                frame.backend.glyph_path_cache_capacity_utilization += event.amount;
+                frame.backend.glyph_path_cache_capacity_utilization = frame
+                    .backend
+                    .glyph_path_cache_capacity_utilization
+                    .max(event.amount);
             }
             ("eviction", "item_picture", "count") => {
                 frame.backend.item_picture_cache_evictions += event.amount;
@@ -259,7 +262,10 @@ impl RenderProfileAggregator {
                 frame.backend.item_picture_cache_record_repeats += event.amount;
             }
             ("utilization", "item_picture", "count") => {
-                frame.backend.item_picture_cache_capacity_utilization += event.amount;
+                frame.backend.item_picture_cache_capacity_utilization = frame
+                    .backend
+                    .item_picture_cache_capacity_utilization
+                    .max(event.amount);
             }
             ("eviction", "subtree_image", "count") => {
                 frame.backend.subtree_image_cache_evictions += event.amount;
@@ -268,7 +274,10 @@ impl RenderProfileAggregator {
                 frame.backend.subtree_image_cache_record_repeats += event.amount;
             }
             ("utilization", "subtree_image", "count") => {
-                frame.backend.subtree_image_cache_capacity_utilization += event.amount;
+                frame.backend.subtree_image_cache_capacity_utilization = frame
+                    .backend
+                    .subtree_image_cache_capacity_utilization
+                    .max(event.amount);
             }
             ("eviction", "image", "count") => {
                 frame.backend.image_cache_evictions += event.amount;
@@ -277,7 +286,10 @@ impl RenderProfileAggregator {
                 frame.backend.image_cache_record_repeats += event.amount;
             }
             ("utilization", "image", "count") => {
-                frame.backend.image_cache_capacity_utilization += event.amount;
+                frame.backend.image_cache_capacity_utilization = frame
+                    .backend
+                    .image_cache_capacity_utilization
+                    .max(event.amount);
             }
             ("layout", "reused_nodes", "count") => {
                 frame.reused_nodes += event.amount;
@@ -370,7 +382,8 @@ impl RenderProfileAggregator {
                 frame.backend.apply_cache_record_repeats += event.amount;
             }
             ("utilization", "apply", "count") => {
-                frame.backend.apply_cache_capacity_utilization += event.amount;
+                frame.backend.apply_cache_capacity_utilization =
+                    frame.backend.apply_cache_capacity_utilization.max(event.amount);
             }
             ("eviction", "node_own", "count") => {
                 frame.backend.node_own_cache_evictions += event.amount;
@@ -379,7 +392,10 @@ impl RenderProfileAggregator {
                 frame.backend.node_own_cache_record_repeats += event.amount;
             }
             ("utilization", "node_own", "count") => {
-                frame.backend.node_own_cache_capacity_utilization += event.amount;
+                frame.backend.node_own_cache_capacity_utilization = frame
+                    .backend
+                    .node_own_cache_capacity_utilization
+                    .max(event.amount);
             }
             _ => {}
         }
@@ -647,6 +663,37 @@ mod tests {
         assert_eq!(backend.apply_cache_evictions, 4);
         assert_eq!(backend.apply_cache_record_repeats, 5);
         assert_eq!(backend.apply_cache_capacity_utilization, 6);
+    }
+
+    #[test]
+    fn count_events_keep_peak_cache_utilization_per_frame() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "utilization",
+            name: "apply",
+            result: "count",
+            amount: 6,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "utilization",
+            name: "apply",
+            result: "count",
+            amount: 9,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "utilization",
+            name: "apply",
+            result: "count",
+            amount: 4,
+        });
+
+        let summary = aggregator.finish();
+        let backend = &summary.frames[&1].backend;
+        assert_eq!(backend.apply_cache_capacity_utilization, 9);
     }
 
     #[test]

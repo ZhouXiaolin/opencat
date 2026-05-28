@@ -12,6 +12,7 @@ use crate::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::text::default_font_db;
 
 const DEFAULT_SUBTREE_SNAPSHOT_CAP: usize = 256;
+const DEFAULT_PARENT_OWN_CAP: usize = 256;
 const DEFAULT_SEGMENT_CAP: usize = 256;
 const DEFAULT_ITEM_RANGE_CAP: usize = 128;
 
@@ -56,6 +57,7 @@ impl RenderSession {
             prepared_root_ptr: None,
             cache: RenderCache::new(
                 DEFAULT_SUBTREE_SNAPSHOT_CAP,
+                DEFAULT_PARENT_OWN_CAP,
                 DEFAULT_SEGMENT_CAP,
                 DEFAULT_ITEM_RANGE_CAP,
             ),

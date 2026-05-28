@@ -162,6 +162,18 @@ impl RenderProfileAggregator {
             ("cache", "scene_snapshot", "miss") => {
                 frame.backend.scene_snapshot_cache_misses += event.amount;
             }
+            ("cache", "scene_snapshot_miss", "plan_blocked") => {
+                frame.backend.scene_snapshot_miss_plan_blocked += event.amount;
+            }
+            ("cache", "scene_snapshot_miss", "empty") => {
+                frame.backend.scene_snapshot_miss_empty += event.amount;
+            }
+            ("cache", "scene_snapshot_miss", "viewport_changed") => {
+                frame.backend.scene_snapshot_miss_viewport_changed += event.amount;
+            }
+            ("cache", "scene_snapshot_miss", "root_fingerprint_changed") => {
+                frame.backend.scene_snapshot_miss_root_fingerprint_changed += event.amount;
+            }
             ("cache", "subtree_image", "hit") => {
                 frame.backend.subtree_image_cache_hits += event.amount;
             }
@@ -550,5 +562,46 @@ mod tests {
         assert_eq!(backend.node_own_cache_evictions, 4);
         assert_eq!(backend.node_own_cache_record_repeats, 5);
         assert_eq!(backend.node_own_cache_capacity_utilization, 6);
+    }
+
+    #[test]
+    fn count_events_record_scene_snapshot_miss_reasons() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "scene_snapshot_miss",
+            result: "plan_blocked",
+            amount: 2,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "scene_snapshot_miss",
+            result: "empty",
+            amount: 3,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "scene_snapshot_miss",
+            result: "viewport_changed",
+            amount: 4,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "scene_snapshot_miss",
+            result: "root_fingerprint_changed",
+            amount: 5,
+        });
+
+        let summary = aggregator.finish();
+        let backend = &summary.frames[&1].backend;
+        assert_eq!(backend.scene_snapshot_miss_plan_blocked, 2);
+        assert_eq!(backend.scene_snapshot_miss_empty, 3);
+        assert_eq!(backend.scene_snapshot_miss_viewport_changed, 4);
+        assert_eq!(backend.scene_snapshot_miss_root_fingerprint_changed, 5);
     }
 }

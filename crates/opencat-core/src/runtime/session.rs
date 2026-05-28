@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::analyze::annotation::{AnalyzeFingerprintHistory, AnnotatedNodeHandle};
 use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::invalidation::CompositeHistory;
+use crate::display::build::DisplayBuildSession;
 use crate::ir::cache::RenderCache;
 use crate::layout::LayoutSession;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
@@ -17,6 +18,9 @@ const DEFAULT_ITEM_RANGE_CAP: usize = 128;
 pub struct RenderSession {
     /// per-render layout accumulator (node id -> measure cache)
     pub layout_session: LayoutSession,
+
+    /// per-render display tree builder w/ subtree merkle cache (L3)
+    pub display_build_session: DisplayBuildSession,
 
     /// cross-frame composite dirty history
     pub composite_history: CompositeHistory,
@@ -44,6 +48,7 @@ impl RenderSession {
     pub fn new() -> Self {
         Self {
             layout_session: LayoutSession::new(),
+            display_build_session: DisplayBuildSession::new(),
             composite_history: CompositeHistory::default(),
             analyze_fingerprint_history: AnalyzeFingerprintHistory::default(),
             font_db: Arc::new(default_font_db(&[])),

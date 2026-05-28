@@ -13,9 +13,9 @@ use crate::analyze::annotation::{
 };
 use crate::analyze::compositor::{OrderedSceneProgram, plan_for_scene};
 use crate::analyze::invalidation::{CompositeHistory, mark_display_tree_composite_dirty};
-use crate::display::build::build_display_tree;
+use crate::display::build::DisplayBuildSession;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
-use crate::ir::cache::RenderCache;
+use crate::ir::cache::{RenderCache, SceneSnapshotEntry};
 use crate::ir::{DrawOpFrame, FrameMediaPlan};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
@@ -35,6 +35,7 @@ pub fn render_frame_with_state(
     composition: &Composition,
     frame_index: u32,
     layout_session: &mut LayoutSession,
+    display_build_session: &mut DisplayBuildSession,
     composite_history: &mut CompositeHistory,
     analyze_fingerprint_history: &mut AnalyzeFingerprintHistory,
     font_db: &Arc<fontdb::Database>,
@@ -104,7 +105,16 @@ pub fn render_frame_with_state(
 
     #[cfg(feature = "profile")]
     let _display_span = span!(target: "render.scene", Level::TRACE, "build_display_tree").entered();
-    let display_tree = build_display_tree(&element_root, &layout_tree, &frame_ctx)?;
+    let (display_tree, display_stats) =
+        display_build_session.build_with_cache(&element_root, &layout_tree, &frame_ctx)?;
+    #[cfg(feature = "profile")]
+    {
+        event!(target: "render.display", Level::TRACE, kind = "display", name = "display_merkle_skipped_subtrees", result = "count", amount = display_stats.subtree_full_hit_subtrees as u64);
+        event!(target: "render.display", Level::TRACE, kind = "display", name = "display_merkle_skipped_nodes", result = "count", amount = display_stats.subtree_full_hit_nodes as u64);
+        event!(target: "render.display", Level::TRACE, kind = "display", name = "display_rebuilt_nodes", result = "count", amount = display_stats.rebuilt_nodes as u64);
+    }
+    #[cfg(not(feature = "profile"))]
+    let _ = display_stats;
     let mut annotated = annotate_display_tree(&display_tree);
     let composite_dirty_stats = mark_display_tree_composite_dirty(
         composite_history,
@@ -142,8 +152,43 @@ pub fn render_frame_with_state(
     #[cfg(feature = "profile")]
     drop(_display_span);
 
-    let _scene_plan = plan_for_scene(&layout_pass, composite_dirty_stats.composite_dirty_nodes);
-    cache.scene_snapshot = None;
+    let scene_plan = plan_for_scene(&layout_pass, composite_dirty_stats.composite_dirty_nodes);
+    let root_fingerprint = annotated.root_node().recorded_subtree_fingerprint;
+
+    if can_reuse_scene_snapshot(
+        &scene_plan,
+        cache.last_scene_snapshot.as_ref(),
+        &frame_ctx,
+        root_fingerprint,
+    ) {
+        #[cfg(feature = "profile")]
+        event!(
+            target: "render.cache",
+            Level::TRACE,
+            kind = "cache",
+            name = "scene_snapshot",
+            result = "hit",
+            amount = 1_u64
+        );
+        let entry = cache
+            .last_scene_snapshot
+            .as_ref()
+            .expect("scene snapshot hit requires cached entry");
+        let frame = entry.frame.clone();
+        let media_plan = build_media_plan(&frame);
+        return Ok((frame, media_plan));
+    }
+
+    #[cfg(feature = "profile")]
+    event!(
+        target: "render.cache",
+        Level::TRACE,
+        kind = "cache",
+        name = "scene_snapshot",
+        result = "miss",
+        amount = 1_u64
+    );
+
     let ordered_scene = OrderedSceneProgram::build(&annotated);
     *last_ordered_scene = ordered_scene.clone();
 
@@ -162,6 +207,12 @@ pub fn render_frame_with_state(
 
     let frame = builder.finish();
     let media_plan = build_media_plan(&frame);
+    cache.last_scene_snapshot = Some(SceneSnapshotEntry {
+        frame: frame.clone(),
+        width: frame_ctx.width,
+        height: frame_ctx.height,
+        root_fingerprint,
+    });
     Ok((frame, media_plan))
 }
 
@@ -174,6 +225,7 @@ pub fn render_frame(
 ) -> Result<(DrawOpFrame, FrameMediaPlan)> {
     let RenderSession {
         ref mut layout_session,
+        ref mut display_build_session,
         ref mut composite_history,
         ref mut analyze_fingerprint_history,
         ref font_db,
@@ -187,6 +239,7 @@ pub fn render_frame(
         composition,
         frame_index,
         layout_session,
+        display_build_session,
         composite_history,
         analyze_fingerprint_history,
         font_db,
@@ -196,4 +249,143 @@ pub fn render_frame(
         script,
         blob_store,
     )
+}
+
+/// Decide whether the cached whole-frame DrawOp recording can be reused this
+/// frame. The cache hits only when:
+///   1. the scene-level plan allows it (no structure/layout/raster/composite dirty),
+///   2. the cached entry was recorded at the same viewport, and
+///   3. the root subtree fingerprint matches — this catches per-frame item
+///      content changes (transition progress, animated text, frame-bound
+///      values) that aren't visible to the layout/composite signals.
+fn can_reuse_scene_snapshot(
+    plan: &crate::analyze::compositor::SceneRenderPlan,
+    cached: Option<&crate::ir::cache::SceneSnapshotEntry>,
+    frame_ctx: &FrameCtx,
+    current_root_fingerprint: crate::display::tree::DisplayRecordedSubtreeFingerprint,
+) -> bool {
+    plan.allows_scene_snapshot_cache
+        && cached.is_some_and(|entry| {
+            entry.width == frame_ctx.width
+                && entry.height == frame_ctx.height
+                && entry.root_fingerprint == current_root_fingerprint
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::analyze::compositor::SceneRenderPlan;
+    use crate::display::tree::DisplayRecordedSubtreeFingerprint;
+    use crate::ir::DrawOpFrame;
+    use crate::ir::cache::SceneSnapshotEntry;
+
+    fn ctx(width: i32, height: i32) -> FrameCtx {
+        FrameCtx {
+            frame: 0,
+            fps: 30,
+            width,
+            height,
+            frames: 1,
+        }
+    }
+
+    fn entry(width: i32, height: i32, fp: u64) -> SceneSnapshotEntry {
+        SceneSnapshotEntry {
+            frame: DrawOpFrame::default(),
+            width,
+            height,
+            root_fingerprint: DisplayRecordedSubtreeFingerprint(fp),
+        }
+    }
+
+    fn fp(value: u64) -> DisplayRecordedSubtreeFingerprint {
+        DisplayRecordedSubtreeFingerprint(value)
+    }
+
+    #[test]
+    fn reuses_when_plan_allows_cache_present_viewport_and_fingerprint_match() {
+        let plan = SceneRenderPlan {
+            allows_scene_snapshot_cache: true,
+        };
+        let cached = entry(100, 50, 0xABCD);
+        assert!(can_reuse_scene_snapshot(
+            &plan,
+            Some(&cached),
+            &ctx(100, 50),
+            fp(0xABCD),
+        ));
+    }
+
+    #[test]
+    fn misses_when_plan_disallows_cache() {
+        let plan = SceneRenderPlan {
+            allows_scene_snapshot_cache: false,
+        };
+        let cached = entry(100, 50, 0xABCD);
+        assert!(!can_reuse_scene_snapshot(
+            &plan,
+            Some(&cached),
+            &ctx(100, 50),
+            fp(0xABCD),
+        ));
+    }
+
+    #[test]
+    fn misses_on_first_frame_when_cache_is_empty() {
+        let plan = SceneRenderPlan {
+            allows_scene_snapshot_cache: true,
+        };
+        assert!(!can_reuse_scene_snapshot(
+            &plan,
+            None,
+            &ctx(100, 50),
+            fp(0xABCD),
+        ));
+    }
+
+    #[test]
+    fn misses_on_viewport_width_change() {
+        let plan = SceneRenderPlan {
+            allows_scene_snapshot_cache: true,
+        };
+        let cached = entry(100, 50, 0xABCD);
+        assert!(!can_reuse_scene_snapshot(
+            &plan,
+            Some(&cached),
+            &ctx(200, 50),
+            fp(0xABCD),
+        ));
+    }
+
+    #[test]
+    fn misses_on_viewport_height_change() {
+        let plan = SceneRenderPlan {
+            allows_scene_snapshot_cache: true,
+        };
+        let cached = entry(100, 50, 0xABCD);
+        assert!(!can_reuse_scene_snapshot(
+            &plan,
+            Some(&cached),
+            &ctx(100, 80),
+            fp(0xABCD),
+        ));
+    }
+
+    #[test]
+    fn misses_when_root_fingerprint_differs() {
+        // Plan/viewport agree, but the root subtree fingerprint changed — a
+        // per-frame item content change (e.g. transition progress) must
+        // invalidate the whole-frame cache.
+        let plan = SceneRenderPlan {
+            allows_scene_snapshot_cache: true,
+        };
+        let cached = entry(100, 50, 0xAAAA);
+        assert!(!can_reuse_scene_snapshot(
+            &plan,
+            Some(&cached),
+            &ctx(100, 50),
+            fp(0xBBBB),
+        ));
+    }
 }

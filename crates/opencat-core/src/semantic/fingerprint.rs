@@ -13,9 +13,13 @@ pub struct ElementInputFingerprints {
     pub structure_local: u64,
     pub layout_input_local: u64,
     pub paint_input_local: u64,
+    /// composite/apply 维度的 local 哈希：opacity / transforms / backdrop_blur_sigma。
+    /// 不进任何 paint cache key，仅供 L3 (DisplayBuildSession) 的子树复用判断使用。
+    pub apply_input_local: u64,
     pub structure_subtree: u64,
     pub layout_input_subtree: u64,
     pub paint_input_subtree: u64,
+    pub apply_input_subtree: u64,
     pub node_count: usize,
 }
 
@@ -43,12 +47,14 @@ fn compute_node(node: &mut ElementNode) -> ElementInputFingerprints {
     let structure_local = hash_value(&StructureLocal(node));
     let layout_local = hash_value(&LayoutInputLocal(node));
     let paint_local = hash_value(&PaintInputLocal(node));
+    let apply_local = hash_value(&ApplyInputLocal(node));
     let node_count = 1 + child_fps.iter().map(|fp| fp.node_count).sum::<usize>();
 
     let fingerprints = ElementInputFingerprints {
         structure_local,
         layout_input_local: layout_local,
         paint_input_local: paint_local,
+        apply_input_local: apply_local,
         structure_subtree: hash_subtree(
             structure_local,
             child_fps.iter().map(|fp| fp.structure_subtree),
@@ -60,6 +66,10 @@ fn compute_node(node: &mut ElementNode) -> ElementInputFingerprints {
         paint_input_subtree: hash_subtree(
             paint_local,
             child_fps.iter().map(|fp| fp.paint_input_subtree),
+        ),
+        apply_input_subtree: hash_subtree(
+            apply_local,
+            child_fps.iter().map(|fp| fp.apply_input_subtree),
         ),
         node_count,
     };
@@ -176,6 +186,22 @@ impl Hash for PaintInputLocal<'_> {
         }
 
         self.0.draw_slot.commands.hash(state);
+    }
+}
+
+/// composite/apply 三字段：opacity / transforms / backdrop_blur_sigma。
+///
+/// 不参与 paint 维度的任何缓存键，仅供 L3 (DisplayBuildSession) 判定
+/// "DisplayNode 子树可整段复用" 时使用 —— DisplayNode 把这三字段烘到自身上,
+/// 改了就必须刷新对应 DisplayNode。
+struct ApplyInputLocal<'a>(&'a ElementNode);
+
+impl Hash for ApplyInputLocal<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let visual = &self.0.style.visual;
+        F32Hash(visual.opacity).hash(state);
+        visual.transforms.hash(state);
+        visual.backdrop_blur_sigma.map(F32Hash).hash(state);
     }
 }
 
@@ -421,6 +447,103 @@ mod tests {
         assert_ne!(
             first.fingerprints.paint_input_subtree,
             second.fingerprints.paint_input_subtree
+        );
+    }
+
+    #[test]
+    fn opacity_change_affects_apply_input_only() {
+        let first = resolve(
+            div()
+                .id("root")
+                .child(text("A").id("label").opacity(1.0))
+                .into(),
+        );
+        let second = resolve(
+            div()
+                .id("root")
+                .child(text("A").id("label").opacity(0.5))
+                .into(),
+        );
+
+        assert_eq!(
+            first.fingerprints.paint_input_subtree, second.fingerprints.paint_input_subtree,
+            "opacity must not leak into paint_input"
+        );
+        assert_eq!(
+            first.fingerprints.layout_input_subtree, second.fingerprints.layout_input_subtree,
+            "opacity must not leak into layout_input"
+        );
+        assert_ne!(
+            first.fingerprints.apply_input_subtree, second.fingerprints.apply_input_subtree,
+            "opacity change must move apply_input_subtree"
+        );
+        assert_ne!(
+            first.children[0].fingerprints.apply_input_local,
+            second.children[0].fingerprints.apply_input_local,
+            "opacity change must move apply_input_local on the affected node"
+        );
+    }
+
+    #[test]
+    fn child_apply_change_propagates_to_ancestor_apply_subtree_only() {
+        let first = resolve(
+            div()
+                .id("root")
+                .child(text("A").id("label").opacity(1.0))
+                .into(),
+        );
+        let second = resolve(
+            div()
+                .id("root")
+                .child(text("A").id("label").opacity(0.2))
+                .into(),
+        );
+
+        assert_eq!(
+            first.fingerprints.apply_input_local, second.fingerprints.apply_input_local,
+            "parent's own apply must not move when only child apply changes"
+        );
+        assert_ne!(
+            first.fingerprints.apply_input_subtree, second.fingerprints.apply_input_subtree,
+            "parent's apply_subtree must include child apply"
+        );
+    }
+
+    #[test]
+    fn transforms_change_only_moves_apply_dimension() {
+        use crate::style::Transform;
+        let first = resolve(
+            div()
+                .id("root")
+                .child(
+                    text("A")
+                        .id("label")
+                        .transform(Transform::RotateDeg { value: 0.0 }),
+                )
+                .into(),
+        );
+        let second = resolve(
+            div()
+                .id("root")
+                .child(
+                    text("A")
+                        .id("label")
+                        .transform(Transform::RotateDeg { value: 45.0 }),
+                )
+                .into(),
+        );
+
+        assert_eq!(
+            first.fingerprints.paint_input_subtree,
+            second.fingerprints.paint_input_subtree
+        );
+        assert_eq!(
+            first.fingerprints.layout_input_subtree,
+            second.fingerprints.layout_input_subtree
+        );
+        assert_ne!(
+            first.fingerprints.apply_input_subtree,
+            second.fingerprints.apply_input_subtree
         );
     }
 }

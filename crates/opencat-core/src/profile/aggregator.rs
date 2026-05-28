@@ -363,23 +363,23 @@ impl RenderProfileAggregator {
             ("consecutive", "subtree_snapshot", "count") => {
                 frame.backend.subtree_snapshot_consecutive_hits_total += event.amount;
             }
-            ("cache", "parent_own_segment", "hit") => {
-                frame.backend.parent_own_segment_hits += event.amount;
+            ("cache", "node_own_segment", "hit") => {
+                frame.backend.node_own_segment_hits += event.amount;
             }
-            ("cache", "parent_own_segment", "first_record") => {
-                frame.backend.parent_own_segment_first_record += event.amount;
+            ("cache", "node_own_segment", "record") => {
+                frame.backend.node_own_segment_records += event.amount;
             }
-            ("cache", "parent_own_segment", "replaced") => {
-                frame.backend.parent_own_segment_replaced += event.amount;
+            ("cache", "node_own_segment", "replaced") => {
+                frame.backend.node_own_segment_replaced += event.amount;
             }
-            ("eviction", "parent_own", "count") => {
-                frame.backend.parent_own_cache_evictions += event.amount;
+            ("eviction", "node_own", "count") => {
+                frame.backend.node_own_cache_evictions += event.amount;
             }
-            ("repeat", "parent_own", "count") => {
-                frame.backend.parent_own_cache_record_repeats += event.amount;
+            ("repeat", "node_own", "count") => {
+                frame.backend.node_own_cache_record_repeats += event.amount;
             }
-            ("utilization", "parent_own", "count") => {
-                frame.backend.parent_own_cache_capacity_utilization += event.amount;
+            ("utilization", "node_own", "count") => {
+                frame.backend.node_own_cache_capacity_utilization += event.amount;
             }
             _ => {}
         }
@@ -586,5 +586,62 @@ mod tests {
                 .subtree_snapshot_request_after_analyze_composite_blocked,
             2
         );
+    }
+
+    #[test]
+    fn count_events_record_node_own_segment_activity() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "node_own_segment",
+            result: "hit",
+            amount: 2,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "node_own_segment",
+            result: "record",
+            amount: 3,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "cache",
+            name: "node_own_segment",
+            result: "replaced",
+            amount: 1,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "eviction",
+            name: "node_own",
+            result: "count",
+            amount: 4,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "repeat",
+            name: "node_own",
+            result: "count",
+            amount: 5,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "utilization",
+            name: "node_own",
+            result: "count",
+            amount: 6,
+        });
+
+        let summary = aggregator.finish();
+        let backend = &summary.frames[&1].backend;
+        assert_eq!(backend.node_own_segment_hits, 2);
+        assert_eq!(backend.node_own_segment_records, 3);
+        assert_eq!(backend.node_own_segment_replaced, 1);
+        assert_eq!(backend.node_own_cache_evictions, 4);
+        assert_eq!(backend.node_own_cache_record_repeats, 5);
+        assert_eq!(backend.node_own_cache_capacity_utilization, 6);
     }
 }

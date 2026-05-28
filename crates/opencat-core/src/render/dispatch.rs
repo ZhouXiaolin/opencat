@@ -1,3 +1,5 @@
+use std::hash::{Hash, Hasher};
+
 #[cfg(feature = "profile")]
 use tracing::{Level, event, span};
 
@@ -277,6 +279,79 @@ impl<'a> ApplyPlan<'a> {
             opacity: draw.opacity,
             backdrop_blur_sigma: draw.backdrop_blur_sigma,
             layer_bounds,
+        }
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn apply_segment_key(plan: &ApplyPlan<'_>) -> u64 {
+    let mut hasher = ahash::AHasher::default();
+    plan.transform.translation_x.to_bits().hash(&mut hasher);
+    plan.transform.translation_y.to_bits().hash(&mut hasher);
+    plan.transform.bounds.width.to_bits().hash(&mut hasher);
+    plan.transform.bounds.height.to_bits().hash(&mut hasher);
+    plan.transform.transforms.len().hash(&mut hasher);
+    for transform in &plan.transform.transforms {
+        hash_transform(transform, &mut hasher);
+    }
+    plan.opacity.to_bits().hash(&mut hasher);
+    plan.backdrop_blur_sigma.map(f32::to_bits).hash(&mut hasher);
+    hash_display_rect(plan.layer_bounds, &mut hasher);
+    hasher.finish()
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn hash_display_rect(rect: DisplayRect, hasher: &mut impl Hasher) {
+    rect.x.to_bits().hash(hasher);
+    rect.y.to_bits().hash(hasher);
+    rect.width.to_bits().hash(hasher);
+    rect.height.to_bits().hash(hasher);
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn hash_transform(transform: &Transform, hasher: &mut impl Hasher) {
+    match *transform {
+        Transform::TranslateX { value } => {
+            0_u8.hash(hasher);
+            value.to_bits().hash(hasher);
+        }
+        Transform::TranslateY { value } => {
+            1_u8.hash(hasher);
+            value.to_bits().hash(hasher);
+        }
+        Transform::Translate { x, y } => {
+            2_u8.hash(hasher);
+            x.to_bits().hash(hasher);
+            y.to_bits().hash(hasher);
+        }
+        Transform::Scale { value } => {
+            3_u8.hash(hasher);
+            value.to_bits().hash(hasher);
+        }
+        Transform::ScaleX { value } => {
+            4_u8.hash(hasher);
+            value.to_bits().hash(hasher);
+        }
+        Transform::ScaleY { value } => {
+            5_u8.hash(hasher);
+            value.to_bits().hash(hasher);
+        }
+        Transform::RotateDeg { value } => {
+            6_u8.hash(hasher);
+            value.to_bits().hash(hasher);
+        }
+        Transform::SkewXDeg { value } => {
+            7_u8.hash(hasher);
+            value.to_bits().hash(hasher);
+        }
+        Transform::SkewYDeg { value } => {
+            8_u8.hash(hasher);
+            value.to_bits().hash(hasher);
+        }
+        Transform::SkewDeg { x, y } => {
+            9_u8.hash(hasher);
+            x.to_bits().hash(hasher);
+            y.to_bits().hash(hasher);
         }
     }
 }
@@ -1123,5 +1198,53 @@ mod tests {
         assert_eq!(plan.layer_bounds.height, layer_bounds.height);
         assert_eq!(plan.transform.translation_x, 3.0);
         assert_eq!(plan.transform.translation_y, 4.0);
+    }
+
+    #[test]
+    fn apply_plan_segment_key_tracks_draw_time_apply_only() {
+        let mut transform_a = transform(1.0, 2.0);
+        transform_a.transforms = vec![Transform::Scale { value: 1.25 }];
+        let mut transform_b = transform(1.0, 2.0);
+        transform_b.transforms = vec![Transform::Scale { value: 1.25 }];
+        let bounds = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 80.0,
+        };
+        transform_a.bounds = bounds;
+        transform_b.bounds = bounds;
+        let plan_a = ApplyPlan {
+            transform: &transform_a,
+            opacity: 0.75,
+            backdrop_blur_sigma: None,
+            layer_bounds: bounds,
+        };
+        let plan_b = ApplyPlan {
+            transform: &transform_b,
+            opacity: 0.75,
+            backdrop_blur_sigma: None,
+            layer_bounds: bounds,
+        };
+
+        assert_eq!(
+            apply_segment_key(&plan_a),
+            apply_segment_key(&plan_b),
+            "same draw-time apply instructions should share an apply segment key"
+        );
+
+        let mut transform_c = transform_b.clone();
+        transform_c.translation_x = 4.0;
+        let plan_c = ApplyPlan {
+            transform: &transform_c,
+            opacity: 0.75,
+            backdrop_blur_sigma: None,
+            layer_bounds: bounds,
+        };
+        assert_ne!(
+            apply_segment_key(&plan_a),
+            apply_segment_key(&plan_c),
+            "translation changes should invalidate only the apply segment"
+        );
     }
 }

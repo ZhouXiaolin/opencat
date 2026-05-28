@@ -48,6 +48,7 @@ impl RenderCache {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SegmentKey {
+    Apply(u64),
     Item(u64),
     NodeOwn(u64),
 }
@@ -112,6 +113,8 @@ mod tests {
     #[test]
     fn segment_keys_keep_item_and_node_own_namespaces_separate() {
         assert_ne!(SegmentKey::Item(42), SegmentKey::NodeOwn(42));
+        assert_ne!(SegmentKey::Apply(42), SegmentKey::Item(42));
+        assert_ne!(SegmentKey::Apply(42), SegmentKey::NodeOwn(42));
     }
 
     #[test]

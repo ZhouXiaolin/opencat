@@ -15,8 +15,8 @@ pub struct RenderCache {
     /// Separate from subtree_snapshots so that the parent's own rendering
     /// segment can be reused even when child fingerprints change.
     pub node_own_segments: BoundedLruCache<u64, CachedNodeOwnIr>,
-    /// Cached IR segments keyed by segment_key.
-    pub segments: BoundedLruCache<u64, CachedDrawSegment>,
+    /// Cached IR segments keyed by their semantic namespace.
+    pub segments: BoundedLruCache<SegmentKey, CachedDrawSegment>,
     /// Item-level cached ranges keyed by item_paint_fingerprint.
     pub item_ranges: BoundedLruCache<u64, CachedDrawRange>,
     /// Most-recent scene-level snapshot. Reused on the next frame when
@@ -51,11 +51,17 @@ impl RenderCache {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum SegmentKey {
+    Item(u64),
+    NodeOwn(u64),
+}
+
 /// Node-own cache entry. Core tracks eligibility and hit count;
 /// platform executors compile the segment into native objects.
 #[derive(Clone, Debug)]
 pub struct CachedNodeOwnIr {
-    pub segment_key: u64,
+    pub segment_key: SegmentKey,
     pub consecutive_hits: usize,
     pub recorded_bounds: DisplayRect,
 }
@@ -66,7 +72,7 @@ pub struct CachedDrawRange {
     pub segment_range: DrawOpRange,
     pub fingerprint: u64,
     pub bounds: DisplayRect,
-    pub segment_key: u64,
+    pub segment_key: SegmentKey,
 }
 
 /// A cached IR segment — the pure IR data for a subtree.
@@ -109,9 +115,14 @@ mod tests {
     }
 
     #[test]
+    fn segment_keys_keep_item_and_node_own_namespaces_separate() {
+        assert_ne!(SegmentKey::Item(42), SegmentKey::NodeOwn(42));
+    }
+
+    #[test]
     fn cached_node_own_ir_tracks_hits() {
         let entry = CachedNodeOwnIr {
-            segment_key: 42,
+            segment_key: SegmentKey::NodeOwn(42),
             consecutive_hits: 0,
             recorded_bounds: DisplayRect {
                 x: 0.0,
@@ -120,7 +131,7 @@ mod tests {
                 height: 100.0,
             },
         };
-        assert_eq!(entry.segment_key, 42);
+        assert_eq!(entry.segment_key, SegmentKey::NodeOwn(42));
         assert_eq!(entry.consecutive_hits, 0);
     }
 
@@ -138,7 +149,7 @@ mod tests {
 
         let segment = CachedDrawSegment::default();
         let entry = CachedNodeOwnIr {
-            segment_key: 1,
+            segment_key: SegmentKey::NodeOwn(1),
             consecutive_hits: 0,
             recorded_bounds: DisplayRect {
                 x: 0.0,
@@ -148,10 +159,10 @@ mod tests {
             },
         };
 
-        cache.segments.insert(1, segment);
+        cache.segments.insert(SegmentKey::NodeOwn(1), segment);
         cache.subtree_snapshots.insert(1, entry);
 
-        assert!(cache.segments.get_cloned(&1).is_some());
+        assert!(cache.segments.get_cloned(&SegmentKey::NodeOwn(1)).is_some());
         assert!(cache.subtree_snapshots.get_cloned(&1).is_some());
     }
 
@@ -168,7 +179,7 @@ mod tests {
         let own_key: u64 = 999;
         let segment = CachedDrawSegment::default();
         let entry = CachedNodeOwnIr {
-            segment_key: 42,
+            segment_key: SegmentKey::NodeOwn(42),
             consecutive_hits: 0,
             recorded_bounds: DisplayRect {
                 x: 0.0,
@@ -178,7 +189,7 @@ mod tests {
             },
         };
 
-        cache.segments.insert(42, segment);
+        cache.segments.insert(SegmentKey::NodeOwn(42), segment);
         cache.node_own_segments.insert(own_key, entry);
 
         assert!(cache.node_own_segments.get_cloned(&own_key).is_some());

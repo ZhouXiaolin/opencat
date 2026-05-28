@@ -285,7 +285,7 @@ struct ApplyFrame {
     layer_state: BackdropLayerState,
 }
 
-fn begin_apply_frame(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> ApplyFrame {
+fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> ApplyFrame {
     builder.push(DrawOp::Save);
     apply_transform(builder, plan.transform);
     let layer_state = save_backdrop_blur_layer(
@@ -297,9 +297,17 @@ fn begin_apply_frame(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> Apply
     ApplyFrame { layer_state }
 }
 
-fn finish_apply_frame(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
+fn emit_apply_suffix(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
     restore_backdrop_blur_layer(builder, &frame.layer_state);
     builder.push(DrawOp::Restore);
+}
+
+fn begin_apply_frame(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> ApplyFrame {
+    emit_apply_prefix(builder, plan)
+}
+
+fn finish_apply_frame(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
+    emit_apply_suffix(builder, frame);
 }
 
 pub fn render_display_tree(
@@ -1055,6 +1063,44 @@ mod tests {
         assert_eq!(ops[7], DrawOp::Restore);
         assert_eq!(ops[8], DrawOp::Restore);
         assert_eq!(ops.len(), 9);
+    }
+
+    #[test]
+    fn apply_plan_emits_prefix_and_suffix_around_dynamic_body() {
+        let mut builder = DrawOpBuilder::default();
+        let transform = transform(7.0, 9.0);
+        let bounds = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 20.0,
+            height: 10.0,
+        };
+        let plan = ApplyPlan {
+            transform: &transform,
+            opacity: 0.75,
+            backdrop_blur_sigma: None,
+            layer_bounds: bounds,
+        };
+
+        let frame = emit_apply_prefix(&mut builder, &plan);
+        builder.push(DrawOp::BeginPath);
+        emit_apply_suffix(&mut builder, &frame);
+        let ops = builder.finish().ops;
+
+        assert_eq!(ops[0], DrawOp::Save);
+        assert_eq!(ops[1], DrawOp::Translate { x: 7.0, y: 9.0 });
+        assert_eq!(
+            ops[2],
+            DrawOp::SaveLayer {
+                bounds: Some(display_rect_to_rect4(bounds)),
+                paint: None,
+                alpha: 0.75,
+            }
+        );
+        assert_eq!(ops[3], DrawOp::BeginPath);
+        assert_eq!(ops[4], DrawOp::Restore);
+        assert_eq!(ops[5], DrawOp::Restore);
+        assert_eq!(ops.len(), 6);
     }
 
     #[test]

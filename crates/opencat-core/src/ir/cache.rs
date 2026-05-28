@@ -10,11 +10,11 @@ use crate::display::tree::DisplayRecordedSubtreeFingerprint;
 /// objects, making cache data portable across platforms.
 pub struct RenderCache {
     /// Subtree snapshot entries keyed by fingerprint primary hash.
-    pub subtree_snapshots: BoundedLruCache<u64, CachedSubtreeIr>,
-    /// Parent-own segment entries keyed by DisplayRecordedFingerprint.
+    pub subtree_snapshots: BoundedLruCache<u64, CachedNodeOwnIr>,
+    /// Node-own segment entries keyed by DisplayRecordedFingerprint.
     /// Separate from subtree_snapshots so that the parent's own rendering
     /// segment can be reused even when child fingerprints change.
-    pub parent_own_segments: BoundedLruCache<u64, CachedSubtreeIr>,
+    pub node_own_segments: BoundedLruCache<u64, CachedNodeOwnIr>,
     /// Cached IR segments keyed by segment_key.
     pub segments: BoundedLruCache<u64, CachedDrawSegment>,
     /// Item-level cached ranges keyed by item_paint_fingerprint.
@@ -40,10 +40,10 @@ pub struct SceneSnapshotEntry {
 
 impl RenderCache {
     /// Create a new RenderCache with the given capacities.
-    pub fn new(subtree_snapshot_cap: usize, parent_own_cap: usize, segment_cap: usize, item_range_cap: usize) -> Self {
+    pub fn new(subtree_snapshot_cap: usize, node_own_cap: usize, segment_cap: usize, item_range_cap: usize) -> Self {
         Self {
             subtree_snapshots: BoundedLruCache::new(subtree_snapshot_cap),
-            parent_own_segments: BoundedLruCache::new(parent_own_cap),
+            node_own_segments: BoundedLruCache::new(node_own_cap),
             segments: BoundedLruCache::new(segment_cap),
             item_ranges: BoundedLruCache::new(item_range_cap),
             last_scene_snapshot: None,
@@ -51,10 +51,10 @@ impl RenderCache {
     }
 }
 
-/// Subtree cache entry. Core tracks eligibility and hit count;
+/// Node-own cache entry. Core tracks eligibility and hit count;
 /// platform executors compile the segment into native objects.
 #[derive(Clone, Debug)]
-pub struct CachedSubtreeIr {
+pub struct CachedNodeOwnIr {
     pub segment_key: u64,
     pub consecutive_hits: usize,
     pub recorded_bounds: DisplayRect,
@@ -109,8 +109,8 @@ mod tests {
     }
 
     #[test]
-    fn cached_subtree_ir_tracks_hits() {
-        let entry = CachedSubtreeIr {
+    fn cached_node_own_ir_tracks_hits() {
+        let entry = CachedNodeOwnIr {
             segment_key: 42,
             consecutive_hits: 0,
             recorded_bounds: DisplayRect {
@@ -130,14 +130,14 @@ mod tests {
 
         let mut cache = RenderCache {
             subtree_snapshots: BoundedLruCache::new(16),
-            parent_own_segments: BoundedLruCache::new(16),
+            node_own_segments: BoundedLruCache::new(16),
             segments: BoundedLruCache::new(16),
             item_ranges: BoundedLruCache::new(64),
             last_scene_snapshot: None,
         };
 
         let segment = CachedDrawSegment::default();
-        let entry = CachedSubtreeIr {
+        let entry = CachedNodeOwnIr {
             segment_key: 1,
             consecutive_hits: 0,
             recorded_bounds: DisplayRect {
@@ -156,10 +156,10 @@ mod tests {
     }
 
     #[test]
-    fn parent_own_segments_can_insert_and_lookup() {
+    fn node_own_segments_can_insert_and_lookup() {
         let mut cache = RenderCache {
             subtree_snapshots: BoundedLruCache::new(16),
-            parent_own_segments: BoundedLruCache::new(16),
+            node_own_segments: BoundedLruCache::new(16),
             segments: BoundedLruCache::new(16),
             item_ranges: BoundedLruCache::new(64),
             last_scene_snapshot: None,
@@ -167,7 +167,7 @@ mod tests {
 
         let own_key: u64 = 999;
         let segment = CachedDrawSegment::default();
-        let entry = CachedSubtreeIr {
+        let entry = CachedNodeOwnIr {
             segment_key: 42,
             consecutive_hits: 0,
             recorded_bounds: DisplayRect {
@@ -179,11 +179,11 @@ mod tests {
         };
 
         cache.segments.insert(42, segment);
-        cache.parent_own_segments.insert(own_key, entry);
+        cache.node_own_segments.insert(own_key, entry);
 
-        assert!(cache.parent_own_segments.get_cloned(&own_key).is_some());
+        assert!(cache.node_own_segments.get_cloned(&own_key).is_some());
         assert!(
-            cache.parent_own_segments.get_cloned(&0).is_none(),
+            cache.node_own_segments.get_cloned(&0).is_none(),
             "miss should return None"
         );
     }

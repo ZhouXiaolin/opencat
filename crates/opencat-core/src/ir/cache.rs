@@ -30,6 +30,14 @@ pub struct RenderCache {
 /// captures every change in the draw program — paint, composite, structure,
 /// and per-frame item content such as transition progress — so a cached
 /// entry is only reusable when the entire scene tree fingerprints identically.
+///
+/// Node-level Merkle caches already preserve static content reuse when only
+/// draw-time apply/composite state changes: content segments and apply prefix
+/// segments are cached separately. This whole-frame snapshot is intentionally
+/// stricter because it stores the dynamic apply instructions together with the
+/// static content. If we later need extreme scene-level performance, consider a
+/// `static_scene_segment` split: cache only the static scene body and emit the
+/// per-frame apply/composite instruction layer around it.
 #[derive(Clone, Debug)]
 pub struct SceneSnapshotEntry {
     pub frame: DrawOpFrame,

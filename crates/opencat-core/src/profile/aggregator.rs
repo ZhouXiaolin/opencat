@@ -363,6 +363,15 @@ impl RenderProfileAggregator {
             ("cache", "apply_segment", "miss") => {
                 frame.backend.apply_segment_misses += event.amount;
             }
+            ("eviction", "apply", "count") => {
+                frame.backend.apply_cache_evictions += event.amount;
+            }
+            ("repeat", "apply", "count") => {
+                frame.backend.apply_cache_record_repeats += event.amount;
+            }
+            ("utilization", "apply", "count") => {
+                frame.backend.apply_cache_capacity_utilization += event.amount;
+            }
             ("eviction", "node_own", "count") => {
                 frame.backend.node_own_cache_evictions += event.amount;
             }
@@ -605,6 +614,39 @@ mod tests {
         let backend = &summary.frames[&1].backend;
         assert_eq!(backend.apply_segment_hits, 2);
         assert_eq!(backend.apply_segment_misses, 3);
+    }
+
+    #[test]
+    fn count_events_record_apply_cache_pressure() {
+        let mut aggregator = RenderProfileAggregator::default();
+
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "eviction",
+            name: "apply",
+            result: "count",
+            amount: 4,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "repeat",
+            name: "apply",
+            result: "count",
+            amount: 5,
+        });
+        aggregator.record_count(ProfileCountEvent {
+            frame: 1,
+            kind: "utilization",
+            name: "apply",
+            result: "count",
+            amount: 6,
+        });
+
+        let summary = aggregator.finish();
+        let backend = &summary.frames[&1].backend;
+        assert_eq!(backend.apply_cache_evictions, 4);
+        assert_eq!(backend.apply_cache_record_repeats, 5);
+        assert_eq!(backend.apply_cache_capacity_utilization, 6);
     }
 
     #[test]

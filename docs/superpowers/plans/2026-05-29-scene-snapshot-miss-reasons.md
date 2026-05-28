@@ -93,3 +93,56 @@ Interpretation:
 - Most misses are caused by the scene plan blocking whole-frame reuse.
 - The remaining misses are caused by root recorded subtree changes.
 - Layout/display/analyze/node-own metrics stayed comparable to the previous profile.
+
+## Chunk 2: Scene Snapshot Plan Block Reasons
+
+**Files:**
+
+- Modify: `crates/opencat-core/src/analyze/compositor.rs`
+- Modify: `crates/opencat-core/src/pipeline/frame.rs`
+- Modify: `crates/opencat-core/src/profile/mod.rs`
+- Modify: `crates/opencat-core/src/profile/aggregator.rs`
+- Modify: `crates/opencat-core/src/profile/output.rs`
+
+- [x] **Step 1: Write failing tests**
+
+Add tests proving `SceneRenderPlan` records why whole-scene snapshots are blocked, and profile aggregation/output exposes those reasons.
+
+- [x] **Step 2: Implement plan block reason fields**
+
+Split the existing `allows_scene_snapshot_cache` condition into structure, layout, raster, and composite booleans while preserving the final cache decision.
+
+- [x] **Step 3: Emit and aggregate reason events**
+
+When a scene snapshot miss is `plan_blocked`, emit one `scene_snapshot_plan_blocked` count event per true reason. Reason counts are intentionally not mutually exclusive.
+
+- [x] **Step 4: Verify tests and profile**
+
+```bash
+cargo test -p opencat-core
+cargo run --bin opencat --release --features profile -- json/profile-showcase.jsonl
+```
+
+Latest result:
+
+```text
+cargo test -p opencat-core: 413 passed, 0 failed, 1 ignored
+profile frames: 414
+avg ms/frame: script 0.62, resolve 0.62, layout 0.07, display 0.05, backend 0.23
+scene_snapshot_hit 0.00, scene_snapshot_miss 1.00
+scene_snapshot_miss_plan_blocked 0.79
+scene_snapshot_miss_root_fingerprint_changed 0.21
+scene_snapshot_plan_blocked_by_structure 0.02
+scene_snapshot_plan_blocked_by_layout 0.19
+scene_snapshot_plan_blocked_by_raster 0.26
+scene_snapshot_plan_blocked_by_composite 0.62
+node_own_hit 9.55, node_own_record 0.06, node_own_evict 0.00
+```
+
+Interpretation:
+
+- The largest blocker is composite dirtiness at `0.62/frame`.
+- Raster dirtiness is the second blocker at `0.26/frame`.
+- Layout dirtiness is smaller but still material at `0.19/frame`.
+- Structural rebuilds are rare at `0.02/frame`.
+- The next optimization should target composite dirtiness before trying to broaden whole-scene snapshot reuse.

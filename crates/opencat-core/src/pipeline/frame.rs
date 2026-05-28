@@ -201,6 +201,9 @@ pub fn render_frame_with_state(
             result = reason.as_profile_result(),
             amount = 1_u64
         );
+        if reason == SceneSnapshotMissReason::PlanBlocked {
+            record_scene_snapshot_plan_block_reasons(&scene_plan);
+        }
     }
 
     let ordered_scene = OrderedSceneProgram::build(&annotated);
@@ -323,6 +326,50 @@ fn scene_snapshot_cache_decision(
     SceneSnapshotCacheDecision::Hit
 }
 
+#[cfg(feature = "profile")]
+fn record_scene_snapshot_plan_block_reasons(plan: &crate::analyze::compositor::SceneRenderPlan) {
+    if plan.scene_snapshot_blocked_by_structure {
+        event!(
+            target: "render.cache",
+            Level::TRACE,
+            kind = "cache",
+            name = "scene_snapshot_plan_blocked",
+            result = "structure",
+            amount = 1_u64
+        );
+    }
+    if plan.scene_snapshot_blocked_by_layout {
+        event!(
+            target: "render.cache",
+            Level::TRACE,
+            kind = "cache",
+            name = "scene_snapshot_plan_blocked",
+            result = "layout",
+            amount = 1_u64
+        );
+    }
+    if plan.scene_snapshot_blocked_by_raster {
+        event!(
+            target: "render.cache",
+            Level::TRACE,
+            kind = "cache",
+            name = "scene_snapshot_plan_blocked",
+            result = "raster",
+            amount = 1_u64
+        );
+    }
+    if plan.scene_snapshot_blocked_by_composite {
+        event!(
+            target: "render.cache",
+            Level::TRACE,
+            kind = "cache",
+            name = "scene_snapshot_plan_blocked",
+            result = "composite",
+            amount = 1_u64
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,11 +401,19 @@ mod tests {
         DisplayRecordedSubtreeFingerprint(value)
     }
 
+    fn scene_plan(allows_scene_snapshot_cache: bool) -> SceneRenderPlan {
+        SceneRenderPlan {
+            allows_scene_snapshot_cache,
+            scene_snapshot_blocked_by_structure: !allows_scene_snapshot_cache,
+            scene_snapshot_blocked_by_layout: false,
+            scene_snapshot_blocked_by_raster: false,
+            scene_snapshot_blocked_by_composite: false,
+        }
+    }
+
     #[test]
     fn reuses_when_plan_allows_cache_present_viewport_and_fingerprint_match() {
-        let plan = SceneRenderPlan {
-            allows_scene_snapshot_cache: true,
-        };
+        let plan = scene_plan(true);
         let cached = entry(100, 50, 0xABCD);
         assert_eq!(
             scene_snapshot_cache_decision(&plan, Some(&cached), &ctx(100, 50), fp(0xABCD),),
@@ -368,9 +423,7 @@ mod tests {
 
     #[test]
     fn miss_reason_is_plan_blocked_when_plan_disallows_cache() {
-        let plan = SceneRenderPlan {
-            allows_scene_snapshot_cache: false,
-        };
+        let plan = scene_plan(false);
         let cached = entry(100, 50, 0xABCD);
         assert_eq!(
             scene_snapshot_cache_decision(&plan, Some(&cached), &ctx(100, 50), fp(0xABCD),),
@@ -380,9 +433,7 @@ mod tests {
 
     #[test]
     fn miss_reason_is_empty_on_first_frame() {
-        let plan = SceneRenderPlan {
-            allows_scene_snapshot_cache: true,
-        };
+        let plan = scene_plan(true);
         assert_eq!(
             scene_snapshot_cache_decision(&plan, None, &ctx(100, 50), fp(0xABCD),),
             SceneSnapshotCacheDecision::Miss(SceneSnapshotMissReason::Empty)
@@ -391,9 +442,7 @@ mod tests {
 
     #[test]
     fn miss_reason_is_viewport_changed_on_width_change() {
-        let plan = SceneRenderPlan {
-            allows_scene_snapshot_cache: true,
-        };
+        let plan = scene_plan(true);
         let cached = entry(100, 50, 0xABCD);
         assert_eq!(
             scene_snapshot_cache_decision(&plan, Some(&cached), &ctx(200, 50), fp(0xABCD),),
@@ -403,9 +452,7 @@ mod tests {
 
     #[test]
     fn miss_reason_is_viewport_changed_on_height_change() {
-        let plan = SceneRenderPlan {
-            allows_scene_snapshot_cache: true,
-        };
+        let plan = scene_plan(true);
         let cached = entry(100, 50, 0xABCD);
         assert_eq!(
             scene_snapshot_cache_decision(&plan, Some(&cached), &ctx(100, 80), fp(0xABCD),),
@@ -418,14 +465,11 @@ mod tests {
         // Plan/viewport agree, but the root subtree fingerprint changed - a
         // per-frame item content change (e.g. transition progress) must
         // invalidate the whole-frame cache.
-        let plan = SceneRenderPlan {
-            allows_scene_snapshot_cache: true,
-        };
+        let plan = scene_plan(true);
         let cached = entry(100, 50, 0xAAAA);
         assert_eq!(
             scene_snapshot_cache_decision(&plan, Some(&cached), &ctx(100, 50), fp(0xBBBB),),
             SceneSnapshotCacheDecision::Miss(SceneSnapshotMissReason::RootFingerprintChanged)
         );
     }
-
 }

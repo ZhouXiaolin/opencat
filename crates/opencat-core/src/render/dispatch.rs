@@ -3,7 +3,9 @@ use tracing::{Level, event, span};
 
 #[cfg(feature = "profile")]
 use crate::analyze::annotation::AnalyzeReuseState;
-use crate::analyze::annotation::{AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle};
+use crate::analyze::annotation::{
+    AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, DrawCompositeSemantics,
+};
 use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::fingerprint::{DisplayRecordedFingerprint, item_paint_fingerprint};
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
@@ -260,20 +262,38 @@ fn restore_backdrop_blur_layer(builder: &mut DrawOpBuilder, state: &BackdropLaye
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ApplyPlan<'a> {
+    transform: &'a DisplayTransform,
+    opacity: f32,
+    backdrop_blur_sigma: Option<f32>,
+    layer_bounds: DisplayRect,
+}
+
+impl<'a> ApplyPlan<'a> {
+    fn from_draw_composite(draw: DrawCompositeSemantics<'a>, layer_bounds: DisplayRect) -> Self {
+        Self {
+            transform: draw.transform,
+            opacity: draw.opacity,
+            backdrop_blur_sigma: draw.backdrop_blur_sigma,
+            layer_bounds,
+        }
+    }
+}
+
 struct ApplyFrame {
     layer_state: BackdropLayerState,
 }
 
-fn begin_apply_frame(
-    builder: &mut DrawOpBuilder,
-    transform: &DisplayTransform,
-    opacity: f32,
-    backdrop_blur: Option<f32>,
-    layer_bounds: DisplayRect,
-) -> ApplyFrame {
+fn begin_apply_frame(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> ApplyFrame {
     builder.push(DrawOp::Save);
-    apply_transform(builder, transform);
-    let layer_state = save_backdrop_blur_layer(builder, opacity, backdrop_blur, layer_bounds);
+    apply_transform(builder, plan.transform);
+    let layer_state = save_backdrop_blur_layer(
+        builder,
+        plan.opacity,
+        plan.backdrop_blur_sigma,
+        plan.layer_bounds,
+    );
     ApplyFrame { layer_state }
 }
 
@@ -319,13 +339,8 @@ fn render_reused_subtree(
     }
 
     let layer_bounds = tree.layer_bounds(handle);
-    let apply_frame = begin_apply_frame(
-        ctx.builder,
-        draw.transform,
-        draw.opacity,
-        draw.backdrop_blur_sigma,
-        layer_bounds,
-    );
+    let apply_plan = ApplyPlan::from_draw_composite(draw, layer_bounds);
+    let apply_frame = begin_apply_frame(ctx.builder, &apply_plan);
     let fingerprint = tree.analysis(handle).snapshot_fingerprint.ok_or_else(|| {
         RenderError::InvalidArgument(
             "ReusedSubtree node must have snapshot_fingerprint".to_string(),
@@ -488,13 +503,8 @@ fn render_live_subtree(
         return Ok(());
     }
 
-    let apply_frame = begin_apply_frame(
-        ctx.builder,
-        draw.transform,
-        draw.opacity,
-        draw.backdrop_blur_sigma,
-        tree.layer_bounds(handle),
-    );
+    let apply_plan = ApplyPlan::from_draw_composite(draw, tree.layer_bounds(handle));
+    let apply_frame = begin_apply_frame(ctx.builder, &apply_plan);
 
     // Transition compositing: render from/to subtrees and blend them
     if let DisplayItem::Timeline(timeline) = &node.item
@@ -1017,7 +1027,13 @@ mod tests {
         };
         transform.bounds = bounds;
 
-        let frame = begin_apply_frame(&mut builder, &transform, 0.5, None, bounds);
+        let plan = ApplyPlan {
+            transform: &transform,
+            opacity: 0.5,
+            backdrop_blur_sigma: None,
+            layer_bounds: bounds,
+        };
+        let frame = begin_apply_frame(&mut builder, &plan);
         builder.push(DrawOp::BeginPath);
         finish_apply_frame(&mut builder, &frame);
         let ops = builder.finish().ops;
@@ -1039,5 +1055,27 @@ mod tests {
         assert_eq!(ops[7], DrawOp::Restore);
         assert_eq!(ops[8], DrawOp::Restore);
         assert_eq!(ops.len(), 9);
+    }
+
+    #[test]
+    fn apply_plan_is_built_from_draw_composite_semantics() {
+        let node = rect_node(None, transform(3.0, 4.0), Vec::new());
+        let layer_bounds = DisplayRect {
+            x: 1.0,
+            y: 2.0,
+            width: 30.0,
+            height: 40.0,
+        };
+
+        let plan = ApplyPlan::from_draw_composite(node.draw_composite_semantics(), layer_bounds);
+
+        assert_eq!(plan.opacity, 1.0);
+        assert_eq!(plan.backdrop_blur_sigma, None);
+        assert_eq!(plan.layer_bounds.x, layer_bounds.x);
+        assert_eq!(plan.layer_bounds.y, layer_bounds.y);
+        assert_eq!(plan.layer_bounds.width, layer_bounds.width);
+        assert_eq!(plan.layer_bounds.height, layer_bounds.height);
+        assert_eq!(plan.transform.translation_x, 3.0);
+        assert_eq!(plan.transform.translation_y, 4.0);
     }
 }

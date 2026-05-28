@@ -70,7 +70,6 @@ pub enum AnalyzeReuseState {
 #[derive(Clone, Copy, Debug)]
 struct AnalyzeFingerprintHistoryEntry {
     recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint,
-    has_dirty_descendant_composite: bool,
     node_count: usize,
     analysis: DisplayNodeAnalysis,
 }
@@ -79,7 +78,6 @@ struct AnalyzeFingerprintHistoryEntry {
 enum AnalyzeFingerprintDecision {
     Miss,
     Reused { nodes: usize },
-    CompositeBlocked { nodes: usize },
 }
 
 #[derive(Default)]
@@ -306,17 +304,12 @@ fn compute_node_fingerprint(
 ) -> usize {
     let key = tree.key(handle);
     let recorded_subtree_fingerprint = tree.node(handle).recorded_subtree_fingerprint;
-    let has_dirty_descendant_composite = {
-        let node = tree.node(handle);
-        fingerprint::subtree_has_dirty_descendant_composite(node, &tree.nodes, &tree.invalidation)
-    };
 
     match classify_analyze_fingerprint_decision(
         handle,
         tree,
         previous,
         recorded_subtree_fingerprint,
-        has_dirty_descendant_composite,
     ) {
         AnalyzeFingerprintDecision::Reused { .. } => {
             let skipped_nodes = copy_subtree_analysis_and_mark_reused(handle, tree, previous, next);
@@ -327,13 +320,6 @@ fn compute_node_fingerprint(
             stats.merkle_skipped_subtrees += 1;
             stats.merkle_skipped_nodes += skipped_nodes;
             return skipped_nodes;
-        }
-        AnalyzeFingerprintDecision::CompositeBlocked { nodes } => {
-            mark_analyze_reuse_subtree(tree, handle, AnalyzeReuseState::CompositeBlocked);
-            stats.recorded_hit_subtrees += 1;
-            stats.recorded_hit_nodes += nodes;
-            stats.composite_blocked_subtrees += 1;
-            stats.composite_blocked_nodes += nodes;
         }
         AnalyzeFingerprintDecision::Miss => {}
     }
@@ -349,9 +335,7 @@ fn compute_node_fingerprint(
     let paint_fp = fingerprint::annotated_subtree_paint_fingerprint(node, &tree.analysis);
     let snapshot_fp = fingerprint::annotated_subtree_snapshot_fingerprint(
         node,
-        &tree.nodes,
         &tree.analysis,
-        &tree.invalidation,
     );
     let analysis = DisplayNodeAnalysis {
         paint_fingerprint: paint_fp,
@@ -363,7 +347,6 @@ fn compute_node_fingerprint(
         key,
         AnalyzeFingerprintHistoryEntry {
             recorded_subtree_fingerprint,
-            has_dirty_descendant_composite,
             node_count,
             analysis,
         },
@@ -376,7 +359,6 @@ fn classify_analyze_fingerprint_decision(
     tree: &AnnotatedDisplayTree,
     previous: &HashMap<RenderNodeKey, AnalyzeFingerprintHistoryEntry>,
     recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint,
-    has_dirty_descendant_composite: bool,
 ) -> AnalyzeFingerprintDecision {
     let key = tree.key(handle);
     let Some(entry) = previous.get(&key) else {
@@ -387,14 +369,8 @@ fn classify_analyze_fingerprint_decision(
         return AnalyzeFingerprintDecision::Miss;
     }
 
-    if entry.has_dirty_descendant_composite == has_dirty_descendant_composite {
-        AnalyzeFingerprintDecision::Reused {
-            nodes: entry.node_count,
-        }
-    } else {
-        AnalyzeFingerprintDecision::CompositeBlocked {
-            nodes: entry.node_count,
-        }
+    AnalyzeFingerprintDecision::Reused {
+        nodes: entry.node_count,
     }
 }
 
@@ -420,6 +396,7 @@ fn copy_subtree_analysis_and_mark_reused(
     count
 }
 
+#[allow(dead_code)]
 fn mark_analyze_reuse_subtree(
     tree: &mut AnnotatedDisplayTree,
     handle: AnnotatedNodeHandle,
@@ -543,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn recorded_hit_with_changed_descendant_composite_blocks_parent_skip_only() {
+    fn recorded_hit_with_changed_descendant_composite_still_reuses_parent() {
         let mut history = AnalyzeFingerprintHistory::default();
         let mut first = two_node_tree(false);
         compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
@@ -552,16 +529,16 @@ mod tests {
         let stats =
             compute_display_tree_fingerprints_with_history(&mut second, &mut history, false);
 
-        assert_eq!(stats.recorded_hit_subtrees, 2);
-        assert_eq!(stats.recorded_hit_nodes, 3);
-        assert_eq!(stats.composite_blocked_subtrees, 1);
-        assert_eq!(stats.composite_blocked_nodes, 2);
+        assert_eq!(stats.recorded_hit_subtrees, 1);
+        assert_eq!(stats.recorded_hit_nodes, 2);
+        assert_eq!(stats.composite_blocked_subtrees, 0);
+        assert_eq!(stats.composite_blocked_nodes, 0);
         assert_eq!(stats.snapshot_eligibility_hit_subtrees, 1);
-        assert_eq!(stats.snapshot_eligibility_hit_nodes, 1);
+        assert_eq!(stats.snapshot_eligibility_hit_nodes, 2);
         assert_eq!(stats.merkle_skipped_subtrees, 1);
-        assert_eq!(stats.merkle_skipped_nodes, 1);
+        assert_eq!(stats.merkle_skipped_nodes, 2);
 
-        assert_ne!(first.analysis(first.root), second.analysis(second.root));
+        assert_eq!(first.analysis(first.root), second.analysis(second.root));
         assert_eq!(
             first.analysis(AnnotatedNodeHandle(0)),
             second.analysis(AnnotatedNodeHandle(0))
@@ -584,14 +561,13 @@ mod tests {
             &second,
             &previous,
             second.node(second.root).recorded_subtree_fingerprint,
-            false,
         );
 
         assert_eq!(decision, AnalyzeFingerprintDecision::Miss);
     }
 
     #[test]
-    fn analyze_decision_reuses_when_recorded_and_eligibility_match() {
+    fn analyze_decision_reuses_when_recorded_fingerprint_matches() {
         let mut history = AnalyzeFingerprintHistory::default();
         let mut first = two_node_tree(false);
         compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
@@ -603,14 +579,13 @@ mod tests {
             &second,
             &previous,
             second.node(second.root).recorded_subtree_fingerprint,
-            false,
         );
 
         assert_eq!(decision, AnalyzeFingerprintDecision::Reused { nodes: 2 });
     }
 
     #[test]
-    fn analyze_decision_blocks_when_recorded_matches_but_eligibility_changes() {
+    fn analyze_decision_reuses_when_recorded_matches_even_with_dirty_descendant() {
         let mut history = AnalyzeFingerprintHistory::default();
         let mut first = two_node_tree(false);
         compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
@@ -622,12 +597,12 @@ mod tests {
             &second,
             &previous,
             second.node(second.root).recorded_subtree_fingerprint,
-            true,
         );
 
         assert_eq!(
             decision,
-            AnalyzeFingerprintDecision::CompositeBlocked { nodes: 2 }
+            AnalyzeFingerprintDecision::Reused { nodes: 2 },
+            "composite_dirty no longer blocks fingerprint reuse"
         );
     }
 
@@ -655,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn composite_blocked_propagates_to_child_and_root() {
+    fn dirty_descendant_no_longer_blocks_parent_reuse() {
         let mut history = AnalyzeFingerprintHistory::default();
         let mut first = two_node_tree(false);
         compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
@@ -666,8 +641,8 @@ mod tests {
         let root = AnnotatedNodeHandle(1);
         assert_eq!(
             second.analyze_reuse_state(root),
-            AnalyzeReuseState::CompositeBlocked,
-            "root with dirty descendant composite should have CompositeBlocked"
+            AnalyzeReuseState::ReusedFromHistory,
+            "root with dirty descendant composite should still reuse from history"
         );
     }
 

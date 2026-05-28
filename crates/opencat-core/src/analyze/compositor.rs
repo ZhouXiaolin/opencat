@@ -19,7 +19,7 @@ pub enum OrderedSceneOp {
         handle: AnnotatedNodeHandle,
         children: Vec<OrderedSceneOp>,
     },
-    CachedSubtree {
+    ReusedSubtree {
         handle: AnnotatedNodeHandle,
     },
 }
@@ -28,7 +28,7 @@ impl OrderedSceneOp {
     pub fn handle(&self) -> AnnotatedNodeHandle {
         match self {
             OrderedSceneOp::LiveSubtree { handle, .. } => *handle,
-            OrderedSceneOp::CachedSubtree { handle } => *handle,
+            OrderedSceneOp::ReusedSubtree { handle } => *handle,
         }
     }
 }
@@ -91,7 +91,7 @@ fn build_scene_op(
         )
         && should_cache_subtree_at_parent_granularity(display_tree, handle)
     {
-        return OrderedSceneOp::CachedSubtree { handle };
+        return OrderedSceneOp::ReusedSubtree { handle };
     }
 
     let children = display_tree
@@ -214,7 +214,7 @@ mod ordered_scene_tests {
     }
 
     #[test]
-    fn stable_non_leaf_subtree_builds_as_cached_subtree() {
+    fn stable_non_leaf_subtree_builds_as_reused_subtree() {
         let root = AnnotatedNodeHandle(0);
         let child = AnnotatedNodeHandle(1);
         let tree = AnnotatedDisplayTree {
@@ -245,7 +245,7 @@ mod ordered_scene_tests {
         };
 
         let program = OrderedSceneProgram::build(&tree);
-        assert_eq!(program.root, OrderedSceneOp::CachedSubtree { handle: root });
+        assert_eq!(program.root, OrderedSceneOp::ReusedSubtree { handle: root });
     }
 
     #[test]
@@ -419,7 +419,7 @@ mod ordered_scene_tests {
             OrderedSceneOp::LiveSubtree {
                 handle: root,
                 children: vec![
-                    OrderedSceneOp::CachedSubtree {
+                    OrderedSceneOp::ReusedSubtree {
                         handle: stable_child,
                     },
                     OrderedSceneOp::LiveSubtree {
@@ -498,7 +498,7 @@ mod ordered_scene_tests {
         assert_eq!(subtree.handle, root);
         assert_eq!(
             subtree.children,
-            vec![OrderedSceneOp::CachedSubtree {
+            vec![OrderedSceneOp::ReusedSubtree {
                 handle: stable_child
             }],
         );
@@ -571,7 +571,7 @@ mod ordered_scene_tests {
             program.root,
             OrderedSceneOp::LiveSubtree {
                 handle: root,
-                children: vec![OrderedSceneOp::CachedSubtree { handle: child }],
+                children: vec![OrderedSceneOp::ReusedSubtree { handle: child }],
             }
         );
     }

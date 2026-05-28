@@ -275,8 +275,8 @@ fn render_scene_op(
     cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     match op {
-        OrderedSceneOp::CachedSubtree { handle } => {
-            render_cached_subtree(ctx, *handle, tree, cache)
+        OrderedSceneOp::ReusedSubtree { handle } => {
+            render_reused_subtree(ctx, *handle, tree, cache)
         }
         OrderedSceneOp::LiveSubtree { handle, children } => {
             render_live_subtree(ctx, *handle, children, tree, cache)
@@ -284,7 +284,7 @@ fn render_scene_op(
     }
 }
 
-fn render_cached_subtree(
+fn render_reused_subtree(
     ctx: &mut RenderCtx,
     handle: AnnotatedNodeHandle,
     tree: &AnnotatedDisplayTree,
@@ -304,7 +304,7 @@ fn render_cached_subtree(
         save_backdrop_blur_layer(ctx, draw.opacity, draw.backdrop_blur_sigma, layer_bounds);
     let fingerprint = tree.analysis(handle).snapshot_fingerprint.ok_or_else(|| {
         RenderError::InvalidArgument(
-            "CachedSubtree node must have snapshot_fingerprint".to_string(),
+            "ReusedSubtree node must have snapshot_fingerprint".to_string(),
         )
     })?;
     let _snapshot_fingerprint = fingerprint;

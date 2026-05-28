@@ -344,7 +344,7 @@ fn render_cached_subtree(
                     target: "render.cache",
                     Level::TRACE,
                     kind = "cache",
-                    name = "parent_own_segment",
+                    name = "node_own_segment",
                     result = "hit",
                     amount = 1_u64
                 );
@@ -355,7 +355,7 @@ fn render_cached_subtree(
                     ..entry
                 };
                 let report = cache.parent_own_segments.insert(own_key, updated);
-                record_cache_pressure("parent_own", &report);
+                record_cache_pressure("node_own", &report);
 
                 for child in &subtree.children {
                     render_scene_op(ctx, child, tree, cache)?;
@@ -445,8 +445,8 @@ fn render_cached_subtree(
                 target: "render.cache",
                 Level::TRACE,
                 kind = "cache",
-                name = "parent_own_segment",
-                result = "first_record",
+                name = "node_own_segment",
+                result = "record",
                 amount = 1_u64
             );
         }
@@ -499,12 +499,12 @@ fn render_cached_subtree(
                     target: "render.cache",
                     Level::TRACE,
                     kind = "cache",
-                    name = "parent_own_segment",
+                    name = "node_own_segment",
                     result = "replaced",
                     amount = 1_u64
                 );
             }
-            record_cache_pressure("parent_own", &own_report);
+            record_cache_pressure("node_own", &own_report);
         }
     }
 

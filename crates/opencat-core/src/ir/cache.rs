@@ -9,11 +9,7 @@ use crate::display::tree::DisplayRecordedSubtreeFingerprint;
 /// IR-based render cache. Stores DrawOp IR segments instead of backend-specific
 /// objects, making cache data portable across platforms.
 pub struct RenderCache {
-    /// Subtree snapshot entries keyed by fingerprint primary hash.
-    pub subtree_snapshots: BoundedLruCache<u64, CachedNodeOwnIr>,
     /// Node-own segment entries keyed by DisplayRecordedFingerprint.
-    /// Separate from subtree_snapshots so that the parent's own rendering
-    /// segment can be reused even when child fingerprints change.
     pub node_own_segments: BoundedLruCache<u64, CachedNodeOwnIr>,
     /// Cached IR segments keyed by their semantic namespace.
     pub segments: BoundedLruCache<SegmentKey, CachedDrawSegment>,
@@ -40,9 +36,8 @@ pub struct SceneSnapshotEntry {
 
 impl RenderCache {
     /// Create a new RenderCache with the given capacities.
-    pub fn new(subtree_snapshot_cap: usize, node_own_cap: usize, segment_cap: usize, item_range_cap: usize) -> Self {
+    pub fn new(node_own_cap: usize, segment_cap: usize, item_range_cap: usize) -> Self {
         Self {
-            subtree_snapshots: BoundedLruCache::new(subtree_snapshot_cap),
             node_own_segments: BoundedLruCache::new(node_own_cap),
             segments: BoundedLruCache::new(segment_cap),
             item_ranges: BoundedLruCache::new(item_range_cap),
@@ -137,15 +132,7 @@ mod tests {
 
     #[test]
     fn render_cache_can_insert_and_lookup() {
-        use crate::cache::lru::BoundedLruCache;
-
-        let mut cache = RenderCache {
-            subtree_snapshots: BoundedLruCache::new(16),
-            node_own_segments: BoundedLruCache::new(16),
-            segments: BoundedLruCache::new(16),
-            item_ranges: BoundedLruCache::new(64),
-            last_scene_snapshot: None,
-        };
+        let mut cache = RenderCache::new(16, 16, 64);
 
         let segment = CachedDrawSegment::default();
         let entry = CachedNodeOwnIr {
@@ -160,21 +147,15 @@ mod tests {
         };
 
         cache.segments.insert(SegmentKey::NodeOwn(1), segment);
-        cache.subtree_snapshots.insert(1, entry);
+        cache.node_own_segments.insert(1, entry);
 
         assert!(cache.segments.get_cloned(&SegmentKey::NodeOwn(1)).is_some());
-        assert!(cache.subtree_snapshots.get_cloned(&1).is_some());
+        assert!(cache.node_own_segments.get_cloned(&1).is_some());
     }
 
     #[test]
     fn node_own_segments_can_insert_and_lookup() {
-        let mut cache = RenderCache {
-            subtree_snapshots: BoundedLruCache::new(16),
-            node_own_segments: BoundedLruCache::new(16),
-            segments: BoundedLruCache::new(16),
-            item_ranges: BoundedLruCache::new(64),
-            last_scene_snapshot: None,
-        };
+        let mut cache = RenderCache::new(16, 16, 64);
 
         let own_key: u64 = 999;
         let segment = CachedDrawSegment::default();

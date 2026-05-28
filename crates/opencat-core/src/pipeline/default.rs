@@ -23,8 +23,7 @@ use crate::text::default_font_db;
 
 use super::Pipeline;
 
-const DEFAULT_SUBTREE_SNAPSHOT_CAP: usize = 256;
-const DEFAULT_PARENT_OWN_CAP: usize = 256;
+const DEFAULT_NODE_OWN_CAP: usize = 256;
 const DEFAULT_SEGMENT_CAP: usize = 256;
 const DEFAULT_ITEM_RANGE_CAP: usize = 128;
 
@@ -92,8 +91,7 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
             analyze_fingerprint_history: AnalyzeFingerprintHistory::default(),
             font_db: Arc::new(default_font_db(&[])),
             cache: RenderCache::new(
-                DEFAULT_SUBTREE_SNAPSHOT_CAP,
-                DEFAULT_PARENT_OWN_CAP,
+                DEFAULT_NODE_OWN_CAP,
                 DEFAULT_SEGMENT_CAP,
                 DEFAULT_ITEM_RANGE_CAP,
             ),
@@ -447,11 +445,6 @@ mod tests {
             .values()
             .map(|frame| frame.analyze_snapshot_eligibility_hit_nodes)
             .sum::<usize>();
-        let subtree_snapshot_cache_hits = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.subtree_snapshot_cache_hits)
-            .sum::<usize>();
         let node_own_segment_hits = summary
             .frames
             .values()
@@ -462,16 +455,6 @@ mod tests {
             .values()
             .map(|frame| frame.backend.node_own_segment_records)
             .sum::<usize>();
-        let subtree_snapshot_cache_misses = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.subtree_snapshot_cache_misses)
-            .sum::<usize>();
-        let subtree_snapshot_cache_evictions = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.subtree_snapshot_cache_evictions)
-            .sum::<usize>();
         let scene_snapshot_cache_hits = summary
             .frames
             .values()
@@ -481,21 +464,6 @@ mod tests {
             .frames
             .values()
             .map(|frame| frame.backend.scene_snapshot_cache_misses)
-            .sum::<usize>();
-        let subtree_snapshot_artifact_hits = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.subtree_snapshot_artifact_hits)
-            .sum::<usize>();
-        let subtree_snapshot_artifact_first_record = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.subtree_snapshot_artifact_first_record)
-            .sum::<usize>();
-        let subtree_snapshot_artifact_evicted_or_absent = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.subtree_snapshot_artifact_evicted_or_absent)
             .sum::<usize>();
         let subtree_snapshot_request_after_analyze_fresh = summary
             .frames
@@ -517,12 +485,6 @@ mod tests {
             })
             .sum::<usize>();
 
-        let subtree_snapshot_artifact_replaced = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.subtree_snapshot_artifact_replaced)
-            .sum::<usize>();
-
         assert!(
             full_hit_nodes > 0,
             "profile-showcase jsonl should exercise full input Merkle hits"
@@ -540,14 +502,6 @@ mod tests {
             "analyze_recorded_hit_nodes should be > 0 in the showcase scene"
         );
         assert!(
-            subtree_snapshot_cache_hits + node_own_segment_hits > 0,
-            "subtree_snapshot_cache_hits + node_own_segment_hits should be > 0 in the showcase scene"
-        );
-        assert!(
-            subtree_snapshot_cache_misses > 0,
-            "subtree_snapshot_cache_misses should be > 0 in the showcase scene"
-        );
-        assert!(
             node_own_segment_hits + node_own_segment_records > 0,
             "node_own_segment_hits + node_own_segment_records should be > 0 in the showcase scene"
         );
@@ -559,18 +513,6 @@ mod tests {
         assert!(
             scene_snapshot_cache_misses > 0,
             "scene_snapshot_cache_misses should be > 0 in the showcase scene"
-        );
-        // Subtree LRU eviction is opportunistic: scene-snapshot hits short-circuit
-        // most subtree dispatch in the showcase, so evictions may legitimately
-        // stay at 0. Keep the read so the counter is exercised end-to-end.
-        let _ = subtree_snapshot_cache_evictions;
-        assert!(
-            subtree_snapshot_artifact_hits + node_own_segment_hits > 0,
-            "subtree_snapshot_artifact_hits + node_own_segment_hits should be > 0 in the showcase scene"
-        );
-        assert!(
-            subtree_snapshot_artifact_first_record > 0,
-            "subtree_snapshot_artifact_first_record should be > 0 in the showcase scene"
         );
         assert!(
             subtree_snapshot_request_after_analyze_fresh > 0,
@@ -589,19 +531,7 @@ mod tests {
             "recorded_hit_nodes should equal snapshot_eligibility_hit_nodes + composite_blocked_nodes"
         );
 
-        let _ = subtree_snapshot_artifact_replaced;
         let _ = subtree_snapshot_request_after_analyze_composite_blocked;
-
-        assert_eq!(
-            subtree_snapshot_artifact_hits + subtree_snapshot_artifact_evicted_or_absent,
-            subtree_snapshot_cache_hits,
-            "artifact_hits + evicted_or_absent must equal cache_hits: every cache hit checks the artifact"
-        );
-        assert_eq!(
-            subtree_snapshot_artifact_first_record + subtree_snapshot_artifact_evicted_or_absent,
-            subtree_snapshot_cache_misses,
-            "first_record (no cache entry) + evicted_or_absent (cache hit, segment gone) must equal cache_misses"
-        );
     }
 
     #[cfg(feature = "profile")]

@@ -55,11 +55,19 @@ The implementation should make these boundaries visible in names, cache keys, pr
 
 `AnalyzeFingerprintHistory` reuses analysis when `recorded_subtree_fingerprint` matches for the same render node key.
 
-`RenderCache` currently has correct behavior but unclear names:
+Before this cleanup, `RenderCache` had correct behavior but unclear names:
 
 - `subtree_snapshots` sounds like it stores a whole subtree, but the render path records only the parent node's own item and open clip; children are rendered dynamically afterward.
 - `parent_own_segments` is the cache that profile shows as frequently reused.
 - `segments` is a shared untyped `u64 -> CachedDrawSegment` artifact store used by different cache concepts.
+
+After the cleanup, the render artifact cache is intentionally narrower:
+
+- `node_own_segments: BoundedLruCache<u64, CachedNodeOwnIr>` is the only node-own cache entry map.
+- `segments: BoundedLruCache<SegmentKey, CachedDrawSegment>` stores typed IR artifacts.
+- `item_ranges: BoundedLruCache<u64, CachedDrawRange>` stores item-level picture ranges.
+- `last_scene_snapshot` remains the whole-frame snapshot path.
+- The old `subtree_snapshots` artifact lookup was removed; `OrderedSceneOp::CachedSubtree` remains a planning operation, not a second artifact cache.
 
 ## Proposed Design
 
@@ -101,7 +109,6 @@ Replace shared raw segment keys with a typed key:
 enum SegmentKey {
     Item(u64),
     NodeOwn(u64),
-    Scene(u64),
 }
 ```
 
@@ -125,19 +132,24 @@ The render path should use one primary node-own segment cache:
 
 Rename counters to show real cache behavior:
 
-- `parent_own_segment hit/first_record/replaced` -> `node_own_segment hit/miss/record/replaced`
+- `parent_own_segment hit/first_record/replaced` -> `node_own_segment hit/record/replaced`
 - `parent_own_cache_*` -> `node_own_cache_*`
 - `subtree_snapshot_request_after_analyze_*` may remain, but it should be labeled as planning:
-  - `node_cache_request_after_analyze_fresh`
-  - `node_cache_request_after_analyze_reused`
+  - `subtree_request_after_fresh`
+  - `subtree_request_after_reused`
+  - `subtree_request_after_composite_blocked`
 
-Remove or redefine:
+Removed render-artifact counters:
 
-- `analyze_composite_blocked_subtrees`
-- `analyze_composite_blocked_nodes`
-- `subtree_snapshot_request_after_analyze_composite_blocked`
+- `subtree_snapshot_hit`
+- `subtree_snapshot_miss`
+- `subtree_artifact_hit`
+- `subtree_artifact_first_record`
+- `subtree_artifact_evicted_or_absent`
+- `subtree_artifact_replaced`
+- `subtree_evict/repeat/util`
 
-Composite dirty no longer blocks analysis reuse, so these counters currently describe a state that should not occur.
+The analyze-side `composite_blocked_*` counters are still present for visibility, but the current showcase profile reports them as `0.0`.
 
 ### 6. Tests
 
@@ -172,3 +184,33 @@ After this phase, profile output should make the cache story obvious:
 - children remain dynamically rendered so their apply changes do not poison parent paint caches.
 
 This gives a clean foundation for later capacity tuning and weighted LRU.
+
+## Final Implementation Record
+
+Accepted commits:
+
+- `334af71 refactor: rename parent-own profile counters`
+- `2753028 refactor: rename node-own render cache`
+- `fe53fce refactor: type render segment keys`
+- `7815398 refactor: simplify node-own render cache lookup`
+
+Final render cache layers:
+
+1. Scene snapshot: `last_scene_snapshot`, validated by root recorded subtree fingerprint and viewport.
+2. Node-own IR entry: `node_own_segments`, keyed by `DisplayRecordedFingerprint::from_recorded(&node.recorded_semantics())`.
+3. Typed segment artifact store: `segments`, keyed by `SegmentKey::Item(_)` or `SegmentKey::NodeOwn(_)`.
+4. Item picture ranges: `item_ranges`, keyed by `item_paint_fingerprint`.
+
+Final profile after `cargo run --bin opencat --release --features profile -- json/profile-showcase.jsonl`:
+
+```text
+frames: 414
+avg ms/frame: script 0.64, resolve 0.64, layout 0.06, display 0.06, backend 0.25
+layout avg/frame: layout_skipped_nodes 24.0, layout_dirty 0.7, raster_dirty 0.3
+display avg/frame: merkle_skipped_nodes 12.8, rebuilt_nodes 2.9, apply_only_patched_nodes 9.9
+analyze avg/frame: merkle_skipped_nodes 20.0, recorded_hit_nodes 20.0, composite_dirty_nodes 1.4
+backend avg counts/frame: scene_snapshot_hit 0.00, scene_snapshot_miss 1.00, subtree_request_after_fresh 3.97, subtree_request_after_reused 5.64, node_own_hit 9.55, node_own_record 0.06
+cache pressure avg/frame: node_own_evict 0.00, node_own_repeat 9.55, node_own_util 55.21
+```
+
+The result removes the redundant subtree artifact lookup without changing the effective Merkle behavior: node-own hits and records remain stable, display/analyze skip counts remain comparable, and backend time stays within noise of the baseline.

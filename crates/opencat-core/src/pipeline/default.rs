@@ -24,6 +24,7 @@ use crate::text::default_font_db;
 use super::Pipeline;
 
 const DEFAULT_SUBTREE_SNAPSHOT_CAP: usize = 256;
+const DEFAULT_PARENT_OWN_CAP: usize = 256;
 const DEFAULT_SEGMENT_CAP: usize = 256;
 const DEFAULT_ITEM_RANGE_CAP: usize = 128;
 
@@ -92,6 +93,7 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
             font_db: Arc::new(default_font_db(&[])),
             cache: RenderCache::new(
                 DEFAULT_SUBTREE_SNAPSHOT_CAP,
+                DEFAULT_PARENT_OWN_CAP,
                 DEFAULT_SEGMENT_CAP,
                 DEFAULT_ITEM_RANGE_CAP,
             ),
@@ -450,6 +452,16 @@ mod tests {
             .values()
             .map(|frame| frame.backend.subtree_snapshot_cache_hits)
             .sum::<usize>();
+        let parent_own_segment_hits = summary
+            .frames
+            .values()
+            .map(|frame| frame.backend.parent_own_segment_hits)
+            .sum::<usize>();
+        let parent_own_segment_first_record = summary
+            .frames
+            .values()
+            .map(|frame| frame.backend.parent_own_segment_first_record)
+            .sum::<usize>();
         let subtree_snapshot_cache_misses = summary
             .frames
             .values()
@@ -528,12 +540,16 @@ mod tests {
             "analyze_recorded_hit_nodes should be > 0 in the showcase scene"
         );
         assert!(
-            subtree_snapshot_cache_hits > 0,
-            "subtree_snapshot_cache_hits should be > 0 in the showcase scene"
+            subtree_snapshot_cache_hits + parent_own_segment_hits > 0,
+            "subtree_snapshot_cache_hits + parent_own_segment_hits should be > 0 in the showcase scene"
         );
         assert!(
             subtree_snapshot_cache_misses > 0,
             "subtree_snapshot_cache_misses should be > 0 in the showcase scene"
+        );
+        assert!(
+            parent_own_segment_hits + parent_own_segment_first_record > 0,
+            "parent_own_segment_hits + parent_own_segment_first_record should be > 0 in the showcase scene"
         );
         // Scene snapshot cache should fire at least once on idle stretches.
         assert!(
@@ -549,8 +565,8 @@ mod tests {
         // stay at 0. Keep the read so the counter is exercised end-to-end.
         let _ = subtree_snapshot_cache_evictions;
         assert!(
-            subtree_snapshot_artifact_hits > 0,
-            "subtree_snapshot_artifact_hits should be > 0 in the showcase scene"
+            subtree_snapshot_artifact_hits + parent_own_segment_hits > 0,
+            "subtree_snapshot_artifact_hits + parent_own_segment_hits should be > 0 in the showcase scene"
         );
         assert!(
             subtree_snapshot_artifact_first_record > 0,

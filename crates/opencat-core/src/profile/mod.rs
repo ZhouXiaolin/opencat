@@ -98,6 +98,12 @@ pub struct BackendProfile {
     pub image_cache_evictions: usize,
     pub image_cache_record_repeats: usize,
     pub image_cache_capacity_utilization: usize,
+    pub parent_own_segment_hits: usize,
+    pub parent_own_segment_first_record: usize,
+    pub parent_own_segment_replaced: usize,
+    pub parent_own_cache_evictions: usize,
+    pub parent_own_cache_record_repeats: usize,
+    pub parent_own_cache_capacity_utilization: usize,
     /// 所有 subtree_snapshot hit 的 consecutive_hits 累加值。
     /// 平均值 = total / subtree_snapshot_cache_hits。
     pub subtree_snapshot_consecutive_hits_total: usize,

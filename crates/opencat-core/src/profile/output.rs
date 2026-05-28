@@ -138,7 +138,7 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.backend.video_frame_decodes),
     ));
     out.push_str(&format!(
-        "  cache pressure avg/frame: item_evict {:.2}, item_repeat {:.2}, item_util {:.2}, subtree_evict {:.2}, subtree_repeat {:.2}, subtree_util {:.2}, subtree_image_evict {:.2}, subtree_image_repeat {:.2}, subtree_image_util {:.2}, glyph_path_evict {:.2}, glyph_path_repeat {:.2}, glyph_path_util {:.2}, image_evict {:.2}, image_repeat {:.2}, image_util {:.2}\n",
+        "  cache pressure avg/frame: item_evict {:.2}, item_repeat {:.2}, item_util {:.2}, subtree_evict {:.2}, subtree_repeat {:.2}, subtree_util {:.2}, subtree_image_evict {:.2}, subtree_image_repeat {:.2}, subtree_image_util {:.2}, glyph_path_evict {:.2}, glyph_path_repeat {:.2}, glyph_path_util {:.2}, image_evict {:.2}, image_repeat {:.2}, image_util {:.2}, parent_own_evict {:.2}, parent_own_repeat {:.2}, parent_own_util {:.2}\n",
         average_usize(summary, |frame| frame.backend.item_picture_cache_evictions),
         average_usize(summary, |frame| frame.backend.item_picture_cache_record_repeats),
         average_usize(summary, |frame| frame.backend.item_picture_cache_capacity_utilization),
@@ -154,6 +154,9 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.backend.image_cache_evictions),
         average_usize(summary, |frame| frame.backend.image_cache_record_repeats),
         average_usize(summary, |frame| frame.backend.image_cache_capacity_utilization),
+        average_usize(summary, |frame| frame.backend.parent_own_cache_evictions),
+        average_usize(summary, |frame| frame.backend.parent_own_cache_record_repeats),
+        average_usize(summary, |frame| frame.backend.parent_own_cache_capacity_utilization),
     ));
     append_backend_span_summary(&mut out, summary);
     out

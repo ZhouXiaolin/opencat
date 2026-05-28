@@ -112,6 +112,7 @@ pub fn render_frame_with_state(
         event!(target: "render.display", Level::TRACE, kind = "display", name = "display_merkle_skipped_subtrees", result = "count", amount = display_stats.subtree_full_hit_subtrees as u64);
         event!(target: "render.display", Level::TRACE, kind = "display", name = "display_merkle_skipped_nodes", result = "count", amount = display_stats.subtree_full_hit_nodes as u64);
         event!(target: "render.display", Level::TRACE, kind = "display", name = "display_rebuilt_nodes", result = "count", amount = display_stats.rebuilt_nodes as u64);
+        event!(target: "render.display", Level::TRACE, kind = "display", name = "display_apply_only_nodes", result = "count", amount = display_stats.apply_only_nodes as u64);
     }
     #[cfg(not(feature = "profile"))]
     let _ = display_stats;

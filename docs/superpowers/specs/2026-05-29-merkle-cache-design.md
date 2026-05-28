@@ -67,7 +67,7 @@ After the cleanup, the render artifact cache is intentionally narrower:
 - `segments: BoundedLruCache<SegmentKey, CachedDrawSegment>` stores typed IR artifacts.
 - `item_ranges: BoundedLruCache<u64, CachedDrawRange>` stores item-level picture ranges.
 - `last_scene_snapshot` remains the whole-frame snapshot path.
-- The old `subtree_snapshots` artifact lookup was removed; `OrderedSceneOp::CachedSubtree` remains a planning operation, not a second artifact cache.
+- The old `subtree_snapshots` artifact lookup was removed; `OrderedSceneOp::ReusedSubtree` remains a planning operation, not a second artifact cache.
 
 ## Proposed Design
 

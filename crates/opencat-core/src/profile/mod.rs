@@ -140,6 +140,7 @@ pub struct FrameProfile {
     pub display_merkle_skipped_subtrees: usize,
     pub display_merkle_skipped_nodes: usize,
     pub display_rebuilt_nodes: usize,
+    pub display_apply_only_nodes: usize,
     pub analyze_merkle_skipped_subtrees: usize,
     pub analyze_merkle_skipped_nodes: usize,
     pub analyze_recorded_hit_subtrees: usize,

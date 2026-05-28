@@ -396,11 +396,31 @@ fn begin_apply_frame_cached(
 ) -> ApplyFrame {
     let key = SegmentKey::Apply(apply_segment_key(plan));
     if let Some(segment) = cache.segments.get_cloned(&key) {
+        #[cfg(feature = "profile")]
+        event!(
+            target: "render.cache",
+            Level::TRACE,
+            kind = "cache",
+            name = "apply_segment",
+            result = "hit",
+            amount = 1_u64
+        );
+
         builder.import_segment(&segment);
         return ApplyFrame {
             layer_state: backdrop_layer_state_for_plan(plan),
         };
     }
+
+    #[cfg(feature = "profile")]
+    event!(
+        target: "render.cache",
+        Level::TRACE,
+        kind = "cache",
+        name = "apply_segment",
+        result = "miss",
+        amount = 1_u64
+    );
 
     let marker = builder.begin_range();
     let frame = emit_apply_prefix(builder, plan);

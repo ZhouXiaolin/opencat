@@ -266,17 +266,17 @@ fn annotate_display_node(
     invalidation.insert(
         handle,
         DisplayNodeInvalidation {
-            composite_dirty: false,
+            apply_changed: false,
         },
     );
 
     handle
 }
 
-/// 在 `mark_display_tree_composite_dirty` 之后调用，自底向上填充 fingerprint。
+/// 在 `mark_display_tree_apply_changed` 之后调用，自底向上填充 fingerprint。
 ///
-/// annotation 阶段只建结构；fingerprint 计算需要读 invalidation 表（由 mark_dirty 写入），
-/// 因此必须排在 mark_dirty 之后才能拿到真实的 `composite_dirty` 值。
+/// annotation 阶段只建结构；fingerprint 计算需要读 invalidation 表（由 apply-change 标记写入），
+/// 因此必须排在 apply-change 标记之后才能拿到真实的 `apply_changed` 值。
 pub fn compute_display_tree_fingerprints(tree: &mut AnnotatedDisplayTree) {
     let mut history = AnalyzeFingerprintHistory::default();
     compute_display_tree_fingerprints_with_history(tree, &mut history, false);
@@ -474,7 +474,7 @@ mod tests {
         }
     }
 
-    fn two_node_tree(child_composite_dirty: bool) -> AnnotatedDisplayTree {
+    fn two_node_tree(child_apply_changed: bool) -> AnnotatedDisplayTree {
         let child = AnnotatedNodeHandle(0);
         let root = AnnotatedNodeHandle(1);
 
@@ -498,13 +498,13 @@ mod tests {
         invalidation.insert(
             child,
             DisplayNodeInvalidation {
-                composite_dirty: child_composite_dirty,
+                apply_changed: child_apply_changed,
             },
         );
         invalidation.insert(
             root,
             DisplayNodeInvalidation {
-                composite_dirty: false,
+                apply_changed: false,
             },
         );
 
@@ -585,7 +585,7 @@ mod tests {
     }
 
     #[test]
-    fn analyze_decision_reuses_when_recorded_matches_even_with_dirty_descendant() {
+    fn analyze_decision_reuses_when_recorded_matches_even_with_apply_changed_descendant() {
         let mut history = AnalyzeFingerprintHistory::default();
         let mut first = two_node_tree(false);
         compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
@@ -602,7 +602,7 @@ mod tests {
         assert_eq!(
             decision,
             AnalyzeFingerprintDecision::Reused { nodes: 2 },
-            "composite_dirty no longer blocks fingerprint reuse"
+            "apply_changed no longer blocks fingerprint reuse"
         );
     }
 
@@ -630,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn dirty_descendant_no_longer_blocks_parent_reuse() {
+    fn apply_changed_descendant_no_longer_blocks_parent_reuse() {
         let mut history = AnalyzeFingerprintHistory::default();
         let mut first = two_node_tree(false);
         compute_display_tree_fingerprints_with_history(&mut first, &mut history, false);
@@ -642,7 +642,7 @@ mod tests {
         assert_eq!(
             second.analyze_reuse_state(root),
             AnalyzeReuseState::ReusedFromHistory,
-            "root with dirty descendant composite should still reuse from history"
+            "root with apply-changed descendant should still reuse from history"
         );
     }
 

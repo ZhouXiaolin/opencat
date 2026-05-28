@@ -13,7 +13,7 @@ pub struct DisplayNodeAnalysis {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisplayNodeInvalidation {
-    pub composite_dirty: bool,
+    pub apply_changed: bool,
 }
 
 #[derive(Clone, Debug, Default)]

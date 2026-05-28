@@ -72,7 +72,7 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.display_apply_only_nodes),
     ));
     out.push_str(&format!(
-        "  analyze avg/frame: merkle_skipped_subtrees {:.1}, merkle_skipped_nodes {:.1}, recorded_hit_subtrees {:.1}, recorded_hit_nodes {:.1}, snapshot_eligibility_hit_subtrees {:.1}, snapshot_eligibility_hit_nodes {:.1}, composite_blocked_subtrees {:.1}, composite_blocked_nodes {:.1}, composite_dirty_nodes {:.1}\n",
+        "  analyze avg/frame: merkle_skipped_subtrees {:.1}, merkle_skipped_nodes {:.1}, recorded_hit_subtrees {:.1}, recorded_hit_nodes {:.1}, snapshot_eligibility_hit_subtrees {:.1}, snapshot_eligibility_hit_nodes {:.1}, composite_blocked_subtrees {:.1}, composite_blocked_nodes {:.1}, apply_changed_nodes {:.1}\n",
         average_usize(summary, |frame| frame.analyze_merkle_skipped_subtrees),
         average_usize(summary, |frame| frame.analyze_merkle_skipped_nodes),
         average_usize(summary, |frame| frame.analyze_recorded_hit_subtrees),
@@ -82,7 +82,7 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.analyze_snapshot_eligibility_hit_nodes),
         average_usize(summary, |frame| frame.analyze_composite_blocked_subtrees),
         average_usize(summary, |frame| frame.analyze_composite_blocked_nodes),
-        average_usize(summary, |frame| frame.analyze_composite_dirty_nodes),
+        average_usize(summary, |frame| frame.analyze_apply_changed_nodes),
     ));
     out.push_str(&format!(
         "  backend avg ms/frame: node_own_record {:.2}, subtree_image_rasterize {:.2}, subtree_image_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}\n",
@@ -142,7 +142,7 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
             .scene_snapshot_miss_root_fingerprint_changed),
     ));
     out.push_str(&format!(
-        "  scene snapshot plan blocked avg/frame: scene_snapshot_plan_blocked_by_structure {:.2}, scene_snapshot_plan_blocked_by_layout {:.2}, scene_snapshot_plan_blocked_by_raster {:.2}, scene_snapshot_plan_blocked_by_composite {:.2}\n",
+        "  scene snapshot plan blocked avg/frame: scene_snapshot_plan_blocked_by_structure {:.2}, scene_snapshot_plan_blocked_by_layout {:.2}, scene_snapshot_plan_blocked_by_raster {:.2}, scene_snapshot_plan_blocked_by_apply_change {:.2}\n",
         average_usize(summary, |frame| frame
             .backend
             .scene_snapshot_plan_blocked_by_structure),
@@ -154,7 +154,7 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
             .scene_snapshot_plan_blocked_by_raster),
         average_usize(summary, |frame| frame
             .backend
-            .scene_snapshot_plan_blocked_by_composite),
+            .scene_snapshot_plan_blocked_by_apply_change),
     ));
     out.push_str(&format!(
         "  cache pressure avg/frame: item_evict {:.2}, item_repeat {:.2}, item_util {:.2}, subtree_image_evict {:.2}, subtree_image_repeat {:.2}, subtree_image_util {:.2}, glyph_path_evict {:.2}, glyph_path_repeat {:.2}, glyph_path_util {:.2}, image_evict {:.2}, image_repeat {:.2}, image_util {:.2}, node_own_evict {:.2}, node_own_repeat {:.2}, node_own_util {:.2}\n",
@@ -331,7 +331,7 @@ mod tests {
         frame.backend.scene_snapshot_plan_blocked_by_structure = 6;
         frame.backend.scene_snapshot_plan_blocked_by_layout = 7;
         frame.backend.scene_snapshot_plan_blocked_by_raster = 8;
-        frame.backend.scene_snapshot_plan_blocked_by_composite = 9;
+        frame.backend.scene_snapshot_plan_blocked_by_apply_change = 9;
         frame.backend.subtree_snapshot_request_after_analyze_fresh = 10;
         frame.backend.subtree_snapshot_request_after_analyze_reused = 7;
         frame
@@ -384,7 +384,7 @@ mod tests {
         assert!(text.contains("scene_snapshot_plan_blocked_by_structure"));
         assert!(text.contains("scene_snapshot_plan_blocked_by_layout"));
         assert!(text.contains("scene_snapshot_plan_blocked_by_raster"));
-        assert!(text.contains("scene_snapshot_plan_blocked_by_composite"));
+        assert!(text.contains("scene_snapshot_plan_blocked_by_apply_change"));
         assert!(text.contains("node_own_evict"));
         assert!(text.contains("node_own_repeat"));
         assert!(text.contains("node_own_util"));

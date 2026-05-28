@@ -12,7 +12,7 @@ use crate::analyze::annotation::{
     compute_display_tree_fingerprints_with_history,
 };
 use crate::analyze::compositor::{OrderedSceneProgram, plan_for_scene};
-use crate::analyze::invalidation::{CompositeHistory, mark_display_tree_composite_dirty};
+use crate::analyze::invalidation::{CompositeHistory, mark_display_tree_apply_changed};
 use crate::display::build::DisplayBuildSession;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
 use crate::ir::cache::{RenderCache, SceneSnapshotEntry};
@@ -117,13 +117,13 @@ pub fn render_frame_with_state(
     #[cfg(not(feature = "profile"))]
     let _ = display_stats;
     let mut annotated = annotate_display_tree(&display_tree);
-    let composite_dirty_stats = mark_display_tree_composite_dirty(
+    let apply_changed_stats = mark_display_tree_apply_changed(
         composite_history,
         &mut annotated,
         layout_pass.structure_rebuild,
     );
     #[cfg(not(feature = "profile"))]
-    let _ = composite_dirty_stats;
+    let _ = apply_changed_stats;
     #[cfg(feature = "profile")]
     let analyze_stats = compute_display_tree_fingerprints_with_history(
         &mut annotated,
@@ -148,12 +148,12 @@ pub fn render_frame_with_state(
         event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_snapshot_eligibility_hit_nodes", result = "count", amount = analyze_stats.snapshot_eligibility_hit_nodes as u64);
         event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_composite_blocked_subtrees", result = "count", amount = analyze_stats.composite_blocked_subtrees as u64);
         event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_composite_blocked_nodes", result = "count", amount = analyze_stats.composite_blocked_nodes as u64);
-        event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_composite_dirty_nodes", result = "count", amount = composite_dirty_stats.composite_dirty_nodes as u64);
+        event!(target: "render.analyze", Level::TRACE, kind = "analyze", name = "analyze_apply_changed_nodes", result = "count", amount = apply_changed_stats.apply_changed_nodes as u64);
     }
     #[cfg(feature = "profile")]
     drop(_display_span);
 
-    let scene_plan = plan_for_scene(&layout_pass, composite_dirty_stats.composite_dirty_nodes);
+    let scene_plan = plan_for_scene(&layout_pass, apply_changed_stats.apply_changed_nodes);
     let root_fingerprint = annotated.root_node().recorded_subtree_fingerprint;
 
     let scene_snapshot_decision = scene_snapshot_cache_decision(
@@ -270,7 +270,7 @@ pub fn render_frame(
 
 /// Decide whether the cached whole-frame DrawOp recording can be reused this
 /// frame. The cache hits only when:
-///   1. the scene-level plan allows it (no structure/layout/raster/composite dirty),
+///   1. the scene-level plan allows it (no structure/layout/raster/apply change),
 ///   2. the cached entry was recorded at the same viewport, and
 ///   3. the root subtree fingerprint matches — this catches per-frame item
 ///      content changes (transition progress, animated text, frame-bound
@@ -358,13 +358,13 @@ fn record_scene_snapshot_plan_block_reasons(plan: &crate::analyze::compositor::S
             amount = 1_u64
         );
     }
-    if plan.scene_snapshot_blocked_by_composite {
+    if plan.scene_snapshot_blocked_by_apply_change {
         event!(
             target: "render.cache",
             Level::TRACE,
             kind = "cache",
             name = "scene_snapshot_plan_blocked",
-            result = "composite",
+            result = "apply_change",
             amount = 1_u64
         );
     }
@@ -407,7 +407,7 @@ mod tests {
             scene_snapshot_blocked_by_structure: !allows_scene_snapshot_cache,
             scene_snapshot_blocked_by_layout: false,
             scene_snapshot_blocked_by_raster: false,
-            scene_snapshot_blocked_by_composite: false,
+            scene_snapshot_blocked_by_apply_change: false,
         }
     }
 

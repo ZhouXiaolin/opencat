@@ -1,8 +1,10 @@
+use super::draw_frame::DrawOpFrame;
 use super::draw_op::DrawOp;
 use super::draw_types::*;
 use crate::cache::lru::BoundedLruCache;
 use crate::canvas::paint::PaintSpec;
 use crate::display::list::DisplayRect;
+use crate::display::tree::DisplayRecordedSubtreeFingerprint;
 
 /// IR-based render cache. Stores DrawOp IR segments instead of backend-specific
 /// objects, making cache data portable across platforms.
@@ -13,8 +15,23 @@ pub struct RenderCache {
     pub segments: BoundedLruCache<u64, CachedDrawSegment>,
     /// Item-level cached ranges keyed by item_paint_fingerprint.
     pub item_ranges: BoundedLruCache<u64, CachedDrawRange>,
-    /// Most-recent scene-level snapshot (fingerprint, range).
-    pub scene_snapshot: Option<(u64, CachedDrawRange)>,
+    /// Most-recent scene-level snapshot. Reused on the next frame when
+    /// `SceneRenderPlan::allows_scene_snapshot_cache` is true and the
+    /// composition viewport is unchanged.
+    pub last_scene_snapshot: Option<SceneSnapshotEntry>,
+}
+
+/// A cached whole-frame DrawOp recording paired with the viewport metadata
+/// and root subtree fingerprint required to validate reuse. The fingerprint
+/// captures every change in the draw program — paint, composite, structure,
+/// and per-frame item content such as transition progress — so a cached
+/// entry is only reusable when the entire scene tree fingerprints identically.
+#[derive(Clone, Debug)]
+pub struct SceneSnapshotEntry {
+    pub frame: DrawOpFrame,
+    pub width: i32,
+    pub height: i32,
+    pub root_fingerprint: DisplayRecordedSubtreeFingerprint,
 }
 
 impl RenderCache {
@@ -24,7 +41,7 @@ impl RenderCache {
             subtree_snapshots: BoundedLruCache::new(subtree_snapshot_cap),
             segments: BoundedLruCache::new(segment_cap),
             item_ranges: BoundedLruCache::new(item_range_cap),
-            scene_snapshot: None,
+            last_scene_snapshot: None,
         }
     }
 }
@@ -110,7 +127,7 @@ mod tests {
             subtree_snapshots: BoundedLruCache::new(16),
             segments: BoundedLruCache::new(16),
             item_ranges: BoundedLruCache::new(64),
-            scene_snapshot: None,
+            last_scene_snapshot: None,
         };
 
         let segment = CachedDrawSegment::default();

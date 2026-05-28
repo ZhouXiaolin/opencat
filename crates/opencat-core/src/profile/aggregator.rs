@@ -122,11 +122,8 @@ impl RenderProfileAggregator {
                 frame.backend_ms += span.inclusive_ms;
             }
             match span.name {
-                "subtree_snapshot_record" => {
-                    frame.backend.subtree_snapshot_record_ms += span.inclusive_ms;
-                }
-                "subtree_snapshot_draw" => {
-                    frame.backend.subtree_snapshot_draw_ms += span.inclusive_ms;
+                "node_own_segment_record" => {
+                    frame.backend.node_own_segment_record_ms += span.inclusive_ms;
                 }
                 "subtree_image_rasterize" => {
                     frame.backend.subtree_image_rasterize_ms += span.inclusive_ms;
@@ -148,24 +145,6 @@ impl RenderProfileAggregator {
     pub fn record_count(&mut self, event: ProfileCountEvent) {
         let frame = self.frame_mut(event.frame);
         match (event.kind, event.name, event.result) {
-            ("cache", "subtree_snapshot", "hit") => {
-                frame.backend.subtree_snapshot_cache_hits += event.amount;
-            }
-            ("cache", "subtree_snapshot", "miss") => {
-                frame.backend.subtree_snapshot_cache_misses += event.amount;
-            }
-            ("cache", "subtree_snapshot_artifact", "hit") => {
-                frame.backend.subtree_snapshot_artifact_hits += event.amount;
-            }
-            ("cache", "subtree_snapshot_artifact", "first_record") => {
-                frame.backend.subtree_snapshot_artifact_first_record += event.amount;
-            }
-            ("cache", "subtree_snapshot_artifact", "evicted_or_absent") => {
-                frame.backend.subtree_snapshot_artifact_evicted_or_absent += event.amount;
-            }
-            ("cache", "subtree_snapshot_artifact", "replaced") => {
-                frame.backend.subtree_snapshot_artifact_replaced += event.amount;
-            }
             ("cache", "subtree_snapshot_request_after_analyze", "fresh") => {
                 frame.backend.subtree_snapshot_request_after_analyze_fresh += event.amount;
             }
@@ -182,12 +161,6 @@ impl RenderProfileAggregator {
             }
             ("cache", "scene_snapshot", "miss") => {
                 frame.backend.scene_snapshot_cache_misses += event.amount;
-            }
-            ("cache", "subtree_snapshot_composite_dirty", "hit") => {
-                frame.backend.subtree_snapshot_composite_dirty_hits += event.amount;
-            }
-            ("cache", "subtree_snapshot_composite_dirty", "miss") => {
-                frame.backend.subtree_snapshot_composite_dirty_misses += event.amount;
             }
             ("cache", "subtree_image", "hit") => {
                 frame.backend.subtree_image_cache_hits += event.amount;
@@ -263,15 +236,6 @@ impl RenderProfileAggregator {
             }
             ("utilization", "item_picture", "count") => {
                 frame.backend.item_picture_cache_capacity_utilization += event.amount;
-            }
-            ("eviction", "subtree_snapshot", "count") => {
-                frame.backend.subtree_snapshot_cache_evictions += event.amount;
-            }
-            ("repeat", "subtree_snapshot", "count") => {
-                frame.backend.subtree_snapshot_cache_record_repeats += event.amount;
-            }
-            ("utilization", "subtree_snapshot", "count") => {
-                frame.backend.subtree_snapshot_cache_capacity_utilization += event.amount;
             }
             ("eviction", "subtree_image", "count") => {
                 frame.backend.subtree_image_cache_evictions += event.amount;
@@ -359,9 +323,6 @@ impl RenderProfileAggregator {
             }
             ("analyze", "analyze_composite_dirty_nodes", "count") => {
                 frame.analyze_composite_dirty_nodes += event.amount;
-            }
-            ("consecutive", "subtree_snapshot", "count") => {
-                frame.backend.subtree_snapshot_consecutive_hits_total += event.amount;
             }
             ("cache", "node_own_segment", "hit") => {
                 frame.backend.node_own_segment_hits += event.amount;
@@ -487,60 +448,6 @@ mod tests {
         assert_eq!(
             summary.frames[&7].display_recorded_subtree_identical_nodes,
             15
-        );
-    }
-
-    #[test]
-    fn count_events_record_subtree_snapshot_artifact_reasons() {
-        let mut aggregator = RenderProfileAggregator::default();
-
-        aggregator.record_count(ProfileCountEvent {
-            frame: 7,
-            kind: "cache",
-            name: "subtree_snapshot_artifact",
-            result: "hit",
-            amount: 2,
-        });
-        aggregator.record_count(ProfileCountEvent {
-            frame: 7,
-            kind: "cache",
-            name: "subtree_snapshot_artifact",
-            result: "first_record",
-            amount: 3,
-        });
-        aggregator.record_count(ProfileCountEvent {
-            frame: 7,
-            kind: "cache",
-            name: "subtree_snapshot_artifact",
-            result: "evicted_or_absent",
-            amount: 5,
-        });
-
-        let summary = aggregator.finish();
-        let frame = &summary.frames[&7];
-        assert_eq!(frame.backend.subtree_snapshot_artifact_hits, 2);
-        assert_eq!(frame.backend.subtree_snapshot_artifact_first_record, 3);
-        assert_eq!(frame.backend.subtree_snapshot_artifact_evicted_or_absent, 5);
-    }
-
-    #[test]
-    fn count_events_subtree_snapshot_artifact_replaced() {
-        let mut aggregator = RenderProfileAggregator::default();
-
-        aggregator.record_count(ProfileCountEvent {
-            frame: 3,
-            kind: "cache",
-            name: "subtree_snapshot_artifact",
-            result: "replaced",
-            amount: 7,
-        });
-
-        let summary = aggregator.finish();
-        assert_eq!(
-            summary.frames[&3]
-                .backend
-                .subtree_snapshot_artifact_replaced,
-            7
         );
     }
 

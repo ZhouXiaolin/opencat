@@ -353,7 +353,7 @@ mod tests {
             let outer = span!(target: "render.backend", Level::TRACE, "display_tree_direct_draw");
             let _outer_guard = outer.enter();
 
-            let inner = span!(target: "render.backend", Level::TRACE, "subtree_snapshot_record");
+            let inner = span!(target: "render.backend", Level::TRACE, "node_own_segment_record");
             let _inner_guard = inner.enter();
             Ok::<_, anyhow::Error>(())
         })?;
@@ -373,7 +373,7 @@ mod tests {
             frame.backend_spans.contains_key(&BackendSpanKey {
                 depth: 1,
                 parent: Some("display_tree_direct_draw"),
-                name: "subtree_snapshot_record",
+                name: "node_own_segment_record",
             }),
             "nested backend span parent must be nearest backend ancestor, spans = {:?}",
             frame.backend_spans.keys().collect::<Vec<_>>()
@@ -425,15 +425,15 @@ mod tests {
             let backend_span = span!(
                 target: "render.backend",
                 Level::TRACE,
-                "subtree_snapshot_record"
+                "node_own_segment_record"
             );
             let _backend_guard = backend_span.enter();
             event!(
                 target: "render.cache",
                 Level::TRACE,
                 kind = "cache",
-                name = "subtree_snapshot",
-                result = "miss",
+                name = "node_own_segment",
+                result = "record",
                 amount = 1_u64
             );
             Ok::<_, anyhow::Error>(())
@@ -441,8 +441,8 @@ mod tests {
 
         let summary = summary.expect("summary should exist");
         let frame = summary.frames.get(&7).expect("frame summary should exist");
-        assert!(frame.backend.subtree_snapshot_record_ms >= 0.0);
-        assert_eq!(frame.backend.subtree_snapshot_cache_misses, 1);
+        assert!(frame.backend.node_own_segment_record_ms >= 0.0);
+        assert_eq!(frame.backend.node_own_segment_records, 1);
         Ok(())
     }
 
@@ -468,8 +468,8 @@ mod tests {
                     target: "render.cache",
                     Level::TRACE,
                     kind = "cache",
-                    name = "subtree_snapshot",
-                    result = "miss",
+                    name = "node_own_segment",
+                    result = "record",
                     amount = 1_u64
                 );
             }
@@ -487,8 +487,8 @@ mod tests {
             "frame 1 should be present, got {:?}",
             summary.frames.keys().collect::<Vec<_>>()
         );
-        assert_eq!(summary.frames[&0].backend.subtree_snapshot_cache_misses, 1);
-        assert_eq!(summary.frames[&1].backend.subtree_snapshot_cache_misses, 1);
+        assert_eq!(summary.frames[&0].backend.node_own_segment_records, 1);
+        assert_eq!(summary.frames[&1].backend.node_own_segment_records, 1);
         Ok(())
     }
 

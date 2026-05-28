@@ -14,8 +14,152 @@ use crate::{
     frame_ctx::FrameCtx,
     layout::tree::{LayoutNode, LayoutTree},
     parse::transition::TransitionKind,
-    resolve::tree::{ElementKind, ElementNode},
+    resolve::tree::{ElementId, ElementKind, ElementNode},
 };
+
+/// L3 子树 merkle 缓存。命中条件三轴全等：
+/// - element.fingerprints.paint_input_subtree —— 子树内所有 paint 输入
+/// - element.fingerprints.apply_input_subtree —— 子树内所有 opacity/transforms/backdrop_blur
+/// - layout.output_fingerprint.subtree —— 子树内所有 rect (x/y/w/h)
+/// 三轴全等 + element_id + child_count 也相同 -> 上一帧 DisplayNode 整段克隆复用。
+///
+/// 任一轴不等就在该节点失效,但 children 仍可按各自键继续命中。结构变化（child_count
+/// 不等 / element_id 不等）则整棵替换，避免错位复用。
+pub struct DisplayBuildSession {
+    root: Option<CachedDisplayNode>,
+}
+
+struct CachedDisplayNode {
+    element_id: ElementId,
+    paint_input_subtree: u64,
+    apply_input_subtree: u64,
+    layout_output_subtree: u64,
+    node_count: usize,
+    node: DisplayNode,
+    children: Vec<CachedDisplayNode>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisplayBuildStats {
+    pub structure_rebuilds: usize,
+    pub subtree_full_hit_subtrees: usize,
+    pub subtree_full_hit_nodes: usize,
+    pub rebuilt_nodes: usize,
+}
+
+impl DisplayBuildSession {
+    pub fn new() -> Self {
+        Self { root: None }
+    }
+
+    pub fn build_with_cache(
+        &mut self,
+        element_root: &ElementNode,
+        layout_tree: &LayoutTree,
+        frame_ctx: &FrameCtx,
+    ) -> Result<(DisplayTree, DisplayBuildStats)> {
+        let mut stats = DisplayBuildStats::default();
+
+        if element_root.children.len() != layout_tree.root.children.len() {
+            return Err(anyhow!(
+                "element/layout child count mismatch while building display tree"
+            ));
+        }
+
+        let (node, cached) = update_or_build(
+            element_root,
+            &layout_tree.root,
+            frame_ctx,
+            self.root.take(),
+            &mut stats,
+        )?;
+
+        self.root = Some(cached);
+        Ok((DisplayTree { root: node }, stats))
+    }
+}
+
+impl Default for DisplayBuildSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn cached_matches(cached: &CachedDisplayNode, element: &ElementNode, layout: &LayoutNode) -> bool {
+    cached.element_id == element.id
+        && cached.paint_input_subtree == element.fingerprints.paint_input_subtree
+        && cached.apply_input_subtree == element.fingerprints.apply_input_subtree
+        && cached.layout_output_subtree == layout.output_fingerprint.subtree
+        && cached.node_count == element.fingerprints.node_count
+}
+
+fn update_or_build(
+    element: &ElementNode,
+    layout: &LayoutNode,
+    frame_ctx: &FrameCtx,
+    cached: Option<CachedDisplayNode>,
+    stats: &mut DisplayBuildStats,
+) -> Result<(DisplayNode, CachedDisplayNode)> {
+    if let Some(entry) = cached.as_ref() {
+        if cached_matches(entry, element, layout) {
+            stats.subtree_full_hit_subtrees += 1;
+            stats.subtree_full_hit_nodes += entry.node_count;
+            let cached = cached.expect("just checked Some");
+            return Ok((cached.node.clone(), cached));
+        }
+    }
+
+    if element.children.len() != layout.children.len() {
+        return Err(anyhow!(
+            "element/layout child count mismatch while building display tree"
+        ));
+    }
+
+    let mut cached_children_by_id: std::collections::HashMap<ElementId, CachedDisplayNode> = cached
+        .map(|c| {
+            if c.element_id != element.id {
+                stats.structure_rebuilds += 1;
+            }
+            c.children
+                .into_iter()
+                .map(|child| (child.element_id, child))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut child_pairs: Vec<_> = element
+        .children
+        .iter()
+        .zip(layout.children.iter())
+        .collect();
+    child_pairs.sort_by_key(|(child, _)| child.style.layout.z_index);
+
+    let mut built_children: Vec<DisplayNode> = Vec::with_capacity(child_pairs.len());
+    let mut cached_children_next: Vec<CachedDisplayNode> =
+        Vec::with_capacity(child_pairs.len());
+
+    for (child_element, child_layout) in child_pairs {
+        let prev = cached_children_by_id.remove(&child_element.id);
+        let (child_node, child_cached) =
+            update_or_build(child_element, child_layout, frame_ctx, prev, stats)?;
+        built_children.push(child_node);
+        cached_children_next.push(child_cached);
+    }
+
+    let node = assemble_display_node(element, layout, frame_ctx, built_children);
+    stats.rebuilt_nodes += 1;
+
+    let cached_entry = CachedDisplayNode {
+        element_id: element.id,
+        paint_input_subtree: element.fingerprints.paint_input_subtree,
+        apply_input_subtree: element.fingerprints.apply_input_subtree,
+        layout_output_subtree: layout.output_fingerprint.subtree,
+        node_count: element.fingerprints.node_count,
+        node: node.clone(),
+        children: cached_children_next,
+    };
+    Ok((node, cached_entry))
+}
 
 pub fn build_display_tree(
     element_root: &ElementNode,
@@ -38,13 +182,6 @@ fn build_display_node(
         ));
     }
 
-    let bounds = DisplayRect {
-        x: 0.0,
-        y: 0.0,
-        width: layout.rect.width,
-        height: layout.rect.height,
-    };
-
     let mut child_pairs = element
         .children
         .iter()
@@ -56,6 +193,27 @@ fn build_display_node(
         .into_iter()
         .map(|(child, child_layout)| build_display_node(child, child_layout, frame_ctx))
         .collect::<Result<Vec<_>>>()?;
+
+    Ok(assemble_display_node(element, layout, frame_ctx, built_children))
+}
+
+/// 把已经构建好（按 z_index 排序）的 `built_children` 装配为父节点。
+///
+/// 抽出来给两条路径共享：
+/// - `build_display_node`：无缓存的全量构建
+/// - `DisplayBuildSession::update_or_build`：每帧 merkle 失效后的局部重建
+fn assemble_display_node(
+    element: &ElementNode,
+    layout: &LayoutNode,
+    frame_ctx: &FrameCtx,
+    built_children: Vec<DisplayNode>,
+) -> DisplayNode {
+    let bounds = DisplayRect {
+        x: 0.0,
+        y: 0.0,
+        width: layout.rect.width,
+        height: layout.rect.height,
+    };
 
     let visual = &element.style.visual;
     let uniform_border = visual.border_width.unwrap_or(0.0);
@@ -148,7 +306,7 @@ fn build_display_node(
         hidden_subtree,
     };
     node.recorded_subtree_fingerprint = display_recorded_subtree_fingerprint(&node);
-    Ok(node)
+    node
 }
 
 fn display_item_for_node(
@@ -302,13 +460,13 @@ fn conservative_text_visual_expansion(
 
 #[cfg(test)]
 mod tests {
-    use super::build_display_tree;
+    use super::{DisplayBuildSession, build_display_tree};
     use crate::{
         FrameCtx,
         analyze::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
         parse,
         parse::primitives::{div, lucide},
-        resolve::resolve::resolve_ui_tree,
+        resolve::{resolve::resolve_ui_tree, tree::ElementNode},
         style::{ColorToken, ObjectFit},
         test_support::MockScriptHost,
         test_support::TestCatalog,
@@ -1008,5 +1166,265 @@ mod tests {
         assert!(!svg.path_data.is_empty());
         assert_eq!(svg.view_box, [0.0, 0.0, 24.0, 24.0]);
         assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
+    }
+
+    // ── DisplayBuildSession cache tests ───────────────────────────────
+
+    fn fingerprint_only_layout_root(element_root: &ElementNode) -> LayoutTree {
+        // Build a layout tree from the element tree with identity rects.
+        // We only need stable LayoutOutputFingerprint values, not real layout —
+        // the rects feed into output_fingerprint.subtree.
+        fn build(element: &ElementNode) -> LayoutNode {
+            let children: Vec<_> = element.children.iter().map(build).collect();
+            let rect = LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            };
+            let output_fingerprint = layout_output_fingerprint_for_test(rect, &children);
+            LayoutNode {
+                id: element.style.id.clone(),
+                rect,
+                output_fingerprint,
+                children,
+            }
+        }
+        LayoutTree {
+            root: build(element_root),
+        }
+    }
+
+    fn layout_output_fingerprint_for_test(
+        rect: LayoutRect,
+        children: &[LayoutNode],
+    ) -> crate::layout::tree::LayoutOutputFingerprint {
+        use std::hash::{Hash, Hasher};
+        let mut record_size_hasher = ahash::AHasher::default();
+        rect.width.to_bits().hash(&mut record_size_hasher);
+        rect.height.to_bits().hash(&mut record_size_hasher);
+        let record_size = record_size_hasher.finish();
+        let mut local_hasher = ahash::AHasher::default();
+        rect.x.to_bits().hash(&mut local_hasher);
+        rect.y.to_bits().hash(&mut local_hasher);
+        rect.width.to_bits().hash(&mut local_hasher);
+        rect.height.to_bits().hash(&mut local_hasher);
+        let local = local_hasher.finish();
+        let mut subtree_hasher = ahash::AHasher::default();
+        local.hash(&mut subtree_hasher);
+        children.len().hash(&mut subtree_hasher);
+        for child in children {
+            child.output_fingerprint.subtree.hash(&mut subtree_hasher);
+        }
+        crate::layout::tree::LayoutOutputFingerprint {
+            local,
+            subtree: subtree_hasher.finish(),
+            record_size,
+        }
+    }
+
+    fn small_frame_ctx() -> FrameCtx {
+        FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 2,
+        }
+    }
+
+    fn resolve_root(node: crate::Node) -> ElementNode {
+        let mut assets = TestCatalog::new();
+        resolve_ui_tree(
+            &node,
+            &small_frame_ctx(),
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("resolve")
+    }
+
+    #[test]
+    fn session_first_build_misses_cache_and_records_subtree() {
+        let element = resolve_root(
+            div()
+                .id("root")
+                .child(crate::parse::primitives::text("A").id("a"))
+                .into(),
+        );
+        let layout = fingerprint_only_layout_root(&element);
+
+        let mut session = DisplayBuildSession::new();
+        let (tree, stats) = session
+            .build_with_cache(&element, &layout, &small_frame_ctx())
+            .expect("build");
+        assert_eq!(
+            stats.subtree_full_hit_subtrees, 0,
+            "first frame cannot hit cache"
+        );
+        assert!(stats.rebuilt_nodes >= 2, "all nodes must be built first frame");
+        assert_eq!(tree.root.element_id, element.id);
+    }
+
+    #[test]
+    fn session_second_build_full_hits_when_inputs_unchanged() {
+        let element = resolve_root(
+            div()
+                .id("root")
+                .child(crate::parse::primitives::text("A").id("a"))
+                .child(crate::parse::primitives::text("B").id("b"))
+                .into(),
+        );
+        let layout = fingerprint_only_layout_root(&element);
+        let mut session = DisplayBuildSession::new();
+        let _ = session
+            .build_with_cache(&element, &layout, &small_frame_ctx())
+            .expect("frame 0");
+        let (_, stats) = session
+            .build_with_cache(&element, &layout, &small_frame_ctx())
+            .expect("frame 1");
+        assert_eq!(
+            stats.subtree_full_hit_subtrees, 1,
+            "root subtree full-hit covers entire tree"
+        );
+        assert_eq!(stats.rebuilt_nodes, 0, "no node rebuild needed");
+        assert_eq!(
+            stats.subtree_full_hit_nodes, element.fingerprints.node_count,
+            "node count must match"
+        );
+    }
+
+    #[test]
+    fn session_paint_change_invalidates_only_changed_subtree() {
+        let mut session = DisplayBuildSession::new();
+
+        let first = resolve_root(
+            div()
+                .id("root")
+                .child(crate::parse::primitives::text("A").id("a"))
+                .child(crate::parse::primitives::text("stable").id("stable"))
+                .into(),
+        );
+        let layout1 = fingerprint_only_layout_root(&first);
+        let _ = session
+            .build_with_cache(&first, &layout1, &small_frame_ctx())
+            .expect("frame 0");
+
+        // Only "a" changes its text content (paint dimension).
+        let second = resolve_root(
+            div()
+                .id("root")
+                .child(crate::parse::primitives::text("A2").id("a"))
+                .child(crate::parse::primitives::text("stable").id("stable"))
+                .into(),
+        );
+        let layout2 = fingerprint_only_layout_root(&second);
+        let (_, stats) = session
+            .build_with_cache(&second, &layout2, &small_frame_ctx())
+            .expect("frame 1");
+
+        assert!(
+            stats.subtree_full_hit_subtrees >= 1,
+            "stable sibling subtree should still hit, got {stats:?}"
+        );
+        assert!(
+            stats.rebuilt_nodes >= 2,
+            "root and changed child must rebuild, got {stats:?}"
+        );
+    }
+
+    #[test]
+    fn session_apply_change_invalidates_cache() {
+        let mut session = DisplayBuildSession::new();
+
+        let first = resolve_root(
+            div()
+                .id("root")
+                .child(crate::parse::primitives::text("A").id("a").opacity(1.0))
+                .into(),
+        );
+        let layout1 = fingerprint_only_layout_root(&first);
+        let _ = session
+            .build_with_cache(&first, &layout1, &small_frame_ctx())
+            .expect("frame 0");
+
+        let second = resolve_root(
+            div()
+                .id("root")
+                .child(crate::parse::primitives::text("A").id("a").opacity(0.3))
+                .into(),
+        );
+        let layout2 = fingerprint_only_layout_root(&second);
+        let (_, stats) = session
+            .build_with_cache(&second, &layout2, &small_frame_ctx())
+            .expect("frame 1");
+
+        assert_eq!(
+            stats.subtree_full_hit_subtrees, 0,
+            "apply change must invalidate root cache"
+        );
+        assert!(
+            stats.rebuilt_nodes >= 2,
+            "root + changed child must rebuild, got {stats:?}"
+        );
+    }
+
+    #[test]
+    fn session_layout_rect_change_invalidates_cache() {
+        let mut session = DisplayBuildSession::new();
+
+        let element = resolve_root(
+            div()
+                .id("root")
+                .child(crate::parse::primitives::text("A").id("a"))
+                .into(),
+        );
+        let layout1 = fingerprint_only_layout_root(&element);
+        let _ = session
+            .build_with_cache(&element, &layout1, &small_frame_ctx())
+            .expect("frame 0");
+
+        // Same element tree, but rebuild layout with shifted rect → output_fingerprint differs.
+        let layout2 = LayoutTree {
+            root: LayoutNode {
+                id: layout1.root.id.clone(),
+                rect: LayoutRect {
+                    x: 5.0,
+                    y: 0.0,
+                    width: 10.0,
+                    height: 10.0,
+                },
+                output_fingerprint: layout_output_fingerprint_for_test(
+                    LayoutRect {
+                        x: 5.0,
+                        y: 0.0,
+                        width: 10.0,
+                        height: 10.0,
+                    },
+                    &layout1.root.children,
+                ),
+                children: layout1.root.children.clone(),
+            },
+        };
+        let (tree, stats) = session
+            .build_with_cache(&element, &layout2, &small_frame_ctx())
+            .expect("frame 1");
+
+        // Root's rect changed → root's layout_output_subtree fp changed → root cache misses.
+        // Child rect unchanged → child cache still hits (only at the leaf level).
+        assert!(
+            stats.rebuilt_nodes >= 1,
+            "root must rebuild when its rect shifts, got {stats:?}"
+        );
+        assert_eq!(
+            tree.root.transform.translation_x, 5.0,
+            "rebuilt root must reflect new rect"
+        );
+        // The leaf subtree still hits because nothing under it changed.
+        assert_eq!(
+            stats.subtree_full_hit_subtrees, 1,
+            "stable leaf subtree should still hit, got {stats:?}"
+        );
     }
 }

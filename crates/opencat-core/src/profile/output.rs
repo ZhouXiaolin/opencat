@@ -63,9 +63,12 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.structure_rebuilds),
     ));
     out.push_str(&format!(
-        "  display avg/frame: recorded_subtree_identical_subtrees {:.1}, recorded_subtree_identical_nodes {:.1}\n",
+        "  display avg/frame: recorded_subtree_identical_subtrees {:.1}, recorded_subtree_identical_nodes {:.1}, merkle_skipped_subtrees {:.1}, merkle_skipped_nodes {:.1}, rebuilt_nodes {:.1}\n",
         average_usize(summary, |frame| frame.display_recorded_subtree_identical_subtrees),
         average_usize(summary, |frame| frame.display_recorded_subtree_identical_nodes),
+        average_usize(summary, |frame| frame.display_merkle_skipped_subtrees),
+        average_usize(summary, |frame| frame.display_merkle_skipped_nodes),
+        average_usize(summary, |frame| frame.display_rebuilt_nodes),
     ));
     out.push_str(&format!(
         "  analyze avg/frame: merkle_skipped_subtrees {:.1}, merkle_skipped_nodes {:.1}, recorded_hit_subtrees {:.1}, recorded_hit_nodes {:.1}, snapshot_eligibility_hit_subtrees {:.1}, snapshot_eligibility_hit_nodes {:.1}, composite_blocked_subtrees {:.1}, composite_blocked_nodes {:.1}, composite_dirty_nodes {:.1}\n",

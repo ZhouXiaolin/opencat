@@ -321,6 +321,15 @@ impl RenderProfileAggregator {
             ("display", "display_recorded_subtree_identical_nodes", "count") => {
                 frame.display_recorded_subtree_identical_nodes += event.amount;
             }
+            ("display", "display_merkle_skipped_subtrees", "count") => {
+                frame.display_merkle_skipped_subtrees += event.amount;
+            }
+            ("display", "display_merkle_skipped_nodes", "count") => {
+                frame.display_merkle_skipped_nodes += event.amount;
+            }
+            ("display", "display_rebuilt_nodes", "count") => {
+                frame.display_rebuilt_nodes += event.amount;
+            }
             ("analyze", "analyze_merkle_skipped_subtrees", "count") => {
                 frame.analyze_merkle_skipped_subtrees += event.amount;
             }

@@ -129,6 +129,19 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.backend.video_frame_decodes),
     ));
     out.push_str(&format!(
+        "  scene snapshot miss avg/frame: scene_snapshot_miss_plan_blocked {:.2}, scene_snapshot_miss_empty {:.2}, scene_snapshot_miss_viewport_changed {:.2}, scene_snapshot_miss_root_fingerprint_changed {:.2}\n",
+        average_usize(summary, |frame| frame
+            .backend
+            .scene_snapshot_miss_plan_blocked),
+        average_usize(summary, |frame| frame.backend.scene_snapshot_miss_empty),
+        average_usize(summary, |frame| frame
+            .backend
+            .scene_snapshot_miss_viewport_changed),
+        average_usize(summary, |frame| frame
+            .backend
+            .scene_snapshot_miss_root_fingerprint_changed),
+    ));
+    out.push_str(&format!(
         "  cache pressure avg/frame: item_evict {:.2}, item_repeat {:.2}, item_util {:.2}, subtree_image_evict {:.2}, subtree_image_repeat {:.2}, subtree_image_util {:.2}, glyph_path_evict {:.2}, glyph_path_repeat {:.2}, glyph_path_util {:.2}, image_evict {:.2}, image_repeat {:.2}, image_util {:.2}, node_own_evict {:.2}, node_own_repeat {:.2}, node_own_util {:.2}\n",
         average_usize(summary, |frame| frame.backend.item_picture_cache_evictions),
         average_usize(summary, |frame| frame.backend.item_picture_cache_record_repeats),
@@ -296,6 +309,10 @@ mod tests {
         frame.analyze_snapshot_eligibility_hit_nodes = 11;
         frame.analyze_composite_blocked_subtrees = 1;
         frame.analyze_composite_blocked_nodes = 1;
+        frame.backend.scene_snapshot_miss_plan_blocked = 2;
+        frame.backend.scene_snapshot_miss_empty = 3;
+        frame.backend.scene_snapshot_miss_viewport_changed = 4;
+        frame.backend.scene_snapshot_miss_root_fingerprint_changed = 5;
         frame.backend.subtree_snapshot_request_after_analyze_fresh = 10;
         frame.backend.subtree_snapshot_request_after_analyze_reused = 7;
         frame
@@ -341,6 +358,10 @@ mod tests {
         assert!(text.contains("node_own_hit"));
         assert!(text.contains("node_own_record"));
         assert!(text.contains("node_own_replaced"));
+        assert!(text.contains("scene_snapshot_miss_plan_blocked"));
+        assert!(text.contains("scene_snapshot_miss_empty"));
+        assert!(text.contains("scene_snapshot_miss_viewport_changed"));
+        assert!(text.contains("scene_snapshot_miss_root_fingerprint_changed"));
         assert!(text.contains("node_own_evict"));
         assert!(text.contains("node_own_repeat"));
         assert!(text.contains("node_own_util"));

@@ -156,12 +156,14 @@ pub fn render_frame_with_state(
     let scene_plan = plan_for_scene(&layout_pass, composite_dirty_stats.composite_dirty_nodes);
     let root_fingerprint = annotated.root_node().recorded_subtree_fingerprint;
 
-    if can_reuse_scene_snapshot(
+    let scene_snapshot_decision = scene_snapshot_cache_decision(
         &scene_plan,
         cache.last_scene_snapshot.as_ref(),
         &frame_ctx,
         root_fingerprint,
-    ) {
+    );
+
+    if scene_snapshot_decision == SceneSnapshotCacheDecision::Hit {
         #[cfg(feature = "profile")]
         event!(
             target: "render.cache",
@@ -189,6 +191,17 @@ pub fn render_frame_with_state(
         result = "miss",
         amount = 1_u64
     );
+    #[cfg(feature = "profile")]
+    if let SceneSnapshotCacheDecision::Miss(reason) = scene_snapshot_decision {
+        event!(
+            target: "render.cache",
+            Level::TRACE,
+            kind = "cache",
+            name = "scene_snapshot_miss",
+            result = reason.as_profile_result(),
+            amount = 1_u64
+        );
+    }
 
     let ordered_scene = OrderedSceneProgram::build(&annotated);
     *last_ordered_scene = ordered_scene.clone();
@@ -259,18 +272,55 @@ pub fn render_frame(
 ///   3. the root subtree fingerprint matches — this catches per-frame item
 ///      content changes (transition progress, animated text, frame-bound
 ///      values) that aren't visible to the layout/composite signals.
-fn can_reuse_scene_snapshot(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SceneSnapshotCacheDecision {
+    Hit,
+    Miss(SceneSnapshotMissReason),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SceneSnapshotMissReason {
+    PlanBlocked,
+    Empty,
+    ViewportChanged,
+    RootFingerprintChanged,
+}
+
+impl SceneSnapshotMissReason {
+    #[cfg(feature = "profile")]
+    fn as_profile_result(self) -> &'static str {
+        match self {
+            SceneSnapshotMissReason::PlanBlocked => "plan_blocked",
+            SceneSnapshotMissReason::Empty => "empty",
+            SceneSnapshotMissReason::ViewportChanged => "viewport_changed",
+            SceneSnapshotMissReason::RootFingerprintChanged => "root_fingerprint_changed",
+        }
+    }
+}
+
+fn scene_snapshot_cache_decision(
     plan: &crate::analyze::compositor::SceneRenderPlan,
     cached: Option<&crate::ir::cache::SceneSnapshotEntry>,
     frame_ctx: &FrameCtx,
     current_root_fingerprint: crate::display::tree::DisplayRecordedSubtreeFingerprint,
-) -> bool {
-    plan.allows_scene_snapshot_cache
-        && cached.is_some_and(|entry| {
-            entry.width == frame_ctx.width
-                && entry.height == frame_ctx.height
-                && entry.root_fingerprint == current_root_fingerprint
-        })
+) -> SceneSnapshotCacheDecision {
+    if !plan.allows_scene_snapshot_cache {
+        return SceneSnapshotCacheDecision::Miss(SceneSnapshotMissReason::PlanBlocked);
+    }
+
+    let Some(entry) = cached else {
+        return SceneSnapshotCacheDecision::Miss(SceneSnapshotMissReason::Empty);
+    };
+
+    if entry.width != frame_ctx.width || entry.height != frame_ctx.height {
+        return SceneSnapshotCacheDecision::Miss(SceneSnapshotMissReason::ViewportChanged);
+    }
+
+    if entry.root_fingerprint != current_root_fingerprint {
+        return SceneSnapshotCacheDecision::Miss(SceneSnapshotMissReason::RootFingerprintChanged);
+    }
+
+    SceneSnapshotCacheDecision::Hit
 }
 
 #[cfg(test)]
@@ -310,83 +360,72 @@ mod tests {
             allows_scene_snapshot_cache: true,
         };
         let cached = entry(100, 50, 0xABCD);
-        assert!(can_reuse_scene_snapshot(
-            &plan,
-            Some(&cached),
-            &ctx(100, 50),
-            fp(0xABCD),
-        ));
+        assert_eq!(
+            scene_snapshot_cache_decision(&plan, Some(&cached), &ctx(100, 50), fp(0xABCD),),
+            SceneSnapshotCacheDecision::Hit
+        );
     }
 
     #[test]
-    fn misses_when_plan_disallows_cache() {
+    fn miss_reason_is_plan_blocked_when_plan_disallows_cache() {
         let plan = SceneRenderPlan {
             allows_scene_snapshot_cache: false,
         };
         let cached = entry(100, 50, 0xABCD);
-        assert!(!can_reuse_scene_snapshot(
-            &plan,
-            Some(&cached),
-            &ctx(100, 50),
-            fp(0xABCD),
-        ));
+        assert_eq!(
+            scene_snapshot_cache_decision(&plan, Some(&cached), &ctx(100, 50), fp(0xABCD),),
+            SceneSnapshotCacheDecision::Miss(SceneSnapshotMissReason::PlanBlocked)
+        );
     }
 
     #[test]
-    fn misses_on_first_frame_when_cache_is_empty() {
+    fn miss_reason_is_empty_on_first_frame() {
         let plan = SceneRenderPlan {
             allows_scene_snapshot_cache: true,
         };
-        assert!(!can_reuse_scene_snapshot(
-            &plan,
-            None,
-            &ctx(100, 50),
-            fp(0xABCD),
-        ));
+        assert_eq!(
+            scene_snapshot_cache_decision(&plan, None, &ctx(100, 50), fp(0xABCD),),
+            SceneSnapshotCacheDecision::Miss(SceneSnapshotMissReason::Empty)
+        );
     }
 
     #[test]
-    fn misses_on_viewport_width_change() {
+    fn miss_reason_is_viewport_changed_on_width_change() {
         let plan = SceneRenderPlan {
             allows_scene_snapshot_cache: true,
         };
         let cached = entry(100, 50, 0xABCD);
-        assert!(!can_reuse_scene_snapshot(
-            &plan,
-            Some(&cached),
-            &ctx(200, 50),
-            fp(0xABCD),
-        ));
+        assert_eq!(
+            scene_snapshot_cache_decision(&plan, Some(&cached), &ctx(200, 50), fp(0xABCD),),
+            SceneSnapshotCacheDecision::Miss(SceneSnapshotMissReason::ViewportChanged)
+        );
     }
 
     #[test]
-    fn misses_on_viewport_height_change() {
+    fn miss_reason_is_viewport_changed_on_height_change() {
         let plan = SceneRenderPlan {
             allows_scene_snapshot_cache: true,
         };
         let cached = entry(100, 50, 0xABCD);
-        assert!(!can_reuse_scene_snapshot(
-            &plan,
-            Some(&cached),
-            &ctx(100, 80),
-            fp(0xABCD),
-        ));
+        assert_eq!(
+            scene_snapshot_cache_decision(&plan, Some(&cached), &ctx(100, 80), fp(0xABCD),),
+            SceneSnapshotCacheDecision::Miss(SceneSnapshotMissReason::ViewportChanged)
+        );
     }
 
     #[test]
-    fn misses_when_root_fingerprint_differs() {
-        // Plan/viewport agree, but the root subtree fingerprint changed — a
+    fn miss_reason_is_root_fingerprint_changed_when_root_differs() {
+        // Plan/viewport agree, but the root subtree fingerprint changed - a
         // per-frame item content change (e.g. transition progress) must
         // invalidate the whole-frame cache.
         let plan = SceneRenderPlan {
             allows_scene_snapshot_cache: true,
         };
         let cached = entry(100, 50, 0xAAAA);
-        assert!(!can_reuse_scene_snapshot(
-            &plan,
-            Some(&cached),
-            &ctx(100, 50),
-            fp(0xBBBB),
-        ));
+        assert_eq!(
+            scene_snapshot_cache_decision(&plan, Some(&cached), &ctx(100, 50), fp(0xBBBB),),
+            SceneSnapshotCacheDecision::Miss(SceneSnapshotMissReason::RootFingerprintChanged)
+        );
     }
+
 }

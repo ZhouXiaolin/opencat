@@ -360,6 +360,13 @@ struct ApplyFrame {
     layer_state: BackdropLayerState,
 }
 
+fn backdrop_layer_state_for_plan(plan: &ApplyPlan<'_>) -> BackdropLayerState {
+    BackdropLayerState {
+        uses_layer: plan.opacity < 1.0 || plan.backdrop_blur_sigma.is_some(),
+        has_backdrop_clip: plan.backdrop_blur_sigma.is_some_and(|sigma| sigma > 0.0),
+    }
+}
+
 fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> ApplyFrame {
     builder.push(DrawOp::Save);
     apply_transform(builder, plan.transform);
@@ -377,8 +384,30 @@ fn emit_apply_suffix(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
     builder.push(DrawOp::Restore);
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn begin_apply_frame(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> ApplyFrame {
     emit_apply_prefix(builder, plan)
+}
+
+fn begin_apply_frame_cached(
+    builder: &mut DrawOpBuilder,
+    plan: &ApplyPlan<'_>,
+    cache: &mut draw_cache::RenderCache,
+) -> ApplyFrame {
+    let key = SegmentKey::Apply(apply_segment_key(plan));
+    if let Some(segment) = cache.segments.get_cloned(&key) {
+        builder.import_segment(&segment);
+        return ApplyFrame {
+            layer_state: backdrop_layer_state_for_plan(plan),
+        };
+    }
+
+    let marker = builder.begin_range();
+    let frame = emit_apply_prefix(builder, plan);
+    let range = builder.end_range(marker);
+    let segment = builder.snapshot_range(range);
+    cache.segments.insert(key, segment);
+    frame
 }
 
 fn finish_apply_frame(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
@@ -423,7 +452,7 @@ fn render_reused_subtree(
 
     let layer_bounds = tree.layer_bounds(handle);
     let apply_plan = ApplyPlan::from_draw_composite(draw, layer_bounds);
-    let apply_frame = begin_apply_frame(ctx.builder, &apply_plan);
+    let apply_frame = begin_apply_frame_cached(ctx.builder, &apply_plan, cache);
     let fingerprint = tree.analysis(handle).snapshot_fingerprint.ok_or_else(|| {
         RenderError::InvalidArgument(
             "ReusedSubtree node must have snapshot_fingerprint".to_string(),
@@ -587,7 +616,7 @@ fn render_live_subtree(
     }
 
     let apply_plan = ApplyPlan::from_draw_composite(draw, tree.layer_bounds(handle));
-    let apply_frame = begin_apply_frame(ctx.builder, &apply_plan);
+    let apply_frame = begin_apply_frame_cached(ctx.builder, &apply_plan, cache);
 
     // Transition compositing: render from/to subtrees and blend them
     if let DisplayItem::Timeline(timeline) = &node.item
@@ -1176,6 +1205,44 @@ mod tests {
         assert_eq!(ops[4], DrawOp::Restore);
         assert_eq!(ops[5], DrawOp::Restore);
         assert_eq!(ops.len(), 6);
+    }
+
+    #[test]
+    fn apply_prefix_is_cached_by_apply_segment_key() {
+        let mut cache = draw_cache::RenderCache::new(16, 16, 16);
+        let transform = transform(7.0, 9.0);
+        let bounds = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 20.0,
+            height: 10.0,
+        };
+        let plan = ApplyPlan {
+            transform: &transform,
+            opacity: 0.75,
+            backdrop_blur_sigma: None,
+            layer_bounds: bounds,
+        };
+        let segment_key = SegmentKey::Apply(apply_segment_key(&plan));
+
+        let mut first_builder = DrawOpBuilder::default();
+        let first_frame = begin_apply_frame_cached(&mut first_builder, &plan, &mut cache);
+        first_builder.push(DrawOp::BeginPath);
+        finish_apply_frame(&mut first_builder, &first_frame);
+        let first_ops = first_builder.finish().ops;
+
+        assert!(
+            cache.segments.get_cloned(&segment_key).is_some(),
+            "first prefix emission should record an apply segment"
+        );
+
+        let mut second_builder = DrawOpBuilder::default();
+        let second_frame = begin_apply_frame_cached(&mut second_builder, &plan, &mut cache);
+        second_builder.push(DrawOp::BeginPath);
+        finish_apply_frame(&mut second_builder, &second_frame);
+        let second_ops = second_builder.finish().ops;
+
+        assert_eq!(first_ops, second_ops);
     }
 
     #[test]

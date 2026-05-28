@@ -15,6 +15,8 @@ pub struct RenderCache {
     pub segments: BoundedLruCache<SegmentKey, CachedDrawSegment>,
     /// Cached dynamic apply/composite instruction segments keyed by apply semantics.
     pub apply_segments: BoundedLruCache<u64, CachedDrawSegment>,
+    /// Apply segment keys seen once but not yet admitted into the hot cache.
+    pub apply_segment_candidates: BoundedLruCache<u64, ()>,
     /// Item-level cached ranges keyed by item_paint_fingerprint.
     pub item_ranges: BoundedLruCache<u64, CachedDrawRange>,
     /// Most-recent scene-level snapshot. Reused on the next frame when
@@ -43,6 +45,7 @@ impl RenderCache {
             node_own_segments: BoundedLruCache::new(node_own_cap),
             segments: BoundedLruCache::new(segment_cap),
             apply_segments: BoundedLruCache::new(segment_cap),
+            apply_segment_candidates: BoundedLruCache::new(segment_cap),
             item_ranges: BoundedLruCache::new(item_range_cap),
             last_scene_snapshot: None,
         }
@@ -187,9 +190,7 @@ mod tests {
     fn apply_segments_are_stored_separately_from_content_segments() {
         let mut cache = RenderCache::new(16, 1, 64);
 
-        cache
-            .apply_segments
-            .insert(7, CachedDrawSegment::default());
+        cache.apply_segments.insert(7, CachedDrawSegment::default());
         cache
             .segments
             .insert(SegmentKey::Item(1), CachedDrawSegment::default());
@@ -206,5 +207,16 @@ mod tests {
             1,
             "content segment capacity should remain independent"
         );
+    }
+
+    #[test]
+    fn apply_segment_candidates_are_stored_separately_from_hot_segments() {
+        let mut cache = RenderCache::new(16, 1, 64);
+
+        cache.apply_segment_candidates.insert(7, ());
+        cache.apply_segments.insert(8, CachedDrawSegment::default());
+
+        assert!(cache.apply_segment_candidates.get_cloned(&7).is_some());
+        assert!(cache.apply_segments.get_cloned(&8).is_some());
     }
 }

@@ -8,7 +8,7 @@ use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::fingerprint::{DisplayRecordedFingerprint, item_paint_fingerprint};
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem};
-use crate::ir::cache::{self as draw_cache, CachedDrawRange, CachedNodeOwnIr};
+use crate::ir::cache::{self as draw_cache, CachedDrawRange, CachedNodeOwnIr, SegmentKey};
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, PathOp};
 use crate::layout::tree::LayoutOutputFingerprint;
@@ -100,7 +100,7 @@ fn render_display_item_cached(
 
     // Snapshot and store in cache
     let segment = ctx.builder.snapshot_range(range);
-    let segment_key = cache_key;
+    let segment_key = SegmentKey::Item(cache_key);
 
     cache.segments.insert(segment_key, segment);
     cache.item_ranges.insert(
@@ -477,7 +477,7 @@ fn render_cached_subtree(
     drop(_record_span);
 
     let segment = ctx.builder.snapshot_range(parent_range);
-    let segment_key = key;
+    let segment_key = SegmentKey::NodeOwn(own_key);
 
     cache.segments.insert(segment_key, segment);
 

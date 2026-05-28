@@ -159,7 +159,7 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
             .scene_snapshot_plan_blocked_by_apply_change),
     ));
     out.push_str(&format!(
-        "  cache pressure avg/frame: item_evict {:.2}, item_repeat {:.2}, item_util {:.2}, subtree_image_evict {:.2}, subtree_image_repeat {:.2}, subtree_image_util {:.2}, glyph_path_evict {:.2}, glyph_path_repeat {:.2}, glyph_path_util {:.2}, image_evict {:.2}, image_repeat {:.2}, image_util {:.2}, node_own_evict {:.2}, node_own_repeat {:.2}, node_own_util {:.2}\n",
+        "  cache pressure avg/frame: item_evict {:.2}, item_repeat {:.2}, item_util {:.2}, subtree_image_evict {:.2}, subtree_image_repeat {:.2}, subtree_image_util {:.2}, glyph_path_evict {:.2}, glyph_path_repeat {:.2}, glyph_path_util {:.2}, image_evict {:.2}, image_repeat {:.2}, image_util {:.2}, node_own_evict {:.2}, node_own_repeat {:.2}, node_own_util {:.2}, apply_evict {:.2}, apply_repeat {:.2}, apply_util {:.2}\n",
         average_usize(summary, |frame| frame.backend.item_picture_cache_evictions),
         average_usize(summary, |frame| frame.backend.item_picture_cache_record_repeats),
         average_usize(summary, |frame| frame.backend.item_picture_cache_capacity_utilization),
@@ -175,6 +175,9 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.backend.node_own_cache_evictions),
         average_usize(summary, |frame| frame.backend.node_own_cache_record_repeats),
         average_usize(summary, |frame| frame.backend.node_own_cache_capacity_utilization),
+        average_usize(summary, |frame| frame.backend.apply_cache_evictions),
+        average_usize(summary, |frame| frame.backend.apply_cache_record_repeats),
+        average_usize(summary, |frame| frame.backend.apply_cache_capacity_utilization),
     ));
     append_backend_span_summary(&mut out, summary);
     out
@@ -344,6 +347,9 @@ mod tests {
         frame.backend.node_own_segment_replaced = 1;
         frame.backend.apply_segment_hits = 8;
         frame.backend.apply_segment_misses = 2;
+        frame.backend.apply_cache_evictions = 7;
+        frame.backend.apply_cache_record_repeats = 8;
+        frame.backend.apply_cache_capacity_utilization = 9;
         frame.backend.node_own_cache_evictions = 4;
         frame.backend.node_own_cache_record_repeats = 5;
         frame.backend.node_own_cache_capacity_utilization = 6;
@@ -394,6 +400,9 @@ mod tests {
         assert!(text.contains("node_own_evict"));
         assert!(text.contains("node_own_repeat"));
         assert!(text.contains("node_own_util"));
+        assert!(text.contains("apply_evict"));
+        assert!(text.contains("apply_repeat"));
+        assert!(text.contains("apply_util"));
         assert!(text.contains("backend avg spans/frame"));
     }
 }

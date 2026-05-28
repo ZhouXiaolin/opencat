@@ -426,7 +426,8 @@ fn begin_apply_frame_cached(
     let frame = emit_apply_prefix(builder, plan);
     let range = builder.end_range(marker);
     let segment = builder.snapshot_range(range);
-    cache.apply_segments.insert(key, segment);
+    let report = cache.apply_segments.insert(key, segment);
+    record_cache_pressure("apply", &report);
     frame
 }
 

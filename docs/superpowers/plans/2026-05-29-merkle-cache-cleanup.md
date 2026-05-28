@@ -19,7 +19,7 @@ frames: 414
 avg ms/frame: script 0.60, resolve 0.61, layout 0.07, display 0.05, backend 0.23
 layout avg/frame: layout_skipped_nodes 24.0, layout_dirty 0.7, raster_dirty 0.3
 display avg/frame: merkle_skipped_nodes 12.8, rebuilt_nodes 2.9, apply_only_patched_nodes 9.9
-analyze avg/frame: merkle_skipped_nodes 20.0, recorded_hit_nodes 20.0, composite_dirty_nodes 1.4
+analyze avg/frame: merkle_skipped_nodes 20.0, recorded_hit_nodes 20.0, apply_changed_nodes 1.4
 backend avg counts/frame: scene_snapshot_hit 0.00, subtree_snapshot_hit 0.00, subtree_request_after_reused 5.64
 cache pressure avg/frame: parent_own_repeat 9.55, parent_own_util 55.21
 ```
@@ -560,7 +560,7 @@ Final profile comparison after Chunk 4:
 frames: 414
 avg ms/frame: script 0.64, resolve 0.64, layout 0.06, display 0.06, backend 0.25
 display avg/frame: merkle_skipped_nodes 12.8, rebuilt_nodes 2.9, apply_only_patched_nodes 9.9
-analyze avg/frame: merkle_skipped_nodes 20.0, recorded_hit_nodes 20.0, composite_dirty_nodes 1.4
+analyze avg/frame: merkle_skipped_nodes 20.0, recorded_hit_nodes 20.0, apply_changed_nodes 1.4
 backend avg counts/frame: scene_snapshot_hit 0.00, scene_snapshot_miss 1.00, subtree_request_after_fresh 3.97, subtree_request_after_reused 5.64, node_own_hit 9.55, node_own_record 0.06
 cache pressure avg/frame: node_own_evict 0.00, node_own_repeat 9.55, node_own_util 55.21
 ```

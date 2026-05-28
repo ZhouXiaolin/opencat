@@ -172,7 +172,7 @@ mod ordered_scene_tests {
     }
 
     #[test]
-    fn stable_leaf_rect_stays_live_even_when_composite_dirty() {
+    fn stable_leaf_rect_stays_live_even_when_apply_changed() {
         let root = AnnotatedNodeHandle(0);
         let tree = AnnotatedDisplayTree {
             root,
@@ -195,7 +195,7 @@ mod ordered_scene_tests {
                 table.insert(
                     root,
                     DisplayNodeInvalidation {
-                        composite_dirty: true,
+                        apply_changed: true,
                     },
                 );
                 table
@@ -683,35 +683,35 @@ pub struct SceneRenderPlan {
     pub scene_snapshot_blocked_by_structure: bool,
     pub scene_snapshot_blocked_by_layout: bool,
     pub scene_snapshot_blocked_by_raster: bool,
-    pub scene_snapshot_blocked_by_composite: bool,
+    pub scene_snapshot_blocked_by_apply_change: bool,
 }
 
 impl SceneRenderPlan {
-    pub fn from_layout_pass(layout_pass: &LayoutPassStats, composite_dirty_nodes: usize) -> Self {
+    pub fn from_layout_pass(layout_pass: &LayoutPassStats, apply_changed_nodes: usize) -> Self {
         let scene_snapshot_blocked_by_structure = layout_pass.structure_rebuild;
         let scene_snapshot_blocked_by_layout = layout_pass.layout_dirty_nodes > 0;
         let scene_snapshot_blocked_by_raster = layout_pass.raster_dirty_nodes > 0;
-        let scene_snapshot_blocked_by_composite = composite_dirty_nodes > 0;
+        let scene_snapshot_blocked_by_apply_change = apply_changed_nodes > 0;
         let allows_scene_snapshot_cache = !(scene_snapshot_blocked_by_structure
             || scene_snapshot_blocked_by_layout
             || scene_snapshot_blocked_by_raster
-            || scene_snapshot_blocked_by_composite);
+            || scene_snapshot_blocked_by_apply_change);
 
         Self {
             allows_scene_snapshot_cache,
             scene_snapshot_blocked_by_structure,
             scene_snapshot_blocked_by_layout,
             scene_snapshot_blocked_by_raster,
-            scene_snapshot_blocked_by_composite,
+            scene_snapshot_blocked_by_apply_change,
         }
     }
 }
 
 pub fn plan_for_scene(
     layout_pass: &LayoutPassStats,
-    composite_dirty_nodes: usize,
+    apply_changed_nodes: usize,
 ) -> SceneRenderPlan {
-    SceneRenderPlan::from_layout_pass(layout_pass, composite_dirty_nodes)
+    SceneRenderPlan::from_layout_pass(layout_pass, apply_changed_nodes)
 }
 
 #[cfg(test)]
@@ -720,7 +720,7 @@ mod plan_tests {
     use crate::layout::LayoutPassStats;
 
     #[test]
-    fn composite_only_scene_disables_scene_snapshot_cache() {
+    fn apply_changed_scene_disables_scene_snapshot_cache() {
         let plan = SceneRenderPlan::from_layout_pass(&LayoutPassStats::default(), 2);
         assert_eq!(
             plan,
@@ -729,7 +729,7 @@ mod plan_tests {
                 scene_snapshot_blocked_by_structure: false,
                 scene_snapshot_blocked_by_layout: false,
                 scene_snapshot_blocked_by_raster: false,
-                scene_snapshot_blocked_by_composite: true,
+                scene_snapshot_blocked_by_apply_change: true,
             }
         );
     }
@@ -744,7 +744,7 @@ mod plan_tests {
                 scene_snapshot_blocked_by_structure: false,
                 scene_snapshot_blocked_by_layout: false,
                 scene_snapshot_blocked_by_raster: false,
-                scene_snapshot_blocked_by_composite: false,
+                scene_snapshot_blocked_by_apply_change: false,
             }
         );
     }
@@ -764,7 +764,7 @@ mod plan_tests {
         assert!(plan.scene_snapshot_blocked_by_structure);
         assert!(plan.scene_snapshot_blocked_by_layout);
         assert!(plan.scene_snapshot_blocked_by_raster);
-        assert!(plan.scene_snapshot_blocked_by_composite);
+        assert!(plan.scene_snapshot_blocked_by_apply_change);
     }
 }
 
@@ -876,7 +876,7 @@ mod reuse_tests {
                     table.insert(
                         AnnotatedNodeHandle(i),
                         DisplayNodeInvalidation {
-                            composite_dirty: false,
+                            apply_changed: false,
                         },
                     );
                 }

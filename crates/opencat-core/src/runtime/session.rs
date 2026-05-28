@@ -22,7 +22,7 @@ pub struct RenderSession {
     /// per-render display tree builder w/ subtree merkle cache (L3)
     pub display_build_session: DisplayBuildSession,
 
-    /// cross-frame composite dirty history
+    /// cross-frame apply change history
     pub composite_history: CompositeHistory,
 
     /// cross-frame analyze fingerprint history

@@ -113,7 +113,7 @@ pub fn display_recorded_subtree_fingerprint(
 /// - backdrop blur
 ///
 /// 像 `clip` 这类会改变录制内容的语义仍然留在 snapshot / skeleton 指纹里，
-/// 不放进 composite dirty 判定。
+/// 不放进 apply change 判定。
 ///
 /// **不进入缓存键**。每帧对同一节点比对，用来判断是否需要重新合成。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -273,7 +273,7 @@ mod tests {
         opacity: f32,
         backdrop_blur_sigma: Option<f32>,
         clip: Option<DisplayClip>,
-        composite_dirty: bool,
+        apply_changed: bool,
         children: Vec<TestAnnotatedNode>,
         background: Option<crate::style::BackgroundFill>,
         layout_output_fingerprint: LayoutOutputFingerprint,
@@ -287,7 +287,7 @@ mod tests {
                 opacity: 1.0,
                 backdrop_blur_sigma: None,
                 clip: None,
-                composite_dirty: false,
+                apply_changed: false,
                 children: Vec::new(),
                 background: None,
                 layout_output_fingerprint: LayoutOutputFingerprint::default(),
@@ -304,7 +304,7 @@ mod tests {
         clip: Option<DisplayClip>,
         item: DisplayItem,
         children: Vec<TestAnnotatedNode>,
-        composite_dirty: bool,
+        apply_changed: bool,
         layout_output_fingerprint: LayoutOutputFingerprint,
     }
 
@@ -353,7 +353,7 @@ mod tests {
                 },
             }),
             children: config.children,
-            composite_dirty: config.composite_dirty,
+            apply_changed: config.apply_changed,
             layout_output_fingerprint: config.layout_output_fingerprint,
         }
     }
@@ -454,7 +454,7 @@ mod tests {
         invalidation.insert(
             handle,
             DisplayNodeInvalidation {
-                composite_dirty: node.composite_dirty,
+                apply_changed: node.apply_changed,
             },
         );
 
@@ -691,37 +691,37 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_fingerprint_always_some_even_with_dirty_descendant() {
-        // composite_dirty no longer blocks snapshot_fingerprint — composite is
+    fn snapshot_fingerprint_always_some_even_with_apply_changed_descendant() {
+        // apply_changed no longer blocks snapshot_fingerprint — composite is
         // applied dynamically at replay, not baked into the cache key.
-        let dirty_child = annotated_rect_node(AnnotatedRectConfig {
+        let apply_changed_child = annotated_rect_node(AnnotatedRectConfig {
             key: RenderNodeKey(2),
-            composite_dirty: true,
+            apply_changed: true,
             ..Default::default()
         });
         let tree = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
-            children: vec![dirty_child],
+            children: vec![apply_changed_child],
             ..Default::default()
         }));
         assert!(
             tree.analysis(tree.root).snapshot_fingerprint.is_some(),
-            "parent with dirty descendant should still have snapshot_fingerprint"
+            "parent with apply-changed descendant should still have snapshot_fingerprint"
         );
         assert!(
             tree.analysis(tree.root).paint_fingerprint.is_some(),
-            "paint fingerprint is independent of composite dirty"
+            "paint fingerprint is independent of apply change"
         );
 
-        // 深层 dirty 孙节点 → ancestors still have snapshot_fingerprint
-        let dirty_grandchild = annotated_rect_node(AnnotatedRectConfig {
+        // 深层 apply-changed 孙节点 → ancestors still have snapshot_fingerprint
+        let apply_changed_grandchild = annotated_rect_node(AnnotatedRectConfig {
             key: RenderNodeKey(3),
-            composite_dirty: true,
+            apply_changed: true,
             ..Default::default()
         });
         let clean_middle = annotated_rect_node(AnnotatedRectConfig {
             key: RenderNodeKey(2),
-            composite_dirty: false,
-            children: vec![dirty_grandchild],
+            apply_changed: false,
+            children: vec![apply_changed_grandchild],
             ..Default::default()
         });
         let deep = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
@@ -730,13 +730,13 @@ mod tests {
         }));
         assert!(
             deep.analysis(deep.root).snapshot_fingerprint.is_some(),
-            "root with dirty grandchild should still have snapshot_fingerprint"
+            "root with apply-changed grandchild should still have snapshot_fingerprint"
         );
 
         // clean 树 → snapshot_fingerprint = Some
         let clean_child = annotated_rect_node(AnnotatedRectConfig {
             key: RenderNodeKey(2),
-            composite_dirty: false,
+            apply_changed: false,
             ..Default::default()
         });
         let clean = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {

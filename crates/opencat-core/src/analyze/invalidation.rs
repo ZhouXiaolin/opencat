@@ -27,11 +27,11 @@ impl CompositeHistory {
     }
 }
 
-pub fn mark_display_tree_composite_dirty(
+pub fn mark_display_tree_apply_changed(
     history: &mut CompositeHistory,
     display_tree: &mut AnnotatedDisplayTree,
     structure_rebuild: bool,
-) -> CompositeDirtyStats {
+) -> ApplyChangeStats {
     let empty = HashMap::new();
     let previous = if structure_rebuild {
         &empty
@@ -40,8 +40,8 @@ pub fn mark_display_tree_composite_dirty(
     };
     let mut next = HashMap::new();
     let mut invalidation = DisplayInvalidationTable::with_len(display_tree.analysis.len());
-    let mut stats = CompositeDirtyStats::default();
-    mark_display_node_composite_dirty(
+    let mut stats = ApplyChangeStats::default();
+    mark_display_node_apply_changed(
         display_tree.root,
         display_tree,
         &display_tree.analysis,
@@ -56,33 +56,33 @@ pub fn mark_display_tree_composite_dirty(
 }
 
 #[derive(Default, Debug, Clone, Copy)]
-pub struct CompositeDirtyStats {
-    pub composite_dirty_nodes: usize,
+pub struct ApplyChangeStats {
+    pub apply_changed_nodes: usize,
 }
 
 #[allow(clippy::only_used_in_recursion)]
-fn mark_display_node_composite_dirty(
+fn mark_display_node_apply_changed(
     handle: AnnotatedNodeHandle,
     display_tree: &AnnotatedDisplayTree,
     analysis: &DisplayAnalysisTable,
     invalidation: &mut DisplayInvalidationTable,
     previous: &HashMap<RenderNodeKey, CompositeSig>,
     next: &mut HashMap<RenderNodeKey, CompositeSig>,
-    stats: &mut CompositeDirtyStats,
+    stats: &mut ApplyChangeStats,
 ) {
     let node = display_tree.node(handle);
     let node_key = display_tree.key(handle);
     let current_sig = CompositeSig::from_annotated_node(node);
-    let composite_dirty = previous
+    let apply_changed = previous
         .get(&node_key)
         .is_some_and(|previous_sig| *previous_sig != current_sig);
-    if composite_dirty {
-        stats.composite_dirty_nodes += 1;
+    if apply_changed {
+        stats.apply_changed_nodes += 1;
     }
     next.insert(node_key, current_sig);
 
     for &child_handle in &node.children {
-        mark_display_node_composite_dirty(
+        mark_display_node_apply_changed(
             child_handle,
             display_tree,
             analysis,
@@ -92,5 +92,5 @@ fn mark_display_node_composite_dirty(
             stats,
         );
     }
-    invalidation.insert(handle, DisplayNodeInvalidation { composite_dirty });
+    invalidation.insert(handle, DisplayNodeInvalidation { apply_changed });
 }

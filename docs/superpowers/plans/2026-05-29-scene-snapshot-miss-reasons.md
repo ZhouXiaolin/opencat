@@ -135,14 +135,14 @@ scene_snapshot_miss_root_fingerprint_changed 0.21
 scene_snapshot_plan_blocked_by_structure 0.02
 scene_snapshot_plan_blocked_by_layout 0.19
 scene_snapshot_plan_blocked_by_raster 0.26
-scene_snapshot_plan_blocked_by_composite 0.62
+scene_snapshot_plan_blocked_by_apply_change 0.62
 node_own_hit 9.55, node_own_record 0.06, node_own_evict 0.00
 ```
 
 Interpretation:
 
-- The largest blocker is composite dirtiness at `0.62/frame`.
+- The largest blocker is apply changes at `0.62/frame`.
 - Raster dirtiness is the second blocker at `0.26/frame`.
 - Layout dirtiness is smaller but still material at `0.19/frame`.
 - Structural rebuilds are rare at `0.02/frame`.
-- The next optimization should target composite dirtiness before trying to broaden whole-scene snapshot reuse.
+- The next optimization should target apply changes before trying to broaden whole-scene snapshot reuse.

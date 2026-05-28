@@ -167,6 +167,17 @@ impl Hash for PaintInputLocal<'_> {
                 text.text.hash(state);
                 TextPaintInput(&text.text_style).hash(state);
                 text.text_unit_overrides.is_some().hash(state);
+                if let Some(batch) = &text.text_unit_overrides {
+                    std::mem::discriminant(&batch.granularity).hash(state);
+                    for unit in &batch.overrides {
+                        unit.opacity.map(f32::to_bits).hash(state);
+                        unit.translate_x.map(f32::to_bits).hash(state);
+                        unit.translate_y.map(f32::to_bits).hash(state);
+                        unit.scale.map(f32::to_bits).hash(state);
+                        unit.rotation_deg.map(f32::to_bits).hash(state);
+                        unit.color.hash(state);
+                    }
+                }
             }
             ElementKind::Bitmap(bitmap) => {
                 bitmap.asset_id.hash(state);

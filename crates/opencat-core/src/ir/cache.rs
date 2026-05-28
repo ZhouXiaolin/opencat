@@ -11,6 +11,10 @@ use crate::display::tree::DisplayRecordedSubtreeFingerprint;
 pub struct RenderCache {
     /// Subtree snapshot entries keyed by fingerprint primary hash.
     pub subtree_snapshots: BoundedLruCache<u64, CachedSubtreeIr>,
+    /// Parent-own segment entries keyed by DisplayRecordedFingerprint.
+    /// Separate from subtree_snapshots so that the parent's own rendering
+    /// segment can be reused even when child fingerprints change.
+    pub parent_own_segments: BoundedLruCache<u64, CachedSubtreeIr>,
     /// Cached IR segments keyed by segment_key.
     pub segments: BoundedLruCache<u64, CachedDrawSegment>,
     /// Item-level cached ranges keyed by item_paint_fingerprint.
@@ -36,9 +40,10 @@ pub struct SceneSnapshotEntry {
 
 impl RenderCache {
     /// Create a new RenderCache with the given capacities.
-    pub fn new(subtree_snapshot_cap: usize, segment_cap: usize, item_range_cap: usize) -> Self {
+    pub fn new(subtree_snapshot_cap: usize, parent_own_cap: usize, segment_cap: usize, item_range_cap: usize) -> Self {
         Self {
             subtree_snapshots: BoundedLruCache::new(subtree_snapshot_cap),
+            parent_own_segments: BoundedLruCache::new(parent_own_cap),
             segments: BoundedLruCache::new(segment_cap),
             item_ranges: BoundedLruCache::new(item_range_cap),
             last_scene_snapshot: None,
@@ -125,6 +130,7 @@ mod tests {
 
         let mut cache = RenderCache {
             subtree_snapshots: BoundedLruCache::new(16),
+            parent_own_segments: BoundedLruCache::new(16),
             segments: BoundedLruCache::new(16),
             item_ranges: BoundedLruCache::new(64),
             last_scene_snapshot: None,
@@ -147,5 +153,38 @@ mod tests {
 
         assert!(cache.segments.get_cloned(&1).is_some());
         assert!(cache.subtree_snapshots.get_cloned(&1).is_some());
+    }
+
+    #[test]
+    fn parent_own_segments_can_insert_and_lookup() {
+        let mut cache = RenderCache {
+            subtree_snapshots: BoundedLruCache::new(16),
+            parent_own_segments: BoundedLruCache::new(16),
+            segments: BoundedLruCache::new(16),
+            item_ranges: BoundedLruCache::new(64),
+            last_scene_snapshot: None,
+        };
+
+        let own_key: u64 = 999;
+        let segment = CachedDrawSegment::default();
+        let entry = CachedSubtreeIr {
+            segment_key: 42,
+            consecutive_hits: 0,
+            recorded_bounds: DisplayRect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+        };
+
+        cache.segments.insert(42, segment);
+        cache.parent_own_segments.insert(own_key, entry);
+
+        assert!(cache.parent_own_segments.get_cloned(&own_key).is_some());
+        assert!(
+            cache.parent_own_segments.get_cloned(&0).is_none(),
+            "miss should return None"
+        );
     }
 }

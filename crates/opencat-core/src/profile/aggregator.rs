@@ -360,6 +360,24 @@ impl RenderProfileAggregator {
             ("consecutive", "subtree_snapshot", "count") => {
                 frame.backend.subtree_snapshot_consecutive_hits_total += event.amount;
             }
+            ("cache", "parent_own_segment", "hit") => {
+                frame.backend.parent_own_segment_hits += event.amount;
+            }
+            ("cache", "parent_own_segment", "first_record") => {
+                frame.backend.parent_own_segment_first_record += event.amount;
+            }
+            ("cache", "parent_own_segment", "replaced") => {
+                frame.backend.parent_own_segment_replaced += event.amount;
+            }
+            ("eviction", "parent_own", "count") => {
+                frame.backend.parent_own_cache_evictions += event.amount;
+            }
+            ("repeat", "parent_own", "count") => {
+                frame.backend.parent_own_cache_record_repeats += event.amount;
+            }
+            ("utilization", "parent_own", "count") => {
+                frame.backend.parent_own_cache_capacity_utilization += event.amount;
+            }
             _ => {}
         }
     }

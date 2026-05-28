@@ -5,7 +5,7 @@ use tracing::{Level, event, span};
 use crate::analyze::annotation::AnalyzeReuseState;
 use crate::analyze::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
 use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
-use crate::analyze::fingerprint::item_paint_fingerprint;
+use crate::analyze::fingerprint::{DisplayRecordedFingerprint, item_paint_fingerprint};
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem};
 use crate::ir::cache::{self as draw_cache, CachedDrawRange, CachedSubtreeIr};
@@ -330,6 +330,45 @@ fn render_cached_subtree(
 
     let has_clip = node.clip.is_some();
     let subtree = OrderedSceneProgram::build_subtree(tree, handle);
+    let own_key = DisplayRecordedFingerprint::from_recorded(&node.recorded_semantics()).0;
+
+    // First, try the parent-own cache (keyed by the parent's own content only,
+    // independent of child fingerprints). This avoids unnecessary re-recording
+    // of the parent's item when only descendants have changed.
+    {
+        let own_hit = cache.parent_own_segments.get_cloned(&own_key);
+        if let Some(entry) = own_hit {
+            if let Some(segment) = cache.segments.get_cloned(&entry.segment_key) {
+                #[cfg(feature = "profile")]
+                event!(
+                    target: "render.cache",
+                    Level::TRACE,
+                    kind = "cache",
+                    name = "parent_own_segment",
+                    result = "hit",
+                    amount = 1_u64
+                );
+
+                ctx.builder.import_segment(&segment);
+                let updated = CachedSubtreeIr {
+                    consecutive_hits: entry.consecutive_hits + 1,
+                    ..entry
+                };
+                let report = cache.parent_own_segments.insert(own_key, updated);
+                record_cache_pressure("parent_own", &report);
+
+                for child in &subtree.children {
+                    render_scene_op(ctx, child, tree, cache)?;
+                }
+                if has_clip {
+                    ctx.builder.push(DrawOp::Restore);
+                }
+                restore_backdrop_blur_layer(ctx, &layer_state);
+                ctx.builder.push(DrawOp::Restore);
+                return Ok(());
+            }
+        }
+    }
 
     // Check cache for parent's own segment (item + open clip, no children)
     {
@@ -401,6 +440,15 @@ fn render_cached_subtree(
                 result = "first_record",
                 amount = 1_u64
             );
+            #[cfg(feature = "profile")]
+            event!(
+                target: "render.cache",
+                Level::TRACE,
+                kind = "cache",
+                name = "parent_own_segment",
+                result = "first_record",
+                amount = 1_u64
+            );
         }
     }
 
@@ -432,6 +480,33 @@ fn render_cached_subtree(
     let segment_key = key;
 
     cache.segments.insert(segment_key, segment);
+
+    // Also store in parent-own cache for reuse when children change but parent doesn't
+    {
+        let own_snapshot = CachedSubtreeIr {
+            segment_key,
+            consecutive_hits: 0,
+            recorded_bounds: layer_bounds,
+        };
+        #[cfg(feature = "profile")]
+        let own_report = cache.parent_own_segments.insert(own_key, own_snapshot);
+        #[cfg(not(feature = "profile"))]
+        let _own_report = cache.parent_own_segments.insert(own_key, own_snapshot);
+        #[cfg(feature = "profile")]
+        {
+            if own_report.replaced {
+                event!(
+                    target: "render.cache",
+                    Level::TRACE,
+                    kind = "cache",
+                    name = "parent_own_segment",
+                    result = "replaced",
+                    amount = 1_u64
+                );
+            }
+            record_cache_pressure("parent_own", &own_report);
+        }
+    }
 
     let snapshot = CachedSubtreeIr {
         segment_key,

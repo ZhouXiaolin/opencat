@@ -394,8 +394,8 @@ fn begin_apply_frame_cached(
     plan: &ApplyPlan<'_>,
     cache: &mut draw_cache::RenderCache,
 ) -> ApplyFrame {
-    let key = SegmentKey::Apply(apply_segment_key(plan));
-    if let Some(segment) = cache.segments.get_cloned(&key) {
+    let key = apply_segment_key(plan);
+    if let Some(segment) = cache.apply_segments.get_cloned(&key) {
         #[cfg(feature = "profile")]
         event!(
             target: "render.cache",
@@ -426,7 +426,7 @@ fn begin_apply_frame_cached(
     let frame = emit_apply_prefix(builder, plan);
     let range = builder.end_range(marker);
     let segment = builder.snapshot_range(range);
-    cache.segments.insert(key, segment);
+    cache.apply_segments.insert(key, segment);
     frame
 }
 
@@ -1243,7 +1243,7 @@ mod tests {
             backdrop_blur_sigma: None,
             layer_bounds: bounds,
         };
-        let segment_key = SegmentKey::Apply(apply_segment_key(&plan));
+        let segment_key = apply_segment_key(&plan);
 
         let mut first_builder = DrawOpBuilder::default();
         let first_frame = begin_apply_frame_cached(&mut first_builder, &plan, &mut cache);
@@ -1252,7 +1252,7 @@ mod tests {
         let first_ops = first_builder.finish().ops;
 
         assert!(
-            cache.segments.get_cloned(&segment_key).is_some(),
+            cache.apply_segments.get_cloned(&segment_key).is_some(),
             "first prefix emission should record an apply segment"
         );
 

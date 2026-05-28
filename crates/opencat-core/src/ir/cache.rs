@@ -11,8 +11,10 @@ use crate::display::tree::DisplayRecordedSubtreeFingerprint;
 pub struct RenderCache {
     /// Node-own segment entries keyed by DisplayRecordedFingerprint.
     pub node_own_segments: BoundedLruCache<u64, CachedNodeOwnIr>,
-    /// Cached IR segments keyed by their semantic namespace.
+    /// Cached static/content IR segments keyed by their semantic namespace.
     pub segments: BoundedLruCache<SegmentKey, CachedDrawSegment>,
+    /// Cached dynamic apply/composite instruction segments keyed by apply semantics.
+    pub apply_segments: BoundedLruCache<u64, CachedDrawSegment>,
     /// Item-level cached ranges keyed by item_paint_fingerprint.
     pub item_ranges: BoundedLruCache<u64, CachedDrawRange>,
     /// Most-recent scene-level snapshot. Reused on the next frame when
@@ -40,6 +42,7 @@ impl RenderCache {
         Self {
             node_own_segments: BoundedLruCache::new(node_own_cap),
             segments: BoundedLruCache::new(segment_cap),
+            apply_segments: BoundedLruCache::new(segment_cap),
             item_ranges: BoundedLruCache::new(item_range_cap),
             last_scene_snapshot: None,
         }
@@ -48,7 +51,6 @@ impl RenderCache {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SegmentKey {
-    Apply(u64),
     Item(u64),
     NodeOwn(u64),
 }
@@ -113,8 +115,6 @@ mod tests {
     #[test]
     fn segment_keys_keep_item_and_node_own_namespaces_separate() {
         assert_ne!(SegmentKey::Item(42), SegmentKey::NodeOwn(42));
-        assert_ne!(SegmentKey::Apply(42), SegmentKey::Item(42));
-        assert_ne!(SegmentKey::Apply(42), SegmentKey::NodeOwn(42));
     }
 
     #[test]
@@ -180,6 +180,31 @@ mod tests {
         assert!(
             cache.node_own_segments.get_cloned(&0).is_none(),
             "miss should return None"
+        );
+    }
+
+    #[test]
+    fn apply_segments_are_stored_separately_from_content_segments() {
+        let mut cache = RenderCache::new(16, 1, 64);
+
+        cache
+            .apply_segments
+            .insert(7, CachedDrawSegment::default());
+        cache
+            .segments
+            .insert(SegmentKey::Item(1), CachedDrawSegment::default());
+        cache
+            .segments
+            .insert(SegmentKey::NodeOwn(2), CachedDrawSegment::default());
+
+        assert!(
+            cache.apply_segments.get_cloned(&7).is_some(),
+            "hot apply instructions should not compete with content segments"
+        );
+        assert_eq!(
+            cache.segments.len(),
+            1,
+            "content segment capacity should remain independent"
         );
     }
 }

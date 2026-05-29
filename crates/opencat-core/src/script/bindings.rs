@@ -68,146 +68,11 @@
 #[macro_export]
 macro_rules! for_each_binding {
     ($rec:ident $id:ident $store:ident $binding:ident) => {
-        // ── Node: style mutations (111 entries) ────────────────────────────
+        // ── Node: unified style write (1 entry, replaces 38 individual record_*) ─
 
-        $binding! { node $rec $id record_opacity ($id: &str, v: f32) $rec . record_opacity($id, v) }
-        $binding! { node $rec $id record_translate_x ($id: &str, v: f32) $rec . record_translate_x($id, v) }
-        $binding! { node $rec $id record_translate_y ($id: &str, v: f32) $rec . record_translate_y($id, v) }
-        $binding! { node $rec $id record_translate ($id: &str, x: f32, y: f32) $rec . record_translate($id, x, y) }
-        $binding! { node $rec $id record_scale ($id: &str, v: f32) $rec . record_scale($id, v) }
-        $binding! { node $rec $id record_scale_x ($id: &str, v: f32) $rec . record_scale_x($id, v) }
-        $binding! { node $rec $id record_scale_y ($id: &str, v: f32) $rec . record_scale_y($id, v) }
-        $binding! { node $rec $id record_rotate ($id: &str, v: f32) $rec . record_rotate($id, v) }
-        $binding! { node $rec $id record_skew_x ($id: &str, v: f32) $rec . record_skew_x($id, v) }
-        $binding! { node $rec $id record_skew_y ($id: &str, v: f32) $rec . record_skew_y($id, v) }
-        $binding! { node $rec $id record_skew ($id: &str, x_deg: f32, y_deg: f32) $rec . record_skew($id, x_deg, y_deg) }
-        $binding! { node $rec $id record_position ($id: &str, v: String) {
-            if let Some(pos) = position_from_name(&v) {
-                $rec . record_position($id, pos);
-            }
+        $binding! { node $rec $id write_style_value ($id: &str, property: String, value: serde_json::Value) {
+            $rec . write_style_value($id, &property, value);
         }}
-        $binding! { node $rec $id record_left ($id: &str, v: f32) $rec . record_left($id, v) }
-        $binding! { node $rec $id record_top ($id: &str, v: f32) $rec . record_top($id, v) }
-        $binding! { node $rec $id record_right ($id: &str, v: f32) $rec . record_right($id, v) }
-        $binding! { node $rec $id record_bottom ($id: &str, v: f32) $rec . record_bottom($id, v) }
-        $binding! { node $rec $id record_width ($id: &str, v: f32) $rec . record_width($id, v) }
-        $binding! { node $rec $id record_height ($id: &str, v: f32) $rec . record_height($id, v) }
-        $binding! { node $rec $id record_padding ($id: &str, v: f32) $rec . record_padding($id, v) }
-        $binding! { node $rec $id record_padding_x ($id: &str, v: f32) $rec . record_padding_x($id, v) }
-        $binding! { node $rec $id record_padding_y ($id: &str, v: f32) $rec . record_padding_y($id, v) }
-        $binding! { node $rec $id record_margin ($id: &str, v: f32) $rec . record_margin($id, v) }
-        $binding! { node $rec $id record_margin_x ($id: &str, v: f32) $rec . record_margin_x($id, v) }
-        $binding! { node $rec $id record_margin_y ($id: &str, v: f32) $rec . record_margin_y($id, v) }
-        $binding! { node $rec $id record_flex_direction ($id: &str, v: String) {
-            if let Some(fd) = flex_direction_from_name(&v) {
-                $rec . record_flex_direction($id, fd);
-            }
-        }}
-        $binding! { node $rec $id record_justify_content ($id: &str, v: String) {
-            if let Some(jc) = justify_content_from_name(&v) {
-                $rec . record_justify_content($id, jc);
-            }
-        }}
-        $binding! { node $rec $id record_align_items ($id: &str, v: String) {
-            if let Some(ai) = align_items_from_name(&v) {
-                $rec . record_align_items($id, ai);
-            }
-        }}
-        $binding! { node $rec $id record_gap ($id: &str, v: f32) $rec . record_gap($id, v) }
-        $binding! { node $rec $id record_flex_grow ($id: &str, v: f32) $rec . record_flex_grow($id, v) }
-        $binding! { node $rec $id record_bg ($id: &str, v: String) {
-            if let Some(c) = color_token_from_script_string(&v) {
-                $rec . record_bg_color($id, c);
-            }
-        }}
-        $binding! { node $rec $id record_border_radius ($id: &str, v: f32) $rec . record_border_radius($id, v) }
-        $binding! { node $rec $id record_border_width ($id: &str, v: f32) $rec . record_border_width($id, v) }
-        $binding! { node $rec $id record_border_top_width ($id: &str, v: f32) $rec . record_border_top_width($id, v) }
-        $binding! { node $rec $id record_border_right_width ($id: &str, v: f32) $rec . record_border_right_width($id, v) }
-        $binding! { node $rec $id record_border_bottom_width ($id: &str, v: f32) $rec . record_border_bottom_width($id, v) }
-        $binding! { node $rec $id record_border_left_width ($id: &str, v: f32) $rec . record_border_left_width($id, v) }
-        $binding! { node $rec $id record_border_style ($id: &str, v: String) {
-            let parsed = match v.as_str() {
-                "solid" => Some(BorderStyle::Solid),
-                "dashed" => Some(BorderStyle::Dashed),
-                "dotted" => Some(BorderStyle::Dotted),
-                _ => None,
-            };
-            if let Some(bs) = parsed {
-                $rec . record_border_style($id, bs);
-            }
-        }}
-        $binding! { node $rec $id record_border_color ($id: &str, v: String) {
-            if let Some(c) = color_token_from_script_string(&v) {
-                $rec . record_border_color($id, c);
-            }
-        }}
-        $binding! { node $rec $id record_stroke_width ($id: &str, v: f32) $rec . record_stroke_width($id, v) }
-        $binding! { node $rec $id record_stroke_dasharray ($id: &str, v: f32) $rec . record_stroke_dasharray($id, v) }
-        $binding! { node $rec $id record_stroke_dashoffset ($id: &str, v: f32) $rec . record_stroke_dashoffset($id, v) }
-        $binding! { node $rec $id record_stroke_color ($id: &str, v: String) {
-            if let Some(c) = color_token_from_script_string(&v) {
-                $rec . record_stroke_color($id, c);
-            }
-        }}
-        $binding! { node $rec $id record_fill_color ($id: &str, v: String) {
-            if let Some(c) = color_token_from_script_string(&v) {
-                $rec . record_fill_color($id, c);
-            }
-        }}
-        $binding! { node $rec $id record_object_fit ($id: &str, v: String) {
-            if let Some(of) = object_fit_from_name(&v) {
-                $rec . record_object_fit($id, of);
-            }
-        }}
-        $binding! { node $rec $id record_text_color ($id: &str, v: String) {
-            if let Some(c) = color_token_from_script_string(&v) {
-                $rec . record_text_color($id, c);
-            }
-        }}
-        $binding! { node $rec $id record_text_size ($id: &str, v: f32) $rec . record_text_size($id, v) }
-        $binding! { node $rec $id record_font_weight ($id: &str, v: f64) {
-            $rec . record_font_weight($id, FontWeight(v as u16));
-        }}
-        $binding! { node $rec $id record_letter_spacing ($id: &str, v: f32) $rec . record_letter_spacing($id, v) }
-        $binding! { node $rec $id record_text_align ($id: &str, v: String) {
-            if let Some(align) = text_align_from_name(&v) {
-                $rec . record_text_align($id, align);
-            }
-        }}
-        $binding! { node $rec $id record_line_height ($id: &str, v: f32) $rec . record_line_height($id, v) }
-        $binding! { node $rec $id record_shadow ($id: &str, v: String) {
-            if let Some(sh) = box_shadow_from_name(&v) {
-                $rec . record_box_shadow($id, sh);
-            }
-        }}
-        $binding! { node $rec $id record_shadow_color ($id: &str, v: String) {
-            if let Some(color) = color_token_from_script_string(&v) {
-                $rec . record_box_shadow_color($id, color);
-            }
-        }}
-        $binding! { node $rec $id record_inset_shadow ($id: &str, v: String) {
-            if let Some(sh) = inset_shadow_from_name(&v) {
-                $rec . record_inset_shadow($id, sh);
-            }
-        }}
-        $binding! { node $rec $id record_inset_shadow_color ($id: &str, v: String) {
-            if let Some(color) = color_token_from_script_string(&v) {
-                $rec . record_inset_shadow_color($id, color);
-            }
-        }}
-        $binding! { node $rec $id record_drop_shadow ($id: &str, v: String) {
-            if let Some(sh) = drop_shadow_from_name(&v) {
-                $rec . record_drop_shadow($id, sh);
-            }
-        }}
-        $binding! { node $rec $id record_drop_shadow_color ($id: &str, v: String) {
-            if let Some(color) = color_token_from_script_string(&v) {
-                $rec . record_drop_shadow_color($id, color);
-            }
-        }}
-        $binding! { node $rec $id record_text_content ($id: &str, v: String) $rec . record_text_content($id, v) }
-        $binding! { node $rec $id record_svg_path ($id: &str, v: String) $rec . record_svg_path($id, v) }
 
         // ── Node: canvas commands (53 entries) ─────────────────────────────
 
@@ -675,6 +540,14 @@ macro_rules! for_each_binding {
         }}
         $binding! { qry $store text_source_get (id: String) -> Option<String> {
             Ok($store.get_text_source(&id).map(|s| s.text.clone()))
+        }}
+
+        $binding! { qry $store read_style_value (id: String, property: String) -> Option<serde_json::Value> {
+            Ok($store.read_style_value(&id, &property))
+        }}
+
+        $binding! { node $rec $id write_style_value ($id: &str, property: String, value: serde_json::Value) {
+            $rec . write_style_value($id, &property, value);
         }}
 
         // ── Pure: no store (4 entries: text measure, random, graphemes, easing) ─

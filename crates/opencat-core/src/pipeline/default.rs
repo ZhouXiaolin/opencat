@@ -716,12 +716,6 @@ mod tests {
 
         let summary = summary.expect("summary should exist");
 
-        // TODO: the display merkle cache key (paint_input_subtree) doesn't capture
-        // frame-dependent attributes like transition progress, so the root's
-        // recorded_subtree_fingerprint doesn't change across transition frames,
-        // causing spurious scene-snapshot hits during transitions.
-        // Once fixed, per_frame should show misses across the full transition window.
-
         // Once the transition completes the next scene stays stable, so a
         // post-transition frame should be eligible to hit the cache.
         assert!(

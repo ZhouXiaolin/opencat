@@ -162,7 +162,13 @@ impl Hash for PaintInputLocal<'_> {
         PaintStyleInput(&self.0.style.visual).hash(state);
 
         match &self.0.kind {
-            ElementKind::Div(_) | ElementKind::Timeline(_) => {}
+            ElementKind::Div(_) => {}
+            ElementKind::Timeline(tl) => {
+                if let Some(transition) = &tl.transition {
+                    F32Hash(transition.progress).hash(state);
+                    std::mem::discriminant(&transition.kind).hash(state);
+                }
+            }
             ElementKind::Text(text) => {
                 text.text.hash(state);
                 TextPaintInput(&text.text_style).hash(state);
@@ -350,7 +356,11 @@ fn element_kind_tag(kind: &ElementKind) -> u8 {
 mod tests {
     use crate::{
         FrameCtx,
-        parse::primitives::{canvas, div, image, text},
+        parse::{
+            easing::Easing,
+            primitives::{canvas, div, image, text},
+            transition::{fade, slide, timeline},
+        },
         resolve::resolve::resolve_ui_tree,
         test_support::{MockScriptHost, TestCatalog},
     };
@@ -370,6 +380,24 @@ mod tests {
         resolve_ui_tree(
             &node,
             &frame_ctx(),
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve")
+    }
+
+    fn resolve_at_frame(node: crate::Node, frame: u32) -> crate::resolve::tree::ElementNode {
+        let mut assets = TestCatalog::new();
+        resolve_ui_tree(
+            &node,
+            &FrameCtx {
+                frame,
+                fps: 30,
+                width: 320,
+                height: 180,
+                frames: 10,
+            },
             &mut assets,
             None,
             &mut MockScriptHost::default(),
@@ -555,6 +583,24 @@ mod tests {
         assert_ne!(
             first.fingerprints.apply_input_subtree,
             second.fingerprints.apply_input_subtree
+        );
+    }
+
+    #[test]
+    fn transition_progress_change_moves_paint_input_subtree() {
+        let node: crate::Node = timeline()
+            .sequence(3, div().id("scene_a").w(100.0).h(100.0).into())
+            .transition(fade().timing(Easing::Linear, 4))
+            .sequence(3, div().id("scene_b").w(100.0).h(100.0).into())
+            .into();
+
+        let at_frame_3 = resolve_at_frame(node.clone(), 3);
+        let at_frame_5 = resolve_at_frame(node, 5);
+
+        assert_ne!(
+            at_frame_3.fingerprints.paint_input_subtree,
+            at_frame_5.fingerprints.paint_input_subtree,
+            "transition progress change must move paint_input_subtree so DisplayBuildSession cache invalidates"
         );
     }
 }

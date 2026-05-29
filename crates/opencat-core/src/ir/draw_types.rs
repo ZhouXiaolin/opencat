@@ -46,8 +46,14 @@ pub struct TableRange {
 /// Reference to an image source — either a static asset or a video frame.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ImageRef {
-    Static { asset_id: String },
-    VideoFrame { asset_id: String, frame_index: u32 },
+    Static {
+        asset_id: String,
+    },
+    VideoFrame {
+        asset_id: String,
+        frame_index: u32,
+        time_micros: u64,
+    },
 }
 
 /// Persistent runtime effect metadata.
@@ -386,14 +392,17 @@ mod tests {
         let ref_ = ImageRef::VideoFrame {
             asset_id: "clip.mp4".into(),
             frame_index: 42,
+            time_micros: 1_400_000,
         };
         match ref_ {
             ImageRef::VideoFrame {
                 asset_id,
                 frame_index,
+                time_micros,
             } => {
                 assert_eq!(asset_id, "clip.mp4");
                 assert_eq!(frame_index, 42);
+                assert_eq!(time_micros, 1_400_000);
             }
             _ => panic!("expected VideoFrame"),
         }

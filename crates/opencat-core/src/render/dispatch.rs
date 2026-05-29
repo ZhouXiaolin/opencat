@@ -16,6 +16,7 @@ use crate::ir::cache::{self as draw_cache, CachedDrawRange, CachedNodeOwnIr, Seg
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, PathOp};
 use crate::layout::tree::LayoutOutputFingerprint;
+use crate::media::{VideoFrameRequest, VideoPreviewQuality};
 use crate::parse::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::render::builder::DrawOpBuilder;
 use crate::style::{BorderRadius, Transform};
@@ -447,6 +448,23 @@ pub fn render_display_tree(
     render_scene_op(ctx, &ctx.ordered_scene.root, tree, cache)
 }
 
+fn item_visible_at_frame(ctx: &RenderCtx, item: &DisplayItem) -> bool {
+    let DisplayItem::Bitmap(bitmap) = item else {
+        return true;
+    };
+    let Some(timing) = bitmap.video_timing else {
+        return true;
+    };
+
+    VideoFrameRequest {
+        composition_time_secs: ctx.frame_ctx.frame as f64 / ctx.frame_ctx.fps.max(1) as f64,
+        timing,
+        quality: VideoPreviewQuality::Exact,
+        target_size: None,
+    }
+    .is_visible()
+}
+
 fn render_scene_op(
     ctx: &mut RenderCtx,
     op: &OrderedSceneOp,
@@ -472,6 +490,9 @@ fn render_reused_subtree(
     let node = tree.node(handle);
     let draw = node.draw_composite_semantics();
     if draw.opacity <= 0.0 {
+        return Ok(());
+    }
+    if !item_visible_at_frame(ctx, &node.item) {
         return Ok(());
     }
 
@@ -637,6 +658,9 @@ fn render_live_subtree(
     let node = tree.node(handle);
     let draw = node.draw_composite_semantics();
     if draw.opacity <= 0.0 {
+        return Ok(());
+    }
+    if !item_visible_at_frame(ctx, &node.item) {
         return Ok(());
     }
 

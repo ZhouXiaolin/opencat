@@ -361,7 +361,7 @@ pub struct VideoDecodeCache {
 
 impl VideoDecodeCache {
     pub fn new() -> Self {
-        Self::with_max_lanes_per_asset(2)
+        Self::with_max_lanes_per_asset(4)
     }
 
     pub fn with_max_lanes_per_asset(max_lanes_per_asset: usize) -> Self {

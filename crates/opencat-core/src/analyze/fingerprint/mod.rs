@@ -210,8 +210,6 @@ pub(crate) fn annotated_subtree_snapshot_fingerprint(
     Some(SubtreeSnapshotFingerprint(hasher.finish()))
 }
 
-
-
 fn hash_node_recorded_paint<H: Hasher>(node: &AnnotatedDisplayNode, hasher: &mut H) {
     node.input_fingerprints.paint_input_subtree.hash(hasher);
     DisplayRecordedFingerprint::from_recorded(&node.recorded_semantics()).hash(hasher);
@@ -435,10 +433,7 @@ mod tests {
 
         let node_analysis = DisplayNodeAnalysis {
             paint_fingerprint: annotated_subtree_paint_fingerprint(&annotated, analysis),
-            snapshot_fingerprint: annotated_subtree_snapshot_fingerprint(
-                &annotated,
-                analysis,
-            ),
+            snapshot_fingerprint: annotated_subtree_snapshot_fingerprint(&annotated, analysis),
         };
         let mut node_layer_bounds = annotated.item.visual_bounds();
         for &child_handle in &annotated.children {
@@ -1016,7 +1011,9 @@ mod tests {
             width: 10,
             height: 10,
             video_timing: Some(crate::resource::types::VideoFrameTiming {
-                media_offset_secs: 1.234,
+                timeline_start_secs: 0.0,
+                timeline_duration_secs: None,
+                media_start_secs: 1.234,
                 playback_rate: 1.0,
                 looping: false,
             }),

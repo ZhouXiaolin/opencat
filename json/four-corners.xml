@@ -1,0 +1,37 @@
+<opencat width="1280" height="720" fps="30" frames="1500">
+  <div id="root" class="relative w-[1280px] h-[720px] bg-slate-950">
+    <div id="scene" class="relative w-[1280px] h-[720px]" duration="1500">
+      <!-- TL -->
+      <video id="video-tl" class="absolute left-[40px] top-[40px] w-[580px] h-[305px] rounded-[20px] overflow-hidden border border-slate-700 object-cover" src="http://127.0.0.1:8080/mp4/2.mp4" data-start="0" data-duration="18" data-media-start="0">
+        <div id="v-tl-badge" class="absolute left-[14px] top-[14px] px-[10px] py-[6px] rounded-full bg-slate-950/60 border border-slate-600/40">
+          <text id="v-tl-label" class="text-[12px] font-semibold tracking-[2px] text-slate-300">TL</text>
+        </div>
+      </video>
+      <!-- TR -->
+      <video id="video-tr" class="absolute right-[40px] top-[40px] w-[580px] h-[305px] rounded-[20px] overflow-hidden border border-slate-700 object-cover" src="http://127.0.0.1:8080/mp4/2.mp4" data-start="3" data-duration="16" data-media-start="12">
+        <div id="v-tr-badge" class="absolute right-[14px] top-[14px] px-[10px] py-[6px] rounded-full bg-slate-950/60 border border-slate-600/40">
+          <text id="v-tr-label" class="text-[12px] font-semibold tracking-[2px] text-slate-300">TR</text>
+        </div>
+      </video>
+      <!-- BL -->
+      <video id="video-bl" class="absolute left-[40px] bottom-[40px] w-[580px] h-[305px] rounded-[20px] overflow-hidden border border-slate-700 object-cover" src="http://127.0.0.1:8080/mp4/2.mp4" data-start="6" data-duration="14" data-media-start="24">
+        <div id="v-bl-badge" class="absolute left-[14px] bottom-[14px] px-[10px] py-[6px] rounded-full bg-slate-950/60 border border-slate-600/40">
+          <text id="v-bl-label" class="text-[12px] font-semibold tracking-[2px] text-slate-300">BL</text>
+        </div>
+      </video>
+      <!-- BR -->
+      <video id="video-br" class="absolute right-[40px] bottom-[40px] w-[580px] h-[305px] rounded-[20px] overflow-hidden border border-slate-700 object-cover" src="http://127.0.0.1:8080/mp4/2.mp4" data-start="9" data-duration="12" data-media-start="36">
+        <div id="v-br-badge" class="absolute right-[14px] bottom-[14px] px-[10px] py-[6px] rounded-full bg-slate-950/60 border border-slate-600/40">
+          <text id="v-br-label" class="text-[12px] font-semibold tracking-[2px] text-slate-300">BR</text>
+        </div>
+      </video>
+    </div>
+  </div>
+  <script>
+    // ── sequential corner entrance ────────────────────────────
+    ctx.fromTo('video-tl', {opacity:0, x:-80, y:-80, scale:0.85}, {opacity:1, x:0, y:0, scale:1, duration:28, ease:'spring.gentle'});
+    ctx.fromTo('video-tr', {opacity:0, x:80, y:-80, scale:0.85}, {opacity:1, x:0, y:0, scale:1, duration:28, delay:18, ease:'spring.gentle'});
+    ctx.fromTo('video-bl', {opacity:0, x:-80, y:80, scale:0.85}, {opacity:1, x:0, y:0, scale:1, duration:28, delay:36, ease:'spring.gentle'});
+    ctx.fromTo('video-br', {opacity:0, x:80, y:80, scale:0.85}, {opacity:1, x:0, y:0, scale:1, duration:28, delay:54, ease:'spring.gentle'});
+  </script>
+</opencat>

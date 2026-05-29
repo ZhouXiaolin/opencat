@@ -186,6 +186,25 @@ impl MediaContext {
             height,
         })
     }
+
+    pub fn frame_rgba_at_time_by_path(
+        &mut self,
+        path: &Path,
+        time_secs: f64,
+    ) -> Result<opencat_core::platform::video::FrameBitmap> {
+        let request = VideoFrameRequest {
+            composition_time_secs: time_secs.max(0.0),
+            timing: VideoFrameTiming::default(),
+            quality: self.video_preview_quality,
+            target_size: None,
+        };
+        let (data, width, height, _hit) = self.get_video_frame(path, request)?;
+        Ok(opencat_core::platform::video::FrameBitmap {
+            data,
+            width,
+            height,
+        })
+    }
 }
 
 impl Default for MediaContext {

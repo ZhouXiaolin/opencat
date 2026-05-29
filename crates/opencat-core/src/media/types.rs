@@ -13,14 +13,18 @@ pub enum VideoPreviewQuality {
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoFrameTiming {
-    pub media_offset_secs: f64,
+    pub timeline_start_secs: f64,
+    pub timeline_duration_secs: Option<f64>,
+    pub media_start_secs: f64,
     pub playback_rate: f64,
     pub looping: bool,
 }
 
 impl std::hash::Hash for VideoFrameTiming {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.media_offset_secs.to_bits().hash(state);
+        self.timeline_start_secs.to_bits().hash(state);
+        self.timeline_duration_secs.map(f64::to_bits).hash(state);
+        self.media_start_secs.to_bits().hash(state);
         self.playback_rate.to_bits().hash(state);
         self.looping.hash(state);
     }
@@ -29,7 +33,9 @@ impl std::hash::Hash for VideoFrameTiming {
 impl Default for VideoFrameTiming {
     fn default() -> Self {
         Self {
-            media_offset_secs: 0.0,
+            timeline_start_secs: 0.0,
+            timeline_duration_secs: None,
+            media_start_secs: 0.0,
             playback_rate: 1.0,
             looping: false,
         }
@@ -49,22 +55,42 @@ pub struct VideoFrameRequest {
 
 impl VideoFrameRequest {
     pub fn resolve_time_secs(&self, info: &VideoInfoMeta) -> f64 {
-        let composition_time_secs = self.composition_time_secs.max(0.0);
-        let local_time_secs =
-            self.timing.media_offset_secs + composition_time_secs * self.timing.playback_rate;
+        let elapsed_secs = self.timeline_elapsed_secs();
 
         if !self.timing.looping {
-            return clamp_video_time(local_time_secs, info.duration_secs);
+            return clamp_video_time(
+                self.timing.media_start_secs + elapsed_secs * self.timing.playback_rate,
+                info.duration_secs,
+            );
         }
 
         match info.duration_secs {
-            Some(duration_secs) if duration_secs > self.timing.media_offset_secs => {
-                let playable_duration = duration_secs - self.timing.media_offset_secs;
-                let wrapped =
-                    (composition_time_secs * self.timing.playback_rate) % playable_duration;
-                self.timing.media_offset_secs + wrapped
+            Some(duration_secs) if duration_secs > self.timing.media_start_secs => {
+                let playable_duration = duration_secs - self.timing.media_start_secs;
+                let wrapped = (elapsed_secs * self.timing.playback_rate) % playable_duration;
+                self.timing.media_start_secs + wrapped
             }
-            _ => clamp_video_time(local_time_secs, info.duration_secs),
+            _ => clamp_video_time(
+                self.timing.media_start_secs + elapsed_secs * self.timing.playback_rate,
+                info.duration_secs,
+            ),
+        }
+    }
+
+    pub fn is_visible(&self) -> bool {
+        self.composition_time_secs + 1e-9 >= self.timing.timeline_start_secs
+    }
+
+    pub fn resolved_frame_index(&self, info: &VideoInfoMeta, fps: u32) -> u32 {
+        let frame = self.resolve_time_secs(info) * fps.max(1) as f64;
+        frame.round().clamp(0.0, u32::MAX as f64) as u32
+    }
+
+    fn timeline_elapsed_secs(&self) -> f64 {
+        let raw_elapsed = (self.composition_time_secs - self.timing.timeline_start_secs).max(0.0);
+        match self.timing.timeline_duration_secs {
+            Some(duration_secs) if duration_secs > 0.0 => raw_elapsed.min(duration_secs),
+            _ => raw_elapsed,
         }
     }
 }
@@ -87,12 +113,14 @@ mod tests {
         let info = VideoInfoMeta {
             width: 1920,
             height: 1080,
-            duration_secs: Some(12.0),
+            duration_secs: Some(60.0),
         };
         let request = VideoFrameRequest {
             composition_time_secs: 2.0,
             timing: VideoFrameTiming {
-                media_offset_secs: 1.5,
+                timeline_start_secs: 0.0,
+                timeline_duration_secs: None,
+                media_start_secs: 1.5,
                 playback_rate: 0.5,
                 looping: false,
             },
@@ -113,7 +141,9 @@ mod tests {
         let request = VideoFrameRequest {
             composition_time_secs: 6.0,
             timing: VideoFrameTiming {
-                media_offset_secs: 1.0,
+                timeline_start_secs: 0.0,
+                timeline_duration_secs: None,
+                media_start_secs: 1.0,
                 playback_rate: 1.0,
                 looping: true,
             },
@@ -122,5 +152,115 @@ mod tests {
         };
 
         assert!((request.resolve_time_secs(&info) - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn video_frame_request_clamps_to_timeline_duration_end() {
+        let info = VideoInfoMeta {
+            width: 1920,
+            height: 1080,
+            duration_secs: Some(12.0),
+        };
+        let request = VideoFrameRequest {
+            composition_time_secs: 8.0,
+            timing: VideoFrameTiming {
+                timeline_start_secs: 3.0,
+                timeline_duration_secs: Some(3.0),
+                media_start_secs: 2.0,
+                playback_rate: 1.0,
+                looping: false,
+            },
+            quality: VideoPreviewQuality::Exact,
+            target_size: None,
+        };
+
+        assert!((request.resolve_time_secs(&info) - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn video_frame_request_uses_timeline_start_and_media_start() {
+        let info = VideoInfoMeta {
+            width: 1920,
+            height: 1080,
+            duration_secs: Some(60.0),
+        };
+        let request = VideoFrameRequest {
+            composition_time_secs: 5.5,
+            timing: VideoFrameTiming {
+                timeline_start_secs: 3.0,
+                timeline_duration_secs: Some(18.0),
+                media_start_secs: 12.0,
+                playback_rate: 1.0,
+                looping: false,
+            },
+            quality: VideoPreviewQuality::Exact,
+            target_size: None,
+        };
+
+        assert!((request.resolve_time_secs(&info) - 14.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn video_frame_request_loops_source_after_media_end() {
+        let info = VideoInfoMeta {
+            width: 1920,
+            height: 1080,
+            duration_secs: Some(4.0),
+        };
+        let request = VideoFrameRequest {
+            composition_time_secs: 5.5,
+            timing: VideoFrameTiming {
+                timeline_start_secs: 0.0,
+                timeline_duration_secs: Some(10.0),
+                media_start_secs: 2.0,
+                playback_rate: 1.0,
+                looping: true,
+            },
+            quality: VideoPreviewQuality::Exact,
+            target_size: None,
+        };
+
+        assert!((request.resolve_time_secs(&info) - 3.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn video_frame_request_reports_invisible_before_timeline_start() {
+        let request = VideoFrameRequest {
+            composition_time_secs: 2.999,
+            timing: VideoFrameTiming {
+                timeline_start_secs: 3.0,
+                timeline_duration_secs: Some(18.0),
+                media_start_secs: 12.0,
+                playback_rate: 1.0,
+                looping: false,
+            },
+            quality: VideoPreviewQuality::Exact,
+            target_size: None,
+        };
+
+        assert!(!request.is_visible());
+    }
+
+    #[test]
+    fn video_frame_request_resolves_last_epoch_after_timeline_duration() {
+        let info = VideoInfoMeta {
+            width: 1920,
+            height: 1080,
+            duration_secs: Some(60.0),
+        };
+        let request = VideoFrameRequest {
+            composition_time_secs: 22.0,
+            timing: VideoFrameTiming {
+                timeline_start_secs: 3.0,
+                timeline_duration_secs: Some(18.0),
+                media_start_secs: 12.0,
+                playback_rate: 1.0,
+                looping: false,
+            },
+            quality: VideoPreviewQuality::Exact,
+            target_size: None,
+        };
+
+        assert_eq!(request.resolved_frame_index(&info, 30), 900);
     }
 }

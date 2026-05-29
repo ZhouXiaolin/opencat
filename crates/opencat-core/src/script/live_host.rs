@@ -113,4 +113,23 @@ impl<C: JsContext> ScriptHost for LiveScriptHost<C> {
     fn set_target_registry(&mut self, registry: ScriptTargetRegistry) {
         self.target_registry = Some(registry);
     }
+
+    fn set_style_defaults(
+        &mut self,
+        defaults: &std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+    ) {
+        self.ctx.with_store_mut(|s| {
+            for (id, props) in defaults {
+                for (prop, val) in props {
+                    s.set_initial_style(id, prop, val.clone());
+                }
+            }
+        });
+    }
+
+    fn set_initial_style_from_node(&mut self, id: &str, style: &crate::style::NodeStyle) {
+        self.ctx.with_store_mut(|s| {
+            s.set_initial_style_from_node(id, style);
+        });
+    }
 }

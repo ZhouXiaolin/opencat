@@ -145,6 +145,13 @@
         if (typeof descriptor.inferFrom === 'function') {
             return descriptor.inferFrom(otherValue, target, key);
         }
+        // Try to read current value from mutation store (includes Tailwind base style)
+        if (target && target.id && typeof globalThis.__read_style_value === 'function') {
+            var current = globalThis.__read_style_value(target.id, key);
+            if (current != null && current !== '') {
+                return current;
+            }
+        }
         if (hasOwn(descriptor, 'defaultValue')) {
             return typeof descriptor.defaultValue === 'function'
                 ? descriptor.defaultValue(target, key, otherValue)

@@ -94,6 +94,25 @@ impl<C: JsContext> ScriptRunner<C> {
         self.first_frame = false;
         Ok(())
     }
+
+    pub fn set_style_defaults(
+        &mut self,
+        defaults: &std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+    ) {
+        self.ctx.with_store_mut(|s| {
+            for (id, props) in defaults {
+                for (prop, val) in props {
+                    s.set_initial_style(id, prop, val.clone());
+                }
+            }
+        });
+    }
+
+    pub fn set_initial_style_from_node(&mut self, id: &str, style: &crate::style::NodeStyle) {
+        self.ctx.with_store_mut(|s| {
+            s.set_initial_style_from_node(id, style);
+        });
+    }
 }
 
 pub fn apply_target_registry<C: JsContext>(

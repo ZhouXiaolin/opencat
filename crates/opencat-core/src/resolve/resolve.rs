@@ -782,7 +782,30 @@ where
         cx.mutation_stack,
         cx.script_runtime,
     );
+
+    // Collect base style defaults from the subtree before running scripts,
+    // so the animation engine can read current values for ctx.to / ctx.from.
+    seed_initial_style_defaults(&seeded, cx.script_runtime);
+
     push_script_scope(style, cx)
+}
+
+/// Traverse the node tree and push each node's resolved base style into the
+/// script host via set_initial_style_from_node. All property extraction is
+/// centralized inside MutationStore — this function just walks the tree.
+fn seed_initial_style_defaults(node: &Node, script_runtime: &mut dyn ScriptHost) {
+    let style = node.style_ref();
+    if !style.id.is_empty() {
+        script_runtime.set_initial_style_from_node(&style.id, style);
+    }
+    match node.kind() {
+        NodeKind::Div(div) => {
+            for child in div.children_ref() {
+                seed_initial_style_defaults(child, script_runtime);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn seed_text_sources_for_visible_subtree(

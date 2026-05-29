@@ -84,4 +84,11 @@ impl ScriptHost for PrecomputedScriptHost {
     }
 
     fn set_target_registry(&mut self, _registry: ScriptTargetRegistry) {}
+
+    fn set_style_defaults(
+        &mut self,
+        _defaults: &std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+    ) {}
+
+    fn set_initial_style_from_node(&mut self, _id: &str, _style: &crate::style::NodeStyle) {}
 }

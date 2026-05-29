@@ -484,6 +484,7 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
         );
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style);
+        let inherited_style = InheritedStyle::for_child(&computed);
 
         let locator = match video.source() {
             VideoSource::Path(p) => p.to_string_lossy().to_string(),
@@ -500,6 +501,24 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
             .assets
             .register_dimensions(&locator, info.width, info.height);
 
+        let mut children = Vec::new();
+        for child in video.children_ref() {
+            let mut child_cx = ResolveContext {
+                frame_ctx: cx.frame_ctx,
+                script_frame_ctx: cx.script_frame_ctx,
+                ids: &mut *cx.ids,
+                inherited_style: &inherited_style,
+                assets: &mut *cx.assets,
+
+                script_runtime: &mut *cx.script_runtime,
+                mutation_stack: &mut *cx.mutation_stack,
+                path_bounds: cx.path_bounds,
+            };
+            if let Some(child) = resolve_node_optional(child, &mut child_cx)? {
+                children.push(child);
+            }
+        }
+
         Ok(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Bitmap(ElementBitmap {
@@ -509,7 +528,7 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
                 video_timing: Some(video.timing()),
             }),
             style: computed.clone(),
-            children: Vec::new(),
+            children,
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
             fingerprints: Default::default(),
         })
@@ -868,7 +887,18 @@ fn seed_text_sources_for_visible_subtree(
                 );
             }
         }
-        NodeKind::Image(_) | NodeKind::Lucide(_) | NodeKind::Path(_) | NodeKind::Video(_) => {}
+        NodeKind::Video(video) => {
+            for child in video.children_ref() {
+                seed_text_sources_for_visible_subtree(
+                    child,
+                    frame_ctx,
+                    script_frame_ctx,
+                    mutation_stack,
+                    script_runtime,
+                );
+            }
+        }
+        NodeKind::Image(_) | NodeKind::Lucide(_) | NodeKind::Path(_) => {}
     }
 }
 
@@ -1098,6 +1128,11 @@ fn collect_visual_script_targets(node: &Node, registry: &mut ScriptTargetRegistr
                 collect_visual_script_targets(child, registry);
             }
         }
+        NodeKind::Video(video) => {
+            for child in video.children_ref() {
+                collect_visual_script_targets(child, registry);
+            }
+        }
         NodeKind::Timeline(timeline) => {
             for segment in timeline.segments() {
                 match segment {
@@ -1115,7 +1150,6 @@ fn collect_visual_script_targets(node: &Node, registry: &mut ScriptTargetRegistr
         | NodeKind::Image(_)
         | NodeKind::Lucide(_)
         | NodeKind::Path(_)
-        | NodeKind::Video(_)
         | NodeKind::Caption(_) => {}
     }
 }

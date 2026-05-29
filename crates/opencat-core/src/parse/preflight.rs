@@ -1,7 +1,8 @@
 use crate::frame_ctx::FrameCtx;
+use crate::media::{VideoFrameRequest, VideoPreviewQuality};
 use crate::parse::composition::Composition;
 use crate::parse::node::{Node, NodeKind};
-use crate::parse::primitives::{AudioSource, ImageSource, SubtitleSource, VideoSource};
+use crate::parse::primitives::{AudioSource, ImageSource, Video};
 use crate::parse::time::{FrameState, frame_state_for_root};
 use crate::probe::catalog::ResourceRequests;
 
@@ -117,6 +118,14 @@ fn find_scene_timing_in_node(node: &Node, scene_id: &str, ctx: &FrameCtx) -> Opt
             }
             None
         }
+        NodeKind::Video(video) => {
+            for child in video.children_ref() {
+                if let Some(result) = find_scene_timing_in_node(child, scene_id, ctx) {
+                    return Some(result);
+                }
+            }
+            None
+        }
         _ => None,
     }
 }
@@ -160,7 +169,13 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
             }
         }
         NodeKind::Video(video) => {
+            if !video_visible_at_frame(video, frame_ctx) {
+                return;
+            }
             req.videos.insert(video.source().clone());
+            for child in video.children_ref() {
+                collect_sources(child, frame_ctx, req);
+            }
         }
         NodeKind::Timeline(_) => {
             collect_sources_from_frame_state(&frame_state_for_root(node, frame_ctx), frame_ctx, req)
@@ -172,6 +187,16 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
     }
 }
 
+fn video_visible_at_frame(video: &Video, frame_ctx: &FrameCtx) -> bool {
+    VideoFrameRequest {
+        composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps.max(1) as f64,
+        timing: video.timing(),
+        quality: VideoPreviewQuality::Exact,
+        target_size: None,
+    }
+    .is_visible()
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -179,7 +204,7 @@ mod tests {
     use super::*;
     use crate::parse::{
         composition::{AudioAttachment, Composition, CompositionAudioSource},
-        primitives::{AudioSource, div, image, video, video_url},
+        primitives::{AudioSource, VideoSource, div, image, video, video_url},
         transition::{fade, timeline},
     };
 

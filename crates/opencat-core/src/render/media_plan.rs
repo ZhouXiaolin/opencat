@@ -239,6 +239,7 @@ mod tests {
             image: ImageRef::VideoFrame {
                 asset_id: "clip.mp4".into(),
                 frame_index: 5,
+                time_micros: 166_667,
             },
             src: None,
             dst: Rect4 {

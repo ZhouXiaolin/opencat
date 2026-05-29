@@ -9,6 +9,7 @@ import {
 interface VideoFramePlanItem {
   assetId: string;
   localTimeSecs: number;
+  frameIndex?: number;
 }
 
 interface InjectVideoFramesOptions {
@@ -37,6 +38,10 @@ const decodedFrameSourceCache = new Map<string, CachedVideoFrameSource>();
 
 function videoFrameKey(assetId: string, frame: number): string {
   return `${assetId}\0${frame}`;
+}
+
+function planItemFrameIndex(item: VideoFramePlanItem, fallbackFrame: number): number {
+  return typeof item.frameIndex === 'number' ? item.frameIndex : fallbackFrame;
 }
 
 export function getCachedVideoFrameRgba(
@@ -91,16 +96,17 @@ export async function injectVideoFramesForRender({
     return;
   }
 
-  const byAsset = new Map<string, VideoFramePlanItem>();
+  const byFrame = new Map<string, VideoFramePlanItem>();
   for (const item of plan) {
-    byAsset.set(item.assetId, item);
+    byFrame.set(videoFrameKey(item.assetId, planItemFrameIndex(item, frame)), item);
   }
 
-  if (byAsset.size === 0) return;
+  if (byFrame.size === 0) return;
 
   await Promise.all(
-    Array.from(byAsset.values()).map(async (item) => {
+    Array.from(byFrame.values()).map(async (item) => {
       try {
+        const frameIndex = planItemFrameIndex(item, frame);
         if (frameOutput === 'rgba') {
           const decoded = await getDecodedFrameRgba(
             item.assetId,
@@ -109,7 +115,7 @@ export async function injectVideoFramesForRender({
           );
           if (!decoded) return;
 
-          decodedFrameRgbaCache.set(videoFrameKey(item.assetId, frame), decoded);
+          decodedFrameRgbaCache.set(videoFrameKey(item.assetId, frameIndex), decoded);
           return;
         }
 
@@ -127,7 +133,7 @@ export async function injectVideoFramesForRender({
           return;
         }
 
-        decodedFrameSourceCache.set(videoFrameKey(item.assetId, frame), {
+        decodedFrameSourceCache.set(videoFrameKey(item.assetId, frameIndex), {
           source: decoded,
           width,
           height,
@@ -153,12 +159,14 @@ export async function prefetchVideoFramesForRender({
     return;
   }
 
-  const byAsset = new Map<string, VideoFramePlanItem>();
-  for (const item of plan) byAsset.set(item.assetId, item);
-  if (byAsset.size === 0) return;
+  const byFrame = new Map<string, VideoFramePlanItem>();
+  for (const item of plan) {
+    byFrame.set(videoFrameKey(item.assetId, planItemFrameIndex(item, frame)), item);
+  }
+  if (byFrame.size === 0) return;
 
   await Promise.all(
-    Array.from(byAsset.values()).map((item) => (
+    Array.from(byFrame.values()).map((item) => (
       prefetchDecodedVideoFrame(item.assetId, item.localTimeSecs, quality)
     )),
   );

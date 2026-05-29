@@ -330,7 +330,10 @@ pub fn parse_with_base_dir(
                     parent_id,
                     duration,
                     style,
-                    kind: ParsedElementKind::Video { source },
+                    kind: ParsedElementKind::Video {
+                        source,
+                        timing: Default::default(),
+                    },
                 });
             }
             JsonLine::Icon {

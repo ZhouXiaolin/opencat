@@ -408,12 +408,26 @@ fn build_node_inner(
             path_node.style = style;
             Ok(Node::new(path_node))
         }
-        ParsedElementKind::Video { source } => {
+        ParsedElementKind::Video { source, timing } => {
             let mut video_node = match source {
                 VideoSource::Path(p) => video(p),
                 VideoSource::Url(u) => video_url(u),
             };
+            video_node = video_node.with_timing(*timing);
             video_node.style = style;
+            if let Some(children) = children_map.get(el.id.as_str()) {
+                for child in children {
+                    let child_node = build_node_inner(
+                        child,
+                        children_map,
+                        scripts_by_parent,
+                        transitions_by_tl,
+                        fps,
+                        options,
+                    )?;
+                    video_node = video_node.child(child_node);
+                }
+            }
             Ok(Node::new(video_node))
         }
         ParsedElementKind::Caption { path } => {

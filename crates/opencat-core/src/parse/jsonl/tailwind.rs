@@ -637,6 +637,18 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
+    // Tailwind stroke-dasharray: stroke-dasharray-[N]
+    if let Some(n) = parse_prefixed_bracket_f32(class, "stroke-dasharray-[") {
+        style.stroke_dasharray = Some(n);
+        return true;
+    }
+
+    // Tailwind stroke-dashoffset: stroke-dashoffset-[N]
+    if let Some(n) = parse_prefixed_bracket_f32(class, "stroke-dashoffset-[") {
+        style.stroke_dashoffset = Some(n);
+        return true;
+    }
+
     if let Some(n) = class
         .strip_prefix("opacity-")
         .and_then(|value| value.parse::<f32>().ok())

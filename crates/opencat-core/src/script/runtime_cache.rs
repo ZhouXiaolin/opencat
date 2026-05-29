@@ -74,4 +74,19 @@ impl<C: JsContext> ScriptHost for ScriptRuntimeCache<C> {
     fn set_target_registry(&mut self, registry: ScriptTargetRegistry) {
         self.target_registry = Some(registry);
     }
+
+    fn set_style_defaults(
+        &mut self,
+        defaults: &std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+    ) {
+        for runner in self.runners.values_mut() {
+            runner.set_style_defaults(defaults);
+        }
+    }
+
+    fn set_initial_style_from_node(&mut self, id: &str, style: &crate::style::NodeStyle) {
+        for runner in self.runners.values_mut() {
+            runner.set_initial_style_from_node(id, style);
+        }
+    }
 }

@@ -119,6 +119,9 @@ pub trait MutationRecorder {
     fn reset_for_frame(&mut self, current_frame: u32);
     fn snapshot_mutations(&self) -> StyleMutations;
 
+    fn read_style_value(&self, id: &str, property: &str) -> Option<serde_json::Value>;
+    fn write_style_value(&mut self, id: &str, property: &str, value: serde_json::Value);
+
     fn register_text_source(&mut self, id: &str, source: ScriptTextSource);
     fn clear_text_sources(&mut self);
     fn get_text_source(&self, id: &str) -> Option<&ScriptTextSource>;

@@ -5,6 +5,7 @@ use anyhow::{Result, anyhow};
 use opencat_core::{
     frame_ctx::{FrameCtx, ScriptFrameCtx},
     layout::tree::LayoutNode,
+    media::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality},
     parse::{
         composition::Composition,
         node::{Node, NodeKind},
@@ -164,6 +165,13 @@ fn seed_asset_entries_for_inspect(
                 }
             }
         }
+        NodeKind::Video(video) => {
+            if video_timing_visible_at_frame(video.timing(), frame_ctx) {
+                for child in video.children_ref() {
+                    seed_asset_entries_for_inspect(child, frame_ctx, catalog, path_store);
+                }
+            }
+        }
         NodeKind::Image(image) => {
             if let Ok(id) = catalog.resolve_image(image.source())
                 && let ImageSource::Path(path) = image.source()
@@ -186,11 +194,7 @@ fn seed_asset_entries_for_inspect(
                 }
             }
         }
-        NodeKind::Text(_)
-        | NodeKind::Lucide(_)
-        | NodeKind::Path(_)
-        | NodeKind::Video(_)
-        | NodeKind::Caption(_) => {}
+        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Path(_) | NodeKind::Caption(_) => {}
     }
 }
 
@@ -361,6 +365,11 @@ fn collect_source_metadata(
                 };
                 entry.media_source = Some(source_str);
             }
+            if video_timing_visible_at_frame(video.timing(), frame_ctx) {
+                for child in video.children_ref() {
+                    collect_source_metadata(child, frame_ctx, out);
+                }
+            }
         }
         NodeKind::Timeline(timeline) => {
             let _ = upsert_style_meta(timeline.style_ref(), "timeline", out);
@@ -391,6 +400,16 @@ fn collect_source_metadata(
             }
         }
     }
+}
+
+fn video_timing_visible_at_frame(timing: VideoFrameTiming, frame_ctx: &FrameCtx) -> bool {
+    VideoFrameRequest {
+        composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps.max(1) as f64,
+        timing,
+        quality: VideoPreviewQuality::Exact,
+        target_size: None,
+    }
+    .is_visible()
 }
 
 fn upsert_style_meta<'a>(

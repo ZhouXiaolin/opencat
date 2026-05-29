@@ -24,7 +24,7 @@ use crate::media::WebAudio;
 use crate::script::ScriptRuntimeCache;
 
 const IR_MAGIC: &[u8; 4] = b"OCIR";
-const IR_VERSION: u32 = 1;
+const IR_VERSION: u32 = 2;
 
 const SECTION_OPS: u32 = 1;
 const SECTION_F32_POOL: u32 = 2;
@@ -185,10 +185,17 @@ impl WebRenderer {
                         quality: VideoPreviewQuality::Exact,
                         target_size: None,
                     };
+                    if !request.is_visible() {
+                        return;
+                    }
                     out.push(json!({
                         "assetId": asset_id.0,
                         "localTimeSecs": request.resolve_time_secs(&info),
+                        "frameIndex": request.resolved_frame_index(&info, ctx.fps),
                     }));
+                    for child in video.children_ref() {
+                        walk(child, ctx, composition_time_secs, catalog, out);
+                    }
                 }
                 NodeKind::Timeline(_) => {
                     let state = frame_state_for_root(node, ctx);
@@ -722,14 +729,17 @@ fn encode_image_ref(
             write_u8(out, 0);
             write_u32(out, lookup_string_id(strings, asset_id)?);
             write_u32(out, 0);
+            write_u64(out, 0);
         }
         ImageRef::VideoFrame {
             asset_id,
             frame_index,
+            time_micros,
         } => {
             write_u8(out, 1);
             write_u32(out, lookup_string_id(strings, asset_id)?);
             write_u32(out, *frame_index);
+            write_u64(out, *time_micros);
         }
     }
     Ok(())

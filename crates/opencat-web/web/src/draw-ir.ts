@@ -132,7 +132,7 @@ const NO_PAINT = 0xffff_ffff;
 
 type Rect4 = { x: number; y: number; width: number; height: number };
 type Range = { start: number; len: number };
-type DecodedImageRef = { type: 'static'; assetId: string } | { type: 'video'; assetId: string; frame: number };
+type DecodedImageRef = { type: 'static'; assetId: string } | { type: 'video'; assetId: string; frame: number; timeMicros: bigint };
 
 type FillSpec =
   | { type: 'solid'; color: [number, number, number, number] }
@@ -563,6 +563,12 @@ class Payload {
     return value;
   }
 
+  u64(): bigint {
+    const value = this.view.getBigUint64(this.offset, true);
+    this.offset += 8;
+    return value;
+  }
+
   f32(): number {
     const value = this.view.getFloat32(this.offset, true);
     this.offset += 4;
@@ -587,7 +593,7 @@ function decodeFrame(bytes: Uint8Array): DecodedFrame {
     throw new Error('Invalid OpenCat IR magic');
   }
   const version = view.getUint32(4, true);
-  if (version !== 1) throw new Error(`Unsupported OpenCat IR version ${version}`);
+  if (version !== 2) throw new Error(`Unsupported OpenCat IR version ${version}`);
 
   const sectionCount = view.getUint32(8, true);
   const sections = new Map<number, Uint8Array>();
@@ -864,14 +870,16 @@ function readImageRef(payload: Payload, frame: DecodedFrame): DecodedImageRef {
   const tag = payload.u8();
   const assetId = frame.strings[payload.u32()] ?? '';
   const frameIndex = payload.u32();
-  return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, frame: frameIndex };
+  const timeMicros = payload.u64();
+  return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, frame: frameIndex, timeMicros };
 }
 
 function readImageRefFromReader(reader: BinaryReader, strings: string[]): DecodedImageRef {
   const tag = reader.u8();
   const assetId = strings[reader.u32()] ?? '';
   const frameIndex = reader.u32();
-  return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, frame: frameIndex };
+  const timeMicros = reader.u64();
+  return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, frame: frameIndex, timeMicros };
 }
 
 function buildPaintById(CK: CanvasKit, frame: DecodedFrame, paintId: number): Paint {

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use crate::resource::types::VideoFrameTiming;
 use crate::style::{NodeStyle, impl_node_style_api};
+use crate::{Node, resource::types::VideoFrameTiming};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum VideoSource {
@@ -13,10 +13,20 @@ pub enum VideoSource {
 pub struct Video {
     source: VideoSource,
     timing: VideoFrameTiming,
+    children: Vec<Node>,
     pub(crate) style: NodeStyle,
 }
 
 impl Video {
+    pub fn child<T: Into<Node>>(mut self, child: T) -> Self {
+        self.children.push(child.into());
+        self
+    }
+
+    pub fn children_ref(&self) -> &[Node] {
+        &self.children
+    }
+
     pub fn source(&self) -> &VideoSource {
         &self.source
     }
@@ -26,7 +36,12 @@ impl Video {
     }
 
     pub fn media_offset_secs(mut self, offset_secs: f64) -> Self {
-        self.timing.media_offset_secs = offset_secs.max(0.0);
+        self.timing.media_start_secs = offset_secs.max(0.0);
+        self
+    }
+
+    pub fn with_timing(mut self, timing: VideoFrameTiming) -> Self {
+        self.timing = timing;
         self
     }
 
@@ -49,6 +64,7 @@ pub fn video(path: impl AsRef<Path>) -> Video {
     Video {
         source: VideoSource::Path(path.as_ref().to_path_buf()),
         timing: VideoFrameTiming::default(),
+        children: Vec::new(),
         style: NodeStyle::default(),
     }
 }
@@ -57,6 +73,7 @@ pub fn video_url(url: impl Into<String>) -> Video {
     Video {
         source: VideoSource::Url(url.into()),
         timing: VideoFrameTiming::default(),
+        children: Vec::new(),
         style: NodeStyle::default(),
     }
 }

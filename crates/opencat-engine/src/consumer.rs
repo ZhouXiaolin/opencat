@@ -97,11 +97,14 @@ fn prepare_frame<P: AssetPathSource>(
             }
             ImageRef::VideoFrame {
                 asset_id,
-                frame_index,
+                time_micros,
+                ..
             } => {
                 let aid = AssetId(asset_id.clone());
                 if let Some(path) = paths.resolve_path(&aid) {
-                    if let Ok(frame) = video.frame_rgba_by_path(path, *frame_index) {
+                    if let Ok(frame) =
+                        video.frame_rgba_at_time_by_path(path, *time_micros as f64 / 1_000_000.0)
+                    {
                         let info = ImageInfo::new(
                             (frame.width as i32, frame.height as i32),
                             ColorType::RGBA8888,

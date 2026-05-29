@@ -5,6 +5,7 @@ use crate::parse::{
     node::Node,
     primitives::{AudioSource, ImageSource, VideoSource},
 };
+use crate::resource::types::VideoFrameTiming;
 use crate::style::NodeStyle;
 
 mod builder;
@@ -65,13 +66,26 @@ pub fn validate_unique_ids(
 pub enum ParsedElementKind {
     Timeline,
     Div,
-    Text { content: String },
+    Text {
+        content: String,
+    },
     Canvas,
-    Image { source: ImageSource },
-    Icon { name: String },
-    Path { data: String },
-    Video { source: VideoSource },
-    Caption { path: PathBuf },
+    Image {
+        source: ImageSource,
+    },
+    Icon {
+        name: String,
+    },
+    Path {
+        data: String,
+    },
+    Video {
+        source: VideoSource,
+        timing: VideoFrameTiming,
+    },
+    Caption {
+        path: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone)]

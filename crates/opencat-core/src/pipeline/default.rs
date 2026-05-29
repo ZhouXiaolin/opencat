@@ -330,6 +330,113 @@ mod tests {
     }
 
     #[test]
+    fn render_frame_video_ref_uses_media_start_time() {
+        let xml = r#"<opencat width="320" height="180" fps="30" frames="120">
+  <div id="root" class="w-[320px] h-[180px]">
+    <video id="vid" class="w-[320px] h-[180px]" src="clip.mp4" data-start="3" data-duration="18" data-media-start="12" />
+  </div>
+</opencat>"#;
+
+        let loader = InMemoryLoader::default();
+        let ctx = NoopJsContext::new().expect("js context");
+        let mut pipeline = DefaultPipeline::open(xml, loader, ctx).expect("open");
+
+        let (_frame, media_plan) = pipeline.render_frame(90).expect("render frame 90");
+
+        let crate::ir::draw_types::ImageRef::VideoFrame {
+            frame_index,
+            time_micros,
+            ..
+        } = &media_plan.images[0]
+        else {
+            panic!("expected video frame image ref");
+        };
+        assert_eq!(*frame_index, 360);
+        assert_eq!(*time_micros, 12_000_000);
+    }
+
+    #[test]
+    fn render_frame_video_data_start_hides_entire_node_before_start() {
+        fn material_draw_op_count(frame: &DrawOpFrame) -> usize {
+            frame
+                .ops
+                .iter()
+                .filter(|op| {
+                    matches!(
+                        op,
+                        crate::ir::draw_op::DrawOp::Paint { .. }
+                            | crate::ir::draw_op::DrawOp::Rect { .. }
+                            | crate::ir::draw_op::DrawOp::RRect { .. }
+                            | crate::ir::draw_op::DrawOp::DRRect { .. }
+                            | crate::ir::draw_op::DrawOp::Oval { .. }
+                            | crate::ir::draw_op::DrawOp::Circle { .. }
+                            | crate::ir::draw_op::DrawOp::Arc { .. }
+                            | crate::ir::draw_op::DrawOp::Line { .. }
+                            | crate::ir::draw_op::DrawOp::Points { .. }
+                            | crate::ir::draw_op::DrawOp::DrawPath { .. }
+                            | crate::ir::draw_op::DrawOp::Image { .. }
+                            | crate::ir::draw_op::DrawOp::ImageRect { .. }
+                            | crate::ir::draw_op::DrawOp::RuntimeEffect { .. }
+                    )
+                })
+                .count()
+        }
+
+        let xml = r#"<opencat width="320" height="180" fps="30" frames="180">
+  <div id="root" class="w-[320px] h-[180px]">
+    <video id="vid" class="relative w-[320px] h-[180px] bg-[#ff0000] border-[4px] border-[#00ff00] shadow-[0_8px_24px_rgba(0,0,0,0.50)]" src="clip.mp4" data-start="3" data-duration="1" data-media-start="12">
+      <div id="badge" class="absolute left-[8px] top-[8px] w-[40px] h-[24px] bg-[#0000ff]" />
+    </video>
+  </div>
+</opencat>"#;
+
+        let loader = InMemoryLoader::default();
+        let ctx = NoopJsContext::new().expect("js context");
+        let mut pipeline = DefaultPipeline::open(xml, loader, ctx).expect("open");
+
+        let (before_frame, before_media_plan) = pipeline.render_frame(0).expect("render frame 0");
+        assert!(
+            before_media_plan.images.is_empty(),
+            "video should not request a frame before data-start"
+        );
+        assert_eq!(
+            material_draw_op_count(&before_frame),
+            0,
+            "video node paint and children should be entirely hidden before data-start"
+        );
+
+        let (after_frame, after_media_plan) = pipeline.render_frame(90).expect("render frame 90");
+        assert!(
+            !after_media_plan.images.is_empty(),
+            "video should request a frame at data-start"
+        );
+        assert!(
+            material_draw_op_count(&after_frame) > 0,
+            "video node paint should be visible at data-start"
+        );
+
+        let (after_duration_frame, after_duration_media_plan) =
+            pipeline.render_frame(150).expect("render frame 150");
+        assert!(
+            !after_duration_media_plan.images.is_empty(),
+            "data-duration should not hide the video subtree after it ends"
+        );
+        let crate::ir::draw_types::ImageRef::VideoFrame { time_micros, .. } =
+            &after_duration_media_plan.images[0]
+        else {
+            panic!("expected video frame image ref after data-duration");
+        };
+        assert_eq!(
+            *time_micros, 13_000_000,
+            "data-duration should clamp media time only"
+        );
+        assert!(
+            material_draw_op_count(&after_duration_frame) > 0,
+            "video subtree should remain visible after data-duration ends"
+        );
+    }
+
+    #[test]
     fn render_frame_multi_frame_is_deterministic() {
         let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"frames":5}
 {"type":"div","id":"root","parentId":null,"bg":"#00ff00","w":100,"h":100}"##;

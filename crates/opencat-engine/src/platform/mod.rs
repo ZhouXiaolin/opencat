@@ -5,6 +5,7 @@ pub mod audio_runtime;
 
 use std::path::PathBuf;
 
+use opencat_core::media::{VideoFrameRequest, VideoFrameTiming};
 use opencat_core::parse::node::{Node, NodeKind};
 use opencat_core::parse::primitives::ImageSource;
 use opencat_core::parse::time::FrameState;
@@ -135,6 +136,13 @@ fn register_canvas_aliases_from_node(
                 register_canvas_aliases_from_node(child, frame_ctx, catalog, path_store);
             }
         }
+        NodeKind::Video(video) => {
+            if video_timing_visible_at_frame(video.timing(), frame_ctx) {
+                for child in video.children_ref() {
+                    register_canvas_aliases_from_node(child, frame_ctx, catalog, path_store);
+                }
+            }
+        }
         NodeKind::Timeline(timeline) => {
             for segment in timeline.segments() {
                 match segment {
@@ -149,12 +157,24 @@ fn register_canvas_aliases_from_node(
             }
         }
         NodeKind::Image(_)
-        | NodeKind::Video(_)
         | NodeKind::Text(_)
         | NodeKind::Lucide(_)
         | NodeKind::Path(_)
         | NodeKind::Caption(_) => {}
     }
+}
+
+fn video_timing_visible_at_frame(
+    timing: VideoFrameTiming,
+    frame_ctx: &opencat_core::FrameCtx,
+) -> bool {
+    VideoFrameRequest {
+        composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps.max(1) as f64,
+        timing,
+        quality: VideoPreviewQuality::Exact,
+        target_size: None,
+    }
+    .is_visible()
 }
 
 #[cfg(test)]

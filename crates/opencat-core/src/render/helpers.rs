@@ -17,11 +17,13 @@ use crate::ir::draw_types::{
     ChildRange, DrawOpRange, EncodedPath, FillType, PaintId, PathOp, RuntimeEffectChildRef,
     ScriptRuntimeEffectChild, SubtreeId,
 };
+use crate::media::{VideoFrameRequest, VideoPreviewQuality};
 use crate::parse::gl_transition;
 use crate::parse::transition::{
     GlTransition, LightLeakTransition, SlideDirection, TransitionKind, WipeDirection,
 };
 use crate::render::builder::DrawOpBuilder;
+use crate::resource::catalog::VideoInfoMeta;
 use crate::style::{
     BackgroundFill, BorderRadius, BorderStyle, BoxShadow, ColorToken, DropShadow,
     GradientDirection, InsetShadow, ObjectFit,
@@ -2360,11 +2362,29 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
     let dst = kurbo_rect(item.bounds);
 
     let asset_id = item.asset_id.0.clone();
-    let image_ref = if item.video_timing.is_some() {
-        let frame_index = ctx.frame_ctx.frame;
+    let image_ref = if let Some(timing) = item.video_timing {
+        let info = ctx
+            .catalog
+            .video_info(&item.asset_id)
+            .unwrap_or(VideoInfoMeta {
+                width: item.width,
+                height: item.height,
+                duration_secs: None,
+            });
+        let request = VideoFrameRequest {
+            composition_time_secs: ctx.frame_ctx.frame as f64 / ctx.frame_ctx.fps.max(1) as f64,
+            timing,
+            quality: VideoPreviewQuality::Exact,
+            target_size: None,
+        };
+        if !request.is_visible() {
+            return Ok(());
+        }
+        let time_secs = request.resolve_time_secs(&info);
         ImageRef::VideoFrame {
             asset_id,
-            frame_index,
+            frame_index: request.resolved_frame_index(&info, ctx.frame_ctx.fps),
+            time_micros: (time_secs.max(0.0) * 1_000_000.0).round() as u64,
         }
     } else {
         ImageRef::Static { asset_id }

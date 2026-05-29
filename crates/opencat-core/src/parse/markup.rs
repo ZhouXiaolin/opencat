@@ -184,6 +184,7 @@ use crate::parse::document::{
     ParsedElement, ParsedElementKind, ParsedTransition, build_parsed_document,
 };
 use crate::parse::primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource};
+use crate::resource::types::VideoFrameTiming;
 
 pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     parse_with_base_dir(input, None)
@@ -232,7 +233,18 @@ const IMAGE_ATTRS: &[&str] = &[
     "aspectRatio",
 ];
 const AUDIO_ATTRS: &[&str] = &["id", "duration", "path", "url", "attach"];
-const VIDEO_ATTRS: &[&str] = &["id", "class", "duration", "path", "url"];
+const VIDEO_ATTRS: &[&str] = &[
+    "id",
+    "class",
+    "duration",
+    "path",
+    "url",
+    "src",
+    "data-start",
+    "data-duration",
+    "data-media-start",
+    "loop",
+];
 const ICON_ATTRS: &[&str] = &["id", "class", "duration", "icon"];
 const TL_ATTRS: &[&str] = &["id", "class"];
 const CAPTION_ATTRS: &[&str] = &["id", "class", "duration", "path"];
@@ -456,15 +468,47 @@ fn parse_visual_node(
         "video" => {
             ensure_allowed_attrs(node, VIDEO_ATTRS)?;
             let source = parse_video_source(node)?;
+            let timing = parse_video_timing(node)?;
             let parent_id = parent_id.map(|s| s.to_string());
             parts.elements.push(ParsedElement {
                 id: id.to_string(),
                 parent_id,
                 duration,
                 style,
-                kind: ParsedElementKind::Video { source },
+                kind: ParsedElementKind::Video { source, timing },
             });
-            validate_no_element_children(node, "video")?;
+            for child in node.children() {
+                match child.node_type() {
+                    roxmltree::NodeType::Element => {
+                        let child_tag = child.tag_name().name();
+                        match child_tag {
+                            "div" | "text" | "canvas" | "image" | "video" | "icon" | "path"
+                            | "caption" | "tl" => {
+                                parse_visual_node(
+                                    child,
+                                    Some(&id),
+                                    base_dir,
+                                    parts,
+                                    ParentContext::Div,
+                                )?;
+                            }
+                            "transition" => {
+                                anyhow::bail!("transition must be a direct child of <tl>");
+                            }
+                            other => anyhow::bail!("unknown element <{other}>"),
+                        }
+                    }
+                    roxmltree::NodeType::Comment => {}
+                    roxmltree::NodeType::Text => {
+                        if !child.text().unwrap_or("").trim().is_empty() {
+                            anyhow::bail!(
+                                "non-whitespace text is not allowed outside <text> elements"
+                            );
+                        }
+                    }
+                    _ => anyhow::bail!("processing instructions not allowed"),
+                }
+            }
         }
         "icon" => {
             ensure_allowed_attrs(node, ICON_ATTRS)?;
@@ -696,26 +740,56 @@ fn parse_image_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<ImageSour
 }
 
 fn parse_video_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<VideoSource> {
-    match (node.attribute("path"), node.attribute("url")) {
-        (Some(p), None) => {
+    let path = node.attribute("path");
+    let url = node.attribute("url");
+    let src = node.attribute("src");
+    let count = [path.is_some(), url.is_some(), src.is_some()]
+        .iter()
+        .filter(|&&b| b)
+        .count();
+
+    if count == 0 {
+        anyhow::bail!("<video> requires one of: path, url, src");
+    }
+    if count > 1 {
+        anyhow::bail!("<video> requires only one of: path, url, src");
+    }
+
+    match (path, url, src) {
+        (Some(p), None, None) => {
             if p.is_empty() {
                 anyhow::bail!("<video> `path` must not be empty");
             }
             Ok(VideoSource::Path(PathBuf::from(p)))
         }
-        (None, Some(u)) => {
+        (None, Some(u), None) => {
             if u.is_empty() {
                 anyhow::bail!("<video> `url` must not be empty");
             }
             Ok(VideoSource::Url(u.to_string()))
         }
-        (None, None) => {
-            anyhow::bail!("<video> requires one of: path, url");
+        (None, None, Some(s)) => {
+            if s.is_empty() {
+                anyhow::bail!("<video> `src` must not be empty");
+            }
+            if s.starts_with("http://") || s.starts_with("https://") {
+                Ok(VideoSource::Url(s.to_string()))
+            } else {
+                Ok(VideoSource::Path(PathBuf::from(s)))
+            }
         }
-        (Some(_), Some(_)) => {
-            anyhow::bail!("<video> requires only one of: path, url");
-        }
+        _ => unreachable!("source count validated above"),
     }
+}
+
+fn parse_video_timing(node: roxmltree::Node<'_, '_>) -> anyhow::Result<VideoFrameTiming> {
+    Ok(VideoFrameTiming {
+        timeline_start_secs: parse_optional_f64_non_negative(node, "data-start")?.unwrap_or(0.0),
+        timeline_duration_secs: parse_optional_f64_positive(node, "data-duration")?,
+        media_start_secs: parse_optional_f64_non_negative(node, "data-media-start")?.unwrap_or(0.0),
+        playback_rate: 1.0,
+        looping: parse_optional_bool(node, "loop")?.unwrap_or(false),
+    })
 }
 
 fn parse_transition_node(
@@ -803,6 +877,59 @@ fn parse_optional_f32_positive(
             }
             Ok(Some(val))
         }
+    }
+}
+
+fn parse_optional_f64(node: roxmltree::Node<'_, '_>, name: &str) -> anyhow::Result<Option<f64>> {
+    match node.attribute(name) {
+        None => Ok(None),
+        Some(val) => {
+            if val.is_empty() {
+                anyhow::bail!("`{name}` must not be empty");
+            }
+            let n: f64 = val.parse().map_err(|e| anyhow::anyhow!("`{name}`: {e}"))?;
+            if !n.is_finite() {
+                anyhow::bail!("`{name}` must be finite");
+            }
+            Ok(Some(n))
+        }
+    }
+}
+
+fn parse_optional_f64_non_negative(
+    node: roxmltree::Node<'_, '_>,
+    name: &str,
+) -> anyhow::Result<Option<f64>> {
+    match parse_optional_f64(node, name)? {
+        None => Ok(None),
+        Some(val) if val < 0.0 => {
+            anyhow::bail!("`{name}` must be non-negative")
+        }
+        Some(val) => Ok(Some(val)),
+    }
+}
+
+fn parse_optional_f64_positive(
+    node: roxmltree::Node<'_, '_>,
+    name: &str,
+) -> anyhow::Result<Option<f64>> {
+    match parse_optional_f64(node, name)? {
+        None => Ok(None),
+        Some(val) if val <= 0.0 => {
+            anyhow::bail!("`{name}` must be positive")
+        }
+        Some(val) => Ok(Some(val)),
+    }
+}
+
+fn parse_optional_bool(node: roxmltree::Node<'_, '_>, name: &str) -> anyhow::Result<Option<bool>> {
+    match node.attribute(name) {
+        None => Ok(None),
+        Some("true") => Ok(Some(true)),
+        Some("false") => Ok(Some(false)),
+        Some("1") => Ok(Some(true)),
+        Some("0") => Ok(Some(false)),
+        Some(value) => anyhow::bail!("`{name}` must be true or false (got `{value}`)"),
     }
 }
 
@@ -902,6 +1029,9 @@ fn ensure_allowed_attrs(node: roxmltree::Node<'_, '_>, allowed: &[&str]) -> anyh
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse::node::NodeKind;
+    use crate::resolve::{resolve::resolve_ui_tree, tree::ElementKind};
+    use crate::test_support::{MockScriptHost, TestCatalog};
 
     #[test]
     fn extracts_raw_script_with_unescaped_js_and_removes_island() {
@@ -1025,6 +1155,82 @@ mod tests {
         .expect("markup should parse");
 
         assert_eq!(parsed.root.style_ref().id, "root");
+    }
+
+    #[test]
+    fn parses_video_timeline_and_media_timing_attrs() {
+        let parsed = parse(
+            r#"<opencat width="320" height="180" fps="30" frames="1">
+  <div id="root">
+    <video id="vid" src="clip.mp4" data-start="3" data-duration="18" data-media-start="12" loop="true" />
+  </div>
+</opencat>"#,
+        )
+        .expect("markup should parse");
+
+        let NodeKind::Div(root) = parsed.root.kind() else {
+            panic!("root should be div");
+        };
+        let NodeKind::Video(video) = root.children_ref()[0].kind() else {
+            panic!("child should be video");
+        };
+
+        assert_eq!(
+            video.source(),
+            &VideoSource::Path(PathBuf::from("clip.mp4"))
+        );
+        assert_eq!(
+            video.timing(),
+            VideoFrameTiming {
+                timeline_start_secs: 3.0,
+                timeline_duration_secs: Some(18.0),
+                media_start_secs: 12.0,
+                playback_rate: 1.0,
+                looping: true,
+            }
+        );
+    }
+
+    #[test]
+    fn video_allows_overlay_children() {
+        let parsed = parse(
+            r#"<opencat width="320" height="180" fps="30" frames="1">
+  <div id="root">
+    <video id="vid" class="relative w-[160px] h-[90px]" src="clip.mp4">
+      <div id="badge" class="absolute left-[8px] top-[8px]">
+        <text id="label">TL</text>
+      </div>
+    </video>
+  </div>
+</opencat>"#,
+        )
+        .expect("video overlay children should parse");
+
+        let frame_ctx = crate::FrameCtx {
+            frame: 0,
+            fps: parsed.fps as u32,
+            width: parsed.width,
+            height: parsed.height,
+            frames: parsed.frames as u32,
+        };
+        let mut catalog = TestCatalog::new();
+        let mut script_host = MockScriptHost::default();
+        let resolved = resolve_ui_tree(
+            &parsed.root,
+            &frame_ctx,
+            &mut catalog,
+            None,
+            &mut script_host,
+        )
+        .expect("tree should resolve");
+
+        let video = &resolved.children[0];
+        assert!(
+            matches!(video.kind, ElementKind::Bitmap(_)),
+            "video should resolve to bitmap"
+        );
+        assert_eq!(video.children.len(), 1);
+        assert_eq!(video.children[0].style.id, "badge");
     }
 
     #[test]

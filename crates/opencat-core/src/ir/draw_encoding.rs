@@ -21,7 +21,7 @@ use super::draw_types::*;
 const MAGIC: [u8; 4] = *b"OCDF";
 
 /// Version of the binary encoding format.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 // ---------------------------------------------------------------------------
 // Opcode assignments
@@ -194,6 +194,12 @@ fn write_f32(buf: &mut Vec<u8>, v: f32) {
 /// Write a u32 into a u8 buffer in little-endian.
 #[inline]
 fn write_u32(buf: &mut Vec<u8>, v: u32) {
+    buf.extend_from_slice(&v.to_le_bytes());
+}
+
+/// Write a u64 into a u8 buffer in little-endian.
+#[inline]
+fn write_u64(buf: &mut Vec<u8>, v: u64) {
     buf.extend_from_slice(&v.to_le_bytes());
 }
 
@@ -551,24 +557,27 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         }
 
         // ===================================================================
-        // Image — tag(1) + string_id(4) + frame_index(4) + x(4) + y(4) + paint_id(4)
+        // Image — tag(1) + string_id(4) + frame_index(4) + time_micros(8) + x(4) + y(4) + paint_id(4)
         // ===================================================================
         DrawOp::Image { image, x, y, paint } => {
-            // Payload: 1u8 + 4u32 + 4u32 + 4f32 + 4f32 + 4u32 = 21
-            write_op_header(buf, opcode::IMAGE, 21);
+            // Payload: 1 + 4 + 4 + 8 + 4 + 4 + 4 = 29
+            write_op_header(buf, opcode::IMAGE, 29);
             match image {
                 ImageRef::Static { asset_id } => {
                     write_u8(buf, 0); // tag: Static
                     write_u32(buf, lookup_string_id(strings, asset_id));
                     write_u32(buf, 0); // frame_index = 0
+                    write_u64(buf, 0); // time_micros = 0
                 }
                 ImageRef::VideoFrame {
                     asset_id,
                     frame_index,
+                    time_micros,
                 } => {
                     write_u8(buf, 1); // tag: VideoFrame
                     write_u32(buf, lookup_string_id(strings, asset_id));
                     write_u32(buf, *frame_index);
+                    write_u64(buf, *time_micros);
                 }
             }
             write_f32(buf, *x);
@@ -577,7 +586,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         }
 
         // ===================================================================
-        // ImageRect — tag(1) + string_id(4) + frame_index(4) +
+        // ImageRect — tag(1) + string_id(4) + frame_index(4) + time_micros(8) +
         //             has_src(1) + src(16) + dst(16) + paint_id(4)
         // ===================================================================
         DrawOp::ImageRect {
@@ -586,21 +595,24 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             dst,
             paint,
         } => {
-            // Payload: 1 + 4 + 4 + 1 + 16 + 16 + 4 = 46
-            write_op_header(buf, opcode::IMAGE_RECT, 46);
+            // Payload: 1 + 4 + 4 + 8 + 1 + 16 + 16 + 4 = 54
+            write_op_header(buf, opcode::IMAGE_RECT, 54);
             match image {
                 ImageRef::Static { asset_id } => {
                     write_u8(buf, 0); // tag: Static
                     write_u32(buf, lookup_string_id(strings, asset_id));
                     write_u32(buf, 0); // frame_index = 0
+                    write_u64(buf, 0); // time_micros = 0
                 }
                 ImageRef::VideoFrame {
                     asset_id,
                     frame_index,
+                    time_micros,
                 } => {
                     write_u8(buf, 1); // tag: VideoFrame
                     write_u32(buf, lookup_string_id(strings, asset_id));
                     write_u32(buf, *frame_index);
+                    write_u64(buf, *time_micros);
                 }
             }
             write_u8(buf, if src.is_some() { 1 } else { 0 });
@@ -805,7 +817,7 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_frame(&frame, &mut scratch);
         assert_eq!(&encoded.magic, b"OCDF");
-        assert_eq!(encoded.version, 1);
+        assert_eq!(encoded.version, 2);
         assert!(encoded.ops.is_empty());
     }
 
@@ -1082,6 +1094,7 @@ mod tests {
             image: ImageRef::VideoFrame {
                 asset_id: "clip.mp4".to_string(),
                 frame_index: 42,
+                time_micros: 1_400_000,
             },
             src: None,
             dst: Rect4 {
@@ -1295,8 +1308,8 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_frame(&frame, &mut scratch);
 
-        // 8 header + 21 payload = 29, padded to 32
-        assert_eq!(encoded.ops.len(), 32);
+        // 8 header + 29 payload = 37, padded to 40
+        assert_eq!(encoded.ops.len(), 40);
         assert_eq!(encoded.ops.len() % 4, 0);
     }
 
@@ -1308,6 +1321,7 @@ mod tests {
             image: ImageRef::VideoFrame {
                 asset_id: "clip.mp4".to_string(),
                 frame_index: 7,
+                time_micros: 233_333,
             },
             src: None,
             dst: Rect4 {
@@ -1322,8 +1336,8 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_frame(&frame, &mut scratch);
 
-        // 8 header + 46 payload = 54, padded to 56
-        assert_eq!(encoded.ops.len(), 56);
+        // 8 header + 54 payload = 62, padded to 64
+        assert_eq!(encoded.ops.len(), 64);
         assert_eq!(encoded.ops.len() % 4, 0);
     }
 

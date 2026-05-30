@@ -218,6 +218,7 @@ impl Hash for ApplyInputLocal<'_> {
         let visual = &self.0.style.visual;
         F32Hash(visual.opacity).hash(state);
         visual.transforms.hash(state);
+        visual.css_filter.hash(state);
         visual.backdrop_blur_sigma.map(F32Hash).hash(state);
     }
 }
@@ -298,7 +299,6 @@ impl Hash for PaintStyleInput<'_> {
         style.stroke_dasharray.map(F32Hash).hash(state);
         style.stroke_dashoffset.map(F32Hash).hash(state);
         style.border_style.hash(state);
-        style.blur_sigma.map(F32Hash).hash(state);
         style.object_fit.hash(state);
         style.clip_contents.hash(state);
         style.box_shadow.hash(state);
@@ -520,6 +520,40 @@ mod tests {
             first.children[0].fingerprints.apply_input_local,
             second.children[0].fingerprints.apply_input_local,
             "opacity change must move apply_input_local on the affected node"
+        );
+    }
+
+    #[test]
+    fn css_filter_change_affects_apply_input_only() {
+        let first = resolve(
+            div()
+                .id("root")
+                .child(text("A").id("label").filter_brightness(1.0))
+                .into(),
+        );
+        let second = resolve(
+            div()
+                .id("root")
+                .child(text("A").id("label").filter_brightness(0.5))
+                .into(),
+        );
+
+        assert_eq!(
+            first.fingerprints.paint_input_subtree, second.fingerprints.paint_input_subtree,
+            "CSS filter must not be baked into paint_input"
+        );
+        assert_eq!(
+            first.fingerprints.layout_input_subtree, second.fingerprints.layout_input_subtree,
+            "CSS filter must not affect layout_input"
+        );
+        assert_ne!(
+            first.fingerprints.apply_input_subtree, second.fingerprints.apply_input_subtree,
+            "CSS filter changes must move apply_input_subtree"
+        );
+        assert_ne!(
+            first.children[0].fingerprints.apply_input_local,
+            second.children[0].fingerprints.apply_input_local,
+            "CSS filter changes must move apply_input_local on the affected node"
         );
     }
 

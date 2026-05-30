@@ -1014,7 +1014,7 @@ mod tests {
             Some(GradientDirection::ToBottom)
         );
         assert_eq!(style.bg_gradient_via, Some(ColorToken::Transparent));
-        assert_eq!(style.blur_sigma, Some(24.0));
+        assert_eq!(style.css_filter.value("blur"), Some(24.0));
         assert_eq!(style.bg_gradient_from.expect("from color").rgba().3, 77);
         assert_eq!(style.bg_gradient_to.expect("to color").rgba().3, 51);
 

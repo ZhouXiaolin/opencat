@@ -97,7 +97,10 @@ impl<C: JsContext> ScriptRunner<C> {
 
     pub fn set_style_defaults(
         &mut self,
-        defaults: &std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+        defaults: &std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, serde_json::Value>,
+        >,
     ) {
         self.ctx.with_store_mut(|s| {
             for (id, props) in defaults {

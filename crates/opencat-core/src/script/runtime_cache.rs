@@ -77,7 +77,10 @@ impl<C: JsContext> ScriptHost for ScriptRuntimeCache<C> {
 
     fn set_style_defaults(
         &mut self,
-        defaults: &std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+        defaults: &std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, serde_json::Value>,
+        >,
     ) {
         for runner in self.runners.values_mut() {
             runner.set_style_defaults(defaults);

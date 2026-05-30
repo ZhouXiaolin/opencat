@@ -48,7 +48,6 @@
             textSize: makeStyleProperty('textSize', 'textSize', 0),
             letterSpacing: makeStyleProperty('letterSpacing', 'letterSpacing', 0),
             lineHeight: makeStyleProperty('lineHeight', 'lineHeight', 0),
-            blur: copyOwn(makeStyleProperty('blur', 'blur', 0), { aliases: ['blurSigma'] }),
             backdropBlur: copyOwn(makeStyleProperty('backdropBlur', 'backdropBlur', 0), { aliases: ['backdropBlurSigma'] }),
         },
     });

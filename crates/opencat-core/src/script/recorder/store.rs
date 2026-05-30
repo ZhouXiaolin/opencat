@@ -12,14 +12,14 @@ use crate::script::mutations::{
     TextUnitOverrideBatch,
 };
 use crate::script::{
-    align_items_from_name, box_shadow_from_name, drop_shadow_from_name,
-    flex_direction_from_name, inset_shadow_from_name, justify_content_from_name,
-    object_fit_from_name, position_from_name, text_align_from_name,
+    align_items_from_name, box_shadow_from_name, drop_shadow_from_name, flex_direction_from_name,
+    inset_shadow_from_name, justify_content_from_name, object_fit_from_name, position_from_name,
+    text_align_from_name,
 };
 use crate::style::{
-    AlignItems, BorderStyle, BoxShadow, ColorToken, DropShadow, FlexDirection, FontWeight,
-    InsetShadow, JustifyContent, NodeStyle, ObjectFit, Position, TextAlign, Transform,
-    color_token_from_script_string,
+    AlignItems, BorderStyle, BoxShadow, ColorToken, CssFilter, CssFilterKind, DropShadow,
+    FlexDirection, FontWeight, InsetShadow, JustifyContent, NodeStyle, ObjectFit, Position,
+    TextAlign, Transform, color_token_from_script_string,
 };
 
 #[derive(Default)]
@@ -51,6 +51,54 @@ pub struct AnimateEntry {
     pub repeat: i32,
     pub yoyo: bool,
     pub repeat_delay: u32,
+}
+
+fn css_filter_from_value(value: &serde_json::Value) -> Option<CssFilter> {
+    if let Some(filter) = value.as_str() {
+        return Some(CssFilter::parse_css_filter_string(filter));
+    }
+
+    if let Some(ops) = value.get("ops").and_then(|ops| ops.as_array()) {
+        let mut filter = CssFilter::default();
+        for op in ops {
+            let Some(kind) = op
+                .get("kind")
+                .and_then(|kind| kind.as_str())
+                .and_then(CssFilterKind::from_property)
+            else {
+                continue;
+            };
+            let Some(value) = op.get("value").and_then(|value| value.as_f64()) else {
+                continue;
+            };
+            filter.push(kind, value as f32);
+        }
+        return Some(filter);
+    }
+
+    let mut filter = CssFilter::default();
+    let object = value.as_object()?;
+    for (name, value) in object {
+        let Some(kind) = CssFilterKind::from_property(name) else {
+            continue;
+        };
+        let Some(value) = value.as_f64() else {
+            continue;
+        };
+        filter.push(kind, value as f32);
+    }
+    Some(filter)
+}
+
+fn css_filter_to_value(filter: &CssFilter) -> serde_json::Value {
+    json!({
+        "ops": filter.ops.iter().map(|op| {
+            json!({
+                "kind": op.kind.property_name(),
+                "value": op.value,
+            })
+        }).collect::<Vec<_>>(),
+    })
 }
 
 impl MutationStore {
@@ -86,7 +134,10 @@ impl MutationStore {
             ($key:expr, $field:ident) => {
                 if let Some(ref c) = style.$field {
                     let (r, g, b, a) = c.rgba();
-                    props.insert($key.into(), json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)));
+                    props.insert(
+                        $key.into(),
+                        json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)),
+                    );
                 }
             };
         }
@@ -104,15 +155,13 @@ impl MutationStore {
         add_f32!("height", height);
         add_f32!("gap", gap);
         add_f32!("flexGrow", flex_grow);
-        add_f32!("blur", blur_sigma);
+        for op in &style.css_filter.ops {
+            props.insert(op.kind.property_name().into(), json!(op.value));
+        }
+        if !style.css_filter.is_empty() {
+            props.insert("filter".into(), css_filter_to_value(&style.css_filter));
+        }
         add_f32!("backdropBlur", backdrop_blur_sigma);
-        add_f32!("brightness", brightness);
-        add_f32!("contrast", contrast);
-        add_f32!("grayscale", grayscale);
-        add_f32!("hueRotate", hue_rotate);
-        add_f32!("invert", invert);
-        add_f32!("saturate", saturate);
-        add_f32!("sepia", sepia);
 
         // colors
         add_color!("fillColor", fill_color);
@@ -155,15 +204,15 @@ impl MutationStore {
                 "top" => mutations.inset_top.map(|f| json!(f)),
                 "right" => mutations.inset_right.map(|f| json!(f)),
                 "bottom" => mutations.inset_bottom.map(|f| json!(f)),
-                "blur" | "blurSigma" => mutations.blur_sigma.map(|f| json!(f)),
-                "backdropBlur" | "backdropBlurSigma" => mutations.backdrop_blur_sigma.map(|f| json!(f)),
-                "brightness" => mutations.brightness.map(|f| json!(f)),
-                "contrast" => mutations.contrast.map(|f| json!(f)),
-                "grayscale" => mutations.grayscale.map(|f| json!(f)),
-                "hueRotate" => mutations.hue_rotate.map(|f| json!(f)),
-                "invert" => mutations.invert.map(|f| json!(f)),
-                "saturate" => mutations.saturate.map(|f| json!(f)),
-                "sepia" => mutations.sepia.map(|f| json!(f)),
+                "filter" => (!mutations.css_filter.is_empty())
+                    .then(|| css_filter_to_value(&mutations.css_filter)),
+                "blur" | "blurSigma" | "brightness" | "contrast" | "grayscale" | "hueRotate"
+                | "invert" | "saturate" | "sepia" => {
+                    mutations.css_filter.value(property).map(|f| json!(f))
+                }
+                "backdropBlur" | "backdropBlurSigma" => {
+                    mutations.backdrop_blur_sigma.map(|f| json!(f))
+                }
                 // colors (serialize as "#RRGGBBAA" or "transparent")
                 "fillColor" => mutations.fill_color.as_ref().map(|c| {
                     let (r, g, b, a) = c.rgba();
@@ -206,51 +255,154 @@ impl MutationStore {
         let entry = self.styles.entry(id.to_string()).or_default();
         match property {
             // ── f32 ──
-            "opacity" => { entry.opacity = value.as_f64().map(|v| v as f32); }
-            "translateX" => { if let Some(v) = value.as_f64() { entry.transforms.push(Transform::TranslateX { value: v as f32 }); } }
-            "translateY" => { if let Some(v) = value.as_f64() { entry.transforms.push(Transform::TranslateY { value: v as f32 }); } }
-            "scale" => { if let Some(v) = value.as_f64() { entry.transforms.push(Transform::Scale { value: v as f32 }); } }
-            "scaleX" => { if let Some(v) = value.as_f64() { entry.transforms.push(Transform::ScaleX { value: v as f32 }); } }
-            "scaleY" => { if let Some(v) = value.as_f64() { entry.transforms.push(Transform::ScaleY { value: v as f32 }); } }
-            "rotate" | "rotation" => { if let Some(v) = value.as_f64() { entry.transforms.push(Transform::RotateDeg { value: v as f32 }); } }
-            "skewX" => { if let Some(v) = value.as_f64() { entry.transforms.push(Transform::SkewXDeg { value: v as f32 }); } }
-            "skewY" => { if let Some(v) = value.as_f64() { entry.transforms.push(Transform::SkewYDeg { value: v as f32 }); } }
-            "left" => { entry.inset_left = value.as_f64().map(|v| v as f32); }
-            "top" => { entry.inset_top = value.as_f64().map(|v| v as f32); }
-            "right" => { entry.inset_right = value.as_f64().map(|v| v as f32); }
-            "bottom" => { entry.inset_bottom = value.as_f64().map(|v| v as f32); }
-            "width" => { entry.width = value.as_f64().map(|v| v as f32); }
-            "height" => { entry.height = value.as_f64().map(|v| v as f32); }
-            "padding" => { entry.padding = value.as_f64().map(|v| v as f32); }
-            "paddingX" => { entry.padding_x = value.as_f64().map(|v| v as f32); }
-            "paddingY" => { entry.padding_y = value.as_f64().map(|v| v as f32); }
-            "margin" => { entry.margin = value.as_f64().map(|v| v as f32); }
-            "marginX" => { entry.margin_x = value.as_f64().map(|v| v as f32); }
-            "marginY" => { entry.margin_y = value.as_f64().map(|v| v as f32); }
-            "gap" => { entry.gap = value.as_f64().map(|v| v as f32); }
-            "flexGrow" => { entry.flex_grow = value.as_f64().map(|v| v as f32); }
-            "borderRadius" => { entry.border_radius = value.as_f64().map(|v| v as f32); }
-            "borderWidth" => { entry.border_width = value.as_f64().map(|v| v as f32); }
-            "borderTopWidth" => { entry.border_top_width = value.as_f64().map(|v| v as f32); }
-            "borderRightWidth" => { entry.border_right_width = value.as_f64().map(|v| v as f32); }
-            "borderBottomWidth" => { entry.border_bottom_width = value.as_f64().map(|v| v as f32); }
-            "borderLeftWidth" => { entry.border_left_width = value.as_f64().map(|v| v as f32); }
-            "strokeWidth" => { entry.stroke_width = value.as_f64().map(|v| v as f32).map(|v| v.max(0.0)); }
-            "strokeDasharray" => { entry.stroke_dasharray = value.as_f64().map(|v| v as f32).map(|v| v.max(0.0)); }
-            "strokeDashoffset" => { entry.stroke_dashoffset = value.as_f64().map(|v| v as f32); }
-            "textSize" => { entry.text_px = value.as_f64().map(|v| v as f32); }
-            "letterSpacing" => { entry.letter_spacing = value.as_f64().map(|v| v as f32); }
-            "lineHeight" => { entry.line_height = value.as_f64().map(|v| v as f32); }
-            "fontWeight" => { entry.font_weight = value.as_f64().map(|v| FontWeight(v as u16)); }
-            "blur" | "blurSigma" => { entry.blur_sigma = value.as_f64().map(|v| v as f32); }
-            "backdropBlur" | "backdropBlurSigma" => { entry.backdrop_blur_sigma = value.as_f64().map(|v| v as f32); }
-            "brightness" => { entry.brightness = value.as_f64().map(|v| v as f32); }
-            "contrast" => { entry.contrast = value.as_f64().map(|v| v as f32); }
-            "grayscale" => { entry.grayscale = value.as_f64().map(|v| v as f32); }
-            "hueRotate" => { entry.hue_rotate = value.as_f64().map(|v| v as f32); }
-            "invert" => { entry.invert = value.as_f64().map(|v| v as f32); }
-            "saturate" => { entry.saturate = value.as_f64().map(|v| v as f32); }
-            "sepia" => { entry.sepia = value.as_f64().map(|v| v as f32); }
+            "opacity" => {
+                entry.opacity = value.as_f64().map(|v| v as f32);
+            }
+            "translateX" => {
+                if let Some(v) = value.as_f64() {
+                    entry
+                        .transforms
+                        .push(Transform::TranslateX { value: v as f32 });
+                }
+            }
+            "translateY" => {
+                if let Some(v) = value.as_f64() {
+                    entry
+                        .transforms
+                        .push(Transform::TranslateY { value: v as f32 });
+                }
+            }
+            "scale" => {
+                if let Some(v) = value.as_f64() {
+                    entry.transforms.push(Transform::Scale { value: v as f32 });
+                }
+            }
+            "scaleX" => {
+                if let Some(v) = value.as_f64() {
+                    entry.transforms.push(Transform::ScaleX { value: v as f32 });
+                }
+            }
+            "scaleY" => {
+                if let Some(v) = value.as_f64() {
+                    entry.transforms.push(Transform::ScaleY { value: v as f32 });
+                }
+            }
+            "rotate" | "rotation" => {
+                if let Some(v) = value.as_f64() {
+                    entry
+                        .transforms
+                        .push(Transform::RotateDeg { value: v as f32 });
+                }
+            }
+            "skewX" => {
+                if let Some(v) = value.as_f64() {
+                    entry
+                        .transforms
+                        .push(Transform::SkewXDeg { value: v as f32 });
+                }
+            }
+            "skewY" => {
+                if let Some(v) = value.as_f64() {
+                    entry
+                        .transforms
+                        .push(Transform::SkewYDeg { value: v as f32 });
+                }
+            }
+            "left" => {
+                entry.inset_left = value.as_f64().map(|v| v as f32);
+            }
+            "top" => {
+                entry.inset_top = value.as_f64().map(|v| v as f32);
+            }
+            "right" => {
+                entry.inset_right = value.as_f64().map(|v| v as f32);
+            }
+            "bottom" => {
+                entry.inset_bottom = value.as_f64().map(|v| v as f32);
+            }
+            "width" => {
+                entry.width = value.as_f64().map(|v| v as f32);
+            }
+            "height" => {
+                entry.height = value.as_f64().map(|v| v as f32);
+            }
+            "padding" => {
+                entry.padding = value.as_f64().map(|v| v as f32);
+            }
+            "paddingX" => {
+                entry.padding_x = value.as_f64().map(|v| v as f32);
+            }
+            "paddingY" => {
+                entry.padding_y = value.as_f64().map(|v| v as f32);
+            }
+            "margin" => {
+                entry.margin = value.as_f64().map(|v| v as f32);
+            }
+            "marginX" => {
+                entry.margin_x = value.as_f64().map(|v| v as f32);
+            }
+            "marginY" => {
+                entry.margin_y = value.as_f64().map(|v| v as f32);
+            }
+            "gap" => {
+                entry.gap = value.as_f64().map(|v| v as f32);
+            }
+            "flexGrow" => {
+                entry.flex_grow = value.as_f64().map(|v| v as f32);
+            }
+            "borderRadius" => {
+                entry.border_radius = value.as_f64().map(|v| v as f32);
+            }
+            "borderWidth" => {
+                entry.border_width = value.as_f64().map(|v| v as f32);
+            }
+            "borderTopWidth" => {
+                entry.border_top_width = value.as_f64().map(|v| v as f32);
+            }
+            "borderRightWidth" => {
+                entry.border_right_width = value.as_f64().map(|v| v as f32);
+            }
+            "borderBottomWidth" => {
+                entry.border_bottom_width = value.as_f64().map(|v| v as f32);
+            }
+            "borderLeftWidth" => {
+                entry.border_left_width = value.as_f64().map(|v| v as f32);
+            }
+            "strokeWidth" => {
+                entry.stroke_width = value.as_f64().map(|v| v as f32).map(|v| v.max(0.0));
+            }
+            "strokeDasharray" => {
+                entry.stroke_dasharray = value.as_f64().map(|v| v as f32).map(|v| v.max(0.0));
+            }
+            "strokeDashoffset" => {
+                entry.stroke_dashoffset = value.as_f64().map(|v| v as f32);
+            }
+            "textSize" => {
+                entry.text_px = value.as_f64().map(|v| v as f32);
+            }
+            "letterSpacing" => {
+                entry.letter_spacing = value.as_f64().map(|v| v as f32);
+            }
+            "lineHeight" => {
+                entry.line_height = value.as_f64().map(|v| v as f32);
+            }
+            "fontWeight" => {
+                entry.font_weight = value.as_f64().map(|v| FontWeight(v as u16));
+            }
+            "filter" => {
+                if let Some(filter) = css_filter_from_value(&value) {
+                    entry.css_filter = filter;
+                }
+            }
+            "blur" | "blurSigma" | "brightness" | "contrast" | "grayscale" | "hueRotate"
+            | "invert" | "saturate" | "sepia" => {
+                if let Some(v) = value.as_f64() {
+                    entry.css_filter.set_property(property, v as f32);
+                }
+            }
+            "backdropBlur" | "backdropBlurSigma" => {
+                entry.backdrop_blur_sigma = value.as_f64().map(|v| v as f32);
+            }
 
             // ── colors ──
             "bg" | "backgroundColor" => {
@@ -295,48 +447,108 @@ impl MutationStore {
             }
 
             // ── enums ──
-            "position" => { if let Some(s) = value.as_str() { entry.position = position_from_name(s); } }
-            "flexDirection" => { if let Some(s) = value.as_str() { entry.flex_direction = flex_direction_from_name(s); } }
-            "justifyContent" => { if let Some(s) = value.as_str() { entry.justify_content = justify_content_from_name(s); } }
-            "alignItems" => { if let Some(s) = value.as_str() { entry.align_items = align_items_from_name(s); } }
-            "objectFit" => { if let Some(s) = value.as_str() { entry.object_fit = object_fit_from_name(s); } }
-            "borderStyle" => { if let Some(s) = value.as_str() {
-                entry.border_style = match s {
-                    "solid" => Some(BorderStyle::Solid),
-                    "dashed" => Some(BorderStyle::Dashed),
-                    "dotted" => Some(BorderStyle::Dotted),
-                    _ => None,
-                };
-            }}
-            "textAlign" => { if let Some(s) = value.as_str() { entry.text_align = text_align_from_name(s); } }
+            "position" => {
+                if let Some(s) = value.as_str() {
+                    entry.position = position_from_name(s);
+                }
+            }
+            "flexDirection" => {
+                if let Some(s) = value.as_str() {
+                    entry.flex_direction = flex_direction_from_name(s);
+                }
+            }
+            "justifyContent" => {
+                if let Some(s) = value.as_str() {
+                    entry.justify_content = justify_content_from_name(s);
+                }
+            }
+            "alignItems" => {
+                if let Some(s) = value.as_str() {
+                    entry.align_items = align_items_from_name(s);
+                }
+            }
+            "objectFit" => {
+                if let Some(s) = value.as_str() {
+                    entry.object_fit = object_fit_from_name(s);
+                }
+            }
+            "borderStyle" => {
+                if let Some(s) = value.as_str() {
+                    entry.border_style = match s {
+                        "solid" => Some(BorderStyle::Solid),
+                        "dashed" => Some(BorderStyle::Dashed),
+                        "dotted" => Some(BorderStyle::Dotted),
+                        _ => None,
+                    };
+                }
+            }
+            "textAlign" => {
+                if let Some(s) = value.as_str() {
+                    entry.text_align = text_align_from_name(s);
+                }
+            }
 
             // ── strings ──
-            "text" => { if let Some(s) = value.as_str() { entry.text_content = Some(s.to_string()); } }
-            "morphSVG" | "d" => { if let Some(s) = value.as_str() { entry.svg_path = Some(s.to_string()); } }
-            "shadow" => { if let Some(s) = value.as_str() {
-                if let Some(sh) = box_shadow_from_name(s) { entry.box_shadow = Some(sh); }
-            }}
-            "insetShadow" => { if let Some(s) = value.as_str() {
-                if let Some(sh) = inset_shadow_from_name(s) { entry.inset_shadow = Some(sh); }
-            }}
-            "dropShadow" => { if let Some(s) = value.as_str() {
-                if let Some(sh) = drop_shadow_from_name(s) { entry.drop_shadow = Some(sh); }
-            }}
+            "text" => {
+                if let Some(s) = value.as_str() {
+                    entry.text_content = Some(s.to_string());
+                }
+            }
+            "morphSVG" | "d" => {
+                if let Some(s) = value.as_str() {
+                    entry.svg_path = Some(s.to_string());
+                }
+            }
+            "shadow" => {
+                if let Some(s) = value.as_str() {
+                    if let Some(sh) = box_shadow_from_name(s) {
+                        entry.box_shadow = Some(sh);
+                    }
+                }
+            }
+            "insetShadow" => {
+                if let Some(s) = value.as_str() {
+                    if let Some(sh) = inset_shadow_from_name(s) {
+                        entry.inset_shadow = Some(sh);
+                    }
+                }
+            }
+            "dropShadow" => {
+                if let Some(s) = value.as_str() {
+                    if let Some(sh) = drop_shadow_from_name(s) {
+                        entry.drop_shadow = Some(sh);
+                    }
+                }
+            }
 
             // ── multi-arg as array ──
             "translate" => {
                 if let Some(arr) = value.as_array() {
-                    if let (Some(x), Some(y)) = (arr.first().and_then(|v| v.as_f64()), arr.get(1).and_then(|v| v.as_f64())) {
-                        entry.transforms.push(Transform::TranslateX { value: x as f32 });
-                        entry.transforms.push(Transform::TranslateY { value: y as f32 });
+                    if let (Some(x), Some(y)) = (
+                        arr.first().and_then(|v| v.as_f64()),
+                        arr.get(1).and_then(|v| v.as_f64()),
+                    ) {
+                        entry
+                            .transforms
+                            .push(Transform::TranslateX { value: x as f32 });
+                        entry
+                            .transforms
+                            .push(Transform::TranslateY { value: y as f32 });
                     }
                 }
             }
             "skew" => {
                 if let Some(arr) = value.as_array() {
-                    if let (Some(x), Some(y)) = (arr.first().and_then(|v| v.as_f64()), arr.get(1).and_then(|v| v.as_f64())) {
-                        entry.transforms.push(Transform::SkewXDeg { value: x as f32 });
-                        entry.transforms.push(Transform::SkewYDeg { value: y as f32 });
+                    if let (Some(x), Some(y)) = (
+                        arr.first().and_then(|v| v.as_f64()),
+                        arr.get(1).and_then(|v| v.as_f64()),
+                    ) {
+                        entry
+                            .transforms
+                            .push(Transform::SkewXDeg { value: x as f32 });
+                        entry
+                            .transforms
+                            .push(Transform::SkewYDeg { value: y as f32 });
                     }
                 }
             }
@@ -892,6 +1104,89 @@ mod tests {
         store.reset_for_frame(7);
         let snap = store.snapshot_mutations();
         assert!(snap.mutations.is_empty());
+    }
+
+    #[test]
+    fn css_filter_values_round_trip_through_value_api() {
+        let mut store = MutationStore::default();
+
+        store.write_style_value("node-a", "brightness", json!(0.5));
+        store.write_style_value("node-a", "hueRotate", json!(45.0));
+        store.write_style_value("node-a", "blur", json!(6.0));
+
+        assert_eq!(
+            store.read_style_value("node-a", "brightness"),
+            Some(json!(0.5))
+        );
+        assert_eq!(
+            store.read_style_value("node-a", "hueRotate"),
+            Some(json!(45.0))
+        );
+        assert_eq!(store.read_style_value("node-a", "blur"), Some(json!(6.0)));
+
+        let snap = store.snapshot_mutations();
+        let entry = snap.mutations.get("node-a").expect("node-a recorded");
+        assert_eq!(entry.css_filter.value("brightness"), Some(0.5));
+        assert_eq!(entry.css_filter.value("hueRotate"), Some(45.0));
+        assert_eq!(entry.css_filter.value("blur"), Some(6.0));
+    }
+
+    #[test]
+    fn css_filter_string_preserves_operation_order() {
+        let mut store = MutationStore::default();
+
+        store.write_style_value("node-a", "filter", json!("brightness(0.5) contrast(2)"));
+        store.write_style_value("node-b", "filter", json!("contrast(2) brightness(0.5)"));
+
+        let snap = store.snapshot_mutations();
+        let a = &snap.mutations.get("node-a").unwrap().css_filter;
+        let b = &snap.mutations.get("node-b").unwrap().css_filter;
+        assert_ne!(a, b, "CSS filter order is semantically significant");
+        assert_eq!(
+            a.to_css_string(),
+            "brightness(0.5) contrast(2)",
+            "filter string order must round-trip"
+        );
+        assert_eq!(
+            b.to_css_string(),
+            "contrast(2) brightness(0.5)",
+            "filter string order must round-trip"
+        );
+    }
+
+    #[test]
+    fn css_filter_ordered_value_preserves_operation_order() {
+        let mut store = MutationStore::default();
+
+        store.write_style_value(
+            "node-a",
+            "filter",
+            json!({
+                "ops": [
+                    { "kind": "brightness", "value": 0.5 },
+                    { "kind": "contrast", "value": 2.0 },
+                    { "kind": "brightness", "value": 0.75 }
+                ]
+            }),
+        );
+
+        assert_eq!(
+            store.read_style_value("node-a", "filter"),
+            Some(json!({
+                "ops": [
+                    { "kind": "brightness", "value": 0.5 },
+                    { "kind": "contrast", "value": 2.0 },
+                    { "kind": "brightness", "value": 0.75 }
+                ]
+            }))
+        );
+        let snap = store.snapshot_mutations();
+        let filter = &snap.mutations.get("node-a").unwrap().css_filter;
+        assert_eq!(
+            filter.to_css_string(),
+            "brightness(0.5) contrast(2) brightness(0.75)"
+        );
+        assert_eq!(filter.value("brightness"), Some(0.75));
     }
 
     #[test]

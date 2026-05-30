@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use crate::style::{
-    BorderRadius, BorderStyle, BoxShadow, ColorToken, DropShadow, FlexDirection, FontWeight,
-    InsetShadow, JustifyContent, LengthPercentageAuto, ObjectFit, Position, TextAlign, Transform,
+    BorderRadius, BorderStyle, BoxShadow, ColorToken, CssFilter, DropShadow, FlexDirection,
+    FontWeight, InsetShadow, JustifyContent, LengthPercentageAuto, ObjectFit, Position, TextAlign,
+    Transform,
 };
 
 // ── Node style mutations ──────────────────────────────────────────
@@ -85,15 +86,8 @@ pub struct NodeStyleMutations {
     pub text_content: Option<String>,
     pub text_unit_overrides: Option<TextUnitOverrideBatch>,
     pub svg_path: Option<String>,
-    pub blur_sigma: Option<f32>,
+    pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
-    pub brightness: Option<f32>,
-    pub contrast: Option<f32>,
-    pub grayscale: Option<f32>,
-    pub hue_rotate: Option<f32>,
-    pub invert: Option<f32>,
-    pub saturate: Option<f32>,
-    pub sepia: Option<f32>,
 }
 
 impl NodeStyleMutations {
@@ -244,32 +238,11 @@ impl NodeStyleMutations {
         if let Some(v) = &self.svg_path {
             style.svg_path = Some(v.clone());
         }
-        if let Some(v) = self.blur_sigma {
-            style.blur_sigma = Some(v.max(0.0));
-        }
         if let Some(v) = self.backdrop_blur_sigma {
             style.backdrop_blur_sigma = Some(v.max(0.0));
         }
-        if let Some(v) = self.brightness {
-            style.brightness = Some(v.max(0.0));
-        }
-        if let Some(v) = self.contrast {
-            style.contrast = Some(v.max(0.0));
-        }
-        if let Some(v) = self.grayscale {
-            style.grayscale = Some(v.clamp(0.0, 1.0));
-        }
-        if let Some(v) = self.hue_rotate {
-            style.hue_rotate = Some(v);
-        }
-        if let Some(v) = self.invert {
-            style.invert = Some(v.clamp(0.0, 1.0));
-        }
-        if let Some(v) = self.saturate {
-            style.saturate = Some(v.max(0.0));
-        }
-        if let Some(v) = self.sepia {
-            style.sepia = Some(v.clamp(0.0, 1.0));
+        if !self.css_filter.is_empty() {
+            style.css_filter.merge_from(&self.css_filter);
         }
     }
 }
@@ -512,6 +485,20 @@ pub fn apply_node_to_recorder(
     }
     if let Some(ref data) = m.svg_path {
         recorder.record_svg_path(id, data.clone());
+    }
+    if !m.css_filter.is_empty() {
+        recorder.write_style_value(
+            id,
+            "filter",
+            serde_json::json!({
+                "ops": m.css_filter.ops.iter().map(|op| {
+                    serde_json::json!({
+                        "kind": op.kind.property_name(),
+                        "value": op.value,
+                    })
+                }).collect::<Vec<_>>(),
+            }),
+        );
     }
 }
 

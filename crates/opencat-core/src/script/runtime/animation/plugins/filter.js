@@ -120,13 +120,64 @@
         ];
     }
 
+    function normalizeFilterName(name) {
+        if (name === 'hue-rotate' || name === 'hueRotate' || name === 'huerotate') return 'hueRotate';
+        return String(name).replace(/-([a-z])/g, function(_, c) { return c.toUpperCase(); });
+    }
+
+    function cssFilterName(name) {
+        return name === 'hueRotate' ? 'hue-rotate' : name;
+    }
+
+    function parseFilterNumber(raw, name) {
+        var str = String(raw).trim();
+        var value = parseFloat(str);
+        if (isNaN(value)) return NaN;
+        if (str.slice(-1) === '%' && name !== 'blur' && name !== 'hueRotate') {
+            return value / 100;
+        }
+        return value;
+    }
+
+    function filterOpToString(op) {
+        var name = normalizeFilterName(op.name || op.kind);
+        var unit = getFilterUnit(name);
+        return cssFilterName(name) + '(' + Number(op.value) + unit + ')';
+    }
+
+    function filterValueToString(value) {
+        if (!value) return '';
+        if (typeof value === 'string') return value;
+        if (value && Array.isArray(value.ops)) {
+            var parts = [];
+            for (var i = 0; i < value.ops.length; i++) {
+                parts.push(filterOpToString(value.ops[i]));
+            }
+            return parts.join(' ');
+        }
+        return String(value);
+    }
+
+    function applyFilterValue(target, name, value) {
+        if (target.node) {
+            target.node[name](value);
+            return;
+        }
+        if (target.set) {
+            var values = {};
+            values[name] = value;
+            target.set(values);
+        }
+    }
+
     // Get matrix builder for a filter name
     function getFilterMatrixBuilder(name) {
+        name = normalizeFilterName(name);
         switch (name) {
             case 'brightness': return brightnessMatrix;
             case 'contrast': return contrastMatrix;
             case 'grayscale': return grayscaleMatrix;
-            case 'hue-rotate': case 'hueRotate': return hueRotateMatrix;
+            case 'hueRotate': return hueRotateMatrix;
             case 'invert': return invertMatrix;
             case 'saturate': return saturateMatrix;
             case 'sepia': return sepiaMatrix;
@@ -146,9 +197,9 @@
         var match;
 
         while ((match = regex.exec(filterStr)) !== null) {
-            var name = match[1].toLowerCase();
+            var name = normalizeFilterName(match[1]);
             var value = match[2].trim();
-            var numValue = parseFloat(value);
+            var numValue = parseFilterNumber(value, name);
 
             if (isNaN(numValue)) continue;
 
@@ -169,67 +220,61 @@
 
     // Individual filter property descriptors
     var filterProperties = {
+        blur: {
+            aliases: ['blurSigma'],
+            defaultValue: 0,
+            interpolate: 'number',
+            apply: function(target, value) {
+                applyFilterValue(target, 'blur', value);
+            }
+        },
         brightness: {
             defaultValue: 1,
             interpolate: 'number',
             apply: function(target, value) {
-                if (target.set) {
-                    target.set({ brightness: value });
-                }
+                applyFilterValue(target, 'brightness', value);
             }
         },
         contrast: {
             defaultValue: 1,
             interpolate: 'number',
             apply: function(target, value) {
-                if (target.set) {
-                    target.set({ contrast: value });
-                }
+                applyFilterValue(target, 'contrast', value);
             }
         },
         grayscale: {
             defaultValue: 0,
             interpolate: 'number',
             apply: function(target, value) {
-                if (target.set) {
-                    target.set({ grayscale: value });
-                }
+                applyFilterValue(target, 'grayscale', value);
             }
         },
         hueRotate: {
             defaultValue: 0,
             interpolate: 'number',
             apply: function(target, value) {
-                if (target.set) {
-                    target.set({ hueRotate: value });
-                }
+                applyFilterValue(target, 'hueRotate', value);
             }
         },
         invert: {
             defaultValue: 0,
             interpolate: 'number',
             apply: function(target, value) {
-                if (target.set) {
-                    target.set({ invert: value });
-                }
+                applyFilterValue(target, 'invert', value);
             }
         },
         saturate: {
             defaultValue: 1,
             interpolate: 'number',
             apply: function(target, value) {
-                if (target.set) {
-                    target.set({ saturate: value });
-                }
+                applyFilterValue(target, 'saturate', value);
             }
         },
         sepia: {
             defaultValue: 0,
             interpolate: 'number',
             apply: function(target, value) {
-                if (target.set) {
-                    target.set({ sepia: value });
-                }
+                applyFilterValue(target, 'sepia', value);
             }
         }
     };
@@ -249,103 +294,96 @@
             return interpolateFilterStrings(fromVal, toVal, progress);
         },
         apply: function(target, value) {
-            if (!value || typeof value !== 'string') return;
-            
-            // Parse filters in order and build result
-            var regex = /(\w[\w-]*)\(([^)]*)\)/g;
-            var match;
-            var result = {};
-
-            while ((match = regex.exec(value)) !== null) {
-                var name = match[1].toLowerCase();
-                var numValue = parseFloat(match[2]);
-
-                if (isNaN(numValue)) continue;
-
-                // Convert to camelCase
-                var camelName = name.replace(/-([a-z])/g, function(_, c) { return c.toUpperCase(); });
-                
-                result[camelName] = numValue;
+            if (!value) return;
+            if (target.node) {
+                target.node.filter(value);
+                return;
             }
-
-            if (target.set) {
-                target.set(result);
-            }
+            if (target.set) target.set({ filter: value });
         }
     });
 
     function interpolateFilterStrings(from, to, progress) {
-        // Parse both filter strings preserving order
-        var fromParsed = parseFilterString(from);
-        var toParsed = parseFilterString(to);
-        
-        // Merge all filter names preserving order from 'to'
-        var allFilters = {};
-        var order = [];
-        
-        // Add 'from' filters
-        for (var i = 0; i < fromParsed.order.length; i++) {
-            var name = fromParsed.order[i];
-            allFilters[name] = { from: fromParsed.values[name], to: getDefaultFilterValue(name) };
-            order.push(name);
+        var fromOps = parseFilterOps(from);
+        var toOps = parseFilterOps(to);
+
+        if (toOps.length === 0 && fromOps.length === 0) return 'none';
+
+        var sameShape = fromOps.length === toOps.length;
+        for (var i = 0; i < fromOps.length && sameShape; i++) {
+            sameShape = fromOps[i].name === toOps[i].name;
         }
-        
-        // Add 'to' filters (may override 'from' values)
-        for (var i = 0; i < toParsed.order.length; i++) {
-            var name = toParsed.order[i];
-            if (allFilters[name]) {
-                allFilters[name].to = toParsed.values[name];
-            } else {
-                allFilters[name] = { from: getDefaultFilterValue(name), to: toParsed.values[name] };
-                order.push(name);
+
+        var output = [];
+        if (sameShape) {
+            for (var i = 0; i < toOps.length; i++) {
+                output.push({
+                    name: toOps[i].name,
+                    value: fromOps[i].value + (toOps[i].value - fromOps[i].value) * progress
+                });
+            }
+        } else {
+            var usedFrom = {};
+            for (var i = 0; i < toOps.length; i++) {
+                var toOp = toOps[i];
+                var fromIndex = findNextFilterOp(fromOps, toOp.name, usedFrom);
+                var fromValue = fromIndex >= 0 ? fromOps[fromIndex].value : getDefaultFilterValue(toOp.name);
+                if (fromIndex >= 0) usedFrom[fromIndex] = true;
+                output.push({
+                    name: toOp.name,
+                    value: fromValue + (toOp.value - fromValue) * progress
+                });
+            }
+            for (var i = 0; i < fromOps.length; i++) {
+                if (usedFrom[i]) continue;
+                output.push({
+                    name: fromOps[i].name,
+                    value: fromOps[i].value + (getDefaultFilterValue(fromOps[i].name) - fromOps[i].value) * progress
+                });
             }
         }
 
-        // Interpolate and build result string in order
         var parts = [];
-        var blurPart = null;
-        
-        for (var i = 0; i < order.length; i++) {
-            var name = order[i];
-            var filter = allFilters[name];
-            var interpolated = filter.from + (filter.to - filter.from) * progress;
-            
-            var unit = getFilterUnit(name);
-            var part = name + '(' + interpolated + unit + ')';
-            
-            if (name === 'blur') {
-                blurPart = part;
-            } else {
-                parts.push(part);
-            }
+        for (var i = 0; i < output.length; i++) {
+            parts.push(filterOpToString(output[i]));
         }
-
-        // Blur goes first if present
-        if (blurPart) {
-            parts.unshift(blurPart);
-        }
-
         return parts.join(' ') || 'none';
     }
 
-    function parseFilterString(str) {
-        var result = { values: {}, order: [] };
+    function findNextFilterOp(ops, name, used) {
+        for (var i = 0; i < ops.length; i++) {
+            if (!used[i] && ops[i].name === name) return i;
+        }
+        return -1;
+    }
+
+    function parseFilterOps(value) {
+        var result = [];
+        if (value && Array.isArray(value.ops)) {
+            for (var i = 0; i < value.ops.length; i++) {
+                var op = value.ops[i];
+                var name = normalizeFilterName(op.kind || op.name);
+                var numValue = Number(op.value);
+                if (!isNaN(numValue)) result.push({ name: name, value: numValue });
+            }
+            return result;
+        }
+
+        var str = filterValueToString(value);
         if (!str || typeof str !== 'string') return result;
-        
+
         var regex = /(\w[\w-]*)\(([^)]*)\)/g;
         var match;
-        
+
         while ((match = regex.exec(str)) !== null) {
-            var name = match[1].toLowerCase();
-            var numValue = parseFloat(match[2]);
-            
+            var name = normalizeFilterName(match[1]);
+            var numValue = parseFilterNumber(match[2], name);
+
             if (!isNaN(numValue)) {
-                var camelName = name.replace(/-([a-z])/g, function(_, c) { return c.toUpperCase(); });
-                result.values[camelName] = numValue;
-                result.order.push(camelName);
+                result.push({ name: name, value: numValue });
             }
         }
-        
+
         return result;
     }
 

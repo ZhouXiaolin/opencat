@@ -18,8 +18,7 @@ use crate::script::mutations::TextUnitGranularity;
 use crate::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
 use crate::script::text_units::{describe_text_units, grapheme_strings};
 use crate::script::{
-    font_edging_from_name, line_cap_from_name, line_join_from_name,
-    object_fit_from_name,
+    font_edging_from_name, line_cap_from_name, line_join_from_name, object_fit_from_name,
 };
 use crate::style::color_token_from_script_string;
 use crate::text::measure_script_text_width;

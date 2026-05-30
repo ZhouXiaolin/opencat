@@ -9,3 +9,6 @@ pub mod target;
 
 #[cfg(test)]
 mod resolve_tests;
+
+#[cfg(test)]
+mod script_runtime_tests;

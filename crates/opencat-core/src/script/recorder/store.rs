@@ -104,6 +104,15 @@ impl MutationStore {
         add_f32!("height", height);
         add_f32!("gap", gap);
         add_f32!("flexGrow", flex_grow);
+        add_f32!("blur", blur_sigma);
+        add_f32!("backdropBlur", backdrop_blur_sigma);
+        add_f32!("brightness", brightness);
+        add_f32!("contrast", contrast);
+        add_f32!("grayscale", grayscale);
+        add_f32!("hueRotate", hue_rotate);
+        add_f32!("invert", invert);
+        add_f32!("saturate", saturate);
+        add_f32!("sepia", sepia);
 
         // colors
         add_color!("fillColor", fill_color);
@@ -146,6 +155,15 @@ impl MutationStore {
                 "top" => mutations.inset_top.map(|f| json!(f)),
                 "right" => mutations.inset_right.map(|f| json!(f)),
                 "bottom" => mutations.inset_bottom.map(|f| json!(f)),
+                "blur" | "blurSigma" => mutations.blur_sigma.map(|f| json!(f)),
+                "backdropBlur" | "backdropBlurSigma" => mutations.backdrop_blur_sigma.map(|f| json!(f)),
+                "brightness" => mutations.brightness.map(|f| json!(f)),
+                "contrast" => mutations.contrast.map(|f| json!(f)),
+                "grayscale" => mutations.grayscale.map(|f| json!(f)),
+                "hueRotate" => mutations.hue_rotate.map(|f| json!(f)),
+                "invert" => mutations.invert.map(|f| json!(f)),
+                "saturate" => mutations.saturate.map(|f| json!(f)),
+                "sepia" => mutations.sepia.map(|f| json!(f)),
                 // colors (serialize as "#RRGGBBAA" or "transparent")
                 "fillColor" => mutations.fill_color.as_ref().map(|c| {
                     let (r, g, b, a) = c.rgba();
@@ -224,6 +242,15 @@ impl MutationStore {
             "letterSpacing" => { entry.letter_spacing = value.as_f64().map(|v| v as f32); }
             "lineHeight" => { entry.line_height = value.as_f64().map(|v| v as f32); }
             "fontWeight" => { entry.font_weight = value.as_f64().map(|v| FontWeight(v as u16)); }
+            "blur" | "blurSigma" => { entry.blur_sigma = value.as_f64().map(|v| v as f32); }
+            "backdropBlur" | "backdropBlurSigma" => { entry.backdrop_blur_sigma = value.as_f64().map(|v| v as f32); }
+            "brightness" => { entry.brightness = value.as_f64().map(|v| v as f32); }
+            "contrast" => { entry.contrast = value.as_f64().map(|v| v as f32); }
+            "grayscale" => { entry.grayscale = value.as_f64().map(|v| v as f32); }
+            "hueRotate" => { entry.hue_rotate = value.as_f64().map(|v| v as f32); }
+            "invert" => { entry.invert = value.as_f64().map(|v| v as f32); }
+            "saturate" => { entry.saturate = value.as_f64().map(|v| v as f32); }
+            "sepia" => { entry.sepia = value.as_f64().map(|v| v as f32); }
 
             // ── colors ──
             "bg" | "backgroundColor" => {

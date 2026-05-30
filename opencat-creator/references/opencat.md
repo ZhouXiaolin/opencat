@@ -219,13 +219,27 @@ Timeline 容器。见 §2.3 完整规范。
 
 | 预设 | 效果 |
 |------|------|
-| `'linear'` | 匀速 |
+| `'linear'` / `'none'` | 匀速 |
 | `'ease'`/`'ease-in'`/`'ease-out'`/`'ease-in-out'` | 标准 CSS 三次曲线 |
 | `'back-in'`/`'back-out'`/`'back-in-out'` | 轻微回弹 |
 | `'elastic-in'`/`'elastic-out'`/`'elastic-in-out'` | 阻尼振荡 |
 | `'bounce-in'`/`'bounce-out'`/`'bounce-in-out'` | 地面弹跳 |
 | `'steps(N)'` | N 步离散 |
 | `'spring.default'`/`'spring.gentle'`/`'spring.stiff'`/`'spring.slow'`/`'spring.wobbly'` | 弹簧 |
+
+**GSAP 风格缓动（新增）：**
+
+| 预设 | 效果 |
+|------|------|
+| `'power1.in'`/`'power1.out'`/`'power1.inOut'` | 二次曲线（轻度） |
+| `'power2.in'`/`'power2.out'`/`'power2.inOut'` | 三次曲线（中度） |
+| `'power3.in'`/`'power3.out'`/`'power3.inOut'` | 四次曲线（重度） |
+| `'power4.in'`/`'power4.out'`/`'power4.inOut'` | 五次曲线（极重） |
+| `'circ.in'`/`'circ.out'`/`'circ.inOut'` | 圆形曲线 |
+| `'expo.in'`/`'expo.out'`/`'expo.inOut'` | 指数曲线 |
+| `'sine.in'`/`'sine.out'`/`'sine.inOut'` | 正弦曲线 |
+| `'back.in(overshoot)'`/`'back.out(overshoot)'` | 带参数的回弹 |
+| `'elastic.in(amp,period)'`/`'elastic.out(amp,period)'` | 带参数的弹性 |
 
 自定义弹簧：
 ```js

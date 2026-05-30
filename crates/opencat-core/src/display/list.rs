@@ -176,7 +176,7 @@ pub struct DrawScriptDisplayItem {
     pub hidden_subtree: Vec<crate::display::tree::HiddenChildDisplayNode>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct RectPaintStyle {
     pub background: Option<BackgroundFill>,
     pub border_radius: BorderRadius,
@@ -192,6 +192,14 @@ pub struct RectPaintStyle {
     pub inset_shadow: Option<InsetShadow>,
     pub drop_shadow: Option<DropShadow>,
     pub backdrop_blur_sigma: Option<f32>,
+    // CSS filter properties
+    pub brightness: Option<f32>,
+    pub contrast: Option<f32>,
+    pub grayscale: Option<f32>,
+    pub hue_rotate: Option<f32>,
+    pub invert: Option<f32>,
+    pub saturate: Option<f32>,
+    pub sepia: Option<f32>,
 }
 
 #[derive(Clone, Debug)]

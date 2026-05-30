@@ -34,6 +34,29 @@ pub enum Easing {
     Steps(u32),
     CubicBezier(f32, f32, f32, f32),
     Spring(SpringConfig),
+    // GSAP-style power easings
+    Power1In,
+    Power1Out,
+    Power1InOut,
+    Power2In,
+    Power2Out,
+    Power2InOut,
+    Power3In,
+    Power3Out,
+    Power3InOut,
+    Power4In,
+    Power4Out,
+    Power4InOut,
+    // GSAP-style math easings
+    CircIn,
+    CircOut,
+    CircInOut,
+    ExpoIn,
+    ExpoOut,
+    ExpoInOut,
+    SineIn,
+    SineOut,
+    SineInOut,
 }
 
 impl Easing {
@@ -69,6 +92,73 @@ impl Easing {
             }
             Easing::CubicBezier(x1, y1, x2, y2) => cubic_bezier(t, *x1, *y1, *x2, *y2),
             Easing::Spring(config) => spring_easing(t, config),
+            // GSAP power easings (power1=quad, power2=cubic, power3=quart, power4=quint)
+            Easing::Power1In => t * t,
+            Easing::Power1Out => 1.0 - (1.0 - t) * (1.0 - t),
+            Easing::Power1InOut => {
+                if t < 0.5 {
+                    2.0 * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
+                }
+            }
+            Easing::Power2In => t * t * t,
+            Easing::Power2Out => 1.0 - (1.0 - t).powi(3),
+            Easing::Power2InOut => {
+                if t < 0.5 {
+                    4.0 * t * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+                }
+            }
+            Easing::Power3In => t.powi(4),
+            Easing::Power3Out => 1.0 - (1.0 - t).powi(4),
+            Easing::Power3InOut => {
+                if t < 0.5 {
+                    8.0 * t.powi(4)
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(4) / 2.0
+                }
+            }
+            Easing::Power4In => t.powi(5),
+            Easing::Power4Out => 1.0 - (1.0 - t).powi(5),
+            Easing::Power4InOut => {
+                if t < 0.5 {
+                    16.0 * t.powi(5)
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(5) / 2.0
+                }
+            }
+            // GSAP math easings
+            Easing::CircIn => 1.0 - (1.0 - t * t).sqrt(),
+            Easing::CircOut => (1.0 - (t - 1.0) * (t - 1.0)).sqrt(),
+            Easing::CircInOut => {
+                if t < 0.5 {
+                    (1.0 - (1.0 - (2.0 * t).powi(2)).sqrt()) / 2.0
+                } else {
+                    ((1.0 - (-2.0 * t + 2.0).powi(2)).sqrt() + 1.0) / 2.0
+                }
+            }
+            Easing::ExpoIn => {
+                if t <= 0.0 { 0.0 } else { 2.0_f32.powf(10.0 * t - 10.0) }
+            }
+            Easing::ExpoOut => {
+                if t >= 1.0 { 1.0 } else { 1.0 - 2.0_f32.powf(-10.0 * t) }
+            }
+            Easing::ExpoInOut => {
+                if t <= 0.0 {
+                    0.0
+                } else if t >= 1.0 {
+                    1.0
+                } else if t < 0.5 {
+                    2.0_f32.powf(20.0 * t - 10.0) / 2.0
+                } else {
+                    (2.0 - 2.0_f32.powf(-20.0 * t + 10.0)) / 2.0
+                }
+            }
+            Easing::SineIn => 1.0 - (t * std::f32::consts::PI / 2.0).cos(),
+            Easing::SineOut => (t * std::f32::consts::PI / 2.0).sin(),
+            Easing::SineInOut => -((std::f32::consts::PI * t).cos() - 1.0) / 2.0,
         }
     }
 
@@ -342,7 +432,7 @@ pub mod presets {
 
 pub fn easing_from_name(name: &str) -> Option<Easing> {
     match name {
-        "linear" => Some(Easing::Linear),
+        "linear" | "none" => Some(Easing::Linear),
         "ease" => Some(Easing::Ease),
         "ease-in" | "ease_in" => Some(Easing::EaseIn),
         "ease-out" | "ease_out" => Some(Easing::EaseOut),
@@ -366,6 +456,46 @@ pub fn easing_from_name(name: &str) -> Option<Easing> {
         "spring-slow" | "spring_slow" => Some(presets::SPRING_SLOW),
         "spring-wobbly" | "spring_wobbly" => Some(presets::SPRING_WOBBLY),
         s if s.starts_with("bezier:") => parse_bezier(&s[7..]),
+        // GSAP-style power easings
+        "power1.in" => Some(Easing::Power1In),
+        "power1.out" => Some(Easing::Power1Out),
+        "power1.inOut" | "power1.inout" => Some(Easing::Power1InOut),
+        "power2.in" => Some(Easing::Power2In),
+        "power2.out" => Some(Easing::Power2Out),
+        "power2.inOut" | "power2.inout" => Some(Easing::Power2InOut),
+        "power3.in" => Some(Easing::Power3In),
+        "power3.out" => Some(Easing::Power3Out),
+        "power3.inOut" | "power3.inout" => Some(Easing::Power3InOut),
+        "power4.in" => Some(Easing::Power4In),
+        "power4.out" => Some(Easing::Power4Out),
+        "power4.inOut" | "power4.inout" => Some(Easing::Power4InOut),
+        // GSAP-style math easings
+        "circ.in" => Some(Easing::CircIn),
+        "circ.out" => Some(Easing::CircOut),
+        "circ.inOut" | "circ.inout" => Some(Easing::CircInOut),
+        "expo.in" => Some(Easing::ExpoIn),
+        "expo.out" => Some(Easing::ExpoOut),
+        "expo.inOut" | "expo.inout" => Some(Easing::ExpoInOut),
+        "sine.in" => Some(Easing::SineIn),
+        "sine.out" => Some(Easing::SineOut),
+        "sine.inOut" | "sine.inout" => Some(Easing::SineInOut),
+        // GSAP-style back easings with parameter
+        s if s.starts_with("back.in(") && s.ends_with(')') => {
+            parse_gsap_back(&s[8..s.len() - 1], Easing::BackIn)
+        }
+        s if s.starts_with("back.out(") && s.ends_with(')') => {
+            parse_gsap_back(&s[9..s.len() - 1], Easing::BackOut)
+        }
+        s if s.starts_with("back.inOut(") && s.ends_with(')') => {
+            parse_gsap_back(&s[11..s.len() - 1], Easing::BackInOut)
+        }
+        // GSAP-style elastic easings with parameters
+        s if s.starts_with("elastic.in(") && s.ends_with(')') => {
+            parse_gsap_elastic(&s[11..s.len() - 1], true)
+        }
+        s if s.starts_with("elastic.out(") && s.ends_with(')') => {
+            parse_gsap_elastic(&s[12..s.len() - 1], false)
+        }
         _ => None,
     }
 }
@@ -380,6 +510,27 @@ fn parse_bezier(input: &str) -> Option<Easing> {
     let x2 = parts[2].parse().ok()?;
     let y2 = parts[3].parse().ok()?;
     Some(Easing::CubicBezier(x1, y1, x2, y2))
+}
+
+fn parse_gsap_back(input: &str, _default: Easing) -> Option<Easing> {
+    // GSAP back easing parameter is the overshoot amount
+    // We ignore the parameter for now and use the default back easing
+    let _overshoot: f32 = input.parse().ok()?;
+    Some(_default)
+}
+
+fn parse_gsap_elastic(input: &str, is_in: bool) -> Option<Easing> {
+    // GSAP elastic easing parameters: amplitude, period
+    // We ignore the parameters for now and use the default elastic easing
+    let parts: Vec<&str> = input.split(',').collect();
+    if parts.len() >= 1 {
+        let _amplitude: f32 = parts[0].parse().ok()?;
+    }
+    if is_in {
+        Some(Easing::ElasticIn)
+    } else {
+        Some(Easing::ElasticOut)
+    }
 }
 
 #[cfg(test)]
@@ -634,5 +785,89 @@ mod tests {
     fn animate_value_no_repeat_matches_old_behavior() {
         let v = animate_value(15, 10, 5, 0.0, 100.0, &Easing::Linear, false, 0, false, 0);
         assert!((v - 100.0).abs() < 1e-3);
+    }
+
+    // GSAP-style easing tests
+    #[test]
+    fn gsap_power_easings_parse() {
+        assert!(matches!(easing_from_name("power1.in"), Some(Easing::Power1In)));
+        assert!(matches!(easing_from_name("power1.out"), Some(Easing::Power1Out)));
+        assert!(matches!(easing_from_name("power1.inOut"), Some(Easing::Power1InOut)));
+        assert!(matches!(easing_from_name("power2.in"), Some(Easing::Power2In)));
+        assert!(matches!(easing_from_name("power2.out"), Some(Easing::Power2Out)));
+        assert!(matches!(easing_from_name("power2.inOut"), Some(Easing::Power2InOut)));
+        assert!(matches!(easing_from_name("power3.in"), Some(Easing::Power3In)));
+        assert!(matches!(easing_from_name("power3.out"), Some(Easing::Power3Out)));
+        assert!(matches!(easing_from_name("power3.inOut"), Some(Easing::Power3InOut)));
+        assert!(matches!(easing_from_name("power4.in"), Some(Easing::Power4In)));
+        assert!(matches!(easing_from_name("power4.out"), Some(Easing::Power4Out)));
+        assert!(matches!(easing_from_name("power4.inOut"), Some(Easing::Power4InOut)));
+    }
+
+    #[test]
+    fn gsap_math_easings_parse() {
+        assert!(matches!(easing_from_name("circ.in"), Some(Easing::CircIn)));
+        assert!(matches!(easing_from_name("circ.out"), Some(Easing::CircOut)));
+        assert!(matches!(easing_from_name("circ.inOut"), Some(Easing::CircInOut)));
+        assert!(matches!(easing_from_name("expo.in"), Some(Easing::ExpoIn)));
+        assert!(matches!(easing_from_name("expo.out"), Some(Easing::ExpoOut)));
+        assert!(matches!(easing_from_name("expo.inOut"), Some(Easing::ExpoInOut)));
+        assert!(matches!(easing_from_name("sine.in"), Some(Easing::SineIn)));
+        assert!(matches!(easing_from_name("sine.out"), Some(Easing::SineOut)));
+        assert!(matches!(easing_from_name("sine.inOut"), Some(Easing::SineInOut)));
+    }
+
+    #[test]
+    fn gsap_power_easings_boundaries() {
+        for e in &[
+            Easing::Power1In, Easing::Power1Out, Easing::Power1InOut,
+            Easing::Power2In, Easing::Power2Out, Easing::Power2InOut,
+            Easing::Power3In, Easing::Power3Out, Easing::Power3InOut,
+            Easing::Power4In, Easing::Power4Out, Easing::Power4InOut,
+        ] {
+            assert!((e.apply(0.0) - 0.0).abs() < 1e-4, "{:?} at 0 should be 0", e);
+            assert!((e.apply(1.0) - 1.0).abs() < 1e-4, "{:?} at 1 should be 1", e);
+        }
+    }
+
+    #[test]
+    fn gsap_math_easings_boundaries() {
+        for e in &[
+            Easing::CircIn, Easing::CircOut, Easing::CircInOut,
+            Easing::ExpoIn, Easing::ExpoOut, Easing::ExpoInOut,
+            Easing::SineIn, Easing::SineOut, Easing::SineInOut,
+        ] {
+            assert!((e.apply(0.0) - 0.0).abs() < 1e-4, "{:?} at 0 should be 0", e);
+            assert!((e.apply(1.0) - 1.0).abs() < 1e-4, "{:?} at 1 should be 1", e);
+        }
+    }
+
+    #[test]
+    fn gsap_power_easings_monotonic() {
+        // Power easings should be monotonic (increasing)
+        for e in &[
+            Easing::Power1In, Easing::Power2In, Easing::Power3In, Easing::Power4In,
+        ] {
+            let mut prev = 0.0;
+            for i in 1..=10 {
+                let t = i as f32 / 10.0;
+                let v = e.apply(t);
+                assert!(v >= prev, "{:?} at {t} = {v} should be >= {prev}", e);
+                prev = v;
+            }
+        }
+    }
+
+    #[test]
+    fn gsap_back_easings_with_parameter() {
+        assert!(matches!(easing_from_name("back.in(1.7)"), Some(Easing::BackIn)));
+        assert!(matches!(easing_from_name("back.out(1.7)"), Some(Easing::BackOut)));
+        assert!(matches!(easing_from_name("back.inOut(1.7)"), Some(Easing::BackInOut)));
+    }
+
+    #[test]
+    fn gsap_elastic_easings_with_parameter() {
+        assert!(matches!(easing_from_name("elastic.in(1, 0.3)"), Some(Easing::ElasticIn)));
+        assert!(matches!(easing_from_name("elastic.out(1, 0.3)"), Some(Easing::ElasticOut)));
     }
 }

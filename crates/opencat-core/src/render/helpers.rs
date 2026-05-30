@@ -34,6 +34,161 @@ use super::ctx::RenderCtx;
 
 use kurbo::BezPath;
 
+/// Build a color matrix from CSS filter properties.
+/// Returns None if no filter properties are set (identity).
+fn build_filter_color_matrix(
+    brightness: Option<f32>,
+    contrast: Option<f32>,
+    grayscale: Option<f32>,
+    hue_rotate: Option<f32>,
+    invert: Option<f32>,
+    saturate: Option<f32>,
+    sepia: Option<f32>,
+) -> Option<[f32; 20]> {
+    // Check if any filter is non-default
+    let has_brightness = brightness.map_or(false, |v| (v - 1.0).abs() > f32::EPSILON);
+    let has_contrast = contrast.map_or(false, |v| (v - 1.0).abs() > f32::EPSILON);
+    let has_grayscale = grayscale.map_or(false, |v| v.abs() > f32::EPSILON);
+    let has_hue_rotate = hue_rotate.map_or(false, |v| v.abs() > f32::EPSILON);
+    let has_invert = invert.map_or(false, |v| v.abs() > f32::EPSILON);
+    let has_saturate = saturate.map_or(false, |v| (v - 1.0).abs() > f32::EPSILON);
+    let has_sepia = sepia.map_or(false, |v| v.abs() > f32::EPSILON);
+
+    if !has_brightness && !has_contrast && !has_grayscale && !has_hue_rotate
+        && !has_invert && !has_saturate && !has_sepia
+    {
+        return None;
+    }
+
+    // Start with identity matrix
+    let mut matrix = [
+        1.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 1.0, 0.0,
+    ];
+
+    // Apply each filter in CSS order
+    if has_brightness {
+        let v = brightness.unwrap_or(1.0);
+        let filter = [
+            v, 0.0, 0.0, 0.0, 0.0,
+            0.0, v, 0.0, 0.0, 0.0,
+            0.0, 0.0, v, 0.0, 0.0,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+        ];
+        matrix = multiply_color_matrices(&filter, &matrix);
+    }
+
+    if has_contrast {
+        let v = contrast.unwrap_or(1.0);
+        let intercept = 0.5 * (1.0 - v);
+        let filter = [
+            v, 0.0, 0.0, 0.0, intercept,
+            0.0, v, 0.0, 0.0, intercept,
+            0.0, 0.0, v, 0.0, intercept,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+        ];
+        matrix = multiply_color_matrices(&filter, &matrix);
+    }
+
+    if has_grayscale {
+        let a = grayscale.unwrap_or(0.0);
+        let b = 1.0 - a;
+        let filter = [
+            b + a * 0.2126, a * 0.7152, a * 0.0722, 0.0, 0.0,
+            a * 0.2126, b + a * 0.7152, a * 0.0722, 0.0, 0.0,
+            a * 0.2126, a * 0.7152, b + a * 0.0722, 0.0, 0.0,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+        ];
+        matrix = multiply_color_matrices(&filter, &matrix);
+    }
+
+    if has_hue_rotate {
+        let degrees = hue_rotate.unwrap_or(0.0);
+        let radians = degrees * std::f32::consts::PI / 180.0;
+        let cos = radians.cos();
+        let sin = radians.sin();
+
+        let filter = [
+            0.2126 + cos * 0.7874 - sin * 0.2126,
+            0.7152 - cos * 0.7152 - sin * 0.7152,
+            0.0722 - cos * 0.0722 + sin * 0.9278,
+            0.0, 0.0,
+            0.2126 - cos * 0.2126 + sin * 0.1437,
+            0.7152 + cos * 0.2848 + sin * 0.1400,
+            0.0722 - cos * 0.0722 - sin * 0.2837,
+            0.0, 0.0,
+            0.2126 - cos * 0.2126 - sin * 0.7874,
+            0.7152 - cos * 0.7152 + sin * 0.7152,
+            0.0722 + cos * 0.9278 + sin * 0.0722,
+            0.0, 0.0,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+        ];
+        matrix = multiply_color_matrices(&filter, &matrix);
+    }
+
+    if has_invert {
+        let a = invert.unwrap_or(0.0);
+        let b = 1.0 - 2.0 * a;
+        let filter = [
+            b, 0.0, 0.0, 0.0, a,
+            0.0, b, 0.0, 0.0, a,
+            0.0, 0.0, b, 0.0, a,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+        ];
+        matrix = multiply_color_matrices(&filter, &matrix);
+    }
+
+    if has_saturate {
+        let v = saturate.unwrap_or(1.0);
+        let a = (1.0 - v) * 0.2126;
+        let b = (1.0 - v) * 0.7152;
+        let c = (1.0 - v) * 0.0722;
+
+        let filter = [
+            a + v, b, c, 0.0, 0.0,
+            a, b + v, c, 0.0, 0.0,
+            a, b, c + v, 0.0, 0.0,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+        ];
+        matrix = multiply_color_matrices(&filter, &matrix);
+    }
+
+    if has_sepia {
+        let a = sepia.unwrap_or(0.0);
+        let b = 1.0 - a;
+
+        let filter = [
+            b + a * 0.393, a * 0.769, a * 0.189, 0.0, 0.0,
+            a * 0.349, b + a * 0.686, a * 0.168, 0.0, 0.0,
+            a * 0.272, a * 0.534, b + a * 0.131, 0.0, 0.0,
+            0.0, 0.0, 0.0, 1.0, 0.0,
+        ];
+        matrix = multiply_color_matrices(&filter, &matrix);
+    }
+
+    Some(matrix)
+}
+
+/// Multiply two 4x5 color matrices.
+fn multiply_color_matrices(a: &[f32; 20], b: &[f32; 20]) -> [f32; 20] {
+    let mut result = [0.0f32; 20];
+    for i in 0..4 {
+        for j in 0..5 {
+            let mut sum = 0.0;
+            for k in 0..4 {
+                sum += a[i * 5 + k] * b[k * 5 + j];
+            }
+            if j == 4 {
+                sum += a[i * 5 + 4];
+            }
+            result[i * 5 + j] = sum;
+        }
+    }
+    result
+}
+
 #[cfg(feature = "profile")]
 use tracing::{Level, event, span};
 
@@ -842,6 +997,43 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
     builder.push(DrawOp::Save);
     clip_bounds(builder, bounds, &style.border_radius);
 
+    // Apply CSS filter color matrix if any filter properties are set
+    let filter_matrix = build_filter_color_matrix(
+        style.brightness,
+        style.contrast,
+        style.grayscale,
+        style.hue_rotate,
+        style.invert,
+        style.saturate,
+        style.sepia,
+    );
+    let has_filter = filter_matrix.is_some();
+
+    if has_filter {
+        // Apply filter as a SaveLayer with color filter
+        if let Some(matrix) = filter_matrix {
+            let filter_paint = PaintSpec {
+                fill: FillSpec::Solid([1.0; 4]),
+                style: PaintStyle::Fill,
+                stroke: None,
+                anti_alias: true,
+                blend_mode: BlendMode::SrcOver,
+                image_filter: Some(ImageFilterSpec::ColorFilter(Box::new(
+                    crate::canvas::paint::ColorFilterSpec::Matrix(matrix),
+                ))),
+                color_filter: None,
+                mask_filter: None,
+                path_effect: None,
+            };
+            let paint_id = builder.intern_paint(filter_paint);
+            builder.push(DrawOp::SaveLayer {
+                bounds: Some(rect_to_rect4(rect)),
+                paint: Some(paint_id),
+                alpha: 1.0,
+            });
+        }
+    }
+
     if let Some(sigma) = style.backdrop_blur_sigma
         && sigma > 0.0
     {
@@ -900,6 +1092,10 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
     );
 
     if style.backdrop_blur_sigma.unwrap_or(0.0) > 0.0 {
+        builder.push(DrawOp::Restore);
+    }
+
+    if has_filter {
         builder.push(DrawOp::Restore);
     }
 

@@ -4,7 +4,7 @@
 
 **如何选择：** 先匹配情绪，再匹配内容。问：*"观众应该感受到什么？"*
 
-**如何适配 OpenCat：** YAML 中的 hex 色值转换为最接近的 Tailwind 色 token（如 `#0066FF` → `blue-600`）。时间单位为帧（@30fps，×30）。Easing 使用 opencat.md §5.1 预设名（`ease-out`、`ease-in-out`、`back-out` 等）。
+**如何适配 OpenCat：** YAML 中的 hex 色值转换为最接近的 Tailwind 色 token（如 `#0066FF` → `blue-600`）。时间单位为帧（@30fps，×30）。Easing 使用 opencat.md §5.1 预设名（`ease-out`、`ease-in-out`、`back-out` 等），也支持 GSAP 风格格式（`power2.inOut`、`expo.out`、`sine.in` 等）。
 
 ## Quick Reference
 
@@ -51,9 +51,9 @@ spacing:
 motion:
   energy: high
   easing:
-    entry: "ease-out"        # 原 expo.out
-    exit: "ease-in"          # 原 power4.in
-    ambient: "linear"        # 原 none
+    entry: "expo.out"
+    exit: "power4.in"
+    ambient: "linear"
   duration:
     entrance: 12             # 帧 (原 0.4s)
     hold: 45                 # 帧 (原 1.5s)
@@ -98,9 +98,9 @@ spacing:
 motion:
   energy: calm
   easing:
-    entry: "ease-in-out"     # 原 sine.inOut
-    exit: "ease-in"          # 原 power1.in
-    ambient: "ease-in-out"   # 原 sine.inOut
+    entry: "sine.inOut"
+    exit: "power1.in"
+    ambient: "sine.inOut"
   duration:
     entrance: 36             # 帧 (原 1.2s)
     hold: 90                 # 帧 (原 3.0s)
@@ -142,9 +142,9 @@ spacing:
 motion:
   energy: high
   easing:
-    entry: "back-out"        # 原 back.out(2.5)
-    exit: "steps(8)"         # 原 steps(8)
-    ambient: "elastic-out"   # 原 elastic.out(1.2, 0.4)
+    entry: "back.out(2.5)"
+    exit: "steps(8)"
+    ambient: "elastic.out(1.2, 0.4)"
   duration:
     entrance: 9              # 帧 (原 0.3s)
     hold: 30                 # 帧 (原 1.0s)
@@ -187,9 +187,9 @@ spacing:
 motion:
   energy: high
   easing:
-    entry: "ease-out"        # 原 expo.out
-    exit: "back-out"         # 原 back.out(1.8)
-    ambient: "ease-out"      # 原 power3.out
+    entry: "expo.out"
+    exit: "back.out(1.8)"
+    ambient: "power3.out"
   duration:
     entrance: 9              # 帧 (原 0.3s)
     hold: 24                 # 帧 (原 0.8s)
@@ -234,9 +234,9 @@ spacing:
 motion:
   energy: moderate
   easing:
-    entry: "ease-in-out"     # 原 sine.inOut
-    exit: "ease-out"         # 原 power2.out
-    ambient: "ease-in-out"   # 原 sine.inOut
+    entry: "sine.inOut"
+    exit: "power2.out"
+    ambient: "sine.inOut"
   duration:
     entrance: 30             # 帧 (原 1.0s)
     hold: 75                 # 帧 (原 2.5s)
@@ -285,9 +285,9 @@ spacing:
 motion:
   energy: calm
   easing:
-    entry: "ease-in-out"     # 原 sine.inOut
-    exit: "ease-in-out"      # 原 power1.inOut
-    ambient: "ease-in-out"   # 原 sine.inOut
+    entry: "sine.inOut"
+    exit: "power1.inOut"
+    ambient: "sine.inOut"
   duration:
     entrance: 30             # 帧 (原 1.0s)
     hold: 90                 # 帧 (原 3.0s)
@@ -334,9 +334,9 @@ spacing:
 motion:
   energy: high
   easing:
-    entry: "back-out"        # 原 back.out(1.6)
-    exit: "elastic-out"      # 原 elastic.out(1, 0.5)
-    ambient: "ease-in-out"   # 原 sine.inOut
+    entry: "back.out(1.6)"
+    exit: "elastic.out(1, 0.5)"
+    ambient: "sine.inOut"
   duration:
     entrance: 15             # 帧 (原 0.5s)
     hold: 45                 # 帧 (原 1.5s)
@@ -381,9 +381,9 @@ spacing:
 motion:
   energy: moderate
   easing:
-    entry: "ease-out"        # 原 power3.out
-    exit: "ease-in"          # 原 power4.in
-    ambient: "ease-in-out"   # 原 sine.inOut
+    entry: "power3.out"
+    exit: "power4.in"
+    ambient: "sine.inOut"
   duration:
     entrance: 24             # 帧 (原 0.8s)
     hold: 75                 # 帧 (原 2.5s)

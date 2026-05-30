@@ -1,195 +1,228 @@
-# OpenCat JSONL 格式参考
+# OpenCat XML 格式参考
 
-> **格式规则**
-> - **每行一个 JSON 对象。** 不要将单个 JSON 对象拆分为多行。
-> - **脚本内容中无注释。** 脚本代码必须保持干净。
-
-OpenCat JSONL 是一种 JSON Lines 格式，用于描述动态图形合成。每行是一个节点声明、脚本附件或元数据记录。运行时解析文件，构建场景树，并使用 Skia + Taffy + QuickJS 渲染帧。
+OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建场景树，使用 Skia + Taffy + QuickJS 渲染帧。
 
 ---
 
-## 1. Composition 头部
+## 基本结构
 
-第一行必须是 `composition` 记录。
-
-```json
-{"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 180}
+```xml
+<opencat width="1280" height="720" fps="30" frames="90">
+  <script>
+    // 动画脚本（可选，最多一个）
+    ctx.fromTo('title', {opacity: 0}, {opacity: 1, duration: 30});
+  </script>
+  <div id="root" class="flex items-center justify-center w-full h-full bg-white">
+    <text id="title" class="text-[48px] font-bold">Hello</text>
+  </div>
+</opencat>
 ```
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `width` | `i32` | 画布宽度（像素） |
-| `height` | `i32` | 画布高度（像素） |
-| `fps` | `i32` | 每秒帧数 |
-| `frames` | `i32` | 总帧数。`frames / fps` = 时长（秒） |
 
 ---
 
-## 2. 节点树
+## 根元素 `<opencat>`
 
-### 2.1 父子关系
-
-每个节点（除 `composition` 和 `script`/`transition`）有 `id` 和 `parentId`。树通过这些链接构建。
-
-- 恰好一个根节点的 `parentId` 为 `null`。
-- `parentId` 必须引用先前声明的 `id`。
-- `script` 和 `transition` 记录没有 `id`；它们附加到 `parentId`。
-
-### 2.2 普通树（单场景）
-
-```json
-{"type": "composition", "width": 390, "height": 844, "fps": 30, "frames": 60}
-{"id": "scene1", "parentId": null, "type": "div", "className": "flex flex-col w-[390px] h-[844px] bg-white", "duration": 60}
-{"id": "title", "parentId": "scene1", "type": "text", "className": "text-[24px] font-bold", "text": "Hello"}
-```
-
-### 2.3 Timeline（多场景 + 转场）
-
-```json
-{"type":"composition","width":390,"height":844,"fps":30,"frames":162}
-{"id":"root","parentId":null,"type":"div","className":"relative w-[390px] h-[844px]"}
-{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
-{"id":"scene1","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-white","duration":60}
-{"id":"scene2","parentId":"main-tl","type":"div","className":"flex flex-col w-full h-full bg-slate-900","duration":90}
-{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"fade","duration":12}
-```
-
-规则：
-- `tl` 必须是树中的显式节点。不支持根级多场景推断。
-- `tl` 遵循 `NodeStyle` — `tl` 节点本身的布局和脚本被保留。
-- `tl` 必须至少有两个直接子场景，每对相邻场景必须有匹配的 `transition`。
-- `tl` 没有 `duration` 字段。总长推导：`sum(scene.duration) + sum(transition.duration)`。
-- `transition.parentId` 必须引用拥有它的 `tl` 节点。
-- 将 `tl` 和持久叠加层（如 `caption`）放在共享父 `div` 下作为兄弟节点以进行 z 序合成。
-- 保持 `composition.frames` 与推导总长对齐。
+| 属性 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `width` | 正整数 | 1920 | 画布宽度（像素） |
+| `height` | 正整数 | 1080 | 画布高度（像素） |
+| `fps` | 正整数 | 30 | 每秒帧数 |
+| `frames` | 正整数 | 90 | 总帧数 |
 
 ---
 
-## 3. 节点类型
+## `<script>` 规则
 
-每个元素是一行 JSON。`className` 使用 Tailwind 风格类（见 §5 样式）。
+**严格限制：**
+- **只能有一个** `<script>` 标签
+- **必须是 `<opencat>` 的直接子节点**（不能嵌套在其他元素内）
+- **不能有属性**（如 `type`、`src` 等都不允许）
+- **不能自闭合**（必须有 `</script>` 结束标签）
 
-### 3.1 `div`
+script 内容会在解析时被提取，并自动附加到 visual root 节点（即第一个视觉元素）。
 
-容器。等价于 HTML `<div>`，**默认 `display: block`**。className 含 `flex` / `flex-row` / `flex-col` 时切换为 Flex；含 `grid` 时切换为 Grid。
+```xml
+<!-- ✅ 正确 -->
+<opencat>
+  <script>ctx.fromTo('title', {opacity: 0}, {opacity: 1, duration: 30});</script>
+  <div id="root">...</div>
+</opencat>
 
-布局硬性规则（Tailwind 对齐）：
+<!-- ❌ 错误：script 嵌套在 div 内 -->
+<opencat>
+  <div id="root">
+    <script>...</script>
+  </div>
+</opencat>
 
-- **优先使用 flex**。容器应以 `flex flex-col` / `flex items-center justify-center` 等起手，通过 gap / items / justify 排版子元素。
-- **`absolute` 必须显式坐标**。任何 `absolute` 元素必须至少包含 `top` / `left` / `right` / `bottom` / `inset-X` 之一（含 `inset-0`）。Taffy 不实现 CSS 的 absolute static position fallback——inset 全 auto 的 `absolute` 元素会塞到容器内容区左上 `(0, 0)`，多个 absolute 元素会完全重叠。
+<!-- ❌ 错误：script 有属性 -->
+<opencat>
+  <script type="text/javascript">...</script>
+  <div id="root">...</div>
+</opencat>
 
-```json
-{"id": "box", "parentId": "root", "type": "div", "className": "flex flex-col items-center gap-4 p-6"}
+<!-- ❌ 错误：多个 script -->
+<opencat>
+  <script>...</script>
+  <script>...</script>
+  <div id="root">...</div>
+</opencat>
 ```
 
-### 3.2 `text`
+---
 
-文本内容节点。等价于 `<span>` / `<p>`。
+## 元素类型
 
-```json
-{"id": "title", "parentId": "box", "type": "text", "className": "text-[24px] font-bold text-slate-900", "text": "Hello"}
-```
+| 标签 | 说明 | 必填属性 |
+|------|------|----------|
+| `<div>` | 容器，默认 `display: block` | `id` |
+| `<text>` | 文本节点 | `id` |
+| `<image>` | 图像 | `id` + 一个图像源 |
+| `<video>` | 视频 | `id` + 一个视频源 |
+| `<icon>` | Lucide 图标 | `id` + `icon` |
+| `<path>` | SVG 路径 | `id` + `d` |
+| `<canvas>` | Canvas 绘制表面 | `id` |
+| `<audio>` | 音频（必须在 `<soundtrack>` 内） | `id` + `attach` + 一个音频源 |
+| `<caption>` | SRT 字幕 | `id` + `path` |
+| `<tl>` | Timeline 容器 | `id` |
+| `<transition>` | 场景转场 | `from` + `to` + `effect` + `duration` |
+| `<soundtrack>` | 音频容器 | — |
 
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| `text` | 是 | 文本内容字符串 |
+---
 
-### 3.3 `image`
+## 资源指定
 
-图像节点。等价于 `<img>`。
+### 图像源（三选一）
 
-```json
-{"id": "hero", "parentId": "scene1", "type": "image", "className": "w-[300px] h-[200px] object-cover rounded-lg", "query": "mountain landscape"}
-```
-
-指定恰好一个图像源：
-
-| 字段 | 说明 |
+| 属性 | 说明 |
 |------|------|
 | `path` | 本地文件路径 |
 | `url` | 远程 URL |
 | `query` | Openverse 搜索查询（1-4 个名词） |
 
-### 3.4 `icon`
+可选：`queryCount`（默认 1）、`aspectRatio`（需配合 `query`）
 
-Lucide 图标节点。使用 kebab-case 图标名。
-
-```json
-{"id": "search", "parentId": "scene1", "type": "icon", "className": "w-[24px] h-[24px] stroke-slate-400", "icon": "search"}
+```xml
+<image id="local" path="/tmp/photo.png" />
+<image id="remote" url="https://example.com/photo.png" />
+<image id="search" query="mountain landscape" queryCount="3" aspectRatio="16:9" />
 ```
 
-### 3.5 `path`
+### 视频源（三选一）
 
-SVG 路径节点。渲染一个或多个 SVG 路径数据字符串。
+| 属性 | 说明 |
+|------|------|
+| `path` | 本地文件路径 |
+| `url` | 远程 URL |
+| `src` | 兼容属性（自动判断本地/远程） |
 
-```json
-{"id": "triangle", "parentId": "scene1", "type": "path", "className": "w-[100px] h-[100px] fill-red-500 stroke-blue stroke-2", "d": "M0 0 L100 0 L50 100 Z"}
+```xml
+<video id="clip" url="https://example.com/video.mp4" />
 ```
 
-### 3.6 `canvas`
+视频时间控制：
 
-Canvas 绘制表面。需要子 `script` 进行绘制命令。
+| 属性 | 说明 |
+|------|------|
+| `data-start` | 时间线起点（秒） |
+| `data-duration` | 时间线时长（秒） |
+| `data-media-start` | 媒体内起始点（秒） |
+| `loop` | 循环播放（`true`/`false`） |
 
-```json
-{"id": "chart", "parentId": "scene1", "type": "canvas", "className": "w-[300px] h-[200px]"}
-{"type": "script", "parentId": "chart", "src": "var CK = ctx.CanvasKit;\nvar canvas = ctx.getCanvas();\ncanvas.clear('#ffffff');"}
+### 音频源（二选一，必须在 `<soundtrack>` 内）
+
+```xml
+<soundtrack>
+  <audio id="bgm" url="https://example.com/music.mp3" attach="scene1" />
+</soundtrack>
 ```
 
-### 3.7 `audio`
-
-音频播放节点。等价于 `<audio>`。
-
-```json
-{"id": "bgm", "parentId": "root", "type": "audio", "path": "/tmp/bgm.mp3"}
-```
-
-`parentId` 控制播放时机：
-- 附加到场景节点下 → 在该场景期间播放
-- `parentId: null` → 在整个合成期间播放
-
-### 3.8 `video`
-
-视频播放节点。等价于 `<video>`。
-
-```json
-{"id": "clip", "parentId": "scene1", "type": "video", "className": "w-full h-full object-cover", "path": "clip.mp4"}
-```
-
-### 3.9 `caption`
-
-SRT 驱动的文本节点。
-
-```json
-{"id": "subs", "parentId": "root", "type": "caption", "className": "absolute inset-x-[48px] bottom-[32px] text-center text-white", "path": "subtitles.utf8.srt"}
-```
-
-### 3.10 `tl`
-
-Timeline 容器。见 §2.3 完整规范。
-
-### 3.11 `transition`
-
-两个相邻场景之间的转场。见 §4 完整规范。
+| 属性 | 说明 |
+|------|------|
+| `id` | 节点标识 |
+| `path`/`url` | 音频源 |
+| `attach` | 附加到的场景 ID |
+| `duration` | 可选，持续帧数 |
 
 ---
 
-## 4. 转场
+## 布局系统
 
-转场描述 `tl` 节点内两个相邻场景之间的交接。它们消耗额外帧。
+样式使用 `class` 属性，采用 Tailwind 风格类：
 
-```json
-{"type": "transition", "parentId": "main-tl", "from": "scene1", "to": "scene2", "effect": "fade", "duration": 12}
+```xml
+<div id="root" class="flex flex-col items-center justify-center gap-4 p-6 bg-white rounded-[12px]">
 ```
 
-| 字段 | 必填 | 说明 |
+**布局硬性规则：**
+
+- **优先使用 flex**。容器应以 `flex flex-col` / `flex items-center justify-center` 等起手
+- **`absolute` 必须显式坐标**。至少包含 `top` / `left` / `right` / `bottom` / `inset-X` 之一
+
+```xml
+<!-- ✅ 正确 -->
+<div id="overlay" class="absolute inset-0 bg-black/50" />
+<div id="badge" class="absolute left-[10px] top-[10px] px-[8px] py-[4px] bg-white rounded-full" />
+
+<!-- ❌ 错误：absolute 无坐标 -->
+<div id="overlay" class="absolute bg-black/50" />
+```
+
+**样式限制：**
+- 不要使用 CSS 动画类（`transition-*`、`animate-*`、`duration-*`、`ease-*`、`delay-*`）
+- 不要使用 transform 类（`transform`、`translate-*`、`rotate-*`、`scale-*`、`skew-*`）
+
+---
+
+## Timeline（多场景 + 转场）
+
+```xml
+<opencat width="1280" height="720" fps="30" frames="360">
+  <div id="root" class="relative w-[1280px] h-[720px]">
+    <tl id="main-tl" class="absolute inset-0">
+      <div id="scene1" class="w-full h-full bg-white" duration="120">
+        <text id="title" class="text-[48px] font-bold">Scene 1</text>
+      </div>
+
+      <transition from="scene1" to="scene2" effect="fade" duration="18" timing="ease-in-out" />
+
+      <div id="scene2" class="w-full h-full bg-slate-900" duration="222">
+        <text id="title2" class="text-[48px] font-bold text-white">Scene 2</text>
+      </div>
+    </tl>
+  </div>
+</opencat>
+```
+
+**Timeline 规则：**
+- `<tl>` 必须至少有两个直接子场景
+- 每对相邻场景必须有匹配的 `<transition>`
+- `<tl>` 没有 `duration` 属性，总长推导：`sum(scene.duration) + sum(transition.duration)`
+- `<transition>` 必须是 `<tl>` 的直接子节点
+- 保持 `frames` 与推导总长对齐
+
+---
+
+## 转场
+
+```xml
+<transition from="scene1" to="scene2" effect="fade" duration="18" />
+```
+
+| 属性 | 必填 | 说明 |
 |------|------|------|
-| `parentId` | 是 | 必须引用拥有它的 `tl` 节点 |
 | `from` | 是 | 源场景 id |
 | `to` | 是 | 目标场景 id |
 | `effect` | 是 | 效果名称 |
 | `duration` | 是 | 转场帧数 |
 | `direction` | 否 | `slide`/`wipe` 的方向 |
-| `timing` | 否 | 缓动名称（默认 `"linear"`） |
+| `timing` | 否 | 缓动名称（默认 `linear`） |
+| `damping` | 否 | 弹簧阻尼 |
+| `stiffness` | 否 | 弹簧刚度 |
+| `mass` | 否 | 弹簧质量 |
+| `seed` | 否 | 随机种子 |
+| `hueShift` | 否 | 色相偏移 |
+| `maskScale` | 否 | 遮罩缩放 |
 
 ### 效果类型
 
@@ -207,63 +240,11 @@ Timeline 容器。见 §2.3 完整规范。
 
 ---
 
-## 5. 样式（Tailwind）
+## 动画系统
 
-`className` 使用 Tailwind 风格类进行布局、颜色、间距、圆角和相关视觉属性。
+动画脚本通过 `<script>` 标签编写，使用 QuickJS 在每帧运行。
 
-**限制：**
-- 不要使用 CSS 动画类（`transition-*`、`animate-*`、`duration-*`、`ease-*`、`delay-*`）。
-- 不要在 `className` 中使用 transform 类（`transform`、`translate-*`、`rotate-*`、`scale-*`、`skew-*`）。
-
-### 5.1 缓动参考
-
-| 预设 | 效果 |
-|------|------|
-| `'linear'` / `'none'` | 匀速 |
-| `'ease'`/`'ease-in'`/`'ease-out'`/`'ease-in-out'` | 标准 CSS 三次曲线 |
-| `'back-in'`/`'back-out'`/`'back-in-out'` | 轻微回弹 |
-| `'elastic-in'`/`'elastic-out'`/`'elastic-in-out'` | 阻尼振荡 |
-| `'bounce-in'`/`'bounce-out'`/`'bounce-in-out'` | 地面弹跳 |
-| `'steps(N)'` | N 步离散 |
-| `'spring.default'`/`'spring.gentle'`/`'spring.stiff'`/`'spring.slow'`/`'spring.wobbly'` | 弹簧 |
-
-**GSAP 风格缓动（新增）：**
-
-| 预设 | 效果 |
-|------|------|
-| `'power1.in'`/`'power1.out'`/`'power1.inOut'` | 二次曲线（轻度） |
-| `'power2.in'`/`'power2.out'`/`'power2.inOut'` | 三次曲线（中度） |
-| `'power3.in'`/`'power3.out'`/`'power3.inOut'` | 四次曲线（重度） |
-| `'power4.in'`/`'power4.out'`/`'power4.inOut'` | 五次曲线（极重） |
-| `'circ.in'`/`'circ.out'`/`'circ.inOut'` | 圆形曲线 |
-| `'expo.in'`/`'expo.out'`/`'expo.inOut'` | 指数曲线 |
-| `'sine.in'`/`'sine.out'`/`'sine.inOut'` | 正弦曲线 |
-| `'back.in(overshoot)'`/`'back.out(overshoot)'` | 带参数的回弹 |
-| `'elastic.in(amp,period)'`/`'elastic.out(amp,period)'` | 带参数的弹性 |
-
-自定义弹簧：
-```js
-ease: { spring: { stiffness: 120, damping: 12, mass: 0.9 } }
-```
-
-三次贝塞尔：
-```js
-ease: [0.25, 0.1, 0.25, 1.0]
-```
-
----
-
-## 6. 动画系统
-
-> 动画模式、示例和速查表见 [ctx-animation.md](ctx-animation.md)。
-
-动画脚本通过 `script` 记录附加到节点，使用 QuickJS 在每帧运行。
-
-```json
-{"type": "script", "parentId": "scene1", "src": "ctx.fromTo('title',{opacity:0},{opacity:1,duration:20,ease:'spring.gentle'});"}
-```
-
-执行上下文：
+### 执行上下文
 
 | 字段 | 说明 |
 |------|------|
@@ -274,18 +255,9 @@ ease: [0.25, 0.1, 0.25, 1.0]
 
 **使用指南：**
 - **循环动画**（呼吸、闪烁、持续旋转）：使用 `ctx.frame`
-- **场景内进度**（路径绘制、淡入淡出、场景内动画）：使用 `ctx.currentFrame / ctx.sceneFrames`
+- **场景内进度**（路径绘制、淡入淡出）：使用 `ctx.currentFrame / ctx.sceneFrames`
 
-### 6.1 设计哲学
-
-OpenCat 的动画系统是**函数式纯的**：每个动画值通过精确数学公式计算为 `value = f(current_frame)`。
-
-- **插值**：`from + (to - from) * easing(progress)`
-- **弹簧**：从物理参数精确求解
-- **颜色**：HSLA 空间最短路径色相旋转
-- **路径**：Skia `ContourMeasure` 亚像素精度弧长采样
-
-### 6.2 Tween API
+### Tween API
 
 ```js
 ctx.set(targets, vars);                // 立即设置
@@ -323,7 +295,7 @@ ctx.fromTo(targets, fromVars, toVars); // 完整控制
 | `yoyo` | `false` | 交替反向 |
 | `stagger` | `0` | 数组目标延迟 |
 
-### 6.3 Timeline
+### Timeline
 
 ```js
 ctx.timeline({ defaults: { duration: 18, ease: 'spring.gentle' } })
@@ -342,7 +314,7 @@ ctx.timeline({ defaults: { duration: 18, ease: 'spring.gentle' } })
 | `'-=N'` | 游标前 N 帧 |
 | `'<'`/`'>'` | 前一个子项的开始/结束 |
 
-### 6.4 路径动画
+### 路径动画
 
 ```js
 ctx.to('rocket', {
@@ -353,7 +325,7 @@ ctx.to('rocket', {
 });
 ```
 
-### 6.5 变形路径
+### 变形路径
 
 ```js
 ctx.fromTo('blob',
@@ -362,7 +334,7 @@ ctx.fromTo('blob',
 );
 ```
 
-### 6.6 文字动画
+### 文字动画
 
 **打字机：**
 ```js
@@ -377,7 +349,7 @@ ctx.from(ctx.splitText('title', { type: 'chars' }), {
 });
 ```
 
-### 6.7 Node API
+### Node API
 
 ```js
 ctx.getNode('id')
@@ -389,7 +361,45 @@ ctx.getNode('id')
 
 ---
 
-## 7. Canvas API
+## 缓动参考
+
+| 预设 | 效果 |
+|------|------|
+| `'linear'` / `'none'` | 匀速 |
+| `'ease'`/`'ease-in'`/`'ease-out'`/`'ease-in-out'` | 标准 CSS 三次曲线 |
+| `'back-in'`/`'back-out'`/`'back-in-out'` | 轻微回弹 |
+| `'elastic-in'`/`'elastic-out'`/`'elastic-in-out'` | 阻尼振荡 |
+| `'bounce-in'`/`'bounce-out'`/`'bounce-in-out'` | 地面弹跳 |
+| `'steps(N)'` | N 步离散 |
+| `'spring.default'`/`'spring.gentle'`/`'spring.stiff'`/`'spring.slow'`/`'spring.wobbly'` | 弹簧 |
+
+**GSAP 风格缓动：**
+
+| 预设 | 效果 |
+|------|------|
+| `'power1.in'`/`'power1.out'`/`'power1.inOut'` | 二次曲线（轻度） |
+| `'power2.in'`/`'power2.out'`/`'power2.inOut'` | 三次曲线（中度） |
+| `'power3.in'`/`'power3.out'`/`'power3.inOut'` | 四次曲线（重度） |
+| `'power4.in'`/`'power4.out'`/`'power4.inOut'` | 五次曲线（极重） |
+| `'circ.in'`/`'circ.out'`/`'circ.inOut'` | 圆形曲线 |
+| `'expo.in'`/`'expo.out'`/`'expo.inOut'` | 指数曲线 |
+| `'sine.in'`/`'sine.out'`/`'sine.inOut'` | 正弦曲线 |
+| `'back.in(overshoot)'`/`'back.out(overshoot)'` | 带参数的回弹 |
+| `'elastic.in(amp,period)'`/`'elastic.out(amp,period)'` | 带参数的弹性 |
+
+自定义弹簧：
+```js
+ease: { spring: { stiffness: 120, damping: 12, mass: 0.9 } }
+```
+
+三次贝塞尔：
+```js
+ease: [0.25, 0.1, 0.25, 1.0]
+```
+
+---
+
+## Canvas API
 
 `canvas` 节点提供 CanvasKit 风格的绘制表面。
 
@@ -452,13 +462,91 @@ path.close();
 
 ---
 
+## 完整示例
+
+### 简单场景（无 Timeline）
+
+```xml
+<opencat width="390" height="844" fps="30" frames="60">
+  <script>
+    ctx.fromTo('title', {opacity: 0, y: 30}, {opacity: 1, y: 0, duration: 20, ease: 'spring.gentle'});
+  </script>
+  <div id="root" class="flex flex-col items-center justify-center w-full h-full bg-white">
+    <text id="title" class="text-[48px] font-bold text-slate-900">Hello OpenCat</text>
+  </div>
+</opencat>
+```
+
+### 多场景 Timeline
+
+```xml
+<opencat width="1280" height="720" fps="30" frames="360">
+  <soundtrack>
+    <audio id="bgm" url="https://example.com/music.mp3" attach="scene1" />
+  </soundtrack>
+
+  <script>
+    ctx.fromTo(['title', 'subtitle'], {opacity: 0, y: 24}, {opacity: 1, y: 0, stagger: 6, duration: 24, ease: 'spring.gentle'});
+  </script>
+
+  <div id="root" class="relative w-[1280px] h-[720px] bg-slate-950">
+    <tl id="main-tl" class="absolute inset-0">
+      <div id="scene1" class="flex flex-col items-center justify-center w-full h-full" duration="180">
+        <text id="title" class="text-[72px] font-bold text-white">Scene 1</text>
+        <text id="subtitle" class="text-[24px] text-slate-400">With animation</text>
+      </div>
+
+      <transition from="scene1" to="scene2" effect="fade" duration="18" timing="ease-in-out" />
+
+      <div id="scene2" class="flex flex-col items-center justify-center w-full h-full bg-slate-900" duration="180">
+        <text id="title2" class="text-[72px] font-bold text-white">Scene 2</text>
+      </div>
+    </tl>
+  </div>
+</opencat>
+```
+
+### Canvas 绘制
+
+```xml
+<opencat width="640" height="480" fps="30" frames="120">
+  <script>
+    var CK = ctx.CanvasKit;
+    var canvas = ctx.getCanvas();
+    canvas.clear(CK.WHITE);
+    var paint = new CK.Paint();
+    paint.setColor(CK.parseColorString('#ff0000'));
+    canvas.drawCircle(320, 240, 100, paint);
+  </script>
+  <div id="root" class="w-[640px] h-[480px] bg-white">
+    <canvas id="my-canvas" class="w-full h-full" />
+  </div>
+</opencat>
+```
+
+### 视频叠加
+
+```xml
+<opencat width="1280" height="720" fps="30" frames="180">
+  <div id="root" class="relative w-full h-full bg-black">
+    <video id="bg-video" class="absolute inset-0 w-full h-full object-cover" src="https://example.com/video.mp4" loop="true" />
+    <div id="overlay" class="absolute bottom-[40px] left-[40px] px-[20px] py-[12px] rounded-[12px] bg-black/60">
+      <text id="caption" class="text-[24px] text-white font-semibold">Video Overlay</text>
+    </div>
+  </div>
+</opencat>
+```
+
+---
+
 ## 附录：常见错误
 
 | 错误 | 正确 |
 |------|------|
-| `type: "div"` 带 `text` 字段 | 仅 `type: "text"` 接受 `text` |
+| `<div>` 标签内直接写文本 | 用 `<text>` 包裹 |
 | 用 `bg-{color}` 给图标/路径着色 | 用 `fill-{color}` / `stroke-{color}` |
-| className 中放 transform 类 | 用 Node API |
-| `parentId` 指向无效 id | 必须引用已存在节点 |
-| `tl` 缺转场或场景少于 2 | 添加缺失的 `transition` |
+| `class` 中放 transform 类 | 用脚本控制动画 |
+| `<tl>` 缺转场或场景少于 2 | 添加缺失的 `<transition>` |
 | 帧数不匹配 | `frames = sum(scene.duration) + sum(transition.duration)` |
+| `<script>` 嵌套在其他元素内 | 必须是 `<opencat>` 的直接子节点 |
+| `<audio>` 直接放在 `<opencat>` 下 | 必须在 `<soundtrack>` 内 |

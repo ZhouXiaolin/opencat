@@ -403,6 +403,13 @@ fn display_item_for_node(
                 inset_shadow: element.style.visual.inset_shadow,
                 drop_shadow: element.style.visual.drop_shadow,
                 backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
+                brightness: element.style.visual.brightness,
+                contrast: element.style.visual.contrast,
+                grayscale: element.style.visual.grayscale,
+                hue_rotate: element.style.visual.hue_rotate,
+                invert: element.style.visual.invert,
+                saturate: element.style.visual.saturate,
+                sepia: element.style.visual.sepia,
             },
         }),
         ElementKind::Timeline(timeline) => DisplayItem::Timeline(TimelineDisplayItem {
@@ -422,6 +429,13 @@ fn display_item_for_node(
                 inset_shadow: element.style.visual.inset_shadow,
                 drop_shadow: element.style.visual.drop_shadow,
                 backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
+                brightness: element.style.visual.brightness,
+                contrast: element.style.visual.contrast,
+                grayscale: element.style.visual.grayscale,
+                hue_rotate: element.style.visual.hue_rotate,
+                invert: element.style.visual.invert,
+                saturate: element.style.visual.saturate,
+                sepia: element.style.visual.sepia,
             },
             transition: timeline.transition.as_ref().map(|transition| {
                 let mut kind = transition.kind.clone();

@@ -85,6 +85,15 @@ pub struct NodeStyleMutations {
     pub text_content: Option<String>,
     pub text_unit_overrides: Option<TextUnitOverrideBatch>,
     pub svg_path: Option<String>,
+    pub blur_sigma: Option<f32>,
+    pub backdrop_blur_sigma: Option<f32>,
+    pub brightness: Option<f32>,
+    pub contrast: Option<f32>,
+    pub grayscale: Option<f32>,
+    pub hue_rotate: Option<f32>,
+    pub invert: Option<f32>,
+    pub saturate: Option<f32>,
+    pub sepia: Option<f32>,
 }
 
 impl NodeStyleMutations {
@@ -234,6 +243,33 @@ impl NodeStyleMutations {
         }
         if let Some(v) = &self.svg_path {
             style.svg_path = Some(v.clone());
+        }
+        if let Some(v) = self.blur_sigma {
+            style.blur_sigma = Some(v.max(0.0));
+        }
+        if let Some(v) = self.backdrop_blur_sigma {
+            style.backdrop_blur_sigma = Some(v.max(0.0));
+        }
+        if let Some(v) = self.brightness {
+            style.brightness = Some(v.max(0.0));
+        }
+        if let Some(v) = self.contrast {
+            style.contrast = Some(v.max(0.0));
+        }
+        if let Some(v) = self.grayscale {
+            style.grayscale = Some(v.clamp(0.0, 1.0));
+        }
+        if let Some(v) = self.hue_rotate {
+            style.hue_rotate = Some(v);
+        }
+        if let Some(v) = self.invert {
+            style.invert = Some(v.clamp(0.0, 1.0));
+        }
+        if let Some(v) = self.saturate {
+            style.saturate = Some(v.max(0.0));
+        }
+        if let Some(v) = self.sepia {
+            style.sepia = Some(v.clamp(0.0, 1.0));
         }
     }
 }

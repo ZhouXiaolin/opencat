@@ -29,6 +29,7 @@ pub const PLUGIN_TEXT: &str = include_str!("animation/plugins/text.js");
 pub const PLUGIN_SPLIT_TEXT: &str = include_str!("animation/plugins/split_text.js");
 pub const PLUGIN_MOTION_PATH: &str = include_str!("animation/plugins/motion_path.js");
 pub const PLUGIN_MORPH_SVG: &str = include_str!("animation/plugins/morph_svg.js");
+pub const PLUGIN_FILTER: &str = include_str!("animation/plugins/filter.js");
 pub const PLUGIN_UTILS: &str = include_str!("animation/plugins/utils.js");
 
 /// All plugin runtime sources in the canonical load order.
@@ -39,6 +40,7 @@ pub const PLUGIN_RUNTIMES: &[&str] = &[
     PLUGIN_SPLIT_TEXT,
     PLUGIN_MOTION_PATH,
     PLUGIN_MORPH_SVG,
+    PLUGIN_FILTER,
     PLUGIN_UTILS,
 ];
 
@@ -52,6 +54,7 @@ pub const ANIMATION_RUNTIME_PARTS: &[&str] = &[
     PLUGIN_SPLIT_TEXT,
     PLUGIN_MOTION_PATH,
     PLUGIN_MORPH_SVG,
+    PLUGIN_FILTER,
     PLUGIN_UTILS,
     ANIMATION_FACADE,
 ];
@@ -73,6 +76,8 @@ pub const ANIMATION_RUNTIME: &str = concat!(
     include_str!("animation/plugins/motion_path.js"),
     "\n",
     include_str!("animation/plugins/morph_svg.js"),
+    "\n",
+    include_str!("animation/plugins/filter.js"),
     "\n",
     include_str!("animation/plugins/utils.js"),
     "\n",

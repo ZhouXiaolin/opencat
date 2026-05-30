@@ -140,10 +140,18 @@ impl Easing {
                 }
             }
             Easing::ExpoIn => {
-                if t <= 0.0 { 0.0 } else { 2.0_f32.powf(10.0 * t - 10.0) }
+                if t <= 0.0 {
+                    0.0
+                } else {
+                    2.0_f32.powf(10.0 * t - 10.0)
+                }
             }
             Easing::ExpoOut => {
-                if t >= 1.0 { 1.0 } else { 1.0 - 2.0_f32.powf(-10.0 * t) }
+                if t >= 1.0 {
+                    1.0
+                } else {
+                    1.0 - 2.0_f32.powf(-10.0 * t)
+                }
             }
             Easing::ExpoInOut => {
                 if t <= 0.0 {
@@ -790,55 +798,139 @@ mod tests {
     // GSAP-style easing tests
     #[test]
     fn gsap_power_easings_parse() {
-        assert!(matches!(easing_from_name("power1.in"), Some(Easing::Power1In)));
-        assert!(matches!(easing_from_name("power1.out"), Some(Easing::Power1Out)));
-        assert!(matches!(easing_from_name("power1.inOut"), Some(Easing::Power1InOut)));
-        assert!(matches!(easing_from_name("power2.in"), Some(Easing::Power2In)));
-        assert!(matches!(easing_from_name("power2.out"), Some(Easing::Power2Out)));
-        assert!(matches!(easing_from_name("power2.inOut"), Some(Easing::Power2InOut)));
-        assert!(matches!(easing_from_name("power3.in"), Some(Easing::Power3In)));
-        assert!(matches!(easing_from_name("power3.out"), Some(Easing::Power3Out)));
-        assert!(matches!(easing_from_name("power3.inOut"), Some(Easing::Power3InOut)));
-        assert!(matches!(easing_from_name("power4.in"), Some(Easing::Power4In)));
-        assert!(matches!(easing_from_name("power4.out"), Some(Easing::Power4Out)));
-        assert!(matches!(easing_from_name("power4.inOut"), Some(Easing::Power4InOut)));
+        assert!(matches!(
+            easing_from_name("power1.in"),
+            Some(Easing::Power1In)
+        ));
+        assert!(matches!(
+            easing_from_name("power1.out"),
+            Some(Easing::Power1Out)
+        ));
+        assert!(matches!(
+            easing_from_name("power1.inOut"),
+            Some(Easing::Power1InOut)
+        ));
+        assert!(matches!(
+            easing_from_name("power2.in"),
+            Some(Easing::Power2In)
+        ));
+        assert!(matches!(
+            easing_from_name("power2.out"),
+            Some(Easing::Power2Out)
+        ));
+        assert!(matches!(
+            easing_from_name("power2.inOut"),
+            Some(Easing::Power2InOut)
+        ));
+        assert!(matches!(
+            easing_from_name("power3.in"),
+            Some(Easing::Power3In)
+        ));
+        assert!(matches!(
+            easing_from_name("power3.out"),
+            Some(Easing::Power3Out)
+        ));
+        assert!(matches!(
+            easing_from_name("power3.inOut"),
+            Some(Easing::Power3InOut)
+        ));
+        assert!(matches!(
+            easing_from_name("power4.in"),
+            Some(Easing::Power4In)
+        ));
+        assert!(matches!(
+            easing_from_name("power4.out"),
+            Some(Easing::Power4Out)
+        ));
+        assert!(matches!(
+            easing_from_name("power4.inOut"),
+            Some(Easing::Power4InOut)
+        ));
     }
 
     #[test]
     fn gsap_math_easings_parse() {
         assert!(matches!(easing_from_name("circ.in"), Some(Easing::CircIn)));
-        assert!(matches!(easing_from_name("circ.out"), Some(Easing::CircOut)));
-        assert!(matches!(easing_from_name("circ.inOut"), Some(Easing::CircInOut)));
+        assert!(matches!(
+            easing_from_name("circ.out"),
+            Some(Easing::CircOut)
+        ));
+        assert!(matches!(
+            easing_from_name("circ.inOut"),
+            Some(Easing::CircInOut)
+        ));
         assert!(matches!(easing_from_name("expo.in"), Some(Easing::ExpoIn)));
-        assert!(matches!(easing_from_name("expo.out"), Some(Easing::ExpoOut)));
-        assert!(matches!(easing_from_name("expo.inOut"), Some(Easing::ExpoInOut)));
+        assert!(matches!(
+            easing_from_name("expo.out"),
+            Some(Easing::ExpoOut)
+        ));
+        assert!(matches!(
+            easing_from_name("expo.inOut"),
+            Some(Easing::ExpoInOut)
+        ));
         assert!(matches!(easing_from_name("sine.in"), Some(Easing::SineIn)));
-        assert!(matches!(easing_from_name("sine.out"), Some(Easing::SineOut)));
-        assert!(matches!(easing_from_name("sine.inOut"), Some(Easing::SineInOut)));
+        assert!(matches!(
+            easing_from_name("sine.out"),
+            Some(Easing::SineOut)
+        ));
+        assert!(matches!(
+            easing_from_name("sine.inOut"),
+            Some(Easing::SineInOut)
+        ));
     }
 
     #[test]
     fn gsap_power_easings_boundaries() {
         for e in &[
-            Easing::Power1In, Easing::Power1Out, Easing::Power1InOut,
-            Easing::Power2In, Easing::Power2Out, Easing::Power2InOut,
-            Easing::Power3In, Easing::Power3Out, Easing::Power3InOut,
-            Easing::Power4In, Easing::Power4Out, Easing::Power4InOut,
+            Easing::Power1In,
+            Easing::Power1Out,
+            Easing::Power1InOut,
+            Easing::Power2In,
+            Easing::Power2Out,
+            Easing::Power2InOut,
+            Easing::Power3In,
+            Easing::Power3Out,
+            Easing::Power3InOut,
+            Easing::Power4In,
+            Easing::Power4Out,
+            Easing::Power4InOut,
         ] {
-            assert!((e.apply(0.0) - 0.0).abs() < 1e-4, "{:?} at 0 should be 0", e);
-            assert!((e.apply(1.0) - 1.0).abs() < 1e-4, "{:?} at 1 should be 1", e);
+            assert!(
+                (e.apply(0.0) - 0.0).abs() < 1e-4,
+                "{:?} at 0 should be 0",
+                e
+            );
+            assert!(
+                (e.apply(1.0) - 1.0).abs() < 1e-4,
+                "{:?} at 1 should be 1",
+                e
+            );
         }
     }
 
     #[test]
     fn gsap_math_easings_boundaries() {
         for e in &[
-            Easing::CircIn, Easing::CircOut, Easing::CircInOut,
-            Easing::ExpoIn, Easing::ExpoOut, Easing::ExpoInOut,
-            Easing::SineIn, Easing::SineOut, Easing::SineInOut,
+            Easing::CircIn,
+            Easing::CircOut,
+            Easing::CircInOut,
+            Easing::ExpoIn,
+            Easing::ExpoOut,
+            Easing::ExpoInOut,
+            Easing::SineIn,
+            Easing::SineOut,
+            Easing::SineInOut,
         ] {
-            assert!((e.apply(0.0) - 0.0).abs() < 1e-4, "{:?} at 0 should be 0", e);
-            assert!((e.apply(1.0) - 1.0).abs() < 1e-4, "{:?} at 1 should be 1", e);
+            assert!(
+                (e.apply(0.0) - 0.0).abs() < 1e-4,
+                "{:?} at 0 should be 0",
+                e
+            );
+            assert!(
+                (e.apply(1.0) - 1.0).abs() < 1e-4,
+                "{:?} at 1 should be 1",
+                e
+            );
         }
     }
 
@@ -846,7 +938,10 @@ mod tests {
     fn gsap_power_easings_monotonic() {
         // Power easings should be monotonic (increasing)
         for e in &[
-            Easing::Power1In, Easing::Power2In, Easing::Power3In, Easing::Power4In,
+            Easing::Power1In,
+            Easing::Power2In,
+            Easing::Power3In,
+            Easing::Power4In,
         ] {
             let mut prev = 0.0;
             for i in 1..=10 {
@@ -860,14 +955,29 @@ mod tests {
 
     #[test]
     fn gsap_back_easings_with_parameter() {
-        assert!(matches!(easing_from_name("back.in(1.7)"), Some(Easing::BackIn)));
-        assert!(matches!(easing_from_name("back.out(1.7)"), Some(Easing::BackOut)));
-        assert!(matches!(easing_from_name("back.inOut(1.7)"), Some(Easing::BackInOut)));
+        assert!(matches!(
+            easing_from_name("back.in(1.7)"),
+            Some(Easing::BackIn)
+        ));
+        assert!(matches!(
+            easing_from_name("back.out(1.7)"),
+            Some(Easing::BackOut)
+        ));
+        assert!(matches!(
+            easing_from_name("back.inOut(1.7)"),
+            Some(Easing::BackInOut)
+        ));
     }
 
     #[test]
     fn gsap_elastic_easings_with_parameter() {
-        assert!(matches!(easing_from_name("elastic.in(1, 0.3)"), Some(Easing::ElasticIn)));
-        assert!(matches!(easing_from_name("elastic.out(1, 0.3)"), Some(Easing::ElasticOut)));
+        assert!(matches!(
+            easing_from_name("elastic.in(1, 0.3)"),
+            Some(Easing::ElasticIn)
+        ));
+        assert!(matches!(
+            easing_from_name("elastic.out(1, 0.3)"),
+            Some(Easing::ElasticOut)
+        ));
     }
 }

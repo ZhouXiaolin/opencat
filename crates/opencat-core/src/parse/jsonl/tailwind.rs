@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
 use crate::style::{
-    AlignItems, BoxShadow, BoxShadowStyle, ColorToken, DropShadow, DropShadowStyle, FlexDirection,
-    FlexWrap, FontWeight, GradientDirection, GridAutoFlow, GridAutoRows, GridPlacement,
-    InsetShadow, InsetShadowStyle, JustifyContent, LengthPercentageAuto, NodeStyle, ObjectFit,
-    Position, TextAlign, TextTransform, color_token_from_class_suffix,
+    AlignItems, BoxShadow, BoxShadowStyle, ColorToken, CssFilterKind, DropShadow, DropShadowStyle,
+    FlexDirection, FlexWrap, FontWeight, GradientDirection, GridAutoFlow, GridAutoRows,
+    GridPlacement, InsetShadow, InsetShadowStyle, JustifyContent, LengthPercentageAuto, NodeStyle,
+    ObjectFit, Position, TextAlign, TextTransform, color_token_from_class_suffix,
 };
 
 static UNSUPPORTED_TAILWIND_CLASSES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -85,6 +85,84 @@ fn parse_single_class(class: &str, style: &mut NodeStyle) -> bool {
     } else {
         parse_arbitrary_class(class, style)
     }
+}
+
+fn parse_tailwind_css_filter(class: &str, style: &mut NodeStyle) -> bool {
+    const FILTER_PREFIXES: &[(&str, CssFilterKind)] = &[
+        ("-hue-rotate-", CssFilterKind::HueRotate),
+        ("brightness-", CssFilterKind::Brightness),
+        ("contrast-", CssFilterKind::Contrast),
+        ("grayscale-", CssFilterKind::Grayscale),
+        ("hue-rotate-", CssFilterKind::HueRotate),
+        ("invert-", CssFilterKind::Invert),
+        ("saturate-", CssFilterKind::Saturate),
+        ("sepia-", CssFilterKind::Sepia),
+    ];
+
+    match class {
+        "brightness" => {
+            style.css_filter.push(CssFilterKind::Brightness, 1.0);
+            return true;
+        }
+        "contrast" => {
+            style.css_filter.push(CssFilterKind::Contrast, 1.0);
+            return true;
+        }
+        "grayscale" => {
+            style.css_filter.push(CssFilterKind::Grayscale, 1.0);
+            return true;
+        }
+        "invert" => {
+            style.css_filter.push(CssFilterKind::Invert, 1.0);
+            return true;
+        }
+        "sepia" => {
+            style.css_filter.push(CssFilterKind::Sepia, 1.0);
+            return true;
+        }
+        "saturate" => {
+            style.css_filter.push(CssFilterKind::Saturate, 1.0);
+            return true;
+        }
+        _ => {}
+    }
+
+    for (prefix, kind) in FILTER_PREFIXES {
+        let Some(raw) = class.strip_prefix(prefix) else {
+            continue;
+        };
+        let Some(mut value) = parse_filter_utility_value(raw, *kind) else {
+            return false;
+        };
+        if *prefix == "-hue-rotate-" {
+            value = -value;
+        }
+        style.css_filter.push(*kind, value);
+        return true;
+    }
+
+    false
+}
+
+fn parse_filter_utility_value(raw: &str, kind: CssFilterKind) -> Option<f32> {
+    if let Some(value) = parse_filter_arbitrary_value(raw) {
+        return Some(value);
+    }
+    let value = raw.parse::<f32>().ok()?;
+    Some(match kind {
+        CssFilterKind::HueRotate => value,
+        _ => value / 100.0,
+    })
+}
+
+fn parse_filter_arbitrary_value(raw: &str) -> Option<f32> {
+    let value = raw.strip_prefix('[')?.strip_suffix(']')?;
+    value
+        .strip_suffix("deg")
+        .or_else(|| value.strip_suffix("px"))
+        .unwrap_or(value)
+        .parse::<f32>()
+        .ok()
 }
 
 fn exact_class_action(class: &str) -> Option<ExactClassAction> {
@@ -175,7 +253,7 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         ExactClassAction::LineHeight(value) => style.line_height = Some(value),
         ExactClassAction::LetterSpacing(value) => style.letter_spacing = Some(value),
         ExactClassAction::TextTransform(value) => style.text_transform = Some(value),
-        ExactClassAction::BlurSigma(value) => style.blur_sigma = Some(value),
+        ExactClassAction::BlurSigma(value) => style.css_filter.push(CssFilterKind::Blur, value),
         ExactClassAction::GridAutoFlow(value) => style.grid_auto_flow = Some(value),
         ExactClassAction::GridAutoRows(value) => style.grid_auto_rows = Some(value),
         ExactClassAction::AspectRatio(value) => style.aspect_ratio = Some(value),
@@ -190,6 +268,10 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
 }
 
 fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
+    if parse_tailwind_css_filter(class, style) {
+        return true;
+    }
+
     if let Some(border_style) = match class {
         "border-solid" => Some(crate::style::BorderStyle::Solid),
         "border-dashed" => Some(crate::style::BorderStyle::Dashed),
@@ -1305,7 +1387,7 @@ fn apply_f32_target(style: &mut NodeStyle, target: F32Target, value: f32) {
         }
         F32Target::BorderWidth => style.border_width = Some(value),
         F32Target::OpacityClamped => style.opacity = Some(value.clamp(0.0, 1.0)),
-        F32Target::BlurSigma => style.blur_sigma = Some(value),
+        F32Target::BlurSigma => style.css_filter.push(CssFilterKind::Blur, value),
         F32Target::FlexGrow => style.flex_grow = Some(value),
         F32Target::FlexShrink => style.flex_shrink = Some(value),
     }
@@ -1813,6 +1895,30 @@ mod tests {
         let style = parse_class_name("fill-none");
 
         assert_eq!(style.fill_color, Some(ColorToken::Transparent));
+    }
+
+    #[test]
+    fn parses_css_filter_utilities_in_class_order() {
+        let style = parse_class_name(
+            "brightness-50 blur-sm contrast-200 grayscale hue-rotate-90 -hue-rotate-45 invert-25 saturate-150 sepia",
+        );
+
+        assert_eq!(
+            style.css_filter.to_css_string(),
+            "brightness(0.5) blur(4px) contrast(2) grayscale(1) hue-rotate(90deg) hue-rotate(-45deg) invert(0.25) saturate(1.5) sepia(1)"
+        );
+    }
+
+    #[test]
+    fn parses_arbitrary_css_filter_utilities() {
+        let style = parse_class_name(
+            "blur-[12px] brightness-[1.2] contrast-[0.8] grayscale-[0.25] hue-rotate-[37deg] invert-[0.4] saturate-[1.8] sepia-[0.6]",
+        );
+
+        assert_eq!(
+            style.css_filter.to_css_string(),
+            "blur(12px) brightness(1.2) contrast(0.8) grayscale(0.25) hue-rotate(37deg) invert(0.4) saturate(1.8) sepia(0.6)"
+        );
     }
 
     #[test]

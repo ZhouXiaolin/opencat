@@ -243,7 +243,7 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     style.visual.box_shadow = None;
     style.visual.inset_shadow = None;
     style.visual.drop_shadow = None;
-    style.visual.blur_sigma = None;
+    style.visual.css_filter = Default::default();
     style.visual.backdrop_blur_sigma = None;
     style.visual.border_radius = crate::style::BorderRadius::default();
     style.visual.clip_contents = false;
@@ -1111,15 +1111,8 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             stroke_dasharray: style.stroke_dasharray,
             stroke_dashoffset: style.stroke_dashoffset,
             border_style: style.border_style,
-            blur_sigma: style.blur_sigma,
+            css_filter: style.css_filter.clone(),
             backdrop_blur_sigma: style.backdrop_blur_sigma,
-            brightness: style.brightness,
-            contrast: style.contrast,
-            grayscale: style.grayscale,
-            hue_rotate: style.hue_rotate,
-            invert: style.invert,
-            saturate: style.saturate,
-            sepia: style.sepia,
             object_fit: style.object_fit.unwrap_or_default(),
             clip_contents: style.overflow_hidden,
             transforms: style.transforms.clone(),

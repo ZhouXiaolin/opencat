@@ -19,7 +19,7 @@ use crate::layout::tree::LayoutOutputFingerprint;
 use crate::media::{VideoFrameRequest, VideoPreviewQuality};
 use crate::parse::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::render::builder::DrawOpBuilder;
-use crate::style::{BorderRadius, Transform};
+use crate::style::{BorderRadius, CssFilter, Transform};
 
 use super::{RenderCtx, RenderError, record_cache_pressure};
 
@@ -178,18 +178,20 @@ fn display_rect_to_rect4(r: DisplayRect) -> Rect4 {
     }
 }
 
-struct BackdropLayerState {
+pub(crate) struct BackdropLayerState {
     uses_layer: bool,
     has_backdrop_clip: bool,
 }
 
-fn save_backdrop_blur_layer(
+pub(crate) fn save_composite_layer(
     builder: &mut DrawOpBuilder,
     opacity: f32,
+    css_filter: &CssFilter,
     backdrop_blur: Option<f32>,
     bounds: DisplayRect,
 ) -> BackdropLayerState {
-    let uses_layer = opacity < 1.0 || backdrop_blur.is_some();
+    let uses_css_filter = !css_filter.is_identity();
+    let uses_layer = opacity < 1.0 || backdrop_blur.is_some() || uses_css_filter;
     let mut has_backdrop_clip = false;
     if uses_layer {
         #[cfg(feature = "profile")]
@@ -202,46 +204,67 @@ fn save_backdrop_blur_layer(
             amount = 1_u64
         );
         let bounds_rect4 = display_rect_to_rect4(bounds);
-        if let Some(sigma) = backdrop_blur {
-            if sigma > 0.0 {
-                let paint = PaintSpec {
-                    fill: FillSpec::Solid([1.0, 1.0, 1.0, opacity]),
-                    style: PaintStyle::Fill,
-                    stroke: None,
-                    anti_alias: true,
-                    blend_mode: BlendMode::SrcOver,
-                    image_filter: Some(ImageFilterSpec::Blur {
+        if let Some(sigma) = backdrop_blur.filter(|sigma| *sigma > 0.0) {
+            let image_filter = match super::helpers::css_filter_image_filter(css_filter) {
+                Some(css_image_filter) => ImageFilterSpec::Compose(
+                    Box::new(css_image_filter),
+                    Box::new(ImageFilterSpec::Blur {
                         sigma_x: sigma,
                         sigma_y: sigma,
                         crop_rect: None,
                     }),
-                    color_filter: None,
-                    mask_filter: None,
-                    path_effect: None,
-                };
-                let paint_id = builder.intern_paint(paint);
-                builder.push(DrawOp::Save);
-                builder.push(DrawOp::BeginPath);
-                builder.push(DrawOp::Path(PathOp::AddRect {
-                    x: bounds_rect4.x,
-                    y: bounds_rect4.y,
-                    width: bounds_rect4.width,
-                    height: bounds_rect4.height,
-                }));
-                builder.push(DrawOp::ClipPath { anti_alias: false });
-                has_backdrop_clip = true;
-                builder.push(DrawOp::SaveLayer {
-                    bounds: Some(bounds_rect4),
-                    paint: Some(paint_id),
-                    alpha: 1.0,
-                });
-            } else {
-                builder.push(DrawOp::SaveLayer {
-                    bounds: Some(bounds_rect4),
-                    paint: None,
-                    alpha: opacity,
-                });
-            }
+                ),
+                None => ImageFilterSpec::Blur {
+                    sigma_x: sigma,
+                    sigma_y: sigma,
+                    crop_rect: None,
+                },
+            };
+            let paint = PaintSpec {
+                fill: FillSpec::Solid([1.0, 1.0, 1.0, opacity]),
+                style: PaintStyle::Fill,
+                stroke: None,
+                anti_alias: true,
+                blend_mode: BlendMode::SrcOver,
+                image_filter: Some(image_filter),
+                color_filter: None,
+                mask_filter: None,
+                path_effect: None,
+            };
+            let paint_id = builder.intern_paint(paint);
+            builder.push(DrawOp::Save);
+            builder.push(DrawOp::BeginPath);
+            builder.push(DrawOp::Path(PathOp::AddRect {
+                x: bounds_rect4.x,
+                y: bounds_rect4.y,
+                width: bounds_rect4.width,
+                height: bounds_rect4.height,
+            }));
+            builder.push(DrawOp::ClipPath { anti_alias: false });
+            has_backdrop_clip = true;
+            builder.push(DrawOp::SaveLayer {
+                bounds: Some(bounds_rect4),
+                paint: Some(paint_id),
+                alpha: 1.0,
+            });
+        } else if let Some(image_filter) = super::helpers::css_filter_image_filter(css_filter) {
+            let paint = PaintSpec {
+                fill: FillSpec::Solid([1.0, 1.0, 1.0, 1.0]),
+                style: PaintStyle::Fill,
+                stroke: None,
+                anti_alias: true,
+                blend_mode: BlendMode::SrcOver,
+                image_filter: Some(image_filter),
+                color_filter: None,
+                mask_filter: None,
+                path_effect: None,
+            };
+            let paint_id = builder.intern_paint(paint);
+            builder.push(DrawOp::SaveLayer {
+                bounds: Some(bounds_rect4),
+                paint: Some(paint_id),
+                alpha: opacity,
+            });
         } else {
             builder.push(DrawOp::SaveLayer {
                 bounds: Some(bounds_rect4),
@@ -256,7 +279,7 @@ fn save_backdrop_blur_layer(
     }
 }
 
-fn restore_backdrop_blur_layer(builder: &mut DrawOpBuilder, state: &BackdropLayerState) {
+pub(crate) fn restore_backdrop_blur_layer(builder: &mut DrawOpBuilder, state: &BackdropLayerState) {
     if state.uses_layer {
         builder.push(DrawOp::Restore);
         if state.has_backdrop_clip {
@@ -265,10 +288,11 @@ fn restore_backdrop_blur_layer(builder: &mut DrawOpBuilder, state: &BackdropLaye
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct ApplyPlan<'a> {
     transform: &'a DisplayTransform,
     opacity: f32,
+    css_filter: &'a CssFilter,
     backdrop_blur_sigma: Option<f32>,
     layer_bounds: DisplayRect,
 }
@@ -278,6 +302,7 @@ impl<'a> ApplyPlan<'a> {
         Self {
             transform: draw.transform,
             opacity: draw.opacity,
+            css_filter: draw.css_filter,
             backdrop_blur_sigma: draw.backdrop_blur_sigma,
             layer_bounds,
         }
@@ -296,6 +321,7 @@ fn apply_segment_key(plan: &ApplyPlan<'_>) -> u64 {
         hash_transform(transform, &mut hasher);
     }
     plan.opacity.to_bits().hash(&mut hasher);
+    plan.css_filter.hash(&mut hasher);
     plan.backdrop_blur_sigma.map(f32::to_bits).hash(&mut hasher);
     hash_display_rect(plan.layer_bounds, &mut hasher);
     hasher.finish()
@@ -363,7 +389,9 @@ struct ApplyFrame {
 
 fn backdrop_layer_state_for_plan(plan: &ApplyPlan<'_>) -> BackdropLayerState {
     BackdropLayerState {
-        uses_layer: plan.opacity < 1.0 || plan.backdrop_blur_sigma.is_some(),
+        uses_layer: plan.opacity < 1.0
+            || plan.backdrop_blur_sigma.is_some()
+            || !plan.css_filter.is_identity(),
         has_backdrop_clip: plan.backdrop_blur_sigma.is_some_and(|sigma| sigma > 0.0),
     }
 }
@@ -371,9 +399,10 @@ fn backdrop_layer_state_for_plan(plan: &ApplyPlan<'_>) -> BackdropLayerState {
 fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> ApplyFrame {
     builder.push(DrawOp::Save);
     apply_transform(builder, plan.transform);
-    let layer_state = save_backdrop_blur_layer(
+    let layer_state = save_composite_layer(
         builder,
         plan.opacity,
+        plan.css_filter,
         plan.backdrop_blur_sigma,
         plan.layer_bounds,
     );
@@ -1092,6 +1121,7 @@ mod tests {
             recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint::default(),
             transform,
             opacity: 1.0,
+            css_filter: Default::default(),
             backdrop_blur_sigma: None,
             clip: None,
             item: DisplayItem::Rect(RectDisplayItem {
@@ -1106,18 +1136,10 @@ mod tests {
                     border_left_width: None,
                     border_color: None,
                     border_style: None,
-                    blur_sigma: None,
                     box_shadow: None,
                     inset_shadow: None,
                     drop_shadow: None,
                     backdrop_blur_sigma: None,
-                    brightness: None,
-                    contrast: None,
-                    grayscale: None,
-                    hue_rotate: None,
-                    invert: None,
-                    saturate: None,
-                    sepia: None,
                 },
             }),
             children,
@@ -1194,10 +1216,12 @@ mod tests {
             height: 80.0,
         };
         transform.bounds = bounds;
+        let css_filter = CssFilter::default();
 
         let plan = ApplyPlan {
             transform: &transform,
             opacity: 0.5,
+            css_filter: &css_filter,
             backdrop_blur_sigma: None,
             layer_bounds: bounds,
         };
@@ -1226,6 +1250,53 @@ mod tests {
     }
 
     #[test]
+    fn apply_frame_wraps_body_with_css_filter_layer() {
+        let mut builder = DrawOpBuilder::default();
+        let transform = transform(0.0, 0.0);
+        let bounds = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 80.0,
+        };
+        let mut css_filter = crate::style::CssFilter::default();
+        css_filter.set_property("brightness", 0.5);
+        let plan = ApplyPlan {
+            transform: &transform,
+            opacity: 1.0,
+            backdrop_blur_sigma: None,
+            css_filter: &css_filter,
+            layer_bounds: bounds,
+        };
+
+        let frame = begin_apply_frame(&mut builder, &plan);
+        builder.push(DrawOp::BeginPath);
+        finish_apply_frame(&mut builder, &frame);
+        let program = builder.finish();
+        let ops = program.ops;
+
+        let DrawOp::SaveLayer {
+            bounds: Some(layer_bounds),
+            paint: Some(paint_id),
+            alpha,
+        } = ops[2]
+        else {
+            panic!("expected CSS filter SaveLayer, got {:?}", ops[2]);
+        };
+        assert_eq!(layer_bounds, display_rect_to_rect4(bounds));
+        assert_eq!(alpha, 1.0);
+        let paint = &program.paints[paint_id.0 as usize];
+        assert!(
+            matches!(paint.image_filter, Some(ImageFilterSpec::ColorFilter(_))),
+            "CSS color filters must be applied to a whole-node layer"
+        );
+        assert_eq!(ops[3], DrawOp::BeginPath);
+        assert_eq!(ops[4], DrawOp::Restore);
+        assert_eq!(ops[5], DrawOp::Restore);
+        assert_eq!(ops.len(), 6);
+    }
+
+    #[test]
     fn apply_plan_emits_prefix_and_suffix_around_dynamic_body() {
         let mut builder = DrawOpBuilder::default();
         let transform = transform(7.0, 9.0);
@@ -1235,9 +1306,11 @@ mod tests {
             width: 20.0,
             height: 10.0,
         };
+        let css_filter = CssFilter::default();
         let plan = ApplyPlan {
             transform: &transform,
             opacity: 0.75,
+            css_filter: &css_filter,
             backdrop_blur_sigma: None,
             layer_bounds: bounds,
         };
@@ -1273,9 +1346,11 @@ mod tests {
             width: 20.0,
             height: 10.0,
         };
+        let css_filter = CssFilter::default();
         let plan = ApplyPlan {
             transform: &transform,
             opacity: 0.75,
+            css_filter: &css_filter,
             backdrop_blur_sigma: None,
             layer_bounds: bounds,
         };
@@ -1350,15 +1425,18 @@ mod tests {
         };
         transform_a.bounds = bounds;
         transform_b.bounds = bounds;
+        let css_filter = CssFilter::default();
         let plan_a = ApplyPlan {
             transform: &transform_a,
             opacity: 0.75,
+            css_filter: &css_filter,
             backdrop_blur_sigma: None,
             layer_bounds: bounds,
         };
         let plan_b = ApplyPlan {
             transform: &transform_b,
             opacity: 0.75,
+            css_filter: &css_filter,
             backdrop_blur_sigma: None,
             layer_bounds: bounds,
         };
@@ -1374,6 +1452,7 @@ mod tests {
         let plan_c = ApplyPlan {
             transform: &transform_c,
             opacity: 0.75,
+            css_filter: &css_filter,
             backdrop_blur_sigma: None,
             layer_bounds: bounds,
         };

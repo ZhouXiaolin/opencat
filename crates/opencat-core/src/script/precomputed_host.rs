@@ -87,8 +87,12 @@ impl ScriptHost for PrecomputedScriptHost {
 
     fn set_style_defaults(
         &mut self,
-        _defaults: &std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
-    ) {}
+        _defaults: &std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, serde_json::Value>,
+        >,
+    ) {
+    }
 
     fn set_initial_style_from_node(&mut self, _id: &str, _style: &crate::style::NodeStyle) {}
 }

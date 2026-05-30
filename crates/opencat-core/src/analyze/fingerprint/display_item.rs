@@ -159,7 +159,6 @@ impl Hash for RectPaintFp<'_> {
         paint.border_left_width.map(F32Hash).hash(state);
         paint.border_color.hash(state);
         paint.border_style.hash(state);
-        paint.blur_sigma.map(F32Hash).hash(state);
         paint.box_shadow.hash(state);
         paint.inset_shadow.hash(state);
         paint.drop_shadow.hash(state);
@@ -180,7 +179,6 @@ impl Hash for BitmapPaintFp<'_> {
         paint.border_left_width.map(F32Hash).hash(state);
         paint.border_color.hash(state);
         paint.border_style.hash(state);
-        paint.blur_sigma.map(F32Hash).hash(state);
         paint.box_shadow.hash(state);
         paint.inset_shadow.hash(state);
         paint.drop_shadow.hash(state);

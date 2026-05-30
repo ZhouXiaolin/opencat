@@ -2,6 +2,7 @@ use crate::display::list::{DisplayClip, DisplayItem, DisplayTransform, DrawScrip
 use crate::layout::tree::LayoutOutputFingerprint;
 use crate::resolve::tree::ElementId;
 use crate::semantic::fingerprint::ElementInputFingerprints;
+use crate::style::CssFilter;
 
 #[derive(Clone, Debug)]
 pub struct DisplayTree {
@@ -25,6 +26,7 @@ pub struct DisplayNode {
     pub recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint,
     pub transform: DisplayTransform,
     pub opacity: f32,
+    pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,

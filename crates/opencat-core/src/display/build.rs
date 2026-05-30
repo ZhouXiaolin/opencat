@@ -126,7 +126,11 @@ fn patch_cached_subtree_apply(
         .map(|c| (c.element_id, c))
         .collect();
 
-    let child_pairs: Vec<_> = element.children.iter().zip(layout.children.iter()).collect();
+    let child_pairs: Vec<_> = element
+        .children
+        .iter()
+        .zip(layout.children.iter())
+        .collect();
     let mut built_children: Vec<DisplayNode> = Vec::with_capacity(child_pairs.len());
     let mut cached_children: Vec<CachedDisplayNode> = Vec::with_capacity(child_pairs.len());
 
@@ -205,8 +209,7 @@ fn update_or_build(
     child_pairs.sort_by_key(|(child, _)| child.style.layout.z_index);
 
     let mut built_children: Vec<DisplayNode> = Vec::with_capacity(child_pairs.len());
-    let mut cached_children_next: Vec<CachedDisplayNode> =
-        Vec::with_capacity(child_pairs.len());
+    let mut cached_children_next: Vec<CachedDisplayNode> = Vec::with_capacity(child_pairs.len());
 
     for (child_element, child_layout) in child_pairs {
         let prev = cached_children_by_id.remove(&child_element.id);
@@ -264,7 +267,12 @@ fn build_display_node(
         .map(|(child, child_layout)| build_display_node(child, child_layout, frame_ctx))
         .collect::<Result<Vec<_>>>()?;
 
-    Ok(assemble_display_node(element, layout, frame_ctx, built_children))
+    Ok(assemble_display_node(
+        element,
+        layout,
+        frame_ctx,
+        built_children,
+    ))
 }
 
 /// 把已经构建好（按 z_index 排序）的 `built_children` 装配为父节点。
@@ -368,6 +376,7 @@ fn assemble_display_node(
         },
         element_id: element.id,
         opacity: element.style.visual.opacity,
+        css_filter: element.style.visual.css_filter.clone(),
         backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
         clip,
         item,
@@ -398,18 +407,10 @@ fn display_item_for_node(
                 border_left_width: element.style.visual.border_left_width,
                 border_color: element.style.visual.border_color,
                 border_style: element.style.visual.border_style,
-                blur_sigma: element.style.visual.blur_sigma,
                 box_shadow: element.style.visual.box_shadow,
                 inset_shadow: element.style.visual.inset_shadow,
                 drop_shadow: element.style.visual.drop_shadow,
                 backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
-                brightness: element.style.visual.brightness,
-                contrast: element.style.visual.contrast,
-                grayscale: element.style.visual.grayscale,
-                hue_rotate: element.style.visual.hue_rotate,
-                invert: element.style.visual.invert,
-                saturate: element.style.visual.saturate,
-                sepia: element.style.visual.sepia,
             },
         }),
         ElementKind::Timeline(timeline) => DisplayItem::Timeline(TimelineDisplayItem {
@@ -424,18 +425,10 @@ fn display_item_for_node(
                 border_left_width: element.style.visual.border_left_width,
                 border_color: element.style.visual.border_color,
                 border_style: element.style.visual.border_style,
-                blur_sigma: element.style.visual.blur_sigma,
                 box_shadow: element.style.visual.box_shadow,
                 inset_shadow: element.style.visual.inset_shadow,
                 drop_shadow: element.style.visual.drop_shadow,
                 backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
-                brightness: element.style.visual.brightness,
-                contrast: element.style.visual.contrast,
-                grayscale: element.style.visual.grayscale,
-                hue_rotate: element.style.visual.hue_rotate,
-                invert: element.style.visual.invert,
-                saturate: element.style.visual.saturate,
-                sepia: element.style.visual.sepia,
             },
             transition: timeline.transition.as_ref().map(|transition| {
                 let mut kind = transition.kind.clone();
@@ -488,7 +481,6 @@ fn display_item_for_node(
                 border_left_width: element.style.visual.border_left_width,
                 border_color: element.style.visual.border_color,
                 border_style: element.style.visual.border_style,
-                blur_sigma: element.style.visual.blur_sigma,
                 box_shadow: element.style.visual.box_shadow,
                 inset_shadow: element.style.visual.inset_shadow,
                 drop_shadow: element.style.visual.drop_shadow,
@@ -1348,7 +1340,10 @@ mod tests {
             stats.subtree_full_hit_subtrees, 0,
             "first frame cannot hit cache"
         );
-        assert!(stats.rebuilt_nodes >= 2, "all nodes must be built first frame");
+        assert!(
+            stats.rebuilt_nodes >= 2,
+            "all nodes must be built first frame"
+        );
         assert_eq!(tree.root.element_id, element.id);
     }
 
@@ -1446,7 +1441,8 @@ mod tests {
             .expect("frame 1");
 
         assert_eq!(
-            stats.apply_only_nodes, element_node_count(&second),
+            stats.apply_only_nodes,
+            element_node_count(&second),
             "apply-only change should patch the whole subtree"
         );
         assert_eq!(
@@ -1518,10 +1514,7 @@ mod tests {
             stats.apply_only_nodes > 0,
             "apply-only patch should be used"
         );
-        assert_eq!(
-            stats.rebuilt_nodes, 0,
-            "no rebuilds for apply-only change"
-        );
+        assert_eq!(stats.rebuilt_nodes, 0, "no rebuilds for apply-only change");
 
         let video_node = &tree.root.children[0];
         if let DisplayItem::Bitmap(ref bitmap) = video_node.item {

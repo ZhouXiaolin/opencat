@@ -122,6 +122,7 @@ pub struct CompositeSig {
     pub translation_y_bits: u32,
     pub transforms_hash: u64,
     pub opacity_bits: u32,
+    pub css_filter_hash: u64,
     pub backdrop_blur_bits: Option<u32>,
 }
 
@@ -133,11 +134,14 @@ impl CompositeSig {
     fn from_draw_composite(draw: &DrawCompositeSemantics<'_>) -> Self {
         let mut transforms_hasher = new_hasher();
         draw.transform.transforms.hash(&mut transforms_hasher);
+        let mut filter_hasher = new_hasher();
+        draw.css_filter.hash(&mut filter_hasher);
         Self {
             translation_x_bits: draw.transform.translation_x.to_bits(),
             translation_y_bits: draw.transform.translation_y.to_bits(),
             transforms_hash: transforms_hasher.finish(),
             opacity_bits: draw.opacity.to_bits(),
+            css_filter_hash: filter_hasher.finish(),
             backdrop_blur_bits: draw.backdrop_blur_sigma.map(|v| v.to_bits()),
         }
     }
@@ -236,6 +240,7 @@ fn hash_display_node_composite<H: Hasher>(node: &DisplayNode, hasher: &mut H) {
     F32Hash(node.transform.translation_x).hash(hasher);
     F32Hash(node.transform.translation_y).hash(hasher);
     F32Hash(node.opacity).hash(hasher);
+    node.css_filter.hash(hasher);
     node.backdrop_blur_sigma.map(F32Hash).hash(hasher);
     node.transform.transforms.hash(hasher);
 }
@@ -262,13 +267,14 @@ mod tests {
         ir::asset_id::AssetId,
         layout::tree::LayoutOutputFingerprint,
         resolve::tree::ElementId,
-        style::{BorderRadius, ObjectFit, Transform},
+        style::{BorderRadius, CssFilter, ObjectFit, Transform},
     };
 
     struct AnnotatedRectConfig {
         key: RenderNodeKey,
         transform: DisplayTransform,
         opacity: f32,
+        css_filter: CssFilter,
         backdrop_blur_sigma: Option<f32>,
         clip: Option<DisplayClip>,
         apply_changed: bool,
@@ -283,6 +289,7 @@ mod tests {
                 key: RenderNodeKey(1),
                 transform: rect_transform(0.0, 0.0),
                 opacity: 1.0,
+                css_filter: CssFilter::default(),
                 backdrop_blur_sigma: None,
                 clip: None,
                 apply_changed: false,
@@ -298,6 +305,7 @@ mod tests {
         key: RenderNodeKey,
         transform: DisplayTransform,
         opacity: f32,
+        css_filter: CssFilter,
         backdrop_blur_sigma: Option<f32>,
         clip: Option<DisplayClip>,
         item: DisplayItem,
@@ -329,6 +337,7 @@ mod tests {
             key: config.key,
             transform: config.transform,
             opacity: config.opacity,
+            css_filter: config.css_filter,
             backdrop_blur_sigma: config.backdrop_blur_sigma,
             clip: config.clip,
             item: DisplayItem::Rect(RectDisplayItem {
@@ -343,18 +352,10 @@ mod tests {
                     border_left_width: None,
                     border_color: None,
                     border_style: None,
-                    blur_sigma: None,
                     box_shadow: None,
                     inset_shadow: None,
                     drop_shadow: None,
                     backdrop_blur_sigma: None,
-                    brightness: None,
-                    contrast: None,
-                    grayscale: None,
-                    hue_rotate: None,
-                    invert: None,
-                    saturate: None,
-                    sepia: None,
                 },
             }),
             children: config.children,
@@ -371,6 +372,7 @@ mod tests {
                 recorded_subtree_fingerprint: Default::default(),
                 transform: self.transform,
                 opacity: self.opacity,
+                css_filter: self.css_filter,
                 backdrop_blur_sigma: self.backdrop_blur_sigma,
                 clip: self.clip,
                 item: self.item,
@@ -430,6 +432,7 @@ mod tests {
             recorded_subtree_fingerprint: Default::default(),
             transform: node.transform,
             opacity: node.opacity,
+            css_filter: node.css_filter,
             backdrop_blur_sigma: node.backdrop_blur_sigma,
             clip: node.clip,
             item: node.item,
@@ -628,6 +631,7 @@ mod tests {
         let b = annotated_rect_node(AnnotatedRectConfig {
             transform: transform_b,
             opacity: 0.5,
+            css_filter: Default::default(),
             backdrop_blur_sigma: Some(6.0),
             ..Default::default()
         })
@@ -804,7 +808,6 @@ mod tests {
                 border_left_width: None,
                 border_color: None,
                 border_style: None,
-                blur_sigma: None,
                 box_shadow: None,
                 inset_shadow: None,
                 drop_shadow: None,
@@ -828,7 +831,6 @@ mod tests {
                 border_left_width: None,
                 border_color: None,
                 border_style: None,
-                blur_sigma: None,
                 box_shadow: None,
                 inset_shadow: None,
                 drop_shadow: None,
@@ -875,7 +877,6 @@ mod tests {
                 border_left_width: None,
                 border_color: None,
                 border_style: None,
-                blur_sigma: None,
                 box_shadow: None,
                 inset_shadow: None,
                 drop_shadow: None,
@@ -904,7 +905,6 @@ mod tests {
                 border_left_width: None,
                 border_color: None,
                 border_style: None,
-                blur_sigma: None,
                 box_shadow: None,
                 inset_shadow: None,
                 drop_shadow: None,
@@ -949,6 +949,7 @@ mod tests {
                 recorded_subtree_fingerprint: Default::default(),
                 transform: rect_transform(0.0, 0.0),
                 opacity: 1.0,
+                css_filter: Default::default(),
                 backdrop_blur_sigma: None,
                 clip: None,
                 item: DisplayItem::Rect(RectDisplayItem {
@@ -963,18 +964,10 @@ mod tests {
                         border_left_width: None,
                         border_color: None,
                         border_style: None,
-                        blur_sigma: None,
                         box_shadow: None,
                         inset_shadow: None,
                         drop_shadow: None,
                         backdrop_blur_sigma: None,
-                        brightness: None,
-                        contrast: None,
-                        grayscale: None,
-                        hue_rotate: None,
-                        invert: None,
-                        saturate: None,
-                        sepia: None,
                     },
                 }),
                 children: Vec::new(),
@@ -1043,7 +1036,6 @@ mod tests {
                 border_left_width: None,
                 border_color: None,
                 border_style: None,
-                blur_sigma: None,
                 box_shadow: None,
                 inset_shadow: None,
                 drop_shadow: None,

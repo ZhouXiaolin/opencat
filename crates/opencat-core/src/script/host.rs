@@ -51,7 +51,14 @@ pub trait ScriptHost {
     ) -> Result<()>;
     fn set_target_registry(&mut self, registry: ScriptTargetRegistry);
     /// Set base style values (from Tailwind/className) for all visible nodes.
-    fn set_style_defaults(&mut self, _defaults: &std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>) {}
+    fn set_style_defaults(
+        &mut self,
+        _defaults: &std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, serde_json::Value>,
+        >,
+    ) {
+    }
     /// Set base style for a single node from its resolved NodeStyle.
     fn set_initial_style_from_node(&mut self, _id: &str, _style: &crate::style::NodeStyle) {}
 }

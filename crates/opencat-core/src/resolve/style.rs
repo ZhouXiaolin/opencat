@@ -1,7 +1,7 @@
 use crate::style::{
-    AlignItems, BackgroundFill, BoxShadow, ComputedTextStyle, DropShadow, FlexDirection, FlexWrap,
-    GridAutoFlow, GridAutoRows, GridPlacement, InsetShadow, JustifyContent, LengthPercentageAuto,
-    ObjectFit, Position, Transform,
+    AlignItems, BackgroundFill, BoxShadow, ComputedTextStyle, CssFilter, DropShadow, FlexDirection,
+    FlexWrap, GridAutoFlow, GridAutoRows, GridPlacement, InsetShadow, JustifyContent,
+    LengthPercentageAuto, ObjectFit, Position, Transform,
 };
 
 #[derive(Clone, Debug)]
@@ -116,15 +116,8 @@ pub struct ComputedVisualStyle {
     pub stroke_dasharray: Option<f32>,
     pub stroke_dashoffset: Option<f32>,
     pub border_style: Option<crate::style::BorderStyle>,
-    pub blur_sigma: Option<f32>,
+    pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
-    pub brightness: Option<f32>,
-    pub contrast: Option<f32>,
-    pub grayscale: Option<f32>,
-    pub hue_rotate: Option<f32>,
-    pub invert: Option<f32>,
-    pub saturate: Option<f32>,
-    pub sepia: Option<f32>,
     pub object_fit: ObjectFit,
     pub clip_contents: bool,
     pub transforms: Vec<Transform>,

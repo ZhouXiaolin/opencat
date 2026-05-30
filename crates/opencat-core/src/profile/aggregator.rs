@@ -382,8 +382,10 @@ impl RenderProfileAggregator {
                 frame.backend.apply_cache_record_repeats += event.amount;
             }
             ("utilization", "apply", "count") => {
-                frame.backend.apply_cache_capacity_utilization =
-                    frame.backend.apply_cache_capacity_utilization.max(event.amount);
+                frame.backend.apply_cache_capacity_utilization = frame
+                    .backend
+                    .apply_cache_capacity_utilization
+                    .max(event.amount);
             }
             ("eviction", "node_own", "count") => {
                 frame.backend.node_own_cache_evictions += event.amount;

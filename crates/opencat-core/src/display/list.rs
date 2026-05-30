@@ -187,19 +187,10 @@ pub struct RectPaintStyle {
     pub border_left_width: Option<f32>,
     pub border_color: Option<ColorToken>,
     pub border_style: Option<BorderStyle>,
-    pub blur_sigma: Option<f32>,
     pub box_shadow: Option<BoxShadow>,
     pub inset_shadow: Option<InsetShadow>,
     pub drop_shadow: Option<DropShadow>,
     pub backdrop_blur_sigma: Option<f32>,
-    // CSS filter properties
-    pub brightness: Option<f32>,
-    pub contrast: Option<f32>,
-    pub grayscale: Option<f32>,
-    pub hue_rotate: Option<f32>,
-    pub invert: Option<f32>,
-    pub saturate: Option<f32>,
-    pub sepia: Option<f32>,
 }
 
 #[derive(Clone, Debug)]
@@ -213,7 +204,6 @@ pub struct BitmapPaintStyle {
     pub border_left_width: Option<f32>,
     pub border_color: Option<ColorToken>,
     pub border_style: Option<BorderStyle>,
-    pub blur_sigma: Option<f32>,
     pub box_shadow: Option<BoxShadow>,
     pub inset_shadow: Option<InsetShadow>,
     pub drop_shadow: Option<DropShadow>,

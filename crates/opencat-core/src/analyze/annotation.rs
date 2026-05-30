@@ -13,6 +13,7 @@ use crate::{
     },
     layout::tree::LayoutOutputFingerprint,
     semantic::fingerprint::ElementInputFingerprints,
+    style::CssFilter,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -39,6 +40,7 @@ pub struct AnnotatedDisplayNode {
     pub recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint,
     pub transform: DisplayTransform,
     pub opacity: f32,
+    pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,
@@ -105,10 +107,11 @@ pub struct RecordedNodeSemantics<'a> {
     pub clip: Option<&'a DisplayClip>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct DrawCompositeSemantics<'a> {
     pub transform: &'a DisplayTransform,
     pub opacity: f32,
+    pub css_filter: &'a CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
 }
 
@@ -182,6 +185,7 @@ impl AnnotatedDisplayNode {
         DrawCompositeSemantics {
             transform: &self.transform,
             opacity: self.opacity,
+            css_filter: &self.css_filter,
             backdrop_blur_sigma: self.backdrop_blur_sigma,
         }
     }
@@ -238,6 +242,7 @@ fn annotate_display_node(
         recorded_subtree_fingerprint: node.recorded_subtree_fingerprint,
         transform: node.transform.clone(),
         opacity: node.opacity,
+        css_filter: node.css_filter.clone(),
         backdrop_blur_sigma: node.backdrop_blur_sigma,
         clip: node.clip.clone(),
         item: node.item.clone(),
@@ -333,10 +338,7 @@ fn compute_node_fingerprint(
 
     let node = tree.node(handle);
     let paint_fp = fingerprint::annotated_subtree_paint_fingerprint(node, &tree.analysis);
-    let snapshot_fp = fingerprint::annotated_subtree_snapshot_fingerprint(
-        node,
-        &tree.analysis,
-    );
+    let snapshot_fp = fingerprint::annotated_subtree_snapshot_fingerprint(node, &tree.analysis);
     let analysis = DisplayNodeAnalysis {
         paint_fingerprint: paint_fp,
         snapshot_fingerprint: snapshot_fp,
@@ -447,6 +449,7 @@ mod tests {
                 transforms: Vec::new(),
             },
             opacity: 1.0,
+            css_filter: Default::default(),
             backdrop_blur_sigma: None,
             clip: None,
             item: DisplayItem::Rect(RectDisplayItem {
@@ -461,18 +464,10 @@ mod tests {
                     border_left_width: None,
                     border_color: None,
                     border_style: None,
-                    blur_sigma: None,
                     box_shadow: None,
                     inset_shadow: None,
                     drop_shadow: None,
                     backdrop_blur_sigma: None,
-                    brightness: None,
-                    contrast: None,
-                    grayscale: None,
-                    hue_rotate: None,
-                    invert: None,
-                    saturate: None,
-                    sepia: None,
                 },
             }),
             children,

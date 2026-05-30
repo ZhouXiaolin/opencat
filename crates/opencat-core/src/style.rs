@@ -590,6 +590,229 @@ impl std::hash::Hash for Transform {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CssFilterKind {
+    Blur,
+    Brightness,
+    Contrast,
+    Grayscale,
+    HueRotate,
+    Invert,
+    Saturate,
+    Sepia,
+}
+
+impl CssFilterKind {
+    pub fn from_property(name: &str) -> Option<Self> {
+        match name {
+            "blur" | "blurSigma" => Some(Self::Blur),
+            "brightness" => Some(Self::Brightness),
+            "contrast" => Some(Self::Contrast),
+            "grayscale" => Some(Self::Grayscale),
+            "hue-rotate" | "hueRotate" => Some(Self::HueRotate),
+            "invert" => Some(Self::Invert),
+            "saturate" => Some(Self::Saturate),
+            "sepia" => Some(Self::Sepia),
+            _ => None,
+        }
+    }
+
+    pub fn css_name(self) -> &'static str {
+        match self {
+            Self::Blur => "blur",
+            Self::Brightness => "brightness",
+            Self::Contrast => "contrast",
+            Self::Grayscale => "grayscale",
+            Self::HueRotate => "hue-rotate",
+            Self::Invert => "invert",
+            Self::Saturate => "saturate",
+            Self::Sepia => "sepia",
+        }
+    }
+
+    pub fn property_name(self) -> &'static str {
+        match self {
+            Self::Blur => "blur",
+            Self::Brightness => "brightness",
+            Self::Contrast => "contrast",
+            Self::Grayscale => "grayscale",
+            Self::HueRotate => "hueRotate",
+            Self::Invert => "invert",
+            Self::Saturate => "saturate",
+            Self::Sepia => "sepia",
+        }
+    }
+
+    fn identity_value(self) -> f32 {
+        match self {
+            Self::Brightness | Self::Contrast | Self::Saturate => 1.0,
+            Self::Blur | Self::Grayscale | Self::HueRotate | Self::Invert | Self::Sepia => 0.0,
+        }
+    }
+
+    fn clamp_value(self, value: f32) -> f32 {
+        match self {
+            Self::Blur | Self::Brightness | Self::Contrast | Self::Saturate => value.max(0.0),
+            Self::Grayscale | Self::Invert | Self::Sepia => value.clamp(0.0, 1.0),
+            Self::HueRotate => value,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CssFilterOp {
+    pub kind: CssFilterKind,
+    pub value: f32,
+}
+
+impl CssFilterOp {
+    pub fn new(kind: CssFilterKind, value: f32) -> Self {
+        Self {
+            kind,
+            value: kind.clamp_value(value),
+        }
+    }
+
+    pub fn is_identity(self) -> bool {
+        match self.kind {
+            CssFilterKind::Blur => self.value <= 0.0,
+            _ => (self.value - self.kind.identity_value()).abs() <= f32::EPSILON,
+        }
+    }
+}
+
+impl std::hash::Hash for CssFilterOp {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.kind.hash(state);
+        self.value.to_bits().hash(state);
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CssFilter {
+    pub ops: Vec<CssFilterOp>,
+}
+
+impl CssFilter {
+    pub fn is_identity(&self) -> bool {
+        self.ops.iter().all(|op| op.is_identity())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.ops.is_empty()
+    }
+
+    pub fn merge_from(&mut self, other: &Self) {
+        self.ops.extend(other.ops.iter().copied());
+    }
+
+    pub fn push(&mut self, kind: CssFilterKind, value: f32) {
+        self.ops.push(CssFilterOp::new(kind, value));
+    }
+
+    pub fn set_property(&mut self, property: &str, value: f32) -> bool {
+        let Some(kind) = CssFilterKind::from_property(property) else {
+            return false;
+        };
+        let value = kind.clamp_value(value);
+        if let Some(op) = self.ops.iter_mut().rev().find(|op| op.kind == kind) {
+            op.value = value;
+        } else {
+            self.ops.push(CssFilterOp { kind, value });
+        }
+        true
+    }
+
+    pub fn value(&self, property: &str) -> Option<f32> {
+        let kind = CssFilterKind::from_property(property)?;
+        self.ops
+            .iter()
+            .rev()
+            .find(|op| op.kind == kind)
+            .map(|op| op.value)
+    }
+
+    pub fn to_css_string(&self) -> String {
+        self.ops
+            .iter()
+            .map(|op| {
+                format!(
+                    "{}({})",
+                    op.kind.css_name(),
+                    format_css_filter_value(op.kind, op.value)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    pub fn parse_css_filter_string(value: &str) -> Self {
+        let mut filter = Self::default();
+        let mut rest = value.trim();
+        while let Some(open) = rest.find('(') {
+            let name = rest[..open].trim();
+            let after_open = &rest[open + 1..];
+            let Some(close) = after_open.find(')') else {
+                break;
+            };
+            let raw_value = after_open[..close].trim();
+            if let Some(kind) = CssFilterKind::from_property(name)
+                && let Some(parsed) = parse_css_filter_number(raw_value, kind)
+            {
+                filter.push(kind, parsed);
+            }
+            rest = after_open[close + 1..].trim_start();
+        }
+        filter
+    }
+}
+
+impl std::hash::Hash for CssFilter {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.ops.hash(state);
+    }
+}
+
+fn parse_css_filter_number(raw: &str, kind: CssFilterKind) -> Option<f32> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let value = if let Some(percent) = raw.strip_suffix('%') {
+        percent.trim().parse::<f32>().ok()? / 100.0
+    } else if kind == CssFilterKind::HueRotate {
+        raw.strip_suffix("deg")
+            .unwrap_or(raw)
+            .trim()
+            .parse::<f32>()
+            .ok()?
+    } else if kind == CssFilterKind::Blur {
+        raw.strip_suffix("px")
+            .unwrap_or(raw)
+            .trim()
+            .parse::<f32>()
+            .ok()?
+    } else {
+        raw.parse::<f32>().ok()?
+    };
+    Some(kind.clamp_value(value))
+}
+
+fn format_css_filter_value(kind: CssFilterKind, value: f32) -> String {
+    let unit = match kind {
+        CssFilterKind::Blur => "px",
+        CssFilterKind::HueRotate => "deg",
+        _ => "",
+    };
+    let number = if value.fract().abs() <= f32::EPSILON {
+        format!("{}", value as i32)
+    } else {
+        format!("{value}")
+    };
+    format!("{number}{unit}")
+}
+
 /// Style context container - carries all possible style info for inheritance
 #[derive(Debug, Clone, Default)]
 pub struct NodeStyle {
@@ -673,15 +896,8 @@ pub struct NodeStyle {
     pub border_left_width: Option<f32>,
     pub border_color: Option<ColorToken>,
     pub border_style: Option<BorderStyle>,
-    pub blur_sigma: Option<f32>,
+    pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
-    pub brightness: Option<f32>,
-    pub contrast: Option<f32>,
-    pub grayscale: Option<f32>,
-    pub hue_rotate: Option<f32>,
-    pub invert: Option<f32>,
-    pub saturate: Option<f32>,
-    pub sepia: Option<f32>,
     pub object_fit: Option<ObjectFit>,
     pub overflow_hidden: bool,
     pub truncate: bool,
@@ -1240,6 +1456,68 @@ macro_rules! impl_node_style_api {
             // === Visual: Border Radius ===
             pub fn opacity(mut self, opacity: f32) -> Self {
                 self.style.opacity = Some(opacity.clamp(0.0, 1.0));
+                self
+            }
+
+            pub fn filter(mut self, value: impl AsRef<str>) -> Self {
+                self.style.css_filter =
+                    $crate::style::CssFilter::parse_css_filter_string(value.as_ref());
+                self
+            }
+
+            pub fn filter_blur(mut self, value: f32) -> Self {
+                self.style
+                    .css_filter
+                    .push($crate::style::CssFilterKind::Blur, value);
+                self
+            }
+
+            pub fn filter_brightness(mut self, value: f32) -> Self {
+                self.style
+                    .css_filter
+                    .push($crate::style::CssFilterKind::Brightness, value);
+                self
+            }
+
+            pub fn filter_contrast(mut self, value: f32) -> Self {
+                self.style
+                    .css_filter
+                    .push($crate::style::CssFilterKind::Contrast, value);
+                self
+            }
+
+            pub fn filter_grayscale(mut self, value: f32) -> Self {
+                self.style
+                    .css_filter
+                    .push($crate::style::CssFilterKind::Grayscale, value);
+                self
+            }
+
+            pub fn filter_hue_rotate(mut self, degrees: f32) -> Self {
+                self.style
+                    .css_filter
+                    .push($crate::style::CssFilterKind::HueRotate, degrees);
+                self
+            }
+
+            pub fn filter_invert(mut self, value: f32) -> Self {
+                self.style
+                    .css_filter
+                    .push($crate::style::CssFilterKind::Invert, value);
+                self
+            }
+
+            pub fn filter_saturate(mut self, value: f32) -> Self {
+                self.style
+                    .css_filter
+                    .push($crate::style::CssFilterKind::Saturate, value);
+                self
+            }
+
+            pub fn filter_sepia(mut self, value: f32) -> Self {
+                self.style
+                    .css_filter
+                    .push($crate::style::CssFilterKind::Sepia, value);
                 self
             }
 

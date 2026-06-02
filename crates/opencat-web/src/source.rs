@@ -1,4 +1,4 @@
-use opencat_core::parse::document::builder::build_parsed_document;
+use opencat_core::parse::build_parsed_document;
 use opencat_core::parse::document::{BuildOptions, CanvasChildrenMode, ParsedComposition};
 use opencat_core::resource::fonts::merge_faces_into_db;
 

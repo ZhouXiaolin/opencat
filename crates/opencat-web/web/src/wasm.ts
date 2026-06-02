@@ -11,6 +11,8 @@ type WasmModule = {
   };
   preload_assets(compositionSource: string): Promise<string>;
   get_blob_bytes(asset_id: string): Uint8Array | undefined;
+  load_resource_bytes(path: string, name: string): Uint8Array | undefined;
+  get_skottie_bundle_assets(bundle_id: string): Record<string, Uint8Array>;
   clear_blobs(): void;
   blob_count(): number;
 };
@@ -56,6 +58,12 @@ export async function initWasm(wasmBaseUrl?: string): Promise<void> {
   await mod.default();
   wasmModule = mod as unknown as WasmModule;
   renderer = new wasmModule.WebRenderer();
+  const { bindResourceProviderApi } = await import('./resource-provider');
+  bindResourceProviderApi({
+    load_resource_bytes: (path, name) => wasmModule!.load_resource_bytes(path, name),
+    get_skottie_bundle_assets: (bundleId) =>
+      wasmModule!.get_skottie_bundle_assets(bundleId),
+  });
   await loadDefaultFontsIntoWasm(renderer);
 }
 
@@ -69,6 +77,19 @@ export async function preloadAssets(compositionSource: string): Promise<string> 
 export function getBlobBytes(assetId: string): Uint8Array | undefined {
   if (!wasmModule) return undefined;
   return wasmModule.get_blob_bytes(assetId);
+}
+
+/** Same bytes as getBlobBytes, via Skottie protocol (`opencat`, assetId). */
+export function loadResourceBytes(path: string, name: string): Uint8Array | undefined {
+  if (!wasmModule) return undefined;
+  return wasmModule.load_resource_bytes(path, name);
+}
+
+export function getSkottieBundleAssets(
+  bundleId: string,
+): Record<string, Uint8Array> {
+  if (!wasmModule) return {};
+  return wasmModule.get_skottie_bundle_assets(bundleId);
 }
 
 export function clearBlobs(): void {

@@ -66,6 +66,10 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
         Self::open_parsed(parsed, loader, scripts, font_db)
     }
 
+    pub fn loader_mut(&mut self) -> &mut L {
+        &mut self.loader
+    }
+
     /// Open a pipeline from an already-built [`ParsedComposition`] and font database.
     pub fn open_parsed(
         parsed: crate::parse::ParsedComposition,

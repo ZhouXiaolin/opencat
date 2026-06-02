@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
+use opencat_core::parse::preflight::collect_external_manifest;
 use opencat_core::parse::{
     BuildOptions, CanvasChildrenMode, build_font_resources, build_parsed_document,
     parse_parts_with_base_dir,
@@ -23,7 +24,9 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
 
     let base_dir = loader.base_dir();
     let parts = parse_parts_with_base_dir(input, Some(base_dir))?;
+    let font_manifest = parts.font_manifest.clone();
     let bytes = loader.load_font_manifest(&parts.font_manifest)?;
+    loader.register_font_handles(&parts.font_manifest, &bytes)?;
 
     let mut font_db = engine_default_font_db();
     let font_index = if parts.font_manifest.is_empty() {
@@ -43,5 +46,13 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
         font_index.as_ref(),
     )?;
 
-    DefaultPipeline::open_parsed(parsed, loader, scripts, font_db)
+    let mut pipeline = DefaultPipeline::open_parsed(parsed, loader, scripts, font_db)?;
+
+    let (_, external_manifest) =
+        collect_external_manifest(pipeline.composition(), &font_manifest);
+    pipeline
+        .loader_mut()
+        .build_resource_provider(&external_manifest);
+
+    Ok(pipeline)
 }

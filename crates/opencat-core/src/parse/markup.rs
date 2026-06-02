@@ -245,6 +245,7 @@ const IMAGE_ATTRS: &[&str] = &[
 const FONTS_ATTRS: &[&str] = &["default"];
 const FONT_ATTRS: &[&str] = &["id", "family", "path", "url", "src", "role"];
 const AUDIO_ATTRS: &[&str] = &["id", "duration", "path", "url", "attach"];
+const LOTTIE_ATTRS: &[&str] = &["id", "class", "duration", "path", "url", "src"];
 const VIDEO_ATTRS: &[&str] = &[
     "id",
     "class",
@@ -307,7 +308,8 @@ fn parse_opencat_children(
                         }
                         parse_fonts(child, base_dir, &mut parts.font_manifest)?;
                     }
-                    "div" | "text" | "canvas" | "image" | "video" | "icon" | "path" | "caption"
+                    "div" | "text" | "canvas" | "image" | "lottie" | "video" | "icon" | "path"
+                        | "caption"
                     | "tl" => {
                         let id = required_attr(child, "id")?;
                         if visual_root.is_some() {
@@ -375,7 +377,8 @@ fn parse_visual_node(
                     roxmltree::NodeType::Element => {
                         let child_tag = child.tag_name().name();
                         match child_tag {
-                            "div" | "text" | "canvas" | "image" | "video" | "icon" | "path"
+                            "div" | "text" | "canvas" | "image" | "lottie" | "video" | "icon"
+                                | "path"
                             | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
@@ -442,7 +445,8 @@ fn parse_visual_node(
                     roxmltree::NodeType::Element => {
                         let child_tag = child.tag_name().name();
                         match child_tag {
-                            "div" | "text" | "canvas" | "image" | "video" | "icon" | "path"
+                            "div" | "text" | "canvas" | "image" | "lottie" | "video" | "icon"
+                                | "path"
                             | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
@@ -483,6 +487,19 @@ fn parse_visual_node(
             });
             validate_no_element_children(node, "image")?;
         }
+        "lottie" => {
+            ensure_allowed_attrs(node, LOTTIE_ATTRS)?;
+            let source = parse_lottie_source(node)?;
+            let parent_id = parent_id.map(|s| s.to_string());
+            parts.elements.push(ParsedElement {
+                id: id.to_string(),
+                parent_id,
+                duration,
+                style,
+                kind: ParsedElementKind::Lottie { source },
+            });
+            validate_no_element_children(node, "lottie")?;
+        }
         "video" => {
             ensure_allowed_attrs(node, VIDEO_ATTRS)?;
             let source = parse_video_source(node)?;
@@ -500,7 +517,8 @@ fn parse_visual_node(
                     roxmltree::NodeType::Element => {
                         let child_tag = child.tag_name().name();
                         match child_tag {
-                            "div" | "text" | "canvas" | "image" | "video" | "icon" | "path"
+                            "div" | "text" | "canvas" | "image" | "lottie" | "video" | "icon"
+                                | "path"
                             | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
@@ -587,7 +605,8 @@ fn parse_visual_node(
                     roxmltree::NodeType::Element => {
                         let child_tag = child.tag_name().name();
                         match child_tag {
-                            "div" | "text" | "canvas" | "image" | "video" | "icon" | "path"
+                            "div" | "text" | "canvas" | "image" | "lottie" | "video" | "icon"
+                                | "path"
                             | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
@@ -791,6 +810,34 @@ fn parse_audio_element_in_soundtrack(
 
     validate_no_element_children(node, "audio")?;
     Ok(())
+}
+
+fn parse_lottie_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<crate::parse::primitives::LottieSource> {
+    let path = node.attribute("path").or_else(|| node.attribute("src"));
+    let url = node.attribute("url");
+    let count = [path.is_some(), url.is_some()]
+        .iter()
+        .filter(|&&b| b)
+        .count();
+    if count == 0 {
+        anyhow::bail!("<lottie> requires one of: path, url, src");
+    }
+    if count > 1 {
+        anyhow::bail!("<lottie> requires only one of: path, url, src");
+    }
+    if let Some(p) = path {
+        if p.is_empty() {
+            anyhow::bail!("<lottie> `path` must not be empty");
+        }
+        return Ok(crate::parse::primitives::LottieSource::Path(PathBuf::from(p)));
+    }
+    if let Some(u) = url {
+        if u.is_empty() {
+            anyhow::bail!("<lottie> `url` must not be empty");
+        }
+        return Ok(crate::parse::primitives::LottieSource::Url(u.to_string()));
+    }
+    Ok(crate::parse::primitives::LottieSource::Unset)
 }
 
 fn parse_image_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<ImageSource> {

@@ -807,7 +807,9 @@ pub fn analyze_stable_node_reuse(
                 StableNodeReuse::TextSnapshotLeaf
             }
         }
-        DisplayItem::Bitmap(_) | DisplayItem::SvgPath(_) => StableNodeReuse::ItemPictureLeaf,
+        DisplayItem::Bitmap(_) | DisplayItem::Lottie(_) | DisplayItem::SvgPath(_) => {
+            StableNodeReuse::ItemPictureLeaf
+        }
         DisplayItem::DrawScript(_) => StableNodeReuse::DirectLeaf,
     }
 }

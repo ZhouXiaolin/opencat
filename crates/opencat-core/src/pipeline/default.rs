@@ -402,6 +402,7 @@ mod tests {
                             | crate::ir::draw_op::DrawOp::DrawPath { .. }
                             | crate::ir::draw_op::DrawOp::Image { .. }
                             | crate::ir::draw_op::DrawOp::ImageRect { .. }
+                            | crate::ir::draw_op::DrawOp::LottieRect { .. }
                             | crate::ir::draw_op::DrawOp::RuntimeEffect { .. }
                     )
                 })

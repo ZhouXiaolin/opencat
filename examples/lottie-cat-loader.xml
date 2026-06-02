@@ -1,0 +1,9 @@
+<opencat width="400" height="300" fps="25" frames="32">
+  <div id="stage" class="w-full h-full flex items-center justify-center bg-slate-100">
+    <lottie
+      id="loader"
+      class="w-[280px] h-[200px]"
+      path="examples/83627cee-1153-11ee-b832-fb1242dd7de9.json"
+    />
+  </div>
+</opencat>

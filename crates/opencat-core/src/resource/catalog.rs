@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use crate::ir::asset_id::AssetId;
 use crate::parse::primitives::{AudioSource, ImageSource};
+use crate::resource::lottie::LottieMeta;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VideoInfoMeta {
@@ -25,6 +26,14 @@ pub trait ResourceCatalog {
     fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()>;
     fn dimensions(&self, id: &AssetId) -> (u32, u32);
     fn video_info(&self, id: &AssetId) -> Option<VideoInfoMeta>;
+    fn resolve_lottie(&mut self, element_id: &str) -> Result<AssetId> {
+        let _ = element_id;
+        anyhow::bail!("resolve_lottie not implemented")
+    }
+    fn lottie_meta(&self, id: &AssetId) -> Option<LottieMeta> {
+        let _ = id;
+        None
+    }
 }
 
 #[cfg(test)]

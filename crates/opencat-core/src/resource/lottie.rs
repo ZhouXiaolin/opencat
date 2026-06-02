@@ -3,8 +3,34 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+/// Intrinsic timing/size from a Bodymovin root object.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LottieMeta {
+    pub width: u32,
+    pub height: u32,
+    pub fps: f32,
+    pub in_frame: f32,
+    pub out_frame: f32,
+}
+
+impl LottieMeta {
+    pub fn duration_frames(&self) -> u32 {
+        ((self.out_frame - self.in_frame).max(1.0)).round() as u32
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct LottieRoot {
+    #[serde(default)]
+    w: Option<f64>,
+    #[serde(default)]
+    h: Option<f64>,
+    #[serde(default)]
+    fr: Option<f64>,
+    #[serde(default)]
+    ip: Option<f64>,
+    #[serde(default)]
+    op: Option<f64>,
     #[serde(default)]
     assets: Vec<LottieAsset>,
 }
@@ -21,6 +47,18 @@ struct LottieAsset {
     #[serde(default)]
     #[allow(dead_code)]
     e: Option<String>,
+}
+
+/// Parse width/height/fps/in/out from Lottie JSON.
+pub fn parse_lottie_meta(json: &str) -> Result<LottieMeta> {
+    let root: LottieRoot = serde_json::from_str(json).context("parse lottie json for meta")?;
+    Ok(LottieMeta {
+        width: root.w.unwrap_or(0.0).round().max(1.0) as u32,
+        height: root.h.unwrap_or(0.0).round().max(1.0) as u32,
+        fps: root.fr.unwrap_or(30.0) as f32,
+        in_frame: root.ip.unwrap_or(0.0) as f32,
+        out_frame: root.op.unwrap_or(1.0) as f32,
+    })
 }
 
 /// Scan a Lottie JSON string for external asset file names.
@@ -52,6 +90,16 @@ pub fn scan_lottie_dependencies(json: &str) -> Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_meta_reads_w_h_fr_op() {
+        let json = r#"{"w":280,"h":200,"fr":25,"ip":0,"op":32,"assets":[]}"#;
+        let meta = parse_lottie_meta(json).unwrap();
+        assert_eq!(meta.width, 280);
+        assert_eq!(meta.height, 200);
+        assert_eq!(meta.fps, 25.0);
+        assert_eq!(meta.duration_frames(), 32);
+    }
 
     #[test]
     fn scan_finds_external_u_names() {

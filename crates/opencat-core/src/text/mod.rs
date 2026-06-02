@@ -12,9 +12,6 @@ use hashbrown::HashMap;
 use crate::style::{ComputedTextStyle, TextAlign, TextTransform};
 use unicode_segmentation::UnicodeSegmentation;
 
-pub const NOTO_SANS_SC: &[u8] = include_bytes!("../../../../assets/NotoSansSC-Regular.otf");
-pub const NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../../../assets/NotoColorEmoji.ttf");
-
 // ── Types ──────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -77,43 +74,76 @@ pub struct TextRasterization {
 
 // ── Font database ──────────────────────────────────────────────────────────
 
-pub fn default_font_db_with_embedded_only() -> fontdb::Database {
-    let mut db = fontdb::Database::new();
-    db.load_font_data(NOTO_SANS_SC.to_vec());
-    db.load_font_data(NOTO_COLOR_EMOJI.to_vec());
-    db.set_sans_serif_family("Noto Sans SC");
-    db
+/// Empty database — default for core and web until the host loads fonts.
+pub fn empty_font_db() -> fontdb::Database {
+    fontdb::Database::new()
 }
 
-/// 创建带内嵌字体的 fontdb::Database。
-/// `extra_font_dirs` 中每个目录会调用 `Database::load_fonts_dir`。
-pub fn default_font_db(extra_font_dirs: &[&str]) -> fontdb::Database {
-    let mut db = default_font_db_with_embedded_only();
-    for dir in extra_font_dirs {
-        db.load_fonts_dir(dir);
+/// Build a database from raw font bytes and map generic `sans-serif` to `sans_serif_family`.
+pub fn font_db_from_bytes(faces: &[Vec<u8>], sans_serif_family: &str) -> fontdb::Database {
+    let mut db = empty_font_db();
+    for data in faces {
+        db.load_font_data(data.clone());
     }
+    db.set_sans_serif_family(sans_serif_family);
     db
 }
 
-// ── Thread-local font system (shared by measure_text and rasterize_glyphs) ──
+/// Append font bytes to a copy of `db`.
+pub fn extend_font_db(db: &fontdb::Database, extra_faces: &[Vec<u8>]) -> fontdb::Database {
+    let mut next = db.clone();
+    for data in extra_faces {
+        next.load_font_data(data.clone());
+    }
+    next
+}
+
+/// Load extra directories into a copy of `db`.
+pub fn extend_font_db_with_dirs(db: &fontdb::Database, dirs: &[&str]) -> fontdb::Database {
+    let mut next = db.clone();
+    for dir in dirs {
+        next.load_fonts_dir(dir);
+    }
+    next
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub fn test_default_font_db() -> fontdb::Database {
+    font_db_from_bytes(
+        &[
+            include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec(),
+            include_bytes!("../../../../assets/NotoColorEmoji.ttf").to_vec(),
+        ],
+        "Noto Sans SC",
+    )
+}
+
+// ── Per-render font db scope (script canvas text measure) ───────────────────
 
 thread_local! {
-    static FONT_SYSTEM: RefCell<Option<FontSystem>> = const { RefCell::new(None) };
-    static SWASH_CACHE: RefCell<Option<SwashCache>> = const { RefCell::new(None) };
+    static SCOPED_FONT_DB: RefCell<Option<fontdb::Database>> = const { RefCell::new(None) };
 }
 
-fn with_font_system<R>(f: impl FnOnce(&mut FontSystem) -> R) -> R {
-    FONT_SYSTEM.with(|cell| {
-        let mut opt = cell.borrow_mut();
-        if opt.is_none() {
-            let font_db = default_font_db_with_embedded_only();
-            *opt = Some(FontSystem::new_with_locale_and_db(
-                "en-US".to_string(),
-                font_db,
-            ));
-        }
-        f(opt.as_mut().unwrap())
+/// Run `f` while script bindings use this font database (e.g. `canvas.measureText`).
+pub fn scope_font_db<R>(db: &fontdb::Database, f: impl FnOnce() -> R) -> R {
+    SCOPED_FONT_DB.with(|cell| {
+        let prev = cell.borrow_mut().replace(db.clone());
+        let out = f();
+        *cell.borrow_mut() = prev;
+        out
     })
+}
+
+fn font_db_for_script() -> fontdb::Database {
+    SCOPED_FONT_DB
+        .with(|cell| cell.borrow().clone())
+        .unwrap_or_else(empty_font_db)
+}
+
+// ── Thread-local swash cache (rasterize_glyphs) ─────────────────────────────
+
+thread_local! {
+    static SWASH_CACHE: RefCell<Option<SwashCache>> = const { RefCell::new(None) };
 }
 
 fn with_swash_cache<R>(f: impl FnOnce(&mut SwashCache) -> R) -> R {
@@ -173,15 +203,15 @@ pub fn measure_text(
 
 // ── Glyph rasterization ────────────────────────────────────────────────────
 
-/// Rasterize text into backend-agnostic glyph data using the shared (embedded)
-/// FontSystem. Returns deduplicated glyphs keyed by `cache_key` and positioned
-/// per line.
+/// Rasterize text into backend-agnostic glyph data.
+/// Returns deduplicated glyphs keyed by `cache_key` and positioned per line.
 pub fn rasterize_glyphs(
     text: &str,
     style: &ComputedTextStyle,
     max_width: f32,
     allow_wrap: bool,
     truncate: bool,
+    font_db: &fontdb::Database,
 ) -> TextRasterization {
     let rendered = apply_text_transform(text, style.text_transform);
     if truncate && (!max_width.is_finite() || max_width <= 0.0) {
@@ -204,20 +234,20 @@ pub fn rasterize_glyphs(
     let line_height = style.resolved_line_height_px();
     let metrics = Metrics::new(style.text_px, line_height);
 
-    with_font_system(|font_system| {
-        let mut buffer = Buffer::new(font_system, metrics);
-        buffer.set_size(layout_width, None);
+    let mut font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), font_db.clone());
+    let mut buffer = Buffer::new(&mut font_system, metrics);
+    buffer.set_size(layout_width, None);
 
-        let attrs = Attrs::new()
-            .family(cosmic_text::Family::SansSerif)
-            .weight(cosmic_text::Weight(style.font_weight.0));
-        buffer.set_text(&rendered, &attrs, Shaping::Advanced, None);
-        buffer.shape_until_scroll(font_system, false);
+    let attrs = Attrs::new()
+        .family(cosmic_text::Family::SansSerif)
+        .weight(cosmic_text::Weight(style.font_weight.0));
+    buffer.set_text(&rendered, &attrs, Shaping::Advanced, None);
+    buffer.shape_until_scroll(&mut font_system, false);
 
-        let mut glyphs: HashMap<u64, GlyphData> = HashMap::default();
-        let mut lines: Vec<TextLine> = Vec::new();
+    let mut glyphs: HashMap<u64, GlyphData> = HashMap::default();
+    let mut lines: Vec<TextLine> = Vec::new();
 
-        with_swash_cache(|swash_cache| {
+    with_swash_cache(|swash_cache| {
             for run in buffer.layout_runs() {
                 let mut positions: Vec<GlyphPosition> = Vec::new();
 
@@ -253,7 +283,7 @@ pub fn rasterize_glyphs(
                         continue;
                     }
 
-                    let swash_image = swash_cache.get_image(font_system, physical.cache_key);
+                    let swash_image = swash_cache.get_image(&mut font_system, physical.cache_key);
                     if let Some(image) = swash_image
                         && image.content == SwashContent::Color
                     {
@@ -271,7 +301,7 @@ pub fn rasterize_glyphs(
                     }
 
                     if let Some(commands) =
-                        swash_cache.get_outline_commands(font_system, physical.cache_key)
+                        swash_cache.get_outline_commands(&mut font_system, physical.cache_key)
                     {
                         let upem = font_system
                             .get_font(physical.cache_key.font_id, physical.cache_key.font_weight)
@@ -287,16 +317,15 @@ pub fn rasterize_glyphs(
                     positions,
                 });
             }
-        });
+    });
 
-        TextRasterization { glyphs, lines }
-    })
+    TextRasterization { glyphs, lines }
 }
 
 // ── Script text measurement ────────────────────────────────────────────────
 
 /// Measure single-line text width for the script engine canvas API.
-/// Uses cosmic-text with the embedded Noto Sans SC font.
+/// Uses the font database from [`scope_font_db`] when inside a render pass.
 /// Returns 0.0 for empty strings.
 pub fn measure_script_text_width(text: &str, font_size: f32, scale_x: f32) -> f32 {
     if text.is_empty() {
@@ -304,7 +333,7 @@ pub fn measure_script_text_width(text: &str, font_size: f32, scale_x: f32) -> f3
     }
     let line_height = font_size * 1.2;
     let metrics = Metrics::new(font_size, line_height);
-    let font_db = default_font_db_with_embedded_only();
+    let font_db = font_db_for_script();
     let mut font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), font_db);
     let mut buffer = Buffer::new(&mut font_system, metrics);
     buffer.set_size(None, None);
@@ -500,7 +529,7 @@ pub struct DefaultFontProvider {
 impl DefaultFontProvider {
     pub fn new() -> Self {
         Self {
-            db: std::sync::Arc::new(default_font_db_with_embedded_only()),
+            db: std::sync::Arc::new(empty_font_db()),
         }
     }
 
@@ -526,14 +555,14 @@ impl FontProvider for DefaultFontProvider {
 #[cfg(test)]
 mod tests {
     use super::{
-        DefaultFontProvider, FontProvider, apply_text_transform, default_font_db, measure_text,
-        rasterize_glyphs,
+        DefaultFontProvider, FontProvider, apply_text_transform, measure_text, rasterize_glyphs,
+        test_default_font_db,
     };
     use crate::style::{ComputedTextStyle, FontWeight, TextTransform};
 
     #[test]
     fn cosmic_text_measures_short_english_text() {
-        let db = default_font_db(&[]);
+        let db = test_default_font_db();
         let style = ComputedTextStyle::default();
         let measured = measure_text("Hello", &style, f32::INFINITY, false, &db);
         assert!(
@@ -550,17 +579,17 @@ mod tests {
 
     #[test]
     fn default_font_provider_exposes_loaded_db() {
-        let p = DefaultFontProvider::new();
+        let p = DefaultFontProvider::from_arc(std::sync::Arc::new(test_default_font_db()));
         let count = p.font_db().faces().count();
         assert!(
             count >= 2,
-            "embedded NotoSansSC + NotoColorEmoji should be present, got {count}"
+            "NotoSansSC + NotoColorEmoji should be present, got {count}"
         );
     }
 
     #[test]
-    fn embedded_font_db_maps_sans_serif_to_noto_sans_sc() {
-        let db = default_font_db(&[]);
+    fn test_font_db_maps_sans_serif_to_noto_sans_sc() {
+        let db = test_default_font_db();
 
         assert_eq!(db.family_name(&fontdb::Family::SansSerif), "Noto Sans SC");
     }
@@ -576,7 +605,8 @@ mod tests {
     #[test]
     fn rasterize_glyphs_produces_deduplicated_output() {
         let style = ComputedTextStyle::default();
-        let result = rasterize_glyphs("Hello", &style, f32::INFINITY, false, false);
+        let db = test_default_font_db();
+        let result = rasterize_glyphs("Hello", &style, f32::INFINITY, false, false, &db);
 
         // "Hello" has 5 glyphs, all unique
         assert_eq!(result.glyphs.len(), 5);
@@ -587,7 +617,8 @@ mod tests {
     #[test]
     fn rasterize_glyphs_every_position_key_found_in_glyphs() {
         let style = ComputedTextStyle::default();
-        let result = rasterize_glyphs("AAA", &style, f32::INFINITY, false, false);
+        let db = test_default_font_db();
+        let result = rasterize_glyphs("AAA", &style, f32::INFINITY, false, false, &db);
 
         // CacheKey includes subpixel x_bin, so each "A" at a different
         // position may get a different key. Verify all positions resolve.
@@ -610,7 +641,8 @@ mod tests {
             font_weight: FontWeight::BOLD,
             ..ComputedTextStyle::default()
         };
-        let result = rasterize_glyphs("¥12,846.53", &style, f32::INFINITY, false, false);
+        let db = test_default_font_db();
+        let result = rasterize_glyphs("¥12,846.53", &style, f32::INFINITY, false, false, &db);
 
         let total_positions: usize = result.lines.iter().map(|l| l.positions.len()).sum();
         assert_eq!(total_positions, 10);
@@ -636,7 +668,8 @@ mod tests {
     #[test]
     fn rasterize_glyphs_emoji_produces_color_image() {
         let style = ComputedTextStyle::default();
-        let result = rasterize_glyphs("😀", &style, f32::INFINITY, false, false);
+        let db = test_default_font_db();
+        let result = rasterize_glyphs("😀", &style, f32::INFINITY, false, false, &db);
 
         assert!(!result.glyphs.is_empty());
         let has_color = result

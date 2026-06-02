@@ -14,6 +14,8 @@ export {
   preloadAssets,
   setWasmBaseUrl,
 } from './wasm';
+export { loadDefaultFontsIntoWasm } from './fonts';
+export type { DefaultFontUrls } from './fonts';
 export type { WebRendererInstance } from './wasm';
 
 export {

@@ -19,7 +19,7 @@ use crate::probe::catalog::ResourceCatalog;
 use crate::probe::probe::{probe_image, probe_video};
 use crate::probe::{AssetHandle, AssetId, AssetLoader};
 use crate::script::js_context::JsContext;
-use crate::text::default_font_db;
+
 
 use super::Pipeline;
 
@@ -43,7 +43,20 @@ pub struct DefaultPipeline<L: AssetLoader, S: JsContext> {
 }
 
 impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
-    pub fn open(input: &str, mut loader: L, scripts: S) -> Result<Self> {
+    pub fn open(input: &str, loader: L, scripts: S) -> Result<Self> {
+        #[cfg(test)]
+        let font_db = Arc::new(crate::text::test_default_font_db());
+        #[cfg(not(test))]
+        let font_db = Arc::new(crate::text::empty_font_db());
+        Self::open_with_font_db(input, loader, scripts, font_db)
+    }
+
+    pub fn open_with_font_db(
+        input: &str,
+        mut loader: L,
+        scripts: S,
+        font_db: Arc<fontdb::Database>,
+    ) -> Result<Self> {
         let trimmed = input.trim();
         let parsed = if trimmed.starts_with('{') {
             crate::parse::jsonl::parse(input)?
@@ -89,7 +102,7 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
             display_build_session: DisplayBuildSession::new(),
             composite_history: CompositeHistory::default(),
             analyze_fingerprint_history: AnalyzeFingerprintHistory::default(),
-            font_db: Arc::new(default_font_db(&[])),
+            font_db,
             cache: RenderCache::new(
                 DEFAULT_NODE_OWN_CAP,
                 DEFAULT_SEGMENT_CAP,

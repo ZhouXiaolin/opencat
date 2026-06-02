@@ -46,4 +46,6 @@ pub use self::script::{
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use self::test_support::TestCatalog;
-pub use self::text::{DefaultFontProvider, FontProvider};
+pub use self::text::{
+    DefaultFontProvider, FontProvider, empty_font_db, extend_font_db, font_db_from_bytes,
+};

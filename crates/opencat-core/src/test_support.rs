@@ -8,9 +8,7 @@ use crate::parse::primitives::{AudioSource, ImageSource};
 use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 
 pub fn mock_font_provider() -> impl crate::text::FontProvider {
-    crate::text::DefaultFontProvider::from_arc(Arc::new(
-        crate::text::default_font_db_with_embedded_only(),
-    ))
+    crate::text::DefaultFontProvider::from_arc(Arc::new(crate::text::test_default_font_db()))
 }
 
 pub struct TestCatalog {

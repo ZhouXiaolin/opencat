@@ -22,6 +22,7 @@ pub struct RenderCtx<'a> {
     pub ordered_scene: &'a OrderedSceneProgram,
     pub builder: &'a mut DrawOpBuilder,
     pub blob_store: Option<&'a dyn BlobStore>,
+    pub font_db: &'a fontdb::Database,
     pub hidden_picture_stack: Vec<String>,
 }
 

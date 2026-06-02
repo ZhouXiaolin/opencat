@@ -4,6 +4,8 @@
 pub mod codec;
 pub mod consumer;
 pub mod executor;
+pub mod fonts;
+pub mod pipeline;
 pub mod inspect;
 pub mod js_context;
 pub mod media;

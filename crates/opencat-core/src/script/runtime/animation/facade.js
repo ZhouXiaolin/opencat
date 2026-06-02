@@ -97,19 +97,7 @@
 
     ctx.from = function(targets, vars) {
         flushPendingTimelines();
-        vars = vars || {};
-        var toVars = {};
-        var tracks = core.collectTracks(vars, {}, {}).tracks;
-        for (var i = 0; i < tracks.length; i++) {
-            var track = tracks[i];
-            toVars[track.inputName] = core.getDescriptorDefault(
-                track.descriptor,
-                null,
-                track.name,
-                core.getVar(vars, track)
-            );
-        }
-        return core.applyTween(targets, vars, toVars, core.splitTiming(vars));
+        return core.applyTween(targets, vars || {}, {}, core.splitTiming(vars));
     };
 
     ctx.fromTo = function(targets, fromVars, toVars) {
@@ -209,8 +197,16 @@
         }
 
         function tweenSpan(targets, duration, timing) {
-            var stagger = timing && timing.stagger !== undefined ? Number(timing.stagger) : 0;
-            return Number(duration || 0) + Math.max(0, targetCount(targets) - 1) * Math.max(0, stagger);
+            var n = targetCount(targets);
+            if (n <= 1) return Number(duration || 0);
+            var stagger = timing && timing.stagger !== undefined ? timing.stagger : 0;
+            var delays = core.resolveStaggerDelays(stagger, n);
+            if (!delays) return Number(duration || 0);
+            var maxDelay = 0;
+            for (var i = 0; i < delays.length; i++) {
+                if (delays[i] > maxDelay) maxDelay = delays[i];
+            }
+            return Number(duration || 0) + maxDelay;
         }
 
         function scaledTiming(timing, scale) {
@@ -225,7 +221,13 @@
                 out.repeatDelay = Number(out.repeatDelay) * scale;
             }
             if (out.stagger !== undefined) {
-                out.stagger = Number(out.stagger) * scale;
+                if (typeof out.stagger === 'number') {
+                    out.stagger = out.stagger * scale;
+                } else if (typeof out.stagger === 'object') {
+                    out.stagger = copyOwn({}, out.stagger);
+                    if (out.stagger.each !== undefined) out.stagger.each = Number(out.stagger.each) * scale;
+                    if (out.stagger.amount !== undefined) out.stagger.amount = Number(out.stagger.amount) * scale;
+                }
             }
             out.__skipSceneFit = true;
             return out;
@@ -240,16 +242,6 @@
             } else if (kind === 'from') {
                 fromVars = a || {};
                 toVars = {};
-                var tracks = core.collectTracks(fromVars, {}, {}).tracks;
-                for (var fi = 0; fi < tracks.length; fi++) {
-                    var track = tracks[fi];
-                    toVars[track.inputName] = core.getDescriptorDefault(
-                        track.descriptor,
-                        null,
-                        track.name,
-                        core.getVar(fromVars, track)
-                    );
-                }
             } else {
                 fromVars = {};
                 toVars = a || {};

@@ -28,6 +28,13 @@ XML 是视频的事实来源。运行时解析 XML，构建场景树，使用 Sk
 | | `motion-principles.md` 仅「设计原则」部分 | 步骤 2 可选 |
 | **实现阶段** | `opencat.md`, `transitions.md`, `animations.md`, `canvaskit.md`, `text-animations.md` | 步骤 3 按需 |
 | | `motion-principles.md` 完整（含「实现护栏」） | 步骤 3 |
+| | `techniques.md` — 13 种动效技法目录 | 步骤 3 需选择技法时 |
+| | `dynamic-techniques.md` — 动态字幕技巧 | 步骤 3 处理字幕时 |
+| | `data-in-motion.md` — 数据可视化规则 | 步骤 3 处理数据时 |
+| | `audio-reactive.md` — 音频响应动效 | 步骤 3 有音乐时 |
+| | `video-composition.md` — 视频构图规则 | 步骤 3 |
+| | `patterns.md` — 组合模式 | 步骤 3 遇到匹配模式时 |
+| | `captions.md` — 字幕与配音指南 | 步骤 3 处理字幕时 |
 
 **规则：** 每个步骤只读该步骤需要的文件。不提前加载。如果某个文件被引用了但当前步骤不需要，跳过它。
 
@@ -87,14 +94,32 @@ XML 是视频的事实来源。运行时解析 XML，构建场景树，使用 Sk
 4. **动效** — 缓动选择、入场方向变化、交错节奏
 
 然后按需读取实现文件：
-- [references/opencat.md](references/opencat.md) — XML 语法、节点类型、动画 API
-- [references/transitions.md](references/transitions.md) — 转场效果参数
+- [references/opencat.md](references/opencat.md) — XML 语法、节点类型、动画 API（含解析器硬规则速查）
+- [references/transitions.md](references/transitions.md) — 转场效果参数、情感映射
 - [references/animations.md](references/animations.md) — 节点变换、颜色、路径动画、morphSVG
 - [references/canvaskit.md](references/canvaskit.md) — Canvas API、Paint、Path
-- [references/text-animations.md](references/text-animations.md) — 打字机、splitText、高亮
+- [references/text-animations.md](references/text-animations.md) — 打字机、splitText、24 种命名效果、五种高亮模式
 - [references/motion-principles.md](references/motion-principles.md) — 动效护栏规则、编排原则
+- [references/techniques.md](references/techniques.md) — 13 种动效技法目录，需要选技法时查阅
+- [references/dynamic-techniques.md](references/dynamic-techniques.md) — 动态字幕技巧、能量级别、高亮轮换
+- [references/data-in-motion.md](references/data-in-motion.md) — 数据可视化特有规则
+- [references/audio-reactive.md](references/audio-reactive.md) — 音频响应动效 API
+- [references/video-composition.md](references/video-composition.md) — 视频构图规则
+- [references/patterns.md](references/patterns.md) — 画中画、Stagger、计数器等组合模式
+- [references/captions.md](references/captions.md) — SRT 字幕、Karaoke、配音同步
 
 最后构建 XML。每个场景、每个元素、每个 tween 应赢得它的位置。
+
+#### XML 硬规则（解析器会拒绝）
+
+完整速查见 [references/opencat.md 的「解析器硬规则」小节](references/opencat.md)。**最少不能违反的 6 条**：
+
+- **单可视根**：`<opencat>` 只能有一个可视根（`div`/`text`/`canvas`/`image`/`video`/`icon`/`path`/`caption`/`tl`）
+- **`<script>` 单实例 + 直接子 + 无属性 + 非自闭合**：多写会被并成一段，嵌套就报错
+- **`className` / `parentId` / `style` 三个属性在任何位置都拒**：请用 `class`
+- **`<audio>` 必须嵌在 `<soundtrack>` 里**；`attach` 引用 `<tl>` id 或场景 id，且该 id 必须存在
+- **`<transition>` 必须嵌在 `<tl>` 里**；`from`/`to` 必须是直接子场景且**相邻**、`from != to`、`duration` 正整数无前导零
+- **数字属性严格**：`width`/`height`/`fps`/`frames`/`duration`/`data-*` 都必须是 ASCII 正整数（无前导零、无空白、无 `+`、无全角数字），f32/f64 还要 `finite`
 
 #### 布局约束（Tailwind 对齐）
 
@@ -126,25 +151,40 @@ OpenCat 渲染器使用 Taffy 布局引擎，行为与 HTML/Tailwind 对齐：
 
 ## 输出检查清单
 
-### 快速检查
-- [ ] XML 语法有效
+### 解析器会拒绝（必检，违反即报错）
+
+- [ ] 只有一个 `<opencat>` 可视根
+- [ ] 只有一个 `<script>`、是 `<opencat>` 直接子节点、无属性、非自闭合
+- [ ] 无 `className` / `parentId` / `style` 属性
+- [ ] 数字属性（`width`/`height`/`fps`/`frames`/`duration`/`data-start`/`data-duration`/...）是 ASCII 正整数
+- [ ] `<audio>` 在 `<soundtrack>` 内；`attach` 引用的 id 真实存在
+- [ ] `<transition>` 在 `<tl>` 内；`from`/`to` 是直接子场景且**相邻**；`from != to`
+- [ ] `<tl>` 至少 2 个直接子场景，所有场景都有 `duration`；每对相邻场景都有 `<transition>`
+- [ ] 元素上未知的属性名（如 `<div foo="bar">`）会直接 bail
+
+### 风格守门员（不报错但影响质量）
+
+- [ ] XML 语法有效（标签闭合、属性引号）
 - [ ] 遵守 design.md 约束
-- [ ] 每对相邻场景有转场
 - [ ] 每场景有入场动画
 - [ ] 末场景外无退场动画
-- [ ] `frames` = `sum(scene.duration) + sum(transition.duration)`
-- [ ] `<text>` 标签内使用实际 UTF-8 字符，不用 `\uXXXX` 转义
+- [ ] `frames` 与 `sum(scene.duration) + sum(transition.duration)` 对齐
+- [ ] `<text>` 内使用实际 UTF-8 字符，不用 `\uXXXX` 转义
 - [ ] `class` 无 CSS 动画/transform 类
 - [ ] tween 颜色用显式字面量
 - [ ] 确定性随机
-- [ ] root节点优先以 `flex` / `flex-col` / `flex-row` 起手而非裸 div + absolute 坐标
+- [ ] root 节点优先以 `flex` / `flex-col` / `flex-row` 起手而非裸 div + absolute 坐标
 - [ ] 每一个 `absolute` 元素至少有 `top` / `left` / `right` / `bottom` / `inset-X` 之一（含 `inset-0`）。裸 `absolute` 不带坐标 = bug
-
-### 慢速检查
-- [ ] 字号符视频缩放要求（60px+ 标题、20px+ 正文、16px+ 标签）
+- [ ] 字号符合视频缩放要求（60px+ 标题、20px+ 正文、16px+ 标签）
 - [ ] 每场景 8-10 元素
 - [ ] 对比度问题已处理
-- [ ] 动画编排已验证
+- [ ] 动画编排已验证（缓动变化、速度变化、入场方向变化）
+- [ ] 字幕技巧匹配内容能量（见 `dynamic-techniques.md`）
+- [ ] 数据场景遵循数据可视化规则（见 `data-in-motion.md`）
+- [ ] 有音乐时使用音频响应动效（见 `audio-reactive.md`）
+- [ ] 每场景 2+ 焦点、3 层结构、背景不为空（见 `video-composition.md`）
+- [ ] 未使用 CSS 动画/transform 类（所有动效通过脚本控制）
+- [ ] Lottie 动画：当前渲染器不支持，勿使用（预留语法）
 - [ ] 科学事实准确性：视觉呈现（位置、比例、运动轨迹、数值）必须经数学验证，符合客观事实
 - [ ] 公式方向验证：所有数学/几何公式用边界条件做端点测试
 

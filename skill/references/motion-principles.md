@@ -74,7 +74,7 @@
 
 每张图片必须有动效处理：
 
-- **透视倾斜**：`ctx.set('hero', { rotate: -2, scale: 0.96 })` — 创造深度
+- **透视倾斜**：`ctx.from('hero', { rotate: -2, scale: 0.96, duration: 0 })` 或用 class `rotate-[-2deg] scale-[0.96]` — 创造深度
 - **慢速缩放（Ken Burns）**：`ctx.to('hero', { scale: 1.04, duration: 帧数, ease: "none" })` — 电影感
 - **设备边框**：用 Tailwind `rounded-*` 和 `shadow-*` 包裹
 - **浮动 UI**：提取关键元素在不同 z 深度单独动画制造视差
@@ -124,9 +124,9 @@ ctx.timeline().to("aura", { scale: 1.08, yoyo: true, repeat: 5, duration: 36 }, 
 
 ### 场景边界硬杀死
 
-退场动画后必须有确定性 `ctx.set()` 杀死，防止后续补间复活元素：
+逐帧模型中 `to` 过 duration 后会 clamp 在终点值，因此不需要额外的 `set` 来杀死：
 
 ```js
 ctx.fromTo('el', { opacity: 1 }, { opacity: 0, duration: 9, ease: "ease-in" }, beatEnd);
-ctx.set('el', { opacity: 0 }, beatEnd + 9); // 确定性杀死
+// 第 beatEnd + 9 帧之后 opacity 保持 0，无需 set 补刀
 ```

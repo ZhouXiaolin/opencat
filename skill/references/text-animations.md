@@ -6,6 +6,69 @@ OpenCat 提供两层独立的文字动画：
 
 ---
 
+## 24 种命名文字效果
+
+以下是标准文字效果目录，按拆分层级分类。每个效果都有确定性的参数规范，可在拍点中直接按名称引用。
+
+### 逐字符（7种）
+
+| ID | 效果 | 技术方案 |
+|----|------|---------|
+| `soft-blur-in` | 模糊渐入，清晰度渐增 | `splitText('chars')` + `fromTo` 设置 `filter: blur()`→ 无 + `opacity: 0→1` |
+| `per-character-rise` | 字符从下方升起，透明度渐显 | `splitText('chars')` + `fromTo` 设置 `y`, `opacity`，stagger 2-3 帧 |
+| `typewriter` | 打字机逐字符显现 | `ctx.to(id, { text, duration, ease: 'linear' })` — 无 interpolate |
+| `bottom-up-letters` | 字符从底部逐一上升，有重叠 | `splitText('chars')` + `fromTo` `y` + `opacity`，stagger 负重叠 |
+| `top-down-letters` | 字符从顶部缓缓降入 | `splitText('chars')` + `fromTo` `y: -30→0`, stagger |
+| `stagger-from-center` | 字符从中心向两侧依次展开 | `splitText('chars')` + stagger，`from: 'center'` |
+| `stagger-from-edges` | 字符从两端向中心依次聚拢 | `splitText('chars')` + stagger，先两端后中间 |
+
+### 逐词（8种）
+
+| ID | 效果 | 技术方案 |
+|----|------|---------|
+| `per-word-crossfade` | 淡入，无位移 | `splitText('words')` + `from` `opacity: 0`，stagger 4-6 帧 |
+| `spring-scale-in` | 弹簧缩放 + 淡入 | `splitText('words')` + `fromTo` `scale: 0.8→1`, `opacity: 0→1`，缓动 `spring.gentle` |
+| `shared-axis-y` | 沿 Y 轴逐个滑入 | `splitText('words')` + `from` `y: 24`, stagger |
+| `blur-out-up` | 模糊向上渐出（退场用） | `splitText('words')` + `to` `y`, `opacity`, `filter: blur()` |
+| `kinetic-center-build` | 从中心散开构建，有方向性 | `splitText('words')` + 从中心向外放射入场 |
+| `short-slide-right` | 从右短暂滑动入场 | `splitText('words')` + `from` `x: 40`，较短位移 |
+| `short-slide-down` | 从上短暂滑动入场 | `splitText('words')` + `from` `y: -24`，较短位移 |
+| `depth-parallax-words` | 逐词在不同 Z 深度入场 | `splitText('words')` + 交错 `scale` + `opacity` 创造景深感 |
+
+### 逐行（2种）
+
+| ID | 效果 | 技术方案 |
+|----|------|---------|
+| `mask-reveal-up` | 从下到上遮罩揭示 | `splitText('lines')` + `clip-path` 或 `fromTo` `y` |
+| `line-by-line-slide` | 逐行水平滑入 | `splitText('lines')` + `from` `x: 60`, stagger 6-8 帧 |
+
+### 整体元素（7种）
+
+| ID | 效果 | 技术方案 |
+|----|------|---------|
+| `micro-scale-fade` | 微缩 + 淡入 | `fromTo` `scale: 0.95→1`, `opacity: 0→1` |
+| `shimmer-sweep` | 扫光效果 | 渐变 overlay `translateX` 从左到右 |
+| `fade-through` | 经过白色中点交叉淡入 | 先 `to` `opacity: 1` 中途再变到目标色 |
+| `shared-axis-z` | Z 轴推入 | `fromTo` `scale: 0.8→1` + `opacity`，有纵深 |
+| `scale-down-fade` | 缩小并淡入退场 | `to` `scale: 0.8` + `opacity: 0`（退场用） |
+| `focus-blur-resolve` | 模糊→清晰 | `fromTo` `filter: blur()` → 无 |
+| `shared-axis-x` | 水平滑入 | `fromTo` `x: 60→0` + `opacity` |
+
+---
+
+## 在拍点中引用
+
+```markdown
+**文字动画：**
+- 主标题: `kinetic-center-build`
+- 标签: `soft-blur-in`
+- 正文 3 行: `mask-reveal-up`
+```
+
+实现时根据效果 ID 查找上述技术方案，用 `ctx.splitText()` + `ctx.fromTo()` 组合实现。
+
+---
+
 ## 打字机效果
 
 ```js
@@ -214,7 +277,7 @@ canvas.drawRect(CK.XYWHRect(x, 150, 100, 100), glowPaint);
 
 ```jsonl
 {"id":"circle-ring","parentId":"circle-wrap","type":"div","className":"absolute top-1/2 left-1/2 w-[130%] h-[160%] border-2 border-red-500 rounded-full pointer-events-none z-0"}
-{"type":"script","parentId":"root","src":"ctx.set('circle-ring', { x: '-50%', y: '-50%', rotate: -3, scale: 0 });\nvar tl = ctx.timeline();\ntl.to('circle-ring', { scale: 1, rotation: -3, duration: 18, ease: 'back-out' }, 21);"}
+{"type":"script","parentId":"root","src":"var tl = ctx.timeline();\ntl.fromTo('circle-ring', { scale: 0, rotation: -3 }, { scale: 1, rotation: -3, duration: 18, ease: 'back-out' }, 21);"}
 ```
 
 ### 3. 爆发模式 (burst)
@@ -232,7 +295,7 @@ SVG 波浪路径自绘效果：
 
 ```jsonl
 {"id":"scribble-path","parentId":"scribble-svg","type":"path","className":"fill-none stroke-[#FDD835] stroke-[3px]","d":"M0,12 Q31,0 62,12 Q93,24 125,12 Q156,0 187,12 Q218,24 250,12 Q281,0 312,12 Q343,24 375,12 Q406,0 437,12 Q468,24 500,12"}
-{"type":"script","parentId":"root","src":"ctx.set('scribble-path', { strokeDasharray: 500, strokeDashoffset: 500 });\nvar tl = ctx.timeline();\ntl.to('scribble-path', { strokeDashoffset: 0, duration: 24, ease: 'ease-in-out' }, 21);"}
+{"type":"script","parentId":"root","src":"var tl = ctx.timeline();\ntl.fromTo('scribble-path', { strokeDashoffset: 500 }, { strokeDashoffset: 0, duration: 24, ease: 'ease-in-out' }, 21);"}
 ```
 
 ### 5. 划掉模式 (sketchout)
@@ -242,7 +305,7 @@ SVG 波浪路径自绘效果：
 ```jsonl
 {"id":"line-fwd","parentId":"sketchout-lines","type":"div","className":"absolute block top-1/2 left-0 w-full h-[2px] bg-red-500 origin-left"}
 {"id":"line-bwd","parentId":"sketchout-lines","type":"div","className":"absolute block top-1/2 left-0 w-full h-[2px] bg-red-500 origin-left"}
-{"type":"script","parentId":"root","src":"ctx.set('line-fwd', { scaleX: 0, rotate: -12 });\nctx.set('line-bwd', { scaleX: 0, rotate: 12 });\nvar tl = ctx.timeline();\ntl.to('line-fwd', { scaleX: 1, duration: 9, ease: 'ease-out' }, 30);\ntl.to('line-bwd', { scaleX: 1, duration: 9, ease: 'ease-out' }, 35);"}
+{"type":"script","parentId":"root","src":"var tl = ctx.timeline();\ntl.fromTo('line-fwd', { scaleX: 0, rotate: -12 }, { scaleX: 1, rotate: -12, duration: 9, ease: 'ease-out' }, 30);\ntl.fromTo('line-bwd', { scaleX: 0, rotate: 12 }, { scaleX: 1, rotate: 12, duration: 9, ease: 'ease-out' }, 35);"}
 ```
 
 ---

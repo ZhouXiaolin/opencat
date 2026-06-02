@@ -1,6 +1,7 @@
 import './style.css';
 import {
   clearVideoCache,
+  createSurfaceWithFallback,
   downloadMp4,
   exportMp4,
   exportPngFrame,
@@ -279,7 +280,7 @@ function drawDownloadProgress(loaded: number, total: number): void {
   const CK = (globalThis as CanvasKitGlobal).__canvasKit;
   if (!CK || !currentComposition) return;
 
-  const surface = CK.MakeWebGLCanvasSurface(previewCanvas);
+  const surface = createSurfaceWithFallback(CK, previewCanvas);
   if (!surface) return;
   const canvas = surface.getCanvas();
 
@@ -417,7 +418,7 @@ async function renderFrameWithPipeline(
 
   let surface: Surface | null = null;
   try {
-    surface = CK.MakeWebGLCanvasSurface(previewCanvas);
+    surface = createSurfaceWithFallback(CK, previewCanvas);
     if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
 
     const ckCanvas = surface.getCanvas();

@@ -4,6 +4,95 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 
 ---
 
+## 解析器硬规则
+
+**生成 XML 时必须遵守的硬约束**。任何违反都会被解析器拒绝，导致整份合成加载失败。
+
+### 全局
+
+- **单一可视根**：`<opencat>` 下有且仅有一个可视根节点（`div` / `text` / `canvas` / `image` / `video` / `icon` / `path` / `caption` / `tl`）
+- **未知属性 = 错误**：所有元素都不允许未知属性，形如 `unknown attribute <name> on <tag>`
+- **三个禁用属性**：`className` / `parentId` / `style` 在任何位置都禁止使用
+- **数字属性严格**：`width` / `height` / `fps` / `frames` / `duration` / `data-start` / `data-duration` / `data-media-start` / `queryCount` 都必须是 ASCII 正整数（无前导零、无空白、无 `+`、无全角数字）；f32/f64 额外要求 `finite`
+- **id 全局唯一**：可视节点和 `<audio>` 的 id 都不能重复
+- **非空白文本节点**：只能在 `<text>` 内部出现，其他位置的非空白文本会报错
+
+### `<script>`
+
+- 整个合成只允许一个 `<script>` 块
+- 必须是 `<opencat>` 的直接子节点（不能嵌在 `div` / `canvas` / `tl` 等任何子元素里）
+- **不允许带任何属性**（`type` / `src` 等都拒）
+- **不允许自闭合**（必须有 `</script>`）
+- 脚本会被附加到可视根节点（不是顶层 `<opencat>`）
+
+### 元素
+
+| 元素 | 必填属性 | 特有规则 |
+|------|---------|---------|
+| `div` | `id` | 容器；可嵌套任何可视子节点 |
+| `text` | `id` | 文本写在标签之间；**禁止子元素**（`<text><span/></text>` 报错）；实体/`<![CDATA[...]]>`/`<!-- -->` 正常解析 |
+| `canvas` | `id` | markup 模式下允许子元素（作为 hidden children），子节点里不能有 `<audio>` |
+| `image` | `id` | 资源**三选一**：`path` / `url` / `query`；`query` 可配 `queryCount`、`aspectRatio`（`queryCount > 0`，`queryCount`/`aspectRatio` 必须配合 `query`） |
+| `video` | `id` | 资源**三选一**：`path` / `url` / `src`（`src` 以 `http(s)://` 开头自动当 URL）；可叠加子节点；`data-start` / `data-duration` / `data-media-start` / `loop` 控制时间 |
+| `icon` | `id` + `icon` | Lucide 图标名 |
+| `path` | `id` + `d` | SVG path d 字符串 |
+| `caption` | `id` + `path` | SRT 字幕文件路径 |
+| `tl` | `id` | **至少 2 个直接子场景**；无 `duration` 属性；所有子场景都必须有 `duration` |
+
+### `<soundtrack>` 与 `<audio>`
+
+- `<soundtrack>` 是 `<opencat>` 的直接子节点
+- `<soundtrack>` 内部**只允许** `<audio>`，其他元素直接报错
+- `<audio>` **必须嵌在 `<soundtrack>` 内**（直接放在 `<opencat>` 下会报错）
+- `<audio>` 必填：`id` + `attach` + 一个音频源（`path` / `url` 二选一）
+- **`attach` 规则**：
+  - 引用 `<tl>` 的 id → 整条时间线附加
+  - 引用 `<tl>` 内某场景的 id → 场景附加
+  - 引用不存在的 id → 报错 `audio ... attach references non-existent element`
+
+### `<transition>`
+
+- 必须是 `<tl>` 的直接子节点（放在 `div` / `canvas` 等里会报错）
+- 必填：`from` + `to` + `effect` + `duration`
+- **`from` / `to` 必须引用该 `<tl>` 的直接子场景**，且**必须相邻**（`to_idx == from_idx + 1`），不满足会报错
+- **`from != to`**
+- **`duration` 必须为正整数、无前导零**（错误信息：`must be a positive integer` / `must not have leading zeros`）
+- 每对相邻场景必须恰好有一个 `<transition>`，缺失或重复都会报错
+- 可选属性：
+
+  | 属性 | 适用 | 备注 |
+  |------|------|------|
+  | `direction` | `slide` / `wipe` | 详见 [transitions.md](transitions.md) |
+  | `timing` | 全部 | 缓动名，默认 `linear` |
+  | `damping` / `stiffness` / `mass` | 全部 | 三者中任一出现 → spring 配置 |
+  | `seed` / `hueShift` / `maskScale` | `light_leak` | 随机种子 / 色相偏移 / 遮罩缩放 |
+
+- 未识别的 `effect` 名会回退到 `gl_transition` 模式（任意 GLSL 着色器名）
+
+### 错误信息速查
+
+遇到错误时按关键词定位规则：
+
+| 触发 | 错误信息关键词 |
+|------|---------------|
+| 多个可视根 | `multiple visual root elements found` |
+| 未知属性 | `unknown attribute <name> on <tag>` |
+| 禁用属性 | `attribute <name> is not allowed in markup` |
+| 数字非法 | `must be a positive integer` / `must not have leading zeros` |
+| `<tl>` 缺子场景 | `timeline ... must have at least two direct child scenes` |
+| `<tl>` 缺转场 | `missing transition between adjacent scenes` |
+| `<tl>` 缺 duration | `timeline sequence ... is missing a duration` |
+| `<transition>` 非相邻 | `is not between adjacent children` |
+| `<transition>` `from`/`to` 不存在 | `references <id>, which is not a direct child of this timeline` |
+| `<transition>` `from == to` | `from and to must be distinct` |
+| `<audio>` 不在 `<soundtrack>` | `<audio> must be inside <soundtrack>` |
+| `<audio>` `attach` 找不到 | `attach references non-existent element` |
+| `<script>` 嵌套 | `<script> must be a direct child of <opencat>` |
+| `<script>` 带属性 | `<script> tag with attributes is not allowed` |
+| `<script>` 自闭合 | `self-closing <script/> is not allowed` |
+
+---
+
 ## 基本结构
 
 ```xml
@@ -27,47 +116,9 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 | `width` | 正整数 | 1920 | 画布宽度（像素） |
 | `height` | 正整数 | 1080 | 画布高度（像素） |
 | `fps` | 正整数 | 30 | 每秒帧数 |
-| `frames` | 正整数 | 90 | 总帧数 |
+| `frames` | 正整数 | 90 | 总帧数（与 `<tl>` 推导的总帧数对齐是约定，不是硬约束） |
 
----
-
-## `<script>` 规则
-
-**严格限制：**
-- **只能有一个** `<script>` 标签
-- **必须是 `<opencat>` 的直接子节点**（不能嵌套在其他元素内）
-- **不能有属性**（如 `type`、`src` 等都不允许）
-- **不能自闭合**（必须有 `</script>` 结束标签）
-
-script 内容会在解析时被提取，并自动附加到 visual root 节点（即第一个视觉元素）。
-
-```xml
-<!-- ✅ 正确 -->
-<opencat>
-  <script>ctx.fromTo('title', {opacity: 0}, {opacity: 1, duration: 30});</script>
-  <div id="root">...</div>
-</opencat>
-
-<!-- ❌ 错误：script 嵌套在 div 内 -->
-<opencat>
-  <div id="root">
-    <script>...</script>
-  </div>
-</opencat>
-
-<!-- ❌ 错误：script 有属性 -->
-<opencat>
-  <script type="text/javascript">...</script>
-  <div id="root">...</div>
-</opencat>
-
-<!-- ❌ 错误：多个 script -->
-<opencat>
-  <script>...</script>
-  <script>...</script>
-  <div id="root">...</div>
-</opencat>
-```
+`<script>` 的所有强制规则（单实例 / 直接子 / 无属性 / 非自闭合）见上方的「解析器硬规则」。
 
 ---
 
@@ -75,14 +126,14 @@ script 内容会在解析时被提取，并自动附加到 visual root 节点（
 
 | 标签 | 说明 | 必填属性 |
 |------|------|----------|
-| `<div>` | 容器，默认 `display: block` | `id` |
-| `<text>` | 文本节点 | `id` |
+| `<div>` | 容器，markup 中默认 `display: block`（要 flex 显式写 `flex`） | `id` |
+| `<text>` | 文本节点（文字写在标签之间） | `id` |
 | `<image>` | 图像 | `id` + 一个图像源 |
 | `<video>` | 视频 | `id` + 一个视频源 |
 | `<icon>` | Lucide 图标 | `id` + `icon` |
 | `<path>` | SVG 路径 | `id` + `d` |
 | `<canvas>` | Canvas 绘制表面 | `id` |
-| `<audio>` | 音频（必须在 `<soundtrack>` 内） | `id` + `attach` + 一个音频源 |
+| `<audio>` | 音频（**必须嵌在 `<soundtrack>` 内**） | `id` + `attach` + 一个音频源 |
 | `<caption>` | SRT 字幕 | `id` + `path` |
 | `<tl>` | Timeline 容器 | `id` |
 | `<transition>` | 场景转场 | `from` + `to` + `effect` + `duration` |
@@ -133,16 +184,17 @@ script 内容会在解析时被提取，并自动附加到 visual root 节点（
 
 ```xml
 <soundtrack>
-  <audio id="bgm" url="https://example.com/music.mp3" attach="scene1" />
+  <audio id="bgm" url="https://example.com/music.mp3" attach="main-tl" />
+  <audio id="scene-audio" url="https://example.com/sfx.mp3" attach="scene-1" />
 </soundtrack>
 ```
 
 | 属性 | 说明 |
 |------|------|
 | `id` | 节点标识 |
-| `path`/`url` | 音频源 |
-| `attach` | 附加到的场景 ID |
-| `duration` | 可选，持续帧数 |
+| `path`/`url` | 音频源（二选一，不能并存） |
+| `attach` | 引用的元素 id：**`<tl>` id**（整条时间线附加）**或** `<tl>` 内的**场景 id**（场景附加）；引用不存在的 id 会直接 bail |
+| `duration` | 可选，正整数，持续帧数 |
 
 ---
 
@@ -259,12 +311,15 @@ script 内容会在解析时被提取，并自动附加到 visual root 节点（
 
 ### Tween API
 
-```js
-ctx.set(targets, vars);                // 立即设置
-ctx.to(targets, vars);                 // 当前 → 目标
-ctx.from(targets, vars);               // 初始 → 当前
-ctx.fromTo(targets, fromVars, toVars); // 完整控制
-```
+动效三原则：
+
+| API | 行为 | 初始值来源 |
+|-----|------|-----------|
+| `ctx.from(targets, vars)` | 从 `vars` 动画到**当前值** | `vars` 指定起始值 |
+| `ctx.to(targets, vars)` | 从**当前值**动画到 `vars` | 节点 class 或上一次 tween 的结果 |
+| `ctx.fromTo(targets, fromVars, toVars)` | 从 `fromVars` 到 `toVars`，两端写死 | `fromVars` 指定起始值 |
+
+**没有 `ctx.set`** — 逐帧运行时不需要。初始值要么从节点 class（Tailwind）来，要么从 `from` / `fromTo` 的起始参数来。
 
 **属性别名：**
 
@@ -401,21 +456,21 @@ ease: [0.25, 0.1, 0.25, 1.0]
 
 ## Canvas API
 
-`canvas` 节点提供 CanvasKit 风格的绘制表面。
+`canvas` 节点提供 CanvasKit 风格的绘制表面。**注意：`<canvas>` 在 markup 模式下允许子元素**（作为 hidden children 供脚本 `ctx.getNode` 取用），但子节点里**不能有 `<audio>`**。
 
 ### 入口点
 
 | 对象 | 用途 |
 |------|------|
 | `ctx.CanvasKit` | 辅助函数、构造函数、枚举 |
-| `ctx.getCanvas()` | 绘制接口 |
+| `ctx.getCanvasById(id)` | 拿到指定 `<canvas>` 的绘制接口（**`ctx.getCanvas()` 不存在，调用会抛错**） |
 | `ctx.getImage(assetId)` | 图像句柄 |
 
 ### 常用方法
 
 ```js
 var CK = ctx.CanvasKit;
-var canvas = ctx.getCanvas();
+var canvas = ctx.getCanvasById('my-canvas');
 
 // 状态
 canvas.clear(color?);
@@ -512,7 +567,7 @@ path.close();
 <opencat width="640" height="480" fps="30" frames="120">
   <script>
     var CK = ctx.CanvasKit;
-    var canvas = ctx.getCanvas();
+    var canvas = ctx.getCanvasById('my-canvas');
     canvas.clear(CK.WHITE);
     var paint = new CK.Paint();
     paint.setColor(CK.parseColorString('#ff0000'));
@@ -550,3 +605,6 @@ path.close();
 | 帧数不匹配 | `frames = sum(scene.duration) + sum(transition.duration)` |
 | `<script>` 嵌套在其他元素内 | 必须是 `<opencat>` 的直接子节点 |
 | `<audio>` 直接放在 `<opencat>` 下 | 必须在 `<soundtrack>` 内 |
+| `ctx.getCanvas()` | 用 `ctx.getCanvasById(id)`（`getCanvas` 调用会抛错） |
+| `<audio>` `attach="root"` 当 root 是 div 而非 `<tl>` | attach 引用 `<tl>` id 或其内部场景 id；不能指向普通 `div` |
+| 给 transition 加 `damping` / `stiffness` / `mass` 三者之一 | 这是 spring 配置，三者中至少一个出现就走 spring 缓动；不需要时直接用 `timing="ease-in-out"` 等命名缓动 |

@@ -11,4 +11,9 @@ pub mod time;
 pub mod transition;
 
 pub use document::ParsedComposition;
+pub use document::{
+    BuildOptions, CanvasChildrenMode, ParsedDocumentParts, build_font_resources,
+    build_parsed_document,
+};
 pub use jsonl::parse;
+pub use markup::parse_parts_with_base_dir;

@@ -53,7 +53,7 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
 
     pub fn open_with_font_db(
         input: &str,
-        mut loader: L,
+        loader: L,
         scripts: S,
         font_db: Arc<fontdb::Database>,
     ) -> Result<Self> {
@@ -63,7 +63,16 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
         } else {
             crate::parse::markup::parse(input)?
         };
+        Self::open_parsed(parsed, loader, scripts, font_db)
+    }
 
+    /// Open a pipeline from an already-built [`ParsedComposition`] and font database.
+    pub fn open_parsed(
+        parsed: crate::parse::ParsedComposition,
+        mut loader: L,
+        scripts: S,
+        font_db: Arc<fontdb::Database>,
+    ) -> Result<Self> {
         let root_node = parsed.root;
         let composition = Composition::new("pipeline")
             .size(parsed.width, parsed.height)

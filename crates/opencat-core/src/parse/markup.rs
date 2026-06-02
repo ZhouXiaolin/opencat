@@ -184,16 +184,18 @@ use crate::parse::document::{
     ParsedElement, ParsedElementKind, ParsedTransition, build_parsed_document,
 };
 use crate::parse::primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource};
+use crate::resource::fonts::{FontFaceDecl, FontManifest, FontRole, FontSource};
 use crate::resource::types::VideoFrameTiming;
 
 pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     parse_with_base_dir(input, None)
 }
 
-pub fn parse_with_base_dir(
+/// Parse markup into document parts (no scene tree yet).
+pub fn parse_parts_with_base_dir(
     input: &str,
     base_dir: Option<&std::path::Path>,
-) -> anyhow::Result<ParsedComposition> {
+) -> anyhow::Result<ParsedDocumentParts> {
     let extracted = extract_raw_script(input)?;
     let doc = roxmltree::Document::parse(&extracted.xml)?;
     let root = doc.root_element();
@@ -210,12 +212,20 @@ pub fn parse_with_base_dir(
         ..Default::default()
     };
     parse_opencat_children(root, base_dir, &mut parts)?;
+    Ok(parts)
+}
 
+pub fn parse_with_base_dir(
+    input: &str,
+    base_dir: Option<&std::path::Path>,
+) -> anyhow::Result<ParsedComposition> {
+    let parts = parse_parts_with_base_dir(input, base_dir)?;
     build_parsed_document(
         parts,
         BuildOptions {
             canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree,
         },
+        None,
     )
 }
 
@@ -232,6 +242,8 @@ const IMAGE_ATTRS: &[&str] = &[
     "queryCount",
     "aspectRatio",
 ];
+const FONTS_ATTRS: &[&str] = &["default"];
+const FONT_ATTRS: &[&str] = &["id", "family", "path", "url", "src", "role"];
 const AUDIO_ATTRS: &[&str] = &["id", "duration", "path", "url", "attach"];
 const VIDEO_ATTRS: &[&str] = &[
     "id",
@@ -288,6 +300,12 @@ fn parse_opencat_children(
                 match tag {
                     "soundtrack" => {
                         parse_soundtrack(child, base_dir, parts)?;
+                    }
+                    "fonts" => {
+                        if !parts.font_manifest.faces.is_empty() {
+                            anyhow::bail!("multiple <fonts> blocks are not allowed");
+                        }
+                        parse_fonts(child, base_dir, &mut parts.font_manifest)?;
                     }
                     "div" | "text" | "canvas" | "image" | "video" | "icon" | "path" | "caption"
                     | "tl" => {
@@ -599,6 +617,100 @@ fn parse_visual_node(
     }
 
     Ok(())
+}
+
+fn parse_fonts(
+    node: roxmltree::Node<'_, '_>,
+    base_dir: Option<&std::path::Path>,
+    manifest: &mut FontManifest,
+) -> anyhow::Result<()> {
+    ensure_allowed_attrs(node, FONTS_ATTRS)?;
+    if let Some(default_id) = node.attribute("default") {
+        if default_id.is_empty() {
+            anyhow::bail!("<fonts default=\"\"> must be non-empty");
+        }
+        manifest.default_face_id = Some(default_id.to_string());
+    }
+
+    for child in node.children() {
+        match child.node_type() {
+            roxmltree::NodeType::Element => {
+                if child.tag_name().name() != "font" {
+                    anyhow::bail!(
+                        "unknown element <{}> inside <fonts>",
+                        child.tag_name().name()
+                    );
+                }
+                ensure_allowed_attrs(child, FONT_ATTRS)?;
+                let id = required_non_empty_attr(child, "id")?;
+                if manifest.face_by_id(id).is_some() {
+                    anyhow::bail!("duplicate font id `{id}`");
+                }
+                let family = child
+                    .attribute("family")
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string);
+                let role = child.attribute("role").map(parse_font_role).transpose()?;
+                let source = parse_font_source(child, base_dir)?;
+                manifest.faces.push(FontFaceDecl {
+                    id: id.to_string(),
+                    family,
+                    source,
+                    role,
+                });
+            }
+            roxmltree::NodeType::Comment => {}
+            roxmltree::NodeType::Text => {
+                if !child.text().unwrap_or("").trim().is_empty() {
+                    anyhow::bail!("non-whitespace text is not allowed inside <fonts>");
+                }
+            }
+            _ => anyhow::bail!("processing instructions not allowed inside <fonts>"),
+        }
+    }
+
+    if let Some(default_id) = manifest.default_face_id.as_deref() {
+        if manifest.face_by_id(default_id).is_none() {
+            anyhow::bail!("<fonts default=\"{default_id}\"> references unknown font id");
+        }
+    }
+
+    Ok(())
+}
+
+fn parse_font_role(value: &str) -> anyhow::Result<FontRole> {
+    match value {
+        "sans" => Ok(FontRole::Sans),
+        "emoji" => Ok(FontRole::Emoji),
+        "mono" => Ok(FontRole::Mono),
+        other => anyhow::bail!("unknown font role `{other}`; expected sans, emoji, or mono"),
+    }
+}
+
+fn parse_font_source(
+    node: roxmltree::Node<'_, '_>,
+    base_dir: Option<&std::path::Path>,
+) -> anyhow::Result<FontSource> {
+    let path = node.attribute("path");
+    let url = node.attribute("url").or(node.attribute("src"));
+    match (path, url) {
+        (Some(p), None) => {
+            if p.is_empty() {
+                anyhow::bail!("<font> path must be non-empty");
+            }
+            let resolved = crate::resource::fonts::resolve_font_source_path(p, base_dir)?;
+            Ok(FontSource::Path(resolved))
+        }
+        (None, Some(u)) => {
+            if u.is_empty() {
+                anyhow::bail!("<font> url must be non-empty");
+            }
+            Ok(FontSource::Url(u.to_string()))
+        }
+        (Some(_), Some(_)) => anyhow::bail!("<font> accepts only one of: path, url, src"),
+        (None, None) => anyhow::bail!("<font> requires one of: path, url, src"),
+    }
 }
 
 fn parse_soundtrack(
@@ -1094,6 +1206,19 @@ mod tests {
     }
 
     #[test]
+    fn parses_fonts_block() {
+        let input = r#"<opencat width="320" height="180" fps="30" frames="1">
+  <fonts default="sans">
+    <font id="sans" family="Noto Sans SC" url="https://example.com/NotoSansSC.otf" />
+  </fonts>
+  <div id="root" />
+</opencat>"#;
+        let parts = super::parse_parts_with_base_dir(input, None).expect("parts should parse");
+        assert_eq!(parts.font_manifest.default_face_id.as_deref(), Some("sans"));
+        assert_eq!(parts.font_manifest.faces.len(), 1);
+        assert_eq!(parts.font_manifest.faces[0].id, "sans");
+    }
+
     fn parses_opencat_defaults() {
         let parsed = parse(r#"<opencat><div id="root" /></opencat>"#).expect("markup should parse");
 

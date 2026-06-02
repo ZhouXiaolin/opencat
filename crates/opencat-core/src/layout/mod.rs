@@ -426,7 +426,7 @@ fn text_measure_context_for_element(element: &ElementNode) -> Option<TextMeasure
     match &element.kind {
         ElementKind::Text(text) => Some(TextMeasureContext {
             text: text.text.clone(),
-            style: text.text_style,
+            style: text.text_style.clone(),
             allow_wrap: !element.style.layout.truncate
                 && (element.style.text.wrap_text
                     || element.style.layout.width.is_some()

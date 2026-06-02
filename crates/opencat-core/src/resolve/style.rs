@@ -22,7 +22,7 @@ pub struct InheritedStyle {
 
 impl InheritedStyle {
     pub fn for_child(style: &ComputedStyle) -> Self {
-        let mut text = style.text;
+        let mut text = style.text.clone();
         let container_has_definite_width = style.layout.width.is_some()
             || style.layout.width_percent.is_some()
             || style.layout.width_full;

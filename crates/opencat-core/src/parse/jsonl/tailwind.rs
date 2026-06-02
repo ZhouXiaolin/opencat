@@ -790,14 +790,23 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
-    // font-[N] — arbitrary numeric font weight (e.g. font-[350], font-[700])
-    if let Some(value) = class
-        .strip_prefix("font-[")
-        .and_then(|v| v.strip_suffix(']'))
-        && let Ok(weight) = value.parse::<u16>()
-    {
-        style.font_weight = Some(FontWeight(weight));
+    if class == "font-sans" {
+        style.use_document_default_font = true;
         return true;
+    }
+
+    // font-[N] weight or font-[faceId] manifest reference
+    if let Some(value) = class.strip_prefix("font-[").and_then(|v| v.strip_suffix(']')) {
+        if let Ok(weight) = value.parse::<u16>()
+            && (100..=950).contains(&weight)
+        {
+            style.font_weight = Some(FontWeight(weight));
+            return true;
+        }
+        if !value.is_empty() {
+            style.font_face_id = Some(value.to_string());
+            return true;
+        }
     }
 
     false

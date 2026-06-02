@@ -44,7 +44,7 @@ XML 定义场景、动画与布局，Skia GPU 加速渲染，FFmpeg 编码输出
 ```
 
 ```bash
-cargo run --bin opencat -- json/dribbble-logo-animated.xml
+cargo run --bin opencat -- examples/dribbble-logo-animated.xml
 ```
 
 MP4 已生成。不需要浏览器、不需要截图、不需要任何图形界面。
@@ -160,7 +160,7 @@ if (effect) {
 
 ```bash
 # 渲染 MP4
-cargo run --bin opencat -- json/profile-showcase.xml
+cargo run --bin opencat -- examples/profile-showcase.xml
 
 # 桌面播放器实时预览（macOS / Windows）
 cargo run --bin opencat-see -- path/to/input.xml
@@ -192,7 +192,7 @@ opencat
 │   ├── opencat-web/       # WASM：浏览器端渲染 + 导出
 │   └── opencat/           # CLI 入口
 ├── web/                   # Web 视频编辑器
-└── json/                  # 示例 XML 文件
+└── examples/                  # 示例 XML 文件
 ```
 
 </details>

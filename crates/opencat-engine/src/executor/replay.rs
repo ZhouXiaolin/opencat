@@ -646,6 +646,27 @@ fn replay_op(
         DrawOp::DrawSubtreePicture { .. } => Ok(()),
 
         DrawOp::ScriptRuntimeEffect { .. } => Ok(()),
+
+        DrawOp::LottieRect {
+            bundle_id,
+            frame,
+            dst,
+        } => {
+            if let Some(anim) = exec.lottie_cache.get(bundle_id) {
+                anim.seek_frame(*frame as f64);
+                let size = anim.size();
+                let iw = size.width.max(1.0);
+                let ih = size.height.max(1.0);
+                canvas.save();
+                let clip_rect = Rect::new(dst.x, dst.y, dst.x + dst.width, dst.y + dst.height);
+                canvas.clip_rect(clip_rect, None, Some(false));
+                canvas.translate((dst.x, dst.y));
+                canvas.scale((dst.width / iw, dst.height / ih));
+                anim.render(canvas, None);
+                canvas.restore();
+            }
+            Ok(())
+        }
     }
 }
 

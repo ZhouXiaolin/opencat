@@ -167,6 +167,7 @@ pub struct LottieDisplayItem {
     pub in_frame: f32,
     pub out_frame: f32,
     pub timing: VideoFrameTiming,
+    pub paint_epoch: u64,
     pub object_fit: ObjectFit,
     pub paint: BitmapPaintStyle,
 }

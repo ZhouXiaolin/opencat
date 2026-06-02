@@ -122,21 +122,19 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
             }
         }
 
-        async fn fetch_lottie_url(url: &str) -> anyhow::Result<Vec<u8>> {
-            let resolved = if url.starts_with("http://") || url.starts_with("https://") {
-                url.to_string()
-            } else if url.starts_with('/') {
-                url.to_string()
-            } else {
-                format!("/assets/{url}")
-            };
-            crate::resource::fetch::fetch_bytes(&resolved).await
-        }
-
         opencat_core::resource::preload_lottie::hydrate_lottie_bundles(
             &mut external_manifest,
             &mut BlobLottieMap(&mut blobs),
-            fetch_lottie_url,
+            |url| {
+                let resolved = if url.starts_with("http://") || url.starts_with("https://") {
+                    url.to_string()
+                } else if url.starts_with('/') {
+                    url.to_string()
+                } else {
+                    format!("/assets/{url}")
+                };
+                Box::pin(async move { crate::resource::fetch::fetch_bytes(&resolved).await })
+            },
         )
         .await
         .map_err(|e| JsValue::from_str(&format!("preload_assets lottie: {e}")))?;

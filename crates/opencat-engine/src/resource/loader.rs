@@ -8,6 +8,7 @@ use anyhow::{Context, Result, anyhow};
 
 use opencat_core::probe::{AssetHandle, AssetLoader, ResourceRequests};
 use opencat_core::probe::{AudioSource, ImageSource, SubtitleSource, VideoSource};
+use opencat_core::parse::primitives::LottieSource;
 use opencat_core::resource::asset_id::{
     AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
 };
@@ -225,6 +226,26 @@ impl AssetLoader for EngineLoader {
                 new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
             }
 
+            for lottie_req in &req.lotties {
+                if matches!(lottie_req.source, LottieSource::Unset) {
+                    continue;
+                }
+                let id = lottie_asset_id(&lottie_req.source);
+                match &lottie_req.source {
+                    LottieSource::Url(u) => {
+                        let _ = self.fetcher.fetch_bytes(&id, u).await?;
+                    }
+                    LottieSource::Path(p) => {
+                        copy_local_to_cache(p, &base_dir, &cache_dir, &id)?;
+                    }
+                    LottieSource::Unset => continue,
+                }
+                let cached_path = cache_file_path(&cache_dir, &id);
+                new_handles.push((id.clone(), cached_path.clone()));
+                let bundle_id = AssetId(format!("lottie:{}", lottie_req.element_id));
+                new_handles.push((bundle_id, cached_path));
+            }
+
             Ok::<_, anyhow::Error>(())
         })?;
 
@@ -268,6 +289,14 @@ fn subtitle_asset_id(s: &SubtitleSource) -> AssetId {
     match s {
         SubtitleSource::Url(u) => AssetId(format!("subtitle:url:{u}")),
         SubtitleSource::Path(p) => AssetId(format!("subtitle:path:{}", p.to_string_lossy())),
+    }
+}
+
+fn lottie_asset_id(s: &LottieSource) -> AssetId {
+    match s {
+        LottieSource::Unset => AssetId(String::new()),
+        LottieSource::Path(p) => AssetId(p.to_string_lossy().into_owned()),
+        LottieSource::Url(u) => asset_id_for_url(u),
     }
 }
 

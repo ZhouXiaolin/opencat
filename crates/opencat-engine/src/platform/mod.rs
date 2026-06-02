@@ -160,6 +160,7 @@ fn register_canvas_aliases_from_node(
         | NodeKind::Text(_)
         | NodeKind::Lucide(_)
         | NodeKind::Path(_)
+        | NodeKind::Lottie(_)
         | NodeKind::Caption(_) => {}
     }
 }

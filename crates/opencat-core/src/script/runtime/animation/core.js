@@ -185,6 +185,133 @@
         return resolveVarValue(getVar(vars, track), target, targetIndex);
     }
 
+    function computeLinearDistances(count, from) {
+        var distances = [];
+        var i;
+        if (typeof from === 'number') {
+            for (i = 0; i < count; i++) distances.push(Math.abs(i - from));
+            return distances;
+        }
+        switch (from || 'start') {
+            case 'start':
+                for (i = 0; i < count; i++) distances.push(i);
+                break;
+            case 'end':
+                for (i = 0; i < count; i++) distances.push(count - 1 - i);
+                break;
+            case 'center': {
+                var center = (count - 1) / 2;
+                for (i = 0; i < count; i++) distances.push(Math.abs(i - center));
+                break;
+            }
+            case 'edges':
+                for (i = 0; i < count; i++) distances.push(Math.min(i, count - 1 - i));
+                break;
+            case 'random':
+                for (i = 0; i < count; i++) {
+                    var x = Math.sin((i + 1) * 12.9898 + 78.233) * 43758.5453;
+                    distances.push(x - Math.floor(x));
+                }
+                break;
+            default:
+                for (i = 0; i < count; i++) distances.push(i);
+        }
+        return distances;
+    }
+
+    function computeGridDistances(count, grid, axis, from) {
+        var cols, rows;
+        if (Array.isArray(grid)) {
+            rows = Number(grid[0]);
+            cols = Number(grid[1]);
+        } else {
+            cols = typeof grid === 'number' ? Number(grid) : Math.ceil(Math.sqrt(count));
+            rows = Math.ceil(count / cols);
+        }
+
+        var refRow, refCol;
+        var isEdges = from === 'edges';
+        if (!isEdges && typeof from === 'number') {
+            refRow = Math.floor(from / cols);
+            refCol = from % cols;
+        } else if (!isEdges) {
+            switch (from || 'start') {
+                case 'center':
+                    refRow = (rows - 1) / 2;
+                    refCol = (cols - 1) / 2;
+                    break;
+                case 'end':
+                    refRow = rows - 1;
+                    refCol = cols - 1;
+                    break;
+                default:
+                    refRow = 0;
+                    refCol = 0;
+            }
+        }
+
+        var distances = [];
+        for (var i = 0; i < count; i++) {
+            var row = Math.floor(i / cols);
+            var col = i % cols;
+            var dr, dc;
+            if (isEdges) {
+                dr = Math.min(row, rows - 1 - row);
+                dc = Math.min(col, cols - 1 - col);
+            } else {
+                dr = Math.abs(row - refRow);
+                dc = Math.abs(col - refCol);
+            }
+            var dist;
+            if (axis === 'x') dist = dc;
+            else if (axis === 'y') dist = dr;
+            else dist = Math.sqrt(dr * dr + dc * dc);
+            distances.push(dist);
+        }
+        return distances;
+    }
+
+    function resolveStaggerDelays(stagger, count) {
+        if (count <= 1 || stagger == null || stagger === 0) return null;
+        if (typeof stagger === 'number') {
+            var delays = [];
+            for (var i = 0; i < count; i++) delays.push(i * stagger);
+            return delays;
+        }
+        if (typeof stagger === 'object') {
+            var each = stagger.each;
+            var amount = stagger.amount;
+
+            if (each == null && amount != null) {
+                each = Number(amount) / Math.max(1, count - 1);
+            }
+            each = Number(each || 0);
+
+            var from = stagger.from || 'start';
+            var grid = stagger.grid || null;
+            var axis = stagger.axis || null;
+            var distances = grid
+                ? computeGridDistances(count, grid, axis, from)
+                : computeLinearDistances(count, from);
+
+            var maxDist = 0;
+            for (var i = 0; i < distances.length; i++) {
+                if (distances[i] > maxDist) maxDist = distances[i];
+            }
+
+            var easeTag = stagger.ease ? resolveEasingTag(stagger.ease) : null;
+
+            var delays = [];
+            for (var i = 0; i < count; i++) {
+                var t = maxDist > 0 ? distances[i] / maxDist : 0;
+                if (easeTag) t = __easing_apply(easeTag, t);
+                delays.push(t * each * maxDist);
+            }
+            return delays;
+        }
+        return null;
+    }
+
     function hasVar(vars, track) {
         vars = vars || {};
         if (hasOwn(vars, track.inputName) || hasOwn(vars, track.name)) return true;
@@ -392,20 +519,33 @@
 
     function applyTween(targets, fromVars, toVars, timing) {
         var list = normalizeTargets(targets);
-        var stagger = timing && timing.stagger !== undefined ? Number(timing.stagger) : 0;
-        if (list.length > 1 && stagger > 0 && !(timing && timing.__skipSceneFit)) {
+        var stagger = timing && timing.stagger !== undefined ? timing.stagger : 0;
+        var delays = resolveStaggerDelays(stagger, list.length);
+
+        // Auto-fit stagger into remaining scene time
+        if (delays && !(timing && timing.__skipSceneFit)) {
             var sceneFrames = Number(ctx.sceneFrames || ctx.totalFrames || 0);
-            var delay = Number((timing && timing.delay) || 0);
+            var baseDelay = Number((timing && timing.delay) || 0);
             var duration = Number((timing && timing.duration) || 0);
-            var available = sceneFrames - delay - duration;
+            var available = sceneFrames - baseDelay - duration;
             if (sceneFrames > 0 && available >= 0) {
-                stagger = Math.min(stagger, available / (list.length - 1));
+                var maxDelay = 0;
+                for (var d = 0; d < delays.length; d++) {
+                    if (delays[d] > maxDelay) maxDelay = delays[d];
+                }
+                if (maxDelay > available && maxDelay > 0) {
+                    var scale = available / maxDelay;
+                    for (var d = 0; d < delays.length; d++) {
+                        delays[d] *= scale;
+                    }
+                }
             }
         }
+
         var results = [];
         for (var i = 0; i < list.length; i++) {
             var localTiming = copyOwn(timing, {
-                delay: Number((timing && timing.delay) || 0) + i * stagger,
+                delay: Number((timing && timing.delay) || 0) + (delays ? delays[i] : 0),
             });
             var tween = createTween(createTarget(list[i]), fromVars, toVars, localTiming, i);
             results.push(tween);
@@ -429,5 +569,6 @@
         collectTracks: collectTracks,
         createTween: createTween,
         applyTween: applyTween,
+        resolveStaggerDelays: resolveStaggerDelays,
     };
 })();

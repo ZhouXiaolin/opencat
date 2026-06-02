@@ -7,7 +7,7 @@ import {
   installFaacAudioEncoderFallback,
 } from './faac-audio-encoder';
 import type { IClip } from '@webav/av-cliper';
-import type { CanvasKit, Surface } from 'canvaskit-wasm';
+import type { CanvasKit, ColorSpace, Surface, WebGLOptions } from 'canvaskit-wasm';
 
 export type ExportProgressStage =
   | 'loading'
@@ -18,8 +18,34 @@ export type ExportProgressStage =
 type ProgressCallback = (current: number, total: number, stage?: ExportProgressStage) => void;
 type CanvasKitGlobal = typeof globalThis & { __canvasKit?: CanvasKit };
 
-function createExportSurface(CK: CanvasKit, canvas: HTMLCanvasElement | OffscreenCanvas): Surface | null {
-  return CK.MakeWebGLCanvasSurface(canvas);
+export function createSurfaceWithFallback(
+  CK: CanvasKit,
+  canvas: HTMLCanvasElement | OffscreenCanvas,
+  colorSpace?: ColorSpace,
+  opts?: WebGLOptions,
+): Surface | null {
+  if (typeof CK.MakeWebGLCanvasSurface === 'function') {
+    try {
+      const surface = CK.MakeWebGLCanvasSurface(canvas, colorSpace, opts);
+      if (surface) return surface;
+    } catch (err) {
+      console.warn(
+        'CanvasKit: WebGL surface creation failed, falling back to software surface.',
+        err,
+      );
+    }
+  }
+
+  if (typeof CK.MakeSWCanvasSurface === 'function') {
+    try {
+      return CK.MakeSWCanvasSurface(canvas) ?? null;
+    } catch (err) {
+      console.warn('CanvasKit: software surface creation failed.', err);
+      return null;
+    }
+  }
+
+  return null;
 }
 
 async function yieldToBrowser(): Promise<void> {
@@ -77,7 +103,7 @@ class ExportClip implements IClip {
   }
 
   private getSurface(CK: CanvasKit): Surface {
-    this.surface ??= createExportSurface(CK, this.canvas);
+    this.surface ??= createSurfaceWithFallback(CK, this.canvas);
     if (!this.surface) throw new Error('createExportSurface failed');
     return this.surface;
   }
@@ -387,7 +413,7 @@ export async function exportPngFrame(
   const canvas = createIsolatedExportCanvas(comp.width, comp.height);
   let surface: Surface | null = null;
   try {
-    surface = createExportSurface(CK, canvas);
+    surface = createSurfaceWithFallback(CK, canvas);
     if (!surface) throw new Error('createExportSurface failed');
     const ckCanvas = surface.getCanvas();
 

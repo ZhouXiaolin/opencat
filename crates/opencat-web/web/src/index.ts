@@ -47,6 +47,7 @@ export {
 } from './media/video-frame-injector';
 
 export {
+  createSurfaceWithFallback,
   downloadMp4,
   exportMp4,
   exportPngFrame,

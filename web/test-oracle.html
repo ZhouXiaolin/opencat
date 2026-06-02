@@ -23,6 +23,7 @@
       import {
         clearBlobs,
         clearVideoCache,
+        createSurfaceWithFallback,
         getRendererOrThrow,
         initWasm,
         injectVideoFramesForRender,
@@ -99,10 +100,10 @@
         const CK = globalThis.__canvasKit;
         let surface;
         try {
-          surface = CK.MakeWebGLCanvasSurface(canvas, undefined, {
+          surface = createSurfaceWithFallback(CK, canvas, undefined, {
             alphaType: CK.AlphaType.Premul,
           });
-          if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
+          if (!surface) throw new Error('surface creation failed');
 
           const ckCanvas = surface.getCanvas();
           const ir = renderer.build_frame_ir(jsonl, frame, resourceMetaJson);

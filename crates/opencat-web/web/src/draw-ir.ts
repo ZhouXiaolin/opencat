@@ -1,4 +1,4 @@
-import { getBlobBytes } from './wasm';
+import { getBlobBytes, getSkottieBundleAssets } from './wasm';
 import {
   getCachedVideoFrameRgba,
   getCachedVideoFrameSource,
@@ -22,6 +22,7 @@ import type {
   PathEffect,
   PointMode,
   Rect,
+  ManagedAnimation,
   RuntimeEffect,
   Shader,
   StrokeCap,
@@ -127,8 +128,11 @@ const OP_IMAGE_RECT = 35;
 const OP_RUNTIME_EFFECT = 36;
 const OP_REPLAY_RANGE = 37;
 const OP_DRAW_SUBTREE_PICTURE = 38;
+const OP_LOTTIE_RECT = 39;
 
 const NO_PAINT = 0xffff_ffff;
+
+const lottieCache = new Map<string, ManagedAnimation>();
 
 type Rect4 = { x: number; y: number; width: number; height: number };
 type Range = { start: number; len: number };
@@ -483,6 +487,25 @@ export function renderEncodedDrawFrame(
           if (!ckImage) break;
           const sourceRect = hasSrc ? ckRect(CK, src) : imageBounds(CK, ckImage);
           targetCanvas.drawImageRect(ckImage, sourceRect, ckRect(CK, dst), paintId === NO_PAINT ? new CK.Paint() : buildPaintById(CK, frame, paintId));
+          break;
+        }
+        case OP_LOTTIE_RECT: {
+          const bundleId = frame.strings[p.u32()] ?? '';
+          const lottieFrame = p.f32();
+          const dst = readRect4(p);
+          const anim = resolveLottieAnimation(CK, bundleId);
+          if (!anim) break;
+          anim.seekFrame(lottieFrame, null);
+          const dstRect = ckRect(CK, dst);
+          const size = anim.size();
+          const iw = size[0] || 1;
+          const ih = size[1] || 1;
+          targetCanvas.save();
+          targetCanvas.clipRect(dstRect, CK.ClipOp.Intersect, false);
+          targetCanvas.translate(dst.x, dst.y);
+          targetCanvas.scale(dst.width / iw, dst.height / ih);
+          anim.render(targetCanvas);
+          targetCanvas.restore();
           break;
         }
         case OP_RUNTIME_EFFECT:
@@ -1037,6 +1060,19 @@ function applyPathCommand(CK: CanvasKit, builder: PathBuilder, op: PathCommand):
     default:
       throw new Error(`Unsupported PathOp ${op.kind}`);
   }
+}
+
+function resolveLottieAnimation(CK: CanvasKit, bundleId: string): ManagedAnimation | null {
+  const cached = lottieCache.get(bundleId);
+  if (cached) return cached;
+  const bytes = getBlobBytes(bundleId);
+  if (!bytes) return null;
+  const json = new TextDecoder().decode(bytes);
+  const assets = getSkottieBundleAssets(bundleId);
+  const anim = CK.MakeManagedAnimation(json, assets);
+  if (!anim) return null;
+  lottieCache.set(bundleId, anim);
+  return anim;
 }
 
 function resolveImage(

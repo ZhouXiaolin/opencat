@@ -73,6 +73,16 @@ impl Hash for DisplayItemFp<'_> {
                 bitmap.object_fit.hash(state);
                 BitmapPaintFp(&bitmap.paint).hash(state);
             }
+            DisplayItem::Lottie(lottie) => {
+                6_u8.hash(state);
+                lottie.bundle_id.hash(state);
+                lottie.width.hash(state);
+                lottie.height.hash(state);
+                lottie.fps.to_bits().hash(state);
+                lottie.duration_frames.hash(state);
+                lottie.object_fit.hash(state);
+                BitmapPaintFp(&lottie.paint).hash(state);
+            }
             DisplayItem::DrawScript(script) => {
                 3_u8.hash(state);
                 script.commands.hash(state);

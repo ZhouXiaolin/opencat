@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     frame_ctx::FrameCtx,
     parse::{
-        primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video},
+        primitives::{Canvas, CaptionNode, Div, Image, Lottie, Lucide, Path, Text, Video},
         time::TimelineNode,
     },
     script::ScriptDriver,
@@ -57,6 +57,7 @@ pub enum NodeKind {
     Canvas(Canvas),
     Text(Text),
     Image(Image),
+    Lottie(Lottie),
     Lucide(Lucide),
     Path(Path),
     Video(Video),
@@ -71,6 +72,7 @@ impl std::fmt::Debug for NodeKind {
             Self::Canvas(_) => write!(f, "Canvas(..)"),
             Self::Text(_) => write!(f, "Text(..)"),
             Self::Image(_) => write!(f, "Image(..)"),
+            Self::Lottie(_) => write!(f, "Lottie(..)"),
             Self::Lucide(_) => write!(f, "Lucide(..)"),
             Self::Path(_) => write!(f, "Path(..)"),
             Self::Video(_) => write!(f, "Video(..)"),
@@ -87,6 +89,7 @@ impl NodeKind {
             Self::Canvas(node) => node.style_ref(),
             Self::Text(node) => node.style_ref(),
             Self::Image(node) => node.style_ref(),
+            Self::Lottie(node) => node.style_ref(),
             Self::Lucide(node) => node.style_ref(),
             Self::Path(node) => node.style_ref(),
             Self::Video(node) => node.style_ref(),
@@ -102,6 +105,7 @@ impl NodeKind {
             Self::Text(_)
             | Self::Canvas(_)
             | Self::Image(_)
+            | Self::Lottie(_)
             | Self::Lucide(_)
             | Self::Path(_)
             | Self::Video(_)
@@ -115,6 +119,7 @@ impl NodeKind {
             Self::Canvas(node) => &mut node.style,
             Self::Text(node) => &mut node.style,
             Self::Image(node) => &mut node.style,
+            Self::Lottie(node) => &mut node.style,
             Self::Lucide(node) => &mut node.style,
             Self::Path(node) => &mut node.style,
             Self::Video(node) => &mut node.style,
@@ -145,6 +150,12 @@ impl From<Text> for NodeKind {
 impl From<Image> for NodeKind {
     fn from(value: Image) -> Self {
         Self::Image(value)
+    }
+}
+
+impl From<Lottie> for NodeKind {
+    fn from(value: Lottie) -> Self {
+        Self::Lottie(value)
     }
 }
 
@@ -198,6 +209,12 @@ impl From<Text> for Node {
 
 impl From<Image> for Node {
     fn from(value: Image) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Lottie> for Node {
+    fn from(value: Lottie) -> Self {
         Self::new(value)
     }
 }

@@ -146,6 +146,10 @@ impl Hash for LayoutInputLocal<'_> {
                 bitmap.width.hash(state);
                 bitmap.height.hash(state);
             }
+            ElementKind::Lottie(lottie) => {
+                lottie.width.hash(state);
+                lottie.height.hash(state);
+            }
             ElementKind::SvgPath(svg) => {
                 svg.intrinsic_size
                     .map(|(w, h)| (F32Hash(w), F32Hash(h)))
@@ -190,6 +194,13 @@ impl Hash for PaintInputLocal<'_> {
                 bitmap.width.hash(state);
                 bitmap.height.hash(state);
                 bitmap.video_timing.hash(state);
+            }
+            ElementKind::Lottie(lottie) => {
+                lottie.bundle_id.hash(state);
+                lottie.width.hash(state);
+                lottie.height.hash(state);
+                lottie.fps.to_bits().hash(state);
+                lottie.duration_frames.hash(state);
             }
             ElementKind::Canvas(canvas) => {
                 canvas.commands.hash(state);
@@ -349,6 +360,7 @@ fn element_kind_tag(kind: &ElementKind) -> u8 {
         ElementKind::Bitmap(_) => 3,
         ElementKind::Canvas(_) => 4,
         ElementKind::SvgPath(_) => 5,
+        ElementKind::Lottie(_) => 6,
     }
 }
 

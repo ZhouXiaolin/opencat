@@ -376,6 +376,13 @@ pub enum DrawOp {
         paint: Option<PaintId>,
     },
 
+    /// Draw a Skottie/Lottie animation frame into `dst` (web CanvasKit).
+    LottieRect {
+        bundle_id: String,
+        frame: f32,
+        dst: Rect4,
+    },
+
     /// Draw a runtime shader effect with uniform data and child inputs.
     RuntimeEffect {
         effect: EffectId,
@@ -612,6 +619,16 @@ impl std::hash::Hash for DrawOp {
                 src.hash(state);
                 dst.hash(state);
                 paint.hash(state);
+            }
+            DrawOp::LottieRect {
+                bundle_id,
+                frame,
+                dst,
+            } => {
+                39_u8.hash(state);
+                bundle_id.hash(state);
+                frame.to_bits().hash(state);
+                dst.hash(state);
             }
             DrawOp::RuntimeEffect {
                 effect,

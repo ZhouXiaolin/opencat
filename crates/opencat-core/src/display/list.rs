@@ -115,6 +115,7 @@ pub enum DisplayItem {
     Timeline(TimelineDisplayItem),
     Text(TextDisplayItem),
     Bitmap(BitmapDisplayItem),
+    Lottie(LottieDisplayItem),
     DrawScript(DrawScriptDisplayItem),
     SvgPath(SvgPathDisplayItem),
 }
@@ -154,6 +155,18 @@ pub struct TimelineDisplayItem {
 pub struct TimelineTransitionDisplay {
     pub progress: f32,
     pub kind: TransitionKind,
+}
+
+#[derive(Clone, Debug)]
+pub struct LottieDisplayItem {
+    pub bounds: DisplayRect,
+    pub bundle_id: AssetId,
+    pub width: u32,
+    pub height: u32,
+    pub fps: f32,
+    pub duration_frames: u32,
+    pub object_fit: ObjectFit,
+    pub paint: BitmapPaintStyle,
 }
 
 #[derive(Clone, Debug)]
@@ -275,6 +288,7 @@ impl DisplayItem {
             Self::Timeline(timeline) => timeline.bounds,
             Self::Text(text) => text.bounds,
             Self::Bitmap(bitmap) => bitmap.bounds,
+            Self::Lottie(lottie) => lottie.bounds,
             Self::DrawScript(script) => script.bounds,
             Self::SvgPath(svg) => svg.bounds,
         }
@@ -296,6 +310,7 @@ impl DisplayItem {
             Self::Rect(rect) => rect.paint.box_shadow,
             Self::Timeline(timeline) => timeline.paint.box_shadow,
             Self::Bitmap(bitmap) => bitmap.paint.box_shadow,
+            Self::Lottie(lottie) => lottie.paint.box_shadow,
             Self::Text(_) | Self::DrawScript(_) | Self::SvgPath(_) => None,
         };
         if let Some(shadow) = box_shadow {
@@ -308,6 +323,7 @@ impl DisplayItem {
             Self::Timeline(timeline) => timeline.paint.drop_shadow,
             Self::Text(text) => text.drop_shadow,
             Self::Bitmap(bitmap) => bitmap.paint.drop_shadow,
+            Self::Lottie(lottie) => lottie.paint.drop_shadow,
             Self::DrawScript(script) => script.drop_shadow,
             Self::SvgPath(svg) => svg.paint.drop_shadow,
         };

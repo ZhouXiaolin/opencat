@@ -75,6 +75,9 @@ pub enum ParsedElementKind {
     Image {
         source: ImageSource,
     },
+    Lottie {
+        source: crate::parse::primitives::LottieSource,
+    },
     Icon {
         name: String,
     },

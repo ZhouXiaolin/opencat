@@ -69,7 +69,7 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
         .build()
         .map_err(|e| JsValue::from_str(&format!("preload_assets: build composition: {e}")))?;
 
-    let (requests, external_manifest) =
+    let (requests, mut external_manifest) =
         collect_external_manifest(&composition, &font_manifest);
 
     let mut blobs = take_blobs();
@@ -105,6 +105,51 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
         preload_all(requests, &mut resolver, &mut catalog)
             .await
             .map_err(|e| JsValue::from_str(&format!("preload_assets: {e}")))?;
+    }
+
+    {
+        struct BlobLottieMap<'a>(&'a mut BlobStore);
+        impl opencat_core::resource::preload_lottie::ByteSourceMap for BlobLottieMap<'_> {
+            fn insert(&mut self, id: &AssetId, bytes: Vec<u8>) {
+                self.0.insert(id.clone(), std::sync::Arc::from(bytes));
+            }
+            fn get(&self, id: &AssetId) -> Option<Vec<u8>> {
+                self.0.get(id).map(|b| b.to_vec())
+            }
+            fn insert_bundle_dep(&mut self, bundle_id: &AssetId, file_name: &str, bytes: Vec<u8>) {
+                let dep_id = AssetId(format!("{}:dep:{}", bundle_id.0, file_name));
+                self.0.insert(dep_id, std::sync::Arc::from(bytes));
+            }
+        }
+
+        async fn fetch_lottie_url(url: &str) -> anyhow::Result<Vec<u8>> {
+            let resolved = if url.starts_with("http://") || url.starts_with("https://") {
+                url.to_string()
+            } else if url.starts_with('/') {
+                url.to_string()
+            } else {
+                format!("/assets/{url}")
+            };
+            crate::resource::fetch::fetch_bytes(&resolved).await
+        }
+
+        opencat_core::resource::preload_lottie::hydrate_lottie_bundles(
+            &mut external_manifest,
+            &mut BlobLottieMap(&mut blobs),
+            fetch_lottie_url,
+        )
+        .await
+        .map_err(|e| JsValue::from_str(&format!("preload_assets lottie: {e}")))?;
+
+        for bundle in &external_manifest.bundles {
+            if let Some(bytes) = blobs.get(&bundle.bundle_id) {
+                if let Ok(json) = std::str::from_utf8(bytes.as_ref()) {
+                    if let Ok(meta) = opencat_core::resource::parse_lottie_meta(json) {
+                        catalog.register_lottie(&bundle.bundle_id.0, meta);
+                    }
+                }
+            }
+        }
     }
 
     put_blobs(blobs);

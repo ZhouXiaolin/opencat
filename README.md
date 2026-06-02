@@ -14,12 +14,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ZhouXiaolin/opencat"><strong>🌐 GitHub — ZhouXiaolin/opencat</strong></a>
-</p>
-
-<p align="center">
   <a href="README.md">English</a> · <a href="README_ZH.md">中文</a>
 </p>
+
+  <video width="60%" controls autoplay loop muted playsinline src="https://github.com/user-attachments/assets/62ae6af6-095b-4b54-af53-97ba79945a6d"></video>
 
 </div>
 

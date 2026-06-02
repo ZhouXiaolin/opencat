@@ -449,7 +449,7 @@ fn display_item_for_node(
             DisplayItem::Text(TextDisplayItem {
                 bounds,
                 text: text.text.clone(),
-                style: text.text_style,
+                style: text.text_style.clone(),
                 allow_wrap: !element.style.layout.truncate
                     && (element.style.text.wrap_text
                         || element.style.layout.width.is_some()

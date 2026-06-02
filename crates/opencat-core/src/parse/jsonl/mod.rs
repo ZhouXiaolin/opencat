@@ -499,6 +499,7 @@ pub fn parse_with_base_dir(
     };
 
     Ok(ParsedComposition {
+        font_manifest: Default::default(),
         width,
         height,
         fps,

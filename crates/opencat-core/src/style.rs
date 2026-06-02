@@ -914,6 +914,12 @@ pub struct NodeStyle {
     // Text
     pub text_color: Option<ColorToken>,
     pub text_px: Option<f32>,
+    /// Resolved `font-family` name for cosmic-text (from `<fonts>` + `font-[id]`).
+    pub font_family: Option<String>,
+    /// Reference to `<font id="...">` before manifest resolution.
+    pub font_face_id: Option<String>,
+    /// Tailwind `font-sans` → document default face from `<fonts default="...">`.
+    pub use_document_default_font: bool,
     pub font_weight: Option<FontWeight>,
     pub letter_spacing: Option<f32>,
     pub letter_spacing_em: Option<f32>,
@@ -938,11 +944,13 @@ pub struct NodeStyle {
     pub script_driver: Option<Arc<ScriptDriver>>,
 }
 
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComputedTextStyle {
     pub color: ColorToken,
     pub text_px: f32,
+    /// Shaping family name; `None` uses generic `sans-serif` (fontdb mapping).
+    pub font_family: Option<String>,
     pub font_weight: FontWeight,
     pub letter_spacing: f32,
     pub text_align: TextAlign,
@@ -957,6 +965,7 @@ impl std::hash::Hash for ComputedTextStyle {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.color.hash(state);
         self.text_px.to_bits().hash(state);
+        self.font_family.hash(state);
         self.font_weight.hash(state);
         self.letter_spacing.to_bits().hash(state);
         self.text_align.hash(state);
@@ -973,6 +982,7 @@ impl Default for ComputedTextStyle {
         Self {
             color: ColorToken::Black,
             text_px: 16.0,
+            font_family: None,
             font_weight: FontWeight::NORMAL,
             letter_spacing: 0.0,
             text_align: TextAlign::Left,
@@ -1002,6 +1012,10 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
     ComputedTextStyle {
         color: style.text_color.unwrap_or(parent.color),
         text_px,
+        font_family: style
+            .font_family
+            .clone()
+            .or_else(|| parent.font_family.clone()),
         font_weight: style.font_weight.unwrap_or(parent.font_weight),
         letter_spacing,
         text_align: style.text_align.unwrap_or(parent.text_align),

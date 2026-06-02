@@ -178,9 +178,7 @@ pub fn measure_text(
     let mut buffer = Buffer::new(&mut font_system, metrics);
     buffer.set_size(layout_width, None);
 
-    let attrs = Attrs::new()
-        .family(cosmic_text::Family::SansSerif)
-        .weight(cosmic_text::Weight(style.font_weight.0));
+    let attrs = text_attrs(style);
     let transformed = apply_text_transform(text, style.text_transform);
     buffer.set_text(&transformed, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut font_system, false);
@@ -238,9 +236,7 @@ pub fn rasterize_glyphs(
     let mut buffer = Buffer::new(&mut font_system, metrics);
     buffer.set_size(layout_width, None);
 
-    let attrs = Attrs::new()
-        .family(cosmic_text::Family::SansSerif)
-        .weight(cosmic_text::Weight(style.font_weight.0));
+    let attrs = text_attrs(style);
     buffer.set_text(&rendered, &attrs, Shaping::Advanced, None);
     buffer.shape_until_scroll(&mut font_system, false);
 
@@ -348,6 +344,17 @@ pub fn measure_script_text_width(text: &str, font_size: f32, scale_x: f32) -> f3
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+fn text_attrs(style: &ComputedTextStyle) -> Attrs<'_> {
+    let family = style
+        .font_family
+        .as_deref()
+        .map(cosmic_text::Family::Name)
+        .unwrap_or(cosmic_text::Family::SansSerif);
+    Attrs::new()
+        .family(family)
+        .weight(cosmic_text::Weight(style.font_weight.0))
+}
 
 /// Compute a stable u64 key from a cosmic-text CacheKey.
 pub fn glyph_cache_key(cache_key: &cosmic_text::CacheKey) -> u64 {

@@ -44,7 +44,7 @@ A video is just an XML file:
 ```
 
 ```bash
-cargo run --bin opencat -- json/dribbble-logo-animated.xml
+cargo run --bin opencat -- examples/dribbble-logo-animated.xml
 ```
 
 MP4 ready. No browser, no screenshots, no GUI needed.
@@ -160,7 +160,7 @@ Any HTML subtree — layout, images, text, video → texture → shader → outp
 
 ```bash
 # Render MP4
-cargo run --bin opencat -- json/profile-showcase.xml
+cargo run --bin opencat -- examples/profile-showcase.xml
 
 # Desktop player for live preview (macOS / Windows)
 cargo run --bin opencat-see -- path/to/input.xml
@@ -192,7 +192,7 @@ opencat
 │   ├── opencat-web/       # WASM: browser render + export
 │   └── opencat/           # CLI entry
 ├── web/                   # Web video editor
-└── json/                  # Example XML files
+└── examples/                  # Example XML files
 ```
 
 </details>

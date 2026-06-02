@@ -1306,6 +1306,7 @@ fn record_hidden_subtree(
             ordered_scene: ctx.ordered_scene,
             builder,
             blob_store: ctx.blob_store,
+            font_db: ctx.font_db,
             hidden_picture_stack: stack,
         };
         for child in hidden_subtree {

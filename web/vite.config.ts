@@ -141,6 +141,11 @@ export default defineConfig({
       { mount: '/json', path: resolve(REPO_ROOT, 'json') },
       { mount: '/lucide', path: resolve(REPO_ROOT, 'lucide') },
       { mount: '/fixtures', path: resolve(REPO_ROOT, 'testsupport/fixtures') },
+      {
+        mount: '/fonts',
+        path: resolve(REPO_ROOT, 'assets'),
+        mime: { otf: 'font/otf', ttf: 'font/ttf' },
+      },
     ]),
     assetPlugin('canvaskit-wasm', ensureCanvaskitWasm),
     assetPlugin('opencat-wasm', ensureOpencatWasm),

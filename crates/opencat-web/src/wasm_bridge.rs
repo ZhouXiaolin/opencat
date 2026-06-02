@@ -56,7 +56,9 @@ impl WebRenderer {
 
         let audio = WebAudio::new().map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(Self {
-            session: RenderSession::new(),
+            session: RenderSession::with_font_db(std::sync::Arc::new(
+                opencat_core::text::empty_font_db(),
+            )),
             script: ScriptRuntimeCache::default(),
             scratch: DrawFrameScratch::default(),
             audio,
@@ -311,6 +313,27 @@ impl WebRenderer {
 
     pub fn clear_image_blobs(&mut self) {
         self.blobs.clear();
+    }
+
+    /// Load default CJK + emoji fonts into the render session (call once after construction).
+    pub fn load_default_fonts(
+        &mut self,
+        sans_sc: Vec<u8>,
+        color_emoji: Vec<u8>,
+    ) -> Result<(), JsValue> {
+        let db = opencat_core::text::font_db_from_bytes(
+            &[sans_sc, color_emoji],
+            "Noto Sans SC",
+        );
+        self.session.font_db = std::sync::Arc::new(db);
+        Ok(())
+    }
+
+    /// Append a single font file to the session database.
+    pub fn load_font_data(&mut self, bytes: Vec<u8>) -> Result<(), JsValue> {
+        let db = opencat_core::text::extend_font_db(self.session.font_db.as_ref(), &[bytes]);
+        self.session.font_db = std::sync::Arc::new(db);
+        Ok(())
     }
 }
 

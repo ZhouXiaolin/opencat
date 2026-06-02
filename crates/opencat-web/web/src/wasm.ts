@@ -1,4 +1,5 @@
 import type { WasmFaacEncoder } from './media/faac-audio-encoder';
+import { loadDefaultFontsIntoWasm } from './fonts';
 
 type WasmModule = {
   default(): Promise<void>;
@@ -21,6 +22,8 @@ export interface WebRendererInstance {
   plan_video_frames(compositionSource: string, frame: number, resources_json: string): string;
   inject_image_bytes(asset_id: string, bytes: Uint8Array): void;
   clear_image_blobs(): void;
+  load_default_fonts(sans_sc: Uint8Array, color_emoji: Uint8Array): void;
+  load_font_data(bytes: Uint8Array): void;
   decode_audio_file(asset_id: string, data: Uint8Array): Promise<void>;
   get_audio_samples(asset_id: string, start_secs: number, duration_secs: number, target_rate: number): string;
   play_audio_at(asset_id: string, offset_secs: number, duration_secs: number): void;
@@ -53,6 +56,7 @@ export async function initWasm(wasmBaseUrl?: string): Promise<void> {
   await mod.default();
   wasmModule = mod as unknown as WasmModule;
   renderer = new wasmModule.WebRenderer();
+  await loadDefaultFontsIntoWasm(renderer);
 }
 
 // ── 资源预加载（下载 + 元数据探测在 Rust 侧完成） ──

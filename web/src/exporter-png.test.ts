@@ -73,7 +73,7 @@ describe('PNG frame export', () => {
     expect(document.createElement).toHaveBeenCalledWith('canvas');
     expect(exportCanvas.width).toBe(640);
     expect(exportCanvas.height).toBe(360);
-    expect(CK.MakeWebGLCanvasSurface).toHaveBeenCalledWith(exportCanvas);
+    expect(CK.MakeWebGLCanvasSurface).toHaveBeenCalledWith(exportCanvas, undefined, undefined);
     expect(exportCanvas.toBlob).toHaveBeenCalledOnce();
     expect(previewCanvas.toBlob).not.toHaveBeenCalled();
     expect(anchor.download).toBe('frame_0000.png');

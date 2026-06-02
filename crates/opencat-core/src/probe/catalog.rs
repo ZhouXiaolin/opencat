@@ -2,7 +2,14 @@ use std::collections::{HashMap, HashSet};
 
 pub use crate::ir::asset_id::AssetId;
 pub use crate::parse::primitives::VideoSource;
-use crate::parse::primitives::{AudioSource, ImageSource, SrtEntry, SubtitleSource};
+use crate::parse::primitives::{AudioSource, ImageSource, LottieSource, SrtEntry, SubtitleSource};
+
+/// One `<lottie id="…">` node — bundle id is `lottie:{element_id}`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LottieRequest {
+    pub element_id: String,
+    pub source: LottieSource,
+}
 
 #[derive(Default, Clone, Debug)]
 pub struct ResourceRequests {
@@ -10,6 +17,7 @@ pub struct ResourceRequests {
     pub videos: HashSet<VideoSource>,
     pub audios: HashSet<AudioSource>,
     pub subtitles: HashSet<SubtitleSource>,
+    pub lotties: HashSet<LottieRequest>,
 }
 
 #[derive(Default, Clone, Debug)]

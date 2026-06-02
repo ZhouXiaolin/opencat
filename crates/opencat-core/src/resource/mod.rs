@@ -10,6 +10,7 @@ pub mod manifest;
 pub mod materialize;
 pub mod path_store;
 pub mod preload;
+pub mod preload_lottie;
 pub mod probe;
 pub mod protocol;
 pub mod resolver;
@@ -23,7 +24,7 @@ pub use fonts::{
     FontFaceDecl, FontFamilyIndex, FontManifest, FontRole, FontSource, fetch_manifest_bytes,
     font_asset_id, load_faces_into_db, merge_faces_into_db, resolve_font_source_path,
 };
-pub use lottie::scan_lottie_dependencies;
+pub use lottie::{parse_lottie_meta, scan_lottie_dependencies, LottieMeta};
 pub use manifest::{
     BundleDependencySource, BundleDependencySpec, ExternalResourceKind, ExternalResourceEntry,
     ExternalResourceManifest, LottieBundleSpec, LottiePrimarySource, ProviderBinding,

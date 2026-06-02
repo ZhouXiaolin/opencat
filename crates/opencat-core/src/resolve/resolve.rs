@@ -6,7 +6,7 @@ use crate::{
     ir::asset_id::AssetId,
     parse::{
         node::NodeKind,
-        primitives::{Canvas, CaptionNode, Div, Image, Lucide, Path, Text, Video, VideoSource},
+        primitives::{Canvas, CaptionNode, Div, Image, Lottie, Lucide, Path, Text, Video, VideoSource},
         time::TimelineNode,
         time::{FrameState, frame_state_for_root},
     },
@@ -15,6 +15,7 @@ use crate::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
             ElementBitmap, ElementCanvas, ElementDiv, ElementDrawSlot, ElementId, ElementKind,
+            ElementLottie,
             ElementNode, ElementSvgPath, ElementText, ElementTimeline, ElementTimelineTransition,
         },
     },
@@ -111,6 +112,7 @@ fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
     match node.kind() {
         NodeKind::Video(video) => resolve_video(video, cx),
         NodeKind::Image(image) => resolve_image(image, cx),
+        NodeKind::Lottie(lottie) => resolve_lottie(lottie, cx),
         NodeKind::Div(div) => resolve_div(div, cx),
         NodeKind::Canvas(canvas) => resolve_canvas(canvas, cx),
         NodeKind::Text(text) => resolve_text(text, cx),
@@ -573,6 +575,50 @@ fn resolve_image(image: &Image, cx: &mut ResolveContext<'_>) -> Result<ElementNo
     result
 }
 
+fn resolve_lottie(lottie: &Lottie, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
+    let pushed = push_script_scope_for_visible_subtree(lottie, lottie.style_ref(), cx)?;
+    let result = (|| {
+        let mut style = lottie.style_ref().clone();
+        ensure!(
+            !style.id.is_empty(),
+            "node id is required for lottie nodes before rendering"
+        );
+        apply_mutation_stack(&mut style, cx.mutation_stack);
+        let computed = compute_style(&style, cx.inherited_style);
+
+        let bundle_id = cx.assets.resolve_lottie(&style.id)?;
+        let meta = cx
+            .assets
+            .lottie_meta(&bundle_id)
+            .unwrap_or(crate::resource::lottie::LottieMeta {
+                width: 100,
+                height: 100,
+                fps: 30.0,
+                in_frame: 0.0,
+                out_frame: 30.0,
+            });
+
+        Ok(ElementNode {
+            id: cx.ids.alloc(),
+            kind: ElementKind::Lottie(ElementLottie {
+                bundle_id,
+                width: meta.width,
+                height: meta.height,
+                fps: meta.fps,
+                duration_frames: meta.duration_frames(),
+            }),
+            style: computed.clone(),
+            children: Vec::new(),
+            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            fingerprints: Default::default(),
+        })
+    })();
+    if pushed {
+        cx.mutation_stack.pop();
+    }
+    result
+}
+
 fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(lucide, lucide.style_ref(), cx)?;
     let result = (|| {
@@ -921,7 +967,7 @@ fn seed_text_sources_for_visible_subtree(
                 );
             }
         }
-        NodeKind::Image(_) | NodeKind::Lucide(_) | NodeKind::Path(_) => {}
+        NodeKind::Image(_) | NodeKind::Lottie(_) | NodeKind::Lucide(_) | NodeKind::Path(_) => {}
     }
 }
 
@@ -1171,6 +1217,7 @@ fn collect_visual_script_targets(node: &Node, registry: &mut ScriptTargetRegistr
         }
         NodeKind::Text(_)
         | NodeKind::Image(_)
+        | NodeKind::Lottie(_)
         | NodeKind::Lucide(_)
         | NodeKind::Path(_)
         | NodeKind::Caption(_) => {}

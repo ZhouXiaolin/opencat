@@ -138,6 +138,10 @@ impl ResourceCatalog for TestCatalog {
     fn video_info(&self, id: &AssetId) -> Option<VideoInfoMeta> {
         self.video_info.get(id).copied()
     }
+
+    fn resolve_lottie(&mut self, element_id: &str) -> anyhow::Result<AssetId> {
+        Ok(AssetId(format!("lottie:{element_id}")))
+    }
 }
 
 #[derive(Default)]

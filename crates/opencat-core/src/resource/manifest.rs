@@ -10,7 +10,8 @@ use crate::ir::asset_id::{
     AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
 };
 use crate::parse::primitives::{AudioSource, ImageSource, SubtitleSource, VideoSource};
-use crate::probe::catalog::ResourceRequests;
+use crate::parse::primitives::LottieSource;
+use crate::probe::catalog::{LottieRequest, ResourceRequests};
 use crate::resource::fonts::{FontFaceDecl, FontManifest, FontSource, font_asset_id};
 use crate::resource::lottie::scan_lottie_dependencies;
 use crate::resource::protocol::{ResourceLookup, TypefaceRequest};
@@ -198,6 +199,26 @@ impl ExternalResourceManifest {
         }
     }
 
+    /// Register `<lottie>` bundles from preflight (`lottie:{element_id}`).
+    pub fn extend_from_lottie_requests(&mut self, lotties: &std::collections::HashSet<LottieRequest>) {
+        for req in lotties {
+            if matches!(req.source, LottieSource::Unset) {
+                continue;
+            }
+            let bundle_id = AssetId(format!("lottie:{}", req.element_id));
+            let primary = match &req.source {
+                LottieSource::Path(p) => LottiePrimarySource::Path(p.clone()),
+                LottieSource::Url(u) => LottiePrimarySource::Url(u.clone()),
+                LottieSource::Unset => continue,
+            };
+            self.push_lottie_bundle(LottieBundleSpec {
+                bundle_id,
+                primary,
+                dependencies: vec![],
+            });
+        }
+    }
+
     /// After primary Lottie JSON bytes are available, discover `assets[].p` / `u` deps.
     pub fn discover_lottie_dependencies_from_json(
         &mut self,
@@ -235,6 +256,7 @@ impl ExternalResourceManifest {
 pub fn build_manifest(req: &ResourceRequests, fonts: &FontManifest) -> ExternalResourceManifest {
     let mut m = ExternalResourceManifest::default();
     m.extend_from_resource_requests(req);
+    m.extend_from_lottie_requests(&req.lotties);
     m.extend_from_font_manifest(fonts);
     m
 }

@@ -31,6 +31,7 @@ pub enum ElementKind {
     Timeline(ElementTimeline),
     Text(ElementText),
     Bitmap(ElementBitmap),
+    Lottie(ElementLottie),
     Canvas(ElementCanvas),
     SvgPath(ElementSvgPath),
 }
@@ -62,6 +63,15 @@ pub struct ElementBitmap {
     pub width: u32,
     pub height: u32,
     pub video_timing: Option<VideoFrameTiming>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ElementLottie {
+    pub bundle_id: AssetId,
+    pub width: u32,
+    pub height: u32,
+    pub fps: f32,
+    pub duration_frames: u32,
 }
 
 #[derive(Clone, Debug)]

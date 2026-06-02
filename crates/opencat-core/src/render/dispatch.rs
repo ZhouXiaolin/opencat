@@ -28,7 +28,8 @@ use super::{RenderCtx, RenderError, record_cache_pressure};
 fn should_cache_item_picture(item: &DisplayItem) -> bool {
     matches!(
         item,
-        DisplayItem::Bitmap(_) | DisplayItem::DrawScript(_) | DisplayItem::SvgPath(_)
+        DisplayItem::Bitmap(_) | DisplayItem::Lottie(_) | DisplayItem::DrawScript(_)
+            | DisplayItem::SvgPath(_)
     )
 }
 
@@ -151,6 +152,11 @@ fn render_display_item_direct(
             #[cfg(feature = "profile")]
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_bitmap").entered();
             super::helpers::render_bitmap_with_shadows(ctx, bitmap)
+        }
+        DisplayItem::Lottie(lottie) => {
+            #[cfg(feature = "profile")]
+            let _span = span!(target: "render.backend", Level::TRACE, "draw_item_lottie").entered();
+            super::helpers::render_lottie_with_shadows(ctx, lottie)
         }
         DisplayItem::DrawScript(script) => {
             #[cfg(feature = "profile")]

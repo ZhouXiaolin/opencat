@@ -180,6 +180,17 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
                 req.images.insert(image.source().clone());
             }
         }
+        NodeKind::Lottie(lottie) => {
+            if !matches!(lottie.source(), crate::parse::primitives::LottieSource::Unset) {
+                let id = lottie.style_ref().id.clone();
+                if !id.is_empty() {
+                    req.lotties.insert(crate::probe::catalog::LottieRequest {
+                        element_id: id,
+                        source: lottie.source().clone(),
+                    });
+                }
+            }
+        }
         NodeKind::Video(video) => {
             if !video_visible_at_frame(video, frame_ctx) {
                 return;
@@ -192,7 +203,7 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
         NodeKind::Timeline(_) => {
             collect_sources_from_frame_state(&frame_state_for_root(node, frame_ctx), frame_ctx, req)
         }
-        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Path(_) => {}
+        NodeKind::Text(_) | NodeKind::Lottie(_) | NodeKind::Lucide(_) | NodeKind::Path(_) => {}
         NodeKind::Caption(caption) => {
             req.subtitles.insert(caption.source().clone());
         }

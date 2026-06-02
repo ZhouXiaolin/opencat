@@ -1,5 +1,6 @@
 use crate::ir::asset_id::{AssetId, asset_id_for_query};
 use crate::parse::primitives::{AudioSource, ImageSource};
+use crate::resource::lottie::LottieMeta;
 use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,10 @@ pub struct ResourceMeta {
     pub height: u32,
     pub kind: ResourceKind,
     pub duration_secs: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lottie_fps: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lottie_duration_frames: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +25,7 @@ pub enum ResourceKind {
     Image,
     Video,
     Audio,
+    Lottie,
 }
 
 /// Catalog built from JS-preloaded resource metadata.
@@ -94,6 +100,8 @@ impl ResourceCatalog for HashMapResourceCatalog {
             height,
             kind: ResourceKind::Image,
             duration_secs: None,
+            lottie_fps: None,
+            lottie_duration_frames: None,
         });
         id
     }
@@ -111,6 +119,8 @@ impl ResourceCatalog for HashMapResourceCatalog {
             height,
             kind: ResourceKind::Video,
             duration_secs,
+            lottie_fps: None,
+            lottie_duration_frames: None,
         });
         id
     }
@@ -122,6 +132,8 @@ impl ResourceCatalog for HashMapResourceCatalog {
             height: 0,
             kind: ResourceKind::Audio,
             duration_secs: None,
+            lottie_fps: None,
+            lottie_duration_frames: None,
         });
         id
     }
@@ -152,6 +164,44 @@ impl ResourceCatalog for HashMapResourceCatalog {
             } else {
                 None
             }
+        })
+    }
+
+    fn resolve_lottie(&mut self, element_id: &str) -> Result<AssetId> {
+        Ok(self.resolve_key(&format!("lottie:{element_id}")))
+    }
+
+    fn lottie_meta(&self, id: &AssetId) -> Option<LottieMeta> {
+        HashMapResourceCatalog::lottie_meta(self, id)
+    }
+}
+
+impl HashMapResourceCatalog {
+    pub fn register_lottie(&mut self, locator: &str, meta: LottieMeta) -> AssetId {
+        let id = self.resolve_key(locator);
+        self.entries.entry(id.clone()).or_insert(ResourceMeta {
+            width: meta.width,
+            height: meta.height,
+            kind: ResourceKind::Lottie,
+            duration_secs: Some(meta.duration_frames() as f64 / meta.fps.max(1.0) as f64),
+            lottie_fps: Some(meta.fps),
+            lottie_duration_frames: Some(meta.duration_frames()),
+        });
+        id
+    }
+
+    pub fn lottie_meta(&self, id: &AssetId) -> Option<LottieMeta> {
+        self.entries.get(id).and_then(|m| {
+            if m.kind != ResourceKind::Lottie {
+                return None;
+            }
+            Some(LottieMeta {
+                width: m.width,
+                height: m.height,
+                fps: m.lottie_fps.unwrap_or(30.0),
+                in_frame: 0.0,
+                out_frame: m.lottie_duration_frames.unwrap_or(1) as f32,
+            })
         })
     }
 }

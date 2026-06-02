@@ -70,6 +70,7 @@ pub mod opcode {
     pub const RUNTIME_EFFECT: u16 = 36;
     pub const REPLAY_RANGE: u16 = 37;
     pub const DRAW_SUBTREE_PICTURE: u16 = 38;
+    pub const LOTTIE_RECT: u16 = 39;
 
     // PathOp sub-opcodes (embedded in PATH_OP payload)
     pub const PATH_MOVE_TO: u16 = 0;
@@ -626,6 +627,17 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             }
             write_rect4(buf, *dst);
             write_u32(buf, paint.map(|p| p.0).unwrap_or(0xFFFF_FFFF));
+        }
+
+        DrawOp::LottieRect {
+            bundle_id,
+            frame,
+            dst,
+        } => {
+            write_op_header(buf, opcode::LOTTIE_RECT, 4 + 4 + 16);
+            write_u32(buf, lookup_string_id(strings, bundle_id));
+            write_f32(buf, *frame);
+            write_rect4(buf, *dst);
         }
 
         // ===================================================================

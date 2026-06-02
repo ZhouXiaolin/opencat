@@ -1402,6 +1402,7 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
         DisplayItem::DrawScript(script) => super::helpers::render_draw_script(ctx, script)?,
         DisplayItem::SvgPath(svg) => super::helpers::render_svg_path(ctx, svg)?,
         DisplayItem::Bitmap(bitmap) => super::helpers::render_bitmap_with_shadows(ctx, bitmap)?,
+        DisplayItem::Lottie(lottie) => super::helpers::render_lottie_with_shadows(ctx, lottie)?,
         DisplayItem::Timeline(timeline) => super::helpers::render_timeline(ctx, timeline)?,
     }
 
@@ -1633,6 +1634,17 @@ fn execute_draw_op(
                 src: *src,
                 dst: *dst,
                 paint: *paint,
+            });
+        }
+        DrawOp::LottieRect {
+            bundle_id,
+            frame,
+            dst,
+        } => {
+            b.push(DrawOp::LottieRect {
+                bundle_id: bundle_id.clone(),
+                frame: *frame,
+                dst: *dst,
             });
         }
 
@@ -2577,6 +2589,82 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
     );
 
     builder.push(DrawOp::Restore);
+    Ok(())
+}
+
+pub fn render_lottie(ctx: &mut RenderCtx, item: &crate::display::list::LottieDisplayItem) -> Result<(), RenderError> {
+    let style = &item.paint;
+    let dst = kurbo_rect(item.bounds);
+
+    let comp_fps = ctx.frame_ctx.fps.max(1) as f32;
+    let local_frame = (ctx.frame_ctx.frame as f32 * item.fps / comp_fps)
+        .min(item.duration_frames.saturating_sub(1) as f32);
+
+    let src_width = item.width as f32;
+    let src_height = item.height as f32;
+
+    let builder = &mut ctx.builder;
+    builder.push(DrawOp::Save);
+    clip_bounds(builder, item.bounds, &style.border_radius);
+
+    if let Some(ref bg) = style.background {
+        let paint = background_fill_to_paint_spec(bg);
+        let paint_id = builder.intern_paint(paint);
+        builder.push(DrawOp::Rect {
+            rect: rect_to_rect4(dst),
+            paint: paint_id,
+        });
+    }
+
+    let lottie_dst = match item.object_fit {
+        ObjectFit::Fill => dst,
+        ObjectFit::Contain => fitted_rect(src_width, src_height, &dst, false),
+        ObjectFit::Cover => dst,
+    };
+
+    builder.push(DrawOp::LottieRect {
+        bundle_id: item.bundle_id.0.clone(),
+        frame: local_frame,
+        dst: rect_to_rect4(lottie_dst),
+    });
+
+    if let Some(ref shadow) = style.inset_shadow {
+        draw_inset_shadow(builder, item.bounds, &style.border_radius, shadow);
+    }
+
+    draw_node_border(
+        builder,
+        &lottie_dst,
+        &style.border_radius,
+        style.border_width,
+        style.border_top_width,
+        style.border_right_width,
+        style.border_bottom_width,
+        style.border_left_width,
+        style.border_color,
+        style.border_style,
+        None,
+    );
+
+    builder.push(DrawOp::Restore);
+    Ok(())
+}
+
+pub fn render_lottie_with_shadows(
+    ctx: &mut RenderCtx,
+    item: &crate::display::list::LottieDisplayItem,
+) -> Result<(), RenderError> {
+    let style = &item.paint;
+    let bounds = item.bounds;
+
+    if let Some(ref shadow) = style.box_shadow {
+        draw_box_shadow(ctx.builder, bounds, &style.border_radius, shadow);
+    }
+
+    if let Some(ref shadow) = style.drop_shadow {
+        draw_item_drop_shadow(ctx, bounds, shadow, |ctx2| render_lottie(ctx2, item))?;
+    }
+    render_lottie(ctx, item)?;
     Ok(())
 }
 

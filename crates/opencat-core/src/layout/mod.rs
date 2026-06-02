@@ -409,6 +409,7 @@ fn cached_node_kind(element: &ElementNode) -> CachedNodeKind {
         ElementKind::Timeline(_) => CachedNodeKind::Timeline,
         ElementKind::Text(_) => CachedNodeKind::Text,
         ElementKind::Bitmap(_) => CachedNodeKind::Bitmap,
+        ElementKind::Lottie(_) => CachedNodeKind::Bitmap,
         ElementKind::Canvas(_) => CachedNodeKind::Canvas,
         ElementKind::SvgPath(_) => CachedNodeKind::SvgPath,
     }
@@ -596,6 +597,23 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     None,
                     layout.height_full,
                     Dimension::length(bitmap.height as f32),
+                ),
+            },
+            ..base_style(element)
+        },
+        ElementKind::Lottie(lottie) => Style {
+            size: taffy::geometry::Size {
+                width: resolve_dimension(
+                    layout.width,
+                    layout.width_percent,
+                    layout.width_full,
+                    Dimension::length(lottie.width as f32),
+                ),
+                height: resolve_dimension(
+                    layout.height,
+                    None,
+                    layout.height_full,
+                    Dimension::length(lottie.height as f32),
                 ),
             },
             ..base_style(element)

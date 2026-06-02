@@ -245,7 +245,18 @@ const IMAGE_ATTRS: &[&str] = &[
 const FONTS_ATTRS: &[&str] = &["default"];
 const FONT_ATTRS: &[&str] = &["id", "family", "path", "url", "src", "role"];
 const AUDIO_ATTRS: &[&str] = &["id", "duration", "path", "url", "attach"];
-const LOTTIE_ATTRS: &[&str] = &["id", "class", "duration", "path", "url", "src"];
+const LOTTIE_ATTRS: &[&str] = &[
+    "id",
+    "class",
+    "duration",
+    "path",
+    "url",
+    "src",
+    "data-start",
+    "data-duration",
+    "data-media-start",
+    "loop",
+];
 const VIDEO_ATTRS: &[&str] = &[
     "id",
     "class",
@@ -490,13 +501,14 @@ fn parse_visual_node(
         "lottie" => {
             ensure_allowed_attrs(node, LOTTIE_ATTRS)?;
             let source = parse_lottie_source(node)?;
+            let timing = parse_video_timing(node)?;
             let parent_id = parent_id.map(|s| s.to_string());
             parts.elements.push(ParsedElement {
                 id: id.to_string(),
                 parent_id,
                 duration,
                 style,
-                kind: ParsedElementKind::Lottie { source },
+                kind: ParsedElementKind::Lottie { source, timing },
             });
             validate_no_element_children(node, "lottie")?;
         }

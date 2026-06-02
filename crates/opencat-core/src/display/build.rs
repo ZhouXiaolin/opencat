@@ -493,7 +493,9 @@ fn display_item_for_node(
             width: lottie.width,
             height: lottie.height,
             fps: lottie.fps,
-            duration_frames: lottie.duration_frames,
+            in_frame: lottie.in_frame,
+            out_frame: lottie.out_frame,
+            timing: lottie.timing,
             object_fit: element.style.visual.object_fit,
             paint: BitmapPaintStyle {
                 background: element.style.visual.background,

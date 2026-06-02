@@ -71,7 +71,9 @@ pub struct ElementLottie {
     pub width: u32,
     pub height: u32,
     pub fps: f32,
-    pub duration_frames: u32,
+    pub in_frame: f32,
+    pub out_frame: f32,
+    pub timing: VideoFrameTiming,
 }
 
 #[derive(Clone, Debug)]

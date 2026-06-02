@@ -79,7 +79,9 @@ impl Hash for DisplayItemFp<'_> {
                 lottie.width.hash(state);
                 lottie.height.hash(state);
                 lottie.fps.to_bits().hash(state);
-                lottie.duration_frames.hash(state);
+                lottie.in_frame.to_bits().hash(state);
+                lottie.out_frame.to_bits().hash(state);
+                lottie.timing.hash(state);
                 lottie.object_fit.hash(state);
                 BitmapPaintFp(&lottie.paint).hash(state);
             }

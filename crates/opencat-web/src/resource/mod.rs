@@ -5,6 +5,7 @@
 pub mod blob_store;
 pub mod font_store;
 pub mod fetch;
+pub mod provider_store;
 pub mod resolver;
 
 pub mod wasm_api;

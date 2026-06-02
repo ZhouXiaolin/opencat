@@ -56,6 +56,15 @@ pub trait ByteSource {
     fn bytes_for(&self, id: &AssetId) -> Option<Vec<u8>>;
 }
 
+/// Adapter over core [`crate::resource::BlobStore`].
+pub struct CoreBlobStoreSource<'a, B: ?Sized>(pub &'a B);
+
+impl<'a, B: ?Sized + crate::resource::BlobStore> ByteSource for CoreBlobStoreSource<'a, B> {
+    fn bytes_for(&self, id: &AssetId) -> Option<Vec<u8>> {
+        self.0.read(id)
+    }
+}
+
 impl ByteSource for std::collections::HashMap<AssetId, Vec<u8>> {
     fn bytes_for(&self, id: &AssetId) -> Option<Vec<u8>> {
         self.get(id).cloned()

@@ -1,0 +1,126 @@
+{"type":"composition","width":390,"height":844,"fps":30,"frames":360}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[390px] h-[844px]"}
+{"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
+{"id":"login","parentId":"main-tl","type":"div","className":"flex flex-col w-[390px] h-[844px] bg-gradient-to-b from-indigo-500 to-purple-600 justify-center items-center gap-5 p-8","duration":90}
+{"id":"logo-icon","parentId":"login","type":"icon","className":"w-[64px] h-[64px] stroke-white stroke-[1.5]","icon":"shopping-bag"}
+{"id":"app-name","parentId":"login","type":"text","className":"text-[32px] font-bold text-white","text":"OpenShop"}
+{"id":"welcome","parentId":"login","type":"text","className":"text-[14px] text-white/80","text":"Welcome Back!"}
+{"id":"input-card","parentId":"login","type":"div","className":"w-full flex flex-col gap-3 mt-8"}
+{"id":"email-field","parentId":"input-card","type":"div","className":"w-full h-[50px] bg-white/15 rounded-xl flex flex-row items-center px-4 gap-3"}
+{"id":"email-icon","parentId":"email-field","type":"icon","className":"w-[20px] h-[20px] stroke-white/60","icon":"mail"}
+{"id":"email-text","parentId":"email-field","type":"text","className":"text-[14px] text-white/70","text":"Email address"}
+{"id":"password-field","parentId":"input-card","type":"div","className":"w-full h-[50px] bg-white/15 rounded-xl flex flex-row items-center px-4 gap-3"}
+{"id":"password-icon","parentId":"password-field","type":"icon","className":"w-[20px] h-[20px] stroke-white/60","icon":"lock"}
+{"id":"password-text","parentId":"password-field","type":"text","className":"text-[14px] text-white/70","text":"Password"}
+{"id":"signin-btn","parentId":"login","type":"div","className":"w-full h-[50px] bg-white rounded-xl flex flex-row justify-center items-center mt-2 shadow-lg"}
+{"id":"signin-text","parentId":"signin-btn","type":"text","className":"text-[16px] font-bold text-indigo-600","text":"Sign In"}
+{"id":"divider-row","parentId":"login","type":"div","className":"flex flex-row items-center gap-3 mt-6"}
+{"id":"divider-line1","parentId":"divider-row","type":"div","className":"flex-1 h-[1px] bg-white/25"}
+{"id":"divider-text","parentId":"divider-row","type":"text","className":"text-[12px] text-white/50","text":"or continue with"}
+{"id":"divider-line2","parentId":"divider-row","type":"div","className":"flex-1 h-[1px] bg-white/25"}
+{"id":"social-row","parentId":"login","type":"div","className":"flex flex-row gap-5 mt-4"}
+{"id":"google-btn","parentId":"social-row","type":"div","className":"w-[52px] h-[52px] bg-white/15 rounded-full flex flex-row justify-center items-center"}
+{"id":"google-text","parentId":"google-btn","type":"text","className":"text-[18px] font-bold text-white","text":"G"}
+{"id":"apple-btn","parentId":"social-row","type":"div","className":"w-[52px] h-[52px] bg-white/15 rounded-full flex flex-row justify-center items-center"}
+{"id":"apple-text","parentId":"apple-btn","type":"text","className":"text-[18px] font-bold text-white","text":"A"}
+{"id":"signup-row","parentId":"login","type":"div","className":"flex flex-row gap-1 mt-8"}
+{"id":"no-account","parentId":"signup-row","type":"text","className":"text-[13px] text-white/60","text":"Don't have an account?"}
+{"id":"signup-link","parentId":"signup-row","type":"text","className":"text-[13px] font-semibold text-white","text":"Sign Up"}
+{"type":"script","parentId":"login","src":"ctx.fromTo('logo-icon',{opacity:0,scale:0.5,y:-20},{opacity:1,scale:1,y:0,duration:20,ease:'spring.gentle'});ctx.fromTo('app-name',{opacity:0,y:10},{opacity:1,y:0,duration:15,delay:8,ease:'ease-out'});ctx.fromTo('welcome',{opacity:0},{opacity:1,duration:12,delay:14});ctx.fromTo('input-card',{opacity:0,y:20},{opacity:1,y:0,duration:18,delay:20,ease:'ease-out'});ctx.fromTo('signin-btn',{opacity:0,y:15},{opacity:1,y:0,duration:15,delay:34,ease:'ease-out'});ctx.fromTo('social-row',{opacity:0},{opacity:1,duration:12,delay:44});ctx.fromTo('signup-row',{opacity:0},{opacity:1,duration:10,delay:52})"}
+{"type":"transition","parentId":"main-tl","from":"login","to":"home","effect":"slide","duration":15,"direction":"from_right","timing":"ease-out"}
+{"id":"home","parentId":"main-tl","type":"div","className":"flex flex-col w-[390px] h-[844px] bg-gray-50","duration":120}
+{"id":"home-header","parentId":"home","type":"div","className":"flex flex-col bg-white px-4 pt-14 pb-4 shadow-sm"}
+{"id":"search-bar","parentId":"home-header","type":"div","className":"w-full h-[46px] bg-gray-100 rounded-2xl flex flex-row items-center px-4 gap-2.5"}
+{"id":"search-icon","parentId":"search-bar","type":"icon","className":"w-[18px] h-[18px] stroke-gray-400","icon":"search"}
+{"id":"search-placeholder","parentId":"search-bar","type":"text","className":"text-[14px] text-gray-400","text":"Search products..."}
+{"id":"categories","parentId":"home","type":"div","className":"flex flex-row gap-2 px-4 py-3"}
+{"id":"cat-all","parentId":"categories","type":"div","className":"h-[34px] bg-indigo-600 rounded-full flex flex-row justify-center items-center px-4"}
+{"id":"cat-all-text","parentId":"cat-all","type":"text","className":"text-[13px] font-medium text-white","text":"All"}
+{"id":"cat-clothing","parentId":"categories","type":"div","className":"h-[34px] bg-gray-200 rounded-full flex flex-row justify-center items-center px-4"}
+{"id":"cat-clothing-text","parentId":"cat-clothing","type":"text","className":"text-[13px] text-gray-600","text":"Clothing"}
+{"id":"cat-shoes","parentId":"categories","type":"div","className":"h-[34px] bg-gray-200 rounded-full flex flex-row justify-center items-center px-4"}
+{"id":"cat-shoes-text","parentId":"cat-shoes","type":"text","className":"text-[13px] text-gray-600","text":"Shoes"}
+{"id":"cat-accessories","parentId":"categories","type":"div","className":"h-[34px] bg-gray-200 rounded-full flex flex-row justify-center items-center px-4"}
+{"id":"cat-accessories-text","parentId":"cat-accessories","type":"text","className":"text-[13px] text-gray-600","text":"Accessories"}
+{"id":"product-grid","parentId":"home","type":"div","className":"flex flex-row flex-wrap justify-between px-4 pt-2 gap-y-4"}
+{"id":"prod-1","parentId":"product-grid","type":"div","className":"w-[173px] bg-white rounded-xl overflow-hidden shadow-sm"}
+{"id":"prod-1-img","parentId":"prod-1","type":"image","className":"w-full h-[140px] object-cover","query":"casual sneakers","queryCount":1}
+{"id":"prod-1-name","parentId":"prod-1","type":"text","className":"text-[13px] font-medium text-gray-800 px-3 pt-2.5","text":"Sport Sneakers"}
+{"id":"prod-1-price-wrap","parentId":"prod-1","type":"div","className":"pl-6 pr-4 pb-3"}
+{"id":"prod-1-price","parentId":"prod-1-price-wrap","type":"text","className":"text-[15px] font-bold text-indigo-600","text":"$129.99"}
+{"id":"prod-2","parentId":"product-grid","type":"div","className":"w-[173px] bg-white rounded-xl overflow-hidden shadow-sm"}
+{"id":"prod-2-img","parentId":"prod-2","type":"image","className":"w-full h-[140px] object-cover","query":"clutch evening","queryCount":1}
+{"id":"prod-2-name","parentId":"prod-2","type":"text","className":"text-[13px] font-medium text-gray-800 px-3 pt-2.5","text":"Leather Handbag"}
+{"id":"prod-2-price-wrap","parentId":"prod-2","type":"div","className":"pl-6 pr-4 pb-3"}
+{"id":"prod-2-price","parentId":"prod-2-price-wrap","type":"text","className":"text-[15px] font-bold text-indigo-600","text":"$89.99"}
+{"id":"prod-3","parentId":"product-grid","type":"div","className":"w-[173px] bg-white rounded-xl overflow-hidden shadow-sm"}
+{"id":"prod-3-img","parentId":"prod-3","type":"image","className":"w-full h-[140px] object-cover","query":"smartwatch modern","queryCount":1}
+{"id":"prod-3-name","parentId":"prod-3","type":"text","className":"text-[13px] font-medium text-gray-800 px-3 pt-2.5","text":"Classic Watch"}
+{"id":"prod-3-price-wrap","parentId":"prod-3","type":"div","className":"pl-6 pr-4 pb-3"}
+{"id":"prod-3-price","parentId":"prod-3-price-wrap","type":"text","className":"text-[15px] font-bold text-indigo-600","text":"$299.00"}
+{"id":"prod-4","parentId":"product-grid","type":"div","className":"w-[173px] bg-white rounded-xl overflow-hidden shadow-sm"}
+{"id":"prod-4-img","parentId":"prod-4","type":"image","className":"w-full h-[140px] object-cover","query":"sunglasses retro","queryCount":1}
+{"id":"prod-4-name","parentId":"prod-4","type":"text","className":"text-[13px] font-medium text-gray-800 px-3 pt-2.5","text":"Aviator Sunglasses"}
+{"id":"prod-4-price-wrap","parentId":"prod-4","type":"div","className":"pl-6 pr-4 pb-3"}
+{"id":"prod-4-price","parentId":"prod-4-price-wrap","type":"text","className":"text-[15px] font-bold text-indigo-600","text":"$159.99"}
+{"id":"prod-5","parentId":"product-grid","type":"div","className":"w-[173px] bg-white rounded-xl overflow-hidden shadow-sm"}
+{"id":"prod-5-img","parentId":"prod-5","type":"image","className":"w-full h-[140px] object-cover","query":"backpack travel","queryCount":1}
+{"id":"prod-5-name","parentId":"prod-5","type":"text","className":"text-[13px] font-medium text-gray-800 px-3 pt-2.5","text":"Travel Backpack"}
+{"id":"prod-5-price-wrap","parentId":"prod-5","type":"div","className":"pl-6 pr-4 pb-3"}
+{"id":"prod-5-price","parentId":"prod-5-price-wrap","type":"text","className":"text-[15px] font-bold text-indigo-600","text":"$79.99"}
+{"id":"prod-6","parentId":"product-grid","type":"div","className":"w-[173px] bg-white rounded-xl overflow-hidden shadow-sm"}
+{"id":"prod-6-img","parentId":"prod-6","type":"image","className":"w-full h-[140px] object-cover","query":"bluetooth headphones","queryCount":1}
+{"id":"prod-6-name","parentId":"prod-6","type":"text","className":"text-[13px] font-medium text-gray-800 px-3 pt-2.5","text":"Wireless Headphones"}
+{"id":"prod-6-price-wrap","parentId":"prod-6","type":"div","className":"pl-6 pr-4 pb-3"}
+{"id":"prod-6-price","parentId":"prod-6-price-wrap","type":"text","className":"text-[15px] font-bold text-indigo-600","text":"$249.99"}
+{"id":"bottom-nav","parentId":"home","type":"div","className":"flex flex-row bg-white border-t border-gray-100 px-6 py-2 mt-auto items-center justify-between"}
+{"id":"nav-home","parentId":"bottom-nav","type":"div","className":"flex flex-col items-center gap-0.5"}
+{"id":"nav-home-icon","parentId":"nav-home","type":"icon","className":"w-[22px] h-[22px] stroke-indigo-600","icon":"home"}
+{"id":"nav-home-label","parentId":"nav-home","type":"text","className":"text-[10px] font-medium text-indigo-600","text":"Home"}
+{"id":"nav-wishlist","parentId":"bottom-nav","type":"div","className":"flex flex-col items-center gap-0.5"}
+{"id":"nav-wishlist-icon","parentId":"nav-wishlist","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"heart"}
+{"id":"nav-wishlist-label","parentId":"nav-wishlist","type":"text","className":"text-[10px] text-gray-400","text":"Wishlist"}
+{"id":"nav-cart","parentId":"bottom-nav","type":"div","className":"flex flex-col items-center gap-0.5"}
+{"id":"nav-cart-icon","parentId":"nav-cart","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"shopping-cart"}
+{"id":"nav-cart-label","parentId":"nav-cart","type":"text","className":"text-[10px] text-gray-400","text":"Cart"}
+{"id":"nav-profile","parentId":"bottom-nav","type":"div","className":"flex flex-col items-center gap-0.5"}
+{"id":"nav-profile-icon","parentId":"nav-profile","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"user"}
+{"id":"nav-profile-label","parentId":"nav-profile","type":"text","className":"text-[10px] text-gray-400","text":"Profile"}
+{"type":"script","parentId":"home","src":"ctx.fromTo('search-bar',{opacity:0,y:-10},{opacity:1,y:0,duration:15,ease:'ease-out'});ctx.fromTo('categories',{opacity:0},{opacity:1,duration:10,delay:8});ctx.fromTo(['prod-1','prod-2','prod-3','prod-4','prod-5','prod-6'],{opacity:0,y:20},{opacity:1,y:0,duration:20,stagger:4,ease:'spring.gentle'});ctx.fromTo('bottom-nav',{opacity:0,y:20},{opacity:1,y:0,duration:15,delay:35})"}
+{"type":"transition","parentId":"main-tl","from":"home","to":"product","effect":"slide","duration":15,"direction":"from_right","timing":"ease-out"}
+{"id":"product","parentId":"main-tl","type":"div","className":"flex flex-col w-[390px] h-[844px] bg-white","duration":120}
+{"id":"product-header","parentId":"product","type":"div","className":"flex flex-row items-center justify-between px-4 pt-14 pb-3"}
+{"id":"back-btn","parentId":"product-header","type":"icon","className":"w-[24px] h-[24px] stroke-gray-700","icon":"arrow-left"}
+{"id":"header-title","parentId":"product-header","type":"text","className":"text-[16px] font-semibold text-gray-800","text":"Detail"}
+{"id":"header-actions","parentId":"product-header","type":"div","className":"flex flex-row gap-4"}
+{"id":"wishlist-icon","parentId":"header-actions","type":"icon","className":"w-[24px] h-[24px] stroke-gray-400","icon":"heart"}
+{"id":"cart-icon","parentId":"header-actions","type":"icon","className":"w-[24px] h-[24px] stroke-gray-400","icon":"shopping-cart"}
+{"id":"prod-image-area","parentId":"product","type":"div","className":"w-full h-[360px] bg-gray-100"}
+{"id":"prod-main-img","parentId":"prod-image-area","type":"image","className":"w-full h-full object-cover","query":"luxury watch leather","queryCount":1}
+{"id":"prod-info","parentId":"product","type":"div","className":"flex flex-col flex-1 px-6 pt-5 pb-6 justify-between"}
+{"id":"prod-top-info","parentId":"prod-info","type":"div","className":"flex flex-col gap-2"}
+{"id":"prod-title","parentId":"prod-top-info","type":"text","className":"text-[22px] font-bold text-gray-900","text":"Classic Leather Watch"}
+{"id":"prod-rating","parentId":"prod-top-info","type":"text","className":"text-[13px] text-gray-500","text":"\u2605\u2605\u2605\u2605\u2606  (128 reviews)"}
+{"id":"prod-price","parentId":"prod-top-info","type":"text","className":"text-[28px] font-bold text-gray-900 mt-1","text":"$299.00"}
+{"id":"shipping-badge","parentId":"prod-top-info","type":"div","className":"flex flex-row items-center gap-1.5 mt-2"}
+{"id":"truck-icon","parentId":"shipping-badge","type":"icon","className":"w-[16px] h-[16px] stroke-emerald-600","icon":"truck"}
+{"id":"shipping-text","parentId":"shipping-badge","type":"text","className":"text-[13px] font-medium text-emerald-700","text":"Free Shipping"}
+{"id":"color-section","parentId":"prod-top-info","type":"div","className":"flex flex-col gap-2 mt-4"}
+{"id":"color-label","parentId":"color-section","type":"text","className":"text-[13px] font-semibold text-gray-800","text":"Color: Brown"}
+{"id":"color-options","parentId":"color-section","type":"div","className":"flex flex-row gap-2.5 items-center"}
+{"id":"color-brown","parentId":"color-options","type":"div","className":"w-[28px] h-[28px] rounded-full border-2 border-indigo-600 bg-amber-700"}
+{"id":"color-black","parentId":"color-options","type":"div","className":"w-[28px] h-[28px] rounded-full border-2 border-gray-300 bg-gray-900"}
+{"id":"color-tan","parentId":"color-options","type":"div","className":"w-[28px] h-[28px] rounded-full border-2 border-gray-300 bg-amber-200"}
+{"id":"qty-section","parentId":"prod-top-info","type":"div","className":"flex flex-row items-center justify-between mt-4"}
+{"id":"qty-label","parentId":"qty-section","type":"text","className":"text-[13px] font-semibold text-gray-800","text":"Quantity"}
+{"id":"qty-controls","parentId":"qty-section","type":"div","className":"flex flex-row items-center gap-3"}
+{"id":"qty-minus","parentId":"qty-controls","type":"div","className":"w-[36px] h-[36px] bg-gray-100 rounded-full flex flex-row justify-center items-center"}
+{"id":"qty-minus-text","parentId":"qty-minus","type":"text","className":"text-[16px] font-medium text-gray-600","text":"-"}
+{"id":"qty-value","parentId":"qty-controls","type":"text","className":"text-[16px] font-medium text-gray-800 w-[24px] text-center","text":"1"}
+{"id":"qty-plus","parentId":"qty-controls","type":"div","className":"w-[36px] h-[36px] bg-gray-100 rounded-full flex flex-row justify-center items-center"}
+{"id":"qty-plus-text","parentId":"qty-plus","type":"text","className":"text-[16px] font-medium text-gray-600","text":"+"}
+{"id":"prod-desc-label","parentId":"prod-top-info","type":"text","className":"text-[15px] font-semibold text-gray-800 mt-4","text":"Description"}
+{"id":"prod-desc","parentId":"prod-top-info","type":"text","className":"text-[13px] text-gray-500 leading-relaxed mt-1","text":"A timeless timepiece crafted with premium Italian leather and precision Japanese movement. Water-resistant to 50 meters with a scratch-resistant sapphire crystal face."}
+{"id":"add-to-cart-btn","parentId":"prod-info","type":"div","className":"w-full h-[52px] bg-indigo-600 rounded-2xl flex flex-row justify-center items-center shadow-lg shadow-indigo-200"}
+{"id":"cart-btn-text","parentId":"add-to-cart-btn","type":"text","className":"text-[16px] font-bold text-white","text":"Add to Cart"}
+{"type":"script","parentId":"product","src":"ctx.fromTo('prod-image-area',{opacity:0,scale:0.95},{opacity:1,scale:1,duration:20,ease:'spring.gentle'});ctx.fromTo('prod-title',{opacity:0,x:-20},{opacity:1,x:0,duration:15,delay:12,ease:'ease-out'});ctx.fromTo('prod-rating',{opacity:0},{opacity:1,duration:10,delay:18});ctx.fromTo('prod-price',{opacity:0,x:-20},{opacity:1,x:0,duration:15,delay:22,ease:'ease-out'});ctx.fromTo('shipping-badge',{opacity:0,y:10},{opacity:1,y:0,duration:12,delay:28});ctx.fromTo('prod-desc',{opacity:0,y:10},{opacity:1,y:0,duration:15,delay:34,ease:'ease-out'});ctx.fromTo('add-to-cart-btn',{opacity:0,y:15},{opacity:1,y:0,duration:15,delay:44,ease:'spring.gentle'})"}

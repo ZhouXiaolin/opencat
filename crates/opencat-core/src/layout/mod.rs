@@ -202,7 +202,14 @@ pub fn compute_layout(root: &ElementNode, frame_ctx: &FrameCtx) -> Result<Layout
 
 #[cfg(test)]
 fn default_font_db() -> fontdb::Database {
-    crate::text::default_font_db(&[])
+    #[cfg(test)]
+    {
+        return crate::text::test_default_font_db();
+    }
+    #[cfg(not(test))]
+    {
+        crate::text::empty_font_db()
+    }
 }
 
 #[cfg(test)]

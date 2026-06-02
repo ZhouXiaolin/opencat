@@ -65,6 +65,7 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
         item.bounds.width,
         item.allow_wrap,
         item.truncate,
+        ctx.font_db,
     );
 
     let rgba = super::helpers::color_token_to_rgba(&item.style.color);
@@ -147,6 +148,7 @@ fn render_text_with_unit_overrides(
         item.bounds.width,
         item.allow_wrap,
         false,
+        ctx.font_db,
     );
 
     let base_rgba = super::helpers::color_token_to_rgba(&item.style.color);

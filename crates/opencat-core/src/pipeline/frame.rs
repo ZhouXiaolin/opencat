@@ -73,15 +73,17 @@ pub fn render_frame_with_state(
     let root = composition.root_node(&frame_ctx);
     #[cfg(feature = "profile")]
     let _script_span = span!(target: "render.pipeline", Level::TRACE, "script").entered();
-    let element_root = resolve_ui_tree_with_script_cache(
-        &root,
-        &frame_ctx,
-        &script_frame_ctx,
-        catalog,
-        None,
-        script,
-        &path_bounds,
-    )?;
+    let element_root = crate::text::scope_font_db(font_db, || {
+        resolve_ui_tree_with_script_cache(
+            &root,
+            &frame_ctx,
+            &script_frame_ctx,
+            catalog,
+            None,
+            script,
+            &path_bounds,
+        )
+    })?;
     #[cfg(feature = "profile")]
     drop(_script_span);
     #[cfg(feature = "profile")]
@@ -217,10 +219,13 @@ pub fn render_frame_with_state(
         ordered_scene: &ordered_scene,
         builder: &mut builder,
         blob_store,
+        font_db: font_db.as_ref(),
         hidden_picture_stack: Vec::new(),
     };
 
-    crate::render::dispatch::render_display_tree(&mut ctx, &annotated, cache)?;
+    crate::text::scope_font_db(font_db, || {
+        crate::render::dispatch::render_display_tree(&mut ctx, &annotated, cache)
+    })?;
 
     let frame = builder.finish();
     let media_plan = build_media_plan(&frame);

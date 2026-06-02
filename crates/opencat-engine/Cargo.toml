@@ -8,6 +8,7 @@ path = "src/lib.rs"
 
 [dependencies]
 opencat-core = { path = "../opencat-core" }
+fontdb = "0.23.0"
 anyhow.workspace = true
 image = "0.25.10"
 serde.workspace = true

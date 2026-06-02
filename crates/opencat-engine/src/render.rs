@@ -35,7 +35,9 @@ impl RenderSession {
 
     pub fn with_platform(platform: EnginePlatform) -> Self {
         Self {
-            core: opencat_core::runtime::session::RenderSession::new(),
+            core: opencat_core::runtime::session::RenderSession::with_font_db(
+                crate::fonts::engine_default_font_db(),
+            ),
             platform,
         }
     }
@@ -94,7 +96,7 @@ pub fn render_from_jsonl_with_base(
         cache_dir,
     )?;
     let ctx = RqJsContext::new()?;
-    let mut pipeline = crate::EnginePipeline::open(input, loader, ctx)?;
+    let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
 
     let mut media_ctx = MediaContext::new();
@@ -287,7 +289,7 @@ pub fn render_single_frame_from_jsonl_with_base(
         cache_dir,
     )?;
     let ctx = RqJsContext::new()?;
-    let mut pipeline = crate::EnginePipeline::open(input, loader, ctx)?;
+    let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
 
     if frame_index >= info.frames {
@@ -744,8 +746,14 @@ mod tests {
         let mut session = make_test_session();
         let frame = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
 
-        let raster =
-            opencat_core::text::rasterize_glyphs(amount, &text_style, f32::INFINITY, false, false);
+        let raster = opencat_core::text::rasterize_glyphs(
+            amount,
+            &text_style,
+            f32::INFINITY,
+            false,
+            false,
+            session.core.font_db.as_ref(),
+        );
         for line in &raster.lines {
             let mut missing = Vec::new();
             for (index, pos) in line.positions.iter().enumerate() {

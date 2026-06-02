@@ -12,6 +12,9 @@ use opencat_core::resource::asset_id::{
     AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
 };
 use opencat_core::resource::fonts::{font_asset_id, FontManifest};
+use opencat_core::resource::manifest::ExternalResourceManifest;
+use opencat_core::resource::materialize::{ByteSource, hydrate_provider_from_bytes};
+use opencat_core::resource::protocol::MapResourceProvider;
 
 use opencat_core::resource::resolver::UrlFetcher;
 
@@ -41,6 +44,20 @@ pub struct EngineLoader {
     fetcher: EngineFetcher,
     runtime: tokio::runtime::Runtime,
     handles: HashMap<AssetId, EngineAssetHandle>,
+    /// Skottie-aligned resource map after preload (for Lottie / unified host access).
+    pub resource_provider: Option<MapResourceProvider>,
+}
+
+struct LoaderByteSource<'a>(&'a EngineLoader);
+
+impl ByteSource for LoaderByteSource<'_> {
+    fn bytes_for(&self, id: &AssetId) -> Option<Vec<u8>> {
+        self.0
+            .handle(id)?
+            .read_bytes()
+            .ok()
+            .map(|c| c.into_owned())
+    }
 }
 
 impl EngineLoader {
@@ -96,7 +113,38 @@ impl EngineLoader {
             cache_dir,
             runtime: build_preload_runtime("engine-loader")?,
             handles: HashMap::new(),
+            resource_provider: None,
         })
+    }
+
+    /// Register font files in the handle map under [`font_asset_id`] keys.
+    pub fn register_font_handles(
+        &mut self,
+        manifest: &FontManifest,
+        bytes_by_id: &std::collections::HashMap<String, Vec<u8>>,
+    ) -> Result<()> {
+        for face in &manifest.faces {
+            let bytes = bytes_by_id
+                .get(&face.id)
+                .with_context(|| format!("font `{}` bytes missing", face.id))?;
+            let id = AssetId(font_asset_id(&face.source));
+            let path = cache_file_path(&self.cache_dir, &id);
+            std::fs::write(&path, bytes)
+                .with_context(|| format!("write font cache {}", path.display()))?;
+            self.handles.insert(id, EngineAssetHandle { cached_path: path });
+        }
+        Ok(())
+    }
+
+    /// Build [`MapResourceProvider`] from preloaded handles + [`ExternalResourceManifest`].
+    pub fn build_resource_provider(
+        &mut self,
+        manifest: &ExternalResourceManifest,
+    ) -> MapResourceProvider {
+        let mut provider = MapResourceProvider::new();
+        hydrate_provider_from_bytes(manifest, &mut provider, &LoaderByteSource(self));
+        self.resource_provider = Some(provider.clone());
+        provider
     }
 }
 

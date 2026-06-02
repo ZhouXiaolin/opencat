@@ -1,28 +1,30 @@
 //! `#[wasm_bindgen]` 暴露给 JS 的资源预加载 API。
 //!
-//! - [`preload_assets`]: 解析 composition source(JSONL/XML) → 收集资源请求 → 并通过 [`AssetResolver`]
-//!   下载 + 读元数据 → 把字节灌进全局 `BlobStore`，返回 catalog JSON 给 JS。
-//! - [`get_blob_bytes`]: JS 用 AssetId 拉回已下载的字节（用于 CanvasKit 解码、
-//!   `URL.createObjectURL` 等下游消费）。
-//! - [`clear_blobs`]: 清空 BlobStore（切换 composition 时调用）。
+//! - [`preload_assets`]: 解析 composition → [`collect_external_manifest`] → 下载 →
+//!   填充 `BlobStore` + 构建 Skottie 对齐的 [`MapResourceProvider`]
+//! - [`get_blob_bytes`]: 按 `AssetId` 取字节（扁平资源 / Draw IR）
+//! - [`get_skottie_bundle_assets`]: 按 bundle id 取 Lottie 依赖 map（CanvasKit）
+//! - [`load_resource_bytes`]: 按 `(path, name)` 协议取字节
 
 use std::cell::RefCell;
-
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 
 use opencat_core::parse::composition::Composition;
-use opencat_core::parse::preflight::collect_resource_requests;
+use opencat_core::parse::preflight::collect_external_manifest;
 use opencat_core::resource::asset_id::AssetId;
-use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::resource::fonts::{font_asset_id, FontSource};
+use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::resource::preload::preload_all;
+use opencat_core::resource::resolver::UrlFetcher;
 
 use crate::resource::blob_store::BlobStore;
 use crate::resource::resolver::WebAssetResolver;
 
 thread_local! {
     static BLOB_STORE: RefCell<BlobStore> = RefCell::new(BlobStore::new());
+    static EXTERNAL_MANIFEST: RefCell<Option<opencat_core::resource::ExternalResourceManifest>> =
+        RefCell::new(None);
 }
 
 fn take_blobs() -> BlobStore {
@@ -47,43 +49,14 @@ fn font_manifest_from_source(
 }
 
 /// 下载 composition source 引用的全部资源，把字节放进 BlobStore，返回 catalog JSON。
-///
-/// 返回的 JSON 形态与 [`HashMapResourceCatalog::from_json`] 接受的相同：
-/// `{ "<asset_id>": { "width": w, "height": h, "kind": "image"|"video"|"audio",
-///                    "duration_secs": Option<f64> }, ... }`
-///
-/// JS 把这个串原样传给后续 `WebRenderer.build_frame_ir(resources_json=...)`。
 #[wasm_bindgen]
 pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
-    // 1) 用 core 的解析器解析 JSONL/XML → ParsedComposition。
+    crate::resource::provider_store::clear();
+    EXTERNAL_MANIFEST.with(|m| *m.borrow_mut() = None);
+
     let font_manifest = font_manifest_from_source(source)
         .map_err(|e| JsValue::from_str(&format!("preload_assets: parse failed: {e}")))?;
 
-    if !font_manifest.is_empty() {
-        use opencat_core::resource::asset_id::AssetId;
-        use opencat_core::resource::fonts::FontSource;
-
-        let fetcher = crate::resource::resolver::WebFetcher;
-        for face in &font_manifest.faces {
-            let bytes = match &face.source {
-                FontSource::Path(_) => {
-                    return Err(JsValue::from_str(
-                        "preload_assets: font path is not supported on web; use url",
-                    ));
-                }
-                FontSource::Url(url) => {
-                    let id = AssetId(font_asset_id(&FontSource::Url(url.clone())));
-                    fetcher
-                        .fetch_bytes(&id, url)
-                        .await
-                        .map_err(|e| JsValue::from_str(&format!("preload_assets font: {e}")))?
-                }
-            };
-            crate::resource::font_store::insert(face.id.clone(), bytes);
-        }
-    }
-
-    // 2) 组装 Composition（复用 parsed 的场景树 + 音频源），让 collect_resource_requests 能遍历。
     let parsed = crate::source::parse_source(source, &fontdb::Database::new())
         .map_err(|e| JsValue::from_str(&format!("preload_assets: parse failed: {e}")))?;
     let root_node = parsed.root.clone();
@@ -96,47 +69,98 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
         .build()
         .map_err(|e| JsValue::from_str(&format!("preload_assets: build composition: {e}")))?;
 
-    // 3) preflight 收集请求。
-    let requests = collect_resource_requests(&composition);
+    let (requests, external_manifest) =
+        collect_external_manifest(&composition, &font_manifest);
 
-    // 4) 取出全局 BlobStore，构造 resolver + 临时 catalog。
     let mut blobs = take_blobs();
+
+    // Fonts: same bytes in BlobStore (provider) + font_store (fontdb merge on load).
+    if !font_manifest.is_empty() {
+        let mut fetcher = crate::resource::resolver::WebFetcher;
+        for face in &font_manifest.faces {
+            let bytes = match &face.source {
+                FontSource::Path(_) => {
+                    return Err(JsValue::from_str(
+                        "preload_assets: font path is not supported on web; use url",
+                    ));
+                }
+                FontSource::Url(url) => {
+                    let id = AssetId(font_asset_id(&FontSource::Url(url.clone())));
+                    let raw = fetcher
+                        .fetch_bytes(&id, url)
+                        .await
+                        .map_err(|e| JsValue::from_str(&format!("preload_assets font: {e}")))?;
+                    blobs.insert(id, std::sync::Arc::from(raw.clone()));
+                    crate::resource::font_store::insert(face.id.clone(), raw);
+                }
+            };
+        }
+    }
+
     let mut catalog = HashMapResourceCatalog::from_json("{}")
         .map_err(|e| JsValue::from_str(&format!("preload_assets: catalog init: {e}")))?;
 
-    // 5) 跑 core 编排（所有 fetch + probe 都在这一步里）。
-    let preload_result = {
+    {
         let mut resolver = WebAssetResolver::new(&mut blobs);
-        preload_all(requests, &mut resolver, &mut catalog).await
-    };
-    put_blobs(blobs);
+        preload_all(requests, &mut resolver, &mut catalog)
+            .await
+            .map_err(|e| JsValue::from_str(&format!("preload_assets: {e}")))?;
+    }
 
-    preload_result.map_err(|e| JsValue::from_str(&format!("preload_assets: {e}")))?;
+    put_blobs(blobs);
+    BLOB_STORE.with(|s| {
+        crate::resource::provider_store::rebuild(&external_manifest, &s.borrow());
+    });
+    EXTERNAL_MANIFEST.with(|m| *m.borrow_mut() = Some(external_manifest));
 
     catalog
         .to_json()
         .map_err(|e| JsValue::from_str(&format!("preload_assets: serialize: {e}")))
 }
 
-/// JS 取出某个 asset 的字节（用于 CanvasKit 解码 / Blob URL / 等）。
 #[wasm_bindgen]
 pub fn get_blob_bytes(asset_id: &str) -> Option<Uint8Array> {
+    let id = AssetId(asset_id.to_string());
     BLOB_STORE.with(|s| {
         s.borrow()
-            .get(&AssetId(asset_id.to_string()))
-            .map(|arc| Uint8Array::from(&arc[..]))
+            .get(&id)
+            .map(|arc| Uint8Array::from(arc.as_ref()))
     })
 }
 
-/// 清空 BlobStore（建议在加载新 composition 前调用）。
+/// Skottie / `MakeManagedAnimation` asset dictionary: `{ "image_0.png": Uint8Array, ... }`.
+#[wasm_bindgen]
+pub fn get_skottie_bundle_assets(bundle_id: &str) -> JsValue {
+    let Some(map) = crate::resource::provider_store::skottie_assets(bundle_id) else {
+        return js_sys::Object::new().into();
+    };
+    let obj = js_sys::Object::new();
+    for (name, bytes) in map {
+        let _ = js_sys::Reflect::set(
+            &obj,
+            &JsValue::from_str(&name),
+            &Uint8Array::from(bytes.as_slice()),
+        );
+    }
+    obj.into()
+}
+
+/// Unified resource protocol lookup (`path`, `name`) → bytes.
+#[wasm_bindgen]
+pub fn load_resource_bytes(path: &str, name: &str) -> Option<Uint8Array> {
+    crate::resource::provider_store::load(path, name)
+        .map(|b| Uint8Array::from(b.as_slice()))
+}
+
+#[wasm_bindgen]
+pub fn blob_count() -> usize {
+    BLOB_STORE.with(|s| s.borrow().len())
+}
+
 #[wasm_bindgen]
 pub fn clear_blobs() {
     BLOB_STORE.with(|s| s.borrow_mut().clear());
     crate::resource::font_store::clear();
-}
-
-/// 当前 BlobStore 条目数，调试用。
-#[wasm_bindgen]
-pub fn blob_count() -> usize {
-    BLOB_STORE.with(|s| s.borrow().len())
+    crate::resource::provider_store::clear();
+    EXTERNAL_MANIFEST.with(|m| *m.borrow_mut() = None);
 }

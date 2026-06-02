@@ -31,8 +31,8 @@ pub use manifest::{
 };
 pub use host_bridge::provider_from_manifest;
 pub use materialize::{
-    ByteSource, bundle_primary_json, hydrate_provider_from_bytes, map_bundle_dep_to_flat_lookup,
-    skottie_assets_for_bundle,
+    ByteSource, CoreBlobStoreSource, bundle_primary_json, hydrate_provider_from_bytes,
+    map_bundle_dep_to_flat_lookup, skottie_assets_for_bundle,
 };
 pub use protocol::{
     ByteStore, IndexedResourceProvider, MapResourceProvider, ResourceLookup, ResourceProvider,

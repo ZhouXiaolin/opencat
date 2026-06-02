@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 opencat-core = { path = "../opencat-core" }
+fontdb = "0.23.0"
 faac-rs = { path = "../faac" }
 anyhow.workspace = true
 serde.workspace = true

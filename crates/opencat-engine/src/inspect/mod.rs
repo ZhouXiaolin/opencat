@@ -9,7 +9,7 @@ use opencat_core::{
     parse::{
         composition::Composition,
         node::{Node, NodeKind},
-        primitives::{ImageSource, VideoSource},
+        primitives::{ImageSource, LottieSource, VideoSource},
         time::TimelineSegment,
     },
     resolve::{
@@ -172,6 +172,9 @@ fn seed_asset_entries_for_inspect(
                 }
             }
         }
+        NodeKind::Lottie(lottie) => {
+            let _ = lottie;
+        }
         NodeKind::Image(image) => {
             if let Ok(id) = catalog.resolve_image(image.source())
                 && let ImageSource::Path(path) = image.source()
@@ -304,6 +307,7 @@ fn fallback_kind_for_element(element: &ElementNode) -> &'static str {
         ElementKind::Bitmap(_) => "bitmap",
         ElementKind::Canvas(_) => "canvas",
         ElementKind::SvgPath(_) => "svg-path",
+        ElementKind::Lottie(_) => "lottie",
     }
 }
 
@@ -397,6 +401,17 @@ fn collect_source_metadata(
                     }
                     opencat_core::parse::primitives::SubtitleSource::Url(u) => Some(u.clone()),
                 };
+            }
+        }
+        NodeKind::Lottie(lottie) => {
+            let entry = upsert_style_meta(lottie.style_ref(), "lottie", out);
+            if let Some(entry) = entry {
+                let source_str = match lottie.source() {
+                    LottieSource::Unset => "unset".to_string(),
+                    LottieSource::Path(p) => p.to_string_lossy().to_string(),
+                    LottieSource::Url(u) => format!("lottie:url:{u}"),
+                };
+                entry.media_source = Some(source_str);
             }
         }
     }

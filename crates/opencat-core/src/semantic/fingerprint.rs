@@ -200,7 +200,9 @@ impl Hash for PaintInputLocal<'_> {
                 lottie.width.hash(state);
                 lottie.height.hash(state);
                 lottie.fps.to_bits().hash(state);
-                lottie.duration_frames.hash(state);
+                lottie.in_frame.to_bits().hash(state);
+                lottie.out_frame.to_bits().hash(state);
+                lottie.timing.hash(state);
             }
             ElementKind::Canvas(canvas) => {
                 canvas.commands.hash(state);

@@ -181,6 +181,9 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
             }
         }
         NodeKind::Lottie(lottie) => {
+            if !lottie_visible_at_frame(lottie, frame_ctx) {
+                return;
+            }
             if !matches!(lottie.source(), crate::parse::primitives::LottieSource::Unset) {
                 let id = lottie.style_ref().id.clone();
                 if !id.is_empty() {
@@ -203,11 +206,21 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
         NodeKind::Timeline(_) => {
             collect_sources_from_frame_state(&frame_state_for_root(node, frame_ctx), frame_ctx, req)
         }
-        NodeKind::Text(_) | NodeKind::Lottie(_) | NodeKind::Lucide(_) | NodeKind::Path(_) => {}
+        NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Path(_) => {}
         NodeKind::Caption(caption) => {
             req.subtitles.insert(caption.source().clone());
         }
     }
+}
+
+fn lottie_visible_at_frame(lottie: &crate::parse::primitives::Lottie, frame_ctx: &FrameCtx) -> bool {
+    VideoFrameRequest {
+        composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps.max(1) as f64,
+        timing: lottie.timing(),
+        quality: VideoPreviewQuality::Exact,
+        target_size: None,
+    }
+    .is_visible()
 }
 
 fn video_visible_at_frame(video: &Video, frame_ctx: &FrameCtx) -> bool {

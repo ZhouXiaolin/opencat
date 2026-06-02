@@ -2596,9 +2596,22 @@ pub fn render_lottie(ctx: &mut RenderCtx, item: &crate::display::list::LottieDis
     let style = &item.paint;
     let dst = kurbo_rect(item.bounds);
 
-    let comp_fps = ctx.frame_ctx.fps.max(1) as f32;
-    let local_frame = (ctx.frame_ctx.frame as f32 * item.fps / comp_fps)
-        .min(item.duration_frames.saturating_sub(1) as f32);
+    let meta = crate::resource::lottie::LottieMeta {
+        width: item.width,
+        height: item.height,
+        fps: item.fps,
+        in_frame: item.in_frame,
+        out_frame: item.out_frame,
+    };
+    let request = crate::media::VideoFrameRequest {
+        composition_time_secs: ctx.frame_ctx.frame as f64 / ctx.frame_ctx.fps.max(1) as f64,
+        timing: item.timing,
+        quality: crate::media::VideoPreviewQuality::Exact,
+        target_size: None,
+    };
+    let Some(local_frame) = crate::resource::lottie::resolve_lottie_frame(&request, &meta) else {
+        return Ok(());
+    };
 
     let src_width = item.width as f32;
     let src_height = item.height as f32;

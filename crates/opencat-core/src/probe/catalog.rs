@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 pub use crate::ir::asset_id::AssetId;
 pub use crate::parse::primitives::VideoSource;
 use crate::parse::primitives::{AudioSource, ImageSource, LottieSource, SrtEntry, SubtitleSource};
+use crate::resource::lottie::LottieMeta;
 
 /// One `<lottie id="…">` node — bundle id is `lottie:{element_id}`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -26,6 +27,7 @@ pub struct ResourceCatalog {
     pub videos: HashMap<AssetId, VideoInfoMeta>,
     pub audios: HashSet<AssetId>,
     pub subtitles: HashMap<AssetId, Vec<SrtEntry>>,
+    pub lotties: HashMap<AssetId, LottieMeta>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -132,5 +134,13 @@ impl crate::resource::catalog::ResourceCatalog for ResourceCatalog {
                 duration_secs,
             }
         })
+    }
+
+    fn resolve_lottie(&mut self, element_id: &str) -> anyhow::Result<AssetId> {
+        Ok(AssetId(format!("lottie:{element_id}")))
+    }
+
+    fn lottie_meta(&self, id: &AssetId) -> Option<LottieMeta> {
+        self.lotties.get(id).copied()
     }
 }

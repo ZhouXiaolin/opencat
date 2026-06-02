@@ -148,6 +148,7 @@ pub fn render_from_jsonl_with_base(
 
     match &config.format {
         OutputFormat::Png => {
+            let mut executor = crate::executor::EngineDrawExecutor::new();
             for i in 0..info.frames {
                 let (mut frame, media_plan) = pipeline.render_frame(i)?;
 
@@ -160,7 +161,6 @@ pub fn render_from_jsonl_with_base(
                     fps: info.fps,
                     frames: info.frames,
                 };
-                let mut executor = crate::executor::EngineDrawExecutor::new();
                 let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
                     executor: &mut executor,
                     loader: pipeline.loader(),
@@ -203,6 +203,7 @@ pub fn render_from_jsonl_with_base(
                 (info.width, info.height)
             };
 
+            let mut executor = crate::executor::EngineDrawExecutor::new();
             encode_rgba_frames(
                 output_path,
                 aligned_info.0,
@@ -225,7 +226,6 @@ pub fn render_from_jsonl_with_base(
                         fps: info.fps,
                         frames: info.frames,
                     };
-                    let mut executor = crate::executor::EngineDrawExecutor::new();
                     let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
                         executor: &mut executor,
                         loader: pipeline.loader(),

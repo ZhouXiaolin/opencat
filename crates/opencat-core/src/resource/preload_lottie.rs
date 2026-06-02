@@ -1,5 +1,7 @@
 //! Preload Lottie bundle primary JSON + discovered dependencies into a byte map.
 
+use std::pin::Pin;
+
 use anyhow::{Context, Result};
 
 use crate::ir::asset_id::AssetId;
@@ -9,16 +11,14 @@ use crate::resource::manifest::{
 };
 use crate::resource::materialize::ByteSource;
 
+type FetchFuture = Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>>>>>;
+
 /// Fetch primary JSON and dependency bytes for every bundle in `manifest`.
-pub async fn hydrate_lottie_bundles<F, Fut>(
+pub async fn hydrate_lottie_bundles(
     manifest: &mut ExternalResourceManifest,
     bytes: &mut impl ByteSourceMap,
-    mut fetch: F,
-) -> Result<()>
-where
-    F: FnMut(&str) -> Fut,
-    Fut: std::future::Future<Output = Result<Vec<u8>>>,
-{
+    mut fetch: impl FnMut(&str) -> FetchFuture,
+) -> Result<()> {
     let bundle_ids: Vec<AssetId> = manifest.bundles.iter().map(|b| b.bundle_id.clone()).collect();
     for bundle_id in bundle_ids {
         let Some(bundle) = manifest.bundles.iter().find(|b| b.bundle_id == bundle_id) else {

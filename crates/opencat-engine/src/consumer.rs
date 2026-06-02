@@ -163,6 +163,10 @@ impl FrameConsumer for EngineFrameConsumer<'_> {
         plan: &FrameMediaPlan,
     ) -> Result<(), ConsumerError> {
         let prepared = prepare_frame(plan, self.paths, self.media_ctx)?;
+        self.executor.ensure_lottie_animations(draw, |bundle_id| {
+            let asset_id = AssetId(bundle_id.to_string());
+            self.paths.path(&asset_id).and_then(|p| std::fs::read(p).ok())
+        });
         self.executor
             .execute(header, draw, &prepared, self.canvas)?;
         Ok(())
@@ -192,6 +196,10 @@ impl FrameConsumer for EngineLoaderFrameConsumer<'_> {
         plan: &FrameMediaPlan,
     ) -> Result<(), ConsumerError> {
         let prepared = prepare_frame(plan, self.loader, self.media_ctx)?;
+        self.executor.ensure_lottie_animations(draw, |bundle_id| {
+            let asset_id = AssetId(bundle_id.to_string());
+            self.loader.handle(&asset_id).and_then(|h| h.read_bytes().ok()).map(|c| c.into_owned())
+        });
         self.executor
             .execute(header, draw, &prepared, self.canvas)?;
         Ok(())

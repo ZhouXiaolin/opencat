@@ -22,7 +22,7 @@ import type {
   PathEffect,
   PointMode,
   Rect,
-  ManagedAnimation,
+  ManagedSkottieAnimation,
   RuntimeEffect,
   Shader,
   StrokeCap,
@@ -132,7 +132,7 @@ const OP_LOTTIE_RECT = 39;
 
 const NO_PAINT = 0xffff_ffff;
 
-const lottieCache = new Map<string, ManagedAnimation>();
+const lottieCache = new Map<string, ManagedSkottieAnimation>();
 
 type Rect4 = { x: number; y: number; width: number; height: number };
 type Range = { start: number; len: number };
@@ -495,7 +495,7 @@ export function renderEncodedDrawFrame(
           const dst = readRect4(p);
           const anim = resolveLottieAnimation(CK, bundleId);
           if (!anim) break;
-          anim.seekFrame(lottieFrame, null);
+          anim.seekFrame(lottieFrame, undefined);
           const dstRect = ckRect(CK, dst);
           const size = anim.size();
           const iw = size[0] || 1;
@@ -1062,13 +1062,19 @@ function applyPathCommand(CK: CanvasKit, builder: PathBuilder, op: PathCommand):
   }
 }
 
-function resolveLottieAnimation(CK: CanvasKit, bundleId: string): ManagedAnimation | null {
+function resolveLottieAnimation(CK: CanvasKit, bundleId: string): ManagedSkottieAnimation | null {
   const cached = lottieCache.get(bundleId);
   if (cached) return cached;
   const bytes = getBlobBytes(bundleId);
   if (!bytes) return null;
   const json = new TextDecoder().decode(bytes);
-  const assets = getSkottieBundleAssets(bundleId);
+  const rawAssets = getSkottieBundleAssets(bundleId);
+  const assets: Record<string, ArrayBuffer> = {};
+  for (const [key, val] of Object.entries(rawAssets)) {
+    const copy = new ArrayBuffer(val.byteLength);
+    new Uint8Array(copy).set(val);
+    assets[key] = copy;
+  }
   const anim = CK.MakeManagedAnimation(json, assets);
   if (!anim) return null;
   lottieCache.set(bundleId, anim);

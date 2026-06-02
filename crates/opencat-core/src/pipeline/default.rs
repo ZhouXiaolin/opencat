@@ -14,10 +14,11 @@ use crate::ir::{CompositionInfo, DrawOpFrame, FrameMediaPlan};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
 use crate::parse::preflight::collect_resource_requests;
-use crate::parse::primitives::{AudioSource, ImageSource, SubtitleSource, VideoSource};
+use crate::parse::primitives::{AudioSource, ImageSource, LottieSource, SubtitleSource, VideoSource};
 use crate::probe::catalog::ResourceCatalog;
 use crate::probe::probe::{probe_image, probe_video};
 use crate::probe::{AssetHandle, AssetId, AssetLoader};
+use crate::resource::lottie::parse_lottie_meta;
 use crate::script::js_context::JsContext;
 
 
@@ -217,6 +218,27 @@ fn probe_all<L: AssetLoader>(
             if let Ok(bytes) = handle.read_bytes() {
                 if let Ok(entries) = crate::probe::probe::parse_srt_bytes(&bytes, fps) {
                     catalog.subtitles.insert(id, entries);
+                }
+            }
+        }
+    }
+
+    for req in &requests.lotties {
+        if matches!(req.source, LottieSource::Unset) {
+            continue;
+        }
+        let bundle_id = AssetId(format!("lottie:{}", req.element_id));
+        let id_for_lookup = match &req.source {
+            LottieSource::Path(p) => AssetId(p.to_string_lossy().into_owned()),
+            LottieSource::Url(u) => crate::ir::asset_id::asset_id_for_url(u),
+            LottieSource::Unset => continue,
+        };
+        if let Some(handle) = loader.handle(&id_for_lookup) {
+            if let Ok(bytes) = handle.read_bytes() {
+                if let Ok(json) = std::str::from_utf8(&bytes) {
+                    if let Ok(meta) = parse_lottie_meta(json) {
+                        catalog.lotties.insert(bundle_id, meta);
+                    }
                 }
             }
         }

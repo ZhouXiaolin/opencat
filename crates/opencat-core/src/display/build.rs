@@ -101,10 +101,16 @@ fn cached_matches(cached: &CachedDisplayNode, element: &ElementNode, layout: &La
 }
 
 fn refresh_paint_epochs(node: &mut DisplayNode, frame: u64) {
-    if let DisplayItem::Bitmap(bitmap) = &mut node.item {
-        if bitmap.video_timing.is_some() {
-            bitmap.paint_epoch = frame;
+    match &mut node.item {
+        DisplayItem::Bitmap(bitmap) => {
+            if bitmap.video_timing.is_some() {
+                bitmap.paint_epoch = frame;
+            }
         }
+        DisplayItem::Lottie(lottie) => {
+            lottie.paint_epoch = frame;
+        }
+        _ => {}
     }
     for child in &mut node.children {
         refresh_paint_epochs(child, frame);
@@ -496,6 +502,7 @@ fn display_item_for_node(
             in_frame: lottie.in_frame,
             out_frame: lottie.out_frame,
             timing: lottie.timing,
+            paint_epoch: frame_ctx.frame as u64,
             object_fit: element.style.visual.object_fit,
             paint: BitmapPaintStyle {
                 background: element.style.visual.background,

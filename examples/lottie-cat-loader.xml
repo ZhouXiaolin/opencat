@@ -1,12 +1,12 @@
-<opencat width="400" height="300" fps="25" frames="32">
+<opencat width="400" height="300" fps="25" frames="320">
   <div id="stage" class="w-full h-full flex items-center justify-center bg-slate-100">
     <lottie
       id="loader"
       class="w-[280px] h-[200px]"
-      path="examples/83627cee-1153-11ee-b832-fb1242dd7de9.json"
-      data-start="0"
+      path="83627cee-1153-11ee-b832-fb1242dd7de9.json"
+      data-start="5"
       data-media-start="0"
-      loop="false"
+      loop="true"
     />
   </div>
 </opencat>

@@ -417,7 +417,7 @@ fn build_node_inner(
             image_node.style = style;
             Ok(Node::new(image_node))
         }
-        ParsedElementKind::Lottie { source } => {
+        ParsedElementKind::Lottie { source, timing } => {
             let mut lottie_node = crate::parse::primitives::lottie();
             lottie_node = match source {
                 crate::parse::primitives::LottieSource::Unset => {
@@ -428,6 +428,7 @@ fn build_node_inner(
                 crate::parse::primitives::LottieSource::Path(path) => lottie_node.path(path),
                 crate::parse::primitives::LottieSource::Url(url) => lottie_node.url(url.clone()),
             };
+            lottie_node = lottie_node.with_timing(*timing);
             lottie_node.style = style;
             Ok(Node::new(lottie_node))
         }

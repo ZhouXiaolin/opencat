@@ -24,7 +24,9 @@ pub use fonts::{
     FontFaceDecl, FontFamilyIndex, FontManifest, FontRole, FontSource, fetch_manifest_bytes,
     font_asset_id, load_faces_into_db, merge_faces_into_db, resolve_font_source_path,
 };
-pub use lottie::{parse_lottie_meta, scan_lottie_dependencies, LottieMeta};
+pub use lottie::{
+    parse_lottie_meta, resolve_lottie_frame, scan_lottie_dependencies, LottieMeta,
+};
 pub use manifest::{
     BundleDependencySource, BundleDependencySpec, ExternalResourceKind, ExternalResourceEntry,
     ExternalResourceManifest, LottieBundleSpec, LottiePrimarySource, ProviderBinding,

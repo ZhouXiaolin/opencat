@@ -16,7 +16,9 @@ pub struct ResourceMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lottie_fps: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lottie_duration_frames: Option<u32>,
+    pub lottie_in_frame: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lottie_out_frame: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,7 +103,8 @@ impl ResourceCatalog for HashMapResourceCatalog {
             kind: ResourceKind::Image,
             duration_secs: None,
             lottie_fps: None,
-            lottie_duration_frames: None,
+            lottie_in_frame: None,
+            lottie_out_frame: None,
         });
         id
     }
@@ -120,7 +123,8 @@ impl ResourceCatalog for HashMapResourceCatalog {
             kind: ResourceKind::Video,
             duration_secs,
             lottie_fps: None,
-            lottie_duration_frames: None,
+            lottie_in_frame: None,
+            lottie_out_frame: None,
         });
         id
     }
@@ -133,7 +137,8 @@ impl ResourceCatalog for HashMapResourceCatalog {
             kind: ResourceKind::Audio,
             duration_secs: None,
             lottie_fps: None,
-            lottie_duration_frames: None,
+            lottie_in_frame: None,
+            lottie_out_frame: None,
         });
         id
     }
@@ -185,7 +190,8 @@ impl HashMapResourceCatalog {
             kind: ResourceKind::Lottie,
             duration_secs: Some(meta.duration_frames() as f64 / meta.fps.max(1.0) as f64),
             lottie_fps: Some(meta.fps),
-            lottie_duration_frames: Some(meta.duration_frames()),
+            lottie_in_frame: Some(meta.in_frame),
+            lottie_out_frame: Some(meta.out_frame),
         });
         id
     }
@@ -199,8 +205,8 @@ impl HashMapResourceCatalog {
                 width: m.width,
                 height: m.height,
                 fps: m.lottie_fps.unwrap_or(30.0),
-                in_frame: 0.0,
-                out_frame: m.lottie_duration_frames.unwrap_or(1) as f32,
+                in_frame: m.lottie_in_frame.unwrap_or(0.0),
+                out_frame: m.lottie_out_frame.unwrap_or(1.0),
             })
         })
     }

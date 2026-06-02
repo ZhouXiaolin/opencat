@@ -77,6 +77,7 @@ pub enum ParsedElementKind {
     },
     Lottie {
         source: crate::parse::primitives::LottieSource,
+        timing: VideoFrameTiming,
     },
     Icon {
         name: String,

@@ -5,6 +5,8 @@ use crate::parse::node::{Node, NodeKind};
 use crate::parse::primitives::{AudioSource, ImageSource, Video};
 use crate::parse::time::{FrameState, frame_state_for_root};
 use crate::probe::catalog::ResourceRequests;
+use crate::resource::fonts::FontManifest;
+use crate::resource::manifest::{ExternalResourceManifest, build_manifest};
 
 pub fn collect_resource_requests(composition: &Composition) -> ResourceRequests {
     let mut req = ResourceRequests::default();
@@ -27,6 +29,16 @@ pub fn collect_resource_requests(composition: &Composition) -> ResourceRequests 
         );
     }
     req
+}
+
+/// Preflight: resource requests + unified external manifest (OpenCat + fonts + future Lottie).
+pub fn collect_external_manifest(
+    composition: &Composition,
+    font_manifest: &FontManifest,
+) -> (ResourceRequests, ExternalResourceManifest) {
+    let req = collect_resource_requests(composition);
+    let manifest = build_manifest(&req, font_manifest);
+    (req, manifest)
 }
 
 pub fn collect_audio_plan(comp: &Composition) -> crate::probe::catalog::AudioPlan {

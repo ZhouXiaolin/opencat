@@ -5,14 +5,15 @@ use crate::parse::{
     node::Node,
     primitives::{AudioSource, ImageSource, VideoSource},
 };
+use crate::resource::fonts::FontManifest;
 use crate::resource::types::VideoFrameTiming;
 use crate::style::NodeStyle;
 
 mod builder;
 
 pub use builder::{
-    BuildOptions, build_parsed_document, build_tree, build_tree_with_options, build_tree_with_tl,
-    build_tree_with_tl_options, join_scripts,
+    BuildOptions, build_font_resources, build_parsed_document, build_tree, build_tree_with_options,
+    build_tree_with_tl, build_tree_with_tl_options, join_scripts,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +40,7 @@ pub struct ParsedDocumentParts {
     pub scripts_by_parent: std::collections::HashMap<String, Vec<String>>,
     pub global_scripts: Vec<String>,
     pub markup_root_script: Option<String>,
+    pub font_manifest: FontManifest,
 }
 
 pub fn validate_unique_ids(
@@ -131,4 +133,5 @@ pub struct ParsedComposition {
     pub root: Node,
     pub script: Option<String>,
     pub audio_sources: Vec<CompositionAudioSource>,
+    pub font_manifest: FontManifest,
 }

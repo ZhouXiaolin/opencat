@@ -15,6 +15,7 @@ use opencat_core::parse::composition::Composition;
 use opencat_core::parse::preflight::collect_resource_requests;
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
+use opencat_core::resource::fonts::{font_asset_id, FontSource};
 use opencat_core::resource::preload::preload_all;
 
 use crate::resource::blob_store::BlobStore;
@@ -32,6 +33,19 @@ fn put_blobs(blobs: BlobStore) {
     BLOB_STORE.with(|s| *s.borrow_mut() = blobs);
 }
 
+fn font_manifest_from_source(
+    source: &str,
+) -> anyhow::Result<opencat_core::resource::fonts::FontManifest> {
+    let trimmed = source.trim();
+    if trimmed.starts_with('{') {
+        Ok(opencat_core::parse::jsonl::parse_with_base_dir(source, None)?.font_manifest)
+    } else {
+        Ok(
+            opencat_core::parse::markup::parse_parts_with_base_dir(source, None)?.font_manifest,
+        )
+    }
+}
+
 /// 下载 composition source 引用的全部资源，把字节放进 BlobStore，返回 catalog JSON。
 ///
 /// 返回的 JSON 形态与 [`HashMapResourceCatalog::from_json`] 接受的相同：
@@ -42,10 +56,36 @@ fn put_blobs(blobs: BlobStore) {
 #[wasm_bindgen]
 pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
     // 1) 用 core 的解析器解析 JSONL/XML → ParsedComposition。
-    let parsed = crate::source::parse_source(source)
+    let font_manifest = font_manifest_from_source(source)
         .map_err(|e| JsValue::from_str(&format!("preload_assets: parse failed: {e}")))?;
 
+    if !font_manifest.is_empty() {
+        use opencat_core::resource::asset_id::AssetId;
+        use opencat_core::resource::fonts::FontSource;
+
+        let fetcher = crate::resource::resolver::WebFetcher;
+        for face in &font_manifest.faces {
+            let bytes = match &face.source {
+                FontSource::Path(_) => {
+                    return Err(JsValue::from_str(
+                        "preload_assets: font path is not supported on web; use url",
+                    ));
+                }
+                FontSource::Url(url) => {
+                    let id = AssetId(font_asset_id(&FontSource::Url(url.clone())));
+                    fetcher
+                        .fetch_bytes(&id, url)
+                        .await
+                        .map_err(|e| JsValue::from_str(&format!("preload_assets font: {e}")))?
+                }
+            };
+            crate::resource::font_store::insert(face.id.clone(), bytes);
+        }
+    }
+
     // 2) 组装 Composition（复用 parsed 的场景树 + 音频源），让 collect_resource_requests 能遍历。
+    let parsed = crate::source::parse_source(source, &fontdb::Database::new())
+        .map_err(|e| JsValue::from_str(&format!("preload_assets: parse failed: {e}")))?;
     let root_node = parsed.root.clone();
     let composition = Composition::new("preload")
         .size(parsed.width, parsed.height)
@@ -92,6 +132,7 @@ pub fn get_blob_bytes(asset_id: &str) -> Option<Uint8Array> {
 #[wasm_bindgen]
 pub fn clear_blobs() {
     BLOB_STORE.with(|s| s.borrow_mut().clear());
+    crate::resource::font_store::clear();
 }
 
 /// 当前 BlobStore 条目数，调试用。

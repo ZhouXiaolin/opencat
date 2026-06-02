@@ -18,6 +18,7 @@ use crate::parse::document::{
     CanvasChildrenMode, ParsedComposition, ParsedDocumentParts, ParsedElement, ParsedElementKind,
     ParsedTransition,
 };
+use crate::resource::fonts::{FontFamilyIndex, merge_faces_into_db};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BuildOptions {
@@ -43,9 +44,16 @@ pub fn join_scripts(scripts: Vec<String>) -> Option<String> {
 }
 
 pub fn build_parsed_document(
-    parts: ParsedDocumentParts,
+    mut parts: ParsedDocumentParts,
     options: BuildOptions,
+    font_index: Option<&FontFamilyIndex>,
 ) -> anyhow::Result<ParsedComposition> {
+    if let Some(index) = font_index {
+        parts
+            .font_manifest
+            .apply_font_refs_to_styles(index, &mut parts.elements);
+    }
+
     let audio_sources: Vec<CompositionAudioSource> = parts
         .audio_elements
         .iter()
@@ -109,7 +117,18 @@ pub fn build_parsed_document(
         root,
         script: join_scripts(parts.global_scripts),
         audio_sources,
+        font_manifest: parts.font_manifest,
     })
+}
+
+/// Build fontdb + family index from manifest bytes merged into `base_db`.
+pub fn build_font_resources(
+    base_db: fontdb::Database,
+    manifest: &crate::resource::fonts::FontManifest,
+    bytes_by_id: &std::collections::HashMap<String, Vec<u8>>,
+) -> anyhow::Result<(fontdb::Database, FontFamilyIndex)> {
+    merge_faces_into_db(base_db, manifest, bytes_by_id)
+        .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 fn index_elements(

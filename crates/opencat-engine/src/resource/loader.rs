@@ -11,6 +11,7 @@ use opencat_core::probe::{AudioSource, ImageSource, SubtitleSource, VideoSource}
 use opencat_core::resource::asset_id::{
     AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
 };
+use opencat_core::resource::fonts::{font_asset_id, FontManifest};
 
 use opencat_core::resource::resolver::UrlFetcher;
 
@@ -43,6 +44,50 @@ pub struct EngineLoader {
 }
 
 impl EngineLoader {
+    pub fn base_dir(&self) -> &Path {
+        &self._base_dir
+    }
+
+    /// Download / read all fonts declared in `<fonts>` for markup compositions.
+    pub fn load_font_manifest(
+        &mut self,
+        manifest: &FontManifest,
+    ) -> Result<std::collections::HashMap<String, Vec<u8>>> {
+        if manifest.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let base_dir = self._base_dir.clone();
+        let cache_dir = self.cache_dir.clone();
+        let mut out = std::collections::HashMap::new();
+        for face in &manifest.faces {
+            let bytes = match &face.source {
+                opencat_core::resource::fonts::FontSource::Path(path) => {
+                    let resolved = opencat_core::resource::fonts::resolve_font_source_path(
+                        &path.to_string_lossy(),
+                        Some(&base_dir),
+                    )
+                    .with_context(|| format!("font `{}`", face.id))?;
+                    std::fs::read(&resolved)
+                        .with_context(|| format!("read font {}", resolved.display()))?
+                }
+                opencat_core::resource::fonts::FontSource::Url(url) => {
+                    let id = AssetId(font_asset_id(
+                        &opencat_core::resource::fonts::FontSource::Url(url.clone()),
+                    ));
+                    let bytes = self
+                        .runtime
+                        .block_on(self.fetcher.fetch_bytes(&id, url))
+                        .with_context(|| format!("fetch font `{}` url `{url}`", face.id))?;
+                    let path = cache_file_path(&cache_dir, &id);
+                    std::fs::write(&path, &bytes)?;
+                    bytes
+                }
+            };
+            out.insert(face.id.clone(), bytes);
+        }
+        Ok(out)
+    }
+
     pub fn new(base_dir: PathBuf, cache_dir: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&cache_dir).ok();
         Ok(Self {

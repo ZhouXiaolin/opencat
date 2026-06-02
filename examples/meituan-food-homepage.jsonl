@@ -1,0 +1,138 @@
+{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
+{"id":"page","parentId":null,"type":"div","className":"relative w-[390px] h-[844px] bg-amber-50","duration":180}
+{"id":"bg-layer","parentId":"page","type":"div","className":"absolute inset-0 overflow-hidden"}
+{"id":"bg-c1","parentId":"bg-layer","type":"div","className":"absolute w-[260px] h-[260px] rounded-full bg-amber-200 opacity-25 top-[-80px] right-[-60px]"}
+{"id":"bg-c2","parentId":"bg-layer","type":"div","className":"absolute w-[160px] h-[160px] rounded-full bg-orange-200 opacity-20 top-[150px] left-[-70px]"}
+{"id":"bg-c3","parentId":"bg-layer","type":"div","className":"absolute w-[90px] h-[90px] rounded-full bg-amber-100 opacity-30 bottom-[350px] right-[-30px]"}
+{"id":"bg-c4","parentId":"bg-layer","type":"div","className":"absolute w-[50px] h-[50px] rounded-full bg-yellow-200 opacity-25 top-[90px] left-[35px]"}
+{"id":"f-badge-1","parentId":"page","type":"div","className":"absolute top-[208px] left-[12px] px-[8px] py-[3px] rounded-md bg-red-500 shadow-md"}
+{"id":"f-badge-1-t","parentId":"f-badge-1","type":"text","className":"text-[10px] font-bold text-white","text":"减$8"}
+{"id":"f-badge-2","parentId":"page","type":"div","className":"absolute top-[225px] right-[16px] px-[8px] py-[3px] rounded-md bg-orange-500 shadow-md"}
+{"id":"f-badge-2-t","parentId":"f-badge-2","type":"text","className":"text-[10px] font-bold text-white","text":"4.8折"}
+{"id":"d-star-1","parentId":"page","type":"icon","className":"absolute top-[178px] left-[215px] w-[12px] h-[12px] fill-amber-400 stroke-amber-400","icon":"star"}
+{"id":"d-star-2","parentId":"page","type":"icon","className":"absolute top-[245px] left-[65px] w-[8px] h-[8px] fill-amber-300 stroke-amber-300","icon":"star"}
+{"id":"d-star-3","parentId":"page","type":"icon","className":"absolute top-[262px] right-[95px] w-[10px] h-[10px] fill-yellow-300 stroke-yellow-300","icon":"star"}
+{"id":"d-star-4","parentId":"page","type":"icon","className":"absolute top-[202px] left-[325px] w-[6px] h-[6px] fill-amber-400 stroke-amber-400","icon":"star"}
+{"id":"main","parentId":"page","type":"div","className":"flex flex-col w-full h-full px-[16px] pt-[8px]"}
+{"id":"top-bar","parentId":"main","type":"div","className":"flex flex-row items-center justify-between h-[42px]"}
+{"id":"loc-wrap","parentId":"top-bar","type":"div","className":"flex flex-row items-center gap-[4px]"}
+{"id":"loc-icon","parentId":"loc-wrap","type":"icon","className":"w-[18px] h-[18px] stroke-amber-500","icon":"map-pin"}
+{"id":"loc-text","parentId":"loc-wrap","type":"text","className":"text-[15px] font-bold text-gray-900","text":"广州·天河城"}
+{"id":"loc-arrow","parentId":"loc-wrap","type":"icon","className":"w-[14px] h-[14px] stroke-gray-500","icon":"chevron-down"}
+{"id":"top-right","parentId":"top-bar","type":"div","className":"flex flex-row items-center gap-[20px]"}
+{"id":"top-scan","parentId":"top-right","type":"icon","className":"w-[22px] h-[22px] stroke-gray-600","icon":"scan-line"}
+{"id":"top-bell","parentId":"top-right","type":"icon","className":"w-[22px] h-[22px] stroke-gray-600","icon":"bell"}
+{"id":"search-bar","parentId":"main","type":"div","className":"flex flex-row items-center h-[38px] mt-[6px] px-[14px] rounded-[19px] bg-white shadow-sm border border-gray-100"}
+{"id":"s-icon","parentId":"search-bar","type":"icon","className":"w-[16px] h-[16px] stroke-gray-400","icon":"search"}
+{"id":"s-text","parentId":"search-bar","type":"text","className":"ml-[8px] text-[13px] text-gray-400 flex-1","text":"搜你想吃的  小龙虾"}
+{"id":"s-cam","parentId":"search-bar","type":"icon","className":"w-[18px] h-[18px] stroke-gray-400","icon":"camera"}
+{"id":"cat-grid","parentId":"main","type":"div","className":"flex flex-row flex-wrap justify-between mt-[16px] gap-y-[14px]"}
+{"id":"cat-1","parentId":"cat-grid","type":"div","className":"flex flex-col items-center w-[72px] gap-[6px]"}
+{"id":"cat-1-bg","parentId":"cat-1","type":"div","className":"w-[44px] h-[44px] rounded-full bg-amber-400 flex items-center justify-center"}
+{"id":"cat-1-ico","parentId":"cat-1-bg","type":"icon","className":"w-[22px] h-[22px] stroke-white","icon":"utensils"}
+{"id":"cat-1-txt","parentId":"cat-1","type":"text","className":"text-[11px] font-medium text-gray-700","text":"美食"}
+{"id":"cat-2","parentId":"cat-grid","type":"div","className":"flex flex-col items-center w-[72px] gap-[6px]"}
+{"id":"cat-2-bg","parentId":"cat-2","type":"div","className":"w-[44px] h-[44px] rounded-full bg-green-500 flex items-center justify-center"}
+{"id":"cat-2-ico","parentId":"cat-2-bg","type":"icon","className":"w-[22px] h-[22px] stroke-white","icon":"shopping-bag"}
+{"id":"cat-2-txt","parentId":"cat-2","type":"text","className":"text-[11px] font-medium text-gray-700","text":"超市"}
+{"id":"cat-3","parentId":"cat-grid","type":"div","className":"flex flex-col items-center w-[72px] gap-[6px]"}
+{"id":"cat-3-bg","parentId":"cat-3","type":"div","className":"w-[44px] h-[44px] rounded-full bg-red-400 flex items-center justify-center"}
+{"id":"cat-3-ico","parentId":"cat-3-bg","type":"icon","className":"w-[22px] h-[22px] stroke-white","icon":"cherry"}
+{"id":"cat-3-txt","parentId":"cat-3","type":"text","className":"text-[11px] font-medium text-gray-700","text":"水果"}
+{"id":"cat-4","parentId":"cat-grid","type":"div","className":"flex flex-col items-center w-[72px] gap-[6px]"}
+{"id":"cat-4-bg","parentId":"cat-4","type":"div","className":"w-[44px] h-[44px] rounded-full bg-purple-400 flex items-center justify-center"}
+{"id":"cat-4-ico","parentId":"cat-4-bg","type":"icon","className":"w-[22px] h-[22px] stroke-white","icon":"coffee"}
+{"id":"cat-4-txt","parentId":"cat-4","type":"text","className":"text-[11px] font-medium text-gray-700","text":"奶茶"}
+{"id":"cat-5","parentId":"cat-grid","type":"div","className":"flex flex-col items-center w-[72px] gap-[6px]"}
+{"id":"cat-5-bg","parentId":"cat-5","type":"div","className":"w-[44px] h-[44px] rounded-full bg-blue-500 flex items-center justify-center"}
+{"id":"cat-5-ico","parentId":"cat-5-bg","type":"icon","className":"w-[22px] h-[22px] stroke-white","icon":"bike"}
+{"id":"cat-5-txt","parentId":"cat-5","type":"text","className":"text-[11px] font-medium text-gray-700","text":"跑腿"}
+{"id":"cat-6","parentId":"cat-grid","type":"div","className":"flex flex-col items-center w-[72px] gap-[6px]"}
+{"id":"cat-6-bg","parentId":"cat-6","type":"div","className":"w-[44px] h-[44px] rounded-full bg-pink-400 flex items-center justify-center"}
+{"id":"cat-6-ico","parentId":"cat-6-bg","type":"icon","className":"w-[22px] h-[22px] stroke-white","icon":"pill"}
+{"id":"cat-6-txt","parentId":"cat-6","type":"text","className":"text-[11px] font-medium text-gray-700","text":"医药"}
+{"id":"cat-7","parentId":"cat-grid","type":"div","className":"flex flex-col items-center w-[72px] gap-[6px]"}
+{"id":"cat-7-bg","parentId":"cat-7","type":"div","className":"w-[44px] h-[44px] rounded-full bg-orange-400 flex items-center justify-center"}
+{"id":"cat-7-ico","parentId":"cat-7-bg","type":"icon","className":"w-[22px] h-[22px] stroke-white","icon":"sparkles"}
+{"id":"cat-7-txt","parentId":"cat-7","type":"text","className":"text-[11px] font-medium text-gray-700","text":"美妆"}
+{"id":"cat-8","parentId":"cat-grid","type":"div","className":"flex flex-col items-center w-[72px] gap-[6px]"}
+{"id":"cat-8-bg","parentId":"cat-8","type":"div","className":"w-[44px] h-[44px] rounded-full bg-red-500 flex items-center justify-center"}
+{"id":"cat-8-ico","parentId":"cat-8-bg","type":"icon","className":"w-[22px] h-[22px] stroke-white","icon":"tags"}
+{"id":"cat-8-txt","parentId":"cat-8","type":"text","className":"text-[11px] font-medium text-gray-700","text":"团购"}
+{"id":"sale-section","parentId":"main","type":"div","className":"flex flex-col mt-[16px] rounded-xl bg-white shadow-sm overflow-hidden"}
+{"id":"sale-header","parentId":"sale-section","type":"div","className":"flex flex-row items-center h-[36px] px-[12px] bg-gradient-to-r from-red-500 to-orange-500"}
+{"id":"sale-title","parentId":"sale-header","type":"text","className":"text-[14px] font-bold text-white","text":"限时秒杀"}
+{"id":"sale-timer","parentId":"sale-header","type":"div","className":"flex flex-row items-center ml-[10px] gap-[2px]"}
+{"id":"timer-lbl","parentId":"sale-timer","type":"text","className":"text-[11px] text-white opacity-80","text":"距结束"}
+{"id":"timer-num-1","parentId":"sale-timer","type":"div","className":"w-[20px] h-[20px] rounded-[4px] bg-white/20 flex items-center justify-center"}
+{"id":"timer-n1","parentId":"timer-num-1","type":"text","className":"text-[12px] font-bold text-white","text":"0"}
+{"id":"timer-colon-1","parentId":"sale-timer","type":"text","className":"text-[12px] font-bold text-white","text":":"}
+{"id":"timer-num-2","parentId":"sale-timer","type":"div","className":"w-[20px] h-[20px] rounded-[4px] bg-white/20 flex items-center justify-center"}
+{"id":"timer-n2","parentId":"timer-num-2","type":"text","className":"text-[12px] font-bold text-white","text":"5"}
+{"id":"timer-num-3","parentId":"sale-timer","type":"div","className":"w-[20px] h-[20px] rounded-[4px] bg-white/20 flex items-center justify-center"}
+{"id":"timer-n3","parentId":"timer-num-3","type":"text","className":"text-[12px] font-bold text-white","text":"0"}
+{"id":"timer-colon-2","parentId":"sale-timer","type":"text","className":"text-[12px] font-bold text-white","text":":"}
+{"id":"timer-num-4","parentId":"sale-timer","type":"div","className":"w-[20px] h-[20px] rounded-[4px] bg-white/20 flex items-center justify-center"}
+{"id":"timer-n4","parentId":"timer-num-4","type":"text","className":"text-[12px] font-bold text-white","text":"0"}
+{"id":"sale-more","parentId":"sale-header","type":"text","className":"ml-auto text-[11px] text-white opacity-70","text":"更多 >"}
+{"id":"sale-body","parentId":"sale-section","type":"div","className":"flex flex-row gap-[10px] px-[12px] py-[12px]"}
+{"id":"sale-pd-1","parentId":"sale-body","type":"div","className":"flex-1 flex flex-col items-center"}
+{"id":"sale-pd-1-img","parentId":"sale-pd-1","type":"image","className":"w-full h-[76px] rounded-lg object-cover","query":"cake dessert"}
+{"id":"sale-pd-1-name","parentId":"sale-pd-1","type":"text","className":"mt-[6px] text-[11px] text-gray-800 font-medium truncate w-full text-center","text":"提拉米苏蛋糕"}
+{"id":"sale-pd-1-price","parentId":"sale-pd-1","type":"div","className":"flex flex-row items-baseline gap-[2px] mt-[2px]"}
+{"id":"sale-pd-1-dol","parentId":"sale-pd-1-price","type":"text","className":"text-[12px] font-bold text-red-500","text":"$"}
+{"id":"sale-pd-1-num","parentId":"sale-pd-1-price","type":"text","className":"text-[18px] font-bold text-red-500","text":"12.90"}
+{"id":"sale-pd-1-orig","parentId":"sale-pd-1","type":"text","className":"text-[10px] text-gray-400 line-through","text":"$25.00"}
+{"id":"sale-pd-2","parentId":"sale-body","type":"div","className":"flex-1 flex flex-col items-center"}
+{"id":"sale-pd-2-img","parentId":"sale-pd-2","type":"image","className":"w-full h-[76px] rounded-lg object-cover","query":"coffee drink"}
+{"id":"sale-pd-2-name","parentId":"sale-pd-2","type":"text","className":"mt-[6px] text-[11px] text-gray-800 font-medium truncate w-full text-center","text":"冰美式咖啡"}
+{"id":"sale-pd-2-price","parentId":"sale-pd-2","type":"div","className":"flex flex-row items-baseline gap-[2px] mt-[2px]"}
+{"id":"sale-pd-2-dol","parentId":"sale-pd-2-price","type":"text","className":"text-[12px] font-bold text-red-500","text":"$"}
+{"id":"sale-pd-2-num","parentId":"sale-pd-2-price","type":"text","className":"text-[18px] font-bold text-red-500","text":"8.90"}
+{"id":"sale-pd-2-orig","parentId":"sale-pd-2","type":"text","className":"text-[10px] text-gray-400 line-through","text":"$18.00"}
+{"id":"rec-title","parentId":"main","type":"div","className":"flex flex-row items-center mt-[16px]"}
+{"id":"rec-fire","parentId":"rec-title","type":"icon","className":"w-[18px] h-[18px] stroke-red-500 fill-red-500","icon":"flame"}
+{"id":"rec-txt","parentId":"rec-title","type":"text","className":"ml-[6px] text-[16px] font-bold text-gray-900","text":"附近推荐"}
+{"id":"rec-more","parentId":"rec-title","type":"text","className":"ml-auto text-[12px] text-gray-400","text":"更多 >"}
+{"id":"shop-1","parentId":"main","type":"div","className":"flex flex-row mt-[12px] p-[12px] rounded-xl bg-white shadow-sm"}
+{"id":"shop-1-img","parentId":"shop-1","type":"image","className":"w-[72px] h-[72px] rounded-xl object-cover","query":"noodles chinese food"}
+{"id":"shop-1-info","parentId":"shop-1","type":"div","className":"flex flex-col ml-[12px] flex-1 justify-between"}
+{"id":"shop-1-row1","parentId":"shop-1-info","type":"div","className":"flex flex-row items-center justify-between"}
+{"id":"shop-1-name","parentId":"shop-1-row1","type":"text","className":"text-[14px] font-semibold text-gray-900","text":"正宗兰州拉面"}
+{"id":"shop-1-rating","parentId":"shop-1-row1","type":"div","className":"flex flex-row items-center gap-[2px]"}
+{"id":"shop-1-star","parentId":"shop-1-rating","type":"icon","className":"w-[14px] h-[14px] fill-amber-400 stroke-amber-400","icon":"star"}
+{"id":"shop-1-score","parentId":"shop-1-rating","type":"text","className":"text-[12px] font-bold text-amber-500","text":"4.8"}
+{"id":"shop-1-info2","parentId":"shop-1-info","type":"text","className":"text-[11px] text-gray-400","text":"月售 2135  |  距您 1.2km"}
+{"id":"shop-1-tags","parentId":"shop-1-info","type":"div","className":"flex flex-row gap-[6px]"}
+{"id":"shop-1-tag-1","parentId":"shop-1-tags","type":"div","className":"px-[6px] py-[2px] rounded-[4px] bg-red-50"}
+{"id":"shop-1-tag-1-t","parentId":"shop-1-tag-1","type":"text","className":"text-[10px] font-bold text-red-500","text":"满$30减$5"}
+{"id":"shop-1-tag-2","parentId":"shop-1-tags","type":"div","className":"px-[6px] py-[2px] rounded-[4px] bg-orange-50"}
+{"id":"shop-1-tag-2-t","parentId":"shop-1-tag-2","type":"text","className":"text-[10px] font-bold text-orange-500","text":"新客立减"}
+{"id":"shop-2","parentId":"main","type":"div","className":"flex flex-row mt-[10px] p-[12px] rounded-xl bg-white shadow-sm"}
+{"id":"shop-2-img","parentId":"shop-2","type":"image","className":"w-[72px] h-[72px] rounded-xl object-cover","query":"sushi japanese food"}
+{"id":"shop-2-info","parentId":"shop-2","type":"div","className":"flex flex-col ml-[12px] flex-1 justify-between"}
+{"id":"shop-2-row1","parentId":"shop-2-info","type":"div","className":"flex flex-row items-center justify-between"}
+{"id":"shop-2-name","parentId":"shop-2-row1","type":"text","className":"text-[14px] font-semibold text-gray-900","text":"元气寿司"}
+{"id":"shop-2-rating","parentId":"shop-2-row1","type":"div","className":"flex flex-row items-center gap-[2px]"}
+{"id":"shop-2-star","parentId":"shop-2-rating","type":"icon","className":"w-[14px] h-[14px] fill-amber-400 stroke-amber-400","icon":"star"}
+{"id":"shop-2-score","parentId":"shop-2-rating","type":"text","className":"text-[12px] font-bold text-amber-500","text":"4.6"}
+{"id":"shop-2-info2","parentId":"shop-2-info","type":"text","className":"text-[11px] text-gray-400","text":"月售 1580  |  距您 2.3km"}
+{"id":"shop-2-tags","parentId":"shop-2-info","type":"div","className":"flex flex-row gap-[6px]"}
+{"id":"shop-2-tag-1","parentId":"shop-2-tags","type":"div","className":"px-[6px] py-[2px] rounded-[4px] bg-red-50"}
+{"id":"shop-2-tag-1-t","parentId":"shop-2-tag-1","type":"text","className":"text-[10px] font-bold text-red-500","text":"7折优惠"}
+{"id":"shop-2-tag-2","parentId":"shop-2-tags","type":"div","className":"px-[6px] py-[2px] rounded-[4px] bg-orange-50"}
+{"id":"shop-2-tag-2-t","parentId":"shop-2-tag-2","type":"text","className":"text-[10px] font-bold text-orange-500","text":"首单免费"}
+{"id":"tab-bar","parentId":"page","type":"div","className":"absolute bottom-0 w-full h-[60px] flex flex-row items-center justify-around bg-white border-t border-gray-100 shadow-lg"}
+{"id":"tab-1","parentId":"tab-bar","type":"div","className":"flex flex-col items-center gap-[2px]"}
+{"id":"tab-1-ico","parentId":"tab-1","type":"icon","className":"w-[22px] h-[22px] stroke-amber-500 fill-amber-500","icon":"home"}
+{"id":"tab-1-txt","parentId":"tab-1","type":"text","className":"text-[10px] font-medium text-amber-500","text":"首页"}
+{"id":"tab-2","parentId":"tab-bar","type":"div","className":"flex flex-col items-center gap-[2px]"}
+{"id":"tab-2-ico","parentId":"tab-2","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"compass"}
+{"id":"tab-2-txt","parentId":"tab-2","type":"text","className":"text-[10px] text-gray-400","text":"发现"}
+{"id":"tab-3","parentId":"tab-bar","type":"div","className":"flex flex-col items-center gap-[2px]"}
+{"id":"tab-3-ico","parentId":"tab-3","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"file-text"}
+{"id":"tab-3-txt","parentId":"tab-3","type":"text","className":"text-[10px] text-gray-400","text":"订单"}
+{"id":"tab-4","parentId":"tab-bar","type":"div","className":"flex flex-col items-center gap-[2px]"}
+{"id":"tab-4-ico","parentId":"tab-4","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"user"}
+{"id":"tab-4-txt","parentId":"tab-4","type":"text","className":"text-[10px] text-gray-400","text":"我的"}
+{"type":"script","parentId":"page","src":"var tl=ctx.timeline({defaults:{ease:'spring.wobbly',duration:16}});tl.from('loc-wrap',{opacity:0,x:-16},0);tl.from('top-right',{opacity:0,x:16},0);tl.from('search-bar',{opacity:0,y:-12,scaleX:0.95},5);var cats=['cat-1','cat-2','cat-3','cat-4','cat-5','cat-6','cat-7','cat-8'];tl.from(cats,{opacity:0,y:20,scale:0.8},10);tl.from('sale-section',{opacity:0,y:18,scale:0.95},22);tl.from('rec-title',{opacity:0,x:-15},34);tl.from('shop-1',{opacity:0,y:22},38);tl.from('shop-2',{opacity:0,y:22},42);tl.from('tab-bar',{opacity:0,y:24},50);tl.from(['f-badge-1','f-badge-2'],{opacity:0,scale:0.3,y:12},18);tl.from(['d-star-1','d-star-2','d-star-3','d-star-4'],{opacity:0,scale:0,rotate:-180},14);ctx.fromTo('f-badge-1',{y:0},{y:-8,duration:30,delay:65,yoyo:true,repeat:-1,ease:'ease-in-out'});ctx.fromTo('f-badge-2',{y:0},{y:-6,duration:24,delay:65,yoyo:true,repeat:-1,ease:'ease-in-out'});ctx.fromTo(['sale-pd-1','sale-pd-2'],{scale:1},{scale:1.04,duration:42,delay:65,yoyo:true,repeat:-1,ease:'ease-in-out'});ctx.fromTo('bg-c1',{scale:1},{scale:1.1,duration:90,delay:65,yoyo:true,repeat:-1,ease:'ease-in-out'});ctx.fromTo('bg-c2',{scale:1},{scale:1.08,duration:72,delay:70,yoyo:true,repeat:-1,ease:'ease-in-out'});ctx.fromTo(['timer-n1','timer-n2','timer-n3','timer-n4'],{scale:1},{scale:1.15,duration:15,delay:70,yoyo:true,repeat:-1,ease:'ease-in-out',stagger:3});ctx.fromTo(['d-star-1','d-star-2','d-star-3','d-star-4'],{scale:1},{scale:1.3,duration:24,delay:68,yoyo:true,repeat:-1,ease:'ease-in-out',stagger:6});ctx.fromTo('tab-1-ico',{scale:1},{scale:1.12,duration:20,delay:80,yoyo:true,repeat:-1,ease:'ease-in-out'})"}

@@ -101,7 +101,7 @@ impl NodeKind {
     pub fn duration_in_frames(&self, ctx: &FrameCtx) -> Option<u32> {
         match self {
             Self::Div(node) => node.duration_in_frames(ctx),
-            Self::Timeline(node) => Some(node.duration_in_frames()),
+            Self::Timeline(node) => Some(node.duration_in_frames(ctx)),
             Self::Text(_)
             | Self::Canvas(_)
             | Self::Image(_)

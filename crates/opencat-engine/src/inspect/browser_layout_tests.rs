@@ -559,7 +559,7 @@ fn measure_taffy_layout(fixture: &LayoutFixture) -> Result<BTreeMap<String, Brow
     let composition = Composition::new(fixture.name)
         .size(fixture.viewport_width, fixture.viewport_height)
         .fps(30)
-        .frames(1)
+        .duration(1.0 / 30.0)
         .root({
             let root = root.clone();
             move |_| (*root).clone()

@@ -45,7 +45,7 @@ pub struct Timeline {
 
 #[derive(Clone)]
 enum TimelineItem {
-    Sequence { duration_in_frames: u32, node: Node },
+    Sequence { duration_secs: f64, node: Node },
     Transition(Transition),
 }
 
@@ -53,7 +53,7 @@ enum TimelineItem {
 pub struct Transition {
     presentation: Presentation,
     easing: Easing,
-    duration_in_frames: u32,
+    duration_secs: f64,
 }
 
 #[derive(Clone)]
@@ -124,9 +124,9 @@ pub struct ClockWipeBuilder;
 pub struct IrisBuilder;
 
 impl Timeline {
-    pub fn sequence(mut self, duration_in_frames: u32, node: Node) -> Self {
+    pub fn sequence(mut self, duration_secs: f64, node: Node) -> Self {
         self.items.push(TimelineItem::Sequence {
-            duration_in_frames,
+            duration_secs: sanitize_duration_secs(duration_secs),
             node,
         });
         self
@@ -137,27 +137,25 @@ impl Timeline {
         self
     }
 
-    pub fn duration_in_frames(&self) -> u32 {
+    pub fn duration_secs(&self) -> f64 {
         self.items
             .iter()
             .map(|item| match item {
-                TimelineItem::Sequence {
-                    duration_in_frames, ..
-                } => *duration_in_frames,
-                TimelineItem::Transition(transition) => transition.duration_in_frames(),
+                TimelineItem::Sequence { duration_secs, .. } => *duration_secs,
+                TimelineItem::Transition(transition) => transition.duration_secs(),
             })
             .sum()
     }
 
     fn into_timeline(self) -> TimelineNode {
-        let duration_in_frames = self.duration_in_frames();
+        let duration_secs = self.duration_secs();
         let items = self.items;
         let mut segments = Vec::new();
-        let mut cursor = 0;
+        let mut cursor_secs = 0.0;
 
         for index in 0..items.len() {
             let TimelineItem::Sequence {
-                duration_in_frames,
+                duration_secs,
                 node,
             } = &items[index]
             else {
@@ -165,37 +163,37 @@ impl Timeline {
             };
 
             segments.push(TimelineSegment::Scene {
-                start_frame: cursor,
-                duration_in_frames: *duration_in_frames,
+                start_secs: cursor_secs,
+                duration_secs: *duration_secs,
                 scene: node.clone(),
             });
-            cursor += *duration_in_frames;
+            cursor_secs += *duration_secs;
 
             if let (
                 Some(TimelineItem::Transition(transition)),
                 Some(TimelineItem::Sequence {
-                    duration_in_frames: next_duration_in_frames,
+                    duration_secs: next_duration_secs,
                     node: next_node,
                     ..
                 }),
             ) = (items.get(index + 1), items.get(index + 2))
             {
-                let transition_duration = transition.duration_in_frames();
+                let transition_duration = transition.duration_secs();
                 segments.push(TimelineSegment::Transition {
-                    start_frame: cursor,
-                    duration_in_frames: transition_duration,
+                    start_secs: cursor_secs,
+                    duration_secs: transition_duration,
                     from: node.clone(),
                     to: next_node.clone(),
-                    from_duration_in_frames: *duration_in_frames,
-                    to_duration_in_frames: *next_duration_in_frames,
+                    from_duration_secs: *duration_secs,
+                    to_duration_secs: *next_duration_secs,
                     kind: transition.kind(),
                     easing: transition.easing,
                 });
-                cursor += transition_duration;
+                cursor_secs += transition_duration;
             }
         }
 
-        TimelineNode::new(segments, duration_in_frames)
+        TimelineNode::new(segments, duration_secs)
     }
 }
 
@@ -212,8 +210,8 @@ impl From<Timeline> for Node {
 }
 
 impl Transition {
-    pub(crate) fn duration_in_frames(&self) -> u32 {
-        self.duration_in_frames
+    pub(crate) fn duration_secs(&self) -> f64 {
+        self.duration_secs
     }
 
     fn kind(&self) -> TransitionKind {
@@ -251,21 +249,21 @@ impl SlideBuilder {
         self
     }
 
-    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
+    pub fn timing(self, easing: Easing, duration_secs: f64) -> Transition {
         Transition {
             presentation: Presentation::Slide(self.direction),
             easing,
-            duration_in_frames,
+            duration_secs: sanitize_duration_secs(duration_secs),
         }
     }
 }
 
 impl FadeBuilder {
-    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
+    pub fn timing(self, easing: Easing, duration_secs: f64) -> Transition {
         Transition {
             presentation: Presentation::Fade,
             easing,
-            duration_in_frames,
+            duration_secs: sanitize_duration_secs(duration_secs),
         }
     }
 }
@@ -308,31 +306,31 @@ impl WipeBuilder {
         self
     }
 
-    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
+    pub fn timing(self, easing: Easing, duration_secs: f64) -> Transition {
         Transition {
             presentation: Presentation::Wipe(self.direction),
             easing,
-            duration_in_frames,
+            duration_secs: sanitize_duration_secs(duration_secs),
         }
     }
 }
 
 impl ClockWipeBuilder {
-    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
+    pub fn timing(self, easing: Easing, duration_secs: f64) -> Transition {
         Transition {
             presentation: Presentation::ClockWipe,
             easing,
-            duration_in_frames,
+            duration_secs: sanitize_duration_secs(duration_secs),
         }
     }
 }
 
 impl IrisBuilder {
-    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
+    pub fn timing(self, easing: Easing, duration_secs: f64) -> Transition {
         Transition {
             presentation: Presentation::Iris,
             easing,
-            duration_in_frames,
+            duration_secs: sanitize_duration_secs(duration_secs),
         }
     }
 }
@@ -353,7 +351,7 @@ impl LightLeakBuilder {
         self
     }
 
-    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
+    pub fn timing(self, easing: Easing, duration_secs: f64) -> Transition {
         Transition {
             presentation: Presentation::LightLeak(LightLeakTransition {
                 seed: self.seed,
@@ -361,20 +359,20 @@ impl LightLeakBuilder {
                 mask_scale: self.mask_scale,
             }),
             easing,
-            duration_in_frames,
+            duration_secs: sanitize_duration_secs(duration_secs),
         }
     }
 }
 
 impl GlTransitionBuilder {
-    pub fn timing(self, easing: Easing, duration_in_frames: u32) -> Transition {
+    pub fn timing(self, easing: Easing, duration_secs: f64) -> Transition {
         Transition {
             presentation: Presentation::Gl(GlTransition {
                 name: self.name,
                 sksl: None,
             }),
             easing,
-            duration_in_frames,
+            duration_secs: sanitize_duration_secs(duration_secs),
         }
     }
 }
@@ -417,4 +415,12 @@ pub fn gl_transition(name: impl Into<String>) -> GlTransitionBuilder {
 
 pub fn timeline() -> Timeline {
     Timeline { items: Vec::new() }
+}
+
+fn sanitize_duration_secs(duration_secs: f64) -> f64 {
+    if duration_secs.is_finite() && duration_secs > 0.0 {
+        duration_secs
+    } else {
+        0.0
+    }
 }

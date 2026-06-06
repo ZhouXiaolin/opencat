@@ -15,7 +15,7 @@ OpenCat 提供两层独立的文字动画：
 | ID | 效果 | 技术方案 |
 |----|------|---------|
 | `soft-blur-in` | 模糊渐入，清晰度渐增 | `splitText('chars')` + `fromTo` 设置 `filter: blur()`→ 无 + `opacity: 0→1` |
-| `per-character-rise` | 字符从下方升起，透明度渐显 | `splitText('chars')` + `fromTo` 设置 `y`, `opacity`，stagger 2-3 帧 |
+| `per-character-rise` | 字符从下方升起，透明度渐显 | `splitText('chars')` + `fromTo` 设置 `y`, `opacity`，stagger 0.07-0.1s |
 | `typewriter` | 打字机逐字符显现 | `ctx.to(id, { text, duration, ease: 'linear' })` — 无 interpolate |
 | `bottom-up-letters` | 字符从底部逐一上升，有重叠 | `splitText('chars')` + `fromTo` `y` + `opacity`，stagger 负重叠 |
 | `top-down-letters` | 字符从顶部缓缓降入 | `splitText('chars')` + `fromTo` `y: -30→0`, stagger |
@@ -26,7 +26,7 @@ OpenCat 提供两层独立的文字动画：
 
 | ID | 效果 | 技术方案 |
 |----|------|---------|
-| `per-word-crossfade` | 淡入，无位移 | `splitText('words')` + `from` `opacity: 0`，stagger 4-6 帧 |
+| `per-word-crossfade` | 淡入，无位移 | `splitText('words')` + `from` `opacity: 0`，stagger 0.13-0.2s |
 | `spring-scale-in` | 弹簧缩放 + 淡入 | `splitText('words')` + `fromTo` `scale: 0.8→1`, `opacity: 0→1`，缓动 `spring.gentle` |
 | `shared-axis-y` | 沿 Y 轴逐个滑入 | `splitText('words')` + `from` `y: 24`, stagger |
 | `blur-out-up` | 模糊向上渐出（退场用） | `splitText('words')` + `to` `y`, `opacity`, `filter: blur()` |
@@ -40,7 +40,7 @@ OpenCat 提供两层独立的文字动画：
 | ID | 效果 | 技术方案 |
 |----|------|---------|
 | `mask-reveal-up` | 从下到上遮罩揭示 | `splitText('lines')` + `clip-path` 或 `fromTo` `y` |
-| `line-by-line-slide` | 逐行水平滑入 | `splitText('lines')` + `from` `x: 60`, stagger 6-8 帧 |
+| `line-by-line-slide` | 逐行水平滑入 | `splitText('lines')` + `from` `x: 60`, stagger 0.2-0.27s |
 
 ### 整体元素（7种）
 
@@ -74,8 +74,8 @@ OpenCat 提供两层独立的文字动画：
 ```js
 ctx.to('title', {
   text: 'Hello OpenCat',
-  duration: 30,
-  delay: 6,
+  duration: 1,
+  delay: 0.2,
   ease: 'linear',
 });
 ```
@@ -107,8 +107,8 @@ ctx.from(ctx.splitText('title', { type: 'chars' }), {
   opacity: 0,
   y: 38,
   scale: 0.86,
-  duration: 22,
-  stagger: 2,
+  duration: 0.73,
+  stagger: 0.07,
   ease: 'spring.wobbly',
 });
 ```
@@ -121,8 +121,8 @@ ctx.from(ctx.splitText('title', { type: 'chars' }), {
 ctx.from(ctx.splitText('headline', { type: 'words' }), {
   opacity: 0,
   y: 24,
-  duration: 18,
-  stagger: 4,
+  duration: 0.6,
+  stagger: 0.13,
   ease: 'spring.gentle',
 });
 ```
@@ -142,7 +142,7 @@ ctx.fromTo(ctx.splitText('headline', { type: 'chars' }), {
   rotate: function(i) { return i % 2 === 0 ? -14 : 14; },
 }, {
   opacity: 1, x: 0, y: 0, scale: 1, rotate: 0,
-  duration: 48, stagger: 2, ease: 'spring.gentle',
+  duration: 1.6, stagger: 0.07, ease: 'spring.gentle',
 });
 ```
 
@@ -159,7 +159,7 @@ ctx.fromTo(ctx.splitText('rainbow', { type: 'chars' }), {
   opacity: 0, y: 30,
 }, {
   opacity: 1, y: 0,
-  duration: 20, stagger: 2, ease: 'spring.gentle',
+  duration: 0.67, stagger: 0.07, ease: 'spring.gentle',
   onStart: function(i) {
     ctx.getNode('rainbow').textColor(colors[i % colors.length]);
   },
@@ -172,13 +172,13 @@ ctx.fromTo(ctx.splitText('rainbow', { type: 'chars' }), {
 
 ```js
 // 先打字显示
-ctx.to('quote', { text: 'Less is more', duration: 36, ease: 'linear' });
+ctx.to('quote', { text: 'Less is more', duration: 1.2, ease: 'linear' });
 // 然后逐词高亮
 ctx.fromTo(ctx.splitText('quote', { type: 'words' }), {
   color: '#ffffff',
 }, {
   color: '#fbbf24',
-  duration: 8, stagger: 12, delay: 36, ease: 'ease-out',
+  duration: 0.27, stagger: 0.4, delay: 1.2, ease: 'ease-out',
 });
 ```
 
@@ -197,7 +197,7 @@ ctx.fromTo('title', {
   strokeColor: '#00C3FF',
 }, {
   strokeColor: '#8b5cf6',
-  duration: 60, repeat: -1, yoyo: true, ease: 'sine.inOut',
+  duration: 2, repeat: -1, yoyo: true, ease: 'sine.inOut',
 });
 ```
 
@@ -218,7 +218,7 @@ words.forEach(function(word, i) {
     }, {
       color: '#fbbf24',
       scale: 1.1,
-      duration: 6,
+      duration: 0.2,
       ease: 'ease-out',
     });
   }
@@ -229,9 +229,14 @@ words.forEach(function(word, i) {
 
 ## 半透明流光效果
 
-```jsonl
-{"id":"glow-overlay","parentId":"title-wrap","type":"div","className":"absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full"}
-{"type":"script","parentId":"scene1","src":"var tl = ctx.timeline();\ntl.to('glow-overlay', { x: '200%', duration: 30, ease: 'ease-in-out', repeat: -1, repeatDelay: 20 }, 0);"}
+```xml
+<div id="title-wrap" class="relative overflow-hidden">
+  <div id="glow-overlay" class="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full" />
+</div>
+<script>
+var tl = ctx.timeline();
+tl.to('glow-overlay', { x: '200%', duration: 1, ease: 'ease-in-out', repeat: -1, repeatDelay: 0.67 }, 0);
+</script>
 ```
 
 或者使用 CanvasKit：
@@ -247,13 +252,13 @@ paint.setStyle(CK.PaintStyle.Fill);
 paint.setColor(CK.WHITE);
 canvas.drawText('Hello OpenCat', 100, 200, paint, font);
 
-// 绘制流光效果（循环动画使用 ctx.frame）
+// 绘制流光效果（循环动画使用 ctx.time）
 var glowPaint = new CK.Paint();
 glowPaint.setStyle(CK.PaintStyle.Fill);
 glowPaint.setAlphaf(0.3);
 glowPaint.setColor(CK.WHITE);
 
-var progress = (ctx.frame % 60) / 60;
+var progress = (ctx.time % 2) / 2;
 var x = progress * 400 - 100;
 canvas.drawRect(CK.XYWHRect(x, 150, 100, 100), glowPaint);
 ```
@@ -266,46 +271,71 @@ canvas.drawRect(CK.XYWHRect(x, 150, 100, 100), glowPaint);
 
 黄色半透明条从左到右扫过文字：
 
-```jsonl
-{"id":"hl-bar","parentId":"hl-wrap","type":"div","className":"absolute inset-0 -left-[6px] -right-[6px] bg-yellow-400 opacity-35 scale-x-0 origin-left rounded-[3px] z-0"}
-{"type":"script","parentId":"root","src":"var tl = ctx.timeline();\ntl.to('hl-bar', { scaleX: 1, duration: 15, ease: 'ease-out' }, 18);"}
+```xml
+<div id="hl-wrap" class="relative">
+  <div id="hl-bar" class="absolute inset-0 -left-[6px] -right-[6px] bg-yellow-400 opacity-35 scale-x-0 origin-left rounded-[3px] z-0" />
+</div>
+<script>
+var tl = ctx.timeline();
+tl.to('hl-bar', { scaleX: 1, duration: 0.5, ease: 'ease-out' }, 0.6);
+</script>
 ```
 
 ### 2. 圆圈模式 (circle)
 
 红色圆环从中心放大包住文字：
 
-```jsonl
-{"id":"circle-ring","parentId":"circle-wrap","type":"div","className":"absolute top-1/2 left-1/2 w-[130%] h-[160%] border-2 border-red-500 rounded-full pointer-events-none z-0"}
-{"type":"script","parentId":"root","src":"var tl = ctx.timeline();\ntl.fromTo('circle-ring', { scale: 0, rotation: -3 }, { scale: 1, rotation: -3, duration: 18, ease: 'back-out' }, 21);"}
+```xml
+<div id="circle-wrap" class="relative">
+  <div id="circle-ring" class="absolute top-1/2 left-1/2 w-[130%] h-[160%] border-2 border-red-500 rounded-full pointer-events-none z-0" />
+</div>
+<script>
+var tl = ctx.timeline();
+tl.fromTo('circle-ring', { scale: 0, rotation: -3 }, { scale: 1, rotation: -3, duration: 0.6, ease: 'back-out' }, 0.7);
+</script>
 ```
 
 ### 3. 爆发模式 (burst)
 
 从文字中心向外辐射颜色线：
 
-```jsonl
-{"id":"line-0","parentId":"burst-container","type":"div","className":"absolute block w-[3px] h-[70px] bg-blue-500 -left-[1.5px]"}
-{"type":"script","parentId":"root","src":"var lines = ['line-0','line-1','line-2','line-3','line-4','line-5','line-6','line-7','line-8','line-9','line-10','line-11'];\nvar tl = ctx.timeline();\ntl.fromTo(lines, { scaleY: 0, opacity: 0 }, { scaleY: 1, opacity: 1, duration: 12, ease: 'ease-out', stagger: 1 }, 21);"}
+```xml
+<div id="burst-container" class="relative">
+  <div id="line-0" class="absolute block w-[3px] h-[70px] bg-blue-500 -left-[1.5px]" />
+</div>
+<script>
+var lines = ['line-0','line-1','line-2','line-3','line-4','line-5','line-6','line-7','line-8','line-9','line-10','line-11'];
+var tl = ctx.timeline();
+tl.fromTo(lines, { scaleY: 0, opacity: 0 }, { scaleY: 1, opacity: 1, duration: 0.4, ease: 'ease-out', stagger: 0.03 }, 0.7);
+</script>
 ```
 
 ### 4. 涂鸦模式 (scribble)
 
 SVG 波浪路径自绘效果：
 
-```jsonl
-{"id":"scribble-path","parentId":"scribble-svg","type":"path","className":"fill-none stroke-[#FDD835] stroke-[3px]","d":"M0,12 Q31,0 62,12 Q93,24 125,12 Q156,0 187,12 Q218,24 250,12 Q281,0 312,12 Q343,24 375,12 Q406,0 437,12 Q468,24 500,12"}
-{"type":"script","parentId":"root","src":"var tl = ctx.timeline();\ntl.fromTo('scribble-path', { strokeDashoffset: 500 }, { strokeDashoffset: 0, duration: 24, ease: 'ease-in-out' }, 21);"}
+```xml
+<path id="scribble-path" class="fill-none stroke-[#FDD835] stroke-[3px]" d="M0,12 Q31,0 62,12 Q93,24 125,12 Q156,0 187,12 Q218,24 250,12 Q281,0 312,12 Q343,24 375,12 Q406,0 437,12 Q468,24 500,12" />
+<script>
+var tl = ctx.timeline();
+tl.fromTo('scribble-path', { strokeDashoffset: 500 }, { strokeDashoffset: 0, duration: 0.8, ease: 'ease-in-out' }, 0.7);
+</script>
 ```
 
 ### 5. 划掉模式 (sketchout)
 
 两条交叉红线：
 
-```jsonl
-{"id":"line-fwd","parentId":"sketchout-lines","type":"div","className":"absolute block top-1/2 left-0 w-full h-[2px] bg-red-500 origin-left"}
-{"id":"line-bwd","parentId":"sketchout-lines","type":"div","className":"absolute block top-1/2 left-0 w-full h-[2px] bg-red-500 origin-left"}
-{"type":"script","parentId":"root","src":"var tl = ctx.timeline();\ntl.fromTo('line-fwd', { scaleX: 0, rotate: -12 }, { scaleX: 1, rotate: -12, duration: 9, ease: 'ease-out' }, 30);\ntl.fromTo('line-bwd', { scaleX: 0, rotate: 12 }, { scaleX: 1, rotate: 12, duration: 9, ease: 'ease-out' }, 35);"}
+```xml
+<div id="sketchout-lines" class="relative">
+  <div id="line-fwd" class="absolute block top-1/2 left-0 w-full h-[2px] bg-red-500 origin-left" />
+  <div id="line-bwd" class="absolute block top-1/2 left-0 w-full h-[2px] bg-red-500 origin-left" />
+</div>
+<script>
+var tl = ctx.timeline();
+tl.fromTo('line-fwd', { scaleX: 0, rotate: -12 }, { scaleX: 1, rotate: -12, duration: 0.3, ease: 'ease-out' }, 1);
+tl.fromTo('line-bwd', { scaleX: 0, rotate: 12 }, { scaleX: 1, rotate: 12, duration: 0.3, ease: 'ease-out' }, 1.17);
+</script>
 ```
 
 ---
@@ -316,8 +346,8 @@ SVG 波浪路径自绘效果：
 var words = ctx.splitText('lyrics', { type: 'words' });
 var tl = ctx.timeline();
 words.forEach(function(w, i) {
-  tl.to(w, { color: '#00C3FF', scale: 1.15, duration: 3, ease: 'ease-out' }, i * 6);
-  tl.to(w, { color: '#ffffff', scale: 1, duration: 3, ease: 'ease-in-out' }, i * 6 + 3);
+  tl.to(w, { color: '#00C3FF', scale: 1.15, duration: 0.1, ease: 'ease-out' }, i * 0.2);
+  tl.to(w, { color: '#ffffff', scale: 1, duration: 0.1, ease: 'ease-in-out' }, i * 0.2 + 0.1);
 });
 ```
 

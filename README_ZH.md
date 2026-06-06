@@ -26,7 +26,7 @@ XML 定义场景、动画与布局，Skia GPU 加速渲染，FFmpeg 编码输出
 写一个视频，就是写一个 XML 文件：
 
 ```xml
-<opencat width="1920" height="1080" fps="30" frames="90">
+<opencat width="1920" height="1080" fps="30" duration="3">
   <div id="root" class="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
     <div id="pink-glow" class="absolute inset-0 opacity-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_50%,rgba(234,76,137,0.05)_0%,transparent_70%)]" />
     <div id="logo-container" class="absolute inset-0 flex items-center justify-center">
@@ -36,8 +36,8 @@ XML 定义场景、动画与布局，Skia GPU 加速渲染，FFmpeg 编码输出
   </div>
   <script>
     var tl = ctx.timeline();
-    tl.to('logo-path', { strokeDashoffset: 0, duration: 60, ease: 'power2.inOut' }, 0);
-    tl.to('logo-path', { fillColor: '#0D0C22', strokeColor: '#0D0C22', duration: 9, ease: 'power2.out' }, 60);
+    tl.to('logo-path', { strokeDashoffset: 0, duration: 2, ease: 'power2.inOut' }, 0);
+    tl.to('logo-path', { fillColor: '#0D0C22', strokeColor: '#0D0C22', duration: 0.3, ease: 'power2.out' }, 2);
     // particles on canvas, scene exit blur...
   </script>
 </opencat>
@@ -69,22 +69,22 @@ Remotion 复用了 Web 生态，但 Chrome snapshot 的先天缺陷无法绕过 
 ### 声明式动画，GSAP 级表达
 
 ```js
-ctx.fromTo('title', {opacity: 0, y: 30}, {opacity: 1, y: 0, duration: 20, ease: 'spring.gentle'});
-ctx.to('rocket', {path: 'M100 360 C400 80 880 640 1180 360', duration: 120, ease: 'ease-in-out'});
-ctx.from(ctx.splitText('title', {type: 'chars'}), {opacity: 0, y: 20, stagger: 2, ease: 'spring.wobbly'});
+ctx.fromTo('title', {opacity: 0, y: 30}, {opacity: 1, y: 0, duration: 0.67, ease: 'spring.gentle'});
+ctx.to('rocket', {path: 'M100 360 C400 80 880 640 1180 360', duration: 4, ease: 'ease-in-out'});
+ctx.from(ctx.splitText('title', {type: 'chars'}), {opacity: 0, y: 20, stagger: 0.07, ease: 'spring.wobbly'});
 
-ctx.timeline({defaults: {duration: 18, ease: 'spring.gentle'}})
+ctx.timeline({defaults: {duration: 0.6, ease: 'spring.gentle'}})
   .from('title', {opacity: 0, y: 30})
-  .from('subtitle', {opacity: 0, y: 18}, '-=8');
+  .from('subtitle', {opacity: 0, y: 18}, '-=0.27');
 ```
 
 ### 多场景 + 转场
 
 ```xml
 <tl id="main-tl">
-  <div id="scene1" duration="120">...</div>
-  <transition from="scene1" to="scene2" effect="fade" duration="18" />
-  <div id="scene2" duration="120">...</div>
+  <div id="scene1" duration="4">...</div>
+  <transition from="scene1" to="scene2" effect="fade" duration="0.6" />
+  <div id="scene2" duration="4">...</div>
 </tl>
 ```
 
@@ -154,7 +154,7 @@ if (effect) {
 - **音频混音**：多轨道，场景级挂载，自动混音输出
 - **字幕引擎**：SRT 解析，跨场景持久化显示
 - **Lucide 图标库**：2000+ 开箱即用
-- **确定性渲染**：`value = f(frame)`，跨机器一致
+- **确定性渲染**：`value = f(time)`，跨机器一致
 
 ## Quick start
 

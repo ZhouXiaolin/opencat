@@ -28,7 +28,7 @@
 <script>
   // 从 0 计数到 1.9 万
   var targetNumber = 19000;
-  ctx.to('stat', { number: targetNumber, duration: 45, ease: 'ease-out', format: { style: 'currency', currency: 'USD', maximumFractionDigits: 0 } }, 0);
+  ctx.to('stat', { number: targetNumber, duration: 1.5, ease: 'ease-out', format: { style: 'currency', currency: 'USD', maximumFractionDigits: 0 } }, 0);
 </script>
 ```
 
@@ -46,8 +46,8 @@
 </div>
 <script>
   // 初始值 0% 由 class 或 fromTo 提供
-  ctx.fromTo('bar-fill', { width: '0%' }, { width: '87%', duration: 36, ease: 'ease-out' }, 6);
-  ctx.to('bar-fill', { width: '87%', duration: 36, ease: 'ease-out' }, 6);
+  ctx.fromTo('bar-fill', { width: '0%' }, { width: '87%', duration: 1.2, ease: 'ease-out' }, 0.2);
+  ctx.to('bar-fill', { width: '87%', duration: 1.2, ease: 'ease-out' }, 0.2);
 </script>
 ```
 

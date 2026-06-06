@@ -1,6 +1,6 @@
 use crate::{
-    frame_ctx::{FrameCtx, frames_to_duration_secs},
     frame_ctx::ScriptFrameCtx,
+    frame_ctx::{FrameCtx, duration_secs_to_frames, frames_to_duration_secs},
     parse::{
         easing::Easing,
         node::{Node, NodeKind},
@@ -13,15 +13,15 @@ use crate::{
 #[derive(Clone)]
 pub struct TimelineNode {
     segments: Vec<TimelineSegment>,
-    duration_in_frames: u32,
+    duration_secs: f64,
     pub style: NodeStyle,
 }
 
 impl TimelineNode {
-    pub fn new(segments: Vec<TimelineSegment>, duration_in_frames: u32) -> Self {
+    pub fn new(segments: Vec<TimelineSegment>, duration_secs: f64) -> Self {
         Self {
             segments,
-            duration_in_frames,
+            duration_secs,
             style: NodeStyle::default(),
         }
     }
@@ -30,8 +30,15 @@ impl TimelineNode {
         &self.segments
     }
 
-    pub fn duration_in_frames(&self) -> u32 {
-        self.duration_in_frames
+    pub fn duration_secs(&self) -> f64 {
+        self.duration_secs
+    }
+
+    pub fn duration_in_frames(&self, ctx: &FrameCtx) -> u32 {
+        self.segments
+            .iter()
+            .map(|segment| duration_secs_to_frames(segment.duration_secs(), ctx.fps))
+            .sum()
     }
 
     pub fn style_ref(&self) -> &NodeStyle {
@@ -42,20 +49,36 @@ impl TimelineNode {
 #[derive(Clone)]
 pub enum TimelineSegment {
     Scene {
-        start_frame: u32,
-        duration_in_frames: u32,
+        start_secs: f64,
+        duration_secs: f64,
         scene: Node,
     },
     Transition {
-        start_frame: u32,
-        duration_in_frames: u32,
+        start_secs: f64,
+        duration_secs: f64,
         from: Node,
         to: Node,
-        from_duration_in_frames: u32,
-        to_duration_in_frames: u32,
+        from_duration_secs: f64,
+        to_duration_secs: f64,
         kind: TransitionKind,
         easing: Easing,
     },
+}
+
+impl TimelineSegment {
+    pub fn start_secs(&self) -> f64 {
+        match self {
+            TimelineSegment::Scene { start_secs, .. }
+            | TimelineSegment::Transition { start_secs, .. } => *start_secs,
+        }
+    }
+
+    pub fn duration_secs(&self) -> f64 {
+        match self {
+            TimelineSegment::Scene { duration_secs, .. }
+            | TimelineSegment::Transition { duration_secs, .. } => *duration_secs,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -96,57 +119,58 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
         };
     }
 
-    let frame = if timeline.duration_in_frames() == 0 {
+    let duration_in_frames = timeline.duration_in_frames(ctx);
+    let frame = if duration_in_frames == 0 {
         0
     } else {
-        ctx.frame.min(timeline.duration_in_frames() - 1)
+        ctx.frame.min(duration_in_frames - 1)
     };
 
+    let mut cursor_frame: u32 = 0;
     for segment in timeline.segments() {
+        let segment_frames = duration_secs_to_frames(segment.duration_secs(), ctx.fps);
         match segment {
             TimelineSegment::Scene {
-                start_frame,
-                duration_in_frames,
+                duration_secs: _,
                 scene,
+                ..
             } => {
-                if frame < start_frame.saturating_add(*duration_in_frames) {
+                if frame < cursor_frame.saturating_add(segment_frames) {
                     return FrameState::Scene {
                         scene: scene.clone(),
                         script_frame_ctx: ScriptFrameCtx::for_segment(
                             ctx,
-                            *start_frame,
-                            *duration_in_frames,
+                            cursor_frame,
+                            segment_frames,
                         ),
                     };
                 }
             }
             TimelineSegment::Transition {
-                start_frame,
-                duration_in_frames,
                 from,
                 to,
-                from_duration_in_frames,
-                to_duration_in_frames,
+                from_duration_secs,
+                to_duration_secs,
                 kind,
                 easing,
+                ..
             } => {
-                if frame < start_frame.saturating_add(*duration_in_frames) {
+                if frame < cursor_frame.saturating_add(segment_frames) {
+                    let from_duration_frames =
+                        duration_secs_to_frames(*from_duration_secs, ctx.fps);
+                    let to_duration_frames = duration_secs_to_frames(*to_duration_secs, ctx.fps);
                     return FrameState::Transition {
                         from: from.clone(),
                         to: to.clone(),
                         from_script_frame_ctx: frozen_script_frame_ctx(
                             ctx,
-                            from_duration_in_frames.saturating_sub(1),
-                            *from_duration_in_frames,
+                            from_duration_frames.saturating_sub(1),
+                            from_duration_frames,
                         ),
-                        to_script_frame_ctx: frozen_script_frame_ctx(
-                            ctx,
-                            0,
-                            *to_duration_in_frames,
-                        ),
+                        to_script_frame_ctx: frozen_script_frame_ctx(ctx, 0, to_duration_frames),
                         progress: transition_progress(
-                            frame.saturating_sub(*start_frame),
-                            *duration_in_frames,
+                            frame.saturating_sub(cursor_frame),
+                            segment_frames,
                             easing,
                         ),
                         kind: kind.clone(),
@@ -154,6 +178,7 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
                 }
             }
         }
+        cursor_frame = cursor_frame.saturating_add(segment_frames);
     }
 
     match timeline.segments().last() {
@@ -163,11 +188,15 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
         },
         Some(TimelineSegment::Transition {
             to,
-            to_duration_in_frames,
+            to_duration_secs,
             ..
         }) => FrameState::Scene {
             scene: to.clone(),
-            script_frame_ctx: frozen_script_frame_ctx(ctx, 0, *to_duration_in_frames),
+            script_frame_ctx: frozen_script_frame_ctx(
+                ctx,
+                0,
+                duration_secs_to_frames(*to_duration_secs, ctx.fps),
+            ),
         },
         None => FrameState::Scene {
             scene: div().id("__empty_timeline_scene").into(),
@@ -222,9 +251,9 @@ mod tests {
     #[test]
     fn frame_state_uses_scene_local_progress_inside_timeline() {
         let root = timeline()
-            .sequence(10, div().id("scene-a").into())
-            .transition(slide().timing(Easing::Linear, 5))
-            .sequence(20, div().id("scene-b").into())
+            .sequence(10.0 / 30.0, div().id("scene-a").into())
+            .transition(slide().timing(Easing::Linear, 5.0 / 30.0))
+            .sequence(20.0 / 30.0, div().id("scene-b").into())
             .into();
         let frame_ctx = FrameCtx {
             frame: 18,
@@ -250,9 +279,9 @@ mod tests {
     #[test]
     fn frame_state_freezes_scene_script_clocks_during_transition() {
         let root = timeline()
-            .sequence(10, div().id("scene-a").into())
-            .transition(slide().timing(Easing::Linear, 6))
-            .sequence(20, div().id("scene-b").into())
+            .sequence(10.0 / 30.0, div().id("scene-a").into())
+            .transition(slide().timing(Easing::Linear, 6.0 / 30.0))
+            .sequence(20.0 / 30.0, div().id("scene-b").into())
             .into();
         let frame_ctx = FrameCtx {
             frame: 13,
@@ -287,9 +316,9 @@ mod tests {
             .id("root")
             .child(
                 timeline()
-                    .sequence(10, div().id("scene-a").into())
-                    .transition(slide().timing(Easing::Linear, 5))
-                    .sequence(10, div().id("scene-b").into()),
+                    .sequence(10.0 / 30.0, div().id("scene-a").into())
+                    .transition(slide().timing(Easing::Linear, 5.0 / 30.0))
+                    .sequence(10.0 / 30.0, div().id("scene-b").into()),
             )
             .child(caption().id("subs").path("sub.srt").entries(vec![]));
 
@@ -315,9 +344,9 @@ mod tests {
     fn frame_state_keeps_single_timeline_child_root_as_scene() {
         let root = div().id("root").child(
             timeline()
-                .sequence(10, div().id("scene-a").into())
-                .transition(slide().timing(Easing::Linear, 5))
-                .sequence(10, div().id("scene-b").into()),
+                .sequence(10.0 / 30.0, div().id("scene-a").into())
+                .transition(slide().timing(Easing::Linear, 5.0 / 30.0))
+                .sequence(10.0 / 30.0, div().id("scene-b").into()),
         );
 
         let frame_ctx = FrameCtx {

@@ -34,7 +34,7 @@
     d="M 50 100 L 200 50 L 350 100" />
 </div>
 <script>
-  ctx.fromTo('draw-path', { strokeDashoffset: 280 }, { strokeDashoffset: 0, duration: 21, ease: 'ease-out' }, 15);
+  ctx.fromTo('draw-path', { strokeDashoffset: 280 }, { strokeDashoffset: 0, duration: 0.7, ease: 'ease-out' }, 0.5);
 </script>
 ```
 
@@ -44,7 +44,7 @@
 
 ## 2. Canvas 程序化生成
 
-逐帧演变的动画噪点、粒子场、数据可视化。用 `<canvas>` + CanvasKit + `ctx.frame` 驱动。
+按输出采样点重绘的动画噪点、粒子场、数据可视化。用 `<canvas>` + CanvasKit 绘制，用 `ctx.time` / `ctx.currentTime` 驱动时间。
 
 ```xml
 <canvas id="proc-canvas" class="w-full h-full" />
@@ -64,14 +64,14 @@
   for (var i = 0; i < 200; i++) {
     var x = hash(i, 0) * 1920;
     var y = hash(i, 1) * 1080;
-    var brightness = hash(i, Math.floor(ctx.frame * 0.1)) * 255;
+    var brightness = hash(i, Math.floor(ctx.time * 3)) * 255;
     paint.setColor(CK.Color4f(1, 1, 1, brightness / 255));
     canvas.drawCircle(x, y, 2, paint);
   }
 </script>
 ```
 
-`hash()` 函数是确定性的 — 同一帧每次渲染相同。
+`hash()` 函数是确定性的 — 同一时间点每次渲染相同。
 
 ---
 
@@ -86,7 +86,7 @@
   </div>
 </div>
 <script>
-  ctx.fromTo('card-3d', { rotateY: 0, rotateX: 0 }, { rotateY: 360, rotateX: 15, duration: 36, ease: 'ease-in-out' }, 0);
+  ctx.fromTo('card-3d', { rotateY: 0, rotateX: 0 }, { rotateY: 360, rotateX: 15, duration: 1.2, ease: 'ease-in-out' }, 0);
 </script>
 ```
 
@@ -102,11 +102,11 @@
 </div>
 <script>
   var words = ctx.splitText('headline', { type: 'words' });
-  var timings = [0, 7, 9, 19, 24];
+  var timings = [0, 0.23, 0.3, 0.63, 0.8];
   var slides = [80, 60, 50, 25, 12];
 
   words.forEach(function (w, i) {
-    ctx.from(w, { x: slides[i], y: 14, opacity: 0, duration: 11, ease: 'ease-out', delay: timings[i] });
+    ctx.from(w, { x: slides[i], y: 14, opacity: 0, duration: 0.37, ease: 'ease-out', delay: timings[i] });
   });
 </script>
 ```
@@ -141,7 +141,7 @@
   </div>
 </div>
 <script>
-  ctx.from('overlay', { opacity: 0, y: 20, duration: 12, ease: 'ease-out' }, 6);
+  ctx.from('overlay', { opacity: 0, y: 20, duration: 0.4, ease: 'ease-out' }, 0.2);
 </script>
 ```
 
@@ -161,8 +161,8 @@
 </div>
 <script>
   // 打字效果
-  ctx.to('typed', { text: 'npx opencat render', duration: 30, ease: 'linear' });
-  // 光标闪烁（循环使用 ctx.frame）
+  ctx.to('typed', { text: 'npx opencat render', duration: 1, ease: 'linear' });
+  // 光标闪烁（循环使用 ctx.time）
   // 光标用 CSS 或 canvas 绘制；此处示意
 </script>
 ```
@@ -181,7 +181,7 @@
   </text>
 </div>
 <script>
-  ctx.fromTo('wordmark', { fontVariation: { opsz: 144, wght: 440 } }, { fontVariation: { opsz: 72, wght: 300 }, duration: 14, ease: 'ease-out' }, 0);
+  ctx.fromTo('wordmark', { fontVariation: { opsz: 144, wght: 440 } }, { fontVariation: { opsz: 72, wght: 300 }, duration: 0.47, ease: 'ease-out' }, 0);
 </script>
 ```
 
@@ -199,7 +199,7 @@
 </svg>
 <div id="dot" class="w-[20px] h-[20px] bg-teal-500 rounded-full absolute" />
 <script>
-  ctx.to('dot', { path: 'M 12 300 C 280 280 520 80 820 50 S 1200 48 1308 38', orient: 0, duration: 45, ease: 'ease-out' }, 0);
+  ctx.to('dot', { path: 'M 12 300 C 280 280 520 80 820 50 S 1200 48 1308 38', orient: 0, duration: 1.5, ease: 'ease-out' }, 0);
 </script>
 ```
 
@@ -210,14 +210,15 @@
 离场和入场使用方向一致的速度感。离场用 `ease-in`（加速），入场用 `ease-out`（减速），两条曲线在切点速度匹配。
 
 ```js
-// 场景 A 离场（在结束前 10 帧开始）
-ctx.to('.content', { opacity: 0, y: -150, duration: 10, ease: 'ease-in' }, sceneAFrames - 10);
+// 场景 A 离场（在结束前 0.33 秒开始）
+var exitStart = Math.max(ctx.sceneDuration - 0.33, 0);
+ctx.to('.content', { opacity: 0, y: -150, duration: 0.33, ease: 'ease-in' }, exitStart);
 
 // 场景 B 入场（从相同方向的相反侧进入）
   // 初始值来自节点 class 或上一场景的残留值
   // 如果担心残值，用 fromTo 指定两端
-  // ctx.fromTo('.content', { opacity: 0, y: 150 }, { opacity: 1, y: 0, duration: 18 });
-ctx.to('.content', { opacity: 1, y: 0, duration: 18, ease: 'ease-out' }, 0);
+  // ctx.fromTo('.content', { opacity: 0, y: 150 }, { opacity: 1, y: 0, duration: 0.6 });
+ctx.to('.content', { opacity: 1, y: 0, duration: 0.6, ease: 'ease-out' }, 0);
 ```
 
 两条曲线的最快点在转场处相遇 — 观众感知到连续相机运动。
@@ -231,9 +232,11 @@ ctx.to('.content', { opacity: 1, y: 0, duration: 18, ease: 'ease-out' }, 0);
 > 完整 API 和反模式见 [audio-reactive.md](audio-reactive.md)。
 
 ```js
-// 音频数据预提取后，用 ctx.frame 采样
-var bass = audioData.frames[ctx.frame].bands[0]; // 0-1
-  ctx.getNode('logo').scale(1 + bass * 0.04);
+// 音频数据预提取后，用 ctx.time 换算到音频分析数组
+var index = Math.floor(ctx.time * audioData.fps);
+var sample = audioData.samples[index];
+var bass = sample ? sample.bands[0] : 0; // 0-1
+ctx.getNode('logo').scale(1 + bass * 0.04);
 ```
 
 ---
@@ -251,8 +254,8 @@ var bass = audioData.frames[ctx.frame].bands[0]; // 0-1
 <script>
   // 初始 x 和 opacity 来自节点 class 或 fromTo
   // 使用 fromTo 更确定：
-  // ctx.fromTo('slide-content', { x: 400, opacity: 0 }, { x: 0, opacity: 1, duration: 30 });
-  ctx.to('slide-content', { x: 0, opacity: 1, duration: 30, ease: 'ease-out' }, 0);
+  // ctx.fromTo('slide-content', { x: 400, opacity: 0 }, { x: 0, opacity: 1, duration: 1 });
+  ctx.to('slide-content', { x: 0, opacity: 1, duration: 1, ease: 'ease-out' }, 0);
 </script>
 ```
 
@@ -265,7 +268,7 @@ var bass = audioData.frames[ctx.frame].bands[0]; // 0-1
 GPU 生成式背景 — 域扭曲 FBM 噪点、余弦调色板。OpenCat 通过 `gl_transition` 机制和 `<transition effect="着色器名">` 支持。
 
 ```xml
-<transition from="scene1" to="scene2" effect="Dreamy" duration="15" />
+<transition from="scene1" to="scene2" effect="Dreamy" duration="0.5" />
 ```
 
 预装着色器列表见 [transitions.md](transitions.md) 的 GL 转场章节。自定义着色器放在 `gltransition.json` 中。

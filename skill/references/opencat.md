@@ -1,6 +1,6 @@
 # OpenCat XML 格式参考
 
-OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建场景树，使用 Skia + Taffy + QuickJS 渲染帧。
+OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建场景树，使用 Skia + Taffy + QuickJS 生成视频画面。
 
 ---
 
@@ -13,7 +13,7 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 - **单一可视根**：`<opencat>` 下有且仅有一个可视根节点（`div` / `text` / `canvas` / `image` / `video` / `icon` / `path` / `caption` / `tl`）
 - **未知属性 = 错误**：所有元素都不允许未知属性，形如 `unknown attribute <name> on <tag>`
 - **三个禁用属性**：`className` / `parentId` / `style` 在任何位置都禁止使用
-- **数字属性严格**：`width` / `height` / `fps` / `frames` / `duration` / `data-start` / `data-duration` / `data-media-start` / `queryCount` 都必须是 ASCII 正整数（无前导零、无空白、无 `+`、无全角数字）；f32/f64 额外要求 `finite`
+- **数字属性严格**：`width` / `height` / `fps` / `queryCount` 是 ASCII 正整数；`duration` / `data-start` / `data-duration` / `data-media-start` 是秒数，必须是 finite 且按字段要求大于 0 或不小于 0；所有数字都不能有空白、`+` 或全角数字
 - **id 全局唯一**：可视节点和 `<audio>` 的 id 都不能重复
 - **非空白文本节点**：只能在 `<text>` 内部出现，其他位置的非空白文本会报错
 
@@ -56,7 +56,7 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 - 必填：`from` + `to` + `effect` + `duration`
 - **`from` / `to` 必须引用该 `<tl>` 的直接子场景**，且**必须相邻**（`to_idx == from_idx + 1`），不满足会报错
 - **`from != to`**
-- **`duration` 必须为正整数、无前导零**（错误信息：`must be a positive integer` / `must not have leading zeros`）
+- **`duration` 是秒数且必须大于 0**
 - 每对相邻场景必须恰好有一个 `<transition>`，缺失或重复都会报错
 - 可选属性：
 
@@ -96,10 +96,10 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 ## 基本结构
 
 ```xml
-<opencat width="1280" height="720" fps="30" frames="90">
+<opencat width="1280" height="720" fps="30" duration="3">
   <script>
     // 动画脚本（可选，最多一个）
-    ctx.fromTo('title', {opacity: 0}, {opacity: 1, duration: 30});
+    ctx.fromTo('title', {opacity: 0}, {opacity: 1, duration: 1});
   </script>
   <div id="root" class="flex items-center justify-center w-full h-full bg-white">
     <text id="title" class="text-[48px] font-bold">Hello</text>
@@ -115,8 +115,8 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 |------|------|--------|------|
 | `width` | 正整数 | 1920 | 画布宽度（像素） |
 | `height` | 正整数 | 1080 | 画布高度（像素） |
-| `fps` | 正整数 | 30 | 每秒帧数 |
-| `frames` | 正整数 | 90 | 总帧数（与 `<tl>` 推导的总帧数对齐是约定，不是硬约束） |
+| `fps` | 正整数 | 30 | 输出采样率（每秒图像数） |
+| `duration` | 正数，单位秒 | 3 | 总时长（与 `<tl>` 推导的总秒数对齐是约定，不是硬约束） |
 
 `<script>` 的所有强制规则（单实例 / 直接子 / 无属性 / 非自闭合）见上方的「解析器硬规则」。
 
@@ -194,7 +194,7 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 | `id` | 节点标识 |
 | `path`/`url` | 音频源（二选一，不能并存） |
 | `attach` | 引用的元素 id：**`<tl>` id**（整条时间线附加）**或** `<tl>` 内的**场景 id**（场景附加）；引用不存在的 id 会直接 bail |
-| `duration` | 可选，正整数，持续帧数 |
+| `duration` | 可选，单位秒，音频持续时长 |
 
 ---
 
@@ -229,16 +229,16 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 ## Timeline（多场景 + 转场）
 
 ```xml
-<opencat width="1280" height="720" fps="30" frames="360">
+<opencat width="1280" height="720" fps="30" duration="8.6">
   <div id="root" class="relative w-[1280px] h-[720px]">
     <tl id="main-tl" class="absolute inset-0">
-      <div id="scene1" class="w-full h-full bg-white" duration="120">
+      <div id="scene1" class="w-full h-full bg-white" duration="4">
         <text id="title" class="text-[48px] font-bold">Scene 1</text>
       </div>
 
-      <transition from="scene1" to="scene2" effect="fade" duration="18" timing="ease-in-out" />
+      <transition from="scene1" to="scene2" effect="fade" duration="0.6" timing="ease-in-out" />
 
-      <div id="scene2" class="w-full h-full bg-slate-900" duration="222">
+      <div id="scene2" class="w-full h-full bg-slate-900" duration="4">
         <text id="title2" class="text-[48px] font-bold text-white">Scene 2</text>
       </div>
     </tl>
@@ -249,16 +249,16 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 **Timeline 规则：**
 - `<tl>` 必须至少有两个直接子场景
 - 每对相邻场景必须有匹配的 `<transition>`
-- `<tl>` 没有 `duration` 属性，总长推导：`sum(scene.duration) + sum(transition.duration)`
+- `<tl>` 没有 `duration` 属性，总长推导：`sum(scene.duration) + sum(transition.duration)`，单位秒
 - `<transition>` 必须是 `<tl>` 的直接子节点
-- 保持 `frames` 与推导总长对齐
+- 保持 `<opencat duration>` 与推导总长对齐
 
 ---
 
 ## 转场
 
 ```xml
-<transition from="scene1" to="scene2" effect="fade" duration="18" />
+<transition from="scene1" to="scene2" effect="fade" duration="0.6" />
 ```
 
 | 属性 | 必填 | 说明 |
@@ -266,7 +266,7 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 | `from` | 是 | 源场景 id |
 | `to` | 是 | 目标场景 id |
 | `effect` | 是 | 效果名称 |
-| `duration` | 是 | 转场帧数 |
+| `duration` | 是 | 转场时长，单位秒 |
 | `direction` | 否 | `slide`/`wipe` 的方向 |
 | `timing` | 否 | 缓动名称（默认 `linear`） |
 | `damping` | 否 | 弹簧阻尼 |
@@ -294,20 +294,21 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 
 ## 动画系统
 
-动画脚本通过 `<script>` 标签编写，使用 QuickJS 在每帧运行。
+动画脚本通过 `<script>` 标签编写，使用 QuickJS 在每个输出采样点运行。脚本 API 的 `duration` / `delay` / `stagger` / timeline position 都使用秒。
 
 ### 执行上下文
 
 | 字段 | 说明 |
 |------|------|
-| `ctx.frame` | 全局帧索引 |
-| `ctx.totalFrames` | 总帧数 |
-| `ctx.currentFrame` | 当前场景内的帧索引 |
-| `ctx.sceneFrames` | 当前场景的帧数 |
+| `ctx.time` | 全局时间，单位秒 |
+| `ctx.duration` / `ctx.totalDuration` | 合成总时长，单位秒 |
+| `ctx.currentTime` | 当前场景内时间，单位秒 |
+| `ctx.sceneDuration` | 当前场景时长，单位秒 |
 
 **使用指南：**
-- **循环动画**（呼吸、闪烁、持续旋转）：使用 `ctx.frame`
-- **场景内进度**（路径绘制、淡入淡出）：使用 `ctx.currentFrame / ctx.sceneFrames`
+- **循环动画**（呼吸、闪烁、持续旋转）：优先使用 `ctx.time`
+- **场景内进度**（路径绘制、淡入淡出）：使用 `ctx.currentTime / ctx.sceneDuration`
+- **不要用输出图像计数表达 timing**：创作脚本中的 `duration` / `delay` / `stagger` / position 参数都写秒
 
 ### Tween API
 
@@ -319,7 +320,7 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 | `ctx.to(targets, vars)` | 从**当前值**动画到 `vars` | 节点 class 或上一次 tween 的结果 |
 | `ctx.fromTo(targets, fromVars, toVars)` | 从 `fromVars` 到 `toVars`，两端写死 | `fromVars` 指定起始值 |
 
-**没有 `ctx.set`** — 逐帧运行时不需要。初始值要么从节点 class（Tailwind）来，要么从 `from` / `fromTo` 的起始参数来。
+**没有 `ctx.set`** — 逐采样运行时不需要。初始值要么从节点 class（Tailwind）来，要么从 `from` / `fromTo` 的起始参数来。
 
 **属性别名：**
 
@@ -343,20 +344,20 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 
 | 字段 | 默认 | 说明 |
 |------|------|------|
-| `duration` | 非弹簧必填 | 帧数 |
-| `delay` | `0` | 起始偏移 |
+| `duration` | 非弹簧必填 | 时长，单位秒 |
+| `delay` | `0` | 起始偏移，单位秒 |
 | `ease`/`easing` | `'linear'` | 缓动 |
 | `repeat` | `0` | 循环。`-1` = 无限 |
 | `yoyo` | `false` | 交替反向 |
-| `stagger` | `0` | 数组目标延迟 |
+| `stagger` | `0` | 数组目标延迟，单位秒 |
 
 ### Timeline
 
 ```js
-ctx.timeline({ defaults: { duration: 18, ease: 'spring.gentle' } })
+ctx.timeline({ defaults: { duration: 0.6, ease: 'spring.gentle' } })
   .from('title', { opacity: 0, y: 30 })
-  .from('subtitle', { opacity: 0, y: 18 }, '-=8')
-  .fromTo('cta', { scale: 0.8 }, { scale: 1, duration: 24 }, '+=6');
+  .from('subtitle', { opacity: 0, y: 18 }, '-=0.27')
+  .fromTo('cta', { scale: 0.8 }, { scale: 1, duration: 0.8 }, '+=0.2');
 ```
 
 **Position 参数：**
@@ -364,9 +365,9 @@ ctx.timeline({ defaults: { duration: 18, ease: 'spring.gentle' } })
 | Position | 含义 |
 |----------|------|
 | 省略 | 从当前游标开始 |
-| 数字 | 绝对帧 |
-| `'+=N'` | 游标后 N 帧 |
-| `'-=N'` | 游标前 N 帧 |
+| 数字 | 绝对时间（秒） |
+| `'+=N'` | 游标后 N 秒 |
+| `'-=N'` | 游标前 N 秒 |
 | `'<'`/`'>'` | 前一个子项的开始/结束 |
 
 ### 路径动画
@@ -375,7 +376,7 @@ ctx.timeline({ defaults: { duration: 18, ease: 'spring.gentle' } })
 ctx.to('rocket', {
   path: 'M100 360 C400 80 880 640 1180 360',
   orient: -90,
-  duration: 120,
+  duration: 4,
   ease: 'ease-in-out',
 });
 ```
@@ -385,7 +386,7 @@ ctx.to('rocket', {
 ```js
 ctx.fromTo('blob',
   { d: 'M55 0 L110 95 L0 95 Z' },
-  { d: 'M55 95 L110 0 L0 0 Z', duration: 45, ease: 'ease-in-out' }
+  { d: 'M55 95 L110 0 L0 0 Z', duration: 1.5, ease: 'ease-in-out' }
 );
 ```
 
@@ -393,14 +394,14 @@ ctx.fromTo('blob',
 
 **打字机：**
 ```js
-ctx.to('title', { text: 'Hello OpenCat', duration: 30, ease: 'linear' });
+ctx.to('title', { text: 'Hello OpenCat', duration: 1, ease: 'linear' });
 ```
 
 **splitText：**
 ```js
 ctx.from(ctx.splitText('title', { type: 'chars' }), {
   opacity: 0, y: 38, scale: 0.86,
-  duration: 22, stagger: 2, ease: 'spring.wobbly',
+  duration: 0.73, stagger: 0.07, ease: 'spring.wobbly',
 });
 ```
 
@@ -522,9 +523,9 @@ path.close();
 ### 简单场景（无 Timeline）
 
 ```xml
-<opencat width="390" height="844" fps="30" frames="60">
+<opencat width="390" height="844" fps="30" duration="2">
   <script>
-    ctx.fromTo('title', {opacity: 0, y: 30}, {opacity: 1, y: 0, duration: 20, ease: 'spring.gentle'});
+    ctx.fromTo('title', {opacity: 0, y: 30}, {opacity: 1, y: 0, duration: 0.67, ease: 'spring.gentle'});
   </script>
   <div id="root" class="flex flex-col items-center justify-center w-full h-full bg-white">
     <text id="title" class="text-[48px] font-bold text-slate-900">Hello OpenCat</text>
@@ -535,25 +536,25 @@ path.close();
 ### 多场景 Timeline
 
 ```xml
-<opencat width="1280" height="720" fps="30" frames="360">
+<opencat width="1280" height="720" fps="30" duration="12.6">
   <soundtrack>
     <audio id="bgm" url="https://example.com/music.mp3" attach="scene1" />
   </soundtrack>
 
   <script>
-    ctx.fromTo(['title', 'subtitle'], {opacity: 0, y: 24}, {opacity: 1, y: 0, stagger: 6, duration: 24, ease: 'spring.gentle'});
+    ctx.fromTo(['title', 'subtitle'], {opacity: 0, y: 24}, {opacity: 1, y: 0, stagger: 0.2, duration: 0.8, ease: 'spring.gentle'});
   </script>
 
   <div id="root" class="relative w-[1280px] h-[720px] bg-slate-950">
     <tl id="main-tl" class="absolute inset-0">
-      <div id="scene1" class="flex flex-col items-center justify-center w-full h-full" duration="180">
+      <div id="scene1" class="flex flex-col items-center justify-center w-full h-full" duration="6">
         <text id="title" class="text-[72px] font-bold text-white">Scene 1</text>
         <text id="subtitle" class="text-[24px] text-slate-400">With animation</text>
       </div>
 
-      <transition from="scene1" to="scene2" effect="fade" duration="18" timing="ease-in-out" />
+      <transition from="scene1" to="scene2" effect="fade" duration="0.6" timing="ease-in-out" />
 
-      <div id="scene2" class="flex flex-col items-center justify-center w-full h-full bg-slate-900" duration="180">
+      <div id="scene2" class="flex flex-col items-center justify-center w-full h-full bg-slate-900" duration="6">
         <text id="title2" class="text-[72px] font-bold text-white">Scene 2</text>
       </div>
     </tl>
@@ -564,7 +565,7 @@ path.close();
 ### Canvas 绘制
 
 ```xml
-<opencat width="640" height="480" fps="30" frames="120">
+<opencat width="640" height="480" fps="30" duration="4">
   <script>
     var CK = ctx.CanvasKit;
     var canvas = ctx.getCanvasById('my-canvas');
@@ -582,7 +583,7 @@ path.close();
 ### 视频叠加
 
 ```xml
-<opencat width="1280" height="720" fps="30" frames="180">
+<opencat width="1280" height="720" fps="30" duration="6">
   <div id="root" class="relative w-full h-full bg-black">
     <video id="bg-video" class="absolute inset-0 w-full h-full object-cover" src="https://example.com/video.mp4" loop="true" />
     <div id="overlay" class="absolute bottom-[40px] left-[40px] px-[20px] py-[12px] rounded-[12px] bg-black/60">
@@ -602,7 +603,7 @@ path.close();
 | 用 `bg-{color}` 给图标/路径着色 | 用 `fill-{color}` / `stroke-{color}` |
 | `class` 中放 transform 类 | 用脚本控制动画 |
 | `<tl>` 缺转场或场景少于 2 | 添加缺失的 `<transition>` |
-| 帧数不匹配 | `frames = sum(scene.duration) + sum(transition.duration)` |
+| 时长不匹配 | `<opencat duration> = sum(scene.duration) + sum(transition.duration)` |
 | `<script>` 嵌套在其他元素内 | 必须是 `<opencat>` 的直接子节点 |
 | `<audio>` 直接放在 `<opencat>` 下 | 必须在 `<soundtrack>` 内 |
 | `ctx.getCanvas()` | 用 `ctx.getCanvasById(id)`（`getCanvas` 调用会抛错） |

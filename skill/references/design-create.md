@@ -169,9 +169,9 @@ motion:
     exit: "ease-in"
     ambient: "sine.inOut"
   duration:
-    entrance: 12            # 帧
-    hold: 45
-    transition: 18
+    entrance: 0.4           # 秒
+    hold: 1.5
+    transition: 0.6
   atmosphere:
     - radial-glow
     - ghost-text

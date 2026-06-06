@@ -660,6 +660,10 @@ mod tests {
         RenderSession::new()
     }
 
+    fn frames_at_30fps(frames: u32) -> f64 {
+        frames as f64 / 30.0
+    }
+
     fn write_test_png(path: &std::path::Path) {
         let mut image = image::RgbaImage::new(2, 1);
         image.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
@@ -740,7 +744,7 @@ mod tests {
         let composition = Composition::new("bold_amount_text")
             .size(260, 70)
             .fps(30)
-            .frames(1)
+            .duration(frames_at_30fps(1))
             .root(move |_ctx: &FrameCtx| scene.clone().into())
             .build()
             .expect("composition should build");
@@ -803,7 +807,7 @@ mod tests {
         let composition = Composition::new("opacity_cache")
             .size(20, 20)
             .fps(30)
-            .frames(2)
+            .duration(frames_at_30fps(2))
             .root(move |_ctx: &FrameCtx| scene.clone().into())
             .build()
             .expect("composition should build");
@@ -891,7 +895,7 @@ mod tests {
         let composition = Composition::new("shadow_clip_consistency")
             .size(40, 40)
             .fps(30)
-            .frames(2)
+            .duration(frames_at_30fps(2))
             .root(move |_ctx: &FrameCtx| scene.clone().into())
             .build()
             .expect("composition should build");
@@ -958,7 +962,7 @@ mod tests {
         let composition = Composition::new("clip_consistency")
             .size(24, 24)
             .fps(30)
-            .frames(2)
+            .duration(frames_at_30fps(2))
             .root(move |_ctx: &FrameCtx| scene.clone().into())
             .build()
             .expect("composition should build");
@@ -1007,7 +1011,7 @@ mod tests {
         let composition = Composition::new("canvas_asset_alias")
             .size(2, 1)
             .fps(30)
-            .frames(1)
+            .duration(frames_at_30fps(1))
             .root(move |_ctx: &FrameCtx| scene.clone().into())
             .build()
             .expect("composition should build");
@@ -1026,7 +1030,7 @@ mod tests {
         let composition = Composition::new("align")
             .size(3, 5)
             .fps(30)
-            .frames(1)
+            .duration(frames_at_30fps(1))
             .root(|_ctx| crate::div().id("root").into())
             .build()
             .expect("composition should build");
@@ -1037,7 +1041,7 @@ mod tests {
         let even = Composition::new("align-even")
             .size(1280, 720)
             .fps(30)
-            .frames(1)
+            .duration(frames_at_30fps(1))
             .root(|_ctx| crate::div().id("root").into())
             .build()
             .expect("composition should build");
@@ -1050,7 +1054,7 @@ mod tests {
         let composition = Composition::new("rust_scale_cache")
             .size(24, 24)
             .fps(30)
-            .frames(2)
+            .duration(frames_at_30fps(2))
             .root(|ctx: &FrameCtx| {
                 let scale = if ctx.frame == 0 { 1.0 } else { 2.0 };
                 crate::div()
@@ -1098,7 +1102,7 @@ mod tests {
         let composition = Composition::new("nested_transform_cache")
             .size(24, 24)
             .fps(30)
-            .frames(2)
+            .duration(frames_at_30fps(2))
             .root(|ctx: &FrameCtx| {
                 let scale = if ctx.frame == 0 { 1.0 } else { 2.0 };
                 let ticker_color = if ctx.frame == 0 {
@@ -1172,7 +1176,7 @@ mod tests {
     //     let composition = Composition::new("bitmap_item_cache")
     //         .size(24, 24)
     //         .fps(30)
-    //         .frames(2)
+    //         .duration(frames_at_30fps(2))
     //         .root({
     //             let image_path = image_path.clone();
     //             move |ctx: &FrameCtx| {
@@ -1231,23 +1235,23 @@ mod tests {
         let composition = Composition::new("layered_caption")
             .size(320, 180)
             .fps(30)
-            .frames(25)
+            .duration(frames_at_30fps(25))
             .root(move |_| {
                 crate::div()
                     .id("root")
                     .child(
                         timeline()
                             .sequence(
-                                10,
+                                frames_at_30fps(10),
                                 crate::div()
                                     .id("scene-a")
                                     .bg(crate::ColorToken::Black)
                                     .child(text("A").id("a"))
                                     .into(),
                             )
-                            .transition(fade().timing(Easing::Linear, 5))
+                            .transition(fade().timing(Easing::Linear, frames_at_30fps(5)))
                             .sequence(
-                                10,
+                                frames_at_30fps(10),
                                 crate::div()
                                     .id("scene-b")
                                     .bg(crate::ColorToken::Black)
@@ -1291,7 +1295,7 @@ mod tests {
         let composition = Composition::new("layered_single_scene_with_caption")
             .size(64, 64)
             .fps(30)
-            .frames(1)
+            .duration(frames_at_30fps(1))
             .root(move |_| {
                 crate::div()
                     .id("root")
@@ -1339,7 +1343,7 @@ mod tests {
         let composition = Composition::new("layered_inactive_root_caption")
             .size(64, 64)
             .fps(30)
-            .frames(60)
+            .duration(frames_at_30fps(60))
             .root(move |_| {
                 crate::div()
                     .id("root")
@@ -1387,23 +1391,23 @@ mod tests {
         let composition = Composition::new("timeline_caption")
             .size(320, 180)
             .fps(30)
-            .frames(25)
+            .duration(frames_at_30fps(25))
             .root(move |_| {
                 crate::div()
                     .id("root")
                     .child(
                         timeline()
                             .sequence(
-                                10,
+                                frames_at_30fps(10),
                                 crate::div()
                                     .id("scene-a")
                                     .bg(crate::ColorToken::Black)
                                     .child(text("A").id("a"))
                                     .into(),
                             )
-                            .transition(fade().timing(Easing::Linear, 5))
+                            .transition(fade().timing(Easing::Linear, frames_at_30fps(5)))
                             .sequence(
-                                10,
+                                frames_at_30fps(10),
                                 crate::div()
                                     .id("scene-b")
                                     .bg(crate::ColorToken::Black)
@@ -1444,17 +1448,17 @@ mod tests {
         let composition = Composition::new("nested_timeline_transition")
             .size(80, 80)
             .fps(30)
-            .frames(30)
+            .duration(frames_at_30fps(30))
             .root(move |_| {
                 let mut tl_kind = Node::from(
                     timeline()
                         .sequence(
-                            10,
+                            frames_at_30fps(10),
                             crate::div().id("scene-a").w_full().h_full().bg_red().into(),
                         )
-                        .transition(fade().timing(Easing::Linear, 10))
+                        .transition(fade().timing(Easing::Linear, frames_at_30fps(10)))
                         .sequence(
-                            10,
+                            frames_at_30fps(10),
                             crate::div()
                                 .id("scene-b")
                                 .w_full()
@@ -1505,17 +1509,17 @@ mod tests {
         let composition = Composition::new("root_timeline_transition")
             .size(80, 80)
             .fps(30)
-            .frames(30)
+            .duration(frames_at_30fps(30))
             .root(move |_| {
                 let mut tl_kind = Node::from(
                     timeline()
                         .sequence(
-                            10,
+                            frames_at_30fps(10),
                             crate::div().id("scene-a").w_full().h_full().bg_red().into(),
                         )
-                        .transition(fade().timing(Easing::Linear, 10))
+                        .transition(fade().timing(Easing::Linear, frames_at_30fps(10)))
                         .sequence(
-                            10,
+                            frames_at_30fps(10),
                             crate::div()
                                 .id("scene-b")
                                 .w_full()
@@ -1557,17 +1561,19 @@ mod tests {
         let composition = Composition::new("gltransition_runtime_effect")
             .size(80, 80)
             .fps(30)
-            .frames(30)
+            .duration(frames_at_30fps(30))
             .root(move |_| {
                 let mut tl_kind = Node::from(
                     timeline()
                         .sequence(
-                            10,
+                            frames_at_30fps(10),
                             crate::div().id("scene-a").w_full().h_full().bg_red().into(),
                         )
-                        .transition(gl_transition("fade").timing(Easing::Linear, 10))
+                        .transition(
+                            gl_transition("fade").timing(Easing::Linear, frames_at_30fps(10)),
+                        )
                         .sequence(
-                            10,
+                            frames_at_30fps(10),
                             crate::div()
                                 .id("scene-b")
                                 .w_full()
@@ -1609,17 +1615,17 @@ mod tests {
         let composition = Composition::new("light_leak_runtime_effect")
             .size(80, 80)
             .fps(30)
-            .frames(30)
+            .duration(frames_at_30fps(30))
             .root(move |_| {
                 let mut tl_kind = Node::from(
                     timeline()
                         .sequence(
-                            10,
+                            frames_at_30fps(10),
                             crate::div().id("scene-a").w_full().h_full().bg_red().into(),
                         )
-                        .transition(light_leak().timing(Easing::Linear, 10))
+                        .transition(light_leak().timing(Easing::Linear, frames_at_30fps(10)))
                         .sequence(
-                            10,
+                            frames_at_30fps(10),
                             crate::div()
                                 .id("scene-b")
                                 .w_full()
@@ -1674,7 +1680,7 @@ mod tests {
         let composition = Composition::new("hidden_descendant_script_target")
             .size(32, 32)
             .fps(30)
-            .frames(1)
+            .duration(frames_at_30fps(1))
             .root(move |_ctx: &FrameCtx| scene.clone().into())
             .build()
             .expect("composition should build");
@@ -1710,7 +1716,7 @@ mod tests {
         let composition = Composition::new("nested_canvas_hidden_invisible")
             .size(32, 32)
             .fps(30)
-            .frames(1)
+            .duration(frames_at_30fps(1))
             .root(move |_ctx: &FrameCtx| scene.clone().into())
             .build()
             .expect("composition should build");
@@ -1750,7 +1756,7 @@ mod tests {
         let composition = Composition::new("indirect_canvas_recursion")
             .size(32, 32)
             .fps(30)
-            .frames(1)
+            .duration(frames_at_30fps(1))
             .root(move |_ctx: &FrameCtx| scene.clone().into())
             .build()
             .expect("composition should build");

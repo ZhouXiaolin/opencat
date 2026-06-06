@@ -9,7 +9,7 @@
 OpenCat 通过 `<caption>` 节点支持 SRT 字幕：
 
 ```xml
-<opencat width="1280" height="720" fps="30" frames="360">
+<opencat width="1280" height="720" fps="30" duration="12">
   <div id="root" class="relative w-full h-full">
     <caption id="subs" path="subtitles.srt" />
   </div>
@@ -37,21 +37,21 @@ SRT 格式：
 
 ### 数据来源
 
-从 `transcript.json` 或 `audio-data.json` 获取逐词时间戳。格式：
+从 `transcript.json` 或 `audio-data.json` 获取逐词时间戳。它们是外部数据，不是 OpenCat composition。数据对象示例：
 
-```json
-{
+```js
+var transcript = {
   "groups": [
     { "start": 0.0, "end": 1.2, "text": "Anything a browser" },
     { "start": 1.2, "end": 2.5, "text": "can render" }
   ]
-}
+};
 ```
 
 ### 实现模式
 
 ```xml
-<opencat width="1280" height="720" fps="30" frames="180">
+<opencat width="1280" height="720" fps="30" duration="6">
   <div id="root" class="flex items-center justify-center w-full h-full bg-slate-950">
     <!-- 预先放置所有词组 -->
     <text id="cap-0" class="absolute text-[36px] text-white/40">Anything a browser</text>
@@ -64,12 +64,10 @@ SRT 格式：
     ];
     var tl = ctx.timeline();
     GROUPS.forEach(function (g) {
-      var startF = Math.round(g.start * 30);
-      var endF = Math.round(g.end * 30);
       // 淡入
-      tl.fromTo(g.el, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 9, ease: 'ease-out' }, startF);
+      tl.fromTo(g.el, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.3, ease: 'ease-out' }, g.start);
       // 退出
-      tl.to(g.el, { opacity: 0, duration: 6, ease: 'ease-in' }, endF - 6);
+      tl.to(g.el, { opacity: 0, duration: 0.2, ease: 'ease-in' }, g.end - 0.2);
     });
   </script>
 </opencat>
@@ -86,9 +84,9 @@ SRT 格式：
   var timings = [0.0, 0.23, 0.28, 0.63, 0.78];
   var tl = ctx.timeline();
   words.forEach(function (w, i) {
-    var startF = Math.round(timings[i] * 30);
-    tl.to(w, { color: '#00C3FF', scale: 1.1, duration: 3, ease: 'ease-out' }, startF);
-    tl.to(w, { color: '#ffffff', scale: 1, duration: 3, ease: 'ease-in-out' }, startF + 6);
+    var start = timings[i];
+    tl.to(w, { color: '#00C3FF', scale: 1.1, duration: 0.1, ease: 'ease-out' }, start);
+    tl.to(w, { color: '#ffffff', scale: 1, duration: 0.1, ease: 'ease-in-out' }, start + 0.2);
   });
 </script>
 ```
@@ -100,17 +98,17 @@ SRT 格式：
 配音音频通过 `<soundtrack>` + `<audio>` + `attach` 关联到 `<tl>`：
 
 ```xml
-<opencat width="1280" height="720" fps="30" frames="360">
+<opencat width="1280" height="720" fps="30" duration="12">
   <soundtrack>
     <audio id="narration" path="narration.wav" attach="main-tl" />
   </soundtrack>
   <div id="root" class="relative w-full h-full">
     <tl id="main-tl" class="absolute inset-0">
-      <div id="scene1" class="..." duration="180">
+      <div id="scene1" class="..." duration="6">
         <!-- 场景内容 -->
       </div>
-      <transition from="scene1" to="scene2" effect="fade" duration="18" />
-      <div id="scene2" class="..." duration="162">
+      <transition from="scene1" to="scene2" effect="fade" duration="0.6" />
+      <div id="scene2" class="..." duration="5.4">
         <!-- 场景内容 -->
       </div>
     </tl>
@@ -120,10 +118,10 @@ SRT 格式：
 
 ### 旁白时间线对齐
 
-旁白录制的 WAV 文件，其时长直接影响画面时间线。每个字幕组的 `start`/`end` 时间来自 `transcript.json`：
+旁白录制的 WAV 文件，其时长直接影响画面时间线。每个字幕组的 `start`/`end` 时间来自外部 `transcript.json` 数据：
 
-```json
-{
+```js
+var transcript = {
   "words": [
     { "word": "Anything", "start": 0.0, "end": 0.23 },
     { "word": "a", "start": 0.23, "end": 0.28 },
@@ -131,10 +129,10 @@ SRT 格式：
     { "word": "can", "start": 0.63, "end": 0.78 },
     { "word": "render", "start": 0.78, "end": 1.2 }
   ]
-}
+};
 ```
 
-将 word 时间戳对齐到帧（@30fps）：`startFrame = Math.round(word.start * 30)`。
+动画时间线直接使用 word 的秒级时间戳：`tl.to(wordEl, vars, word.start)`。
 
 ---
 

@@ -83,17 +83,12 @@ pub struct Composition {
     pub audio_sources: Arc<Vec<CompositionAudioSource>>,
 }
 
-enum DurationSpec {
-    Seconds(f64),
-    Frames(u32),
-}
-
 pub struct CompositionBuilder {
     id: String,
     width: i32,
     height: i32,
     fps: u32,
-    duration: Option<DurationSpec>,
+    duration: Option<f64>,
     root: Option<Arc<RootComponent>>,
     audio_sources: Vec<CompositionAudioSource>,
 }
@@ -157,12 +152,7 @@ impl CompositionBuilder {
     }
 
     pub fn duration(mut self, duration_secs: f64) -> Self {
-        self.duration = Some(DurationSpec::Seconds(duration_secs));
-        self
-    }
-
-    pub fn frames(mut self, frames: u32) -> Self {
-        self.duration = Some(DurationSpec::Frames(frames));
+        self.duration = Some(duration_secs);
         self
     }
 
@@ -202,10 +192,7 @@ impl CompositionBuilder {
             .ok_or_else(|| anyhow!("composition root is required"))?;
 
         let (duration, frames) = match self.duration {
-            Some(DurationSpec::Seconds(duration)) => {
-                (duration, duration_secs_to_frames(duration, self.fps))
-            }
-            Some(DurationSpec::Frames(frames)) => (frames_to_duration_secs(frames, self.fps), frames),
+            Some(duration) => (duration, duration_secs_to_frames(duration, self.fps)),
             None => {
                 let probe_ctx = FrameCtx {
                     frame: 0,

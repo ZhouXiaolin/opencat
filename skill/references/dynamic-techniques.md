@@ -41,12 +41,13 @@
 var AUDIO = JSON.parse(audioDataJson);
 
 function getPeakEnergy(startTime, endTime) {
-  var startFrame = Math.floor(startTime * 30);
-  var endFrame = Math.min(Math.floor(endTime * 30), AUDIO.totalFrames - 1);
+  var fps = AUDIO.fps || 30;
+  var startIndex = Math.floor(startTime * fps);
+  var endIndex = Math.min(Math.floor(endTime * fps), AUDIO.samples.length - 1);
   var peak = 0;
-  for (var f = startFrame; f <= endFrame; f++) {
-    var frame = AUDIO.frames[f];
-    if (frame) peak = Math.max(peak, frame.bands[0] || 0);
+  for (var i = startIndex; i <= endIndex; i++) {
+    var sample = AUDIO.samples[i];
+    if (sample) peak = Math.max(peak, sample.bands[0] || 0);
   }
   return peak;
 }

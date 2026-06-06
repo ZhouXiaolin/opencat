@@ -1,6 +1,6 @@
 # CanvasKit 子集
 
-`canvas` 节点提供 CanvasKit 风格的绘制表面。绘制脚本必须是 canvas 节点的子 `script`，每帧重新执行。
+`canvas` 节点提供 CanvasKit 风格的绘制表面。绘制脚本必须是 canvas 节点的子 `script`，每个输出采样点重新执行。
 
 ---
 
@@ -220,8 +220,8 @@ for (var i = 0; i < 100; i++) {
   var x = hash(i, 0) * 1920;
   var y = hash(i, 1) * 1080;
   var size = hash(i, 2) * 5 + 1;
-  // 循环动画使用 ctx.frame
-  paint.setColorComponents(1, 1, 1, hash(i, ctx.frame * 0.1));
+  // 循环动画优先使用秒级时间
+  paint.setColorComponents(1, 1, 1, hash(i, ctx.time * 3));
   canvas.drawCircle(x, y, size, paint);
 }
 ```
@@ -232,7 +232,7 @@ for (var i = 0; i < 100; i++) {
 var CK = ctx.CanvasKit;
 var canvas = ctx.getCanvas();
 
-var progress = Math.min(ctx.currentFrame / ctx.sceneFrames, 1);
+var progress = ctx.sceneDuration > 0 ? Math.min(ctx.currentTime / ctx.sceneDuration, 1) : 1;
 var path = new CK.Path();
 path.moveTo(50, 100);
 path.lineTo(200, 50);
@@ -264,7 +264,8 @@ var gap = 20;
 var maxHeight = 200;
 
 data.forEach(function(value, i) {
-  var height = (value / 100) * maxHeight * Math.min(ctx.currentFrame / ctx.sceneFrames, 1);
+  var progress = ctx.sceneDuration > 0 ? Math.min(ctx.currentTime / ctx.sceneDuration, 1) : 1;
+  var height = (value / 100) * maxHeight * progress;
   var x = i * (barWidth + gap) + 50;
   var y = 300 - height;
 

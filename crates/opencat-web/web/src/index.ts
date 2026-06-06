@@ -7,17 +7,19 @@ export { compositionFrameCount } from './types';
 
 export {
   blobCount,
+  clearAssetReader,
   clearBlobs,
   getBlobBytes,
   getRenderer,
   getRendererOrThrow,
   initWasm,
   preloadAssets,
+  setAssetReader,
   setWasmBaseUrl,
 } from './wasm';
 export { loadDefaultFontsIntoWasm } from './fonts';
 export type { DefaultFontUrls } from './fonts';
-export type { WebRendererInstance } from './wasm';
+export type { AssetReader, AssetReaderResult, WebRendererInstance } from './wasm';
 
 export {
   renderEncodedDrawFrame,

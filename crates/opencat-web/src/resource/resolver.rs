@@ -3,13 +3,18 @@
 //! query 变体走 core 默认实现（Openverse 搜索也是 HTTP，WebFetcher 即可处理）。
 
 use std::future::Future;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
 
 use opencat_core::resource::asset_id::AssetId;
-use opencat_core::resource::resolver::{AssetResolver, AssetSink, UrlFetcher};
+use opencat_core::resource::resolver::{
+    AssetResolver, AssetSink, AudioMeta, ImageMeta, UrlFetcher, VideoMeta,
+};
+use opencat_core::resource::{probe_image_dims, probe_video};
 
+use crate::resource::asset_reader;
 use crate::resource::blob_store::BlobStore;
 use crate::resource::fetch::fetch_bytes;
 
@@ -63,5 +68,45 @@ impl<'a> AssetResolver for WebAssetResolver<'a> {
     }
 
     // URL / query 变体走 core 默认实现。
-    // path 变体走 trait 的默认 bail（web 没有文件系统）。
+    // path 变体通过宿主注册的 JS asset reader 读取 VFS bytes。
+    fn resolve_image_path(&mut self, path: &Path) -> impl Future<Output = Result<ImageMeta>> {
+        let id = AssetId(path.to_string_lossy().into_owned());
+        let path = id.0.clone();
+        async move {
+            let bytes = asset_reader::read_path(&path).await?;
+            let dims = probe_image_dims(&bytes)?;
+            self.sink.store(&id, bytes);
+            Ok(ImageMeta {
+                id,
+                width: dims.width,
+                height: dims.height,
+            })
+        }
+    }
+
+    fn resolve_video_path(&mut self, path: &Path) -> impl Future<Output = Result<VideoMeta>> {
+        let id = AssetId(path.to_string_lossy().into_owned());
+        let path = id.0.clone();
+        async move {
+            let bytes = asset_reader::read_path(&path).await?;
+            let probe = probe_video(&bytes)?;
+            self.sink.store(&id, bytes);
+            Ok(VideoMeta {
+                id,
+                width: probe.width,
+                height: probe.height,
+                duration_secs: probe.duration_ms.map(|ms| ms as f64 / 1000.0),
+            })
+        }
+    }
+
+    fn resolve_audio_path(&mut self, path: &Path) -> impl Future<Output = Result<AudioMeta>> {
+        let id = AssetId(path.to_string_lossy().into_owned());
+        let path = id.0.clone();
+        async move {
+            let bytes = asset_reader::read_path(&path).await?;
+            self.sink.store(&id, bytes);
+            Ok(AudioMeta { id })
+        }
+    }
 }

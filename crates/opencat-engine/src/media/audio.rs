@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use opencat_core::frame_ctx::FrameCtx;
+use opencat_core::frame_ctx::{FrameCtx, duration_secs_to_frames};
 use opencat_core::parse::{
     composition::{AudioAttachment, Composition, CompositionAudioSource},
     primitives::AudioSource,
@@ -164,7 +164,7 @@ fn resolve_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
             let Some(start_frame) = active_specs.get(spec).copied() else {
                 return true;
             };
-            spec.duration
+            audio_source_duration_frames(spec, composition.fps)
                 .map(|duration| frame < start_frame.saturating_add(duration))
                 .unwrap_or(true)
         });
@@ -174,7 +174,8 @@ fn resolve_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
                 let start_sample_frame =
                     frame_to_audio_sample_frames(start_frame, composition.fps, AUDIO_SAMPLE_RATE);
                 let end_frame = spec
-                    .duration
+                    .duration_secs
+                    .map(|duration| duration_secs_to_frames(duration, composition.fps))
                     .map(|duration| start_frame.saturating_add(duration))
                     .unwrap_or(frame)
                     .min(frame);
@@ -199,7 +200,8 @@ fn resolve_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
             let start_sample_frame =
                 frame_to_audio_sample_frames(start_frame, composition.fps, AUDIO_SAMPLE_RATE);
             let end_frame = spec
-                .duration
+                .duration_secs
+                .map(|duration| duration_secs_to_frames(duration, composition.fps))
                 .map(|duration| start_frame.saturating_add(duration))
                 .unwrap_or(composition.frames)
                 .min(composition.frames);
@@ -214,6 +216,11 @@ fn resolve_audio_intervals(composition: &Composition) -> Vec<AudioInterval> {
     }
 
     intervals
+}
+
+fn audio_source_duration_frames(spec: &CompositionAudioSource, fps: u32) -> Option<u32> {
+    spec.duration_secs
+        .map(|duration| duration_secs_to_frames(duration, fps))
 }
 
 fn composition_audio_cache_key(composition: &Composition) -> AudioIntervalCacheKey {

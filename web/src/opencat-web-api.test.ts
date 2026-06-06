@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   exportMp4,
   exportPngFrame,
+  compositionFrameCount,
   getDecodedFrameRgba,
   initWasm,
   renderEncodedDrawFrame,
@@ -17,7 +18,7 @@ describe('opencat.js browser API', () => {
       width: 1920,
       height: 1080,
       fps: 30,
-      frames: 60,
+      duration: 2,
     };
     const video: ResourceMeta = {
       kind: 'video',
@@ -26,7 +27,7 @@ describe('opencat.js browser API', () => {
       durationSecs: 2,
     };
 
-    expect(comp.frames).toBe(60);
+    expect(compositionFrameCount(comp)).toBe(60);
     expect(video.kind).toBe('video');
     expect(typeof initWasm).toBe('function');
     expect(typeof getDecodedFrameRgba).toBe('function');

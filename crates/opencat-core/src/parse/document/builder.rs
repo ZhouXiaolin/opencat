@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::frame_ctx::duration_secs_to_frames;
 use crate::parse::{
     easing::{Easing, SpringConfig, easing_from_name},
     node::Node,
@@ -75,7 +76,7 @@ pub fn build_parsed_document(
                 id: audio.id.clone(),
                 source: audio.source.clone(),
                 attach: attachment,
-                duration: audio.duration,
+                duration_secs: audio.duration,
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -113,7 +114,7 @@ pub fn build_parsed_document(
         width: parts.width,
         height: parts.height,
         fps: parts.fps,
-        frames: parts.frames,
+        duration: parts.duration,
         root,
         script: join_scripts(parts.global_scripts),
         audio_sources,
@@ -323,14 +324,14 @@ fn build_node_inner(
                     fps,
                     options,
                 )?;
-                tl_builder = tl_builder.sequence(duration, node);
+                tl_builder = tl_builder.sequence(duration_secs_to_frames(duration, fps), node);
 
                 let Some(&next_id) = child_ids.get(index + 1) else {
                     continue;
                 };
                 if let Some(transition) = transitions_by_pair.get(&(child_el.id.as_str(), next_id))
                 {
-                    tl_builder = tl_builder.transition(build_transition(transition)?);
+                    tl_builder = tl_builder.transition(build_transition(transition, fps)?);
                 }
             }
 
@@ -476,9 +477,9 @@ fn build_node_inner(
     }
 }
 
-fn build_transition(transition: &ParsedTransition) -> anyhow::Result<Transition> {
+fn build_transition(transition: &ParsedTransition, fps: u32) -> anyhow::Result<Transition> {
     let easing = parse_transition_easing(transition)?;
-    let duration = transition.duration;
+    let duration = duration_secs_to_frames(transition.duration, fps);
     let effect = normalize_transition_name(&transition.effect);
 
     match effect.as_str() {

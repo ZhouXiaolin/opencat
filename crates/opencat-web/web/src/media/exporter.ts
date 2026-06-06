@@ -1,4 +1,4 @@
-import type { CompositionInfo, ResourceMeta } from '../types';
+import { compositionFrameCount, type CompositionInfo, type ResourceMeta } from '../types';
 import { createWasmFaacEncoder, getRendererOrThrow } from '../wasm';
 import { injectVideoFramesForRender } from './video-frame-injector';
 import { renderEncodedDrawFrame } from '../draw-ir';
@@ -87,7 +87,7 @@ class ExportClip implements IClip {
     this.jsonlContent = jsonlContent;
     this.resourceMetaJson = resourceMetaJson;
     this.comp = comp;
-    this.totalFrames = comp.frames;
+    this.totalFrames = compositionFrameCount(comp);
     this.fps = comp.fps;
     this.sampleRate = 48000;
     this.onProgress = onProgress;
@@ -97,7 +97,7 @@ class ExportClip implements IClip {
     this.meta = {
       width: comp.width,
       height: comp.height,
-      duration: Math.round((comp.frames / comp.fps) * 1_000_000),
+      duration: Math.round(comp.duration * 1_000_000),
     };
     this.ready = Promise.resolve(this.meta);
   }
@@ -314,12 +314,13 @@ export async function exportMp4(
 ): Promise<Uint8Array | null> {
   const { width, height, fps } = comp;
   const resourceMetaJson = JSON.stringify(resourceMeta);
+  const totalFrames = compositionFrameCount(comp);
 
-  onProgress(0, comp.frames, 'loading');
+  onProgress(0, totalFrames, 'loading');
   await yieldToBrowser();
   const { Combinator, OffscreenSprite } = await import('@webav/av-cliper');
 
-  onProgress(0, comp.frames, 'preparing');
+  onProgress(0, totalFrames, 'preparing');
   await yieldToBrowser();
   const renderCanvas = createExportCanvas(canvas, width, height);
   const clip = new ExportClip(renderCanvas, jsonlContent, resourceMetaJson, comp, onProgress, audioIds);
@@ -351,16 +352,16 @@ export async function exportMp4(
 
   com.on('OutputProgress', (progress) => {
     const pct = Math.round(progress * 100);
-    onProgress(Math.round(comp.frames * progress), comp.frames, 'muxing');
+    onProgress(Math.round(totalFrames * progress), totalFrames, 'muxing');
   });
   com.on('error', () => { /* keep WebAV error events handled without logging */ });
 
-  onProgress(0, comp.frames, 'encoding');
+  onProgress(0, totalFrames, 'encoding');
   await yieldToBrowser();
 
   await com.addSprite(spr, { main: true });
 
-  onProgress(0, comp.frames, 'muxing');
+  onProgress(0, totalFrames, 'muxing');
   await yieldToBrowser();
 
   try {

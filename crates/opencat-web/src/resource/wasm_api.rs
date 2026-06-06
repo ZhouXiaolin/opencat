@@ -63,7 +63,7 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
     let composition = Composition::new("preload")
         .size(parsed.width, parsed.height)
         .fps(parsed.fps as u32)
-        .frames(parsed.frames.max(1) as u32)
+        .duration(parsed.duration)
         .root(move |_ctx| root_node.clone())
         .audio_sources(parsed.audio_sources)
         .build()

@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 
 use crate::render::render_single_frame_from_jsonl_with_base;
 
-const TARGET_JSONL: &str = "json/alipay-finance-homepage.jsonl";
+const TARGET_JSONL: &str = "examples/alipay-finance-homepage.jsonl";
 const TARGET_FRAME: u32 = 0;
 const CHANNEL_TOLERANCE: u8 = 3;
 const MAX_MISMATCHED_PIXEL_RATIO: f64 = 0.01;

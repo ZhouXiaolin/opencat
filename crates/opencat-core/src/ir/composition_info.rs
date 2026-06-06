@@ -5,7 +5,7 @@ pub struct CompositionInfo {
     pub width: u32,
     pub height: u32,
     pub fps: u32,
-    pub frames: u32,
+    pub duration: f64,
     pub requests: ResourceRequests,
     pub audio_plan: AudioPlan,
 }

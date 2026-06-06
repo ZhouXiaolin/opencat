@@ -202,12 +202,12 @@ pub fn parse_parts_with_base_dir(
     if root.tag_name().name() != "opencat" {
         anyhow::bail!("markup document root must be <opencat>");
     }
-    ensure_allowed_attrs(root, &["width", "height", "fps", "frames"])?;
+    ensure_allowed_attrs(root, &["width", "height", "fps", "duration"])?;
     let mut parts = ParsedDocumentParts {
         width: parse_positive_i32_attr(root, "width", 1920)?,
         height: parse_positive_i32_attr(root, "height", 1080)?,
         fps: parse_positive_i32_attr(root, "fps", 30)?,
-        frames: parse_positive_i32_attr(root, "frames", 90)?,
+        duration: parse_positive_f64_attr(root, "duration", 3.0)?,
         markup_root_script: extracted.script,
         ..Default::default()
     };
@@ -370,7 +370,7 @@ fn parse_visual_node(
     if let Some(class) = node.attribute("class") {
         style = crate::parse::jsonl::tailwind::parse_class_name(class);
     }
-    let duration = parse_optional_u32_attr(node, "duration")?;
+    let duration = parse_optional_f64_positive(node, "duration")?;
 
     match tag {
         "div" => {
@@ -780,7 +780,7 @@ fn parse_audio_element_in_soundtrack(
 ) -> anyhow::Result<()> {
     let id = required_non_empty_attr(node, "id")?;
     let attach = required_non_empty_attr(node, "attach")?;
-    let duration = parse_optional_u32_attr(node, "duration")?;
+    let duration = parse_optional_f64_positive(node, "duration")?;
 
     let source = match (node.attribute("path"), node.attribute("url")) {
         (Some(p), None) => {
@@ -973,22 +973,7 @@ fn parse_transition_node(
     let from = required_non_empty_attr(node, "from")?.to_string();
     let to = required_non_empty_attr(node, "to")?.to_string();
     let effect = required_non_empty_attr(node, "effect")?.to_string();
-    let duration: u32 = {
-        let val = required_non_empty_attr(node, "duration")?;
-        if !val.bytes().all(|b| b.is_ascii_digit()) {
-            anyhow::bail!("<transition> `duration` must be a positive integer (got `{val}`)");
-        }
-        if val.starts_with('0') && val.len() > 1 {
-            anyhow::bail!("<transition> `duration` must not have leading zeros");
-        }
-        let n: u32 = val
-            .parse()
-            .map_err(|e| anyhow::anyhow!("<transition> `duration`: {e}"))?;
-        if n == 0 {
-            anyhow::bail!("<transition> `duration` must be positive");
-        }
-        n
-    };
+    let duration = parse_required_f64_positive(node, "duration")?;
 
     if from == to {
         anyhow::bail!("<transition> `from` and `to` must be distinct");
@@ -1120,31 +1105,24 @@ fn required_non_empty_attr<'a>(
     Ok(value)
 }
 
-fn parse_optional_u32_attr(
+fn parse_required_f64_positive(node: roxmltree::Node<'_, '_>, name: &str) -> anyhow::Result<f64> {
+    let value = required_non_empty_attr(node, name)?;
+    let n: f64 = value.parse().map_err(|e| anyhow::anyhow!("`{name}`: {e}"))?;
+    if !n.is_finite() {
+        anyhow::bail!("`{name}` must be finite");
+    }
+    if n <= 0.0 {
+        anyhow::bail!("`{name}` must be positive");
+    }
+    Ok(n)
+}
+
+fn parse_positive_f64_attr(
     node: roxmltree::Node<'_, '_>,
     name: &str,
-) -> anyhow::Result<Option<u32>> {
-    match node.attribute(name) {
-        None => Ok(None),
-        Some(value) => {
-            if value.is_empty() {
-                anyhow::bail!("`{name}` must not be empty");
-            }
-            if !value.bytes().all(|b| b.is_ascii_digit()) {
-                anyhow::bail!("`{name}` must be a positive integer (got `{value}`)");
-            }
-            if value.starts_with('0') && value.len() > 1 {
-                anyhow::bail!("`{name}` must not have leading zeros");
-            }
-            let n: u32 = value
-                .parse()
-                .map_err(|e| anyhow::anyhow!("`{name}`: {e}"))?;
-            if n == 0 {
-                anyhow::bail!("`{name}` must be positive");
-            }
-            Ok(Some(n))
-        }
-    }
+    default: f64,
+) -> anyhow::Result<f64> {
+    Ok(parse_optional_f64_positive(node, name)?.unwrap_or(default))
 }
 
 fn validate_no_element_children(node: roxmltree::Node<'_, '_>, tag: &str) -> anyhow::Result<()> {
@@ -1266,7 +1244,7 @@ mod tests {
 
     #[test]
     fn parses_fonts_block() {
-        let input = r#"<opencat width="320" height="180" fps="30" frames="1">
+        let input = r#"<opencat width="320" height="180" fps="30" duration="0.03333333333333333">
   <fonts default="sans">
     <font id="sans" family="Noto Sans SC" url="https://example.com/NotoSansSC.otf" />
   </fonts>
@@ -1284,18 +1262,18 @@ mod tests {
         assert_eq!(parsed.width, 1920);
         assert_eq!(parsed.height, 1080);
         assert_eq!(parsed.fps, 30);
-        assert_eq!(parsed.frames, 90);
+        assert_eq!(parsed.duration, 3.0);
         assert_eq!(parsed.root.style_ref().id, "root");
     }
 
     #[test]
     fn parses_explicit_positive_integer_envelope() {
-        let parsed = parse(r#"<opencat width="640" height="360" fps="24" frames="120"><div id="root" /></opencat>"#)
+        let parsed = parse(r#"<opencat width="640" height="360" fps="24" duration="5"><div id="root" /></opencat>"#)
             .expect("markup should parse");
 
         assert_eq!(
-            (parsed.width, parsed.height, parsed.fps, parsed.frames),
-            (640, 360, 24, 120)
+            (parsed.width, parsed.height, parsed.fps, parsed.duration),
+            (640, 360, 24, 5.0)
         );
     }
 
@@ -1305,7 +1283,7 @@ mod tests {
             "width=\"0\"",
             "height=\"-1\"",
             "fps=\"30.0\"",
-            "frames=\"90px\"",
+            "duration=\"90px\"",
         ] {
             let input = format!(r#"<opencat {attr}><div id="root" /></opencat>"#);
             assert!(parse(&input).is_err(), "{attr} should fail");
@@ -1326,7 +1304,7 @@ mod tests {
     #[test]
     fn parses_nested_visual_nodes_and_xml_text_content() {
         let parsed = parse(
-            r#"<opencat width="320" height="180" fps="30" frames="1">
+            r#"<opencat width="320" height="180" fps="30" duration="0.03333333333333333">
   <div id="root" class="flex">
     <text id="title" class="text-[32px]">Open&amp;Cat<![CDATA[!]]></text>
     <image id="img" path="/tmp/a.png" />
@@ -1344,7 +1322,7 @@ mod tests {
     #[test]
     fn parses_video_timeline_and_media_timing_attrs() {
         let parsed = parse(
-            r#"<opencat width="320" height="180" fps="30" frames="1">
+            r#"<opencat width="320" height="180" fps="30" duration="0.03333333333333333">
   <div id="root">
     <video id="vid" src="clip.mp4" data-start="3" data-duration="18" data-media-start="12" loop="true" />
   </div>
@@ -1378,7 +1356,7 @@ mod tests {
     #[test]
     fn video_allows_overlay_children() {
         let parsed = parse(
-            r#"<opencat width="320" height="180" fps="30" frames="1">
+            r#"<opencat width="320" height="180" fps="30" duration="0.03333333333333333">
   <div id="root">
     <video id="vid" class="relative w-[160px] h-[90px]" src="clip.mp4">
       <div id="badge" class="absolute left-[8px] top-[8px]">
@@ -1395,7 +1373,7 @@ mod tests {
             fps: parsed.fps as u32,
             width: parsed.width,
             height: parsed.height,
-            frames: parsed.frames as u32,
+            frames: crate::frame_ctx::duration_secs_to_frames(parsed.duration, parsed.fps as u32),
         };
         let mut catalog = TestCatalog::new();
         let mut script_host = MockScriptHost::default();
@@ -1426,9 +1404,9 @@ mod tests {
     <audio id="scene-audio" url="https://example.test/a.wav" attach="scene-1" />
   </soundtrack>
   <tl id="tl-1">
-    <div id="scene-1" duration="30" />
-    <transition from="scene-1" to="scene-2" effect="fade" duration="10" />
-    <div id="scene-2" duration="30" />
+    <div id="scene-1" duration="1" />
+    <transition from="scene-1" to="scene-2" effect="fade" duration="0.3333333333333333" />
+    <div id="scene-2" duration="1" />
   </tl>
 </opencat>"#,
         )
@@ -1485,9 +1463,9 @@ mod tests {
         let parsed = parse(
             r#"<opencat>
   <tl id="main">
-    <div id="scene-a" duration="30" />
-    <transition from="scene-a" to="scene-b" effect="fade" duration="10" timing="linear" />
-    <div id="scene-b" duration="30" />
+    <div id="scene-a" duration="1" />
+    <transition from="scene-a" to="scene-b" effect="fade" duration="0.3333333333333333" timing="linear" />
+    <div id="scene-b" duration="1" />
   </tl>
 </opencat>"#,
         )
@@ -1584,7 +1562,7 @@ mod tests {
             r#"<opencat width=" 1"><div id="root" /></opencat>"#,
             r#"<opencat width="+1"><div id="root" /></opencat>"#,
             r#"<opencat width="１２"><div id="root" /></opencat>"#,
-            r#"<opencat><div id="root" duration="1.5" /></opencat>"#,
+            r#"<opencat><div id="root" duration="0" /></opencat>"#,
             r#"<opencat><image id="img" query="cat" queryCount="0" /></opencat>"#,
             r#"<opencat><transition from="a" to="b" effect="fade" duration="999999999999999999999" /></opencat>"#,
         ];

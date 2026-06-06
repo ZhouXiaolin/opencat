@@ -70,10 +70,12 @@ Remotion 复用了 Web 生态，但 Chrome snapshot 的先天缺陷无法绕过 
 
 ```js
 ctx.fromTo('title', {opacity: 0, y: 30}, {opacity: 1, y: 0, duration: 0.67, ease: 'spring.gentle'});
+ctx.set('caption', {opacity: 0});
 ctx.to('rocket', {path: 'M100 360 C400 80 880 640 1180 360', duration: 4, ease: 'ease-in-out'});
 ctx.from(ctx.splitText('title', {type: 'chars'}), {opacity: 0, y: 20, stagger: 0.07, ease: 'spring.wobbly'});
 
 ctx.timeline({defaults: {duration: 0.6, ease: 'spring.gentle'}})
+  .set('caption', {opacity: 0}, 0)
   .from('title', {opacity: 0, y: 30})
   .from('subtitle', {opacity: 0, y: 18}, '-=0.27');
 ```

@@ -6,13 +6,12 @@ use anyhow::Result;
 
 use opencat_core::parse::preflight::collect_external_manifest;
 use opencat_core::parse::{
-    BuildOptions, CanvasChildrenMode, build_font_resources, build_parsed_document,
-    parse_parts_with_base_dir,
+    BuildOptions, CanvasChildrenMode, build_parsed_document, parse_parts_with_base_dir,
 };
 use opencat_core::pipeline::DefaultPipeline;
 
 use crate::EnginePipeline;
-use crate::fonts::engine_default_font_db;
+use crate::fonts::{engine_default_font_db, engine_font_db_with_document_fonts};
 use crate::js_context::RqJsContext;
 use crate::resource::loader::EngineLoader;
 
@@ -37,7 +36,7 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
     let font_index = if parts.font_manifest.is_empty() {
         None
     } else {
-        let (db, index) = build_font_resources((*font_db).clone(), &parts.font_manifest, &bytes)?;
+        let (db, index) = engine_font_db_with_document_fonts(&parts.font_manifest, &bytes)?;
         font_db = Arc::new(db);
         Some(index)
     };

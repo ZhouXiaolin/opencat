@@ -22,7 +22,8 @@ pub use blob_store::{AssetPathBlobStore, BlobStore};
 pub use catalog::ResourceCatalog;
 pub use fonts::{
     FontFaceDecl, FontFamilyIndex, FontManifest, FontRole, FontSource, fetch_manifest_bytes,
-    font_asset_id, load_faces_into_db, merge_faces_into_db, resolve_font_source_path,
+    font_asset_id, load_faces_into_db, load_faces_with_fallbacks, merge_faces_into_db,
+    resolve_font_source_path,
 };
 pub use hash_map_catalog::{HashMapResourceCatalog, ResourceKind, ResourceMeta};
 pub use host_bridge::provider_from_manifest;

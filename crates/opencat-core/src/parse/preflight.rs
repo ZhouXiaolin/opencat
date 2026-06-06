@@ -68,14 +68,13 @@ pub fn collect_audio_plan(comp: &Composition) -> crate::probe::catalog::AudioPla
                         let end_ms = s
                             .duration_secs
                             .map(|duration| start_ms + duration_to_ms(duration))
-                            .unwrap_or_else(|| frame_to_ms(start_frame.saturating_add(scene_duration)));
+                            .unwrap_or_else(|| {
+                                frame_to_ms(start_frame.saturating_add(scene_duration))
+                            });
                         (start_ms, end_ms)
                     }
                     None => {
-                        let dur_ms = s
-                            .duration_secs
-                            .map(duration_to_ms)
-                            .unwrap_or(total_ms);
+                        let dur_ms = s.duration_secs.map(duration_to_ms).unwrap_or(total_ms);
                         (0, dur_ms)
                     }
                 }
@@ -109,19 +108,18 @@ fn find_scene_timing_in_node(node: &Node, scene_id: &str, ctx: &FrameCtx) -> Opt
     match node.kind() {
         NodeKind::Timeline(tl) => {
             if tl.style_ref().id == scene_id {
-                return Some((0, tl.duration_in_frames()));
+                return Some((0, tl.duration_in_frames(ctx)));
             }
+            let mut cursor_frame = 0;
             for segment in tl.segments() {
-                if let TimelineSegment::Scene {
-                    start_frame,
-                    duration_in_frames,
-                    scene,
-                } = segment
-                {
+                let duration_in_frames =
+                    crate::frame_ctx::duration_secs_to_frames(segment.duration_secs(), ctx.fps);
+                if let TimelineSegment::Scene { scene, .. } = segment {
                     if scene.style_ref().id == scene_id {
-                        return Some((*start_frame, *duration_in_frames));
+                        return Some((cursor_frame, duration_in_frames));
                     }
                 }
+                cursor_frame = cursor_frame.saturating_add(duration_in_frames);
             }
             None
         }
@@ -187,7 +185,10 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
             if !lottie_visible_at_frame(lottie, frame_ctx) {
                 return;
             }
-            if !matches!(lottie.source(), crate::parse::primitives::LottieSource::Unset) {
+            if !matches!(
+                lottie.source(),
+                crate::parse::primitives::LottieSource::Unset
+            ) {
                 let id = lottie.style_ref().id.clone();
                 if !id.is_empty() {
                     req.lotties.insert(crate::probe::catalog::LottieRequest {
@@ -216,7 +217,10 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
     }
 }
 
-fn lottie_visible_at_frame(lottie: &crate::parse::primitives::Lottie, frame_ctx: &FrameCtx) -> bool {
+fn lottie_visible_at_frame(
+    lottie: &crate::parse::primitives::Lottie,
+    frame_ctx: &FrameCtx,
+) -> bool {
     VideoFrameRequest {
         composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps.max(1) as f64,
         timing: lottie.timing(),
@@ -294,9 +298,9 @@ mod tests {
     #[test]
     fn scene_audio_uses_correct_offset() {
         let root_node: Node = timeline()
-            .sequence(10, div().id("scene-a").into())
-            .transition(fade().timing(crate::parse::easing::Easing::Linear, 5))
-            .sequence(20, div().id("scene-b").into())
+            .sequence(10.0 / 30.0, div().id("scene-a").into())
+            .transition(fade().timing(crate::parse::easing::Easing::Linear, 5.0 / 30.0))
+            .sequence(20.0 / 30.0, div().id("scene-b").into())
             .into();
 
         let root = Arc::new(move |_ctx: &FrameCtx| root_node.clone());
@@ -335,9 +339,9 @@ mod tests {
     #[test]
     fn timeline_audio_uses_full_duration() {
         let root_node: Node = timeline()
-            .sequence(10, div().id("scene-a").into())
-            .transition(fade().timing(crate::parse::easing::Easing::Linear, 5))
-            .sequence(20, div().id("scene-b").into())
+            .sequence(10.0 / 30.0, div().id("scene-a").into())
+            .transition(fade().timing(crate::parse::easing::Easing::Linear, 5.0 / 30.0))
+            .sequence(20.0 / 30.0, div().id("scene-b").into())
             .into();
 
         let root = Arc::new(move |_ctx: &FrameCtx| root_node.clone());

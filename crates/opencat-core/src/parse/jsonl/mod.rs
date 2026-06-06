@@ -1355,7 +1355,14 @@ mod tests {
         let NodeKind::Timeline(tl) = root.children_ref()[0].kind() else {
             panic!("child should be timeline");
         };
-        assert_eq!(tl.duration_in_frames(), 25);
+        let frame_ctx = crate::frame_ctx::FrameCtx {
+            frame: 0,
+            fps: parsed.fps as u32,
+            width: parsed.width,
+            height: parsed.height,
+            frames: crate::frame_ctx::duration_secs_to_frames(parsed.duration, parsed.fps as u32),
+        };
+        assert_eq!(tl.duration_in_frames(&frame_ctx), 25);
         assert_eq!(tl.style_ref().id, "main-tl");
         assert_eq!(tl.style_ref().position, Some(Position::Absolute));
         assert!(tl.style_ref().script_driver.is_some());

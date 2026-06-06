@@ -174,6 +174,46 @@ ctx.getNode("title").opacity(local && duration ? 0.6 : 0.1);"#,
 }
 
 #[test]
+fn timeline_set_applies_from_position_and_ignores_gsap_control_fields() {
+    fn opacity_at(frame: u32) -> f32 {
+        let frame_ctx = FrameCtx {
+            frame,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 60,
+        };
+        let mut assets = HashMapResourceCatalog::from_json("{}").expect("empty catalog must parse");
+        let mut script_runtime = ScriptRuntimeCache::default();
+
+        let root = div()
+            .id("root")
+            .script_source(
+                r#"
+                var tl = ctx.timeline();
+                tl.set("title", { opacity: 0.25, visibility: "hidden", overwrite: "auto" }, 0.5);
+            "#,
+            )
+            .expect("script should compile")
+            .child(text("A").id("title"));
+
+        let resolved = resolve_ui_tree(
+            &root.into(),
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut script_runtime,
+        )
+        .expect("tree should resolve");
+
+        resolved.children[0].style.visual.opacity
+    }
+
+    assert_eq!(opacity_at(14), 1.0);
+    assert_eq!(opacity_at(15), 0.25);
+}
+
+#[test]
 fn parent_script_can_split_descendant_text_before_child_resolution() {
     let frame_ctx = FrameCtx {
         frame: 0,

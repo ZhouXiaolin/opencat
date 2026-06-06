@@ -50,6 +50,13 @@
             keyframes: true,
             at: true,
         },
+        ignoredKeys: {
+            // GSAP/DOM control fields that have no direct OpenCat render output.
+            // Keeping them reserved makes imported timeline/set calls tolerant.
+            visibility: true,
+            overwrite: true,
+            immediateRender: true,
+        },
 
         registerSpecialOption: function(name) {
             this.specialOptions[name] = true;
@@ -60,7 +67,7 @@
         },
 
         isReservedKey: function(name) {
-            return this.isTimingKey(name) || !!this.specialOptions[name];
+            return this.isTimingKey(name) || !!this.specialOptions[name] || !!this.ignoredKeys[name];
         },
 
         registerProperty: function(name, descriptor, pluginName) {

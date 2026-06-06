@@ -28,12 +28,12 @@
 
 ## 选择策略
 
-| 拍点角色 | 推荐转场 | 帧数 |
+| 拍点角色 | 推荐转场 | 时长（秒） |
 |---------|---------|------|
-| 场景是**核心**（产品揭示、CTA、高潮） | `clock_wipe` / `iris` / `light_leak` 等戏剧性效果 | 12-18 |
-| 场景是**过渡连接**（叙事延续） | `fade` | 15-24 |
-| 高能量节奏（快速推进） | `slide` / `wipe` — 有方向性 | 5-12 |
-| 氛围/情感变化 | `light_leak` / 慢速溶解 | 18-30 |
+| 场景是**核心**（产品揭示、CTA、高潮） | `clock_wipe` / `iris` / `light_leak` 等戏剧性效果 | 0.4-0.6 |
+| 场景是**过渡连接**（叙事延续） | `fade` | 0.5-0.8 |
+| 高能量节奏（快速推进） | `slide` / `wipe` — 有方向性 | 0.17-0.4 |
+| 氛围/情感变化 | `light_leak` / 慢速溶解 | 0.6-1 |
 | 快速切换（3+ 快速拍点） | 硬切（但 OpenCat 需要 `<transition>`） | — |
 
 **规则：** 5-7 拍点的品牌短片通常要 1-2 个"突出"转场（iris/clock_wipe/light_leak）— 太多会降低它们的影响力。
@@ -42,11 +42,11 @@
 
 ## 能量与 Timing
 
-| 能量 | 帧数 | 缓动 |
+| 能量 | 时长（秒） | 缓动 |
 |------|------|------|
-| 平静 | 15-24 | `ease-in-out` |
-| 中等 | 9-15 | `ease-out` |
-| 高能 | 5-9 | `linear` |
+| 平静 | 0.5-0.8 | `ease-in-out` |
+| 中等 | 0.3-0.5 | `ease-out` |
+| 高能 | 0.17-0.3 | `linear` |
 
 ---
 
@@ -71,14 +71,14 @@
 **意图：** 最安全、最通用的转场。两个场景交叉淡入淡出，传达"这还在继续"的连续感。
 
 **适配场景：**
-- 高级/奢华内容（18-24 帧慢速 fade）
+- 高级/奢华内容（0.6-0.8s 慢速 fade）
 - 叙事/故事类视频
 - 需要平滑过渡的任何场景
 - 结尾淡出到黑场
 
 **参数：**
-```json
-{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"fade","duration":18,"timing":"ease-in-out"}
+```xml
+<transition from="scene1" to="scene2" effect="fade" duration="0.6" timing="ease-in-out" />
 ```
 
 ---
@@ -94,8 +94,8 @@
 - 节奏感强的视频
 
 **参数：**
-```json
-{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"slide","direction":"from_right","duration":12,"timing":"ease-out"}
+```xml
+<transition from="scene1" to="scene2" effect="slide" direction="from_right" duration="0.4" timing="ease-out" />
 ```
 
 **方向选择：**
@@ -117,8 +117,8 @@
 - 几何感强的设计
 
 **参数：**
-```json
-{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"wipe","direction":"from_top_left","duration":15,"timing":"ease-in-out"}
+```xml
+<transition from="scene1" to="scene2" effect="wipe" direction="from_top_left" duration="0.5" timing="ease-in-out" />
 ```
 
 **方向选择：**
@@ -138,8 +138,8 @@
 - 需要仪式感的场景
 
 **参数：**
-```json
-{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"clock_wipe","duration":15,"timing":"ease-in-out"}
+```xml
+<transition from="scene1" to="scene2" effect="clock_wipe" duration="0.5" timing="ease-in-out" />
 ```
 
 ---
@@ -155,8 +155,8 @@
 - 复古风格视频
 
 **参数：**
-```json
-{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"iris","duration":18,"timing":"ease-in-out"}
+```xml
+<transition from="scene1" to="scene2" effect="iris" duration="0.6" timing="ease-in-out" />
 ```
 
 ---
@@ -172,8 +172,8 @@
 - 艺术/创意项目
 
 **参数：**
-```json
-{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"light_leak","duration":18,"seed":0.5,"hueShift":0.1,"maskScale":0.8}
+```xml
+<transition from="scene1" to="scene2" effect="light_leak" duration="0.6" seed="0.5" hueShift="0.1" maskScale="0.8" />
 ```
 
 ---
@@ -182,8 +182,8 @@
 
 任何不在内置效果表中的名称作为 `effect`，运行时会在 `gltransition.json` 中查找同名 GLSL 着色器。所有 GL 转场都有默认参数，无需额外传入。
 
-```json
-{"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"crosswarp","duration":15}
+```xml
+<transition from="scene1" to="scene2" effect="crosswarp" duration="0.5" />
 ```
 
 ### 回忆/浪漫/梦幻

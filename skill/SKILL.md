@@ -5,7 +5,7 @@ description: 用 OpenCat XML 格式创建视频合成、动画、标题卡片、
 
 # OpenCat Creator
 
-XML 是视频的事实来源。运行时解析 XML，构建场景树，使用 Skia + Taffy + QuickJS 渲染帧。
+XML 是视频的事实来源。运行时解析 XML，构建场景树，使用 Skia + Taffy + QuickJS 生成视频画面。
 
 ## 流程概览与审批门禁
 
@@ -89,7 +89,7 @@ XML 是视频的事实来源。运行时解析 XML，构建场景树，使用 Sk
 
 先做脑力规划（不需要用户审批）：
 1. **结构** — plain tree 还是 timeline？哪些轨道？
-2. **时间** — 每个场景和转场的精确帧数
+2. **时间** — 每个场景和转场的精确秒数
 3. **布局** — 先构建 end-state（元素在其最可见时刻的位置）
 4. **动效** — 缓动选择、入场方向变化、交错节奏
 
@@ -118,8 +118,8 @@ XML 是视频的事实来源。运行时解析 XML，构建场景树，使用 Sk
 - **`<script>` 单实例 + 直接子 + 无属性 + 非自闭合**：多写会被并成一段，嵌套就报错
 - **`className` / `parentId` / `style` 三个属性在任何位置都拒**：请用 `class`
 - **`<audio>` 必须嵌在 `<soundtrack>` 里**；`attach` 引用 `<tl>` id 或场景 id，且该 id 必须存在
-- **`<transition>` 必须嵌在 `<tl>` 里**；`from`/`to` 必须是直接子场景且**相邻**、`from != to`、`duration` 正整数无前导零
-- **数字属性严格**：`width`/`height`/`fps`/`frames`/`duration`/`data-*` 都必须是 ASCII 正整数（无前导零、无空白、无 `+`、无全角数字），f32/f64 还要 `finite`
+- **`<transition>` 必须嵌在 `<tl>` 里**；`from`/`to` 必须是直接子场景且**相邻**、`from != to`、`duration` 为秒数且必须大于 0
+- **数字属性严格**：`width`/`height`/`fps`/`queryCount` 是 ASCII 正整数；`duration`/`data-start`/`data-duration`/`data-media-start` 是秒数，必须是 finite 且按字段要求大于 0 或不小于 0；所有数字都不能有空白、`+` 或全角数字
 
 #### 布局约束（Tailwind 对齐）
 
@@ -156,7 +156,7 @@ OpenCat 渲染器使用 Taffy 布局引擎，行为与 HTML/Tailwind 对齐：
 - [ ] 只有一个 `<opencat>` 可视根
 - [ ] 只有一个 `<script>`、是 `<opencat>` 直接子节点、无属性、非自闭合
 - [ ] 无 `className` / `parentId` / `style` 属性
-- [ ] 数字属性（`width`/`height`/`fps`/`frames`/`duration`/`data-start`/`data-duration`/...）是 ASCII 正整数
+- [ ] 数字属性合法：`width`/`height`/`fps`/`queryCount` 为 ASCII 正整数；`duration`/`data-start`/`data-duration`/... 为 finite 秒数
 - [ ] `<audio>` 在 `<soundtrack>` 内；`attach` 引用的 id 真实存在
 - [ ] `<transition>` 在 `<tl>` 内；`from`/`to` 是直接子场景且**相邻**；`from != to`
 - [ ] `<tl>` 至少 2 个直接子场景，所有场景都有 `duration`；每对相邻场景都有 `<transition>`
@@ -168,7 +168,7 @@ OpenCat 渲染器使用 Taffy 布局引擎，行为与 HTML/Tailwind 对齐：
 - [ ] 遵守 design.md 约束
 - [ ] 每场景有入场动画
 - [ ] 末场景外无退场动画
-- [ ] `frames` 与 `sum(scene.duration) + sum(transition.duration)` 对齐
+- [ ] `<opencat duration>` 与 `sum(scene.duration) + sum(transition.duration)` 对齐
 - [ ] `<text>` 内使用实际 UTF-8 字符，不用 `\uXXXX` 转义
 - [ ] `class` 无 CSS 动画/transform 类
 - [ ] tween 颜色用显式字面量

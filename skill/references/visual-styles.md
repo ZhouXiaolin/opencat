@@ -4,7 +4,7 @@
 
 **如何选择：** 先匹配情绪，再匹配内容。问：*"观众应该感受到什么？"*
 
-**如何适配 OpenCat：** YAML 中的 hex 色值转换为最接近的 Tailwind 色 token（如 `#0066FF` → `blue-600`）。时间单位为帧（@30fps，×30）。Easing 使用 opencat.md §5.1 预设名（`ease-out`、`ease-in-out`、`back-out` 等），也支持 GSAP 风格格式（`power2.inOut`、`expo.out`、`sine.in` 等）。
+**如何适配 OpenCat：** YAML 中的 hex 色值转换为最接近的 Tailwind 色 token（如 `#0066FF` → `blue-600`）。时间单位为秒，直接写入 OpenCat 的 `duration` / `delay` / timeline position，不要乘 fps。Easing 使用 opencat.md §5.1 预设名（`ease-out`、`ease-in-out`、`back-out` 等），也支持 GSAP 风格格式（`power2.inOut`、`expo.out`、`sine.in` 等）。
 
 ## Quick Reference
 
@@ -55,9 +55,9 @@ motion:
     exit: "power4.in"
     ambient: "linear"
   duration:
-    entrance: 12             # 帧 (原 0.4s)
-    hold: 45                 # 帧 (原 1.5s)
-    transition: 18           # 帧 (原 0.6s)
+    entrance: 0.4            # 秒
+    hold: 1.5                # 秒
+    transition: 0.6          # 秒
   atmosphere:
     - grid-lines
     - registration-marks
@@ -102,9 +102,9 @@ motion:
     exit: "power1.in"
     ambient: "sine.inOut"
   duration:
-    entrance: 36             # 帧 (原 1.2s)
-    hold: 90                 # 帧 (原 3.0s)
-    transition: 45           # 帧 (原 1.5s)
+    entrance: 1.2            # 秒
+    hold: 3.0                # 秒
+    transition: 1.5          # 秒
   atmosphere:
     - subtle-grain
     - hairline-rules
@@ -146,9 +146,9 @@ motion:
     exit: "steps(8)"
     ambient: "elastic.out(1.2, 0.4)"
   duration:
-    entrance: 9              # 帧 (原 0.3s)
-    hold: 30                 # 帧 (原 1.0s)
-    transition: 15           # 帧 (原 0.5s)
+    entrance: 0.3            # 秒
+    hold: 1.0                # 秒
+    transition: 0.5          # 秒
   atmosphere:
     - scan-lines
     - glitch-artifacts
@@ -191,9 +191,9 @@ motion:
     exit: "back.out(1.8)"
     ambient: "power3.out"
   duration:
-    entrance: 9              # 帧 (原 0.3s)
-    hold: 24                 # 帧 (原 0.8s)
-    transition: 12           # 帧 (原 0.4s)
+    entrance: 0.3            # 秒
+    hold: 0.8                # 秒
+    transition: 0.4          # 秒
   atmosphere:
     - type-layers
     - color-blocks
@@ -238,9 +238,9 @@ motion:
     exit: "power2.out"
     ambient: "sine.inOut"
   duration:
-    entrance: 30             # 帧 (原 1.0s)
-    hold: 75                 # 帧 (原 2.5s)
-    transition: 45           # 帧 (原 1.5s)
+    entrance: 1.0            # 秒
+    hold: 2.5                # 秒
+    transition: 1.5          # 秒
   atmosphere:
     - particle-field
     - light-traces
@@ -289,9 +289,9 @@ motion:
     exit: "power1.inOut"
     ambient: "sine.inOut"
   duration:
-    entrance: 30             # 帧 (原 1.0s)
-    hold: 90                 # 帧 (原 3.0s)
-    transition: 45           # 帧 (原 1.5s)
+    entrance: 1.0            # 秒
+    hold: 3.0                # 秒
+    transition: 1.5          # 秒
   atmosphere:
     - soft-gradient
     - warm-grain
@@ -338,9 +338,9 @@ motion:
     exit: "elastic.out(1, 0.5)"
     ambient: "sine.inOut"
   duration:
-    entrance: 15             # 帧 (原 0.5s)
-    hold: 45                 # 帧 (原 1.5s)
-    transition: 24           # 帧 (原 0.8s)
+    entrance: 0.5            # 秒
+    hold: 1.5                # 秒
+    transition: 0.8          # 秒
   atmosphere:
     - pattern-tiles
     - confetti-burst
@@ -348,7 +348,7 @@ motion:
   transition: slide
 ```
 
-大胆温暖圆体。图案和重复——民间艺术节奏和密度。分层构图，丰富视觉纹理。每帧感觉手工制作。彩色动效：元素弹跳、弹出、旋转就位。overshoot 感觉有意。庆祝性能量。
+大胆温暖圆体。图案和重复——民间艺术节奏和密度。分层构图，丰富视觉纹理。每个画面感觉手工制作。彩色动效：元素弹跳、弹出、旋转就位。overshoot 感觉有意。庆祝性能量。
 
 ---
 
@@ -385,9 +385,9 @@ motion:
     exit: "power4.in"
     ambient: "sine.inOut"
   duration:
-    entrance: 24             # 帧 (原 0.8s)
-    hold: 75                 # 帧 (原 2.5s)
-    transition: 36           # 帧 (原 1.2s)
+    entrance: 0.8            # 秒
+    hold: 2.5                # 秒
+    transition: 1.2          # 秒
   atmosphere:
     - deep-shadow
     - vignette

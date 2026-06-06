@@ -10,16 +10,17 @@
 
 ## 核心原理
 
-音频数据是预提取的逐帧频段能量。在每帧通过 `ctx.frame` 采样：
+音频数据是预提取的固定 fps 频段能量样本。动画脚本优先用秒级 `ctx.time` 定位，再换算到音频数据索引：
 
 ```js
-// audio-data.json: { fps: 30, totalFrames: 900, frames: [{ bands: [0.82, 0.45, 0.31, ...] }, ...] }
+// audio-data.json: { fps: 30, duration: 30, samples: [{ bands: [0.82, 0.45, 0.31, ...] }, ...] }
 
 // 在 canvas 脚本或 script 中：
-var frame = audioData.frames[ctx.frame];
-if (frame) {
-  var bass = frame.bands[0]; // 0-1, 低频
-  var treble = frame.bands[13]; // 0-1, 高频
+var index = Math.floor(ctx.time * audioData.fps);
+var sample = audioData.samples[index];
+if (sample) {
+  var bass = sample.bands[0]; // 0-1, 低频
+  var treble = sample.bands[13]; // 0-1, 高频
 
   // 低音驱动缩放
   ctx.getNode('logo').scale(1 + bass * 0.04);
@@ -47,10 +48,10 @@ python3 scripts/extract-audio-data.py audio.mp3 --fps 30 --bands 16 -o audio-dat
 加载到合成中：
 
 ```xml
-<opencat width="1280" height="720" fps="30" frames="360">
+<opencat width="1280" height="720" fps="30" duration="12">
   <script>
     var audioData = JSON.parse(audioDataJson);
-    // 在每帧使用 audioData.frames[ctx.frame]
+    // 用 ctx.time 换算到 audioData.samples
   </script>
 </opencat>
 ```

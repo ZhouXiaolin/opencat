@@ -637,9 +637,9 @@ mod tests {
     #[test]
     fn transition_progress_change_moves_paint_input_subtree() {
         let node: crate::Node = timeline()
-            .sequence(3, div().id("scene_a").w(100.0).h(100.0).into())
-            .transition(fade().timing(Easing::Linear, 4))
-            .sequence(3, div().id("scene_b").w(100.0).h(100.0).into())
+            .sequence(3.0 / 30.0, div().id("scene_a").w(100.0).h(100.0).into())
+            .transition(fade().timing(Easing::Linear, 4.0 / 30.0))
+            .sequence(3.0 / 30.0, div().id("scene_b").w(100.0).h(100.0).into())
             .into();
 
         let at_frame_3 = resolve_at_frame(node.clone(), 3);

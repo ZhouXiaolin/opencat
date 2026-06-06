@@ -76,9 +76,9 @@ fn transition_scenes_keep_node_scripts_isolated() {
         .expect("script should compile")
         .child(text("To").id("title"));
     let root = timeline()
-        .sequence(10, from_scene.into())
-        .transition(slide().timing(Easing::Linear, 10))
-        .sequence(10, to_scene.into())
+        .sequence(10.0 / 30.0, from_scene.into())
+        .transition(slide().timing(Easing::Linear, 10.0 / 30.0))
+        .sequence(10.0 / 30.0, to_scene.into())
         .into();
 
     let FrameState::Transition {
@@ -140,11 +140,11 @@ ctx.getNode("title").opacity(local && duration ? 0.6 : 0.1);"#,
         .child(text("B").id("title"));
     let root = timeline()
         .sequence(
-            10,
+            10.0 / 30.0,
             div().id("scene-a").child(text("A").id("a-title")).into(),
         )
-        .transition(slide().timing(Easing::Linear, 5))
-        .sequence(10, scene.into())
+        .transition(slide().timing(Easing::Linear, 5.0 / 30.0))
+        .sequence(10.0 / 30.0, scene.into())
         .into();
 
     let FrameState::Scene {
@@ -232,8 +232,11 @@ fn resolve_caption_uses_scene_local_time_inside_timeline() {
         },
     ]);
     let root = timeline()
-        .sequence(10, div().id("scene-a").child(text("A").id("t")).into())
-        .sequence(10, div().id("scene-b").child(caption_node).into())
+        .sequence(
+            10.0 / 30.0,
+            div().id("scene-a").child(text("A").id("t")).into(),
+        )
+        .sequence(10.0 / 30.0, div().id("scene-b").child(caption_node).into())
         .into();
     let frame_ctx = FrameCtx {
         frame: 17,

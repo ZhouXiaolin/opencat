@@ -19,11 +19,11 @@
   // 缩小到右下角
   ctx.fromTo('pip-frame',
     { top: 0, left: 0, width: '100%', height: '100%' },
-    { top: 700, left: 1360, width: 500, height: 280, duration: 30, ease: 'ease-out' },
-    300
+    { top: 700, left: 1360, width: 500, height: 280, duration: 1, ease: 'ease-out' },
+    10
   );
   // 移动到左边缘
-  ctx.to('pip-frame', { left: 40, duration: 18, ease: 'ease-out' }, 900);
+  ctx.to('pip-frame', { left: 40, duration: 0.6, ease: 'ease-out' }, 30);
 </script>
 ```
 
@@ -61,14 +61,14 @@
     opacity: 0, y: 30, scale: 0.95,
   }, {
     opacity: 1, y: 0, scale: 1,
-    duration: 15, stagger: 4, ease: 'spring.gentle',
+    duration: 0.5, stagger: 0.13, ease: 'spring.gentle',
   });
 </script>
 ```
 
 **规则：**
 - 最先移动的元素被认为最重要 — 按重要性顺序交错，不按 DOM 顺序
-- 交错序列总长不超过 15 帧（0.5s @30fps）
+- 交错序列总长不超过 0.5s
 - 入场重叠，不串行等待
 
 ---
@@ -81,7 +81,7 @@
   <text class="text-[24px] text-slate-400">活跃用户</text>
 </div>
 <script>
-  ctx.to('counter', { number: 135000, duration: 45, ease: 'ease-out', format: { useGrouping: true } }, 6);
+  ctx.to('counter', { number: 135000, duration: 1.5, ease: 'ease-out', format: { useGrouping: true } }, 0.2);
 </script>
 ```
 
@@ -107,9 +107,9 @@
 <script>
   // 呼吸发光
   var tl = ctx.timeline();
-  tl.to('glow', { scale: 1.15, duration: 90, repeat: -1, yoyo: true, ease: 'sine.inOut' }, 0);
+  tl.to('glow', { scale: 1.15, duration: 3, repeat: -1, yoyo: true, ease: 'sine.inOut' }, 0);
   // 幽灵文字漂浮
-  tl.to('ghost', { y: -20, duration: 120, repeat: -1, yoyo: true, ease: 'sine.inOut' }, 0);
+  tl.to('ghost', { y: -20, duration: 4, repeat: -1, yoyo: true, ease: 'sine.inOut' }, 0);
 </script>
 ```
 
@@ -125,7 +125,7 @@
   </div>
 </div>
 <script>
-  ctx.fromTo('title', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 18, ease: 'ease-out' }, 9);
-  ctx.fromTo('subtitle', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 12, ease: 'ease-out' }, 21);
+  ctx.fromTo('title', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6, ease: 'ease-out' }, 0.3);
+  ctx.fromTo('subtitle', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: 'ease-out' }, 0.7);
 </script>
 ```

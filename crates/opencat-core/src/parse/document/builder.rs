@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::frame_ctx::duration_secs_to_frames;
 use crate::parse::{
     easing::{Easing, SpringConfig, easing_from_name},
     node::Node,
@@ -128,8 +127,7 @@ pub fn build_font_resources(
     manifest: &crate::resource::fonts::FontManifest,
     bytes_by_id: &std::collections::HashMap<String, Vec<u8>>,
 ) -> anyhow::Result<(fontdb::Database, FontFamilyIndex)> {
-    merge_faces_into_db(base_db, manifest, bytes_by_id)
-        .map_err(|e| anyhow::anyhow!("{e}"))
+    merge_faces_into_db(base_db, manifest, bytes_by_id).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 fn index_elements(
@@ -324,14 +322,14 @@ fn build_node_inner(
                     fps,
                     options,
                 )?;
-                tl_builder = tl_builder.sequence(duration_secs_to_frames(duration, fps), node);
+                tl_builder = tl_builder.sequence(duration, node);
 
                 let Some(&next_id) = child_ids.get(index + 1) else {
                     continue;
                 };
                 if let Some(transition) = transitions_by_pair.get(&(child_el.id.as_str(), next_id))
                 {
-                    tl_builder = tl_builder.transition(build_transition(transition, fps)?);
+                    tl_builder = tl_builder.transition(build_transition(transition)?);
                 }
             }
 
@@ -477,9 +475,9 @@ fn build_node_inner(
     }
 }
 
-fn build_transition(transition: &ParsedTransition, fps: u32) -> anyhow::Result<Transition> {
+fn build_transition(transition: &ParsedTransition) -> anyhow::Result<Transition> {
     let easing = parse_transition_easing(transition)?;
-    let duration = duration_secs_to_frames(transition.duration, fps);
+    let duration = transition.duration;
     let effect = normalize_transition_name(&transition.effect);
 
     match effect.as_str() {

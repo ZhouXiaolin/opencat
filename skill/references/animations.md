@@ -12,13 +12,13 @@ ctx.fromTo('card', {
   opacity: 0, x: -100, y: 50, scale: 0.8, rotation: -10,
 }, {
   opacity: 1, x: 0, y: 0, scale: 1, rotation: 0,
-  duration: 30, ease: 'spring.gentle',
+  duration: 1, ease: 'spring.gentle',
 });
 
 // 组合变换
 ctx.to('logo', {
   scale: 1.2, rotation: 360,
-  duration: 60, ease: 'ease-in-out', repeat: -1, yoyo: true,
+  duration: 2, ease: 'ease-in-out', repeat: -1, yoyo: true,
 });
 ```
 
@@ -34,7 +34,7 @@ ctx.fromTo('card', {
   backgroundColor: '#ef4444',
 }, {
   backgroundColor: 'hsl(220, 90%, 55%)',
-  duration: 60, repeat: -1, yoyo: true,
+  duration: 2, repeat: -1, yoyo: true,
 });
 
 // 文字颜色变化
@@ -42,7 +42,7 @@ ctx.fromTo('title', {
   color: '#ffffff',
 }, {
   color: '#00C3FF',
-  duration: 30, ease: 'ease-in-out',
+  duration: 1, ease: 'ease-in-out',
 });
 ```
 
@@ -57,21 +57,21 @@ ctx.fromTo('title', {
 ctx.to('rocket', {
   path: 'M100 360 C400 80 880 640 1180 360',
   orient: -90,
-  duration: 120, ease: 'ease-in-out', repeat: -1, yoyo: true,
+  duration: 4, ease: 'ease-in-out', repeat: -1, yoyo: true,
 });
 
 // 循环轨道
 ctx.to('planet', {
   path: 'M540 360 A200 200 0 1 1 539.99 360',
   orient: 0,
-  duration: 180, ease: 'linear', repeat: -1,
+  duration: 6, ease: 'linear', repeat: -1,
 });
 
 // 沿曲线入场
 ctx.from('icon', {
   path: 'M-100 800 C200 600 600 200 960 540',
   orient: -90, opacity: 0,
-  duration: 45, ease: 'ease-out',
+  duration: 1.5, ease: 'ease-out',
 });
 ```
 
@@ -85,7 +85,7 @@ ctx.from('icon', {
 
 ## 变形路径 (morphSVG)
 
-改变 `type: "path"` 节点的几何形状：
+改变 `<path>` 节点的几何形状：
 
 ```js
 // 三角形翻转
@@ -93,7 +93,7 @@ ctx.fromTo('shape', {
   d: 'M100 0 L200 200 L0 200 Z',
 }, {
   d: 'M100 200 L200 0 L0 0 Z',
-  duration: 30, ease: 'ease-in-out',
+  duration: 1, ease: 'ease-in-out',
 });
 
 // blob 呼吸
@@ -105,14 +105,14 @@ ctx.timeline().to('blob', {
       { at: 1, value: 'M100 20 C155 20 180 60 180 100 C180 155 140 180 100 180 C45 180 20 140 20 100 C20 55 50 20 100 20 Z' },
     ],
   },
-  duration: 90, repeat: -1,
+  duration: 3, repeat: -1,
 }, 0);
 ```
 
 规则：
-- 目标必须是 `type: "path"` 节点
+- 目标必须是 `<path>` 节点
 - `from` 和 `to` 必须拓扑匹配（相同命令数、同开/闭状态）
-- 中间帧通过弧长重采样和点对应生成
+- 中间画面通过弧长重采样和点对应生成
 
 ---
 
@@ -120,9 +120,9 @@ ctx.timeline().to('blob', {
 
 ```js
 // 均匀分布
-ctx.to('card', { keyframes: { scale: [1, 1.4, 0.8, 1] }, duration: 60 });
+ctx.to('card', { keyframes: { scale: [1, 1.4, 0.8, 1] }, duration: 2 });
 
-// 逐帧缓动
+// 多段缓动
 ctx.to('logo', {
   keyframes: {
     rotate: [
@@ -131,7 +131,7 @@ ctx.to('logo', {
       { at: 1, value: 0 },
     ],
   },
-  duration: 60,
+  duration: 2,
 });
 ```
 
@@ -147,7 +147,7 @@ ctx.fromTo(
   { opacity: 0, y: 30, scale: 0.9 },
   {
     opacity: 1, y: 0, scale: 1,
-    stagger: 4,
+    stagger: 0.13,
     ease: { spring: { stiffness: 80, damping: 14, mass: 1 } },
   }
 );
@@ -160,7 +160,7 @@ ctx.fromTo(
 ```js
 var hero = ctx.fromTo('title',
   { opacity: 0, y: 40 },
-  { opacity: 1, y: 0, duration: 20, ease: 'spring.gentle' }
+  { opacity: 1, y: 0, duration: 0.67, ease: 'spring.gentle' }
 );
 ctx.getNode('subtitle')
   .opacity(Math.min(0.85, hero.opacity * 0.85))
@@ -173,7 +173,7 @@ ctx.getNode('subtitle')
 
 ```js
 ctx.timeline().to('glow', {
-  scale: 1.08, yoyo: true, repeat: 5, duration: 36, ease: 'sine.inOut',
+  scale: 1.08, yoyo: true, repeat: 5, duration: 1.2, ease: 'sine.inOut',
 }, 0);
 ```
 
@@ -185,7 +185,7 @@ ctx.timeline().to('glow', {
 var items = ['card-1', 'card-2', 'card-3'];
 var anims = ctx.fromTo(items,
   { opacity: 0, y: 30, scale: 0.9 },
-  { opacity: 1, y: 0, scale: 1, stagger: 4, ease: 'spring.gentle' }
+  { opacity: 1, y: 0, scale: 1, stagger: 0.13, ease: 'spring.gentle' }
 );
 items.forEach(function(id, i) {
   ctx.getNode(id).opacity(anims[i].opacity).translateY(anims[i].y).scale(anims[i].scale);
@@ -215,5 +215,5 @@ ctx.getNode('id')
 - 用 timeline 编排而非 delay 链
 - 保存 tween/timeline 返回值以控制播放
 - 每场景 3+ 种 easing
-- 入场比退场长（12 帧出现、7-8 帧消失）
-- 首个 tween 偏移 3-9 帧
+- 入场比退场长（约 0.4s 出现、0.23-0.27s 消失）
+- 首个 tween 偏移 0.1-0.3s

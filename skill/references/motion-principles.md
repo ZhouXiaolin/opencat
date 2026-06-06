@@ -14,7 +14,7 @@
 - **入场方向要变化** — 不要所有元素都用 `y:30, opacity:0`，混合使用左/右/缩放/纯透明度/字间距
 - **交错节奏要变化** — 每个场景需要自己的韵律
 - **环境动效要变化** — 每场景选不同动效：慢速平移/微妙旋转/缩放推进/色彩偏移/不动
-- **不要从 t=0 开始** — 首个动画偏移 3-9 帧
+- **不要从 t=0 开始** — 首个动画偏移 0.1-0.3s
 
 ## 缓动即情感
 
@@ -29,12 +29,12 @@
 
 ## 速度传达重量
 
-| 速度 | 帧数 | 情感 |
+| 速度 | 时长（秒） | 情感 |
 |------|------|------|
-| 快速 | 4-9 | 能量、紧迫、自信 |
-| 中速 | 9-15 | 专业（默认） |
-| 慢速 | 15-24 | 重量感、奢华 |
-| 极慢 | 24-60 | 电影感、氛围 |
+| 快速 | 0.13-0.3 | 能量、紧迫、自信 |
+| 中速 | 0.3-0.5 | 专业（默认） |
+| 慢速 | 0.5-0.8 | 重量感、奢华 |
+| 极慢 | 0.8-2 | 电影感、氛围 |
 
 ## 场景结构：建场 / 呼吸 / 收场
 
@@ -52,11 +52,11 @@
 
 ## 编排即层级
 
-最先运动的元素被认为最重要。按重要性顺序交错，不等上一个完成——重叠入场。总交错序列不超过 500ms（15 帧）。
+最先运动的元素被认为最重要。按重要性顺序交错，不等上一个完成——重叠入场。总交错序列不超过 0.5s。
 
 ## 非对称
 
-入场比退场长。卡片用 12 帧出现但 7-8 帧消失。
+入场比退场长。卡片用 0.4s 出现但 0.23-0.27s 消失。
 
 ## 视觉构图
 
@@ -75,7 +75,7 @@
 每张图片必须有动效处理：
 
 - **透视倾斜**：`ctx.from('hero', { rotate: -2, scale: 0.96, duration: 0 })` 或用 class `rotate-[-2deg] scale-[0.96]` — 创造深度
-- **慢速缩放（Ken Burns）**：`ctx.to('hero', { scale: 1.04, duration: 帧数, ease: "none" })` — 电影感
+- **慢速缩放（Ken Burns）**：`ctx.to('hero', { scale: 1.04, duration: 秒数, ease: "none" })` — 电影感
 - **设备边框**：用 Tailwind `rounded-*` 和 `shadow-*` 包裹
 - **浮动 UI**：提取关键元素在不同 z 深度单独动画制造视差
 - **滚动揭示**：将图片裁剪到视口窗口，动画其 `y` 位置
@@ -86,18 +86,29 @@
 
 第二个补间在构造时写入初始状态，覆盖第一个——使元素不可见。修复方式：合并为一个 `fromTo`，或拆分到父子元素。
 
-```jsonl
+```xml
 <!-- 错误：一个元素两个变换 -->
-{"id":"hero","type":"image","path":"hero.jpg"}
-{"type":"script","src":"ctx.timeline()\n  .fromTo('hero', { y: 50, opacity: 0, scale: 1.0 }, { y: 0, opacity: 1, scale: 1, duration: 18 }, 0)\n  .to('hero', { scale: 1.04, duration: beat }, 0);"}
+<image id="hero" path="hero.jpg" />
+<script>
+ctx.timeline()
+  .fromTo('hero', { y: 50, opacity: 0, scale: 1.0 }, { y: 0, opacity: 1, scale: 1, duration: 0.6 }, 0)
+  .to('hero', { scale: 1.04, duration: beat }, 0);
+</script>
 
 <!-- 正确：合并为一个 fromTo -->
-{"type":"script","src":"ctx.timeline().fromTo('hero', { y: 50, opacity: 0, scale: 1.0 }, { y: 0, opacity: 1, scale: 1.04, duration: beat, ease: 'none' }, 0);"}
+<script>
+ctx.timeline().fromTo('hero', { y: 50, opacity: 0, scale: 1.0 }, { y: 0, opacity: 1, scale: 1.04, duration: beat, ease: 'none' }, 0);
+</script>
 
 <!-- 正确：拆分到父子元素 -->
-{"id":"hero-wrap","type":"div","className":"w-[400px] h-[300px]"}
-{"id":"hero","parentId":"hero-wrap","type":"image","path":"hero.jpg"}
-{"type":"script","src":"ctx.timeline()\n  .fromTo('hero-wrap', { y: 50, opacity: 0 }, { y: 0, opacity: 1, duration: 18 }, 0)\n  .to('hero', { scale: 1.04, duration: beat }, 0);"}
+<div id="hero-wrap" class="w-[400px] h-[300px]">
+  <image id="hero" path="hero.jpg" />
+</div>
+<script>
+ctx.timeline()
+  .fromTo('hero-wrap', { y: 50, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6 }, 0)
+  .to('hero', { scale: 1.04, duration: beat }, 0);
+</script>
 ```
 
 ### 优先使用 `fromTo` 而非 `to`
@@ -106,9 +117,9 @@
 
 ```js
 // 脆弱
-ctx.to('el', { opacity: 1, y: 0, duration: 18 });
+ctx.to('el', { opacity: 1, y: 0, duration: 0.6 });
 // 确定
-ctx.fromTo('el', { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 18 });
+ctx.fromTo('el', { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.6 });
 ```
 
 ### 环境动效必须挂载到时间线
@@ -117,16 +128,16 @@ ctx.fromTo('el', { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 18 });
 
 ```js
 // 错误：渲染中不工作
-ctx.to("aura", { scale: 1.08, yoyo: true, repeat: 5, duration: 36 });
+ctx.to("aura", { scale: 1.08, yoyo: true, repeat: 5, duration: 1.2 });
 // 正确：确定性可渲染
-ctx.timeline().to("aura", { scale: 1.08, yoyo: true, repeat: 5, duration: 36 }, 0);
+ctx.timeline().to("aura", { scale: 1.08, yoyo: true, repeat: 5, duration: 1.2 }, 0);
 ```
 
 ### 场景边界硬杀死
 
-逐帧模型中 `to` 过 duration 后会 clamp 在终点值，因此不需要额外的 `set` 来杀死：
+逐采样模型中 `to` 过 duration 后会 clamp 在终点值，因此不需要额外的 `set` 来杀死：
 
 ```js
-ctx.fromTo('el', { opacity: 1 }, { opacity: 0, duration: 9, ease: "ease-in" }, beatEnd);
-// 第 beatEnd + 9 帧之后 opacity 保持 0，无需 set 补刀
+ctx.fromTo('el', { opacity: 1 }, { opacity: 0, duration: 0.3, ease: "ease-in" }, beatEnd);
+// 第 beatEnd + 0.3s 之后 opacity 保持 0，无需 set 补刀
 ```

@@ -350,6 +350,40 @@ pub fn render_single_frame_from_jsonl_with_base(
     Ok((rgba, info.width, info.height))
 }
 
+pub fn render_single_frame_png_with_base(
+    input: &str,
+    base_dir: Option<&Path>,
+    output_path: impl AsRef<Path>,
+    frame_index: u32,
+) -> Result<()> {
+    let output_path = output_path.as_ref();
+    let (rgba, width, height) =
+        render_single_frame_from_jsonl_with_base(input, base_dir, frame_index)?;
+    write_rgba_png(output_path, width, height, rgba)
+}
+
+pub fn render_single_frame_png(
+    input: &str,
+    output_path: impl AsRef<Path>,
+    frame_index: u32,
+) -> Result<()> {
+    render_single_frame_png_with_base(input, None, output_path, frame_index)
+}
+
+fn write_rgba_png(output_path: &Path, width: u32, height: u32, rgba: Vec<u8>) -> Result<()> {
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let image = image::RgbaImage::from_raw(width, height, rgba)
+        .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
+    image.save(output_path)?;
+    Ok(())
+}
+
 impl EncodingConfig {
     pub fn mp4() -> Self {
         Self {

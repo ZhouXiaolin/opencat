@@ -796,7 +796,10 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
     }
 
     // font-[N] weight or font-[faceId] manifest reference
-    if let Some(value) = class.strip_prefix("font-[").and_then(|v| v.strip_suffix(']')) {
+    if let Some(value) = class
+        .strip_prefix("font-[")
+        .and_then(|v| v.strip_suffix(']'))
+    {
         if let Ok(weight) = value.parse::<u16>()
             && (100..=950).contains(&weight)
         {

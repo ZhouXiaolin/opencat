@@ -47,10 +47,7 @@ impl FontManifest {
     pub fn build_family_index(&self) -> FontFamilyIndex {
         let mut index = FontFamilyIndex::default();
         for face in &self.faces {
-            let family = face
-                .family
-                .clone()
-                .unwrap_or_else(|| face.id.clone());
+            let family = face.family.clone().unwrap_or_else(|| face.id.clone());
             index.id_to_family.insert(face.id.clone(), family);
         }
         index
@@ -113,10 +110,7 @@ pub fn load_faces_into_db(
             .get(&face.id)
             .ok_or_else(|| anyhow!("font `{}`: bytes not loaded", face.id))?;
         db.load_font_data(bytes.clone());
-        let family = face
-            .family
-            .clone()
-            .unwrap_or_else(|| face.id.clone());
+        let family = face.family.clone().unwrap_or_else(|| face.id.clone());
         index.id_to_family.insert(face.id.clone(), family);
     }
 
@@ -183,8 +177,9 @@ pub fn fetch_manifest_bytes(
                     .with_context(|| format!("font `{}`", face.id))?;
                 read_path(&resolved)?
             }
-            FontSource::Url(url) => fetch_url(url)
-                .with_context(|| format!("font `{}` url `{url}`", face.id))?,
+            FontSource::Url(url) => {
+                fetch_url(url).with_context(|| format!("font `{}` url `{url}`", face.id))?
+            }
         };
         out.insert(face.id.clone(), bytes);
     }
@@ -218,7 +213,10 @@ mod tests {
         };
         let (db, index) =
             load_faces_into_db(fontdb::Database::new(), &manifest, &map).expect("load");
-        assert_eq!(index.id_to_family.get("sans").map(String::as_str), Some("Noto Sans SC"));
+        assert_eq!(
+            index.id_to_family.get("sans").map(String::as_str),
+            Some("Noto Sans SC")
+        );
         assert_eq!(db.family_name(&fontdb::Family::SansSerif), "Noto Sans SC");
     }
 }

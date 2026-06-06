@@ -46,7 +46,8 @@ pub use opencat_engine::render::{
     EncodingConfig, Mp4Config, OutputFormat, RenderBackend, RenderSession, build_audio_track,
     render, render_audio_chunk, render_frame_rgb, render_frame_rgba, render_frame_to_target,
     render_frame_with_target, render_from_jsonl, render_single_frame_from_jsonl,
-    render_with_backend_progress, render_with_progress,
+    render_single_frame_png, render_single_frame_png_with_base, render_with_backend_progress,
+    render_with_progress,
 };
 pub use opencat_engine::source_io::{parse_file, parse_with_base_dir};
 

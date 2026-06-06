@@ -244,75 +244,75 @@ pub fn rasterize_glyphs(
     let mut lines: Vec<TextLine> = Vec::new();
 
     with_swash_cache(|swash_cache| {
-            for run in buffer.layout_runs() {
-                let mut positions: Vec<GlyphPosition> = Vec::new();
+        for run in buffer.layout_runs() {
+            let mut positions: Vec<GlyphPosition> = Vec::new();
 
-                let mut x_correction: f32 = 0.0;
-                let mut corrected_line_w: f32 = run.line_w;
+            let mut x_correction: f32 = 0.0;
+            let mut corrected_line_w: f32 = run.line_w;
 
-                for glyph in run.glyphs {
-                    let physical = glyph.physical((0.0, 0.0), 1.0);
-                    let ck = glyph_cache_key(&physical.cache_key);
-                    let ok = glyph_outline_key(&physical.cache_key);
+            for glyph in run.glyphs {
+                let physical = glyph.physical((0.0, 0.0), 1.0);
+                let ck = glyph_cache_key(&physical.cache_key);
+                let ok = glyph_outline_key(&physical.cache_key);
 
-                    let x = physical.x as f32 + physical.cache_key.x_bin.as_float() - x_correction;
-                    let y = run.line_y + physical.y as f32 + physical.cache_key.y_bin.as_float();
+                let x = physical.x as f32 + physical.cache_key.x_bin.as_float() - x_correction;
+                let y = run.line_y + physical.y as f32 + physical.cache_key.y_bin.as_float();
 
-                    let is_space = rendered.get(glyph.start..glyph.end) == Some(" ");
+                let is_space = rendered.get(glyph.start..glyph.end) == Some(" ");
 
-                    positions.push(GlyphPosition {
-                        cache_key: ck,
-                        outline_key: ok,
-                        x,
-                        y,
-                        byte_range: glyph.start..glyph.end,
-                    });
+                positions.push(GlyphPosition {
+                    cache_key: ck,
+                    outline_key: ok,
+                    x,
+                    y,
+                    byte_range: glyph.start..glyph.end,
+                });
 
-                    if is_space {
-                        let target_advance = style.text_px * 0.25;
-                        let excess = glyph.w - target_advance;
-                        x_correction += excess;
-                        corrected_line_w -= excess;
-                    }
-
-                    if glyphs.contains_key(&ck) {
-                        continue;
-                    }
-
-                    let swash_image = swash_cache.get_image(&mut font_system, physical.cache_key);
-                    if let Some(image) = swash_image
-                        && image.content == SwashContent::Color
-                    {
-                        glyphs.insert(
-                            ck,
-                            GlyphData::ColorImage {
-                                rgba: image.data.clone(),
-                                width: image.placement.width,
-                                height: image.placement.height,
-                                placement_left: image.placement.left,
-                                placement_top: image.placement.top,
-                            },
-                        );
-                        continue;
-                    }
-
-                    if let Some(commands) =
-                        swash_cache.get_outline_commands(&mut font_system, physical.cache_key)
-                    {
-                        let upem = font_system
-                            .get_font(physical.cache_key.font_id, physical.cache_key.font_weight)
-                            .map(|f| f.as_swash().metrics(&[]).units_per_em as f32)
-                            .unwrap_or(1000.0);
-                        glyphs.insert(ck, GlyphData::Outline(commands.to_vec(), upem));
-                    }
+                if is_space {
+                    let target_advance = style.text_px * 0.25;
+                    let excess = glyph.w - target_advance;
+                    x_correction += excess;
+                    corrected_line_w -= excess;
                 }
 
-                lines.push(TextLine {
-                    y: run.line_y,
-                    width: corrected_line_w,
-                    positions,
-                });
+                if glyphs.contains_key(&ck) {
+                    continue;
+                }
+
+                let swash_image = swash_cache.get_image(&mut font_system, physical.cache_key);
+                if let Some(image) = swash_image
+                    && image.content == SwashContent::Color
+                {
+                    glyphs.insert(
+                        ck,
+                        GlyphData::ColorImage {
+                            rgba: image.data.clone(),
+                            width: image.placement.width,
+                            height: image.placement.height,
+                            placement_left: image.placement.left,
+                            placement_top: image.placement.top,
+                        },
+                    );
+                    continue;
+                }
+
+                if let Some(commands) =
+                    swash_cache.get_outline_commands(&mut font_system, physical.cache_key)
+                {
+                    let upem = font_system
+                        .get_font(physical.cache_key.font_id, physical.cache_key.font_weight)
+                        .map(|f| f.as_swash().metrics(&[]).units_per_em as f32)
+                        .unwrap_or(1000.0);
+                    glyphs.insert(ck, GlyphData::Outline(commands.to_vec(), upem));
+                }
             }
+
+            lines.push(TextLine {
+                y: run.line_y,
+                width: corrected_line_w,
+                positions,
+            });
+        }
     });
 
     TextRasterization { glyphs, lines }

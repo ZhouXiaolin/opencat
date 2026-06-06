@@ -320,8 +320,7 @@ fn parse_opencat_children(
                         parse_fonts(child, base_dir, &mut parts.font_manifest)?;
                     }
                     "div" | "text" | "canvas" | "image" | "lottie" | "video" | "icon" | "path"
-                        | "caption"
-                    | "tl" => {
+                    | "caption" | "tl" => {
                         let id = required_attr(child, "id")?;
                         if visual_root.is_some() {
                             anyhow::bail!("multiple visual root elements found");
@@ -389,8 +388,7 @@ fn parse_visual_node(
                         let child_tag = child.tag_name().name();
                         match child_tag {
                             "div" | "text" | "canvas" | "image" | "lottie" | "video" | "icon"
-                                | "path"
-                            | "caption" | "tl" => {
+                            | "path" | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
                                     Some(&id),
@@ -457,8 +455,7 @@ fn parse_visual_node(
                         let child_tag = child.tag_name().name();
                         match child_tag {
                             "div" | "text" | "canvas" | "image" | "lottie" | "video" | "icon"
-                                | "path"
-                            | "caption" | "tl" => {
+                            | "path" | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
                                     Some(&id),
@@ -487,7 +484,7 @@ fn parse_visual_node(
         }
         "image" => {
             ensure_allowed_attrs(node, IMAGE_ATTRS)?;
-            let source = parse_image_source(node)?;
+            let source = parse_image_source(node, base_dir)?;
             let parent_id = parent_id.map(|s| s.to_string());
             parts.elements.push(ParsedElement {
                 id: id.to_string(),
@@ -500,7 +497,7 @@ fn parse_visual_node(
         }
         "lottie" => {
             ensure_allowed_attrs(node, LOTTIE_ATTRS)?;
-            let source = parse_lottie_source(node)?;
+            let source = parse_lottie_source(node, base_dir)?;
             let timing = parse_video_timing(node)?;
             let parent_id = parent_id.map(|s| s.to_string());
             parts.elements.push(ParsedElement {
@@ -514,7 +511,7 @@ fn parse_visual_node(
         }
         "video" => {
             ensure_allowed_attrs(node, VIDEO_ATTRS)?;
-            let source = parse_video_source(node)?;
+            let source = parse_video_source(node, base_dir)?;
             let timing = parse_video_timing(node)?;
             let parent_id = parent_id.map(|s| s.to_string());
             parts.elements.push(ParsedElement {
@@ -530,8 +527,7 @@ fn parse_visual_node(
                         let child_tag = child.tag_name().name();
                         match child_tag {
                             "div" | "text" | "canvas" | "image" | "lottie" | "video" | "icon"
-                                | "path"
-                            | "caption" | "tl" => {
+                            | "path" | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
                                     Some(&id),
@@ -591,7 +587,7 @@ fn parse_visual_node(
         "caption" => {
             ensure_allowed_attrs(node, CAPTION_ATTRS)?;
             let path_str = required_non_empty_attr(node, "path")?;
-            let path = PathBuf::from(&path_str);
+            let path = resolve_local_path(path_str, base_dir);
             let parent_id = parent_id.map(|s| s.to_string());
             parts.elements.push(ParsedElement {
                 id: id.to_string(),
@@ -618,8 +614,7 @@ fn parse_visual_node(
                         let child_tag = child.tag_name().name();
                         match child_tag {
                             "div" | "text" | "canvas" | "image" | "lottie" | "video" | "icon"
-                                | "path"
-                            | "caption" | "tl" => {
+                            | "path" | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
                                     Some(&id),
@@ -775,7 +770,7 @@ fn parse_soundtrack(
 
 fn parse_audio_element_in_soundtrack(
     node: roxmltree::Node<'_, '_>,
-    _base_dir: Option<&std::path::Path>,
+    base_dir: Option<&std::path::Path>,
     parts: &mut ParsedDocumentParts,
 ) -> anyhow::Result<()> {
     let id = required_non_empty_attr(node, "id")?;
@@ -787,7 +782,7 @@ fn parse_audio_element_in_soundtrack(
             if p.is_empty() {
                 anyhow::bail!("<audio> `path` must not be empty");
             }
-            AudioSource::Path(PathBuf::from(p))
+            AudioSource::Path(resolve_local_path(p, base_dir))
         }
         (None, Some(u)) => {
             if u.is_empty() {
@@ -824,7 +819,29 @@ fn parse_audio_element_in_soundtrack(
     Ok(())
 }
 
-fn parse_lottie_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<crate::parse::primitives::LottieSource> {
+fn resolve_local_path(raw: &str, base_dir: Option<&std::path::Path>) -> PathBuf {
+    let path = PathBuf::from(raw);
+    let Some(base_dir) = base_dir else {
+        return path;
+    };
+    if path.is_absolute() {
+        return path;
+    }
+
+    let joined = base_dir.join(path);
+    if joined.is_absolute() {
+        joined
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(&joined))
+            .unwrap_or(joined)
+    }
+}
+
+fn parse_lottie_source(
+    node: roxmltree::Node<'_, '_>,
+    base_dir: Option<&std::path::Path>,
+) -> anyhow::Result<crate::parse::primitives::LottieSource> {
     let path = node.attribute("path").or_else(|| node.attribute("src"));
     let url = node.attribute("url");
     let count = [path.is_some(), url.is_some()]
@@ -841,7 +858,9 @@ fn parse_lottie_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<crate::p
         if p.is_empty() {
             anyhow::bail!("<lottie> `path` must not be empty");
         }
-        return Ok(crate::parse::primitives::LottieSource::Path(PathBuf::from(p)));
+        return Ok(crate::parse::primitives::LottieSource::Path(
+            resolve_local_path(p, base_dir),
+        ));
     }
     if let Some(u) = url {
         if u.is_empty() {
@@ -852,7 +871,10 @@ fn parse_lottie_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<crate::p
     Ok(crate::parse::primitives::LottieSource::Unset)
 }
 
-fn parse_image_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<ImageSource> {
+fn parse_image_source(
+    node: roxmltree::Node<'_, '_>,
+    base_dir: Option<&std::path::Path>,
+) -> anyhow::Result<ImageSource> {
     let path = node.attribute("path");
     let url = node.attribute("url");
     let query = node.attribute("query");
@@ -880,7 +902,7 @@ fn parse_image_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<ImageSour
         if p.is_empty() {
             anyhow::bail!("<image> `path` must not be empty");
         }
-        return Ok(ImageSource::Path(PathBuf::from(p)));
+        return Ok(ImageSource::Path(resolve_local_path(p, base_dir)));
     }
     if let Some(u) = url {
         if u.is_empty() {
@@ -910,7 +932,10 @@ fn parse_image_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<ImageSour
     anyhow::bail!("image must have one of: path, url, query")
 }
 
-fn parse_video_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<VideoSource> {
+fn parse_video_source(
+    node: roxmltree::Node<'_, '_>,
+    base_dir: Option<&std::path::Path>,
+) -> anyhow::Result<VideoSource> {
     let path = node.attribute("path");
     let url = node.attribute("url");
     let src = node.attribute("src");
@@ -931,7 +956,7 @@ fn parse_video_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<VideoSour
             if p.is_empty() {
                 anyhow::bail!("<video> `path` must not be empty");
             }
-            Ok(VideoSource::Path(PathBuf::from(p)))
+            Ok(VideoSource::Path(resolve_local_path(p, base_dir)))
         }
         (None, Some(u), None) => {
             if u.is_empty() {
@@ -946,7 +971,7 @@ fn parse_video_source(node: roxmltree::Node<'_, '_>) -> anyhow::Result<VideoSour
             if s.starts_with("http://") || s.starts_with("https://") {
                 Ok(VideoSource::Url(s.to_string()))
             } else {
-                Ok(VideoSource::Path(PathBuf::from(s)))
+                Ok(VideoSource::Path(resolve_local_path(s, base_dir)))
             }
         }
         _ => unreachable!("source count validated above"),
@@ -1107,7 +1132,9 @@ fn required_non_empty_attr<'a>(
 
 fn parse_required_f64_positive(node: roxmltree::Node<'_, '_>, name: &str) -> anyhow::Result<f64> {
     let value = required_non_empty_attr(node, name)?;
-    let n: f64 = value.parse().map_err(|e| anyhow::anyhow!("`{name}`: {e}"))?;
+    let n: f64 = value
+        .parse()
+        .map_err(|e| anyhow::anyhow!("`{name}`: {e}"))?;
     if !n.is_finite() {
         anyhow::bail!("`{name}` must be finite");
     }

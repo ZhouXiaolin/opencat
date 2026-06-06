@@ -17,6 +17,7 @@ use crate::{
     platform::EnginePlatform,
     runtime::{preflight::ensure_assets_preloaded, render_registry},
 };
+use opencat_core::frame_ctx::duration_secs_to_frames;
 use opencat_core::parse::composition::Composition;
 use opencat_core::platform::frame_consumer::{FrameConsumer, RenderSessionHeader};
 use opencat_core::resource::AssetPathBlobStore;
@@ -98,6 +99,7 @@ pub fn render_from_jsonl_with_base(
     let ctx = RqJsContext::new()?;
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
+    let frame_count = duration_secs_to_frames(info.duration, info.fps);
 
     let mut media_ctx = MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
@@ -109,8 +111,7 @@ pub fn render_from_jsonl_with_base(
         let mut mixed_samples = Vec::new();
         let sample_rate: u32 = 48_000;
         let channels: u16 = 2;
-        let total_sample_frames =
-            ((info.frames as u64 * sample_rate as u64) / info.fps as u64) as usize;
+        let total_sample_frames = (info.duration.max(0.0) * sample_rate as f64).ceil() as usize;
         mixed_samples.resize(total_sample_frames * channels as usize, 0.0f32);
 
         for seg in &info.audio_plan.segments {
@@ -149,7 +150,7 @@ pub fn render_from_jsonl_with_base(
     match &config.format {
         OutputFormat::Png => {
             let mut executor = crate::executor::EngineDrawExecutor::new();
-            for i in 0..info.frames {
+            for i in 0..frame_count {
                 let (mut frame, media_plan) = pipeline.render_frame(i)?;
 
                 #[allow(invalid_reference_casting)]
@@ -159,7 +160,7 @@ pub fn render_from_jsonl_with_base(
                 let header = RenderSessionHeader {
                     composition_size: (info.width, info.height),
                     fps: info.fps,
-                    frames: info.frames,
+                    frames: frame_count,
                 };
                 let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
                     executor: &mut executor,
@@ -209,7 +210,7 @@ pub fn render_from_jsonl_with_base(
                 aligned_info.0,
                 aligned_info.1,
                 info.fps,
-                info.frames,
+                frame_count,
                 mp4_config,
                 audio_track.as_ref(),
                 |_, _| {},
@@ -224,7 +225,7 @@ pub fn render_from_jsonl_with_base(
                     let header = RenderSessionHeader {
                         composition_size: (info.width, info.height),
                         fps: info.fps,
-                        frames: info.frames,
+                        frames: frame_count,
                     };
                     let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
                         executor: &mut executor,
@@ -291,12 +292,13 @@ pub fn render_single_frame_from_jsonl_with_base(
     let ctx = RqJsContext::new()?;
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
+    let frame_count = duration_secs_to_frames(info.duration, info.fps);
 
-    if frame_index >= info.frames {
+    if frame_index >= frame_count {
         anyhow::bail!(
             "frame_index {} out of range (composition has {} frames)",
             frame_index,
-            info.frames
+            frame_count
         );
     }
 
@@ -315,7 +317,7 @@ pub fn render_single_frame_from_jsonl_with_base(
     let header = RenderSessionHeader {
         composition_size: (info.width, info.height),
         fps: info.fps,
-        frames: info.frames,
+        frames: frame_count,
     };
     let mut executor = crate::executor::EngineDrawExecutor::new();
     let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
@@ -830,7 +832,7 @@ mod tests {
             .unwrap()
             .parent()
             .unwrap()
-            .join("json/split_text_demo.jsonl");
+            .join("examples/split_text_demo.jsonl");
         let parsed = crate::source_io::parse_file(&jsonl_path).expect("parse");
         let root = if let Some(script) = parsed.script.as_deref() {
             if script.trim().is_empty() {
@@ -845,7 +847,7 @@ mod tests {
         let composition = Composition::new("split_text_property_layer")
             .size(parsed.width, parsed.height)
             .fps(parsed.fps as u32)
-            .frames(parsed.frames as u32)
+            .duration(parsed.duration)
             .root(move |_ctx| root.clone())
             .build()
             .expect("composition");

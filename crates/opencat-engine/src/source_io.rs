@@ -84,7 +84,7 @@ mod tests {
         let jsonl_path = fixture_dir.join("scene.jsonl");
         fs::write(
             &jsonl_path,
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":90}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":3}
 {"id":"root","parentId":null,"type":"div","className":"flex","text":null}
 {"type":"script","path":"scene.js"}"#,
         )
@@ -113,7 +113,7 @@ mod tests {
         fs::write(
             &jsonl_path,
             format!(
-                "{{\"type\":\"composition\",\"width\":640,\"height\":360,\"fps\":30,\"frames\":90}}\n\
+                "{{\"type\":\"composition\",\"width\":640,\"height\":360,\"fps\":30,\"duration\":3}}\n\
 {{\"id\":\"root\",\"parentId\":null,\"type\":\"div\",\"className\":\"flex\",\"text\":null}}\n\
 {{\"type\":\"script\",\"path\":\"{}\"}}",
                 script_path.display()
@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn core_parse_rejects_script_with_unresolved_path() {
         let err = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":90}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":3}
 {"id":"root","parentId":null,"type":"div","className":"flex","text":null}
 {"type":"script","path":"nonexistent.js"}"#,
         )
@@ -159,7 +159,7 @@ mod tests {
         let xml_path = fixture_dir.join("test.xml");
         fs::write(
             &xml_path,
-            r#"<opencat width="320" height="240" fps="30" frames="1"><div id="root" /></opencat>"#,
+            r#"<opencat width="320" height="240" fps="30" duration="0.033333333333"><div id="root" /></opencat>"#,
         )
         .expect("xml fixture");
         let parsed = parse_file(&xml_path).expect("xml should parse");

@@ -2,6 +2,7 @@ use serde_json::json;
 use std::collections::HashMap;
 
 use super::{MutationRecorder, TextUnitValues};
+use crate::frame_ctx::duration_secs_to_frames;
 use crate::parse::easing::Easing;
 use crate::script::ScriptTextSource;
 use crate::script::animate::color::{hsla_to_rgba_string, lerp_hsla_clamped, parse_color};
@@ -38,6 +39,7 @@ pub struct MutationStore {
     path_entries: HashMap<i32, PathMeasureEntry>,
     path_next_id: i32,
     current_frame: u32,
+    fps: u32,
 }
 
 pub struct AnimateEntry {
@@ -108,6 +110,10 @@ impl MutationStore {
 
     fn canvas_entry(&mut self, id: &str) -> &mut CanvasMutations {
         self.canvases.entry(id.to_string()).or_default()
+    }
+
+    fn seconds_to_frames(&self, seconds: f32) -> u32 {
+        duration_secs_to_frames(seconds as f64, self.fps.max(1))
     }
 
     /// Set a base-style value (from Tailwind/resolve) for later reading.
@@ -571,14 +577,14 @@ impl MutationStore {
         repeat_delay: f32,
     ) -> i32 {
         let easing = crate::script::animate::state::parse_easing_from_tag(easing_tag);
-        let fps = 30.0f32;
+        let fps = self.fps.max(1) as f32;
         let duration_u32 = if duration < 0.0 {
             easing.default_duration(fps).unwrap_or(1)
         } else {
-            duration as u32
+            self.seconds_to_frames(duration)
         };
-        let delay_u32 = delay as u32;
-        let repeat_delay_u32 = repeat_delay.max(0.0) as u32;
+        let delay_u32 = self.seconds_to_frames(delay);
+        let repeat_delay_u32 = self.seconds_to_frames(repeat_delay.max(0.0));
         let progress = crate::parse::easing::compute_progress(
             current_frame,
             duration_u32,
@@ -1017,12 +1023,13 @@ impl MutationRecorder for MutationStore {
         );
     }
 
-    fn reset_for_frame(&mut self, current_frame: u32) {
+    fn reset_for_frame(&mut self, current_frame: u32, fps: u32) {
         self.styles.clear();
         self.canvases.clear();
         self.animate_entries.clear();
         self.animate_next_id = 0;
         self.current_frame = current_frame;
+        self.fps = fps.max(1);
     }
 
     fn snapshot_mutations(&self) -> StyleMutations {
@@ -1101,7 +1108,7 @@ mod tests {
     fn reset_for_frame_clears_styles_and_canvases() {
         let mut store = MutationStore::default();
         store.record_opacity("node-a", 0.5);
-        store.reset_for_frame(7);
+        store.reset_for_frame(7, 30);
         let snap = store.snapshot_mutations();
         assert!(snap.mutations.is_empty());
     }

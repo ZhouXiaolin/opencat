@@ -1,4 +1,4 @@
-<opencat width="1280" height="720" fps="30" frames="414">
+<opencat width="1280" height="720" fps="30" duration="13.8">
   <soundtrack>
     <audio id="bgm0" url="http://127.0.0.1:8080/mp3/1.mp3" attach="scene1" />
     <audio id="bgm1" url="http://127.0.0.1:8080/mp3/1.mp3" attach="scene2" />
@@ -44,7 +44,7 @@ const sksl=[
 
 var effect=CK.RuntimeEffect.Make(sksl);
 if(effect){
-  var p=ctx.currentFrame/30.0;
+  var p=ctx.currentTime;
   var shader=effect.makeShaderWithChildren(
     [p, 10.0, 0.045, 7.2, 0.0105, 6.5],
     [subtreeShader]
@@ -57,30 +57,30 @@ if(effect){
 // hidden image child normally — no explicit fallback needed.
 
 // scene1 — entrance animations
-ctx.fromTo(['s1-kicker','s1-title','s1-desc'],{opacity:0,y:24},{opacity:1,y:0,stagger:6,duration:24,ease:'spring.gentle'});
-ctx.fromTo(['s1-chip-1','s1-chip-2','s1-chip-3'],{opacity:0,scale:0.7},{opacity:1,scale:1,stagger:5,duration:20,ease:'spring.default'});
+ctx.fromTo(['s1-kicker','s1-title','s1-desc'],{opacity:0,y:24},{opacity:1,y:0,stagger:0.2,duration:0.8,ease:'spring.gentle'});
+ctx.fromTo(['s1-chip-1','s1-chip-2','s1-chip-3'],{opacity:0,scale:0.7},{opacity:1,scale:1,stagger:0.166667,duration:0.666667,ease:'spring.default'});
 
 // scene2 — card grid entrance
-ctx.fromTo(['s2-card-1','s2-card-2','s2-card-3','s2-card-4','s2-card-5','s2-card-6'],{opacity:0,y:30,scale:0.94},{opacity:1,y:0,scale:1,stagger:4,duration:22,ease:'spring.default'});
-ctx.fromTo('s2-header',{opacity:0,x:-24},{opacity:1,x:0,duration:26,ease:'spring.gentle'});
-ctx.fromTo('s2-preview',{opacity:0,scale:0.9},{opacity:1,scale:1,duration:28,delay:8,ease:'spring.default'});
+ctx.fromTo(['s2-card-1','s2-card-2','s2-card-3','s2-card-4','s2-card-5','s2-card-6'],{opacity:0,y:30,scale:0.94},{opacity:1,y:0,scale:1,stagger:0.133333,duration:0.733333,ease:'spring.default'});
+ctx.fromTo('s2-header',{opacity:0,x:-24},{opacity:1,x:0,duration:0.866667,ease:'spring.gentle'});
+ctx.fromTo('s2-preview',{opacity:0,scale:0.9},{opacity:1,scale:1,duration:0.933333,delay:0.266667,ease:'spring.default'});
 
 // scene3 — video shell wobble + typewriter + thumbnails
-ctx.to('s3-typewriter',{text:'Video plays live while the script overlay types this description frame by frame.',duration:72,delay:6,ease:'linear'});
-ctx.to('s3-video-shell',{keyframes:{rotate:[{at:0,value:-6},{at:0.5,value:4,easing:'ease-in-out'},{at:1,value:0}],scale:[1,1.02,1]},duration:90});
-ctx.fromTo(['s3-thumb-a','s3-thumb-b','s3-thumb-c'],{opacity:0,y:20,scale:0.9},{opacity:1,y:0,scale:1,stagger:4,duration:22,delay:24,ease:'spring.default'});
-ctx.fromTo(['s3-kicker','s3-title'],{opacity:0,x:30},{opacity:1,x:0,duration:26,ease:'spring.gentle'});
+ctx.to('s3-typewriter',{text:'Video plays live while the script overlay types this description frame by frame.',duration:2.4,delay:0.2,ease:'linear'});
+ctx.to('s3-video-shell',{keyframes:{rotate:[{at:0,value:-6},{at:0.5,value:4,easing:'ease-in-out'},{at:1,value:0}],scale:[1,1.02,1]},duration:3});
+ctx.fromTo(['s3-thumb-a','s3-thumb-b','s3-thumb-c'],{opacity:0,y:20,scale:0.9},{opacity:1,y:0,scale:1,stagger:0.133333,duration:0.733333,delay:0.8,ease:'spring.default'});
+ctx.fromTo(['s3-kicker','s3-title'],{opacity:0,x:30},{opacity:1,x:0,duration:0.866667,ease:'spring.gentle'});
 
 // scene4 — orbs + metrics reveal
-ctx.to('s4-orb',{keyframes:{rotate:[{at:0,value:0},{at:1,value:360}],scale:[{at:0,value:0.8},{at:0.5,value:1.15,easing:'ease-in-out'},{at:1,value:0.95}]},duration:90});
-ctx.to('s4-orb-inner',{keyframes:{rotate:[{at:0,value:0},{at:1,value:-540}],y:[0,-20,0,20,0]},duration:90});
-ctx.fromTo(['s4-title','s4-sub'],{opacity:0,y:30},{opacity:1,y:0,duration:28,ease:'spring.gentle'});
-ctx.timeline().fromTo('s4-metric-1',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,scale:1,duration:20,ease:'spring.default'}).fromTo('s4-metric-2',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,scale:1,duration:20,ease:'spring.default'},'-=12').fromTo('s4-metric-3',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,scale:1,duration:20,ease:'spring.default'},'-=12');
+ctx.to('s4-orb',{keyframes:{rotate:[{at:0,value:0},{at:1,value:360}],scale:[{at:0,value:0.8},{at:0.5,value:1.15,easing:'ease-in-out'},{at:1,value:0.95}]},duration:3});
+ctx.to('s4-orb-inner',{keyframes:{rotate:[{at:0,value:0},{at:1,value:-540}],y:[0,-20,0,20,0]},duration:3});
+ctx.fromTo(['s4-title','s4-sub'],{opacity:0,y:30},{opacity:1,y:0,duration:0.933333,ease:'spring.gentle'});
+ctx.timeline().fromTo('s4-metric-1',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,scale:1,duration:0.666667,ease:'spring.default'}).fromTo('s4-metric-2',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,scale:1,duration:0.666667,ease:'spring.default'},'-=0.4').fromTo('s4-metric-3',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,scale:1,duration:0.666667,ease:'spring.default'},'-=0.4');
   </script>
 
   <div id="root" class="relative w-[1280px] h-[720px] bg-slate-950">
     <tl id="main-tl" class="absolute inset-0">
-      <div id="scene1" class="relative w-[1280px] h-[720px] bg-slate-950" duration="90">
+      <div id="scene1" class="relative w-[1280px] h-[720px] bg-slate-950" duration="3">
         <div id="s1-copy" class="absolute left-[80px] top-[200px] flex flex-col gap-[22px] w-[720px]">
           <text id="s1-kicker" class="text-[22px] font-semibold tracking-[6px] text-cyan-300">PROFILE BENCHMARK</text>
           <text id="s1-title" class="text-[92px] font-bold text-white leading-[0.95]">Every surface at once</text>
@@ -118,9 +118,9 @@ ctx.timeline().fromTo('s4-metric-1',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,s
         </canvas>
       </div>
 
-      <transition from="scene1" to="scene2" effect="fade" duration="18" timing="ease-in-out" />
+      <transition from="scene1" to="scene2" effect="fade" duration="0.6" timing="ease-in-out" />
 
-      <div id="scene2" class="relative w-[1280px] h-[720px] bg-slate-100" duration="90">
+      <div id="scene2" class="relative w-[1280px] h-[720px] bg-slate-100" duration="3">
         <div id="s2-header" class="absolute left-[80px] top-[70px] flex flex-col gap-[10px]">
           <text id="s2-kicker" class="text-[18px] font-semibold tracking-[5px] text-sky-600">SECTION / 02</text>
           <text id="s2-title" class="text-[56px] font-bold text-slate-900 leading-tight">A grid of stable subtrees</text>
@@ -162,9 +162,9 @@ ctx.timeline().fromTo('s4-metric-1',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,s
         </div>
       </div>
 
-      <transition from="scene2" to="scene3" effect="slide" direction="from_right" duration="18" timing="spring-default" />
+      <transition from="scene2" to="scene3" effect="slide" direction="from_right" duration="0.6" timing="spring-default" />
 
-      <div id="scene3" class="relative w-[1280px] h-[720px] bg-slate-900" duration="90">
+      <div id="scene3" class="relative w-[1280px] h-[720px] bg-slate-900" duration="3">
         <image id="s3-bg" class="absolute inset-0 w-[1280px] h-[720px] object-cover opacity-25" url="http://127.0.0.1:8080/png/3.png" />
         <div id="s3-video-shell" class="absolute left-[80px] top-[100px] w-[640px] h-[520px] rounded-[28px] overflow-hidden border border-slate-700">
           <video id="s3-video" class="w-[640px] h-[520px] object-cover" url="http://127.0.0.1:8080/mp4/2.mp4" />
@@ -181,9 +181,9 @@ ctx.timeline().fromTo('s4-metric-1',{opacity:0,y:30,scale:0.92},{opacity:1,y:0,s
         </div>
       </div>
 
-      <transition from="scene3" to="scene4" effect="light_leak" duration="18" seed="5" hueShift="45" />
+      <transition from="scene3" to="scene4" effect="light_leak" duration="0.6" seed="5" hueShift="45" />
 
-      <div id="scene4" class="relative w-[1280px] h-[720px] bg-gradient-to-br from-indigo-950 to-slate-950" duration="90">
+      <div id="scene4" class="relative w-[1280px] h-[720px] bg-gradient-to-br from-indigo-950 to-slate-950" duration="3">
         <div id="s4-orb" class="absolute left-[520px] top-[160px] w-[240px] h-[240px] rounded-full bg-fuchsia-500 opacity-40"></div>
         <div id="s4-orb-inner" class="absolute left-[580px] top-[220px] w-[120px] h-[120px] rounded-full bg-cyan-300"></div>
         <div id="s4-metrics" class="absolute left-[80px] bottom-[100px] flex flex-row gap-[22px] w-[1120px]">

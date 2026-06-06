@@ -1415,15 +1415,16 @@ mod tests {
             .ancestors()
             .nth(2)
             .expect("repo root");
-        let jsonl = std::fs::read_to_string(repo.join("json/alipay-finance-homepage.jsonl"))
+        let jsonl = std::fs::read_to_string(repo.join("examples/alipay-finance-homepage.jsonl"))
             .expect("sample JSONL should be readable");
         let parsed = crate::parse::jsonl::parse(&jsonl).expect("sample JSONL should parse");
+        let fps = parsed.fps as u32;
         let frame_ctx = FrameCtx {
             frame: 0,
-            fps: parsed.fps as u32,
+            fps,
             width: parsed.width,
             height: parsed.height,
-            frames: parsed.frames as u32,
+            frames: crate::frame_ctx::duration_secs_to_frames(parsed.duration, fps),
         };
         let mut assets = TestCatalog::new();
         let resolved = resolve_ui_tree(

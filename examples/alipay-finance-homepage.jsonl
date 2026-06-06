@@ -1,5 +1,5 @@
-{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
-{"id":"page","parentId":null,"type":"div","className":"relative w-[390px] h-[844px] bg-blue-50","duration":180}
+{"type":"composition","width":390,"height":844,"fps":30,"duration":6}
+{"id":"page","parentId":null,"type":"div","className":"relative w-[390px] h-[844px] bg-blue-50","duration":6}
 {"id":"bg-layer","parentId":"page","type":"div","className":"absolute inset-0 overflow-hidden"}
 {"id":"bg-c1","parentId":"bg-layer","type":"div","className":"absolute w-[280px] h-[280px] rounded-full bg-blue-300 opacity-15 top-[-100px] right-[-70px]"}
 {"id":"bg-c2","parentId":"bg-layer","type":"div","className":"absolute w-[160px] h-[160px] rounded-full bg-sky-300 opacity-15 top-[180px] left-[-60px]"}

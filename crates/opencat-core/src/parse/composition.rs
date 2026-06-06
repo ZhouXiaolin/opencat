@@ -1,9 +1,10 @@
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 
 use crate::{
-    frame_ctx::FrameCtx,
+    frame_ctx::{FrameCtx, duration_secs_to_frames, frames_to_duration_secs},
     parse::{node::Node, primitives::AudioSource},
 };
 
@@ -15,12 +16,32 @@ pub enum AudioAttachment {
     Scene { scene_id: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 pub struct CompositionAudioSource {
     pub id: String,
     pub source: AudioSource,
     pub attach: AudioAttachment,
-    pub duration: Option<u32>,
+    pub duration_secs: Option<f64>,
+}
+
+impl PartialEq for CompositionAudioSource {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.source == other.source
+            && self.attach == other.attach
+            && self.duration_secs.map(f64::to_bits) == other.duration_secs.map(f64::to_bits)
+    }
+}
+
+impl Eq for CompositionAudioSource {}
+
+impl Hash for CompositionAudioSource {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.source.hash(state);
+        self.attach.hash(state);
+        self.duration_secs.map(f64::to_bits).hash(state);
+    }
 }
 
 impl CompositionAudioSource {
@@ -29,7 +50,7 @@ impl CompositionAudioSource {
             id: id.into(),
             source,
             attach: AudioAttachment::Timeline,
-            duration: None,
+            duration_secs: None,
         }
     }
 
@@ -40,12 +61,12 @@ impl CompositionAudioSource {
             attach: AudioAttachment::Scene {
                 scene_id: scene_id.into(),
             },
-            duration: None,
+            duration_secs: None,
         }
     }
 
-    pub fn with_duration(mut self, duration: Option<u32>) -> Self {
-        self.duration = duration;
+    pub fn with_duration(mut self, duration_secs: Option<f64>) -> Self {
+        self.duration_secs = duration_secs;
         self
     }
 }
@@ -56,9 +77,15 @@ pub struct Composition {
     pub width: i32,
     pub height: i32,
     pub fps: u32,
+    pub duration: f64,
     pub frames: u32,
     pub root: Arc<RootComponent>,
     pub audio_sources: Arc<Vec<CompositionAudioSource>>,
+}
+
+enum DurationSpec {
+    Seconds(f64),
+    Frames(u32),
 }
 
 pub struct CompositionBuilder {
@@ -66,7 +93,7 @@ pub struct CompositionBuilder {
     width: i32,
     height: i32,
     fps: u32,
-    frames: Option<u32>,
+    duration: Option<DurationSpec>,
     root: Option<Arc<RootComponent>>,
     audio_sources: Vec<CompositionAudioSource>,
 }
@@ -79,7 +106,7 @@ impl Composition {
             width: 1920,
             height: 1080,
             fps: 30,
-            frames: None,
+            duration: None,
             root: None,
             audio_sources: Vec::new(),
         }
@@ -109,6 +136,7 @@ impl Composition {
             width: aligned_width,
             height: aligned_height,
             fps: self.fps,
+            duration: self.duration,
             frames: self.frames,
             root: self.root.clone(),
             audio_sources: self.audio_sources.clone(),
@@ -128,8 +156,13 @@ impl CompositionBuilder {
         self
     }
 
+    pub fn duration(mut self, duration_secs: f64) -> Self {
+        self.duration = Some(DurationSpec::Seconds(duration_secs));
+        self
+    }
+
     pub fn frames(mut self, frames: u32) -> Self {
-        self.frames = Some(frames);
+        self.duration = Some(DurationSpec::Frames(frames));
         self
     }
 
@@ -168,20 +201,25 @@ impl CompositionBuilder {
             .root
             .ok_or_else(|| anyhow!("composition root is required"))?;
 
-        let frames = if let Some(frames) = self.frames {
-            frames
-        } else {
-            let probe_ctx = FrameCtx {
-                frame: 0,
-                fps: self.fps,
-                width: self.width,
-                height: self.height,
-                frames: 0,
-            };
+        let (duration, frames) = match self.duration {
+            Some(DurationSpec::Seconds(duration)) => {
+                (duration, duration_secs_to_frames(duration, self.fps))
+            }
+            Some(DurationSpec::Frames(frames)) => (frames_to_duration_secs(frames, self.fps), frames),
+            None => {
+                let probe_ctx = FrameCtx {
+                    frame: 0,
+                    fps: self.fps,
+                    width: self.width,
+                    height: self.height,
+                    frames: 0,
+                };
 
-            root(&probe_ctx)
-                .duration_in_frames(&probe_ctx)
-                .unwrap_or(150)
+                let frames = root(&probe_ctx)
+                    .duration_in_frames(&probe_ctx)
+                    .unwrap_or(150);
+                (frames_to_duration_secs(frames, self.fps), frames)
+            }
         };
 
         Ok(Composition {
@@ -189,6 +227,7 @@ impl CompositionBuilder {
             width: self.width,
             height: self.height,
             fps: self.fps,
+            duration,
             frames,
             root,
             audio_sources: Arc::new(self.audio_sources),

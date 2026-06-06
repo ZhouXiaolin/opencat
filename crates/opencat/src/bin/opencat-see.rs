@@ -747,7 +747,7 @@ mod app {
         let composition = Composition::new("player")
             .size(parsed.width, parsed.height)
             .fps(parsed.fps as u32)
-            .frames(parsed.frames as u32)
+            .duration(parsed.duration)
             .audio_sources(parsed.audio_sources.clone())
             .root(move |_ctx: &FrameCtx| root.clone())
             .build()

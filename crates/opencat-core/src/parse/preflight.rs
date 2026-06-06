@@ -46,9 +46,10 @@ pub fn collect_audio_plan(comp: &Composition) -> crate::probe::catalog::AudioPla
     use crate::parse::composition::AudioAttachment;
     use crate::probe::catalog::{AudioPlan, AudioSegment};
 
-    let fps = comp.fps.max(1) as u64;
-    let ms_per_frame = 1000 / fps;
-    let total_ms = (comp.frames as u64) * ms_per_frame;
+    let fps = comp.fps.max(1) as f64;
+    let frame_to_ms = |frame: u32| ((frame as f64 / fps) * 1000.0).round() as u64;
+    let duration_to_ms = |duration_secs: f64| (duration_secs * 1000.0).round().max(0.0) as u64;
+    let total_ms = duration_to_ms(comp.duration);
     let mut segments = Vec::new();
 
     for s in comp.audio_sources() {
@@ -63,15 +64,17 @@ pub fn collect_audio_plan(comp: &Composition) -> crate::probe::catalog::AudioPla
                 let timing = find_scene_timing(comp, scene_id);
                 match timing {
                     Some((start_frame, scene_duration)) => {
-                        let start_ms = start_frame as u64 * ms_per_frame;
-                        let dur_frames = s.duration.unwrap_or(scene_duration);
-                        let end_ms = (start_frame as u64 + dur_frames as u64) * ms_per_frame;
+                        let start_ms = frame_to_ms(start_frame);
+                        let end_ms = s
+                            .duration_secs
+                            .map(|duration| start_ms + duration_to_ms(duration))
+                            .unwrap_or_else(|| frame_to_ms(start_frame.saturating_add(scene_duration)));
                         (start_ms, end_ms)
                     }
                     None => {
                         let dur_ms = s
-                            .duration
-                            .map(|d| d as u64 * ms_per_frame)
+                            .duration_secs
+                            .map(duration_to_ms)
                             .unwrap_or(total_ms);
                         (0, dur_ms)
                     }
@@ -255,7 +258,7 @@ mod tests {
         let comp = Composition::new("test")
             .size(100, 100)
             .fps(30)
-            .frames(5)
+            .duration(5.0 / 30.0)
             .root(move |ctx| root(ctx))
             .build()
             .unwrap();
@@ -275,7 +278,7 @@ mod tests {
         let comp = Composition::new("test")
             .size(100, 100)
             .fps(30)
-            .frames(5)
+            .duration(5.0 / 30.0)
             .root(move |ctx| root(ctx))
             .build()
             .unwrap();
@@ -300,7 +303,7 @@ mod tests {
         let comp = Composition::new("test")
             .size(100, 100)
             .fps(30)
-            .frames(35)
+            .duration(35.0 / 30.0)
             .root(move |ctx| root(ctx))
             .audio_sources(vec![
                 CompositionAudioSource::scene(
@@ -320,13 +323,13 @@ mod tests {
         let plan = collect_audio_plan(&comp);
         assert_eq!(plan.segments.len(), 2);
 
-        // scene-a starts at frame 0, duration 10 frames at 30fps => 0ms to 330ms
+        // scene-a starts at frame 0, duration 10 frames at 30fps => 0ms to 333ms
         assert_eq!(plan.segments[0].start_ms, 0);
-        assert_eq!(plan.segments[0].end_ms, 330);
+        assert_eq!(plan.segments[0].end_ms, 333);
 
-        // scene-b starts at frame 15 (10 scene + 5 transition), duration 20 frames => 495ms to 1155ms
-        assert_eq!(plan.segments[1].start_ms, 495);
-        assert_eq!(plan.segments[1].end_ms, 1155);
+        // scene-b starts at frame 15 (10 scene + 5 transition), duration 20 frames => 500ms to 1167ms
+        assert_eq!(plan.segments[1].start_ms, 500);
+        assert_eq!(plan.segments[1].end_ms, 1167);
     }
 
     #[test]
@@ -341,13 +344,13 @@ mod tests {
         let comp = Composition::new("test")
             .size(100, 100)
             .fps(30)
-            .frames(35)
+            .duration(35.0 / 30.0)
             .root(move |ctx| root(ctx))
             .audio_sources(vec![CompositionAudioSource {
                 id: "bgm".into(),
                 source: AudioSource::Url("bgm.mp3".into()),
                 attach: AudioAttachment::Timeline,
-                duration: None,
+                duration_secs: None,
             }])
             .build()
             .unwrap();
@@ -355,6 +358,6 @@ mod tests {
         let plan = collect_audio_plan(&comp);
         assert_eq!(plan.segments.len(), 1);
         assert_eq!(plan.segments[0].start_ms, 0);
-        assert_eq!(plan.segments[0].end_ms, 1155);
+        assert_eq!(plan.segments[0].end_ms, 1167);
     }
 }

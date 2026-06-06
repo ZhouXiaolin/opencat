@@ -65,7 +65,7 @@ describe('PNG frame export', () => {
     await exportPngFrame(
       'composition',
       previewCanvas as any,
-      { width: 640, height: 360, fps: 30, frames: 1 },
+      { width: 640, height: 360, fps: 30, duration: 1 / 30 },
       0,
       {},
     );

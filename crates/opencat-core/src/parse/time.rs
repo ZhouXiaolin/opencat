@@ -1,5 +1,5 @@
 use crate::{
-    frame_ctx::FrameCtx,
+    frame_ctx::{FrameCtx, frames_to_duration_secs},
     frame_ctx::ScriptFrameCtx,
     parse::{
         easing::Easing,
@@ -187,6 +187,13 @@ fn frozen_script_frame_ctx(
         total_frames: ctx.frames,
         current_frame: current_frame.min(scene_frames.saturating_sub(1)),
         scene_frames,
+        time_secs: ctx.time_secs(),
+        total_duration_secs: ctx.duration_secs(),
+        current_time_secs: frames_to_duration_secs(
+            current_frame.min(scene_frames.saturating_sub(1)),
+            ctx.fps,
+        ),
+        scene_duration_secs: frames_to_duration_secs(scene_frames, ctx.fps),
     }
 }
 

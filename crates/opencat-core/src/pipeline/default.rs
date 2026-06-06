@@ -82,7 +82,7 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
         let composition = Composition::new("pipeline")
             .size(parsed.width, parsed.height)
             .fps(parsed.fps as u32)
-            .frames(parsed.frames as u32)
+            .duration(parsed.duration)
             .root(move |_ctx| root_node.clone())
             .audio_sources(parsed.audio_sources)
             .build()?;
@@ -99,7 +99,7 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
             width: composition.width as u32,
             height: composition.height as u32,
             fps: composition.fps,
-            frames: composition.frames,
+            duration: composition.duration,
             requests,
             audio_plan,
         };
@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn open_empty_composition_returns_info() {
-        let jsonl = r#"{"type":"composition","width":100,"height":200,"fps":30,"frames":1}
+        let jsonl = r#"{"type":"composition","width":100,"height":200,"fps":30,"duration":0.033333333333}
 {"type":"div","id":"root","parentId":null}"#;
 
         let loader = InMemoryLoader::default();
@@ -354,12 +354,12 @@ mod tests {
         assert_eq!(pipeline.info().width, 100);
         assert_eq!(pipeline.info().height, 200);
         assert_eq!(pipeline.info().fps, 30);
-        assert_eq!(pipeline.info().frames, 1);
+        assert!((pipeline.info().duration - 1.0 / 30.0).abs() < 1e-9);
     }
 
     #[test]
     fn render_frame_produces_draw_ops() {
-        let jsonl = r##"{"type":"composition","width":320,"height":240,"fps":30,"frames":3}
+        let jsonl = r##"{"type":"composition","width":320,"height":240,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"div","id":"child","parentId":"root","bg":"#ff0000","w":100,"h":50}"##;
 
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn render_frame_video_ref_uses_media_start_time() {
-        let xml = r#"<opencat width="320" height="180" fps="30" frames="120">
+        let xml = r#"<opencat width="320" height="180" fps="30" duration="4">
   <div id="root" class="w-[320px] h-[180px]">
     <video id="vid" class="w-[320px] h-[180px]" src="clip.mp4" data-start="3" data-duration="18" data-media-start="12" />
   </div>
@@ -431,7 +431,7 @@ mod tests {
                 .count()
         }
 
-        let xml = r#"<opencat width="320" height="180" fps="30" frames="180">
+        let xml = r#"<opencat width="320" height="180" fps="30" duration="6">
   <div id="root" class="w-[320px] h-[180px]">
     <video id="vid" class="relative w-[320px] h-[180px] bg-[#ff0000] border-[4px] border-[#00ff00] shadow-[0_8px_24px_rgba(0,0,0,0.50)]" src="clip.mp4" data-start="3" data-duration="1" data-media-start="12">
       <div id="badge" class="absolute left-[8px] top-[8px] w-[40px] h-[24px] bg-[#0000ff]" />
@@ -487,7 +487,7 @@ mod tests {
 
     #[test]
     fn render_frame_multi_frame_is_deterministic() {
-        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"frames":5}
+        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"duration":0.5}
 {"type":"div","id":"root","parentId":null,"bg":"#00ff00","w":100,"h":100}"##;
 
         let loader = InMemoryLoader::default();
@@ -507,7 +507,7 @@ mod tests {
     #[cfg(feature = "profile")]
     #[test]
     fn render_frame_emits_profile_events_for_each_frame() {
-        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"frames":2}
+        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"duration":0.2}
 {"type":"div","id":"root","parentId":null,"bg":"#00ff00","w":100,"h":100}"##;
 
         let config = crate::profile::ProfileConfig { enabled: true };
@@ -562,7 +562,7 @@ mod tests {
             )
             .expect("open profile showcase jsonl");
 
-            for frame_index in 0..pipeline.info().frames {
+            for frame_index in 0..pipeline.composition().frames {
                 let _ = pipeline.render_frame(frame_index)?;
             }
             Ok::<_, anyhow::Error>(())
@@ -695,7 +695,7 @@ mod tests {
     fn cache_hits_scene_snapshot_on_static_repeat() {
         // Static composition with no animations: frame 1 should reuse the
         // entire DrawOpFrame recorded on frame 0.
-        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"frames":2}
+        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"duration":0.2}
 {"type":"div","id":"root","parentId":null,"bg":"#00ff00","w":100,"h":100}"##;
 
         let config = crate::profile::ProfileConfig { enabled: true };
@@ -740,12 +740,12 @@ mod tests {
         // inside the transition window has a different transition progress,
         // so the root subtree fingerprint differs frame-to-frame and the
         // scene snapshot cache must miss across all of them.
-        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"frames":10}
+        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"duration":1}
 {"type":"div","id":"root","parentId":null}
 {"type":"tl","id":"tl","parentId":"root"}
-{"type":"div","id":"scene_a","parentId":"tl","bg":"#ff0000","w":100,"h":100,"duration":3}
-{"type":"transition","parentId":"tl","from":"scene_a","to":"scene_b","effect":"fade","duration":4,"timing":"linear"}
-{"type":"div","id":"scene_b","parentId":"tl","bg":"#00ff00","w":100,"h":100,"duration":3}"##;
+{"type":"div","id":"scene_a","parentId":"tl","bg":"#ff0000","w":100,"h":100,"duration":0.1}
+{"type":"transition","parentId":"tl","from":"scene_a","to":"scene_b","effect":"fade","duration":0.133333333333,"timing":"linear"}
+{"type":"div","id":"scene_b","parentId":"tl","bg":"#00ff00","w":100,"h":100,"duration":0.1}"##;
 
         let config = crate::profile::ProfileConfig { enabled: true };
         let (_, summary) = crate::profile::profile_render(&config, || {
@@ -756,7 +756,7 @@ mod tests {
             )
             .expect("open");
 
-            for frame_index in 0..pipeline.info().frames {
+            for frame_index in 0..pipeline.composition().frames {
                 let _ = pipeline.render_frame(frame_index)?;
             }
             Ok::<_, anyhow::Error>(())
@@ -777,7 +777,7 @@ mod tests {
 
     #[test]
     fn open_pipeline_populates_audio_plan() {
-        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
+        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":30,"duration":0.033333333333}
 {"type":"div","id":"root","parentId":null}"##;
         let pipeline = DefaultPipeline::<InMemoryLoader, NoopJsContext>::open(
             jsonl,
@@ -793,7 +793,7 @@ mod tests {
 
     #[test]
     fn open_from_xml() {
-        let xml = r#"<opencat width="200" height="100" fps="30" frames="1">
+        let xml = r#"<opencat width="200" height="100" fps="30" duration="0.033333333333">
   <div id="root" />
 </opencat>"#;
         let loader = InMemoryLoader::default();
@@ -802,6 +802,6 @@ mod tests {
         assert_eq!(pipeline.info().width, 200);
         assert_eq!(pipeline.info().height, 100);
         assert_eq!(pipeline.info().fps, 30);
-        assert_eq!(pipeline.info().frames, 1);
+        assert!((pipeline.info().duration - 1.0 / 30.0).abs() < 1e-9);
     }
 }

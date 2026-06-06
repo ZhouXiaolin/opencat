@@ -82,7 +82,7 @@ impl WebRenderer {
         let composition = Composition::new("web")
             .size(parsed.width, parsed.height)
             .fps(parsed.fps as u32)
-            .frames(parsed.frames as u32)
+            .duration(parsed.duration)
             .audio_sources(parsed.audio_sources)
             .root(move |_ctx| root_node.clone())
             .build()
@@ -106,7 +106,7 @@ impl WebRenderer {
         let header = opencat_core::platform::frame_consumer::RenderSessionHeader {
             composition_size: (parsed.width as u32, parsed.height as u32),
             fps: parsed.fps as u32,
-            frames: parsed.frames as u32,
+            frames: composition.frames,
         };
 
         let mut consumer = crate::consumer::WebFrameConsumer {
@@ -138,6 +138,7 @@ impl WebRenderer {
         resources_json: &str,
     ) -> Result<String, JsValue> {
         use opencat_core::frame_ctx::FrameCtx;
+        use opencat_core::frame_ctx::duration_secs_to_frames;
         use opencat_core::media::{VideoFrameRequest, VideoPreviewQuality};
         use opencat_core::parse::node::NodeKind;
         use opencat_core::parse::primitives::VideoSource;
@@ -153,7 +154,7 @@ impl WebRenderer {
             fps: parsed.fps as u32,
             width: parsed.width,
             height: parsed.height,
-            frames: parsed.frames as u32,
+            frames: duration_secs_to_frames(parsed.duration, parsed.fps as u32),
         };
 
         let composition_time_secs = frame as f64 / (parsed.fps as f64).max(1.0);

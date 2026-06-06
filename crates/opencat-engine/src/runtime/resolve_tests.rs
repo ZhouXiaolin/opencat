@@ -132,7 +132,9 @@ fn timeline_scripts_receive_scene_local_frames() {
     let scene = div()
         .id("scene-b")
         .script_source(
-            r#"ctx.getNode("title").opacity(ctx.currentFrame === 4 && ctx.sceneFrames === 10 ? 0.6 : 0.1);"#,
+            r#"var local = Math.abs(ctx.currentTime - 4 / 30) < 1e-9;
+var duration = Math.abs(ctx.sceneDuration - 10 / 30) < 1e-9;
+ctx.getNode("title").opacity(local && duration ? 0.6 : 0.1);"#,
         )
         .expect("script should compile")
         .child(text("B").id("title"));

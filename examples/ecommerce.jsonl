@@ -1,7 +1,7 @@
-{"type":"composition","width":390,"height":844,"fps":30,"frames":360}
+{"type":"composition","width":390,"height":844,"fps":30,"duration":12}
 {"id":"root","parentId":null,"type":"div","className":"relative w-[390px] h-[844px]"}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
-{"id":"login","parentId":"main-tl","type":"div","className":"flex flex-col w-[390px] h-[844px] bg-gradient-to-b from-indigo-500 to-purple-600 justify-center items-center gap-5 p-8","duration":90}
+{"id":"login","parentId":"main-tl","type":"div","className":"flex flex-col w-[390px] h-[844px] bg-gradient-to-b from-indigo-500 to-purple-600 justify-center items-center gap-5 p-8","duration":3}
 {"id":"logo-icon","parentId":"login","type":"icon","className":"w-[64px] h-[64px] stroke-white stroke-[1.5]","icon":"shopping-bag"}
 {"id":"app-name","parentId":"login","type":"text","className":"text-[32px] font-bold text-white","text":"OpenShop"}
 {"id":"welcome","parentId":"login","type":"text","className":"text-[14px] text-white/80","text":"Welcome Back!"}
@@ -26,9 +26,9 @@
 {"id":"signup-row","parentId":"login","type":"div","className":"flex flex-row gap-1 mt-8"}
 {"id":"no-account","parentId":"signup-row","type":"text","className":"text-[13px] text-white/60","text":"Don't have an account?"}
 {"id":"signup-link","parentId":"signup-row","type":"text","className":"text-[13px] font-semibold text-white","text":"Sign Up"}
-{"type":"script","parentId":"login","src":"ctx.fromTo('logo-icon',{opacity:0,scale:0.5,y:-20},{opacity:1,scale:1,y:0,duration:20,ease:'spring.gentle'});ctx.fromTo('app-name',{opacity:0,y:10},{opacity:1,y:0,duration:15,delay:8,ease:'ease-out'});ctx.fromTo('welcome',{opacity:0},{opacity:1,duration:12,delay:14});ctx.fromTo('input-card',{opacity:0,y:20},{opacity:1,y:0,duration:18,delay:20,ease:'ease-out'});ctx.fromTo('signin-btn',{opacity:0,y:15},{opacity:1,y:0,duration:15,delay:34,ease:'ease-out'});ctx.fromTo('social-row',{opacity:0},{opacity:1,duration:12,delay:44});ctx.fromTo('signup-row',{opacity:0},{opacity:1,duration:10,delay:52})"}
-{"type":"transition","parentId":"main-tl","from":"login","to":"home","effect":"slide","duration":15,"direction":"from_right","timing":"ease-out"}
-{"id":"home","parentId":"main-tl","type":"div","className":"flex flex-col w-[390px] h-[844px] bg-gray-50","duration":120}
+{"type":"script","parentId":"login","src":"ctx.fromTo('logo-icon',{opacity:0,scale:0.5,y:-20},{opacity:1,scale:1,y:0,duration:0.666667,ease:'spring.gentle'});ctx.fromTo('app-name',{opacity:0,y:10},{opacity:1,y:0,duration:0.5,delay:0.266667,ease:'ease-out'});ctx.fromTo('welcome',{opacity:0},{opacity:1,duration:0.4,delay:0.466667});ctx.fromTo('input-card',{opacity:0,y:20},{opacity:1,y:0,duration:0.6,delay:0.666667,ease:'ease-out'});ctx.fromTo('signin-btn',{opacity:0,y:15},{opacity:1,y:0,duration:0.5,delay:1.133333,ease:'ease-out'});ctx.fromTo('social-row',{opacity:0},{opacity:1,duration:0.4,delay:1.466667});ctx.fromTo('signup-row',{opacity:0},{opacity:1,duration:0.333333,delay:1.733333})"}
+{"type":"transition","parentId":"main-tl","from":"login","to":"home","effect":"slide","duration":0.5,"direction":"from_right","timing":"ease-out"}
+{"id":"home","parentId":"main-tl","type":"div","className":"flex flex-col w-[390px] h-[844px] bg-gray-50","duration":4}
 {"id":"home-header","parentId":"home","type":"div","className":"flex flex-col bg-white px-4 pt-14 pb-4 shadow-sm"}
 {"id":"search-bar","parentId":"home-header","type":"div","className":"w-full h-[46px] bg-gray-100 rounded-2xl flex flex-row items-center px-4 gap-2.5"}
 {"id":"search-icon","parentId":"search-bar","type":"icon","className":"w-[18px] h-[18px] stroke-gray-400","icon":"search"}
@@ -86,9 +86,9 @@
 {"id":"nav-profile","parentId":"bottom-nav","type":"div","className":"flex flex-col items-center gap-0.5"}
 {"id":"nav-profile-icon","parentId":"nav-profile","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"user"}
 {"id":"nav-profile-label","parentId":"nav-profile","type":"text","className":"text-[10px] text-gray-400","text":"Profile"}
-{"type":"script","parentId":"home","src":"ctx.fromTo('search-bar',{opacity:0,y:-10},{opacity:1,y:0,duration:15,ease:'ease-out'});ctx.fromTo('categories',{opacity:0},{opacity:1,duration:10,delay:8});ctx.fromTo(['prod-1','prod-2','prod-3','prod-4','prod-5','prod-6'],{opacity:0,y:20},{opacity:1,y:0,duration:20,stagger:4,ease:'spring.gentle'});ctx.fromTo('bottom-nav',{opacity:0,y:20},{opacity:1,y:0,duration:15,delay:35})"}
-{"type":"transition","parentId":"main-tl","from":"home","to":"product","effect":"slide","duration":15,"direction":"from_right","timing":"ease-out"}
-{"id":"product","parentId":"main-tl","type":"div","className":"flex flex-col w-[390px] h-[844px] bg-white","duration":120}
+{"type":"script","parentId":"home","src":"ctx.fromTo('search-bar',{opacity:0,y:-10},{opacity:1,y:0,duration:0.5,ease:'ease-out'});ctx.fromTo('categories',{opacity:0},{opacity:1,duration:0.333333,delay:0.266667});ctx.fromTo(['prod-1','prod-2','prod-3','prod-4','prod-5','prod-6'],{opacity:0,y:20},{opacity:1,y:0,duration:0.666667,stagger:0.133333,ease:'spring.gentle'});ctx.fromTo('bottom-nav',{opacity:0,y:20},{opacity:1,y:0,duration:0.5,delay:1.166667})"}
+{"type":"transition","parentId":"main-tl","from":"home","to":"product","effect":"slide","duration":0.5,"direction":"from_right","timing":"ease-out"}
+{"id":"product","parentId":"main-tl","type":"div","className":"flex flex-col w-[390px] h-[844px] bg-white","duration":4}
 {"id":"product-header","parentId":"product","type":"div","className":"flex flex-row items-center justify-between px-4 pt-14 pb-3"}
 {"id":"back-btn","parentId":"product-header","type":"icon","className":"w-[24px] h-[24px] stroke-gray-700","icon":"arrow-left"}
 {"id":"header-title","parentId":"product-header","type":"text","className":"text-[16px] font-semibold text-gray-800","text":"Detail"}
@@ -123,4 +123,4 @@
 {"id":"prod-desc","parentId":"prod-top-info","type":"text","className":"text-[13px] text-gray-500 leading-relaxed mt-1","text":"A timeless timepiece crafted with premium Italian leather and precision Japanese movement. Water-resistant to 50 meters with a scratch-resistant sapphire crystal face."}
 {"id":"add-to-cart-btn","parentId":"prod-info","type":"div","className":"w-full h-[52px] bg-indigo-600 rounded-2xl flex flex-row justify-center items-center shadow-lg shadow-indigo-200"}
 {"id":"cart-btn-text","parentId":"add-to-cart-btn","type":"text","className":"text-[16px] font-bold text-white","text":"Add to Cart"}
-{"type":"script","parentId":"product","src":"ctx.fromTo('prod-image-area',{opacity:0,scale:0.95},{opacity:1,scale:1,duration:20,ease:'spring.gentle'});ctx.fromTo('prod-title',{opacity:0,x:-20},{opacity:1,x:0,duration:15,delay:12,ease:'ease-out'});ctx.fromTo('prod-rating',{opacity:0},{opacity:1,duration:10,delay:18});ctx.fromTo('prod-price',{opacity:0,x:-20},{opacity:1,x:0,duration:15,delay:22,ease:'ease-out'});ctx.fromTo('shipping-badge',{opacity:0,y:10},{opacity:1,y:0,duration:12,delay:28});ctx.fromTo('prod-desc',{opacity:0,y:10},{opacity:1,y:0,duration:15,delay:34,ease:'ease-out'});ctx.fromTo('add-to-cart-btn',{opacity:0,y:15},{opacity:1,y:0,duration:15,delay:44,ease:'spring.gentle'})"}
+{"type":"script","parentId":"product","src":"ctx.fromTo('prod-image-area',{opacity:0,scale:0.95},{opacity:1,scale:1,duration:0.666667,ease:'spring.gentle'});ctx.fromTo('prod-title',{opacity:0,x:-20},{opacity:1,x:0,duration:0.5,delay:0.4,ease:'ease-out'});ctx.fromTo('prod-rating',{opacity:0},{opacity:1,duration:0.333333,delay:0.6});ctx.fromTo('prod-price',{opacity:0,x:-20},{opacity:1,x:0,duration:0.5,delay:0.733333,ease:'ease-out'});ctx.fromTo('shipping-badge',{opacity:0,y:10},{opacity:1,y:0,duration:0.4,delay:0.933333});ctx.fromTo('prod-desc',{opacity:0,y:10},{opacity:1,y:0,duration:0.5,delay:1.133333,ease:'ease-out'});ctx.fromTo('add-to-cart-btn',{opacity:0,y:15},{opacity:1,y:0,duration:0.5,delay:1.466667,ease:'spring.gentle'})"}

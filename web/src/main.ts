@@ -1,6 +1,7 @@
 import './style.css';
 import {
   clearVideoCache,
+  compositionFrameCount,
   createSurfaceWithFallback,
   downloadMp4,
   exportMp4,
@@ -171,9 +172,9 @@ function parseCompInfo(compositionSource: string): CompositionInfo | null {
     const width = Number(attrs.get('width'));
     const height = Number(attrs.get('height'));
     const fps = Number(attrs.get('fps'));
-    const frames = Number(attrs.get('frames'));
-    if (Number.isFinite(width) && Number.isFinite(height) && Number.isFinite(fps) && Number.isFinite(frames)) {
-      return { width, height, fps, frames };
+    const duration = Number(attrs.get('duration'));
+    if (Number.isFinite(width) && Number.isFinite(height) && Number.isFinite(fps) && Number.isFinite(duration)) {
+      return { width, height, fps, duration };
     }
     return null;
   }
@@ -183,12 +184,12 @@ function parseCompInfo(compositionSource: string): CompositionInfo | null {
     if (!trimmed) continue;
     try {
       const obj = JSON.parse(trimmed);
-      if (obj.type === 'composition' && obj.width && obj.height && obj.fps && obj.frames) {
+      if (obj.type === 'composition' && obj.width && obj.height && obj.fps && obj.duration) {
         return {
           width: obj.width,
           height: obj.height,
           fps: obj.fps,
-          frames: obj.frames,
+          duration: obj.duration,
         };
       }
     } catch {}
@@ -328,7 +329,8 @@ async function loadComposition(file: CompositionFile) {
     currentComposition = comp;
     currentFrame = 0;
 
-    fileInfoEl.textContent = `${file.name} (${comp.width}×${comp.height} @ ${comp.fps}fps, ${comp.frames} frames)`;
+    const totalFrames = compositionFrameCount(comp);
+    fileInfoEl.textContent = `${file.name} (${comp.width}×${comp.height} @ ${comp.fps}fps, ${comp.duration.toFixed(2)}s)`;
     emptyStateEl.style.display = 'none';
     previewCanvas.style.display = 'block';
 
@@ -341,7 +343,7 @@ async function loadComposition(file: CompositionFile) {
       previewCanvas.style.height = `${comp.height * scale}px`;
     }
 
-    frameSlider.max = String((comp.frames - 1) / comp.fps);
+    frameSlider.max = String((totalFrames - 1) / comp.fps);
     frameSlider.step = String(1 / comp.fps);
     frameSlider.value = '0';
     updateFrameInfo();
@@ -430,18 +432,20 @@ async function renderFrameWithPipeline(
     surface?.delete();
   }
 
-  frameLabel.textContent = `${(frame / comp.fps).toFixed(2)}s / ${((comp.frames - 1) / comp.fps).toFixed(2)}s`;
+  const totalFrames = compositionFrameCount(comp);
+  frameLabel.textContent = `${(frame / comp.fps).toFixed(2)}s / ${((totalFrames - 1) / comp.fps).toFixed(2)}s`;
   frameSlider.value = String(frame / comp.fps);
 }
 
 function updateFrameInfo() {
   if (!currentComposition) return;
   const fps = currentComposition.fps;
+  const totalFrames = compositionFrameCount(currentComposition);
   const currentTime = currentFrame / fps;
-  const totalTime = (currentComposition.frames - 1) / fps;
+  const totalTime = (totalFrames - 1) / fps;
   frameLabel.textContent = `${currentTime.toFixed(2)}s / ${totalTime.toFixed(2)}s`;
   frameSlider.value = String(currentFrame / fps);
-  frameInfoEl.textContent = `Frame ${currentFrame + 1}/${currentComposition.frames} | Time ${currentTime.toFixed(2)}s`;
+  frameInfoEl.textContent = `Frame ${currentFrame + 1}/${totalFrames} | Time ${currentTime.toFixed(2)}s`;
 }
 
 // --- Playback ---
@@ -470,7 +474,7 @@ function schedulePreviewAudio(
   const { offsetSecs, durationSecs } = audioPlaybackWindow(
     frame,
     currentComposition.fps,
-    currentComposition.frames,
+    compositionFrameCount(currentComposition),
   );
 
   for (const id of audioIds) {
@@ -517,7 +521,7 @@ function play() {
       : performance.now() / 1000 - playStartTime;
 
     const compFps = currentComposition.fps;
-    const compFrames = currentComposition.frames;
+    const compFrames = compositionFrameCount(currentComposition);
     const position = playbackPosition(playStartFrame, elapsed, compFps, compFrames);
     const frame = position.frame;
 
@@ -577,14 +581,15 @@ btnPrev.addEventListener('click', () => {
 btnNext.addEventListener('click', () => {
   if (!currentComposition) return;
   pause();
-  if (currentFrame < currentComposition.frames - 1) currentFrame++;
+  const totalFrames = compositionFrameCount(currentComposition);
+  if (currentFrame < totalFrames - 1) currentFrame++;
   renderFrameAsync(currentFrame);
   updateFrameInfo();
 });
 btnLast.addEventListener('click', () => {
   if (!currentComposition) return;
   pause();
-  currentFrame = currentComposition.frames - 1;
+  currentFrame = compositionFrameCount(currentComposition) - 1;
   renderFrameAsync(currentFrame);
   updateFrameInfo();
 });
@@ -592,7 +597,10 @@ frameSlider.addEventListener('input', () => {
   if (!currentComposition) return;
   pause();
   const time = parseFloat(frameSlider.value);
-  currentFrame = Math.round(time * currentComposition.fps);
+  currentFrame = Math.min(
+    compositionFrameCount(currentComposition) - 1,
+    Math.round(time * currentComposition.fps),
+  );
   renderFrameAsync(currentFrame, 'scrubbing');
   updateFrameInfo();
 });

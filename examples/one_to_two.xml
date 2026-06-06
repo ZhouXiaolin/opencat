@@ -1,4 +1,4 @@
-<opencat width="1280" height="720" fps="30" frames="360">
+<opencat width="1280" height="720" fps="30" duration="12">
   <soundtrack>
     <audio id="bgm" url="http://127.0.0.1:8080/mp3/1.mp3" attach="root" />
   </soundtrack>
@@ -9,28 +9,28 @@ var ids = ['orb-1','orb-2','orb-3','orb-4','orb-5','orb-6','orb-7'];
 var faceIds = ['orb-1-face','orb-2-face','orb-3-face','orb-4-face','orb-5-face','orb-6-face','orb-7-face'];
 var labelIds = ['orb-1-tag','orb-2-tag','orb-3-tag','orb-4-tag','orb-5-tag','orb-6-tag','orb-7-tag'];
 
-ctx.fromTo(ids, {opacity:0, scale:0.42, y:90}, {opacity:1, scale:1, y:0, duration:42, stagger:8, ease:'spring.wobbly'});
+ctx.fromTo(ids, {opacity:0, scale:0.42, y:90}, {opacity:1, scale:1, y:0, duration:1.4, stagger:0.266667, ease:'spring.wobbly'});
 
 // ── orbs: drift + color + face + label loops ───────────────────
 var orbCfg = [
-  {tx0:-10,tx1:12,ty0:-14,ty1:10,sc0:0.98,sc1:1.04,rot0:-4,rot1:3,dur:88,del:0,c0:'#facc15',c1:'#fb7185'},
-  {tx0:-12,tx1:10,ty0:-18,ty1:14,sc0:0.95,sc1:1.06,rot0:-3,rot1:4,dur:96,del:5,c0:'#22c55e',c1:'#4ade80'},
-  {tx0:-8,tx1:14,ty0:-12,ty1:8,sc0:0.97,sc1:1.05,rot0:-5,rot1:5,dur:82,del:9,c0:'#38bdf8',c1:'#60a5fa'},
-  {tx0:-14,tx1:12,ty0:-16,ty1:12,sc0:0.96,sc1:1.05,rot0:-4,rot1:4,dur:92,del:12,c0:'#fb7185',c1:'#f43f5e'},
-  {tx0:-10,tx1:16,ty0:-12,ty1:14,sc0:0.95,sc1:1.07,rot0:-3,rot1:5,dur:98,del:16,c0:'#a855f7',c1:'#c084fc'},
-  {tx0:-12,tx1:10,ty0:-14,ty1:10,sc0:0.97,sc1:1.04,rot0:-5,rot1:4,dur:86,del:20,c0:'#fb923c',c1:'#fdba74'},
-  {tx0:-8,tx1:12,ty0:-16,ty1:12,sc0:0.96,sc1:1.05,rot0:-4,rot1:4,dur:90,del:24,c0:'#14b8a6',c1:'#2dd4bf'}
+  {tx0:-10,tx1:12,ty0:-14,ty1:10,sc0:0.98,sc1:1.04,rot0:-4,rot1:3,dur:2.933333,del:0,c0:'#facc15',c1:'#fb7185'},
+  {tx0:-12,tx1:10,ty0:-18,ty1:14,sc0:0.95,sc1:1.06,rot0:-3,rot1:4,dur:3.2,del:0.166667,c0:'#22c55e',c1:'#4ade80'},
+  {tx0:-8,tx1:14,ty0:-12,ty1:8,sc0:0.97,sc1:1.05,rot0:-5,rot1:5,dur:2.733333,del:0.3,c0:'#38bdf8',c1:'#60a5fa'},
+  {tx0:-14,tx1:12,ty0:-16,ty1:12,sc0:0.96,sc1:1.05,rot0:-4,rot1:4,dur:3.066667,del:0.4,c0:'#fb7185',c1:'#f43f5e'},
+  {tx0:-10,tx1:16,ty0:-12,ty1:14,sc0:0.95,sc1:1.07,rot0:-3,rot1:5,dur:3.266667,del:0.533333,c0:'#a855f7',c1:'#c084fc'},
+  {tx0:-12,tx1:10,ty0:-14,ty1:10,sc0:0.97,sc1:1.04,rot0:-5,rot1:4,dur:2.866667,del:0.666667,c0:'#fb923c',c1:'#fdba74'},
+  {tx0:-8,tx1:12,ty0:-16,ty1:12,sc0:0.96,sc1:1.05,rot0:-4,rot1:4,dur:3,del:0.8,c0:'#14b8a6',c1:'#2dd4bf'}
 ];
 for (var i = 0; i < ids.length; i++) {
   var c = orbCfg[i];
   ctx.fromTo(ids[i], {x:c.tx0, y:c.ty0, scale:c.sc0, rotate:c.rot0}, {x:c.tx1, y:c.ty1, scale:c.sc1, rotate:c.rot1, duration:c.dur, delay:c.del, ease:'ease-in-out', repeat:-1, yoyo:true});
-  ctx.fromTo(ids[i], {bg:c.c0}, {bg:c.c1, duration:c.dur+18, delay:c.del, ease:'ease-in-out', repeat:-1, yoyo:true});
-  ctx.fromTo(faceIds[i], {y:-3, rotate:-1}, {y:5, rotate:2, duration:54+i*4, delay:i*3, ease:'ease-in-out', repeat:-1, yoyo:true});
-  ctx.fromTo(labelIds[i], {scale:0.96, opacity:0.75}, {scale:1.06, opacity:1, duration:46+i*3, delay:i*2, ease:'ease-in-out', repeat:-1, yoyo:true});
+  ctx.fromTo(ids[i], {bg:c.c0}, {bg:c.c1, duration:c.dur+0.6, delay:c.del, ease:'ease-in-out', repeat:-1, yoyo:true});
+  ctx.fromTo(faceIds[i], {y:-3, rotate:-1}, {y:5, rotate:2, duration:1.8+i*0.133333, delay:i*0.1, ease:'ease-in-out', repeat:-1, yoyo:true});
+  ctx.fromTo(labelIds[i], {scale:0.96, opacity:0.75}, {scale:1.06, opacity:1, duration:1.533333+i*0.1, delay:i*0.066667, ease:'ease-in-out', repeat:-1, yoyo:true});
 }
 
 // ── left copy entrance ─────────────────────────────────────────
-ctx.fromTo(['left-kicker','left-title-1','left-title-2','left-body','left-pill-row'], {opacity:0, y:24}, {opacity:1, y:0, stagger:6, duration:24, ease:'spring.gentle'});
+ctx.fromTo(['left-kicker','left-title-1','left-title-2','left-body','left-pill-row'], {opacity:0, y:24}, {opacity:1, y:0, stagger:0.2, duration:0.8, ease:'spring.gentle'});
   </script>
 
   <div id="root" class="relative w-[1280px] h-[720px] bg-[#f7f7f3] overflow-hidden">
@@ -38,43 +38,43 @@ ctx.fromTo(['left-kicker','left-title-1','left-title-2','left-body','left-pill-r
     <div id="guide-h" class="absolute left-[0px] top-[360px] w-[1280px] h-[2px] bg-black opacity-20" />
 
     <tl id="hero-tl" class="absolute left-[0px] top-[0px] w-[640px] h-[360px] overflow-hidden border-r-[6px] border-b-[6px] border-black rounded-br-[44px]">
-      <div id="scene-1" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#d74242]" duration="30">
+      <div id="scene-1" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#d74242]" duration="1">
         <text id="scene-1-text" class="text-[172px] font-bold text-white leading-none tracking-[-10px]">1</text>
       </div>
 
-      <transition from="scene-1" to="scene-2" effect="fade" duration="20" timing="ease-in-out" />
+      <transition from="scene-1" to="scene-2" effect="fade" duration="0.666667" timing="ease-in-out" />
 
-      <div id="scene-2" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d76d]" duration="30">
+      <div id="scene-2" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#42d76d]" duration="1">
         <text id="scene-2-text" class="text-[172px] font-bold text-white leading-none tracking-[-10px]">2</text>
       </div>
 
-      <transition from="scene-2" to="scene-3" effect="slide" direction="from_right" duration="20" timing="spring-default" />
+      <transition from="scene-2" to="scene-3" effect="slide" direction="from_right" duration="0.666667" timing="spring-default" />
 
-      <div id="scene-3" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#3b82f6]" duration="30">
+      <div id="scene-3" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#3b82f6]" duration="1">
         <text id="scene-3-text" class="text-[172px] font-bold text-white leading-none tracking-[-10px]">3</text>
       </div>
 
-      <transition from="scene-3" to="scene-4" effect="light_leak" duration="22" seed="5" hueShift="45" />
+      <transition from="scene-3" to="scene-4" effect="light_leak" duration="0.733333" seed="5" hueShift="45" />
 
-      <div id="scene-4" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#eab308]" duration="30">
+      <div id="scene-4" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#eab308]" duration="1">
         <text id="scene-4-text" class="text-[172px] font-bold text-white leading-none tracking-[-10px]">4</text>
       </div>
 
-      <transition from="scene-4" to="scene-5" effect="wipe" direction="from_top_left" duration="20" timing="ease-in-out" />
+      <transition from="scene-4" to="scene-5" effect="wipe" direction="from_top_left" duration="0.666667" timing="ease-in-out" />
 
-      <div id="scene-5" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#a855f7]" duration="30">
+      <div id="scene-5" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#a855f7]" duration="1">
         <text id="scene-5-text" class="text-[172px] font-bold text-white leading-none tracking-[-10px]">5</text>
       </div>
 
-      <transition from="scene-5" to="scene-6" effect="light_leak" duration="22" seed="12" hueShift="200" maskScale="0.6" />
+      <transition from="scene-5" to="scene-6" effect="light_leak" duration="0.733333" seed="12" hueShift="200" maskScale="0.6" />
 
-      <div id="scene-6" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#ec4899]" duration="30">
+      <div id="scene-6" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#ec4899]" duration="1">
         <text id="scene-6-text" class="text-[172px] font-bold text-white leading-none tracking-[-10px]">6</text>
       </div>
 
-      <transition from="scene-6" to="scene-7" effect="AdvancedMosaic" duration="26" />
+      <transition from="scene-6" to="scene-7" effect="AdvancedMosaic" duration="0.866667" />
 
-      <div id="scene-7" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#14b8a6]" duration="30">
+      <div id="scene-7" class="relative w-[640px] h-[360px] flex items-center justify-center bg-[#14b8a6]" duration="1">
         <text id="scene-7-text" class="text-[172px] font-bold text-white leading-none tracking-[-10px]">7</text>
       </div>
     </tl>

@@ -1,4 +1,4 @@
-{"type":"composition","width":1280,"height":720,"fps":30,"frames":90}
+{"type":"composition","width":1280,"height":720,"fps":30,"duration":3}
 {"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px] bg-slate-950 p-8 flex flex-col gap-6"}
 {"id":"header","parentId":"root","type":"div","className":"flex flex-col items-center gap-1"}
 {"id":"title","parentId":"header","type":"text","className":"text-[28px] font-bold text-white","text":"SVG Path Node"}

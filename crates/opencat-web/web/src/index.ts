@@ -3,6 +3,7 @@ export type {
   CompositionInfo,
   ResourceMeta,
 } from './types';
+export { compositionFrameCount } from './types';
 
 export {
   blobCount,

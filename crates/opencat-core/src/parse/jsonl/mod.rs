@@ -24,7 +24,7 @@ pub enum JsonLine {
         width: i32,
         height: i32,
         fps: i32,
-        frames: i32,
+        duration: f64,
     },
     #[serde(rename = "script")]
     Script {
@@ -41,7 +41,7 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
-        duration: Option<u32>,
+        duration: Option<f64>,
     },
     #[serde(rename = "text")]
     Text {
@@ -51,7 +51,7 @@ pub enum JsonLine {
         #[serde(rename = "className")]
         class_name: Option<String>,
         text: String,
-        duration: Option<u32>,
+        duration: Option<f64>,
     },
     #[serde(rename = "canvas")]
     Canvas {
@@ -60,7 +60,7 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
-        duration: Option<u32>,
+        duration: Option<f64>,
     },
     #[serde(rename = "image")]
     Image {
@@ -76,7 +76,7 @@ pub enum JsonLine {
         query_count: Option<usize>,
         #[serde(rename = "aspectRatio")]
         aspect_ratio: Option<String>,
-        duration: Option<u32>,
+        duration: Option<f64>,
     },
     #[serde(rename = "audio")]
     Audio {
@@ -87,7 +87,7 @@ pub enum JsonLine {
         class_name: Option<String>,
         path: Option<String>,
         url: Option<String>,
-        duration: Option<u32>,
+        duration: Option<f64>,
     },
     #[serde(rename = "video")]
     Video {
@@ -98,7 +98,7 @@ pub enum JsonLine {
         class_name: Option<String>,
         path: Option<String>,
         url: Option<String>,
-        duration: Option<u32>,
+        duration: Option<f64>,
     },
     #[serde(rename = "icon")]
     Icon {
@@ -108,7 +108,7 @@ pub enum JsonLine {
         #[serde(rename = "className")]
         class_name: Option<String>,
         icon: String,
-        duration: Option<u32>,
+        duration: Option<f64>,
     },
     #[serde(rename = "transition")]
     Transition {
@@ -117,7 +117,7 @@ pub enum JsonLine {
         from: String,
         to: String,
         effect: String,
-        duration: u32,
+        duration: f64,
         direction: Option<String>,
         timing: Option<String>,
         damping: Option<f32>,
@@ -145,7 +145,7 @@ pub enum JsonLine {
         #[serde(rename = "className")]
         class_name: Option<String>,
         path: String,
-        duration: Option<u32>,
+        duration: Option<f64>,
     },
     #[serde(rename = "path")]
     Path {
@@ -155,7 +155,7 @@ pub enum JsonLine {
         #[serde(rename = "className")]
         class_name: Option<String>,
         d: String,
-        duration: Option<u32>,
+        duration: Option<f64>,
     },
 }
 
@@ -170,7 +170,7 @@ pub fn parse_with_base_dir(
     let mut width = 1920;
     let mut height = 1080;
     let mut fps = 30;
-    let mut frames = 90;
+    let mut duration = 3.0;
     let mut global_scripts = Vec::new();
     let mut audio_elements = Vec::new();
     let mut scripts_by_parent: HashMap<String, Vec<String>> = HashMap::new();
@@ -190,12 +190,12 @@ pub fn parse_with_base_dir(
                 width: w,
                 height: h,
                 fps: f,
-                frames: fs,
+                duration: d,
             } => {
                 width = w;
                 height = h;
                 fps = f;
-                frames = fs;
+                duration = d;
             }
             JsonLine::Script {
                 parent_id,
@@ -476,26 +476,20 @@ pub fn parse_with_base_dir(
         .into_iter()
         .map(|audio| resolve_audio_source(audio, &elements_by_id))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let (root, frames) = if has_explicit_tl {
+    let root = if has_explicit_tl {
         let transitions_by_tl: HashMap<String, Vec<&ParsedTransition>> =
             transitions.iter().fold(HashMap::new(), |mut acc, t| {
                 acc.entry(t.parent_id.clone()).or_default().push(t);
                 acc
             });
-        (
-            build_tree_with_tl(
-                &elements,
-                &scripts_by_parent,
-                &transitions_by_tl,
-                fps as u32,
-            )?,
-            frames,
-        )
+        build_tree_with_tl(
+            &elements,
+            &scripts_by_parent,
+            &transitions_by_tl,
+            fps as u32,
+        )?
     } else {
-        (
-            build_tree(&elements, &scripts_by_parent, fps as u32)?,
-            frames,
-        )
+        build_tree(&elements, &scripts_by_parent, fps as u32)?
     };
 
     Ok(ParsedComposition {
@@ -503,7 +497,7 @@ pub fn parse_with_base_dir(
         width,
         height,
         fps,
-        frames,
+        duration,
         root,
         script: join_scripts(global_scripts),
         audio_sources,
@@ -544,7 +538,7 @@ fn resolve_audio_source(
         id: audio.id,
         source: audio.source,
         attach: attachment,
-        duration: audio.duration,
+        duration_secs: audio.duration,
     })
 }
 
@@ -647,7 +641,7 @@ mod tests {
     #[test]
     fn jsonl_parser_uses_shared_parsed_composition_type() {
         let parsed: crate::parse::document::ParsedComposition = parse(
-            r#"{"type":"composition","width":320,"height":180,"fps":30,"frames":1}
+            r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}"#,
         )
         .expect("jsonl should parse");
@@ -682,7 +676,7 @@ mod tests {
     #[test]
     fn parser_keeps_script_line() {
         let parsed = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":90}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":3}
 {"id":"root","parentId":null,"type":"div","className":"flex","text":null}
 {"type":"script","src":"ctx.getNode('root').opacity(0.5);"}"#,
         )
@@ -699,7 +693,7 @@ mod tests {
     #[test]
     fn parser_keeps_legacy_script_content_line() {
         let parsed = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":90}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":3}
 {"id":"root","parentId":null,"type":"div","className":"flex","text":null}
 {"type":"script","content":"ctx.getNode('root').opacity(0.5);"}"#,
         )
@@ -714,11 +708,11 @@ mod tests {
     #[test]
     fn parser_rejects_root_level_timeline_without_explicit_tl() {
         let err = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
-{"id":"root-a","parentId":null,"type":"div","className":"","duration":10}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":33.3}
+{"id":"root-a","parentId":null,"type":"div","className":"","duration":0.333333333333}
 {"type":"script","parentId":"root-a","src":"ctx.getNode('root-a').opacity(0.6);"}
-{"type":"transition","parentId":"main-tl","from":"root-a","to":"root-b","effect":"fade","duration":5}
-{"id":"root-b","parentId":null,"type":"div","className":"","duration":10}"#,
+{"type":"transition","parentId":"main-tl","from":"root-a","to":"root-b","effect":"fade","duration":0.166666666666}
+{"id":"root-b","parentId":null,"type":"div","className":"","duration":0.333333333333}"#,
         )
         .err()
         .expect("legacy root timeline should fail");
@@ -729,9 +723,9 @@ mod tests {
     #[test]
     fn parser_rejects_multiple_root_sequences_without_explicit_tl() {
         let err = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":999}
-{"id":"root-a","parentId":null,"type":"div","className":"","duration":10}
-{"id":"root-b","parentId":null,"type":"div","className":"","duration":10}"#,
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":33.3}
+{"id":"root-a","parentId":null,"type":"div","className":"","duration":0.333333333333}
+{"id":"root-b","parentId":null,"type":"div","className":"","duration":0.333333333333}"#,
         )
         .err()
         .expect("multiple roots without tl should fail");
@@ -742,13 +736,13 @@ mod tests {
     #[test]
     fn parser_rejects_non_adjacent_tl_transition_pairs() {
         let err = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":35}
-{"id":"root","parentId":null,"type":"div","className":"relative","duration":35}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":1.166666666667}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":1.166666666667}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
-{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
-{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
-{"id":"scene-c","parentId":"main-tl","type":"div","className":"","duration":10}
-{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-c","effect":"fade","duration":5}"#,
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"id":"scene-c","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-c","effect":"fade","duration":0.166666666666}"#,
         )
         .err()
         .expect("non-adjacent transitions should fail");
@@ -759,12 +753,12 @@ mod tests {
     #[test]
     fn parser_requires_sequence_duration_when_building_timeline() {
         let err = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
-{"id":"root","parentId":null,"type":"div","className":"relative","duration":25}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":0.833333333333}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":0.833333333333}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
 {"id":"scene-a","parentId":"main-tl","type":"div","className":""}
-{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
-{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":5}"#,
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":0.166666666666}"#,
         )
         .err()
         .expect("timeline without durations should fail");
@@ -1227,7 +1221,7 @@ mod tests {
     #[test]
     fn parser_accepts_image_query_nodes() {
         parse(
-            r#"{"type":"composition","width":1280,"height":720,"fps":30,"frames":90}
+            r#"{"type":"composition","width":1280,"height":720,"fps":30,"duration":3}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full","text":null}
 {"id":"hero","parentId":"root","type":"image","className":"w-[320px] h-[240px] object-cover","query":"pizza margherita"}"#,
         )
@@ -1237,7 +1231,7 @@ mod tests {
     #[test]
     fn parser_accepts_lucide_icon_nodes() {
         parse(
-            r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
+            r#"{"type":"composition","width":390,"height":844,"fps":30,"duration":6}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"search-icon","parentId":"root","type":"icon","className":"w-[20px] h-[20px] text-slate-400","icon":"search"}"#,
         )
@@ -1247,14 +1241,14 @@ mod tests {
     #[test]
     fn parser_accepts_audio_nodes() {
         parse(
-            r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
+            r#"{"type":"composition","width":390,"height":844,"fps":30,"duration":6}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"bgm","attach":"root","type":"audio","path":"/tmp/demo.mp3"}"#,
         )
         .expect("jsonl with audio path should parse");
 
         parse(
-            r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
+            r#"{"type":"composition","width":390,"height":844,"fps":30,"duration":6}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"stream","attach":"root","type":"audio","url":"https://example.com/demo.mp3"}"#,
         )
@@ -1264,12 +1258,12 @@ mod tests {
     #[test]
     fn parser_treats_timeline_attached_audio_as_timeline_audio_source() {
         let parsed = parse(
-            r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
+            r#"{"type":"composition","width":390,"height":844,"fps":30,"duration":6}
 {"id":"main-tl","parentId":null,"type":"tl","className":"absolute inset-0"}
-{"id":"scene-a","parentId":"main-tl","type":"div","className":"w-full h-full","duration":30}
-{"id":"scene-b","parentId":"main-tl","type":"div","className":"w-full h-full","duration":30}
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"w-full h-full","duration":1}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"w-full h-full","duration":1}
 {"id":"bgm","attach":"main-tl","type":"audio","path":"/tmp/demo.mp3"}
-{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":1}"#,
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":0.033333333333}"#,
         )
         .expect("jsonl with timeline-attached audio should parse");
 
@@ -1283,8 +1277,8 @@ mod tests {
     #[test]
     fn parser_attaches_audio_to_owning_scene() {
         let parsed = parse(
-            r#"{"type":"composition","width":390,"height":844,"fps":30,"frames":180}
-{"id":"scene-a","parentId":null,"type":"div","className":"w-full h-full","duration":30}
+            r#"{"type":"composition","width":390,"height":844,"fps":30,"duration":6}
+{"id":"scene-a","parentId":null,"type":"div","className":"w-full h-full","duration":1}
 {"id":"voice","attach":"scene-a","type":"audio","path":"/tmp/voice.mp3"}"#,
         )
         .expect("jsonl with scene audio should parse");
@@ -1299,28 +1293,28 @@ mod tests {
     #[test]
     fn parser_accepts_explicit_tl_root_and_local_transition() {
         let parsed = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
-{"id":"root","parentId":null,"type":"div","className":"relative","duration":25}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":0.833333333333}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":0.833333333333}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
-{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
-{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
-{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":5}"#,
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":0.166666666666}"#,
         )
         .expect("explicit tl jsonl should parse");
 
-        assert_eq!(parsed.frames, 25);
+        assert!((parsed.duration - 25.0 / 30.0).abs() < 1e-9);
         assert!(matches!(parsed.root.kind(), NodeKind::Div(_)));
     }
 
     #[test]
     fn parser_requires_transition_parent_id() {
         let err = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
-{"id":"root","parentId":null,"type":"div","className":"relative","duration":25}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":0.833333333333}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":0.833333333333}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
-{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
-{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
-{"type":"transition","from":"scene-a","to":"scene-b","effect":"fade","duration":5}"#,
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"type":"transition","from":"scene-a","to":"scene-b","effect":"fade","duration":0.166666666666}"#,
         )
         .err()
         .expect("missing transition parentId should fail");
@@ -1331,8 +1325,8 @@ mod tests {
     #[test]
     fn parser_rejects_legacy_layer_records() {
         let err = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
-{"id":"scene-a","parentId":null,"type":"div","className":"","duration":10}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":0.833333333333}
+{"id":"scene-a","parentId":null,"type":"div","className":"","duration":0.333333333333}
 {"id":"subs","parentId":null,"type":"caption","className":"absolute","path":"sub.srt"}
 {"type":"layer","children":["scene-a","subs"]}"#,
         )
@@ -1345,13 +1339,13 @@ mod tests {
     #[test]
     fn parser_builds_tl_node_from_direct_children() {
         let parsed = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
-{"id":"root","parentId":null,"type":"div","className":"relative","duration":25}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":0.833333333333}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":0.833333333333}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
 {"type":"script","parentId":"main-tl","src":"ctx.getNode('main-tl').opacity(0.5);"}
-{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
-{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
-{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":5}"#,
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":0.166666666666}"#,
         )
         .expect("tl jsonl should parse");
 
@@ -1370,13 +1364,13 @@ mod tests {
     #[test]
     fn parser_rejects_transition_that_targets_non_adjacent_tl_child() {
         let err = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":35}
-{"id":"root","parentId":null,"type":"div","className":"relative","duration":35}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":1.166666666667}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":1.166666666667}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
-{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
-{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
-{"id":"scene-c","parentId":"main-tl","type":"div","className":"","duration":10}
-{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-c","effect":"fade","duration":5}"#,
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"id":"scene-c","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-c","effect":"fade","duration":0.166666666666}"#,
         )
         .err()
         .expect("non-adjacent transition should fail");
@@ -1387,13 +1381,13 @@ mod tests {
     #[test]
     fn parser_rejects_transition_to_non_direct_tl_descendant() {
         let err = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":25}
-{"id":"root","parentId":null,"type":"div","className":"relative","duration":25}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":0.833333333333}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":0.833333333333}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
-{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
-{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}
-{"id":"nested","parentId":"scene-b","type":"div","className":"","duration":10}
-{"type":"transition","parentId":"main-tl","from":"scene-a","to":"nested","effect":"fade","duration":5}"#,
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"id":"nested","parentId":"scene-b","type":"div","className":"","duration":0.333333333333}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"nested","effect":"fade","duration":0.166666666666}"#,
         )
         .err()
         .expect("transition to nested descendant should fail");
@@ -1404,10 +1398,10 @@ mod tests {
     #[test]
     fn parser_rejects_tl_with_single_scene_child() {
         let err = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":10}
-{"id":"root","parentId":null,"type":"div","className":"relative","duration":10}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":0.333333333333}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":0.333333333333}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
-{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}"#,
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}"#,
         )
         .err()
         .expect("single-scene tl should fail");
@@ -1418,11 +1412,11 @@ mod tests {
     #[test]
     fn parser_rejects_tl_missing_transition_between_adjacent_children() {
         let err = parse(
-            r#"{"type":"composition","width":640,"height":360,"fps":30,"frames":20}
-{"id":"root","parentId":null,"type":"div","className":"relative","duration":20}
+            r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":0.666666666667}
+{"id":"root","parentId":null,"type":"div","className":"relative","duration":0.666666666667}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
-{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":10}
-{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":10}"#,
+{"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
+{"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}"#,
         )
         .err()
         .expect("tl without transitions should fail");
@@ -1433,7 +1427,7 @@ mod tests {
     #[test]
     fn jsonl_still_rejects_canvas_children_after_builder_move() {
         let err = parse(
-            r#"{"type":"composition","width":320,"height":180,"fps":30,"frames":1}
+            r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"stage","parentId":"root","type":"canvas","className":"w-full h-full"}
 {"id":"hidden","parentId":"stage","type":"text","className":"text-[12px]","text":"hidden"}"#,
@@ -1449,7 +1443,7 @@ mod tests {
     #[test]
     fn jsonl_rejects_duplicate_visual_ids() {
         let err = parse(
-            r#"{"type":"composition","width":320,"height":180,"fps":30,"frames":1}
+            r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"dup","parentId":"root","type":"div","className":""}
 {"id":"dup","parentId":"root","type":"text","className":"","text":"x"}"#,
@@ -1461,7 +1455,7 @@ mod tests {
 
     #[test]
     fn path_jsonl_parses_and_resolves_path_nodes() {
-        let input = r#"{"type":"composition","width":1280,"height":720,"fps":30,"frames":90}
+        let input = r#"{"type":"composition","width":1280,"height":720,"fps":30,"duration":3}
 {"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px] bg-slate-950"}
 {"id":"card","parentId":"root","type":"div","className":"flex items-center justify-center"}
 {"id":"tri","parentId":"card","type":"path","className":"w-[120px] h-[104px] fill-cyan-500 stroke-cyan-200 stroke-2","d":"M0 0 L120 0 L60 104 Z"}
@@ -1470,6 +1464,6 @@ mod tests {
         let parsed = parse(input).expect("path jsonl should parse");
         assert_eq!(parsed.width, 1280);
         assert_eq!(parsed.fps, 30);
-        assert_eq!(parsed.frames, 90);
+        assert_eq!(parsed.duration, 3.0);
     }
 }

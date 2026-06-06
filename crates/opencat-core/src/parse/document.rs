@@ -33,7 +33,7 @@ pub struct ParsedDocumentParts {
     pub width: i32,
     pub height: i32,
     pub fps: i32,
-    pub frames: i32,
+    pub duration: f64,
     pub elements: Vec<ParsedElement>,
     pub transitions: Vec<ParsedTransition>,
     pub audio_elements: Vec<ParsedAudioElement>,
@@ -98,7 +98,7 @@ pub enum ParsedElementKind {
 pub struct ParsedElement {
     pub id: String,
     pub parent_id: Option<String>,
-    pub duration: Option<u32>,
+    pub duration: Option<f64>,
     pub style: NodeStyle,
     pub kind: ParsedElementKind,
 }
@@ -109,7 +109,7 @@ pub struct ParsedTransition {
     pub from: String,
     pub to: String,
     pub effect: String,
-    pub duration: u32,
+    pub duration: f64,
     pub direction: Option<String>,
     pub timing: Option<String>,
     pub damping: Option<f32>,
@@ -124,7 +124,7 @@ pub struct ParsedTransition {
 pub struct ParsedAudioElement {
     pub id: String,
     pub attach: String,
-    pub duration: Option<u32>,
+    pub duration: Option<f64>,
     pub source: AudioSource,
 }
 
@@ -133,7 +133,7 @@ pub struct ParsedComposition {
     pub width: i32,
     pub height: i32,
     pub fps: i32,
-    pub frames: i32,
+    pub duration: f64,
     pub root: Node,
     pub script: Option<String>,
     pub audio_sources: Vec<CompositionAudioSource>,

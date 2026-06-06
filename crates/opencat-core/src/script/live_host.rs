@@ -31,7 +31,7 @@ impl<C: JsContext> LiveScriptHost<C> {
         }
         self.ctx.eval(
             "globalThis.ctx = globalThis.ctx || {\
-             frame:0, fps:0, totalFrames:0, currentFrame:0, sceneFrames:0, \
+             frame:0, fps:0, time:0, duration:0, totalDuration:0, currentTime:0, sceneDuration:0, totalFrames:0, currentFrame:0, sceneFrames:0, \
              __currentCanvasTarget:'',\
              __targetRegistry:{visual:Object.create(null),canvas:Object.create(null),nonVisual:Object.create(null)}\
          };",
@@ -84,11 +84,20 @@ impl<C: JsContext> ScriptHost for LiveScriptHost<C> {
         recorder: &mut dyn MutationRecorder,
     ) -> Result<()> {
         self.ctx
-            .with_store_mut(|s| s.reset_for_frame(frame_ctx.current_frame));
+            .with_store_mut(|s| s.reset_for_frame(frame_ctx.current_frame, frame_ctx.fps));
 
         self.ctx
             .set_ctx_field("frame", json!(frame_ctx.frame as i64))?;
         self.ctx.set_ctx_field("fps", json!(frame_ctx.fps as i64))?;
+        self.ctx.set_ctx_field("time", json!(frame_ctx.time_secs))?;
+        self.ctx
+            .set_ctx_field("duration", json!(frame_ctx.total_duration_secs))?;
+        self.ctx
+            .set_ctx_field("totalDuration", json!(frame_ctx.total_duration_secs))?;
+        self.ctx
+            .set_ctx_field("currentTime", json!(frame_ctx.current_time_secs))?;
+        self.ctx
+            .set_ctx_field("sceneDuration", json!(frame_ctx.scene_duration_secs))?;
         self.ctx
             .set_ctx_field("totalFrames", json!(frame_ctx.total_frames as i64))?;
         self.ctx

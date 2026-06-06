@@ -668,7 +668,7 @@ mod tests {
         };
         let mut assets = TestCatalog::new();
         let parsed = crate::parse(
-            r#"{"type":"composition","width":320,"height":180,"fps":30,"frames":1}
+            r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"front","parentId":"root","type":"text","className":"text-[12px] z-10","text":"front"}
 {"id":"back","parentId":"root","type":"text","className":"text-[12px]","text":"back"}"#,
@@ -803,7 +803,7 @@ mod tests {
         };
         let mut assets = TestCatalog::new();
         let parsed = crate::parse(
-            r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
+            r#"{"type":"composition","width":100,"height":100,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"late","parentId":"root","type":"text","className":"text-[12px] z-10","text":"late"}
 {"id":"early","parentId":"root","type":"text","className":"text-[12px]","text":"early"}"#,
@@ -877,7 +877,7 @@ mod tests {
         };
         let mut assets = TestCatalog::new();
         let parsed = crate::parse(
-            r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
+            r#"{"type":"composition","width":100,"height":100,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"child","parentId":"root","type":"div","className":"w-[10px] h-[10px] bg-red-500"}"#,
         )
@@ -1033,7 +1033,7 @@ mod tests {
         };
         let mut assets = TestCatalog::new();
         let parsed = parse(
-            r#"{"type":"composition","width":100,"height":100,"fps":30,"frames":1}
+            r#"{"type":"composition","width":100,"height":100,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"child","parentId":"root","type":"text","className":"text-[12px]","text":"A"}"#,
         )
@@ -1140,7 +1140,7 @@ mod tests {
         };
         let mut assets = TestCatalog::new();
         let parsed = crate::parse::markup::parse(
-            r#"<opencat width="320" height="240" fps="30" frames="1">
+            r#"<opencat width="320" height="240" fps="30" duration="0.033333333333">
   <canvas id="stage" class="w-[200px] h-[120px]">
     <div id="card" class="absolute left-[12px] top-[18px] w-[80px] h-[40px] bg-white">
       <text id="label" class="absolute left-[6px] top-[8px] text-[12px] text-black">Hi</text>

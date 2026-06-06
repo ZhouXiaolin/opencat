@@ -12,12 +12,12 @@ use crate::js_context::RqJsContext;
 fn filter_animation_plugin_writes_node_filter_values_through_value_api() {
     let source = r#"
         ctx.to("box", {
-            duration: 10,
+            duration: 10 / 30,
             brightness: 0.5,
             blur: 8
         });
         ctx.to("card", {
-            duration: 10,
+            duration: 10 / 30,
             filter: "contrast(2) brightness(0.25)"
         });
     "#;

@@ -270,15 +270,15 @@
 
         var api = {
             flush: function() {
-                var sceneFrames = Number(ctx.sceneFrames || ctx.totalFrames || 0);
+                var sceneDuration = Number(ctx.sceneDuration || ctx.duration || ctx.totalDuration || 0);
                 var totalEnd = baseDelay + state.cursor;
-                var scale = sceneFrames > 0 && totalEnd > sceneFrames ? sceneFrames / totalEnd : 1;
+                var scale = sceneDuration > 0 && totalEnd > sceneDuration ? sceneDuration / totalEnd : 1;
 
                 for (var i = 0; i < state.items.length; i++) {
                     var item = state.items[i];
                     if (item.kind === 'set') {
                         var setStart = (baseDelay + item.start) * scale;
-                        if (ctx.currentFrame >= setStart) {
+                        if (Number(ctx.currentTime || 0) >= setStart) {
                             applySet(item.targets, item.vars || {});
                             var setTracks = collectTweenTracks({}, item.vars || {}, {});
                             var setTargets = core.normalizeTargets(item.targets);
@@ -296,7 +296,7 @@
                         baseDelay + item.start
                     );
                     var timing = scaledTiming(baseTiming, scale);
-                    if (ctx.currentFrame < Number(timing.delay || 0)) {
+                    if (Number(ctx.currentTime || 0) < Number(timing.delay || 0)) {
                         if (item.kind === 'from' || item.kind === 'fromTo') {
                             applyInitialValues(item.targets, item.fromVars);
                         }

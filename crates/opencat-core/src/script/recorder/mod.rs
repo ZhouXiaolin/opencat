@@ -116,7 +116,7 @@ pub trait MutationRecorder {
         dst: crate::ir::draw_op::Rect4,
     );
 
-    fn reset_for_frame(&mut self, current_frame: u32);
+    fn reset_for_frame(&mut self, current_frame: u32, fps: u32);
     fn snapshot_mutations(&self) -> StyleMutations;
 
     fn read_style_value(&self, id: &str, property: &str) -> Option<serde_json::Value>;

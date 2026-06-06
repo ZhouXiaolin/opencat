@@ -164,9 +164,7 @@ pub trait ByteStore {
 impl<S: ByteStore> ResourceProvider for IndexedResourceProvider<'_, S> {
     fn load(&self, path: &str, name: &str) -> Option<Cow<'_, [u8]>> {
         let id = self.index.get(&ResourceLookup::new(path, name))?;
-        self.store
-            .read(id)
-            .map(|v| Cow::Owned(v))
+        self.store.read(id).map(|v| Cow::Owned(v))
     }
 }
 
@@ -186,6 +184,9 @@ mod tests {
         assert_eq!(p.load(&bundle.0, "img_0.png").unwrap().as_ref(), b"dep");
 
         let assets = p.skottie_assets_for_bundle(&bundle);
-        assert_eq!(assets.get("img_0.png").map(|v| v.as_slice()), Some(b"dep".as_ref()));
+        assert_eq!(
+            assets.get("img_0.png").map(|v| v.as_slice()),
+            Some(b"dep".as_ref())
+        );
     }
 }

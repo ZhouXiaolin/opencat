@@ -2592,7 +2592,10 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
     Ok(())
 }
 
-pub fn render_lottie(ctx: &mut RenderCtx, item: &crate::display::list::LottieDisplayItem) -> Result<(), RenderError> {
+pub fn render_lottie(
+    ctx: &mut RenderCtx,
+    item: &crate::display::list::LottieDisplayItem,
+) -> Result<(), RenderError> {
     let style = &item.paint;
     let dst = kurbo_rect(item.bounds);
 

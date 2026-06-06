@@ -1,7 +1,7 @@
 use crate::ir::asset_id::{AssetId, asset_id_for_query};
 use crate::parse::primitives::{AudioSource, ImageSource};
-use crate::resource::lottie::LottieMeta;
 use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
+use crate::resource::lottie::LottieMeta;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

@@ -19,7 +19,11 @@ pub async fn hydrate_lottie_bundles(
     bytes: &mut impl ByteSourceMap,
     mut fetch: impl FnMut(&str) -> FetchFuture,
 ) -> Result<()> {
-    let bundle_ids: Vec<AssetId> = manifest.bundles.iter().map(|b| b.bundle_id.clone()).collect();
+    let bundle_ids: Vec<AssetId> = manifest
+        .bundles
+        .iter()
+        .map(|b| b.bundle_id.clone())
+        .collect();
     for bundle_id in bundle_ids {
         let Some(bundle) = manifest.bundles.iter().find(|b| b.bundle_id == bundle_id) else {
             continue;

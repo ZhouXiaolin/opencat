@@ -3,7 +3,10 @@ use opencat_core::parse::document::{BuildOptions, CanvasChildrenMode, ParsedComp
 use opencat_core::resource::fonts::merge_faces_into_db;
 
 /// Parse composition source for WASM rendering (applies preloaded `<fonts>` when present).
-pub fn parse_source(input: &str, base_font_db: &fontdb::Database) -> anyhow::Result<ParsedComposition> {
+pub fn parse_source(
+    input: &str,
+    base_font_db: &fontdb::Database,
+) -> anyhow::Result<ParsedComposition> {
     let trimmed = input.trim();
     if trimmed.starts_with('{') {
         return opencat_core::parse::jsonl::parse_with_base_dir(input, None);

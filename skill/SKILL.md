@@ -1,205 +1,157 @@
 ---
 name: opencat-creator
-description: 用 OpenCat XML 格式创建视频合成、动画、标题卡片、叠加层、字幕、配音、音频响应式视觉和场景转场。
+description: 用 OpenCat XML 格式设计并生成视频：品牌视觉、分镜脚本、动画编排、字幕、音频、转场和可交给 OpenCat/Web runtime 使用的 XML。适用于创建或修改 OpenCat 视频合成、标题卡、产品演示、品牌短片、社交广告、数据动效和程序化动画。
 ---
 
 # OpenCat Creator
 
-XML 是视频的事实来源。运行时解析 XML，构建场景树，使用 Skia + Taffy + QuickJS 生成视频画面。
+XML 是 OpenCat 视频的事实来源。目标不是产出 HTML/Studio 项目，也不是启动本地渲染或视频文件生成，而是产出一个结构清晰、符合 OpenCat 语法、可交给 Rust 或 Web runtime 使用的 XML 视频设计。
 
-## 流程概览与审批门禁
+## 总流程
 
 ```
-意图 → [步骤1: 设计系统 → design.md] → 审批 → [步骤2: 扩展 → expanded-prompt.md] → 审批 → [步骤3: 生成 XML]
-                                                                                           ↑ 规划内化于此
+意图
+  -> Step 0: 策略简报 VIDEO_BRIEF.md
+  -> Step 1: 设计系统 design.md
+  -> Step 2: 扩展方案 expanded-prompt.md
+  -> Step 3: 分镜/脚本 STORYBOARD.md / SCRIPT.md
+  -> Step 4: OpenCat XML
+  -> Step 5: 交付 XML
 ```
 
-**铁律：**
-- 步骤 1 产出 `design.md` → **用户审批后** 才能进步骤 2
-- 步骤 2 产出 `expanded-prompt.md` → **用户审批后** 才能进步骤 3
-- 设计阶段（步骤 1-2）只读设计文件；实现阶段（步骤 3）才读实现文件
+**最终交付物是 XML。** 默认输出 `index.xml`；如果用户指定文件名或在编辑现有合成，则使用指定 XML。
 
-### 文件分组（渐进式加载）
+**简单任务可裁剪流程。** 标题卡、小修、改色、调 timing、修已有 XML 时，直接读取现有 XML 和相关引用文件，不强行生成所有中间文档。多场景、品牌视频、产品演示、社交广告走完整流程。
 
-| 阶段 | 可读文件 | 加载时机 |
+**自主模式直接推进。** 用户说“你决定”“直接做”“surprise me”时，可以自行决定风格、TTS、节奏、字幕等偏好，并直接产出 XML。不要因为偏好问题反复停下来。
+
+## 渐进式加载
+
+| 阶段 | 读取文件 | 何时读取 |
 |------|---------|---------|
-| **设计阶段** | `visual-styles.md`, `design-create.md`, `house-style.md`, `typography.md` | 步骤 1 按需 |
-| | `prompt-expansion.md`, `beat-direction.md` | 步骤 2 |
-| | `motion-principles.md` 仅「设计原则」部分 | 步骤 2 可选 |
-| **实现阶段** | `opencat.md`, `transitions.md`, `animations.md`, `canvaskit.md`, `text-animations.md` | 步骤 3 按需 |
-| | `motion-principles.md` 完整（含「实现护栏」） | 步骤 3 |
-| | `techniques.md` — 13 种动效技法目录 | 步骤 3 需选择技法时 |
-| | `dynamic-techniques.md` — 动态字幕技巧 | 步骤 3 处理字幕时 |
-| | `data-in-motion.md` — 数据可视化规则 | 步骤 3 处理数据时 |
-| | `audio-reactive.md` — 音频响应动效 | 步骤 3 有音乐时 |
-| | `video-composition.md` — 视频构图规则 | 步骤 3 |
-| | `patterns.md` — 组合模式 | 步骤 3 遇到匹配模式时 |
-| | `captions.md` — 字幕与配音指南 | 步骤 3 处理字幕时 |
+| 策略 | `references/strategy-brief.md` | 多场景或开放式需求的 Step 0 |
+| 设计 | 项目根目录 `design.md` 或 `DESIGN.md` | Step 1 |
+| 扩展 | `references/prompt-expansion.md`, `references/beat-direction.md`, `references/video-composition.md`, `references/motion-principles.md` 的设计原则 | Step 2 |
+| 分镜 | `references/storyboard.md`, `references/techniques.md`, `references/text-animations.md` | Step 3 |
+| XML 实现 | `references/xml-build.md`, `references/opencat.md`, `references/transitions.md`, `references/animations.md`, `references/canvaskit.md` | Step 4 |
+| 专项能力 | `references/captions.md`, `references/dynamic-techniques.md`, `references/data-in-motion.md`, `references/audio-reactive.md`, `references/patterns.md` | 只有对应能力被使用时 |
 
-**规则：** 每个步骤只读该步骤需要的文件。不提前加载。如果某个文件被引用了但当前步骤不需要，跳过它。
+只读当前阶段需要的文件。不要为了“保险”一次性加载所有 references。
 
----
+## Step 0: 策略简报
 
-## 方法
+开放式视频需求先读 [references/strategy-brief.md](references/strategy-brief.md)，锁定：
 
-### 探索阶段
+- **Message** — 视频只允许有一个必须传达的核心句子
+- **Narrative arc** — Problem->Solution / Reveal / Demonstration / Vibe / Comparison / 自定义
+- **Audience + platform** — 谁看、在哪看、横竖屏和时长
+- **Video type** — 社交广告 / 产品演示 / 品牌短片 / 发布预告 / 功能公告
+- **Narration** — 旁白 / 无旁白 / 极简旁白
 
-了解意图：
+产出 `VIDEO_BRIEF.md`。如果用户 prompt 已经给足信息，直接写入简报并继续，不重复提问。
 
-- **受众** — 谁看？开发者？高管？普通消费者？
-- **平台** — 在哪儿播放？社交媒体、网站主页、产品演示？尺寸？
-- **优先级** — 什么最重要？动效质量？内容准确性？速度？
-- **变体** — 用户想要多个选项还是一个最佳方案？
+## Step 1: 设计系统
 
-对于具体请求（"加一个标题卡片"），跳过探索阶段。
-对于探索性请求，考虑提供 2-3 个有意义的变体——不同的节奏、能量水平或结构方法。
+项目默认有 `design.md` 或 `DESIGN.md`。先读取它（Linux 区分大小写）。使用其精确颜色、字体、圆角、间距、禁用项；不要发明色值或替换字体。
 
-### 步骤 1：设计系统 → 产出 `design.md`
+如果项目确实没有设计文件，暂停并让用户提供或确认一份最小 `design.md`。不要从本地预设中推导颜色。写 XML 前必须有明确设计文件。
 
-**产出：** `design.md`（项目根目录）
+## Step 2: Prompt 扩展
 
-**需要审批才能进入步骤 2。**
+多场景或非平凡视频必须读 [references/prompt-expansion.md](references/prompt-expansion.md)，产出 `expanded-prompt.md`。扩展不是复述用户需求，而是把需求变成逐场景 production spec：
 
-如果项目已有 `design.md` 或 `DESIGN.md`，先读取它（检查两种大小写）。使用其确切值——不要发明颜色或替换字体。
+- 精确引用 `design.md` token
+- 声明节奏模式
+- 为每个场景补足背景层、中景内容、前景细节
+- 为每个元素指定动效动词
+- 指定转场意图、能量峰值和负面清单
 
-如果没有，阅读 [references/design-create.md](references/design-create.md) 执行完整的 6 步对话式设计流程，产出 `design.md`。
+单场景和小修可以跳过。
 
-`design.md` 必须使用 design-create.md 第 6 步规定的格式：YAML frontmatter（colors/typography/rounded/spacing/motion token 块）+ Markdown 正文（Overview/Colors/Typography/Layout/Elevation/Components/Do's and Don'ts）。不按此格式输出的设计文件会被拒绝。
+## Step 3: 分镜与脚本
 
-### 步骤 2：Prompt 扩展 → 产出 `expanded-prompt.md`
+多场景视频必须读 [references/storyboard.md](references/storyboard.md)，产出：
 
-**产出：** `expanded-prompt.md`（项目根目录）
+- `STORYBOARD.md` — 概念、节奏、场景时长、镜头类型、技法、资产、转场和 SFX/字幕规划
+- `SCRIPT.md` — 仅当有旁白或字幕脚本时生成
 
-**需要审批才能进入步骤 3。**
+分镜顺序固定为：**message -> narrative arc -> beats -> assets/techniques**。不要从“有哪些截图/素材”倒推成 slideshow。
 
-阅读 [references/prompt-expansion.md](references/prompt-expansion.md) 获取完整流程。将用户意图锚定到 `design.md`，产生完整的逐场景生产规范。
+## Step 4: 生成 OpenCat XML
 
-`expanded-prompt.md` 应包含：
-1. **标题 + 风格块** — 引用 design.md 的精确 token
-2. **节奏声明** — 命名节奏模式（如 `hook-PUNCH-hold-CTA`）
-3. **全局规则** — 视差、微动效、转场风格
-4. **逐场景拍点** — 每个场景的 Concept / Depth layers / 动效编排 / 退场转场
-5. **转场方案** — 按情绪匹配选择具体 effect 和 duration
+读 [references/xml-build.md](references/xml-build.md) 和 [references/opencat.md](references/opencat.md)。实现时遵守：
 
-阅读 [references/beat-direction.md](references/beat-direction.md) 辅助多场景节奏设计。
+- **单文件 XML**：OpenCat 没有子 composition；多场景放在一个 `<tl id="main-tl">` 里。
+- **单可视根**：`<opencat>` 只能有一个可视根。多场景推荐 root `<div>` 包住 `<tl>`、字幕和叠加层。
+- **布局先于动画**：先把每场景最可见时刻的静态布局写对，再用 `<script>` 里的 `ctx.fromTo()` / timeline 加动效。
+- **视频构图优先**：场景是 shot，不是网页 section；每场景至少 2 个焦点、3 层结构、足够密度和持续相机式运动。
+- **转场即退出**：多场景中，除最终场景外不要给场景元素写退场动画；`<transition>` 承担场景交接。
+- **确定性**：不使用 wall-clock、非种子随机、异步 timeline 构建；所有动效由 `ctx.timeline()` / `ctx.fromTo()` 等脚本控制。
 
-### 步骤 3：生成 XML
+### XML 解析器硬规则
 
-**实现阶段。此时才读实现文件。** 设计阶段确定了"做什么"，现在关心"怎么写"。
+完整速查见 [references/opencat.md](references/opencat.md)。最少不能违反：
 
-先做脑力规划（不需要用户审批）：
-1. **结构** — plain tree 还是 timeline？哪些轨道？
-2. **时间** — 每个场景和转场的精确秒数
-3. **布局** — 先构建 end-state（元素在其最可见时刻的位置）
-4. **动效** — 缓动选择、入场方向变化、交错节奏
+- `<opencat>` 只有一个可视根
+- `<script>` 最多一个、必须是 `<opencat>` 直接子节点、无属性、非自闭合
+- 禁止 `className` / `parentId` / `style`
+- 未知属性会直接报错
+- `<audio>` 必须在 `<soundtrack>` 内，`attach` 引用 `<tl>` id 或该时间线内的场景 id
+- `<transition>` 必须在 `<tl>` 内，`from`/`to` 是直接相邻子场景，`duration > 0`
+- 数字属性必须是 ASCII 合法数字，不能有空白、`+`、全角数字
 
-然后按需读取实现文件：
-- [references/opencat.md](references/opencat.md) — XML 语法、节点类型、动画 API（含解析器硬规则速查）
-- [references/transitions.md](references/transitions.md) — 转场效果参数、情感映射
-- [references/animations.md](references/animations.md) — 节点变换、颜色、路径动画、morphSVG
-- [references/canvaskit.md](references/canvaskit.md) — Canvas API、Paint、Path
-- [references/text-animations.md](references/text-animations.md) — 打字机、splitText、24 种命名效果、五种高亮模式
-- [references/motion-principles.md](references/motion-principles.md) — 动效护栏规则、编排原则
-- [references/techniques.md](references/techniques.md) — 13 种动效技法目录，需要选技法时查阅
-- [references/dynamic-techniques.md](references/dynamic-techniques.md) — 动态字幕技巧、能量级别、高亮轮换
-- [references/data-in-motion.md](references/data-in-motion.md) — 数据可视化特有规则
-- [references/audio-reactive.md](references/audio-reactive.md) — 音频响应动效 API
-- [references/video-composition.md](references/video-composition.md) — 视频构图规则
-- [references/patterns.md](references/patterns.md) — 画中画、Stagger、计数器等组合模式
-- [references/captions.md](references/captions.md) — SRT 字幕、Karaoke、配音同步
+### 布局约束
 
-最后构建 XML。每个场景、每个元素、每个 tween 应赢得它的位置。
+- OpenCat 使用 Taffy，`div` 默认 `display: block`；需要 flex/grid 必须显式写 `flex` / `grid`。
+- 优先用 flex/grid 和 gap/padding 组织内容，避免把整个画面写成散落 absolute 坐标。
+- `absolute` 必须带明确定位：`inset-0`、`top-[Npx] left-[Npx]`、`right-[Npx] bottom-[Npx]` 等。裸 `absolute` 是 bug。
+- 不使用 CSS 动画/transform 类；动画、transform、颜色变化都在 `<script>` 里完成。
 
-#### XML 硬规则（解析器会拒绝）
+## Step 5: 交付 XML
 
-完整速查见 [references/opencat.md 的「解析器硬规则」小节](references/opencat.md)。**最少不能违反的 6 条**：
+交付阶段只提供 XML 和必要说明，不运行本地渲染、桌面预览或视频文件生成工具。OpenCat 可能在 Web runtime 中运行，所以 skill 不能假设本地原生运行环境存在。
 
-- **单可视根**：`<opencat>` 只能有一个可视根（`div`/`text`/`canvas`/`image`/`video`/`icon`/`path`/`caption`/`tl`）
-- **`<script>` 单实例 + 直接子 + 无属性 + 非自闭合**：多写会被并成一段，嵌套就报错
-- **`className` / `parentId` / `style` 三个属性在任何位置都拒**：请用 `class`
-- **`<audio>` 必须嵌在 `<soundtrack>` 里**；`attach` 引用 `<tl>` id 或场景 id，且该 id 必须存在
-- **`<transition>` 必须嵌在 `<tl>` 里**；`from`/`to` 必须是直接子场景且**相邻**、`from != to`、`duration` 为秒数且必须大于 0
-- **数字属性严格**：`width`/`height`/`fps`/`queryCount` 是 ASCII 正整数；`duration`/`data-start`/`data-duration`/`data-media-start` 是秒数，必须是 finite 且按字段要求大于 0 或不小于 0；所有数字都不能有空白、`+` 或全角数字
+交付前做静态自检即可：
 
-#### 布局约束（Tailwind 对齐）
+- XML 结构符合 `opencat.md` 的硬规则
+- 场景、时长、转场与 `STORYBOARD.md` 对齐
+- 颜色、字体、圆角、间距与 `design.md` 对齐
+- 没有明显的网页化构图、tiny text、裸 `absolute` 或多视觉根
 
-OpenCat 渲染器使用 Taffy 布局引擎，行为与 HTML/Tailwind 对齐：
+**不要自动运行本地渲染、桌面预览、视频文件生成或截图流程。**
 
-- **div 默认 `display: block`**。`class` 写了 `flex` / `flex-row` / `flex-col` 才切换为 Flex；写 `grid` 才切换为 Grid。
-- **优先使用 flex 布局**。Root节点应以 `flex` 起手（`flex flex-col` / `flex items-center justify-center` 等），通过 gap / items / justify 决定子元素位置，尽可能避免散落的 `absolute` 坐标。flex 布局可读、可维护、屏幕适配性更好。
-- **`absolute` 元素必须显式给定位**：至少声明 `top` / `left` / `right` / `bottom` / `inset-X` 之一（或显式 `top-0 left-0` / `inset-0`）。**不允许**写裸 `absolute` 而不带任何坐标。Taffy 不实现 CSS 标准的 absolute static position fallback，inset 全 auto 的 absolute 元素会塞到容器内容区左上 `(0, 0)`，多个会完全重叠。
-- 规模化使用 `absolute` 仅限三类场景：(1) `inset-0` 充满父级的画布/叠加层；(2) 钉在容器四角的标签（`top-[N] left-[N]` 等显式坐标）；(3) 与 Canvas 绘制坐标系手动对齐的标签（必须算清楚像素坐标）。
-- `absolute`不会是root节点
+## 编辑现有 XML
 
-#### 科学事实准确性
+- 先读取实际 XML，不要从记忆重建颜色、字体、缓动和时间。
+- 只改用户要求的部分，保留无关场景 timing。
+- 如果现有 XML 违反硬规则但不影响本次请求，先说明风险；只有为完成任务必要时才修。
 
-涉及科学/数学等事实内容时，所有几何参数、坐标、比例、运动轨迹必须经过数学验证：
-- **坐标计算**：椭圆焦点、轨道参数等用公式精确计算，不得目测估算
-- **比例关系**：相对大小、距离、速度必须符合客观事实
-- **运动轨迹**：路径动画的 SVG path 与元素 `d` 使用完全一致的坐标字符串
-- **公式方向验证**：任何数学/几何公式推导出的位置，先用边界条件做端点测试。例如极坐标 `r = a(1-e²)/(1+e·cosθ)` 以右焦点为原点、近日点在 θ=0 指向右侧，如果太阳在左焦点则需 `fx - r·cosθ`。始终用 θ=0（近日点）和 θ=π（远日点）验证方向正确性
-- **验证方法**：可以使用 Python 验证
+## XML 静态自检清单
 
-#### 编辑现有合成
+### 解析器必检
 
-- **读取实际文件，不要猜测。** 不要从记忆中重建十六进制代码或缓动模式。合成即是规范。
-- 匹配现有字体、颜色、动画模式
-- 只更改被要求的内容
-- 保留无关片段的时间
+- [ ] `<opencat>` 只有一个可视根
+- [ ] `<script>` 只有一个、直接子、无属性、非自闭合
+- [ ] 无 `className` / `parentId` / `style`
+- [ ] 无未知属性
+- [ ] 数字属性合法
+- [ ] `<soundtrack>` / `<audio>` 结构合法，`attach` 真实存在
+- [ ] `<tl>` 至少 2 个直接子场景；每个场景有 `duration`
+- [ ] 每对相邻场景有且仅有一个 `<transition>`
+- [ ] `<opencat duration>` 与场景+转场总长对齐
 
----
+### 视觉质量必检
 
-## 输出检查清单
-
-### 解析器会拒绝（必检，违反即报错）
-
-- [ ] 只有一个 `<opencat>` 可视根
-- [ ] 只有一个 `<script>`、是 `<opencat>` 直接子节点、无属性、非自闭合
-- [ ] 无 `className` / `parentId` / `style` 属性
-- [ ] 数字属性合法：`width`/`height`/`fps`/`queryCount` 为 ASCII 正整数；`duration`/`data-start`/`data-duration`/... 为 finite 秒数
-- [ ] `<audio>` 在 `<soundtrack>` 内；`attach` 引用的 id 真实存在
-- [ ] `<transition>` 在 `<tl>` 内；`from`/`to` 是直接子场景且**相邻**；`from != to`
-- [ ] `<tl>` 至少 2 个直接子场景，所有场景都有 `duration`；每对相邻场景都有 `<transition>`
-- [ ] 元素上未知的属性名（如 `<div foo="bar">`）会直接 bail
-
-### 风格守门员（不报错但影响质量）
-
-- [ ] XML 语法有效（标签闭合、属性引号）
-- [ ] 遵守 design.md 约束
+- [ ] 有明确 message、arc、audience
+- [ ] 遵守 `design.md`
 - [ ] 每场景有入场动画
 - [ ] 末场景外无退场动画
-- [ ] `<opencat duration>` 与 `sum(scene.duration) + sum(transition.duration)` 对齐
-- [ ] `<text>` 内使用实际 UTF-8 字符，不用 `\uXXXX` 转义
-- [ ] `class` 无 CSS 动画/transform 类
-- [ ] tween 颜色用显式字面量
-- [ ] 确定性随机
-- [ ] root 节点优先以 `flex` / `flex-col` / `flex-row` 起手而非裸 div + absolute 坐标
-- [ ] 每一个 `absolute` 元素至少有 `top` / `left` / `right` / `bottom` / `inset-X` 之一（含 `inset-0`）。裸 `absolute` 不带坐标 = bug
-- [ ] 字号符合视频缩放要求（60px+ 标题、20px+ 正文、16px+ 标签）
-- [ ] 每场景 8-10 元素
-- [ ] 对比度问题已处理
-- [ ] 动画编排已验证（缓动变化、速度变化、入场方向变化）
-- [ ] 字幕技巧匹配内容能量（见 `dynamic-techniques.md`）
-- [ ] 数据场景遵循数据可视化规则（见 `data-in-motion.md`）
-- [ ] 有音乐时使用音频响应动效（见 `audio-reactive.md`）
-- [ ] 每场景 2+ 焦点、3 层结构、背景不为空（见 `video-composition.md`）
-- [ ] 未使用 CSS 动画/transform 类（所有动效通过脚本控制）
-- [ ] Lottie 动画：当前渲染器不支持，勿使用（预留语法）
-- [ ] 科学事实准确性：视觉呈现（位置、比例、运动轨迹、数值）必须经数学验证，符合客观事实
-- [ ] 公式方向验证：所有数学/几何公式用边界条件做端点测试
+- [ ] 每场景 8-10 个视觉元素，至少 3 层结构
+- [ ] 每场景 2+ 焦点，背景不为空
+- [ ] 字号符合视频尺度：标题 64-120px、正文 28-42px、标签 18-24px；更小必须有理由
+- [ ] 动效编排有变化：缓动、速度、方向、stagger 不单一
+- [ ] 转场类型服务叙事，不是全片无脑 fade
 
-### 设计遵循性
+### 事实准确性
 
-如果存在 `design.md`，检查：
-1. **颜色** — 合成中的每个十六进制值都出现在 design.md 的调色板中
-2. **排版** — 字体系列和粗细匹配 design.md
-3. **圆角** — border-radius 值与声明的风格匹配
-4. **间距** — padding 和 gap 值在声明的密度范围内
-5. **深度** — 阴影使用与声明的深度级别匹配
-6. **避免规则** — 无违反
-
-以检查清单形式报告违规，交付前修复每项。
-
-如果不存在 `design.md`（仅使用 house-style），检查：
-1. **调色板一致性** — 相同 bg/fg/accent 跨场景使用，不按场景发明颜色
-2. **没有惰性默认值** — 对照 house-style.md 的"需要质疑的默认项"列表检查
+涉及科学、数学、金融、地图、时间轴等事实内容时，几何参数、坐标、比例、轨迹、数值必须复核；用边界条件检查公式方向，不靠目测。

@@ -6,14 +6,14 @@
 //! - [`get_skottie_bundle_assets`]: 按 bundle id 取 Lottie 依赖 map（CanvasKit）
 //! - [`load_resource_bytes`]: 按 `(path, name)` 协议取字节
 
-use std::cell::RefCell;
 use js_sys::Uint8Array;
+use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
 use opencat_core::parse::composition::Composition;
 use opencat_core::parse::preflight::collect_external_manifest;
 use opencat_core::resource::asset_id::AssetId;
-use opencat_core::resource::fonts::{font_asset_id, FontSource};
+use opencat_core::resource::fonts::{FontSource, font_asset_id};
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::resource::preload::preload_all;
 use opencat_core::resource::resolver::UrlFetcher;
@@ -42,9 +42,7 @@ fn font_manifest_from_source(
     if trimmed.starts_with('{') {
         Ok(opencat_core::parse::jsonl::parse_with_base_dir(source, None)?.font_manifest)
     } else {
-        Ok(
-            opencat_core::parse::markup::parse_parts_with_base_dir(source, None)?.font_manifest,
-        )
+        Ok(opencat_core::parse::markup::parse_parts_with_base_dir(source, None)?.font_manifest)
     }
 }
 
@@ -69,8 +67,7 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
         .build()
         .map_err(|e| JsValue::from_str(&format!("preload_assets: build composition: {e}")))?;
 
-    let (requests, mut external_manifest) =
-        collect_external_manifest(&composition, &font_manifest);
+    let (requests, mut external_manifest) = collect_external_manifest(&composition, &font_manifest);
 
     let mut blobs = take_blobs();
 
@@ -191,8 +188,7 @@ pub fn get_skottie_bundle_assets(bundle_id: &str) -> JsValue {
 /// Unified resource protocol lookup (`path`, `name`) → bytes.
 #[wasm_bindgen]
 pub fn load_resource_bytes(path: &str, name: &str) -> Option<Uint8Array> {
-    crate::resource::provider_store::load(path, name)
-        .map(|b| Uint8Array::from(b.as_slice()))
+    crate::resource::provider_store::load(path, name).map(|b| Uint8Array::from(b.as_slice()))
 }
 
 #[wasm_bindgen]

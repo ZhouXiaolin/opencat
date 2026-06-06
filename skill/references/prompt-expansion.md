@@ -1,6 +1,6 @@
 # Prompt 扩展
 
-每个 composition 运行。扩展将用户意图锚定到 `design.md` 和 `house-style.md`，产生一致的中间产物。
+每个多场景 OpenCat XML 视频都运行。扩展将用户意图锚定到 `design.md`，产生一致的中间产物。
 
 ---
 
@@ -17,7 +17,7 @@
 - **每个场景内的节奏拍点** — 紧张感建立、停留、强调词位置
 - **来自 design.md 的精确 easing 选择**
 
-单场景 composition 和简单修改是唯一的例外。
+单场景 XML 和简单修改是唯一的例外。
 
 ---
 
@@ -25,8 +25,11 @@
 
 生成前读取：
 
-- `design.md`（如果存在）— 提取品牌色、情绪、约束
-- [visual-styles.md](visual-styles.md) 或 [house-style.md](house-style.md) — 背景层规则、色彩、动效
+- `design.md`（必须存在）— 提取品牌色、字体、情绪、约束
+- [beat-direction.md](beat-direction.md) — 场景/镜头规划格式
+- [video-composition.md](video-composition.md) — 视频媒介规则：密度、尺度、色彩存在感、构图
+
+扩展的目标不是直接写 XML，而是为后续 `STORYBOARD.md` 和 XML 实现提供足够具体的生产说明。
 
 ---
 
@@ -36,7 +39,7 @@
 
 ### 1. 标题 + 风格块
 
-引用 design.md 的精确 Tailwind token 和 mood。不发明色板。
+引用 design.md 的精确 Tailwind token 和 mood。不发明颜色。
 
 ### 2. 节奏声明
 
@@ -60,16 +63,19 @@
 
 - **Concept** — 2-3 句大想法。什么视觉世界？什么隐喻？观众应该**感觉**什么？
 - **Mood direction** — 文化/设计参考，不是色值
+- **Shot** — close-up / medium / wide / extreme close-up / over-the-shoulder / dutch angle
 - **Depth layers** — BG（2-5 个装饰元素带环境动效）、MG（内容）、FG（强调元素）
+- **Camera move** — dolly in / pull-back / parallax pan / orbit / rack focus
 - **动效编排** — 每个元素的具体动词：
   - High：SLAMS、CRASHES、PUNCHES
   - Medium：CASCADE、SLIDES、DROPS
   - Low：floats、types on、COUNTS UP
 - **退场转场意图** — 如"快速硬切"或"缓慢溶解"，具体 effect 到实现阶段选
+- **XML implementation note** — 这个场景在 OpenCat XML 中最容易出错的点，例如 timeline timing、canvas subtree、字幕、素材路径或 absolute 坐标
 
 ### 5. 复用视觉主题
 
-跨场景的品牌色板视觉线索。
+跨场景的品牌色、字体、形状、纹理和运动线索。所有颜色都来自 `design.md`。
 
 ### 6. 负面清单
 

@@ -28,7 +28,9 @@ use super::{RenderCtx, RenderError, record_cache_pressure};
 fn should_cache_item_picture(item: &DisplayItem) -> bool {
     matches!(
         item,
-        DisplayItem::Bitmap(_) | DisplayItem::Lottie(_) | DisplayItem::DrawScript(_)
+        DisplayItem::Bitmap(_)
+            | DisplayItem::Lottie(_)
+            | DisplayItem::DrawScript(_)
             | DisplayItem::SvgPath(_)
     )
 }

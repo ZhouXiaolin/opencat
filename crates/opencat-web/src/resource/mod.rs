@@ -2,6 +2,7 @@
 //! （探测函数下沉到 core），BlobStore 暂存字节供 JS 后续消费
 //! （CanvasKit 解码、`URL.createObjectURL` 等）。
 
+pub mod asset_reader;
 pub mod blob_store;
 pub mod fetch;
 pub mod font_store;

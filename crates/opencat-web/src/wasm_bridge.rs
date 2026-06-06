@@ -72,9 +72,8 @@ impl WebRenderer {
         frame: u32,
         resources_json: &str,
     ) -> Result<Vec<u8>, JsValue> {
-        self.session.font_db =
-            crate::source::merge_preloaded_fonts(&self.session.font_db, source)
-                .map_err(|e| JsValue::from_str(&format!("fonts: {e}")))?;
+        self.session.font_db = crate::source::merge_preloaded_fonts(&self.session.font_db, source)
+            .map_err(|e| JsValue::from_str(&format!("fonts: {e}")))?;
 
         let parsed = crate::source::parse_source(source, self.session.font_db.as_ref())
             .map_err(|e| JsValue::from_str(&format!("parse: {e}")))?;
@@ -326,10 +325,7 @@ impl WebRenderer {
         sans_sc: Vec<u8>,
         color_emoji: Vec<u8>,
     ) -> Result<(), JsValue> {
-        let db = opencat_core::text::font_db_from_bytes(
-            &[sans_sc, color_emoji],
-            "Noto Sans SC",
-        );
+        let db = opencat_core::text::font_db_from_bytes(&[sans_sc, color_emoji], "Noto Sans SC");
         self.session.font_db = std::sync::Arc::new(db);
         Ok(())
     }

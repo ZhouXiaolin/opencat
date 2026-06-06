@@ -2,11 +2,14 @@ use anyhow::{Result, ensure};
 
 use crate::{
     FrameCtx, Node,
-    frame_ctx::ScriptFrameCtx,
-    ir::asset_id::AssetId,
+    frame_ctx::{ScriptFrameCtx, frames_to_duration_secs},
+    ir::asset_id::{AssetId, asset_id_for_video_url},
+    media::VideoFrameTiming,
     parse::{
         node::NodeKind,
-        primitives::{Canvas, CaptionNode, Div, Image, Lottie, Lucide, Path, Text, Video, VideoSource},
+        primitives::{
+            Canvas, CaptionNode, Div, Image, Lottie, Lucide, Path, Text, Video, VideoSource,
+        },
         time::TimelineNode,
         time::{FrameState, frame_state_for_root},
     },
@@ -15,8 +18,8 @@ use crate::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
             ElementBitmap, ElementCanvas, ElementDiv, ElementDrawSlot, ElementId, ElementKind,
-            ElementLottie,
-            ElementNode, ElementSvgPath, ElementText, ElementTimeline, ElementTimelineTransition,
+            ElementLottie, ElementNode, ElementSvgPath, ElementText, ElementTimeline,
+            ElementTimelineTransition,
         },
     },
     resource::catalog::{ResourceCatalog, VideoInfoMeta},
@@ -284,6 +287,20 @@ fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
     }
 }
 
+fn timing_for_script_frame_ctx(
+    timing: VideoFrameTiming,
+    script_frame_ctx: &ScriptFrameCtx,
+) -> VideoFrameTiming {
+    let scene_start_frame = script_frame_ctx
+        .frame
+        .saturating_sub(script_frame_ctx.current_frame);
+    let scene_start_secs = frames_to_duration_secs(scene_start_frame, script_frame_ctx.fps);
+    VideoFrameTiming {
+        timeline_start_secs: timing.timeline_start_secs + scene_start_secs,
+        ..timing
+    }
+}
+
 fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(div, div.style_ref(), cx)?;
     let result = (|| {
@@ -489,8 +506,8 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
         let inherited_style = InheritedStyle::for_child(&computed);
 
         let locator = match video.source() {
-            VideoSource::Path(p) => p.to_string_lossy().to_string(),
-            VideoSource::Url(u) => format!("video:url:{u}"),
+            VideoSource::Path(p) => format!("video:path:{}", p.to_string_lossy()),
+            VideoSource::Url(u) => asset_id_for_video_url(u).0,
         };
 
         let asset_id = cx.assets.register_dimensions(&locator, 0, 0);
@@ -499,9 +516,12 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
             height: 0,
             duration_secs: None,
         });
-        let asset_id = cx
-            .assets
-            .register_dimensions(&locator, info.width, info.height);
+        let asset_id = cx.assets.register_video_dimensions(
+            &locator,
+            info.width,
+            info.height,
+            info.duration_secs,
+        );
 
         let mut children = Vec::new();
         for child in video.children_ref() {
@@ -527,7 +547,10 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
                 asset_id,
                 width: info.width,
                 height: info.height,
-                video_timing: Some(video.timing()),
+                video_timing: Some(timing_for_script_frame_ctx(
+                    video.timing(),
+                    cx.script_frame_ctx,
+                )),
             }),
             style: computed.clone(),
             children,
@@ -587,16 +610,16 @@ fn resolve_lottie(lottie: &Lottie, cx: &mut ResolveContext<'_>) -> Result<Elemen
         let computed = compute_style(&style, cx.inherited_style);
 
         let bundle_id = cx.assets.resolve_lottie(&style.id)?;
-        let meta = cx
-            .assets
-            .lottie_meta(&bundle_id)
-            .unwrap_or(crate::resource::lottie::LottieMeta {
-                width: 100,
-                height: 100,
-                fps: 30.0,
-                in_frame: 0.0,
-                out_frame: 30.0,
-            });
+        let meta =
+            cx.assets
+                .lottie_meta(&bundle_id)
+                .unwrap_or(crate::resource::lottie::LottieMeta {
+                    width: 100,
+                    height: 100,
+                    fps: 30.0,
+                    in_frame: 0.0,
+                    out_frame: 30.0,
+                });
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -607,7 +630,7 @@ fn resolve_lottie(lottie: &Lottie, cx: &mut ResolveContext<'_>) -> Result<Elemen
                 fps: meta.fps,
                 in_frame: meta.in_frame,
                 out_frame: meta.out_frame,
-                timing: lottie.timing(),
+                timing: timing_for_script_frame_ctx(lottie.timing(), cx.script_frame_ctx),
             }),
             style: computed.clone(),
             children: Vec::new(),

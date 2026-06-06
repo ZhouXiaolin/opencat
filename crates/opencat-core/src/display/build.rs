@@ -8,9 +8,8 @@ use crate::{
         list::{
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
             DisplayTransform, DrawScriptDisplayItem, LottieDisplayItem, RectDisplayItem,
-            RectPaintStyle,
-            SvgPathDisplayItem, SvgPathPaintStyle, TextDisplayItem, TimelineDisplayItem,
-            TimelineTransitionDisplay,
+            RectPaintStyle, SvgPathDisplayItem, SvgPathPaintStyle, TextDisplayItem,
+            TimelineDisplayItem, TimelineTransitionDisplay,
         },
         tree::{DisplayNode, DisplayTree, HiddenChildDisplayNode},
     },

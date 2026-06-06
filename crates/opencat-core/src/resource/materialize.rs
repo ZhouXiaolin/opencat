@@ -5,7 +5,7 @@
 
 use crate::ir::asset_id::AssetId;
 use crate::resource::manifest::{
-    BundleDependencySource, ExternalResourceManifest, ExternalResourceKind, LottiePrimarySource,
+    BundleDependencySource, ExternalResourceKind, ExternalResourceManifest, LottiePrimarySource,
     ProviderBinding,
 };
 use crate::resource::protocol::{MapResourceProvider, ResourceLookup, ResourceProvider};
@@ -28,9 +28,10 @@ pub fn hydrate_provider_from_bytes(
                 file_name,
             } => {
                 let dep_id = AssetId(format!("{}:dep:{}", bundle_id.0, file_name));
-                if let Some(bytes) = sources.bytes_for(&dep_id).or_else(|| {
-                    sources.bytes_for(&AssetId(format!("{}:{file_name}", bundle_id.0)))
-                }) {
+                if let Some(bytes) = sources
+                    .bytes_for(&dep_id)
+                    .or_else(|| sources.bytes_for(&AssetId(format!("{}:{file_name}", bundle_id.0))))
+                {
                     provider.insert_bundle_dep(bundle_id, file_name, bytes);
                 }
             }
@@ -39,7 +40,12 @@ pub fn hydrate_provider_from_bytes(
     }
 
     for face_binding in manifest.entries.iter().filter_map(|e| {
-        if let ProviderBinding::Typeface { name, url, asset_id } = &e.binding {
+        if let ProviderBinding::Typeface {
+            name,
+            url,
+            asset_id,
+        } = &e.binding
+        {
             Some((name, url, asset_id))
         } else {
             None
@@ -99,9 +105,8 @@ pub fn map_bundle_dep_to_flat_lookup(
 ) -> Option<ResourceLookup> {
     match &dep.source {
         BundleDependencySource::OpenCatImage(img) => {
-            crate::resource::manifest::image_asset_id_and_label(img).map(|(id, _)| {
-                ResourceLookup::opencat_flat(&id)
-            })
+            crate::resource::manifest::image_asset_id_and_label(img)
+                .map(|(id, _)| ResourceLookup::opencat_flat(&id))
         }
         _ => None,
     }
@@ -110,11 +115,11 @@ pub fn map_bundle_dep_to_flat_lookup(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use crate::resource::manifest::{
         BundleDependencySpec, ExternalResourceManifest, LottieBundleSpec,
     };
     use crate::resource::protocol::ResourceProvider;
+    use std::collections::HashMap;
 
     #[test]
     fn hydrate_fills_skottie_asset_map() {
@@ -130,15 +135,15 @@ mod tests {
         });
 
         let mut bytes = HashMap::new();
-        bytes.insert(
-            AssetId("lottie:hero:dep:a.png".into()),
-            b"PNG".to_vec(),
-        );
+        bytes.insert(AssetId("lottie:hero:dep:a.png".into()), b"PNG".to_vec());
 
         let mut provider = MapResourceProvider::new();
         hydrate_provider_from_bytes(&manifest, &mut provider, &bytes);
 
         let assets = skottie_assets_for_bundle(&bundle_id, &provider);
-        assert_eq!(assets.get("a.png").map(|v| v.as_slice()), Some(b"PNG".as_ref()));
+        assert_eq!(
+            assets.get("a.png").map(|v| v.as_slice()),
+            Some(b"PNG".as_ref())
+        );
     }
 }

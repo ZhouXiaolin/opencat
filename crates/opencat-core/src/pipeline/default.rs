@@ -14,13 +14,14 @@ use crate::ir::{CompositionInfo, DrawOpFrame, FrameMediaPlan};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
 use crate::parse::preflight::collect_resource_requests;
-use crate::parse::primitives::{AudioSource, ImageSource, LottieSource, SubtitleSource, VideoSource};
+use crate::parse::primitives::{
+    AudioSource, ImageSource, LottieSource, SubtitleSource, VideoSource,
+};
 use crate::probe::catalog::ResourceCatalog;
 use crate::probe::probe::{probe_image, probe_video};
 use crate::probe::{AssetHandle, AssetId, AssetLoader};
 use crate::resource::lottie::parse_lottie_meta;
 use crate::script::js_context::JsContext;
-
 
 use super::Pipeline;
 
@@ -401,6 +402,54 @@ mod tests {
         };
         assert_eq!(*frame_index, 360);
         assert_eq!(*time_micros, 12_000_000);
+    }
+
+    #[test]
+    fn render_frame_video_timing_inside_later_scene_uses_scene_local_data_start() {
+        let xml = r#"<opencat width="320" height="180" fps="10" duration="4.1">
+  <tl id="main" class="w-[320px] h-[180px]">
+    <div id="scene-1" class="w-[320px] h-[180px]" duration="2" />
+    <transition from="scene-1" to="scene-2" effect="fade" duration="0.1" />
+    <div id="scene-2" class="w-[320px] h-[180px]" duration="2">
+      <video id="vid" class="w-[320px] h-[180px]" src="clip.mp4" data-start="0.5" data-duration="1.5" data-media-start="12" />
+    </div>
+  </tl>
+</opencat>"#;
+
+        let loader = InMemoryLoader::default();
+        let ctx = NoopJsContext::new().expect("js context");
+        let mut pipeline = DefaultPipeline::open(xml, loader, ctx).expect("open");
+
+        let (_before_frame, before_media_plan) = pipeline
+            .render_frame(25)
+            .expect("render frame before data-start");
+        assert!(
+            before_media_plan.images.is_empty(),
+            "data-start is local to scene-2, so the clip should still be hidden"
+        );
+
+        let (_start_frame, start_media_plan) = pipeline
+            .render_frame(26)
+            .expect("render frame at data-start");
+        let crate::ir::draw_types::ImageRef::VideoFrame {
+            time_micros: start_time_micros,
+            ..
+        } = &start_media_plan.images[0]
+        else {
+            panic!("expected video frame at scene-local data-start");
+        };
+        assert_eq!(*start_time_micros, 12_000_000);
+
+        let (_later_frame, later_media_plan) =
+            pipeline.render_frame(31).expect("render later frame");
+        let crate::ir::draw_types::ImageRef::VideoFrame {
+            time_micros: later_time_micros,
+            ..
+        } = &later_media_plan.images[0]
+        else {
+            panic!("expected video frame after scene-local data-start");
+        };
+        assert_eq!(*later_time_micros, 12_500_000);
     }
 
     #[test]

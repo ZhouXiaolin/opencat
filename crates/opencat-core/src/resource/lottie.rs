@@ -97,11 +97,7 @@ pub fn scan_lottie_dependencies(json: &str) -> Result<Vec<String>> {
             continue;
         }
         if let Some(u) = asset.u {
-            let name = u
-                .rsplit('/')
-                .next()
-                .unwrap_or(&u)
-                .to_string();
+            let name = u.rsplit('/').next().unwrap_or(&u).to_string();
             if !name.is_empty() && !names.contains(&name) {
                 names.push(name);
             }

@@ -101,27 +101,31 @@ fn prepare_frame<P: AssetPathSource>(
                 ..
             } => {
                 let aid = AssetId(asset_id.clone());
-                if let Some(path) = paths.resolve_path(&aid) {
-                    if let Ok(frame) =
-                        video.frame_rgba_at_time_by_path(path, *time_micros as f64 / 1_000_000.0)
-                    {
-                        let info = ImageInfo::new(
-                            (frame.width as i32, frame.height as i32),
-                            ColorType::RGBA8888,
-                            AlphaType::Unpremul,
-                            None,
-                        );
-                        if let Some(sk_image) = images::raster_from_data(
-                            &info,
-                            Data::new_copy(&frame.data),
-                            frame.width as usize * 4,
-                        ) {
-                            let idx = sk_images.len();
-                            sk_images.push(sk_image);
-                            image_index.insert(image_ref.clone(), idx);
-                        }
-                    }
-                }
+                let path = paths
+                    .resolve_path(&aid)
+                    .ok_or_else(|| anyhow!("video asset {:?} not found in loader", aid))?;
+                let frame =
+                    video.frame_rgba_at_time_by_path(path, *time_micros as f64 / 1_000_000.0)?;
+                let info = ImageInfo::new(
+                    (frame.width as i32, frame.height as i32),
+                    ColorType::RGBA8888,
+                    AlphaType::Unpremul,
+                    None,
+                );
+                let sk_image = images::raster_from_data(
+                    &info,
+                    Data::new_copy(&frame.data),
+                    frame.width as usize * 4,
+                )
+                .ok_or_else(|| {
+                    anyhow!(
+                        "failed to create Skia image from decoded video frame {:?}",
+                        aid
+                    )
+                })?;
+                let idx = sk_images.len();
+                sk_images.push(sk_image);
+                image_index.insert(image_ref.clone(), idx);
             }
         }
     }
@@ -165,7 +169,9 @@ impl FrameConsumer for EngineFrameConsumer<'_> {
         let prepared = prepare_frame(plan, self.paths, self.media_ctx)?;
         self.executor.ensure_lottie_animations(draw, |bundle_id| {
             let asset_id = AssetId(bundle_id.to_string());
-            self.paths.path(&asset_id).and_then(|p| std::fs::read(p).ok())
+            self.paths
+                .path(&asset_id)
+                .and_then(|p| std::fs::read(p).ok())
         });
         self.executor
             .execute(header, draw, &prepared, self.canvas)?;
@@ -198,7 +204,10 @@ impl FrameConsumer for EngineLoaderFrameConsumer<'_> {
         let prepared = prepare_frame(plan, self.loader, self.media_ctx)?;
         self.executor.ensure_lottie_animations(draw, |bundle_id| {
             let asset_id = AssetId(bundle_id.to_string());
-            self.loader.handle(&asset_id).and_then(|h| h.read_bytes().ok()).map(|c| c.into_owned())
+            self.loader
+                .handle(&asset_id)
+                .and_then(|h| h.read_bytes().ok())
+                .map(|c| c.into_owned())
         });
         self.executor
             .execute(header, draw, &prepared, self.canvas)?;

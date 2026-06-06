@@ -6,13 +6,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 
+use opencat_core::parse::primitives::LottieSource;
 use opencat_core::probe::{AssetHandle, AssetLoader, ResourceRequests};
 use opencat_core::probe::{AudioSource, ImageSource, SubtitleSource, VideoSource};
-use opencat_core::parse::primitives::LottieSource;
 use opencat_core::resource::asset_id::{
     AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
 };
-use opencat_core::resource::fonts::{font_asset_id, FontManifest};
+use opencat_core::resource::fonts::{FontManifest, font_asset_id};
 use opencat_core::resource::manifest::ExternalResourceManifest;
 use opencat_core::resource::materialize::{ByteSource, hydrate_provider_from_bytes};
 use opencat_core::resource::protocol::MapResourceProvider;
@@ -53,11 +53,7 @@ struct LoaderByteSource<'a>(&'a EngineLoader);
 
 impl ByteSource for LoaderByteSource<'_> {
     fn bytes_for(&self, id: &AssetId) -> Option<Vec<u8>> {
-        self.0
-            .handle(id)?
-            .read_bytes()
-            .ok()
-            .map(|c| c.into_owned())
+        self.0.handle(id)?.read_bytes().ok().map(|c| c.into_owned())
     }
 }
 
@@ -132,7 +128,8 @@ impl EngineLoader {
             let path = cache_file_path(&self.cache_dir, &id);
             std::fs::write(&path, bytes)
                 .with_context(|| format!("write font cache {}", path.display()))?;
-            self.handles.insert(id, EngineAssetHandle { cached_path: path });
+            self.handles
+                .insert(id, EngineAssetHandle { cached_path: path });
         }
         Ok(())
     }

@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use crate::ir::asset_id::{
     AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
 };
-use crate::parse::primitives::{AudioSource, ImageSource, SubtitleSource, VideoSource};
 use crate::parse::primitives::LottieSource;
+use crate::parse::primitives::{AudioSource, ImageSource, SubtitleSource, VideoSource};
 use crate::probe::catalog::{LottieRequest, ResourceRequests};
 use crate::resource::fonts::{FontFaceDecl, FontManifest, FontSource, font_asset_id};
 use crate::resource::lottie::scan_lottie_dependencies;
@@ -143,13 +143,13 @@ impl ExternalResourceManifest {
     /// Register a Lottie bundle and its dependency entries.
     pub fn push_lottie_bundle(&mut self, spec: LottieBundleSpec) {
         let bundle_id = spec.bundle_id.clone();
-        self.lookup_index.insert(
-            ResourceLookup::opencat_flat(&bundle_id),
-            bundle_id.clone(),
-        );
+        self.lookup_index
+            .insert(ResourceLookup::opencat_flat(&bundle_id), bundle_id.clone());
         self.entries.push(ExternalResourceEntry {
             kind: ExternalResourceKind::LottieBundle,
-            binding: ProviderBinding::BundleRoot { bundle_id: bundle_id.clone() },
+            binding: ProviderBinding::BundleRoot {
+                bundle_id: bundle_id.clone(),
+            },
             source_label: Some(format!("lottie:{}", bundle_id.0)),
         });
 
@@ -200,7 +200,10 @@ impl ExternalResourceManifest {
     }
 
     /// Register `<lottie>` bundles from preflight (`lottie:{element_id}`).
-    pub fn extend_from_lottie_requests(&mut self, lotties: &std::collections::HashSet<LottieRequest>) {
+    pub fn extend_from_lottie_requests(
+        &mut self,
+        lotties: &std::collections::HashSet<LottieRequest>,
+    ) {
         for req in lotties {
             if matches!(req.source, LottieSource::Unset) {
                 continue;
@@ -300,10 +303,7 @@ fn subtitle_asset_id_and_label(src: &SubtitleSource) -> (AssetId, String) {
             AssetId(format!("subtitle:path:{}", p.to_string_lossy())),
             p.display().to_string(),
         ),
-        SubtitleSource::Url(u) => (
-            AssetId(format!("subtitle:url:{u}")),
-            u.clone(),
-        ),
+        SubtitleSource::Url(u) => (AssetId(format!("subtitle:url:{u}")), u.clone()),
     }
 }
 
@@ -313,9 +313,8 @@ mod tests {
     #[test]
     fn manifest_unifies_image_and_font_provider_keys() {
         let mut req = ResourceRequests::default();
-        req.images.insert(ImageSource::Url(
-            "https://example.com/a.png".to_string(),
-        ));
+        req.images
+            .insert(ImageSource::Url("https://example.com/a.png".to_string()));
         let mut fonts = FontManifest::default();
         fonts.faces.push(FontFaceDecl {
             id: "sans".into(),
@@ -325,18 +324,21 @@ mod tests {
         });
 
         let m = build_manifest(&req, &fonts);
-        assert!(m.entries.iter().any(|e| matches!(
-            e.kind,
-            ExternalResourceKind::RasterImage
-        )));
-        assert!(m.entries.iter().any(|e| matches!(
-            e.kind,
-            ExternalResourceKind::Font
-        )));
-        assert!(m
-            .provider_lookup_index()
-            .contains_key(&ResourceLookup::opencat_flat(&asset_id_for_url(
-                "https://example.com/a.png"
-            ))));
+        assert!(
+            m.entries
+                .iter()
+                .any(|e| matches!(e.kind, ExternalResourceKind::RasterImage))
+        );
+        assert!(
+            m.entries
+                .iter()
+                .any(|e| matches!(e.kind, ExternalResourceKind::Font))
+        );
+        assert!(
+            m.provider_lookup_index()
+                .contains_key(&ResourceLookup::opencat_flat(&asset_id_for_url(
+                    "https://example.com/a.png"
+                )))
+        );
     }
 }

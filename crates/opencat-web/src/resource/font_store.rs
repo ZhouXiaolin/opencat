@@ -17,17 +17,15 @@ pub fn take_all() -> HashMap<String, Vec<u8>> {
     FONT_BYTES.with(|store| std::mem::take(&mut *store.borrow_mut()))
 }
 
-pub fn get_manifest_bytes(manifest: &opencat_core::resource::fonts::FontManifest) -> HashMap<String, Vec<u8>> {
+pub fn get_manifest_bytes(
+    manifest: &opencat_core::resource::fonts::FontManifest,
+) -> HashMap<String, Vec<u8>> {
     FONT_BYTES.with(|store| {
         let store = store.borrow();
         manifest
             .faces
             .iter()
-            .filter_map(|face| {
-                store
-                    .get(&face.id)
-                    .map(|b| (face.id.clone(), b.clone()))
-            })
+            .filter_map(|face| store.get(&face.id).map(|b| (face.id.clone(), b.clone())))
             .collect()
     })
 }

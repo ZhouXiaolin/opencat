@@ -6,7 +6,7 @@
 //! - [`get_skottie_bundle_assets`]: 按 bundle id 取 Lottie 依赖 map（CanvasKit）
 //! - [`load_resource_bytes`]: 按 `(path, name)` 协议取字节
 
-use js_sys::Uint8Array;
+use js_sys::{Function, Uint8Array};
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
@@ -202,4 +202,20 @@ pub fn clear_blobs() {
     crate::resource::font_store::clear();
     crate::resource::provider_store::clear();
     EXTERNAL_MANIFEST.with(|m| *m.borrow_mut() = None);
+}
+
+/// 注册宿主侧 VFS reader。
+///
+/// 传入的 JS 函数签名为 `(path: string) => Uint8Array | ArrayBuffer | number[] | Promise<...>`。
+/// 配置后，web 端的 `path="..."` 资源会通过该函数读取 bytes。
+#[wasm_bindgen]
+pub fn set_asset_reader(reader: Function) {
+    crate::resource::asset_reader::set_reader(reader);
+}
+
+/// 清除宿主侧 VFS reader。清除后 web 端 `path="..."` 资源会再次不可用。
+#[wasm_bindgen]
+pub fn clear_asset_reader() {
+    crate::resource::asset_reader::clear_reader();
+}
 }

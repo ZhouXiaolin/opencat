@@ -15,7 +15,12 @@ type WasmModule = {
   get_skottie_bundle_assets(bundle_id: string): Record<string, Uint8Array>;
   clear_blobs(): void;
   blob_count(): number;
+  set_asset_reader(reader: AssetReader): void;
+  clear_asset_reader(): void;
 };
+
+export type AssetReaderResult = Uint8Array | ArrayBuffer | number[];
+export type AssetReader = (path: string) => AssetReaderResult | Promise<AssetReaderResult>;
 
 export interface WebRendererInstance {
   build_frame_ir(compositionSource: string, frame: number, resources_json: string): Uint8Array;
@@ -100,6 +105,16 @@ export function clearBlobs(): void {
 export function blobCount(): number {
   if (!wasmModule) return 0;
   return wasmModule.blob_count();
+}
+
+export function setAssetReader(reader: AssetReader): void {
+  if (!wasmModule) throw new Error('WASM not initialized');
+  wasmModule.set_asset_reader(reader);
+}
+
+export function clearAssetReader(): void {
+  if (!wasmModule) return;
+  wasmModule.clear_asset_reader();
 }
 
 // ── WebRenderer access ──

@@ -319,8 +319,9 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 | `ctx.from(targets, vars)` | 从 `vars` 动画到**当前值** | `vars` 指定起始值 |
 | `ctx.to(targets, vars)` | 从**当前值**动画到 `vars` | 节点 class 或上一次 tween 的结果 |
 | `ctx.fromTo(targets, fromVars, toVars)` | 从 `fromVars` 到 `toVars`，两端写死 | `fromVars` 指定起始值 |
+| `ctx.set(targets, vars)` | 当前采样点直接写入 `vars` | 用于 GSAP 迁移和瞬时状态 |
 
-**没有 `ctx.set`** — 逐采样运行时不需要。初始值要么从节点 class（Tailwind）来，要么从 `from` / `fromTo` 的起始参数来。
+`ctx.set` 仍按逐采样纯函数语义执行：脚本每帧重跑，`timeline().set(..., pos)` 会在 `ctx.currentTime >= pos` 的采样点写入对应属性。导入 GSAP 脚本时，`visibility` / `overwrite` / `immediateRender` 会被视为无渲染输出的兼容字段。
 
 **属性别名：**
 

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
+use std::collections::HashSet;
 
 /// Where to load a font binary from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -145,6 +146,37 @@ pub fn merge_faces_into_db(
     load_faces_into_db(db, manifest, bytes_by_id)
 }
 
+/// Load document fonts first, then append fallback faces whose family is absent.
+///
+/// This keeps `<fonts>` authoritative for its declared/embedded families. For example,
+/// when the document provides `Noto Sans SC` via URL, an embedded `Noto Sans SC`
+/// fallback must not be added afterward, otherwise CSS-like weight matching may pick
+/// the embedded face instead of the document face.
+pub fn load_faces_with_fallbacks(
+    manifest: &FontManifest,
+    bytes_by_id: &HashMap<String, Vec<u8>>,
+    fallback_faces: &[(&str, &[u8])],
+) -> Result<(fontdb::Database, FontFamilyIndex)> {
+    let (mut db, index) = load_faces_into_db(fontdb::Database::new(), manifest, bytes_by_id)?;
+    let mut families = family_names_in_db(&db);
+
+    for (family, bytes) in fallback_faces {
+        if families.contains(*family) {
+            continue;
+        }
+        db.load_font_data(bytes.to_vec());
+        families = family_names_in_db(&db);
+    }
+
+    Ok((db, index))
+}
+
+fn family_names_in_db(db: &fontdb::Database) -> HashSet<String> {
+    db.faces()
+        .flat_map(|face| face.families.iter().map(|(family, _)| family.clone()))
+        .collect()
+}
+
 pub fn resolve_font_source_path(path: &str, base_dir: Option<&Path>) -> Result<PathBuf> {
     let p = PathBuf::from(path);
     if p.is_absolute() {
@@ -217,6 +249,54 @@ mod tests {
             index.id_to_family.get("sans").map(String::as_str),
             Some("Noto Sans SC")
         );
+        assert_eq!(db.family_name(&fontdb::Family::SansSerif), "Noto Sans SC");
+    }
+
+    #[test]
+    fn document_fonts_take_precedence_over_same_family_fallback() {
+        let sans = include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec();
+        let emoji = include_bytes!("../../../../assets/NotoColorEmoji.ttf").to_vec();
+        let mut map = HashMap::new();
+        map.insert("doc-sans".to_string(), sans.clone());
+        let manifest = FontManifest {
+            default_face_id: Some("doc-sans".to_string()),
+            faces: vec![FontFaceDecl {
+                id: "doc-sans".to_string(),
+                family: Some("Noto Sans SC".to_string()),
+                source: FontSource::Path(PathBuf::from("NotoSansSC-Regular.otf")),
+                role: Some(FontRole::Sans),
+            }],
+        };
+
+        let (db, _) = load_faces_with_fallbacks(
+            &manifest,
+            &map,
+            &[
+                ("Noto Sans SC", sans.as_slice()),
+                ("Noto Color Emoji", emoji.as_slice()),
+            ],
+        )
+        .expect("load");
+
+        let noto_faces = db
+            .faces()
+            .filter(|face| {
+                face.families
+                    .iter()
+                    .any(|(family, _)| family == "Noto Sans SC")
+            })
+            .count();
+        let emoji_faces = db
+            .faces()
+            .filter(|face| {
+                face.families
+                    .iter()
+                    .any(|(family, _)| family == "Noto Color Emoji")
+            })
+            .count();
+
+        assert_eq!(noto_faces, 1);
+        assert_eq!(emoji_faces, 1);
         assert_eq!(db.family_name(&fontdb::Family::SansSerif), "Noto Sans SC");
     }
 }

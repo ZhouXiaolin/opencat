@@ -382,7 +382,7 @@ mod tests {
     fn render_frame_video_ref_uses_media_start_time() {
         let xml = r#"<opencat width="320" height="180" fps="30" duration="4">
   <div id="root" class="w-[320px] h-[180px]">
-    <video id="vid" class="w-[320px] h-[180px]" src="clip.mp4" data-start="3" data-duration="18" data-media-start="12" />
+    <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" data-start="3" data-duration="18" data-media-start="12" />
   </div>
 </opencat>"#;
 
@@ -411,7 +411,7 @@ mod tests {
     <div id="scene-1" class="w-[320px] h-[180px]" duration="2" />
     <transition from="scene-1" to="scene-2" effect="fade" duration="0.1" />
     <div id="scene-2" class="w-[320px] h-[180px]" duration="2">
-      <video id="vid" class="w-[320px] h-[180px]" src="clip.mp4" data-start="0.5" data-duration="1.5" data-media-start="12" />
+      <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" data-start="0.5" data-duration="1.5" data-media-start="12" />
     </div>
   </tl>
 </opencat>"#;
@@ -482,7 +482,7 @@ mod tests {
 
         let xml = r#"<opencat width="320" height="180" fps="30" duration="6">
   <div id="root" class="w-[320px] h-[180px]">
-    <video id="vid" class="relative w-[320px] h-[180px] bg-[#ff0000] border-[4px] border-[#00ff00] shadow-[0_8px_24px_rgba(0,0,0,0.50)]" src="clip.mp4" data-start="3" data-duration="1" data-media-start="12">
+    <video id="vid" class="relative w-[320px] h-[180px] bg-[#ff0000] border-[4px] border-[#00ff00] shadow-[0_8px_24px_rgba(0,0,0,0.50)]" path="clip.mp4" data-start="3" data-duration="1" data-media-start="12">
       <div id="badge" class="absolute left-[8px] top-[8px] w-[40px] h-[24px] bg-[#0000ff]" />
     </video>
   </div>

@@ -218,4 +218,3 @@ pub fn set_asset_reader(reader: Function) {
 pub fn clear_asset_reader() {
     crate::resource::asset_reader::clear_reader();
 }
-}

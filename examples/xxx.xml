@@ -1,0 +1,14 @@
+<opencat width="1280" height="720" fps="30" duration="3">
+  <div id="root" class="flex flex-col items-center justify-center w-full h-full bg-slate-950">
+    <text id="title" class="text-[96px] font-bold text-white">Hello OpenCat</text>
+    <text id="subtitle" class="text-[28px] text-slate-400 mt-[16px]">Design-driven video synthesis</text>
+  </div>
+  <script>
+    ctx.fromTo('title',
+      { opacity: 0, y: 32 },
+      { opacity: 1, y: 0, duration: 0.65, ease: 'power3.out' });
+    ctx.fromTo('subtitle',
+      { opacity: 0, y: 18 },
+      { opacity: 1, y: 0, duration: 0.5, delay: 0.12, ease: 'power2.out' });
+  </script>
+</opencat>

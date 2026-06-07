@@ -211,7 +211,7 @@ pub fn parse_parts_with_base_dir(
         markup_root_script: extracted.script,
         ..Default::default()
     };
-    parse_opencat_children(root, base_dir, &mut parts)?;
+    parse_opencat_children(root, &doc, base_dir, &mut parts)?;
     Ok(parts)
 }
 
@@ -243,7 +243,7 @@ const IMAGE_ATTRS: &[&str] = &[
     "aspectRatio",
 ];
 const FONTS_ATTRS: &[&str] = &["default"];
-const FONT_ATTRS: &[&str] = &["id", "family", "path", "url", "src", "role"];
+const FONT_ATTRS: &[&str] = &["id", "family", "path", "url", "role"];
 const AUDIO_ATTRS: &[&str] = &["id", "duration", "path", "url", "attach"];
 const LOTTIE_ATTRS: &[&str] = &[
     "id",
@@ -251,7 +251,6 @@ const LOTTIE_ATTRS: &[&str] = &[
     "duration",
     "path",
     "url",
-    "src",
     "data-start",
     "data-duration",
     "data-media-start",
@@ -263,7 +262,6 @@ const VIDEO_ATTRS: &[&str] = &[
     "duration",
     "path",
     "url",
-    "src",
     "data-start",
     "data-duration",
     "data-media-start",
@@ -300,6 +298,7 @@ enum ParentContext {
 
 fn parse_opencat_children(
     root: roxmltree::Node<'_, '_>,
+    doc: &roxmltree::Document<'_>,
     base_dir: Option<&std::path::Path>,
     parts: &mut ParsedDocumentParts,
 ) -> anyhow::Result<()> {
@@ -326,7 +325,7 @@ fn parse_opencat_children(
                             anyhow::bail!("multiple visual root elements found");
                         }
                         visual_root = Some(id.to_string());
-                        parse_visual_node(child, None, base_dir, parts, ParentContext::Root)?;
+                        parse_visual_node(child, doc, None, base_dir, parts, ParentContext::Root)?;
                     }
                     "audio" => {
                         anyhow::bail!("<audio> must be inside <soundtrack>");
@@ -358,6 +357,7 @@ fn parse_opencat_children(
 
 fn parse_visual_node(
     node: roxmltree::Node<'_, '_>,
+    doc: &roxmltree::Document<'_>,
     parent_id: Option<&str>,
     base_dir: Option<&std::path::Path>,
     parts: &mut ParsedDocumentParts,
@@ -367,7 +367,9 @@ fn parse_visual_node(
     let id = required_attr(node, "id")?;
     let mut style = crate::style::NodeStyle::default();
     if let Some(class) = node.attribute("class") {
-        style = crate::parse::jsonl::tailwind::parse_class_name(class);
+        let line_number = doc.text_pos_at(node.range().start).row as usize;
+        style =
+            crate::parse::jsonl::tailwind::parse_class_name_with_context(class, id, line_number);
     }
     let duration = parse_optional_f64_positive(node, "duration")?;
 
@@ -391,6 +393,7 @@ fn parse_visual_node(
                             | "path" | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
+                                    doc,
                                     Some(&id),
                                     base_dir,
                                     parts,
@@ -430,6 +433,7 @@ fn parse_visual_node(
                     _ => {}
                 }
             }
+            let content = decode_text_escapes(&content);
             let parent_id = parent_id.map(|s| s.to_string());
             parts.elements.push(ParsedElement {
                 id: id.to_string(),
@@ -458,6 +462,7 @@ fn parse_visual_node(
                             | "path" | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
+                                    doc,
                                     Some(&id),
                                     base_dir,
                                     parts,
@@ -530,6 +535,7 @@ fn parse_visual_node(
                             | "path" | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
+                                    doc,
                                     Some(&id),
                                     base_dir,
                                     parts,
@@ -617,6 +623,7 @@ fn parse_visual_node(
                             | "path" | "caption" | "tl" => {
                                 parse_visual_node(
                                     child,
+                                    doc,
                                     Some(&id),
                                     base_dir,
                                     parts,
@@ -719,7 +726,7 @@ fn parse_font_source(
     base_dir: Option<&std::path::Path>,
 ) -> anyhow::Result<FontSource> {
     let path = node.attribute("path");
-    let url = node.attribute("url").or(node.attribute("src"));
+    let url = node.attribute("url");
     match (path, url) {
         (Some(p), None) => {
             if p.is_empty() {
@@ -734,8 +741,8 @@ fn parse_font_source(
             }
             Ok(FontSource::Url(u.to_string()))
         }
-        (Some(_), Some(_)) => anyhow::bail!("<font> accepts only one of: path, url, src"),
-        (None, None) => anyhow::bail!("<font> requires one of: path, url, src"),
+        (Some(_), Some(_)) => anyhow::bail!("<font> accepts only one of: path, url"),
+        (None, None) => anyhow::bail!("<font> requires one of: path, url"),
     }
 }
 
@@ -798,15 +805,7 @@ fn parse_audio_element_in_soundtrack(
         }
     };
 
-    for attr in node.attributes() {
-        let name = attr.name();
-        if matches!(name, "className" | "parentId" | "style") {
-            anyhow::bail!("attribute `{name}` is not allowed in markup");
-        }
-        if !AUDIO_ATTRS.contains(&name) {
-            anyhow::bail!("unknown attribute `{name}` on <audio>");
-        }
-    }
+    ensure_allowed_attrs(node, AUDIO_ATTRS)?;
 
     parts.audio_elements.push(ParsedAudioElement {
         id: id.to_string(),
@@ -842,17 +841,17 @@ fn parse_lottie_source(
     node: roxmltree::Node<'_, '_>,
     base_dir: Option<&std::path::Path>,
 ) -> anyhow::Result<crate::parse::primitives::LottieSource> {
-    let path = node.attribute("path").or_else(|| node.attribute("src"));
+    let path = node.attribute("path");
     let url = node.attribute("url");
     let count = [path.is_some(), url.is_some()]
         .iter()
         .filter(|&&b| b)
         .count();
     if count == 0 {
-        anyhow::bail!("<lottie> requires one of: path, url, src");
+        anyhow::bail!("<lottie> requires one of: path, url");
     }
     if count > 1 {
-        anyhow::bail!("<lottie> requires only one of: path, url, src");
+        anyhow::bail!("<lottie> requires only one of: path, url");
     }
     if let Some(p) = path {
         if p.is_empty() {
@@ -932,47 +931,40 @@ fn parse_image_source(
     anyhow::bail!("image must have one of: path, url, query")
 }
 
+fn decode_text_escapes(content: &str) -> String {
+    content.replace("\\n", "\n")
+}
+
 fn parse_video_source(
     node: roxmltree::Node<'_, '_>,
     base_dir: Option<&std::path::Path>,
 ) -> anyhow::Result<VideoSource> {
     let path = node.attribute("path");
     let url = node.attribute("url");
-    let src = node.attribute("src");
-    let count = [path.is_some(), url.is_some(), src.is_some()]
+    let count = [path.is_some(), url.is_some()]
         .iter()
         .filter(|&&b| b)
         .count();
 
     if count == 0 {
-        anyhow::bail!("<video> requires one of: path, url, src");
+        anyhow::bail!("<video> requires one of: path, url");
     }
     if count > 1 {
-        anyhow::bail!("<video> requires only one of: path, url, src");
+        anyhow::bail!("<video> requires only one of: path, url");
     }
 
-    match (path, url, src) {
-        (Some(p), None, None) => {
+    match (path, url) {
+        (Some(p), None) => {
             if p.is_empty() {
                 anyhow::bail!("<video> `path` must not be empty");
             }
             Ok(VideoSource::Path(resolve_local_path(p, base_dir)))
         }
-        (None, Some(u), None) => {
+        (None, Some(u)) => {
             if u.is_empty() {
                 anyhow::bail!("<video> `url` must not be empty");
             }
             Ok(VideoSource::Url(u.to_string()))
-        }
-        (None, None, Some(s)) => {
-            if s.is_empty() {
-                anyhow::bail!("<video> `src` must not be empty");
-            }
-            if s.starts_with("http://") || s.starts_with("https://") {
-                Ok(VideoSource::Url(s.to_string()))
-            } else {
-                Ok(VideoSource::Path(resolve_local_path(s, base_dir)))
-            }
         }
         _ => unreachable!("source count validated above"),
     }
@@ -1195,9 +1187,7 @@ fn ensure_allowed_attrs(node: roxmltree::Node<'_, '_>, allowed: &[&str]) -> anyh
         if matches!(name, "className" | "parentId" | "style") {
             anyhow::bail!("attribute `{name}` is not allowed in markup");
         }
-        if !allowed.contains(&name) {
-            anyhow::bail!("unknown attribute `{name}` on <{}>", node.tag_name().name());
-        }
+        // Unknown attributes are silently ignored — only known attributes are consumed.
     }
     Ok(())
 }
@@ -1318,13 +1308,12 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_opencat_attribute() {
-        let err = parse(r#"<opencat foo="bar"><div id="root" /></opencat>"#)
-            .expect_err("unknown root attribute should fail");
-
+    fn ignores_unknown_opencat_attribute() {
+        let result = parse(r#"<opencat foo="bar"><div id="root" /></opencat>"#);
         assert!(
-            err.to_string()
-                .contains("unknown attribute `foo` on <opencat>")
+            result.is_ok(),
+            "unknown attribute should be ignored, got {:?}",
+            result.err()
         );
     }
 
@@ -1347,11 +1336,31 @@ mod tests {
     }
 
     #[test]
+    fn parses_backslash_n_in_text_as_newline() {
+        let parsed = parse(
+            r#"<opencat width="320" height="180" fps="30" duration="0.03333333333333333">
+  <div id="root">
+    <text id="headline">Real-time\nrendering</text>
+  </div>
+</opencat>"#,
+        )
+        .expect("markup should parse");
+
+        let NodeKind::Div(root) = parsed.root.kind() else {
+            panic!("root should be div");
+        };
+        let NodeKind::Text(headline) = root.children_ref()[0].kind() else {
+            panic!("child should be text");
+        };
+        assert_eq!(headline.content(), "Real-time\nrendering");
+    }
+
+    #[test]
     fn parses_video_timeline_and_media_timing_attrs() {
         let parsed = parse(
             r#"<opencat width="320" height="180" fps="30" duration="0.03333333333333333">
   <div id="root">
-    <video id="vid" src="clip.mp4" data-start="3" data-duration="18" data-media-start="12" loop="true" />
+    <video id="vid" path="clip.mp4" data-start="3" data-duration="18" data-media-start="12" loop="true" />
   </div>
 </opencat>"#,
         )
@@ -1385,7 +1394,7 @@ mod tests {
         let parsed = parse(
             r#"<opencat width="320" height="180" fps="30" duration="0.03333333333333333">
   <div id="root">
-    <video id="vid" class="relative w-[160px] h-[90px]" src="clip.mp4">
+    <video id="vid" class="relative w-[160px] h-[90px]" path="clip.mp4">
       <div id="badge" class="absolute left-[8px] top-[8px]">
         <text id="label">TL</text>
       </div>

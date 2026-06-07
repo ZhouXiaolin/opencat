@@ -71,9 +71,10 @@ fn report_unsupported_tailwind_class(class: &str, node_id: &str, line_number: us
         .lock()
         .expect("unsupported tailwind warning set should not be poisoned");
 
-    if warnings.insert(class.to_string()) {
+    let warning_key = format!("{class}\0{node_id}\0{line_number}");
+    if warnings.insert(warning_key) {
         eprintln!(
-            "Unsupported Tailwind class `{class}` on node `{node_id}` at JSONL line {line_number}; ignoring it."
+            "Unsupported Tailwind class `{class}` on node `{node_id}` at line {line_number}; ignoring it."
         );
     }
 }

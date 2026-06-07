@@ -428,14 +428,26 @@ fn text_measure_context_for_element(element: &ElementNode) -> Option<TextMeasure
         ElementKind::Text(text) => Some(TextMeasureContext {
             text: text.text.clone(),
             style: text.text_style.clone(),
-            allow_wrap: !element.style.layout.truncate
-                && (element.style.text.wrap_text
-                    || element.style.layout.width.is_some()
-                    || element.style.layout.width_percent.is_some()
-                    || element.style.layout.width_full),
+            allow_wrap: text_element_allows_wrap(element),
         }),
         _ => None,
     }
+}
+
+fn text_element_allows_wrap(element: &ElementNode) -> bool {
+    if element.style.layout.truncate {
+        return false;
+    }
+
+    let has_definite_width = element.style.layout.width.is_some()
+        || element.style.layout.width_percent.is_some()
+        || element.style.layout.width_full;
+
+    if element.style.layout.position == Position::Absolute && !has_definite_width {
+        return false;
+    }
+
+    element.style.text.wrap_text || has_definite_width
 }
 
 fn taffy_style_for_element(element: &ElementNode) -> Style {
@@ -1198,6 +1210,60 @@ mod tests {
         assert!(
             pill_text.rect.width > 0.0,
             "pill text should have non-zero width"
+        );
+    }
+
+    #[test]
+    fn absolute_auto_width_text_with_tracking_stays_single_line() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 1280,
+            height: 720,
+            frames: 1,
+        };
+        let mut assets = TestCatalog::new();
+        let root = classed_div(
+            "root",
+            "relative w-[1280px] h-[720px]",
+            vec![
+                classed_div(
+                    "panel",
+                    "absolute left-[88px] bottom-[58px] w-[312px] h-[76px]",
+                    vec![classed_text(
+                    "panel-label",
+                    "absolute left-[20px] top-[14px] text-[13px] font-semibold tracking-[3px]",
+                    "SHORTHAND",
+                )
+                .into()],
+                )
+                .into(),
+            ],
+        )
+        .into();
+        let resolved = resolve_ui_tree(
+            &root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
+
+        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
+            .expect("layout should succeed");
+        let panel = &layout.root.children[0];
+        let label = &panel.children[0];
+
+        assert!(
+            label.rect.height < 24.0,
+            "absolute auto-width text should stay one line, got height {}",
+            label.rect.height
+        );
+        assert!(
+            label.rect.width > 90.0,
+            "tracking should contribute to shrink-to-fit width, got {}",
+            label.rect.width
         );
     }
 

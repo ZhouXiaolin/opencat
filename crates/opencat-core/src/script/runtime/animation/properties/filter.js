@@ -1,5 +1,5 @@
 (function() {
-    var runtime = globalThis.__opencatAnimation;
+    var animation = globalThis.__opencatAnimation.animation;
 
     // CSS Filter color matrix implementations
     // Based on: https://www.w3.org/TR/filter-effects-1/
@@ -218,76 +218,68 @@
         return matrix;
     }
 
-    // Individual filter property descriptors
-    var filterProperties = {
-        blur: {
-            aliases: ['blurSigma'],
-            defaultValue: 0,
-            interpolate: 'number',
-            apply: function(target, value) {
-                applyFilterValue(target, 'blur', value);
-            }
-        },
-        brightness: {
-            defaultValue: 1,
-            interpolate: 'number',
-            apply: function(target, value) {
-                applyFilterValue(target, 'brightness', value);
-            }
-        },
-        contrast: {
-            defaultValue: 1,
-            interpolate: 'number',
-            apply: function(target, value) {
-                applyFilterValue(target, 'contrast', value);
-            }
-        },
-        grayscale: {
-            defaultValue: 0,
-            interpolate: 'number',
-            apply: function(target, value) {
-                applyFilterValue(target, 'grayscale', value);
-            }
-        },
-        hueRotate: {
-            defaultValue: 0,
-            interpolate: 'number',
-            apply: function(target, value) {
-                applyFilterValue(target, 'hueRotate', value);
-            }
-        },
-        invert: {
-            defaultValue: 0,
-            interpolate: 'number',
-            apply: function(target, value) {
-                applyFilterValue(target, 'invert', value);
-            }
-        },
-        saturate: {
-            defaultValue: 1,
-            interpolate: 'number',
-            apply: function(target, value) {
-                applyFilterValue(target, 'saturate', value);
-            }
-        },
-        sepia: {
-            defaultValue: 0,
-            interpolate: 'number',
-            apply: function(target, value) {
-                applyFilterValue(target, 'sepia', value);
-            }
-        }
-    };
+    // ── Core filter properties (not a plugin) ─────────────────────────
 
-    // Register individual filter properties
-    runtime.animation.registerPlugin({
-        name: 'filter-properties',
-        properties: filterProperties
+    animation.registerProperty('blur', {
+        aliases: ['blurSigma'],
+        defaultValue: 0,
+        interpolate: 'number',
+        apply: function(target, value) {
+            applyFilterValue(target, 'blur', value);
+        }
+    });
+    animation.registerProperty('brightness', {
+        defaultValue: 1,
+        interpolate: 'number',
+        apply: function(target, value) {
+            applyFilterValue(target, 'brightness', value);
+        }
+    });
+    animation.registerProperty('contrast', {
+        defaultValue: 1,
+        interpolate: 'number',
+        apply: function(target, value) {
+            applyFilterValue(target, 'contrast', value);
+        }
+    });
+    animation.registerProperty('grayscale', {
+        defaultValue: 0,
+        interpolate: 'number',
+        apply: function(target, value) {
+            applyFilterValue(target, 'grayscale', value);
+        }
+    });
+    animation.registerProperty('hueRotate', {
+        defaultValue: 0,
+        interpolate: 'number',
+        apply: function(target, value) {
+            applyFilterValue(target, 'hueRotate', value);
+        }
+    });
+    animation.registerProperty('invert', {
+        defaultValue: 0,
+        interpolate: 'number',
+        apply: function(target, value) {
+            applyFilterValue(target, 'invert', value);
+        }
+    });
+    animation.registerProperty('saturate', {
+        defaultValue: 1,
+        interpolate: 'number',
+        apply: function(target, value) {
+            applyFilterValue(target, 'saturate', value);
+        }
+    });
+    animation.registerProperty('sepia', {
+        defaultValue: 0,
+        interpolate: 'number',
+        apply: function(target, value) {
+            applyFilterValue(target, 'sepia', value);
+        }
     });
 
     // Special 'filter' property that parses CSS filter string
-    // Filters are applied in order: the first filter in the string is applied first
-    runtime.animation.registerProperty('filter', {
+    animation.registerProperty('filter', {
         defaultValue: '',
         // Use custom interpolation function for filter strings
         interpolate: function(fromVal, toVal, progress) {
@@ -410,7 +402,7 @@
     }
 
     // Export matrix functions for renderer use
-    runtime.filterMatrix = {
+    globalThis.__opencatAnimation.filterMatrix = {
         brightness: brightnessMatrix,
         contrast: contrastMatrix,
         grayscale: grayscaleMatrix,

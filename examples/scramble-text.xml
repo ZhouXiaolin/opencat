@@ -1,0 +1,103 @@
+<opencat width="1280" height="720" fps="30" duration="5">
+  <script>
+ctx.fromTo(['panel-a','panel-b','panel-c'], {opacity:0, y:28, scale:0.96}, {opacity:1, y:0, scale:1, duration:0.7, stagger:0.12, ease:'spring.gentle'});
+ctx.fromTo('kicker', {opacity:0, y:14}, {opacity:1, y:0, duration:0.55, ease:'ease-out'});
+ctx.fromTo('title', {opacity:0, y:18}, {opacity:1, y:0, duration:0.7, delay:0.08, ease:'spring.gentle'});
+
+ctx.to('headline', {
+  duration: 2.2,
+  delay: 0.35,
+  scrambleText: {
+    text: 'OPEN CAT RUNTIME',
+    chars: 'upperCase',
+    speed: 18,
+    revealDelay: 0.08
+  },
+  ease: 'linear'
+});
+
+ctx.to('code-line', {
+  duration: 2.4,
+  delay: 0.75,
+  scrambleText: {
+    text: 'ctx.to("#title", { scrambleText: "READY" })',
+    chars: '01{}[]<>/\\',
+    speed: 26,
+    revealDelay: 0.18
+  },
+  ease: 'linear'
+});
+
+ctx.to('status', {
+  duration: 1.8,
+  delay: 1.25,
+  scrambleText: {
+    text: 'LINK ESTABLISHED',
+    chars: 'symbols',
+    speed: 30,
+    rightToLeft: true
+  },
+  ease: 'linear'
+});
+
+ctx.to('words', {
+  duration: 2.0,
+  delay: 1.7,
+  scrambleText: {
+    text: 'Render stable frames',
+    delimiter: ' ',
+    chars: 'lowerCase',
+    tweenLength: true,
+    speed: 12
+  },
+  ease: 'linear'
+});
+
+ctx.fromTo('scan', {x:-520, opacity:0.1}, {x:520, opacity:0.55, duration:2.1, delay:0.4, ease:'ease-in-out', repeat:1});
+ctx.fromTo(['dot-a','dot-b','dot-c','dot-d','dot-e'], {opacity:0.2, scale:0.7}, {opacity:1, scale:1.2, duration:0.5, stagger:{each:0.18, from:'center'}, repeat:-1, yoyo:true, ease:'ease-in-out'});
+  </script>
+
+  <div id="root" class="relative w-[1280px] h-[720px] bg-[#0a0d10] overflow-hidden">
+    <div id="grid-x1" class="absolute left-[0px] top-[160px] w-[1280px] h-[1px] bg-[#1d2934]" />
+    <div id="grid-x2" class="absolute left-[0px] top-[360px] w-[1280px] h-[1px] bg-[#1d2934]" />
+    <div id="grid-x3" class="absolute left-[0px] top-[560px] w-[1280px] h-[1px] bg-[#1d2934]" />
+    <div id="grid-y1" class="absolute left-[220px] top-[0px] w-[1px] h-[720px] bg-[#1d2934]" />
+    <div id="grid-y2" class="absolute left-[640px] top-[0px] w-[1px] h-[720px] bg-[#1d2934]" />
+    <div id="grid-y3" class="absolute left-[1060px] top-[0px] w-[1px] h-[720px] bg-[#1d2934]" />
+
+    <div id="scan" class="absolute left-[380px] top-[210px] w-[180px] h-[300px] bg-[#46f5b533]" />
+
+    <div id="header" class="absolute left-[88px] top-[72px] flex flex-col gap-[14px]">
+      <text id="kicker" class="text-[16px] font-semibold text-[#46f5b5]">SCRAMBLE TEXT PLUGIN</text>
+      <text id="title" class="text-[64px] font-bold text-white leading-[0.96]">GSAP-style text decode</text>
+    </div>
+
+    <div id="terminal" class="absolute left-[88px] top-[222px] w-[1104px] h-[330px] border-[1px] border-[#2b3a46] bg-[#0f1519]">
+      <div id="terminal-bar" class="absolute left-[0px] top-[0px] w-[1104px] h-[48px] bg-[#151d23] border-b-[1px] border-[#2b3a46]">
+        <div id="dot-a" class="absolute left-[24px] top-[18px] w-[12px] h-[12px] rounded-full bg-[#ff5f57]" />
+        <div id="dot-b" class="absolute left-[46px] top-[18px] w-[12px] h-[12px] rounded-full bg-[#ffbd2e]" />
+        <div id="dot-c" class="absolute left-[68px] top-[18px] w-[12px] h-[12px] rounded-full bg-[#28c840]" />
+        <div id="dot-d" class="absolute right-[54px] top-[18px] w-[8px] h-[8px] rounded-full bg-[#46f5b5]" />
+        <div id="dot-e" class="absolute right-[34px] top-[18px] w-[8px] h-[8px] rounded-full bg-[#46f5b5]" />
+      </div>
+
+      <text id="headline" class="absolute left-[42px] top-[88px] text-[48px] font-bold text-[#f2fbff]">INITIALIZING</text>
+      <text id="code-line" class="absolute left-[44px] top-[178px] text-[30px] font-semibold text-[#8bd7ff]">ctx.to(node, { scrambleText: ... })</text>
+      <text id="status" class="absolute left-[44px] top-[250px] text-[24px] font-semibold text-[#46f5b5]">WAITING FOR LINK</text>
+      <text id="words" class="absolute right-[44px] top-[288px] text-[22px] font-semibold text-[#ffcf6f]">Frame output pending</text>
+    </div>
+
+    <div id="panel-a" class="absolute left-[88px] bottom-[58px] w-[312px] h-[76px] border-[1px] border-[#2b3a46] bg-[#111820]">
+      <text id="panel-a-label" class="absolute left-[20px] top-[14px] text-[13px] font-semibold text-[#70808c]">SHORTHAND</text>
+      <text id="panel-a-value" class="absolute left-[20px] top-[40px] text-[18px] font-semibold text-white">scrambleText: "READY"</text>
+    </div>
+    <div id="panel-b" class="absolute left-[484px] bottom-[58px] w-[312px] h-[76px] border-[1px] border-[#2b3a46] bg-[#111820]">
+      <text id="panel-b-label" class="absolute left-[20px] top-[14px] text-[13px] font-semibold text-[#70808c]">OPTIONS</text>
+      <text id="panel-b-value" class="absolute left-[20px] top-[40px] text-[18px] font-semibold text-white">chars / speed / revealDelay</text>
+    </div>
+    <div id="panel-c" class="absolute left-[880px] bottom-[58px] w-[312px] h-[76px] border-[1px] border-[#2b3a46] bg-[#111820]">
+      <text id="panel-c-label" class="absolute left-[20px] top-[14px] text-[13px] font-semibold text-[#70808c]">DIRECTION</text>
+      <text id="panel-c-value" class="absolute left-[20px] top-[40px] text-[18px] font-semibold text-white">rightToLeft + delimiter</text>
+    </div>
+  </div>
+</opencat>

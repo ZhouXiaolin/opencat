@@ -1,5 +1,5 @@
 (function() {
-    var runtime = globalThis.__opencatAnimation;
+    var animation = globalThis.__opencatAnimation.animation;
 
     function makeColorProperty(nodeSetter, aliases) {
         return {
@@ -24,14 +24,9 @@
         };
     }
 
-    runtime.animation.registerPlugin({
-        name: 'color',
-        properties: {
-            backgroundColor: makeColorProperty('bg', ['bg']),
-            textColor: makeColorProperty('textColor', ['color']),
-            borderColor: makeColorProperty('borderColor'),
-            fillColor: makeColorProperty('fillColor'),
-            strokeColor: makeColorProperty('strokeColor'),
-        },
-    });
+    animation.registerProperty('backgroundColor', makeColorProperty('bg', ['bg']));
+    animation.registerProperty('textColor', makeColorProperty('textColor', ['color']));
+    animation.registerProperty('borderColor', makeColorProperty('borderColor'));
+    animation.registerProperty('fillColor', makeColorProperty('fillColor'));
+    animation.registerProperty('strokeColor', makeColorProperty('strokeColor'));
 })();

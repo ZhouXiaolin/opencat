@@ -17,6 +17,7 @@ use crate::{
     layout::tree::{LayoutNode, LayoutTree},
     parse::transition::TransitionKind,
     resolve::tree::{ElementId, ElementKind, ElementNode},
+    style::Position,
 };
 
 /// L3 子树 merkle 缓存。命中条件：
@@ -456,11 +457,7 @@ fn display_item_for_node(
                 bounds,
                 text: text.text.clone(),
                 style: text.text_style.clone(),
-                allow_wrap: !element.style.layout.truncate
-                    && (element.style.text.wrap_text
-                        || element.style.layout.width.is_some()
-                        || element.style.layout.width_percent.is_some()
-                        || element.style.layout.width_full),
+                allow_wrap: text_element_allows_wrap(element),
                 truncate: element.style.layout.truncate,
                 drop_shadow: element.style.visual.drop_shadow,
                 text_unit_overrides: text.text_unit_overrides.clone(),
@@ -538,6 +535,22 @@ fn display_item_for_node(
             view_box: svg.view_box,
         }),
     }
+}
+
+fn text_element_allows_wrap(element: &ElementNode) -> bool {
+    if element.style.layout.truncate {
+        return false;
+    }
+
+    let has_definite_width = element.style.layout.width.is_some()
+        || element.style.layout.width_percent.is_some()
+        || element.style.layout.width_full;
+
+    if element.style.layout.position == Position::Absolute && !has_definite_width {
+        return false;
+    }
+
+    element.style.text.wrap_text || has_definite_width
 }
 
 fn conservative_text_visual_expansion(
@@ -653,6 +666,73 @@ mod tests {
         assert_eq!(
             bitmap.paint.border_radius,
             crate::style::BorderRadius::default()
+        );
+    }
+
+    #[test]
+    fn absolute_auto_width_text_display_item_does_not_wrap() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut assets = TestCatalog::new();
+        let parsed = crate::parse(
+            r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":0.033333333333}
+{"id":"root","parentId":null,"type":"div","className":"relative w-full h-full"}
+{"id":"panel","parentId":"root","type":"div","className":"absolute left-[20px] top-[20px] w-[140px] h-[60px]"}
+{"id":"label","parentId":"panel","type":"text","className":"absolute left-[12px] top-[10px] text-[13px] tracking-[3px]","text":"SHORTHAND"}"#,
+        )
+        .expect("jsonl should parse");
+        let resolved = resolve_ui_tree(
+            &parsed.root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
+        let layout_tree = LayoutTree {
+            root: simple_layout(
+                "root",
+                LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 320.0,
+                    height: 180.0,
+                },
+                vec![simple_layout(
+                    "panel",
+                    LayoutRect {
+                        x: 20.0,
+                        y: 20.0,
+                        width: 140.0,
+                        height: 60.0,
+                    },
+                    vec![simple_layout(
+                        "label",
+                        LayoutRect {
+                            x: 12.0,
+                            y: 10.0,
+                            width: 112.0,
+                            height: 16.0,
+                        },
+                        Vec::new(),
+                    )],
+                )],
+            ),
+        };
+
+        let tree = build_display_tree(&resolved, &layout_tree, &frame_ctx)
+            .expect("display tree should build");
+        let DisplayItem::Text(text) = &tree.root.children[0].children[0].item else {
+            panic!("expected text draw item");
+        };
+        assert!(
+            !text.allow_wrap,
+            "absolute auto-width text should rasterize as shrink-to-fit single-line text"
         );
     }
 

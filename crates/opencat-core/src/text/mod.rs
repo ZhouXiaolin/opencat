@@ -247,18 +247,13 @@ pub fn rasterize_glyphs(
         for run in buffer.layout_runs() {
             let mut positions: Vec<GlyphPosition> = Vec::new();
 
-            let mut x_correction: f32 = 0.0;
-            let mut corrected_line_w: f32 = run.line_w;
-
             for glyph in run.glyphs {
                 let physical = glyph.physical((0.0, 0.0), 1.0);
                 let ck = glyph_cache_key(&physical.cache_key);
                 let ok = glyph_outline_key(&physical.cache_key);
 
-                let x = physical.x as f32 + physical.cache_key.x_bin.as_float() - x_correction;
+                let x = physical.x as f32 + physical.cache_key.x_bin.as_float();
                 let y = run.line_y + physical.y as f32 + physical.cache_key.y_bin.as_float();
-
-                let is_space = rendered.get(glyph.start..glyph.end) == Some(" ");
 
                 positions.push(GlyphPosition {
                     cache_key: ck,
@@ -267,13 +262,6 @@ pub fn rasterize_glyphs(
                     y,
                     byte_range: glyph.start..glyph.end,
                 });
-
-                if is_space {
-                    let target_advance = style.text_px * 0.25;
-                    let excess = glyph.w - target_advance;
-                    x_correction += excess;
-                    corrected_line_w -= excess;
-                }
 
                 if glyphs.contains_key(&ck) {
                     continue;
@@ -309,7 +297,7 @@ pub fn rasterize_glyphs(
 
             lines.push(TextLine {
                 y: run.line_y,
-                width: corrected_line_w,
+                width: run.line_w,
                 positions,
             });
         }
@@ -351,9 +339,15 @@ fn text_attrs(style: &ComputedTextStyle) -> Attrs<'_> {
         .as_deref()
         .map(cosmic_text::Family::Name)
         .unwrap_or(cosmic_text::Family::SansSerif);
+    let letter_spacing_em = if style.text_px > 0.0 {
+        style.letter_spacing / style.text_px
+    } else {
+        0.0
+    };
     Attrs::new()
         .family(family)
         .weight(cosmic_text::Weight(style.font_weight.0))
+        .letter_spacing(letter_spacing_em)
 }
 
 /// Compute a stable u64 key from a cosmic-text CacheKey.
@@ -639,6 +633,49 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn rasterized_line_width_matches_measured_width_for_spaced_text() {
+        let style = ComputedTextStyle {
+            text_px: 20.0,
+            ..ComputedTextStyle::default()
+        };
+        let db = test_default_font_db();
+        let text = "Content goes here - stats, code, images...";
+        let measured = measure_text(text, &style, f32::INFINITY, false, &db);
+        let result = rasterize_glyphs(text, &style, f32::INFINITY, false, false, &db);
+
+        assert_eq!(result.lines.len(), 1);
+        assert!(
+            (result.lines[0].width - measured.width).abs() < 0.5,
+            "rasterized width {} should match measured width {}",
+            result.lines[0].width,
+            measured.width
+        );
+    }
+
+    #[test]
+    fn letter_spacing_is_interpreted_as_pixels_not_em() {
+        let db = test_default_font_db();
+        let text = "ABC";
+        let base = ComputedTextStyle {
+            text_px: 18.0,
+            ..ComputedTextStyle::default()
+        };
+        let tracked = ComputedTextStyle {
+            letter_spacing: 1.0,
+            ..base.clone()
+        };
+
+        let base_width = measure_text(text, &base, f32::INFINITY, false, &db).width;
+        let tracked_width = measure_text(text, &tracked, f32::INFINITY, false, &db).width;
+        let delta = tracked_width - base_width;
+
+        assert!(
+            (2.0..=4.0).contains(&delta),
+            "1px tracking over 3 glyphs should add about 3px, got {delta}"
+        );
     }
 
     #[test]

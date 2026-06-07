@@ -3,8 +3,8 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const TAILWIND_THEME_COLORS_PATH: &str = "../../tailwind/theme-colors-v4.2.2.css";
-const LUCIDE_ICONS_DIR: &str = "../../lucide";
+const TAILWIND_THEME_COLORS_PATH: &str = "tailwind/theme-colors-v4.2.2.css";
+const LUCIDE_ICONS_DIR: &str = "lucide";
 
 #[derive(Clone, Copy)]
 struct Rgb {

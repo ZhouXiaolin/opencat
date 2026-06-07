@@ -139,7 +139,7 @@ export default defineConfig({
   plugins: [
     serveStaticDirs([
       { mount: '/json', path: resolve(REPO_ROOT, 'json') },
-      { mount: '/lucide', path: resolve(REPO_ROOT, 'lucide') },
+      { mount: '/lucide', path: resolve(REPO_ROOT, 'crates/opencat-core/lucide') },
       { mount: '/fixtures', path: resolve(REPO_ROOT, 'testsupport/fixtures') },
       {
         mount: '/fonts',

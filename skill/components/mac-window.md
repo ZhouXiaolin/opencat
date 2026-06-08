@@ -1,0 +1,132 @@
+<opencat width="1280" height="720" fps="30" duration="3">
+  <div id="root" class="relative w-[1280px] h-[720px] overflow-hidden bg-[#dfe9f6]">
+    <div id="window" class="absolute left-[190px] top-[60px] w-[900px] h-[600px] rounded-[26px] overflow-hidden bg-[#fbfcfff7] border-[2px] border-[#00000045] shadow-[0_18px_56px_rgba(0,0,0,0.38)]">
+      <div id="window-highlight" class="absolute left-[1px] top-[1px] right-[1px] h-[1px] bg-white/70" />
+      <div id="window-wallpaper-a" class="absolute left-[-70px] top-[22px] w-[320px] h-[180px] rounded-full bg-[#d7eaff]/18 blur-2xl" />
+      <div id="window-wallpaper-b" class="absolute left-[34px] top-[238px] w-[260px] h-[180px] rounded-full bg-[#c5f0ff]/10 blur-2xl" />
+      <div id="window-wallpaper-c" class="absolute left-[70px] bottom-[44px] w-[230px] h-[120px] rounded-full bg-[#ffe6c7]/12 blur-2xl" />
+      <div id="window-wallpaper-d" class="absolute left-[124px] top-[100px] w-[180px] h-[320px] rounded-full bg-[#f2d7ff]/8 blur-2xl" />
+      <div id="sidebar-texture-1" class="absolute left-[18px] top-[74px] w-[170px] h-[1px] bg-white/35" />
+      <div id="sidebar-texture-2" class="absolute left-[18px] top-[138px] w-[170px] h-[1px] bg-white/24" />
+      <div id="sidebar-texture-3" class="absolute left-[18px] top-[202px] w-[170px] h-[1px] bg-white/18" />
+      <div id="sidebar-texture-4" class="absolute left-[18px] top-[266px] w-[170px] h-[1px] bg-white/16" />
+      <div id="sidebar-glint-a" class="absolute left-[12px] top-[18px] w-[76px] h-[250px] rounded-full bg-white/14 blur-xl" />
+      <div id="sidebar-glint-b" class="absolute left-[122px] top-[118px] w-[70px] h-[360px] rounded-full bg-[#8ecbff]/7 blur-xl" />
+      <div id="content-bg" class="absolute left-[220px] top-[0px] right-[0px] bottom-[0px] bg-[#f7f9fdf2]" />
+      <div id="titlebar-glass" class="absolute left-[220px] top-[0px] right-[0px] h-[52px] bg-white/70 border-b-[1px] border-[#00000012] backdrop-blur-2xl" />
+      <div id="sidebar-divider" class="absolute left-[219px] top-[0px] bottom-[0px] w-[1px] bg-[#00000018]" />
+      <div id="window-bottom-highlight" class="absolute left-[16px] right-[16px] bottom-[1px] h-[1px] bg-white/45" />
+      <div id="sidebar" class="absolute left-[0px] top-[0px] bottom-[0px] w-[220px] p-[8px]">
+        <div id="sidebar-glass" class="absolute left-[8px] top-[8px] right-[8px] bottom-[8px] rounded-[18px] bg-[#f6fbffcc] border-[1px] border-white/75 backdrop-blur-lg shadow-[0_8px_40px_rgba(0,0,0,0.10)] inset-shadow-[0_1px_0_rgba(255,255,255,0.50)]" />
+        <div id="sidebar-top-sheen" class="absolute left-[10px] top-[10px] right-[10px] h-[62px] rounded-t-[16px] bg-white/26" />
+        <div id="sidebar-left-sheen" class="absolute left-[10px] top-[12px] bottom-[12px] w-[1px] bg-white/55" />
+        <div id="sidebar-right-shade" class="absolute right-[10px] top-[12px] bottom-[12px] w-[1px] bg-black/6" />
+        <div id="traffic" class="absolute left-[20px] top-[21px] flex flex-row items-center gap-[9px]">
+          <div id="traffic-close" class="w-[14px] h-[14px] rounded-full bg-[#ff736a] border-[1px] border-black/10" />
+          <div id="traffic-min" class="w-[14px] h-[14px] rounded-full bg-[#febc2e] border-[1px] border-black/10" />
+          <div id="traffic-max" class="w-[14px] h-[14px] rounded-full bg-[#19c332] border-[1px] border-black/10" />
+        </div>
+        <div id="sidebar-title-row" class="absolute left-[18px] top-[49px] w-[184px] h-[1px] bg-white/45" />
+        <text id="hdr-favorites" class="absolute left-[26px] top-[70px] text-[11px] font-bold text-black/50">Favorites</text>
+        <div id="item-recent" class="absolute left-[18px] top-[95px] w-[184px] h-[32px] rounded-[8px]">
+          <div id="item-recent-icon" class="absolute left-[8px] top-[9px] w-[14px] h-[14px] rounded-full bg-black/20" />
+          <text id="item-recent-label" class="absolute left-[28px] top-[8px] text-[11px] font-medium text-black/85">Recents</text>
+        </div>
+        <div id="item-documents" class="absolute left-[18px] top-[129px] w-[184px] h-[32px] rounded-[8px]">
+          <div id="item-documents-selected" class="absolute inset-0 rounded-[8px] bg-[#0000001f] border-[1px] border-white/28" />
+          <div id="item-documents-icon" class="absolute left-[8px] top-[9px] w-[14px] h-[14px] rounded-full bg-[#007aff]" />
+          <text id="item-documents-label" class="absolute left-[28px] top-[8px] text-[11px] font-medium text-black/85">Documents</text>
+        </div>
+        <div id="item-downloads" class="absolute left-[18px] top-[163px] w-[184px] h-[32px] rounded-[8px]">
+          <div id="item-downloads-icon" class="absolute left-[8px] top-[9px] w-[14px] h-[14px] rounded-full bg-black/20" />
+          <text id="item-downloads-label" class="absolute left-[28px] top-[8px] text-[11px] font-medium text-black/85">Downloads</text>
+        </div>
+        <text id="hdr-locations" class="absolute left-[26px] top-[222px] text-[11px] font-bold text-black/50">Locations</text>
+        <div id="item-icloud" class="absolute left-[18px] top-[247px] w-[184px] h-[32px] rounded-[8px]">
+          <div id="item-icloud-icon" class="absolute left-[8px] top-[9px] w-[14px] h-[14px] rounded-full bg-black/20" />
+          <text id="item-icloud-label" class="absolute left-[28px] top-[8px] text-[11px] font-medium text-black/85">iCloud Drive</text>
+        </div>
+        <div id="item-desktop" class="absolute left-[18px] top-[281px] w-[184px] h-[32px] rounded-[8px]">
+          <div id="item-desktop-icon" class="absolute left-[8px] top-[9px] w-[14px] h-[14px] rounded-full bg-black/20" />
+          <text id="item-desktop-label" class="absolute left-[28px] top-[8px] text-[11px] font-medium text-black/85">Desktop</text>
+        </div>
+        <div id="sidebar-footer" class="absolute left-[22px] bottom-[24px] w-[176px] h-[52px] rounded-[14px] bg-white/48 border-[1px] border-white/60 backdrop-blur-lg">
+          <div id="sidebar-footer-dot" class="absolute left-[14px] top-[17px] w-[18px] h-[18px] rounded-full bg-[#007aff]/85" />
+          <text id="sidebar-footer-main" class="absolute left-[42px] top-[10px] text-[12px] font-bold text-black/75">Tahoe</text>
+          <text id="sidebar-footer-sub" class="absolute left-[42px] top-[28px] text-[10px] font-medium text-black/45">Liquid Glass</text>
+        </div>
+      </div>
+      <div id="toolbar" class="absolute left-[220px] top-[0px] right-[0px] h-[52px] flex flex-row items-center gap-[8px] px-[8px] py-[8px]">
+        <div id="toolbar-nav" class="w-[74px] h-[36px] rounded-full bg-white/42 border-[1px] border-white/65 backdrop-blur-2xl flex flex-row items-center justify-center gap-[2px]">
+          <icon id="nav-back" icon="chevron-left" class="w-[15px] h-[15px] stroke-[#4c4c4c] stroke-[1.7]" />
+          <div id="nav-divider" class="w-[1px] h-[16px] bg-black/10" />
+          <icon id="nav-forward" icon="chevron-right" class="w-[15px] h-[15px] stroke-[#4c4c4c] stroke-[1.7]" />
+        </div>
+        <text id="toolbar-title" class="text-[15px] font-bold text-black/85 pl-[8px]">Documents</text>
+        <div id="toolbar-spacer" class="grow h-[1px]" />
+        <div id="toolbar-view-glass" class="w-[36px] h-[36px] rounded-full bg-white/42 border-[1px] border-white/65 backdrop-blur-2xl shadow-[0_8px_40px_rgba(0,0,0,0.08)] inset-shadow-[0_1px_0_rgba(255,255,255,0.40)] flex items-center justify-center">
+          <icon id="toolbar-view-icon" icon="layout-grid" class="w-[14px] h-[14px] stroke-[#4c4c4c] stroke-[1.7]" />
+        </div>
+        <div id="toolbar-action-glass" class="w-[36px] h-[36px] rounded-full bg-white/35 border-[1px] border-white/60 backdrop-blur-2xl shadow-[0_8px_40px_rgba(0,0,0,0.08)] inset-shadow-[0_1px_0_rgba(255,255,255,0.40)] flex items-center justify-center">
+          <icon id="toolbar-action-icon" icon="ellipsis" class="w-[15px] h-[15px] stroke-[#4c4c4c] stroke-[1.7]" />
+        </div>
+        <div id="toolbar-search-glass" class="w-[140px] h-[36px] rounded-full bg-white/35 border-[1px] border-white/60 backdrop-blur-2xl shadow-[0_8px_40px_rgba(0,0,0,0.08)] inset-shadow-[0_1px_0_rgba(255,255,255,0.40)] flex flex-row items-center gap-[6px] px-[12px]">
+          <icon id="search-icon" icon="search" class="w-[13px] h-[13px] stroke-[#727272] stroke-[1.5]" />
+          <text id="search-text" class="text-[13px] font-medium text-[#727272]">Search</text>
+        </div>
+      </div>
+      <div id="content" class="absolute left-[220px] top-[52px] right-[0px] bottom-[0px] px-[18px] py-[14px]">
+        <div id="content-surface" class="absolute left-[16px] top-[10px] right-[16px] bottom-[16px] rounded-[24px] bg-white/36 border-[1px] border-white/55 backdrop-blur-xl" />
+        <div id="content-title-row" class="absolute left-[24px] top-[18px] right-[24px] h-[42px]">
+          <text id="content-kicker" class="absolute left-[0px] top-[0px] text-[11px] font-bold text-black/40">TODAY</text>
+          <text id="content-title" class="absolute left-[0px] top-[16px] text-[24px] font-bold text-black/85">Project files</text>
+          <div id="content-count-pill" class="absolute right-[0px] top-[8px] px-[12px] py-[7px] rounded-full bg-black/5 border-[1px] border-black/5">
+            <text id="content-count-text" class="text-[12px] font-semibold text-black/55">12 items</text>
+          </div>
+        </div>
+        <div id="file-card-1" class="absolute left-[24px] top-[90px] w-[190px] h-[150px] rounded-[18px] bg-white/88 border-[1px] border-white/90 shadow-[0_10px_28px_rgba(90,110,140,0.18)]">
+          <div id="file-card-1-icon" class="absolute left-[18px] top-[18px] w-[52px] h-[52px] rounded-[14px] bg-[#007aff]/15">
+            <div id="file-card-1-inner" class="absolute left-[15px] top-[14px] w-[22px] h-[24px] rounded-[5px] bg-[#007aff]" />
+          </div>
+          <text id="file-card-1-title" class="absolute left-[18px] bottom-[38px] text-[14px] font-bold text-black/85">Design System</text>
+          <text id="file-card-1-meta" class="absolute left-[18px] bottom-[18px] text-[11px] font-medium text-black/45">Updated 2m ago</text>
+        </div>
+        <div id="file-card-2" class="absolute left-[234px] top-[90px] w-[190px] h-[150px] rounded-[18px] bg-white/88 border-[1px] border-white/90 shadow-[0_10px_28px_rgba(90,110,140,0.18)]">
+          <div id="file-card-2-icon" class="absolute left-[18px] top-[18px] w-[52px] h-[52px] rounded-[14px] bg-[#ff9f0a]/18">
+            <div id="file-card-2-inner" class="absolute left-[14px] top-[15px] w-[24px] h-[22px] rounded-[5px] bg-[#ff9f0a]" />
+          </div>
+          <text id="file-card-2-title" class="absolute left-[18px] bottom-[38px] text-[14px] font-bold text-black/85">Assets</text>
+          <text id="file-card-2-meta" class="absolute left-[18px] bottom-[18px] text-[11px] font-medium text-black/45">42 files</text>
+        </div>
+        <div id="file-card-3" class="absolute left-[444px] top-[90px] w-[190px] h-[150px] rounded-[18px] bg-white/88 border-[1px] border-white/90 shadow-[0_10px_28px_rgba(90,110,140,0.18)]">
+          <div id="file-card-3-icon" class="absolute left-[18px] top-[18px] w-[52px] h-[52px] rounded-[14px] bg-[#34c759]/16">
+            <div id="file-card-3-inner" class="absolute left-[14px] top-[14px] w-[24px] h-[24px] rounded-full bg-[#34c759]" />
+          </div>
+          <text id="file-card-3-title" class="absolute left-[18px] bottom-[38px] text-[14px] font-bold text-black/85">Exports</text>
+          <text id="file-card-3-meta" class="absolute left-[18px] bottom-[18px] text-[11px] font-medium text-black/45">Ready</text>
+        </div>
+        <div id="detail-panel" class="absolute left-[24px] bottom-[24px] right-[24px] h-[210px] rounded-[22px] bg-white/76 border-[1px] border-white/85 backdrop-blur-2xl shadow-[0_12px_34px_rgba(90,110,140,0.20)]">
+          <div id="detail-preview" class="absolute left-[22px] top-[22px] w-[168px] h-[166px] rounded-[18px] bg-gradient-to-br from-[#f5f7fb] to-[#d8e4f3] border-[1px] border-white/80 overflow-hidden">
+            <div id="detail-preview-bar-a" class="absolute left-[22px] top-[26px] w-[88px] h-[9px] rounded-full bg-black/70" />
+            <div id="detail-preview-bar-b" class="absolute left-[22px] top-[48px] w-[120px] h-[7px] rounded-full bg-black/16" />
+            <div id="detail-preview-bar-c" class="absolute left-[22px] top-[65px] w-[104px] h-[7px] rounded-full bg-black/12" />
+            <div id="detail-preview-chip" class="absolute left-[22px] bottom-[22px] w-[76px] h-[28px] rounded-full bg-[#007aff]" />
+          </div>
+          <text id="detail-title" class="absolute left-[214px] top-[28px] text-[22px] font-bold text-black/85">Liquid Glass component set</text>
+          <text id="detail-body" class="absolute left-[214px] top-[68px] w-[360px] text-[14px] leading-[1.45] font-medium text-black/52">A macOS Tahoe window shell translated from JSX into OpenCat layers: traffic lights, sidebar, toolbar, search, and frosted content cards.</text>
+          <div id="detail-tag-a" class="absolute left-[214px] bottom-[34px] px-[12px] py-[7px] rounded-full bg-black/6">
+            <text id="detail-tag-a-text" class="text-[11px] font-bold text-black/55">backdrop-blur-3xl</text>
+          </div>
+          <div id="detail-tag-b" class="absolute left-[362px] bottom-[34px] px-[12px] py-[7px] rounded-full bg-black/6">
+            <text id="detail-tag-b-text" class="text-[11px] font-bold text-black/55">rounded 26</text>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="caption" class="absolute left-[190px] bottom-[24px] px-[14px] py-[8px] rounded-full bg-white/24 border-[1px] border-white/45 backdrop-blur-2xl">
+      <text id="caption-text" class="text-[12px] font-bold text-black/50">MacOS.jsx -> OpenCat XML</text>
+    </div>
+  </div>
+
+  
+</opencat>

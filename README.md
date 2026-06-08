@@ -90,6 +90,31 @@ ctx.timeline({defaults: {duration: 0.6, ease: 'spring.gentle'}})
 
 Built-in: fade / slide / wipe / clock_wipe / iris / light_leak, with custom GLSL shader support.
 
+### XML Templates — reusable components with slots & variables
+
+Define reusable components with `<template>`, parameterize with `$variable`, and compose with `<slot>`:
+
+```xml
+<opencat>
+  <!-- Define a template -->
+  <template name="card">
+    <div class="w-[400px] rounded-xl bg-$bg shadow-lg p-6">
+      <h2 class="text-xl font-bold text-$titleColor">$title</h2>
+      <slot name="body" />
+    </div>
+  </template>
+
+  <!-- Use it -->
+  <card bg="white" titleColor="gray-900" title="Hello">
+    <slot name="body">
+      <p class="text-gray-500">This is the card content.</p>
+    </slot>
+  </card>
+</opencat>
+```
+
+Templates expand at parse time — zero runtime cost, fully composable, and support nesting.
+
 ### WASM rendering in the browser
 
 ```ts

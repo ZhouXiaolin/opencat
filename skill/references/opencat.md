@@ -461,6 +461,52 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 
 ---
 
+## 模板
+
+`<template>` 用来在单个 XML 文件内复用一段结构。模板在解析前展开；运行时、布局、动画和渲染阶段只会看到展开后的普通 OpenCat 节点。
+
+```xml
+<opencat width="1280" height="720" fps="30" duration="3">
+  <template name="deck-thumb">
+    <div id="$id" class="flex flex-row gap-[8px]">
+      <text id="$id-num" class="w-[16px] text-[11px] $numTone">$num</text>
+      <div id="$id-frame" class="relative w-[144px] h-[81px] rounded-[4px] $frameTone">
+        <slot name="preview" />
+      </div>
+    </div>
+  </template>
+
+  <div id="root">
+    <deck-thumb id="thumb-1" num="1" numTone="text-white" frameTone="bg-white" />
+    <deck-thumb id="thumb-2" num="2" numTone="text-white/55" frameTone="bg-slate-100">
+      <slot name="preview">
+        <div id="thumb-2-dot" class="absolute left-[10px] top-[10px] w-[12px] h-[12px] rounded-full bg-[#D97757]" />
+      </slot>
+    </deck-thumb>
+  </div>
+</opencat>
+```
+
+**模板规则：**
+
+- `<template>` 必须是 `<opencat>` 的直接子节点，不算可视根
+- `<template>` 必须有非空 `name`
+- `name` 不能和内置标签同名（如 `div`、`text`、`image`、`tl`、`script`）
+- 定义后可直接用同名标签调用，例如 `<template name="deck-thumb">` 对应 `<deck-thumb ... />`
+- 调用节点的属性会替换模板中的 `$变量`，如 `$id`、`$num`、`$class`
+- 未提供的 `$变量` 会替换为空字符串
+- `<slot name="x" />` 会被调用节点里的 `<slot name="x">...</slot>` 内容替换
+- 未提供内容的 slot 会被移除
+- 模板调用会递归展开，但不能递归调用自身
+
+**建议：**
+
+- 模板名使用 kebab-case，例如 `deck-thumb`、`right-reveal-panel`
+- 让 template 内部维护大段 Tailwind class，调用处只传少量语义 token
+- 需要动画的内部节点用 `$id-xxx` 派生 id，避免多个实例撞 id
+
+---
+
 ## 附录：常见错误
 
 | 错误 | 正确 |

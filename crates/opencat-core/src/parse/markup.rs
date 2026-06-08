@@ -177,7 +177,7 @@ pub(crate) fn extract_raw_script(input: &str) -> anyhow::Result<ExtractedMarkup>
     })
 }
 
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use crate::parse::document::{
     BuildOptions, CanvasChildrenMode, ParsedAudioElement, ParsedComposition, ParsedDocumentParts,
@@ -197,7 +197,8 @@ pub fn parse_parts_with_base_dir(
     base_dir: Option<&std::path::Path>,
 ) -> anyhow::Result<ParsedDocumentParts> {
     let extracted = extract_raw_script(input)?;
-    let doc = roxmltree::Document::parse(&extracted.xml)?;
+    let expanded_xml = expand_markup_templates(&extracted.xml)?;
+    let doc = roxmltree::Document::parse(&expanded_xml)?;
     let root = doc.root_element();
     if root.tag_name().name() != "opencat" {
         anyhow::bail!("markup document root must be <opencat>");
@@ -285,6 +286,274 @@ const TRANSITION_ATTRS: &[&str] = &[
     "hueShift",
     "maskScale",
 ];
+
+const BUILTIN_TAGS: &[&str] = &[
+    "opencat",
+    "template",
+    "slot",
+    "script",
+    "soundtrack",
+    "audio",
+    "fonts",
+    "font",
+    "div",
+    "text",
+    "canvas",
+    "image",
+    "lottie",
+    "video",
+    "icon",
+    "path",
+    "caption",
+    "tl",
+    "transition",
+];
+
+fn expand_markup_templates(input: &str) -> anyhow::Result<String> {
+    let doc = roxmltree::Document::parse(input)?;
+    let root = doc.root_element();
+    if root.tag_name().name() != "opencat" {
+        return Ok(input.to_string());
+    }
+
+    let templates = collect_templates(root)?;
+    if templates.is_empty() {
+        return Ok(input.to_string());
+    }
+
+    let mut out = String::new();
+    write_element_open(&mut out, root, "opencat", None);
+    for child in root.children() {
+        if child.is_element() && child.tag_name().name() == "template" {
+            continue;
+        }
+        serialize_template_node(
+            &mut out,
+            child,
+            &templates,
+            &HashMap::new(),
+            &HashMap::new(),
+            false,
+            &mut Vec::new(),
+        )?;
+    }
+    out.push_str("</opencat>");
+    Ok(out)
+}
+
+fn collect_templates<'a, 'input>(
+    root: roxmltree::Node<'a, 'input>,
+) -> anyhow::Result<HashMap<String, roxmltree::Node<'a, 'input>>> {
+    let mut templates = HashMap::new();
+    for child in root.children().filter(|child| child.is_element()) {
+        if child.tag_name().name() != "template" {
+            continue;
+        }
+        for attr in child.attributes() {
+            if attr.name() != "name" {
+                anyhow::bail!("<template> only accepts `name`");
+            }
+        }
+        let name = required_non_empty_attr(child, "name")?;
+        if BUILTIN_TAGS.contains(&name) {
+            anyhow::bail!("<template name=\"{name}\"> conflicts with a built-in tag");
+        }
+        if templates.insert(name.to_string(), child).is_some() {
+            anyhow::bail!("duplicate template `{name}`");
+        }
+    }
+    Ok(templates)
+}
+
+fn serialize_template_node<'a, 'input>(
+    out: &mut String,
+    node: roxmltree::Node<'a, 'input>,
+    templates: &HashMap<String, roxmltree::Node<'a, 'input>>,
+    params: &HashMap<String, String>,
+    slots: &HashMap<String, Vec<roxmltree::Node<'a, 'input>>>,
+    allow_slot: bool,
+    stack: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    match node.node_type() {
+        roxmltree::NodeType::Element => {
+            let tag = node.tag_name().name();
+            if tag == "template" {
+                anyhow::bail!("<template> must be a direct child of <opencat>");
+            }
+            if tag == "slot" {
+                if !allow_slot {
+                    anyhow::bail!("<slot> can only appear inside a <template> body");
+                }
+                let name = required_non_empty_attr(node, "name")?;
+                if let Some(children) = slots.get(name) {
+                    for child in children {
+                        serialize_template_node(out, *child, templates, params, slots, false, stack)?;
+                    }
+                }
+                return Ok(());
+            }
+            if let Some(template) = templates.get(tag) {
+                expand_template_call(out, node, *template, templates, params, stack)?;
+                return Ok(());
+            }
+
+            write_element_open(out, node, tag, Some(params));
+            for child in node.children() {
+                serialize_template_node(out, child, templates, params, slots, allow_slot, stack)?;
+            }
+            write_element_close(out, tag);
+        }
+        roxmltree::NodeType::Text => {
+            out.push_str(&escape_text(&substitute_template_vars(
+                node.text().unwrap_or(""),
+                params,
+            )));
+        }
+        roxmltree::NodeType::Comment => {}
+        _ => anyhow::bail!("processing instructions are not allowed in templates"),
+    }
+    Ok(())
+}
+
+fn expand_template_call<'a, 'input>(
+    out: &mut String,
+    call: roxmltree::Node<'a, 'input>,
+    template: roxmltree::Node<'a, 'input>,
+    templates: &HashMap<String, roxmltree::Node<'a, 'input>>,
+    parent_params: &HashMap<String, String>,
+    stack: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    let name = call.tag_name().name();
+    if stack.iter().any(|item| item == name) {
+        anyhow::bail!("recursive template call `{name}` is not allowed");
+    }
+
+    let params = call
+        .attributes()
+        .map(|attr| {
+            (
+                attr.name().to_string(),
+                substitute_template_vars(attr.value(), parent_params),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let slots = collect_slot_values(call)?;
+
+    stack.push(name.to_string());
+    for child in template.children() {
+        serialize_template_node(out, child, templates, &params, &slots, true, stack)?;
+    }
+    stack.pop();
+
+    Ok(())
+}
+
+fn collect_slot_values<'a, 'input>(
+    call: roxmltree::Node<'a, 'input>,
+) -> anyhow::Result<HashMap<String, Vec<roxmltree::Node<'a, 'input>>>> {
+    let mut slots = HashMap::new();
+    for child in call.children() {
+        match child.node_type() {
+            roxmltree::NodeType::Element => {
+                if child.tag_name().name() != "slot" {
+                    anyhow::bail!(
+                        "<{}> children must be <slot name=\"...\"> blocks",
+                        call.tag_name().name()
+                    );
+                }
+                for attr in child.attributes() {
+                    if attr.name() != "name" {
+                        anyhow::bail!("<slot> only accepts `name`");
+                    }
+                }
+                let name = required_non_empty_attr(child, "name")?.to_string();
+                let children = child.children().collect::<Vec<_>>();
+                if slots.insert(name.clone(), children).is_some() {
+                    anyhow::bail!("duplicate slot `{name}` in <{}>", call.tag_name().name());
+                }
+            }
+            roxmltree::NodeType::Text => {
+                if !child.text().unwrap_or("").trim().is_empty() {
+                    anyhow::bail!(
+                        "non-whitespace text is not allowed directly inside <{}>",
+                        call.tag_name().name()
+                    );
+                }
+            }
+            roxmltree::NodeType::Comment => {}
+            _ => anyhow::bail!("processing instructions are not allowed inside template calls"),
+        }
+    }
+    Ok(slots)
+}
+
+fn write_element_open(
+    out: &mut String,
+    node: roxmltree::Node<'_, '_>,
+    tag: &str,
+    params: Option<&HashMap<String, String>>,
+) {
+    out.push('<');
+    out.push_str(tag);
+    for attr in node.attributes() {
+        out.push(' ');
+        out.push_str(attr.name());
+        out.push_str("=\"");
+        let value = params
+            .map(|params| substitute_template_vars(attr.value(), params))
+            .unwrap_or_else(|| attr.value().to_string());
+        out.push_str(&escape_attr(&value));
+        out.push('"');
+    }
+    out.push('>');
+}
+
+fn write_element_close(out: &mut String, tag: &str) {
+    out.push_str("</");
+    out.push_str(tag);
+    out.push('>');
+}
+
+fn substitute_template_vars(input: &str, params: &HashMap<String, String>) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.char_indices().peekable();
+    while let Some((_, ch)) = chars.next() {
+        if ch != '$' {
+            out.push(ch);
+            continue;
+        }
+        let mut name = String::new();
+        while let Some((_, next)) = chars.peek().copied() {
+            if next.is_ascii_alphanumeric() || next == '_' {
+                name.push(next);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        if name.is_empty() {
+            out.push('$');
+        } else if let Some(value) = params.get(&name) {
+            out.push_str(value);
+        }
+    }
+    out
+}
+
+fn escape_attr(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn escape_text(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ParentContext {
@@ -1333,6 +1602,100 @@ mod tests {
         .expect("markup should parse");
 
         assert_eq!(parsed.root.style_ref().id, "root");
+    }
+
+    #[test]
+    fn expands_template_custom_elements_with_params_and_slots() {
+        let parsed = parse(
+            r#"<opencat width="320" height="180" fps="30" duration="1">
+  <template name="deck-thumb">
+    <div id="$id" class="flex $state">
+      <text id="$id-num" class="$numTone">$num</text>
+      <div id="$id-frame" class="$frameTone">
+        <slot name="overlay" />
+      </div>
+    </div>
+  </template>
+  <div id="root">
+    <deck-thumb id="thumb-1" state="opacity-80" num="1" numTone="text-white" frameTone="bg-white">
+      <slot name="overlay">
+        <text id="thumb-1-label">Active</text>
+      </slot>
+    </deck-thumb>
+  </div>
+</opencat>"#,
+        )
+        .expect("template should expand before parse");
+
+        let NodeKind::Div(root) = parsed.root.kind() else {
+            panic!("root should be div");
+        };
+        let NodeKind::Div(thumb) = root.children_ref()[0].kind() else {
+            panic!("thumb should expand to div");
+        };
+        assert_eq!(thumb.style_ref().id, "thumb-1");
+        assert_eq!(thumb.children_ref().len(), 2);
+
+        let NodeKind::Text(num) = thumb.children_ref()[0].kind() else {
+            panic!("num should be text");
+        };
+        assert_eq!(num.style_ref().id, "thumb-1-num");
+        assert_eq!(num.content(), "1");
+
+        let NodeKind::Div(frame) = thumb.children_ref()[1].kind() else {
+            panic!("frame should be div");
+        };
+        let NodeKind::Text(label) = frame.children_ref()[0].kind() else {
+            panic!("slot content should be inserted");
+        };
+        assert_eq!(label.style_ref().id, "thumb-1-label");
+    }
+
+    #[test]
+    fn expands_nested_templates_with_parent_params() {
+        let parsed = parse(
+            r#"<opencat>
+  <template name="label-row">
+    <div id="$id-row">
+      <text id="$id-label">$label</text>
+    </div>
+  </template>
+  <template name="card-box">
+    <div id="$id">
+      <label-row id="$id-main" label="$label" />
+    </div>
+  </template>
+  <card-box id="card" label="Nested" />
+</opencat>"#,
+        )
+        .expect("nested templates should expand");
+
+        let NodeKind::Div(card) = parsed.root.kind() else {
+            panic!("root should be card div");
+        };
+        let NodeKind::Div(row) = card.children_ref()[0].kind() else {
+            panic!("nested template should expand to row");
+        };
+        assert_eq!(row.style_ref().id, "card-main-row");
+        let NodeKind::Text(label) = row.children_ref()[0].kind() else {
+            panic!("row child should be text");
+        };
+        assert_eq!(label.style_ref().id, "card-main-label");
+        assert_eq!(label.content(), "Nested");
+    }
+
+    #[test]
+    fn rejects_bad_template_definitions_and_recursive_calls() {
+        let bad_cases = [
+            r#"<opencat><template name="div"><div id="x" /></template><div id="root" /></opencat>"#,
+            r#"<opencat><template name="x"><x id="loop" /></template><x id="root" /></opencat>"#,
+            r#"<opencat><template name="x" extra="bad"><div id="$id" /></template><x id="root" /></opencat>"#,
+            r#"<opencat><template name="x"><div id="$id" /></template><div id="root"><slot name="bad" /></div></opencat>"#,
+        ];
+
+        for input in bad_cases {
+            assert!(parse(input).is_err(), "{input}");
+        }
     }
 
     #[test]

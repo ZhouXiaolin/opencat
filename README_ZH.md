@@ -92,6 +92,31 @@ ctx.timeline({defaults: {duration: 0.6, ease: 'spring.gentle'}})
 
 内置 fade / slide / wipe / clock_wipe / iris / light_leak，支持自定义 GLSL 着色器。
 
+### XML 模板 —— 带插槽和变量的可复用组件
+
+用 `<template>` 定义组件，用 `$variable` 参数化，用 `<slot>` 组合内容：
+
+```xml
+<opencat>
+  <!-- 定义模板 -->
+  <template name="card">
+    <div class="w-[400px] rounded-xl bg-$bg shadow-lg p-6">
+      <h2 class="text-xl font-bold text-$titleColor">$title</h2>
+      <slot name="body" />
+    </div>
+  </template>
+
+  <!-- 使用模板 -->
+  <card bg="white" titleColor="gray-900" title="Hello">
+    <slot name="body">
+      <p class="text-gray-500">这是卡片内容。</p>
+    </slot>
+  </card>
+</opencat>
+```
+
+模板在解析时展开 —— 零运行时开销、完全可组合、支持嵌套。
+
 ### 浏览器内 WASM 渲染
 
 ```ts
@@ -346,11 +371,12 @@ cargo run --bin opencat -- --version
 
 ## Reference
 
-- [XML 格式参考](opencat-creator/references/opencat.md)
-- [转场效果](opencat-creator/references/transitions.md)
-- [动画系统](opencat-creator/references/animations.md)
-- [Canvas API](opencat-creator/references/canvaskit.md)
-- [文字动画](opencat-creator/references/text-animations.md)
+- [XML 格式参考](skill/references/opencat.md)
+- [动画系统](skill/references/animations.md)
+- [转场效果](skill/references/transitions.md)
+- [Canvas API](skill/references/canvaskit.md)
+- [模板系统](skill/references/templates.md)
+- [设计原则](skill/references/design-principles.md)
 
 ## Community
 

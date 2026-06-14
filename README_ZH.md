@@ -199,13 +199,143 @@ opencat
 
 </details>
 
-<details>
-<summary><strong>Build dependencies</strong></summary>
+## 编译指南
 
-- **CLI**: Rust toolchain (edition 2024) + FFmpeg 开发库 + Metal (macOS) / OpenGL (Windows)
-- **Web**: Rust toolchain + `wasm-pack` + Node.js / Bun
+### 前置依赖
 
-</details>
+- **Rust 工具链**（edition 2024）。通过 [rustup](https://rustup.rs/) 安装：
+  ```bash
+  rustup install nightly  # edition 2024 需要 nightly（截至 2025 年初）
+  ```
+
+- **FFmpeg 开发库**（用于 MP4 编码）。[`ffmpeg-next`](https://crates.io/crates/ffmpeg-next) 通过 `pkg-config` 自动查找 FFmpeg。
+
+  <details open>
+  <summary><strong>Linux（Ubuntu / Debian）</strong></summary>
+
+  ```bash
+  sudo apt install \
+    libavcodec-dev libavformat-dev libavutil-dev \
+    libavfilter-dev libswscale-dev
+  ```
+
+  最低版本要求：FFmpeg 6.x。验证：
+
+  ```bash
+  ffmpeg -version
+  ```
+
+  当前环境已验证：**FFmpeg 7.1.1**，dev 包已全部安装。
+
+  </details>
+
+  <details>
+  <summary><strong>macOS</strong></summary>
+
+  ```bash
+  brew install ffmpeg
+  ```
+
+  Homebrew 安装后需要用 `FFMPEG_DIR` 指定 ffmpeg 的 lib 路径：
+
+  ```bash
+  # Apple Silicon（M1/M2/M3/M4）
+  export FFMPEG_DIR=/opt/homebrew
+
+  # Intel Mac
+  export FFMPEG_DIR=/usr/local
+  ```
+
+  > 如果 `pkg-config` 不能自动找到 ffmpeg lib，可以用 `FFMPEG_DIR` 来指定路径。建议写入 shell 配置（`~/.zshrc` / `~/.bashrc`）持久化。
+
+  验证：
+
+  ```bash
+  ls $FFMPEG_DIR/lib/libavcodec.*
+  ```
+
+  </details>
+
+  <details>
+  <summary><strong>Windows</strong></summary>
+
+  从 [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) 下载 FFmpeg dev 包，或 `vcpkg install ffmpeg`。然后设置：
+
+  ```powershell
+  $env:FFMPEG_DIR = "C:\path\to\ffmpeg"
+  ```
+
+  </details>
+
+- **OpenGL / EGL 开发库**（Linux，Skia GPU 渲染需要）：
+
+  ```bash
+  sudo apt install libegl-dev libgles-dev libgl1-mesa-dev libx11-dev
+  ```
+
+  macOS 使用系统 SDK 自带的 Metal，无需额外安装。Windows 通过系统驱动提供 OpenGL。
+
+- **Fontconfig 开发库**（Linux）：
+
+  ```bash
+  sudo apt install libfontconfig-dev
+  ```
+
+### Skia
+
+Skia 通过 [`skia-safe`](https://crates.io/crates/skia-safe) 引入，并启用了 **`binary-cache`** 特性。构建时 `skia-bindings` 会自动下载预编译的 Skia 二进制文件，无需本地编译或手动下载静态包。
+
+- **Linux**：`gl` 后端（OpenGL）
+- **macOS**：`metal` 后端（Metal）
+- **额外**：`skottie` 支持 Lottie 动画
+
+预编译二进制文件首次构建后会缓存到 `~/.cargo/skia-binaries/`。
+
+> 如果下载失败（如代理环境），可设置 `HTTP_PROXY` / `HTTPS_PROXY`，或手动将二进制文件放到构建脚本提示的路径。
+
+### 构建命令
+
+**CLI（MP4 渲染）：**
+
+```bash
+cargo build --release --bin opencat
+```
+
+二进制文件在 `target/release/opencat`。渲染视频：
+
+```bash
+cargo run --release --bin opencat -- examples/profile-showcase.xml
+```
+
+**桌面预览播放器（macOS / Windows）：**
+
+```bash
+cargo run --release --bin opencat-see -- path/to/input.xml
+```
+
+**Hello World：**
+
+```bash
+cargo run --example hello_world
+```
+
+**Web（WASM）：**
+
+```bash
+cd crates/opencat-web && npm run build
+```
+
+需要 `wasm-pack` 和 `Cross-Origin-Isolated` 浏览器环境才能运行。
+
+### 验证
+
+确认构建正确地链接了 FFmpeg 和 Skia：
+
+```bash
+cargo run --bin opencat -- --version
+```
+
+标准配置下无需设置 `ffmpegDir` 或 `SKIA_BINARIES_URL` 等环境变量——一切通过 `pkg-config` 和 `binary-cache` 自动完成。如果使用了非标准路径安装 FFmpeg，在构建前设置 `FFMPEG_DIR` 即可。
 
 ## Who is it for
 

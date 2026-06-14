@@ -367,11 +367,12 @@ No `ffmpegDir` or `SKIA_BINARIES_URL` environment variables are needed in a stan
 
 ## Reference
 
-- [XML Format Reference](opencat-creator/references/opencat.md)
-- [Transitions](opencat-creator/references/transitions.md)
-- [Animation System](opencat-creator/references/animations.md)
-- [Canvas API](opencat-creator/references/canvaskit.md)
-- [Text Animations](opencat-creator/references/text-animations.md)
+- [XML Format Reference](skill/references/opencat.md)
+- [Animation System](skill/references/animations.md)
+- [Transitions](skill/references/transitions.md)
+- [Canvas API](skill/references/canvaskit.md)
+- [Templates](skill/references/templates.md)
+- [Design Principles](skill/references/design-principles.md)
 
 ## Community
 

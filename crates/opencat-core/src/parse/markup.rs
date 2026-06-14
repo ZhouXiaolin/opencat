@@ -309,7 +309,7 @@ const BUILTIN_TAGS: &[&str] = &[
     "transition",
 ];
 
-fn expand_markup_templates(input: &str) -> anyhow::Result<String> {
+pub(crate) fn expand_markup_templates(input: &str) -> anyhow::Result<String> {
     let doc = roxmltree::Document::parse(input)?;
     let root = doc.root_element();
     if root.tag_name().name() != "opencat" {
@@ -1450,10 +1450,38 @@ fn parse_positive_i32_attr(
     }
 }
 
+/// Attribute names the parser hard-rejects (not merely ignored). Shared with the lint
+/// pass so the two views of "forbidden" never drift.
+pub(crate) const FORBIDDEN_MARKUP_ATTRS: &[&str] = &["className", "parentId", "style"];
+
+/// The set of attributes each markup tag accepts. Returns `None` for tags the parser
+/// does not enforce a whitelist on (e.g. `<soundtrack>`), matching the lenient
+/// "unknown attributes are silently ignored" behavior in [`ensure_allowed_attrs`].
+pub(crate) fn allowed_attributes(tag: &str) -> Option<&'static [&'static str]> {
+    match tag {
+        "opencat" => Some(&["width", "height", "fps", "duration"]),
+        "div" => Some(DIV_ATTRS),
+        "text" => Some(TEXT_ATTRS),
+        "canvas" => Some(CANVAS_ATTRS),
+        "image" => Some(IMAGE_ATTRS),
+        "lottie" => Some(LOTTIE_ATTRS),
+        "video" => Some(VIDEO_ATTRS),
+        "icon" => Some(ICON_ATTRS),
+        "path" => Some(PATH_ATTRS),
+        "caption" => Some(CAPTION_ATTRS),
+        "tl" => Some(TL_ATTRS),
+        "audio" => Some(AUDIO_ATTRS),
+        "fonts" => Some(FONTS_ATTRS),
+        "font" => Some(FONT_ATTRS),
+        "transition" => Some(TRANSITION_ATTRS),
+        _ => None,
+    }
+}
+
 fn ensure_allowed_attrs(node: roxmltree::Node<'_, '_>, allowed: &[&str]) -> anyhow::Result<()> {
     for attr in node.attributes() {
         let name = attr.name();
-        if matches!(name, "className" | "parentId" | "style") {
+        if FORBIDDEN_MARKUP_ATTRS.contains(&name) {
             anyhow::bail!("attribute `{name}` is not allowed in markup");
         }
         // Unknown attributes are silently ignored — only known attributes are consumed.

@@ -1,14 +1,341 @@
-<opencat width="1280" height="720" fps="30" duration="3">
-  <div id="root" class="flex flex-col items-center justify-center w-full h-full bg-slate-950">
-    <text id="title" class="text-[96px] font-bold text-white">Hello OpenCat</text>
-    <text id="subtitle" class="text-[28px] text-slate-400 mt-[16px]">Design-driven video synthesis</text>
+<opencat width="1280" height="720" fps="30" duration="12">
+  <template name="stage-slide">
+    <div id="$id" class="relative w-[960px] h-[540px] bg-white overflow-hidden $class">
+      <div id="$id-grid-x" class="absolute left-[0px] top-[270px] w-[960px] h-[1px] bg-slate-200" />
+      <div id="$id-grid-y" class="absolute left-[480px] top-[0px] w-[1px] h-[540px] bg-slate-200" />
+      <div id="$id-band" class="absolute right-[0px] top-[0px] w-[286px] h-[540px] $bandTone" />
+      <div id="$id-accent" class="absolute left-[72px] top-[72px] w-[84px] h-[8px] rounded-full $accentTone" />
+      <text id="$id-kicker" class="absolute left-[72px] top-[92px] text-[20px] font-semibold tracking-[4px] $kickerTone">$kicker</text>
+      <text id="$id-title" class="absolute left-[72px] top-[136px] text-[64px] font-bold $titleTone">$title</text>
+      <text id="$id-body" class="absolute left-[72px] top-[232px] w-[400px] text-[28px] leading-[1.35] $bodyTone">$body</text>
+      <div id="$id-panel" class="absolute right-[72px] bottom-[72px] w-[220px] h-[150px] rounded-[8px] $panelTone overflow-hidden">
+        <div id="$id-panel-mark-a" class="absolute left-[18px] top-[22px] w-[132px] h-[10px] rounded-full $panelMarkATone" />
+        <div id="$id-panel-mark-b" class="absolute left-[18px] top-[46px] w-[176px] h-[8px] rounded-full $panelMarkBTone" />
+        <div id="$id-panel-mark-c" class="absolute left-[18px] top-[66px] w-[120px] h-[8px] rounded-full $panelMarkCTone" />
+        <div id="$id-pill" class="absolute left-[18px] bottom-[18px] px-[10px] py-[5px] rounded-full $pillTone">
+        <text id="$id-pill-text" class="text-[10px] font-bold $pillTextTone">$pill</text>
+        </div>
+      </div>
+      <slot name="content" />
+    </div>
+  </template>
+
+  <template name="deck-thumb">
+    <div id="$id" class="$state flex flex-row gap-[8px]">
+      <text id="$id-num" class="w-[16px] text-[11px] font-medium text-right $numTone">$num</text>
+      <div id="$id-frame" class="relative w-[144px] h-[81px] rounded-[4px] bg-white overflow-hidden border-[2px] $frameTone">
+        <div id="$id-selected" class="absolute inset-0 border-[2px] border-[#D97757] rounded-[3px] opacity-0" />
+        <div id="$id-title" class="absolute left-[10px] top-[10px] w-[88px] h-[8px] rounded-full $titleTone" />
+        <div id="$id-mark-a" class="absolute left-[10px] bottom-[10px] w-[42px] h-[28px] rounded-[4px] $markATone" />
+        <div id="$id-mark-b" class="absolute left-[58px] bottom-[10px] w-[42px] h-[28px] rounded-[4px] $markBTone" />
+        <div id="$id-mark-c" class="absolute right-[10px] bottom-[10px] w-[24px] h-[28px] rounded-[4px] $markCTone" />
+        <slot name="overlay" />
+      </div>
+    </div>
+  </template>
+
+  <div id="root" class="relative w-[1280px] h-[720px] bg-black overflow-hidden">
+    <div id="rail" class="absolute left-[0px] top-[0px] bottom-[0px] w-[188px] bg-[#141414] border-r-[1px] border-[#ffffff14] flex flex-col gap-[12px] px-[10px] py-[12px]">
+      <deck-thumb id="thumb-1" state="" num="1" numTone="text-white/55" frameTone="border-[#ffffff00]" titleTone="bg-slate-900" markATone="bg-slate-300" markBTone="bg-slate-200" markCTone="bg-[#D97757]" />
+
+      <deck-thumb id="thumb-2" state="" num="2" numTone="text-white/55" frameTone="border-[#ffffff00]" titleTone="bg-slate-900" markATone="bg-slate-200" markBTone="bg-[#D97757]/80" markCTone="bg-slate-900" />
+
+      <deck-thumb id="thumb-3" state="" num="3" numTone="text-white/55" frameTone="border-[#ffffff00]" titleTone="bg-slate-900" markATone="bg-slate-300" markBTone="bg-slate-400" markCTone="bg-[#D97757]" />
+
+      <deck-thumb id="thumb-4" state="" num="4" numTone="text-white/55" frameTone="border-[#ffffff00]" titleTone="bg-[#D97757]/70" markATone="bg-slate-100 border-[1px] border-slate-200" markBTone="bg-slate-900" markCTone="bg-[#ffffff00]" />
+    </div>
+
+    <div id="rail-resize" class="absolute left-[185px] top-[0px] bottom-[0px] w-[6px] bg-[#ffffff00]" />
+
+    <div id="stage" class="absolute left-[188px] top-[0px] right-[0px] bottom-[0px] flex items-center justify-center bg-black">
+      <div id="canvas" class="relative w-[960px] h-[540px] overflow-hidden">
+        <stage-slide id="slide-1" class="absolute inset-0" bandTone="bg-slate-50" accentTone="bg-[#D97757]" kicker="TEXT ENGINE" kickerTone="text-[#D97757]" title="SplitText" titleTone="text-slate-950" body="Characters split into independent units, tint in motion, then converge back into a stable layout." bodyTone="text-slate-600" panelTone="bg-slate-100 border-[1px] border-slate-200" panelMarkATone="bg-slate-900" panelMarkBTone="bg-slate-300" panelMarkCTone="bg-slate-300" pill="Chars" pillTone="bg-slate-950" pillTextTone="text-white">
+          <slot name="content">
+            <div id="slide-1-burst-a" class="absolute left-[626px] top-[74px] w-[76px] h-[76px] rounded-full bg-[#22d3ee]/25 border-[1px] border-[#22d3ee]/50" />
+            <div id="slide-1-burst-b" class="absolute right-[92px] top-[130px] w-[42px] h-[42px] rounded-full bg-[#facc15]/45" />
+            <div id="slide-1-burst-c" class="absolute left-[432px] bottom-[82px] w-[54px] h-[54px] rounded-full bg-[#34d399]/35" />
+            <div id="slide-1-burst-d" class="absolute right-[328px] bottom-[156px] w-[34px] h-[34px] rounded-full bg-[#d946ef]/30" />
+            <div id="slide-1-target" class="absolute left-[608px] top-[176px] w-[246px] h-[146px] rounded-[8px] border-[1px] border-slate-300 bg-white/60">
+              <div id="slide-1-target-h" class="absolute left-[0px] top-[72px] w-[246px] h-[1px] bg-slate-200" />
+              <div id="slide-1-target-v" class="absolute left-[122px] top-[0px] w-[1px] h-[146px] bg-slate-200" />
+              <text id="slide-1-target-label" class="absolute left-[22px] top-[22px] text-[15px] font-semibold text-slate-500">scatter -> settle</text>
+              <text id="slide-1-target-code" class="absolute left-[22px] bottom-[26px] text-[22px] font-bold text-slate-950">ctx.splitText()</text>
+            </div>
+            <div id="slide-1-ray-a" class="absolute left-[520px] top-[112px] w-[130px] h-[3px] rounded-full bg-[#22d3ee]" />
+            <div id="slide-1-ray-b" class="absolute right-[114px] top-[354px] w-[120px] h-[3px] rounded-full bg-[#f97316]" />
+            <div id="slide-1-ray-c" class="absolute left-[646px] bottom-[72px] w-[156px] h-[3px] rounded-full bg-[#8b5cf6]" />
+          </slot>
+        </stage-slide>
+        <stage-slide id="slide-2" class="absolute inset-0 opacity-0" bandTone="bg-[#fff7ed]" accentTone="bg-[#f59e0b]" kicker="CANVASKIT" kickerTone="text-[#c2410c]" title="Subtree FX" titleTone="text-[#431407]" body="HTML in Canvas: capture an XML subtree as a texture, pass it through an SKSL RuntimeEffect, then paint the warped result back." bodyTone="text-[#7c2d12]" panelTone="opacity-0 bg-[#ffedd5] border-[1px] border-[#fed7aa]" panelMarkATone="bg-[#431407]" panelMarkBTone="bg-[#fdba74]" panelMarkCTone="bg-[#D97757]" pill="RuntimeEffect" pillTone="bg-[#D97757]" pillTextTone="text-white">
+          <slot name="content">
+            <canvas id="slide-2-html-canvas" class="absolute right-[24px] top-[92px] w-[404px] h-[304px] rounded-[8px] overflow-hidden bg-[#111827] border-[1px] border-[#f59e0b]/45">
+              <div id="slide-2-html-root" class="absolute inset-0 bg-[#111827]">
+                <div id="slide-2-browser-bar" class="absolute left-[0px] top-[0px] w-[404px] h-[42px] bg-[#1f2937] border-b-[1px] border-[#ffffff1f]">
+                  <div id="slide-2-dot-a" class="absolute left-[18px] top-[15px] w-[10px] h-[10px] rounded-full bg-[#fb7185]" />
+                  <div id="slide-2-dot-b" class="absolute left-[36px] top-[15px] w-[10px] h-[10px] rounded-full bg-[#fbbf24]" />
+                  <div id="slide-2-dot-c" class="absolute left-[54px] top-[15px] w-[10px] h-[10px] rounded-full bg-[#34d399]" />
+                  <text id="slide-2-url" class="absolute right-[18px] top-[12px] text-[12px] font-semibold text-[#d1d5db]">subtree.xml</text>
+                </div>
+                <div id="slide-2-html-card" class="absolute left-[28px] top-[70px] w-[348px] h-[184px] rounded-[8px] bg-white border-[1px] border-[#fed7aa]">
+                  <div id="slide-2-card-glow" class="absolute left-[204px] top-[18px] w-[118px] h-[118px] rounded-full bg-[#f59e0b]/25" />
+                  <text id="slide-2-html-eyebrow" class="absolute left-[26px] top-[24px] text-[12px] font-bold text-[#c2410c]">XML SUBTREE TEXTURE</text>
+                  <text id="slide-2-html-title" class="absolute left-[26px] top-[54px] text-[32px] font-bold text-[#431407]">warped portal</text>
+                  <div id="slide-2-html-line-a" class="absolute left-[26px] top-[112px] w-[214px] h-[9px] rounded-full bg-[#fdba74]" />
+                  <div id="slide-2-html-line-b" class="absolute left-[26px] top-[134px] w-[268px] h-[9px] rounded-full bg-[#fed7aa]" />
+                  <div id="slide-2-html-chip" class="absolute right-[24px] bottom-[22px] px-[10px] py-[6px] rounded-full bg-[#431407]">
+                    <text id="slide-2-html-chip-text" class="text-[11px] font-bold text-white">shader child</text>
+                  </div>
+                </div>
+                <text id="slide-2-html-footer" class="absolute left-[28px] bottom-[24px] text-[16px] font-semibold text-[#fed7aa]">RuntimeEffect samples the subtree texture</text>
+              </div>
+            </canvas>
+            <div id="slide-2-arrow-a" class="absolute left-[484px] top-[208px] w-[66px] h-[3px] rounded-full bg-[#f59e0b]" />
+            <div id="slide-2-arrow-b" class="absolute left-[536px] top-[198px] w-[22px] h-[3px] rounded-full bg-[#f59e0b]" />
+            <div id="slide-2-arrow-c" class="absolute left-[536px] top-[218px] w-[22px] h-[3px] rounded-full bg-[#f59e0b]" />
+            <text id="slide-2-caption" class="absolute left-[558px] top-[414px] text-[16px] font-bold text-[#9a3412]">Subtree texture -> SKSL -> Canvas</text>
+          </slot>
+        </stage-slide>
+        <stage-slide id="slide-3" class="absolute inset-0 opacity-0" bandTone="bg-[#ecfeff]" accentTone="bg-[#0891b2]" kicker="LINE REVEAL" kickerTone="text-[#0e7490]" title="Show lines" titleTone="text-[#164e63]" body="The final beat keeps the structure simple: draw the guides, reveal each row, and let the layout read clearly." bodyTone="text-[#155e75]" panelTone="opacity-0 bg-[#cffafe] border-[1px] border-[#a5f3fc]" panelMarkATone="bg-[#164e63]" panelMarkBTone="bg-[#67e8f9]" panelMarkCTone="bg-[#0891b2]" pill="Lines" pillTone="bg-[#0891b2]" pillTextTone="text-white">
+          <slot name="content">
+            <div id="slide-3-lines" class="absolute left-[540px] top-[88px] w-[344px] h-[344px] rounded-[8px] border-[1px] border-[#a5f3fc] bg-white/75 overflow-hidden">
+              <div id="slide-3-line-grid-a" class="absolute left-[0px] top-[68px] w-[344px] h-[1px] bg-[#bae6fd]" />
+              <div id="slide-3-line-grid-b" class="absolute left-[0px] top-[136px] w-[344px] h-[1px] bg-[#bae6fd]" />
+              <div id="slide-3-line-grid-c" class="absolute left-[0px] top-[204px] w-[344px] h-[1px] bg-[#bae6fd]" />
+              <div id="slide-3-line-grid-d" class="absolute left-[0px] top-[272px] w-[344px] h-[1px] bg-[#bae6fd]" />
+              <div id="slide-3-highlight" class="absolute left-[18px] top-[84px] w-[308px] h-[48px] rounded-[8px] bg-[#cffafe]" />
+              <text id="slide-3-row-1" class="absolute left-[28px] top-[24px] text-[24px] font-bold text-[#164e63]">01  grid baseline</text>
+              <text id="slide-3-row-2" class="absolute left-[28px] top-[92px] text-[24px] font-bold text-[#0e7490]">02  staged rows</text>
+              <text id="slide-3-row-3" class="absolute left-[28px] top-[160px] text-[24px] font-bold text-[#155e75]">03  timed reveal</text>
+              <text id="slide-3-row-4" class="absolute left-[28px] top-[228px] text-[24px] font-bold text-[#164e63]">04  stable end frame</text>
+              <text id="slide-3-row-5" class="absolute left-[28px] top-[296px] text-[24px] font-bold text-[#0891b2]">05  ship the XML</text>
+            </div>
+            <div id="slide-3-rule-a" class="absolute left-[532px] top-[460px] w-[364px] h-[4px] rounded-full bg-[#0891b2]" />
+            <div id="slide-3-rule-b" class="absolute left-[532px] top-[478px] w-[248px] h-[4px] rounded-full bg-[#67e8f9]" />
+            <div id="slide-3-rule-c" class="absolute left-[532px] top-[496px] w-[318px] h-[4px] rounded-full bg-[#a5f3fc]" />
+          </slot>
+        </stage-slide>
+      </div>
+    </div>
+
+    <div id="overlay" class="absolute left-[542px] bottom-[22px] h-[36px] flex flex-row items-center gap-[4px] px-[4px] py-[4px] rounded-full bg-black text-white">
+      <div id="prev-btn" class="w-[28px] h-[28px] rounded-full flex items-center justify-center">
+        <icon id="prev-icon" icon="chevron-left" class="w-[14px] h-[14px] stroke-white/75" />
+      </div>
+      <div id="count-wrap" class="relative w-[64px] h-[28px] flex items-center justify-center">
+        <text id="count-1" class="absolute text-[12px] font-medium text-white">1 / 12</text>
+        <text id="count-2" class="absolute text-[12px] font-medium text-white opacity-0">2 / 12</text>
+        <text id="count-3" class="absolute text-[12px] font-medium text-white opacity-0">3 / 12</text>
+      </div>
+      <div id="next-btn" class="w-[28px] h-[28px] rounded-full flex items-center justify-center">
+        <icon id="next-icon" icon="chevron-right" class="w-[14px] h-[14px] stroke-white/75" />
+      </div>
+      <div id="divider" class="w-[1px] h-[14px] bg-white/20 ml-[2px] mr-[2px]" />
+      <div id="reset-btn" class="h-[28px] rounded-full flex flex-row items-center gap-[6px] px-[10px]">
+        <text id="reset-label" class="text-[11px] font-medium text-white/75">Reset</text>
+        <text id="reset-key" class="text-[10px] text-white bg-white/10 rounded-[4px] px-[4px] py-[2px]">R</text>
+      </div>
+    </div>
   </div>
+
   <script>
-    ctx.fromTo('title',
-      { opacity: 0, y: 32 },
-      { opacity: 1, y: 0, duration: 0.65, ease: 'power3.out' });
-    ctx.fromTo('subtitle',
-      { opacity: 0, y: 18 },
-      { opacity: 1, y: 0, duration: 0.5, delay: 0.12, ease: 'power2.out' });
+    var CK = ctx.CanvasKit;
+    var htmlCanvas = ctx.getCanvasById('slide-2-html-canvas');
+    var htmlTexture = htmlCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
+    var htmlLocalTime = Math.max(0, ctx.currentTime - 4.0);
+    var htmlPulse = Math.max(0, Math.min(htmlLocalTime / 1.8, 1));
+    var sksl = [
+      'uniform shader image;',
+      'uniform float t;',
+      'uniform float pulse;',
+      'half4 main(float2 xy) {',
+      '  float2 center = float2(202.0, 152.0);',
+      '  float2 delta = xy - center;',
+      '  float dist = length(delta);',
+      '  float wave = sin(dist * 0.055 - t * 5.0);',
+      '  float ring = smoothstep(132.0, 18.0, abs(dist - 118.0 - sin(t * 1.7) * 22.0));',
+      '  float glass = smoothstep(230.0, 24.0, dist);',
+      '  float2 dir = dist < 1.0 ? float2(0.0, 0.0) : normalize(delta);',
+      '  float2 tangent = float2(-dir.y, dir.x);',
+      '  float bend = wave * 9.0 * glass + ring * 13.0 * pulse;',
+      '  float2 uv = xy + dir * bend + tangent * sin(t * 2.4 + dist * 0.035) * 5.0;',
+      '  half4 base = image.eval(uv);',
+      '  half4 warm = image.eval(uv + tangent * (4.0 + ring * 6.0));',
+      '  half4 cool = image.eval(uv - tangent * (4.0 + ring * 6.0));',
+      '  half3 rgb = half3(warm.r, base.g, cool.b);',
+      '  float portal = smoothstep(5.0, 0.0, abs(dist - 118.0 - sin(t * 1.7) * 22.0));',
+      '  rgb = mix(rgb, half3(1.0, 0.64, 0.18), half(portal * 0.32));',
+      '  float vignette = smoothstep(310.0, 120.0, dist);',
+      '  return half4(rgb * half(0.72 + vignette * 0.42), max(base.a, half(0.96)));',
+      '}',
+    ].join('\n');
+    var effect = CK.RuntimeEffect.Make(sksl);
+    if (effect) {
+      var shader = effect.makeShaderWithChildren([htmlLocalTime, htmlPulse], [htmlTexture]);
+      var shaderPaint = new CK.Paint();
+      shaderPaint.setShader(shader);
+      htmlCanvas.drawRect(CK.XYWHRect(0, 0, 404, 304), shaderPaint);
+    } else {
+      htmlCanvas.drawPicture(htmlCanvas.getSubTree(), 0, 0);
+    }
+
+    ctx.fromTo('canvas',
+      { opacity: 0, scale: 0.985 },
+      { opacity: 1, scale: 1, duration: 0.45, ease: 'power2.out' });
+    ctx.fromTo('rail',
+      { opacity: 0, x: -24 },
+      { opacity: 1, x: 0, duration: 0.45, ease: 'power2.out' });
+    ctx.fromTo('overlay',
+      { opacity: 0, y: 10, scale: 0.94 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.35, delay: 0.18, ease: 'power2.out' });
+
+    ctx.fromTo('slide-1',
+      { opacity: 0, x: 18, scale: 0.985 },
+      { opacity: 1, x: 0, scale: 1, duration: 0.42, delay: 0.28, ease: 'power2.out' });
+    ctx.fromTo('thumb-1-selected',
+      { opacity: 0 },
+      { opacity: 1, duration: 0.18, delay: 0.30, ease: 'power1.out' });
+
+    var splitChars = ctx.splitText('slide-1-title', { type: 'chars' });
+    var splitDirs = [[-300, -180], [0, -238], [320, -168], [-320, 72], [294, 118], [-220, 218], [0, 250], [230, 210]];
+    var splitColorsA = ['#22d3ee', '#d946ef', '#34d399', '#facc15', '#fb923c', '#8b5cf6'];
+    var splitColorsB = ['#0f172a', '#D97757', '#0891b2', '#16a34a', '#7c3aed', '#ea580c'];
+    ctx.fromTo(splitChars,
+      {
+        opacity: 0,
+        x: function(i) { return splitDirs[i % splitDirs.length][0]; },
+        y: function(i) { return splitDirs[i % splitDirs.length][1]; },
+        scale: 0.62,
+        rotate: function(i) { return i % 2 === 0 ? -24 : 24; },
+        color: function(i) { return splitColorsA[i % splitColorsA.length]; }
+      },
+      {
+        opacity: 1,
+        x: 0,
+        y: 0,
+        scale: 1,
+        rotate: 0,
+        color: function(i) { return splitColorsB[i % splitColorsB.length]; },
+        duration: 1.55,
+        delay: 0.38,
+        stagger: 0.055,
+        ease: 'spring.gentle'
+      });
+    ctx.to(splitChars,
+      {
+        color: function(i) { return splitColorsA[(i + 2) % splitColorsA.length]; },
+        duration: 0.92,
+        delay: 2.16,
+        stagger: 0.035,
+        yoyo: true,
+        repeat: 1,
+        ease: 'sine.inOut'
+      });
+    ctx.fromTo(['slide-1-kicker', 'slide-1-accent', 'slide-1-body'],
+      { opacity: 0, y: 26 },
+      { opacity: 1, y: 0, duration: 0.7, delay: 0.58, stagger: 0.12, ease: 'power3.out' });
+    ctx.fromTo('slide-1-panel',
+      { opacity: 0, x: 96, y: 20, scale: 0.88 },
+      { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.82, delay: 0.95, ease: 'spring.gentle' });
+    ctx.fromTo('slide-1-target',
+      { opacity: 0, scale: 0.82, rotation: -4 },
+      { opacity: 1, scale: 1, rotation: 0, duration: 0.78, delay: 1.08, ease: 'spring.gentle' });
+    ctx.fromTo(['slide-1-burst-a', 'slide-1-burst-b', 'slide-1-burst-c', 'slide-1-burst-d'],
+      { opacity: 0, scale: 0.2 },
+      { opacity: 1, scale: 1, duration: 0.7, delay: 1.18, stagger: 0.09, ease: 'spring.wobbly' });
+    ctx.fromTo('slide-1-ray-a',
+      { opacity: 0, x: -180, y: -90, scale: 0.4, rotation: -28 },
+      { opacity: 1, x: 0, y: 0, scale: 1, rotation: 0, duration: 0.75, delay: 1.34, ease: 'power3.out' });
+    ctx.fromTo('slide-1-ray-b',
+      { opacity: 0, x: 160, y: 110, scale: 0.4, rotation: 24 },
+      { opacity: 1, x: 0, y: 0, scale: 1, rotation: 0, duration: 0.75, delay: 1.42, ease: 'power3.out' });
+    ctx.fromTo('slide-1-ray-c',
+      { opacity: 0, y: 160, scale: 0.4, rotation: -6 },
+      { opacity: 1, y: 0, scale: 1, rotation: 0, duration: 0.75, delay: 1.50, ease: 'power3.out' });
+    ctx.fromTo('slide-1-band',
+      { backgroundColor: '#f8fafc' },
+      { backgroundColor: '#e0f2fe', duration: 1.2, delay: 1.64, yoyo: true, repeat: 1, ease: 'sine.inOut' });
+
+    ctx.to('slide-1',
+      { opacity: 0, x: -72, duration: 0.34, delay: 3.72, ease: 'power2.in' });
+    ctx.to('thumb-1-selected',
+      { opacity: 0, duration: 0.16, delay: 3.78, ease: 'power1.in' });
+    ctx.fromTo('slide-2',
+      { opacity: 0, x: 86, scale: 0.985 },
+      { opacity: 1, x: 0, scale: 1, duration: 0.44, delay: 4.00, ease: 'power2.out' });
+    ctx.fromTo('thumb-2-selected',
+      { opacity: 0 },
+      { opacity: 1, duration: 0.18, delay: 4.08, ease: 'power1.out' });
+    ctx.to('count-1',
+      { opacity: 0, duration: 0.12, delay: 3.92, ease: 'linear' });
+    ctx.fromTo('count-2',
+      { opacity: 0 },
+      { opacity: 1, duration: 0.12, delay: 4.04, ease: 'linear' });
+
+    ctx.fromTo(['slide-2-kicker', 'slide-2-title', 'slide-2-body'],
+      { opacity: 0, x: -34 },
+      { opacity: 1, x: 0, duration: 0.62, delay: 4.20, stagger: 0.11, ease: 'power3.out' });
+    ctx.fromTo('slide-2-html-canvas',
+      { opacity: 0, y: 38, scale: 0.86, rotation: -3 },
+      { opacity: 1, y: 0, scale: 1, rotation: 0, duration: 0.9, delay: 4.28, ease: 'spring.gentle' });
+    ctx.fromTo('slide-2-html-card',
+      { opacity: 0, y: 26, scale: 0.94 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.72, delay: 4.72, ease: 'spring.gentle' });
+    ctx.fromTo(['slide-2-html-line-a', 'slide-2-html-line-b', 'slide-2-html-chip'],
+      { opacity: 0, x: -22 },
+      { opacity: 1, x: 0, duration: 0.54, delay: 5.02, stagger: 0.12, ease: 'power2.out' });
+    ctx.fromTo(['slide-2-dot-a', 'slide-2-dot-b', 'slide-2-dot-c'],
+      { opacity: 0.25, scale: 0.6 },
+      { opacity: 1, scale: 1.2, duration: 0.42, delay: 4.64, stagger: 0.08, yoyo: true, repeat: 3, ease: 'sine.inOut' });
+    ctx.fromTo(['slide-2-arrow-a', 'slide-2-arrow-b', 'slide-2-arrow-c', 'slide-2-caption'],
+      { opacity: 0, x: -36 },
+      { opacity: 1, x: 0, duration: 0.52, delay: 5.26, stagger: 0.07, ease: 'power2.out' });
+    ctx.to('slide-2-arrow-b',
+      { rotation: -38, duration: 0.22, delay: 5.42, ease: 'power1.out' });
+    ctx.to('slide-2-arrow-c',
+      { rotation: 38, duration: 0.22, delay: 5.42, ease: 'power1.out' });
+    ctx.fromTo('slide-2-band',
+      { backgroundColor: '#fff7ed' },
+      { backgroundColor: '#ffedd5', duration: 1.1, delay: 5.68, yoyo: true, repeat: 1, ease: 'sine.inOut' });
+
+    ctx.to('slide-2',
+      { opacity: 0, x: -72, duration: 0.34, delay: 7.72, ease: 'power2.in' });
+    ctx.to('thumb-2-selected',
+      { opacity: 0, duration: 0.16, delay: 7.78, ease: 'power1.in' });
+    ctx.fromTo('slide-3',
+      { opacity: 0, x: 86, scale: 0.985 },
+      { opacity: 1, x: 0, scale: 1, duration: 0.44, delay: 8.00, ease: 'power2.out' });
+    ctx.fromTo('thumb-3-selected',
+      { opacity: 0 },
+      { opacity: 1, duration: 0.18, delay: 8.08, ease: 'power1.out' });
+    ctx.to('count-2',
+      { opacity: 0, duration: 0.12, delay: 7.92, ease: 'linear' });
+    ctx.fromTo('count-3',
+      { opacity: 0 },
+      { opacity: 1, duration: 0.12, delay: 8.04, ease: 'linear' });
+
+    ctx.fromTo(['slide-3-kicker', 'slide-3-title', 'slide-3-body'],
+      { opacity: 0, y: 24 },
+      { opacity: 1, y: 0, duration: 0.64, delay: 8.20, stagger: 0.12, ease: 'power3.out' });
+    ctx.fromTo('slide-3-lines',
+      { opacity: 0, y: 36, scale: 0.94 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.76, delay: 8.36, ease: 'spring.gentle' });
+    ctx.fromTo(['slide-3-line-grid-a', 'slide-3-line-grid-b', 'slide-3-line-grid-c', 'slide-3-line-grid-d'],
+      { opacity: 0, scale: 0.2 },
+      { opacity: 1, scale: 1, duration: 0.46, delay: 8.72, stagger: 0.08, ease: 'power2.out' });
+    ctx.fromTo(['slide-3-row-1', 'slide-3-row-2', 'slide-3-row-3', 'slide-3-row-4', 'slide-3-row-5'],
+      { opacity: 0, x: 64 },
+      { opacity: 1, x: 0, duration: 0.58, delay: 8.94, stagger: 0.18, ease: 'power3.out' });
+    ctx.fromTo('slide-3-highlight',
+      { opacity: 0, x: -120 },
+      { opacity: 1, x: 0, duration: 0.62, delay: 9.34, ease: 'power2.out' });
+    ctx.to('slide-3-highlight',
+      { y: 68, duration: 0.42, delay: 9.92, ease: 'power2.inOut' });
+    ctx.to('slide-3-highlight',
+      { y: 136, duration: 0.42, delay: 10.36, ease: 'power2.inOut' });
+    ctx.to('slide-3-highlight',
+      { y: 204, duration: 0.42, delay: 10.80, ease: 'power2.inOut' });
+    ctx.fromTo(['slide-3-rule-a', 'slide-3-rule-b', 'slide-3-rule-c'],
+      { opacity: 0, x: -80, scale: 0.72 },
+      { opacity: 1, x: 0, scale: 1, duration: 0.58, delay: 10.22, stagger: 0.12, ease: 'power2.out' });
   </script>
 </opencat>

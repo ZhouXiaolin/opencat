@@ -745,7 +745,7 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
     result
 }
 
-fn normalize_lucide_icon_name(name: &str) -> &str {
+pub(crate) fn normalize_lucide_icon_name(name: &str) -> &str {
     match name {
         // Lucide keeps `home` as deprecated metadata alias for the current `house` icon.
         "home" => "house",
@@ -756,18 +756,26 @@ fn normalize_lucide_icon_name(name: &str) -> &str {
 }
 
 fn ensure_valid_lucide_icon(name: &str) -> Result<()> {
-    if crate::resolve::lucide_icons::lucide_icon_paths(name).is_some() {
+    validate_lucide_icon_name(name)
+        .map_err(|detail| anyhow::anyhow!("unknown lucide icon `{name}`: {detail}"))
+}
+
+/// Validate a lucide icon name (after normalization) and return a human-readable
+/// "did you mean …" hint when unknown. Shared by render-time validation and the lint CLI.
+pub(crate) fn validate_lucide_icon_name(name: &str) -> std::result::Result<(), String> {
+    let normalized = normalize_lucide_icon_name(name);
+    if crate::resolve::lucide_icons::lucide_icon_paths(normalized).is_some() {
         return Ok(());
     }
 
-    let suggestions = suggested_lucide_icons(name);
+    let suggestions = suggested_lucide_icons(normalized);
     let detail = if suggestions.is_empty() {
         "no similar icons found".to_string()
     } else {
         format!("did you mean {}?", suggestions.join(", "))
     };
 
-    anyhow::bail!("unknown lucide icon `{name}`: {detail}")
+    Err(detail)
 }
 
 fn suggested_lucide_icons(name: &str) -> Vec<&'static str> {

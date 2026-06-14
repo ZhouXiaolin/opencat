@@ -222,13 +222,141 @@ opencat
 
 </details>
 
-<details>
-<summary><strong>Build dependencies</strong></summary>
+## Build from source
 
-- **CLI**: Rust toolchain (edition 2024) + FFmpeg dev libraries + Metal (macOS) / OpenGL (Windows)
-- **Web**: Rust toolchain + `wasm-pack` + Node.js / Bun
+### Prerequisites
 
-</details>
+- **Rust toolchain** (edition 2024). Install via [rustup](https://rustup.rs/):
+  ```bash
+  rustup install nightly  # edition 2024 requires nightly as of early 2025
+  ```
+
+- **FFmpeg dev libraries** (for MP4 encoding). The crate [`ffmpeg-next`](https://crates.io/crates/ffmpeg-next) discovers FFmpeg via `pkg-config` — no manual path configuration is needed on standard systems.
+
+  <details open>
+  <summary><strong>Linux (Ubuntu / Debian)</strong></summary>
+
+  ```bash
+  sudo apt install \
+    libavcodec-dev libavformat-dev libavutil-dev \
+    libavfilter-dev libswscale-dev
+  ```
+
+  Minimum version: FFmpeg 6.x. Verify:
+
+  ```bash
+  ffmpeg -version
+  ```
+
+  On this system: **FFmpeg 7.1.1** is installed and all dev packages are present.
+
+  </details>
+
+  <details>
+  <summary><strong>macOS</strong></summary>
+
+  ```bash
+  brew install ffmpeg
+  ```
+
+  Homebrew installs ffmpeg to `/opt/homebrew` (Apple Silicon) or `/usr/local` (Intel). Set `FFMPEG_DIR` to point to the Homebrew prefix:
+
+  ```bash
+  # Apple Silicon (M1/M2/M3/M4)
+  export FFMPEG_DIR=/opt/homebrew
+
+  # Intel Mac
+  export FFMPEG_DIR=/usr/local
+  ```
+
+  If `pkg-config` cannot automatically find the ffmpeg libs, set `FFMPEG_DIR` to specify the path. Add the export to your shell config (`~/.zshrc` / `~/.bashrc`) to persist it.
+
+  Verify:
+
+  ```bash
+  ls $FFMPEG_DIR/lib/libavcodec.*
+  ```
+
+  </details>
+
+  <details>
+  <summary><strong>Windows</strong></summary>
+
+  Download FFmpeg dev packages from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) or `vcpkg install ffmpeg`. Then set:
+
+  ```powershell
+  $env:FFMPEG_DIR = "C:\path\to\ffmpeg"
+  ```
+
+  </details>
+
+- **OpenGL / EGL dev libraries** (Linux, for Skia GPU rendering):
+
+  ```bash
+  sudo apt install libegl-dev libgles-dev libgl1-mesa-dev libx11-dev
+  ```
+
+  macOS provides Metal via the system SDK (no manual install). Windows provides OpenGL via the system driver.
+
+- **Fontconfig dev library** (Linux):
+
+  ```bash
+  sudo apt install libfontconfig-dev
+  ```
+
+### Skia
+
+Skia is pulled in via [`skia-safe`](https://crates.io/crates/skia-safe) with the **`binary-cache`** feature enabled. This causes `skia-bindings` to download a pre-built Skia binary at build time — no local compilation or static package download is required.
+
+- **Linux**: `gl` backend (OpenGL)
+- **macOS**: `metal` backend (Metal)
+- **Extra**: `skottie` for Lottie animation support
+
+The pre-built binaries are cached in `~/.cargo/skia-binaries/` after the first build.
+
+### Build commands
+
+**CLI (MP4 rendering):**
+
+```bash
+cargo build --release --bin opencat
+```
+
+The binary is at `target/release/opencat`. Render a video:
+
+```bash
+cargo run --release --bin opencat -- examples/profile-showcase.xml
+```
+
+**Desktop preview player (macOS / Windows):**
+
+```bash
+cargo run --release --bin opencat-see -- path/to/input.xml
+```
+
+**Hello World:**
+
+```bash
+cargo run --example hello_world
+```
+
+**Web (WASM):**
+
+```bash
+cd crates/opencat-web && npm run build
+```
+
+Requires `wasm-pack` and a `Cross-Origin-Isolated` environment to run.
+
+### Verification
+
+Check that the build picked up the correct FFmpeg and Skia versions:
+
+```bash
+cargo run --bin opencat -- --version
+```
+
+No `ffmpegDir` or `SKIA_BINARIES_URL` environment variables are needed in a standard setup — everything is resolved through `pkg-config` and the `binary-cache` feature. If you do use a non-standard FFmpeg path, set `FFMPEG_DIR` before building.
 
 ## Who is it for
 

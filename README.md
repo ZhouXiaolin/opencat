@@ -377,6 +377,7 @@ No `ffmpegDir` or `SKIA_BINARIES_URL` environment variables are needed in a stan
 ## Community
 
 - Bugs / Feature requests → [Open an Issue](https://github.com/ZhouXiaolin/opencat/issues)
+- Linux Do Discussion → [OpenCat 社区讨论](https://linux.do/t/topic/2090262/7)
 
 ## Star History
 

@@ -381,6 +381,7 @@ cargo run --bin opencat -- --version
 ## Community
 
 - Bug / 功能建议 → [提 Issue](https://github.com/ZhouXiaolin/opencat/issues)
+- Linux Do 社区 → [OpenCat 社区讨论](https://linux.do/t/topic/2090262/7)
 
 ## Star History
 

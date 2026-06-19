@@ -1,0 +1,197 @@
+<opencat width="1280" height="720" fps="30" duration="18.05">
+  <div id="root" class="relative w-[1280px] h-[720px] bg-[#FFF8F3] overflow-hidden">
+    <tl id="main-tl" class="absolute inset-0">
+
+      <!-- ============ Scene 1 · 开场钩子（0–3.0s）============ -->
+      <div id="scene1" class="relative w-full h-full bg-[#FFF8F3] overflow-hidden" duration="3">
+        <!-- 背景层：注册坐标线 -->
+        <div id="s1-grid-v" class="absolute left-[760px] top-[80px] w-[1px] h-[560px] bg-[#2B1810]/10" />
+        <div id="s1-grid-h" class="absolute left-[80px] top-[600px] w-[640px] h-[1px] bg-[#2B1810]/10" />
+        <!-- 背景层：ghost type 大字 -->
+        <text id="s1-ghost" class="absolute left-[60px] top-[40px] text-[180px] font-black text-[#FF2442]/8 leading-[1]">PICK</text>
+        <!-- 前景装饰：呼吸光斑 -->
+        <div id="s1-spark1" class="absolute right-[180px] top-[110px] w-[14px] h-[14px] rounded-full bg-[#FFC857]" />
+        <div id="s1-spark2" class="absolute left-[120px] top-[520px] w-[10px] h-[10px] rounded-full bg-[#FF2442]/60" />
+        <div id="s1-spark3" class="absolute right-[420px] top-[560px] w-[8px] h-[8px] rounded-full bg-[#3DD9A3]" />
+
+        <!-- 中景：左侧文案区 -->
+        <div id="s1-badge" class="absolute left-[80px] top-[110px] px-[20px] py-[8px] rounded-full bg-[#FF2442]">
+          <text id="s1-badge-text" class="text-[20px] font-bold text-white">好物种草</text>
+        </div>
+        <text id="s1-kicker" class="absolute left-[82px] top-[170px] text-[18px] font-semibold tracking-[3px] text-[#FF2442]">TRENDING PICK · 精选</text>
+        <text id="s1-title" class="absolute left-[78px] top-[230px] text-[88px] font-black text-[#2B1810] leading-[1.05]">这款好物\n值得被看见</text>
+        <text id="s1-sub" class="absolute left-[80px] top-[510px] text-[26px] text-[#2B1810]/70">一份让你心动的种草清单</text>
+
+        <!-- 中景：圆形镜头（shot-match 锚点）-->
+        <div id="s1-lens" class="absolute right-[120px] top-[180px] w-[340px] h-[340px] rounded-full bg-[#FF2442] flex items-center justify-center overflow-hidden">
+          <div id="s1-lens-hi" class="absolute left-[60px] top-[50px] w-[120px] h-[120px] rounded-full bg-white/20" />
+          <icon id="s1-product" icon="gift" class="w-[150px] h-[150px] stroke-white" />
+        </div>
+        <!-- 前景：镜头外环高光 -->
+        <div id="s1-ring" class="absolute right-[100px] top-[160px] w-[380px] h-[380px] rounded-full border-[3px] border-[#FFC857]/50" />
+      </div>
+
+      <transition from="scene1" to="scene2" effect="iris" duration="0.6" timing="ease-in-out" />
+
+      <!-- ============ Scene 2 · 产品亮相（3.6–6.8s）============ -->
+      <div id="scene2" class="relative w-full h-full bg-[#FF2442] overflow-hidden" duration="3.2">
+        <!-- 背景层：径向暖光 + ghost type -->
+        <div id="s2-glow" class="absolute left-[390px] top-[30px] w-[500px] h-[500px] rounded-full bg-[#FFC857]/30" />
+        <text id="s2-ghost" class="absolute right-[40px] top-[440px] text-[200px] font-black text-white/10 leading-[1]">HOT</text>
+        <!-- 前景装饰 -->
+        <div id="s2-spark1" class="absolute left-[160px] top-[160px] w-[12px] h-[12px] rounded-full bg-[#FFC857]" />
+        <div id="s2-spark2" class="absolute right-[170px] top-[140px] w-[10px] h-[10px] rounded-full bg-white/80" />
+        <div id="s2-spark3" class="absolute left-[220px] top-[560px] w-[8px] h-[8px] rounded-full bg-[#3DD9A3]" />
+
+        <!-- 中景：大标题 -->
+        <text id="s2-title" class="absolute left-[80px] top-[80px] text-[56px] font-black text-white leading-[1.1]">心动好物\n限时放送</text>
+
+        <!-- 中景：圆形舞台（shot-match 锚点放大）-->
+        <div id="s2-lens" class="absolute left-[440px] top-[150px] w-[420px] h-[420px] rounded-full bg-[#FFF8F3] flex items-center justify-center overflow-hidden">
+          <div id="s2-lens-hi" class="absolute left-[80px] top-[60px] w-[150px] h-[150px] rounded-full bg-[#FFC857]/35" />
+          <div id="s2-product" class="flex flex-col items-center justify-center gap-[8px]">
+            <icon id="s2-product-icon" icon="gift" class="w-[170px] h-[170px] stroke-[#FF2442]" />
+          </div>
+        </div>
+        <div id="s2-ring" class="absolute left-[420px] top-[130px] w-[460px] h-[460px] rounded-full border-[3px] border-white/40" />
+
+        <!-- 前景：卖点胶囊环绕 -->
+        <div id="s2-tag1" class="absolute left-[90px] top-[300px] px-[22px] py-[12px] rounded-full bg-white">
+          <text id="s2-tag1-t" class="text-[24px] font-bold text-[#FF2442]">颜值在线</text>
+        </div>
+        <div id="s2-tag2" class="absolute left-[90px] top-[380px] px-[22px] py-[12px] rounded-full bg-[#FFC857]">
+          <text id="s2-tag2-t" class="text-[24px] font-bold text-[#2B1810]">随身携带</text>
+        </div>
+        <div id="s2-tag3" class="absolute left-[90px] top-[460px] px-[22px] py-[12px] rounded-full bg-white">
+          <text id="s2-tag3-t" class="text-[24px] font-bold text-[#FF2442]">质感拉满</text>
+        </div>
+      </div>
+
+      <transition from="scene2" to="scene3" effect="slide" direction="from_right" duration="0.45" timing="ease-out" />
+
+      <!-- ============ Scene 3 · 卖点拆解（7.25–10.45s）============ -->
+      <div id="scene3" class="relative w-full h-full bg-[#FFF8F3] overflow-hidden" duration="3.2">
+        <!-- 背景层 -->
+        <div id="s3-grid-v" class="absolute left-[600px] top-[80px] w-[1px] h-[560px] bg-[#2B1810]/10" />
+        <text id="s3-ghost" class="absolute left-[40px] top-[430px] text-[200px] font-black text-[#FF2442]/8 leading-[1]">01</text>
+        <!-- 前景装饰 -->
+        <div id="s3-spark1" class="absolute left-[540px] top-[150px] w-[10px] h-[10px] rounded-full bg-[#FFC857]" />
+        <div id="s3-spark2" class="absolute left-[160px] top-[560px] w-[8px] h-[8px] rounded-full bg-[#3DD9A3]" />
+
+        <!-- 中景：左侧文案 -->
+        <text id="s3-num" class="absolute left-[80px] top-[120px] text-[140px] font-black text-[#FF2442] leading-[1]">01</text>
+        <text id="s3-kicker" class="absolute left-[84px] top-[290px] text-[18px] font-semibold tracking-[3px] text-[#FF2442]">亮点解析</text>
+        <text id="s3-title" class="absolute left-[80px] top-[330px] text-[72px] font-black text-[#2B1810] leading-[1.05]">持久在线</text>
+        <text id="s3-desc" class="absolute left-[82px] top-[440px] text-[26px] text-[#2B1810]/70 leading-[1.4]">一整天的好状态\n从清晨到日落都不掉线</text>
+
+        <!-- 中景：圆形放大镜头（shot-match 锚点）-->
+        <div id="s3-lens" class="absolute right-[120px] top-[160px] w-[400px] h-[400px] rounded-full bg-[#FFC857] flex items-center justify-center overflow-hidden">
+          <div id="s3-lens-hi" class="absolute left-[70px] top-[50px] w-[140px] h-[140px] rounded-full bg-white/35" />
+          <icon id="s3-product" icon="gift" class="w-[170px] h-[170px] stroke-[#2B1810]" />
+        </div>
+        <div id="s3-ring" class="absolute right-[100px] top-[140px] w-[440px] h-[440px] rounded-full border-[3px] border-[#FF2442]/40" />
+      </div>
+
+      <transition from="scene3" to="scene4" effect="CircleCrop" duration="0.7" timing="ease-in-out" />
+
+      <!-- ============ Scene 4 · 场景化卖点（11.15–14.35s）============ -->
+      <div id="scene4" class="relative w-full h-full bg-[#FFC857] overflow-hidden" duration="3.2">
+        <!-- 背景层 -->
+        <div id="s4-glow" class="absolute right-[300px] top-[60px] w-[460px] h-[460px] rounded-full bg-[#FF6B5C]/35" />
+        <text id="s4-ghost" class="absolute left-[40px] top-[420px] text-[200px] font-black text-[#2B1810]/8 leading-[1]">02</text>
+        <!-- 前景装饰 -->
+        <div id="s4-spark1" class="absolute right-[180px] top-[120px] w-[12px] h-[12px] rounded-full bg-[#FF2442]" />
+        <div id="s4-spark2" class="absolute left-[520px] top-[560px] w-[8px] h-[8px] rounded-full bg-[#FFF8F3]" />
+
+        <!-- 中景：圆形镜头 + 产品 -->
+        <div id="s4-lens" class="absolute left-[100px] top-[170px] w-[400px] h-[400px] rounded-full bg-[#FFF8F3] flex items-center justify-center overflow-hidden">
+          <div id="s4-lens-hi" class="absolute left-[70px] top-[50px] w-[140px] h-[140px] rounded-full bg-[#FFC857]/45" />
+          <icon id="s4-product" icon="gift" class="w-[170px] h-[170px] stroke-[#FF2442]" />
+        </div>
+        <div id="s4-ring" class="absolute left-[80px] top-[150px] w-[440px] h-[440px] rounded-full border-[3px] border-[#2B1810]/30" />
+
+        <!-- 中景：右侧文案 -->
+        <text id="s4-num" class="absolute right-[80px] top-[150px] text-[120px] font-black text-[#2B1810] leading-[1]">02</text>
+        <text id="s4-kicker" class="absolute right-[82px] top-[300px] text-[18px] font-semibold tracking-[3px] text-[#FF2442]">使用场景</text>
+        <text id="s4-title" class="absolute right-[80px] top-[340px] text-[64px] font-black text-[#2B1810] leading-[1.05] text-right">随身种草\n随取随用</text>
+        <text id="s4-desc" class="absolute right-[82px] top-[520px] text-[24px] text-[#2B1810]/70 text-right">小巧便携\n随时记录心动瞬间</text>
+      </div>
+
+      <transition from="scene4" to="scene5" effect="light_leak" duration="0.7" seed="7" hueShift="25" maskScale="0.55" />
+
+      <!-- ============ Scene 5 · CTA（15.05–18.05s）============ -->
+      <div id="scene5" class="relative w-full h-full bg-[#FF2442] overflow-hidden" duration="3">
+        <!-- 背景层 -->
+        <div id="s5-glow" class="absolute left-[340px] top-[40px] w-[600px] h-[600px] rounded-full bg-[#FF6B5C]/60" />
+        <text id="s5-ghost" class="absolute left-[60px] top-[40px] text-[180px] font-black text-white/10 leading-[1]">BUY</text>
+        <!-- 前景装饰：放射光线 -->
+        <div id="s5-ray1" class="absolute left-[600px] top-[120px] w-[4px] h-[60px] rounded-full bg-[#FFC857]/70" />
+        <div id="s5-ray2" class="absolute left-[680px] top-[100px] w-[4px] h-[80px] rounded-full bg-white/60" />
+        <div id="s5-spark1" class="absolute left-[200px] top-[180px] w-[12px] h-[12px] rounded-full bg-[#FFC857]" />
+        <div id="s5-spark2" class="absolute right-[220px] top-[540px] w-[10px] h-[10px] rounded-full bg-white/80" />
+
+        <!-- 中景：圆形 logo（shot-match 锚点收束）-->
+        <div id="s5-logo" class="absolute left-[540px] top-[150px] w-[200px] h-[200px] rounded-full bg-white flex items-center justify-center overflow-hidden">
+          <icon id="s5-logo-icon" icon="gift" class="w-[100px] h-[100px] stroke-[#FF2442]" />
+        </div>
+
+        <!-- 中景：品牌 + CTA -->
+        <text id="s5-brand" class="absolute left-[0] right-[0] top-[380px] text-center text-[72px] font-black text-white leading-[1]">心动好物</text>
+        <div id="s5-cta" class="absolute left-[490px] top-[490px] px-[40px] py-[16px] rounded-full bg-[#FFC857]">
+          <text id="s5-cta-t" class="text-[32px] font-bold text-[#2B1810]">立即种草 →</text>
+        </div>
+        <text id="s5-slogan" class="absolute left-[0] right-[0] top-[600px] text-center text-[24px] text-white/80">发现你的同款好物</text>
+      </div>
+
+    </tl>
+  </div>
+
+  <script>
+    // ===== Scene 1 入场（0s）=====
+    ctx.fromTo('s1-badge', { opacity: 0, y: -16 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' });
+    ctx.fromTo('s1-kicker', { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.5, delay: 0.1, ease: 'power3.out' });
+    ctx.fromTo('s1-title', { opacity: 0, y: 40, scale: 0.94 }, { opacity: 1, y: 0, scale: 1, duration: 0.7, delay: 0.15, ease: 'spring.gentle' });
+    ctx.fromTo('s1-sub', { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.5, delay: 0.32, ease: 'power2.out' });
+    ctx.fromTo('s1-lens', { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.7, delay: 0.25, ease: 'back.out' });
+    ctx.fromTo('s1-product', { opacity: 0, scale: 0.5, rotation: -25 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.6, delay: 0.45, ease: 'back.out' });
+
+    // ===== Scene 2 入场（3.6s）=====
+    ctx.fromTo('s2-title', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, delay: 3.6, ease: 'power3.out' });
+    ctx.fromTo('s2-lens', { opacity: 0, scale: 0.55 }, { opacity: 1, scale: 1, duration: 0.65, delay: 3.7, ease: 'back.out' });
+    ctx.fromTo('s2-product', { opacity: 0, scale: 0.6, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.6, delay: 3.9, ease: 'spring.gentle' });
+    ctx.fromTo(['s2-tag1', 's2-tag2', 's2-tag3'], { opacity: 0, x: -30, scale: 0.8 }, { opacity: 1, x: 0, scale: 1, duration: 0.5, delay: 4.0, stagger: 0.1, ease: 'back.out' });
+
+    // ===== Scene 3 入场（7.25s）=====
+    ctx.fromTo('s3-num', { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.6, delay: 7.25, ease: 'back.out' });
+    ctx.fromTo('s3-kicker', { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.5, delay: 7.4, ease: 'power3.out' });
+    ctx.fromTo('s3-title', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, delay: 7.45, ease: 'spring.gentle' });
+    ctx.fromTo('s3-desc', { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5, delay: 7.6, ease: 'power2.out' });
+    ctx.fromTo('s3-lens', { opacity: 0, scale: 0.6, x: 40 }, { opacity: 1, scale: 1, x: 0, duration: 0.7, delay: 7.5, ease: 'power3.out' });
+
+    // ===== Scene 4 入场（11.15s）=====
+    ctx.fromTo('s4-lens', { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.65, delay: 11.15, ease: 'back.out' });
+    ctx.fromTo('s4-product', { opacity: 0, rotation: -18, scale: 0.8 }, { opacity: 1, rotation: 0, scale: 1, duration: 0.6, delay: 11.35, ease: 'spring.gentle' });
+    ctx.fromTo('s4-num', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, delay: 11.3, ease: 'power3.out' });
+    ctx.fromTo('s4-title', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, delay: 11.45, ease: 'spring.gentle' });
+    ctx.fromTo('s4-desc', { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5, delay: 11.6, ease: 'power2.out' });
+
+    // ===== Scene 5 入场（15.05s）=====
+    ctx.fromTo('s5-logo', { opacity: 0, scale: 0.4, rotation: -30 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.7, delay: 15.05, ease: 'back.out' });
+    ctx.fromTo('s5-brand', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, delay: 15.25, ease: 'spring.gentle' });
+    ctx.fromTo('s5-cta', { opacity: 0, y: 20, scale: 0.85 }, { opacity: 1, y: 0, scale: 1, duration: 0.55, delay: 15.4, ease: 'back.out' });
+    ctx.fromTo('s5-slogan', { opacity: 0 }, { opacity: 1, duration: 0.5, delay: 15.55, ease: 'power2.out' });
+
+    // ===== 持续呼吸 / 微运动（ctx.time 全局，只驱动装饰）=====
+    ctx.to('s1-spark1', { scale: 1.35, opacity: 0.5, duration: 1.6, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s1-spark2', { scale: 1.3, opacity: 0.9, duration: 2.0, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s1-ring', { scale: 1.04, opacity: 0.6, duration: 2.4, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s2-spark1', { scale: 1.3, duration: 1.4, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s2-glow', { scale: 1.08, opacity: 0.9, duration: 3.0, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s3-spark1', { scale: 1.3, duration: 1.8, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s4-glow', { scale: 1.06, duration: 2.8, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s4-spark1', { scale: 1.3, duration: 1.5, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s5-glow', { scale: 1.05, duration: 2.6, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s5-ray1', { opacity: 0.3, duration: 1.2, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s5-ray2', { opacity: 0.3, duration: 1.5, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+  </script>
+</opencat>

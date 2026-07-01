@@ -18,7 +18,7 @@ use crate::script::{
     text_align_from_name,
 };
 use crate::style::{
-    AlignItems, BorderStyle, BoxShadow, ColorToken, CssFilter, CssFilterKind, DropShadow,
+    AlignItems, BorderStyle, BoxShadow, ClipPath, ColorToken, CssFilter, CssFilterKind, DropShadow,
     FlexDirection, FontWeight, InsetShadow, JustifyContent, NodeStyle, ObjectFit, Position,
     TextAlign, Transform, color_token_from_script_string,
 };
@@ -103,6 +103,14 @@ fn css_filter_to_value(filter: &CssFilter) -> serde_json::Value {
     })
 }
 
+fn clip_path_from_value(value: &serde_json::Value) -> Option<Option<ClipPath>> {
+    let raw = value.as_str()?;
+    if raw.trim().eq_ignore_ascii_case("none") {
+        return Some(None);
+    }
+    ClipPath::parse_css(raw).map(Some)
+}
+
 impl MutationStore {
     fn entry(&mut self, id: &str) -> &mut NodeStyleMutations {
         self.styles.entry(id.to_string()).or_default()
@@ -167,6 +175,9 @@ impl MutationStore {
         if !style.css_filter.is_empty() {
             props.insert("filter".into(), css_filter_to_value(&style.css_filter));
         }
+        if let Some(clip_path) = style.clip_path {
+            props.insert("clipPath".into(), json!(clip_path.to_css_string()));
+        }
         add_f32!("backdropBlur", backdrop_blur_sigma);
 
         // colors
@@ -212,6 +223,9 @@ impl MutationStore {
                 "bottom" => mutations.inset_bottom.map(|f| json!(f)),
                 "filter" => (!mutations.css_filter.is_empty())
                     .then(|| css_filter_to_value(&mutations.css_filter)),
+                "clipPath" | "clip-path" => mutations
+                    .clip_path
+                    .map(|clip_path| json!(clip_path.to_css_string())),
                 "blur" | "blurSigma" | "brightness" | "contrast" | "grayscale" | "hueRotate"
                 | "invert" | "saturate" | "sepia" => {
                     mutations.css_filter.value(property).map(|f| json!(f))
@@ -398,6 +412,11 @@ impl MutationStore {
             "filter" => {
                 if let Some(filter) = css_filter_from_value(&value) {
                     entry.css_filter = filter;
+                }
+            }
+            "clipPath" | "clip-path" => {
+                if let Some(clip_path) = clip_path_from_value(&value) {
+                    entry.clip_path = clip_path;
                 }
             }
             "blur" | "blurSigma" | "brightness" | "contrast" | "grayscale" | "hueRotate"

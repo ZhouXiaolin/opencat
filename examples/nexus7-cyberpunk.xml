@@ -1,0 +1,418 @@
+<opencat width="1920" height="1080" fps="30" duration="30">
+  <fonts default="noto-sans">
+    <font id="noto-sans" family="Noto Sans SC" path="../assets/NotoSansSC-Regular.otf" role="sans" />
+    <font id="orbitron" family="Orbitron" path="../assets/Orbitron-Black.ttf" role="sans" />
+    <font id="jmono" family="JetBrains Mono" path="../assets/JetBrainsMono-Regular.ttf" role="mono" />
+    <font id="jmono-bold" family="JetBrains Mono" path="../assets/JetBrainsMono-Bold.ttf" role="mono" />
+    <font id="emoji" path="../assets/NotoColorEmoji.ttf" role="emoji" />
+  </fonts>
+
+  <!-- ===== 复用：赛博背景层（网格 + 扫描线 + 四角 HUD bracket） ===== -->
+  <template name="cyber-bg">
+    <div id="$id-grid" class="absolute inset-0 bg-[linear-gradient(rgba(0,255,136,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(0,255,136,0.06)_1px,transparent_1px)] bg-[length:64px_64px]"></div>
+    <div id="$id-scan" class="absolute inset-0 bg-[repeating-linear-gradient(0deg,transparent_0,transparent_3px,rgba(0,0,0,0.35)_3px,rgba(0,0,0,0.35)_4px)]"></div>
+    <div id="$id-c1" class="absolute left-[44px] top-[44px] w-[28px] h-[28px] border-l-[2px] border-t-[2px] border-[#00ff8880]"></div>
+    <div id="$id-c2" class="absolute right-[44px] top-[44px] w-[28px] h-[28px] border-r-[2px] border-t-[2px] border-[#00ff8880]"></div>
+    <div id="$id-c3" class="absolute left-[44px] bottom-[44px] w-[28px] h-[28px] border-l-[2px] border-b-[2px] border-[#00ff8880]"></div>
+    <div id="$id-c4" class="absolute right-[44px] bottom-[44px] w-[28px] h-[28px] border-r-[2px] border-b-[2px] border-[#00ff8880]"></div>
+  </template>
+
+  <!-- ===== 复用：面板四角强调色 bracket ===== -->
+  <template name="corners">
+    <div id="$id-tl" class="absolute left-[-1px] top-[-1px] w-[22px] h-[22px] border-l-[3px] border-t-[3px] border-[$color]"></div>
+    <div id="$id-tr" class="absolute right-[-1px] top-[-1px] w-[22px] h-[22px] border-r-[3px] border-t-[3px] border-[$color]"></div>
+    <div id="$id-bl" class="absolute left-[-1px] bottom-[-1px] w-[22px] h-[22px] border-l-[3px] border-b-[3px] border-[$color]"></div>
+    <div id="$id-br" class="absolute right-[-1px] bottom-[-1px] w-[22px] h-[22px] border-r-[3px] border-b-[3px] border-[$color]"></div>
+  </template>
+
+  <div id="root" class="relative w-[1920px] h-[1080px] bg-[#0a0a0f] overflow-hidden font-[noto-sans]">
+    <tl id="main-tl" class="absolute inset-0">
+
+      <!-- ============ Scene 1 · BOOT 0–3.6s · 终端开机 ============ -->
+      <div id="scene1" class="relative w-full h-full bg-[#0a0a0f] overflow-hidden" duration="3.6">
+        <cyber-bg id="s1" />
+        <div id="s1-glow" class="absolute left-[510px] top-[90px] w-[900px] h-[900px] bg-[radial-gradient(circle,rgba(0,255,136,0.14),transparent_70%)]"></div>
+        <text id="s1-ghost" class="absolute left-[80px] top-[120px] text-[440px] font-[orbitron] font-black text-[#00ff88] opacity-[0.06] leading-[0.8]">N7</text>
+
+        <text id="s1-meta" class="absolute left-[120px] top-[120px] font-[jmono] text-[24px] tracking-[4px] text-[#6b7280]">NEXUS // SYS.BOOT // 2089.07.01</text>
+        <text id="s1-meta2" class="absolute right-[120px] top-[120px] font-[jmono] text-[24px] tracking-[4px] text-[#6b7280]">SECURE LINK · ENCRYPTED</text>
+
+        <div id="s1-term" class="absolute left-[120px] top-[320px] flex flex-col gap-[20px] font-[jmono]">
+          <text id="s1-log1" class="text-[34px] tracking-[2px] text-[#00ff88]">&gt; INITIALIZING NEURAL CORE...</text>
+          <text id="s1-log2" class="text-[34px] tracking-[2px] text-[#00ff88]">&gt; LOADING SYNAPSE MATRIX...</text>
+          <text id="s1-log3" class="text-[34px] tracking-[2px] text-[#00ff88]">&gt; 7.3B PARAMETERS ONLINE</text>
+          <text id="s1-log4" class="text-[34px] tracking-[2px] text-[#00d4ff]">&gt; NEXUS-7 READY_</text>
+        </div>
+
+        <div id="s1-prog-track" class="absolute left-[120px] top-[840px] w-[1000px] h-[14px] border-[1px] border-[#2a2a3a] bg-[#12121a]">
+          <div id="s1-prog-fill" class="h-full bg-[#00ff88] shadow-[0_0_12px_#00ff88]"></div>
+        </div>
+        <text id="s1-pct" class="absolute right-[120px] top-[800px] font-[jmono] text-[28px] text-[#00ff88]">000%</text>
+        <div id="s1-cursor" class="absolute left-[120px] top-[920px] w-[18px] h-[34px] bg-[#00ff88] shadow-[0_0_10px_#00ff88]"></div>
+        <text id="s1-foot" class="absolute left-[160px] top-[924px] font-[jmono] text-[26px] tracking-[2px] text-[#6b7280]">awaiting authorization</text>
+      </div>
+
+      <transition from="scene1" to="scene2" effect="fade" duration="0.4" timing="ease-in-out" />
+
+      <!-- ============ Scene 2 · HERO SLAM 4.0–8.2s · 主张 ============ -->
+      <div id="scene2" class="relative w-full h-full bg-[#0a0a0f] overflow-hidden" duration="4.2">
+        <cyber-bg id="s2" />
+        <div id="s2-glow1" class="absolute left-[-220px] top-[-220px] w-[820px] h-[820px] bg-[radial-gradient(circle,rgba(0,255,136,0.16),transparent_70%)]"></div>
+        <div id="s2-glow2" class="absolute right-[-220px] bottom-[-220px] w-[820px] h-[820px] bg-[radial-gradient(circle,rgba(255,0,255,0.13),transparent_70%)]"></div>
+        <text id="s2-ghost" class="absolute left-[40px] top-[-70px] text-[560px] font-[orbitron] font-black text-[#ff00ff] opacity-[0.07] leading-[0.8]">AI</text>
+
+        <div id="s2-kicker" class="absolute left-[120px] top-[180px] px-[20px] py-[8px] border-[1px] border-[#00ff88] bg-[#00ff880f]">
+          <text id="s2-kicker-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#00ff88] uppercase">// NEXUS-7 NEURAL ENGINE</text>
+        </div>
+
+        <text id="s2-hero" class="absolute left-[120px] top-[280px] font-[orbitron] font-black text-[150px] text-[#e0e0e0] uppercase leading-[0.9] tracking-[-2px] [text-shadow:-3px_0_#ff00ff,3px_0_#00d4ff,0_0_32px_#00ff8870]">RESET&#10;INTELLIGENCE</text>
+        <text id="s2-zh" class="absolute left-[124px] top-[640px] font-[noto-sans] font-black text-[64px] text-[#00ff88] tracking-[12px] [text-shadow:0_0_24px_#00ff8890]">重塑智能边界</text>
+        <text id="s2-sub" class="absolute left-[124px] top-[750px] font-[jmono] text-[30px] tracking-[2px] text-[#6b7280]">新一代神经引擎 · 7.3B 参数 · 0.8ms 推理延迟</text>
+
+        <div id="s2-ver" class="absolute right-[120px] top-[300px] flex flex-col items-end gap-[12px]">
+          <text id="s2-ver-t" class="font-[jmono] text-[22px] tracking-[4px] text-[#00d4ff]">VER 7.0.0</text>
+          <text id="s2-ver-b" class="font-[jmono] text-[18px] tracking-[3px] text-[#6b7280]">BUILD // N7-2089</text>
+          <div id="s2-ver-bar" class="w-[180px] h-[3px] bg-[#00d4ff] shadow-[0_0_8px_#00d4ff]"></div>
+        </div>
+
+        <text id="s2-meta" class="absolute left-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// SCENE 02 — MANIFESTO</text>
+        <text id="s2-meta2" class="absolute right-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">REC ● 00:04.00</text>
+      </div>
+
+      <transition from="scene2" to="scene3" effect="GlitchDisplace" duration="0.5" timing="ease-in-out" />
+
+      <!-- ============ Scene 3 · CAPABILITY MATRIX 8.7–13.1s · 三能力 ============ -->
+      <div id="scene3" class="relative w-full h-full bg-[#0a0a0f] overflow-hidden" duration="4.4">
+        <cyber-bg id="s3-bg" />
+        <text id="s3-ghost" class="absolute right-[60px] top-[-50px] text-[380px] font-[orbitron] font-black text-[#00d4ff] opacity-[0.06] leading-[0.8]">03</text>
+
+        <div id="s3-kicker" class="absolute left-[120px] top-[140px] flex items-center gap-[16px]">
+          <div id="s3-kick-line" class="w-[60px] h-[2px] bg-[#00ff88] shadow-[0_0_8px_#00ff88]"></div>
+          <text id="s3-kick-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#00ff88] uppercase">// CORE CAPABILITIES</text>
+        </div>
+        <text id="s3-title" class="absolute left-[120px] top-[190px] font-[noto-sans] font-black text-[88px] text-[#e0e0e0] leading-[1] [text-shadow:0_0_20px_#00ff8840]">三重神经能力</text>
+        <text id="s3-title-en" class="absolute left-[124px] top-[300px] font-[jmono] text-[26px] tracking-[4px] text-[#6b7280] uppercase">/ multimodal · realtime · autonomous</text>
+
+        <!-- card 01 -->
+        <div id="s3-c1" class="absolute left-[120px] top-[420px] w-[500px] h-[500px] border-[2px] border-[#2a2a3a] bg-[#12121a] flex flex-col p-[40px]">
+          <corners id="s3-c1-corners" color="#00ff88" />
+          <text id="s3-c1-num" class="font-[jmono] text-[20px] tracking-[4px] text-[#6b7280]">01 / 03</text>
+          <div id="s3-c1-icon" class="mt-[24px] w-[80px] h-[80px] border-[2px] border-[#00ff88] flex items-center justify-center shadow-[0_0_16px_#00ff8860]">
+            <icon id="s3-c1-ic" icon="brain" class="w-[44px] h-[44px] stroke-[#00ff88] stroke-[1.5]" />
+          </div>
+          <text id="s3-c1-title" class="mt-[32px] font-[noto-sans] font-black text-[44px] text-[#e0e0e0]">多模态理解</text>
+          <text id="s3-c1-desc" class="mt-[16px] font-[jmono] text-[22px] leading-[1.5] text-[#6b7280]">文本 · 图像 · 语音 · 视频 统一编码</text>
+          <text id="s3-c1-stat" class="mt-auto font-[orbitron] font-black text-[56px] text-[#00ff88] [text-shadow:0_0_16px_#00ff8880]">128K</text>
+          <text id="s3-c1-stat-l" class="font-[jmono] text-[18px] tracking-[3px] text-[#6b7280] uppercase">CONTEXT WINDOW</text>
+          <div id="s3-c1-active" class="absolute right-[40px] top-[40px] flex items-center gap-[8px]">
+            <div id="s3-c1-dot" class="w-[10px] h-[10px] bg-[#00ff88] shadow-[0_0_8px_#00ff88]"></div>
+            <text id="s3-c1-active-t" class="font-[jmono] text-[18px] tracking-[2px] text-[#00ff88]">ACTIVE</text>
+          </div>
+        </div>
+
+        <!-- card 02 -->
+        <div id="s3-c2" class="absolute left-[710px] top-[420px] w-[500px] h-[500px] border-[2px] border-[#2a2a3a] bg-[#12121a] flex flex-col p-[40px]">
+          <corners id="s3-c2-corners" color="#ff00ff" />
+          <text id="s3-c2-num" class="font-[jmono] text-[20px] tracking-[4px] text-[#6b7280]">02 / 03</text>
+          <div id="s3-c2-icon" class="mt-[24px] w-[80px] h-[80px] border-[2px] border-[#ff00ff] flex items-center justify-center shadow-[0_0_16px_#ff00ff60]">
+            <icon id="s3-c2-ic" icon="zap" class="w-[44px] h-[44px] stroke-[#ff00ff] stroke-[1.5]" />
+          </div>
+          <text id="s3-c2-title" class="mt-[32px] font-[noto-sans] font-black text-[44px] text-[#e0e0e0]">实时推理</text>
+          <text id="s3-c2-desc" class="mt-[16px] font-[jmono] text-[22px] leading-[1.5] text-[#6b7280]">稀疏激活 · 动态路由 · 流式输出</text>
+          <text id="s3-c2-stat" class="mt-auto font-[orbitron] font-black text-[56px] text-[#ff00ff] [text-shadow:0_0_16px_#ff00ff80]">0.8ms</text>
+          <text id="s3-c2-stat-l" class="font-[jmono] text-[18px] tracking-[3px] text-[#6b7280] uppercase">TOKEN LATENCY</text>
+          <div id="s3-c2-active" class="absolute right-[40px] top-[40px] flex items-center gap-[8px]">
+            <div id="s3-c2-dot" class="w-[10px] h-[10px] bg-[#ff00ff] shadow-[0_0_8px_#ff00ff]"></div>
+            <text id="s3-c2-active-t" class="font-[jmono] text-[18px] tracking-[2px] text-[#ff00ff]">ACTIVE</text>
+          </div>
+        </div>
+
+        <!-- card 03 -->
+        <div id="s3-c3" class="absolute left-[1300px] top-[420px] w-[500px] h-[500px] border-[2px] border-[#2a2a3a] bg-[#12121a] flex flex-col p-[40px]">
+          <corners id="s3-c3-corners" color="#00d4ff" />
+          <text id="s3-c3-num" class="font-[jmono] text-[20px] tracking-[4px] text-[#6b7280]">03 / 03</text>
+          <div id="s3-c3-icon" class="mt-[24px] w-[80px] h-[80px] border-[2px] border-[#00d4ff] flex items-center justify-center shadow-[0_0_16px_#00d4ff60]">
+            <icon id="s3-c3-ic" icon="git-branch" class="w-[44px] h-[44px] stroke-[#00d4ff] stroke-[1.5]" />
+          </div>
+          <text id="s3-c3-title" class="mt-[32px] font-[noto-sans] font-black text-[44px] text-[#e0e0e0]">自主决策</text>
+          <text id="s3-c3-desc" class="mt-[16px] font-[jmono] text-[22px] leading-[1.5] text-[#6b7280]">多步规划 · 工具调用 · 自我校验</text>
+          <text id="s3-c3-stat" class="mt-auto font-[orbitron] font-black text-[56px] text-[#00d4ff] [text-shadow:0_0_16px_#00d4ff80]">99.4%</text>
+          <text id="s3-c3-stat-l" class="font-[jmono] text-[18px] tracking-[3px] text-[#6b7280] uppercase">TASK ACCURACY</text>
+          <div id="s3-c3-active" class="absolute right-[40px] top-[40px] flex items-center gap-[8px]">
+            <div id="s3-c3-dot" class="w-[10px] h-[10px] bg-[#00d4ff] shadow-[0_0_8px_#00d4ff]"></div>
+            <text id="s3-c3-active-t" class="font-[jmono] text-[18px] tracking-[2px] text-[#00d4ff]">ACTIVE</text>
+          </div>
+        </div>
+
+        <text id="s3-meta" class="absolute left-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// SCENE 03 — CAPABILITIES</text>
+      </div>
+
+      <transition from="scene3" to="scene4" effect="slide" direction="from_right" duration="0.4" timing="ease-out" />
+
+      <!-- ============ Scene 4 · DATA PEAK 13.5–17.9s · 数据峰值 ============ -->
+      <div id="scene4" class="relative w-full h-full bg-[#0a0a0f] overflow-hidden" duration="4.4">
+        <cyber-bg id="s4" />
+        <text id="s4-ghost" class="absolute left-[60px] top-[-50px] text-[380px] font-[orbitron] font-black text-[#00ff88] opacity-[0.06] leading-[0.8]">04</text>
+
+        <div id="s4-kicker" class="absolute left-[120px] top-[140px] flex items-center gap-[16px]">
+          <div id="s4-kick-line" class="w-[60px] h-[2px] bg-[#ff00ff] shadow-[0_0_8px_#ff00ff]"></div>
+          <text id="s4-kick-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#ff00ff] uppercase">// BENCHMARK // PERFORMANCE</text>
+        </div>
+        <text id="s4-title" class="absolute left-[120px] top-[190px] font-[noto-sans] font-black text-[88px] text-[#e0e0e0] leading-[1] [text-shadow:0_0_20px_#ff00ff40]">数据即重量</text>
+        <text id="s4-title-en" class="absolute left-[124px] top-[300px] font-[jmono] text-[26px] tracking-[4px] text-[#6b7280] uppercase">/ measured · not marketed</text>
+
+        <div id="s4-stats" class="absolute left-[120px] top-[440px] right-[120px] flex justify-between gap-[60px]">
+          <div id="s4-st1" class="flex flex-col w-[520px]">
+            <text id="s4-st1-num" class="font-[orbitron] font-black text-[180px] text-[#00ff88] leading-[1] [text-shadow:0_0_32px_#00ff8880]">7.3B</text>
+            <div id="s4-st1-bar-track" class="mt-[28px] w-full h-[6px] bg-[#1c1c2e]">
+              <div id="s4-st1-bar" class="h-full bg-[#00ff88] shadow-[0_0_10px_#00ff88]"></div>
+            </div>
+            <text id="s4-st1-label" class="mt-[20px] font-[jmono] text-[26px] tracking-[3px] text-[#e0e0e0] uppercase">PARAMETERS</text>
+            <text id="s4-st1-sub" class="mt-[8px] font-[jmono] text-[20px] text-[#6b7280]">激活参数 · 稀疏路由</text>
+          </div>
+          <div id="s4-st2" class="flex flex-col w-[520px]">
+            <text id="s4-st2-num" class="font-[orbitron] font-black text-[180px] text-[#ff00ff] leading-[1] [text-shadow:0_0_32px_#ff00ff80]">0.8ms</text>
+            <div id="s4-st2-bar-track" class="mt-[28px] w-full h-[6px] bg-[#1c1c2e]">
+              <div id="s4-st2-bar" class="h-full bg-[#ff00ff] shadow-[0_0_10px_#ff00ff]"></div>
+            </div>
+            <text id="s4-st2-label" class="mt-[20px] font-[jmono] text-[26px] tracking-[3px] text-[#e0e0e0] uppercase">TOKEN LATENCY</text>
+            <text id="s4-st2-sub" class="mt-[8px] font-[jmono] text-[20px] text-[#6b7280]">首 token · 端到端</text>
+          </div>
+          <div id="s4-st3" class="flex flex-col w-[520px]">
+            <text id="s4-st3-num" class="font-[orbitron] font-black text-[180px] text-[#00d4ff] leading-[1] [text-shadow:0_0_32px_#00d4ff80]">99.4%</text>
+            <div id="s4-st3-bar-track" class="mt-[28px] w-full h-[6px] bg-[#1c1c2e]">
+              <div id="s4-st3-bar" class="h-full bg-[#00d4ff] shadow-[0_0_10px_#00d4ff]"></div>
+            </div>
+            <text id="s4-st3-label" class="mt-[20px] font-[jmono] text-[26px] tracking-[3px] text-[#e0e0e0] uppercase">TASK ACCURACY</text>
+            <text id="s4-st3-sub" class="mt-[8px] font-[jmono] text-[20px] text-[#6b7280]">MMLU · 综合 benchmark</text>
+          </div>
+        </div>
+
+        <text id="s4-meta" class="absolute left-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// SCENE 04 — TELEMETRY</text>
+      </div>
+
+      <transition from="scene4" to="scene5" effect="wipe" direction="from_left" duration="0.4" timing="ease-in-out" />
+
+      <!-- ============ Scene 5 · NEURAL FABRIC 18.3–23.3s · 神经织网 canvas ============ -->
+      <div id="scene5" class="relative w-full h-full bg-[#0a0a0f] overflow-hidden" duration="5.0">
+        <cyber-bg id="s5" />
+        <canvas id="s5-net" class="absolute inset-0 w-full h-full" />
+
+        <div id="s5-kicker" class="absolute left-[120px] top-[140px] flex items-center gap-[16px]">
+          <div id="s5-kick-line" class="w-[60px] h-[2px] bg-[#00d4ff] shadow-[0_0_8px_#00d4ff]"></div>
+          <text id="s5-kick-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#00d4ff] uppercase">// NEURAL FABRIC // LIVE</text>
+        </div>
+        <text id="s5-title" class="absolute left-[120px] top-[190px] font-[noto-sans] font-black text-[88px] text-[#e0e0e0] leading-[1] [text-shadow:0_0_20px_#00d4ff40]">神经织网</text>
+        <text id="s5-title-en" class="absolute left-[124px] top-[300px] font-[jmono] text-[26px] tracking-[4px] text-[#6b7280] uppercase">/ 7.3B synapses · streaming</text>
+
+        <div id="s5-hud" class="absolute right-[120px] top-[440px] w-[460px] border-[2px] border-[#00ff8860] bg-[#0a0a0f99] p-[32px] flex flex-col gap-[22px] shadow-[0_0_30px_#00ff8830]">
+          <corners id="s5-hud" color="#00ff88" />
+          <text id="s5-hud-t" class="font-[jmono] text-[22px] tracking-[4px] text-[#00ff88] uppercase">// LIVE METRICS</text>
+          <div id="s5-hud-row1" class="flex justify-between items-center">
+            <text id="s5-hud-l1" class="font-[jmono] text-[22px] text-[#6b7280]">THROUGHPUT</text>
+            <text id="s5-hud-v1" class="font-[orbitron] font-black text-[34px] text-[#00ff88]">1.2M/s</text>
+          </div>
+          <div id="s5-hud-row2" class="flex justify-between items-center">
+            <text id="s5-hud-l2" class="font-[jmono] text-[22px] text-[#6b7280]">ACTIVE NODES</text>
+            <text id="s5-hud-v2" class="font-[orbitron] font-black text-[34px] text-[#00d4ff]">7,312</text>
+          </div>
+          <div id="s5-hud-row3" class="flex justify-between items-center">
+            <text id="s5-hud-l3" class="font-[jmono] text-[22px] text-[#6b7280]">COHERENCE</text>
+            <text id="s5-hud-v3" class="font-[orbitron] font-black text-[34px] text-[#ff00ff]">98.7%</text>
+          </div>
+          <div id="s5-hud-spark" class="w-full h-[40px] flex items-end gap-[4px]">
+            <div id="s5-sp1" class="flex-1 bg-[#00ff88] h-[40%]"></div>
+            <div id="s5-sp2" class="flex-1 bg-[#00ff88] h-[70%]"></div>
+            <div id="s5-sp3" class="flex-1 bg-[#00ff88] h-[55%]"></div>
+            <div id="s5-sp4" class="flex-1 bg-[#00ff88] h-[85%]"></div>
+            <div id="s5-sp5" class="flex-1 bg-[#00ff88] h-[60%]"></div>
+            <div id="s5-sp6" class="flex-1 bg-[#00ff88] h-[95%]"></div>
+            <div id="s5-sp7" class="flex-1 bg-[#00ff88] h-[75%]"></div>
+            <div id="s5-sp8" class="flex-1 bg-[#00ff88] h-[50%]"></div>
+          </div>
+        </div>
+
+        <text id="s5-meta" class="absolute left-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// SCENE 05 — FABRIC</text>
+        <text id="s5-coord" class="absolute right-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">X:0960 Y:0540 · Z:N7</text>
+      </div>
+
+      <transition from="scene5" to="scene6" effect="light_leak" duration="0.5" seed="7" hueShift="60" maskScale="0.6" />
+
+      <!-- ============ Scene 6 · CTA SETTLE 23.8–30.0s · 召唤 ============ -->
+      <div id="scene6" class="relative w-full h-full bg-[#0a0a0f] overflow-hidden" duration="6.2">
+        <cyber-bg id="s6" />
+        <div id="s6-glow" class="absolute left-[510px] top-[120px] w-[900px] h-[840px] bg-[radial-gradient(circle,rgba(0,255,136,0.18),transparent_70%)]"></div>
+        <text id="s6-ghost" class="absolute left-[80px] top-[180px] text-[520px] font-[orbitron] font-black text-[#00ff88] opacity-[0.06] leading-[0.8]">N7</text>
+
+        <div id="s6-kicker" class="absolute left-[120px] top-[180px] flex items-center gap-[16px]">
+          <div id="s6-kick-line" class="w-[60px] h-[2px] bg-[#00ff88] shadow-[0_0_8px_#00ff88]"></div>
+          <text id="s6-kick-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#00ff88] uppercase">// ACCESS GRANTED</text>
+        </div>
+
+        <text id="s6-hero" class="absolute left-[120px] top-[280px] font-[orbitron] font-black text-[140px] text-[#e0e0e0] uppercase leading-[0.9] tracking-[-2px] [text-shadow:-3px_0_#ff00ff,3px_0_#00d4ff,0_0_32px_#00ff8870]">ENTER&#10;THE NEXUS</text>
+        <text id="s6-zh" class="absolute left-[124px] top-[660px] font-[noto-sans] font-black text-[52px] text-[#00ff88] tracking-[10px] [text-shadow:0_0_24px_#00ff8890]">NEXUS-7 神经引擎 · 现已上线</text>
+
+        <div id="s6-cta" class="absolute left-[124px] top-[820px] px-[56px] py-[26px] bg-[#00ff88] flex items-center gap-[20px] shadow-[0_0_20px_#00ff88,0_0_50px_#00ff8860]">
+          <corners id="s6-cta" color="#0a0a0f" />
+          <text id="s6-cta-t" class="font-[orbitron] font-black text-[40px] text-[#0a0a0f] uppercase tracking-[3px]">ACTIVATE</text>
+          <icon id="s6-cta-ic" icon="arrow-right" class="w-[36px] h-[36px] stroke-[#0a0a0f] stroke-[2.5]" />
+        </div>
+
+        <div id="s6-url-wrap" class="absolute left-[124px] top-[970px] flex items-center gap-[10px]">
+          <text id="s6-url" class="font-[jmono] text-[28px] tracking-[2px] text-[#6b7280]">&gt; nexus.ai // activate</text>
+          <div id="s6-cursor" class="w-[16px] h-[30px] bg-[#00ff88] shadow-[0_0_10px_#00ff88]"></div>
+        </div>
+
+        <text id="s6-meta" class="absolute right-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// END TRANSMISSION</text>
+        <text id="s6-meta2" class="absolute right-[120px] top-[180px] font-[jmono] text-[22px] tracking-[4px] text-[#00d4ff]">N7 · 2089</text>
+      </div>
+
+    </tl>
+  </div>
+
+  <script>
+    // ===== Scene 1 · BOOT (start 0.0s) — 终端日志 scramble + 进度条 =====
+    ctx.fromTo('s1-glow', {opacity: 0, scale: 0.6}, {opacity: 1, scale: 1, duration: 1.2, delay: 0.1, ease: 'power2.out'});
+    ctx.fromTo('s1-ghost', {opacity: 0}, {opacity: 0.06, duration: 1.0, delay: 0.2, ease: 'power2.out'});
+    ctx.fromTo('s1-meta', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.5, delay: 0.1, ease: 'power3.out'});
+    ctx.fromTo('s1-meta2', {opacity: 0, x: 20}, {opacity: 1, x: 0, duration: 0.5, delay: 0.15, ease: 'power3.out'});
+    ctx.to('s1-log1', {scrambleText: {text: '> INITIALIZING NEURAL CORE...', chars: 'upperCase', speed: 16, revealDelay: 0.1}, duration: 0.9, delay: 0.4, ease: 'linear'});
+    ctx.to('s1-log2', {scrambleText: {text: '> LOADING SYNAPSE MATRIX...', chars: 'upperCase', speed: 16, revealDelay: 0.1}, duration: 0.9, delay: 0.85, ease: 'linear'});
+    ctx.to('s1-log3', {scrambleText: {text: '> 7.3B PARAMETERS ONLINE', chars: 'upperCase', speed: 16, revealDelay: 0.1}, duration: 0.9, delay: 1.3, ease: 'linear'});
+    ctx.to('s1-log4', {scrambleText: {text: '> NEXUS-7 READY_', chars: 'upperCase', speed: 16, revealDelay: 0.1}, duration: 0.8, delay: 1.75, ease: 'linear'});
+    ctx.fromTo('s1-prog-track', {opacity: 0, y: 20}, {opacity: 1, y: 0, duration: 0.5, delay: 0.4, ease: 'power2.out'});
+    ctx.fromTo('s1-prog-fill', {width: 0}, {width: 1000, duration: 2.8, delay: 0.4, ease: 'power2.inOut'});
+    ctx.fromTo('s1-pct', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 0.5, ease: 'power2.out'});
+    ctx.to('s1-pct', {text: '100%', duration: 2.8, delay: 0.4, ease: 'linear'});
+    ctx.fromTo('s1-cursor', {opacity: 0}, {opacity: 1, duration: 0.3, delay: 1.9, ease: 'power2.out'});
+    ctx.to('s1-cursor', {opacity: 0, duration: 0.18, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 2.2});
+    ctx.fromTo('s1-foot', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 2.0, ease: 'power2.out'});
+    ctx.to('s1-glow', {scale: 1.08, duration: 2.4, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 1.4});
+
+    // ===== Scene 2 · HERO SLAM (start 4.0s) — 主张砸入 + 色差抖动 =====
+    ctx.fromTo('s2-ghost', {opacity: 0, x: -40}, {opacity: 0.07, x: 0, duration: 1.0, delay: 4.1, ease: 'power2.out'});
+    ctx.fromTo('s2-glow1', {opacity: 0}, {opacity: 1, duration: 1.2, delay: 4.0, ease: 'power2.out'});
+    ctx.fromTo('s2-glow2', {opacity: 0}, {opacity: 1, duration: 1.2, delay: 4.1, ease: 'power2.out'});
+    ctx.fromTo('s2-kicker', {opacity: 0, x: -24}, {opacity: 1, x: 0, duration: 0.4, delay: 4.2, ease: 'power3.out'});
+    ctx.fromTo('s2-hero', {opacity: 0, scale: 1.18, skewX: 8, y: -20}, {opacity: 1, scale: 1, skewX: 0, y: 0, duration: 0.7, delay: 4.35, ease: 'back.out'});
+    ctx.fromTo('s2-zh', {opacity: 0, y: 24}, {opacity: 1, y: 0, duration: 0.5, delay: 4.75, ease: 'power3.out'});
+    ctx.fromTo('s2-sub', {opacity: 0, y: 18}, {opacity: 1, y: 0, duration: 0.5, delay: 4.9, ease: 'power3.out'});
+    ctx.fromTo('s2-ver', {opacity: 0, x: 24}, {opacity: 1, x: 0, duration: 0.5, delay: 4.5, ease: 'power3.out'});
+    ctx.fromTo('s2-meta', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 5.0, ease: 'power2.out'});
+    ctx.fromTo('s2-meta2', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 5.1, ease: 'power2.out'});
+    // hero 入场后故障抖动（机械 steps）
+    ctx.to('s2-hero', {skewX: 4, x: -4, duration: 0.07, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 5.25});
+    ctx.to('s2-ghost', {x: 30, duration: 6, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 5.0});
+
+    // ===== Scene 3 · CAPABILITY MATRIX (start 8.7s) — 三卡校准上线 =====
+    ctx.fromTo('s3-ghost', {opacity: 0}, {opacity: 0.06, duration: 1.0, delay: 8.8, ease: 'power2.out'});
+    ctx.fromTo('s3-kicker', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.4, delay: 8.75, ease: 'power3.out'});
+    ctx.fromTo('s3-title', {opacity: 0, y: 28}, {opacity: 1, y: 0, duration: 0.5, delay: 8.85, ease: 'power3.out'});
+    ctx.fromTo('s3-title-en', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 9.0, ease: 'power2.out'});
+    ctx.fromTo(['s3-c1', 's3-c2', 's3-c3'], {opacity: 0, y: 60, skewX: 6}, {opacity: 1, y: 0, skewX: 0, duration: 0.55, stagger: 0.12, delay: 9.05, ease: 'back.out'});
+    ctx.fromTo(['s3-c1-icon', 's3-c2-icon', 's3-c3-icon'], {opacity: 0, scale: 0.3}, {opacity: 1, scale: 1, duration: 0.45, stagger: 0.12, delay: 9.4, ease: 'back.out'});
+    ctx.fromTo(['s3-c1-stat', 's3-c2-stat', 's3-c3-stat'], {opacity: 0, y: 14}, {opacity: 1, y: 0, duration: 0.5, stagger: 0.12, delay: 9.65, ease: 'power3.out'});
+    ctx.fromTo('s3-meta', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 9.8, ease: 'power2.out'});
+    // ACTIVE 状态点闪烁
+    ctx.to(['s3-c1-dot', 's3-c2-dot', 's3-c3-dot'], {opacity: 0.2, duration: 0.5, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 9.7, stagger: 0.15});
+    ctx.to('s3-ghost', {y: 16, duration: 7, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 9.0});
+
+    // ===== Scene 4 · DATA PEAK (start 13.5s) — 数字 scramble + 条形生长 =====
+    ctx.fromTo('s4-ghost', {opacity: 0}, {opacity: 0.06, duration: 1.0, delay: 13.6, ease: 'power2.out'});
+    ctx.fromTo('s4-kicker', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.4, delay: 13.55, ease: 'power3.out'});
+    ctx.fromTo('s4-title', {opacity: 0, y: 28}, {opacity: 1, y: 0, duration: 0.5, delay: 13.65, ease: 'power3.out'});
+    ctx.fromTo('s4-title-en', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 13.8, ease: 'power2.out'});
+    ctx.fromTo(['s4-st1', 's4-st2', 's4-st3'], {opacity: 0, y: 40}, {opacity: 1, y: 0, duration: 0.5, stagger: 0.15, delay: 13.9, ease: 'power3.out'});
+    ctx.to('s4-st1-num', {scrambleText: {text: '7.3B', chars: 'numbers', speed: 22, revealDelay: 0.1}, duration: 1.4, delay: 14.2, ease: 'linear'});
+    ctx.to('s4-st2-num', {scrambleText: {text: '0.8ms', chars: 'numbers', speed: 22, revealDelay: 0.1}, duration: 1.4, delay: 14.35, ease: 'linear'});
+    ctx.to('s4-st3-num', {scrambleText: {text: '99.4%', chars: 'numbers', speed: 22, revealDelay: 0.1}, duration: 1.4, delay: 14.5, ease: 'linear'});
+    ctx.fromTo('s4-st1-bar', {width: 0}, {width: 460, duration: 1.4, delay: 14.2, ease: 'power2.inOut'});
+    ctx.fromTo('s4-st2-bar', {width: 0}, {width: 320, duration: 1.4, delay: 14.35, ease: 'power2.inOut'});
+    ctx.fromTo('s4-st3-bar', {width: 0}, {width: 480, duration: 1.4, delay: 14.5, ease: 'power2.inOut'});
+    ctx.fromTo(['s4-st1-label', 's4-st2-label', 's4-st3-label'], {opacity: 0, y: 12}, {opacity: 1, y: 0, duration: 0.4, stagger: 0.1, delay: 14.9, ease: 'power2.out'});
+    ctx.fromTo('s4-meta', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 15.1, ease: 'power2.out'});
+    ctx.to('s4-ghost', {x: -22, duration: 6.5, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 14.0});
+
+    // ===== Scene 5 · NEURAL FABRIC (start 18.3s) — HUD + 神经织网 canvas =====
+    ctx.fromTo('s5-kicker', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.4, delay: 18.4, ease: 'power3.out'});
+    ctx.fromTo('s5-title', {opacity: 0, y: 28}, {opacity: 1, y: 0, duration: 0.5, delay: 18.5, ease: 'power3.out'});
+    ctx.fromTo('s5-title-en', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 18.65, ease: 'power2.out'});
+    ctx.fromTo('s5-hud', {opacity: 0, x: 40}, {opacity: 1, x: 0, duration: 0.6, delay: 18.9, ease: 'power3.out'});
+    ctx.to(['s5-hud-v1', 's5-hud-v2', 's5-hud-v3'], {opacity: 0.45, duration: 0.8, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 19.3, stagger: 0.2});
+    ctx.to(['s5-sp1', 's5-sp2', 's5-sp3', 's5-sp4', 's5-sp5', 's5-sp6', 's5-sp7', 's5-sp8'], {scaleY: 0.4, duration: 0.6, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 19.2, stagger: 0.06});
+    ctx.fromTo('s5-meta', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 19.0, ease: 'power2.out'});
+    ctx.fromTo('s5-coord', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 19.1, ease: 'power2.out'});
+
+    // ===== Scene 6 · CTA SETTLE (start 23.8s) — 收束 + 呼吸 =====
+    ctx.fromTo('s6-glow', {opacity: 0, scale: 0.7}, {opacity: 1, scale: 1, duration: 1.2, delay: 23.9, ease: 'power2.out'});
+    ctx.fromTo('s6-ghost', {opacity: 0}, {opacity: 0.06, duration: 1.0, delay: 23.9, ease: 'power2.out'});
+    ctx.fromTo('s6-kicker', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.4, delay: 24.0, ease: 'power3.out'});
+    ctx.fromTo('s6-hero', {opacity: 0, scale: 1.12, y: -16}, {opacity: 1, scale: 1, y: 0, duration: 0.7, delay: 24.15, ease: 'back.out'});
+    ctx.fromTo('s6-zh', {opacity: 0, y: 22}, {opacity: 1, y: 0, duration: 0.5, delay: 24.6, ease: 'power3.out'});
+    ctx.fromTo('s6-cta', {opacity: 0, y: 26, scale: 0.85}, {opacity: 1, y: 0, scale: 1, duration: 0.55, delay: 24.85, ease: 'back.out'});
+    ctx.fromTo('s6-url', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 25.1, ease: 'power2.out'});
+    ctx.fromTo('s6-cursor', {opacity: 0}, {opacity: 1, duration: 0.3, delay: 25.2, ease: 'power2.out'});
+    ctx.fromTo(['s6-meta', 's6-meta2'], {opacity: 0}, {opacity: 1, duration: 0.5, delay: 25.2, ease: 'power2.out'});
+    // CTA 呼吸 + 光标闪烁 + 标题偶发故障
+    ctx.to('s6-cta', {scale: 1.04, duration: 1.0, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 25.6});
+    ctx.to('s6-cursor', {opacity: 0, duration: 0.2, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 25.5});
+    ctx.to('s6-hero', {skewX: 3, x: -3, duration: 0.08, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 25.2});
+    ctx.to('s6-glow', {scale: 1.06, duration: 2.6, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 25.2});
+
+    // ===== 神经织网 canvas — 确定性时间函数，每帧重绘 =====
+    var CK = ctx.CanvasKit;
+    var cv = ctx.getCanvasById('s5-net');
+    if (cv) {
+      cv.clear();
+      function hash(i) {
+        var n = (i * 1274126177) ^ 1664525;
+        n = (n ^ (n >> 13)) * 1274126177;
+        return ((n ^ (n >> 16)) & 0x7fffffff) / 0x7fffffff;
+      }
+      var N = 20;
+      var NODES = [];
+      for (var i = 0; i < N; i++) {
+        NODES.push({ x: 80 + hash(i) * 1760, y: 160 + hash(i + N) * 760, r: 3 + hash(i + 2 * N) * 6 });
+      }
+      var edges = [];
+      for (var a = 0; a < N; a++) {
+        for (var b = a + 1; b < N; b++) {
+          var dx = NODES[a].x - NODES[b].x, dy = NODES[a].y - NODES[b].y;
+          var d = Math.sqrt(dx * dx + dy * dy);
+          if (d < 460) edges.push([a, b]);
+        }
+      }
+      var t = ctx.time;
+      var edgeP = new CK.Paint();
+      edgeP.setStyle(CK.PaintStyle.Stroke);
+      edgeP.setStrokeWidth(1.2);
+      edgeP.setStrokeCap(CK.StrokeCap.Round);
+      for (var e = 0; e < edges.length; e++) {
+        var A = NODES[edges[e][0]], B = NODES[edges[e][1]];
+        var pulse = 0.5 + 0.5 * Math.sin(t * 2 + e * 0.7);
+        edgeP.setColor(CK.Color(0, 255, 136, 0.06 + 0.12 * pulse));
+        cv.drawLine(A.x, A.y, B.x, B.y, edgeP);
+      }
+      var sigP = new CK.Paint();
+      sigP.setStyle(CK.PaintStyle.Fill);
+      for (var e = 0; e < edges.length; e++) {
+        if (e % 3 !== 0) continue;
+        var A = NODES[edges[e][0]], B = NODES[edges[e][1]];
+        var p = (t * 0.35 + e * 0.13) % 1;
+        var sx = A.x + (B.x - A.x) * p, sy = A.y + (B.y - A.y) * p;
+        sigP.setColor(CK.Color(0, 212, 255, 0.9));
+        cv.drawCircle(sx, sy, 3.5, sigP);
+      }
+      var nodeP = new CK.Paint();
+      nodeP.setStyle(CK.PaintStyle.Fill);
+      for (var i = 0; i < N; i++) {
+        var nd = NODES[i];
+        var pulse = 0.6 + 0.4 * Math.sin(t * 3 + i * 1.3);
+        nodeP.setColor(CK.Color(0, 255, 136, 0.14 * pulse));
+        cv.drawCircle(nd.x, nd.y, nd.r * 4, nodeP);
+        nodeP.setColor(CK.Color(0, 255, 136, 0.9));
+        cv.drawCircle(nd.x, nd.y, nd.r * 0.7 * pulse + 1.6, nodeP);
+      }
+    }
+  </script>
+</opencat>

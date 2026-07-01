@@ -140,8 +140,8 @@ type DecodedImageRef = { type: 'static'; assetId: string } | { type: 'video'; as
 
 type FillSpec =
   | { type: 'solid'; color: [number, number, number, number] }
-  | { type: 'linearGradient'; tileMode: number; from: [number, number]; to: [number, number]; stops: number[]; colors: number[][] }
-  | { type: 'radialGradient'; tileMode: number; center: [number, number]; radius: number; stops: number[]; colors: number[][] };
+  | { type: 'linearGradient'; tileMode: number; from: [number, number]; to: [number, number]; stops: number[]; colors: number[][]; localMatrix: number[] | null }
+  | { type: 'radialGradient'; tileMode: number; center: [number, number]; radius: number; stops: number[]; colors: number[][]; localMatrix: number[] | null };
 type GradientFillSpec = Exclude<FillSpec, { type: 'solid' }>;
 
 type PaintSpec = {
@@ -616,7 +616,7 @@ function decodeFrame(bytes: Uint8Array): DecodedFrame {
     throw new Error('Invalid OpenCat IR magic');
   }
   const version = view.getUint32(4, true);
-  if (version !== 2) throw new Error(`Unsupported OpenCat IR version ${version}`);
+  if (version !== 3) throw new Error(`Unsupported OpenCat IR version ${version}`);
 
   const sectionCount = view.getUint32(8, true);
   const sections = new Map<number, Uint8Array>();
@@ -745,6 +745,7 @@ function parseFill(reader: BinaryReader): FillSpec {
       to: reader.f32Array(2) as [number, number],
       stops: readF32Vec(reader),
       colors: readColorVec(reader),
+      localMatrix: readOptionalMatrix(reader),
     };
   }
   return {
@@ -754,7 +755,15 @@ function parseFill(reader: BinaryReader): FillSpec {
     radius: reader.f32(),
     stops: readF32Vec(reader),
     colors: readColorVec(reader),
+    localMatrix: readOptionalMatrix(reader),
   };
+}
+
+/// Read an optional 3×3 row-major matrix: presence byte (1 = Some) + 9×f32.
+function readOptionalMatrix(reader: BinaryReader): number[] | null {
+  const present = reader.u8();
+  if (present === 0) return null;
+  return reader.f32Array(9) as number[];
 }
 
 function parseImageFilter(reader: BinaryReader): ImageFilterSpec {
@@ -958,6 +967,8 @@ function applyFill(CK: CanvasKit, paint: Paint, fill: FillSpec, alpha: number): 
 }
 
 function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec): Shader {
+  // 仅 GradientFillSpec（paint fill）携带 localMatrix；ShaderSpec（runtime effect child）不携带。
+  const localMatrix = 'localMatrix' in fill && fill.localMatrix ? fill.localMatrix : undefined;
   if (fill.type === 'linearGradient') {
     return CK.Shader.MakeLinearGradient(
       'from' in fill ? fill.from : fill.start,
@@ -965,6 +976,7 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec): Shader
       fill.colors.map((c) => CK.Color4f(c[0], c[1], c[2], c[3])),
       fill.stops,
       mapTileMode(CK, 'tileMode' in fill ? fill.tileMode : 0),
+      localMatrix as any,
     );
   }
   return CK.Shader.MakeRadialGradient(
@@ -973,6 +985,7 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec): Shader
     fill.colors.map((c) => CK.Color4f(c[0], c[1], c[2], c[3])),
     fill.stops,
     mapTileMode(CK, 'tileMode' in fill ? fill.tileMode : 0),
+    localMatrix as any,
   );
 }
 

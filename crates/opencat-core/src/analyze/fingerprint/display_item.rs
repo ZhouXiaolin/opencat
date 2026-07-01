@@ -25,6 +25,7 @@ impl Hash for TextFp<'_> {
         self.0.allow_wrap.hash(state);
         self.0.truncate.hash(state);
         self.0.drop_shadow.hash(state);
+        self.0.text_shadows.hash(state);
         F32Hash(self.0.visual_expand_x).hash(state);
         F32Hash(self.0.visual_expand_y).hash(state);
         self.0.text_unit_overrides.is_some().hash(state);

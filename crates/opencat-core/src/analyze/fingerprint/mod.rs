@@ -42,6 +42,8 @@ impl DisplayClipFingerprint {
         let mut hasher = new_hasher();
         clip.is_some().hash(&mut hasher);
         if let Some(clip) = clip {
+            F32Hash(clip.bounds.x).hash(&mut hasher);
+            F32Hash(clip.bounds.y).hash(&mut hasher);
             F32Hash(clip.bounds.width).hash(&mut hasher);
             F32Hash(clip.bounds.height).hash(&mut hasher);
             clip.border_radius.hash(&mut hasher);
@@ -58,6 +60,7 @@ impl DisplayRecordedFingerprint {
         Self::from_parts(
             semantics.layout_output_fingerprint,
             semantics.item,
+            semantics.paint_clip,
             semantics.clip,
         )
     }
@@ -66,6 +69,7 @@ impl DisplayRecordedFingerprint {
         Self::from_parts(
             node.layout_output_fingerprint,
             &node.item,
+            node.paint_clip.as_ref(),
             node.clip.as_ref(),
         )
     }
@@ -73,11 +77,13 @@ impl DisplayRecordedFingerprint {
     pub fn from_parts(
         layout_output_fingerprint: LayoutOutputFingerprint,
         item: &DisplayItem,
+        paint_clip: Option<&DisplayClip>,
         clip: Option<&DisplayClip>,
     ) -> Self {
         let mut hasher = new_hasher();
         layout_output_fingerprint.record_size.hash(&mut hasher);
         DisplayItemFp(item).hash(&mut hasher);
+        DisplayClipFingerprint::from_clip(paint_clip).hash(&mut hasher);
         DisplayClipFingerprint::from_clip(clip).hash(&mut hasher);
         Self(hasher.finish())
     }
@@ -95,7 +101,7 @@ pub fn display_recorded_subtree_fingerprint(
     node.draw_slot.is_some().hash(&mut hasher);
     if let Some(slot) = &node.draw_slot {
         let item = DisplayItem::DrawScript(slot.clone());
-        DisplayRecordedFingerprint::from_parts(node.layout_output_fingerprint, &item, None)
+        DisplayRecordedFingerprint::from_parts(node.layout_output_fingerprint, &item, None, None)
             .hash(&mut hasher);
     }
     node.children.len().hash(&mut hasher);
@@ -276,10 +282,11 @@ mod tests {
         opacity: f32,
         css_filter: CssFilter,
         backdrop_blur_sigma: Option<f32>,
+        paint_clip: Option<DisplayClip>,
         clip: Option<DisplayClip>,
         apply_changed: bool,
         children: Vec<TestAnnotatedNode>,
-        background: Option<crate::style::BackgroundFill>,
+        background: Vec<crate::style::BackgroundFill>,
         layout_output_fingerprint: LayoutOutputFingerprint,
     }
 
@@ -291,10 +298,11 @@ mod tests {
                 opacity: 1.0,
                 css_filter: CssFilter::default(),
                 backdrop_blur_sigma: None,
+                paint_clip: None,
                 clip: None,
                 apply_changed: false,
                 children: Vec::new(),
-                background: None,
+                background: Vec::new(),
                 layout_output_fingerprint: LayoutOutputFingerprint::default(),
             }
         }
@@ -307,6 +315,7 @@ mod tests {
         opacity: f32,
         css_filter: CssFilter,
         backdrop_blur_sigma: Option<f32>,
+        paint_clip: Option<DisplayClip>,
         clip: Option<DisplayClip>,
         item: DisplayItem,
         children: Vec<TestAnnotatedNode>,
@@ -339,6 +348,7 @@ mod tests {
             opacity: config.opacity,
             css_filter: config.css_filter,
             backdrop_blur_sigma: config.backdrop_blur_sigma,
+            paint_clip: config.paint_clip,
             clip: config.clip,
             item: DisplayItem::Rect(RectDisplayItem {
                 bounds: empty_bounds(),
@@ -352,9 +362,9 @@ mod tests {
                     border_left_width: None,
                     border_color: None,
                     border_style: None,
-                    box_shadow: None,
-                    inset_shadow: None,
-                    drop_shadow: None,
+                    box_shadow: Vec::new(),
+                    inset_shadow: Vec::new(),
+                    drop_shadow: Vec::new(),
                     backdrop_blur_sigma: None,
                 },
             }),
@@ -374,6 +384,7 @@ mod tests {
                 opacity: self.opacity,
                 css_filter: self.css_filter,
                 backdrop_blur_sigma: self.backdrop_blur_sigma,
+                paint_clip: self.paint_clip,
                 clip: self.clip,
                 item: self.item,
                 children: Vec::new(),
@@ -434,6 +445,7 @@ mod tests {
             opacity: node.opacity,
             css_filter: node.css_filter,
             backdrop_blur_sigma: node.backdrop_blur_sigma,
+            paint_clip: node.paint_clip,
             clip: node.clip,
             item: node.item,
             children,
@@ -567,6 +579,7 @@ mod tests {
             DisplayRecordedFingerprint::from_parts(
                 base.layout_output_fingerprint,
                 &base.item,
+                base.paint_clip.as_ref(),
                 base.clip.as_ref()
             ),
             "recorded fingerprint must be constructible without re-reading AnnotatedDisplayNode"
@@ -608,9 +621,9 @@ mod tests {
     fn paint_fingerprint_changes_with_paint_content() {
         let a = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig::default()));
         let b = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
-            background: Some(crate::style::BackgroundFill::Solid(
-                crate::style::ColorToken::Red,
-            )),
+            background: vec![crate::style::BackgroundFill::Solid {
+                color: crate::style::ColorToken::Red,
+            }],
             ..Default::default()
         }));
         let fp_a = a.analysis(a.root).paint_fingerprint;
@@ -799,7 +812,7 @@ mod tests {
             paint_epoch: 10,
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
-                background: None,
+                background: Vec::new(),
                 border_radius: BorderRadius::default(),
                 border_width: None,
                 border_top_width: None,
@@ -808,9 +821,9 @@ mod tests {
                 border_left_width: None,
                 border_color: None,
                 border_style: None,
-                box_shadow: None,
-                inset_shadow: None,
-                drop_shadow: None,
+                box_shadow: Vec::new(),
+                inset_shadow: Vec::new(),
+                drop_shadow: Vec::new(),
             },
         });
         let item_b = DisplayItem::Bitmap(BitmapDisplayItem {
@@ -822,7 +835,7 @@ mod tests {
             paint_epoch: 11,
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
-                background: None,
+                background: Vec::new(),
                 border_radius: BorderRadius::default(),
                 border_width: None,
                 border_top_width: None,
@@ -831,9 +844,9 @@ mod tests {
                 border_left_width: None,
                 border_color: None,
                 border_style: None,
-                box_shadow: None,
-                inset_shadow: None,
-                drop_shadow: None,
+                box_shadow: Vec::new(),
+                inset_shadow: Vec::new(),
+                drop_shadow: Vec::new(),
             },
         });
         assert_ne!(
@@ -868,7 +881,7 @@ mod tests {
             paint_epoch: 0,
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
-                background: None,
+                background: Vec::new(),
                 border_radius: BorderRadius::default(),
                 border_width: None,
                 border_top_width: None,
@@ -877,9 +890,9 @@ mod tests {
                 border_left_width: None,
                 border_color: None,
                 border_style: None,
-                box_shadow: None,
-                inset_shadow: None,
-                drop_shadow: None,
+                box_shadow: Vec::new(),
+                inset_shadow: Vec::new(),
+                drop_shadow: Vec::new(),
             },
         });
         let item_b = DisplayItem::Bitmap(BitmapDisplayItem {
@@ -896,7 +909,7 @@ mod tests {
             paint_epoch: 0,
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
-                background: None,
+                background: Vec::new(),
                 border_radius: BorderRadius::default(),
                 border_width: None,
                 border_top_width: None,
@@ -905,9 +918,9 @@ mod tests {
                 border_left_width: None,
                 border_color: None,
                 border_style: None,
-                box_shadow: None,
-                inset_shadow: None,
-                drop_shadow: None,
+                box_shadow: Vec::new(),
+                inset_shadow: Vec::new(),
+                drop_shadow: Vec::new(),
             },
         });
 
@@ -928,7 +941,7 @@ mod tests {
         let script_item = DisplayItem::DrawScript(DrawScriptDisplayItem {
             bounds: empty_bounds(),
             commands: Vec::new(),
-            drop_shadow: None,
+            drop_shadow: Vec::new(),
             hidden_subtree: Vec::new(),
         });
 
@@ -951,11 +964,12 @@ mod tests {
                 opacity: 1.0,
                 css_filter: Default::default(),
                 backdrop_blur_sigma: None,
+                paint_clip: None,
                 clip: None,
                 item: DisplayItem::Rect(RectDisplayItem {
                     bounds: empty_bounds(),
                     paint: RectPaintStyle {
-                        background: Some(crate::style::BackgroundFill::Solid(color)),
+                        background: vec![crate::style::BackgroundFill::Solid { color }],
                         border_radius: BorderRadius::default(),
                         border_width: None,
                         border_top_width: None,
@@ -964,9 +978,9 @@ mod tests {
                         border_left_width: None,
                         border_color: None,
                         border_style: None,
-                        box_shadow: None,
-                        inset_shadow: None,
-                        drop_shadow: None,
+                        box_shadow: Vec::new(),
+                        inset_shadow: Vec::new(),
+                        drop_shadow: Vec::new(),
                         backdrop_blur_sigma: None,
                     },
                 }),
@@ -980,7 +994,7 @@ mod tests {
             DisplayItem::DrawScript(DrawScriptDisplayItem {
                 bounds: empty_bounds(),
                 commands: Vec::new(),
-                drop_shadow: None,
+                drop_shadow: Vec::new(),
                 hidden_subtree: vec![HiddenChildDisplayNode {
                     owner_id: "canvas".to_string(),
                     node: hidden_node,
@@ -1027,7 +1041,7 @@ mod tests {
             paint_epoch: 42,
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
-                background: None,
+                background: Vec::new(),
                 border_radius: BorderRadius::default(),
                 border_width: None,
                 border_top_width: None,
@@ -1036,9 +1050,9 @@ mod tests {
                 border_left_width: None,
                 border_color: None,
                 border_style: None,
-                box_shadow: None,
-                inset_shadow: None,
-                drop_shadow: None,
+                box_shadow: Vec::new(),
+                inset_shadow: Vec::new(),
+                drop_shadow: Vec::new(),
             },
         });
 

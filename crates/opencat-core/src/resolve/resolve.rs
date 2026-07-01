@@ -237,7 +237,7 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     style.layout.margin_right = LengthPercentageAuto::Length(0.0);
     style.layout.margin_bottom = LengthPercentageAuto::Length(0.0);
     style.layout.margin_left = LengthPercentageAuto::Length(0.0);
-    style.visual.background = None;
+    style.visual.background.clear();
     style.visual.border_width = None;
     style.visual.border_top_width = None;
     style.visual.border_right_width = None;
@@ -245,13 +245,14 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     style.visual.border_left_width = None;
     style.visual.border_color = None;
     style.visual.border_style = None;
-    style.visual.box_shadow = None;
-    style.visual.inset_shadow = None;
-    style.visual.drop_shadow = None;
+    style.visual.box_shadow.clear();
+    style.visual.inset_shadow.clear();
+    style.visual.drop_shadow.clear();
     style.visual.css_filter = Default::default();
     style.visual.backdrop_blur_sigma = None;
     style.visual.border_radius = crate::style::BorderRadius::default();
     style.visual.clip_contents = false;
+    style.visual.clip_path = None;
     style.visual.transforms.clear();
     style.visual.opacity = 1.0;
 
@@ -1087,6 +1088,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             inset_bottom: style.inset_bottom,
             width: style.width,
             width_percent: style.width_percent,
+            height_percent: style.height_percent,
             height: style.height,
             max_width: style.max_width,
             width_full: style.width_full,
@@ -1164,32 +1166,10 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
         },
         visual: ComputedVisualStyle {
             opacity: style.opacity.unwrap_or(1.0),
-            background: style
-                .bg_gradient_radial_center
-                .zip(style.bg_gradient_from)
-                .zip(style.bg_gradient_to)
-                .map(
-                    |((center, from), to)| crate::style::BackgroundFill::RadialGradient {
-                        center,
-                        from,
-                        via: style.bg_gradient_via,
-                        to,
-                    },
-                )
-                .or_else(|| {
-                    style.bg_gradient_direction.zip(style.bg_gradient_from).zip(
-                        style.bg_gradient_to,
-                    ).map(
-                        |((direction, from), to)| crate::style::BackgroundFill::LinearGradient {
-                            direction,
-                            from,
-                            via: style.bg_gradient_via,
-                            to,
-                        },
-                    )
-                })
-                .or_else(|| style.bg_color.map(crate::style::BackgroundFill::Solid)),
-            fill: style.fill_color.map(crate::style::BackgroundFill::Solid),
+            background: resolve_background(style),
+            fill: style
+                .fill_color
+                .map(|color| crate::style::BackgroundFill::Solid { color }),
             border_radius: style.border_radius.unwrap_or_default(),
             border_width: style.border_width,
             border_top_width: style.border_top_width,
@@ -1206,21 +1186,74 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             backdrop_blur_sigma: style.backdrop_blur_sigma,
             object_fit: style.object_fit.unwrap_or_default(),
             clip_contents: style.overflow_hidden,
+            clip_path: style.clip_path,
             transforms: style.transforms.clone(),
             box_shadow: style
                 .box_shadow
-                .map(|shadow| shadow.with_color(style.box_shadow_color.unwrap_or(shadow.color))),
+                .iter()
+                .map(|shadow| shadow.with_color(style.box_shadow_color.unwrap_or(shadow.color)))
+                .collect(),
             inset_shadow: style
                 .inset_shadow
-                .map(|shadow| shadow.with_color(style.inset_shadow_color.unwrap_or(shadow.color))),
+                .iter()
+                .map(|shadow| shadow.with_color(style.inset_shadow_color.unwrap_or(shadow.color)))
+                .collect(),
             drop_shadow: style
                 .drop_shadow
-                .map(|shadow| shadow.with_color(style.drop_shadow_color.unwrap_or(shadow.color))),
+                .iter()
+                .map(|shadow| shadow.with_color(style.drop_shadow_color.unwrap_or(shadow.color)))
+                .collect(),
+            text_shadows: style.text_shadows.clone(),
             svg_path: style.svg_path.clone(),
         },
         text,
         id: style.id.clone(),
     }
+}
+
+/// Resolve the background layer list for a node.
+///
+/// Priority: explicit arbitrary layers (`bg-[gradient]`) win; otherwise the
+/// legacy `bg-gradient-*` / `bg-radial` shorthand builds a single layer; finally
+/// `bg_color` is a flat solid fallback. Returns an empty `Vec` for no background.
+fn resolve_background(style: &NodeStyle) -> Vec<crate::style::BackgroundFill> {
+    use crate::style::BackgroundFill;
+
+    if !style.background_layers.is_empty() {
+        return style.background_layers.clone();
+    }
+
+    if let (Some(center), Some(from), Some(to)) = (
+        style.bg_gradient_radial_center,
+        style.bg_gradient_from,
+        style.bg_gradient_to,
+    ) {
+        return vec![BackgroundFill::radial_from_via_to(
+            center,
+            from,
+            style.bg_gradient_via,
+            to,
+        )];
+    }
+
+    if let (Some(direction), Some(from), Some(to)) = (
+        style.bg_gradient_direction,
+        style.bg_gradient_from,
+        style.bg_gradient_to,
+    ) {
+        return vec![BackgroundFill::linear_from_via_to(
+            direction,
+            from,
+            style.bg_gradient_via,
+            to,
+        )];
+    }
+
+    if let Some(color) = style.bg_color {
+        return vec![BackgroundFill::Solid { color }];
+    }
+
+    Vec::new()
 }
 
 fn collect_visual_script_targets(node: &Node, registry: &mut ScriptTargetRegistry) {
@@ -1367,9 +1400,9 @@ mod tests {
 
         let resolved = resolve(&root.into(), &frame_ctx, &mut assets).expect("tree should resolve");
 
-        assert_eq!(resolved.children[0].style.visual.background, None);
+        assert!(resolved.children[0].style.visual.background.is_empty());
         assert_eq!(resolved.children[0].style.visual.border_width, None);
-        assert_eq!(resolved.children[1].style.visual.background, None);
+        assert!(resolved.children[1].style.visual.background.is_empty());
         assert_eq!(resolved.children[1].style.visual.border_color, None);
     }
 

@@ -1,7 +1,7 @@
 use crate::style::{
-    AlignItems, BackgroundFill, BoxShadow, ComputedTextStyle, CssFilter, DropShadow, FlexDirection,
-    FlexWrap, GridAutoFlow, GridAutoRows, GridPlacement, InsetShadow, JustifyContent,
-    LengthPercentageAuto, ObjectFit, Position, Transform,
+    AlignItems, BackgroundFill, BoxShadow, ClipPath, ComputedTextStyle, CssFilter, DropShadow,
+    FlexDirection, FlexWrap, GridAutoFlow, GridAutoRows, GridPlacement, InsetShadow,
+    JustifyContent, LengthPercentageAuto, ObjectFit, Position, TextShadow, Transform,
 };
 
 #[derive(Clone, Debug)]
@@ -55,6 +55,7 @@ pub struct ComputedLayoutStyle {
     pub inset_bottom: Option<LengthPercentageAuto>,
     pub width: Option<f32>,
     pub width_percent: Option<f32>,
+    pub height_percent: Option<f32>,
     pub height: Option<f32>,
     pub max_width: Option<f32>,
     pub width_full: bool,
@@ -102,7 +103,7 @@ pub struct ComputedLayoutStyle {
 #[derive(Clone, Debug)]
 pub struct ComputedVisualStyle {
     pub opacity: f32,
-    pub background: Option<BackgroundFill>,
+    pub background: Vec<BackgroundFill>,
     pub fill: Option<BackgroundFill>,
     pub border_radius: crate::style::BorderRadius,
     pub border_width: Option<f32>,
@@ -120,9 +121,11 @@ pub struct ComputedVisualStyle {
     pub backdrop_blur_sigma: Option<f32>,
     pub object_fit: ObjectFit,
     pub clip_contents: bool,
+    pub clip_path: Option<ClipPath>,
     pub transforms: Vec<Transform>,
-    pub box_shadow: Option<BoxShadow>,
-    pub inset_shadow: Option<InsetShadow>,
-    pub drop_shadow: Option<DropShadow>,
+    pub box_shadow: Vec<BoxShadow>,
+    pub inset_shadow: Vec<InsetShadow>,
+    pub drop_shadow: Vec<DropShadow>,
+    pub text_shadows: Vec<TextShadow>,
     pub svg_path: Option<String>,
 }

@@ -534,7 +534,7 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     ),
                     height: resolve_dimension(
                         layout.height,
-                        None,
+                        layout.height_percent,
                         layout.height_full,
                         Dimension::auto(),
                     ),
@@ -552,7 +552,7 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     ),
                     height: resolve_dimension(
                         layout.height,
-                        None,
+                        layout.height_percent,
                         layout.height_full,
                         if layout.auto_size {
                             Dimension::auto()

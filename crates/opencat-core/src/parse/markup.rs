@@ -231,7 +231,8 @@ pub fn parse_with_base_dir(
 }
 
 const DIV_ATTRS: &[&str] = &["id", "class", "duration"];
-const TEXT_ATTRS: &[&str] = &["id", "class", "duration"];
+const TEXT_ATTRS: &[&str] = &["id", "class", "duration", "data-text"];
+const PSEUDO_TEXT_ATTRS: &[&str] = &["id", "class", "duration", "content"];
 const CANVAS_ATTRS: &[&str] = &["id", "class", "duration"];
 const IMAGE_ATTRS: &[&str] = &[
     "id",
@@ -292,6 +293,8 @@ const BUILTIN_TAGS: &[&str] = &[
     "template",
     "slot",
     "script",
+    "before",
+    "after",
     "soundtrack",
     "audio",
     "fonts",
@@ -387,7 +390,9 @@ fn serialize_template_node<'a, 'input>(
                 let name = required_non_empty_attr(node, "name")?;
                 if let Some(children) = slots.get(name) {
                     for child in children {
-                        serialize_template_node(out, *child, templates, params, slots, false, stack)?;
+                        serialize_template_node(
+                            out, *child, templates, params, slots, false, stack,
+                        )?;
                     }
                 }
                 return Ok(());
@@ -690,27 +695,93 @@ fn parse_visual_node(
         "text" => {
             ensure_allowed_attrs(node, TEXT_ATTRS)?;
             let mut content = String::new();
+            let mut before_nodes = Vec::new();
+            let mut after_nodes = Vec::new();
             for child in node.children() {
                 match child.node_type() {
                     roxmltree::NodeType::Text => {
                         content.push_str(child.text().unwrap_or(""));
                     }
                     roxmltree::NodeType::Element => {
-                        anyhow::bail!("<text> cannot contain child elements");
+                        let child_tag = child.tag_name().name();
+                        match child_tag {
+                            "before" => before_nodes.push(child),
+                            "after" => after_nodes.push(child),
+                            other => anyhow::bail!(
+                                "<text> cannot contain child element <{other}>; only <before> and <after> are allowed"
+                            ),
+                        }
                     }
                     roxmltree::NodeType::Comment => {}
                     _ => {}
                 }
             }
-            let content = decode_text_escapes(&content);
             let parent_id = parent_id.map(|s| s.to_string());
-            parts.elements.push(ParsedElement {
-                id: id.to_string(),
-                parent_id,
-                duration,
-                style,
-                kind: ParsedElementKind::Text { content },
-            });
+            if before_nodes.is_empty() && after_nodes.is_empty() {
+                let content = decode_text_escapes(&content);
+                parts.elements.push(ParsedElement {
+                    id: id.to_string(),
+                    parent_id,
+                    duration,
+                    style,
+                    kind: ParsedElementKind::Text { content },
+                });
+            } else {
+                if before_nodes.len() > 1 {
+                    anyhow::bail!("<text id=\"{id}\"> can contain at most one <before>");
+                }
+                if after_nodes.len() > 1 {
+                    anyhow::bail!("<text id=\"{id}\"> can contain at most one <after>");
+                }
+                let content = decode_text_escapes(content.trim());
+                parts.elements.push(ParsedElement {
+                    id: id.to_string(),
+                    parent_id,
+                    duration,
+                    style: style.clone(),
+                    kind: ParsedElementKind::Div,
+                });
+
+                for before in before_nodes {
+                    parse_pseudo_text_node(
+                        before,
+                        doc,
+                        "before",
+                        id,
+                        &content,
+                        node.attribute("data-text"),
+                        parts,
+                    )?;
+                }
+
+                let main_id = generated_text_content_id(id);
+                let main_style = crate::style::NodeStyle {
+                    text_shadows: style.text_shadows.clone(),
+                    drop_shadow: style.drop_shadow.clone(),
+                    ..Default::default()
+                };
+                parts.elements.push(ParsedElement {
+                    id: main_id,
+                    parent_id: Some(id.to_string()),
+                    duration: None,
+                    style: main_style,
+                    kind: ParsedElementKind::Text {
+                        content: content.clone(),
+                    },
+                });
+
+                for after in after_nodes {
+                    parse_pseudo_text_node(
+                        after,
+                        doc,
+                        "after",
+                        id,
+                        &content,
+                        node.attribute("data-text"),
+                        parts,
+                    )?;
+                }
+            }
         }
         "canvas" => {
             ensure_allowed_attrs(node, CANVAS_ATTRS)?;
@@ -918,6 +989,59 @@ fn parse_visual_node(
         _ => anyhow::bail!("unknown element <{tag}>"),
     }
 
+    Ok(())
+}
+
+fn generated_text_content_id(id: &str) -> String {
+    format!("__opencat_{id}_text")
+}
+
+fn parse_pseudo_text_node(
+    node: roxmltree::Node<'_, '_>,
+    doc: &roxmltree::Document<'_>,
+    tag: &str,
+    parent_id: &str,
+    host_content: &str,
+    data_text: Option<&str>,
+    parts: &mut ParsedDocumentParts,
+) -> anyhow::Result<()> {
+    ensure_allowed_attrs(node, PSEUDO_TEXT_ATTRS)?;
+    validate_no_element_children(node, tag)?;
+    let id = required_attr(node, "id")?;
+    let mut style = crate::style::NodeStyle::default();
+    if let Some(class) = node.attribute("class") {
+        let line_number = doc.text_pos_at(node.range().start).row as usize;
+        style =
+            crate::parse::jsonl::tailwind::parse_class_name_with_context(class, id, line_number);
+    }
+    if style.position.is_none() {
+        style.position = Some(crate::style::Position::Absolute);
+    }
+    if style.inset_top.is_none() {
+        style.inset_top = Some(crate::style::LengthPercentageAuto::length(0.0));
+    }
+    if style.inset_left.is_none() {
+        style.inset_left = Some(crate::style::LengthPercentageAuto::length(0.0));
+    }
+    if style.width.is_none() && style.width_percent.is_none() && !style.width_full {
+        style.width_full = true;
+    }
+    if style.height.is_none() && style.height_percent.is_none() && !style.height_full {
+        style.height_full = true;
+    }
+    let duration = parse_optional_f64_positive(node, "duration")?;
+    let content = match node.attribute("content").unwrap_or("self").trim() {
+        "self" => host_content.to_string(),
+        "attr(data-text)" => data_text.unwrap_or(host_content).to_string(),
+        raw => decode_text_escapes(raw),
+    };
+    parts.elements.push(ParsedElement {
+        id: id.to_string(),
+        parent_id: Some(parent_id.to_string()),
+        duration,
+        style,
+        kind: ParsedElementKind::Text { content },
+    });
     Ok(())
 }
 
@@ -1462,6 +1586,7 @@ pub(crate) fn allowed_attributes(tag: &str) -> Option<&'static [&'static str]> {
         "opencat" => Some(&["width", "height", "fps", "duration"]),
         "div" => Some(DIV_ATTRS),
         "text" => Some(TEXT_ATTRS),
+        "before" | "after" => Some(PSEUDO_TEXT_ATTRS),
         "canvas" => Some(CANVAS_ATTRS),
         "image" => Some(IMAGE_ATTRS),
         "lottie" => Some(LOTTIE_ATTRS),
@@ -1744,6 +1869,73 @@ mod tests {
             panic!("child should be text");
         };
         assert_eq!(headline.content(), "Real-time\nrendering");
+    }
+
+    #[test]
+    fn parses_text_pseudo_elements_with_attr_content_and_text_shadow() {
+        let parsed = parse(
+            r##"<opencat width="320" height="180" fps="30" duration="1">
+  <div id="root">
+    <text id="hero" data-text="Transform" class="relative [text-shadow:0_0_10px_rgba(0,255,136,0.3)]">
+      Transform
+      <before id="hero-before" content="attr(data-text)" class="left-[2px] [text-shadow:-1px_0_#ff00ff]" />
+      <after id="hero-after" content="attr(data-text)" class="left-[-2px] [text-shadow:-1px_0_#00d4ff]" />
+    </text>
+  </div>
+</opencat>"##,
+        )
+        .expect("pseudo text should parse");
+
+        let NodeKind::Div(root) = parsed.root.kind() else {
+            panic!("root should be div");
+        };
+        let NodeKind::Div(hero) = root.children_ref()[0].kind() else {
+            panic!("text with pseudo elements should lower to a div wrapper");
+        };
+        assert_eq!(hero.style_ref().id, "hero");
+        assert_eq!(hero.children_ref().len(), 3);
+
+        let NodeKind::Text(before) = hero.children_ref()[0].kind() else {
+            panic!("before should lower to text");
+        };
+        let NodeKind::Text(main) = hero.children_ref()[1].kind() else {
+            panic!("main content should lower to generated text");
+        };
+        let NodeKind::Text(after) = hero.children_ref()[2].kind() else {
+            panic!("after should lower to text");
+        };
+
+        assert_eq!(before.style_ref().id, "hero-before");
+        assert_eq!(before.content(), "Transform");
+        assert_eq!(
+            before.style_ref().position,
+            Some(crate::style::Position::Absolute)
+        );
+        assert!(before.style_ref().width_full);
+        assert!(before.style_ref().height_full);
+        assert_eq!(before.style_ref().text_shadows.len(), 1);
+        assert_eq!(
+            before.style_ref().text_shadows[0].color,
+            crate::style::ColorToken::Custom(255, 0, 255, 255)
+        );
+        assert_eq!(before.style_ref().text_shadows[0].offset_x, -1.0);
+
+        assert_eq!(main.style_ref().id, "__opencat_hero_text");
+        assert_eq!(main.content(), "Transform");
+        assert_eq!(main.style_ref().text_shadows.len(), 1);
+        assert_eq!(
+            main.style_ref().text_shadows[0].color,
+            crate::style::ColorToken::Custom(0, 255, 136, 77)
+        );
+        assert!((main.style_ref().text_shadows[0].blur_sigma - (10.0 / 6.0)).abs() < 1e-6);
+
+        assert_eq!(after.style_ref().id, "hero-after");
+        assert_eq!(after.content(), "Transform");
+        assert_eq!(after.style_ref().text_shadows.len(), 1);
+        assert_eq!(
+            after.style_ref().text_shadows[0].color,
+            crate::style::ColorToken::Custom(0, 212, 255, 255)
+        );
     }
 
     #[test]

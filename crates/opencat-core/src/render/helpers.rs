@@ -225,23 +225,17 @@ pub fn background_fill_to_paint_spec(fill: &BackgroundFill) -> PaintSpec {
 /// Convert `BackgroundFill` to `FillSpec`.
 pub fn background_fill_to_fill_spec(fill: &BackgroundFill) -> FillSpec {
     match fill {
-        BackgroundFill::Solid(color) => FillSpec::Solid(color_token_to_rgba(color)),
-        BackgroundFill::LinearGradient {
-            direction,
-            from,
-            via,
-            to,
-        } => {
-            let shader = linear_gradient_to_shader_spec(*direction, from, via.as_ref(), to);
+        BackgroundFill::Solid { color } => FillSpec::Solid(color_token_to_rgba(color)),
+        BackgroundFill::LinearGradient { direction, stops } => {
+            let shader = linear_gradient_to_shader_spec(*direction, stops);
             FillSpec::Shader(shader)
         }
-        BackgroundFill::RadialGradient {
-            center,
-            from,
-            via,
-            to,
-        } => {
-            let shader = radial_gradient_to_shader_spec(center, from, via.as_ref(), to);
+        BackgroundFill::RadialGradient { center, stops } => {
+            let shader = radial_gradient_to_shader_spec(center, stops);
+            FillSpec::Shader(shader)
+        }
+        BackgroundFill::ArbitraryGradient { gradient } => {
+            let shader = arbitrary_gradient_to_shader_spec(gradient);
             FillSpec::Shader(shader)
         }
     }
@@ -282,36 +276,27 @@ pub fn drop_shadow_to_image_filter(shadow: &DropShadow) -> (ImageFilterSpec, [f3
     (filter, color)
 }
 
-/// Build the (stops, colors) pair shared by linear and radial gradients.
-fn gradient_stops_colors(
-    from: &ColorToken,
-    via: Option<&ColorToken>,
-    to: &ColorToken,
-) -> (Vec<f32>, Vec<[f32; 4]>) {
-    let from_color = color_token_to_rgba(from);
-    let to_color = color_token_to_rgba(to);
-    match via {
-        Some(mid) => {
-            let mid_color = color_token_to_rgba(mid);
-            (vec![0.0, 0.5, 1.0], vec![from_color, mid_color, to_color])
-        }
-        None => (vec![0.0, 1.0], vec![from_color, to_color]),
-    }
+/// Build the (stops, colors) pair from arbitrary `GradientStop`s.
+fn gradient_stops_colors(stops: &[crate::style::GradientStop]) -> (Vec<f32>, Vec<[f32; 4]>) {
+    (
+        stops.iter().map(|s| s.pos).collect(),
+        stops
+            .iter()
+            .map(|s| color_token_to_rgba(&s.color))
+            .collect(),
+    )
 }
 
 /// Convert a linear gradient definition to a `ShaderSpec::LinearGradient`.
 ///
-/// `via` is the optional middle stop. The gradient is always horizontal/vertical
-/// based on direction, with `width`/`height` supplied by the caller as the rect extent
-/// and the shader origin assumed to be (0, 0).
+/// The gradient is always horizontal/vertical based on direction, expressed in
+/// unit-square coordinates and mapped to the rect by the renderer.
 fn linear_gradient_to_shader_spec(
     direction: GradientDirection,
-    from: &ColorToken,
-    via: Option<&ColorToken>,
-    to: &ColorToken,
+    stops: &[crate::style::GradientStop],
 ) -> ShaderSpec {
     let (from_pt, to_pt) = direction_endpoints(&direction);
-    let (stops, colors) = gradient_stops_colors(from, via, to);
+    let (stops, colors) = gradient_stops_colors(stops);
 
     ShaderSpec::LinearGradient {
         from: from_pt,
@@ -319,6 +304,7 @@ fn linear_gradient_to_shader_spec(
         stops,
         colors,
         tile_mode: TileMode::Clamp,
+        local_matrix: None,
     }
 }
 
@@ -328,11 +314,9 @@ fn linear_gradient_to_shader_spec(
 /// 与 linear 渐变一致地在单位正方形坐标系内表达，由渲染层映射到实际 rect。
 fn radial_gradient_to_shader_spec(
     center: &[f32; 2],
-    from: &ColorToken,
-    via: Option<&ColorToken>,
-    to: &ColorToken,
+    stops: &[crate::style::GradientStop],
 ) -> ShaderSpec {
-    let (stops, colors) = gradient_stops_colors(from, via, to);
+    let (stops, colors) = gradient_stops_colors(stops);
     // farthest-corner：到单位正方形四角的最大距离。
     let dx = center[0].max(1.0 - center[0]);
     let dy = center[1].max(1.0 - center[1]);
@@ -344,6 +328,7 @@ fn radial_gradient_to_shader_spec(
         stops,
         colors,
         tile_mode: TileMode::Clamp,
+        local_matrix: None,
     }
 }
 
@@ -355,6 +340,109 @@ fn direction_endpoints(dir: &GradientDirection) -> ([f32; 2], [f32; 2]) {
         GradientDirection::ToBottom => ([0.0, 0.0], [0.0, 1.0]),
         GradientDirection::ToTop => ([0.0, 1.0], [0.0, 0.0]),
         GradientDirection::ToBottomRight => ([0.0, 0.0], [1.0, 1.0]),
+    }
+}
+
+/// 将 CSS 渐变角度（deg，0=向上、90=向右）转为单位正方形内的起点/终点。
+fn angle_endpoints(angle_deg: f32) -> ([f32; 2], [f32; 2]) {
+    let rad = angle_deg.to_radians();
+    let dir_x = rad.sin();
+    let dir_y = -rad.cos();
+    // CSS 渐变线长度 = |cos θ|·w + |sin θ|·h 的半长，单位正方形下 w=h=1。
+    let half_len = dir_x.abs() + dir_y.abs();
+    let cx = 0.5;
+    let cy = 0.5;
+    (
+        [cx - dir_x * half_len, cy - dir_y * half_len],
+        [cx + dir_x * half_len, cy + dir_y * half_len],
+    )
+}
+
+/// 构造行优先 3×3 缩放矩阵 `[f32; 9]`（用于 ShaderSpec::local_matrix）。
+fn scale_matrix(sx: f32, sy: f32) -> [f32; 9] {
+    [sx, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 1.0]
+}
+
+/// Convert an arbitrary CSS-syntax gradient into a canvas `ShaderSpec`.
+///
+/// 无 `size` 时在单位正方形内表达（由渲染层映射到 rect）；有 `size` 时在像素空间
+/// 表达并附带一个把单位正方形缩放到 rect 尺寸的 local_matrix，使像素瓦片铺满节点。
+fn arbitrary_gradient_to_shader_spec(gradient: &crate::style::ArbitraryGradient) -> ShaderSpec {
+    use crate::style::ArbitraryGradient;
+
+    let (stops, colors) = gradient_stops_colors(gradient.stops());
+    let tile_mode = if gradient.repeat() {
+        TileMode::Repeat
+    } else {
+        TileMode::Clamp
+    };
+
+    match gradient {
+        ArbitraryGradient::LinearGradient {
+            angle_deg,
+            direction,
+            size,
+            ..
+        } => {
+            let size = *size;
+            // 优先用角度；其次用预设方向；默认向右。
+            let (from_pt, to_pt) = if let Some(angle) = angle_deg {
+                angle_endpoints(*angle)
+            } else if let Some(dir) = direction {
+                direction_endpoints(dir)
+            } else {
+                direction_endpoints(&GradientDirection::ToRight)
+            };
+
+            if let Some([w, h]) = size {
+                // 像素空间：把单位正方形坐标缩放到 [0,0]..[w,h]。
+                ShaderSpec::LinearGradient {
+                    from: [from_pt[0] * w, from_pt[1] * h],
+                    to: [to_pt[0] * w, to_pt[1] * h],
+                    stops,
+                    colors,
+                    tile_mode,
+                    local_matrix: Some(scale_matrix(w, h)),
+                }
+            } else {
+                ShaderSpec::LinearGradient {
+                    from: from_pt,
+                    to: to_pt,
+                    stops,
+                    colors,
+                    tile_mode,
+                    local_matrix: None,
+                }
+            }
+        }
+        ArbitraryGradient::RadialGradient { center, size, .. } => {
+            let size = *size;
+            if let Some([w, h]) = size {
+                let dx = center[0].max(1.0 - center[0]);
+                let dy = center[1].max(1.0 - center[1]);
+                let radius = (dx * dx + dy * dy).sqrt();
+                ShaderSpec::RadialGradient {
+                    center: [center[0] * w, center[1] * h],
+                    radius: radius * w.max(h),
+                    stops,
+                    colors,
+                    tile_mode,
+                    local_matrix: Some(scale_matrix(w, h)),
+                }
+            } else {
+                let dx = center[0].max(1.0 - center[0]);
+                let dy = center[1].max(1.0 - center[1]);
+                let radius = (dx * dx + dy * dy).sqrt();
+                ShaderSpec::RadialGradient {
+                    center: *center,
+                    radius,
+                    stops,
+                    colors,
+                    tile_mode,
+                    local_matrix: None,
+                }
+            }
+        }
     }
 }
 
@@ -1028,7 +1116,7 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
         || style.border_right_width.is_some()
         || style.border_bottom_width.is_some()
         || style.border_left_width.is_some();
-    if style.background.is_none() && !has_any_border && style.inset_shadow.is_none() {
+    if style.background.is_empty() && !has_any_border && style.inset_shadow.is_empty() {
         return Ok(());
     }
 
@@ -1067,20 +1155,23 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
         });
     }
 
-    if let Some(ref background) = style.background {
-        let paint_spec = background_fill_to_paint_spec(background);
-        let paint_id = builder.intern_paint(paint_spec);
-        if has_radius {
-            push_draw_rrect(builder, rect, radii, paint_id);
-        } else {
-            builder.push(DrawOp::Rect {
-                rect: rect_to_rect4(rect),
-                paint: paint_id,
-            });
+    if !style.background.is_empty() {
+        // 多层背景：按声明顺序从底到顶绘制（第一层在最底）。
+        for background in &style.background {
+            let paint_spec = background_fill_to_paint_spec(background);
+            let paint_id = builder.intern_paint(paint_spec);
+            if has_radius {
+                push_draw_rrect(builder, rect, radii, paint_id);
+            } else {
+                builder.push(DrawOp::Rect {
+                    rect: rect_to_rect4(rect),
+                    paint: paint_id,
+                });
+            }
         }
     }
 
-    if let Some(ref shadow) = style.inset_shadow {
+    for shadow in &style.inset_shadow {
         draw_inset_shadow(builder, bounds, &style.border_radius, shadow);
     }
 
@@ -1113,11 +1204,11 @@ pub fn render_rect_with_shadows(
     let style = &item.paint;
     let bounds = item.bounds;
 
-    if let Some(ref shadow) = style.box_shadow {
+    for shadow in &style.box_shadow {
         draw_box_shadow(ctx.builder, bounds, &style.border_radius, shadow);
     }
 
-    if let Some(ref shadow) = style.drop_shadow {
+    for shadow in &style.drop_shadow {
         draw_item_drop_shadow(ctx, bounds, shadow, |ctx2| render_rect(ctx2, item))?;
     }
     render_rect(ctx, item)?;
@@ -2601,18 +2692,21 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
     builder.push(DrawOp::Save);
     clip_bounds(builder, item.bounds, &style.border_radius);
 
-    if let Some(ref bg) = style.background {
-        let paint = background_fill_to_paint_spec(bg);
-        let paint_id = builder.intern_paint(paint);
-        builder.push(DrawOp::Rect {
-            rect: rect_to_rect4(dst),
-            paint: paint_id,
-        });
+    if !style.background.is_empty() {
+        // 多层背景：按声明顺序从底到顶绘制。
+        for bg in &style.background {
+            let paint = background_fill_to_paint_spec(bg);
+            let paint_id = builder.intern_paint(paint);
+            builder.push(DrawOp::Rect {
+                rect: rect_to_rect4(dst),
+                paint: paint_id,
+            });
+        }
     }
 
     draw_bitmap_image(builder, image_ref, item, &dst, src_width, src_height);
 
-    if let Some(ref shadow) = style.inset_shadow {
+    for shadow in &style.inset_shadow {
         draw_inset_shadow(builder, item.bounds, &style.border_radius, shadow);
     }
 
@@ -2665,13 +2759,16 @@ pub fn render_lottie(
     builder.push(DrawOp::Save);
     clip_bounds(builder, item.bounds, &style.border_radius);
 
-    if let Some(ref bg) = style.background {
-        let paint = background_fill_to_paint_spec(bg);
-        let paint_id = builder.intern_paint(paint);
-        builder.push(DrawOp::Rect {
-            rect: rect_to_rect4(dst),
-            paint: paint_id,
-        });
+    if !style.background.is_empty() {
+        // 多层背景：按声明顺序从底到顶绘制。
+        for bg in &style.background {
+            let paint = background_fill_to_paint_spec(bg);
+            let paint_id = builder.intern_paint(paint);
+            builder.push(DrawOp::Rect {
+                rect: rect_to_rect4(dst),
+                paint: paint_id,
+            });
+        }
     }
 
     let lottie_dst = match item.object_fit {
@@ -2686,7 +2783,7 @@ pub fn render_lottie(
         dst: rect_to_rect4(lottie_dst),
     });
 
-    if let Some(ref shadow) = style.inset_shadow {
+    for shadow in &style.inset_shadow {
         draw_inset_shadow(builder, item.bounds, &style.border_radius, shadow);
     }
 
@@ -2715,11 +2812,11 @@ pub fn render_lottie_with_shadows(
     let style = &item.paint;
     let bounds = item.bounds;
 
-    if let Some(ref shadow) = style.box_shadow {
+    for shadow in &style.box_shadow {
         draw_box_shadow(ctx.builder, bounds, &style.border_radius, shadow);
     }
 
-    if let Some(ref shadow) = style.drop_shadow {
+    for shadow in &style.drop_shadow {
         draw_item_drop_shadow(ctx, bounds, shadow, |ctx2| render_lottie(ctx2, item))?;
     }
     render_lottie(ctx, item)?;
@@ -2733,11 +2830,11 @@ pub fn render_bitmap_with_shadows(
     let style = &item.paint;
     let bounds = item.bounds;
 
-    if let Some(ref shadow) = style.box_shadow {
+    for shadow in &style.box_shadow {
         draw_box_shadow(ctx.builder, bounds, &style.border_radius, shadow);
     }
 
-    if let Some(ref shadow) = style.drop_shadow {
+    for shadow in &style.drop_shadow {
         draw_item_drop_shadow(ctx, bounds, shadow, |ctx2| render_bitmap(ctx2, item))?;
     }
     render_bitmap(ctx, item)?;
@@ -2773,13 +2870,19 @@ mod radial_gradient_tests {
     #[test]
     fn default_center_radius_is_farthest_corner() {
         // 圆心位于中心时，farthest-corner = sqrt(0.5² + 0.5²)。
-        let fill = BackgroundFill::RadialGradient {
-            center: [0.5, 0.5],
-            from: ColorToken::Red500,
-            via: None,
-            to: ColorToken::Blue500,
-        };
-        let ShaderSpec::RadialGradient { center, radius, stops, colors, .. } = shader_for(&fill)
+        let fill = BackgroundFill::radial_from_via_to(
+            [0.5, 0.5],
+            ColorToken::Red500,
+            None,
+            ColorToken::Blue500,
+        );
+        let ShaderSpec::RadialGradient {
+            center,
+            radius,
+            stops,
+            colors,
+            ..
+        } = shader_for(&fill)
         else {
             panic!("expected radial gradient");
         };
@@ -2792,12 +2895,12 @@ mod radial_gradient_tests {
     #[test]
     fn off_center_radius_uses_farthest_corner() {
         // 圆心 (0.2, 0.2)：最远角为 (1,1)，距离 = sqrt(0.8² + 0.8²)。
-        let fill = BackgroundFill::RadialGradient {
-            center: [0.2, 0.2],
-            from: ColorToken::Red500,
-            via: None,
-            to: ColorToken::Blue500,
-        };
+        let fill = BackgroundFill::radial_from_via_to(
+            [0.2, 0.2],
+            ColorToken::Red500,
+            None,
+            ColorToken::Blue500,
+        );
         let ShaderSpec::RadialGradient { radius, .. } = shader_for(&fill) else {
             panic!("expected radial gradient");
         };
@@ -2807,12 +2910,12 @@ mod radial_gradient_tests {
 
     #[test]
     fn via_stop_emits_three_color_stops() {
-        let fill = BackgroundFill::RadialGradient {
-            center: [0.5, 0.5],
-            from: ColorToken::Red500,
-            via: Some(ColorToken::Green500),
-            to: ColorToken::Blue500,
-        };
+        let fill = BackgroundFill::radial_from_via_to(
+            [0.5, 0.5],
+            ColorToken::Red500,
+            Some(ColorToken::Green500),
+            ColorToken::Blue500,
+        );
         let ShaderSpec::RadialGradient { stops, colors, .. } = shader_for(&fill) else {
             panic!("expected radial gradient");
         };

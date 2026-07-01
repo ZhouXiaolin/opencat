@@ -17,7 +17,7 @@ use crate::{
     layout::tree::{LayoutNode, LayoutTree},
     parse::transition::TransitionKind,
     resolve::tree::{ElementId, ElementKind, ElementNode},
-    style::Position,
+    style::{ClipPath, LengthPercentage, Position},
 };
 
 /// L3 子树 merkle 缓存。命中条件：
@@ -329,6 +329,9 @@ fn assemble_display_node(
     } else {
         None
     };
+    let paint_clip = visual
+        .clip_path
+        .map(|clip_path| display_clip_for_clip_path(clip_path, bounds));
 
     let (children, hidden_subtree) = if matches!(&element.kind, ElementKind::Canvas(_)) {
         let owner_id = element.style.id.clone();
@@ -362,7 +365,7 @@ fn assemble_display_node(
         Some(DrawScriptDisplayItem {
             bounds,
             commands: element.draw_slot.commands.clone(),
-            drop_shadow: None,
+            drop_shadow: Vec::new(),
             hidden_subtree: if hidden_is_empty {
                 Vec::new()
             } else {
@@ -385,6 +388,7 @@ fn assemble_display_node(
         opacity: element.style.visual.opacity,
         css_filter: element.style.visual.css_filter.clone(),
         backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
+        paint_clip,
         clip,
         item,
         children,
@@ -393,6 +397,33 @@ fn assemble_display_node(
     };
     node.recorded_subtree_fingerprint = display_recorded_subtree_fingerprint(&node);
     node
+}
+
+fn display_clip_for_clip_path(clip_path: ClipPath, bounds: DisplayRect) -> DisplayClip {
+    match clip_path {
+        ClipPath::Inset(inset) => {
+            let left = resolve_clip_length(inset.left, bounds.width);
+            let top = resolve_clip_length(inset.top, bounds.height);
+            let right = resolve_clip_length(inset.right, bounds.width);
+            let bottom = resolve_clip_length(inset.bottom, bounds.height);
+            DisplayClip {
+                bounds: DisplayRect {
+                    x: bounds.x + left,
+                    y: bounds.y + top,
+                    width: (bounds.width - left - right).max(0.0),
+                    height: (bounds.height - top - bottom).max(0.0),
+                },
+                border_radius: Default::default(),
+            }
+        }
+    }
+}
+
+fn resolve_clip_length(value: LengthPercentage, axis: f32) -> f32 {
+    match value {
+        LengthPercentage::Length(value) => value,
+        LengthPercentage::Percent(value) => value * axis,
+    }
 }
 
 fn display_item_for_node(
@@ -405,7 +436,7 @@ fn display_item_for_node(
         ElementKind::Div(_) => DisplayItem::Rect(RectDisplayItem {
             bounds,
             paint: RectPaintStyle {
-                background: element.style.visual.background,
+                background: element.style.visual.background.clone(),
                 border_radius: element.style.visual.border_radius,
                 border_width: element.style.visual.border_width,
                 border_top_width: element.style.visual.border_top_width,
@@ -414,16 +445,16 @@ fn display_item_for_node(
                 border_left_width: element.style.visual.border_left_width,
                 border_color: element.style.visual.border_color,
                 border_style: element.style.visual.border_style,
-                box_shadow: element.style.visual.box_shadow,
-                inset_shadow: element.style.visual.inset_shadow,
-                drop_shadow: element.style.visual.drop_shadow,
+                box_shadow: element.style.visual.box_shadow.clone(),
+                inset_shadow: element.style.visual.inset_shadow.clone(),
+                drop_shadow: element.style.visual.drop_shadow.clone(),
                 backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
             },
         }),
         ElementKind::Timeline(timeline) => DisplayItem::Timeline(TimelineDisplayItem {
             bounds,
             paint: RectPaintStyle {
-                background: element.style.visual.background,
+                background: element.style.visual.background.clone(),
                 border_radius: element.style.visual.border_radius,
                 border_width: element.style.visual.border_width,
                 border_top_width: element.style.visual.border_top_width,
@@ -432,9 +463,9 @@ fn display_item_for_node(
                 border_left_width: element.style.visual.border_left_width,
                 border_color: element.style.visual.border_color,
                 border_style: element.style.visual.border_style,
-                box_shadow: element.style.visual.box_shadow,
-                inset_shadow: element.style.visual.inset_shadow,
-                drop_shadow: element.style.visual.drop_shadow,
+                box_shadow: element.style.visual.box_shadow.clone(),
+                inset_shadow: element.style.visual.inset_shadow.clone(),
+                drop_shadow: element.style.visual.drop_shadow.clone(),
                 backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
             },
             transition: timeline.transition.as_ref().map(|transition| {
@@ -459,7 +490,8 @@ fn display_item_for_node(
                 style: text.text_style.clone(),
                 allow_wrap: text_element_allows_wrap(element),
                 truncate: element.style.layout.truncate,
-                drop_shadow: element.style.visual.drop_shadow,
+                drop_shadow: element.style.visual.drop_shadow.clone(),
+                text_shadows: element.style.visual.text_shadows.clone(),
                 text_unit_overrides: text.text_unit_overrides.clone(),
                 visual_expand_x,
                 visual_expand_y,
@@ -475,7 +507,7 @@ fn display_item_for_node(
             paint_epoch: bitmap.video_timing.map_or(0, |_| frame_ctx.frame as u64),
             object_fit: element.style.visual.object_fit,
             paint: BitmapPaintStyle {
-                background: element.style.visual.background,
+                background: element.style.visual.background.clone(),
                 border_radius: element.style.visual.border_radius,
                 border_width: element.style.visual.border_width,
                 border_top_width: element.style.visual.border_top_width,
@@ -484,9 +516,9 @@ fn display_item_for_node(
                 border_left_width: element.style.visual.border_left_width,
                 border_color: element.style.visual.border_color,
                 border_style: element.style.visual.border_style,
-                box_shadow: element.style.visual.box_shadow,
-                inset_shadow: element.style.visual.inset_shadow,
-                drop_shadow: element.style.visual.drop_shadow,
+                box_shadow: element.style.visual.box_shadow.clone(),
+                inset_shadow: element.style.visual.inset_shadow.clone(),
+                drop_shadow: element.style.visual.drop_shadow.clone(),
             },
         }),
         ElementKind::Lottie(lottie) => DisplayItem::Lottie(LottieDisplayItem {
@@ -501,7 +533,7 @@ fn display_item_for_node(
             paint_epoch: frame_ctx.frame as u64,
             object_fit: element.style.visual.object_fit,
             paint: BitmapPaintStyle {
-                background: element.style.visual.background,
+                background: element.style.visual.background.clone(),
                 border_radius: element.style.visual.border_radius,
                 border_width: element.style.visual.border_width,
                 border_top_width: element.style.visual.border_top_width,
@@ -510,25 +542,25 @@ fn display_item_for_node(
                 border_left_width: element.style.visual.border_left_width,
                 border_color: element.style.visual.border_color,
                 border_style: element.style.visual.border_style,
-                box_shadow: element.style.visual.box_shadow,
-                inset_shadow: element.style.visual.inset_shadow,
-                drop_shadow: element.style.visual.drop_shadow,
+                box_shadow: element.style.visual.box_shadow.clone(),
+                inset_shadow: element.style.visual.inset_shadow.clone(),
+                drop_shadow: element.style.visual.drop_shadow.clone(),
             },
         }),
         ElementKind::Canvas(canvas) => DisplayItem::DrawScript(DrawScriptDisplayItem {
             bounds,
             commands: canvas.commands.clone(),
-            drop_shadow: element.style.visual.drop_shadow,
+            drop_shadow: element.style.visual.drop_shadow.clone(),
             hidden_subtree,
         }),
         ElementKind::SvgPath(svg) => DisplayItem::SvgPath(SvgPathDisplayItem {
             bounds,
             path_data: svg.path_data.clone(),
             paint: SvgPathPaintStyle {
-                fill: element.style.visual.fill,
+                fill: element.style.visual.fill.clone(),
                 stroke_width: element.style.visual.stroke_width,
                 stroke_color: element.style.visual.stroke_color,
-                drop_shadow: element.style.visual.drop_shadow,
+                drop_shadow: element.style.visual.drop_shadow.clone(),
                 stroke_dasharray: element.style.visual.stroke_dasharray,
                 stroke_dashoffset: element.style.visual.stroke_dashoffset,
             },
@@ -1096,7 +1128,9 @@ mod tests {
         assert_eq!(svg.paint.stroke_width, Some(3.5));
         assert_eq!(
             svg.paint.fill,
-            Some(crate::style::BackgroundFill::Solid(ColorToken::Sky200))
+            Some(crate::style::BackgroundFill::Solid {
+                color: ColorToken::Sky200,
+            })
         );
         assert_eq!(svg.view_box, [0.0, 0.0, 24.0, 24.0]);
     }
@@ -1204,7 +1238,9 @@ mod tests {
         assert_eq!(svg.paint.stroke_color, Some(ColorToken::Blue));
         assert_eq!(
             svg.paint.fill,
-            Some(crate::style::BackgroundFill::Solid(ColorToken::Red500))
+            Some(crate::style::BackgroundFill::Solid {
+                color: ColorToken::Red500,
+            })
         );
     }
 

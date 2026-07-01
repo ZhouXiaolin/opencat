@@ -241,7 +241,16 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
             style.inset_right = Some(zero);
             style.inset_bottom = Some(zero);
         }
-        ExactClassAction::BgGradientDirection(value) => style.bg_gradient_direction = Some(value),
+        ExactClassAction::BgGradientDirection(value) => {
+            style.bg_gradient_direction = Some(value);
+            // 线性与径向互斥：设置方向时清除径向圆心。
+            style.bg_gradient_radial_center = None;
+        }
+        ExactClassAction::BgGradientRadial => {
+            // 默认圆心为单位正方形中心。
+            style.bg_gradient_radial_center = Some([0.5, 0.5]);
+            style.bg_gradient_direction = None;
+        }
         ExactClassAction::FlexShrink(value) => style.flex_shrink = Some(value),
         ExactClassAction::FlexGrow(value) => style.flex_grow = Some(value),
         ExactClassAction::TextAlign(value) => style.text_align = Some(value),
@@ -627,6 +636,10 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
+    if apply_bracket_radial_position_rule(class, style) {
+        return true;
+    }
+
     if apply_bracket_tracking_rule(class, style) {
         return true;
     }
@@ -914,6 +927,7 @@ enum ExactClassAction {
     Noop,
     InsetZero,
     BgGradientDirection(GradientDirection),
+    BgGradientRadial,
     FlexShrink(f32),
     FlexGrow(f32),
     TextAlign(TextAlign),
@@ -1222,6 +1236,83 @@ fn apply_bracket_color_rule(
     };
     apply_color_target(style, target, color);
     true
+}
+
+/// 解析 `bg-radial-[at_<x>_<y>]`，设置径向渐变圆心并切换为径向模式。
+///
+/// 支持的写法（下划线等价于空格）：
+///   - `bg-radial-[at_30%_70%]`      百分比
+///   - `bg-radial-[at_top_left]`     关键字（left/right/center、top/bottom/center）
+///   - `bg-radial-[at_center]`       单关键字，等价于 50%/50%
+fn apply_bracket_radial_position_rule(class: &str, style: &mut NodeStyle) -> bool {
+    let Some(inner) = class
+        .strip_prefix("bg-radial-[")
+        .and_then(|v| v.strip_suffix(']'))
+    else {
+        return false;
+    };
+    // 下划线 → 空格，还原 Tailwind 任意值语法。
+    let normalized = inner.replace('_', " ");
+    let Some(position) = normalized.strip_prefix("at ") else {
+        return false;
+    };
+    let position = position.trim();
+
+    let tokens: Vec<&str> = position.split_whitespace().collect();
+    if tokens.is_empty() || tokens.len() > 2 {
+        return false;
+    }
+    // 单关键字时补齐为两个相同值（如 `at center` → center center）。
+    let (first, second) = match tokens.len() {
+        1 => (tokens[0], tokens[0]),
+        _ => (tokens[0], tokens[1]),
+    };
+
+    let Some((x, y)) = resolve_position_pair(first, second) else {
+        return false;
+    };
+    style.bg_gradient_radial_center = Some([x, y]);
+    style.bg_gradient_direction = None;
+    true
+}
+
+/// 将两个位置 token 解析为单位正方形内的 `(x, y)` 坐标。
+///
+/// 每个 token 可以是百分比（`30%`）或关键字（`left`/`right`/`top`/`bottom`/`center`）。
+/// 当两个 token 都带轴向关键字时按关键字归位；否则按 `第一个=x、第二个=y`。
+fn resolve_position_pair(first: &str, second: &str) -> Option<(f32, f32)> {
+    enum Axis {
+        X(f32),
+        Y(f32),
+        Free(f32),
+    }
+    let parse_token = |token: &str| -> Option<Axis> {
+        if let Some(pct) = token.strip_suffix('%') {
+            let v = (pct.parse::<f32>().ok()? / 100.0).clamp(0.0, 1.0);
+            return Some(Axis::Free(v));
+        }
+        Some(match token {
+            "left" => Axis::X(0.0),
+            "right" => Axis::X(1.0),
+            "top" => Axis::Y(0.0),
+            "bottom" => Axis::Y(1.0),
+            "center" => Axis::Free(0.5),
+            _ => return None,
+        })
+    };
+
+    let a = parse_token(first)?;
+    let b = parse_token(second)?;
+    // 关键字轴向优先：X/Y 互补时各归其位。
+    let (x, y) = match (a, b) {
+        (Axis::X(x), Axis::Y(y)) | (Axis::Y(y), Axis::X(x)) => (x, y),
+        (Axis::Free(x), Axis::Y(y)) | (Axis::Y(y), Axis::Free(x)) => (x, y),
+        (Axis::X(x), Axis::Free(y)) | (Axis::Free(y), Axis::X(x)) => (x, y),
+        (Axis::Free(x), Axis::Free(y)) => (x, y),
+        // 两个同为 X 或同为 Y 关键字属于非法组合。
+        _ => return None,
+    };
+    Some((x, y))
 }
 
 fn apply_bracket_tracking_rule(class: &str, style: &mut NodeStyle) -> bool {
@@ -2103,6 +2194,65 @@ mod tests {
             style.bg_gradient_to,
             Some(ColorToken::Custom(0, 0, 255, 255))
         );
+    }
+
+    #[test]
+    fn parses_radial_gradient_default_center() {
+        let style = parse_class_name("bg-radial from-orange-500 to-violet-500");
+
+        assert_eq!(style.bg_gradient_radial_center, Some([0.5, 0.5]));
+        assert_eq!(style.bg_gradient_direction, None);
+        assert_eq!(style.bg_gradient_from, Some(ColorToken::Orange500));
+        assert_eq!(style.bg_gradient_to, Some(ColorToken::Violet500));
+    }
+
+    #[test]
+    fn parses_radial_gradient_bracket_percent_center() {
+        let style = parse_class_name("bg-radial-[at_30%_70%] from-orange-500 to-violet-500");
+
+        assert_eq!(style.bg_gradient_radial_center, Some([0.3, 0.7]));
+        assert_eq!(style.bg_gradient_direction, None);
+    }
+
+    #[test]
+    fn parses_radial_gradient_bracket_keyword_center() {
+        let top_left = parse_class_name("bg-radial-[at_top_left]");
+        assert_eq!(top_left.bg_gradient_radial_center, Some([0.0, 0.0]));
+
+        let bottom_right = parse_class_name("bg-radial-[at_bottom_right]");
+        assert_eq!(
+            bottom_right.bg_gradient_radial_center,
+            Some([1.0, 1.0])
+        );
+
+        let center = parse_class_name("bg-radial-[at_center]");
+        assert_eq!(center.bg_gradient_radial_center, Some([0.5, 0.5]));
+    }
+
+    #[test]
+    fn radial_and_linear_gradient_are_mutually_exclusive() {
+        // 线性后接径向：径向胜出，方向被清除。
+        let radial_after_linear =
+            parse_class_name("bg-gradient-to-r bg-radial from-orange-500 to-violet-500");
+        assert_eq!(
+            radial_after_linear.bg_gradient_radial_center,
+            Some([0.5, 0.5])
+        );
+        assert_eq!(radial_after_linear.bg_gradient_direction, None);
+
+        // 径向后接线性：方向胜出，圆心被清除。
+        let linear_after_radial =
+            parse_class_name("bg-radial bg-gradient-to-r from-orange-500 to-violet-500");
+        assert_eq!(linear_after_radial.bg_gradient_radial_center, None);
+        assert_eq!(
+            linear_after_radial.bg_gradient_direction,
+            Some(crate::style::GradientDirection::ToRight)
+        );
+
+        // 自定义圆心的径向后接线性同样互斥。
+        let bracket_then_linear =
+            parse_class_name("bg-radial-[at_30%_70%] bg-gradient-to-b from-orange-500 to-violet-500");
+        assert_eq!(bracket_then_linear.bg_gradient_radial_center, None);
     }
 
     #[test]

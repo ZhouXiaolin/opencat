@@ -232,7 +232,16 @@ pub fn background_fill_to_fill_spec(fill: &BackgroundFill) -> FillSpec {
             via,
             to,
         } => {
-            let shader = gradient_to_shader_spec(*direction, from, via.as_ref(), to);
+            let shader = linear_gradient_to_shader_spec(*direction, from, via.as_ref(), to);
+            FillSpec::Shader(shader)
+        }
+        BackgroundFill::RadialGradient {
+            center,
+            from,
+            via,
+            to,
+        } => {
+            let shader = radial_gradient_to_shader_spec(center, from, via.as_ref(), to);
             FillSpec::Shader(shader)
         }
     }
@@ -273,32 +282,65 @@ pub fn drop_shadow_to_image_filter(shadow: &DropShadow) -> (ImageFilterSpec, [f3
     (filter, color)
 }
 
+/// Build the (stops, colors) pair shared by linear and radial gradients.
+fn gradient_stops_colors(
+    from: &ColorToken,
+    via: Option<&ColorToken>,
+    to: &ColorToken,
+) -> (Vec<f32>, Vec<[f32; 4]>) {
+    let from_color = color_token_to_rgba(from);
+    let to_color = color_token_to_rgba(to);
+    match via {
+        Some(mid) => {
+            let mid_color = color_token_to_rgba(mid);
+            (vec![0.0, 0.5, 1.0], vec![from_color, mid_color, to_color])
+        }
+        None => (vec![0.0, 1.0], vec![from_color, to_color]),
+    }
+}
+
 /// Convert a linear gradient definition to a `ShaderSpec::LinearGradient`.
 ///
 /// `via` is the optional middle stop. The gradient is always horizontal/vertical
 /// based on direction, with `width`/`height` supplied by the caller as the rect extent
 /// and the shader origin assumed to be (0, 0).
-fn gradient_to_shader_spec(
+fn linear_gradient_to_shader_spec(
     direction: GradientDirection,
     from: &ColorToken,
     via: Option<&ColorToken>,
     to: &ColorToken,
 ) -> ShaderSpec {
     let (from_pt, to_pt) = direction_endpoints(&direction);
-    let from_color = color_token_to_rgba(from);
-    let to_color = color_token_to_rgba(to);
-
-    let (stops, colors) = match via {
-        Some(mid) => {
-            let mid_color = color_token_to_rgba(mid);
-            (vec![0.0, 0.5, 1.0], vec![from_color, mid_color, to_color])
-        }
-        None => (vec![0.0, 1.0], vec![from_color, to_color]),
-    };
+    let (stops, colors) = gradient_stops_colors(from, via, to);
 
     ShaderSpec::LinearGradient {
         from: from_pt,
         to: to_pt,
+        stops,
+        colors,
+        tile_mode: TileMode::Clamp,
+    }
+}
+
+/// Convert a radial gradient definition to a `ShaderSpec::RadialGradient`.
+///
+/// `center` 为单位正方形内的圆心。半径取圆心到四个角的最远距离（`farthest-corner`），
+/// 与 linear 渐变一致地在单位正方形坐标系内表达，由渲染层映射到实际 rect。
+fn radial_gradient_to_shader_spec(
+    center: &[f32; 2],
+    from: &ColorToken,
+    via: Option<&ColorToken>,
+    to: &ColorToken,
+) -> ShaderSpec {
+    let (stops, colors) = gradient_stops_colors(from, via, to);
+    // farthest-corner：到单位正方形四角的最大距离。
+    let dx = center[0].max(1.0 - center[0]);
+    let dy = center[1].max(1.0 - center[1]);
+    let radius = (dx * dx + dy * dy).sqrt();
+
+    ShaderSpec::RadialGradient {
+        center: *center,
+        radius,
         stops,
         colors,
         tile_mode: TileMode::Clamp,
@@ -2713,4 +2755,68 @@ mod script_runtime_effect_tests {
     //   - `record_canvas_runtime_effect_pushes_script_effect` in `script::recorder::store`
     //   - the end-to-end render of `json/canvas-ripple-card.xml` and
     //     `json/profile-showcase.xml`.
+}
+
+#[cfg(test)]
+mod radial_gradient_tests {
+    use super::background_fill_to_fill_spec;
+    use crate::canvas::paint::{FillSpec, ShaderSpec};
+    use crate::style::{BackgroundFill, ColorToken};
+
+    fn shader_for(fill: &BackgroundFill) -> ShaderSpec {
+        match background_fill_to_fill_spec(fill) {
+            FillSpec::Shader(s) => s,
+            _ => panic!("expected shader fill"),
+        }
+    }
+
+    #[test]
+    fn default_center_radius_is_farthest_corner() {
+        // 圆心位于中心时，farthest-corner = sqrt(0.5² + 0.5²)。
+        let fill = BackgroundFill::RadialGradient {
+            center: [0.5, 0.5],
+            from: ColorToken::Red500,
+            via: None,
+            to: ColorToken::Blue500,
+        };
+        let ShaderSpec::RadialGradient { center, radius, stops, colors, .. } = shader_for(&fill)
+        else {
+            panic!("expected radial gradient");
+        };
+        assert_eq!(center, [0.5, 0.5]);
+        assert!((radius - (0.5_f32 * 0.5 + 0.5 * 0.5).sqrt()).abs() < 1e-5);
+        assert_eq!(stops, vec![0.0, 1.0]);
+        assert_eq!(colors.len(), 2);
+    }
+
+    #[test]
+    fn off_center_radius_uses_farthest_corner() {
+        // 圆心 (0.2, 0.2)：最远角为 (1,1)，距离 = sqrt(0.8² + 0.8²)。
+        let fill = BackgroundFill::RadialGradient {
+            center: [0.2, 0.2],
+            from: ColorToken::Red500,
+            via: None,
+            to: ColorToken::Blue500,
+        };
+        let ShaderSpec::RadialGradient { radius, .. } = shader_for(&fill) else {
+            panic!("expected radial gradient");
+        };
+        let expected = (0.8_f32 * 0.8 + 0.8 * 0.8).sqrt();
+        assert!((radius - expected).abs() < 1e-5);
+    }
+
+    #[test]
+    fn via_stop_emits_three_color_stops() {
+        let fill = BackgroundFill::RadialGradient {
+            center: [0.5, 0.5],
+            from: ColorToken::Red500,
+            via: Some(ColorToken::Green500),
+            to: ColorToken::Blue500,
+        };
+        let ShaderSpec::RadialGradient { stops, colors, .. } = shader_for(&fill) else {
+            panic!("expected radial gradient");
+        };
+        assert_eq!(stops, vec![0.0, 0.5, 1.0]);
+        assert_eq!(colors.len(), 3);
+    }
 }

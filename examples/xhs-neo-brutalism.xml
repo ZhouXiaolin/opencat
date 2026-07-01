@@ -1,0 +1,280 @@
+<opencat width="1280" height="720" fps="30" duration="18.1">
+  <fonts default="nb-sans">
+    <font id="nb-sans" family="Noto Sans SC" path="../assets/NotoSansSC-Regular.otf" role="sans" />
+    <font id="nb-emoji" path="../assets/NotoColorEmoji.ttf" role="emoji" />
+  </fonts>
+
+  <div id="root" class="relative w-[1280px] h-[720px] bg-[#FFFDF5] overflow-hidden">
+    <tl id="main-tl" class="absolute inset-0">
+
+      <!-- ============ Scene 1 · 开场钩子 0–3.0s · 标记生活贴纸海报 ============ -->
+      <div id="scene1" class="relative w-full h-full bg-[#FFFDF5] overflow-hidden" duration="3">
+        <!-- 背景层：ghost type + 注册线 -->
+        <text id="s1-ghost" class="absolute right-[40px] top-[-40px] text-[260px] font-black text-black/8 leading-[1]">RED</text>
+        <div id="s1-reg-v" class="absolute left-[860px] top-[60px] w-[2px] h-[600px] bg-black/10" />
+        <div id="s1-reg-h" class="absolute left-[60px] top-[640px] w-[720px] h-[2px] bg-black/10" />
+        <!-- 前景装饰：贴纸点 / 方块 -->
+        <div id="s1-dot1" class="absolute left-[120px] top-[70px] w-[16px] h-[16px] bg-[#FFD93D] border-[2px] border-black" />
+        <div id="s1-dot2" class="absolute left-[800px] top-[600px] w-[14px] h-[14px] rounded-full bg-[#FF6B6B] border-[2px] border-black" />
+        <div id="s1-sq1" class="absolute right-[40px] bottom-[40px] w-[28px] h-[28px] bg-black" />
+
+        <!-- 中景：kicker 贴纸 -->
+        <div id="s1-kicker" class="absolute left-[80px] top-[90px] px-[20px] py-[8px] bg-[#FFD93D] border-[4px] border-black shadow-[4px_4px_0px_0px_#000]">
+          <text id="s1-kicker-t" class="text-[20px] font-black tracking-[3px] text-black">小红书 · LIFE STYLE</text>
+        </div>
+
+        <!-- 中景：hero 贴纸面板（红底黑字，硬阴影，旋转） -->
+        <div id="s1-hero" class="absolute left-[70px] top-[180px] w-[640px] h-[360px] bg-[#FF6B6B] border-[4px] border-black shadow-[14px_14px_0px_0px_#000] flex flex-col justify-center px-[44px]">
+          <text id="s1-hero-t" class="text-[150px] font-black text-black leading-[0.88]">标记&#10;生活</text>
+        </div>
+        <!-- 前景："我的" 小贴纸压角 -->
+        <div id="s1-my" class="absolute left-[610px] top-[150px] px-[18px] py-[8px] bg-white border-[4px] border-black shadow-[4px_4px_0px_0px_#000]">
+          <text id="s1-my-t" class="text-[26px] font-black text-black">我的</text>
+        </div>
+
+        <!-- 中景：右侧贴纸堆（视觉混乱区） -->
+        <div id="s1-stk1" class="absolute right-[70px] top-[180px] w-[210px] h-[92px] bg-[#FFD93D] border-[4px] border-black shadow-[6px_6px_0px_0px_#000] flex items-center justify-center">
+          <text id="s1-stk1-t" class="text-[34px] font-black text-black">种草</text>
+        </div>
+        <div id="s1-stk2" class="absolute right-[50px] top-[300px] w-[210px] h-[92px] bg-[#C4B5FD] border-[4px] border-black shadow-[6px_6px_0px_0px_#000] flex items-center justify-center">
+          <text id="s1-stk2-t" class="text-[34px] font-black text-black">分享</text>
+        </div>
+        <div id="s1-stk3" class="absolute right-[90px] top-[420px] w-[210px] h-[92px] bg-white border-[4px] border-black shadow-[6px_6px_0px_0px_#000] flex items-center justify-center">
+          <text id="s1-stk3-t" class="text-[30px] font-black text-black">同款好物</text>
+        </div>
+        <icon id="s1-star" icon="star" class="absolute right-[280px] top-[150px] w-[44px] h-[44px] fill-[#FFD93D] stroke-black stroke-[3]" />
+
+        <!-- 前景：底部 metadata -->
+        <text id="s1-meta" class="absolute left-[82px] top-[668px] text-[18px] font-black tracking-[4px] text-black/70">EP.01 — 品牌片 / MARK YOUR LIFE</text>
+      </div>
+
+      <transition from="scene1" to="scene2" effect="wipe" direction="from_left" duration="0.4" timing="ease-out" />
+
+      <!-- ============ Scene 2 · 态度 3.4–6.4s · 不要滤镜 只要真实 ============ -->
+      <div id="scene2" class="relative w-full h-full bg-[#FFD93D] overflow-hidden" duration="3">
+        <!-- 背景层 -->
+        <text id="s2-ghost" class="absolute left-[30px] top-[-30px] text-[260px] font-black text-black/8 leading-[1]">REAL</text>
+        <div id="s2-reg-h" class="absolute left-[0] right-[0] top-[560px] h-[2px] bg-black/15" />
+        <!-- 底部黑色方块行（纹理） -->
+        <div id="s2-sqrow" class="absolute left-[80px] top-[660px] flex gap-[14px]">
+          <div id="s2-sq1" class="w-[22px] h-[22px] bg-black" />
+          <div id="s2-sq2" class="w-[22px] h-[22px] bg-black" />
+          <div id="s2-sq3" class="w-[22px] h-[22px] bg-black" />
+          <div id="s2-sq4" class="w-[22px] h-[22px] bg-[#FF6B6B] border-[2px] border-black" />
+          <div id="s2-sq5" class="w-[22px] h-[22px] bg-black" />
+        </div>
+        <icon id="s2-star" icon="star" class="absolute right-[70px] top-[80px] w-[52px] h-[52px] fill-black" />
+
+        <!-- 中景：kicker -->
+        <div id="s2-kicker" class="absolute left-[80px] top-[80px] px-[18px] py-[8px] bg-black border-[4px] border-black shadow-[4px_4px_0px_0px_#000]">
+          <text id="s2-kicker-t" class="text-[18px] font-black tracking-[4px] text-white">态度 / ATTITUDE</text>
+        </div>
+
+        <!-- 中景：两块旋转贴纸叠贴 -->
+        <div id="s2-blockA" class="absolute left-[120px] top-[180px] w-[560px] h-[180px] bg-black border-[4px] border-black shadow-[12px_12px_0px_0px_#000] flex items-center justify-center">
+          <text id="s2-blockA-t" class="text-[104px] font-black text-white leading-[1]">不要滤镜</text>
+        </div>
+        <div id="s2-blockB" class="absolute left-[560px] top-[330px] w-[600px] h-[180px] bg-white border-[4px] border-[#FF6B6B] shadow-[12px_12px_0px_0px_#000] flex items-center justify-center">
+          <text id="s2-blockB-t" class="text-[104px] font-black text-black leading-[1]">只要真实</text>
+        </div>
+        <!-- 前景：指向箭头 -->
+        <icon id="s2-arrow" icon="arrow-right" class="absolute left-[510px] top-[250px] w-[70px] h-[70px] stroke-[#FF6B6B] stroke-[3]" />
+
+        <!-- 前景：底部 tagline -->
+        <text id="s2-tagline" class="absolute left-[0] right-[0] top-[610px] text-center text-[28px] font-black tracking-[2px] text-black">在小红书 · 活成自己的样子</text>
+      </div>
+
+      <transition from="scene2" to="scene3" effect="slide" direction="from_right" duration="0.4" timing="ease-out" />
+
+      <!-- ============ Scene 3 · 价值 6.8–10.2s · 标记·种草·连接 三卡 assemble ============ -->
+      <div id="scene3" class="relative w-full h-full bg-[#FFFDF5] overflow-hidden" duration="3.4">
+        <!-- 背景层 -->
+        <text id="s3-ghost" class="absolute left-[30px] top-[380px] text-[300px] font-black text-black/7 leading-[1]">03</text>
+        <div id="s3-reg-v" class="absolute left-[440px] top-[60px] w-[2px] h-[600px] bg-black/10" />
+        <div id="s3-reg-v2" class="absolute left-[830px] top-[60px] w-[2px] h-[600px] bg-black/10" />
+        <div id="s3-dot1" class="absolute right-[60px] top-[80px] w-[16px] h-[16px] rounded-full bg-[#FF6B6B] border-[2px] border-black" />
+
+        <!-- 中景：标题 -->
+        <div id="s3-kicker" class="absolute left-[80px] top-[70px] px-[18px] py-[8px] bg-[#C4B5FD] border-[4px] border-black shadow-[4px_4px_0px_0px_#000]">
+          <text id="s3-kicker-t" class="text-[18px] font-black tracking-[4px] text-black">03 / 怎么玩</text>
+        </div>
+        <text id="s3-title" class="absolute left-[78px] top-[120px] text-[68px] font-black text-black leading-[1.02]">标记 · 种草 · 连接</text>
+        <div id="s3-underline" class="absolute left-[80px] top-[200px] w-[420px] h-[8px] bg-[#FFD93D] border-[2px] border-black" />
+
+        <!-- 中景：三张 brutalist 卡片 -->
+        <div id="s3-c1" class="absolute left-[80px] top-[250px] w-[340px] h-[380px] bg-white border-[4px] border-black shadow-[10px_10px_0px_0px_#000] overflow-hidden">
+          <div id="s3-c1-head" class="w-full h-[110px] bg-[#FFD93D] border-b-[4px] border-black flex items-center justify-center">
+            <icon id="s3-c1-icon" icon="bookmark" class="w-[64px] h-[64px] stroke-black stroke-[3]" />
+          </div>
+          <div id="s3-c1-body" class="flex flex-col gap-[8px] px-[26px] py-[22px]">
+            <text id="s3-c1-num" class="text-[16px] font-black tracking-[3px] text-black/60">01 — MARK</text>
+            <text id="s3-c1-label" class="text-[52px] font-black text-black leading-[1]">标记</text>
+            <text id="s3-c1-desc" class="text-[22px] font-bold text-black/70 leading-[1.3]">随手记下&#10;心动瞬间</text>
+          </div>
+        </div>
+
+        <div id="s3-c2" class="absolute left-[470px] top-[240px] w-[340px] h-[380px] bg-white border-[4px] border-black shadow-[10px_10px_0px_0px_#000] overflow-hidden">
+          <div id="s3-c2-head" class="w-full h-[110px] bg-[#FF6B6B] border-b-[4px] border-black flex items-center justify-center">
+            <icon id="s3-c2-icon" icon="sparkles" class="w-[64px] h-[64px] stroke-black stroke-[3]" />
+          </div>
+          <div id="s3-c2-body" class="flex flex-col gap-[8px] px-[26px] py-[22px]">
+            <text id="s3-c2-num" class="text-[16px] font-black tracking-[3px] text-black/60">02 — PLANT</text>
+            <text id="s3-c2-label" class="text-[52px] font-black text-black leading-[1]">种草</text>
+            <text id="s3-c2-desc" class="text-[22px] font-bold text-black/70 leading-[1.3]">把好物安利&#10;给同好</text>
+          </div>
+        </div>
+
+        <div id="s3-c3" class="absolute left-[860px] top-[255px] w-[340px] h-[380px] bg-white border-[4px] border-black shadow-[10px_10px_0px_0px_#000] overflow-hidden">
+          <div id="s3-c3-head" class="w-full h-[110px] bg-[#C4B5FD] border-b-[4px] border-black flex items-center justify-center">
+            <icon id="s3-c3-icon" icon="users" class="w-[64px] h-[64px] stroke-black stroke-[3]" />
+          </div>
+          <div id="s3-c3-body" class="flex flex-col gap-[8px] px-[26px] py-[22px]">
+            <text id="s3-c3-num" class="text-[16px] font-black tracking-[3px] text-black/60">03 — LINK</text>
+            <text id="s3-c3-label" class="text-[52px] font-black text-black leading-[1]">连接</text>
+            <text id="s3-c3-desc" class="text-[22px] font-bold text-black/70 leading-[1.3]">遇见懂你&#10;的圈子</text>
+          </div>
+        </div>
+
+        <!-- 前景：底部 metadata -->
+        <text id="s3-meta" class="absolute left-[82px] top-[668px] text-[16px] font-black tracking-[4px] text-black/60">HOW IT WORKS — 三步进入你的生活场</text>
+      </div>
+
+      <transition from="scene3" to="scene4" effect="AdvancedMosaic" duration="0.7" timing="ease-in-out" />
+
+      <!-- ============ Scene 4 · 社区 10.9–14.3s · 3亿+ scramble 揭示 ============ -->
+      <div id="scene4" class="relative w-full h-full bg-[#C4B5FD] overflow-hidden" duration="3.4">
+        <!-- 背景层 -->
+        <text id="s4-ghost" class="absolute right-[30px] top-[-30px] text-[260px] font-black text-black/10 leading-[1]">US</text>
+        <div id="s4-reg-h" class="absolute left-[60px] right-[60px] top-[600px] h-[2px] bg-black/15" />
+        <div id="s4-dot1" class="absolute left-[60px] top-[80px] w-[16px] h-[16px] bg-black" />
+        <div id="s4-dot2" class="absolute left-[100px] top-[80px] w-[16px] h-[16px] rounded-full bg-[#FFD93D] border-[2px] border-black" />
+        <icon id="s4-star" icon="star" class="absolute left-[660px] top-[540px] w-[44px] h-[44px] fill-[#FF6B6B] stroke-black stroke-[3]" />
+
+        <!-- 中景：kicker -->
+        <div id="s4-kicker" class="absolute left-[80px] top-[80px] px-[18px] py-[8px] bg-black border-[4px] border-black shadow-[4px_4px_0px_0px_#000]">
+          <text id="s4-kicker-t" class="text-[18px] font-black tracking-[4px] text-white">04 / 社区</text>
+        </div>
+
+        <!-- 中景：大数字面板 -->
+        <div id="s4-num-panel" class="absolute left-[70px] top-[160px] w-[620px] h-[380px] bg-white border-[4px] border-black shadow-[14px_14px_0px_0px_#000] flex flex-col justify-center px-[40px]">
+          <text id="s4-num" class="text-[176px] font-black text-black leading-[0.9]">0亿+</text>
+          <text id="s4-num-label" class="text-[26px] font-black tracking-[2px] text-black/70">生活 · 在这里被标记</text>
+        </div>
+
+        <!-- 中景：右侧统计贴纸 -->
+        <div id="s4-stat1" class="absolute right-[60px] top-[180px] w-[360px] h-[160px] bg-[#FFD93D] border-[4px] border-black shadow-[8px_8px_0px_0px_#000] flex flex-col justify-center px-[26px]">
+          <text id="s4-stat1-n" class="text-[60px] font-black text-black leading-[1]">5000万</text>
+          <text id="s4-stat1-d" class="text-[20px] font-black tracking-[1px] text-black/70">笔记 / 每天产出</text>
+        </div>
+        <div id="s4-stat2" class="absolute right-[90px] top-[370px] w-[360px] h-[160px] bg-white border-[4px] border-black shadow-[8px_8px_0px_0px_#000] flex flex-col justify-center px-[26px]">
+          <text id="s4-stat2-n" class="text-[60px] font-black text-black leading-[1]">200万</text>
+          <text id="s4-stat2-d" class="text-[20px] font-black tracking-[1px] text-black/70">创作者 / 持续分享</text>
+        </div>
+
+        <!-- 前景：底部 tagline -->
+        <text id="s4-tagline" class="absolute left-[0] right-[0] top-[630px] text-center text-[26px] font-black tracking-[2px] text-black">每个人都是生活的策展人</text>
+      </div>
+
+      <transition from="scene4" to="scene5" effect="fade" duration="0.4" timing="ease-in-out" />
+
+      <!-- ============ Scene 5 · CTA 14.7–18.1s · 标记我的生活 ============ -->
+      <div id="scene5" class="relative w-full h-full bg-[#FF6B6B] overflow-hidden" duration="3.4">
+        <!-- 背景层 -->
+        <text id="s5-ghost" class="absolute left-[60px] top-[-30px] text-[260px] font-black text-black/10 leading-[1]">GO</text>
+        <!-- 放射线 -->
+        <div id="s5-ray1" class="absolute left-[520px] top-[90px] w-[4px] h-[70px] bg-[#FFD93D]" />
+        <div id="s5-ray2" class="absolute left-[640px] top-[70px] w-[4px] h-[90px] bg-white" />
+        <div id="s5-ray3" class="absolute left-[760px] top-[90px] w-[4px] h-[70px] bg-[#FFD93D]" />
+        <icon id="s5-star1" class="absolute left-[180px] top-[200px] w-[56px] h-[56px] fill-[#FFD93D] stroke-black stroke-[3]" icon="star" />
+        <icon id="s5-star2" class="absolute right-[200px] top-[230px] w-[40px] h-[40px] fill-white stroke-black stroke-[3]" icon="star" />
+
+        <!-- 中景：logo 方块 -->
+        <div id="s5-logo" class="absolute left-[540px] top-[110px] w-[200px] h-[200px] bg-white border-[4px] border-black shadow-[12px_12px_0px_0px_#000] flex items-center justify-center">
+          <icon id="s5-logo-icon" icon="bookmark" class="w-[100px] h-[100px] stroke-[#FF6B6B] stroke-[3]" />
+        </div>
+
+        <!-- 中景：品牌大字（黑影 + 白字叠层，硬偏移文字阴影） -->
+        <text id="s5-brand-shadow" class="absolute left-[0] right-[0] top-[356px] text-center text-[108px] font-black text-black leading-[1]">标记我的生活</text>
+        <text id="s5-brand" class="absolute left-[0] right-[0] top-[350px] text-center text-[108px] font-black text-white leading-[1]">标记我的生活</text>
+
+        <!-- 中景：CTA 按键（机械按压） -->
+        <div id="s5-cta-wrap" class="absolute left-[0] right-[0] top-[500px] flex justify-center">
+          <div id="s5-cta" class="px-[44px] py-[18px] bg-[#FFD93D] border-[4px] border-black shadow-[6px_6px_0px_0px_#000]">
+            <text id="s5-cta-t" class="text-[30px] font-black tracking-[1px] text-black">立即打开小红书 →</text>
+          </div>
+        </div>
+
+        <!-- 前景：slogan -->
+        <text id="s5-slogan" class="absolute left-[0] right-[0] top-[630px] text-center text-[24px] font-black tracking-[2px] text-white">发现你的同款生活</text>
+      </div>
+
+    </tl>
+  </div>
+
+  <script>
+    // ===== Scene 1 入场（0s）— slam + 贴纸 stagger =====
+    ctx.fromTo('s1-kicker', { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.4, delay: 0.05, ease: 'power3.out' });
+    ctx.fromTo('s1-hero', { opacity: 0, scale: 1.25, rotation: -14, y: -30 }, { opacity: 1, scale: 1, rotation: -2, y: 0, duration: 0.6, delay: 0.1, ease: 'back.out' });
+    ctx.fromTo('s1-hero-t', { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.4, delay: 0.25, ease: 'power2.out' });
+    ctx.fromTo('s1-my', { opacity: 0, scale: 0.3, rotation: 40 }, { opacity: 1, scale: 1, rotation: 6, duration: 0.5, delay: 0.55, ease: 'back.out' });
+    ctx.fromTo('s1-stk1', { opacity: 0, scale: 0.5, rotation: -20 }, { opacity: 1, scale: 1, rotation: 3, duration: 0.45, delay: 0.45, ease: 'back.out' });
+    ctx.fromTo('s1-stk2', { opacity: 0, scale: 0.5, rotation: 20 }, { opacity: 1, scale: 1, rotation: -2, duration: 0.45, delay: 0.55, ease: 'back.out' });
+    ctx.fromTo('s1-stk3', { opacity: 0, scale: 0.5, rotation: -18 }, { opacity: 1, scale: 1, rotation: 2, duration: 0.45, delay: 0.65, ease: 'back.out' });
+    ctx.fromTo('s1-star', { opacity: 0, scale: 0, rotation: -90 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.5, delay: 0.75, ease: 'back.out' });
+    ctx.fromTo('s1-meta', { opacity: 0 }, { opacity: 1, duration: 0.4, delay: 0.8, ease: 'power2.out' });
+
+    // ===== Scene 2 入场（3.4s）— 贴纸对 snap =====
+    ctx.fromTo('s2-kicker', { opacity: 0, y: -16 }, { opacity: 1, y: 0, duration: 0.4, delay: 3.4, ease: 'power3.out' });
+    ctx.fromTo('s2-blockA', { opacity: 0, x: -50, rotation: -18 }, { opacity: 1, x: 0, rotation: -3, duration: 0.5, delay: 3.45, ease: 'back.out' });
+    ctx.fromTo('s2-blockB', { opacity: 0, x: 50, rotation: 18 }, { opacity: 1, x: 0, rotation: 2, duration: 0.5, delay: 3.6, ease: 'back.out' });
+    ctx.fromTo('s2-arrow', { opacity: 0, scale: 0.2, rotation: -30 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.45, delay: 3.85, ease: 'back.out' });
+    ctx.fromTo('s2-star', { opacity: 0, scale: 0, rotation: -120 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.5, delay: 3.7, ease: 'back.out' });
+    ctx.fromTo('s2-tagline', { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.4, delay: 3.95, ease: 'power2.out' });
+
+    // ===== Scene 3 入场（6.8s）— 三卡 assemble =====
+    ctx.fromTo('s3-kicker', { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.4, delay: 6.8, ease: 'power3.out' });
+    ctx.fromTo('s3-title', { opacity: 0, y: 28 }, { opacity: 1, y: 0, duration: 0.5, delay: 6.82, ease: 'power3.out' });
+    ctx.fromTo('s3-underline', { opacity: 0, scaleX: 0 }, { opacity: 1, scaleX: 1, duration: 0.45, delay: 6.95, ease: 'power2.out' });
+    ctx.fromTo('s3-c1', { opacity: 0, y: 70, rotation: -10 }, { opacity: 1, y: 0, rotation: -2, duration: 0.5, delay: 6.9, ease: 'back.out' });
+    ctx.fromTo('s3-c2', { opacity: 0, y: 70, rotation: 8 }, { opacity: 1, y: 0, rotation: 1, duration: 0.5, delay: 7.02, ease: 'back.out' });
+    ctx.fromTo('s3-c3', { opacity: 0, y: 70, rotation: -8 }, { opacity: 1, y: 0, rotation: -1, duration: 0.5, delay: 7.14, ease: 'back.out' });
+    ctx.fromTo(['s3-c1-icon', 's3-c2-icon', 's3-c3-icon'], { opacity: 0, scale: 0.3 }, { opacity: 1, scale: 1, duration: 0.4, delay: 7.3, stagger: 0.08, ease: 'back.out' });
+    ctx.fromTo('s3-meta', { opacity: 0 }, { opacity: 1, duration: 0.4, delay: 7.5, ease: 'power2.out' });
+
+    // ===== Scene 4 入场（10.9s）— 数字 scramble 揭示 =====
+    ctx.fromTo('s4-kicker', { opacity: 0, y: -16 }, { opacity: 1, y: 0, duration: 0.4, delay: 10.9, ease: 'power3.out' });
+    ctx.fromTo('s4-num-panel', { opacity: 0, scale: 0.85, rotation: 8 }, { opacity: 1, scale: 1, rotation: -2, duration: 0.55, delay: 10.95, ease: 'back.out' });
+    ctx.to('s4-num', { scrambleText: { text: '3亿+', speed: 22, revealDelay: 0.05 }, duration: 1.0, delay: 11.15, ease: 'linear' });
+    ctx.fromTo('s4-num-label', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, delay: 11.5, ease: 'power2.out' });
+    ctx.fromTo('s4-stat1', { opacity: 0, x: 50, rotation: 12 }, { opacity: 1, x: 0, rotation: 2, duration: 0.5, delay: 11.35, ease: 'back.out' });
+    ctx.fromTo('s4-stat2', { opacity: 0, x: 50, rotation: -12 }, { opacity: 1, x: 0, rotation: -2, duration: 0.5, delay: 11.5, ease: 'back.out' });
+    ctx.fromTo('s4-tagline', { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.4, delay: 11.75, ease: 'power2.out' });
+
+    // ===== Scene 5 入场（14.7s）— logo slam + CTA =====
+    ctx.fromTo('s5-logo', { opacity: 0, scale: 0.3, rotation: -50 }, { opacity: 1, scale: 1, rotation: -3, duration: 0.6, delay: 14.7, ease: 'back.out' });
+    ctx.fromTo('s5-logo-icon', { opacity: 0, scale: 0.4, rotation: -40 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.5, delay: 14.95, ease: 'back.out' });
+    ctx.fromTo(['s5-brand-shadow', 's5-brand'], { opacity: 0, y: 30, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.55, delay: 15.0, stagger: 0.02, ease: 'back.out' });
+    ctx.fromTo('s5-cta', { opacity: 0, y: 26, scale: 0.8 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, delay: 15.25, ease: 'back.out' });
+    ctx.fromTo('s5-slogan', { opacity: 0 }, { opacity: 1, duration: 0.4, delay: 15.55, ease: 'power2.out' });
+    ctx.fromTo('s5-star1', { opacity: 0, scale: 0, rotation: -120 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.5, delay: 15.1, ease: 'back.out' });
+    ctx.fromTo('s5-star2', { opacity: 0, scale: 0, rotation: 120 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.5, delay: 15.2, ease: 'back.out' });
+
+    // ===== CTA 机械按压循环（push-down）=====
+    ctx.to('s5-cta', { y: 5, duration: 0.16, repeat: -1, yoyo: true, ease: 'linear', repeatDelay: 1.1, delay: 15.9 });
+
+    // ===== 持续呼吸 / 微运动（仅装饰，ctx.time 全局）=====
+    ctx.to('s1-ghost', { x: 24, duration: 6, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s1-dot1', { scale: 1.3, duration: 1.6, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s1-star', { rotation: 360, duration: 12, repeat: -1, ease: 'linear' });
+    ctx.to('s2-ghost', { x: -20, duration: 7, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s2-star', { rotation: 360, duration: 14, repeat: -1, ease: 'linear' });
+    ctx.to('s3-ghost', { y: 14, duration: 8, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s4-ghost', { x: -22, duration: 6.5, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s4-star', { rotation: 360, duration: 12, repeat: -1, ease: 'linear' });
+    ctx.to('s5-ghost', { x: 20, duration: 6, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s5-star1', { rotation: 360, duration: 11, repeat: -1, ease: 'linear' });
+    ctx.to('s5-star2', { rotation: -360, duration: 9, repeat: -1, ease: 'linear' });
+    ctx.to('s5-ray1', { opacity: 0.4, duration: 1.1, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+    ctx.to('s5-ray3', { opacity: 0.4, duration: 1.3, repeat: -1, yoyo: true, ease: 'sine.inOut' });
+  </script>
+</opencat>

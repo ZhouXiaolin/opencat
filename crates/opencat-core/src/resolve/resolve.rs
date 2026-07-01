@@ -1165,17 +1165,29 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
         visual: ComputedVisualStyle {
             opacity: style.opacity.unwrap_or(1.0),
             background: style
-                .bg_gradient_direction
+                .bg_gradient_radial_center
                 .zip(style.bg_gradient_from)
                 .zip(style.bg_gradient_to)
                 .map(
-                    |((direction, from), to)| crate::style::BackgroundFill::LinearGradient {
-                        direction,
+                    |((center, from), to)| crate::style::BackgroundFill::RadialGradient {
+                        center,
                         from,
                         via: style.bg_gradient_via,
                         to,
                     },
                 )
+                .or_else(|| {
+                    style.bg_gradient_direction.zip(style.bg_gradient_from).zip(
+                        style.bg_gradient_to,
+                    ).map(
+                        |((direction, from), to)| crate::style::BackgroundFill::LinearGradient {
+                            direction,
+                            from,
+                            via: style.bg_gradient_via,
+                            to,
+                        },
+                    )
+                })
                 .or_else(|| style.bg_color.map(crate::style::BackgroundFill::Solid)),
             fill: style.fill_color.map(crate::style::BackgroundFill::Solid),
             border_radius: style.border_radius.unwrap_or_default(),

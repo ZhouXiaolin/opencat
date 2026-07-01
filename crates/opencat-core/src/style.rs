@@ -469,7 +469,7 @@ pub enum GradientDirection {
     ToBottomRight,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum BackgroundFill {
     #[serde(rename = "solid")]
@@ -480,6 +480,49 @@ pub enum BackgroundFill {
         via: Option<ColorToken>,
         to: ColorToken,
     },
+    /// 径向渐变。`center` 为单位正方形内的圆心坐标 `[0,1]`，
+    /// 半径在渲染层取圆心到最远角的距离（`farthest-corner`）。
+    RadialGradient {
+        center: [f32; 2],
+        from: ColorToken,
+        via: Option<ColorToken>,
+        to: ColorToken,
+    },
+}
+
+// `RadialGradient.center` 含 `f32`，无法 derive `Eq`/`Hash`，按 `to_bits` 手动实现。
+impl Eq for BackgroundFill {}
+
+impl std::hash::Hash for BackgroundFill {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            BackgroundFill::Solid(color) => color.hash(state),
+            BackgroundFill::LinearGradient {
+                direction,
+                from,
+                via,
+                to,
+            } => {
+                direction.hash(state);
+                from.hash(state);
+                via.hash(state);
+                to.hash(state);
+            }
+            BackgroundFill::RadialGradient {
+                center,
+                from,
+                via,
+                to,
+            } => {
+                center[0].to_bits().hash(state);
+                center[1].to_bits().hash(state);
+                from.hash(state);
+                via.hash(state);
+                to.hash(state);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -888,6 +931,9 @@ pub struct NodeStyle {
     pub bg_gradient_via: Option<ColorToken>,
     pub bg_gradient_to: Option<ColorToken>,
     pub bg_gradient_direction: Option<GradientDirection>,
+    /// `Some` 表示当前为径向渐变，值为单位正方形内的圆心 `[x, y]`。
+    /// 与 `bg_gradient_direction` 互斥：解析时设置一方会清除另一方。
+    pub bg_gradient_radial_center: Option<[f32; 2]>,
     pub border_radius: Option<BorderRadius>,
     pub border_width: Option<f32>,
     pub border_top_width: Option<f32>,
@@ -1693,6 +1739,7 @@ macro_rules! impl_node_style_api {
                 self.style.bg_gradient_via = None;
                 self.style.bg_gradient_to = None;
                 self.style.bg_gradient_direction = None;
+                self.style.bg_gradient_radial_center = None;
                 self
             }
 

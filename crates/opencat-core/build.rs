@@ -896,6 +896,7 @@ fn generate_tailwind_jsonl_rules() -> String {
             "bg-gradient-to-br",
             "ExactClassAction::BgGradientDirection(GradientDirection::ToBottomRight)",
         ),
+        ("bg-radial", "ExactClassAction::BgGradientRadial"),
         ("shrink-0", "ExactClassAction::FlexShrink(0.0)"),
         ("flex-shrink-0", "ExactClassAction::FlexShrink(0.0)"),
         ("flex-1", "ExactClassAction::FlexGrow(1.0)"),

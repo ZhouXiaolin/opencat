@@ -1,6 +1,6 @@
 use cosmic_text::Command;
 
-use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle};
+use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayRect, TextDisplayItem};
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{EncodedPath, FillType, ImageRef, PathOp};
@@ -407,16 +407,7 @@ pub fn render_text_with_shadows(
     ctx: &mut RenderCtx,
     item: &TextDisplayItem,
 ) -> Result<(), RenderError> {
-    let has_overrides = item.text_unit_overrides.is_some();
-    let render_fn = |ctx: &mut RenderCtx, item: &TextDisplayItem| {
-        if has_overrides {
-            render_text_with_unit_overrides(ctx, item)
-        } else {
-            render_text(ctx, item)
-        }
-    };
-
-    if let Some(ref shadow) = item.drop_shadow {
+    for shadow in &item.drop_shadow {
         let (left, top, right, bottom) = shadow.outsets();
         let shadow_bounds = item.bounds.outset(left, top, right, bottom);
         let (image_filter, _color) = drop_shadow_to_image_filter(shadow);
@@ -437,9 +428,67 @@ pub fn render_text_with_shadows(
             paint: Some(paint_id),
             alpha: 1.0,
         });
-        render_fn(ctx, item)?;
+        render_text_body(ctx, item)?;
         ctx.builder.push(DrawOp::Restore);
     }
-    render_fn(ctx, item)?;
+
+    // CSS text-shadow: zero-blur shadows are hard offset copies. Rendering those
+    // through a drop-shadow image filter can disappear on some backends when
+    // sigma is exactly 0, which loses the glitch RGB edge.
+    for shadow in &item.text_shadows {
+        if shadow.blur_sigma.abs() <= f32::EPSILON {
+            let mut shadow_item = item.clone();
+            shadow_item.bounds = item.bounds.translate(shadow.offset_x, shadow.offset_y);
+            shadow_item.style.color = shadow.color;
+            shadow_item.drop_shadow.clear();
+            shadow_item.text_shadows.clear();
+            if let Some(batch) = &mut shadow_item.text_unit_overrides {
+                for unit in &mut batch.overrides {
+                    unit.color = Some(shadow.color);
+                }
+            }
+            render_text_body(ctx, &shadow_item)?;
+            continue;
+        }
+
+        let (left, top, right, bottom) = shadow.outsets();
+        let shadow_bounds = item.bounds.outset(left, top, right, bottom);
+        let image_filter = ImageFilterSpec::DropShadow {
+            dx: shadow.offset_x,
+            dy: shadow.offset_y,
+            sigma_x: shadow.blur_sigma,
+            sigma_y: shadow.blur_sigma,
+            color: super::helpers::color_token_to_rgba(&shadow.color),
+        };
+        let layer_paint = PaintSpec {
+            fill: FillSpec::Solid([0.0; 4]),
+            style: PaintStyle::Fill,
+            stroke: None,
+            anti_alias: true,
+            blend_mode: BlendMode::SrcOver,
+            image_filter: Some(image_filter),
+            color_filter: None,
+            mask_filter: None,
+            path_effect: None,
+        };
+        let paint_id = ctx.builder.intern_paint(layer_paint);
+        ctx.builder.push(DrawOp::SaveLayer {
+            bounds: Some(display_rect_to_rect4(shadow_bounds)),
+            paint: Some(paint_id),
+            alpha: 1.0,
+        });
+        render_text_body(ctx, item)?;
+        ctx.builder.push(DrawOp::Restore);
+    }
+
+    render_text_body(ctx, item)?;
     Ok(())
+}
+
+fn render_text_body(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), RenderError> {
+    if item.text_unit_overrides.is_some() {
+        render_text_with_unit_overrides(ctx, item)
+    } else {
+        render_text(ctx, item)
+    }
 }

@@ -1,0 +1,91 @@
+<opencat width="1280" height="720" fps="30" duration="6">
+  <fonts default="noto-sans">
+    <font id="noto-sans" family="Noto Sans SC" path="../assets/NotoSansSC-Regular.otf" role="sans" />
+    <font id="orbitron" family="Orbitron" path="../assets/Orbitron-Black.ttf" role="sans" />
+    <font id="jmono" family="JetBrains Mono" path="../assets/JetBrainsMono-Regular.ttf" role="mono" />
+  </fonts>
+
+  <div id="root" class="relative w-[1280px] h-[720px] overflow-hidden bg-[#08090f] font-[noto-sans]">
+    <div id="grid" class="absolute inset-0 opacity-80 bg-[linear-gradient(rgba(0,255,136,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(0,212,255,0.07)_1px,transparent_1px)] bg-[length:48px_48px]" />
+    <div id="scan" class="absolute inset-0 bg-[repeating-linear-gradient(0deg,transparent_0,transparent_3px,rgba(0,0,0,0.38)_3px,rgba(0,0,0,0.38)_4px)]" />
+    <div id="glow-a" class="absolute left-[-180px] top-[-220px] w-[640px] h-[640px] bg-[radial-gradient(circle,rgba(0,255,136,0.16),transparent_70%)]" />
+    <div id="glow-b" class="absolute right-[-180px] bottom-[-220px] w-[640px] h-[640px] bg-[radial-gradient(circle,rgba(255,0,255,0.13),transparent_70%)]" />
+
+    <text id="ghost" class="absolute left-[40px] top-[30px] font-[orbitron] font-black text-[260px] leading-[0.8] text-[#00d4ff] opacity-[0.06]">N7</text>
+
+    <div id="hud-top" class="absolute left-[64px] top-[48px] right-[64px] flex items-center justify-between font-[jmono] text-[16px] tracking-[4px] text-[#607080]">
+      <text id="hud-left">// NEXUS-7 SIGNAL</text>
+      <text id="hud-right">REC 00:00:00 // ENCRYPTED</text>
+    </div>
+
+    <div id="hero-wrap" class="absolute left-[86px] top-[202px]">
+      <text id="hero" data-text="TRANSFORM" class="relative font-[orbitron] font-black text-[118px] leading-[0.88] tracking-[1px] text-[#f0f4f8] [text-shadow:0_0_10px_rgba(0,255,136,0.3)]">
+        TRANSFORM
+        <before id="hero-before" content="attr(data-text)" class="absolute top-0 left-[2px] w-full h-full [text-shadow:-2px_0_#ff00ff]" />
+        <after id="hero-after" content="attr(data-text)" class="absolute top-0 left-[-2px] w-full h-full [text-shadow:-2px_0_#00d4ff]" />
+      </text>
+      <text id="subline" class="mt-[24px] font-[jmono] text-[24px] tracking-[5px] text-[#00ff88] [text-shadow:0_0_18px_#00ff8870]">CYBERNETIC INTELLIGENCE // ONLINE</text>
+      <text id="caption" class="mt-[18px] font-[jmono] text-[18px] tracking-[2px] text-[#6b7280]">clipPath inset slices + pseudo text layers + deterministic JS animation</text>
+    </div>
+
+    <div id="meter" class="absolute left-[88px] bottom-[78px] w-[760px] h-[10px] bg-[#131722] border-[1px] border-[#2a3342]">
+      <div id="meter-fill" class="h-full w-[520px] bg-[#00ff88] shadow-[0_0_16px_#00ff88]" />
+    </div>
+    <text id="meter-text" class="absolute left-[88px] bottom-[104px] font-[jmono] text-[16px] tracking-[4px] text-[#607080]">GLITCH CHANNEL STABILITY 68%</text>
+
+    <div id="corner-tl" class="absolute left-[42px] top-[42px] w-[28px] h-[28px] border-l-[2px] border-t-[2px] border-[#00ff8890]" />
+    <div id="corner-tr" class="absolute right-[42px] top-[42px] w-[28px] h-[28px] border-r-[2px] border-t-[2px] border-[#00d4ff90]" />
+    <div id="corner-bl" class="absolute left-[42px] bottom-[42px] w-[28px] h-[28px] border-l-[2px] border-b-[2px] border-[#ff00ff90]" />
+    <div id="corner-br" class="absolute right-[42px] bottom-[42px] w-[28px] h-[28px] border-r-[2px] border-b-[2px] border-[#00ff8890]" />
+  </div>
+
+  <script>
+    ctx.fromTo('hero-wrap', {opacity: 0, y: 22, scale: 1.04}, {opacity: 1, y: 0, scale: 1, duration: 0.65, delay: 0.18, ease: 'power3.out'});
+    ctx.fromTo('ghost', {opacity: 0, x: -28}, {opacity: 0.06, x: 0, duration: 0.8, delay: 0.05, ease: 'power2.out'});
+    ctx.to('ghost', {x: 18, duration: 4.5, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 0.6});
+    ctx.to('meter-fill', {width: 700, duration: 1.8, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 0.8});
+
+    ctx.to('hero-before', {
+      keyframes: {
+        clipPath: [
+          'inset(20% 0% 80% 0%)',
+          'inset(60% 0% 10% 0%)',
+          'inset(40% 0% 50% 0%)',
+          'inset(80% 0% 5% 0%)',
+          'inset(10% 0% 70% 0%)',
+          'inset(30% 0% 50% 0%)'
+        ],
+        x: [-2, 2, -2, 1, -1, 2],
+        y: [1, -1, 2, -2, 1, -1]
+      },
+      duration: 2,
+      repeat: -1,
+      yoyo: true,
+      ease: 'linear',
+      delay: 0.35
+    });
+
+    ctx.to('hero-after', {
+      keyframes: {
+        clipPath: [
+          'inset(10% 0% 60% 0%)',
+          'inset(80% 0% 5% 0%)',
+          'inset(30% 0% 20% 0%)',
+          'inset(10% 0% 80% 0%)',
+          'inset(50% 0% 30% 0%)',
+          'inset(20% 0% 70% 0%)'
+        ],
+        x: [2, -2, 1, -1, 2, -2],
+        y: [-1, 2, -2, 1, -1, 1]
+      },
+      duration: 3,
+      repeat: -1,
+      yoyo: true,
+      ease: 'linear',
+      delay: 0.35
+    });
+
+    ctx.to('hero', {skewX: 2, x: -2, duration: 0.06, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 1.0});
+    ctx.to('scan', {opacity: 0.72, duration: 0.22, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 0.5});
+  </script>
+</opencat>

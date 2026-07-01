@@ -24,7 +24,7 @@ use crate::media::WebAudio;
 use crate::script::ScriptRuntimeCache;
 
 const IR_MAGIC: &[u8; 4] = b"OCIR";
-const IR_VERSION: u32 = 2;
+const IR_VERSION: u32 = 3;
 
 const SECTION_OPS: u32 = 1;
 const SECTION_F32_POOL: u32 = 2;
@@ -498,6 +498,7 @@ fn encode_paint_shader(out: &mut Vec<u8>, shader: &PaintShaderSpec) {
             stops,
             colors,
             tile_mode,
+            local_matrix,
         } => {
             write_u8(out, 0);
             write_u8(out, encode_tile_mode(*tile_mode));
@@ -505,6 +506,7 @@ fn encode_paint_shader(out: &mut Vec<u8>, shader: &PaintShaderSpec) {
             write_f32_array(out, to);
             write_f32_vec(out, stops);
             write_color_vec(out, colors);
+            encode_optional_matrix(out, local_matrix);
         }
         PaintShaderSpec::RadialGradient {
             center,
@@ -512,6 +514,7 @@ fn encode_paint_shader(out: &mut Vec<u8>, shader: &PaintShaderSpec) {
             stops,
             colors,
             tile_mode,
+            local_matrix,
         } => {
             write_u8(out, 1);
             write_u8(out, encode_tile_mode(*tile_mode));
@@ -519,7 +522,21 @@ fn encode_paint_shader(out: &mut Vec<u8>, shader: &PaintShaderSpec) {
             write_f32(out, *radius);
             write_f32_vec(out, stops);
             write_color_vec(out, colors);
+            encode_optional_matrix(out, local_matrix);
         }
+    }
+}
+
+/// Encode an optional 3×3 row-major matrix: presence byte (1 = Some) + 9×f32.
+fn encode_optional_matrix(out: &mut Vec<u8>, matrix: &Option<[f32; 9]>) {
+    match matrix {
+        Some(m) => {
+            write_u8(out, 1);
+            for v in m {
+                write_f32(out, *v);
+            }
+        }
+        None => write_u8(out, 0),
     }
 }
 

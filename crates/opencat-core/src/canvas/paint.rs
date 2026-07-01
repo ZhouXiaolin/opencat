@@ -135,6 +135,7 @@ pub enum ShaderSpec {
         stops: Vec<f32>,
         colors: Vec<[f32; 4]>,
         tile_mode: TileMode,
+        local_matrix: Option<[f32; 9]>,
     },
     RadialGradient {
         center: [f32; 2],
@@ -142,6 +143,7 @@ pub enum ShaderSpec {
         stops: Vec<f32>,
         colors: Vec<[f32; 4]>,
         tile_mode: TileMode,
+        local_matrix: Option<[f32; 9]>,
     },
 }
 
@@ -402,6 +404,7 @@ impl PartialEq for ShaderSpec {
                     stops: as_stops,
                     colors: ac,
                     tile_mode: atm,
+                    local_matrix: alm,
                 },
                 ShaderSpec::LinearGradient {
                     from: bf,
@@ -409,6 +412,7 @@ impl PartialEq for ShaderSpec {
                     stops: bs_stops,
                     colors: bc,
                     tile_mode: btm,
+                    local_matrix: blm,
                 },
             ) => {
                 af[0].to_bits() == bf[0].to_bits()
@@ -427,6 +431,7 @@ impl PartialEq for ShaderSpec {
                             .all(|(a, b)| a.to_bits() == b.to_bits())
                     })
                     && atm == btm
+                    && matrix_eq(alm, blm)
             }
             (
                 ShaderSpec::RadialGradient {
@@ -435,6 +440,7 @@ impl PartialEq for ShaderSpec {
                     stops: as_stops,
                     colors: acol,
                     tile_mode: atm,
+                    local_matrix: alm,
                 },
                 ShaderSpec::RadialGradient {
                     center: bc,
@@ -442,6 +448,7 @@ impl PartialEq for ShaderSpec {
                     stops: bs_stops,
                     colors: bcol,
                     tile_mode: btm,
+                    local_matrix: blm,
                 },
             ) => {
                 ac[0].to_bits() == bc[0].to_bits()
@@ -459,6 +466,7 @@ impl PartialEq for ShaderSpec {
                             .all(|(a, b)| a.to_bits() == b.to_bits())
                     })
                     && atm == btm
+                    && matrix_eq(alm, blm)
             }
             _ => false,
         }
@@ -475,6 +483,7 @@ impl Hash for ShaderSpec {
                 stops,
                 colors,
                 tile_mode,
+                local_matrix,
             } => {
                 from[0].to_bits().hash(state);
                 from[1].to_bits().hash(state);
@@ -485,6 +494,7 @@ impl Hash for ShaderSpec {
                     .iter()
                     .for_each(|c| c.iter().for_each(|v| v.to_bits().hash(state)));
                 tile_mode.hash(state);
+                matrix_hash(local_matrix, state);
             }
             ShaderSpec::RadialGradient {
                 center,
@@ -492,6 +502,7 @@ impl Hash for ShaderSpec {
                 stops,
                 colors,
                 tile_mode,
+                local_matrix,
             } => {
                 center[0].to_bits().hash(state);
                 center[1].to_bits().hash(state);
@@ -501,8 +512,27 @@ impl Hash for ShaderSpec {
                     .iter()
                     .for_each(|c| c.iter().for_each(|v| v.to_bits().hash(state)));
                 tile_mode.hash(state);
+                matrix_hash(local_matrix, state);
             }
         }
+    }
+}
+
+fn matrix_eq(a: &Option<[f32; 9]>, b: &Option<[f32; 9]>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a
+            .iter()
+            .zip(b.iter())
+            .all(|(x, y)| x.to_bits() == y.to_bits()),
+        _ => false,
+    }
+}
+
+fn matrix_hash<H: Hasher>(matrix: &Option<[f32; 9]>, state: &mut H) {
+    matrix.is_some().hash(state);
+    if let Some(m) = matrix {
+        m.iter().for_each(|v| v.to_bits().hash(state));
     }
 }
 

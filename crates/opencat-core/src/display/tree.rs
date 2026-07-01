@@ -28,6 +28,7 @@ pub struct DisplayNode {
     pub opacity: f32,
     pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
+    pub paint_clip: Option<DisplayClip>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,
     pub children: Vec<DisplayNode>,

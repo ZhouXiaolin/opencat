@@ -314,6 +314,7 @@ impl Hash for PaintStyleInput<'_> {
         style.border_style.hash(state);
         style.object_fit.hash(state);
         style.clip_contents.hash(state);
+        style.clip_path.hash(state);
         style.box_shadow.hash(state);
         style.inset_shadow.hash(state);
         style.drop_shadow.hash(state);

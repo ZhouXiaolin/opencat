@@ -163,15 +163,17 @@ fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
             stops,
             colors,
             tile_mode,
+            local_matrix,
         } => {
             let skia_colors: Vec<Color> = colors.iter().map(|c| float4_to_color(*c)).collect();
+            let matrix = local_matrix.as_ref().map(skia_matrix_from_row_major);
             gradient_shader::linear(
                 ((from[0], from[1]), (to[0], to[1])),
                 skia_colors.as_slice(),
                 Some(stops.as_slice()),
                 convert_tile_mode(*tile_mode),
                 None,
-                None,
+                matrix.as_ref(),
             )
         }
         ShaderSpec::RadialGradient {
@@ -180,8 +182,10 @@ fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
             stops,
             colors,
             tile_mode,
+            local_matrix,
         } => {
             let skia_colors: Vec<Color> = colors.iter().map(|c| float4_to_color(*c)).collect();
+            let matrix = local_matrix.as_ref().map(skia_matrix_from_row_major);
             gradient_shader::radial(
                 (center[0], center[1]),
                 *radius,
@@ -189,10 +193,14 @@ fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
                 Some(stops.as_slice()),
                 convert_tile_mode(*tile_mode),
                 None,
-                None,
+                matrix.as_ref(),
             )
         }
     }
+}
+
+fn skia_matrix_from_row_major(m: &[f32; 9]) -> skia_safe::Matrix {
+    skia_safe::Matrix::new_all(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8])
 }
 
 // ── Image filter ──────────────────────────────────────────────────────

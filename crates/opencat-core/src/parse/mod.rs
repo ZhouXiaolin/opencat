@@ -2,6 +2,7 @@ pub mod composition;
 pub mod document;
 pub mod easing;
 pub mod gl_transition;
+pub mod gradient;
 pub mod jsonl;
 pub mod lint;
 pub mod markup;

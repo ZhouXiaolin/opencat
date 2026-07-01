@@ -10,8 +10,8 @@
 //! - **XML well-formedness** — script island is stripped, templates are expanded, the
 //!   remainder is parsed; parse errors are reported with their position.
 //! - **id presence** — every element that the markup grammar requires an `id` on
-//!   (`div`, `text`, `canvas`, `image`, `lottie`, `video`, `icon`, `path`, `caption`,
-//!   `tl`, and `<audio>`) must carry a non-empty `id`.
+//!   (`div`, `text`, `before`, `after`, `canvas`, `image`, `lottie`, `video`, `icon`,
+//!   `path`, `caption`, `tl`, and `<audio>`) must carry a non-empty `id`.
 //! - **id uniqueness** — ids must be unique across the whole document (visual + audio).
 //! - **lucide icon names** — `<icon icon="…">` must resolve to a known lucide icon
 //!   (with `home`/`suitcase` aliases accepted), otherwise a "did you mean …" hint is
@@ -84,7 +84,8 @@ impl LintDiagnostic {
 
 /// Tags that the markup grammar requires to carry a non-empty `id`.
 const ID_BEARING_TAGS: &[&str] = &[
-    "div", "text", "canvas", "image", "lottie", "video", "icon", "path", "caption", "tl", "audio",
+    "div", "text", "before", "after", "canvas", "image", "lottie", "video", "icon", "path",
+    "caption", "tl", "audio",
 ];
 
 /// Tailwind exact class names OpenCat forbids. OpenCat only renders *static* utilities;
@@ -95,11 +96,22 @@ const FORBIDDEN_TAILWIND_EXACT: &[&str] = &["transition", "resize"];
 /// Tailwind class name *prefixes* OpenCat forbids (same rationale as the exact names).
 const FORBIDDEN_TAILWIND_PREFIXES: &[&str] = &[
     // animation / transitions / timing
-    "animate-", "transition-", "duration-", "ease-", "delay-",
+    "animate-",
+    "transition-",
+    "duration-",
+    "ease-",
+    "delay-",
     // interaction / pointer state (no DOM at render time)
-    "cursor-", "pointer-events-", "select-", "resize-", "touch-",
+    "cursor-",
+    "pointer-events-",
+    "select-",
+    "resize-",
+    "touch-",
     // scroll behavior
-    "scroll-", "snap-", "overscroll-", "scrollbar-",
+    "scroll-",
+    "snap-",
+    "overscroll-",
+    "scrollbar-",
 ];
 
 fn is_forbidden_tailwind_class(class: &str) -> bool {
@@ -136,7 +148,11 @@ pub fn lint_markup(input: &str) -> Vec<LintDiagnostic> {
         Ok(doc) => doc,
         Err(error) => {
             // roxmltree's Error Display already carries a position for most variants.
-            diags.push(LintDiagnostic::error(None, None, format!("invalid XML: {error}")));
+            diags.push(LintDiagnostic::error(
+                None,
+                None,
+                format!("invalid XML: {error}"),
+            ));
             return diags;
         }
     };
@@ -246,9 +262,7 @@ fn lint_element(
                 diags.push(LintDiagnostic::warning(
                     line,
                     col,
-                    format!(
-                        "<{tag}>: attribute `{name}` is not recognized and will be ignored"
-                    ),
+                    format!("<{tag}>: attribute `{name}` is not recognized and will be ignored"),
                 ));
             }
         }
@@ -296,10 +310,7 @@ fn pack_pos(line: Option<u32>, col: Option<u32>) -> Option<(u32, u32)> {
 }
 
 /// Convert the first duplicate occurrence of each id into a diagnostic.
-fn report_duplicate_ids(
-    seen: &[(String, Option<(u32, u32)>)],
-    diags: &mut Vec<LintDiagnostic>,
-) {
+fn report_duplicate_ids(seen: &[(String, Option<(u32, u32)>)], diags: &mut Vec<LintDiagnostic>) {
     // Group by id preserving first-seen order for stable output.
     let mut first: std::collections::HashMap<&str, (usize, Option<(u32, u32)>)> =
         std::collections::HashMap::new();
@@ -393,7 +404,8 @@ mod tests {
 </opencat>"#;
         let errs = error_messages(xml);
         assert!(
-            errs.iter().any(|m| m.contains("missing the required `id`") && m.contains("<text>")),
+            errs.iter()
+                .any(|m| m.contains("missing the required `id`") && m.contains("<text>")),
             "missing-id diagnostic not found: {errs:?}",
         );
     }
@@ -405,7 +417,8 @@ mod tests {
 </opencat>"#;
         let errs = error_messages(xml);
         assert!(
-            errs.iter().any(|m| m.contains("empty `id`") && m.contains("<div>")),
+            errs.iter()
+                .any(|m| m.contains("empty `id`") && m.contains("<div>")),
             "empty-id diagnostic not found: {errs:?}",
         );
     }
@@ -429,7 +442,8 @@ mod tests {
 </opencat>"#;
         let errs = error_messages(xml);
         assert!(
-            errs.iter().any(|m| m.contains("unknown lucide icon `pla`") && m.contains("did you mean")),
+            errs.iter()
+                .any(|m| m.contains("unknown lucide icon `pla`") && m.contains("did you mean")),
             "lucide diagnostic not found: {errs:?}",
         );
     }
@@ -526,7 +540,8 @@ mod tests {
             "{errs:?}",
         );
         assert!(
-            errs.iter().any(|m| m.contains("ease-[cubic-bezier(0,0,1,1)]")),
+            errs.iter()
+                .any(|m| m.contains("ease-[cubic-bezier(0,0,1,1)]")),
             "{errs:?}",
         );
     }
@@ -547,6 +562,30 @@ mod tests {
             error_messages(xml).is_empty(),
             "unknown attributes should be warnings, got: {:?}",
             error_messages(xml),
+        );
+    }
+
+    #[test]
+    fn accepts_pseudo_text_attributes_and_text_shadow_classes() {
+        let xml = r##"<opencat width="320" height="240" fps="30" duration="1">
+  <div id="root">
+    <text id="hero" data-text="Transform" class="[text-shadow:0_0_10px_rgba(0,255,136,0.3)]">
+      Transform
+      <before id="hero-before" content="attr(data-text)" class="[text-shadow:-1px_0_#ff00ff]" />
+      <after id="hero-after" content="attr(data-text)" class="[text-shadow:-1px_0_#00d4ff]" />
+    </text>
+  </div>
+</opencat>"##;
+
+        assert!(
+            error_messages(xml).is_empty(),
+            "pseudo text should not produce lint errors: {:?}",
+            error_messages(xml)
+        );
+        assert!(
+            warning_messages(xml).is_empty(),
+            "pseudo text should not produce lint warnings: {:?}",
+            warning_messages(xml)
         );
     }
 
@@ -582,6 +621,31 @@ mod tests {
                 .iter()
                 .any(|d| d.message.contains("root must be <opencat>")),
             "expected a root tag diagnostic, got: {diags:?}",
+        );
+    }
+
+    /// 端到端回归：nexus7-cyberpunk.xml 用了大量此前不被支持的任意值类
+    /// （`bg-[linear-gradient(...)]`、`bg-[length:...]`、`bg-[repeating-linear-gradient(...)]`、
+    /// `bg-[radial-gradient(...)]`、`[text-shadow:...]`、`h-[N%]`、多层 `shadow-[...]`）。
+    /// 此前渲染会为每一个打印 "Unsupported Tailwind class" 警告；现在应全部被识别，
+    /// 不再有任何 "unrecognized Tailwind class" 警告。
+    #[test]
+    fn nexus7_cyberpunk_has_no_unrecognized_tailwind_classes() {
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("repo root");
+        let xml = std::fs::read_to_string(repo.join("examples/nexus7-cyberpunk.xml"))
+            .expect("nexus7-cyberpunk.xml should be readable");
+
+        let unrecognized: Vec<String> = warning_messages(&xml)
+            .into_iter()
+            .filter(|m| m.contains("unrecognized Tailwind class"))
+            .collect();
+        assert!(
+            unrecognized.is_empty(),
+            "nexus7-cyberpunk.xml still has unsupported Tailwind classes:\n{}",
+            unrecognized.join("\n")
         );
     }
 }

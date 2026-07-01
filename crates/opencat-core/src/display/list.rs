@@ -6,7 +6,7 @@ use crate::{
     script::TextUnitOverrideBatch,
     style::{
         BackgroundFill, BorderRadius, BorderStyle, BoxShadow, ColorToken, ComputedTextStyle,
-        DropShadow, InsetShadow, ObjectFit,
+        DropShadow, InsetShadow, ObjectFit, TextShadow,
     },
 };
 
@@ -133,7 +133,8 @@ pub struct TextDisplayItem {
     pub style: ComputedTextStyle,
     pub allow_wrap: bool,
     pub truncate: bool,
-    pub drop_shadow: Option<DropShadow>,
+    pub drop_shadow: Vec<DropShadow>,
+    pub text_shadows: Vec<TextShadow>,
     pub text_unit_overrides: Option<TextUnitOverrideBatch>,
     pub visual_expand_x: f32,
     pub visual_expand_y: f32,
@@ -188,13 +189,13 @@ pub struct BitmapDisplayItem {
 pub struct DrawScriptDisplayItem {
     pub bounds: DisplayRect,
     pub commands: Vec<DrawOp>,
-    pub drop_shadow: Option<DropShadow>,
+    pub drop_shadow: Vec<DropShadow>,
     pub hidden_subtree: Vec<crate::display::tree::HiddenChildDisplayNode>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct RectPaintStyle {
-    pub background: Option<BackgroundFill>,
+    pub background: Vec<BackgroundFill>,
     pub border_radius: BorderRadius,
     pub border_width: Option<f32>,
     pub border_top_width: Option<f32>,
@@ -203,15 +204,15 @@ pub struct RectPaintStyle {
     pub border_left_width: Option<f32>,
     pub border_color: Option<ColorToken>,
     pub border_style: Option<BorderStyle>,
-    pub box_shadow: Option<BoxShadow>,
-    pub inset_shadow: Option<InsetShadow>,
-    pub drop_shadow: Option<DropShadow>,
+    pub box_shadow: Vec<BoxShadow>,
+    pub inset_shadow: Vec<InsetShadow>,
+    pub drop_shadow: Vec<DropShadow>,
     pub backdrop_blur_sigma: Option<f32>,
 }
 
 #[derive(Clone, Debug)]
 pub struct BitmapPaintStyle {
-    pub background: Option<BackgroundFill>,
+    pub background: Vec<BackgroundFill>,
     pub border_radius: BorderRadius,
     pub border_width: Option<f32>,
     pub border_top_width: Option<f32>,
@@ -220,9 +221,9 @@ pub struct BitmapPaintStyle {
     pub border_left_width: Option<f32>,
     pub border_color: Option<ColorToken>,
     pub border_style: Option<BorderStyle>,
-    pub box_shadow: Option<BoxShadow>,
-    pub inset_shadow: Option<InsetShadow>,
-    pub drop_shadow: Option<DropShadow>,
+    pub box_shadow: Vec<BoxShadow>,
+    pub inset_shadow: Vec<InsetShadow>,
+    pub drop_shadow: Vec<DropShadow>,
 }
 
 #[derive(Clone, Debug)]
@@ -230,7 +231,7 @@ pub struct SvgPathPaintStyle {
     pub fill: Option<BackgroundFill>,
     pub stroke_width: Option<f32>,
     pub stroke_color: Option<ColorToken>,
-    pub drop_shadow: Option<DropShadow>,
+    pub drop_shadow: Vec<DropShadow>,
     pub stroke_dasharray: Option<f32>,
     pub stroke_dashoffset: Option<f32>,
 }
@@ -309,28 +310,28 @@ impl DisplayItem {
         };
         let mut visual_bounds = bounds;
 
-        let box_shadow = match self {
-            Self::Rect(rect) => rect.paint.box_shadow,
-            Self::Timeline(timeline) => timeline.paint.box_shadow,
-            Self::Bitmap(bitmap) => bitmap.paint.box_shadow,
-            Self::Lottie(lottie) => lottie.paint.box_shadow,
-            Self::Text(_) | Self::DrawScript(_) | Self::SvgPath(_) => None,
+        let box_shadows: &[BoxShadow] = match self {
+            Self::Rect(rect) => &rect.paint.box_shadow,
+            Self::Timeline(timeline) => &timeline.paint.box_shadow,
+            Self::Bitmap(bitmap) => &bitmap.paint.box_shadow,
+            Self::Lottie(lottie) => &lottie.paint.box_shadow,
+            Self::Text(_) | Self::DrawScript(_) | Self::SvgPath(_) => &[],
         };
-        if let Some(shadow) = box_shadow {
+        for shadow in box_shadows {
             let (left, top, right, bottom) = shadow.outsets();
             visual_bounds = visual_bounds.union(bounds.outset(left, top, right, bottom));
         }
 
-        let drop_shadow = match self {
-            Self::Rect(rect) => rect.paint.drop_shadow,
-            Self::Timeline(timeline) => timeline.paint.drop_shadow,
-            Self::Text(text) => text.drop_shadow,
-            Self::Bitmap(bitmap) => bitmap.paint.drop_shadow,
-            Self::Lottie(lottie) => lottie.paint.drop_shadow,
-            Self::DrawScript(script) => script.drop_shadow,
-            Self::SvgPath(svg) => svg.paint.drop_shadow,
+        let drop_shadows: &[DropShadow] = match self {
+            Self::Rect(rect) => &rect.paint.drop_shadow,
+            Self::Timeline(timeline) => &timeline.paint.drop_shadow,
+            Self::Text(text) => &text.drop_shadow,
+            Self::Bitmap(bitmap) => &bitmap.paint.drop_shadow,
+            Self::Lottie(lottie) => &lottie.paint.drop_shadow,
+            Self::DrawScript(script) => &script.drop_shadow,
+            Self::SvgPath(svg) => &svg.paint.drop_shadow,
         };
-        if let Some(shadow) = drop_shadow {
+        for shadow in drop_shadows {
             let (left, top, right, bottom) = shadow.outsets();
             visual_bounds = visual_bounds.union(bounds.outset(left, top, right, bottom));
         }
@@ -376,7 +377,8 @@ mod tests {
             style: ComputedTextStyle::default(),
             allow_wrap: false,
             truncate: false,
-            drop_shadow: None,
+            drop_shadow: Vec::new(),
+            text_shadows: Vec::new(),
             text_unit_overrides: Some(TextUnitOverrideBatch {
                 granularity: TextUnitGranularity::Grapheme,
                 overrides: vec![TextUnitOverride {

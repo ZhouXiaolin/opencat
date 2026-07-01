@@ -42,6 +42,7 @@ pub struct AnnotatedDisplayNode {
     pub opacity: f32,
     pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
+    pub paint_clip: Option<DisplayClip>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,
     pub children: Vec<AnnotatedNodeHandle>,
@@ -104,6 +105,7 @@ impl AnalyzeFingerprintHistory {
 pub struct RecordedNodeSemantics<'a> {
     pub layout_output_fingerprint: LayoutOutputFingerprint,
     pub item: &'a DisplayItem,
+    pub paint_clip: Option<&'a DisplayClip>,
     pub clip: Option<&'a DisplayClip>,
 }
 
@@ -177,6 +179,7 @@ impl AnnotatedDisplayNode {
         RecordedNodeSemantics {
             layout_output_fingerprint: self.layout_output_fingerprint,
             item: &self.item,
+            paint_clip: self.paint_clip.as_ref(),
             clip: self.clip.as_ref(),
         }
     }
@@ -244,6 +247,7 @@ fn annotate_display_node(
         opacity: node.opacity,
         css_filter: node.css_filter.clone(),
         backdrop_blur_sigma: node.backdrop_blur_sigma,
+        paint_clip: node.paint_clip.clone(),
         clip: node.clip.clone(),
         item: node.item.clone(),
         children,
@@ -451,11 +455,12 @@ mod tests {
             opacity: 1.0,
             css_filter: Default::default(),
             backdrop_blur_sigma: None,
+            paint_clip: None,
             clip: None,
             item: DisplayItem::Rect(RectDisplayItem {
                 bounds: rect_bounds(),
                 paint: RectPaintStyle {
-                    background: None,
+                    background: Vec::new(),
                     border_radius: BorderRadius::default(),
                     border_width: None,
                     border_top_width: None,
@@ -464,9 +469,9 @@ mod tests {
                     border_left_width: None,
                     border_color: None,
                     border_style: None,
-                    box_shadow: None,
-                    inset_shadow: None,
-                    drop_shadow: None,
+                    box_shadow: Vec::new(),
+                    inset_shadow: Vec::new(),
+                    drop_shadow: Vec::new(),
                     backdrop_blur_sigma: None,
                 },
             }),

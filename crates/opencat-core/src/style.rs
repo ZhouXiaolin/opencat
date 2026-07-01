@@ -85,6 +85,154 @@ impl LengthPercentage {
     }
 }
 
+impl std::hash::Hash for LengthPercentage {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Length(value) => {
+                0_u8.hash(state);
+                value.to_bits().hash(state);
+            }
+            Self::Percent(value) => {
+                1_u8.hash(state);
+                value.to_bits().hash(state);
+            }
+        }
+    }
+}
+
+impl serde::Serialize for LengthPercentage {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&format_length_percentage(*self))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for LengthPercentage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = <String as serde::Deserialize>::deserialize(deserializer)?;
+        parse_length_percentage_token(&raw)
+            .ok_or_else(|| serde::de::Error::custom(format!("invalid length percentage `{raw}`")))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClipPath {
+    Inset(ClipInset),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipInset {
+    pub top: LengthPercentage,
+    pub right: LengthPercentage,
+    pub bottom: LengthPercentage,
+    pub left: LengthPercentage,
+}
+
+impl std::hash::Hash for ClipPath {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Inset(inset) => {
+                0_u8.hash(state);
+                inset.hash(state);
+            }
+        }
+    }
+}
+
+impl std::hash::Hash for ClipInset {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.top.hash(state);
+        self.right.hash(state);
+        self.bottom.hash(state);
+        self.left.hash(state);
+    }
+}
+
+impl ClipPath {
+    pub fn parse_css(value: &str) -> Option<Self> {
+        let value = value.trim();
+        if value.eq_ignore_ascii_case("none") {
+            return None;
+        }
+        let inner = value
+            .strip_prefix("inset(")
+            .and_then(|value| value.strip_suffix(')'))?;
+        let before_round = inner.split_once(" round ").map_or(inner, |(head, _)| head);
+        let parts = before_round
+            .split_whitespace()
+            .map(parse_length_percentage_token)
+            .collect::<Option<Vec<_>>>()?;
+        let [top, right, bottom, left] = expand_box_shorthand(&parts)?;
+        Some(Self::Inset(ClipInset {
+            top,
+            right,
+            bottom,
+            left,
+        }))
+    }
+
+    pub fn to_css_string(self) -> String {
+        match self {
+            Self::Inset(inset) => format!(
+                "inset({} {} {} {})",
+                format_length_percentage(inset.top),
+                format_length_percentage(inset.right),
+                format_length_percentage(inset.bottom),
+                format_length_percentage(inset.left)
+            ),
+        }
+    }
+}
+
+fn expand_box_shorthand(parts: &[LengthPercentage]) -> Option<[LengthPercentage; 4]> {
+    match parts {
+        [all] => Some([*all, *all, *all, *all]),
+        [vertical, horizontal] => Some([*vertical, *horizontal, *vertical, *horizontal]),
+        [top, horizontal, bottom] => Some([*top, *horizontal, *bottom, *horizontal]),
+        [top, right, bottom, left] => Some([*top, *right, *bottom, *left]),
+        _ => None,
+    }
+}
+
+fn parse_length_percentage_token(raw: &str) -> Option<LengthPercentage> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    if let Some(percent) = raw.strip_suffix('%') {
+        return percent
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .map(|value| LengthPercentage::Percent(value / 100.0));
+    }
+    let px = raw.strip_suffix("px").unwrap_or(raw);
+    px.trim().parse::<f32>().ok().map(LengthPercentage::Length)
+}
+
+fn format_length_percentage(value: LengthPercentage) -> String {
+    match value {
+        LengthPercentage::Length(value) => format_css_number_with_unit(value, "px"),
+        LengthPercentage::Percent(value) => format_css_number_with_unit(value * 100.0, "%"),
+    }
+}
+
+fn format_css_number_with_unit(value: f32, unit: &str) -> String {
+    let number = if value.fract().abs() <= f32::EPSILON {
+        format!("{}", value as i32)
+    } else {
+        format!("{value}")
+    };
+    format!("{number}{unit}")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LengthPercentageAuto {
     Auto,
@@ -441,6 +589,35 @@ impl DropShadow {
     }
 }
 
+/// CSS `text-shadow` 阴影。与 `DropShadow` 结构一致（offset + blur + color，无 spread），
+/// 但语义上是文本专属、支持多个并列（RGB-split / 多层辉光）。
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextShadow {
+    pub offset_x: f32,
+    pub offset_y: f32,
+    /// 高斯模糊 σ（CSS blur-radius 经 /6 换算，与 box-shadow 一致）。
+    pub blur_sigma: f32,
+    pub color: ColorToken,
+}
+
+impl Eq for TextShadow {}
+
+impl std::hash::Hash for TextShadow {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.offset_x.to_bits().hash(state);
+        self.offset_y.to_bits().hash(state);
+        self.blur_sigma.to_bits().hash(state);
+        self.color.hash(state);
+    }
+}
+
+impl TextShadow {
+    pub fn outsets(self) -> (f32, f32, f32, f32) {
+        shadow_outsets(self.blur_sigma, self.offset_x, self.offset_y, 0.0)
+    }
+}
+
 const fn shadow_color(alpha: f32) -> ColorToken {
     ColorToken::Custom(0, 0, 0, (alpha * 255.0) as u8)
 }
@@ -470,58 +647,247 @@ pub enum GradientDirection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GradientStop {
+    /// Stop position in 0..1 (relative to the gradient extent).
+    #[serde(rename = "pos")]
+    pub pos: f32,
+    #[serde(rename = "color")]
+    pub color: ColorToken,
+}
+
+// `GradientStop.pos` 含 `f32`，无法 derive `Eq`/`Hash`，按 `to_bits` 手动实现。
+impl Eq for GradientStop {}
+
+impl std::hash::Hash for GradientStop {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.pos.to_bits().hash(state);
+        self.color.hash(state);
+    }
+}
+
+/// CSS 渐变函数解析结果：支持任意色标位置与 background-size（local matrix）。
+///
+/// `size` 为 `Some([w, h])` 时，渲染层把渐变定义在 `[0,0]..[w,h]` 的像素空间内，
+/// 并用一个把单位正方形缩放到节点 rect 的 local matrix 让该瓦片铺满节点。
+/// `repeat` 为真时使用 `TileMode::Repeat`，否则 `TileMode::Clamp`。
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ArbitraryGradient {
+    #[serde(rename = "linear")]
+    LinearGradient {
+        /// CSS 角度（deg）。若提供则优先于 `direction`。
+        #[serde(rename = "angleDeg")]
+        angle_deg: Option<f32>,
+        /// 预设方向（`to right` 等）。仅当 `angle_deg` 为 `None` 时使用。
+        direction: Option<GradientDirection>,
+        #[serde(rename = "stops")]
+        stops: Vec<GradientStop>,
+        #[serde(rename = "size")]
+        size: Option<[f32; 2]>,
+        #[serde(rename = "repeat")]
+        repeat: bool,
+    },
+    #[serde(rename = "radial")]
+    RadialGradient {
+        /// 单位正方形内圆心 `[x, y]`。
+        #[serde(rename = "center")]
+        center: [f32; 2],
+        #[serde(rename = "stops")]
+        stops: Vec<GradientStop>,
+        #[serde(rename = "size")]
+        size: Option<[f32; 2]>,
+        #[serde(rename = "repeat")]
+        repeat: bool,
+    },
+}
+
+impl std::hash::Hash for ArbitraryGradient {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            ArbitraryGradient::LinearGradient {
+                angle_deg,
+                direction,
+                stops,
+                size,
+                repeat,
+            } => {
+                if let Some(a) = angle_deg {
+                    a.to_bits().hash(state);
+                }
+                direction.hash(state);
+                for stop in stops {
+                    stop.pos.to_bits().hash(state);
+                    stop.color.hash(state);
+                }
+                if let Some(s) = size {
+                    s[0].to_bits().hash(state);
+                    s[1].to_bits().hash(state);
+                }
+                repeat.hash(state);
+            }
+            ArbitraryGradient::RadialGradient {
+                center,
+                stops,
+                size,
+                repeat,
+            } => {
+                center[0].to_bits().hash(state);
+                center[1].to_bits().hash(state);
+                for stop in stops {
+                    stop.pos.to_bits().hash(state);
+                    stop.color.hash(state);
+                }
+                if let Some(s) = size {
+                    s[0].to_bits().hash(state);
+                    s[1].to_bits().hash(state);
+                }
+                repeat.hash(state);
+            }
+        }
+    }
+}
+
+impl ArbitraryGradient {
+    pub fn stops(&self) -> &[GradientStop] {
+        match self {
+            ArbitraryGradient::LinearGradient { stops, .. }
+            | ArbitraryGradient::RadialGradient { stops, .. } => stops,
+        }
+    }
+
+    pub fn repeat(&self) -> bool {
+        match self {
+            ArbitraryGradient::LinearGradient { repeat, .. }
+            | ArbitraryGradient::RadialGradient { repeat, .. } => *repeat,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum BackgroundFill {
     #[serde(rename = "solid")]
-    Solid(#[serde(rename = "color")] ColorToken),
+    Solid {
+        #[serde(rename = "color")]
+        color: ColorToken,
+    },
     LinearGradient {
         direction: GradientDirection,
-        from: ColorToken,
-        via: Option<ColorToken>,
-        to: ColorToken,
+        stops: Vec<GradientStop>,
     },
     /// 径向渐变。`center` 为单位正方形内的圆心坐标 `[0,1]`，
     /// 半径在渲染层取圆心到最远角的距离（`farthest-corner`）。
     RadialGradient {
         center: [f32; 2],
-        from: ColorToken,
-        via: Option<ColorToken>,
-        to: ColorToken,
+        stops: Vec<GradientStop>,
+    },
+    /// 从 CSS 任意值语法（`bg-[linear-gradient(...)]` 等）解析得到的渐变。
+    /// 携带任意色标位置、background-size 与平铺模式。
+    #[serde(rename = "arbitrary")]
+    ArbitraryGradient {
+        #[serde(rename = "gradient")]
+        gradient: ArbitraryGradient,
     },
 }
-
-// `RadialGradient.center` 含 `f32`，无法 derive `Eq`/`Hash`，按 `to_bits` 手动实现。
-impl Eq for BackgroundFill {}
 
 impl std::hash::Hash for BackgroundFill {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            BackgroundFill::Solid(color) => color.hash(state),
-            BackgroundFill::LinearGradient {
-                direction,
-                from,
-                via,
-                to,
-            } => {
+            BackgroundFill::Solid { color } => color.hash(state),
+            BackgroundFill::LinearGradient { direction, stops } => {
                 direction.hash(state);
-                from.hash(state);
-                via.hash(state);
-                to.hash(state);
+                for stop in stops {
+                    stop.pos.to_bits().hash(state);
+                    stop.color.hash(state);
+                }
             }
-            BackgroundFill::RadialGradient {
-                center,
-                from,
-                via,
-                to,
-            } => {
+            BackgroundFill::RadialGradient { center, stops } => {
                 center[0].to_bits().hash(state);
                 center[1].to_bits().hash(state);
-                from.hash(state);
-                via.hash(state);
-                to.hash(state);
+                for stop in stops {
+                    stop.pos.to_bits().hash(state);
+                    stop.color.hash(state);
+                }
             }
+            BackgroundFill::ArbitraryGradient { gradient } => gradient.hash(state),
         }
+    }
+}
+
+impl BackgroundFill {
+    /// 由 `from`/`via`/`to` 构造一个固定色标（0 / 0.5 / 1）的线性渐变。
+    pub fn linear_from_via_to(
+        direction: GradientDirection,
+        from: ColorToken,
+        via: Option<ColorToken>,
+        to: ColorToken,
+    ) -> Self {
+        let stops = match via {
+            Some(mid) => vec![
+                GradientStop {
+                    pos: 0.0,
+                    color: from,
+                },
+                GradientStop {
+                    pos: 0.5,
+                    color: mid,
+                },
+                GradientStop {
+                    pos: 1.0,
+                    color: to,
+                },
+            ],
+            None => vec![
+                GradientStop {
+                    pos: 0.0,
+                    color: from,
+                },
+                GradientStop {
+                    pos: 1.0,
+                    color: to,
+                },
+            ],
+        };
+        BackgroundFill::LinearGradient { direction, stops }
+    }
+
+    /// 由 `from`/`via`/`to` 构造一个固定色标（0 / 0.5 / 1）的径向渐变。
+    pub fn radial_from_via_to(
+        center: [f32; 2],
+        from: ColorToken,
+        via: Option<ColorToken>,
+        to: ColorToken,
+    ) -> Self {
+        let stops = match via {
+            Some(mid) => vec![
+                GradientStop {
+                    pos: 0.0,
+                    color: from,
+                },
+                GradientStop {
+                    pos: 0.5,
+                    color: mid,
+                },
+                GradientStop {
+                    pos: 1.0,
+                    color: to,
+                },
+            ],
+            None => vec![
+                GradientStop {
+                    pos: 0.0,
+                    color: from,
+                },
+                GradientStop {
+                    pos: 1.0,
+                    color: to,
+                },
+            ],
+        };
+        BackgroundFill::RadialGradient { center, stops }
     }
 }
 
@@ -869,9 +1235,9 @@ pub struct NodeStyle {
     // Size
     pub width: Option<f32>,
     /// 任意百分比宽度，对应 Tailwind 的 `w-[N%]`。
-    /// 注意：当前仅实现了 width 维度，`height_percent` 暂未引入——
-    /// 容器高度通常由 content 或 `h-full` 决定，按需求驱动添加。
     pub width_percent: Option<f32>,
+    /// 任意百分比高度，对应 Tailwind 的 `h-[N%]`。
+    pub height_percent: Option<f32>,
     pub height: Option<f32>,
     pub max_width: Option<f32>,
     pub width_full: bool,
@@ -934,6 +1300,11 @@ pub struct NodeStyle {
     /// `Some` 表示当前为径向渐变，值为单位正方形内的圆心 `[x, y]`。
     /// 与 `bg_gradient_direction` 互斥：解析时设置一方会清除另一方。
     pub bg_gradient_radial_center: Option<[f32; 2]>,
+    /// 任意值语法（`bg-[linear-gradient(...)]` 等）解析得到的背景层。
+    /// 多层时按声明顺序叠加（第一层在最底）。与 `bg_color` 互斥：有任意层时忽略 `bg_color`。
+    pub background_layers: Vec<BackgroundFill>,
+    /// `bg-[length:Wpx_Hpx]`，绑定到最近添加的背景层（grid 等瓦片背景）。
+    pub bg_size: Option<[f32; 2]>,
     pub border_radius: Option<BorderRadius>,
     pub border_width: Option<f32>,
     pub border_top_width: Option<f32>,
@@ -946,6 +1317,7 @@ pub struct NodeStyle {
     pub backdrop_blur_sigma: Option<f32>,
     pub object_fit: Option<ObjectFit>,
     pub overflow_hidden: bool,
+    pub clip_path: Option<ClipPath>,
     pub truncate: bool,
     pub transforms: Vec<Transform>,
 
@@ -976,12 +1348,15 @@ pub struct NodeStyle {
     pub line_through: bool,
 
     // Shadow
-    pub box_shadow: Option<BoxShadow>,
+    pub box_shadow: Vec<BoxShadow>,
     pub box_shadow_color: Option<ColorToken>,
-    pub inset_shadow: Option<InsetShadow>,
+    pub inset_shadow: Vec<InsetShadow>,
     pub inset_shadow_color: Option<ColorToken>,
-    pub drop_shadow: Option<DropShadow>,
+    pub drop_shadow: Vec<DropShadow>,
     pub drop_shadow_color: Option<ColorToken>,
+
+    // Text shadow（CSS text-shadow，文本专属，支持多个并列）
+    pub text_shadows: Vec<TextShadow>,
 
     // Identity (for JS animation targeting and stable scene updates)
     pub id: String,
@@ -1804,7 +2179,9 @@ macro_rules! impl_node_style_api {
 
             // === Shadow ===
             pub fn shadow(mut self, style: $crate::style::BoxShadowStyle) -> Self {
-                self.style.box_shadow = Some($crate::style::BoxShadow::from_style(style));
+                self.style
+                    .box_shadow
+                    .push($crate::style::BoxShadow::from_style(style));
                 self
             }
 
@@ -1830,7 +2207,9 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn inset_shadow(mut self, style: $crate::style::InsetShadowStyle) -> Self {
-                self.style.inset_shadow = Some($crate::style::InsetShadow::from_style(style));
+                self.style
+                    .inset_shadow
+                    .push($crate::style::InsetShadow::from_style(style));
                 self
             }
 
@@ -1848,7 +2227,9 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn drop_shadow(mut self, style: $crate::style::DropShadowStyle) -> Self {
-                self.style.drop_shadow = Some($crate::style::DropShadow::from_style(style));
+                self.style
+                    .drop_shadow
+                    .push($crate::style::DropShadow::from_style(style));
                 self
             }
 

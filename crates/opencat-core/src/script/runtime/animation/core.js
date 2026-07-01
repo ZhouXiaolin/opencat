@@ -76,7 +76,7 @@
             throw new Error('keyframes array cannot be empty');
         }
         var first = spec[0];
-        var isShorthand = typeof first === 'number';
+        var isShorthand = typeof first !== 'object' || first == null;
         var normalized;
         if (isShorthand) {
             var n = spec.length;
@@ -84,18 +84,18 @@
             for (var i = 0; i < n; i++) {
                 normalized.push({
                     at: n === 1 ? 0 : i / (n - 1),
-                    value: Number(spec[i]),
+                    value: spec[i],
                     easing: null,
                 });
             }
         } else {
             normalized = spec.map(function(kf) {
-                if (kf == null || typeof kf.at !== 'number' || typeof kf.value !== 'number') {
-                    throw new Error('keyframe entry requires numeric `at` and `value`');
+                if (kf == null || typeof kf.at !== 'number' || !hasOwn(kf, 'value')) {
+                    throw new Error('keyframe entry requires numeric `at` and a `value`');
                 }
                 return {
                     at: kf.at,
-                    value: Number(kf.value),
+                    value: kf.value,
                     easing: kf.easing != null ? resolveEasingTag(kf.easing) : null,
                 };
             });
@@ -104,7 +104,7 @@
         return normalized;
     }
 
-    function evaluateKeyframes(progress, kfs) {
+    function evaluateKeyframes(progress, kfs, descriptor, target, track, handle, timing) {
         var p = Math.max(0, Math.min(1, Number(progress)));
         if (p <= kfs[0].at) return kfs[0].value;
         var last = kfs[kfs.length - 1];
@@ -118,7 +118,20 @@
                 if (b.easing) {
                     localT = __easing_apply(b.easing, localT);
                 }
-                return a.value + (b.value - a.value) * localT;
+                if (typeof a.value === 'number' && typeof b.value === 'number') {
+                    return a.value + (b.value - a.value) * localT;
+                }
+                if (typeof descriptor.interpolate === 'function') {
+                    return descriptor.interpolate(a.value, b.value, localT, {
+                        target: target,
+                        handle: handle,
+                        timing: timing,
+                        core: runtime.core,
+                        inputName: track.inputName,
+                        name: track.name,
+                    });
+                }
+                return localT < 0.5 ? a.value : b.value;
             }
         }
         return last.value;
@@ -458,7 +471,15 @@
 
             var value;
             if (track.keyframes) {
-                value = evaluateKeyframes(progress, track.keyframes);
+                value = evaluateKeyframes(
+                    progress,
+                    track.keyframes,
+                    descriptor,
+                    target,
+                    track,
+                    handle,
+                    timing
+                );
             } else if (tweenContext.sampleOverrides[track.name]) {
                 value = tweenContext.sampleOverrides[track.name]({
                     target: target,

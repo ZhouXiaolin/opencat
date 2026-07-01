@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use crate::style::{
-    BorderRadius, BorderStyle, BoxShadow, ColorToken, CssFilter, DropShadow, FlexDirection,
-    FontWeight, InsetShadow, JustifyContent, LengthPercentageAuto, ObjectFit, Position, TextAlign,
-    Transform,
+    BorderRadius, BorderStyle, BoxShadow, ClipPath, ColorToken, CssFilter, DropShadow,
+    FlexDirection, FontWeight, InsetShadow, JustifyContent, LengthPercentageAuto, ObjectFit,
+    Position, TextAlign, Transform,
 };
 
 // ── Node style mutations ──────────────────────────────────────────
@@ -88,6 +88,7 @@ pub struct NodeStyleMutations {
     pub svg_path: Option<String>,
     pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
+    pub clip_path: Option<ClipPath>,
 }
 
 impl NodeStyleMutations {
@@ -218,19 +219,19 @@ impl NodeStyleMutations {
             style.line_height = Some(v);
         }
         if let Some(v) = self.box_shadow {
-            style.box_shadow = Some(v);
+            style.box_shadow.push(v);
         }
         if let Some(v) = self.box_shadow_color {
             style.box_shadow_color = Some(v);
         }
         if let Some(v) = self.inset_shadow {
-            style.inset_shadow = Some(v);
+            style.inset_shadow.push(v);
         }
         if let Some(v) = self.inset_shadow_color {
             style.inset_shadow_color = Some(v);
         }
         if let Some(v) = self.drop_shadow {
-            style.drop_shadow = Some(v);
+            style.drop_shadow.push(v);
         }
         if let Some(v) = self.drop_shadow_color {
             style.drop_shadow_color = Some(v);
@@ -243,6 +244,9 @@ impl NodeStyleMutations {
         }
         if !self.css_filter.is_empty() {
             style.css_filter.merge_from(&self.css_filter);
+        }
+        if let Some(v) = self.clip_path {
+            style.clip_path = Some(v);
         }
     }
 }
@@ -499,6 +503,9 @@ pub fn apply_node_to_recorder(
                 }).collect::<Vec<_>>(),
             }),
         );
+    }
+    if let Some(clip_path) = m.clip_path {
+        recorder.write_style_value(id, "clipPath", serde_json::json!(clip_path.to_css_string()));
     }
 }
 

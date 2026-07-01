@@ -562,6 +562,7 @@ fn render_reused_subtree(
         }
     }
 
+    let has_paint_clip = node.paint_clip.is_some();
     let has_clip = node.clip.is_some();
     let subtree = OrderedSceneProgram::build_subtree(tree, handle);
     let own_key = node_own_segment_key(node);
@@ -597,6 +598,9 @@ fn render_reused_subtree(
                 if has_clip {
                     ctx.builder.push(DrawOp::Restore);
                 }
+                if has_paint_clip {
+                    ctx.builder.push(DrawOp::Restore);
+                }
                 finish_apply_frame(ctx.builder, &apply_frame);
                 return Ok(());
             }
@@ -621,6 +625,11 @@ fn render_reused_subtree(
     let recorded = node.recorded_semantics();
 
     let parent_marker = ctx.builder.begin_range();
+    if let Some(clip) = &recorded.paint_clip {
+        ctx.builder.push(DrawOp::Save);
+        let clip_rect4 = display_rect_to_rect4(clip.bounds);
+        clip_bounds_with_radius(ctx.builder, clip_rect4, &clip.border_radius);
+    }
     render_display_item(
         ctx,
         recorded.item,
@@ -674,6 +683,9 @@ fn render_reused_subtree(
         render_scene_op(ctx, child, tree, cache)?;
     }
     if has_clip {
+        ctx.builder.push(DrawOp::Restore);
+    }
+    if has_paint_clip {
         ctx.builder.push(DrawOp::Restore);
     }
 
@@ -757,6 +769,11 @@ fn render_live_subtree(
 
     #[cfg(feature = "profile")]
     let _item_span = span!(target: "render.backend", Level::TRACE, "draw_item").entered();
+    if let Some(clip) = &node.paint_clip {
+        ctx.builder.push(DrawOp::Save);
+        let clip_bounds_rect4 = display_rect_to_rect4(clip.bounds);
+        clip_bounds_with_radius(ctx.builder, clip_bounds_rect4, &clip.border_radius);
+    }
     render_display_item(ctx, &node.item, node.layout_output_fingerprint, cache)?;
 
     if let Some(clip) = &node.clip {
@@ -776,6 +793,9 @@ fn render_live_subtree(
     }
 
     if node.clip.is_some() {
+        ctx.builder.push(DrawOp::Restore);
+    }
+    if node.paint_clip.is_some() {
         ctx.builder.push(DrawOp::Restore);
     }
     finish_apply_frame(ctx.builder, &apply_frame);
@@ -1113,7 +1133,7 @@ mod tests {
     };
 
     fn rect_node(
-        background: Option<BackgroundFill>,
+        background: Vec<BackgroundFill>,
         transform: DisplayTransform,
         children: Vec<AnnotatedNodeHandle>,
     ) -> AnnotatedDisplayNode {
@@ -1131,6 +1151,7 @@ mod tests {
             opacity: 1.0,
             css_filter: Default::default(),
             backdrop_blur_sigma: None,
+            paint_clip: None,
             clip: None,
             item: DisplayItem::Rect(RectDisplayItem {
                 bounds,
@@ -1144,9 +1165,9 @@ mod tests {
                     border_left_width: None,
                     border_color: None,
                     border_style: None,
-                    box_shadow: None,
-                    inset_shadow: None,
-                    drop_shadow: None,
+                    box_shadow: Vec::new(),
+                    inset_shadow: Vec::new(),
+                    drop_shadow: Vec::new(),
                     backdrop_blur_sigma: None,
                 },
             }),
@@ -1173,17 +1194,23 @@ mod tests {
     #[test]
     fn node_own_segment_key_tracks_parent_paint_not_children() {
         let parent_without_child = rect_node(
-            Some(BackgroundFill::Solid(ColorToken::Custom(10, 20, 30, 255))),
+            vec![BackgroundFill::Solid {
+                color: ColorToken::Custom(10, 20, 30, 255),
+            }],
             transform(0.0, 0.0),
             Vec::new(),
         );
         let parent_with_changed_child = rect_node(
-            Some(BackgroundFill::Solid(ColorToken::Custom(10, 20, 30, 255))),
+            vec![BackgroundFill::Solid {
+                color: ColorToken::Custom(10, 20, 30, 255),
+            }],
             transform(0.0, 0.0),
             vec![AnnotatedNodeHandle(1)],
         );
         let parent_with_changed_paint = rect_node(
-            Some(BackgroundFill::Solid(ColorToken::Custom(30, 20, 10, 255))),
+            vec![BackgroundFill::Solid {
+                color: ColorToken::Custom(30, 20, 10, 255),
+            }],
             transform(0.0, 0.0),
             vec![AnnotatedNodeHandle(1)],
         );
@@ -1202,8 +1229,16 @@ mod tests {
 
     #[test]
     fn node_own_segment_key_ignores_apply_transform() {
-        let stationary = rect_node(None, transform(0.0, 0.0), vec![AnnotatedNodeHandle(1)]);
-        let moved = rect_node(None, transform(24.0, 12.0), vec![AnnotatedNodeHandle(1)]);
+        let stationary = rect_node(
+            Vec::new(),
+            transform(0.0, 0.0),
+            vec![AnnotatedNodeHandle(1)],
+        );
+        let moved = rect_node(
+            Vec::new(),
+            transform(24.0, 12.0),
+            vec![AnnotatedNodeHandle(1)],
+        );
 
         assert_eq!(
             node_own_segment_key(&stationary),
@@ -1399,7 +1434,7 @@ mod tests {
 
     #[test]
     fn apply_plan_is_built_from_draw_composite_semantics() {
-        let node = rect_node(None, transform(3.0, 4.0), Vec::new());
+        let node = rect_node(Vec::new(), transform(3.0, 4.0), Vec::new());
         let layer_bounds = DisplayRect {
             x: 1.0,
             y: 2.0,

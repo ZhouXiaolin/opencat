@@ -62,6 +62,13 @@ fn parse_class_name_impl(class_name: &str, context: Option<(&str, usize)>) -> No
         style.line_height = None;
     }
 
+    // `bg-[length:...]` 绑定到同一 class 字符串内声明的任意渐变层。
+    if let Some(size) = style.bg_size
+        && !style.background_layers.is_empty()
+    {
+        crate::parse::gradient::apply_size_to_layers(&mut style.background_layers, size);
+    }
+
     style
 }
 
@@ -212,16 +219,16 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         }
         ExactClassAction::ObjectFit(value) => style.object_fit = Some(value),
         ExactClassAction::FontWeight(value) => style.font_weight = Some(value),
-        ExactClassAction::BoxShadow(value) => style.box_shadow = Some(BoxShadow::from_style(value)),
+        ExactClassAction::BoxShadow(value) => style.box_shadow.push(BoxShadow::from_style(value)),
         ExactClassAction::InsetShadow(value) => {
-            style.inset_shadow = Some(InsetShadow::from_style(value))
+            style.inset_shadow.push(InsetShadow::from_style(value))
         }
         ExactClassAction::DropShadow(value) => {
-            style.drop_shadow = Some(DropShadow::from_style(value))
+            style.drop_shadow.push(DropShadow::from_style(value))
         }
-        ExactClassAction::ClearBoxShadow => style.box_shadow = None,
-        ExactClassAction::ClearInsetShadow => style.inset_shadow = None,
-        ExactClassAction::ClearDropShadow => style.drop_shadow = None,
+        ExactClassAction::ClearBoxShadow => style.box_shadow.clear(),
+        ExactClassAction::ClearInsetShadow => style.inset_shadow.clear(),
+        ExactClassAction::ClearDropShadow => style.drop_shadow.clear(),
         ExactClassAction::BorderRadius(value) => {
             style.border_radius = Some(crate::style::BorderRadius::uniform(value))
         }
@@ -301,6 +308,16 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
 
     if class == "fill-none" {
         style.fill_color = Some(ColorToken::Transparent);
+        return true;
+    }
+
+    // `[text-shadow:<value>]` — 任意属性语法，支持多个逗号分隔的文本阴影。
+    if let Some(value) = class
+        .strip_prefix("[text-shadow:")
+        .and_then(|v| v.strip_suffix(']'))
+        && let Some(shadows) = parse_text_shadows(value)
+    {
+        style.text_shadows.extend(shadows);
         return true;
     }
 
@@ -620,6 +637,22 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
+    // `bg-[<gradient>]` 与 `bg-[length:...]` 必须先于 `bg-[#hex]` 等颜色规则匹配。
+    if let Some(rest) = class.strip_prefix("bg-[").and_then(|v| v.strip_suffix(']')) {
+        // background-size: `bg-[length:64px_64px]`
+        if let Some(size) = crate::parse::gradient::parse_background_size(rest) {
+            style.bg_size = Some(size);
+            return true;
+        }
+        // CSS 渐变函数：`bg-[linear-gradient(...)]` 等（可含多层逗号分隔）。
+        if let Some(layers) = crate::parse::gradient::parse_background_gradient(rest) {
+            style.background_layers.extend(layers);
+            // bg_color 与任意渐变层互斥：有任意层时清除 bg_color。
+            style.bg_color = None;
+            return true;
+        }
+    }
+
     if apply_bracket_hex_color_rule(class, "bg-[", ColorTarget::Bg, style)
         || apply_bracket_hex_color_rule(class, "text-[", ColorTarget::Text, style)
         || apply_bracket_hex_color_rule(class, "border-[", ColorTarget::Border, style)
@@ -649,6 +682,10 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
     }
 
     if apply_bracket_percent_rule(class, "w-[", style) {
+        return true;
+    }
+
+    if apply_bracket_percent_rule_for(class, "h-[", style, DimensionPercent::Height) {
         return true;
     }
 
@@ -1041,17 +1078,34 @@ fn apply_shadow_value_rule(
         return false;
     };
 
-    match target {
-        ShadowValueTarget::Box => parse_box_shadow_value(value)
-            .map(|shadow| style.box_shadow = Some(shadow))
-            .is_some(),
-        ShadowValueTarget::Inset => parse_inset_shadow_value(value)
-            .map(|shadow| style.inset_shadow = Some(shadow))
-            .is_some(),
-        ShadowValueTarget::Drop => parse_drop_shadow_value(value)
-            .map(|shadow| style.drop_shadow = Some(shadow))
-            .is_some(),
+    let mut parsed_any = false;
+    for segment in split_top_level_commas(value) {
+        let segment = segment.trim();
+        if segment.is_empty() {
+            continue;
+        }
+        match target {
+            ShadowValueTarget::Box => {
+                if let Some(shadow) = parse_box_shadow_value(segment) {
+                    style.box_shadow.push(shadow);
+                    parsed_any = true;
+                }
+            }
+            ShadowValueTarget::Inset => {
+                if let Some(shadow) = parse_inset_shadow_value(segment) {
+                    style.inset_shadow.push(shadow);
+                    parsed_any = true;
+                }
+            }
+            ShadowValueTarget::Drop => {
+                if let Some(shadow) = parse_drop_shadow_value(segment) {
+                    style.drop_shadow.push(shadow);
+                    parsed_any = true;
+                }
+            }
+        }
     }
+    parsed_any
 }
 
 fn parse_box_shadow_value(value: &str) -> Option<BoxShadow> {
@@ -1121,6 +1175,52 @@ fn parse_drop_shadow_value(value: &str) -> Option<DropShadow> {
     }
 }
 
+/// Parse a CSS `text-shadow` value (Tailwind `_`-encoded) into multiple shadows.
+/// Commas separate shadows; each shadow is `offset_x offset_y blur_radius? color`.
+/// Example: `-3px_0_#ff00ff,3px_0_#00d4ff,0_0_32px_#00ff8870` → 3 shadows.
+fn parse_text_shadows(value: &str) -> Option<Vec<crate::style::TextShadow>> {
+    // Split on top-level commas (respecting parens so rgba(...) isn't broken).
+    let mut shadows = Vec::new();
+    for segment in split_top_level_commas(value) {
+        let segment = segment.trim();
+        if segment.is_empty() {
+            continue;
+        }
+        if let Some(shadow) = parse_single_text_shadow(segment) {
+            shadows.push(shadow);
+        }
+    }
+    if shadows.is_empty() {
+        None
+    } else {
+        Some(shadows)
+    }
+}
+
+/// Parse a single text-shadow segment: `dx dy blur? color` (Tailwind `_`-encoded).
+fn parse_single_text_shadow(value: &str) -> Option<crate::style::TextShadow> {
+    let tokens = split_shadow_tokens(value);
+    let (length_tokens, color) = split_shadow_tokens_and_color(tokens)?;
+    let color = color.unwrap_or(ColorToken::Custom(0, 0, 0, 255));
+    match length_tokens.as_slice() {
+        // `dx dy` — 无 blur。
+        [offset_x, offset_y] => Some(crate::style::TextShadow {
+            offset_x: parse_shadow_length(offset_x)?,
+            offset_y: parse_shadow_length(offset_y)?,
+            blur_sigma: 0.0,
+            color,
+        }),
+        // `dx dy blur`。
+        [offset_x, offset_y, blur] => Some(crate::style::TextShadow {
+            offset_x: parse_shadow_length(offset_x)?,
+            offset_y: parse_shadow_length(offset_y)?,
+            blur_sigma: parse_shadow_blur(blur)?,
+            color,
+        }),
+        _ => None,
+    }
+}
+
 fn split_shadow_tokens(value: &str) -> Vec<&str> {
     let mut tokens = Vec::new();
     let mut start = 0;
@@ -1145,6 +1245,38 @@ fn split_shadow_tokens(value: &str) -> Vec<&str> {
     tokens
         .into_iter()
         .filter(|token| !token.is_empty())
+        .collect()
+}
+
+/// Split a shadow value on commas at paren/bracket depth 0.
+///
+/// A multi-shadow value like `0_0_20px_#00ff88,0_0_50px_#00ff8860` is split into
+/// its individual shadow segments. Commas nested inside `(...)`/`[...]` (e.g.
+/// within `rgba(0,0,0,0.5)`) are not treated as separators.
+fn split_top_level_commas(value: &str) -> Vec<&str> {
+    let mut segments = Vec::new();
+    let mut start = 0;
+    let mut depth: usize = 0;
+
+    for (idx, ch) in value.char_indices() {
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                segments.push(&value[start..idx]);
+                start = idx + 1;
+            }
+            _ => {}
+        }
+    }
+
+    if start <= value.len() {
+        segments.push(&value[start..]);
+    }
+
+    segments
+        .into_iter()
+        .filter(|segment| !segment.is_empty())
         .collect()
 }
 
@@ -1374,6 +1506,21 @@ fn parse_prefixed_bracket_f32(class: &str, prefix: &str) -> Option<f32> {
 }
 
 fn apply_bracket_percent_rule(class: &str, prefix: &str, style: &mut NodeStyle) -> bool {
+    apply_bracket_percent_rule_for(class, prefix, style, DimensionPercent::Width)
+}
+
+#[derive(Copy, Clone)]
+enum DimensionPercent {
+    Width,
+    Height,
+}
+
+fn apply_bracket_percent_rule_for(
+    class: &str,
+    prefix: &str,
+    style: &mut NodeStyle,
+    dimension: DimensionPercent,
+) -> bool {
     let Some(value) = class
         .strip_prefix(prefix)
         .and_then(|v| v.strip_suffix(']'))
@@ -1385,13 +1532,23 @@ fn apply_bracket_percent_rule(class: &str, prefix: &str, style: &mut NodeStyle) 
         return false;
     };
     // Tailwind 允许任意百分比字面量（含 >100%），但传给 Taffy 前必须是有限值。
-    // CSS 浏览器对负 width 的处理是按 0 渲染，这里保持一致以兼容 Tailwind 输入。
+    // CSS 浏览器对负 width/height 的处理是按 0 渲染，这里保持一致以兼容 Tailwind 输入。
     if !percent.is_finite() {
         return false;
     }
-    style.width_percent = Some((percent / 100.0).max(0.0));
-    style.width = None;
-    style.width_full = false;
+    let normalized = (percent / 100.0).max(0.0);
+    match dimension {
+        DimensionPercent::Width => {
+            style.width_percent = Some(normalized);
+            style.width = None;
+            style.width_full = false;
+        }
+        DimensionPercent::Height => {
+            style.height_percent = Some(normalized);
+            style.height = None;
+            style.height_full = false;
+        }
+    }
     true
 }
 
@@ -1538,7 +1695,7 @@ fn parse_color_token_with_opacity(value: &str) -> Option<ColorToken> {
     Some(ColorToken::Custom(r, g, b, alpha))
 }
 
-fn parse_rgb_function_color(value: &str) -> Option<ColorToken> {
+pub(crate) fn parse_rgb_function_color(value: &str) -> Option<ColorToken> {
     let lower = value.trim();
     let (inner, has_alpha) = if let Some(inner) = lower
         .strip_prefix("rgba(")
@@ -1892,7 +2049,7 @@ fn parse_fraction(value: &str) -> Option<f32> {
     Some(numerator / denominator)
 }
 
-fn color_from_hex(value: &str) -> Option<ColorToken> {
+pub(crate) fn color_from_hex(value: &str) -> Option<ColorToken> {
     let (hex_part, opacity_suffix) = match value.rsplit_once('/') {
         Some((hex, suffix)) => (hex, Some(suffix)),
         None => (value, None),
@@ -1964,9 +2121,9 @@ mod tests {
     fn parses_box_drop_and_inset_shadows_separately() {
         let style = parse_class_name("shadow-lg drop-shadow-md inset-shadow-sm");
 
-        assert!(style.box_shadow.is_some());
-        assert!(style.drop_shadow.is_some());
-        assert!(style.inset_shadow.is_some());
+        assert!(!style.box_shadow.is_empty());
+        assert!(!style.drop_shadow.is_empty());
+        assert!(!style.inset_shadow.is_empty());
     }
 
     #[test]
@@ -1984,17 +2141,68 @@ mod tests {
             "shadow-[0_8px_24px_rgba(0,0,0,0.18)] drop-shadow-[2px_4px_12px_#00000066]",
         );
 
-        let box_shadow = style.box_shadow.expect("box shadow should parse");
+        let box_shadow = style.box_shadow.first().expect("box shadow should parse");
         assert_eq!(box_shadow.offset_x, 0.0);
         assert_eq!(box_shadow.offset_y, 8.0);
         assert!((box_shadow.blur_sigma - 4.0).abs() < f32::EPSILON);
         assert_eq!(box_shadow.color, ColorToken::Custom(0, 0, 0, 46));
 
-        let drop_shadow = style.drop_shadow.expect("drop shadow should parse");
+        let drop_shadow = style.drop_shadow.first().expect("drop shadow should parse");
         assert_eq!(drop_shadow.offset_x, 2.0);
         assert_eq!(drop_shadow.offset_y, 4.0);
         assert!((drop_shadow.blur_sigma - 2.0).abs() < f32::EPSILON);
         assert_eq!(drop_shadow.color, ColorToken::Custom(0, 0, 0, 102));
+    }
+
+    #[test]
+    fn parses_multi_layer_box_shadow() {
+        let style = parse_class_name("shadow-[0_0_20px_#00ff88,0_0_50px_#00ff8860]");
+        assert_eq!(style.box_shadow.len(), 2);
+        let first = &style.box_shadow[0];
+        assert_eq!(first.offset_x, 0.0);
+        assert_eq!(first.offset_y, 0.0);
+        assert!((first.blur_sigma - 20.0 / 6.0).abs() < 1e-5);
+        assert_eq!(first.color, ColorToken::Custom(0, 255, 136, 255));
+        let second = &style.box_shadow[1];
+        assert!((second.blur_sigma - 50.0 / 6.0).abs() < 1e-5);
+        // #00ff8860 is 8-digit hex: R=0x00=0, G=0xff=255, B=0x88=136, A=0x60=96
+        assert_eq!(second.color, ColorToken::Custom(0, 255, 136, 96));
+    }
+
+    #[test]
+    fn parses_text_shadow_rgb_split() {
+        // RGB-split：两个偏移阴影 + 一个辉光。
+        let style =
+            parse_class_name("[text-shadow:-3px_0_#ff00ff,3px_0_#00d4ff,0_0_32px_#00ff8870]");
+        assert_eq!(style.text_shadows.len(), 3);
+
+        let magenta = &style.text_shadows[0];
+        assert_eq!(magenta.offset_x, -3.0);
+        assert_eq!(magenta.offset_y, 0.0);
+        assert_eq!(magenta.blur_sigma, 0.0);
+        assert_eq!(magenta.color, ColorToken::Custom(255, 0, 255, 255));
+
+        let cyan = &style.text_shadows[1];
+        assert_eq!(cyan.offset_x, 3.0);
+        assert_eq!(cyan.offset_y, 0.0);
+        assert_eq!(cyan.color, ColorToken::Custom(0, 212, 255, 255));
+
+        // 辉光：dx=dy=0，blur=32px → σ=32/6。
+        let glow = &style.text_shadows[2];
+        assert_eq!(glow.offset_x, 0.0);
+        assert_eq!(glow.offset_y, 0.0);
+        assert!((glow.blur_sigma - 32.0 / 6.0).abs() < 1e-5);
+        assert_eq!(glow.color, ColorToken::Custom(0, 255, 136, 112)); // 0x70 = 112
+    }
+
+    #[test]
+    fn parses_text_shadow_single_glow() {
+        let style = parse_class_name("[text-shadow:0_0_24px_#00ff8890]");
+        assert_eq!(style.text_shadows.len(), 1);
+        let glow = &style.text_shadows[0];
+        assert_eq!(glow.offset_x, 0.0);
+        assert_eq!(glow.offset_y, 0.0);
+        assert!((glow.blur_sigma - 24.0 / 6.0).abs() < 1e-5);
     }
 
     #[test]
@@ -2035,6 +2243,24 @@ mod tests {
         assert_eq!(style.width_percent, Some(0.65));
         assert_eq!(style.width, None);
         assert!(!style.width_full);
+    }
+
+    #[test]
+    fn parses_arbitrary_percent_height() {
+        let style = parse_class_name("h-[40%]");
+
+        assert_eq!(style.height_percent, Some(0.4));
+        assert_eq!(style.height, None);
+        assert!(!style.height_full);
+    }
+
+    #[test]
+    fn arbitrary_percent_height_still_parses_px_as_length() {
+        // `h-[200px]` 不含 `%`，必须路由到长度规则而非百分比规则。
+        let style = parse_class_name("h-[200px]");
+
+        assert_eq!(style.height, Some(200.0));
+        assert_eq!(style.height_percent, None);
     }
 
     #[test]
@@ -2220,10 +2446,7 @@ mod tests {
         assert_eq!(top_left.bg_gradient_radial_center, Some([0.0, 0.0]));
 
         let bottom_right = parse_class_name("bg-radial-[at_bottom_right]");
-        assert_eq!(
-            bottom_right.bg_gradient_radial_center,
-            Some([1.0, 1.0])
-        );
+        assert_eq!(bottom_right.bg_gradient_radial_center, Some([1.0, 1.0]));
 
         let center = parse_class_name("bg-radial-[at_center]");
         assert_eq!(center.bg_gradient_radial_center, Some([0.5, 0.5]));
@@ -2250,8 +2473,9 @@ mod tests {
         );
 
         // 自定义圆心的径向后接线性同样互斥。
-        let bracket_then_linear =
-            parse_class_name("bg-radial-[at_30%_70%] bg-gradient-to-b from-orange-500 to-violet-500");
+        let bracket_then_linear = parse_class_name(
+            "bg-radial-[at_30%_70%] bg-gradient-to-b from-orange-500 to-violet-500",
+        );
         assert_eq!(bracket_then_linear.bg_gradient_radial_center, None);
     }
 
@@ -2267,5 +2491,32 @@ mod tests {
         let style = parse_class_name("border-[2px]");
         assert_eq!(style.border_width, Some(2.0));
         assert_eq!(style.border_color, None);
+    }
+
+    #[test]
+    fn parses_radial_gradient_glow_layer() {
+        let style =
+            parse_class_name("bg-[radial-gradient(circle,rgba(0,255,136,0.14),transparent_70%)]");
+        assert_eq!(style.background_layers.len(), 1);
+        // 有任意渐变层时 bg_color 应被清除。
+        assert_eq!(style.bg_color, None);
+    }
+
+    #[test]
+    fn parses_multi_layer_grid_with_size() {
+        let style = parse_class_name(
+            "bg-[linear-gradient(rgba(0,255,136,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(0,255,136,0.06)_1px,transparent_1px)] bg-[length:64px_64px]",
+        );
+        // 两层渐变 + 一层 background-size 绑定到两层。
+        assert_eq!(style.background_layers.len(), 2);
+        assert_eq!(style.bg_size, Some([64.0, 64.0]));
+    }
+
+    #[test]
+    fn parses_repeating_scanline() {
+        let style = parse_class_name(
+            "bg-[repeating-linear-gradient(0deg,transparent_0,transparent_3px,rgba(0,0,0,0.35)_3px,rgba(0,0,0,0.35)_4px)]",
+        );
+        assert_eq!(style.background_layers.len(), 1);
     }
 }

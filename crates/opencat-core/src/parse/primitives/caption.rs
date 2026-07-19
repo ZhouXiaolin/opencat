@@ -44,6 +44,17 @@ impl CaptionNode {
         &self.entries
     }
 
+    /// Replace this node's caption entries in place.
+    ///
+    /// Used by the host-driven caption hydration path (see
+    /// `opencat_core::probe::prepare::hydrate_captions`), which parses SRT text
+    /// supplied by the host and installs the resulting entries. The hydration
+    /// contract never overwrites pre-existing entries; callers must check
+    /// [`CaptionNode::entries_ref`] first.
+    pub(crate) fn set_entries(&mut self, entries: Vec<SrtEntry>) {
+        self.entries = entries;
+    }
+
     pub fn style_ref(&self) -> &NodeStyle {
         &self.style
     }

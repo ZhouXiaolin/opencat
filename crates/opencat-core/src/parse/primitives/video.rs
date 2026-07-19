@@ -27,6 +27,10 @@ impl Video {
         &self.children
     }
 
+    pub(crate) fn set_children(&mut self, children: Vec<Node>) {
+        self.children = children;
+    }
+
     pub fn source(&self) -> &VideoSource {
         &self.source
     }

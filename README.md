@@ -187,7 +187,7 @@ Any HTML subtree — layout, images, text, video → texture → shader → outp
 # Render MP4
 cargo run --bin opencat -- examples/profile-showcase.xml
 
-# Desktop player for live preview (macOS / Windows)
+# Desktop player for live preview (macOS / Windows / Linux)
 cargo run --bin opencat-see -- path/to/input.xml
 
 # Hello World example
@@ -298,6 +298,8 @@ opencat
 
   macOS provides Metal via the system SDK (no manual install). Windows provides OpenGL via the system driver.
 
+  `opencat-see` (the desktop preview player) creates its GL context via **EGL** on Linux, matching the prebuilt Skia backend. It currently requires an **X11** window handle, so on a Wayland session it runs through **XWayland** (set `WAYLAND_DISPLAY=` only if auto-selection fails). Native Wayland (`wl_surface`) support is not wired up yet.
+
 - **Fontconfig dev library** (Linux):
 
   ```bash
@@ -328,7 +330,7 @@ The binary is at `target/release/opencat`. Render a video:
 cargo run --release --bin opencat -- examples/profile-showcase.xml
 ```
 
-**Desktop preview player (macOS / Windows):**
+**Desktop preview player (macOS / Windows / Linux):**
 
 ```bash
 cargo run --release --bin opencat-see -- path/to/input.xml

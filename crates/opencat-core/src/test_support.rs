@@ -14,6 +14,7 @@ pub fn mock_font_provider() -> impl crate::text::FontProvider {
 pub struct TestCatalog {
     dims: HashMap<AssetId, (u32, u32)>,
     video_info: HashMap<AssetId, VideoInfoMeta>,
+    aliases: HashMap<AssetId, AssetId>,
 }
 
 impl TestCatalog {
@@ -21,6 +22,7 @@ impl TestCatalog {
         Self {
             dims: HashMap::new(),
             video_info: HashMap::new(),
+            aliases: HashMap::new(),
         }
     }
 
@@ -40,9 +42,13 @@ impl TestCatalog {
     }
 
     pub fn alias(&mut self, alias: AssetId, target: &AssetId) -> anyhow::Result<()> {
-        if let Some(&dims) = self.dims.get(target) {
-            self.dims.insert(alias, dims);
-        }
+        let dims = self
+            .dims
+            .get(target)
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("alias target {target:?} is not a declared asset"))?;
+        self.dims.insert(alias.clone(), dims);
+        self.aliases.insert(alias, target.clone());
         Ok(())
     }
 
@@ -141,6 +147,14 @@ impl ResourceCatalog for TestCatalog {
 
     fn resolve_lottie(&mut self, element_id: &str) -> anyhow::Result<AssetId> {
         Ok(AssetId(format!("lottie:{element_id}")))
+    }
+
+    fn resolve_alias(&self, alias: &AssetId) -> Option<AssetId> {
+        self.aliases.get(alias).cloned()
+    }
+
+    fn is_known_asset(&self, id: &AssetId) -> bool {
+        self.dims.contains_key(id) || self.aliases.contains_key(id)
     }
 }
 

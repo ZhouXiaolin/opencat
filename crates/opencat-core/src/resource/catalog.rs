@@ -26,6 +26,22 @@ pub trait ResourceCatalog {
     fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()>;
     fn dimensions(&self, id: &AssetId) -> (u32, u32);
     fn video_info(&self, id: &AssetId) -> Option<VideoInfoMeta>;
+    /// Resolve a pipeline-internal alias to its canonical `AssetId`.
+    ///
+    /// Returns `None` when `alias` is not a registered alias. Callers that
+    /// need a canonical id should fall back to treating the input as already
+    /// canonical and validate it against known assets separately.
+    fn resolve_alias(&self, alias: &AssetId) -> Option<AssetId> {
+        let _ = alias;
+        None
+    }
+    /// Returns true when `id` is a known canonical asset (declared and probed)
+    /// or a registered alias. Used to reject unknown alias references before
+    /// they reach `DrawOpFrame` / `FrameMediaPlan`.
+    fn is_known_asset(&self, id: &AssetId) -> bool {
+        let _ = id;
+        true
+    }
     fn resolve_lottie(&mut self, element_id: &str) -> Result<AssetId> {
         let _ = element_id;
         anyhow::bail!("resolve_lottie not implemented")
@@ -69,5 +85,37 @@ mod tests {
         let mut catalog: Box<dyn ResourceCatalog> = Box::new(TestCatalog::new());
         let id = catalog.register_dimensions("/tmp/v.mp4", 0, 0);
         assert!(catalog.video_info(&id).is_none());
+    }
+
+    #[test]
+    fn alias_rejects_unknown_target() {
+        // AC3: an alias must point at a declared asset; unknown target is a
+        // render error, not a silent no-op.
+        let mut catalog: Box<dyn ResourceCatalog> = Box::new(TestCatalog::new());
+        let unknown = AssetId("does-not-exist".into());
+        let alias = AssetId("aka".into());
+        let err = catalog.alias(alias, &unknown).unwrap_err();
+        assert!(
+            err.to_string().contains("not a declared asset"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn alias_binds_to_canonical_and_resolves() {
+        let mut catalog: Box<dyn ResourceCatalog> = Box::new(TestCatalog::new());
+        let canonical = catalog.register_dimensions("/tmp/a.png", 10, 20);
+        let alias = AssetId("hero".into());
+        catalog.alias(alias.clone(), &canonical).unwrap();
+
+        assert_eq!(catalog.resolve_alias(&alias), Some(canonical.clone()));
+        assert!(catalog.is_known_asset(&alias));
+        assert!(catalog.is_known_asset(&canonical));
+    }
+
+    #[test]
+    fn is_known_asset_rejects_unknown_id() {
+        let catalog: Box<dyn ResourceCatalog> = Box::new(TestCatalog::new());
+        assert!(!catalog.is_known_asset(&AssetId("nope".into())));
     }
 }

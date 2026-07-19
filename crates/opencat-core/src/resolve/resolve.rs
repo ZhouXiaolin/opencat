@@ -4,6 +4,7 @@ use crate::{
     FrameCtx, Node,
     frame_ctx::{ScriptFrameCtx, frames_to_duration_secs},
     ir::asset_id::{AssetId, asset_id_for_video_url},
+    ir::draw_types::ImageRef,
     media::VideoFrameTiming,
     parse::{
         node::NodeKind,
@@ -446,6 +447,12 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
 
         let mut commands = Vec::new();
         apply_canvas_mutation_stack(&mut commands, cx.mutation_stack, &style.id);
+        // Canvas draw-image ops carry the script-facing alias as their
+        // `ImageRef::Static` asset_id. Resolve every alias to its canonical
+        // `AssetId` here so `DrawOpFrame` / `FrameMediaPlan` never expose an
+        // alias. Unknown references (neither a registered alias nor a known
+        // canonical asset) are render errors.
+        canonicalize_canvas_image_refs(&mut commands, cx.assets)?;
 
         let child_inherited_style = InheritedStyle::for_child(&computed);
         let children = resolve_hidden_children(canvas, cx, &child_inherited_style)?;
@@ -1018,6 +1025,33 @@ fn apply_canvas_mutation_stack(commands: &mut Vec<DrawOp>, stack: &[StyleMutatio
     }
 }
 
+/// Resolve `ImageRef::Static` alias references to canonical `AssetId`s in
+/// place. Video-frame refs already carry canonical ids and are left untouched.
+/// An alias that is neither registered nor a known canonical asset is an error.
+fn canonicalize_canvas_image_refs(
+    commands: &mut [DrawOp],
+    assets: &mut dyn ResourceCatalog,
+) -> Result<()> {
+    for op in commands.iter_mut() {
+        let image_ref = match op {
+            DrawOp::Image { image, .. } | DrawOp::ImageRect { image, .. } => image,
+            _ => continue,
+        };
+        if let ImageRef::Static { asset_id } = image_ref {
+            let key = AssetId(asset_id.clone());
+            if let Some(canonical) = assets.resolve_alias(&key) {
+                *asset_id = canonical.0;
+            } else if !assets.is_known_asset(&key) {
+                anyhow::bail!(
+                    "canvas draw-image references unknown asset `{asset_id}`; \
+                     only declared canvas assets may be referenced"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 fn draw_slot_for(style_id: &str, stack: &[StyleMutations]) -> ElementDrawSlot {
     let mut commands = Vec::new();
     apply_canvas_mutation_stack(&mut commands, stack, style_id);
@@ -1307,8 +1341,10 @@ mod tests {
     use super::{merge_text_unit_overrides, resolve_ui_tree};
     use crate::{
         FrameCtx,
+        ir::{draw_op::DrawOp, draw_types::ImageRef},
         parse::primitives::{SrtEntry, caption, div, lucide, text, video},
         resolve::tree::ElementKind,
+        resource::catalog::ResourceCatalog,
         script::{
             NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
             TextUnitOverrideBatch,
@@ -1693,5 +1729,82 @@ mod tests {
         } else {
             panic!("expected Bitmap kind");
         }
+    }
+
+    #[test]
+    fn canonicalize_canvas_image_refs_resolves_alias_to_canonical() {
+        // AC4: a canvas draw-image op carrying a script-facing alias must be
+        // rewritten to its canonical AssetId before leaving resolve.
+        let mut catalog = TestCatalog::new();
+        let canonical =
+            catalog.register_dimensions(crate::ir::asset_id::AssetId("/tmp/a.png".into()), 10, 10);
+        let alias_id = crate::ir::asset_id::AssetId("hero".into());
+        catalog.alias(alias_id.clone(), &canonical).unwrap();
+
+        let mut commands = vec![DrawOp::Image {
+            image: ImageRef::Static {
+                asset_id: "hero".to_string(),
+            },
+            x: 0.0,
+            y: 0.0,
+            paint: None,
+        }];
+        super::canonicalize_canvas_image_refs(&mut commands, &mut catalog).unwrap();
+
+        match &commands[0] {
+            DrawOp::Image {
+                image: ImageRef::Static { asset_id },
+                ..
+            } => assert_eq!(*asset_id, canonical.0),
+            other => panic!("unexpected op: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn canonicalize_canvas_image_refs_keeps_canonical_id() {
+        // A canonical id that is not an alias is left untouched.
+        let mut catalog = TestCatalog::new();
+        let canonical =
+            catalog.register_dimensions(crate::ir::asset_id::AssetId("/tmp/a.png".into()), 10, 10);
+
+        let mut commands = vec![DrawOp::Image {
+            image: ImageRef::Static {
+                asset_id: canonical.0.clone(),
+            },
+            x: 0.0,
+            y: 0.0,
+            paint: None,
+        }];
+        super::canonicalize_canvas_image_refs(&mut commands, &mut catalog).unwrap();
+
+        match &commands[0] {
+            DrawOp::Image {
+                image: ImageRef::Static { asset_id },
+                ..
+            } => assert_eq!(*asset_id, canonical.0),
+            other => panic!("unexpected op: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn canonicalize_canvas_image_refs_rejects_unknown_alias() {
+        // AC3: an alias that is neither registered nor a known canonical asset
+        // is a render error.
+        let mut catalog = TestCatalog::new();
+
+        let mut commands = vec![DrawOp::Image {
+            image: ImageRef::Static {
+                asset_id: "ghost".to_string(),
+            },
+            x: 0.0,
+            y: 0.0,
+            paint: None,
+        }];
+        let err = super::canonicalize_canvas_image_refs(&mut commands, &mut catalog)
+            .expect_err("unknown alias should error");
+        assert!(
+            err.to_string().contains("unknown asset"),
+            "unexpected error: {err}"
+        );
     }
 }

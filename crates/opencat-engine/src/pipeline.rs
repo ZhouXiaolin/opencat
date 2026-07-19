@@ -23,7 +23,13 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
             .canonicalize()
             .unwrap_or_else(|_| loader.base_dir().to_path_buf());
         let parsed = crate::source_io::parse_with_base_dir(input, Some(&base_dir))?;
-        return DefaultPipeline::open_parsed(parsed, loader, scripts, engine_default_font_db());
+        let mut pipeline =
+            DefaultPipeline::open_parsed(parsed, loader, scripts, engine_default_font_db())?;
+        let composition = pipeline.composition().clone();
+        pipeline
+            .loader_mut()
+            .register_canvas_asset_aliases(&composition);
+        return Ok(pipeline);
     }
 
     let base_dir = loader.base_dir();
@@ -50,6 +56,10 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
     )?;
 
     let mut pipeline = DefaultPipeline::open_parsed(parsed, loader, scripts, font_db)?;
+    let composition = pipeline.composition().clone();
+    pipeline
+        .loader_mut()
+        .register_canvas_asset_aliases(&composition);
 
     let (_, external_manifest) = collect_external_manifest(pipeline.composition(), &font_manifest);
     pipeline

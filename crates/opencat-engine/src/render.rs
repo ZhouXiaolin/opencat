@@ -65,6 +65,72 @@ pub struct EncodingConfig {
     pub format: OutputFormat,
 }
 
+/// Render one pipeline frame to RGBA.
+///
+/// - `surface_w/h`: surface + `read_pixels` size (MP4 may pass even-aligned dims)
+/// - `composition_w/h`: `RenderSessionHeader.composition_size` (logical composition size)
+///
+/// Creates a fresh surface per call (acceptable cost for the offline path).
+fn render_pipeline_frame_to_rgba(
+    pipeline: &mut crate::EnginePipeline,
+    media_ctx: &mut MediaContext,
+    executor: &mut crate::executor::EngineDrawExecutor,
+    surface_w: u32,
+    surface_h: u32,
+    composition_w: u32,
+    composition_h: u32,
+    fps: u32,
+    frames: u32,
+    frame_index: u32,
+) -> Result<Vec<u8>> {
+    use opencat_core::pipeline::Pipeline;
+
+    let (mut frame, media_plan) = pipeline.render_frame(frame_index)?;
+
+    let mut surface = surfaces::raster_n32_premul((surface_w as i32, surface_h as i32))
+        .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
+
+    // SAFETY: skia_safe::Canvas wraps a C++ ref-counted object with interior mutability.
+    // All draw methods take &self at the Rust level while mutating internal C++ state.
+    // The surface owns the canvas and no other references exist at this point.
+    #[allow(invalid_reference_casting)]
+    let canvas: &mut skia_safe::Canvas =
+        unsafe { &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas) };
+
+    let header = RenderSessionHeader {
+        composition_size: (composition_w, composition_h),
+        fps,
+        frames,
+    };
+    let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
+        executor,
+        loader: pipeline.loader(),
+        media_ctx,
+        canvas,
+    };
+    consumer.consume_frame(&header, &mut frame, &media_plan)?;
+
+    let image = surface.image_snapshot();
+    let image_info = ImageInfo::new(
+        (surface_w as i32, surface_h as i32),
+        ColorType::RGBA8888,
+        AlphaType::Premul,
+        None,
+    );
+    let mut rgba = vec![0u8; (surface_w as usize) * (surface_h as usize) * 4];
+    let read_ok = image.read_pixels(
+        &image_info,
+        rgba.as_mut_slice(),
+        surface_w as usize * 4,
+        (0, 0),
+        CachingHint::Allow,
+    );
+    if !read_ok {
+        return Err(anyhow!("failed to read pixels from skia surface"));
+    }
+    Ok(rgba)
+}
+
 /// New render path: parse JSONL → EnginePipeline → render frames.
 /// This is the primary entry point going forward; the old `render()` / `render_mp4()`
 /// functions remain for backward compatibility.
@@ -103,9 +169,6 @@ pub fn render_from_jsonl_with_base(
 
     let mut media_ctx = MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
-
-    let mut surface = surfaces::raster_n32_premul((info.width as i32, info.height as i32))
-        .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
 
     let audio_track = if !info.audio_plan.segments.is_empty() {
         let mut mixed_samples = Vec::new();
@@ -151,44 +214,18 @@ pub fn render_from_jsonl_with_base(
         OutputFormat::Png => {
             let mut executor = crate::executor::EngineDrawExecutor::new();
             for i in 0..frame_count {
-                let (mut frame, media_plan) = pipeline.render_frame(i)?;
-
-                #[allow(invalid_reference_casting)]
-                let canvas: &mut skia_safe::Canvas = unsafe {
-                    &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
-                };
-                let header = RenderSessionHeader {
-                    composition_size: (info.width, info.height),
-                    fps: info.fps,
-                    frames: frame_count,
-                };
-                let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
-                    executor: &mut executor,
-                    loader: pipeline.loader(),
-                    media_ctx: &mut media_ctx,
-                    canvas,
-                };
-                consumer.consume_frame(&header, &mut frame, &media_plan)?;
-
-                let image = surface.image_snapshot();
-                let image_info = ImageInfo::new(
-                    (info.width as i32, info.height as i32),
-                    ColorType::RGBA8888,
-                    AlphaType::Premul,
-                    None,
-                );
-                let mut rgba = vec![0u8; (info.width as usize) * (info.height as usize) * 4];
-                let read_ok = image.read_pixels(
-                    &image_info,
-                    rgba.as_mut_slice(),
-                    info.width as usize * 4,
-                    (0, 0),
-                    skia_safe::image::CachingHint::Allow,
-                );
-                if !read_ok {
-                    return Err(anyhow!("failed to read pixels from skia surface"));
-                }
-
+                let rgba = render_pipeline_frame_to_rgba(
+                    &mut pipeline,
+                    &mut media_ctx,
+                    &mut executor,
+                    info.width,
+                    info.height,
+                    info.width,
+                    info.height,
+                    info.fps,
+                    frame_count,
+                    i,
+                )?;
                 let img = image::RgbaImage::from_raw(info.width, info.height, rgba)
                     .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
                 let filename = output_path.join(format!("frame_{:04}.png", i));
@@ -215,46 +252,18 @@ pub fn render_from_jsonl_with_base(
                 audio_track.as_ref(),
                 |_, _| {},
                 |frame_index| {
-                    let (mut frame, media_plan) = pipeline.render_frame(frame_index)?;
-
-                    #[allow(invalid_reference_casting)]
-                    let canvas: &mut skia_safe::Canvas = unsafe {
-                        &mut *(surface.canvas() as *const skia_safe::Canvas
-                            as *mut skia_safe::Canvas)
-                    };
-                    let header = RenderSessionHeader {
-                        composition_size: (info.width, info.height),
-                        fps: info.fps,
-                        frames: frame_count,
-                    };
-                    let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
-                        executor: &mut executor,
-                        loader: pipeline.loader(),
-                        media_ctx: &mut media_ctx,
-                        canvas,
-                    };
-                    consumer.consume_frame(&header, &mut frame, &media_plan)?;
-
-                    let image = surface.image_snapshot();
-                    let image_info = ImageInfo::new(
-                        (aligned_info.0 as i32, aligned_info.1 as i32),
-                        ColorType::RGBA8888,
-                        AlphaType::Premul,
-                        None,
-                    );
-                    let mut rgba =
-                        vec![0u8; (aligned_info.0 as usize) * (aligned_info.1 as usize) * 4];
-                    let read_ok = image.read_pixels(
-                        &image_info,
-                        rgba.as_mut_slice(),
-                        aligned_info.0 as usize * 4,
-                        (0, 0),
-                        skia_safe::image::CachingHint::Allow,
-                    );
-                    if !read_ok {
-                        return Err(anyhow!("failed to read pixels from skia surface"));
-                    }
-                    Ok(rgba)
+                    render_pipeline_frame_to_rgba(
+                        &mut pipeline,
+                        &mut media_ctx,
+                        &mut executor,
+                        aligned_info.0,
+                        aligned_info.1,
+                        info.width,
+                        info.height,
+                        info.fps,
+                        frame_count,
+                        frame_index,
+                    )
                 },
             )?;
         }
@@ -304,48 +313,19 @@ pub fn render_single_frame_from_jsonl_with_base(
 
     let mut media_ctx = MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
-
-    let (mut frame, media_plan) = pipeline.render_frame(frame_index)?;
-
-    let mut surface = surfaces::raster_n32_premul((info.width as i32, info.height as i32))
-        .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
-
-    #[allow(invalid_reference_casting)]
-    let canvas: &mut skia_safe::Canvas =
-        unsafe { &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas) };
-
-    let header = RenderSessionHeader {
-        composition_size: (info.width, info.height),
-        fps: info.fps,
-        frames: frame_count,
-    };
     let mut executor = crate::executor::EngineDrawExecutor::new();
-    let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
-        executor: &mut executor,
-        loader: pipeline.loader(),
-        media_ctx: &mut media_ctx,
-        canvas,
-    };
-    consumer.consume_frame(&header, &mut frame, &media_plan)?;
-
-    let image = surface.image_snapshot();
-    let image_info = ImageInfo::new(
-        (info.width as i32, info.height as i32),
-        ColorType::RGBA8888,
-        AlphaType::Premul,
-        None,
-    );
-    let mut rgba = vec![0u8; (info.width as usize) * (info.height as usize) * 4];
-    let read_ok = image.read_pixels(
-        &image_info,
-        rgba.as_mut_slice(),
-        info.width as usize * 4,
-        (0, 0),
-        skia_safe::image::CachingHint::Allow,
-    );
-    if !read_ok {
-        return Err(anyhow!("failed to read pixels from skia surface"));
-    }
+    let rgba = render_pipeline_frame_to_rgba(
+        &mut pipeline,
+        &mut media_ctx,
+        &mut executor,
+        info.width,
+        info.height,
+        info.width,
+        info.height,
+        info.fps,
+        frame_count,
+        frame_index,
+    )?;
 
     Ok((rgba, info.width, info.height))
 }
@@ -687,15 +667,135 @@ pub fn render_frame_rgb(
 
 #[cfg(test)]
 mod tests {
-    use super::{RenderSession, render_frame_rgba};
-    use crate::{Composition, FrameCtx};
+    use super::render_pipeline_frame_to_rgba;
+    use crate::media::MediaContext;
+    use crate::{Composition, EnginePipeline};
+    use opencat_core::frame_ctx::duration_secs_to_frames;
+    use opencat_core::parse::{ParsedComposition, node::Node};
+    use opencat_core::pipeline::Pipeline;
+    use opencat_core::resource::fonts::FontManifest;
+    use opencat_core::script::js_context::JsContext;
 
-    fn make_test_session() -> RenderSession {
-        RenderSession::new()
+    struct TestPipeline {
+        pipeline: EnginePipeline,
+        media_ctx: MediaContext,
+        executor: crate::executor::EngineDrawExecutor,
+        width: u32,
+        height: u32,
+        fps: u32,
+        frames: u32,
+        _fixture_dir: std::path::PathBuf,
+    }
+
+    impl TestPipeline {
+        fn render(&mut self, frame_index: u32) -> anyhow::Result<Vec<u8>> {
+            render_pipeline_frame_to_rgba(
+                &mut self.pipeline,
+                &mut self.media_ctx,
+                &mut self.executor,
+                self.width,
+                self.height,
+                self.width,
+                self.height,
+                self.fps,
+                self.frames,
+                frame_index,
+            )
+        }
+    }
+
+    impl Drop for TestPipeline {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self._fixture_dir);
+        }
     }
 
     fn frames_at_30fps(frames: u32) -> f64 {
         frames as f64 / 30.0
+    }
+
+    fn make_test_pipeline_from_scene(
+        scene: impl Into<Node>,
+        width: i32,
+        height: i32,
+        fps: u32,
+        duration: f64,
+    ) -> TestPipeline {
+        make_test_pipeline_from_node(scene.into(), width, height, fps, duration)
+    }
+
+    fn make_test_pipeline_from_node(
+        root: Node,
+        width: i32,
+        height: i32,
+        fps: u32,
+        duration: f64,
+    ) -> TestPipeline {
+        let parsed = ParsedComposition {
+            width,
+            height,
+            fps: fps as i32,
+            duration,
+            root,
+            script: None,
+            audio_sources: vec![],
+            font_manifest: FontManifest::default(),
+        };
+        open_test_pipeline(parsed, width as u32, height as u32, fps, duration)
+    }
+
+    fn open_test_pipeline(
+        parsed: ParsedComposition,
+        width: u32,
+        height: u32,
+        fps: u32,
+        duration: f64,
+    ) -> TestPipeline {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let fixture_dir = std::path::PathBuf::from(format!(
+            "target/opencat-render-test-{}-{}",
+            std::process::id(),
+            nanos
+        ));
+        let cache = fixture_dir.join("cache");
+        std::fs::create_dir_all(&cache).expect("test cache dir");
+        // Caption nodes with path "sub.srt" still trigger loader preload even when
+        // entries are inlined; seed a placeholder so open_parsed's load_all succeeds.
+        std::fs::write(
+            fixture_dir.join("sub.srt"),
+            "1\n00:00:00,000 --> 00:00:01,000\n\n",
+        )
+        .expect("seed sub.srt");
+        let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache)
+            .expect("loader");
+        let ctx = crate::js_context::RqJsContext::new().expect("js context");
+        let mut pipeline = opencat_core::pipeline::DefaultPipeline::open_parsed(
+            parsed,
+            loader,
+            ctx,
+            crate::fonts::engine_default_font_db(),
+        )
+        .expect("pipeline");
+        let composition = pipeline.composition().clone();
+        pipeline
+            .loader_mut()
+            .register_canvas_asset_aliases(&composition);
+        let frames = duration_secs_to_frames(duration, fps);
+        let mut media_ctx = MediaContext::new();
+        media_ctx.set_composition_fps(fps);
+        TestPipeline {
+            pipeline,
+            media_ctx,
+            executor: crate::executor::EngineDrawExecutor::new(),
+            width,
+            height,
+            fps,
+            frames,
+            _fixture_dir: fixture_dir,
+        }
     }
 
     fn write_test_png(path: &std::path::Path) {
@@ -775,24 +875,17 @@ mod tests {
                 .text_color(crate::ColorToken::Black),
         );
 
-        let composition = Composition::new("bold_amount_text")
-            .size(260, 70)
-            .fps(30)
-            .duration(frames_at_30fps(1))
-            .root(move |_ctx: &FrameCtx| scene.clone().into())
-            .build()
-            .expect("composition should build");
+        let mut pipeline = make_test_pipeline_from_scene(scene, 260, 70, 30, frames_at_30fps(1));
+        let frame = pipeline.render(0).expect("frame should render");
 
-        let mut session = make_test_session();
-        let frame = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
-
+        let font_db = crate::fonts::engine_default_font_db();
         let raster = opencat_core::text::rasterize_glyphs(
             amount,
             &text_style,
             f32::INFINITY,
             false,
             false,
-            session.core.font_db.as_ref(),
+            font_db.as_ref(),
         );
         for line in &raster.lines {
             let mut missing = Vec::new();
@@ -838,19 +931,9 @@ mod tests {
                     .bg_white(),
             );
 
-        let composition = Composition::new("opacity_cache")
-            .size(20, 20)
-            .fps(30)
-            .duration(frames_at_30fps(2))
-            .root(move |_ctx: &FrameCtx| scene.clone().into())
-            .build()
-            .expect("composition should build");
-
-        let mut session = make_test_session();
-        let first =
-            render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
-        let second =
-            render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
+        let mut pipeline = make_test_pipeline_from_scene(scene, 20, 20, 30, frames_at_30fps(2));
+        let first = pipeline.render(0).expect("frame 0 should render");
+        let second = pipeline.render(1).expect("frame 1 should render");
 
         let first_pixel = pixel_rgba(&first, 20, 5, 5);
         let second_pixel = pixel_rgba(&second, 20, 5, 5);
@@ -871,35 +954,50 @@ mod tests {
             .parent()
             .unwrap()
             .join("examples/split_text_demo.jsonl");
-        let parsed = crate::source_io::parse_file(&jsonl_path).expect("parse");
-        let root = if let Some(script) = parsed.script.as_deref() {
-            if script.trim().is_empty() {
-                parsed.root
-            } else {
-                let driver = crate::ScriptDriver::from_source(script).expect("script");
-                parsed.root.script_driver(driver)
-            }
-        } else {
-            parsed.root
-        };
-        let composition = Composition::new("split_text_property_layer")
-            .size(parsed.width, parsed.height)
-            .fps(parsed.fps as u32)
-            .duration(parsed.duration)
-            .root(move |_ctx| root.clone())
-            .build()
-            .expect("composition");
-
-        let mut session = make_test_session();
-        let frame =
-            render_frame_rgba(&composition, 100, &mut session).expect("frame should render");
+        let jsonl_text = std::fs::read_to_string(&jsonl_path).expect("read jsonl");
+        let base_dir = jsonl_path.parent().unwrap().to_path_buf();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let fixture_dir = std::path::PathBuf::from(format!(
+            "target/opencat-render-test-split-{}-{}",
+            std::process::id(),
+            nanos
+        ));
+        let cache = fixture_dir.join("cache");
+        std::fs::create_dir_all(&cache).expect("cache");
+        // Prefer the example's directory as loader base so relative assets resolve.
+        let loader = crate::resource::loader::EngineLoader::new(base_dir.clone(), cache)
+            .expect("loader");
+        let ctx = crate::js_context::RqJsContext::new().expect("js");
+        let mut pipeline = crate::pipeline::open(&jsonl_text, loader, ctx).expect("pipeline");
+        let info = pipeline.info().clone();
+        let frames = duration_secs_to_frames(info.duration, info.fps);
+        let mut media_ctx = MediaContext::new();
+        media_ctx.set_composition_fps(info.fps);
+        let mut executor = crate::executor::EngineDrawExecutor::new();
+        let frame = render_pipeline_frame_to_rgba(
+            &mut pipeline,
+            &mut media_ctx,
+            &mut executor,
+            info.width,
+            info.height,
+            info.width,
+            info.height,
+            info.fps,
+            frames,
+            100,
+        )
+        .expect("frame should render");
+        let _ = std::fs::remove_dir_all(&fixture_dir);
 
         assert!(
-            has_bright_pixel_in_rect(&frame, parsed.width as usize, 120, 330, 420, 130),
+            has_bright_pixel_in_rect(&frame, info.width as usize, 120, 330, 420, 130),
             "chars text should be visible after splitText property-layer animation settles"
         );
         assert!(
-            has_bright_pixel_in_rect(&frame, parsed.width as usize, 760, 330, 420, 130),
+            has_bright_pixel_in_rect(&frame, info.width as usize, 760, 330, 420, 130),
             "words text should be visible after splitText property-layer animation settles"
         );
     }
@@ -926,19 +1024,9 @@ mod tests {
                     .shadow_lg(),
             );
 
-        let composition = Composition::new("shadow_clip_consistency")
-            .size(40, 40)
-            .fps(30)
-            .duration(frames_at_30fps(2))
-            .root(move |_ctx: &FrameCtx| scene.clone().into())
-            .build()
-            .expect("composition should build");
-
-        let mut session = make_test_session();
-        let first =
-            render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
-        let second =
-            render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
+        let mut pipeline = make_test_pipeline_from_scene(scene, 40, 40, 30, frames_at_30fps(2));
+        let first = pipeline.render(0).expect("frame 0 should render");
+        let second = pipeline.render(1).expect("frame 1 should render");
 
         let first_shadow = pixel_rgba(&first, 40, 20, 22);
         let second_shadow = pixel_rgba(&second, 40, 20, 22);
@@ -993,19 +1081,9 @@ mod tests {
                     .bg(crate::ColorToken::Red500),
             );
 
-        let composition = Composition::new("clip_consistency")
-            .size(24, 24)
-            .fps(30)
-            .duration(frames_at_30fps(2))
-            .root(move |_ctx: &FrameCtx| scene.clone().into())
-            .build()
-            .expect("composition should build");
-
-        let mut session = make_test_session();
-        let first =
-            render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
-        let second =
-            render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
+        let mut pipeline = make_test_pipeline_from_scene(scene, 24, 24, 30, frames_at_30fps(2));
+        let first = pipeline.render(0).expect("frame 0 should render");
+        let second = pipeline.render(1).expect("frame 1 should render");
 
         assert_eq!(
             pixel_rgba(&first, 24, 4, 4),
@@ -1042,17 +1120,8 @@ mod tests {
             )
             .expect("script should compile");
 
-        let composition = Composition::new("canvas_asset_alias")
-            .size(2, 1)
-            .fps(30)
-            .duration(frames_at_30fps(1))
-            .root(move |_ctx: &FrameCtx| scene.clone().into())
-            .build()
-            .expect("composition should build");
-
-        let mut session = make_test_session();
-        let frame = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
-
+        let mut pipeline = make_test_pipeline_from_scene(scene, 2, 1, 30, frames_at_30fps(1));
+        let frame = pipeline.render(0).expect("frame should render");
         let _ = std::fs::remove_file(&image_path);
 
         assert_eq!(pixel_rgba(&frame, 2, 0, 0), [255, 0, 0, 255]);
@@ -1085,39 +1154,33 @@ mod tests {
 
     #[test]
     fn subtree_cache_preserves_rust_driven_scale_animation() {
-        let composition = Composition::new("rust_scale_cache")
-            .size(24, 24)
-            .fps(30)
-            .duration(frames_at_30fps(2))
-            .root(|ctx: &FrameCtx| {
-                let scale = if ctx.frame == 0 { 1.0 } else { 2.0 };
+        // open_parsed freezes the root node; drive per-frame scale via script instead of
+        // Composition::root(|ctx| ...).
+        let scene = crate::div()
+            .id("root")
+            .w_full()
+            .h_full()
+            .bg_black()
+            .script_source(
+                r#"ctx.getNode("dot").scale(ctx.frame === 0 ? 1 : 2);"#,
+            )
+            .expect("script should compile")
+            .child(
                 crate::div()
-                    .id("root")
-                    .w_full()
-                    .h_full()
-                    .bg_black()
-                    .child(
-                        crate::div()
-                            .id("dot")
-                            .absolute()
-                            .left(8.0)
-                            .top(8.0)
-                            .w(8.0)
-                            .h(8.0)
-                            .rounded_full()
-                            .bg_white()
-                            .scale(scale),
-                    )
-                    .into()
-            })
-            .build()
-            .expect("composition should build");
+                    .id("dot")
+                    .absolute()
+                    .left(8.0)
+                    .top(8.0)
+                    .w(8.0)
+                    .h(8.0)
+                    .rounded_full()
+                    .bg_white()
+                    .scale(1.0),
+            );
 
-        let mut session = make_test_session();
-        let first =
-            render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
-        let second =
-            render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
+        let mut pipeline = make_test_pipeline_from_scene(scene, 24, 24, 30, frames_at_30fps(2));
+        let first = pipeline.render(0).expect("frame 0 should render");
+        let second = pipeline.render(1).expect("frame 1 should render");
 
         assert_eq!(
             pixel_rgba(&first, 24, 5, 12),
@@ -1133,60 +1196,50 @@ mod tests {
 
     #[test]
     fn subtree_cache_invalidation_tracks_descendant_transform_changes() {
-        let composition = Composition::new("nested_transform_cache")
-            .size(24, 24)
-            .fps(30)
-            .duration(frames_at_30fps(2))
-            .root(|ctx: &FrameCtx| {
-                let scale = if ctx.frame == 0 { 1.0 } else { 2.0 };
-                let ticker_color = if ctx.frame == 0 {
-                    crate::ColorToken::Red500
-                } else {
-                    crate::ColorToken::Blue500
-                };
+        let scene = crate::div()
+            .id("root")
+            .w_full()
+            .h_full()
+            .bg_black()
+            .script_source(
+                r#"
+                ctx.getNode("dot").scale(ctx.frame === 0 ? 1 : 2);
+                ctx.getNode("ticker-fill").bg(ctx.frame === 0 ? '#ef4444' : '#3b82f6');
+                "#,
+            )
+            .expect("script should compile")
+            .child(
                 crate::div()
-                    .id("root")
-                    .w_full()
-                    .h_full()
-                    .bg_black()
+                    .id("group")
+                    .absolute()
+                    .left(8.0)
+                    .top(8.0)
+                    .h(8.0)
+                    .w(8.0)
                     .child(
                         crate::div()
-                            .id("group")
-                            .absolute()
-                            .left(8.0)
-                            .top(8.0)
-                            .h(8.0)
-                            .w(8.0)
-                            .child(
-                                crate::div()
-                                    .id("dot")
-                                    .w_full()
-                                    .h_full()
-                                    .rounded_full()
-                                    .bg_white()
-                                    .scale(scale),
-                            ),
-                    )
-                    .child(
-                        crate::div()
-                            .id("ticker-fill")
-                            .absolute()
-                            .left(0.0)
-                            .top(0.0)
-                            .w(1.0)
-                            .h(1.0)
-                            .bg(ticker_color),
-                    )
-                    .into()
-            })
-            .build()
-            .expect("composition should build");
+                            .id("dot")
+                            .w_full()
+                            .h_full()
+                            .rounded_full()
+                            .bg_white()
+                            .scale(1.0),
+                    ),
+            )
+            .child(
+                crate::div()
+                    .id("ticker-fill")
+                    .absolute()
+                    .left(0.0)
+                    .top(0.0)
+                    .w(1.0)
+                    .h(1.0)
+                    .bg(crate::ColorToken::Red500),
+            );
 
-        let mut session = make_test_session();
-        let first =
-            render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
-        let second =
-            render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
+        let mut pipeline = make_test_pipeline_from_scene(scene, 24, 24, 30, frames_at_30fps(2));
+        let first = pipeline.render(0).expect("frame 0 should render");
+        let second = pipeline.render(1).expect("frame 1 should render");
 
         assert_eq!(
             pixel_rgba(&first, 24, 5, 12),
@@ -1200,121 +1253,49 @@ mod tests {
         );
     }
 
-    // TODO: rewrite for IR cache (item_pictures no longer exists on draw::cache::RenderCache)
-    // #[test]
-    // fn non_video_bitmap_populates_item_picture_cache() {
-    //     let image_path =
-    //         std::env::temp_dir().join(format!("opencat-item-cache-{}.png", std::process::id()));
-    //     write_test_png(&image_path);
-    //
-    //     let composition = Composition::new("bitmap_item_cache")
-    //         .size(24, 24)
-    //         .fps(30)
-    //         .duration(frames_at_30fps(2))
-    //         .root({
-    //             let image_path = image_path.clone();
-    //             move |ctx: &FrameCtx| {
-    //                 let ticker_color = if ctx.frame == 0 {
-    //                     crate::ColorToken::Red500
-    //                 } else {
-    //                     crate::ColorToken::Blue500
-    //                 };
-    //                 crate::div()
-    //                     .id("root")
-    //                     .w_full()
-    //                     .h_full()
-    //                     .bg_black()
-    //                     .child(
-    //                         crate::image()
-    //                             .path(&image_path)
-    //                             .id("bitmap")
-    //                             .absolute()
-    //                             .left(8.0)
-    //                             .top(8.0)
-    //                             .w(8.0)
-    //                             .h(8.0),
-    //                     )
-    //                     .child(
-    //                         crate::div()
-    //                             .id("ticker")
-    //                             .absolute()
-    //                             .left(0.0)
-    //                             .top(0.0)
-    //                             .w(1.0)
-    //                             .h(1.0)
-    //                             .bg(ticker_color),
-    //                     )
-    //                     .into()
-    //             }
-    //         })
-    //         .build()
-    //         .expect("composition should build");
-    //
-    //     let mut session = make_test_session();
-    //     let _ = render_frame_rgba(&composition, 0, &mut session).expect("frame 0 should render");
-    //     let _ = render_frame_rgba(&composition, 1, &mut session).expect("frame 1 should render");
-    //
-    //     assert_eq!(
-    //         session.cache.item_pictures.borrow().len(),
-    //         1
-    //     );
-    //
-    //     let _ = std::fs::remove_file(&image_path);
-    // }
-
     #[test]
     fn layered_caption_renders_above_timeline_transition() {
         use crate::{Easing, SrtEntry, caption, fade, text, timeline};
 
-        let composition = Composition::new("layered_caption")
-            .size(320, 180)
-            .fps(30)
-            .duration(frames_at_30fps(25))
-            .root(move |_| {
-                crate::div()
-                    .id("root")
-                    .child(
-                        timeline()
-                            .sequence(
-                                frames_at_30fps(10),
-                                crate::div()
-                                    .id("scene-a")
-                                    .bg(crate::ColorToken::Black)
-                                    .child(text("A").id("a"))
-                                    .into(),
-                            )
-                            .transition(fade().timing(Easing::Linear, frames_at_30fps(5)))
-                            .sequence(
-                                frames_at_30fps(10),
-                                crate::div()
-                                    .id("scene-b")
-                                    .bg(crate::ColorToken::Black)
-                                    .child(text("B").id("b"))
-                                    .into(),
-                            ),
+        let root = crate::div()
+            .id("root")
+            .child(
+                timeline()
+                    .sequence(
+                        frames_at_30fps(10),
+                        crate::div()
+                            .id("scene-a")
+                            .bg(crate::ColorToken::Black)
+                            .child(text("A").id("a"))
+                            .into(),
                     )
-                    .child(
-                        crate::div().id("overlay-root").child(
-                            caption()
-                                .id("subs")
-                                .path("sub.srt")
-                                .entries(vec![SrtEntry {
-                                    index: 1,
-                                    start_frame: 0,
-                                    end_frame: 25,
-                                    text: "Subtitle".into(),
-                                }])
-                                .text_color(crate::ColorToken::White),
-                        ),
-                    )
-                    .into()
-            })
-            .build()
-            .expect("composition should build");
+                    .transition(fade().timing(Easing::Linear, frames_at_30fps(5)))
+                    .sequence(
+                        frames_at_30fps(10),
+                        crate::div()
+                            .id("scene-b")
+                            .bg(crate::ColorToken::Black)
+                            .child(text("B").id("b"))
+                            .into(),
+                    ),
+            )
+            .child(
+                crate::div().id("overlay-root").child(
+                    caption()
+                        .id("subs")
+                        .path("sub.srt")
+                        .entries(vec![SrtEntry {
+                            index: 1,
+                            start_frame: 0,
+                            end_frame: 25,
+                            text: "Subtitle".into(),
+                        }])
+                        .text_color(crate::ColorToken::White),
+                ),
+            );
 
-        let mut session = make_test_session();
-        let pixels =
-            render_frame_rgba(&composition, 12, &mut session).expect("frame should render");
+        let mut pipeline = make_test_pipeline_from_scene(root, 320, 180, 30, frames_at_30fps(25));
+        let pixels = pipeline.render(12).expect("frame should render");
 
         assert!(
             pixels.iter().any(|&byte| byte > 0),
@@ -1326,42 +1307,33 @@ mod tests {
     fn layered_single_scene_renders_bottom_scene_before_caption_overlay() {
         use crate::{SrtEntry, caption};
 
-        let composition = Composition::new("layered_single_scene_with_caption")
-            .size(64, 64)
-            .fps(30)
-            .duration(frames_at_30fps(1))
-            .root(move |_| {
+        let root = crate::div()
+            .id("root")
+            .child(
                 crate::div()
-                    .id("root")
-                    .child(
-                        crate::div()
-                            .id("scene")
-                            .w_full()
-                            .h_full()
-                            .bg(crate::ColorToken::Blue500),
-                    )
-                    .child(
-                        caption()
-                            .id("subs")
-                            .path("sub.srt")
-                            .entries(vec![SrtEntry {
-                                index: 1,
-                                start_frame: 0,
-                                end_frame: 1,
-                                text: "Caption".into(),
-                            }])
-                            .absolute()
-                            .left(8.0)
-                            .top(8.0)
-                            .text_color(crate::ColorToken::White),
-                    )
-                    .into()
-            })
-            .build()
-            .expect("composition should build");
+                    .id("scene")
+                    .w_full()
+                    .h_full()
+                    .bg(crate::ColorToken::Blue500),
+            )
+            .child(
+                caption()
+                    .id("subs")
+                    .path("sub.srt")
+                    .entries(vec![SrtEntry {
+                        index: 1,
+                        start_frame: 0,
+                        end_frame: 1,
+                        text: "Caption".into(),
+                    }])
+                    .absolute()
+                    .left(8.0)
+                    .top(8.0)
+                    .text_color(crate::ColorToken::White),
+            );
 
-        let mut session = make_test_session();
-        let pixels = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+        let mut pipeline = make_test_pipeline_from_scene(root, 64, 64, 30, frames_at_30fps(1));
+        let pixels = pipeline.render(0).expect("frame should render");
 
         assert_eq!(
             pixel_rgba(&pixels, 64, 32, 32),
@@ -1374,42 +1346,33 @@ mod tests {
     fn layered_root_caption_without_active_entry_does_not_fail_rendering() {
         use crate::{SrtEntry, caption};
 
-        let composition = Composition::new("layered_inactive_root_caption")
-            .size(64, 64)
-            .fps(30)
-            .duration(frames_at_30fps(60))
-            .root(move |_| {
+        let root = crate::div()
+            .id("root")
+            .child(
                 crate::div()
-                    .id("root")
-                    .child(
-                        crate::div()
-                            .id("scene")
-                            .w_full()
-                            .h_full()
-                            .bg(crate::ColorToken::Blue500),
-                    )
-                    .child(
-                        caption()
-                            .id("subs")
-                            .path("sub.srt")
-                            .entries(vec![SrtEntry {
-                                index: 1,
-                                start_frame: 30,
-                                end_frame: 60,
-                                text: "Later".into(),
-                            }])
-                            .absolute()
-                            .left(8.0)
-                            .top(8.0)
-                            .text_color(crate::ColorToken::White),
-                    )
-                    .into()
-            })
-            .build()
-            .expect("composition should build");
+                    .id("scene")
+                    .w_full()
+                    .h_full()
+                    .bg(crate::ColorToken::Blue500),
+            )
+            .child(
+                caption()
+                    .id("subs")
+                    .path("sub.srt")
+                    .entries(vec![SrtEntry {
+                        index: 1,
+                        start_frame: 30,
+                        end_frame: 60,
+                        text: "Later".into(),
+                    }])
+                    .absolute()
+                    .left(8.0)
+                    .top(8.0)
+                    .text_color(crate::ColorToken::White),
+            );
 
-        let mut session = make_test_session();
-        let pixels = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+        let mut pipeline = make_test_pipeline_from_scene(root, 64, 64, 30, frames_at_30fps(60));
+        let pixels = pipeline.render(0).expect("frame should render");
 
         assert_eq!(
             pixel_rgba(&pixels, 64, 32, 32),
@@ -1422,110 +1385,102 @@ mod tests {
     fn timeline_caption_sibling_renders_above_transition() {
         use crate::{Easing, SrtEntry, caption, fade, text, timeline};
 
-        let composition = Composition::new("timeline_caption")
-            .size(320, 180)
-            .fps(30)
-            .duration(frames_at_30fps(25))
-            .root(move |_| {
-                crate::div()
-                    .id("root")
-                    .child(
-                        timeline()
-                            .sequence(
-                                frames_at_30fps(10),
-                                crate::div()
-                                    .id("scene-a")
-                                    .bg(crate::ColorToken::Black)
-                                    .child(text("A").id("a"))
-                                    .into(),
-                            )
-                            .transition(fade().timing(Easing::Linear, frames_at_30fps(5)))
-                            .sequence(
-                                frames_at_30fps(10),
-                                crate::div()
-                                    .id("scene-b")
-                                    .bg(crate::ColorToken::Black)
-                                    .child(text("B").id("b"))
-                                    .into(),
-                            ),
+        let root = crate::div()
+            .id("root")
+            .child(
+                timeline()
+                    .sequence(
+                        frames_at_30fps(10),
+                        crate::div()
+                            .id("scene-a")
+                            .bg(crate::ColorToken::Black)
+                            .child(text("A").id("a"))
+                            .into(),
                     )
-                    .child(
-                        caption()
-                            .id("subs")
-                            .path("sub.srt")
-                            .entries(vec![SrtEntry {
-                                index: 1,
-                                start_frame: 0,
-                                end_frame: 25,
-                                text: "Subtitle".into(),
-                            }])
-                            .text_color(crate::ColorToken::White),
-                    )
-                    .into()
-            })
-            .build()
-            .expect("composition should build");
+                    .transition(fade().timing(Easing::Linear, frames_at_30fps(5)))
+                    .sequence(
+                        frames_at_30fps(10),
+                        crate::div()
+                            .id("scene-b")
+                            .bg(crate::ColorToken::Black)
+                            .child(text("B").id("b"))
+                            .into(),
+                    ),
+            )
+            .child(
+                caption()
+                    .id("subs")
+                    .path("sub.srt")
+                    .entries(vec![SrtEntry {
+                        index: 1,
+                        start_frame: 0,
+                        end_frame: 25,
+                        text: "Subtitle".into(),
+                    }])
+                    .text_color(crate::ColorToken::White),
+            );
 
-        let mut session = make_test_session();
-        let pixels =
-            render_frame_rgba(&composition, 12, &mut session).expect("frame should render");
+        let mut pipeline = make_test_pipeline_from_scene(root, 320, 180, 30, frames_at_30fps(25));
+        let pixels = pipeline.render(12).expect("frame should render");
 
         assert!(pixels.iter().any(|&byte| byte > 0));
     }
 
-    #[test]
-    fn nested_timeline_transition_renders_real_composite() {
-        use crate::{Easing, fade, timeline};
-        use opencat_core::parse::node::Node;
+    fn make_timeline_root_node(
+        with_wrapper: bool,
+        transition: opencat_core::parse::transition::Transition,
+    ) -> Node {
+        use crate::timeline;
         use opencat_core::style::{LengthPercentageAuto, Position};
 
-        let composition = Composition::new("nested_timeline_transition")
-            .size(80, 80)
-            .fps(30)
-            .duration(frames_at_30fps(30))
-            .root(move |_| {
-                let mut tl_kind = Node::from(
-                    timeline()
-                        .sequence(
-                            frames_at_30fps(10),
-                            crate::div().id("scene-a").w_full().h_full().bg_red().into(),
-                        )
-                        .transition(fade().timing(Easing::Linear, frames_at_30fps(10)))
-                        .sequence(
-                            frames_at_30fps(10),
-                            crate::div()
-                                .id("scene-b")
-                                .w_full()
-                                .h_full()
-                                .bg_blue()
-                                .into(),
-                        ),
+        let mut tl_kind = Node::from(
+            timeline()
+                .sequence(
+                    frames_at_30fps(10),
+                    crate::div().id("scene-a").w_full().h_full().bg_red().into(),
                 )
-                .kind()
-                .clone();
-                let tl_style = tl_kind.style_mut();
-                tl_style.id = "tl".into();
-                tl_style.position = Some(Position::Absolute);
-                tl_style.inset_left = Some(LengthPercentageAuto::Length(0.0));
-                tl_style.inset_top = Some(LengthPercentageAuto::Length(0.0));
-                tl_style.width = Some(80.0);
-                tl_style.height = Some(80.0);
-                tl_style.overflow_hidden = true;
+                .transition(transition)
+                .sequence(
+                    frames_at_30fps(10),
+                    crate::div()
+                        .id("scene-b")
+                        .w_full()
+                        .h_full()
+                        .bg_blue()
+                        .into(),
+                ),
+        )
+        .kind()
+        .clone();
+        let tl_style = tl_kind.style_mut();
+        tl_style.id = "tl".into();
+        tl_style.overflow_hidden = true;
+        if with_wrapper {
+            tl_style.position = Some(Position::Absolute);
+            tl_style.inset_left = Some(LengthPercentageAuto::Length(0.0));
+            tl_style.inset_top = Some(LengthPercentageAuto::Length(0.0));
+            tl_style.width = Some(80.0);
+            tl_style.height = Some(80.0);
+            crate::div()
+                .id("root")
+                .w_full()
+                .h_full()
+                .bg_black()
+                .child(Node::new(tl_kind))
+                .into()
+        } else {
+            tl_style.width_full = true;
+            tl_style.height_full = true;
+            Node::new(tl_kind)
+        }
+    }
 
-                crate::div()
-                    .id("root")
-                    .w_full()
-                    .h_full()
-                    .bg_black()
-                    .child(Node::new(tl_kind))
-                    .into()
-            })
-            .build()
-            .expect("composition should build");
-
-        let mut session = make_test_session();
-        let pixels =
-            render_frame_rgba(&composition, 15, &mut session).expect("frame should render");
+    #[test]
+    fn nested_timeline_transition_renders_real_composite() {
+        use crate::{Easing, fade};
+        let root = make_timeline_root_node(true, fade().timing(Easing::Linear, frames_at_30fps(10)));
+        let mut pipeline = make_test_pipeline_from_node(root, 80, 80, 30, frames_at_30fps(30));
+        let pixels = pipeline.render(15).expect("frame should render");
         let pixel = pixel_rgba(&pixels, 80, 40, 40);
 
         assert!(
@@ -1537,46 +1492,11 @@ mod tests {
 
     #[test]
     fn root_timeline_renders_without_root_transition_special_case() {
-        use crate::{Easing, fade, timeline};
-        use opencat_core::parse::node::Node;
-
-        let composition = Composition::new("root_timeline_transition")
-            .size(80, 80)
-            .fps(30)
-            .duration(frames_at_30fps(30))
-            .root(move |_| {
-                let mut tl_kind = Node::from(
-                    timeline()
-                        .sequence(
-                            frames_at_30fps(10),
-                            crate::div().id("scene-a").w_full().h_full().bg_red().into(),
-                        )
-                        .transition(fade().timing(Easing::Linear, frames_at_30fps(10)))
-                        .sequence(
-                            frames_at_30fps(10),
-                            crate::div()
-                                .id("scene-b")
-                                .w_full()
-                                .h_full()
-                                .bg_blue()
-                                .into(),
-                        ),
-                )
-                .kind()
-                .clone();
-                let tl_style = tl_kind.style_mut();
-                tl_style.id = "tl".into();
-                tl_style.width_full = true;
-                tl_style.height_full = true;
-                tl_style.overflow_hidden = true;
-                Node::new(tl_kind)
-            })
-            .build()
-            .expect("composition should build");
-
-        let mut session = make_test_session();
-        let pixels =
-            render_frame_rgba(&composition, 15, &mut session).expect("frame should render");
+        use crate::{Easing, fade};
+        let root =
+            make_timeline_root_node(false, fade().timing(Easing::Linear, frames_at_30fps(10)));
+        let mut pipeline = make_test_pipeline_from_node(root, 80, 80, 30, frames_at_30fps(30));
+        let pixels = pipeline.render(15).expect("frame should render");
         let pixel = pixel_rgba(&pixels, 80, 40, 40);
 
         assert!(
@@ -1588,49 +1508,14 @@ mod tests {
 
     #[test]
     fn gltransition_runtime_effect_samples_timeline_children() {
-        use crate::{Easing, timeline};
-        use opencat_core::parse::node::Node;
+        use crate::Easing;
         use opencat_core::parse::transition::gl_transition;
-
-        let composition = Composition::new("gltransition_runtime_effect")
-            .size(80, 80)
-            .fps(30)
-            .duration(frames_at_30fps(30))
-            .root(move |_| {
-                let mut tl_kind = Node::from(
-                    timeline()
-                        .sequence(
-                            frames_at_30fps(10),
-                            crate::div().id("scene-a").w_full().h_full().bg_red().into(),
-                        )
-                        .transition(
-                            gl_transition("fade").timing(Easing::Linear, frames_at_30fps(10)),
-                        )
-                        .sequence(
-                            frames_at_30fps(10),
-                            crate::div()
-                                .id("scene-b")
-                                .w_full()
-                                .h_full()
-                                .bg_blue()
-                                .into(),
-                        ),
-                )
-                .kind()
-                .clone();
-                let tl_style = tl_kind.style_mut();
-                tl_style.id = "tl".into();
-                tl_style.width_full = true;
-                tl_style.height_full = true;
-                tl_style.overflow_hidden = true;
-                Node::new(tl_kind)
-            })
-            .build()
-            .expect("composition should build");
-
-        let mut session = make_test_session();
-        let pixels =
-            render_frame_rgba(&composition, 15, &mut session).expect("frame should render");
+        let root = make_timeline_root_node(
+            false,
+            gl_transition("fade").timing(Easing::Linear, frames_at_30fps(10)),
+        );
+        let mut pipeline = make_test_pipeline_from_node(root, 80, 80, 30, frames_at_30fps(30));
+        let pixels = pipeline.render(15).expect("frame should render");
         let pixel = pixel_rgba(&pixels, 80, 40, 40);
 
         assert!(
@@ -1642,47 +1527,12 @@ mod tests {
 
     #[test]
     fn light_leak_runtime_effect_samples_timeline_children() {
-        use crate::{Easing, timeline};
-        use opencat_core::parse::node::Node;
+        use crate::Easing;
         use opencat_core::parse::transition::light_leak;
-
-        let composition = Composition::new("light_leak_runtime_effect")
-            .size(80, 80)
-            .fps(30)
-            .duration(frames_at_30fps(30))
-            .root(move |_| {
-                let mut tl_kind = Node::from(
-                    timeline()
-                        .sequence(
-                            frames_at_30fps(10),
-                            crate::div().id("scene-a").w_full().h_full().bg_red().into(),
-                        )
-                        .transition(light_leak().timing(Easing::Linear, frames_at_30fps(10)))
-                        .sequence(
-                            frames_at_30fps(10),
-                            crate::div()
-                                .id("scene-b")
-                                .w_full()
-                                .h_full()
-                                .bg_blue()
-                                .into(),
-                        ),
-                )
-                .kind()
-                .clone();
-                let tl_style = tl_kind.style_mut();
-                tl_style.id = "tl".into();
-                tl_style.width_full = true;
-                tl_style.height_full = true;
-                tl_style.overflow_hidden = true;
-                Node::new(tl_kind)
-            })
-            .build()
-            .expect("composition should build");
-
-        let mut session = make_test_session();
-        let pixels =
-            render_frame_rgba(&composition, 15, &mut session).expect("frame should render");
+        let root =
+            make_timeline_root_node(false, light_leak().timing(Easing::Linear, frames_at_30fps(10)));
+        let mut pipeline = make_test_pipeline_from_node(root, 80, 80, 30, frames_at_30fps(30));
+        let pixels = pipeline.render(15).expect("frame should render");
         let pixel = pixel_rgba(&pixels, 80, 40, 40);
 
         assert!(
@@ -1711,16 +1561,8 @@ mod tests {
             )
             .expect("script should compile");
 
-        let composition = Composition::new("hidden_descendant_script_target")
-            .size(32, 32)
-            .fps(30)
-            .duration(frames_at_30fps(1))
-            .root(move |_ctx: &FrameCtx| scene.clone().into())
-            .build()
-            .expect("composition should build");
-
-        let mut session = make_test_session();
-        let rgba = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+        let mut pipeline = make_test_pipeline_from_scene(scene, 32, 32, 30, frames_at_30fps(1));
+        let rgba = pipeline.render(0).expect("frame should render");
         assert_eq!(pixel_rgba(&rgba, 32, 16, 16), [0, 255, 0, 255]);
     }
 
@@ -1747,16 +1589,8 @@ mod tests {
             )
             .expect("script should compile");
 
-        let composition = Composition::new("nested_canvas_hidden_invisible")
-            .size(32, 32)
-            .fps(30)
-            .duration(frames_at_30fps(1))
-            .root(move |_ctx: &FrameCtx| scene.clone().into())
-            .build()
-            .expect("composition should build");
-
-        let mut session = make_test_session();
-        let rgba = render_frame_rgba(&composition, 0, &mut session).expect("frame should render");
+        let mut pipeline = make_test_pipeline_from_scene(scene, 32, 32, 30, frames_at_30fps(1));
+        let rgba = pipeline.render(0).expect("frame should render");
         assert_eq!(pixel_rgba(&rgba, 32, 16, 16), [0, 0, 0, 0]);
     }
 
@@ -1787,16 +1621,8 @@ mod tests {
             .script_source(outer_script)
             .expect("outer script should compile");
 
-        let composition = Composition::new("indirect_canvas_recursion")
-            .size(32, 32)
-            .fps(30)
-            .duration(frames_at_30fps(1))
-            .root(move |_ctx: &FrameCtx| scene.clone().into())
-            .build()
-            .expect("composition should build");
-
-        let mut session = make_test_session();
-        let result = render_frame_rgba(&composition, 0, &mut session);
+        let mut pipeline = make_test_pipeline_from_scene(scene, 32, 32, 30, frames_at_30fps(1));
+        let result = pipeline.render(0);
         assert!(
             result.is_err(),
             "indirect canvas recursion should return an error"

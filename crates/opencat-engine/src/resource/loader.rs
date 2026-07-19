@@ -134,6 +134,87 @@ impl EngineLoader {
         Ok(())
     }
 
+    /// Register canvas `asset_id` aliases so `ctx.getImage("hero")` resolves via loader handles.
+    ///
+    /// Mirrors the old `EnginePlatform::preflight` alias registration that walked the scene
+    /// tree after preload. The pipeline path loads path/url assets under their content ids;
+    /// canvas nodes additionally refer to them by the user-facing alias.
+    pub fn register_canvas_asset_aliases(
+        &mut self,
+        composition: &opencat_core::parse::composition::Composition,
+    ) {
+        use opencat_core::frame_ctx::FrameCtx;
+        use opencat_core::parse::node::{Node, NodeKind};
+        use opencat_core::parse::primitives::ImageSource;
+        use opencat_core::parse::time::{FrameState, TimelineSegment, frame_state_for_root};
+
+        fn register_from_node(loader: &mut EngineLoader, node: &Node) {
+            match node.kind() {
+                NodeKind::Div(div) => {
+                    for child in div.children_ref() {
+                        register_from_node(loader, child);
+                    }
+                }
+                NodeKind::Canvas(canvas) => {
+                    for asset in canvas.assets_ref() {
+                        if let ImageSource::Path(ref path) = asset.source {
+                            let target = image_asset_id(&ImageSource::Path(path.clone()));
+                            let alias = AssetId(asset.asset_id.clone());
+                            if let Some(handle) = loader.handles.get(&target).cloned() {
+                                loader.handles.entry(alias).or_insert(handle);
+                            }
+                        }
+                    }
+                    for child in canvas.hidden_children_ref() {
+                        register_from_node(loader, child);
+                    }
+                }
+                NodeKind::Video(video) => {
+                    for child in video.children_ref() {
+                        register_from_node(loader, child);
+                    }
+                }
+                NodeKind::Timeline(timeline) => {
+                    for segment in timeline.segments() {
+                        match segment {
+                            TimelineSegment::Scene { scene, .. } => {
+                                register_from_node(loader, scene);
+                            }
+                            TimelineSegment::Transition { from, to, .. } => {
+                                register_from_node(loader, from);
+                                register_from_node(loader, to);
+                            }
+                        }
+                    }
+                }
+                NodeKind::Image(_)
+                | NodeKind::Text(_)
+                | NodeKind::Lucide(_)
+                | NodeKind::Path(_)
+                | NodeKind::Lottie(_)
+                | NodeKind::Caption(_) => {}
+            }
+        }
+
+        for frame in 0..composition.frames.max(1) {
+            let frame_ctx = FrameCtx {
+                frame,
+                fps: composition.fps,
+                width: composition.width,
+                height: composition.height,
+                frames: composition.frames,
+            };
+            let root = composition.root_node(&frame_ctx);
+            match frame_state_for_root(&root, &frame_ctx) {
+                FrameState::Scene { scene, .. } => register_from_node(self, &scene),
+                FrameState::Transition { from, to, .. } => {
+                    register_from_node(self, &from);
+                    register_from_node(self, &to);
+                }
+            }
+        }
+    }
+
     /// Build [`MapResourceProvider`] from preloaded handles + [`ExternalResourceManifest`].
     pub fn build_resource_provider(
         &mut self,

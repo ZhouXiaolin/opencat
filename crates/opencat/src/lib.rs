@@ -48,11 +48,9 @@ pub use opencat_core::script::{NodeStyleMutations, ScriptDriver, StyleMutations}
 pub use opencat_engine::inspect::{FrameElementRect, collect_frame_layout_rects};
 pub use opencat_engine::platform::EnginePlatform;
 pub use opencat_engine::render::{
-    EncodingConfig, Mp4Config, OutputFormat, RenderBackend, RenderSession, build_audio_track,
-    build_audio_track_from_pipeline, render, render_audio_chunk, render_frame_rgb, render_frame_rgba,
-    render_frame_to_target, render_frame_with_target, render_from_jsonl,
-    render_single_frame_from_jsonl, render_single_frame_png, render_single_frame_png_with_base,
-    render_with_backend_progress, render_with_progress,
+    EncodingConfig, Mp4Config, OutputFormat, RenderSession, build_audio_track_from_pipeline,
+    render_from_jsonl, render_single_frame_from_jsonl, render_single_frame_png,
+    render_single_frame_png_with_base,
 };
 pub use opencat_engine::consumer::EngineLoaderFrameConsumer;
 pub use opencat_engine::executor::EngineDrawExecutor;
@@ -64,12 +62,7 @@ pub use opencat_core::frame_ctx::duration_secs_to_frames;
 pub use opencat_core::platform::frame_consumer::RenderSessionHeader;
 pub use opencat_engine::source_io::{parse_file, parse_with_base_dir};
 
-// Convenience: construct a default RenderSession.
-pub fn default_render_session() -> RenderSession {
-    RenderSession::new()
-}
 pub use opencat_engine::resource::media::{
     VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality,
 };
 pub use opencat_engine::runtime::audio::AudioBuffer;
-pub use opencat_engine::runtime::target::{RenderFrameViewKind, RenderTargetHandle};

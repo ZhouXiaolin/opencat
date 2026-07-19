@@ -6,21 +6,11 @@ use skia_safe::{AlphaType, ColorType, ImageInfo, image::CachingHint, surfaces};
 pub use crate::media::Mp4Config;
 
 use crate::{
-    media::audio::{
-        AudioBuffer, build_audio_track as build_runtime_audio_track,
-        render_audio_chunk as render_runtime_audio_chunk,
-    },
-    media::{
-        AudioTrack, MediaContext, VideoPreviewQuality, decode_audio_to_f32_stereo,
-        encode_rgba_frames,
-    },
+    media::{AudioTrack, MediaContext, decode_audio_to_f32_stereo, encode_rgba_frames},
     platform::EnginePlatform,
-    runtime::{preflight::ensure_assets_preloaded, render_registry},
 };
 use opencat_core::frame_ctx::duration_secs_to_frames;
-use opencat_core::parse::composition::Composition;
 use opencat_core::platform::frame_consumer::{FrameConsumer, RenderSessionHeader};
-use opencat_core::resource::AssetPathBlobStore;
 
 /// Engine render session: backend-agnostic core render state plus engine-owned
 /// runtime services. Core no longer owns a generic platform facade.
@@ -53,12 +43,6 @@ impl Default for RenderSession {
 pub enum OutputFormat {
     Mp4(Mp4Config),
     Png,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RenderBackend {
-    Software,
-    Accelerated,
 }
 
 pub struct EncodingConfig {
@@ -181,9 +165,7 @@ pub fn build_audio_track_from_pipeline(
     Ok(Some(AudioTrack::new(sample_rate, channels, mixed_samples)))
 }
 
-/// New render path: parse JSONL → EnginePipeline → render frames.
-/// This is the primary entry point going forward; the old `render()` / `render_mp4()`
-/// functions remain for backward compatibility.
+/// Primary render entry: parse JSONL/XML → EnginePipeline → encode frames.
 pub fn render_from_jsonl(
     jsonl: &str,
     output_path: impl AsRef<Path>,
@@ -393,287 +375,6 @@ impl EncodingConfig {
             format: OutputFormat::Png,
         }
     }
-}
-
-pub fn render(
-    composition: &Composition,
-    output_path: impl AsRef<Path>,
-    config: &EncodingConfig,
-) -> Result<()> {
-    render_with_progress(composition, output_path, config, |_, _| {})
-}
-
-pub fn render_with_progress(
-    composition: &Composition,
-    output_path: impl AsRef<Path>,
-    config: &EncodingConfig,
-    on_video_frame_encoded: impl FnMut(u32, u32),
-) -> Result<()> {
-    render_with_backend_progress(
-        composition,
-        output_path,
-        config,
-        render_registry::default_render_backend(),
-        on_video_frame_encoded,
-    )
-}
-
-pub fn render_with_backend(
-    composition: &Composition,
-    output_path: impl AsRef<Path>,
-    config: &EncodingConfig,
-    backend: RenderBackend,
-) -> Result<()> {
-    render_with_backend_progress(composition, output_path, config, backend, |_, _| {})
-}
-
-pub fn render_with_backend_progress(
-    composition: &Composition,
-    output_path: impl AsRef<Path>,
-    config: &EncodingConfig,
-    backend: RenderBackend,
-    on_video_frame_encoded: impl FnMut(u32, u32),
-) -> Result<()> {
-    match &config.format {
-        OutputFormat::Mp4(mp4_config) => render_mp4(
-            composition,
-            output_path,
-            mp4_config,
-            backend,
-            on_video_frame_encoded,
-        ),
-        OutputFormat::Png => render_png(composition, output_path, backend),
-    }
-}
-
-pub fn render_frame_with_target(
-    composition: &Composition,
-    frame_index: u32,
-    session: &mut RenderSession,
-    target: &mut crate::runtime::target::RenderTargetHandle,
-) -> Result<()> {
-    render_frame_to_target(composition, frame_index, session, target)
-}
-
-pub fn build_audio_track(
-    composition: &Composition,
-    session: &mut RenderSession,
-) -> Result<Option<AudioTrack>> {
-    ensure_assets_preloaded(composition, session)?;
-    build_runtime_audio_track(
-        composition,
-        &session.platform.asset_paths,
-        &mut session.platform.audio_decode_cache,
-        &mut session.platform.audio_interval_cache,
-    )
-}
-
-pub fn render_audio_chunk(
-    composition: &Composition,
-    session: &mut RenderSession,
-    start_time_secs: f64,
-    sample_frames: usize,
-) -> Result<Option<AudioBuffer>> {
-    ensure_assets_preloaded(composition, session)?;
-    render_runtime_audio_chunk(
-        composition,
-        &session.platform.asset_paths,
-        &mut session.platform.audio_decode_cache,
-        &mut session.platform.audio_interval_cache,
-        start_time_secs,
-        sample_frames,
-    )
-}
-
-fn render_png(
-    composition: &Composition,
-    output_path: impl AsRef<Path>,
-    backend: RenderBackend,
-) -> Result<()> {
-    if let RenderBackend::Accelerated = backend {
-        return Err(anyhow!(
-            "accelerated backend not yet supported via core pipeline"
-        ));
-    }
-    let mut session = RenderSession::new();
-    let rgba = render_frame_rgba(composition, 0, &mut session)?;
-    let image =
-        image::RgbaImage::from_raw(composition.width as u32, composition.height as u32, rgba)
-            .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
-    image.save(&output_path)?;
-    Ok(())
-}
-
-fn render_mp4(
-    composition: &Composition,
-    output_path: impl AsRef<Path>,
-    config: &Mp4Config,
-    backend: RenderBackend,
-    on_video_frame_encoded: impl FnMut(u32, u32),
-) -> Result<()> {
-    let composition = composition.aligned_for_video_encoding();
-    if let RenderBackend::Accelerated = backend {
-        return Err(anyhow!(
-            "accelerated backend not yet supported via core pipeline"
-        ));
-    }
-    let mut platform = EnginePlatform::new();
-    platform.set_video_preview_quality(VideoPreviewQuality::Exact);
-    let mut session = RenderSession::with_platform(platform);
-
-    let audio_track = build_audio_track(&composition, &mut session)?;
-    encode_rgba_frames(
-        output_path.as_ref(),
-        composition.width as u32,
-        composition.height as u32,
-        composition.fps,
-        composition.frames,
-        config,
-        audio_track.as_ref(),
-        on_video_frame_encoded,
-        |frame_index| {
-            let rgba = render_frame_rgba(&composition, frame_index, &mut session)?;
-            Ok(rgba)
-        },
-    )?;
-    Ok(())
-}
-
-pub fn render_frame_to_target(
-    composition: &Composition,
-    frame_index: u32,
-    session: &mut RenderSession,
-    target: &mut crate::runtime::target::RenderTargetHandle,
-) -> Result<()> {
-    ensure_assets_preloaded(composition, session)?;
-
-    target.require_frame_view_kind(crate::runtime::target::RenderFrameViewKind::DrawContext2D)?;
-    let frame_surface = target.begin_frame_surface(composition.width, composition.height)?;
-    let frame_view_handle = target.resolve_frame_view(frame_surface)?;
-    let canvas_raw: *mut std::ffi::c_void = frame_view_handle.raw();
-
-    let RenderSession { core, platform } = session;
-    let EnginePlatform {
-        script,
-        asset_paths,
-        video,
-        ..
-    } = platform;
-    let blob_store = AssetPathBlobStore::new(asset_paths);
-    let (mut draw_frame, media_plan) = opencat_core::pipeline::frame::render_frame(
-        composition,
-        frame_index,
-        core,
-        script,
-        Some(&blob_store),
-    )?;
-    drop(blob_store);
-
-    let header = RenderSessionHeader {
-        composition_size: (composition.width as u32, composition.height as u32),
-        fps: composition.fps,
-        frames: composition.frames,
-    };
-
-    let canvas: &mut skia_safe::Canvas = unsafe { &mut *(canvas_raw as *mut skia_safe::Canvas) };
-    let mut executor = crate::executor::EngineDrawExecutor::new();
-    let mut consumer = crate::consumer::EngineFrameConsumer {
-        executor: &mut executor,
-        paths: asset_paths,
-        media_ctx: video,
-        canvas,
-    };
-    consumer.consume_frame(&header, &mut draw_frame, &media_plan)?;
-
-    target.end_frame()
-}
-
-pub fn render_frame_rgba(
-    composition: &Composition,
-    frame_index: u32,
-    session: &mut RenderSession,
-) -> Result<Vec<u8>> {
-    ensure_assets_preloaded(composition, session)?;
-
-    let mut surface = surfaces::raster_n32_premul((composition.width, composition.height))
-        .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
-
-    let RenderSession { core, platform } = session;
-    let EnginePlatform {
-        script,
-        asset_paths,
-        video,
-        ..
-    } = platform;
-    let blob_store = AssetPathBlobStore::new(asset_paths);
-
-    let (mut draw_frame, media_plan) = opencat_core::pipeline::frame::render_frame(
-        composition,
-        frame_index,
-        core,
-        script,
-        Some(&blob_store),
-    )?;
-    drop(blob_store);
-
-    let header = RenderSessionHeader {
-        composition_size: (composition.width as u32, composition.height as u32),
-        fps: composition.fps,
-        frames: composition.frames,
-    };
-
-    // SAFETY: skia_safe::Canvas wraps a C++ ref-counted object with interior mutability.
-    // All draw methods take &self at the Rust level while mutating internal C++ state.
-    // The surface owns the canvas and no other references exist at this point.
-    #[allow(invalid_reference_casting)]
-    let canvas: &mut skia_safe::Canvas =
-        unsafe { &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas) };
-    let mut executor = crate::executor::EngineDrawExecutor::new();
-    let mut consumer = crate::consumer::EngineFrameConsumer {
-        executor: &mut executor,
-        paths: asset_paths,
-        media_ctx: video,
-        canvas,
-    };
-    consumer.consume_frame(&header, &mut draw_frame, &media_plan)?;
-
-    let image = surface.image_snapshot();
-    let image_info = ImageInfo::new(
-        (composition.width, composition.height),
-        ColorType::RGBA8888,
-        AlphaType::Premul,
-        None,
-    );
-
-    let mut rgba = vec![0_u8; (composition.width as usize) * (composition.height as usize) * 4];
-    let read_ok = image.read_pixels(
-        &image_info,
-        rgba.as_mut_slice(),
-        (composition.width as usize) * 4,
-        (0, 0),
-        CachingHint::Allow,
-    );
-
-    if !read_ok {
-        return Err(anyhow!("failed to read pixels from skia surface"));
-    }
-
-    Ok(rgba)
-}
-
-pub fn render_frame_rgb(
-    composition: &Composition,
-    frame_index: u32,
-    session: &mut RenderSession,
-) -> Result<Vec<u8>> {
-    let rgba = render_frame_rgba(composition, frame_index, session)?;
-    let mut rgb = vec![0_u8; (composition.width as usize) * (composition.height as usize) * 3];
-    for (src, dst) in rgba.chunks_exact(4).zip(rgb.chunks_exact_mut(3)) {
-        dst[0] = src[0];
-        dst[1] = src[1];
-        dst[2] = src[2];
-    }
-    Ok(rgb)
 }
 
 #[cfg(test)]

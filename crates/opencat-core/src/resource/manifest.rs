@@ -298,13 +298,12 @@ fn audio_asset_id_and_label(src: &AudioSource) -> Option<(AssetId, String)> {
 }
 
 fn subtitle_asset_id_and_label(src: &SubtitleSource) -> (AssetId, String) {
-    match src {
-        SubtitleSource::Path(p) => (
-            AssetId(format!("subtitle:path:{}", p.to_string_lossy())),
-            p.display().to_string(),
-        ),
-        SubtitleSource::Url(u) => (AssetId(format!("subtitle:url:{u}")), u.clone()),
-    }
+    let id = crate::ir::asset_id::asset_id_for_subtitle(src);
+    let label = match src {
+        SubtitleSource::Path(p) => p.display().to_string(),
+        SubtitleSource::Url(u) => u.clone(),
+    };
+    (id, label)
 }
 
 #[cfg(test)]

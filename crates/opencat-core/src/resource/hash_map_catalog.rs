@@ -35,6 +35,9 @@ pub enum ResourceKind {
 pub struct HashMapResourceCatalog {
     entries: HashMap<AssetId, ResourceMeta>,
     asset_cache: HashMap<String, AssetId>,
+    /// Pipeline-internal alias -> canonical `AssetId` bindings (mirrors
+    /// [`crate::probe::catalog::ResourceCatalog::aliases`]).
+    aliases: HashMap<AssetId, AssetId>,
 }
 
 impl HashMapResourceCatalog {
@@ -45,6 +48,7 @@ impl HashMapResourceCatalog {
         let mut catalog = Self {
             entries: HashMap::new(),
             asset_cache: HashMap::new(),
+            aliases: HashMap::new(),
         };
         for (locator, meta) in map {
             let id = AssetId(locator.clone());
@@ -144,10 +148,13 @@ impl ResourceCatalog for HashMapResourceCatalog {
     }
 
     fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()> {
-        let meta = self.entries.get(target).cloned();
-        if let Some(m) = meta {
-            self.entries.insert(alias, m);
-        }
+        let meta = self
+            .entries
+            .get(target)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("alias target {target:?} is not a declared asset"))?;
+        self.entries.insert(alias.clone(), meta);
+        self.aliases.insert(alias, target.clone());
         Ok(())
     }
 
@@ -178,6 +185,14 @@ impl ResourceCatalog for HashMapResourceCatalog {
 
     fn lottie_meta(&self, id: &AssetId) -> Option<LottieMeta> {
         HashMapResourceCatalog::lottie_meta(self, id)
+    }
+
+    fn resolve_alias(&self, alias: &AssetId) -> Option<AssetId> {
+        self.aliases.get(alias).cloned()
+    }
+
+    fn is_known_asset(&self, id: &AssetId) -> bool {
+        self.entries.contains_key(id) || self.aliases.contains_key(id)
     }
 }
 

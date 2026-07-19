@@ -1,25 +1,32 @@
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn main() {
-    eprintln!("opencat-see 目前仅支持 macOS / Windows");
+    eprintln!("opencat-see 目前仅支持 macOS / Windows / Linux");
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod app {
     use std::ffi::c_void;
     use std::num::{NonZeroU16, NonZeroU32};
-    use std::sync::mpsc::{self, Receiver};
     use std::time::{Duration, Instant};
 
     use anyhow::{Context, Result, anyhow};
+    use std::path::Path;
+    use std::sync::Arc;
+
     use opencat::{
-        Composition, FrameCtx, RenderFrameViewKind, RenderSession, RenderTargetHandle,
-        ScriptDriver, parse_file, render_audio_chunk,
+        EngineDrawExecutor, EngineLoader, EngineLoaderFrameConsumer, MediaContext, RqJsContext,
+        RenderSessionHeader, build_audio_track_from_pipeline, duration_secs_to_frames,
     };
-    use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
+    use opencat_core::pipeline::Pipeline;
+    use opencat_core::platform::frame_consumer::FrameConsumer;
+    use opencat_core::script::js_context::JsContext;
+    use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle};
     use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source};
-    use winit::dpi::LogicalSize;
+    use winit::dpi::PhysicalSize;
     use winit::event::{Event, WindowEvent};
-    use winit::event_loop::{ControlFlow, EventLoop};
+    use winit::event_loop::ControlFlow;
+    #[cfg(not(target_os = "linux"))]
+    use winit::event_loop::EventLoop;
     use winit::window::{Window, WindowBuilder};
 
     #[cfg(target_os = "macos")]
@@ -38,12 +45,12 @@ mod app {
         gpu::{self, SurfaceOrigin, backend_render_targets, mtl},
     };
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     use skia_safe::{
         ColorType,
         gpu::{self, SurfaceOrigin, backend_render_targets, gl},
     };
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     use std::ffi::CString;
     #[cfg(target_os = "windows")]
     use windows_sys::Win32::{
@@ -58,136 +65,33 @@ mod app {
         },
         System::LibraryLoader::{GetProcAddress, LoadLibraryA},
     };
+    #[cfg(target_os = "linux")]
+    use khronos_egl as egl;
 
-    const AUDIO_CHUNK_FRAMES: usize = 2048;
     const AUDIO_SAMPLE_RATE: u32 = 48_000;
     const AUDIO_CHANNELS: u16 = 2;
 
-    enum AudioChunkMessage {
-        Samples(Vec<f32>),
-        Error(String),
-    }
-
     struct AudioRenderSource {
-        receiver: Receiver<AudioChunkMessage>,
+        samples: Arc<Vec<f32>>,
         sample_rate: NonZeroU32,
         channels: NonZeroU16,
-        chunk_sample_frames: usize,
-        current_chunk: Vec<f32>,
-        current_sample_index: usize,
-        last_error: Option<String>,
-        disconnected: bool,
-    }
-
-    impl AudioRenderSource {
-        fn new(composition: Composition, has_audio: bool) -> Result<Option<Self>> {
-            if !has_audio {
-                return Ok(None);
-            }
-
-            let sample_rate = NonZeroU32::new(AUDIO_SAMPLE_RATE)
-                .ok_or_else(|| anyhow!("audio chunk sample rate must be non-zero"))?;
-            let channels = NonZeroU16::new(AUDIO_CHANNELS)
-                .ok_or_else(|| anyhow!("audio chunk channel count must be non-zero"))?;
-            let loop_sample_frames = composition_sample_frames(
-                composition.frames.max(1),
-                composition.fps.max(1),
-                sample_rate,
-            );
-            let (sender, receiver) = mpsc::sync_channel(3);
-            std::thread::spawn(move || {
-                let engine = opencat::host::backend::skia::renderer::shared_raster_engine_typed();
-                let mut session =
-                    RenderSession::new(opencat::host::platform::EnginePlatform::new(engine));
-                let mut next_loop_sample_frame = 0;
-
-                loop {
-                    let chunk = match render_audio_chunk_looping(
-                        &composition,
-                        &mut session,
-                        next_loop_sample_frame,
-                        AUDIO_CHUNK_FRAMES,
-                        sample_rate,
-                        channels,
-                        loop_sample_frames.max(1),
-                    ) {
-                        Ok(chunk) => {
-                            next_loop_sample_frame = (next_loop_sample_frame + AUDIO_CHUNK_FRAMES)
-                                % loop_sample_frames.max(1);
-                            AudioChunkMessage::Samples(chunk)
-                        }
-                        Err(error) => {
-                            let _ = sender.send(AudioChunkMessage::Error(format!("{error:#}")));
-                            break;
-                        }
-                    };
-
-                    if sender.send(chunk).is_err() {
-                        break;
-                    }
-                }
-            });
-
-            Ok(Some(Self {
-                receiver,
-                sample_rate,
-                channels,
-                chunk_sample_frames: AUDIO_CHUNK_FRAMES,
-                current_chunk: Vec::new(),
-                current_sample_index: 0,
-                last_error: None,
-                disconnected: false,
-            }))
-        }
-
-        fn refill_chunk(&mut self) {
-            if self.disconnected {
-                self.current_chunk =
-                    vec![0.0; self.chunk_sample_frames * self.channels.get() as usize];
-                self.current_sample_index = 0;
-                return;
-            }
-
-            match self.receiver.recv() {
-                Ok(AudioChunkMessage::Samples(chunk)) => {
-                    self.current_chunk = if chunk.is_empty() {
-                        vec![0.0; self.chunk_sample_frames * self.channels.get() as usize]
-                    } else {
-                        chunk
-                    };
-                    self.current_sample_index = 0;
-                    self.last_error = None;
-                }
-                Ok(AudioChunkMessage::Error(message)) => {
-                    if self.last_error.as_deref() != Some(message.as_str()) {
-                        eprintln!("audio render error: {message}");
-                        self.last_error = Some(message);
-                    }
-                    self.disconnected = true;
-                    self.current_chunk =
-                        vec![0.0; self.chunk_sample_frames * self.channels.get() as usize];
-                    self.current_sample_index = 0;
-                }
-                Err(_) => {
-                    self.disconnected = true;
-                    self.current_chunk =
-                        vec![0.0; self.chunk_sample_frames * self.channels.get() as usize];
-                    self.current_sample_index = 0;
-                }
-            }
-        }
+        position: usize,
+        loop_sample_frames: usize,
     }
 
     impl Iterator for AudioRenderSource {
         type Item = f32;
 
         fn next(&mut self) -> Option<Self::Item> {
-            if self.current_sample_index >= self.current_chunk.len() {
-                self.refill_chunk();
+            let total = self.loop_sample_frames.saturating_mul(self.channels.get() as usize);
+            if total == 0 {
+                return Some(0.0);
             }
-
-            let sample = self.current_chunk.get(self.current_sample_index).copied()?;
-            self.current_sample_index += 1;
+            if self.position >= total {
+                self.position = 0;
+            }
+            let sample = self.samples.get(self.position).copied().unwrap_or(0.0);
+            self.position += 1;
             Some(sample)
         }
     }
@@ -216,10 +120,29 @@ mod app {
     }
 
     impl AudioPlayback {
-        fn new(composition: Composition, has_audio: bool) -> Result<Option<Self>> {
-            let Some(source) = AudioRenderSource::new(composition, has_audio)? else {
+        fn new(
+            samples: Option<Arc<Vec<f32>>>,
+            loop_sample_frames: usize,
+        ) -> Result<Option<Self>> {
+            let Some(samples) = samples else {
                 return Ok(None);
             };
+            if samples.is_empty() || loop_sample_frames == 0 {
+                return Ok(None);
+            }
+
+            let sample_rate = NonZeroU32::new(AUDIO_SAMPLE_RATE)
+                .ok_or_else(|| anyhow!("audio sample rate must be non-zero"))?;
+            let channels = NonZeroU16::new(AUDIO_CHANNELS)
+                .ok_or_else(|| anyhow!("audio channel count must be non-zero"))?;
+            let source = AudioRenderSource {
+                samples,
+                sample_rate,
+                channels,
+                position: 0,
+                loop_sample_frames,
+            };
+
             let sink = DeviceSinkBuilder::open_default_sink()
                 .context("failed to open default audio output device")?;
             let player = Player::connect_new(&sink.mixer());
@@ -257,46 +180,6 @@ mod app {
             };
             Instant::now() + Duration::from_secs_f64(remaining_secs.max(0.001))
         }
-    }
-
-    fn render_audio_chunk_looping(
-        composition: &Composition,
-        session: &mut RenderSession,
-        start_loop_sample_frame: usize,
-        chunk_sample_frames: usize,
-        sample_rate: NonZeroU32,
-        channels: NonZeroU16,
-        loop_sample_frames: usize,
-    ) -> Result<Vec<f32>> {
-        let channel_count = channels.get() as usize;
-        let mut samples = Vec::with_capacity(chunk_sample_frames * channel_count);
-        let mut next_loop_sample_frame = start_loop_sample_frame % loop_sample_frames.max(1);
-
-        while samples.len() < chunk_sample_frames * channel_count {
-            let remaining_frames = chunk_sample_frames - (samples.len() / channel_count);
-            let frames_until_loop_end = loop_sample_frames.saturating_sub(next_loop_sample_frame);
-            let request_frames = remaining_frames.min(frames_until_loop_end.max(1));
-            let start_time_secs = next_loop_sample_frame as f64 / sample_rate.get() as f64;
-            let chunk = render_audio_chunk(composition, session, start_time_secs, request_frames)?;
-            let chunk_samples = chunk
-                .map(|chunk| chunk.samples)
-                .unwrap_or_else(|| vec![0.0; request_frames * channel_count]);
-            let rendered_frames = chunk_samples.len() / channel_count;
-            samples.extend_from_slice(&chunk_samples);
-            if rendered_frames < request_frames {
-                samples.resize(
-                    samples.len() + (request_frames - rendered_frames) * channel_count,
-                    0.0,
-                );
-            }
-
-            next_loop_sample_frame += request_frames;
-            if next_loop_sample_frame >= loop_sample_frames {
-                next_loop_sample_frame = 0;
-            }
-        }
-
-        Ok(samples)
     }
 
     #[cfg(target_os = "macos")]
@@ -421,32 +304,18 @@ mod app {
             Ok(())
         }
 
-        unsafe fn begin_frame_bridge(
-            user_data: *mut c_void,
-            width: i32,
-            height: i32,
-        ) -> Result<*mut c_void> {
-            unsafe { &mut *(user_data as *mut Self) }.begin_frame(width, height)
+        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
+            let surface = self
+                .current_surface
+                .as_mut()
+                .ok_or_else(|| anyhow!("skia canvas requested before drawable surface was ready"))?;
+            // SAFETY: skia_safe::Canvas has interior mutability; surface owns the canvas.
+            #[allow(invalid_reference_casting)]
+            Ok(unsafe {
+                &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
+            })
         }
 
-        unsafe fn end_frame_bridge(user_data: *mut c_void) -> Result<()> {
-            unsafe { &mut *(user_data as *mut Self) }.end_frame()
-        }
-
-        unsafe fn resolve_skia_canvas_bridge(
-            _user_data: *mut c_void,
-            frame_surface: *mut c_void,
-        ) -> Result<*mut c_void> {
-            let target = unsafe { &mut *(frame_surface as *mut Self) };
-            let surface = target.current_surface.as_mut().ok_or_else(|| {
-                anyhow!("skia canvas requested before drawable surface was ready")
-            })?;
-            Ok(surface.canvas() as *const _ as *mut c_void)
-        }
-
-        unsafe fn present_frame_bridge(user_data: *mut c_void) -> Result<()> {
-            unsafe { &mut *(user_data as *mut Self) }.present_frame()
-        }
     }
 
     #[cfg(target_os = "macos")]
@@ -454,7 +323,7 @@ mod app {
         window: &Window,
         width: i32,
         height: i32,
-    ) -> Result<(Box<MetalSkiaRenderTarget>, RenderTargetHandle)> {
+    ) -> Result<Box<MetalSkiaRenderTarget>> {
         let raw = window.raw_window_handle();
         let (ns_window, ns_view) = match raw {
             RawWindowHandle::AppKit(handle) => (handle.ns_window, handle.ns_view),
@@ -464,22 +333,12 @@ mod app {
             return Err(anyhow!("AppKit window handles are null"));
         }
 
-        let mut target = Box::new(MetalSkiaRenderTarget::new(
+        Ok(Box::new(MetalSkiaRenderTarget::new(
             ns_view,
             width,
             height,
             window.scale_factor(),
-        )?);
-        let target_ptr = target.as_mut() as *mut MetalSkiaRenderTarget as *mut c_void;
-        let render_target = RenderTargetHandle::new(
-            RenderFrameViewKind::DrawContext2D,
-            target_ptr,
-            MetalSkiaRenderTarget::begin_frame_bridge,
-            MetalSkiaRenderTarget::end_frame_bridge,
-        )
-        .with_frame_view_resolver(MetalSkiaRenderTarget::resolve_skia_canvas_bridge)
-        .with_present_frame(MetalSkiaRenderTarget::present_frame_bridge);
-        Ok((target, render_target))
+        )?))
     }
 
     #[cfg(target_os = "windows")]
@@ -633,31 +492,14 @@ mod app {
             Ok(())
         }
 
-        unsafe fn begin_frame_bridge(
-            user_data: *mut c_void,
-            width: i32,
-            height: i32,
-        ) -> Result<*mut c_void> {
-            unsafe { &mut *(user_data as *mut Self) }.begin_frame(width, height)
-        }
-
-        unsafe fn end_frame_bridge(user_data: *mut c_void) -> Result<()> {
-            unsafe { &mut *(user_data as *mut Self) }.end_frame()
-        }
-
-        unsafe fn resolve_skia_canvas_bridge(
-            _user_data: *mut c_void,
-            frame_surface: *mut c_void,
-        ) -> Result<*mut c_void> {
-            let target = unsafe { &mut *(frame_surface as *mut Self) };
-            let surface = target.current_surface.as_mut().ok_or_else(|| {
+        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
+            let surface = self.current_surface.as_mut().ok_or_else(|| {
                 anyhow!("skia canvas requested before Win32 framebuffer surface was ready")
             })?;
-            Ok(surface.canvas() as *const _ as *mut c_void)
-        }
-
-        unsafe fn present_frame_bridge(user_data: *mut c_void) -> Result<()> {
-            unsafe { &mut *(user_data as *mut Self) }.present_frame()
+            #[allow(invalid_reference_casting)]
+            Ok(unsafe {
+                &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
+            })
         }
     }
 
@@ -687,7 +529,7 @@ mod app {
         window: &Window,
         width: i32,
         height: i32,
-    ) -> Result<(Box<WglSkiaRenderTarget>, RenderTargetHandle)> {
+    ) -> Result<Box<WglSkiaRenderTarget>> {
         let raw = window.raw_window_handle();
         let hwnd = match raw {
             RawWindowHandle::Win32(handle) => handle.hwnd as HWND,
@@ -697,17 +539,7 @@ mod app {
             return Err(anyhow!("Win32 window handle is null"));
         }
 
-        let mut target = Box::new(WglSkiaRenderTarget::new(hwnd, width, height)?);
-        let target_ptr = target.as_mut() as *mut WglSkiaRenderTarget as *mut c_void;
-        let render_target = RenderTargetHandle::new(
-            RenderFrameViewKind::DrawContext2D,
-            target_ptr,
-            WglSkiaRenderTarget::begin_frame_bridge,
-            WglSkiaRenderTarget::end_frame_bridge,
-        )
-        .with_frame_view_resolver(WglSkiaRenderTarget::resolve_skia_canvas_bridge)
-        .with_present_frame(WglSkiaRenderTarget::present_frame_bridge);
-        Ok((target, render_target))
+        Ok(Box::new(WglSkiaRenderTarget::new(hwnd, width, height)?))
     }
 
     #[cfg(target_os = "windows")]
@@ -729,57 +561,489 @@ mod app {
             .unwrap_or(std::ptr::null())
     }
 
-    pub fn run() -> Result<()> {
-        let input_path = std::env::args()
-            .nth(1)
-            .ok_or_else(|| anyhow!("usage: opencat-see <input.jsonl>"))?;
-        let parsed = parse_file(&input_path).context("failed to parse JSONL composition")?;
-        let has_audio = !parsed.audio_sources.is_empty();
-        let mut root = parsed.root;
-        if let Some(script) = parsed.script.as_deref() {
-            if !script.trim().is_empty() {
-                let driver = ScriptDriver::from_source(script)
-                    .context("failed to compile global script from JSONL")?;
-                root = root.script_driver(driver);
+    #[cfg(target_os = "linux")]
+    struct EglSkiaRenderTarget {
+        egl: egl::DynamicInstance<egl::EGL1_5>,
+        display: egl::Display,
+        // Kept for diagnostics; not read after construction.
+        _config: egl::Config,
+        context: egl::Context,
+        surface: egl::Surface,
+        /// libGL handle for core GL 1.x symbol fallback. EGL's `eglGetProcAddress`
+        /// does not reliably expose core entry points (glGetString, glGetIntegerv,
+        /// ...) on Mesa; Skia needs them while assembling the GL interface, so
+        /// resolve them from libGL itself.
+        libgl: *mut c_void,
+        skia: gpu::DirectContext,
+        current_surface: Option<skia_safe::Surface>,
+    }
+
+    // SAFETY: EGL handles are only touched on the winit event-loop thread.
+    #[cfg(target_os = "linux")]
+    unsafe impl Send for EglSkiaRenderTarget {}
+
+    #[cfg(target_os = "linux")]
+    impl EglSkiaRenderTarget {
+        fn new(display_handle: *mut c_void, window: u64) -> Result<Self> {
+            if display_handle.is_null() {
+                return Err(anyhow!("X11 display handle is null"));
+            }
+            if window == 0 {
+                return Err(anyhow!("X11 window id is zero"));
+            }
+
+            // Skia's binary-cache build links EGL internally (its GL proc resolver
+            // calls `eglGetProcAddress`), so EGL — not GLX — is the required
+            // backend on Linux. `load_required()` fails if libEGL.so.1 is missing
+            // or predates EGL 1.5.
+            let egl = unsafe { egl::DynamicInstance::<egl::EGL1_5>::load_required() }
+                .map_err(|e| anyhow!("failed to load libEGL.so.1: {e}"))?;
+
+            // EGL defaults to OpenGL ES; bind desktop GL so `make_gl` succeeds.
+            egl.bind_api(egl::OPENGL_API)
+                .map_err(|e| anyhow!("eglBindAPI(OPENGL) failed: {e}"))?;
+
+            let display = unsafe { egl.get_display(display_handle as egl::NativeDisplayType) }
+                .ok_or_else(|| anyhow!("eglGetDisplay returned EGL_NO_DISPLAY"))?;
+            let (_major, _minor) = egl
+                .initialize(display)
+                .map_err(|e| anyhow!("eglInitialize failed: {e}"))?;
+
+            // RGBA8 window surface, OpenGL-desktop renderable.
+            let config_attrs: [egl::Int; 13] = [
+                egl::SURFACE_TYPE,
+                egl::WINDOW_BIT,
+                egl::RENDERABLE_TYPE,
+                egl::OPENGL_BIT,
+                egl::RED_SIZE,
+                8,
+                egl::GREEN_SIZE,
+                8,
+                egl::BLUE_SIZE,
+                8,
+                egl::ALPHA_SIZE,
+                8,
+                egl::NONE,
+            ];
+            let config = egl
+                .choose_first_config(display, &config_attrs)
+                .map_err(|e| anyhow!("eglChooseConfig failed: {e}"))?
+                .ok_or_else(|| anyhow!("no matching EGL config (need RGBA8 + OPENGL_BIT)"))?;
+
+            // OpenGL 3.3 core profile — the lowest desktop core context the
+            // binary-cache Skia targets.
+            let context_attrs: [egl::Int; 7] = [
+                egl::CONTEXT_MAJOR_VERSION,
+                3,
+                egl::CONTEXT_MINOR_VERSION,
+                3,
+                egl::CONTEXT_OPENGL_PROFILE_MASK,
+                egl::CONTEXT_OPENGL_CORE_PROFILE_BIT,
+                egl::NONE,
+            ];
+            let context = egl
+                .create_context(display, config, None, &context_attrs)
+                .map_err(|e| anyhow!("eglCreateContext failed: {e}"))?;
+
+            let surface = unsafe {
+                egl.create_window_surface(
+                    display,
+                    config,
+                    window as egl::NativeWindowType,
+                    None,
+                )
+                .map_err(|e| anyhow!("eglCreateWindowSurface failed: {e}"))?
+            };
+
+            egl.make_current(display, Some(surface), Some(surface), Some(context))
+                .map_err(|e| anyhow!("eglMakeCurrent failed: {e}"))?;
+
+            // Resolve core GL 1.x/2.x entry points from libGL itself. Assign to
+            // the outer binding — a `let` here would shadow it and leave
+            // `self.libgl` null, which makes Skia dereference bad pointers and
+            // segfault inside GrGLExtensions::init.
+            let mut libgl = unsafe {
+                libc::dlopen(
+                    b"libGL.so.1\0".as_ptr() as *const _,
+                    libc::RTLD_LAZY | libc::RTLD_GLOBAL,
+                )
+            };
+            if libgl.is_null() {
+                libgl = unsafe {
+                    libc::dlopen(
+                        b"libGL.so\0".as_ptr() as *const _,
+                        libc::RTLD_LAZY | libc::RTLD_GLOBAL,
+                    )
+                };
+            }
+            if libgl.is_null() {
+                let _ = egl.make_current(display, None, None, None);
+                let _ = egl.destroy_context(display, context);
+                let _ = egl.destroy_surface(display, surface);
+                let _ = egl.terminate(display);
+                return Err(anyhow!("dlopen(libGL.so.1 / libGL.so) failed"));
+            }
+
+            let interface = gl::Interface::new_load_with(|name| {
+                load_egl_proc_address(&egl, libgl, name)
+            })
+            .ok_or_else(|| anyhow!("failed to create Skia OpenGL interface (EGL)"))?;
+            let skia = gpu::direct_contexts::make_gl(interface, None)
+                .ok_or_else(|| anyhow!("failed to create Skia OpenGL direct context (EGL)"))?;
+
+            Ok(Self {
+                egl,
+                display,
+                _config: config,
+                context,
+                surface,
+                libgl,
+                skia,
+                current_surface: None,
+            })
+        }
+
+        fn make_current(&self) -> Result<()> {
+            self.egl
+                .make_current(
+                    self.display,
+                    Some(self.surface),
+                    Some(self.surface),
+                    Some(self.context),
+                )
+                .map_err(|e| anyhow!("eglMakeCurrent failed for Linux render target: {e}"))
+        }
+
+        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void> {
+            if width <= 0 || height <= 0 {
+                return Err(anyhow!("invalid render target size {width}x{height}"));
+            }
+
+            self.make_current()?;
+
+            let backend_render_target = backend_render_targets::make_gl(
+                (width, height),
+                0,
+                8,
+                gl::FramebufferInfo {
+                    fboid: 0,
+                    format: gl::Format::RGBA8.into(),
+                    ..Default::default()
+                },
+            );
+
+            let surface = gpu::surfaces::wrap_backend_render_target(
+                &mut self.skia,
+                &backend_render_target,
+                SurfaceOrigin::BottomLeft,
+                ColorType::RGBA8888,
+                None,
+                None,
+            )
+            .ok_or_else(|| anyhow!("failed to wrap Linux OpenGL framebuffer for Skia"))?;
+
+            self.current_surface = Some(surface);
+            Ok(self as *mut Self as *mut c_void)
+        }
+
+        fn end_frame(&mut self) -> Result<()> {
+            let mut surface = self
+                .current_surface
+                .take()
+                .ok_or_else(|| anyhow!("end_frame called before begin_frame"))?;
+            self.skia.flush_and_submit_surface(&mut surface, None);
+            drop(surface);
+            Ok(())
+        }
+
+        fn present_frame(&mut self) -> Result<()> {
+            self.make_current()?;
+            self.egl
+                .swap_buffers(self.display, self.surface)
+                .map_err(|e| anyhow!("eglSwapBuffers failed: {e}"))?;
+            Ok(())
+        }
+
+        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
+            let surface = self.current_surface.as_mut().ok_or_else(|| {
+                anyhow!("skia canvas requested before Linux framebuffer surface was ready")
+            })?;
+            #[allow(invalid_reference_casting)]
+            Ok(unsafe {
+                &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
+            })
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    impl Drop for EglSkiaRenderTarget {
+        fn drop(&mut self) {
+            self.current_surface.take();
+            self.skia.release_resources_and_abandon();
+            // Unbind the context before tearing it down.
+            let _ = self
+                .egl
+                .make_current(self.display, None, None, None);
+            let _ = self.egl.destroy_context(self.display, self.context);
+            let _ = self.egl.destroy_surface(self.display, self.surface);
+            let _ = self.egl.terminate(self.display);
+            if !self.libgl.is_null() {
+                unsafe {
+                    let _ = libc::dlclose(self.libgl);
+                }
+                self.libgl = std::ptr::null_mut();
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn build_platform_render_target(
+        window: &Window,
+        _width: i32,
+        _height: i32,
+    ) -> Result<Box<EglSkiaRenderTarget>> {
+        let display_handle = match window.raw_display_handle() {
+            RawDisplayHandle::Xlib(handle) => {
+                if handle.display.is_null() {
+                    return Err(anyhow!("Xlib display handle is null"));
+                }
+                handle.display
+            }
+            _ => {
+                return Err(anyhow!(
+                    "opencat-see on Linux currently requires X11 (force the winit X11 backend)"
+                ));
+            }
+        };
+        let xwindow = match window.raw_window_handle() {
+            RawWindowHandle::Xlib(handle) => handle.window,
+            _ => {
+                return Err(anyhow!(
+                    "expected Xlib window handle on Linux; Wayland is not supported yet"
+                ));
+            }
+        };
+        Ok(Box::new(EglSkiaRenderTarget::new(display_handle, xwindow)?))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn load_egl_proc_address(
+        egl: &egl::DynamicInstance<egl::EGL1_5>,
+        libgl: *mut c_void,
+        name: &str,
+    ) -> *const c_void {
+        let Ok(cname) = CString::new(name) else {
+            return std::ptr::null();
+        };
+
+        // Core GL entry points (glGetString, glGetIntegerv, ...) must be resolved
+        // from libGL first. Mesa's `eglGetProcAddress` historically returns a
+        // non-null but un-callable pointer for them; Skia then dereferences the
+        // junk pointer and segfaults inside `GrGLExtensions::init` while it probes
+        // GL_NUM_EXTENSIONS. Only extension / GL-version-specific entry points
+        // (glGetStringi, ...) legitimately come from `eglGetProcAddress`.
+        if !libgl.is_null() {
+            let sym = unsafe { libc::dlsym(libgl, cname.as_ptr()) };
+            if !sym.is_null() {
+                return sym as *const c_void;
             }
         }
 
-        let composition = Composition::new("player")
-            .size(parsed.width, parsed.height)
-            .fps(parsed.fps as u32)
-            .duration(parsed.duration)
-            .audio_sources(parsed.audio_sources.clone())
-            .root(move |_ctx: &FrameCtx| root.clone())
-            .build()
-            .context("failed to build composition")?;
+        if let Some(proc) = egl.get_proc_address(name) {
+            let raw = proc as *const () as usize;
+            // Treat Mesa's small error sentinels for missing procs as null.
+            if !matches!(raw, 0 | 1 | 2 | 3 | usize::MAX) {
+                return proc as *const () as *const c_void;
+            }
+        }
 
+        std::ptr::null()
+    }
+
+
+    fn render_pipeline_frame_to_gpu_target(
+        pipeline: &mut opencat::EnginePipeline,
+        media_ctx: &mut MediaContext,
+        executor: &mut EngineDrawExecutor,
+        gpu_target: &mut impl GpuRenderTarget,
+        width: i32,
+        height: i32,
+        composition_size: (u32, u32),
+        fps: u32,
+        frames: u32,
+        frame_index: u32,
+    ) -> Result<()> {
+        gpu_target.begin_frame(width, height)?;
+        let canvas = gpu_target.canvas_mut()?;
+        let (mut frame, media_plan) = pipeline.render_frame(frame_index)?;
+        let header = RenderSessionHeader {
+            composition_size,
+            fps,
+            frames,
+        };
+        let mut consumer = EngineLoaderFrameConsumer {
+            executor,
+            loader: pipeline.loader(),
+            media_ctx,
+            canvas,
+        };
+        consumer.consume_frame(&header, &mut frame, &media_plan)?;
+        gpu_target.end_frame()?;
+        gpu_target.present_frame()?;
+        Ok(())
+    }
+
+    trait GpuRenderTarget {
+        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void>;
+        fn end_frame(&mut self) -> Result<()>;
+        fn present_frame(&mut self) -> Result<()>;
+        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas>;
+    }
+
+    #[cfg(target_os = "macos")]
+    impl GpuRenderTarget for MetalSkiaRenderTarget {
+        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void> {
+            MetalSkiaRenderTarget::begin_frame(self, width, height)
+        }
+        fn end_frame(&mut self) -> Result<()> {
+            MetalSkiaRenderTarget::end_frame(self)
+        }
+        fn present_frame(&mut self) -> Result<()> {
+            MetalSkiaRenderTarget::present_frame(self)
+        }
+        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
+            MetalSkiaRenderTarget::canvas_mut(self)
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    impl GpuRenderTarget for WglSkiaRenderTarget {
+        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void> {
+            WglSkiaRenderTarget::begin_frame(self, width, height)
+        }
+        fn end_frame(&mut self) -> Result<()> {
+            WglSkiaRenderTarget::end_frame(self)
+        }
+        fn present_frame(&mut self) -> Result<()> {
+            WglSkiaRenderTarget::present_frame(self)
+        }
+        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
+            WglSkiaRenderTarget::canvas_mut(self)
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    impl GpuRenderTarget for EglSkiaRenderTarget {
+        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void> {
+            EglSkiaRenderTarget::begin_frame(self, width, height)
+        }
+        fn end_frame(&mut self) -> Result<()> {
+            EglSkiaRenderTarget::end_frame(self)
+        }
+        fn present_frame(&mut self) -> Result<()> {
+            EglSkiaRenderTarget::present_frame(self)
+        }
+        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
+            EglSkiaRenderTarget::canvas_mut(self)
+        }
+    }
+
+    pub fn run() -> Result<()> {
+        let input_path = std::env::args()
+            .nth(1)
+            .ok_or_else(|| anyhow!("usage: opencat-see <input.xml|.jsonl>"))?;
+        let input_path = Path::new(&input_path);
+        let source_text =
+            std::fs::read_to_string(input_path).context("failed to read composition source")?;
+        let base_dir = input_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        let cache_base =
+            dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let cache_dir = cache_base.join(".opencat").join("assets");
+        let loader = EngineLoader::new(base_dir, cache_dir).context("failed to create loader")?;
+        let ctx = RqJsContext::new().context("failed to create js context")?;
+        let mut pipeline =
+            opencat::pipeline::open(&source_text, loader, ctx).context("failed to open pipeline")?;
+        let info = pipeline.info().clone();
+        let total_frames = duration_secs_to_frames(info.duration, info.fps).max(1);
+        let fps = info.fps.max(1);
+        let width = info.width as i32;
+        let height = info.height as i32;
+
+        let mut media_ctx = MediaContext::new();
+        media_ctx.set_composition_fps(info.fps);
+        let mut executor = EngineDrawExecutor::new();
+
+        let audio_track = build_audio_track_from_pipeline(&pipeline)
+            .context("failed to premix audio track")?;
+        let loop_sample_frames = composition_sample_frames(total_frames, fps, NonZeroU32::new(AUDIO_SAMPLE_RATE).unwrap());
+        let audio_samples = audio_track.map(|track| Arc::new(track.samples));
+
+        #[cfg(target_os = "linux")]
+        let event_loop = {
+            use winit::event_loop::EventLoopBuilder;
+            use winit::platform::x11::EventLoopBuilderExtX11;
+            let mut builder = EventLoopBuilder::new();
+            // EGL path here needs an X11 window handle (pure Wayland wl_surface
+            // support would require wayland-egl). Force the winit X11 backend.
+            builder.with_x11();
+            builder.build()
+        };
+        #[cfg(not(target_os = "linux"))]
         let event_loop = EventLoop::new();
+
+        #[cfg(target_os = "linux")]
+        let window = {
+            // EGL does its own config selection on X11 and tolerates the window's
+            // default visual on Mesa/XWayland, so no `with_x11_visual` is needed.
+            match event_loop.raw_display_handle() {
+                RawDisplayHandle::Xlib(handle) if !handle.display.is_null() => {}
+                RawDisplayHandle::Xlib(_) => {
+                    return Err(anyhow!("Xlib display handle is null"));
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "opencat-see on Linux currently requires X11 (set WAYLAND_DISPLAY= to force X11)"
+                    ));
+                }
+            }
+            WindowBuilder::new()
+                .with_title("OpenCat See")
+                .with_inner_size(PhysicalSize::new(info.width, info.height))
+                .with_resizable(false)
+                .build(&event_loop)
+                .context("failed to create window")?
+        };
+        #[cfg(not(target_os = "linux"))]
         let window = WindowBuilder::new()
             .with_title("OpenCat See")
-            .with_inner_size(LogicalSize::new(parsed.width as f64, parsed.height as f64))
+            .with_inner_size(PhysicalSize::new(info.width, info.height))
             .with_resizable(false)
             .build(&event_loop)
             .context("failed to create window")?;
 
-        let (mut _platform_target, mut render_target) =
-            build_platform_render_target(&window, parsed.width, parsed.height)?;
+        let mut gpu_target = build_platform_render_target(&window, width, height)?;
 
-        let mut session = RenderSession::new();
-        let total_frames = composition.frames.max(1);
-        let fps = composition.fps.max(1);
-
-        let frame_duration = Duration::from_secs_f64(1.0 / fps as f64);
-        if let Err(error) =
-            opencat::render_frame_with_target(&composition, 0, &mut session, &mut render_target)
-        {
+        if let Err(error) = render_pipeline_frame_to_gpu_target(
+            &mut pipeline,
+            &mut media_ctx,
+            &mut executor,
+            gpu_target.as_mut(),
+            width,
+            height,
+            (info.width, info.height),
+            info.fps,
+            total_frames,
+            0,
+        ) {
             return Err(anyhow!("failed to render warmup frame: {error:#}"));
-        }
-        if let Err(error) = render_target.present_frame() {
-            return Err(anyhow!("failed to present warmup frame: {error:#}"));
         }
         std::thread::sleep(Duration::from_millis(100));
 
-        let audio_playback = AudioPlayback::new(composition.clone(), has_audio)?;
+        let audio_playback = AudioPlayback::new(audio_samples, loop_sample_frames)?;
+        let frame_duration = Duration::from_secs_f64(1.0 / fps as f64);
         let mut next_tick = audio_playback
             .as_ref()
             .map(|playback| playback.next_redraw_deadline(fps))
@@ -806,18 +1070,19 @@ mod app {
                         .as_ref()
                         .map(|playback| playback.frame_index(total_frames, fps))
                         .unwrap_or(fallback_frame_index);
-                    if let Err(error) = opencat::render_frame_with_target(
-                        &composition,
+                    if let Err(error) = render_pipeline_frame_to_gpu_target(
+                        &mut pipeline,
+                        &mut media_ctx,
+                        &mut executor,
+                        gpu_target.as_mut(),
+                        width,
+                        height,
+                        (info.width, info.height),
+                        info.fps,
+                        total_frames,
                         frame_index,
-                        &mut session,
-                        &mut render_target,
                     ) {
                         eprintln!("render error: {error:#}");
-                        *control_flow = ControlFlow::Exit;
-                        return;
-                    }
-                    if let Err(error) = render_target.present_frame() {
-                        eprintln!("present error: {error:#}");
                         *control_flow = ControlFlow::Exit;
                         return;
                     }
@@ -839,7 +1104,7 @@ mod app {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 fn main() -> anyhow::Result<()> {
     app::run()
 }

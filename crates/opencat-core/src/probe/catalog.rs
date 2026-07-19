@@ -28,6 +28,12 @@ pub struct ResourceCatalog {
     pub audios: HashSet<AssetId>,
     pub subtitles: HashMap<AssetId, Vec<SrtEntry>>,
     pub lotties: HashMap<AssetId, LottieMeta>,
+    /// Pipeline-internal alias -> canonical `AssetId` bindings. Aliases are
+    /// resolved to canonical IDs before any `DrawOp`/`FrameMediaPlan` leaves
+    /// the pipeline, so hosts never observe an alias. The catalog itself does
+    /// not serve metadata under an alias key from this map; lookups resolve the
+    /// alias first.
+    pub aliases: HashMap<AssetId, AssetId>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,15 +108,33 @@ impl crate::resource::catalog::ResourceCatalog for ResourceCatalog {
     }
 
     fn alias(&mut self, alias: AssetId, target: &AssetId) -> anyhow::Result<()> {
-        if let Some(meta) = self.images.get(target).cloned() {
-            self.images.insert(alias, meta);
-        } else if let Some(meta) = self.videos.get(target).cloned() {
-            self.videos.insert(alias, meta);
-        } else if self.audios.contains(target) {
-            self.audios.insert(alias);
-        } else if let Some(entries) = self.subtitles.get(target).cloned() {
-            self.subtitles.insert(alias, entries);
+        // An alias must point at a declared, canonical asset. An unknown
+        // target is a render error rather than a silent no-op.
+        let kind = self
+            .canonical_kind(target)
+            .ok_or_else(|| anyhow::anyhow!("alias target {target:?} is not a declared asset"))?;
+        match kind {
+            CanonicalKind::Image => {
+                let meta = self.images.get(target).copied().expect("checked above");
+                self.images.insert(alias.clone(), meta);
+            }
+            CanonicalKind::Video => {
+                let meta = self.videos.get(target).cloned().expect("checked above");
+                self.videos.insert(alias.clone(), meta);
+            }
+            CanonicalKind::Audio => {
+                self.audios.insert(alias.clone());
+            }
+            CanonicalKind::Subtitle => {
+                let entries = self.subtitles.get(target).cloned().expect("checked above");
+                self.subtitles.insert(alias.clone(), entries);
+            }
+            CanonicalKind::Lottie => {
+                let meta = self.lotties.get(target).copied().expect("checked above");
+                self.lotties.insert(alias.clone(), meta);
+            }
         }
+        self.aliases.insert(alias, target.clone());
         Ok(())
     }
 
@@ -139,5 +163,45 @@ impl crate::resource::catalog::ResourceCatalog for ResourceCatalog {
 
     fn lottie_meta(&self, id: &AssetId) -> Option<LottieMeta> {
         self.lotties.get(id).copied()
+    }
+
+    fn resolve_alias(&self, alias: &AssetId) -> Option<AssetId> {
+        self.aliases.get(alias).cloned()
+    }
+
+    fn is_known_asset(&self, id: &AssetId) -> bool {
+        self.canonical_kind(id).is_some() || self.aliases.contains_key(id)
+    }
+}
+
+/// Which canonical asset map an `AssetId` belongs to. Used internally to keep
+/// `alias()` and lookups consistent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CanonicalKind {
+    Image,
+    Video,
+    Audio,
+    Subtitle,
+    Lottie,
+}
+
+impl ResourceCatalog {
+    /// Classify a canonical `AssetId`, or `None` if it is not a declared
+    /// asset. Alias keys that were mirrored into a metadata map are not
+    /// canonical; resolve them via [`ResourceCatalog::resolve_alias`] first.
+    pub fn canonical_kind(&self, id: &AssetId) -> Option<CanonicalKind> {
+        if self.images.contains_key(id) {
+            Some(CanonicalKind::Image)
+        } else if self.videos.contains_key(id) {
+            Some(CanonicalKind::Video)
+        } else if self.audios.contains(id) {
+            Some(CanonicalKind::Audio)
+        } else if self.subtitles.contains_key(id) {
+            Some(CanonicalKind::Subtitle)
+        } else if self.lotties.contains_key(id) {
+            Some(CanonicalKind::Lottie)
+        } else {
+            None
+        }
     }
 }

@@ -131,6 +131,56 @@ fn render_pipeline_frame_to_rgba(
     Ok(rgba)
 }
 
+/// Premix the whole composition audio track from pipeline `audio_plan`.
+/// Shared by `render_from_jsonl` and `opencat-see`.
+pub fn build_audio_track_from_pipeline(
+    pipeline: &crate::EnginePipeline,
+) -> Result<Option<AudioTrack>> {
+    use opencat_core::pipeline::Pipeline;
+    use opencat_core::probe::{AssetHandle, AssetLoader};
+
+    let info = pipeline.info();
+    if info.audio_plan.segments.is_empty() {
+        return Ok(None);
+    }
+
+    let mut mixed_samples = Vec::new();
+    let sample_rate: u32 = 48_000;
+    let channels: u16 = 2;
+    let total_sample_frames = (info.duration.max(0.0) * sample_rate as f64).ceil() as usize;
+    mixed_samples.resize(total_sample_frames * channels as usize, 0.0f32);
+
+    for seg in &info.audio_plan.segments {
+        let handle = pipeline
+            .loader()
+            .handle(&seg.asset)
+            .ok_or_else(|| anyhow!("audio asset {:?} not found in loader", seg.asset))?;
+        let path = handle
+            .local_path()
+            .ok_or_else(|| anyhow!("audio {:?}: local_path required", seg.asset))?;
+        let clip = decode_audio_to_f32_stereo(path, sample_rate)?;
+        let start_sample = ((seg.start_ms as u64 * sample_rate as u64) / 1000) as usize;
+        let end_sample = ((seg.end_ms as u64 * sample_rate as u64) / 1000) as usize;
+        let copy_frames = end_sample
+            .saturating_sub(start_sample)
+            .min(clip.sample_frames());
+        for i in 0..copy_frames {
+            let dst = (start_sample + i) * channels as usize;
+            let src = i * channels as usize;
+            if dst + 1 < mixed_samples.len() && src + 1 < clip.samples.len() {
+                mixed_samples[dst] += clip.samples[src];
+                mixed_samples[dst + 1] += clip.samples[src + 1];
+            }
+        }
+    }
+
+    for s in &mut mixed_samples {
+        *s = s.clamp(-1.0, 1.0);
+    }
+
+    Ok(Some(AudioTrack::new(sample_rate, channels, mixed_samples)))
+}
+
 /// New render path: parse JSONL → EnginePipeline → render frames.
 /// This is the primary entry point going forward; the old `render()` / `render_mp4()`
 /// functions remain for backward compatibility.
@@ -150,7 +200,6 @@ pub fn render_from_jsonl_with_base(
 ) -> Result<()> {
     use crate::js_context::RqJsContext;
     use opencat_core::pipeline::Pipeline;
-    use opencat_core::probe::{AssetHandle, AssetLoader};
     use opencat_core::script::js_context::JsContext;
 
     let output_path = output_path.as_ref();
@@ -170,45 +219,7 @@ pub fn render_from_jsonl_with_base(
     let mut media_ctx = MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
 
-    let audio_track = if !info.audio_plan.segments.is_empty() {
-        let mut mixed_samples = Vec::new();
-        let sample_rate: u32 = 48_000;
-        let channels: u16 = 2;
-        let total_sample_frames = (info.duration.max(0.0) * sample_rate as f64).ceil() as usize;
-        mixed_samples.resize(total_sample_frames * channels as usize, 0.0f32);
-
-        for seg in &info.audio_plan.segments {
-            let handle = pipeline
-                .loader()
-                .handle(&seg.asset)
-                .ok_or_else(|| anyhow!("audio asset {:?} not found in loader", seg.asset))?;
-            let path = handle
-                .local_path()
-                .ok_or_else(|| anyhow!("audio {:?}: local_path required", seg.asset))?;
-            let clip = decode_audio_to_f32_stereo(path, sample_rate)?;
-            let start_sample = ((seg.start_ms as u64 * sample_rate as u64) / 1000) as usize;
-            let end_sample = ((seg.end_ms as u64 * sample_rate as u64) / 1000) as usize;
-            let copy_frames = end_sample
-                .saturating_sub(start_sample)
-                .min(clip.sample_frames());
-            for i in 0..copy_frames {
-                let dst = (start_sample + i) * channels as usize;
-                let src = i * channels as usize;
-                if dst + 1 < mixed_samples.len() && src + 1 < clip.samples.len() {
-                    mixed_samples[dst] += clip.samples[src];
-                    mixed_samples[dst + 1] += clip.samples[src + 1];
-                }
-            }
-        }
-
-        for s in &mut mixed_samples {
-            *s = s.clamp(-1.0, 1.0);
-        }
-
-        Some(AudioTrack::new(sample_rate, channels, mixed_samples))
-    } else {
-        None
-    };
+    let audio_track = build_audio_track_from_pipeline(&pipeline)?;
 
     match &config.format {
         OutputFormat::Png => {

@@ -29,12 +29,16 @@ path = "src/bin/opencat.rs"
 name = "opencat-see"
 path = "src/bin/opencat-see.rs"
 
-[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 rodio = "0.22.2"
+
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+skia-safe = { version = "0.93.1", features = ["binary-cache", "gl", "skottie"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 foreign-types = "0.5.0"
 metal = "0.31.0"
+skia-safe = { version = "0.93.1", features = ["metal", "binary-cache", "skottie"] }
 core-graphics-types = "0.1.3"
 cocoa = "0.25.0"
 objc = "0.2.7"
@@ -46,3 +50,11 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_Graphics_OpenGL",
     "Win32_System_LibraryLoader",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# EGL context/surface management for the desktop preview player.
+# `dynamic` loads libEGL.so.1 at runtime — no pkg-config build dep.
+# Skia's binary-cache build is EGL-only (its internal GL proc resolver
+# calls eglGetProcAddress), so EGL — not GLX — is the required backend here.
+khronos-egl = { version = "6", features = ["dynamic"] }
+libc = "0.2"

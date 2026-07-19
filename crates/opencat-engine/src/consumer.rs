@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::Path;
 
 use anyhow::anyhow;
 use opencat_core::ir::draw_frame::DrawOpFrame;
@@ -46,36 +45,13 @@ impl From<DrawError> for ConsumerError {
 }
 
 // ---------------------------------------------------------------------------
-// AssetPathSource: module-private trait for AssetId → Path resolution
+// prepare_frame (module-private)
 // ---------------------------------------------------------------------------
 
-/// Module-private trait: resolve AssetId to a filesystem path.
-/// Engine has two sources (AssetPathStore for session path,
-/// EngineLoader for pipeline path).
-trait AssetPathSource {
-    fn resolve_path(&self, id: &AssetId) -> Option<&Path>;
-}
-
-impl AssetPathSource for opencat_core::resource::AssetPathStore {
-    fn resolve_path(&self, id: &AssetId) -> Option<&Path> {
-        self.path(id)
-    }
-}
-
-impl AssetPathSource for crate::resource::loader::EngineLoader {
-    fn resolve_path(&self, id: &AssetId) -> Option<&Path> {
-        self.handle(id).and_then(|h| h.local_path())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Unified prepare_frame (module-private)
-// ---------------------------------------------------------------------------
-
-/// Decode media for a single frame. Generic over the asset path source.
-fn prepare_frame<P: AssetPathSource>(
+/// Decode media for a single frame via EngineLoader paths.
+fn prepare_frame(
     plan: &FrameMediaPlan,
-    paths: &P,
+    loader: &crate::resource::loader::EngineLoader,
     video: &mut MediaContext,
 ) -> Result<EnginePreparedFrameMedia, ConsumerError> {
     let mut sk_images = Vec::new();
@@ -85,7 +61,7 @@ fn prepare_frame<P: AssetPathSource>(
         match image_ref {
             ImageRef::Static { asset_id } => {
                 let aid = AssetId(asset_id.clone());
-                if let Some(path) = paths.resolve_path(&aid) {
+                if let Some(path) = loader.handle(&aid).and_then(|h| h.local_path()) {
                     if let Ok(bytes) = std::fs::read(path) {
                         if let Some(sk_image) = Image::from_encoded(Data::new_copy(&bytes)) {
                             let idx = sk_images.len();
@@ -101,8 +77,9 @@ fn prepare_frame<P: AssetPathSource>(
                 ..
             } => {
                 let aid = AssetId(asset_id.clone());
-                let path = paths
-                    .resolve_path(&aid)
+                let path = loader
+                    .handle(&aid)
+                    .and_then(|h| h.local_path())
                     .ok_or_else(|| anyhow!("video asset {:?} not found in loader", aid))?;
                 let frame =
                     video.frame_rgba_at_time_by_path(path, *time_micros as f64 / 1_000_000.0)?;
@@ -142,41 +119,6 @@ fn prepare_frame<P: AssetPathSource>(
         image_index,
         runtime_effects,
     })
-}
-
-// ---------------------------------------------------------------------------
-// EngineFrameConsumer (RenderSession / AssetPathStore path)
-// ---------------------------------------------------------------------------
-
-/// Engine-side FrameConsumer for the RenderSession path (uses AssetPathStore).
-pub struct EngineFrameConsumer<'a> {
-    pub executor: &'a mut EngineDrawExecutor,
-    pub paths: &'a opencat_core::resource::AssetPathStore,
-    pub media_ctx: &'a mut MediaContext,
-    pub canvas: &'a mut Canvas,
-}
-
-impl FrameConsumer for EngineFrameConsumer<'_> {
-    type Output = ();
-    type Error = ConsumerError;
-
-    fn consume_frame(
-        &mut self,
-        header: &RenderSessionHeader,
-        draw: &mut DrawOpFrame,
-        plan: &FrameMediaPlan,
-    ) -> Result<(), ConsumerError> {
-        let prepared = prepare_frame(plan, self.paths, self.media_ctx)?;
-        self.executor.ensure_lottie_animations(draw, |bundle_id| {
-            let asset_id = AssetId(bundle_id.to_string());
-            self.paths
-                .path(&asset_id)
-                .and_then(|p| std::fs::read(p).ok())
-        });
-        self.executor
-            .execute(header, draw, &prepared, self.canvas)?;
-        Ok(())
-    }
 }
 
 // ---------------------------------------------------------------------------

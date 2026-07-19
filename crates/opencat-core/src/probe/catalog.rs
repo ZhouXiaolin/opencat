@@ -57,19 +57,16 @@ pub struct AudioSegment {
 
 impl crate::resource::catalog::ResourceCatalog for ResourceCatalog {
     fn resolve_image(&mut self, src: &ImageSource) -> anyhow::Result<AssetId> {
-        match src {
-            ImageSource::Unset => anyhow::bail!("unset image source"),
-            ImageSource::Url(u) => Ok(crate::ir::asset_id::asset_id_for_url(u)),
-            ImageSource::Path(p) => Ok(AssetId(p.to_string_lossy().into_owned())),
-            ImageSource::Query(q) => Ok(crate::ir::asset_id::asset_id_for_query(q)),
+        match crate::ir::asset_id::asset_id_for_image(src) {
+            Some(id) => Ok(id),
+            None => anyhow::bail!("unset image source"),
         }
     }
 
     fn resolve_audio(&mut self, src: &AudioSource) -> anyhow::Result<AssetId> {
-        match src {
-            AudioSource::Unset => anyhow::bail!("unset audio source"),
-            AudioSource::Url(u) => Ok(crate::ir::asset_id::asset_id_for_audio_url(u)),
-            AudioSource::Path(p) => Ok(AssetId(format!("audio:path:{}", p.to_string_lossy()))),
+        match crate::ir::asset_id::asset_id_for_audio(src) {
+            Some(id) => Ok(id),
+            None => anyhow::bail!("unset audio source"),
         }
     }
 

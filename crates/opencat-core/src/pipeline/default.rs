@@ -7,13 +7,14 @@ use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::invalidation::CompositeHistory;
 use crate::display::build::DisplayBuildSession;
 use crate::ir::asset_id::{
-    asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
+    asset_id_for_audio, asset_id_for_image, asset_id_for_lottie, asset_id_for_subtitle,
+    asset_id_for_video,
 };
 use crate::ir::cache::RenderCache;
 use crate::ir::{CompositionInfo, DrawOpFrame, FrameMediaPlan};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
-use crate::parse::preflight::collect_resource_requests;
+use crate::parse::preflight::collect_resource_requests_from_parsed;
 use crate::parse::primitives::{
     AudioSource, ImageSource, LottieSource, SubtitleSource, VideoSource,
 };
@@ -79,6 +80,12 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
         scripts: S,
         font_db: Arc<fontdb::Database>,
     ) -> Result<Self> {
+        // Collect declared resource requests from the *static* parsed tree
+        // before the root is moved into the composition closure. This avoids
+        // iterating composition frames and matches the host-facing contract:
+        // requests are a declarative, order-independent set.
+        let requests = collect_resource_requests_from_parsed(&parsed);
+
         let root_node = parsed.root;
         let composition = Composition::new("pipeline")
             .size(parsed.width, parsed.height)
@@ -88,7 +95,6 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
             .audio_sources(parsed.audio_sources)
             .build()?;
 
-        let requests = collect_resource_requests(&composition);
         loader.load_all(&requests)?;
 
         let mut catalog = ResourceCatalog::default();
@@ -146,34 +152,23 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
 }
 
 fn source_to_image_id(src: &ImageSource) -> Option<AssetId> {
-    match src {
-        ImageSource::Unset => None,
-        ImageSource::Path(p) => Some(AssetId(p.to_string_lossy().into_owned())),
-        ImageSource::Url(u) => Some(asset_id_for_url(u)),
-        ImageSource::Query(q) => Some(asset_id_for_query(q)),
-    }
+    asset_id_for_image(src)
 }
 
 fn source_to_video_id(src: &VideoSource) -> AssetId {
-    match src {
-        VideoSource::Path(p) => AssetId(format!("video:path:{}", p.to_string_lossy())),
-        VideoSource::Url(u) => asset_id_for_video_url(u),
-    }
+    asset_id_for_video(src)
 }
 
 fn source_to_audio_id(src: &AudioSource) -> Option<AssetId> {
-    match src {
-        AudioSource::Unset => None,
-        AudioSource::Path(p) => Some(AssetId(format!("audio:path:{}", p.to_string_lossy()))),
-        AudioSource::Url(u) => Some(asset_id_for_audio_url(u)),
-    }
+    asset_id_for_audio(src)
 }
 
 fn source_to_subtitle_id(src: &SubtitleSource) -> AssetId {
-    match src {
-        SubtitleSource::Path(p) => AssetId(format!("subtitle:path:{}", p.to_string_lossy())),
-        SubtitleSource::Url(u) => AssetId(format!("subtitle:url:{u}")),
-    }
+    asset_id_for_subtitle(src)
+}
+
+fn source_to_lottie_id(element_id: &str, src: &LottieSource) -> Option<AssetId> {
+    asset_id_for_lottie(element_id, src)
 }
 
 fn probe_all<L: AssetLoader>(
@@ -228,7 +223,8 @@ fn probe_all<L: AssetLoader>(
         if matches!(req.source, LottieSource::Unset) {
             continue;
         }
-        let bundle_id = AssetId(format!("lottie:{}", req.element_id));
+        let bundle_id =
+            source_to_lottie_id(&req.element_id, &req.source).expect("non-unset lottie has id");
         let id_for_lookup = match &req.source {
             LottieSource::Path(p) => AssetId(p.to_string_lossy().into_owned()),
             LottieSource::Url(u) => crate::ir::asset_id::asset_id_for_url(u),

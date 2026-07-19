@@ -44,6 +44,35 @@ impl TimelineNode {
     pub fn style_ref(&self) -> &NodeStyle {
         &self.style
     }
+
+    /// Walk every scene / transition endpoint and replace it via `f`.
+    ///
+    /// Used by host-driven caption hydration, which must recurse into the
+    /// scene nodes a timeline owns. Timing/metadata are preserved; only the
+    /// owned [`Node`]s are rewritten. `f` may return `Err` to abort the walk.
+    pub(crate) fn map_scene_nodes(
+        &mut self,
+        mut f: impl FnMut(Node) -> anyhow::Result<Node>,
+    ) -> anyhow::Result<()> {
+        for segment in &mut self.segments {
+            match segment {
+                TimelineSegment::Scene { scene, .. } => {
+                    *scene = f(std::mem::replace(scene, clone_placeholder()))?;
+                }
+                TimelineSegment::Transition { from, to, .. } => {
+                    *from = f(std::mem::replace(from, clone_placeholder()))?;
+                    *to = f(std::mem::replace(to, clone_placeholder()))?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Cheap throwaway node used only to swap a real node out of a segment field so
+/// it can be moved into `f` without contending the borrow of `self.segments`.
+fn clone_placeholder() -> Node {
+    div().into()
 }
 
 #[derive(Clone)]

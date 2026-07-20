@@ -4,7 +4,7 @@ use opencat_core::ir::media_plan::FrameMediaPlan;
 use opencat_core::platform::frame_consumer::{FrameConsumer, RenderSessionHeader};
 use wasm_bindgen::JsValue;
 
-use crate::wasm_bridge::{encode_ir_envelope, intern_image_strings};
+use crate::wasm_bridge::{GeneratedImageRecord, encode_ir_envelope, intern_image_strings};
 
 /// Error wrapper bridging JsValue into std::error::Error.
 #[derive(Debug)]
@@ -24,8 +24,15 @@ impl From<WebConsumeError> for JsValue {
     }
 }
 
-pub struct WebFrameConsumer<'a> {
+pub(crate) struct WebFrameConsumer<'a> {
     pub scratch: &'a mut DrawFrameScratch,
+    /// Pipeline epoch stamped into the envelope header. JS keys its
+    /// generated-image cache by `(epoch, id)` and evicts stale entries when the
+    /// epoch bumps.
+    pub pipeline_epoch: u32,
+    /// Per-frame generated-image delta: glyphs whose RGBA has not yet been
+    /// published in this epoch. Carried in section 12 of the envelope.
+    pub generated_delta: &'a [GeneratedImageRecord],
 }
 
 impl FrameConsumer for WebFrameConsumer<'_> {
@@ -40,7 +47,7 @@ impl FrameConsumer for WebFrameConsumer<'_> {
     ) -> Result<Vec<u8>, WebConsumeError> {
         intern_image_strings(draw);
         let encoded = encode_draw_frame(draw, self.scratch);
-        encode_ir_envelope(draw, &encoded)
-            .map_err(|js| WebConsumeError(js.as_string().unwrap_or_else(|| "encode failed".into())))
+        encode_ir_envelope(draw, &encoded, self.pipeline_epoch, self.generated_delta)
+            .map_err(WebConsumeError)
     }
 }

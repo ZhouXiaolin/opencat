@@ -1,0 +1,15 @@
+<opencat width="96" height="80" fps="30" duration="1">
+  <fonts default="oracle-sans">
+    <font id="oracle-sans" family="Noto Sans SC" path="../assets/NotoSansSC-Regular.otf" role="sans" />
+    <font id="oracle-emoji" path="../assets/NotoColorEmoji.ttf" role="emoji" />
+  </fonts>
+  <!-- Mirrors the engine `color_emoji_glyphs_render_via_generated_image_table`
+       scenario (crates/opencat-engine/src/render.rs): a single 😀 rasterizes
+       via the core color-emoji pipeline into GeneratedImageTable. On web (#10)
+       the RGBA is published through the OCIR generated-image delta and rendered
+       by CanvasKit — this design exists so the chromedriver oracle can compare
+       the web emoji path against the engine ground truth. -->
+  <div id="root" class="relative w-[96px] h-[80px] bg-white">
+    <text id="face" class="absolute left-[8px] top-[4px] w-[64px] h-[64px] text-[48px] text-black">😀</text>
+  </div>
+</opencat>

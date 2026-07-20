@@ -13,6 +13,7 @@ export {
   getRenderer,
   getRendererOrThrow,
   initWasm,
+  openDesign,
   preloadAssets,
   setAssetReader,
   setWasmBaseUrl,

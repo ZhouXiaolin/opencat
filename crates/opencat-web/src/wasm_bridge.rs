@@ -1,12 +1,29 @@
 //! wasm-bindgen bridge: build each frame as one binary DrawOp IR blob.
+//!
+//! Host-owned persistent pipeline (issue #8). The renderer holds a single
+//! `DefaultPipeline<NoopAssetLoader, WebJsContext>` opened once via
+//! [`WebRenderer::open_design`]; each [`WebRenderer::build_frame_ir`] call
+//! just runs `pipeline.render_frame(frame)` and encodes the draw ops. Core
+//! never fetches — web fetches all declared assets during `open_design`,
+//! builds a prepared `ResourceCatalog` via core's pure `probe::prepare` chain,
+//! hydrates captions, and injects the font database before opening the
+//! pipeline. This mirrors the engine's `open_parsed_host_owned` path (#7).
+
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
+use opencat_core::NoopAssetLoader;
 use opencat_core::canvas::paint::{
     BlendMode, BlurStyle, ColorFilterSpec, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec,
     PaintStyle, PathEffectSpec, ShaderSpec as PaintShaderSpec, StrokeCap, StrokeJoin, TileMode,
 };
+use opencat_core::frame_ctx::duration_secs_to_frames;
+use opencat_core::ir::CompositionInfo;
+use opencat_core::ir::RenderFrame;
+use opencat_core::ir::asset_id::asset_id_for_subtitle;
 use opencat_core::ir::draw_encoding::EncodedDrawFrame;
 use opencat_core::ir::draw_frame::{DrawFrameScratch, DrawOpFrame};
 use opencat_core::ir::draw_op::DrawOp;
@@ -14,14 +31,16 @@ use opencat_core::ir::draw_types::{
     EffectRef, EncodedPath, FillType, ImageRef, PathOp, RuntimeEffectChildRef, ShaderSpec,
     ShaderType, TableRange,
 };
-use opencat_core::parse::composition::Composition;
-use opencat_core::pipeline::frame::render_frame;
-use opencat_core::resource::asset_id::AssetId;
-use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
-use opencat_core::runtime::session::RenderSession;
+use opencat_core::ir::media_plan::FrameMediaPlan;
+use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
+use opencat_core::pipeline::Pipeline;
+use opencat_core::pipeline::default::DefaultPipeline;
+use opencat_core::probe::catalog::ResourceRequests;
+use opencat_core::probe::prepare::{build_catalog, hydrate_captions};
+use opencat_core::script::js_context::JsContext;
 
+use crate::js_context::WebJsContext;
 use crate::media::WebAudio;
-use crate::script::ScriptRuntimeCache;
 
 const IR_MAGIC: &[u8; 4] = b"OCIR";
 const IR_VERSION: u32 = 3;
@@ -40,13 +59,17 @@ const SECTION_SUBTREES: u32 = 11;
 
 #[wasm_bindgen]
 pub struct WebRenderer {
-    session: RenderSession,
-    script: ScriptRuntimeCache,
+    /// The persistent core pipeline. `None` until [`open_design`] is called;
+    /// replaced (with epoch reset) each time a new design is opened.
+    pipeline: Option<DefaultPipeline<NoopAssetLoader, WebJsContext>>,
+    /// Cached composition metadata from the opened pipeline.
+    info: Option<CompositionInfo>,
+    pending_frame: Option<(u32, RenderFrame)>,
     scratch: DrawFrameScratch,
     audio: WebAudio,
-    blobs: crate::resource::blob_store::BlobStore,
     default_sans_sc: Option<Vec<u8>>,
     default_color_emoji: Option<Vec<u8>>,
+    extra_fonts: Vec<Vec<u8>>,
 }
 
 #[wasm_bindgen]
@@ -55,68 +78,86 @@ impl WebRenderer {
     pub fn new() -> Result<WebRenderer, JsValue> {
         #[cfg(feature = "profile")]
         tracing_wasm::set_as_global_default();
+        // Surface Rust panic messages in the browser console.
+        console_error_panic_hook::set_once();
 
         let audio = WebAudio::new().map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(Self {
-            session: RenderSession::with_font_db(std::sync::Arc::new(
-                opencat_core::text::empty_font_db(),
-            )),
-            script: ScriptRuntimeCache::default(),
+            pipeline: None,
+            info: None,
+            pending_frame: None,
             scratch: DrawFrameScratch::default(),
             audio,
-            blobs: crate::resource::blob_store::BlobStore::new(),
             default_sans_sc: None,
             default_color_emoji: None,
+            extra_fonts: Vec::new(),
         })
     }
 
-    pub fn build_frame_ir(
-        &mut self,
-        source: &str,
-        frame: u32,
-        resources_json: &str,
-    ) -> Result<Vec<u8>, JsValue> {
-        let default_fonts = self
-            .default_sans_sc
-            .as_deref()
-            .zip(self.default_color_emoji.as_deref());
-        self.session.font_db =
-            crate::source::merge_preloaded_fonts(&self.session.font_db, source, default_fonts)
-                .map_err(|e| JsValue::from_str(&format!("fonts: {e}")))?;
+    /// Open (or replace) the persistent core pipeline for `source`.
+    ///
+    /// This is the host-owned open flow mirroring the engine's
+    /// `open_parsed_host_owned` (#7): web fetches all declared resources,
+    /// builds a prepared `ResourceCatalog` via core's pure `probe::prepare`
+    /// chain, hydrates captions, injects the font database, then opens the
+    /// pipeline. Subsequent [`build_frame_ir`] calls render against this
+    /// pipeline until the next `open_design`.
+    ///
+    /// The async fetch runs in the free [`open_design_pipeline`] helper; this
+    /// method only touches `self` synchronously, before the `.await` (snapshot
+    /// default fonts) and after it (store the opened pipeline). wasm-bindgen
+    /// keeps a borrow guard alive across `.await` on `&mut self`, which would
+    /// re-entrantly panic later `&mut self` methods — so `self` is never held
+    /// across the await.
+    #[wasm_bindgen]
+    pub async fn open_design(&mut self, source: String) -> Result<String, JsValue> {
+        let default_sans_sc = self.default_sans_sc.clone();
+        let default_color_emoji = self.default_color_emoji.clone();
+        let extra_fonts = self.extra_fonts.clone();
 
-        let parsed = crate::source::parse_source(source, self.session.font_db.as_ref())
-            .map_err(|e| JsValue::from_str(&format!("parse: {e}")))?;
-        let root_node = parsed.root.clone();
-        let composition = Composition::new("web")
-            .size(parsed.width, parsed.height)
-            .fps(parsed.fps as u32)
-            .duration(parsed.duration)
-            .audio_sources(parsed.audio_sources)
-            .root(move |_ctx| root_node.clone())
-            .build()
-            .map_err(|e| JsValue::from_str(&format!("composition: {e}")))?;
-
-        self.session.catalog = HashMapResourceCatalog::from_json(resources_json)
-            .map_err(|e| JsValue::from_str(&format!("catalog: {e}")))?;
-
-        let blob_store_ref: &dyn opencat_core::resource::BlobStore = &self.blobs;
-        let render = render_frame(
-            &composition,
-            frame,
-            &mut self.session,
-            &mut self.script,
-            Some(blob_store_ref),
+        let result = open_design_pipeline(
+            &source,
+            default_sans_sc.as_deref(),
+            default_color_emoji.as_deref(),
+            &extra_fonts,
         )
-        .map_err(|e| JsValue::from_str(&format!("render_frame: {e}")))?;
+        .await;
+
+        let (info, pipeline, catalog_json) = result?;
+        self.info = Some(info);
+        self.pipeline = Some(pipeline);
+        self.pending_frame = None;
+        Ok(catalog_json)
+    }
+
+    /// Render `frame` against the opened pipeline and encode its draw ops as a
+    /// binary OCIR envelope. Call [`open_design`] first.
+    #[wasm_bindgen]
+    pub fn build_frame_ir(&mut self, frame: u32) -> Result<Vec<u8>, JsValue> {
+        let pipeline = self.pipeline.as_mut().ok_or_else(|| {
+            JsValue::from_str("build_frame_ir: no design opened; call open_design first")
+        })?;
+        let info = self.info.as_ref().ok_or_else(|| {
+            JsValue::from_str("build_frame_ir: composition info missing; call open_design first")
+        })?;
+
+        let render = match self.pending_frame.take() {
+            Some((pending_index, render)) if pending_index == frame => render,
+            _ => pipeline
+                .render_frame(frame)
+                .map_err(|e| JsValue::from_str(&format!("render_frame: {e}")))?,
+        };
         let mut draw = render.draw;
+        // The media plan is surfaced separately via `prepare_frame`;
+        // the binary IR envelope carries draw ops only.
         let media_plan = render.media;
 
         use opencat_core::platform::frame_consumer::FrameConsumer;
 
         let header = opencat_core::platform::frame_consumer::RenderSessionHeader {
-            composition_size: (parsed.width as u32, parsed.height as u32),
-            fps: parsed.fps as u32,
-            frames: composition.frames,
+            composition_size: (info.width, info.height),
+            fps: info.fps,
+            frames: duration_secs_to_frames(info.duration, info.fps),
         };
 
         let mut consumer = crate::consumer::WebFrameConsumer {
@@ -127,130 +168,24 @@ impl WebRenderer {
             .map_err(JsValue::from)
     }
 
-    // Retained for API compatibility. Video frames now live in JS-side caches
-    // and are consumed by the DrawOp IR renderer.
-    pub fn inject_video_frame(
-        &mut self,
-        _asset_id: String,
-        _frame: u32,
-        _rgba: Vec<u8>,
-        _width: u32,
-        _height: u32,
-    ) {
-    }
-
-    pub fn clear_video_cache(&mut self, _asset_id: String) {}
-
-    pub fn plan_video_frames(
-        &self,
-        source: &str,
-        frame: u32,
-        resources_json: &str,
-    ) -> Result<String, JsValue> {
-        use opencat_core::frame_ctx::FrameCtx;
-        use opencat_core::frame_ctx::duration_secs_to_frames;
-        use opencat_core::media::{VideoFrameRequest, VideoPreviewQuality};
-        use opencat_core::parse::node::NodeKind;
-        use opencat_core::parse::primitives::VideoSource;
-        use opencat_core::parse::time::{FrameState, frame_state_for_root};
-        use opencat_core::resource::catalog::{ResourceCatalog, VideoInfoMeta};
-
-        let parsed = crate::source::parse_source(source, self.session.font_db.as_ref())
-            .map_err(|e| JsValue::from_str(&format!("plan_video_frames parse: {e}")))?;
-        let catalog = HashMapResourceCatalog::from_json(resources_json)
-            .map_err(|e| JsValue::from_str(&format!("plan_video_frames catalog: {e}")))?;
-        let frame_ctx = FrameCtx {
-            frame,
-            fps: parsed.fps as u32,
-            width: parsed.width,
-            height: parsed.height,
-            frames: duration_secs_to_frames(parsed.duration, parsed.fps as u32),
-        };
-
-        let composition_time_secs = frame as f64 / (parsed.fps as f64).max(1.0);
-        let mut plan: Vec<Value> = Vec::new();
-
-        fn walk(
-            node: &opencat_core::parse::node::Node,
-            ctx: &FrameCtx,
-            composition_time_secs: f64,
-            catalog: &HashMapResourceCatalog,
-            out: &mut Vec<Value>,
-        ) {
-            match node.kind() {
-                NodeKind::Div(div) => {
-                    for child in div.children_ref() {
-                        walk(child, ctx, composition_time_secs, catalog, out);
-                    }
-                }
-                NodeKind::Video(video) => {
-                    let timing = video.timing();
-                    let asset_id = match video.source() {
-                        VideoSource::Path(p) => AssetId(p.to_string_lossy().into_owned()),
-                        VideoSource::Url(u) => {
-                            opencat_core::resource::asset_id::asset_id_for_video_url(u)
-                        }
-                    };
-                    let info = catalog.video_info(&asset_id).unwrap_or(VideoInfoMeta {
-                        width: 0,
-                        height: 0,
-                        duration_secs: None,
-                    });
-                    let request = VideoFrameRequest {
-                        composition_time_secs,
-                        timing,
-                        quality: VideoPreviewQuality::Exact,
-                        target_size: None,
-                    };
-                    if !request.is_visible() {
-                        return;
-                    }
-                    out.push(json!({
-                        "assetId": asset_id.0,
-                        "localTimeSecs": request.resolve_time_secs(&info),
-                        "frameIndex": request.resolved_frame_index(&info, ctx.fps),
-                    }));
-                    for child in video.children_ref() {
-                        walk(child, ctx, composition_time_secs, catalog, out);
-                    }
-                }
-                NodeKind::Timeline(_) => {
-                    let state = frame_state_for_root(node, ctx);
-                    walk_state(&state, ctx, composition_time_secs, catalog, out);
-                }
-                _ => {}
-            }
-        }
-
-        fn walk_state(
-            state: &FrameState,
-            ctx: &FrameCtx,
-            composition_time_secs: f64,
-            catalog: &HashMapResourceCatalog,
-            out: &mut Vec<Value>,
-        ) {
-            match state {
-                FrameState::Scene { scene, .. } => {
-                    walk(scene, ctx, composition_time_secs, catalog, out)
-                }
-                FrameState::Transition { from, to, .. } => {
-                    walk(from, ctx, composition_time_secs, catalog, out);
-                    walk(to, ctx, composition_time_secs, catalog, out);
-                }
-            }
-        }
-
-        let state = frame_state_for_root(&parsed.root, &frame_ctx);
-        walk_state(
-            &state,
-            &frame_ctx,
-            composition_time_secs,
-            &catalog,
-            &mut plan,
-        );
-
-        serde_json::to_string(&plan)
-            .map_err(|e| JsValue::from_str(&format!("plan_video_frames json: {e}")))
+    /// Return the current frame's [`FrameMediaPlan`] as JSON so JS can drive
+    /// its own video decoder window / readahead / Lottie / image fetching from
+    /// the core-derived media contract (replaces the old `plan_video_frames`
+    /// tree walk). Call after [`open_design`].
+    ///
+    /// Shape: `{ videoFrames: [{assetId, timeMicros}], images: [assetId],
+    /// lottieBundles: [id], generatedImages: [id], runtimeEffects: [...] }`.
+    #[wasm_bindgen]
+    pub fn prepare_frame(&mut self, frame: u32) -> Result<String, JsValue> {
+        let pipeline = self.pipeline.as_mut().ok_or_else(|| {
+            JsValue::from_str("prepare_frame: no design opened; call open_design first")
+        })?;
+        let render = pipeline
+            .render_frame(frame)
+            .map_err(|e| JsValue::from_str(&format!("prepare_frame render: {e}")))?;
+        let plan_json = media_plan_to_json(&render.media);
+        self.pending_frame = Some((frame, render));
+        Ok(plan_json)
     }
 
     pub async fn decode_audio_file(
@@ -321,37 +256,172 @@ impl WebRenderer {
         self.audio.current_time()
     }
 
-    pub fn inject_image_bytes(&mut self, asset_id: String, bytes: Vec<u8>) {
-        self.blobs
-            .insert(AssetId(asset_id), std::sync::Arc::from(bytes));
-    }
-
-    pub fn clear_image_blobs(&mut self) {
-        self.blobs.clear();
-    }
-
-    /// Load default CJK + emoji fonts into the render session (call once after construction).
+    /// Load default CJK + emoji fonts. Call before [`open_design`]; the bytes
+    /// are merged into the pipeline's font database when a design is opened.
     pub fn load_default_fonts(
         &mut self,
         sans_sc: Vec<u8>,
         color_emoji: Vec<u8>,
     ) -> Result<(), JsValue> {
-        let db = opencat_core::text::font_db_from_bytes(
-            &[sans_sc.clone(), color_emoji.clone()],
-            "Noto Sans SC",
-        );
         self.default_sans_sc = Some(sans_sc);
         self.default_color_emoji = Some(color_emoji);
-        self.session.font_db = std::sync::Arc::new(db);
         Ok(())
     }
 
-    /// Append a single font file to the session database.
+    /// Append a single font file. Call before [`open_design`]; each face is
+    /// loaded independently into the pipeline's font database.
     pub fn load_font_data(&mut self, bytes: Vec<u8>) -> Result<(), JsValue> {
-        let db = opencat_core::text::extend_font_db(self.session.font_db.as_ref(), &[bytes]);
-        self.session.font_db = std::sync::Arc::new(db);
+        self.extra_fonts.push(bytes);
         Ok(())
     }
+}
+
+/// Read the SRT text for each declared subtitle from the thread-local
+/// `BlobStore`, keyed by canonical subtitle `AssetId`. Mirrors the engine's
+/// `EngineLoader::srt_text_by_subtitle_id`.
+fn srt_text_by_subtitle_id(req: &ResourceRequests) -> HashMap<String, String> {
+    let mut srt = HashMap::new();
+    for src in &req.subtitles {
+        let id = asset_id_for_subtitle(src);
+        if let Some(bytes) = crate::resource::wasm_api::blob_bytes_owned(&id.0)
+            && let Ok(text) = std::str::from_utf8(&bytes)
+        {
+            srt.insert(id.0, text.to_string());
+        }
+    }
+    srt
+}
+
+/// Serialize a [`FrameMediaPlan`] to the JSON shape JS consumes to drive its
+/// own video decoder / image / Lottie fetching.
+fn media_plan_to_json(plan: &FrameMediaPlan) -> String {
+    let video_frames: Vec<Value> = plan
+        .video_frames
+        .iter()
+        .filter_map(|r| match r {
+            ImageRef::VideoFrame {
+                asset_id,
+                time_micros,
+            } => Some(json!({
+                "assetId": asset_id,
+                "timeMicros": time_micros,
+            })),
+            _ => None,
+        })
+        .collect();
+    let images: Vec<Value> = plan
+        .images
+        .iter()
+        .filter_map(|r| match r {
+            ImageRef::Static { asset_id } => Some(json!({ "assetId": asset_id })),
+            _ => None,
+        })
+        .collect();
+    let lottie_bundles: Vec<Value> = plan
+        .lottie_bundles
+        .iter()
+        .map(|id| json!({ "bundleId": id }))
+        .collect();
+    let generated_images: Vec<Value> = plan
+        .generated_images
+        .iter()
+        .map(|id| json!({ "id": id.0 }))
+        .collect();
+    json!({
+        "videoFrames": video_frames,
+        "images": images,
+        "lottieBundles": lottie_bundles,
+        "generatedImages": generated_images,
+    })
+    .to_string()
+}
+
+/// Best-effort `JsValue` → string for error formatting.
+fn js_err(v: &JsValue) -> String {
+    v.as_string().unwrap_or_else(|| format!("{:?}", v))
+}
+
+/// Free async helper behind [`WebRenderer::open_design`]: does every step that
+/// does not need `&mut self`, so the `&mut self` on the wasm-bindgen method is
+/// only held across synchronous assignment — never across an `.await`. This
+/// avoids wasm-bindgen's "recursive use of an object" borrow-guard panic.
+///
+/// Returns the composition info and the opened pipeline for the caller to store.
+async fn open_design_pipeline(
+    source: &str,
+    default_sans_sc: Option<&[u8]>,
+    default_color_emoji: Option<&[u8]>,
+    extra_fonts: &[Vec<u8>],
+) -> Result<
+    (
+        CompositionInfo,
+        DefaultPipeline<NoopAssetLoader, WebJsContext>,
+        String,
+    ),
+    JsValue,
+> {
+    // 1. Fetch all declared resources into the thread-local BlobStore and the
+    //    Skottie provider store. `preload_assets` is the existing web fetch
+    //    path (fetch/Blob/cache, font_store, Lottie bundle hydration, Openverse
+    //    queries). It populates BLOB_STORE keyed by canonical AssetId;
+    //    draw-ir.ts reads static images back via get_blob_bytes.
+    let catalog_json = crate::resource::wasm_api::preload_assets(source)
+        .await
+        .map_err(|e| JsValue::from_str(&format!("open_design preload: {}", js_err(&e))))?;
+
+    // 2. Build the complete font database once (default fonts + document
+    //    fonts). Start from the default fonts (NotoSansSC + NotoColorEmoji)
+    //    like the old `load_default_fonts` did, then merge any document
+    //    fonts declared in the source. `merge_preloaded_fonts` only applies
+    //    document fonts from `<fonts>` manifests (markup); JSONL designs rely
+    //    solely on the defaults, so they must be seeded here.
+    let default_fonts = default_sans_sc.zip(default_color_emoji);
+    let base_db = match default_fonts {
+        Some((sans_sc, color_emoji)) => opencat_core::text::font_db_from_bytes(
+            &[sans_sc.to_vec(), color_emoji.to_vec()],
+            "Noto Sans SC",
+        ),
+        None => opencat_core::text::empty_font_db(),
+    };
+    let base_db = opencat_core::text::extend_font_db(&base_db, extra_fonts);
+    let base_db = {
+        let base = Arc::new(base_db);
+        let merged = crate::source::merge_preloaded_fonts(&base, source, default_fonts)
+            .map_err(|e| JsValue::from_str(&format!("open_design fonts: {e}")))?;
+        (*merged).clone()
+    };
+
+    // 3. Parse the composition with the prepared font database.
+    let mut parsed = crate::source::parse_source(source, &base_db)
+        .map_err(|e| JsValue::from_str(&format!("open_design parse: {e}")))?;
+
+    // 4. Collect declarative resource requests from the static parsed tree.
+    let requests = collect_resource_requests_from_parsed(&parsed);
+
+    // 5. Build the prepared catalog from the fetched bytes (pure probes; core
+    //    never fetches). The byte map is owned, keyed by canonical AssetId
+    //    string, snapshotted from the thread-local BlobStore.
+    let bytes = crate::resource::wasm_api::blob_byte_map();
+    let catalog = build_catalog(&requests, &bytes).catalog;
+
+    // 6. Hydrate caption entries from fetched SRT text (pure; missing text
+    //    stays empty, existing entries are never overwritten).
+    let srt = srt_text_by_subtitle_id(&requests);
+    parsed.root = hydrate_captions(parsed.root, parsed.fps as u32, &srt)
+        .map_err(|e| JsValue::from_str(&format!("open_design hydrate: {e}")))?
+        .0;
+
+    // 7. Open the persistent pipeline on the host-injected path. A fresh
+    //    JsContext is created per pipeline (the pipeline owns its script host
+    //    internally).
+    let ctx = <WebJsContext as JsContext>::new()
+        .map_err(|e| JsValue::from_str(&format!("open_design js context: {e}")))?;
+    let pipeline =
+        DefaultPipeline::open_with_prepared_catalog(parsed, catalog, ctx, Arc::new(base_db))
+            .map_err(|e| JsValue::from_str(&format!("open_design pipeline: {e}")))?;
+
+    let info = pipeline.info().clone();
+    Ok((info, pipeline, catalog_json))
 }
 
 pub(crate) fn encode_ir_envelope(
@@ -431,6 +501,7 @@ pub(crate) fn intern_image_strings(draw: &mut DrawOpFrame) {
                 DrawOp::Image { image, .. } | DrawOp::ImageRect { image, .. } => {
                     intern_image_ref(strings, image);
                 }
+                DrawOp::LottieRect { bundle_id, .. } => push_unique(strings, bundle_id),
                 _ => {}
             }
         }

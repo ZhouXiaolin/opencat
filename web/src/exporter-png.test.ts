@@ -28,7 +28,7 @@ describe('PNG frame export', () => {
       MakeWebGLCanvasSurface: vi.fn(() => surface),
     };
     const renderer = {
-      plan_video_frames: vi.fn(() => '[]'),
+      open_design: vi.fn(async () => {}),
       build_frame_ir: vi.fn(() => new Uint8Array()),
     };
     const anchor = {

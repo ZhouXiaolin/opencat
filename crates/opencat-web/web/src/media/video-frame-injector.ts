@@ -6,17 +6,14 @@ import {
   type VideoPreviewQuality,
 } from './video-decoder';
 
-interface VideoFramePlanItem {
+interface MediaPlanVideoFrame {
   assetId: string;
-  localTimeSecs: number;
-  frameIndex?: number;
+  timeMicros: number;
 }
 
 interface InjectVideoFramesOptions {
   renderer: WebRendererInstance;
-  jsonlContent: string;
   frame: number;
-  resourcesJson: string;
   quality: VideoPreviewQuality;
   frameOutput?: 'source' | 'rgba';
 }
@@ -48,13 +45,11 @@ function videoFrameKey(assetId: string, timeMicros: bigint): string {
 }
 
 /**
- * Convert a plan item's `localTimeSecs` into the same `timeMicros` value the
- * core pipeline emits in the draw IR, so injector-populated entries match the
- * renderer's lookups. Matches `time_micros = (time_secs * 1_000_000).round()`
- * on the Rust side.
+ * Convert the core media plan's authoritative `timeMicros` into seconds for the
+ * video decoder API (which takes a target time in seconds).
  */
-function localTimeSecsToMicros(localTimeSecs: number): bigint {
-  return BigInt(Math.round(localTimeSecs * 1_000_000));
+function microsToSecs(timeMicros: number): number {
+  return timeMicros / 1_000_000;
 }
 
 export function getCachedVideoFrameRgba(
@@ -94,27 +89,27 @@ function closeFrameSource(cached: CachedVideoFrameSource): void {
 
 export async function injectVideoFramesForRender({
   renderer,
-  jsonlContent,
   frame,
-  resourcesJson,
   quality,
   frameOutput = 'source',
 }: InjectVideoFramesOptions): Promise<void> {
   clearCachedVideoFrames();
 
-  let plan: VideoFramePlanItem[] = [];
+  // Read the frame's media plan directly from the core pipeline (issue #8):
+  // the plan carries the authoritative `timeMicros`, replacing the old
+  // `plan_video_frames` tree walk.
+  let videoFrames: MediaPlanVideoFrame[] = [];
   try {
-    plan = JSON.parse(renderer.plan_video_frames(jsonlContent, frame, resourcesJson));
+    const plan = JSON.parse(renderer.prepare_frame(frame));
+    videoFrames = (plan.videoFrames ?? []) as MediaPlanVideoFrame[];
   } catch {
     return;
   }
 
-  // Dedupe plan items by (assetId, timeMicros). The plan_video_frames path may
-  // still emit a source `frameIndex` for legacy reasons; we ignore it here and
-  // key purely on the authoritative time, matching the core media contract.
-  const byTime = new Map<string, VideoFramePlanItem>();
-  for (const item of plan) {
-    byTime.set(videoFrameKey(item.assetId, localTimeSecsToMicros(item.localTimeSecs)), item);
+  // Dedupe by (assetId, timeMicros) — the authoritative core media identity.
+  const byTime = new Map<string, MediaPlanVideoFrame>();
+  for (const item of videoFrames) {
+    byTime.set(videoFrameKey(item.assetId, BigInt(item.timeMicros)), item);
   }
 
   if (byTime.size === 0) return;
@@ -122,24 +117,17 @@ export async function injectVideoFramesForRender({
   await Promise.all(
     Array.from(byTime.values()).map(async (item) => {
       try {
-        const timeMicros = localTimeSecsToMicros(item.localTimeSecs);
+        const timeMicros = BigInt(item.timeMicros);
+        const timeSecs = microsToSecs(item.timeMicros);
         if (frameOutput === 'rgba') {
-          const decoded = await getDecodedFrameRgba(
-            item.assetId,
-            item.localTimeSecs,
-            quality,
-          );
+          const decoded = await getDecodedFrameRgba(item.assetId, timeSecs, quality);
           if (!decoded) return;
 
           decodedFrameRgbaCache.set(videoFrameKey(item.assetId, timeMicros), decoded);
           return;
         }
 
-        const decoded = await getDecodedVideoFrame(
-          item.assetId,
-          item.localTimeSecs,
-          quality,
-        );
+        const decoded = await getDecodedVideoFrame(item.assetId, timeSecs, quality);
         if (!decoded) return;
 
         const width = decoded.displayWidth || decoded.codedWidth || 0;
@@ -163,27 +151,26 @@ export async function injectVideoFramesForRender({
 
 export async function prefetchVideoFramesForRender({
   renderer,
-  jsonlContent,
   frame,
-  resourcesJson,
   quality,
 }: InjectVideoFramesOptions): Promise<void> {
-  let plan: VideoFramePlanItem[] = [];
+  let videoFrames: MediaPlanVideoFrame[] = [];
   try {
-    plan = JSON.parse(renderer.plan_video_frames(jsonlContent, frame, resourcesJson));
+    const plan = JSON.parse(renderer.prepare_frame(frame));
+    videoFrames = (plan.videoFrames ?? []) as MediaPlanVideoFrame[];
   } catch {
     return;
   }
 
-  const byTime = new Map<string, VideoFramePlanItem>();
-  for (const item of plan) {
-    byTime.set(videoFrameKey(item.assetId, localTimeSecsToMicros(item.localTimeSecs)), item);
+  const byTime = new Map<string, MediaPlanVideoFrame>();
+  for (const item of videoFrames) {
+    byTime.set(videoFrameKey(item.assetId, BigInt(item.timeMicros)), item);
   }
   if (byTime.size === 0) return;
 
   await Promise.all(
     Array.from(byTime.values()).map((item) => (
-      prefetchDecodedVideoFrame(item.assetId, item.localTimeSecs, quality)
+      prefetchDecodedVideoFrame(item.assetId, microsToSecs(item.timeMicros), quality)
     )),
   );
 }

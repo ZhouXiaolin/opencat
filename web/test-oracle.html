@@ -30,6 +30,7 @@
         preloadAssets,
         registerVideoGlobals,
         renderEncodedDrawFrame,
+        setAssetReader,
         setWasmBaseUrl,
         setWorkerBaseUrl,
       } from '/wasm/opencat.js';
@@ -37,6 +38,15 @@
       const canvas = document.getElementById('frame');
 
       function parseCompositionInfo(jsonl) {
+        const trimmedSource = jsonl.trim();
+        if (trimmedSource.startsWith('<')) {
+          const root = new DOMParser().parseFromString(trimmedSource, 'application/xml').documentElement;
+          const width = Number(root.getAttribute('width'));
+          const height = Number(root.getAttribute('height'));
+          const fps = Number(root.getAttribute('fps'));
+          const duration = Number(root.getAttribute('duration'));
+          return { width, height, fps, frames: Math.ceil(duration * fps) };
+        }
         for (const line of jsonl.split(/\r?\n/)) {
           const trimmed = line.trim();
           if (!trimmed) continue;
@@ -65,6 +75,12 @@
         setWasmBaseUrl('/wasm/');
         setWorkerBaseUrl('/wasm/');
         await initWasm();
+        setAssetReader(async (path) => {
+          const name = String(path).split('/').pop();
+          const response = await fetch(`/assets/${name}`);
+          if (!response.ok) throw new Error(`asset reader: HTTP ${response.status} for ${path}`);
+          return await response.arrayBuffer();
+        });
         const CK = await globalThis.CanvasKitInit({
           locateFile: (file) => `/canvaskit/${file}`,
         });
@@ -86,14 +102,16 @@
         canvas.width = comp.width;
         canvas.height = comp.height;
 
-        const resourceMetaJson = await preloadAssets(jsonl);
         const renderer = getRendererOrThrow();
+
+        // Host-owned pipeline (issue #8): open the design once (fetches
+        // resources, builds catalog, hydrates captions, opens pipeline),
+        // then render the requested frame.
+        await renderer.open_design(jsonl);
 
         await injectVideoFramesForRender({
           renderer,
-          jsonlContent: jsonl,
           frame,
-          resourcesJson: resourceMetaJson,
           quality: 'exact',
         });
 
@@ -106,7 +124,7 @@
           if (!surface) throw new Error('surface creation failed');
 
           const ckCanvas = surface.getCanvas();
-          const ir = renderer.build_frame_ir(jsonl, frame, resourceMetaJson);
+          const ir = renderer.build_frame_ir(frame);
           renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
           surface.flush();
 

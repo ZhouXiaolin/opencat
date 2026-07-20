@@ -22,10 +22,43 @@ function mockFn<T extends (...args: any[]) => any>(fn: T) {
   return fn as unknown as ReturnType<typeof vi.fn>;
 }
 
+// Build a renderer mock whose `prepare_frame` returns the given video
+// frames. `timeMicros` is the authoritative core media identity.
+function rendererWith(videoFrames: { assetId: string; timeMicros: number }[]) {
+  return {
+    prepare_frame: () =>
+      JSON.stringify({ videoFrames }),
+  };
+}
+
 describe('video frame injector', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearCachedVideoFrames();
+  });
+
+  test('prepares the core frame once before decoding its media plan', async () => {
+    const frameSource = {
+      displayWidth: 640,
+      displayHeight: 360,
+      close: vi.fn(),
+    } as unknown as VideoFrame;
+    mockFn(getDecodedVideoFrame).mockResolvedValue(frameSource);
+    const renderer = {
+      prepare_frame: vi.fn(() => JSON.stringify({
+        videoFrames: [{ assetId: 'video:test.mp4', timeMicros: 1_250_000 }],
+      })),
+    };
+
+    await injectVideoFramesForRender({
+      renderer: renderer as any,
+      frame: 42,
+      quality: 'exact',
+    });
+
+    expect(renderer.prepare_frame).toHaveBeenCalledOnce();
+    expect(renderer.prepare_frame).toHaveBeenCalledWith(42);
+    expect(getDecodedVideoFrame).toHaveBeenCalledWith('video:test.mp4', 1.25, 'exact');
   });
 
   test('caches decoded VideoFrame sources without forcing RGBA readback', async () => {
@@ -36,25 +69,18 @@ describe('video frame injector', () => {
     } as unknown as VideoFrame;
     mockFn(getDecodedVideoFrame).mockResolvedValue(frameSource);
 
-    const renderer = {
-      plan_video_frames: () => JSON.stringify([
-        { assetId: 'video:test.mp4', localTimeSecs: 1.25 },
-      ]),
-    };
-
+    // 1.25s = 1_250_000 micros
     await injectVideoFramesForRender({
-      renderer: renderer as any,
-      jsonlContent: '{}',
+      renderer: rendererWith([{ assetId: 'video:test.mp4', timeMicros: 1_250_000 }]) as any,
       frame: 42,
-      resourcesJson: '{}',
       quality: 'exact',
     });
 
     expect(getDecodedVideoFrame).toHaveBeenCalledWith('video:test.mp4', 1.25, 'exact');
-    expect(getCachedVideoFrameSource('video:test.mp4', 42)?.source).toBe(frameSource);
+    expect(getCachedVideoFrameSource('video:test.mp4', 1_250_000n)?.source).toBe(frameSource);
   });
 
-  test('uses resolved source frame index when caching same-asset video frames', async () => {
+  test('caches each distinct (assetId, timeMicros) from the media plan', async () => {
     const firstFrame = {
       displayWidth: 640,
       displayHeight: 360,
@@ -69,27 +95,20 @@ describe('video frame injector', () => {
       .mockResolvedValueOnce(firstFrame)
       .mockResolvedValueOnce(secondFrame);
 
-    const renderer = {
-      plan_video_frames: () => JSON.stringify([
-        { assetId: 'video:test.mp4', localTimeSecs: 1.25, frameIndex: 38 },
-        { assetId: 'video:test.mp4', localTimeSecs: 12.25, frameIndex: 368 },
-      ]),
-    };
-
     await injectVideoFramesForRender({
-      renderer: renderer as any,
-      jsonlContent: '{}',
+      renderer: rendererWith([
+        { assetId: 'video:test.mp4', timeMicros: 1_250_000 },
+        { assetId: 'video:test.mp4', timeMicros: 12_250_000 },
+      ]) as any,
       frame: 42,
-      resourcesJson: '{}',
       quality: 'exact',
     });
 
     expect(getDecodedVideoFrame).toHaveBeenCalledTimes(2);
     expect(getDecodedVideoFrame).toHaveBeenNthCalledWith(1, 'video:test.mp4', 1.25, 'exact');
     expect(getDecodedVideoFrame).toHaveBeenNthCalledWith(2, 'video:test.mp4', 12.25, 'exact');
-    expect(getCachedVideoFrameSource('video:test.mp4', 38)?.source).toBe(firstFrame);
-    expect(getCachedVideoFrameSource('video:test.mp4', 368)?.source).toBe(secondFrame);
-    expect(getCachedVideoFrameSource('video:test.mp4', 42)).toBeUndefined();
+    expect(getCachedVideoFrameSource('video:test.mp4', 1_250_000n)?.source).toBe(firstFrame);
+    expect(getCachedVideoFrameSource('video:test.mp4', 12_250_000n)?.source).toBe(secondFrame);
   });
 
   test('can cache RGBA frames for software CanvasKit export surfaces', async () => {
@@ -100,70 +119,50 @@ describe('video frame injector', () => {
     };
     mockFn(getDecodedFrameRgba).mockResolvedValue(rgbaFrame);
 
-    const renderer = {
-      plan_video_frames: () => JSON.stringify([
-        { assetId: 'video:test.mp4', localTimeSecs: 1.25 },
-      ]),
-    };
-
     await injectVideoFramesForRender({
-      renderer: renderer as any,
-      jsonlContent: '{}',
+      renderer: rendererWith([{ assetId: 'video:test.mp4', timeMicros: 1_250_000 }]) as any,
       frame: 42,
-      resourcesJson: '{}',
       quality: 'exact',
       frameOutput: 'rgba',
     });
 
     expect(getDecodedFrameRgba).toHaveBeenCalledWith('video:test.mp4', 1.25, 'exact');
     expect(getDecodedVideoFrame).not.toHaveBeenCalled();
-    expect(getCachedVideoFrameRgba('video:test.mp4', 42)).toBe(rgbaFrame);
-    expect(getCachedVideoFrameSource('video:test.mp4', 42)).toBeUndefined();
+    expect(getCachedVideoFrameRgba('video:test.mp4', 1_250_000n)).toBe(rgbaFrame);
+    expect(getCachedVideoFrameSource('video:test.mp4', 1_250_000n)).toBeUndefined();
   });
 
   test('prefetch warms worker cache without retaining a main-thread VideoFrame', async () => {
     mockFn(prefetchDecodedVideoFrame).mockResolvedValue(undefined);
-    const renderer = {
-      plan_video_frames: () => JSON.stringify([
-        { assetId: 'video:test.mp4', localTimeSecs: 2.5 },
-      ]),
-    };
 
     await prefetchVideoFramesForRender({
-      renderer: renderer as any,
-      jsonlContent: '{}',
+      renderer: rendererWith([{ assetId: 'video:test.mp4', timeMicros: 2_500_000 }]) as any,
       frame: 75,
-      resourcesJson: '{}',
       quality: 'realtime',
     });
 
     expect(prefetchDecodedVideoFrame).toHaveBeenCalledWith('video:test.mp4', 2.5, 'realtime');
     expect(getDecodedVideoFrame).not.toHaveBeenCalled();
-    expect(getCachedVideoFrameSource('video:test.mp4', 75)).toBeUndefined();
+    expect(getCachedVideoFrameSource('video:test.mp4', 2_500_000n)).toBeUndefined();
   });
 
-  test('prefetch dedupes by resolved source frame index', async () => {
+  test('prefetch dedupes by (assetId, timeMicros)', async () => {
     mockFn(prefetchDecodedVideoFrame).mockResolvedValue(undefined);
-    const renderer = {
-      plan_video_frames: () => JSON.stringify([
-        { assetId: 'video:test.mp4', localTimeSecs: 1.25, frameIndex: 38 },
-        { assetId: 'video:test.mp4', localTimeSecs: 1.30, frameIndex: 38 },
-        { assetId: 'video:test.mp4', localTimeSecs: 12.25, frameIndex: 368 },
-      ]),
-    };
 
     await prefetchVideoFramesForRender({
-      renderer: renderer as any,
-      jsonlContent: '{}',
+      renderer: rendererWith([
+        { assetId: 'video:test.mp4', timeMicros: 1_250_000 },
+        { assetId: 'video:test.mp4', timeMicros: 1_250_000 }, // dup of the first
+        { assetId: 'video:test.mp4', timeMicros: 12_250_000 },
+      ]) as any,
       frame: 42,
-      resourcesJson: '{}',
       quality: 'realtime',
     });
 
     expect(prefetchDecodedVideoFrame).toHaveBeenCalledTimes(2);
     expect(prefetchDecodedVideoFrame).toHaveBeenCalledWith(
       'video:test.mp4',
-      1.30,
+      1.25,
       'realtime',
     );
     expect(prefetchDecodedVideoFrame).toHaveBeenCalledWith(

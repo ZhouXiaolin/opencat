@@ -45,9 +45,17 @@ describe('opencat.js browser API', () => {
     expect(frame).toBeInstanceOf(Uint8Array);
 
     const renderer = {
-      build_frame_ir: (_jsonl: string, _frame: number, _resources: string) => frame,
+      build_frame_ir: (_frame: number) => frame,
     } satisfies Pick<WebRendererInstance, 'build_frame_ir'>;
 
-    expect(renderer.build_frame_ir('', 0, '{}')).toBe(frame);
+    expect(renderer.build_frame_ir(0)).toBe(frame);
+  });
+
+  test('opens a design and returns its web-owned resource catalog', async () => {
+    const renderer = {
+      open_design: async (_source: string) => '{}',
+    } satisfies Pick<WebRendererInstance, 'open_design'>;
+
+    await expect(renderer.open_design('{}')).resolves.toBe('{}');
   });
 });

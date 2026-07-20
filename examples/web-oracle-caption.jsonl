@@ -1,0 +1,3 @@
+{"type":"composition","width":480,"height":240,"fps":30,"duration":1}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[480px] h-[240px] bg-black"}
+{"id":"subs","parentId":"root","type":"caption","className":"absolute inset-0 w-[480px] h-[240px] flex items-center justify-center bg-[#b91c1c] text-[64px] font-bold text-center text-white","path":"web-oracle-caption.srt"}

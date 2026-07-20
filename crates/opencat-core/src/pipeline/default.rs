@@ -11,7 +11,7 @@ use crate::ir::asset_id::{
     asset_id_for_video,
 };
 use crate::ir::cache::RenderCache;
-use crate::ir::{CompositionInfo, DrawOpFrame, FrameMediaPlan, RenderFrame};
+use crate::ir::{CompositionInfo, RenderFrame};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
 use crate::parse::preflight::collect_resource_requests_from_parsed;
@@ -20,7 +20,7 @@ use crate::parse::primitives::{
 };
 use crate::probe::catalog::ResourceCatalog;
 use crate::probe::probe::{probe_image, probe_video};
-use crate::probe::{AssetHandle, AssetId, AssetLoader};
+use crate::probe::{AssetHandle, AssetId, AssetLoader, NoopAssetLoader};
 use crate::resource::lottie::parse_lottie_meta;
 use crate::script::js_context::JsContext;
 
@@ -46,14 +46,29 @@ pub struct DefaultPipeline<L: AssetLoader, S: JsContext> {
 }
 
 impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
+    /// **Temporary compatibility shim** — see [`Self::open_parsed`]. Migrate
+    /// to [`DefaultPipeline::open_with_prepared_catalog`]; this loader path is
+    /// removed in #11.
+    #[deprecated(
+        since = "0.1.0",
+        note = "use open_with_prepared_catalog (host-injected); this loader path is removed in #11"
+    )]
     pub fn open(input: &str, loader: L, scripts: S) -> Result<Self> {
         #[cfg(test)]
         let font_db = Arc::new(crate::text::test_default_font_db());
         #[cfg(not(test))]
         let font_db = Arc::new(crate::text::empty_font_db());
+        #[allow(deprecated)]
         Self::open_with_font_db(input, loader, scripts, font_db)
     }
 
+    /// **Temporary compatibility shim** — see [`Self::open_parsed`]. Migrate
+    /// to [`DefaultPipeline::open_with_prepared_catalog`]; this loader path is
+    /// removed in #11.
+    #[deprecated(
+        since = "0.1.0",
+        note = "use open_with_prepared_catalog (host-injected); this loader path is removed in #11"
+    )]
     pub fn open_with_font_db(
         input: &str,
         loader: L,
@@ -66,6 +81,7 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
         } else {
             crate::parse::markup::parse(input)?
         };
+        #[allow(deprecated)]
         Self::open_parsed(parsed, loader, scripts, font_db)
     }
 
@@ -74,6 +90,21 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
     }
 
     /// Open a pipeline from an already-built [`ParsedComposition`] and font database.
+    ///
+    /// **Temporary compatibility shim.** This loader-based entry point still
+    /// runs core-internal fetch + probe (`loader.load_all` + `probe_all`). The
+    /// host-injected main chain is now
+    /// [`DefaultPipeline::open_with_prepared_catalog`], which takes a catalog
+    /// the host already prepared via the `probe::prepare` chain and does no
+    /// fetch/probe/loader work.
+    ///
+    /// This shim stays only until the engine (#7) and web (#8) hosts migrate to
+    /// the prepared-catalog path; the loader seam — and this entry point — is
+    /// deleted in #11.
+    #[deprecated(
+        since = "0.1.0",
+        note = "use open_with_prepared_catalog (host-injected); this loader path is removed in #11"
+    )]
     pub fn open_parsed(
         parsed: crate::parse::ParsedComposition,
         mut loader: L,
@@ -86,32 +117,13 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
         // requests are a declarative, order-independent set.
         let requests = collect_resource_requests_from_parsed(&parsed);
 
-        let root_node = parsed.root;
-        let composition = Composition::new("pipeline")
-            .size(parsed.width, parsed.height)
-            .fps(parsed.fps as u32)
-            .duration(parsed.duration)
-            .root(move |_ctx| root_node.clone())
-            .audio_sources(parsed.audio_sources)
-            .build()?;
+        let (composition, info, live_host) =
+            build_pipeline_state(parsed, scripts, requests.clone())?;
 
         loader.load_all(&requests)?;
 
         let mut catalog = ResourceCatalog::default();
         probe_all(&loader, &requests, composition.fps, &mut catalog);
-
-        let audio_plan = crate::parse::preflight::collect_audio_plan(&composition);
-
-        let info = CompositionInfo {
-            width: composition.width as u32,
-            height: composition.height as u32,
-            fps: composition.fps,
-            duration: composition.duration,
-            requests,
-            audio_plan,
-        };
-
-        let live_host = crate::script::LiveScriptHost::new(scripts)?;
 
         Ok(Self {
             composition,
@@ -149,6 +161,105 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
     pub fn scripts(&self) -> &crate::script::LiveScriptHost<S> {
         &self.scripts
     }
+}
+
+/// Host-injected entry point for the pipeline (issue #2 / #6 main chain).
+///
+/// Lives on a concrete `DefaultPipeline<NoopAssetLoader, S>` impl block so the
+/// compiler resolves `open_with_prepared_catalog` without a loader type
+/// annotation at the call site — this path takes no loader.
+impl<S: JsContext> DefaultPipeline<NoopAssetLoader, S> {
+    /// Open a pipeline from host-prepared inputs: a parsed composition, a
+    /// [`ResourceCatalog`] the host already built (via the `probe::prepare`
+    /// chain), the script context, and the font database.
+    ///
+    /// This is the host-injected main chain (issue #2 / #6). Unlike the
+    /// deprecated loader-based
+    /// [`DefaultPipeline::open_parsed`](DefaultPipeline::<L, S>::open_parsed),
+    /// it does **no** fetch, cache, decode, or probe work and holds no loader —
+    /// the catalog's metadata is exactly what the host supplies. Core only
+    /// derives layout and `RenderFrame` output from these inputs.
+    ///
+    /// The returned pipeline carries a [`NoopAssetLoader`] only because the
+    /// struct is still parameterized over a loader during the migration window.
+    /// The noop loader is never invoked on this path; it is removed with the
+    /// loader generic in #11.
+    pub fn open_with_prepared_catalog(
+        parsed: crate::parse::ParsedComposition,
+        catalog: ResourceCatalog,
+        scripts: S,
+        font_db: Arc<fontdb::Database>,
+    ) -> Result<Self> {
+        let requests = collect_resource_requests_from_parsed(&parsed);
+
+        let (composition, info, live_host) = build_pipeline_state(parsed, scripts, requests)?;
+
+        Ok(Self {
+            composition,
+            info,
+            catalog,
+            // The host-injected path owns no loader. `NoopAssetLoader` is a
+            // placeholder so the pipeline struct type-checks during the
+            // migration; it is deleted with the loader generic in #11.
+            loader: NoopAssetLoader,
+            scripts: live_host,
+            layout_session: LayoutSession::new(),
+            display_build_session: DisplayBuildSession::new(),
+            composite_history: CompositeHistory::default(),
+            analyze_fingerprint_history: AnalyzeFingerprintHistory::default(),
+            font_db,
+            cache: RenderCache::new(
+                DEFAULT_NODE_OWN_CAP,
+                DEFAULT_SEGMENT_CAP,
+                DEFAULT_ITEM_RANGE_CAP,
+            ),
+            last_ordered_scene: OrderedSceneProgram {
+                root: OrderedSceneOp::LiveSubtree {
+                    handle: AnnotatedNodeHandle(0),
+                    children: Vec::new(),
+                },
+            },
+        })
+    }
+}
+
+/// Build the loader-independent pipeline state shared by every entry point:
+/// the [`Composition`] (with the parsed root frozen into its closure), the
+/// [`CompositionInfo`] (carrying the declarative, order-independent
+/// [`ResourceRequests`] and the audio plan), and the live script host.
+///
+/// This owns no fetch/probe/loader logic — it is pure derivation from the
+/// parsed composition. The caller is responsible for producing the
+/// [`ResourceCatalog`]: the deprecated loader path runs `probe_all` itself,
+/// the host-injected path takes a host-prepared catalog as-is.
+fn build_pipeline_state<S: JsContext>(
+    parsed: crate::parse::ParsedComposition,
+    scripts: S,
+    requests: crate::probe::catalog::ResourceRequests,
+) -> Result<(Composition, CompositionInfo, crate::script::LiveScriptHost<S>)> {
+    let root_node = parsed.root;
+    let composition = Composition::new("pipeline")
+        .size(parsed.width, parsed.height)
+        .fps(parsed.fps as u32)
+        .duration(parsed.duration)
+        .root(move |_ctx| root_node.clone())
+        .audio_sources(parsed.audio_sources)
+        .build()?;
+
+    let audio_plan = crate::parse::preflight::collect_audio_plan(&composition);
+
+    let info = CompositionInfo {
+        width: composition.width as u32,
+        height: composition.height as u32,
+        fps: composition.fps,
+        duration: composition.duration,
+        requests,
+        audio_plan,
+    };
+
+    let live_host = crate::script::LiveScriptHost::new(scripts)?;
+
+    Ok((composition, info, live_host))
 }
 
 fn source_to_image_id(src: &ImageSource) -> Option<AssetId> {
@@ -275,11 +386,19 @@ impl<L: AssetLoader, S: JsContext> Pipeline for DefaultPipeline<L, S> {
 
 #[cfg(test)]
 mod tests {
+    // The tests in this module intentionally exercise the deprecated loader
+    // compatibility shims (`open` / `open_with_font_db` / `open_parsed`) to
+    // prove the migration bridge still works while hosts move to
+    // `open_with_prepared_catalog`. The new host-injected path is covered by
+    // the `open_with_prepared_catalog_*` tests below.
+    #![allow(deprecated)]
+
     use std::borrow::Cow;
     use std::collections::HashMap;
     use std::sync::Arc;
 
     use super::*;
+    use crate::ir::DrawOpFrame;
     use crate::probe::{AssetHandle, AssetLoader as AssetLoaderTrait};
     use crate::script::js_context::JsContext;
     use crate::script::recorder::MutationStore;
@@ -339,6 +458,40 @@ mod tests {
         }
     }
 
+    /// Open a pipeline through the host-injected main chain
+    /// (`open_with_prepared_catalog`), mirroring what a real host does:
+    /// parse the source, collect declarative requests, build a catalog via the
+    /// pure `build_catalog` over empty bytes (every asset omitted — these are
+    /// render-seam tests, not asset-decoding tests), then open with the test
+    /// font database.
+    ///
+    /// Behavior tests use this so they exercise the highest render seam
+    /// (`render_frame -> RenderFrame`) on the new main chain rather than the
+    /// deprecated loader shim.
+    fn open_host_injected(
+        input: &str,
+    ) -> DefaultPipeline<NoopAssetLoader, NoopJsContext> {
+        let trimmed = input.trim();
+        let parsed = if trimmed.starts_with('{') {
+            crate::parse::jsonl::parse(input).expect("parse input")
+        } else {
+            crate::parse::markup::parse(input).expect("parse input")
+        };
+        let requests = collect_resource_requests_from_parsed(&parsed);
+        let catalog = crate::probe::build_catalog(
+            &requests,
+            &HashMap::<String, Vec<u8>>::new(),
+        )
+        .catalog;
+        DefaultPipeline::open_with_prepared_catalog(
+            parsed,
+            catalog,
+            NoopJsContext::new().expect("js context"),
+            Arc::new(crate::text::test_default_font_db()),
+        )
+        .expect("open host-injected pipeline")
+    }
+
     #[test]
     fn open_empty_composition_returns_info() {
         let jsonl = r#"{"type":"composition","width":100,"height":200,"fps":30,"duration":0.033333333333}
@@ -361,10 +514,7 @@ mod tests {
 {"type":"div","id":"root","parentId":null}
 {"type":"div","id":"child","parentId":"root","bg":"#ff0000","w":100,"h":50}"##;
 
-        let loader = InMemoryLoader::default();
-        let ctx = NoopJsContext::new().expect("js context");
-
-        let mut pipeline = DefaultPipeline::open(jsonl, loader, ctx).expect("open");
+        let mut pipeline = open_host_injected(jsonl);
 
         let frame = pipeline.render_frame(0).expect("render frame 0");
 
@@ -383,9 +533,7 @@ mod tests {
   </div>
 </opencat>"#;
 
-        let loader = InMemoryLoader::default();
-        let ctx = NoopJsContext::new().expect("js context");
-        let mut pipeline = DefaultPipeline::open(xml, loader, ctx).expect("open");
+        let mut pipeline = open_host_injected(xml);
 
         let frame = pipeline.render_frame(90).expect("render frame 90");
 
@@ -409,9 +557,7 @@ mod tests {
   </tl>
 </opencat>"#;
 
-        let loader = InMemoryLoader::default();
-        let ctx = NoopJsContext::new().expect("js context");
-        let mut pipeline = DefaultPipeline::open(xml, loader, ctx).expect("open");
+        let mut pipeline = open_host_injected(xml);
 
         let before_frame = pipeline
             .render_frame(25)
@@ -480,9 +626,7 @@ mod tests {
   </div>
 </opencat>"#;
 
-        let loader = InMemoryLoader::default();
-        let ctx = NoopJsContext::new().expect("js context");
-        let mut pipeline = DefaultPipeline::open(xml, loader, ctx).expect("open");
+        let mut pipeline = open_host_injected(xml);
 
         let before_frame = pipeline.render_frame(0).expect("render frame 0");
         assert!(
@@ -531,12 +675,8 @@ mod tests {
         let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"duration":0.5}
 {"type":"div","id":"root","parentId":null,"bg":"#00ff00","w":100,"h":100}"##;
 
-        let loader = InMemoryLoader::default();
-        let ctx1 = NoopJsContext::new().expect("js context 1");
-        let ctx2 = NoopJsContext::new().expect("js context 2");
-
-        let mut p1 = DefaultPipeline::open(jsonl, InMemoryLoader::default(), ctx1).expect("open 1");
-        let mut p2 = DefaultPipeline::open(jsonl, InMemoryLoader::default(), ctx2).expect("open 2");
+        let mut p1 = open_host_injected(jsonl);
+        let mut p2 = open_host_injected(jsonl);
 
         for i in 0..5 {
             let r1 = p1.render_frame(i).expect("render p1");
@@ -557,9 +697,7 @@ mod tests {
   </div>
 </opencat>"#;
 
-        let loader = InMemoryLoader::default();
-        let ctx = NoopJsContext::new().expect("js context");
-        let mut pipeline = DefaultPipeline::open(xml, loader, ctx).expect("open");
+        let mut pipeline = open_host_injected(xml);
 
         let target = 90_u32; // well past data-start, so the video ref is active
 
@@ -919,5 +1057,197 @@ mod tests {
         assert_eq!(pipeline.info().height, 100);
         assert_eq!(pipeline.info().fps, 30);
         assert!((pipeline.info().duration - 1.0 / 30.0).abs() < 1e-9);
+    }
+
+    // ---- Host-injected entry point (issue #6) ------------------------------------
+    //
+    // These tests exercise `open_with_prepared_catalog` — the host-injected main
+    // chain — at the highest render seam (`render_frame -> RenderFrame`). They
+    // prove the new path does no fetch/probe/loader work: the host-supplied
+    // `ResourceCatalog` is the single source of metadata.
+
+    use crate::ir::asset_id::asset_id_for_image;
+    use crate::parse::primitives::image;
+    use crate::probe::catalog::ImageMeta;
+    use crate::probe::{NoopAssetLoader, ResourceCatalog as ProbeResourceCatalog};
+    use crate::resource::fonts::FontManifest;
+
+    /// Build a minimal `ParsedComposition` from a root node, for tests that
+    /// drive the pipeline without going through markup/jsonl parsing.
+    fn parsed_from_root(root: crate::Node, width: i32, height: i32, fps: u32, duration: f64) -> crate::parse::ParsedComposition {
+        crate::parse::ParsedComposition {
+            width,
+            height,
+            fps: fps as i32,
+            duration,
+            root,
+            script: None,
+            audio_sources: vec![],
+            font_manifest: FontManifest::default(),
+        }
+    }
+
+    /// AC #1, #2, #4, #5: opening via the host-injected path renders a frame
+    /// with no loader involvement. The host supplies an empty catalog (built
+    /// via the prepare chain with no bytes); `render_frame` must still produce
+    /// draw ops and a media plan.
+    #[test]
+    fn open_with_prepared_catalog_renders_without_a_loader() {
+        // Host side: parse a tree, collect declarative requests, build a catalog
+        // with the pure `build_catalog` over *no* bytes (every asset omitted).
+        let root: crate::Node = crate::parse::primitives::div().id("root").into();
+        let parsed = parsed_from_root(root, 320, 240, 30, 0.1);
+
+        let requests = collect_resource_requests_from_parsed(&parsed);
+        let prepared = crate::probe::build_catalog(&requests, &std::collections::HashMap::<String, Vec<u8>>::new());
+        // Empty composition declares nothing, so the catalog is empty and the
+        // pipeline must still open and render.
+        assert!(prepared.catalog.images.is_empty());
+
+        let ctx = NoopJsContext::new().expect("js context");
+        let mut pipeline = DefaultPipeline::open_with_prepared_catalog(
+            parsed,
+            prepared.catalog,
+            ctx,
+            Arc::new(crate::text::test_default_font_db()),
+        )
+        .expect("open host-injected pipeline");
+
+        let frame = pipeline.render_frame(0).expect("render frame 0");
+        assert!(
+            !frame.draw.ops.is_empty(),
+            "host-injected pipeline should still produce DrawOps"
+        );
+        let _ = frame.media;
+    }
+
+    /// AC #2: the host-supplied catalog is the source of truth. A host that
+    /// probed image bytes and stored metadata under the canonical `AssetId`
+    /// must see that exact metadata surface from `pipeline.catalog()` — the
+    /// pipeline did not re-probe, re-fetch, or invent anything.
+    #[test]
+    fn open_with_prepared_catalog_uses_host_supplied_metadata() {
+        // A composition that declares one image source.
+        let img = image().id("hero").path("/tmp/hero.png");
+        let root: crate::Node = crate::parse::primitives::div().id("root").child(img).into();
+        let parsed = parsed_from_root(root, 320, 240, 30, 0.1);
+
+        // Host collects the declarative request and derives the canonical id.
+        let requests = collect_resource_requests_from_parsed(&parsed);
+        let declared = requests.images.iter().next().expect("one image declared");
+        let canonical = asset_id_for_image(declared).expect("path source has an id");
+
+        // Host supplies a catalog with metadata it probed itself. The pipeline
+        // must take it as-is rather than running the internal probe path.
+        let mut catalog = ProbeResourceCatalog::default();
+        catalog.images.insert(canonical.clone(), ImageMeta { width: 42, height: 17 });
+
+        let ctx = NoopJsContext::new().expect("js context");
+        let pipeline = DefaultPipeline::open_with_prepared_catalog(
+            parsed,
+            catalog,
+            ctx,
+            Arc::new(crate::text::test_default_font_db()),
+        )
+        .expect("open host-injected pipeline");
+
+        let stored = pipeline
+            .catalog()
+            .images
+            .get(&canonical)
+            .expect("host metadata must survive opening unchanged");
+        assert_eq!((stored.width, stored.height), (42, 17));
+    }
+
+    /// AC #5: the host-injected path is as order- and repeat-invariant as the
+    /// loader path. Call history must not leak into the per-frame contract.
+    #[test]
+    fn open_with_prepared_catalog_is_order_and_repeat_invariant() {
+        let root: crate::Node = crate::parse::primitives::div()
+            .id("root")
+            .w(100.0)
+            .h(100.0)
+            .bg_red()
+            .into();
+
+        let open_fresh = || -> DefaultPipeline<NoopAssetLoader, NoopJsContext> {
+            let parsed = parsed_from_root(root.clone(), 100, 100, 10, 0.5);
+            let requests = collect_resource_requests_from_parsed(&parsed);
+            let catalog = crate::probe::build_catalog(
+                &requests,
+                &std::collections::HashMap::<String, Vec<u8>>::new(),
+            )
+            .catalog;
+            DefaultPipeline::open_with_prepared_catalog(
+                parsed,
+                catalog,
+                NoopJsContext::new().expect("js context"),
+                Arc::new(crate::text::test_default_font_db()),
+            )
+            .expect("open")
+        };
+
+        let mut pipeline = open_fresh();
+        let target = 4_u32;
+
+        // (1) Fresh pipeline renders the target frame directly.
+        let baseline = pipeline.render_frame(target).expect("baseline render");
+
+        // (2) Same pipeline renders other frames out of order, then returns.
+        let _ = pipeline.render_frame(2).expect("render 2");
+        let _ = pipeline.render_frame(0).expect("render 0");
+        let after_out_of_order = pipeline
+            .render_frame(target)
+            .expect("render target after out-of-order");
+
+        assert_eq!(
+            baseline.draw.ops, after_out_of_order.draw.ops,
+            "draw ops must be identical regardless of call history"
+        );
+        assert_eq!(
+            baseline.media.images, after_out_of_order.media.images,
+            "media plan images must be identical regardless of call history"
+        );
+
+        // (3) Repeat the target frame immediately — still identical.
+        let repeated = pipeline.render_frame(target).expect("repeat render");
+        assert_eq!(
+            baseline.draw.ops, repeated.draw.ops,
+            "draw ops must be identical on repeat render"
+        );
+    }
+
+    /// AC #4: the host-injected pipeline carries the font database the host
+    /// built, so core shaping/layout stays usable. Rendering a text frame must
+    /// not panic and must produce at least one draw op.
+    #[test]
+    fn open_with_prepared_catalog_carries_font_db() {
+        let root: crate::Node = crate::parse::primitives::div()
+            .id("root")
+            .child(crate::parse::primitives::text("Hi").id("label"))
+            .into();
+        let parsed = parsed_from_root(root, 200, 80, 30, 0.1);
+
+        let requests = collect_resource_requests_from_parsed(&parsed);
+        let catalog = crate::probe::build_catalog(
+            &requests,
+            &std::collections::HashMap::<String, Vec<u8>>::new(),
+        )
+        .catalog;
+
+        let ctx = NoopJsContext::new().expect("js context");
+        let mut pipeline = DefaultPipeline::open_with_prepared_catalog(
+            parsed,
+            catalog,
+            ctx,
+            Arc::new(crate::text::test_default_font_db()),
+        )
+        .expect("open");
+
+        let frame = pipeline.render_frame(0).expect("render text frame");
+        assert!(
+            !frame.draw.ops.is_empty(),
+            "text frame should still emit draw ops under the host-injected path"
+        );
     }
 }

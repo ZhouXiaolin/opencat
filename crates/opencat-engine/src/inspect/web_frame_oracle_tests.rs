@@ -170,9 +170,23 @@ fn chromedriver_lottie_frame_matches_engine() -> Result<()> {
     run_oracle_test("examples/lottie-cat-loader.xml", 125)
 }
 
+/// Web color-emoji parity (issue #10): 😀 rasterizes in core to a
+/// `GeneratedImageTable` entry; on web it must flow through the OCIR
+/// generated-image delta and render via CanvasKit. This oracle compares the
+/// web emoji path against the engine ground truth (which #9 proved correct).
+/// Kept `#[ignore]` like the other browser oracles — it needs chromedriver +
+/// Chrome + the web facade built (`bun run build` in crates/opencat-web/web).
+#[test]
+#[ignore = "diagnostic browser oracle; run explicitly to compare the current engine/web frame"]
+fn chromedriver_color_emoji_frame_matches_engine() -> Result<()> {
+    run_oracle_test("examples/web-oracle-emoji.xml", 0)
+}
+
 fn web_source_for_oracle(path: &str, source: &str) -> String {
     match path {
-        "examples/web-oracle-font.xml" => source.replace("path=\"../assets/", "url=\"/fonts/"),
+        "examples/web-oracle-font.xml" | "examples/web-oracle-emoji.xml" => {
+            source.replace("path=\"../assets/", "url=\"/fonts/")
+        }
         _ => source.to_string(),
     }
 }

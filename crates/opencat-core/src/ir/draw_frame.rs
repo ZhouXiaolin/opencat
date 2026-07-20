@@ -1,4 +1,5 @@
 use super::draw_op::DrawOp;
+use super::media_plan::FrameMediaPlan;
 
 /// Typed in-memory render frame consumed by platform executors directly.
 /// Contains all side-table data that DrawOp IDs reference.
@@ -16,6 +17,23 @@ pub struct DrawOpFrame {
     pub ranges: Vec<super::draw_types::DrawOpRange>,
     pub resources: Vec<super::draw_types::ResourceRef>,
     pub effects: Vec<super::draw_types::EffectRef>,
+}
+
+/// The single deterministic per-frame output contract of the render pipeline.
+///
+/// `draw` is the precise draw-IR for this frame; `media` is the host-facing
+/// media preparation plan for this frame (images, video frames, Lottie bundles,
+/// runtime effects). Both halves are a pure function of the composition and the
+/// requested `frame_index`: rendering the same frame on the same pipeline —
+/// directly, out of order, or repeatedly — must yield field-by-field identical
+/// results regardless of call history.
+///
+/// Core outputs only the current frame's needs. Hosts implement fetch, decode,
+/// cache, seek, prefetch, and export independently.
+#[derive(Clone, Debug)]
+pub struct RenderFrame {
+    pub draw: DrawOpFrame,
+    pub media: FrameMediaPlan,
 }
 
 /// Reusable scratch buffers for binary encoding, owned by RenderSession.

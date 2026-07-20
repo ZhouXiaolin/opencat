@@ -875,7 +875,9 @@ mod app {
     ) -> Result<()> {
         gpu_target.begin_frame(width, height)?;
         let canvas = gpu_target.canvas_mut()?;
-        let (mut frame, media_plan) = pipeline.render_frame(frame_index)?;
+        let render = pipeline.render_frame(frame_index)?;
+        let mut frame = render.draw;
+        let media_plan = render.media;
         let header = RenderSessionHeader {
             composition_size,
             fps,

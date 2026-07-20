@@ -57,6 +57,7 @@ fn prepare_frame(
     let mut sk_images = Vec::new();
     let mut image_index = HashMap::new();
 
+    // External (static asset) image references.
     for image_ref in &plan.images {
         match image_ref {
             ImageRef::Static { asset_id } => {
@@ -71,10 +72,19 @@ fn prepare_frame(
                     }
                 }
             }
+            // Static bucket only carries external images; video refs live in
+            // `plan.video_frames`. Defensive: ignore any other variant here.
+            ImageRef::VideoFrame { .. } => {}
+        }
+    }
+
+    // Video frame references: resolved from the authoritative `time_micros`,
+    // never from a source frame index (the contract carries none).
+    for image_ref in &plan.video_frames {
+        match image_ref {
             ImageRef::VideoFrame {
                 asset_id,
                 time_micros,
-                ..
             } => {
                 let aid = AssetId(asset_id.clone());
                 let path = loader
@@ -104,6 +114,8 @@ fn prepare_frame(
                 sk_images.push(sk_image);
                 image_index.insert(image_ref.clone(), idx);
             }
+            // Defensive: the video bucket only carries video refs.
+            ImageRef::Static { .. } => {}
         }
     }
 

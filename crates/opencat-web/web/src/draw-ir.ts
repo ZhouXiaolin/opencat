@@ -136,7 +136,7 @@ const lottieCache = new Map<string, ManagedSkottieAnimation>();
 
 type Rect4 = { x: number; y: number; width: number; height: number };
 type Range = { start: number; len: number };
-type DecodedImageRef = { type: 'static'; assetId: string } | { type: 'video'; assetId: string; frame: number; timeMicros: bigint };
+type DecodedImageRef = { type: 'static'; assetId: string } | { type: 'video'; assetId: string; timeMicros: bigint };
 
 type FillSpec =
   | { type: 'solid'; color: [number, number, number, number] }
@@ -901,17 +901,15 @@ function readIrGradientStops(reader: BinaryReader): { stops: number[]; colors: n
 function readImageRef(payload: Payload, frame: DecodedFrame): DecodedImageRef {
   const tag = payload.u8();
   const assetId = frame.strings[payload.u32()] ?? '';
-  const frameIndex = payload.u32();
   const timeMicros = payload.u64();
-  return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, frame: frameIndex, timeMicros };
+  return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, timeMicros };
 }
 
 function readImageRefFromReader(reader: BinaryReader, strings: string[]): DecodedImageRef {
   const tag = reader.u8();
   const assetId = strings[reader.u32()] ?? '';
-  const frameIndex = reader.u32();
   const timeMicros = reader.u64();
-  return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, frame: frameIndex, timeMicros };
+  return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, timeMicros };
 }
 
 function buildPaintById(CK: CanvasKit, frame: DecodedFrame, paintId: number): Paint {
@@ -1110,11 +1108,11 @@ function resolveImage(
     return ckImage;
   }
 
-  const transientKey = `${image.assetId}\0${image.frame}`;
+  const transientKey = `${image.assetId}\0${image.timeMicros}`;
   const existing = transientImageCache.get(transientKey);
   if (existing) return existing;
 
-  const source = getCachedVideoFrameSource(image.assetId, image.frame);
+  const source = getCachedVideoFrameSource(image.assetId, image.timeMicros);
   if (source) {
     const info = {
       width: source.width,
@@ -1133,7 +1131,7 @@ function resolveImage(
     }
   }
 
-  const cached = getCachedVideoFrameRgba(image.assetId, image.frame);
+  const cached = getCachedVideoFrameRgba(image.assetId, image.timeMicros);
   if (!cached) return null;
   const ckImage = CK.MakeImage(
     {

@@ -558,26 +558,23 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         }
 
         // ===================================================================
-        // Image — tag(1) + string_id(4) + frame_index(4) + time_micros(8) + x(4) + y(4) + paint_id(4)
+        // Image — tag(1) + string_id(4) + time_micros(8) + x(4) + y(4) + paint_id(4)
         // ===================================================================
         DrawOp::Image { image, x, y, paint } => {
-            // Payload: 1 + 4 + 4 + 8 + 4 + 4 + 4 = 29
-            write_op_header(buf, opcode::IMAGE, 29);
+            // Payload: 1 + 4 + 8 + 4 + 4 + 4 = 25
+            write_op_header(buf, opcode::IMAGE, 25);
             match image {
                 ImageRef::Static { asset_id } => {
                     write_u8(buf, 0); // tag: Static
                     write_u32(buf, lookup_string_id(strings, asset_id));
-                    write_u32(buf, 0); // frame_index = 0
                     write_u64(buf, 0); // time_micros = 0
                 }
                 ImageRef::VideoFrame {
                     asset_id,
-                    frame_index,
                     time_micros,
                 } => {
                     write_u8(buf, 1); // tag: VideoFrame
                     write_u32(buf, lookup_string_id(strings, asset_id));
-                    write_u32(buf, *frame_index);
                     write_u64(buf, *time_micros);
                 }
             }
@@ -587,7 +584,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         }
 
         // ===================================================================
-        // ImageRect — tag(1) + string_id(4) + frame_index(4) + time_micros(8) +
+        // ImageRect — tag(1) + string_id(4) + time_micros(8) +
         //             has_src(1) + src(16) + dst(16) + paint_id(4)
         // ===================================================================
         DrawOp::ImageRect {
@@ -596,23 +593,20 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             dst,
             paint,
         } => {
-            // Payload: 1 + 4 + 4 + 8 + 1 + 16 + 16 + 4 = 54
-            write_op_header(buf, opcode::IMAGE_RECT, 54);
+            // Payload: 1 + 4 + 8 + 1 + 16 + 16 + 4 = 50
+            write_op_header(buf, opcode::IMAGE_RECT, 50);
             match image {
                 ImageRef::Static { asset_id } => {
                     write_u8(buf, 0); // tag: Static
                     write_u32(buf, lookup_string_id(strings, asset_id));
-                    write_u32(buf, 0); // frame_index = 0
                     write_u64(buf, 0); // time_micros = 0
                 }
                 ImageRef::VideoFrame {
                     asset_id,
-                    frame_index,
                     time_micros,
                 } => {
                     write_u8(buf, 1); // tag: VideoFrame
                     write_u32(buf, lookup_string_id(strings, asset_id));
-                    write_u32(buf, *frame_index);
                     write_u64(buf, *time_micros);
                 }
             }
@@ -1105,7 +1099,6 @@ mod tests {
         builder.push(DrawOp::ImageRect {
             image: ImageRef::VideoFrame {
                 asset_id: "clip.mp4".to_string(),
-                frame_index: 42,
                 time_micros: 1_400_000,
             },
             src: None,
@@ -1320,8 +1313,8 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_frame(&frame, &mut scratch);
 
-        // 8 header + 29 payload = 37, padded to 40
-        assert_eq!(encoded.ops.len(), 40);
+        // 8 header + 25 payload = 33, padded to 36
+        assert_eq!(encoded.ops.len(), 36);
         assert_eq!(encoded.ops.len() % 4, 0);
     }
 
@@ -1332,7 +1325,6 @@ mod tests {
         builder.push(DrawOp::ImageRect {
             image: ImageRef::VideoFrame {
                 asset_id: "clip.mp4".to_string(),
-                frame_index: 7,
                 time_micros: 233_333,
             },
             src: None,
@@ -1348,8 +1340,8 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_frame(&frame, &mut scratch);
 
-        // 8 header + 54 payload = 62, padded to 64
-        assert_eq!(encoded.ops.len(), 64);
+        // 8 header + 50 payload = 58, padded to 60 (4-byte alignment)
+        assert_eq!(encoded.ops.len(), 60);
         assert_eq!(encoded.ops.len() % 4, 0);
     }
 

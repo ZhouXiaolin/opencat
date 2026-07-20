@@ -34,6 +34,45 @@ pub trait AssetLoader {
     fn handle(&self, id: &AssetId) -> Option<&Self::Handle>;
 }
 
+/// Zero-sized loader that owns no bytes.
+///
+/// This exists only so the host-injected pipeline entry point
+/// [`DefaultPipeline::open_with_prepared_catalog`](crate::pipeline::DefaultPipeline::open_with_prepared_catalog)
+/// can return a `DefaultPipeline<NoopAssetLoader, S>` while the pipeline struct
+/// is still parameterized over a loader. The host-injected path never calls
+/// `load_all` or `handle` — its catalog is already prepared by the host via the
+/// `probe::prepare` chain.
+///
+/// **Temporary bridge:** removed together with the loader seam in #11, when
+/// `DefaultPipeline` drops its loader generic and the legacy loader-based entry
+/// points are deleted.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct NoopAssetLoader;
+
+#[derive(Clone, Copy, Debug)]
+pub struct NoopAssetHandle;
+
+impl AssetHandle for NoopAssetHandle {
+    fn read_bytes(&self) -> Result<Cow<'_, [u8]>> {
+        // A noop loader owns no bytes; callers must never reach here. The
+        // host-injected render path reads metadata from the prepared catalog,
+        // not from handles.
+        anyhow::bail!("NoopAssetLoader owns no bytes")
+    }
+}
+
+impl AssetLoader for NoopAssetLoader {
+    type Handle = NoopAssetHandle;
+    fn load_all(&mut self, _requests: &ResourceRequests) -> Result<()> {
+        // Noop: the host has already prepared the catalog before opening the
+        // pipeline. There is nothing to fetch.
+        Ok(())
+    }
+    fn handle(&self, _id: &AssetId) -> Option<&Self::Handle> {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

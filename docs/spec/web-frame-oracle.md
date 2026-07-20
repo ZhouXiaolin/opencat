@@ -1,5 +1,9 @@
 # Web Frame Oracle — web-vs-engine SSIM regression
 
+完整的 native CLI 基线与 Web oracle 分层对齐流程见
+[`docs/ssim-render-alignment.md`](../ssim-render-alignment.md)。本文聚焦 browser
+oracle 的实现和 issue #8 基线。
+
 The oracle test in
 [`crates/opencat-engine/src/inspect/web_frame_oracle_tests.rs`](../../crates/opencat-engine/src/inspect/web_frame_oracle_tests.rs)
 renders a single frame of a design **two ways** and compares them with SSIM:

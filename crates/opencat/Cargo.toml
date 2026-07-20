@@ -7,6 +7,9 @@ edition.workspace = true
 profile = ["opencat-core/profile"]
 
 [dependencies]
+roxmltree = "0.21.1"
+tokio = { version = "1.51.0", features = ["rt-multi-thread"] }
+serde_json.workspace = true
 opencat-core = { path = "../opencat-core" }
 opencat-engine = { path = "../opencat-engine" }
 
@@ -58,3 +61,7 @@ windows-sys = { version = "0.61.2", features = [
 # calls eglGetProcAddress), so EGL — not GLX — is the required backend here.
 khronos-egl = { version = "6", features = ["dynamic"] }
 libc = "0.2"
+
+[[bin]]
+name = "opencat-web-compare"
+path = "src/bin/opencat-web-compare.rs"

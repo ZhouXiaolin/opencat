@@ -1,10 +1,40 @@
 use opencat_core::ir::draw_encoding::encode_draw_frame;
 use opencat_core::ir::draw_frame::{DrawFrameScratch, DrawOpFrame};
 use opencat_core::ir::media_plan::FrameMediaPlan;
-use opencat_core::platform::frame_consumer::{FrameConsumer, RenderSessionHeader};
 use wasm_bindgen::JsValue;
 
 use crate::wasm_bridge::{GeneratedImageRecord, encode_ir_envelope, intern_image_strings};
+
+// ---------------------------------------------------------------------------
+// Web-owned frame consumer seam.
+//
+// `RenderSessionHeader` + `FrameConsumer` previously lived in core's
+// `platform` module, but core never implements or invokes them — only the
+// engine and web hosts do. They now live in each host: here for the web
+// (CanvasKit path), and in `opencat-engine::consumer` for the Skia path.
+// The trait shape is intentionally identical so the two hosts stay in lockstep.
+// ---------------------------------------------------------------------------
+
+/// Header information passed to web frame consumers.
+#[derive(Clone, Copy, Debug)]
+pub struct RenderSessionHeader {
+    pub composition_size: (u32, u32),
+    pub fps: u32,
+    pub frames: u32,
+}
+
+/// A consumer that processes a single rendered frame (web / CanvasKit path).
+pub trait FrameConsumer {
+    type Output;
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    fn consume_frame(
+        &mut self,
+        header: &RenderSessionHeader,
+        draw: &mut DrawOpFrame,
+        plan: &FrameMediaPlan,
+    ) -> Result<Self::Output, Self::Error>;
+}
 
 /// Error wrapper bridging JsValue into std::error::Error.
 #[derive(Debug)]

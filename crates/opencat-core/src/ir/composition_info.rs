@@ -1,4 +1,4 @@
-use crate::probe::catalog::{AudioPlan, ResourceRequests};
+use crate::probe::catalog::ResourceRequests;
 
 #[derive(Clone, Debug, Default)]
 pub struct CompositionInfo {
@@ -7,5 +7,4 @@ pub struct CompositionInfo {
     pub fps: u32,
     pub duration: f64,
     pub requests: ResourceRequests,
-    pub audio_plan: AudioPlan,
 }

@@ -49,18 +49,6 @@ pub struct VideoInfoMeta {
     pub duration_ms: Option<u64>,
 }
 
-#[derive(Default, Clone, Debug)]
-pub struct AudioPlan {
-    pub segments: Vec<AudioSegment>,
-}
-
-#[derive(Clone, Debug)]
-pub struct AudioSegment {
-    pub asset: AssetId,
-    pub start_ms: u64,
-    pub end_ms: u64,
-}
-
 impl crate::resource::catalog::ResourceCatalog for ResourceCatalog {
     fn resolve_image(&mut self, src: &ImageSource) -> anyhow::Result<AssetId> {
         match crate::ir::asset_id::asset_id_for_image(src) {

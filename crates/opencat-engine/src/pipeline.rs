@@ -3,8 +3,8 @@
 //! The engine is the host: it owns fetch/cache, runs the pure metadata probes,
 //! hydrates subtitles, and builds the font database — then hands a prepared
 //! [`ResourceCatalog`] to core's [`DefaultPipeline::open_with_prepared_catalog`].
-//! Core derives only layout and `RenderFrame` output; it carries a
-//! [`NoopAssetLoader`] and never touches the file system.
+//! Core derives only layout and `RenderFrame` output and never touches the file
+//! system; it no longer carries a loader.
 //!
 //! [`EnginePipelineHost`] bundles the resulting core pipeline together with the
 //! engine resource owner ([`EngineLoader`]) so render/audio code can reach the
@@ -19,8 +19,6 @@ use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::preflight::{collect_external_manifest, collect_resource_requests_from_parsed};
 use opencat_core::parse::{BuildOptions, CanvasChildrenMode, build_parsed_document, parse_parts_with_base_dir};
 use opencat_core::pipeline::DefaultPipeline;
-use opencat_core::probe::AssetLoader;
-use opencat_core::probe::NoopAssetLoader;
 use opencat_core::probe::catalog::ResourceCatalog;
 use opencat_core::probe::prepare::{build_catalog, hydrate_captions};
 
@@ -29,12 +27,9 @@ use crate::fonts::{engine_default_font_db, engine_font_db_with_document_fonts};
 use crate::js_context::RqJsContext;
 use crate::resource::loader::EngineLoader;
 
-/// Core pipeline monomorphised on the host-injected (loader-free) path.
-///
-/// The loader generic is still present on the struct during the migration window
-/// (removed in #11); on this path it is always [`NoopAssetLoader`] and is never
-/// invoked.
-type CorePipeline = DefaultPipeline<NoopAssetLoader, RqJsContext>;
+/// Core pipeline opened by the engine on the host-injected (loader-free) path
+/// via [`DefaultPipeline::open_with_prepared_catalog`].
+type CorePipeline = DefaultPipeline<RqJsContext>;
 
 /// Engine host: owns the core pipeline **and** the engine resource owner.
 ///

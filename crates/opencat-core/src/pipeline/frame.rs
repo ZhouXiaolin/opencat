@@ -16,7 +16,7 @@ use crate::analyze::invalidation::{CompositeHistory, mark_display_tree_apply_cha
 use crate::display::build::DisplayBuildSession;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
 use crate::ir::cache::{RenderCache, SceneSnapshotEntry};
-use crate::ir::{DrawOpFrame, FrameMediaPlan};
+use crate::ir::{DrawOpFrame, FrameMediaPlan, RenderFrame};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
 use crate::render::RenderCtx;
@@ -244,7 +244,7 @@ pub fn render_frame(
     session: &mut RenderSession,
     script: &mut dyn ScriptHost,
     blob_store: Option<&dyn BlobStore>,
-) -> Result<(DrawOpFrame, FrameMediaPlan)> {
+) -> Result<RenderFrame> {
     let RenderSession {
         ref mut layout_session,
         ref mut display_build_session,
@@ -257,7 +257,7 @@ pub fn render_frame(
         ..
     } = *session;
 
-    render_frame_with_state(
+    let (draw, media) = render_frame_with_state(
         composition,
         frame_index,
         layout_session,
@@ -270,7 +270,8 @@ pub fn render_frame(
         last_ordered,
         script,
         blob_store,
-    )
+    )?;
+    Ok(RenderFrame { draw, media })
 }
 
 /// Decide whether the cached whole-frame DrawOp recording can be reused this

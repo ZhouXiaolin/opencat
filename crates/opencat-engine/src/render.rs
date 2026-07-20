@@ -69,7 +69,9 @@ fn render_pipeline_frame_to_rgba(
 ) -> Result<Vec<u8>> {
     use opencat_core::pipeline::Pipeline;
 
-    let (mut frame, media_plan) = pipeline.render_frame(frame_index)?;
+    let render = pipeline.render_frame(frame_index)?;
+    let mut frame = render.draw;
+    let media_plan = render.media;
 
     let mut surface = surfaces::raster_n32_premul((surface_w as i32, surface_h as i32))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;

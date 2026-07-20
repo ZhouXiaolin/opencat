@@ -460,6 +460,8 @@ fn format_image_source(source: &ImageSource) -> String {
     }
 }
 
+pub mod browser;
+
 #[cfg(test)]
 mod browser_layout_integration_tests;
 

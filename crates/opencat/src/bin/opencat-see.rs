@@ -14,11 +14,10 @@ mod app {
     use std::sync::Arc;
 
     use opencat::{
-        EngineDrawExecutor, EngineLoader, EngineLoaderFrameConsumer, MediaContext, RqJsContext,
-        RenderSessionHeader, build_audio_track_from_pipeline, duration_secs_to_frames,
+        EngineDrawExecutor, EngineLoader, EngineLoaderFrameConsumer, FrameConsumer, MediaContext,
+        RqJsContext, RenderSessionHeader, build_audio_track_from_pipeline, duration_secs_to_frames,
     };
     use opencat_core::pipeline::Pipeline;
-    use opencat_core::platform::frame_consumer::FrameConsumer;
     use opencat_core::script::js_context::JsContext;
     use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle};
     use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source};

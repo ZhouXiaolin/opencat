@@ -1,15 +1,14 @@
 //! Asset → physical path table.
 //!
-//! Maps `AssetId` to a file-system path. Core crate owns this so that
-//! render helpers (which live in core) can resolve bitmaps without an
-//! engine dependency.
+//! Maps `AssetId` to a file-system path. The engine owns this so its media
+//! decode / audio paths can resolve cached bytes without going through core.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 
-use crate::ir::asset_id::AssetId;
+use opencat_core::ir::asset_id::AssetId;
 
 #[derive(Default, Debug)]
 pub struct AssetPathStore {

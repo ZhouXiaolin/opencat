@@ -1436,7 +1436,6 @@ fn record_hidden_subtree(
     let frame_ctx = ctx.frame_ctx;
     let display_tree = ctx.display_tree;
     let ordered_scene = ctx.ordered_scene;
-    let blob_store = ctx.blob_store;
     let font_db = ctx.font_db;
     let generated_images: &mut GeneratedImageTable = ctx.generated_images;
     let result = ctx.builder.record_subtree(|builder| {
@@ -1446,7 +1445,6 @@ fn record_hidden_subtree(
             display_tree,
             ordered_scene,
             builder,
-            blob_store,
             font_db,
             hidden_picture_stack: stack,
             generated_images,

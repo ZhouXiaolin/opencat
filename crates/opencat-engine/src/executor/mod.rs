@@ -5,7 +5,7 @@ mod replay;
 use opencat_core::ir::cache::CachedDrawRange;
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
-use opencat_core::platform::frame_consumer::RenderSessionHeader;
+use crate::consumer::RenderSessionHeader;
 use skia_safe::{Canvas, Image, Paint, PathBuilder, RuntimeEffect, skottie::Animation};
 use std::collections::HashMap;
 use std::path::Path;

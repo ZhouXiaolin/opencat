@@ -53,13 +53,13 @@ pub use opencat_engine::render::{
     render_single_frame_png_with_base,
 };
 pub use opencat_engine::consumer::EngineLoaderFrameConsumer;
+pub use opencat_engine::consumer::{FrameConsumer, RenderSessionHeader};
 pub use opencat_engine::executor::EngineDrawExecutor;
 pub use opencat_engine::js_context::RqJsContext;
 pub use opencat_engine::media::{AudioTrack, MediaContext};
 pub use opencat_engine::resource::loader::EngineLoader;
 pub use opencat_engine::EnginePipeline;
 pub use opencat_core::frame_ctx::duration_secs_to_frames;
-pub use opencat_core::platform::frame_consumer::RenderSessionHeader;
 pub use opencat_engine::source_io::{parse_file, parse_with_base_dir};
 
 pub use opencat_engine::resource::media::{

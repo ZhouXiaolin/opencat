@@ -144,30 +144,6 @@ impl ResourceProvider for MapResourceProvider {
     }
 }
 
-/// Adapter: [`ResourceProvider`] over a byte store + lookup index.
-pub struct IndexedResourceProvider<'a, S: ?Sized> {
-    store: &'a S,
-    index: &'a HashMap<ResourceLookup, AssetId>,
-}
-
-impl<'a, S: ?Sized> IndexedResourceProvider<'a, S> {
-    pub fn new(store: &'a S, index: &'a HashMap<ResourceLookup, AssetId>) -> Self {
-        Self { store, index }
-    }
-}
-
-/// Minimal store interface for the indexed adapter.
-pub trait ByteStore {
-    fn read(&self, id: &AssetId) -> Option<Vec<u8>>;
-}
-
-impl<S: ByteStore> ResourceProvider for IndexedResourceProvider<'_, S> {
-    fn load(&self, path: &str, name: &str) -> Option<Cow<'_, [u8]>> {
-        let id = self.index.get(&ResourceLookup::new(path, name))?;
-        self.store.read(id).map(|v| Cow::Owned(v))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

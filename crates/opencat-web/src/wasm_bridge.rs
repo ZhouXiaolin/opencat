@@ -1,7 +1,7 @@
 //! wasm-bindgen bridge: build each frame as one binary DrawOp IR blob.
 //!
-//! Host-owned persistent pipeline (issue #8). The renderer holds a single
-//! `DefaultPipeline<NoopAssetLoader, WebJsContext>` opened once via
+//! Host-owned persistent pipeline (issue #8 / #11). The renderer holds a single
+//! `DefaultPipeline<WebJsContext>` opened once via
 //! [`WebRenderer::open_design`]; each [`WebRenderer::build_frame_ir`] call
 //! just runs `pipeline.render_frame(frame)` and encodes the draw ops. Core
 //! never fetches — web fetches all declared assets during `open_design`,
@@ -15,7 +15,6 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
-use opencat_core::NoopAssetLoader;
 use opencat_core::ir::GeneratedImageId;
 use opencat_core::canvas::paint::{
     BlendMode, BlurStyle, ColorFilterSpec, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec,
@@ -81,7 +80,7 @@ pub(crate) struct GeneratedImageRecord {
 pub struct WebRenderer {
     /// The persistent core pipeline. `None` until [`open_design`] is called;
     /// replaced (with epoch reset) each time a new design is opened.
-    pipeline: Option<DefaultPipeline<NoopAssetLoader, WebJsContext>>,
+    pipeline: Option<DefaultPipeline<WebJsContext>>,
     /// Cached composition metadata from the opened pipeline.
     info: Option<CompositionInfo>,
     pending_frame: Option<(u32, RenderFrame)>,
@@ -215,9 +214,9 @@ impl WebRenderer {
             self.published_generated.insert(*id);
         }
 
-        use opencat_core::platform::frame_consumer::FrameConsumer;
+        use crate::consumer::FrameConsumer;
 
-        let header = opencat_core::platform::frame_consumer::RenderSessionHeader {
+        let header = crate::consumer::RenderSessionHeader {
             composition_size: (info.width, info.height),
             fps: info.fps,
             frames: duration_secs_to_frames(info.duration, info.fps),
@@ -420,7 +419,7 @@ async fn open_design_pipeline(
 ) -> Result<
     (
         CompositionInfo,
-        DefaultPipeline<NoopAssetLoader, WebJsContext>,
+        DefaultPipeline<WebJsContext>,
         String,
     ),
     JsValue,

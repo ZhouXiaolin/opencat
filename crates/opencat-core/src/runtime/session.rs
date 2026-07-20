@@ -7,6 +7,7 @@ use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::analyze::invalidation::CompositeHistory;
 use crate::display::build::DisplayBuildSession;
 use crate::ir::cache::RenderCache;
+use crate::ir::GeneratedImageTable;
 use crate::layout::LayoutSession;
 use crate::resource::hash_map_catalog::HashMapResourceCatalog;
 use crate::text::empty_font_db;
@@ -42,6 +43,10 @@ pub struct RenderSession {
 
     /// last ordered scene program from the most recent render_frame call
     pub last_ordered_scene: OrderedSceneProgram,
+
+    /// Core-rasterized images (color-emoji bitmap glyphs) for this session's
+    /// lifetime. Stable ids keep output identical across frame order.
+    pub generated_images: GeneratedImageTable,
 }
 
 impl RenderSession {
@@ -69,6 +74,7 @@ impl RenderSession {
                     children: Vec::new(),
                 },
             },
+            generated_images: GeneratedImageTable::new(),
         }
     }
 }

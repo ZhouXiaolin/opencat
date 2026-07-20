@@ -441,6 +441,9 @@ pub(crate) fn intern_image_strings(draw: &mut DrawOpFrame) {
             ImageRef::Static { asset_id } | ImageRef::VideoFrame { asset_id, .. } => {
                 push_unique(strings, asset_id);
             }
+            // Generated images are addressed by numeric id, not a string
+            // asset_id, so they contribute nothing to the IR string table.
+            ImageRef::Generated { .. } => {}
         }
     }
 }
@@ -794,6 +797,15 @@ fn encode_image_ref(
             write_u8(out, 1);
             write_u32(out, lookup_string_id(strings, asset_id)?);
             write_u64(out, *time_micros);
+        }
+        // Generated images carry a numeric id, not an interned asset string.
+        // The RGBA is published separately via the generated-image delta
+        // (issue #10); the JS decoder resolves it from (pipeline_epoch, id).
+        // Layout mirrors the core encoder: tag(1) + id_u64(8) + reserved(4).
+        ImageRef::Generated { id } => {
+            write_u8(out, 2);
+            write_u64(out, id.0);
+            write_u32(out, 0); // reserved
         }
     }
     Ok(())

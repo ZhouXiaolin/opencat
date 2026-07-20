@@ -11,7 +11,7 @@ use crate::ir::asset_id::{
     asset_id_for_video,
 };
 use crate::ir::cache::RenderCache;
-use crate::ir::{CompositionInfo, RenderFrame};
+use crate::ir::{CompositionInfo, GeneratedImageTable, RenderFrame};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
 use crate::parse::preflight::collect_resource_requests_from_parsed;
@@ -43,6 +43,11 @@ pub struct DefaultPipeline<L: AssetLoader, S: JsContext> {
     font_db: Arc<fontdb::Database>,
     cache: RenderCache,
     last_ordered_scene: OrderedSceneProgram,
+    /// Core-rasterized images (color-emoji bitmap glyphs) for the lifetime of
+    /// this pipeline. Stable ids make fresh vs reused pipelines produce
+    /// identical tables; RGBA is stored here so it is not dropped at text-render
+    /// time. Hosts read it via [`Self::generated_images`].
+    generated_images: GeneratedImageTable,
 }
 
 impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
@@ -147,6 +152,7 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
                     children: Vec::new(),
                 },
             },
+            generated_images: GeneratedImageTable::new(),
         })
     }
 
@@ -160,6 +166,14 @@ impl<L: AssetLoader, S: JsContext> DefaultPipeline<L, S> {
 
     pub fn scripts(&self) -> &crate::script::LiveScriptHost<S> {
         &self.scripts
+    }
+
+    /// Core-rasterized images (color-emoji bitmap glyphs) owned by this
+    /// pipeline. Lifecycle spans the whole pipeline; a fresh pipeline and the
+    /// same pipeline reused across frames produce identical ids. Hosts read
+    /// this to resolve [`crate::ir::ImageRef::Generated`] refs.
+    pub fn generated_images(&self) -> &GeneratedImageTable {
+        &self.generated_images
     }
 }
 
@@ -219,6 +233,7 @@ impl<S: JsContext> DefaultPipeline<NoopAssetLoader, S> {
                     children: Vec::new(),
                 },
             },
+            generated_images: GeneratedImageTable::new(),
         })
     }
 }
@@ -375,6 +390,7 @@ impl<L: AssetLoader, S: JsContext> Pipeline for DefaultPipeline<L, S> {
             &mut self.last_ordered_scene,
             &mut self.scripts,
             None,
+            &mut self.generated_images,
         )?;
         Ok(RenderFrame { draw, media })
     }

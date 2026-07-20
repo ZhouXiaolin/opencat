@@ -36,8 +36,7 @@ pub use self::parse::{ParsedComposition, markup, parse};
 pub use self::pipeline::{DefaultPipeline, Pipeline};
 pub use self::platform::video::{FrameBitmap, VideoFrameProvider};
 pub use self::probe::{
-    AssetHandle, AssetLoader, AudioPlan, AudioSegment, AudioSource, ByteSource, ImageMeta,
-    ImageSource, NoopAssetLoader, PreparedCatalog, ProbeOutcome,
+    AudioSource, ByteSource, ImageMeta, ImageSource, PreparedCatalog, ProbeOutcome,
     ResourceCatalog as ProbeResourceCatalog, SubtitleSource, VideoInfoMeta, VideoSource,
     build_catalog, hydrate_captions,
 };

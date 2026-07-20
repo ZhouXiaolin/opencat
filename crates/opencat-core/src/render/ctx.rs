@@ -9,7 +9,6 @@ use crate::canvas::paint::{PaintSpec, PaintStyle, PathEffectSpec, StrokeCap, Str
 use crate::frame_ctx::FrameCtx;
 use crate::ir::GeneratedImageTable;
 use crate::render::builder::DrawOpBuilder;
-use crate::resource::blob_store::BlobStore;
 use crate::resource::catalog::ResourceCatalog;
 
 /// Rendering context passed to all render functions.
@@ -22,7 +21,6 @@ pub struct RenderCtx<'a> {
     pub display_tree: &'a AnnotatedDisplayTree,
     pub ordered_scene: &'a OrderedSceneProgram,
     pub builder: &'a mut DrawOpBuilder,
-    pub blob_store: Option<&'a dyn BlobStore>,
     pub font_db: &'a fontdb::Database,
     pub hidden_picture_stack: Vec<String>,
     /// Pipeline-owned table for core-rasterized images (color-emoji glyphs).

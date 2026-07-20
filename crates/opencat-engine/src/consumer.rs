@@ -5,13 +5,42 @@ use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
 use opencat_core::ir::media_plan::FrameMediaPlan;
 use opencat_core::ir::GeneratedImageTable;
-use opencat_core::platform::frame_consumer::{FrameConsumer, RenderSessionHeader};
-use opencat_core::probe::{AssetHandle, AssetLoader};
 use opencat_core::resource::asset_id::AssetId;
 use skia_safe::{AlphaType, Canvas, ColorType, Data, Image, ImageInfo, RuntimeEffect, images};
 
 use crate::executor::{DrawError, EngineDrawExecutor, EnginePreparedFrameMedia};
 use crate::media::MediaContext;
+
+// ---------------------------------------------------------------------------
+// Engine-owned frame consumer seam.
+//
+// `RenderSessionHeader` + `FrameConsumer` previously lived in core's
+// `platform` module, but core never implements or invokes them — only the
+// engine and web hosts do. They now live in each host: here for the engine
+// (Skia path), and in `opencat-web::consumer` for the CanvasKit path. The
+// trait shape is intentionally identical so the two hosts stay in lockstep.
+// ---------------------------------------------------------------------------
+
+/// Header information passed to engine frame consumers.
+#[derive(Clone, Copy, Debug)]
+pub struct RenderSessionHeader {
+    pub composition_size: (u32, u32),
+    pub fps: u32,
+    pub frames: u32,
+}
+
+/// A consumer that processes a single rendered frame (engine / Skia path).
+pub trait FrameConsumer {
+    type Output;
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    fn consume_frame(
+        &mut self,
+        header: &RenderSessionHeader,
+        draw: &mut DrawOpFrame,
+        plan: &FrameMediaPlan,
+    ) -> Result<Self::Output, Self::Error>;
+}
 
 // ---------------------------------------------------------------------------
 // ConsumerError: bridges anyhow::Error / DrawError → std::error::Error

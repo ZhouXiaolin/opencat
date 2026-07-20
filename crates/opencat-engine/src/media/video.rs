@@ -219,7 +219,7 @@ impl Default for MediaContext {
 
 use opencat_core::ir::asset_id::AssetId;
 use opencat_core::platform::video::{FrameBitmap, VideoFrameProvider};
-use opencat_core::resource::AssetPathStore;
+use crate::resource::AssetPathStore;
 
 /// Adapter pairing a [`MediaContext`] with an [`AssetPathStore`] so it can
 /// serve [`VideoFrameProvider`]'s `AssetId`-indexed contract.
@@ -330,7 +330,7 @@ mod tests {
         use opencat_core::platform::video::VideoFrameProvider;
 
         let mut mc = MediaContext::new();
-        let paths = opencat_core::resource::AssetPathStore::new();
+        let paths = AssetPathStore::new();
         let mut provider = super::EngineVideoProvider {
             media: &mut mc,
             paths: &paths,

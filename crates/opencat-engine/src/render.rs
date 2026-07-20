@@ -10,7 +10,7 @@ use crate::{
     platform::EnginePlatform,
 };
 use opencat_core::frame_ctx::duration_secs_to_frames;
-use opencat_core::platform::frame_consumer::{FrameConsumer, RenderSessionHeader};
+use crate::consumer::{FrameConsumer, RenderSessionHeader};
 
 /// Engine render session: backend-agnostic core render state plus engine-owned
 /// runtime services. Core no longer owns a generic platform facade.
@@ -118,16 +118,19 @@ fn render_pipeline_frame_to_rgba(
     Ok(rgba)
 }
 
-/// Premix the whole composition audio track from pipeline `audio_plan`.
+/// Premix the whole composition audio track.
 /// Shared by `render_from_jsonl` and `opencat-see`.
+///
+/// The audio schedule is derived host-side via
+/// [`crate::audio_plan::collect_audio_plan`] (issue #2 / #11): core no longer
+/// carries an audio plan, so the engine reads the composition and resolves
+/// segment timing itself before decoding and mixing.
 pub fn build_audio_track_from_pipeline(
     pipeline: &crate::EnginePipeline,
 ) -> Result<Option<AudioTrack>> {
-    use opencat_core::pipeline::Pipeline;
-    use opencat_core::probe::{AssetHandle, AssetLoader};
-
     let info = pipeline.info();
-    if info.audio_plan.segments.is_empty() {
+    let plan = crate::audio_plan::collect_audio_plan(pipeline.composition());
+    if plan.segments.is_empty() {
         return Ok(None);
     }
 
@@ -137,7 +140,7 @@ pub fn build_audio_track_from_pipeline(
     let total_sample_frames = (info.duration.max(0.0) * sample_rate as f64).ceil() as usize;
     mixed_samples.resize(total_sample_frames * channels as usize, 0.0f32);
 
-    for seg in &info.audio_plan.segments {
+    for seg in &plan.segments {
         let handle = pipeline
             .loader()
             .handle(&seg.asset)

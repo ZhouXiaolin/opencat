@@ -1,4 +1,7 @@
-//! [`EngineAssetHandle`] + [`EngineLoader`] — 实现 core 的 `AssetHandle` / `AssetLoader` trait。
+//! [`EngineAssetHandle`] + [`EngineLoader`] — the engine's host-owned resource
+//! cache. They no longer implement core loader traits (issue #2 / #11): core is
+//! a pure derivation kernel and the engine is its own host, so these are plain
+//! concrete types with inherent lookup methods.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -7,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 
 use opencat_core::parse::primitives::LottieSource;
-use opencat_core::probe::{AssetHandle, AssetLoader, ResourceRequests};
+use opencat_core::probe::ResourceRequests;
 use opencat_core::probe::{AudioSource, ImageSource, SubtitleSource, VideoSource};
 use opencat_core::resource::asset_id::{
     AssetId, asset_id_for_audio_url, asset_id_for_image, asset_id_for_query, asset_id_for_subtitle,
@@ -28,14 +31,16 @@ pub struct EngineAssetHandle {
     pub(crate) cached_path: PathBuf,
 }
 
-impl AssetHandle for EngineAssetHandle {
-    fn read_bytes(&self) -> Result<Cow<'_, [u8]>> {
+impl EngineAssetHandle {
+    /// Read the cached bytes for this asset from disk.
+    pub fn read_bytes(&self) -> Result<Cow<'_, [u8]>> {
         let bytes = std::fs::read(&self.cached_path)
             .with_context(|| format!("read {}", self.cached_path.display()))?;
         Ok(Cow::Owned(bytes))
     }
 
-    fn local_path(&self) -> Option<&Path> {
+    /// Local filesystem path backing this asset.
+    pub fn local_path(&self) -> Option<&Path> {
         Some(&self.cached_path)
     }
 }
@@ -300,10 +305,8 @@ impl EngineLoader {
     }
 }
 
-impl AssetLoader for EngineLoader {
-    type Handle = EngineAssetHandle;
-
-    fn load_all(&mut self, req: &ResourceRequests) -> Result<()> {
+impl EngineLoader {
+    pub fn load_all(&mut self, req: &ResourceRequests) -> Result<()> {
         let base_dir = self._base_dir.clone();
         let cache_dir = self.cache_dir.clone();
         let mut new_handles: Vec<(AssetId, PathBuf)> = Vec::new();
@@ -407,7 +410,7 @@ impl AssetLoader for EngineLoader {
         Ok(())
     }
 
-    fn handle(&self, id: &AssetId) -> Option<&EngineAssetHandle> {
+    pub fn handle(&self, id: &AssetId) -> Option<&EngineAssetHandle> {
         self.handles.get(id)
     }
 }

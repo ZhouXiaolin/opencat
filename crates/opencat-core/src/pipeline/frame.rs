@@ -24,7 +24,6 @@ use crate::render::builder::DrawOpBuilder;
 use crate::render::media_plan::build_media_plan;
 use crate::resolve::path_bounds::DefaultPathBounds;
 use crate::resolve::resolve::resolve_ui_tree_with_script_cache;
-use crate::resource::blob_store::BlobStore;
 use crate::resource::catalog::ResourceCatalog;
 use crate::runtime::session::RenderSession;
 use crate::script::ScriptHost;
@@ -43,7 +42,6 @@ pub fn render_frame_with_state(
     cache: &mut RenderCache,
     last_ordered_scene: &mut OrderedSceneProgram,
     script: &mut dyn ScriptHost,
-    blob_store: Option<&dyn BlobStore>,
     generated_images: &mut crate::ir::GeneratedImageTable,
 ) -> Result<(DrawOpFrame, FrameMediaPlan)> {
     #[cfg(feature = "profile")]
@@ -219,7 +217,6 @@ pub fn render_frame_with_state(
         display_tree: &annotated,
         ordered_scene: &ordered_scene,
         builder: &mut builder,
-        blob_store,
         font_db: font_db.as_ref(),
         hidden_picture_stack: Vec::new(),
         generated_images,
@@ -245,7 +242,6 @@ pub fn render_frame(
     frame_index: u32,
     session: &mut RenderSession,
     script: &mut dyn ScriptHost,
-    blob_store: Option<&dyn BlobStore>,
 ) -> Result<RenderFrame> {
     let RenderSession {
         ref mut layout_session,
@@ -271,7 +267,6 @@ pub fn render_frame(
         cache_field,
         last_ordered,
         script,
-        blob_store,
         &mut session.generated_images,
     )?;
     Ok(RenderFrame { draw, media })

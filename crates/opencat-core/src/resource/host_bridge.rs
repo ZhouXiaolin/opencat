@@ -8,12 +8,12 @@
 //! 4. For each `LottieBundleSpec`:
 //!    - `bundle_primary_json` → JSON string
 //!    - `skottie_assets_for_bundle` → `Record<string, ArrayBuffer>` for `MakeManagedAnimation`
-//! 5. Flat images: still `inject_image_bytes` **or** read via `provider.load("opencat", asset_id)`
+//! 5. Flat images: read via `provider.load("opencat", asset_id)`
 //!
 //! ## Engine (skia-safe + skottie feature)
 //!
 //! Implement `skia_safe::resources::ResourceProvider` by delegating to
-//! [`MapResourceProvider`] / [`IndexedResourceProvider`]:
+//! [`MapResourceProvider`]:
 //!
 //! ```ignore
 //! impl skia_safe::resources::ResourceProvider for OpenCatSkottieProvider {

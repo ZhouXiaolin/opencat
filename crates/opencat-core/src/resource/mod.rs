@@ -8,7 +8,6 @@ pub mod host_bridge;
 pub mod lottie;
 pub mod manifest;
 pub mod materialize;
-pub mod path_store;
 pub mod preload;
 pub mod preload_lottie;
 pub mod probe;
@@ -18,7 +17,7 @@ pub mod types;
 
 pub use crate::ir::asset_id::*;
 pub use crate::probe::bitmap_source::*;
-pub use blob_store::{AssetPathBlobStore, BlobStore};
+pub use blob_store::BlobStore;
 pub use catalog::ResourceCatalog;
 pub use fonts::{
     FontFaceDecl, FontFamilyIndex, FontManifest, FontRole, FontSource, fetch_manifest_bytes,
@@ -37,12 +36,10 @@ pub use materialize::{
     ByteSource, CoreBlobStoreSource, bundle_primary_json, hydrate_provider_from_bytes,
     map_bundle_dep_to_flat_lookup, skottie_assets_for_bundle,
 };
-pub use path_store::AssetPathStore;
 pub use preload::preload_all;
 pub use probe::{ImageDims, VideoProbe, probe_image_dims, probe_video};
 pub use protocol::{
-    ByteStore, IndexedResourceProvider, MapResourceProvider, ResourceLookup, ResourceProvider,
-    TypefaceRequest,
+    MapResourceProvider, ResourceLookup, ResourceProvider, TypefaceRequest,
 };
 pub use resolver::{AssetResolver, AssetSink, AudioMeta, ImageMeta, UrlFetcher, VideoMeta};
 pub use types::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality};

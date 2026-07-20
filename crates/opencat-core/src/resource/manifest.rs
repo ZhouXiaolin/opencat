@@ -1,8 +1,8 @@
 //! Unified external resource manifest — OpenCat sources + Lottie bundles.
 //!
 //! [`ExternalResourceManifest`] is the single preflight output. Hosts materialize it into
-//! a [`super::protocol::MapResourceProvider`] (or [`IndexedResourceProvider`]) for Skottie
-//! and for existing image/video pipelines.
+//! a [`super::protocol::MapResourceProvider`] for Skottie and for existing image/video
+//! pipelines.
 
 use std::collections::HashMap;
 

@@ -1,6 +1,7 @@
 //! opencat-engine — 桌面渲染引擎。
 //! 承载 IO / ffmpeg / quickjs / skia / 系统字体 / RenderSession。
 
+pub mod audio_plan;
 pub mod codec;
 pub mod consumer;
 pub mod executor;
@@ -34,11 +35,12 @@ pub use opencat_core::style::ColorToken;
 
 // Re-export engine types used in tests via `crate::` path
 // RenderSession is now a type alias for the core generic session monomorphised with EnginePlatform.
+pub use crate::consumer::{FrameConsumer, RenderSessionHeader};
 pub use crate::render::RenderSession;
 pub use crate::resource::loader::{EngineAssetHandle, EngineLoader};
 
-// Pipeline integration: the engine host that owns the core pipeline (opened via
-// `open_with_prepared_catalog`, carrying a NoopAssetLoader) plus the engine
-// resource owner. Render/audio code reads the cached bytes off `host.loader`,
-// never through the core pipeline. See `pipeline::EnginePipelineHost` (#7).
+// Pipeline integration: the engine host that owns the loader-free core
+// pipeline (opened via `open_with_prepared_catalog`) plus the engine resource
+// owner. Render/audio code reads the cached bytes off `host.loader`, never
+// through the core pipeline. See `pipeline::EnginePipelineHost` (#7 / #11).
 pub type EnginePipeline = crate::pipeline::EnginePipelineHost;

@@ -6,8 +6,8 @@ const PROXY_MAP: &[(&str, &str)] = &[("http://127.0.0.1:8080/", "/assets-proxy/"
 
 fn resolve_url(raw: &str) -> String {
     for (prefix, replacement) in PROXY_MAP {
-        if raw.starts_with(prefix) {
-            return replacement.to_string() + &raw[prefix.len()..];
+        if let Some(suffix) = raw.strip_prefix(prefix) {
+            return replacement.to_string() + suffix;
         }
     }
     raw.to_string()
@@ -44,7 +44,7 @@ pub async fn fetch_bytes(url: &str) -> anyhow::Result<Vec<u8>> {
 
     let status = resp.status();
     if !(200..300).contains(&status) {
-        return Err(anyhow::anyhow!("fetch failed: HTTP {status}"));
+        return Err(anyhow::anyhow!("fetch failed: HTTP {status} for {url}"));
     }
 
     let buffer = JsFuture::from(resp.array_buffer().map_err(js_err)?)

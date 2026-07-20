@@ -10,8 +10,10 @@ use js_sys::{Function, Uint8Array};
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
+use opencat_core::ir::asset_id::asset_id_for_subtitle;
 use opencat_core::parse::composition::Composition;
 use opencat_core::parse::preflight::collect_external_manifest;
+use opencat_core::parse::primitives::SubtitleSource;
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::fonts::{FontSource, font_asset_id};
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
@@ -35,6 +37,25 @@ fn put_blobs(blobs: BlobStore) {
     BLOB_STORE.with(|s| *s.borrow_mut() = blobs);
 }
 
+/// Snapshot the thread-local `BlobStore` into an owned `(asset_id_string ->
+/// bytes)` map, keyed by canonical `AssetId` string. This is the host-side
+/// byte bridge for the host-owned open flow: core's pure
+/// `probe::prepare::build_catalog` consumes it via `ByteSource`. Mirrors the
+/// engine's `collect_probe_bytes_by_asset_id`.
+pub(crate) fn blob_byte_map() -> std::collections::HashMap<String, Vec<u8>> {
+    BLOB_STORE.with(|s| s.borrow().to_byte_map())
+}
+
+/// Borrowed bytes for a single canonical asset id from the thread-local
+/// `BlobStore`, as an owned `Vec` (the thread-local borrow cannot escape).
+pub(crate) fn blob_bytes_owned(id: &str) -> Option<Vec<u8>> {
+    BLOB_STORE.with(|s| {
+        s.borrow()
+            .get(&AssetId(id.to_string()))
+            .map(|arc| arc.to_vec())
+    })
+}
+
 fn font_manifest_from_source(
     source: &str,
 ) -> anyhow::Result<opencat_core::resource::fonts::FontManifest> {
@@ -55,27 +76,13 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
     let font_manifest = font_manifest_from_source(source)
         .map_err(|e| JsValue::from_str(&format!("preload_assets: parse failed: {e}")))?;
 
-    let parsed = crate::source::parse_source(source, &fontdb::Database::new())
-        .map_err(|e| JsValue::from_str(&format!("preload_assets: parse failed: {e}")))?;
-    let root_node = parsed.root.clone();
-    let composition = Composition::new("preload")
-        .size(parsed.width, parsed.height)
-        .fps(parsed.fps as u32)
-        .duration(parsed.duration)
-        .root(move |_ctx| root_node.clone())
-        .audio_sources(parsed.audio_sources)
-        .build()
-        .map_err(|e| JsValue::from_str(&format!("preload_assets: build composition: {e}")))?;
-
-    let (requests, mut external_manifest) = collect_external_manifest(&composition, &font_manifest);
-
     let mut blobs = take_blobs();
 
     // Fonts: same bytes in BlobStore (provider) + font_store (fontdb merge on load).
     if !font_manifest.is_empty() {
         let mut fetcher = crate::resource::resolver::WebFetcher;
         for face in &font_manifest.faces {
-            let bytes = match &face.source {
+            match &face.source {
                 FontSource::Path(_) => {
                     return Err(JsValue::from_str(
                         "preload_assets: font path is not supported on web; use url",
@@ -90,18 +97,44 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
                     blobs.insert(id, std::sync::Arc::from(raw.clone()));
                     crate::resource::font_store::insert(face.id.clone(), raw);
                 }
-            };
+            }
         }
     }
+
+    let parsed = crate::source::parse_source(source, &fontdb::Database::new())
+        .map_err(|e| JsValue::from_str(&format!("preload_assets: parse failed: {e}")))?;
+    let root_node = parsed.root.clone();
+    let composition = Composition::new("preload")
+        .size(parsed.width, parsed.height)
+        .fps(parsed.fps as u32)
+        .duration(parsed.duration)
+        .root(move |_ctx| root_node.clone())
+        .audio_sources(parsed.audio_sources)
+        .build()
+        .map_err(|e| JsValue::from_str(&format!("preload_assets: build composition: {e}")))?;
+
+    let (requests, mut external_manifest) = collect_external_manifest(&composition, &font_manifest);
 
     let mut catalog = HashMapResourceCatalog::from_json("{}")
         .map_err(|e| JsValue::from_str(&format!("preload_assets: catalog init: {e}")))?;
 
     {
         let mut resolver = WebAssetResolver::new(&mut blobs);
-        preload_all(requests, &mut resolver, &mut catalog)
+        preload_all(requests.clone(), &mut resolver, &mut catalog)
             .await
             .map_err(|e| JsValue::from_str(&format!("preload_assets: {e}")))?;
+    }
+
+    for source in &requests.subtitles {
+        let id = asset_id_for_subtitle(source);
+        let bytes = match source {
+            SubtitleSource::Url(url) => crate::resource::fetch::fetch_bytes(url).await,
+            SubtitleSource::Path(path) => {
+                crate::resource::asset_reader::read_path(&path.to_string_lossy()).await
+            }
+        }
+        .map_err(|e| JsValue::from_str(&format!("preload_assets subtitle: {e}")))?;
+        blobs.insert(id, std::sync::Arc::from(bytes));
     }
 
     {
@@ -123,9 +156,10 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
             &mut external_manifest,
             &mut BlobLottieMap(&mut blobs),
             |url| {
-                let resolved = if url.starts_with("http://") || url.starts_with("https://") {
-                    url.to_string()
-                } else if url.starts_with('/') {
+                let resolved = if url.starts_with("http://")
+                    || url.starts_with("https://")
+                    || url.starts_with('/')
+                {
                     url.to_string()
                 } else {
                     format!("/assets/{url}")
@@ -137,12 +171,11 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("preload_assets lottie: {e}")))?;
 
         for bundle in &external_manifest.bundles {
-            if let Some(bytes) = blobs.get(&bundle.bundle_id) {
-                if let Ok(json) = std::str::from_utf8(bytes.as_ref()) {
-                    if let Ok(meta) = opencat_core::resource::parse_lottie_meta(json) {
-                        catalog.register_lottie(&bundle.bundle_id.0, meta);
-                    }
-                }
+            if let Some(bytes) = blobs.get(&bundle.bundle_id)
+                && let Ok(json) = std::str::from_utf8(bytes.as_ref())
+                && let Ok(meta) = opencat_core::resource::parse_lottie_meta(json)
+            {
+                catalog.register_lottie(&bundle.bundle_id.0, meta);
             }
         }
     }

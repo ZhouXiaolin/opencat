@@ -30,6 +30,7 @@ web-sys = { version = "0.3", features = [
     "Blob", "Url", "console",
 ] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
+console_error_panic_hook = "0.1"
 
 [features]
 profile = ["opencat-core/profile", "tracing", "dep:tracing-wasm"]

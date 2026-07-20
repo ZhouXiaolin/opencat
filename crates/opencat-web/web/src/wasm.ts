@@ -23,12 +23,9 @@ export type AssetReaderResult = Uint8Array | ArrayBuffer | number[];
 export type AssetReader = (path: string) => AssetReaderResult | Promise<AssetReaderResult>;
 
 export interface WebRendererInstance {
-  build_frame_ir(compositionSource: string, frame: number, resources_json: string): Uint8Array;
-  inject_video_frame(asset_id: string, frame: number, rgba: Uint8Array, width: number, height: number): void;
-  clear_video_cache(asset_id: string): void;
-  plan_video_frames(compositionSource: string, frame: number, resources_json: string): string;
-  inject_image_bytes(asset_id: string, bytes: Uint8Array): void;
-  clear_image_blobs(): void;
+  open_design(compositionSource: string): Promise<string>;
+  build_frame_ir(frame: number): Uint8Array;
+  prepare_frame(frame: number): string;
   load_default_fonts(sans_sc: Uint8Array, color_emoji: Uint8Array): void;
   load_font_data(bytes: Uint8Array): void;
   decode_audio_file(asset_id: string, data: Uint8Array): Promise<void>;
@@ -77,6 +74,16 @@ export async function initWasm(wasmBaseUrl?: string): Promise<void> {
 export async function preloadAssets(compositionSource: string): Promise<string> {
   if (!wasmModule) throw new Error('WASM not initialized');
   return await wasmModule.preload_assets(compositionSource);
+}
+
+// ── Host-owned persistent pipeline (issue #8) ──
+// `openDesign` fetches all declared resources, builds the prepared catalog,
+// hydrates captions, injects the font database, and opens the persistent core
+// pipeline. Subsequent `build_frame_ir(frame)` calls render against it.
+
+export async function openDesign(compositionSource: string): Promise<string> {
+  if (!renderer) throw new Error('WASM renderer not initialized');
+  return await renderer.open_design(compositionSource);
 }
 
 export function getBlobBytes(assetId: string): Uint8Array | undefined {

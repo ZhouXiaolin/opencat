@@ -497,14 +497,9 @@ export function renderEncodedDrawFrame(
           if (!anim) break;
           anim.seekFrame(lottieFrame, undefined);
           const dstRect = ckRect(CK, dst);
-          const size = anim.size();
-          const iw = size[0] || 1;
-          const ih = size[1] || 1;
           targetCanvas.save();
           targetCanvas.clipRect(dstRect, CK.ClipOp.Intersect, false);
-          targetCanvas.translate(dst.x, dst.y);
-          targetCanvas.scale(dst.width / iw, dst.height / ih);
-          anim.render(targetCanvas);
+          anim.render(targetCanvas, dstRect);
           targetCanvas.restore();
           break;
         }

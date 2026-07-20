@@ -66,7 +66,6 @@ class ExportClip implements IClip {
 
   private canvas: HTMLCanvasElement | OffscreenCanvas;
   private jsonlContent: string;
-  private resourceMetaJson: string;
   private comp: CompositionInfo;
   private totalFrames: number;
   private fps: number;
@@ -78,14 +77,12 @@ class ExportClip implements IClip {
   constructor(
     canvas: HTMLCanvasElement | OffscreenCanvas,
     jsonlContent: string,
-    resourceMetaJson: string,
     comp: CompositionInfo,
     onProgress: ProgressCallback,
     audioIds: string[],
   ) {
     this.canvas = canvas;
     this.jsonlContent = jsonlContent;
-    this.resourceMetaJson = resourceMetaJson;
     this.comp = comp;
     this.totalFrames = compositionFrameCount(comp);
     this.fps = comp.fps;
@@ -99,7 +96,11 @@ class ExportClip implements IClip {
       height: comp.height,
       duration: Math.round(comp.duration * 1_000_000),
     };
-    this.ready = Promise.resolve(this.meta);
+    // Open the persistent host-owned pipeline (issue #8) before any frame
+    // renders. Fetches resources, builds catalog, opens the pipeline.
+    this.ready = getRendererOrThrow()
+      .open_design(jsonlContent)
+      .then(() => this.meta);
   }
 
   private getSurface(CK: CanvasKit): Surface {
@@ -113,6 +114,8 @@ class ExportClip implements IClip {
     audio?: Float32Array[];
     state: 'done' | 'success';
   }> {
+    // Ensure the pipeline opened in the constructor is ready before rendering.
+    await this.ready;
     if (time >= this.meta.duration) {
       return { video: null, audio: [], state: 'done' };
     }
@@ -132,16 +135,14 @@ class ExportClip implements IClip {
 
     await injectVideoFramesForRender({
       renderer,
-      jsonlContent: this.jsonlContent,
       frame: frameNum,
-      resourcesJson: this.resourceMetaJson,
       quality: 'exact',
     });
 
     const surface = this.getSurface(CK);
 
     const ckCanvas = surface.getCanvas();
-    const ir = renderer.build_frame_ir(this.jsonlContent, frameNum, this.resourceMetaJson);
+    const ir = renderer.build_frame_ir(frameNum);
     renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
     surface.flush();
 
@@ -313,7 +314,6 @@ export async function exportMp4(
   audioIds: string[],
 ): Promise<Uint8Array | null> {
   const { width, height, fps } = comp;
-  const resourceMetaJson = JSON.stringify(resourceMeta);
   const totalFrames = compositionFrameCount(comp);
 
   onProgress(0, totalFrames, 'loading');
@@ -323,7 +323,7 @@ export async function exportMp4(
   onProgress(0, totalFrames, 'preparing');
   await yieldToBrowser();
   const renderCanvas = createExportCanvas(canvas, width, height);
-  const clip = new ExportClip(renderCanvas, jsonlContent, resourceMetaJson, comp, onProgress, audioIds);
+  const clip = new ExportClip(renderCanvas, jsonlContent, comp, onProgress, audioIds);
   const spr = new OffscreenSprite(clip);
 
   let hasAudio = audioIds.length > 0;
@@ -395,19 +395,18 @@ export async function exportPngFrame(
   _canvas: HTMLCanvasElement,
   comp: CompositionInfo,
   frame: number,
-  resourceMeta: Record<string, ResourceMeta>,
+  _resourceMeta: Record<string, ResourceMeta>,
 ): Promise<void> {
-  const resourceMetaJson = JSON.stringify(resourceMeta);
-
   const renderer = getRendererOrThrow();
   const CK = (globalThis as CanvasKitGlobal).__canvasKit;
   if (!CK) throw new Error('CanvasKit is not initialized');
 
+  // Open the persistent host-owned pipeline (issue #8) for this export path.
+  await renderer.open_design(jsonlContent);
+
   await injectVideoFramesForRender({
     renderer,
-    jsonlContent,
     frame,
-    resourcesJson: resourceMetaJson,
     quality: 'exact',
   });
 
@@ -418,7 +417,7 @@ export async function exportPngFrame(
     if (!surface) throw new Error('createExportSurface failed');
     const ckCanvas = surface.getCanvas();
 
-    const ir = renderer.build_frame_ir(jsonlContent, frame, resourceMetaJson);
+    const ir = renderer.build_frame_ir(frame);
     renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
     surface.flush();
 

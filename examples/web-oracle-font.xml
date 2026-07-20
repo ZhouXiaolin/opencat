@@ -1,0 +1,8 @@
+<opencat width="480" height="240" fps="30" duration="1">
+  <fonts default="oracle-sans">
+    <font id="oracle-sans" family="Noto Sans SC" path="../assets/NotoSansSC-Regular.otf" role="sans" />
+  </fonts>
+  <div id="root" class="relative w-[480px] h-[240px] flex items-center justify-center bg-[#111827]">
+    <text id="label" class="font-[oracle-sans] text-[56px] font-bold text-white">字体 PIPELINE</text>
+  </div>
+</opencat>

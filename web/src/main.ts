@@ -10,9 +10,9 @@ import {
   getRendererOrThrow,
   initWasm,
   injectVideoFramesForRender,
+  openDesign,
   prepareVideoSource,
   prefetchVideoFramesForRender,
-  preloadAssets,
   registerVideoGlobals,
   renderEncodedDrawFrame,
   setWasmBaseUrl,
@@ -233,24 +233,20 @@ async function preloadResources(
 ): Promise<void> {
   resourceMeta = {};
 
-  const catalogJson = await preloadAssets(compositionSource);
+  const renderer = getRendererOrThrow();
+  const catalogJson = await openDesign(compositionSource);
   const catalog = JSON.parse(catalogJson) as Record<string, ResourceMeta>;
   resourceMeta = catalog;
-
-  const renderer = getRendererOrThrow();
-  renderer.clear_image_blobs();
 
   const totalAssets = Object.keys(catalog).length;
   onProgress?.(0, totalAssets);
   let decoded = 0;
 
+  // Prepare web-native media runtimes (video decoder sources, decoded audio).
+  // Static image bytes stay in the thread-local BlobStore and are resolved by
+  // the Draw IR renderer via getBlobBytes; no per-image injection bridge.
   for (const [assetId, meta] of Object.entries(catalog)) {
-    if (meta.kind === 'image') {
-      const raw = getBlobBytes(assetId);
-      if (raw) {
-        renderer.inject_image_bytes(assetId, raw);
-      }
-    } else if (meta.kind === 'video') {
+    if (meta.kind === 'video') {
       const raw = getBlobBytes(assetId);
       if (raw) {
         try {
@@ -273,6 +269,7 @@ async function preloadResources(
     decoded++;
     onProgress?.(decoded, totalAssets);
   }
+
 }
 
 // --- Download Progress Canvas Overlay ---
@@ -408,13 +405,10 @@ async function renderFrameWithPipeline(
   const renderer = getRendererOrThrow();
   const CK = (globalThis as CanvasKitGlobal).__canvasKit;
   if (!CK) throw new Error('CanvasKit is not initialized');
-  const resourceMetaJson = JSON.stringify(resourceMeta);
 
   await injectVideoFramesForRender({
     renderer,
-    jsonlContent: currentCompositionSource!,
     frame,
-    resourcesJson: resourceMetaJson,
     quality,
   });
 
@@ -424,7 +418,7 @@ async function renderFrameWithPipeline(
     if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
 
     const ckCanvas = surface.getCanvas();
-    const ir = renderer.build_frame_ir(currentCompositionSource!, frame, resourceMetaJson);
+    const ir = renderer.build_frame_ir(frame);
     renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
     surface.flush();
     surface.flush();
@@ -489,12 +483,9 @@ function prefetchPreviewVideoFrame(frame: number): void {
 
   try {
     const renderer = getRendererOrThrow();
-    const resourcesJson = JSON.stringify(resourceMeta);
     void prefetchVideoFramesForRender({
       renderer,
-      jsonlContent: currentCompositionSource,
       frame,
-      resourcesJson,
       quality: 'realtime',
     }).catch(() => { /* ignore */ });
   } catch { /* ignore */ }

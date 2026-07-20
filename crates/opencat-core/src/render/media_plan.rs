@@ -3,16 +3,19 @@ use std::collections::HashSet;
 use crate::ir::draw_frame::DrawOpFrame;
 use crate::ir::draw_op::DrawOp;
 use crate::ir::draw_types::{DrawOpRange, ImageRef, RuntimeEffectChildRef, SubtreeId};
+use crate::ir::generated_image::GeneratedImageId;
 use crate::ir::media_plan::FrameMediaPlan;
 
 /// Mutable accumulator for building a `FrameMediaPlan`. Each bucket keeps its
-/// own dedup set so that static images, video frames, and Lottie bundles never
-/// collide with each other.
+/// own dedup set so that static images, video frames, generated images, and
+/// Lottie bundles never collide with each other.
 struct MediaCollector {
     images: Vec<ImageRef>,
     video_frames: Vec<ImageRef>,
+    generated_images: Vec<GeneratedImageId>,
     lottie_bundles: Vec<String>,
     seen_images: HashSet<ImageRef>,
+    seen_generated: HashSet<GeneratedImageId>,
     seen_lottie: HashSet<String>,
     visited_ranges: HashSet<DrawOpRange>,
     visited_subtrees: HashSet<SubtreeId>,
@@ -23,17 +26,20 @@ impl MediaCollector {
         Self {
             images: Vec::new(),
             video_frames: Vec::new(),
+            generated_images: Vec::new(),
             lottie_bundles: Vec::new(),
             seen_images: HashSet::new(),
+            seen_generated: HashSet::new(),
             seen_lottie: HashSet::new(),
             visited_ranges: HashSet::new(),
             visited_subtrees: HashSet::new(),
         }
     }
 
-    /// Partition an image reference into the static or video bucket, deduped
-    /// within its own bucket. Static and video refs are distinct categories, so
-    /// a static image and a video frame with the same asset id are both kept.
+    /// Partition an image reference into the static, video, or generated-image
+    /// bucket, deduped within its own bucket. Each category is distinct: a
+    /// static image, a video frame, and a generated glyph sharing an asset id
+    /// are all kept independently.
     fn push_image(&mut self, image: &ImageRef) {
         match image {
             ImageRef::Static { .. } => {
@@ -44,6 +50,11 @@ impl MediaCollector {
             ImageRef::VideoFrame { .. } => {
                 if self.seen_images.insert(image.clone()) {
                     self.video_frames.push(image.clone());
+                }
+            }
+            ImageRef::Generated { id } => {
+                if self.seen_generated.insert(*id) {
+                    self.generated_images.push(*id);
                 }
             }
         }
@@ -70,6 +81,7 @@ pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
     FrameMediaPlan {
         images: collector.images,
         video_frames: collector.video_frames,
+        generated_images: collector.generated_images,
         lottie_bundles: collector.lottie_bundles,
         // Runtime effects are interned in a side table; expose all of them
         // deduplicated by effect id (the table itself is already unique).

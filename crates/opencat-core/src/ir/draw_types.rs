@@ -43,7 +43,13 @@ pub struct TableRange {
     pub len: u32,
 }
 
-/// Reference to an image source — either a static asset or a video frame.
+/// Reference to an image source.
+///
+/// - [`ImageRef::Static`] — an external (host-fetched) image asset, by canonical id.
+/// - [`ImageRef::VideoFrame`] — a host-decoded video frame, by canonical id + the
+///   authoritative `time_micros`.
+/// - [`ImageRef::Generated`] — a core-rasterized image (e.g. color-emoji bitmap
+///   glyph) owned by the pipeline's [`GeneratedImageTable`](super::GeneratedImageTable).
 ///
 /// A video frame reference carries only the canonical `AssetId` and the
 /// authoritative target `time_micros`. It intentionally does NOT carry a
@@ -58,6 +64,12 @@ pub enum ImageRef {
     VideoFrame {
         asset_id: String,
         time_micros: u64,
+    },
+    /// A core-generated image (color emoji). The RGBA lives in the pipeline's
+    /// generated-image table, not in any external asset store; `id` is the
+    /// deterministic glyph cache key. Hosts never re-parse fonts for this.
+    Generated {
+        id: super::generated_image::GeneratedImageId,
     },
 }
 

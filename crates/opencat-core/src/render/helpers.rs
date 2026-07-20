@@ -17,6 +17,7 @@ use crate::ir::draw_types::{
     ChildRange, DrawOpRange, EncodedPath, FillType, PaintId, PathOp, RuntimeEffectChildRef,
     ScriptRuntimeEffectChild, SubtreeId,
 };
+use crate::ir::GeneratedImageTable;
 use crate::media::{VideoFrameRequest, VideoPreviewQuality};
 use crate::parse::gl_transition;
 use crate::parse::transition::{
@@ -1431,16 +1432,24 @@ fn record_hidden_subtree(
     ctx.hidden_picture_stack.push(owner_id.to_string());
 
     let stack = ctx.hidden_picture_stack.clone();
+    let catalog = ctx.catalog;
+    let frame_ctx = ctx.frame_ctx;
+    let display_tree = ctx.display_tree;
+    let ordered_scene = ctx.ordered_scene;
+    let blob_store = ctx.blob_store;
+    let font_db = ctx.font_db;
+    let generated_images: &mut GeneratedImageTable = ctx.generated_images;
     let result = ctx.builder.record_subtree(|builder| {
         let mut subtree_ctx = RenderCtx {
-            catalog: ctx.catalog,
-            frame_ctx: ctx.frame_ctx,
-            display_tree: ctx.display_tree,
-            ordered_scene: ctx.ordered_scene,
+            catalog,
+            frame_ctx,
+            display_tree,
+            ordered_scene,
             builder,
-            blob_store: ctx.blob_store,
-            font_db: ctx.font_db,
+            blob_store,
+            font_db,
             hidden_picture_stack: stack,
+            generated_images,
         };
         for child in hidden_subtree {
             if child.owner_id == owner_id {

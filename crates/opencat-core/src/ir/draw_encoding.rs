@@ -558,10 +558,14 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         }
 
         // ===================================================================
-        // Image — tag(1) + string_id(4) + time_micros(8) + x(4) + y(4) + paint_id(4)
+        // Image — tag(1) + id-slot(12) + x(4) + y(4) + paint_id(4)
+        //   id-slot layout depends on the tag:
+        //     Static    -> string_id(4) + time_micros=0(8)
+        //     VideoFrame -> string_id(4) + time_micros(8)
+        //     Generated  -> generated_id(8) + reserved(4)   [resolves RGBA via delta]
         // ===================================================================
         DrawOp::Image { image, x, y, paint } => {
-            // Payload: 1 + 4 + 8 + 4 + 4 + 4 = 25
+            // Payload: 1 + 12 + 4 + 4 + 4 = 25
             write_op_header(buf, opcode::IMAGE, 25);
             match image {
                 ImageRef::Static { asset_id } => {
@@ -577,6 +581,14 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
                     write_u32(buf, lookup_string_id(strings, asset_id));
                     write_u64(buf, *time_micros);
                 }
+                ImageRef::Generated { id } => {
+                    // tag 2 reserved for Generated; RGBA is published separately
+                    // via the generated-image delta (see issue #10). The JS
+                    // decoder resolves the image from (pipeline_epoch, id).
+                    write_u8(buf, 2); // tag: Generated
+                    write_u64(buf, id.0); // generated id
+                    write_u32(buf, 0); // reserved (pad id-slot to 12 bytes)
+                }
             }
             write_f32(buf, *x);
             write_f32(buf, *y);
@@ -584,8 +596,8 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         }
 
         // ===================================================================
-        // ImageRect — tag(1) + string_id(4) + time_micros(8) +
-        //             has_src(1) + src(16) + dst(16) + paint_id(4)
+        // ImageRect — tag(1) + id-slot(12) + has_src(1) + src(16) + dst(16) + paint_id(4)
+        //   id-slot layout: see DrawOp::Image (Static/VideoFrame/Generated).
         // ===================================================================
         DrawOp::ImageRect {
             image,
@@ -593,7 +605,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             dst,
             paint,
         } => {
-            // Payload: 1 + 4 + 8 + 1 + 16 + 16 + 4 = 50
+            // Payload: 1 + 12 + 1 + 16 + 16 + 4 = 50
             write_op_header(buf, opcode::IMAGE_RECT, 50);
             match image {
                 ImageRef::Static { asset_id } => {
@@ -608,6 +620,11 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
                     write_u8(buf, 1); // tag: VideoFrame
                     write_u32(buf, lookup_string_id(strings, asset_id));
                     write_u64(buf, *time_micros);
+                }
+                ImageRef::Generated { id } => {
+                    write_u8(buf, 2); // tag: Generated
+                    write_u64(buf, id.0);
+                    write_u32(buf, 0); // reserved
                 }
             }
             write_u8(buf, if src.is_some() { 1 } else { 0 });

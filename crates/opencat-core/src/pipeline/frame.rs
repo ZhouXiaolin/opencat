@@ -44,6 +44,7 @@ pub fn render_frame_with_state(
     last_ordered_scene: &mut OrderedSceneProgram,
     script: &mut dyn ScriptHost,
     blob_store: Option<&dyn BlobStore>,
+    generated_images: &mut crate::ir::GeneratedImageTable,
 ) -> Result<(DrawOpFrame, FrameMediaPlan)> {
     #[cfg(feature = "profile")]
     let _frame_span = span!(
@@ -221,6 +222,7 @@ pub fn render_frame_with_state(
         blob_store,
         font_db: font_db.as_ref(),
         hidden_picture_stack: Vec::new(),
+        generated_images,
     };
 
     crate::text::scope_font_db(font_db, || {
@@ -270,6 +272,7 @@ pub fn render_frame(
         last_ordered,
         script,
         blob_store,
+        &mut session.generated_images,
     )?;
     Ok(RenderFrame { draw, media })
 }

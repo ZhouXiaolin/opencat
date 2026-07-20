@@ -5,71 +5,95 @@ use crate::ir::draw_op::DrawOp;
 use crate::ir::draw_types::{DrawOpRange, ImageRef, RuntimeEffectChildRef, SubtreeId};
 use crate::ir::media_plan::FrameMediaPlan;
 
-/// Extract all media references from a DrawOpFrame and build a FrameMediaPlan.
-/// Deduplicates references so each image/effect appears only once.
-pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
-    let mut images: Vec<ImageRef> = Vec::new();
-    let mut seen_images: HashSet<ImageRef> = HashSet::new();
-    let mut visited_ranges: HashSet<DrawOpRange> = HashSet::new();
-    let mut visited_subtrees: HashSet<SubtreeId> = HashSet::new();
+/// Mutable accumulator for building a `FrameMediaPlan`. Each bucket keeps its
+/// own dedup set so that static images, video frames, and Lottie bundles never
+/// collide with each other.
+struct MediaCollector {
+    images: Vec<ImageRef>,
+    video_frames: Vec<ImageRef>,
+    lottie_bundles: Vec<String>,
+    seen_images: HashSet<ImageRef>,
+    seen_lottie: HashSet<String>,
+    visited_ranges: HashSet<DrawOpRange>,
+    visited_subtrees: HashSet<SubtreeId>,
+}
 
-    collect_ops(
-        frame,
-        &frame.ops,
-        &mut images,
-        &mut seen_images,
-        &mut visited_ranges,
-        &mut visited_subtrees,
-    );
+impl MediaCollector {
+    fn new() -> Self {
+        Self {
+            images: Vec::new(),
+            video_frames: Vec::new(),
+            lottie_bundles: Vec::new(),
+            seen_images: HashSet::new(),
+            seen_lottie: HashSet::new(),
+            visited_ranges: HashSet::new(),
+            visited_subtrees: HashSet::new(),
+        }
+    }
+
+    /// Partition an image reference into the static or video bucket, deduped
+    /// within its own bucket. Static and video refs are distinct categories, so
+    /// a static image and a video frame with the same asset id are both kept.
+    fn push_image(&mut self, image: &ImageRef) {
+        match image {
+            ImageRef::Static { .. } => {
+                if self.seen_images.insert(image.clone()) {
+                    self.images.push(image.clone());
+                }
+            }
+            ImageRef::VideoFrame { .. } => {
+                if self.seen_images.insert(image.clone()) {
+                    self.video_frames.push(image.clone());
+                }
+            }
+        }
+    }
+
+    fn push_lottie(&mut self, bundle_id: &str) {
+        if self.seen_lottie.insert(bundle_id.to_owned()) {
+            self.lottie_bundles.push(bundle_id.to_owned());
+        }
+    }
+}
+
+/// Extract all media references from a DrawOpFrame and build a FrameMediaPlan.
+///
+/// Each category (external images, video frames, Lottie bundles, runtime
+/// effects) is deduplicated independently. The walk follows the same op
+/// structure the renderer emits, including runtime-effect child tables and
+/// replayed ranges/subtrees, so a host preparing media for the plan never
+/// misses a reference hidden behind a replay or shader child.
+pub fn build_media_plan(frame: &DrawOpFrame) -> FrameMediaPlan {
+    let mut collector = MediaCollector::new();
+    collect_ops(frame, &frame.ops, &mut collector);
 
     FrameMediaPlan {
-        images,
+        images: collector.images,
+        video_frames: collector.video_frames,
+        lottie_bundles: collector.lottie_bundles,
+        // Runtime effects are interned in a side table; expose all of them
+        // deduplicated by effect id (the table itself is already unique).
         runtime_effects: frame.effects.clone(),
     }
 }
 
-fn collect_ops(
-    frame: &DrawOpFrame,
-    ops: &[DrawOp],
-    images: &mut Vec<ImageRef>,
-    seen_images: &mut HashSet<ImageRef>,
-    visited_ranges: &mut HashSet<DrawOpRange>,
-    visited_subtrees: &mut HashSet<SubtreeId>,
-) {
+fn collect_ops(frame: &DrawOpFrame, ops: &[DrawOp], collector: &mut MediaCollector) {
     for op in ops {
         match op {
             DrawOp::Image { image, .. } | DrawOp::ImageRect { image, .. } => {
-                push_image(image, images, seen_images);
+                collector.push_image(image);
+            }
+            DrawOp::LottieRect { bundle_id, .. } => {
+                collector.push_lottie(bundle_id);
             }
             DrawOp::RuntimeEffect { children, .. } => {
-                collect_child_range(
-                    frame,
-                    *children,
-                    images,
-                    seen_images,
-                    visited_ranges,
-                    visited_subtrees,
-                );
+                collect_child_range(frame, *children, collector);
             }
             DrawOp::ReplayRange { range } => {
-                collect_range(
-                    frame,
-                    *range,
-                    images,
-                    seen_images,
-                    visited_ranges,
-                    visited_subtrees,
-                );
+                collect_range(frame, *range, collector);
             }
             DrawOp::ReplaySubtreePicture { subtree, .. } => {
-                collect_subtree(
-                    frame,
-                    *subtree,
-                    images,
-                    seen_images,
-                    visited_ranges,
-                    visited_subtrees,
-                );
+                collect_subtree(frame, *subtree, collector);
             }
             _ => {}
         }
@@ -79,10 +103,7 @@ fn collect_ops(
 fn collect_child_range(
     frame: &DrawOpFrame,
     children: crate::ir::draw_types::ChildRange,
-    images: &mut Vec<ImageRef>,
-    seen_images: &mut HashSet<ImageRef>,
-    visited_ranges: &mut HashSet<DrawOpRange>,
-    visited_subtrees: &mut HashSet<SubtreeId>,
+    collector: &mut MediaCollector,
 ) {
     let start = children.start as usize;
     let end = start.saturating_add(children.len as usize);
@@ -92,42 +113,21 @@ fn collect_child_range(
     for child in child_refs {
         match child {
             RuntimeEffectChildRef::Image(image_ref) => {
-                push_image(image_ref, images, seen_images);
+                collector.push_image(image_ref);
             }
             RuntimeEffectChildRef::Picture(range) => {
-                collect_range(
-                    frame,
-                    *range,
-                    images,
-                    seen_images,
-                    visited_ranges,
-                    visited_subtrees,
-                );
+                collect_range(frame, *range, collector);
             }
             RuntimeEffectChildRef::SubtreePicture(subtree) => {
-                collect_subtree(
-                    frame,
-                    *subtree,
-                    images,
-                    seen_images,
-                    visited_ranges,
-                    visited_subtrees,
-                );
+                collect_subtree(frame, *subtree, collector);
             }
             RuntimeEffectChildRef::Shader(_) => {}
         }
     }
 }
 
-fn collect_range(
-    frame: &DrawOpFrame,
-    range: DrawOpRange,
-    images: &mut Vec<ImageRef>,
-    seen_images: &mut HashSet<ImageRef>,
-    visited_ranges: &mut HashSet<DrawOpRange>,
-    visited_subtrees: &mut HashSet<SubtreeId>,
-) {
-    if !visited_ranges.insert(range) {
+fn collect_range(frame: &DrawOpFrame, range: DrawOpRange, collector: &mut MediaCollector) {
+    if !collector.visited_ranges.insert(range) {
         return;
     }
     let start = range.start_op as usize;
@@ -135,45 +135,17 @@ fn collect_range(
     let Some(ops) = frame.ops.get(start..end) else {
         return;
     };
-    collect_ops(
-        frame,
-        ops,
-        images,
-        seen_images,
-        visited_ranges,
-        visited_subtrees,
-    );
+    collect_ops(frame, ops, collector);
 }
 
-fn collect_subtree(
-    frame: &DrawOpFrame,
-    subtree: SubtreeId,
-    images: &mut Vec<ImageRef>,
-    seen_images: &mut HashSet<ImageRef>,
-    visited_ranges: &mut HashSet<DrawOpRange>,
-    visited_subtrees: &mut HashSet<SubtreeId>,
-) {
-    if !visited_subtrees.insert(subtree) {
+fn collect_subtree(frame: &DrawOpFrame, subtree: SubtreeId, collector: &mut MediaCollector) {
+    if !collector.visited_subtrees.insert(subtree) {
         return;
     }
     let Some(ops) = frame.subtrees.get(subtree.0 as usize) else {
         return;
     };
-    collect_ops(
-        frame,
-        ops,
-        images,
-        seen_images,
-        visited_ranges,
-        visited_subtrees,
-    );
-}
-
-fn push_image(image: &ImageRef, images: &mut Vec<ImageRef>, seen_images: &mut HashSet<ImageRef>) {
-    let img = image.clone();
-    if seen_images.insert(img.clone()) {
-        images.push(img);
-    }
+    collect_ops(frame, ops, collector);
 }
 
 #[cfg(test)]
@@ -191,6 +163,8 @@ mod tests {
         let frame = DrawOpFrame::default();
         let plan = build_media_plan(&frame);
         assert!(plan.images.is_empty());
+        assert!(plan.video_frames.is_empty());
+        assert!(plan.lottie_bundles.is_empty());
         assert!(plan.runtime_effects.is_empty());
     }
 
@@ -238,7 +212,6 @@ mod tests {
         builder.push(DrawOp::ImageRect {
             image: ImageRef::VideoFrame {
                 asset_id: "clip.mp4".into(),
-                frame_index: 5,
                 time_micros: 166_667,
             },
             src: None,
@@ -253,7 +226,18 @@ mod tests {
         let frame = builder.finish();
         let plan = build_media_plan(&frame);
 
-        assert_eq!(plan.images.len(), 2);
+        // Static images and video frames are distinct categories, each kept.
+        assert_eq!(plan.images.len(), 1);
+        assert_eq!(plan.video_frames.len(), 1);
+        let ImageRef::VideoFrame {
+            asset_id,
+            time_micros,
+        } = &plan.video_frames[0]
+        else {
+            panic!("expected video frame ref in video_frames bucket");
+        };
+        assert_eq!(asset_id, "clip.mp4");
+        assert_eq!(*time_micros, 166_667);
     }
 
     #[test]
@@ -466,5 +450,73 @@ mod tests {
         let plan = build_media_plan(&frame);
 
         assert_eq!(plan.runtime_effects.len(), 1);
+    }
+
+    #[test]
+    fn lottie_bundles_are_collected_and_deduplicated() {
+        let mut builder = DrawOpBuilder::default();
+        builder.push(DrawOp::LottieRect {
+            bundle_id: "lottie:hero".into(),
+            frame: 0.0,
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 100.0,
+            },
+        });
+        // Same bundle emitted again at a different frame — must dedup.
+        builder.push(DrawOp::LottieRect {
+            bundle_id: "lottie:hero".into(),
+            frame: 12.0,
+            dst: Rect4 {
+                x: 10.0,
+                y: 10.0,
+                width: 80.0,
+                height: 80.0,
+            },
+        });
+        builder.push(DrawOp::LottieRect {
+            bundle_id: "lottie:badge".into(),
+            frame: 0.0,
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 20.0,
+                height: 20.0,
+            },
+        });
+        let frame = builder.finish();
+        let plan = build_media_plan(&frame);
+
+        // Lottie bundles are NOT images; they have their own bucket and do not
+        // leak into the image or video categories.
+        assert!(plan.images.is_empty());
+        assert!(plan.video_frames.is_empty());
+        assert_eq!(plan.lottie_bundles, vec!["lottie:hero", "lottie:badge"]);
+    }
+
+    #[test]
+    fn lottie_bundles_in_subtrees_are_collected() {
+        let mut frame = DrawOpFrame::default();
+        frame.subtrees.push(vec![DrawOp::LottieRect {
+            bundle_id: "lottie:hidden".into(),
+            frame: 5.0,
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+        }]);
+        frame.ops.push(DrawOp::ReplaySubtreePicture {
+            subtree: SubtreeId(0),
+            x: 0.0,
+            y: 0.0,
+        });
+
+        let plan = build_media_plan(&frame);
+
+        assert_eq!(plan.lottie_bundles, vec!["lottie:hidden"]);
     }
 }

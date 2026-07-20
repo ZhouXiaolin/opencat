@@ -100,7 +100,7 @@ impl WebRenderer {
             .map_err(|e| JsValue::from_str(&format!("catalog: {e}")))?;
 
         let blob_store_ref: &dyn opencat_core::resource::BlobStore = &self.blobs;
-        let (mut draw, media_plan) = render_frame(
+        let render = render_frame(
             &composition,
             frame,
             &mut self.session,
@@ -108,6 +108,8 @@ impl WebRenderer {
             Some(blob_store_ref),
         )
         .map_err(|e| JsValue::from_str(&format!("render_frame: {e}")))?;
+        let mut draw = render.draw;
+        let media_plan = render.media;
 
         use opencat_core::platform::frame_consumer::FrameConsumer;
 
@@ -783,17 +785,14 @@ fn encode_image_ref(
         ImageRef::Static { asset_id } => {
             write_u8(out, 0);
             write_u32(out, lookup_string_id(strings, asset_id)?);
-            write_u32(out, 0);
-            write_u64(out, 0);
+            write_u64(out, 0); // time_micros = 0
         }
         ImageRef::VideoFrame {
             asset_id,
-            frame_index,
             time_micros,
         } => {
             write_u8(out, 1);
             write_u32(out, lookup_string_id(strings, asset_id)?);
-            write_u32(out, *frame_index);
             write_u64(out, *time_micros);
         }
     }

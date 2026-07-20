@@ -11,7 +11,7 @@ use crate::ir::asset_id::{
     asset_id_for_video,
 };
 use crate::ir::cache::RenderCache;
-use crate::ir::{CompositionInfo, DrawOpFrame, FrameMediaPlan};
+use crate::ir::{CompositionInfo, DrawOpFrame, FrameMediaPlan, RenderFrame};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
 use crate::parse::preflight::collect_resource_requests_from_parsed;
@@ -250,8 +250,8 @@ impl<L: AssetLoader, S: JsContext> Pipeline for DefaultPipeline<L, S> {
         &self.info
     }
 
-    fn render_frame(&mut self, frame_index: u32) -> Result<(DrawOpFrame, FrameMediaPlan)> {
-        super::frame::render_frame_with_state(
+    fn render_frame(&mut self, frame_index: u32) -> Result<RenderFrame> {
+        let (draw, media) = super::frame::render_frame_with_state(
             &self.composition,
             frame_index,
             &mut self.layout_session,
@@ -264,7 +264,8 @@ impl<L: AssetLoader, S: JsContext> Pipeline for DefaultPipeline<L, S> {
             &mut self.last_ordered_scene,
             &mut self.scripts,
             None,
-        )
+        )?;
+        Ok(RenderFrame { draw, media })
     }
 
     fn loader(&self) -> &Self::Loader {
@@ -365,13 +366,13 @@ mod tests {
 
         let mut pipeline = DefaultPipeline::open(jsonl, loader, ctx).expect("open");
 
-        let (frame, media_plan) = pipeline.render_frame(0).expect("render frame 0");
+        let frame = pipeline.render_frame(0).expect("render frame 0");
 
         assert!(
-            !frame.ops.is_empty(),
+            !frame.draw.ops.is_empty(),
             "render_frame should produce at least one DrawOp"
         );
-        let _ = media_plan;
+        let _ = frame.media;
     }
 
     #[test]
@@ -386,17 +387,13 @@ mod tests {
         let ctx = NoopJsContext::new().expect("js context");
         let mut pipeline = DefaultPipeline::open(xml, loader, ctx).expect("open");
 
-        let (_frame, media_plan) = pipeline.render_frame(90).expect("render frame 90");
+        let frame = pipeline.render_frame(90).expect("render frame 90");
 
-        let crate::ir::draw_types::ImageRef::VideoFrame {
-            frame_index,
-            time_micros,
-            ..
-        } = &media_plan.images[0]
+        let crate::ir::draw_types::ImageRef::VideoFrame { time_micros, .. } =
+            &frame.media.video_frames[0]
         else {
             panic!("expected video frame image ref");
         };
-        assert_eq!(*frame_index, 360);
         assert_eq!(*time_micros, 12_000_000);
     }
 
@@ -416,32 +413,31 @@ mod tests {
         let ctx = NoopJsContext::new().expect("js context");
         let mut pipeline = DefaultPipeline::open(xml, loader, ctx).expect("open");
 
-        let (_before_frame, before_media_plan) = pipeline
+        let before_frame = pipeline
             .render_frame(25)
             .expect("render frame before data-start");
         assert!(
-            before_media_plan.images.is_empty(),
+            before_frame.media.video_frames.is_empty(),
             "data-start is local to scene-2, so the clip should still be hidden"
         );
 
-        let (_start_frame, start_media_plan) = pipeline
+        let start_frame = pipeline
             .render_frame(26)
             .expect("render frame at data-start");
         let crate::ir::draw_types::ImageRef::VideoFrame {
             time_micros: start_time_micros,
             ..
-        } = &start_media_plan.images[0]
+        } = &start_frame.media.video_frames[0]
         else {
             panic!("expected video frame at scene-local data-start");
         };
         assert_eq!(*start_time_micros, 12_000_000);
 
-        let (_later_frame, later_media_plan) =
-            pipeline.render_frame(31).expect("render later frame");
+        let later_frame = pipeline.render_frame(31).expect("render later frame");
         let crate::ir::draw_types::ImageRef::VideoFrame {
             time_micros: later_time_micros,
             ..
-        } = &later_media_plan.images[0]
+        } = &later_frame.media.video_frames[0]
         else {
             panic!("expected video frame after scene-local data-start");
         };
@@ -488,35 +484,35 @@ mod tests {
         let ctx = NoopJsContext::new().expect("js context");
         let mut pipeline = DefaultPipeline::open(xml, loader, ctx).expect("open");
 
-        let (before_frame, before_media_plan) = pipeline.render_frame(0).expect("render frame 0");
+        let before_frame = pipeline.render_frame(0).expect("render frame 0");
         assert!(
-            before_media_plan.images.is_empty(),
+            before_frame.media.video_frames.is_empty(),
             "video should not request a frame before data-start"
         );
         assert_eq!(
-            material_draw_op_count(&before_frame),
+            material_draw_op_count(&before_frame.draw),
             0,
             "video node paint and children should be entirely hidden before data-start"
         );
 
-        let (after_frame, after_media_plan) = pipeline.render_frame(90).expect("render frame 90");
+        let after_frame = pipeline.render_frame(90).expect("render frame 90");
         assert!(
-            !after_media_plan.images.is_empty(),
+            !after_frame.media.video_frames.is_empty(),
             "video should request a frame at data-start"
         );
         assert!(
-            material_draw_op_count(&after_frame) > 0,
+            material_draw_op_count(&after_frame.draw) > 0,
             "video node paint should be visible at data-start"
         );
 
-        let (after_duration_frame, after_duration_media_plan) =
+        let after_duration_frame =
             pipeline.render_frame(150).expect("render frame 150");
         assert!(
-            !after_duration_media_plan.images.is_empty(),
+            !after_duration_frame.media.video_frames.is_empty(),
             "data-duration should not hide the video subtree after it ends"
         );
         let crate::ir::draw_types::ImageRef::VideoFrame { time_micros, .. } =
-            &after_duration_media_plan.images[0]
+            &after_duration_frame.media.video_frames[0]
         else {
             panic!("expected video frame image ref after data-duration");
         };
@@ -525,7 +521,7 @@ mod tests {
             "data-duration should clamp media time only"
         );
         assert!(
-            material_draw_op_count(&after_duration_frame) > 0,
+            material_draw_op_count(&after_duration_frame.draw) > 0,
             "video subtree should remain visible after data-duration ends"
         );
     }
@@ -543,10 +539,85 @@ mod tests {
         let mut p2 = DefaultPipeline::open(jsonl, InMemoryLoader::default(), ctx2).expect("open 2");
 
         for i in 0..5 {
-            let (f1, _) = p1.render_frame(i).expect("render p1");
-            let (f2, _) = p2.render_frame(i).expect("render p2");
-            assert_eq!(f1.ops.len(), f2.ops.len(), "frame {i} op count mismatch");
+            let r1 = p1.render_frame(i).expect("render p1");
+            let r2 = p2.render_frame(i).expect("render p2");
+            assert_eq!(r1.draw.ops.len(), r2.draw.ops.len(), "frame {i} op count mismatch");
         }
+    }
+
+    /// AC #7: the same pipeline instance must produce field-by-field identical
+    /// `RenderFrame` output for a given frame whether rendered directly, after
+    /// rendering other frames out of order, or repeated. Call history must not
+    /// affect the deterministic per-frame contract.
+    #[test]
+    fn render_frame_is_order_and_repeat_invariant() {
+        let xml = r#"<opencat width="320" height="180" fps="30" duration="4">
+  <div id="root" class="w-[320px] h-[180px]">
+    <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" data-start="3" data-duration="18" data-media-start="12" />
+  </div>
+</opencat>"#;
+
+        let loader = InMemoryLoader::default();
+        let ctx = NoopJsContext::new().expect("js context");
+        let mut pipeline = DefaultPipeline::open(xml, loader, ctx).expect("open");
+
+        let target = 90_u32; // well past data-start, so the video ref is active
+
+        // (1) Fresh pipeline renders the target frame directly.
+        let baseline = pipeline.render_frame(target).expect("baseline render");
+
+        // (2) Same pipeline renders other frames out of order, then returns to
+        //     the target frame — must equal the baseline field-by-field.
+        let _ = pipeline.render_frame(10).expect("render 10");
+        let _ = pipeline.render_frame(2).expect("render 2");
+        let after_out_of_order = pipeline
+            .render_frame(target)
+            .expect("render target after out-of-order");
+
+        assert_eq!(
+            baseline.draw.ops, after_out_of_order.draw.ops,
+            "draw ops must be identical regardless of call history"
+        );
+        assert_eq!(
+            baseline.media.images, after_out_of_order.media.images,
+            "media plan images must be identical regardless of call history"
+        );
+        assert_eq!(
+            baseline.media.video_frames, after_out_of_order.media.video_frames,
+            "media plan video frames must be identical regardless of call history"
+        );
+        assert_eq!(
+            baseline.media.lottie_bundles, after_out_of_order.media.lottie_bundles,
+            "media plan lottie bundles must be identical regardless of call history"
+        );
+        assert_eq!(
+            baseline.media.runtime_effects, after_out_of_order.media.runtime_effects,
+            "media plan runtime effects must be identical regardless of call history"
+        );
+
+        // (3) Render the target frame again immediately — must still be identical
+        //     across every media-plan category, not just the draw ops.
+        let repeated = pipeline.render_frame(target).expect("repeat render");
+        assert_eq!(
+            baseline.draw.ops, repeated.draw.ops,
+            "draw ops must be identical on repeat render"
+        );
+        assert_eq!(
+            baseline.media.images, repeated.media.images,
+            "media plan images must be identical on repeat render"
+        );
+        assert_eq!(
+            baseline.media.video_frames, repeated.media.video_frames,
+            "media plan video frames must be identical on repeat render"
+        );
+        assert_eq!(
+            baseline.media.lottie_bundles, repeated.media.lottie_bundles,
+            "media plan lottie bundles must be identical on repeat render"
+        );
+        assert_eq!(
+            baseline.media.runtime_effects, repeated.media.runtime_effects,
+            "media plan runtime effects must be identical on repeat render"
+        );
     }
 
     #[cfg(feature = "profile")]

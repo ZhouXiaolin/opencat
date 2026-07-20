@@ -36,26 +36,39 @@ export interface CachedVideoFrameSource {
 const decodedFrameRgbaCache = new Map<string, CachedVideoFrameRgba>();
 const decodedFrameSourceCache = new Map<string, CachedVideoFrameSource>();
 
-function videoFrameKey(assetId: string, frame: number): string {
-  return `${assetId}\0${frame}`;
+/**
+ * Canonical video-frame cache identity. Mirrors the core render contract: a
+ * video frame is identified by `(canonical assetId, authoritative timeMicros)`,
+ * never by a source `frame_index`. This keeps the injector cache and the
+ * IR-decoded `ImageRef::VideoFrame` reference (which carries only `timeMicros`)
+ * keyed on the same value.
+ */
+function videoFrameKey(assetId: string, timeMicros: bigint): string {
+  return `${assetId}\0${timeMicros}`;
 }
 
-function planItemFrameIndex(item: VideoFramePlanItem, fallbackFrame: number): number {
-  return typeof item.frameIndex === 'number' ? item.frameIndex : fallbackFrame;
+/**
+ * Convert a plan item's `localTimeSecs` into the same `timeMicros` value the
+ * core pipeline emits in the draw IR, so injector-populated entries match the
+ * renderer's lookups. Matches `time_micros = (time_secs * 1_000_000).round()`
+ * on the Rust side.
+ */
+function localTimeSecsToMicros(localTimeSecs: number): bigint {
+  return BigInt(Math.round(localTimeSecs * 1_000_000));
 }
 
 export function getCachedVideoFrameRgba(
   assetId: string,
-  frame: number,
+  timeMicros: bigint,
 ): CachedVideoFrameRgba | undefined {
-  return decodedFrameRgbaCache.get(videoFrameKey(assetId, frame));
+  return decodedFrameRgbaCache.get(videoFrameKey(assetId, timeMicros));
 }
 
 export function getCachedVideoFrameSource(
   assetId: string,
-  frame: number,
+  timeMicros: bigint,
 ): CachedVideoFrameSource | undefined {
-  return decodedFrameSourceCache.get(videoFrameKey(assetId, frame));
+  return decodedFrameSourceCache.get(videoFrameKey(assetId, timeMicros));
 }
 
 export function clearCachedVideoFrames(assetId?: string): void {
@@ -96,17 +109,20 @@ export async function injectVideoFramesForRender({
     return;
   }
 
-  const byFrame = new Map<string, VideoFramePlanItem>();
+  // Dedupe plan items by (assetId, timeMicros). The plan_video_frames path may
+  // still emit a source `frameIndex` for legacy reasons; we ignore it here and
+  // key purely on the authoritative time, matching the core media contract.
+  const byTime = new Map<string, VideoFramePlanItem>();
   for (const item of plan) {
-    byFrame.set(videoFrameKey(item.assetId, planItemFrameIndex(item, frame)), item);
+    byTime.set(videoFrameKey(item.assetId, localTimeSecsToMicros(item.localTimeSecs)), item);
   }
 
-  if (byFrame.size === 0) return;
+  if (byTime.size === 0) return;
 
   await Promise.all(
-    Array.from(byFrame.values()).map(async (item) => {
+    Array.from(byTime.values()).map(async (item) => {
       try {
-        const frameIndex = planItemFrameIndex(item, frame);
+        const timeMicros = localTimeSecsToMicros(item.localTimeSecs);
         if (frameOutput === 'rgba') {
           const decoded = await getDecodedFrameRgba(
             item.assetId,
@@ -115,7 +131,7 @@ export async function injectVideoFramesForRender({
           );
           if (!decoded) return;
 
-          decodedFrameRgbaCache.set(videoFrameKey(item.assetId, frameIndex), decoded);
+          decodedFrameRgbaCache.set(videoFrameKey(item.assetId, timeMicros), decoded);
           return;
         }
 
@@ -133,7 +149,7 @@ export async function injectVideoFramesForRender({
           return;
         }
 
-        decodedFrameSourceCache.set(videoFrameKey(item.assetId, frameIndex), {
+        decodedFrameSourceCache.set(videoFrameKey(item.assetId, timeMicros), {
           source: decoded,
           width,
           height,
@@ -159,14 +175,14 @@ export async function prefetchVideoFramesForRender({
     return;
   }
 
-  const byFrame = new Map<string, VideoFramePlanItem>();
+  const byTime = new Map<string, VideoFramePlanItem>();
   for (const item of plan) {
-    byFrame.set(videoFrameKey(item.assetId, planItemFrameIndex(item, frame)), item);
+    byTime.set(videoFrameKey(item.assetId, localTimeSecsToMicros(item.localTimeSecs)), item);
   }
-  if (byFrame.size === 0) return;
+  if (byTime.size === 0) return;
 
   await Promise.all(
-    Array.from(byFrame.values()).map((item) => (
+    Array.from(byTime.values()).map((item) => (
       prefetchDecodedVideoFrame(item.assetId, item.localTimeSecs, quality)
     )),
   );

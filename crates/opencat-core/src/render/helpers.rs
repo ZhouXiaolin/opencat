@@ -2678,7 +2678,6 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
         let time_secs = request.resolve_time_secs(&info);
         ImageRef::VideoFrame {
             asset_id,
-            frame_index: request.resolved_frame_index(&info, ctx.frame_ctx.fps),
             time_micros: (time_secs.max(0.0) * 1_000_000.0).round() as u64,
         }
     } else {

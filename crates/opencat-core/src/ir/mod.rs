@@ -9,5 +9,5 @@ pub mod media_plan;
 
 pub use asset_id::*;
 pub use composition_info::CompositionInfo;
-pub use draw_frame::DrawOpFrame;
+pub use draw_frame::{DrawOpFrame, RenderFrame};
 pub use media_plan::FrameMediaPlan;

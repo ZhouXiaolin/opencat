@@ -44,6 +44,12 @@ pub struct TableRange {
 }
 
 /// Reference to an image source — either a static asset or a video frame.
+///
+/// A video frame reference carries only the canonical `AssetId` and the
+/// authoritative target `time_micros`. It intentionally does NOT carry a
+/// source `frame_index`: composition frame index is not source video frame
+/// index, and host decoders resolve frames from `time_micros` using their
+/// own seek/keyframe/cache strategy.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ImageRef {
     Static {
@@ -51,7 +57,6 @@ pub enum ImageRef {
     },
     VideoFrame {
         asset_id: String,
-        frame_index: u32,
         time_micros: u64,
     },
 }
@@ -64,10 +69,14 @@ pub struct EffectRef {
 }
 
 /// Frame-local resource reference used by side tables.
+///
+/// Video frames are not represented here: they are identified by
+/// `ImageRef::VideoFrame { asset_id, time_micros }` in the draw op stream and
+/// collected into `FrameMediaPlan.video_frames`. A source `frame_index` is
+/// intentionally not part of any resource identity.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ResourceRef {
     StaticImage(String),
-    VideoFrame(String, u32),
     RuntimeEffect(EffectId),
 }
 
@@ -388,20 +397,17 @@ mod tests {
     }
 
     #[test]
-    fn image_ref_video_frame_holds_asset_and_frame() {
+    fn image_ref_video_frame_holds_asset_and_time() {
         let ref_ = ImageRef::VideoFrame {
             asset_id: "clip.mp4".into(),
-            frame_index: 42,
             time_micros: 1_400_000,
         };
         match ref_ {
             ImageRef::VideoFrame {
                 asset_id,
-                frame_index,
                 time_micros,
             } => {
                 assert_eq!(asset_id, "clip.mp4");
-                assert_eq!(frame_index, 42);
                 assert_eq!(time_micros, 1_400_000);
             }
             _ => panic!("expected VideoFrame"),
@@ -437,7 +443,7 @@ mod tests {
     fn resource_ref_equality() {
         let a = ResourceRef::StaticImage("img.png".into());
         let b = ResourceRef::StaticImage("img.png".into());
-        let c = ResourceRef::VideoFrame("vid.mp4".into(), 0);
+        let c = ResourceRef::RuntimeEffect(EffectId(0));
         assert_eq!(a, b);
         assert_ne!(a, c);
     }

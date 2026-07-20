@@ -37,6 +37,8 @@ pub use opencat_core::style::ColorToken;
 pub use crate::render::RenderSession;
 pub use crate::resource::loader::{EngineAssetHandle, EngineLoader};
 
-// Pipeline integration: monomorphised pipeline type
-pub type EnginePipeline =
-    opencat_core::pipeline::DefaultPipeline<EngineLoader, crate::js_context::RqJsContext>;
+// Pipeline integration: the engine host that owns the core pipeline (opened via
+// `open_with_prepared_catalog`, carrying a NoopAssetLoader) plus the engine
+// resource owner. Render/audio code reads the cached bytes off `host.loader`,
+// never through the core pipeline. See `pipeline::EnginePipelineHost` (#7).
+pub type EnginePipeline = crate::pipeline::EnginePipelineHost;

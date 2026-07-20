@@ -10,7 +10,8 @@ use opencat_core::parse::primitives::LottieSource;
 use opencat_core::probe::{AssetHandle, AssetLoader, ResourceRequests};
 use opencat_core::probe::{AudioSource, ImageSource, SubtitleSource, VideoSource};
 use opencat_core::resource::asset_id::{
-    AssetId, asset_id_for_audio_url, asset_id_for_query, asset_id_for_url, asset_id_for_video_url,
+    AssetId, asset_id_for_audio_url, asset_id_for_image, asset_id_for_query, asset_id_for_subtitle,
+    asset_id_for_url, asset_id_for_video, asset_id_for_video_url,
 };
 use opencat_core::resource::fonts::{FontManifest, font_asset_id};
 use opencat_core::resource::manifest::ExternalResourceManifest;
@@ -224,6 +225,78 @@ impl EngineLoader {
         hydrate_provider_from_bytes(manifest, &mut provider, &LoaderByteSource(self));
         self.resource_provider = Some(provider.clone());
         provider
+    }
+
+    /// Collect the bytes core's pure `probe::prepare::build_catalog` needs, keyed
+    /// by canonical `AssetId` string.
+    ///
+    /// This is the host-side bridge from the engine's cached-path handles to the
+    /// pure catalog builder: after `load_all` has fetched/copied every declared
+    /// asset, the host reads each handle's bytes and hands the map to
+    /// `build_catalog`, which runs the pure image/video/Lottie probes. Core never
+    /// touches the file system or the loader here.
+    ///
+    /// The keys match core's canonical id rules exactly (image path/url/query,
+    /// video path/url, Lottie primary-json path/url). Subtitles are intentionally
+    /// excluded — their *text* feeds `hydrate_captions`, not the catalog (see
+    /// [`EngineLoader::srt_text_by_subtitle_id`]).
+    pub fn collect_probe_bytes_by_asset_id(
+        &self,
+        req: &ResourceRequests,
+    ) -> std::collections::HashMap<String, Vec<u8>> {
+        let mut bytes = std::collections::HashMap::new();
+        for src in &req.images {
+            if let Some(id) = asset_id_for_image(src) {
+                if let Some(b) = self.handle(&id).and_then(|h| h.read_bytes().ok()) {
+                    bytes.insert(id.0, b.into_owned());
+                }
+            }
+        }
+        for src in &req.videos {
+            let id = asset_id_for_video(src);
+            if let Some(b) = self.handle(&id).and_then(|h| h.read_bytes().ok()) {
+                bytes.insert(id.0, b.into_owned());
+            }
+        }
+        for lottie_req in &req.lotties {
+            if matches!(lottie_req.source, LottieSource::Unset) {
+                continue;
+            }
+            // build_catalog looks up Lottie primary JSON by its byte key
+            // (path string for Path, url-derived id for Url), not the bundle id.
+            let key = match &lottie_req.source {
+                LottieSource::Path(p) => p.to_string_lossy().into_owned(),
+                LottieSource::Url(u) => asset_id_for_url(u).0,
+                LottieSource::Unset => continue,
+            };
+            if let Some(b) = self.handle(&AssetId(key.clone())).and_then(|h| h.read_bytes().ok()) {
+                bytes.insert(key, b.into_owned());
+            }
+        }
+        bytes
+    }
+
+    /// Collect decoded SRT text keyed by canonical subtitle `AssetId` string, for
+    /// core's pure `hydrate_captions`.
+    ///
+    /// After `load_all` has fetched/cached each subtitle file, the host reads the
+    /// bytes, decodes them as UTF-8, and hands the map to `hydrate_captions`,
+    /// which runs the pure `parse_srt` and writes entries into the caption nodes
+    /// of the parsed composition. Core never opens a subtitle file.
+    pub fn srt_text_by_subtitle_id(
+        &self,
+        req: &ResourceRequests,
+    ) -> std::collections::HashMap<String, String> {
+        let mut srt = std::collections::HashMap::new();
+        for src in &req.subtitles {
+            let id = asset_id_for_subtitle(src);
+            if let Some(bytes) = self.handle(&id).and_then(|h| h.read_bytes().ok()) {
+                if let Ok(text) = std::str::from_utf8(&bytes) {
+                    srt.insert(id.0, text.to_string());
+                }
+            }
+        }
+        srt
     }
 }
 

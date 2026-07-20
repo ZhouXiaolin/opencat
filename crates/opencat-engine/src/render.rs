@@ -477,7 +477,8 @@ mod tests {
         let cache = fixture_dir.join("cache");
         std::fs::create_dir_all(&cache).expect("test cache dir");
         // Caption nodes with path "sub.srt" still trigger loader preload even when
-        // entries are inlined; seed a placeholder so open_parsed's load_all succeeds.
+        // entries are inlined; seed a placeholder so the host-owned open's
+        // `load_all` succeeds and `hydrate_captions` parses it.
         std::fs::write(
             fixture_dir.join("sub.srt"),
             "1\n00:00:00,000 --> 00:00:01,000\n\n",
@@ -486,17 +487,16 @@ mod tests {
         let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache)
             .expect("loader");
         let ctx = crate::js_context::RqJsContext::new().expect("js context");
-        let mut pipeline = opencat_core::pipeline::DefaultPipeline::open_parsed(
+        // Open through the host-owned chain (fetch/cache → build_catalog →
+        // hydrate captions → open_with_prepared_catalog), the same path the
+        // engine uses in production. No open_parsed / loader_mut here.
+        let pipeline = crate::pipeline::open_parsed_host_owned(
             parsed,
             loader,
             ctx,
             crate::fonts::engine_default_font_db(),
         )
         .expect("pipeline");
-        let composition = pipeline.composition().clone();
-        pipeline
-            .loader_mut()
-            .register_canvas_asset_aliases(&composition);
         let frames = duration_secs_to_frames(duration, fps);
         let mut media_ctx = MediaContext::new();
         media_ctx.set_composition_fps(fps);

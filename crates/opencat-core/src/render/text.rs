@@ -4,6 +4,7 @@ use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, Pain
 use crate::display::list::{DisplayRect, TextDisplayItem};
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{EncodedPath, FillType, ImageRef, PathOp};
+use crate::ir::GeneratedImageId;
 use crate::script::TextUnitOverride;
 use crate::style::TextAlign;
 use crate::text::{
@@ -116,15 +117,20 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
                     builder.push(DrawOp::Restore);
                 }
                 GlyphData::ColorImage {
+                    rgba,
+                    width,
+                    height,
                     placement_left,
                     placement_top,
-                    ..
                 } => {
-                    let asset_id = format!("glyph:{}", pos.cache_key);
+                    let id = GeneratedImageId(pos.cache_key);
+                    ctx.generated_images
+                        .insert(id, *width, *height, std::sync::Arc::from(rgba.as_slice()))
+                        .map_err(|e| RenderError::Platform(e.to_string()))?;
                     let ix = abs_x + *placement_left as f32;
                     let iy = abs_y - *placement_top as f32;
                     builder.push(DrawOp::Image {
-                        image: ImageRef::Static { asset_id },
+                        image: ImageRef::Generated { id },
                         x: ix,
                         y: iy,
                         paint: Some(paint_id),
@@ -242,12 +248,16 @@ fn render_text_with_unit_overrides(
                         });
                     }
                     GlyphData::ColorImage {
+                        rgba,
                         width: im_w,
                         height: im_h,
                         placement_left,
                         placement_top,
-                        ..
                     } => {
+                        let id = GeneratedImageId(pos.cache_key);
+                        ctx.generated_images
+                            .insert(id, *im_w, *im_h, std::sync::Arc::from(rgba.as_slice()))
+                            .map_err(|e| RenderError::Platform(e.to_string()))?;
                         let ix = abs_x + *placement_left as f32;
                         let iy = abs_y - *placement_top as f32;
                         let iw = *im_w as f32;
@@ -352,9 +362,9 @@ fn render_text_with_unit_overrides(
                 });
                 builder.push(DrawOp::Restore);
             } else {
-                let asset_id = format!("glyph:{}", entry.cache_key);
+                let id = GeneratedImageId(entry.cache_key);
                 builder.push(DrawOp::Image {
-                    image: ImageRef::Static { asset_id },
+                    image: ImageRef::Generated { id },
                     x: entry.ix,
                     y: entry.iy,
                     paint: Some(unit_paint_id),

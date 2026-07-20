@@ -887,6 +887,7 @@ mod app {
             executor,
             loader: pipeline.loader(),
             media_ctx,
+            generated_images: pipeline.generated_images(),
             canvas,
         };
         consumer.consume_frame(&header, &mut frame, &media_plan)?;

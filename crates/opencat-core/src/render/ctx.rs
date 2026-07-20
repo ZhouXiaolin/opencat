@@ -7,6 +7,7 @@ use crate::analyze::annotation::AnnotatedDisplayTree;
 use crate::analyze::compositor::OrderedSceneProgram;
 use crate::canvas::paint::{PaintSpec, PaintStyle, PathEffectSpec, StrokeCap, StrokeJoin};
 use crate::frame_ctx::FrameCtx;
+use crate::ir::GeneratedImageTable;
 use crate::render::builder::DrawOpBuilder;
 use crate::resource::blob_store::BlobStore;
 use crate::resource::catalog::ResourceCatalog;
@@ -24,6 +25,10 @@ pub struct RenderCtx<'a> {
     pub blob_store: Option<&'a dyn BlobStore>,
     pub font_db: &'a fontdb::Database,
     pub hidden_picture_stack: Vec<String>,
+    /// Pipeline-owned table for core-rasterized images (color-emoji glyphs).
+    /// Text rendering inserts RGBA here and emits `ImageRef::Generated`; hosts
+    /// resolve the id back to a bitmap from this table.
+    pub generated_images: &'a mut GeneratedImageTable,
 }
 
 /// Mutable drawing state carried through a draw-script execution.

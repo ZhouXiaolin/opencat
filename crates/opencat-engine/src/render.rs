@@ -92,6 +92,7 @@ fn render_pipeline_frame_to_rgba(
         executor,
         loader: pipeline.loader(),
         media_ctx,
+        generated_images: pipeline.generated_images(),
         canvas,
     };
     consumer.consume_frame(&header, &mut frame, &media_plan)?;
@@ -623,6 +624,86 @@ mod tests {
                 missing.join(", ")
             );
         }
+    }
+
+    /// Issue #9: color-emoji glyphs must flow through the generated-image
+    /// path, not be dropped. Before #9, `render_text` discarded the RGBA and
+    /// emitted a synthetic `glyph:*` `ImageRef::Static` that the loader could
+    /// never resolve — so emoji rendered as nothing. This test proves the table
+    /// is populated AND the engine resolved the generated image to visible
+    /// colorful pixels (emoji are multi-colored, unlike grayscale text).
+    #[test]
+    fn color_emoji_glyphs_render_via_generated_image_table() {
+        let emoji = "😀";
+        let scene = crate::div().id("root").w_full().h_full().bg_white().child(
+            crate::text(emoji)
+                .id("face")
+                .absolute()
+                .left(8.0)
+                .top(4.0)
+                .w(64.0)
+                .h(64.0)
+                .text_px(48.0)
+                .text_color(crate::ColorToken::Black),
+        );
+
+        let mut pipeline =
+            make_test_pipeline_from_scene(scene, 96, 80, 30, frames_at_30fps(1));
+
+        // Sanity: emoji rasterizes to a ColorImage glyph with the engine font db.
+        let font_db = crate::fonts::engine_default_font_db();
+        let raster = opencat_core::text::rasterize_glyphs(
+            emoji,
+            &opencat_core::style::ComputedTextStyle {
+                text_px: 48.0,
+                ..Default::default()
+            },
+            f32::INFINITY,
+            false,
+            false,
+            font_db.as_ref(),
+        );
+        let has_color_glyph = raster
+            .glyphs
+            .values()
+            .any(|d| matches!(d, opencat_core::text::GlyphData::ColorImage { .. }));
+        assert!(
+            has_color_glyph,
+            "test precondition: NotoColorEmoji must rasterize 😀 as ColorImage"
+        );
+
+        let frame = pipeline.render(0).expect("frame should render");
+
+        // AC#1: the pipeline's generated-image table is populated (RGBA was
+        // captured, not dropped).
+        assert!(
+            !pipeline.pipeline.generated_images().is_empty(),
+            "generated-image table must contain the emoji glyph RGBA"
+        );
+
+        // AC#6: the engine resolved the generated image to a Skia image and
+        // drew it — emoji produces colorful (saturated) pixels, unlike grayscale
+        // outline text. Scan the whole frame for any saturated, opaque pixel.
+        let colorful = (0..80)
+            .flat_map(|y| (0..96).map(move |x| (x, y)))
+            .filter(|(x, y)| is_colorful_opaque(&frame, 96, *x, *y))
+            .count();
+        assert!(
+            colorful > 8,
+            "emoji should contribute colorful pixels to the frame, found {colorful}"
+        );
+    }
+
+    fn is_colorful_opaque(frame: &[u8], width: usize, x: usize, y: usize) -> bool {
+        let px = pixel_rgba(frame, width, x, y);
+        if px[3] < 200 {
+            return false;
+        }
+        let max = px[0].max(px[1]).max(px[2]);
+        let min = px[0].min(px[1]).min(px[2]);
+        // Saturated color: emoji yellows/greens/reds have a wide channel spread;
+        // grayscale text (even anti-aliased) stays narrow.
+        max.saturating_sub(min) > 40
     }
 
     #[test]

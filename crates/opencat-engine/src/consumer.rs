@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
 use opencat_core::ir::media_plan::FrameMediaPlan;
+use opencat_core::ir::GeneratedImageTable;
 use opencat_core::platform::frame_consumer::{FrameConsumer, RenderSessionHeader};
 use opencat_core::probe::{AssetHandle, AssetLoader};
 use opencat_core::resource::asset_id::AssetId;
@@ -53,6 +54,7 @@ fn prepare_frame(
     plan: &FrameMediaPlan,
     loader: &crate::resource::loader::EngineLoader,
     video: &mut MediaContext,
+    generated_images: &GeneratedImageTable,
 ) -> Result<EnginePreparedFrameMedia, ConsumerError> {
     let mut sk_images = Vec::new();
     let mut image_index = HashMap::new();
@@ -73,8 +75,9 @@ fn prepare_frame(
                 }
             }
             // Static bucket only carries external images; video refs live in
-            // `plan.video_frames`. Defensive: ignore any other variant here.
-            ImageRef::VideoFrame { .. } => {}
+            // `plan.video_frames` and generated refs in `plan.generated_images`.
+            // Defensive: ignore any other variant here.
+            ImageRef::VideoFrame { .. } | ImageRef::Generated { .. } => {}
         }
     }
 
@@ -115,8 +118,37 @@ fn prepare_frame(
                 image_index.insert(image_ref.clone(), idx);
             }
             // Defensive: the video bucket only carries video refs.
-            ImageRef::Static { .. } => {}
+            ImageRef::Static { .. } | ImageRef::Generated { .. } => {}
         }
+    }
+
+    // Core-generated images (color-emoji bitmap glyphs). RGBA lives in the
+    // pipeline's generated-image table, never in an external asset store; the
+    // engine builds a Skia image directly from the rasterized bytes.
+    for id in &plan.generated_images {
+        let image_ref = ImageRef::Generated { id: *id };
+        if image_index.contains_key(&image_ref) {
+            continue;
+        }
+        let Some(entry) = generated_images.get(id) else {
+            continue;
+        };
+        let info = ImageInfo::new(
+            (entry.width as i32, entry.height as i32),
+            ColorType::RGBA8888,
+            AlphaType::Unpremul,
+            None,
+        );
+        let Some(sk_image) = images::raster_from_data(
+            &info,
+            Data::new_copy(&entry.rgba),
+            entry.width as usize * 4,
+        ) else {
+            continue;
+        };
+        let idx = sk_images.len();
+        sk_images.push(sk_image);
+        image_index.insert(image_ref, idx);
     }
 
     let mut runtime_effects = Vec::with_capacity(plan.runtime_effects.len());
@@ -142,6 +174,7 @@ pub struct EngineLoaderFrameConsumer<'a> {
     pub executor: &'a mut EngineDrawExecutor,
     pub loader: &'a crate::resource::loader::EngineLoader,
     pub media_ctx: &'a mut MediaContext,
+    pub generated_images: &'a GeneratedImageTable,
     pub canvas: &'a mut Canvas,
 }
 
@@ -155,7 +188,7 @@ impl FrameConsumer for EngineLoaderFrameConsumer<'_> {
         draw: &mut DrawOpFrame,
         plan: &FrameMediaPlan,
     ) -> Result<(), ConsumerError> {
-        let prepared = prepare_frame(plan, self.loader, self.media_ctx)?;
+        let prepared = prepare_frame(plan, self.loader, self.media_ctx, self.generated_images)?;
         self.executor.ensure_lottie_animations(draw, |bundle_id| {
             let asset_id = AssetId(bundle_id.to_string());
             self.loader

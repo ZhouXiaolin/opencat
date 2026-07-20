@@ -88,6 +88,10 @@ const SECTION_PATHS = 8;
 const SECTION_CHILDREN = 9;
 const SECTION_EFFECTS = 10;
 const SECTION_SUBTREES = 11;
+// v4 (issue #10): core-rasterized color-emoji RGBA, published as a per-frame
+// delta of glyphs not yet sent under the current pipeline epoch. JS caches the
+// resulting CanvasKit images by (epoch, id).
+const SECTION_GENERATED_IMAGES = 12;
 
 const OP_SAVE = 0;
 const OP_SAVE_LAYER = 1;
@@ -136,7 +140,10 @@ const lottieCache = new Map<string, ManagedSkottieAnimation>();
 
 type Rect4 = { x: number; y: number; width: number; height: number };
 type Range = { start: number; len: number };
-type DecodedImageRef = { type: 'static'; assetId: string } | { type: 'video'; assetId: string; timeMicros: bigint };
+type DecodedImageRef =
+  | { type: 'static'; assetId: string }
+  | { type: 'video'; assetId: string; timeMicros: bigint }
+  | { type: 'generated'; id: bigint };
 
 type FillSpec =
   | { type: 'solid'; color: [number, number, number, number] }
@@ -270,6 +277,14 @@ class BinaryReader {
 const staticImageCache = new Map<string, Image>();
 const pathCache = new WeakMap<object, Path>();
 const effectCache = new Map<bigint, RuntimeEffect>();
+// Core-generated color-emoji glyphs (issue #10). Keyed by `${epoch}:${id}`:
+// when the pipeline is replaced the epoch bumps, and the next frame's delta
+// republishes every glyph the new pipeline needs. On observing a new epoch
+// the stale entries (carrying the old epoch) are evicted so the cache cannot
+// outlive the pipeline that produced it. The CanvasKit Image is built lazily
+// from the RGBA in section 12 and reused across all frames in the epoch.
+let generatedImageEpoch = 0;
+const generatedImageCache = new Map<string, Image>();
 
 function initialRenderState(): RenderState {
   return {
@@ -611,12 +626,21 @@ function decodeFrame(bytes: Uint8Array): DecodedFrame {
     throw new Error('Invalid OpenCat IR magic');
   }
   const version = view.getUint32(4, true);
-  if (version !== 3) throw new Error(`Unsupported OpenCat IR version ${version}`);
+  if (version !== 4) throw new Error(`Unsupported OpenCat IR version ${version}`);
 
   const sectionCount = view.getUint32(8, true);
+  // v4 stamps the pipeline epoch immediately after the section count. JS keys
+  // its generated-image cache by (epoch, id); when the epoch bumps (a new
+  // design replaced the pipeline) the stale glyph images are evicted so the
+  // cache cannot outlive its pipeline.
+  const pipelineEpoch = view.getUint32(12, true);
+  if (pipelineEpoch !== generatedImageEpoch) {
+    evictGeneratedImages(generatedImageEpoch);
+    generatedImageEpoch = pipelineEpoch;
+  }
   const sections = new Map<number, Uint8Array>();
   for (let i = 0; i < sectionCount; i++) {
-    const base = 12 + i * 12;
+    const base = 16 + i * 12;
     const id = view.getUint32(base, true);
     const offset = view.getUint32(base + 4, true);
     const len = view.getUint32(base + 8, true);
@@ -627,6 +651,11 @@ function decodeFrame(bytes: Uint8Array): DecodedFrame {
   const stringRanges = parseRanges(requireSection(sections, SECTION_STRING_RANGES));
   const decoder = new TextDecoder();
   const strings = stringRanges.map((range) => decoder.decode(stringsUtf8.subarray(range.start, range.start + range.len)));
+
+  // Section 12 carries the per-frame generated-image delta (new glyphs only).
+  // It is always present in v4 (possibly count: 0). The CanvasKit Image for
+  // each glyph is built lazily inside resolveImage and cached for the epoch.
+  parseGeneratedImages(requireSection(sections, SECTION_GENERATED_IMAGES), pipelineEpoch);
 
   return {
     bytes,
@@ -642,6 +671,52 @@ function decodeFrame(bytes: Uint8Array): DecodedFrame {
     children: parseChildren(requireSection(sections, SECTION_CHILDREN), strings),
     effects: parseEffects(requireSection(sections, SECTION_EFFECTS)),
   };
+}
+
+/// Drop every generated-image entry keyed to `epoch`. Called when a new frame
+/// arrives carrying a different pipeline epoch. Each CanvasKit Image is freed
+/// before its cache entry is removed to avoid leaking GPU/heap memory, and the
+/// matching pending-RGBA records are dropped too so the cache cannot outlive
+/// the pipeline that produced it. Two-pass to avoid mutating a Map while its
+/// key iterator is mid-iteration.
+function evictGeneratedImages(epoch: number): void {
+  const prefix = `${epoch}:`;
+  const staleImages: string[] = [];
+  for (const key of generatedImageCache.keys()) {
+    if (key.startsWith(prefix)) staleImages.push(key);
+  }
+  for (const key of staleImages) {
+    const img = generatedImageCache.get(key);
+    try { img?.delete?.(); } catch { /* ignore CanvasKit cleanup failures */ }
+    generatedImageCache.delete(key);
+  }
+  const staleRgba: string[] = [];
+  for (const key of generatedImageRgba.keys()) {
+    if (key.startsWith(prefix)) staleRgba.push(key);
+  }
+  for (const key of staleRgba) generatedImageRgba.delete(key);
+}
+
+/// Decode section 12 and register each glyph's RGBA under (epoch, id). The
+/// CanvasKit Image is built on first use by resolveImage; here we only record
+/// the raster bytes so resolveImage can call CK.MakeImage with the right info.
+/// Receiving a glyph id that already has an entry for this epoch is a no-op
+/// (the Rust side only sends each id once per epoch, but be defensive).
+const generatedImageRgba = new Map<string, { width: number; height: number; rgba: Uint8Array }>();
+
+function parseGeneratedImages(section: Uint8Array, epoch: number): void {
+  const reader = new BinaryReader(section);
+  const count = reader.u32();
+  for (let i = 0; i < count; i++) {
+    const id = reader.u64();
+    const width = reader.u32();
+    const height = reader.u32();
+    const rgba = reader.bytesWithLen();
+    const key = `${epoch}:${id}`;
+    if (!generatedImageRgba.has(key) && !generatedImageCache.has(key)) {
+      generatedImageRgba.set(key, { width, height, rgba });
+    }
+  }
 }
 
 function requireSection(sections: Map<number, Uint8Array>, id: number): Uint8Array {
@@ -895,6 +970,14 @@ function readIrGradientStops(reader: BinaryReader): { stops: number[]; colors: n
 
 function readImageRef(payload: Payload, frame: DecodedFrame): DecodedImageRef {
   const tag = payload.u8();
+  // Generated images carry a numeric id (not an interned asset string) and a
+  // reserved u32; the RGBA arrives via section 12's delta. Layout mirrors the
+  // Rust encoder: tag(1) + id_u64(8) + reserved(4).
+  if (tag === 2) {
+    const id = payload.u64();
+    payload.u32(); // reserved
+    return { type: 'generated', id };
+  }
   const assetId = frame.strings[payload.u32()] ?? '';
   const timeMicros = payload.u64();
   return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, timeMicros };
@@ -902,6 +985,11 @@ function readImageRef(payload: Payload, frame: DecodedFrame): DecodedImageRef {
 
 function readImageRefFromReader(reader: BinaryReader, strings: string[]): DecodedImageRef {
   const tag = reader.u8();
+  if (tag === 2) {
+    const id = reader.u64();
+    reader.u32(); // reserved
+    return { type: 'generated', id };
+  }
   const assetId = strings[reader.u32()] ?? '';
   const timeMicros = reader.u64();
   return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, timeMicros };
@@ -1103,6 +1191,34 @@ function resolveImage(
     return ckImage;
   }
 
+  if (image.type === 'generated') {
+    // Core-rasterized color-emoji glyph. The RGBA arrived in section 12's
+    // delta; cache the CanvasKit image by (epoch, id) so each glyph is built
+    // exactly once per pipeline. A missing delta entry (core skipped it
+    // defensively) renders as a no-op, matching the engine's behavior.
+    const key = `${generatedImageEpoch}:${image.id}`;
+    const cached = generatedImageCache.get(key);
+    if (cached) return cached;
+    const rgba = generatedImageRgba.get(key);
+    if (!rgba) return null;
+    const ckImage = CK.MakeImage(
+      {
+        width: rgba.width,
+        height: rgba.height,
+        colorType: CK.ColorType.RGBA_8888,
+        alphaType: CK.AlphaType.Unpremul,
+        colorSpace: CK.ColorSpace.SRGB,
+      },
+      rgba.rgba,
+      rgba.width * 4,
+    );
+    if (ckImage) {
+      generatedImageCache.set(key, ckImage);
+      generatedImageRgba.delete(key);
+    }
+    return ckImage;
+  }
+
   const transientKey = `${image.assetId}\0${image.timeMicros}`;
   const existing = transientImageCache.get(transientKey);
   if (existing) return existing;
@@ -1292,3 +1408,33 @@ function mapPointMode(CK: CanvasKit, value: number): CanvasKitEnum {
 function align4(value: number): number {
   return (value + 3) & ~3;
 }
+
+// --- Test-only seam (issue #10) -------------------------------------------
+// The decoder mutates module-level generated-image state. Exposing a narrow
+// hook lets unit tests drive `decodeFrame` directly with a hand-built envelope
+// and inspect/observe the cache identity + epoch-eviction semantics without a
+// full CanvasKit + GPU surface. Not part of the public render API.
+export const __generatedImageTestSeam = {
+  /** Decode a raw OCIR v4 envelope without rendering. Exposed for tests. */
+  decode: (bytes: Uint8Array) => decodeFrame(bytes),
+  /** Current pipeline epoch observed by the decoder. */
+  currentEpoch: () => generatedImageEpoch,
+  /** Number of generated-image entries currently held (rgba + image). */
+  cacheSize: () => {
+    let n = 0;
+    for (const key of generatedImageCache.keys()) if (key.startsWith(`${generatedImageEpoch}:`)) n += 1;
+    for (const key of generatedImageRgba.keys()) if (key.startsWith(`${generatedImageEpoch}:`)) n += 1;
+    return n;
+  },
+  /** Look up a generated glyph's raw RGBA registered for the current epoch. */
+  rgbaFor: (id: bigint) => generatedImageRgba.get(`${generatedImageEpoch}:${id}`),
+  /** Reset all generated-image state (for test isolation). */
+  reset: () => {
+    for (const img of generatedImageCache.values()) {
+      try { img?.delete?.(); } catch { /* test-only; ignore */ }
+    }
+    generatedImageCache.clear();
+    generatedImageRgba.clear();
+    generatedImageEpoch = 0;
+  },
+};

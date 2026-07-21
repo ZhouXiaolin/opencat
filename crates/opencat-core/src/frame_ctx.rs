@@ -1,3 +1,8 @@
+//! Per-frame composition context. Frame/fps remain integer for layout/script
+//! surfaces; media contracts use [`crate::time`] micros / rational rates.
+
+pub use crate::time::{duration_secs_to_frames, frames_to_duration_secs};
+
 #[derive(Debug, Clone, Copy)]
 pub struct FrameCtx {
     pub frame: u32,
@@ -7,24 +12,6 @@ pub struct FrameCtx {
     pub frames: u32,
 }
 
-pub fn duration_secs_to_frames(duration_secs: f64, fps: u32) -> u32 {
-    if !duration_secs.is_finite() || duration_secs <= 0.0 {
-        return 0;
-    }
-
-    let frame_position = duration_secs * fps.max(1) as f64;
-    let frames = (frame_position - 1e-6).ceil().max(1.0);
-    if frames >= u32::MAX as f64 {
-        u32::MAX
-    } else {
-        frames as u32
-    }
-}
-
-pub fn frames_to_duration_secs(frames: u32, fps: u32) -> f64 {
-    frames as f64 / fps.max(1) as f64
-}
-
 impl FrameCtx {
     pub fn time_secs(&self) -> f64 {
         frames_to_duration_secs(self.frame, self.fps)
@@ -32,6 +19,14 @@ impl FrameCtx {
 
     pub fn duration_secs(&self) -> f64 {
         frames_to_duration_secs(self.frames, self.fps)
+    }
+
+    /// Authoritative composition timestamp for the current frame index.
+    pub fn time_micros(&self) -> crate::time::TimestampMicros {
+        crate::time::frames_to_timestamp_micros(
+            crate::time::FrameIndex(self.frame),
+            crate::time::RationalFrameRate::integer(self.fps),
+        )
     }
 }
 
@@ -86,6 +81,7 @@ impl ScriptFrameCtx {
 #[cfg(test)]
 mod tests {
     use super::duration_secs_to_frames;
+    use super::FrameCtx;
 
     #[test]
     fn duration_secs_to_frames_tolerates_fraction_rounding() {
@@ -95,5 +91,17 @@ mod tests {
     #[test]
     fn duration_secs_to_frames_keeps_positive_duration_visible() {
         assert_eq!(duration_secs_to_frames(0.000000001, 30), 1);
+    }
+
+    #[test]
+    fn frame_ctx_time_micros_matches_integer_fps() {
+        let ctx = FrameCtx {
+            frame: 90,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 300,
+        };
+        assert_eq!(ctx.time_micros().0, 3_000_000);
     }
 }

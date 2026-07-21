@@ -2671,7 +2671,7 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
             .unwrap_or(VideoInfoMeta {
                 width: item.width,
                 height: item.height,
-                duration_secs: None,
+                duration_micros: None,
             });
         let request = VideoFrameRequest {
             composition_time_secs: ctx.frame_ctx.frame as f64 / ctx.frame_ctx.fps.max(1) as f64,
@@ -2680,10 +2680,10 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
         if !request.is_visible() {
             return Ok(());
         }
-        let time_secs = request.resolve_time_secs(&info);
+        let time_micros = request.resolve_time_micros(&info).0;
         ImageRef::VideoFrame {
             asset_id,
-            time_micros: (time_secs.max(0.0) * 1_000_000.0).round() as u64,
+            time_micros,
         }
     } else {
         ImageRef::Static { asset_id }

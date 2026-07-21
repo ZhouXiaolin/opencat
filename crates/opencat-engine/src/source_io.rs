@@ -2,8 +2,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+use opencat_core::ir::asset_id::AssetId;
+use opencat_core::lifecycle::{HostInputs, ResourceKind};
 use opencat_core::parse::document::ParsedComposition;
-use opencat_core::parse::jsonl::{JsonLine, parse_with_base_dir as core_parse_with_base_dir};
+use opencat_core::parse::jsonl::parse_with_base_dir as core_parse_with_base_dir;
+use opencat_core::script::asset_id_for_script_locator;
 
 pub fn parse_file(path: impl AsRef<Path>) -> Result<ParsedComposition> {
     let path = path.as_ref();
@@ -13,53 +16,67 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<ParsedComposition> {
 
     match path.extension().and_then(|ext| ext.to_str()) {
         Some("xml") => opencat_core::parse::markup::parse_with_base_dir(&input, Some(base_dir)),
-        _ => parse_with_base_dir(&input, Some(base_dir)),
+        // Core parse keeps external script locators logical; host loads text later.
+        _ => core_parse_with_base_dir(&input, Some(base_dir)),
     }
 }
 
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
     let trimmed = input.trim();
     if trimmed.starts_with('{') {
-        let mut rewritten = String::new();
-        for (idx, line) in input.lines().enumerate() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                rewritten.push('\n');
-                continue;
-            }
-            let parsed: JsonLine = serde_json::from_str(trimmed)
-                .with_context(|| format!("line {}: invalid json", idx + 1))?;
-            let resolved = match parsed {
-                JsonLine::Script {
-                    parent_id,
-                    src: None,
-                    path: Some(p),
-                } => {
-                    let resolved_path = if Path::new(&p).is_absolute() {
-                        PathBuf::from(&p)
-                    } else if let Some(b) = base_dir {
-                        b.join(&p)
-                    } else {
-                        PathBuf::from(&p)
-                    };
-                    let src = std::fs::read_to_string(&resolved_path).with_context(|| {
-                        format!("failed to read script file: {}", resolved_path.display())
-                    })?;
-                    JsonLine::Script {
-                        parent_id,
-                        src: Some(src),
-                        path: None,
-                    }
-                }
-                other => other,
-            };
-            rewritten.push_str(&serde_json::to_string(&resolved)?);
-            rewritten.push('\n');
-        }
-        core_parse_with_base_dir(&rewritten, base_dir)
+        // Do not rewrite script path lines into inline src. Core keeps logical
+        // locators; hosts fill HostInputs::insert_script_text (issue #20).
+        core_parse_with_base_dir(input, base_dir)
     } else {
         opencat_core::parse::markup::parse_with_base_dir(input, base_dir)
     }
+}
+
+/// Read external script files declared by draft requirements and insert them
+/// into host inputs. `base_dir` resolves relative logical paths.
+pub fn fill_script_texts_from_disk(
+    inputs: &mut HostInputs,
+    requirements: &opencat_core::lifecycle::HostRequirements,
+    base_dir: Option<&Path>,
+) -> Result<()> {
+    for req in requirements.requests() {
+        if req.kind != ResourceKind::Script {
+            continue;
+        }
+        let locator = match &req.locator {
+            opencat_core::lifecycle::ResourceLocator::LogicalPath(p) => p.as_str(),
+            opencat_core::lifecycle::ResourceLocator::Url(u) => {
+                // Local host cannot fetch URLs; leave missing so prepare fails.
+                let _ = u;
+                continue;
+            }
+            _ => continue,
+        };
+        let resolved = resolve_script_path(locator, base_dir);
+        let text = std::fs::read_to_string(&resolved).with_context(|| {
+            format!("failed to read script file: {}", resolved.display())
+        })?;
+        inputs
+            .insert_script_text(AssetId(req.asset_id.0.clone()), text)
+            .map_err(|e| anyhow::anyhow!(e))?;
+    }
+    Ok(())
+}
+
+fn resolve_script_path(locator: &str, base_dir: Option<&Path>) -> PathBuf {
+    let path = Path::new(locator);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else if let Some(b) = base_dir {
+        b.join(path)
+    } else {
+        path.to_path_buf()
+    }
+}
+
+/// Convenience for hosts that already know a locator string (tests).
+pub fn script_asset_id(locator: &str) -> AssetId {
+    asset_id_for_script_locator(locator)
 }
 
 #[cfg(test)]
@@ -69,11 +86,12 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use super::parse_file;
+    use super::{fill_script_texts_from_disk, parse_file, parse_with_base_dir};
+    use opencat_core::lifecycle::{CompositionDraft, HostInputs, ResourceKind};
     use opencat_core::parse::jsonl::parse;
-
+    
     #[test]
-    fn resolves_script_path_relative_to_jsonl_file() {
+    fn parse_keeps_external_script_as_requirement_not_inline() {
         let fixture_dir = unique_test_dir("jsonl-script-path");
         fs::create_dir_all(&fixture_dir).expect("fixture dir should be created");
 
@@ -91,17 +109,39 @@ mod tests {
         .expect("jsonl fixture should be written");
 
         let parsed = parse_file(&jsonl_path).expect("jsonl with script path should parse");
-
-        assert_eq!(
-            parsed.script.as_deref(),
-            Some("ctx.getNode('root').opacity(0.75);")
+        // Core must not inline file contents into ParsedComposition.script.
+        assert!(
+            parsed.script.is_none(),
+            "external scripts must not rewrite the composition string field"
         );
+        let draft = CompositionDraft::from_parsed(parsed);
+        let scripts: Vec<_> = draft
+            .requirements()
+            .requests()
+            .iter()
+            .filter(|r| r.kind == ResourceKind::Script)
+            .collect();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].asset_id.0, "script:path:scene.js");
+
+        let mut inputs = HostInputs::empty();
+        fill_script_texts_from_disk(&mut inputs, draft.requirements(), Some(&fixture_dir))
+            .expect("host should load script text");
+        let prepared = draft.prepare(inputs).expect("prepare with script text");
+        let driver = prepared
+            .parsed()
+            .root
+            .style_ref()
+            .script_driver
+            .as_ref()
+            .expect("global script attached to root");
+        assert_eq!(driver.source, "ctx.getNode('root').opacity(0.75);");
 
         fs::remove_dir_all(&fixture_dir).expect("fixture dir should be removed");
     }
 
     #[test]
-    fn resolves_absolute_script_path_directly() {
+    fn resolves_absolute_script_path_via_host_inputs() {
         let fixture_dir = unique_test_dir("jsonl-absolute-script-path");
         fs::create_dir_all(&fixture_dir).expect("fixture dir should be created");
 
@@ -109,47 +149,54 @@ mod tests {
         fs::write(&script_path, "ctx.getNode('root').opacity(0.25);")
             .expect("script fixture should be written");
 
-        let jsonl_path = fixture_dir.join("scene.jsonl");
-        fs::write(
-            &jsonl_path,
-            format!(
-                "{{\"type\":\"composition\",\"width\":640,\"height\":360,\"fps\":30,\"duration\":3}}\n\
+        let jsonl = format!(
+            "{{\"type\":\"composition\",\"width\":640,\"height\":360,\"fps\":30,\"duration\":3}}\n\
 {{\"id\":\"root\",\"parentId\":null,\"type\":\"div\",\"className\":\"flex\",\"text\":null}}\n\
 {{\"type\":\"script\",\"path\":\"{}\"}}",
-                script_path.display()
-            ),
-        )
-        .expect("jsonl fixture should be written");
-
-        let parsed = parse_file(&jsonl_path).expect("jsonl with absolute script path should parse");
-
-        assert_eq!(
-            parsed.script.as_deref(),
-            Some("ctx.getNode('root').opacity(0.25);")
+            script_path.display()
         );
+        let parsed = parse_with_base_dir(&jsonl, Some(&fixture_dir))
+            .expect("jsonl with absolute script path should parse");
+        let draft = CompositionDraft::from_parsed(parsed);
+        let mut inputs = HostInputs::empty();
+        fill_script_texts_from_disk(&mut inputs, draft.requirements(), Some(&fixture_dir))
+            .expect("load");
+        let prepared = draft.prepare(inputs).expect("prepare");
+        let driver = prepared
+            .parsed()
+            .root
+            .style_ref()
+            .script_driver
+            .as_ref()
+            .expect("driver");
+        assert_eq!(driver.source, "ctx.getNode('root').opacity(0.25);");
 
         fs::remove_dir_all(&fixture_dir).expect("fixture dir should be removed");
     }
 
     #[test]
-    fn core_parse_rejects_script_with_unresolved_path() {
-        let err = parse(
+    fn core_parse_keeps_script_path_as_external_without_host() {
+        let parsed = parse(
             r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":3}
 {"id":"root","parentId":null,"type":"div","className":"flex","text":null}
 {"type":"script","path":"nonexistent.js"}"#,
         )
-        .err()
-        .expect("core parse should reject script with path");
+        .expect("core parse accepts path as logical locator");
 
-        assert!(err.to_string().contains("must be parsed via host"));
-    }
-
-    fn unique_test_dir(name: &str) -> std::path::PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        std::env::temp_dir().join(format!("opencat-{name}-{nanos}"))
+        assert!(parsed.script.is_none());
+        let draft = CompositionDraft::from_parsed(parsed);
+        let scripts: Vec<_> = draft
+            .requirements()
+            .requests()
+            .iter()
+            .filter(|r| r.kind == ResourceKind::Script)
+            .collect();
+        assert_eq!(scripts.len(), 1);
+        // Without host text, prepare fails.
+        let err = draft
+            .prepare(HostInputs::empty())
+            .expect_err("missing script text must fail prepare");
+        assert!(err.to_string().contains("script"));
     }
 
     #[test]
@@ -166,5 +213,13 @@ mod tests {
         assert_eq!(parsed.width, 320);
         assert_eq!(parsed.height, 240);
         fs::remove_dir_all(&fixture_dir).ok();
+    }
+
+    fn unique_test_dir(name: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("opencat-{name}-{nanos}"))
     }
 }

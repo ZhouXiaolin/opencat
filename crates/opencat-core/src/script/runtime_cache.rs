@@ -1,48 +1,54 @@
-use std::collections::HashMap;
+//! Back-compat: [`ScriptRuntimeCache`] is a single [`super::ScriptRealm`].
+//!
+//! Historically this type cached one `ScriptRunner` (one JS context) per script
+//! source hash, which broke same-composition shared realm state and forced web
+//! to rebind a shared `globalThis`. Isolation is now one realm per pipeline.
 
-use anyhow::anyhow;
+use anyhow::Result;
 
 use crate::frame_ctx::ScriptFrameCtx;
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
-use crate::script::script_runner::ScriptRunner;
+use crate::script::realm::ScriptRealm;
 use crate::script::{
-    ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
+    ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource,
 };
 
+/// Pipeline script host that installs many drivers into one realm.
 pub struct ScriptRuntimeCache<C: JsContext> {
-    runners: HashMap<u64, ScriptRunner<C>>,
-    text_sources: HashMap<String, ScriptTextSource>,
-    target_registry: Option<ScriptTargetRegistry>,
+    realm: Option<ScriptRealm<C>>,
 }
 
 impl<C: JsContext> Default for ScriptRuntimeCache<C> {
     fn default() -> Self {
-        Self {
-            runners: HashMap::new(),
-            text_sources: HashMap::new(),
-            target_registry: None,
-        }
+        Self { realm: None }
     }
 }
 
 impl<C: JsContext> ScriptRuntimeCache<C> {
+    fn realm_mut(&mut self) -> Result<&mut ScriptRealm<C>> {
+        if self.realm.is_none() {
+            self.realm = Some(ScriptRealm::open()?);
+        }
+        Ok(self.realm.as_mut().expect("just inserted"))
+    }
+
     pub fn clear_text_sources(&mut self) {
-        self.text_sources.clear();
+        if let Some(realm) = self.realm.as_mut() {
+            realm.clear_text_sources();
+        }
     }
 
     pub fn register_text_source(&mut self, id: &str, source: ScriptTextSource) {
-        self.text_sources.insert(id.to_string(), source);
+        if let Ok(realm) = self.realm_mut() {
+            realm.register_text_source(id, source);
+        }
     }
 }
 
 impl<C: JsContext> ScriptHost for ScriptRuntimeCache<C> {
-    fn install(&mut self, source: &str) -> anyhow::Result<ScriptDriverId> {
-        let key = driver_id_from_source(source).0;
-        if let std::collections::hash_map::Entry::Vacant(e) = self.runners.entry(key) {
-            e.insert(ScriptRunner::<C>::new(source)?);
-        }
-        Ok(ScriptDriverId(key))
+    fn install(&mut self, source: &str) -> Result<ScriptDriverId> {
+        self.realm_mut()?.install(source)
     }
 
     fn register_text_source(&mut self, node_id: &str, source: ScriptTextSource) {
@@ -59,20 +65,15 @@ impl<C: JsContext> ScriptHost for ScriptRuntimeCache<C> {
         frame_ctx: &ScriptFrameCtx,
         current_node_id: Option<&str>,
         recorder: &mut dyn MutationRecorder,
-    ) -> anyhow::Result<()> {
-        let runner = self
-            .runners
-            .get_mut(&driver.0)
-            .ok_or_else(|| anyhow!("script driver {} not installed", driver.0))?;
-        runner.set_text_sources(&self.text_sources);
-        if let Some(reg) = &self.target_registry {
-            runner.set_target_registry(reg.clone());
-        }
-        runner.run_into(frame_ctx, current_node_id, recorder)
+    ) -> Result<()> {
+        self.realm_mut()?
+            .run_frame(driver, frame_ctx, current_node_id, recorder)
     }
 
     fn set_target_registry(&mut self, registry: ScriptTargetRegistry) {
-        self.target_registry = Some(registry);
+        if let Ok(realm) = self.realm_mut() {
+            realm.set_target_registry(registry);
+        }
     }
 
     fn set_style_defaults(
@@ -82,14 +83,14 @@ impl<C: JsContext> ScriptHost for ScriptRuntimeCache<C> {
             std::collections::HashMap<String, serde_json::Value>,
         >,
     ) {
-        for runner in self.runners.values_mut() {
-            runner.set_style_defaults(defaults);
+        if let Ok(realm) = self.realm_mut() {
+            realm.set_style_defaults(defaults);
         }
     }
 
     fn set_initial_style_from_node(&mut self, id: &str, style: &crate::style::NodeStyle) {
-        for runner in self.runners.values_mut() {
-            runner.set_initial_style_from_node(id, style);
+        if let Ok(realm) = self.realm_mut() {
+            realm.set_initial_style_from_node(id, style);
         }
     }
 }

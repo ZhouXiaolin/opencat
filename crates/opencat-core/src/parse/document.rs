@@ -13,7 +13,7 @@ mod builder;
 
 pub use builder::{
     BuildOptions, build_font_resources, build_parsed_document, build_tree, build_tree_with_options,
-    build_tree_with_tl, build_tree_with_tl_options, join_scripts,
+    build_tree_with_tl, build_tree_with_tl_options, join_scripts, script_driver_from_decls,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +28,16 @@ pub enum ParsedIdKind {
     Audio,
 }
 
+/// Script declaration collected during parse. External paths stay logical;
+/// host supplies text via lifecycle [`crate::lifecycle::HostInputs`] (issue #20).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeclaredScript {
+    /// Inline `src` / `content` / markup `<script>` body.
+    Inline(String),
+    /// Logical path or URL locator — not read by core.
+    External { locator: String },
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct ParsedDocumentParts {
     pub width: i32,
@@ -37,8 +47,8 @@ pub struct ParsedDocumentParts {
     pub elements: Vec<ParsedElement>,
     pub transitions: Vec<ParsedTransition>,
     pub audio_elements: Vec<ParsedAudioElement>,
-    pub scripts_by_parent: std::collections::HashMap<String, Vec<String>>,
-    pub global_scripts: Vec<String>,
+    pub scripts_by_parent: std::collections::HashMap<String, Vec<DeclaredScript>>,
+    pub global_scripts: Vec<DeclaredScript>,
     pub markup_root_script: Option<String>,
     pub font_manifest: FontManifest,
 }

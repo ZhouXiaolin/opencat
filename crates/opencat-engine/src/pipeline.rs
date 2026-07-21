@@ -16,7 +16,7 @@ use anyhow::Result;
 
 use opencat_core::ir::RenderFrame;
 use opencat_core::parse::ParsedComposition;
-use opencat_core::parse::preflight::{collect_external_manifest, collect_resource_requests_from_parsed};
+use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::{BuildOptions, CanvasChildrenMode, build_parsed_document, parse_parts_with_base_dir};
 use opencat_core::pipeline::DefaultPipeline;
 use opencat_core::probe::catalog::ResourceCatalog;
@@ -108,7 +108,6 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
 
     let base_dir = loader.base_dir();
     let parts = parse_parts_with_base_dir(input, Some(base_dir))?;
-    let font_manifest = parts.font_manifest.clone();
     let bytes = loader.load_font_manifest(&parts.font_manifest)?;
     loader.register_font_handles(&parts.font_manifest, &bytes)?;
 
@@ -129,13 +128,7 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
         font_index.as_ref(),
     )?;
 
-    let mut host = open_parsed_host_owned(parsed, loader, scripts, font_db)?;
-
-    let (_, external_manifest) = collect_external_manifest(host.composition(), &font_manifest);
-    host.loader_mut()
-        .build_resource_provider(&external_manifest);
-
-    Ok(host)
+    open_parsed_host_owned(parsed, loader, scripts, font_db)
 }
 
 /// Open a [`ParsedComposition`] through the host-owned chain: fetch/cache,

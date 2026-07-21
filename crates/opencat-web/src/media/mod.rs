@@ -4,7 +4,5 @@
 //! video frame injection storage.
 
 pub mod audio;
-pub mod video;
 
 pub use audio::{DecodedAudio, WebAudio};
-pub use video::WebVideoSource;

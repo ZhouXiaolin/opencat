@@ -7,5 +7,4 @@ pub mod media;
 pub mod resource;
 pub mod script;
 pub mod source;
-pub mod video;
 pub mod wasm_bridge;

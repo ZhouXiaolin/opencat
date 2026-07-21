@@ -3,16 +3,17 @@
 //!
 //! # Test Structure
 //!
-//! - **Auto-generated tests**: `GENERATED_LAYOUT_GROUP_SPECS` creates fixtures from
-//!   `testsupport/utilities.test.ts` to test individual utility classes.
+//! - **Generated coverage**: `GENERATED_LAYOUT_GROUP_SPECS` creates fixtures from
+//!   the pinned Tailwind v4.2.2 candidate manifest in this module.
 //! - **Manual fixtures**: `browser_layout_fixtures()` contains a small set of unique
 //!   integration scenarios not covered by auto-generated tests.
-//! - **Integration tests**: Complex multi-utility combinations are in
-//!   `browser_layout_integration_tests.rs`.
+//! - **Integration fixtures**: Complex multi-utility combinations are in
+//!   `integration_fixtures.rs`.
 //!
 //! # Running Tests
 //!
-//! Requires ChromeDriver and Chrome to be installed.
+//! Requires ChromeDriver, Chrome, and the bun dependencies in
+//! `crates/opencat-engine/testsupport`.
 //!
 //! ```bash
 //! cargo test chromedriver_tailwind_layout_matches_taffy
@@ -37,7 +38,11 @@ use crate::{Composition, RenderSession};
 use opencat_core::parse::jsonl::tailwind::parse_class_name;
 use opencat_core::parse::primitives::{div, text};
 
-use super::{FrameElementRect, collect_frame_layout_rects};
+use crate::inspect::{FrameElementRect, collect_frame_layout_rects};
+
+mod integration_fixtures;
+
+use integration_fixtures::browser_layout_integration_fixtures;
 
 #[test]
 fn chromedriver_tailwind_layout_matches_taffy() -> Result<()> {
@@ -45,8 +50,6 @@ fn chromedriver_tailwind_layout_matches_taffy() -> Result<()> {
     fixtures.extend(browser_layout_integration_fixtures());
     run_browser_layout_suite(fixtures)
 }
-
-use super::browser_layout_integration_tests::browser_layout_integration_fixtures;
 
 #[test]
 fn chromedriver_tailwind_extended_flex_layout_matches_taffy() -> Result<()> {
@@ -83,7 +86,7 @@ fn run_browser_layout_suite(fixtures: Vec<LayoutFixture>) -> Result<()> {
         for fixture in fixtures {
             let text_ids = fixture.root.collect_text_ids();
             let css = compile_tailwind_css(&fixture)?;
-            let html = fixture.render_html_document(&css);
+            let html = fixture.render_html_document(&css)?;
             let html_path = write_fixture_file(fixture.name, "html", &html)?;
             let browser_rects = browser
                 .measure_layout(&html_path, fixture.viewport_width, fixture.viewport_height)
@@ -257,6 +260,7 @@ impl BrowserHarness {
         .await?;
 
         wait_for_document_ready(&self.client, &self.webdriver_url, &self.session_id).await?;
+        self.wait_for_fixture_font().await?;
 
         let result = webdriver_post(
             &self.client,
@@ -306,41 +310,71 @@ impl BrowserHarness {
         Ok(rects)
     }
 
-    async fn resize_viewport(&self, viewport_width: i32, viewport_height: i32) -> Result<()> {
-        for _ in 0..5 {
-            let viewport = self.viewport_metrics().await?;
-            let target_outer_width =
-                (viewport.outer_width + viewport_width - viewport.inner_width).max(1);
-            let target_outer_height =
-                (viewport.outer_height + viewport_height - viewport.inner_height).max(1);
-            webdriver_post(
-                &self.client,
-                &self.webdriver_url,
-                &self.session_id,
-                "window/rect",
-                json!({
-                    "width": target_outer_width,
-                    "height": target_outer_height,
-                }),
-            )
-            .await?;
+    async fn wait_for_fixture_font(&self) -> Result<()> {
+        let font_status = webdriver_post(
+            &self.client,
+            &self.webdriver_url,
+            &self.session_id,
+            "execute/async",
+            json!({
+                "script": r#"
+                    const done = arguments[arguments.length - 1];
+                    document.fonts.load('16px "OpenCat Layout Test"', 'OpenCat')
+                      .then(() => document.fonts.ready)
+                      .then(
+                      () => done({
+                        ready: document.fonts.check('16px "OpenCat Layout Test"'),
+                        status: document.fonts.status,
+                        faces: Array.from(document.fonts).map((face) => ({
+                          family: face.family,
+                          status: face.status,
+                        })),
+                      }),
+                        (error) => done({ ready: false, error: String(error) }),
+                      );
+                "#,
+                "args": [],
+            }),
+        )
+        .await?;
 
-            let viewport = self.viewport_metrics().await?;
-            if viewport.inner_width >= viewport_width
-                && (viewport.inner_height - viewport_height).abs() <= 1
-            {
-                return Ok(());
-            }
+        if font_status.get("ready").and_then(Value::as_bool) == Some(true) {
+            Ok(())
+        } else {
+            bail!("browser failed to load the layout fixture font: {font_status}")
         }
+    }
+
+    async fn resize_viewport(&self, viewport_width: i32, viewport_height: i32) -> Result<()> {
+        webdriver_post(
+            &self.client,
+            &self.webdriver_url,
+            &self.session_id,
+            "goog/cdp/execute",
+            json!({
+                "cmd": "Emulation.setDeviceMetricsOverride",
+                "params": {
+                    "width": viewport_width,
+                    "height": viewport_height,
+                    "deviceScaleFactor": 1,
+                    "mobile": false,
+                },
+            }),
+        )
+        .await?;
 
         let viewport = self.viewport_metrics().await?;
+        if viewport.inner_width == viewport_width && viewport.inner_height == viewport_height {
+            return Ok(());
+        }
+
         bail!(
-            "failed to resize browser viewport to at least {}x{} (height must match), got {}x{}",
+            "failed to resize browser viewport to {}x{}, got {}x{}",
             viewport_width,
             viewport_height,
             viewport.inner_width,
             viewport.inner_height
-        );
+        )
     }
 
     async fn viewport_metrics(&self) -> Result<ViewportMetrics> {
@@ -354,8 +388,6 @@ impl BrowserHarness {
                     return {
                         innerWidth: window.innerWidth,
                         innerHeight: window.innerHeight,
-                        outerWidth: window.outerWidth,
-                        outerHeight: window.outerHeight,
                     };
                 "#,
                 "args": [],
@@ -366,8 +398,6 @@ impl BrowserHarness {
         Ok(ViewportMetrics {
             inner_width: parse_i32(&metrics, "innerWidth")?,
             inner_height: parse_i32(&metrics, "innerHeight")?,
-            outer_width: parse_i32(&metrics, "outerWidth")?,
-            outer_height: parse_i32(&metrics, "outerHeight")?,
         })
     }
 
@@ -423,6 +453,7 @@ async fn create_session(
             "--headless=new",
             "--disable-gpu",
             "--hide-scrollbars",
+            "--allow-file-access-from-files",
             "--force-device-scale-factor=1",
             format!("--window-size={width},{height}")
         ]
@@ -550,8 +581,6 @@ struct BrowserRect {
 struct ViewportMetrics {
     inner_width: i32,
     inner_height: i32,
-    outer_width: i32,
-    outer_height: i32,
 }
 
 fn measure_taffy_layout(fixture: &LayoutFixture) -> Result<BTreeMap<String, BrowserRect>> {
@@ -652,18 +681,21 @@ fn compile_tailwind_css(fixture: &LayoutFixture) -> Result<String> {
     let payload = json!({ "candidates": candidates });
     let payload_path = write_fixture_file(fixture.name, "json", &payload.to_string())?;
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let repo_root = manifest_dir
-        .parent()
-        .and_then(|p| p.parent())
-        .ok_or_else(|| anyhow!("failed to find repository root from CARGO_MANIFEST_DIR"))?;
-    let script_path = repo_root.join("testsupport/compile_tailwind_css.mjs");
+    let support_dir = manifest_dir.join("testsupport");
+    let script_path = support_dir.join("compile_tailwind_css.mjs");
+    if !support_dir.join("node_modules/@tailwindcss/node").is_dir() {
+        bail!(
+            "Tailwind CSS test dependencies are missing; run `bun install --frozen-lockfile` in {}",
+            support_dir.display()
+        );
+    }
 
-    let output = Command::new("node")
+    let output = Command::new("bun")
         .arg(script_path)
         .arg(payload_path)
-        .current_dir(repo_root)
+        .current_dir(&support_dir)
         .output()
-        .context("failed to execute Tailwind CSS helper")?;
+        .context("failed to execute Tailwind CSS helper with bun")?;
 
     if !output.status.success() {
         bail!(
@@ -699,16 +731,23 @@ pub(crate) struct LayoutFixture {
 }
 
 impl LayoutFixture {
-    fn render_html_document(&self, css: &str) -> String {
-        format!(
-            "<!doctype html><html><head><meta charset=\"utf-8\"><style>{}</style><style>html,body{{margin:0;padding:0;width:{}px;height:{}px;overflow:hidden;}}body{{width:{}px;height:{}px;}}</style></head><body>{}</body></html>",
+    fn render_html_document(&self, css: &str) -> Result<String> {
+        let font_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/NotoSansSC-Regular.otf")
+            .canonicalize()
+            .context("failed to resolve layout fixture font")?;
+        let font_url = format!("file://{}", font_path.to_string_lossy());
+
+        Ok(format!(
+            "<!doctype html><html><head><meta charset=\"utf-8\"><style>{}</style><style>@font-face{{font-family:'OpenCat Layout Test';src:url('{}') format('opentype');font-style:normal;font-weight:100 900;}}html,body{{font-family:'OpenCat Layout Test',sans-serif;margin:0;padding:0;width:{}px;height:{}px;overflow:hidden;}}body{{width:{}px;height:{}px;}}</style></head><body>{}</body></html>",
             css,
+            font_url,
             self.viewport_width,
             self.viewport_height,
             self.viewport_width,
             self.viewport_height,
             self.root.render_html()
-        )
+        ))
     }
 }
 
@@ -1203,25 +1242,23 @@ fn generated_layout_coverage_fixtures() -> Result<Vec<LayoutFixture>> {
 }
 
 fn generated_layout_coverage_report() -> Result<GeneratedCoverageReport> {
-    let source = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("testsupport/utilities.test.ts"),
-    )
-    .context("failed to read testsupport/utilities.test.ts")?;
+    let candidates_by_group: BTreeMap<String, Vec<String>> =
+        serde_json::from_str(include_str!("layout_candidates_v4_2_2.json"))
+            .context("failed to parse Tailwind v4.2.2 layout candidate manifest")?;
 
     let mut fixtures = Vec::new();
     let mut uncovered = Vec::new();
 
     for spec in GENERATED_LAYOUT_GROUP_SPECS {
+        let candidates = candidates_by_group
+            .get(spec.test_name)
+            .cloned()
+            .ok_or_else(|| anyhow!("missing layout candidate group `{}`", spec.test_name))?;
         extend_group_fixtures(
             &mut fixtures,
             &mut uncovered,
             spec.test_name,
-            extract_layout_test_candidates(&source, spec.test_name)?,
+            candidates,
             spec.normalize,
             spec.build_fixture,
         );
@@ -1261,115 +1298,6 @@ fn normalize_layout_candidates(
         }
     }
     deduped.into_iter().collect()
-}
-
-fn extract_layout_test_candidates(source: &str, test_name: &str) -> Result<Vec<String>> {
-    let marker = format!("test('{test_name}', async () => {{");
-    let start = source
-        .find(&marker)
-        .ok_or_else(|| anyhow!("failed to find `{test_name}` in utilities.test.ts"))?;
-    let after_test = &source[start..];
-    let body = extract_test_body(after_test)
-        .ok_or_else(|| anyhow!("failed to isolate body for `{test_name}`"))?;
-    let array = extract_first_array_literal(body)
-        .ok_or_else(|| anyhow!("failed to find first candidate array for `{test_name}`"))?;
-    Ok(parse_js_string_literals(array))
-}
-
-fn parse_js_string_literals(input: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '\'' && ch != '"' {
-            continue;
-        }
-        let quote = ch;
-        let mut value = String::new();
-        while let Some(ch) = chars.next() {
-            if ch == '\\' {
-                if let Some(escaped) = chars.next() {
-                    value.push(escaped);
-                }
-                continue;
-            }
-            if ch == quote {
-                break;
-            }
-            value.push(ch);
-        }
-        out.push(value);
-    }
-    out
-}
-
-fn extract_test_body(input: &str) -> Option<&str> {
-    let body_start = input.find('{')? + 1;
-    let mut depth = 1_i32;
-    let mut single = false;
-    let mut double = false;
-    let mut template = false;
-    let mut escape = false;
-
-    for (index, ch) in input
-        .char_indices()
-        .skip_while(|(index, _)| *index < body_start)
-    {
-        if escape {
-            escape = false;
-            continue;
-        }
-        match ch {
-            '\\' if single || double || template => escape = true,
-            '\'' if !double && !template => single = !single,
-            '"' if !single && !template => double = !double,
-            '`' if !single && !double => template = !template,
-            '{' if !single && !double && !template => depth += 1,
-            '}' if !single && !double && !template => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(&input[body_start..index]);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-fn extract_first_array_literal(input: &str) -> Option<&str> {
-    let mut single = false;
-    let mut double = false;
-    let mut template = false;
-    let mut escape = false;
-    let mut depth = 0_i32;
-    let mut start = None;
-
-    for (index, ch) in input.char_indices() {
-        if escape {
-            escape = false;
-            continue;
-        }
-        match ch {
-            '\\' if single || double || template => escape = true,
-            '\'' if !double && !template => single = !single,
-            '"' if !single && !template => double = !double,
-            '`' if !single && !double => template = !template,
-            '[' if !single && !double && !template => {
-                if depth == 0 {
-                    start = Some(index + 1);
-                }
-                depth += 1;
-            }
-            ']' if !single && !double && !template => {
-                depth -= 1;
-                if depth == 0 {
-                    return start.map(|start| &input[start..index]);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 fn normalize_safe_alias(class_name: &str) -> String {

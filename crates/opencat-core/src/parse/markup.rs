@@ -179,13 +179,13 @@ pub(crate) fn extract_raw_script(input: &str) -> anyhow::Result<ExtractedMarkup>
 
 use std::{collections::HashMap, path::PathBuf};
 
+use crate::media::VideoFrameTiming;
 use crate::parse::document::{
     BuildOptions, CanvasChildrenMode, ParsedAudioElement, ParsedComposition, ParsedDocumentParts,
     ParsedElement, ParsedElementKind, ParsedTransition, build_parsed_document,
 };
 use crate::parse::primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource};
 use crate::resource::fonts::{FontFaceDecl, FontManifest, FontRole, FontSource};
-use crate::resource::types::VideoFrameTiming;
 
 pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     parse_with_base_dir(input, None)
@@ -1125,8 +1125,7 @@ fn parse_font_source(
             if p.is_empty() {
                 anyhow::bail!("<font> path must be non-empty");
             }
-            let resolved = crate::resource::fonts::resolve_font_source_path(p, base_dir)?;
-            Ok(FontSource::Path(resolved))
+            Ok(FontSource::Path(resolve_local_path(p, base_dir)))
         }
         (None, Some(u)) => {
             if u.is_empty() {
@@ -1220,14 +1219,7 @@ fn resolve_local_path(raw: &str, base_dir: Option<&std::path::Path>) -> PathBuf 
         return path;
     }
 
-    let joined = base_dir.join(path);
-    if joined.is_absolute() {
-        joined
-    } else {
-        std::env::current_dir()
-            .map(|cwd| cwd.join(&joined))
-            .unwrap_or(joined)
-    }
+    base_dir.join(path)
 }
 
 fn parse_lottie_source(

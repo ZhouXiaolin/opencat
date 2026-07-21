@@ -748,6 +748,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn format_float_literal_adds_dot_zero() {
         assert_eq!(format_float_literal(42.0), "42.0");
         assert_eq!(format_float_literal(3.14), "3.14");

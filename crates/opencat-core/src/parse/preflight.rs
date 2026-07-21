@@ -1,13 +1,11 @@
 use crate::frame_ctx::FrameCtx;
-use crate::media::{VideoFrameRequest, VideoPreviewQuality};
+use crate::media::VideoFrameRequest;
 use crate::parse::composition::Composition;
 use crate::parse::document::ParsedComposition;
 use crate::parse::node::{Node, NodeKind};
-use crate::parse::primitives::{AudioSource, ImageSource, Video};
+use crate::parse::primitives::{ImageSource, Video};
 use crate::parse::time::{FrameState, TimelineSegment, frame_state_for_root};
 use crate::probe::catalog::ResourceRequests;
-use crate::resource::fonts::FontManifest;
-use crate::resource::manifest::{ExternalResourceManifest, build_manifest};
 
 pub fn collect_resource_requests(composition: &Composition) -> ResourceRequests {
     let mut req = ResourceRequests::default();
@@ -115,16 +113,6 @@ fn collect_sources_static(node: &Node, req: &mut ResourceRequests) {
     }
 }
 
-/// Preflight: resource requests + unified external manifest (OpenCat + fonts + future Lottie).
-pub fn collect_external_manifest(
-    composition: &Composition,
-    font_manifest: &FontManifest,
-) -> (ResourceRequests, ExternalResourceManifest) {
-    let req = collect_resource_requests(composition);
-    let manifest = build_manifest(&req, font_manifest);
-    (req, manifest)
-}
-
 pub(crate) fn collect_sources_from_frame_state(
     state: &FrameState,
     frame_ctx: &FrameCtx,
@@ -206,8 +194,6 @@ fn lottie_visible_at_frame(
     VideoFrameRequest {
         composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps.max(1) as f64,
         timing: lottie.timing(),
-        quality: VideoPreviewQuality::Exact,
-        target_size: None,
     }
     .is_visible()
 }
@@ -216,8 +202,6 @@ fn video_visible_at_frame(video: &Video, frame_ctx: &FrameCtx) -> bool {
     VideoFrameRequest {
         composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps.max(1) as f64,
         timing: video.timing(),
-        quality: VideoPreviewQuality::Exact,
-        target_size: None,
     }
     .is_visible()
 }
@@ -260,9 +244,10 @@ mod tests {
         let req = collect_resource_requests_from_parsed(&parsed);
         assert_eq!(req.images.len(), 1);
         assert_eq!(req.videos.len(), 1);
-        assert!(req
-            .images
-            .contains(&ImageSource::Url("https://example.com/a.png".to_string())));
+        assert!(
+            req.images
+                .contains(&ImageSource::Url("https://example.com/a.png".to_string()))
+        );
     }
 
     #[test]
@@ -294,9 +279,21 @@ mod tests {
         // A timeline with two scenes each referencing distinct images must
         // declare both, even though only one scene is on screen at frame 0.
         let root: Node = timeline()
-            .sequence(5.0 / 30.0, div().id("s1").child(image().id("a").url("https://e.com/1.png")).into())
+            .sequence(
+                5.0 / 30.0,
+                div()
+                    .id("s1")
+                    .child(image().id("a").url("https://e.com/1.png"))
+                    .into(),
+            )
             .transition(fade().timing(crate::parse::easing::Easing::Linear, 2.0 / 30.0))
-            .sequence(5.0 / 30.0, div().id("s2").child(image().id("b").url("https://e.com/2.png")).into())
+            .sequence(
+                5.0 / 30.0,
+                div()
+                    .id("s2")
+                    .child(image().id("b").url("https://e.com/2.png"))
+                    .into(),
+            )
             .into();
 
         let parsed = parsed_from_root(root);

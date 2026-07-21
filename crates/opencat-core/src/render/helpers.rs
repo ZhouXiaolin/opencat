@@ -9,6 +9,7 @@ use crate::display::list::{
     SvgPathDisplayItem, TimelineDisplayItem, TimelineTransitionDisplay,
 };
 use crate::display::tree::{DisplayNode, HiddenChildDisplayNode};
+use crate::ir::GeneratedImageTable;
 use crate::ir::draw_op::{
     ColorU8, DRRectSpec, DrawOp, LineCap, LineJoin, PointMode as DrawPointMode, Radii4, Rect4,
 };
@@ -17,8 +18,7 @@ use crate::ir::draw_types::{
     ChildRange, DrawOpRange, EncodedPath, FillType, PaintId, PathOp, RuntimeEffectChildRef,
     ScriptRuntimeEffectChild, SubtreeId,
 };
-use crate::ir::GeneratedImageTable;
-use crate::media::{VideoFrameRequest, VideoPreviewQuality};
+use crate::media::VideoFrameRequest;
 use crate::parse::gl_transition;
 use crate::parse::transition::{
     GlTransition, LightLeakTransition, SlideDirection, TransitionKind, WipeDirection,
@@ -2676,8 +2676,6 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
         let request = VideoFrameRequest {
             composition_time_secs: ctx.frame_ctx.frame as f64 / ctx.frame_ctx.fps.max(1) as f64,
             timing,
-            quality: VideoPreviewQuality::Exact,
-            target_size: None,
         };
         if !request.is_visible() {
             return Ok(());
@@ -2751,8 +2749,6 @@ pub fn render_lottie(
     let request = crate::media::VideoFrameRequest {
         composition_time_secs: ctx.frame_ctx.frame as f64 / ctx.frame_ctx.fps.max(1) as f64,
         timing: item.timing,
-        quality: crate::media::VideoPreviewQuality::Exact,
-        target_size: None,
     };
     let Some(local_frame) = crate::resource::lottie::resolve_lottie_frame(&request, &meta) else {
         return Ok(());

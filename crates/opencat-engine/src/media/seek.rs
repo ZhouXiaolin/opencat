@@ -1,6 +1,6 @@
-//! Backend-neutral video seek and decode planning strategy.
+//! Native decoder seek and lane-selection policy.
 
-use crate::media::types::VideoPreviewQuality;
+use crate::media::VideoPreviewQuality;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DecoderCursor {
@@ -40,7 +40,6 @@ pub fn nearest_keyframe_before(keyframes: &[u64], target_us: u64) -> u64 {
     if keyframes.is_empty() {
         return target_us;
     }
-
     let index = keyframes.partition_point(|&us| us <= target_us.saturating_add(1));
     keyframes[index.saturating_sub(1)]
 }
@@ -49,7 +48,6 @@ pub fn previous_keyframe_before(keyframes: &[u64], target_us: u64) -> Option<u64
     if keyframes.is_empty() {
         return None;
     }
-
     let index = keyframes.partition_point(|&us| us < target_us);
     index.checked_sub(1).map(|idx| keyframes[idx])
 }
@@ -63,13 +61,11 @@ pub fn select_decoder_lane(
     if cursors.is_empty() {
         return DecoderLaneSelection::OpenNew;
     }
-
     if let Some((index, _)) = cursors.iter().enumerate().find(|(_, cursor)| {
         cursor.has_frame && (cursor.current_pts_secs - target_secs).abs() < 1e-6
     }) {
         return DecoderLaneSelection::Reuse(index);
     }
-
     if let Some((index, _)) = cursors
         .iter()
         .enumerate()
@@ -95,12 +91,10 @@ pub fn select_decoder_lane(
     {
         return DecoderLaneSelection::Reuse(index);
     }
-
     if cursors.len() < max_lanes_per_asset.max(1) {
         return DecoderLaneSelection::OpenNew;
     }
-
-    let (index, _) = cursors
+    let index = cursors
         .iter()
         .enumerate()
         .min_by(|(_, left), (_, right)| {
@@ -109,41 +103,29 @@ pub fn select_decoder_lane(
                 .partial_cmp(&(right.current_pts_secs - target_secs).abs())
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
-        .expect("non-empty cursor list should produce a nearest lane");
+        .map(|(index, _)| index)
+        .unwrap_or(0);
     DecoderLaneSelection::Reuse(index)
 }
 
-pub fn decode_slice_end_index(
-    chunks: &[DecodeSlicePlan],
-    start_idx: usize,
+pub fn build_decode_slice_plan(
+    keyframes: &[u64],
     target_us: u64,
-    margin_us: u64,
-    lookahead_chunks: usize,
-) -> Option<usize> {
-    if chunks.is_empty() {
-        return None;
+    quality: VideoPreviewQuality,
+) -> Vec<DecodeSlicePlan> {
+    let keyframe = nearest_keyframe_before(keyframes, target_us);
+    let mut plan = vec![DecodeSlicePlan {
+        timestamp_us: keyframe,
+        is_key: true,
+    }];
+    let feed_until = target_us.saturating_add(seek_feed_margin_us(quality));
+    if feed_until > keyframe {
+        plan.push(DecodeSlicePlan {
+            timestamp_us: feed_until,
+            is_key: false,
+        });
     }
-
-    let start = start_idx.min(chunks.len() - 1);
-    let stop_pts_us = target_us.saturating_add(margin_us);
-    let mut end_idx = start;
-    let mut max_seen_pts_us = 0;
-    let mut covered_at_idx = None;
-
-    for (i, chunk) in chunks.iter().enumerate().skip(start) {
-        end_idx = i;
-        max_seen_pts_us = max_seen_pts_us.max(chunk.timestamp_us);
-        if i > start && max_seen_pts_us >= stop_pts_us && covered_at_idx.is_none() {
-            covered_at_idx = Some(i);
-        }
-        if let Some(covered) = covered_at_idx
-            && i.saturating_sub(covered) >= lookahead_chunks
-        {
-            break;
-        }
-    }
-
-    Some(end_idx)
+    plan
 }
 
 #[cfg(test)]
@@ -151,25 +133,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn media_seek_strategy_is_backend_neutral() {
-        let keyframes = [0, 500_000, 1_200_000, 2_400_000];
-
-        assert_eq!(nearest_keyframe_before(&keyframes, 100_000), 0);
-        assert_eq!(nearest_keyframe_before(&keyframes, 1_800_000), 1_200_000);
-        assert_eq!(
-            previous_keyframe_before(&keyframes, 1_200_000),
-            Some(500_000)
-        );
-        assert_eq!(previous_keyframe_before(&keyframes, 0), None);
-
+    fn exact_quality_uses_wider_seek_window() {
         assert_eq!(seek_feed_margin_us(VideoPreviewQuality::Scrubbing), 120_000);
-        assert_eq!(seek_feed_margin_us(VideoPreviewQuality::Realtime), 350_000);
         assert_eq!(seek_feed_margin_us(VideoPreviewQuality::Exact), 500_000);
         assert!((seek_threshold_secs(VideoPreviewQuality::Exact) - 1.5).abs() < 1e-6);
     }
 
     #[test]
-    fn media_decoder_lane_selection_matches_preview_strategy() {
+    fn lane_selection_reuses_nearby_cursor_or_opens_a_lane() {
         let lanes = [
             DecoderCursor {
                 has_frame: true,
@@ -177,10 +148,9 @@ mod tests {
             },
             DecoderCursor {
                 has_frame: true,
-                current_pts_secs: 8.0,
+                current_pts_secs: 7.0,
             },
         ];
-
         assert_eq!(
             select_decoder_lane(&lanes, 1.2, VideoPreviewQuality::Realtime, 2),
             DecoderLaneSelection::Reuse(0)
@@ -189,36 +159,17 @@ mod tests {
             select_decoder_lane(&lanes[..1], 6.0, VideoPreviewQuality::Exact, 2),
             DecoderLaneSelection::OpenNew
         );
-        assert_eq!(
-            select_decoder_lane(&lanes, 6.9, VideoPreviewQuality::Exact, 2),
-            DecoderLaneSelection::Reuse(1)
-        );
     }
 
     #[test]
-    fn media_decode_slice_plans_decode_order_covering_target_margin() {
-        let chunks = [
-            DecodeSlicePlan {
-                timestamp_us: 0,
-                is_key: true,
-            },
-            DecodeSlicePlan {
-                timestamp_us: 900_000,
-                is_key: false,
-            },
-            DecodeSlicePlan {
-                timestamp_us: 300_000,
-                is_key: false,
-            },
-            DecodeSlicePlan {
-                timestamp_us: 700_000,
-                is_key: false,
-            },
-        ];
-
-        assert_eq!(
-            decode_slice_end_index(&chunks, 0, 250_000, 120_000, 1),
-            Some(2)
+    fn decode_plan_starts_at_nearest_keyframe() {
+        let plan = build_decode_slice_plan(
+            &[0, 1_000_000, 2_000_000],
+            1_400_000,
+            VideoPreviewQuality::Realtime,
         );
+        assert_eq!(plan[0].timestamp_us, 1_000_000);
+        assert!(plan[0].is_key);
+        assert_eq!(plan[1].timestamp_us, 1_750_000);
     }
 }

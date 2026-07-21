@@ -16,7 +16,7 @@ use crate::ir::cache::{self as draw_cache, CachedDrawRange, CachedNodeOwnIr, Seg
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, PathOp};
 use crate::layout::tree::LayoutOutputFingerprint;
-use crate::media::{VideoFrameRequest, VideoPreviewQuality};
+use crate::media::VideoFrameRequest;
 use crate::parse::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::render::builder::DrawOpBuilder;
 use crate::style::{BorderRadius, CssFilter, Transform};
@@ -496,8 +496,6 @@ fn item_visible_at_frame(ctx: &RenderCtx, item: &DisplayItem) -> bool {
     VideoFrameRequest {
         composition_time_secs: ctx.frame_ctx.frame as f64 / ctx.frame_ctx.fps.max(1) as f64,
         timing,
-        quality: VideoPreviewQuality::Exact,
-        target_size: None,
     }
     .is_visible()
 }

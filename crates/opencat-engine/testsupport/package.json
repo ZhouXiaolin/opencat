@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "devDependencies": {
+    "@tailwindcss/node": "4.2.2",
+    "tailwindcss": "4.2.2"
+  }
+}

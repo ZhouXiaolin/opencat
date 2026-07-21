@@ -12,7 +12,41 @@ use crate::runtime::cache::CacheCaps;
 use opencat_core::probe::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
 
 pub use crate::media::decode::VideoInfo;
-pub use opencat_core::media::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality};
+pub use opencat_core::media::VideoFrameTiming;
+
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VideoPreviewQuality {
+    Scrubbing,
+    Realtime,
+    Exact,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoFrameRequest {
+    pub composition_time_secs: f64,
+    pub timing: VideoFrameTiming,
+    pub quality: VideoPreviewQuality,
+    pub target_size: Option<(u32, u32)>,
+}
+
+impl VideoFrameRequest {
+    fn timeline_request(self) -> opencat_core::media::VideoFrameRequest {
+        opencat_core::media::VideoFrameRequest {
+            composition_time_secs: self.composition_time_secs,
+            timing: self.timing,
+        }
+    }
+
+    pub fn resolve_time_secs(self, info: &opencat_core::resource::catalog::VideoInfoMeta) -> f64 {
+        self.timeline_request().resolve_time_secs(info)
+    }
+
+    pub fn is_visible(self) -> bool {
+        self.timeline_request().is_visible()
+    }
+}
 
 impl From<&VideoInfo> for opencat_core::resource::catalog::VideoInfoMeta {
     fn from(v: &VideoInfo) -> Self {
@@ -167,74 +201,24 @@ impl MediaContext {
         }
     }
 
-    pub fn frame_rgba_by_path(
-        &mut self,
-        path: &Path,
-        frame: u32,
-    ) -> Result<opencat_core::platform::video::FrameBitmap> {
-        let composition_time_secs = frame as f64 / self.composition_fps.max(1) as f64;
-        let request = VideoFrameRequest {
-            composition_time_secs,
-            timing: VideoFrameTiming::default(),
-            quality: self.video_preview_quality,
-            target_size: None,
-        };
-        let (data, width, height, _hit) = self.get_video_frame(path, request)?;
-        Ok(opencat_core::platform::video::FrameBitmap {
-            data,
-            width,
-            height,
-        })
-    }
-
     pub fn frame_rgba_at_time_by_path(
         &mut self,
         path: &Path,
         time_secs: f64,
-    ) -> Result<opencat_core::platform::video::FrameBitmap> {
+    ) -> Result<VideoBitmap> {
         let request = VideoFrameRequest {
             composition_time_secs: time_secs.max(0.0),
             timing: VideoFrameTiming::default(),
             quality: self.video_preview_quality,
             target_size: None,
         };
-        let (data, width, height, _hit) = self.get_video_frame(path, request)?;
-        Ok(opencat_core::platform::video::FrameBitmap {
-            data,
-            width,
-            height,
-        })
+        self.get_video_bitmap(path, request)
     }
 }
 
 impl Default for MediaContext {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-// ---------------------------------------------------------------------------
-// VideoFrameProvider adapter
-// ---------------------------------------------------------------------------
-
-use opencat_core::ir::asset_id::AssetId;
-use opencat_core::platform::video::{FrameBitmap, VideoFrameProvider};
-use crate::resource::AssetPathStore;
-
-/// Adapter pairing a [`MediaContext`] with an [`AssetPathStore`] so it can
-/// serve [`VideoFrameProvider`]'s `AssetId`-indexed contract.
-pub struct EngineVideoProvider<'a> {
-    pub media: &'a mut MediaContext,
-    pub paths: &'a AssetPathStore,
-}
-
-impl VideoFrameProvider for EngineVideoProvider<'_> {
-    fn frame_rgba(&mut self, id: &AssetId, frame: u32) -> anyhow::Result<FrameBitmap> {
-        let path = self
-            .paths
-            .path(id)
-            .ok_or_else(|| anyhow::anyhow!("video asset {:?} not in path store", id))?;
-        self.media.frame_rgba_by_path(path, frame)
     }
 }
 
@@ -277,14 +261,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frame_rgba_by_path_returns_err_for_missing_video() {
-        let mut ctx = MediaContext::new();
-        ctx.set_composition_fps(30);
-        let result = ctx.frame_rgba_by_path(Path::new("/nonexistent/video.mp4"), 0);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn set_composition_fps_updates_field() {
         let mut ctx = MediaContext::new();
         assert_eq!(ctx.composition_fps, 30);
@@ -323,20 +299,6 @@ mod tests {
         );
         // values below the alignment floor get clamped to 16
         assert_eq!(quantize_target_size(Some((4, 4)), &info), Some((16, 16)));
-    }
-
-    #[test]
-    fn engine_video_provider_returns_err_for_missing_path() {
-        use opencat_core::platform::video::VideoFrameProvider;
-
-        let mut mc = MediaContext::new();
-        let paths = AssetPathStore::new();
-        let mut provider = super::EngineVideoProvider {
-            media: &mut mc,
-            paths: &paths,
-        };
-        let id = opencat_core::ir::asset_id::AssetId("nonexistent".into());
-        assert!(provider.frame_rgba(&id, 0).is_err());
     }
 
     #[test]

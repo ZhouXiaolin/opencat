@@ -23,13 +23,15 @@ pub struct DrawOpFrame {
 ///
 /// `draw` is the precise draw-IR for this frame; `media` is the host-facing
 /// media preparation plan for this frame (images, video frames, Lottie bundles,
-/// runtime effects). Both halves are a pure function of the composition and the
-/// requested `frame_index`: rendering the same frame on the same pipeline —
-/// directly, out of order, or repeatedly — must yield field-by-field identical
-/// results regardless of call history.
+/// runtime effects, **and full generated-image RGBA**). Both halves are a pure
+/// function of the composition and the requested `frame_index`: rendering the
+/// same frame on the same pipeline — directly, out of order, or repeatedly —
+/// must yield field-by-field identical results regardless of call history.
 ///
-/// Core outputs only the current frame's needs. Hosts implement fetch, decode,
-/// cache, seek, prefetch, and export independently.
+/// This is the sole core→host current-frame render contract. Hosts consume
+/// `RenderFrame` directly and must not reach into pipeline-internal resource
+/// tables for generated images. Hosts implement fetch, decode, cache, seek,
+/// prefetch, and export independently.
 #[derive(Clone, Debug)]
 pub struct RenderFrame {
     pub draw: DrawOpFrame,

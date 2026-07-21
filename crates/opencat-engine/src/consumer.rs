@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
 use opencat_core::ir::media_plan::FrameMediaPlan;
-use opencat_core::ir::GeneratedImageTable;
+use opencat_core::ir::GeneratedImageId;
 use opencat_core::resource::asset_id::AssetId;
 use skia_safe::{AlphaType, Canvas, ColorType, Data, Image, ImageInfo, RuntimeEffect, images};
 
@@ -12,41 +12,10 @@ use crate::executor::{DrawError, EngineDrawExecutor, EnginePreparedFrameMedia};
 use crate::media::MediaContext;
 
 // ---------------------------------------------------------------------------
-// Engine-owned frame consumer seam.
-//
-// `RenderSessionHeader` + `FrameConsumer` previously lived in core's
-// `platform` module, but core never implements or invokes them — only the
-// engine and web hosts do. They now live in each host: here for the engine
-// (Skia path), and in `opencat-web::consumer` for the CanvasKit path. The
-// trait shape is intentionally identical so the two hosts stay in lockstep.
-// ---------------------------------------------------------------------------
-
-/// Header information passed to engine frame consumers.
-#[derive(Clone, Copy, Debug)]
-pub struct RenderSessionHeader {
-    pub composition_size: (u32, u32),
-    pub fps: u32,
-    pub frames: u32,
-}
-
-/// A consumer that processes a single rendered frame (engine / Skia path).
-pub trait FrameConsumer {
-    type Output;
-    type Error: std::error::Error + Send + Sync + 'static;
-
-    fn consume_frame(
-        &mut self,
-        header: &RenderSessionHeader,
-        draw: &mut DrawOpFrame,
-        plan: &FrameMediaPlan,
-    ) -> Result<Self::Output, Self::Error>;
-}
-
-// ---------------------------------------------------------------------------
 // ConsumerError: bridges anyhow::Error / DrawError → std::error::Error
 // ---------------------------------------------------------------------------
 
-/// Error returned by engine frame consumers.
+/// Error returned while preparing or executing a frame from a [`RenderFrame`].
 #[derive(Debug)]
 pub struct ConsumerError(Box<dyn std::error::Error + Send + Sync + 'static>);
 
@@ -78,12 +47,14 @@ impl From<DrawError> for ConsumerError {
 // prepare_frame (module-private)
 // ---------------------------------------------------------------------------
 
-/// Decode media for a single frame via EngineLoader paths.
+/// Decode media for a single frame via EngineLoader paths and host-cached
+/// generated images. Generated RGBA comes entirely from
+/// [`FrameMediaPlan::generated_images`] — no pipeline table access.
 fn prepare_frame(
     plan: &FrameMediaPlan,
     loader: &crate::resource::loader::EngineLoader,
     video: &mut MediaContext,
-    generated_images: &GeneratedImageTable,
+    generated_cache: &mut HashMap<GeneratedImageId, Image>,
 ) -> Result<EnginePreparedFrameMedia, ConsumerError> {
     let mut sk_images = Vec::new();
     let mut image_index = HashMap::new();
@@ -105,7 +76,6 @@ fn prepare_frame(
             }
             // Static bucket only carries external images; video refs live in
             // `plan.video_frames` and generated refs in `plan.generated_images`.
-            // Defensive: ignore any other variant here.
             ImageRef::VideoFrame { .. } | ImageRef::Generated { .. } => {}
         }
     }
@@ -151,29 +121,31 @@ fn prepare_frame(
         }
     }
 
-    // Core-generated images (color-emoji bitmap glyphs). RGBA lives in the
-    // pipeline's generated-image table, never in an external asset store; the
-    // engine builds a Skia image directly from the rasterized bytes.
-    for id in &plan.generated_images {
-        let image_ref = ImageRef::Generated { id: *id };
+    // Core-generated images (color-emoji bitmap glyphs). Full RGBA is on the
+    // FrameMediaPlan entry; the engine caches Skia images by GeneratedImageId.
+    for entry in &plan.generated_images {
+        let image_ref = ImageRef::Generated { id: entry.id };
         if image_index.contains_key(&image_ref) {
             continue;
         }
-        let Some(entry) = generated_images.get(id) else {
-            continue;
-        };
-        let info = ImageInfo::new(
-            (entry.width as i32, entry.height as i32),
-            ColorType::RGBA8888,
-            AlphaType::Unpremul,
-            None,
-        );
-        let Some(sk_image) = images::raster_from_data(
-            &info,
-            Data::new_copy(&entry.rgba),
-            entry.width as usize * 4,
-        ) else {
-            continue;
+        let sk_image = if let Some(cached) = generated_cache.get(&entry.id) {
+            cached.clone()
+        } else {
+            let info = ImageInfo::new(
+                (entry.width as i32, entry.height as i32),
+                ColorType::RGBA8888,
+                AlphaType::Unpremul,
+                None,
+            );
+            let Some(sk_image) = images::raster_from_data(
+                &info,
+                Data::new_copy(&entry.rgba),
+                entry.width as usize * 4,
+            ) else {
+                continue;
+            };
+            generated_cache.insert(entry.id, sk_image.clone());
+            sk_image
         };
         let idx = sk_images.len();
         sk_images.push(sk_image);
@@ -195,38 +167,35 @@ fn prepare_frame(
 }
 
 // ---------------------------------------------------------------------------
-// EngineLoaderFrameConsumer (Pipeline / EngineLoader path)
+// Direct RenderFrame execution (no FrameConsumer / RenderSessionHeader)
 // ---------------------------------------------------------------------------
 
-/// Engine-side FrameConsumer for the pipeline path (uses EngineLoader).
-pub struct EngineLoaderFrameConsumer<'a> {
-    pub executor: &'a mut EngineDrawExecutor,
-    pub loader: &'a crate::resource::loader::EngineLoader,
-    pub media_ctx: &'a mut MediaContext,
-    pub generated_images: &'a GeneratedImageTable,
-    pub canvas: &'a mut Canvas,
-}
-
-impl FrameConsumer for EngineLoaderFrameConsumer<'_> {
-    type Output = ();
-    type Error = ConsumerError;
-
-    fn consume_frame(
-        &mut self,
-        header: &RenderSessionHeader,
-        draw: &mut DrawOpFrame,
-        plan: &FrameMediaPlan,
-    ) -> Result<(), ConsumerError> {
-        let prepared = prepare_frame(plan, self.loader, self.media_ctx, self.generated_images)?;
-        self.executor.ensure_lottie_animations(draw, |bundle_id| {
-            let asset_id = AssetId(bundle_id.to_string());
-            self.loader
-                .handle(&asset_id)
-                .and_then(|h| h.read_bytes().ok())
-                .map(|c| c.into_owned())
-        });
-        self.executor
-            .execute(header, draw, &prepared, self.canvas)?;
-        Ok(())
-    }
+/// Execute a core [`RenderFrame`] onto a Skia canvas.
+///
+/// Hosts own media decode/cache; this path only:
+/// 1. resolves `FrameMediaPlan` into Skia images / runtime effects,
+/// 2. hydrates Lottie animations from the engine loader,
+/// 3. replays the typed DrawOp IR.
+///
+/// Composition size / fps / frames are not required for draw execution — they
+/// remain available on `pipeline.info()` for callers that need them.
+pub fn execute_render_frame(
+    draw: &mut DrawOpFrame,
+    plan: &FrameMediaPlan,
+    executor: &mut EngineDrawExecutor,
+    loader: &crate::resource::loader::EngineLoader,
+    media_ctx: &mut MediaContext,
+    generated_cache: &mut HashMap<GeneratedImageId, Image>,
+    canvas: &mut Canvas,
+) -> Result<(), ConsumerError> {
+    let prepared = prepare_frame(plan, loader, media_ctx, generated_cache)?;
+    executor.ensure_lottie_animations(draw, |bundle_id| {
+        let asset_id = AssetId(bundle_id.to_string());
+        loader
+            .handle(&asset_id)
+            .and_then(|h| h.read_bytes().ok())
+            .map(|c| c.into_owned())
+    });
+    executor.execute(draw, &prepared, canvas)?;
+    Ok(())
 }

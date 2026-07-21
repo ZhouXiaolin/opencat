@@ -19,7 +19,7 @@ use opencat_core::{
     style::NodeStyle,
 };
 
-use opencat_core::resource::catalog::ResourceCatalog;
+use opencat_core::resource::catalog::ResourceResolver;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 
 use crate::render::RenderSession;
@@ -157,9 +157,10 @@ fn seed_asset_entries_for_inspect(
                 if let Ok(id) = catalog.resolve_image(&asset.source)
                     && let ImageSource::Path(path) = &asset.source
                 {
-                    let (width, height) = read_image_dims_sync(path);
-                    catalog.register_dimensions(&path.to_string_lossy(), width, height);
-                    path_store.insert(id, path);
+                    let fs_path = std::path::Path::new(path.as_str());
+                    let (width, height) = read_image_dims_sync(fs_path);
+                    catalog.register_dimensions(path, width, height);
+                    path_store.insert(id, fs_path);
                 }
             }
         }
@@ -177,9 +178,10 @@ fn seed_asset_entries_for_inspect(
             if let Ok(id) = catalog.resolve_image(image.source())
                 && let ImageSource::Path(path) = image.source()
             {
-                let (width, height) = read_image_dims_sync(path);
-                catalog.register_dimensions(&path.to_string_lossy(), width, height);
-                path_store.insert(id, path);
+                let fs_path = std::path::Path::new(path.as_str());
+                let (width, height) = read_image_dims_sync(fs_path);
+                catalog.register_dimensions(path, width, height);
+                path_store.insert(id, fs_path);
             }
         }
         NodeKind::Timeline(timeline) => {
@@ -444,7 +446,7 @@ fn upsert_style_meta<'a>(
 fn format_image_source(source: &ImageSource) -> String {
     match source {
         ImageSource::Unset => "unset".to_string(),
-        ImageSource::Path(path) => path.to_string_lossy().to_string(),
+        ImageSource::Path(path) => path.clone(),
         ImageSource::Url(url) => url.clone(),
         ImageSource::Query(query) => {
             let aspect = query.aspect_ratio.as_deref().unwrap_or("-");

@@ -5,9 +5,9 @@
 //! [`WebRenderer::open_design`]; each [`WebRenderer::build_frame_ir`] call
 //! just runs `pipeline.render_frame(frame)` and encodes the draw ops. Core
 //! never fetches — web fetches all declared assets during `open_design`,
-//! builds a prepared `ResourceCatalog` via core's pure `probe::prepare` chain,
-//! hydrates captions, and injects the font database before opening the
-//! pipeline. This mirrors the engine's `open_parsed_host_owned` path (#7).
+//! feeds host-probed metadata into core's explicit lifecycle
+//! (`CompositionDraft` → `HostInputs` → `prepare` → `open_pipeline`). This
+//! mirrors the engine's `open_parsed_host_owned` path (#7 / #15).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -32,11 +32,11 @@ use opencat_core::ir::draw_types::{
     ShaderType, TableRange,
 };
 use opencat_core::ir::media_plan::FrameMediaPlan;
-use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
+use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError};
 use opencat_core::pipeline::Pipeline;
 use opencat_core::pipeline::default::DefaultPipeline;
 use opencat_core::probe::catalog::ResourceRequests;
-use opencat_core::probe::prepare::{build_catalog, hydrate_captions};
+use opencat_core::probe::prepare::build_catalog;
 use opencat_core::script::js_context::JsContext;
 
 use crate::js_context::WebJsContext;
@@ -130,7 +130,7 @@ impl WebRenderer {
     ///
     /// This is the host-owned open flow mirroring the engine's
     /// `open_parsed_host_owned` (#7): web fetches all declared resources,
-    /// builds a prepared `ResourceCatalog` via core's pure `probe::prepare`
+    /// builds a prepared `PreparedResourceCatalog` via core's pure `probe::prepare`
     /// chain, hydrates captions, injects the font database, then opens the
     /// pipeline. Subsequent [`build_frame_ir`] calls render against this
     /// pipeline until the next `open_design`.
@@ -455,37 +455,37 @@ async fn open_design_pipeline(
         (*merged).clone()
     };
 
-    // 3. Parse the composition with the prepared font database.
-    let mut parsed = crate::source::parse_source(source, &base_db)
+    // 3. Parse → draft. Requirements carry canonical AssetId + logical locator.
+    let parsed = crate::source::parse_source(source, &base_db)
         .map_err(|e| JsValue::from_str(&format!("open_design parse: {e}")))?;
+    let draft = CompositionDraft::from_parsed(parsed);
+    let requests = draft.requirements().resource_requests().clone();
 
-    // 4. Collect declarative resource requests from the static parsed tree.
-    let requests = collect_resource_requests_from_parsed(&parsed);
-
-    // 5. Build the prepared catalog from the fetched bytes (pure probes; core
-    //    never fetches). The byte map is owned, keyed by canonical AssetId
-    //    string, snapshotted from the thread-local BlobStore.
+    // 4. Pure probes over host-fetched bytes → metadata only.
     let bytes = crate::resource::wasm_api::blob_byte_map();
-    let catalog = build_catalog(&requests, &bytes).catalog;
-
-    // 6. Hydrate caption entries from fetched SRT text (pure; missing text
-    //    stays empty, existing entries are never overwritten).
+    let probed = build_catalog(&requests, &bytes).catalog;
     let srt = srt_text_by_subtitle_id(&requests);
-    parsed.root = hydrate_captions(parsed.root, parsed.fps as u32, &srt)
-        .map_err(|e| JsValue::from_str(&format!("open_design hydrate: {e}")))?
-        .0;
 
-    // 7. Open the persistent pipeline on the host-injected path. A fresh
-    //    JsContext is created per pipeline (the pipeline owns its script host
-    //    internally).
+    // 5. Build HostInputs from request AssetIds (never re-derive ids).
+    let mut inputs = HostInputs::empty().with_font_db(Arc::new(base_db));
+    inputs
+        .fill_from_prepared_catalog(draft.requirements(), &probed, &srt)
+        .map_err(prepare_js_err)?;
+
+    // 6. prepare (sync pure) → open_pipeline. Subtitle hydration happens inside prepare.
+    let prepared = draft.prepare(inputs).map_err(prepare_js_err)?;
     let ctx = <WebJsContext as JsContext>::new()
         .map_err(|e| JsValue::from_str(&format!("open_design js context: {e}")))?;
-    let pipeline =
-        DefaultPipeline::open_with_prepared_catalog(parsed, catalog, ctx, Arc::new(base_db))
-            .map_err(|e| JsValue::from_str(&format!("open_design pipeline: {e}")))?;
+    let pipeline = prepared
+        .open_pipeline(ctx)
+        .map_err(|e| JsValue::from_str(&format!("open_design pipeline: {e}")))?;
 
     let info = pipeline.info().clone();
     Ok((info, pipeline, catalog_json))
+}
+
+fn prepare_js_err(err: PrepareError) -> JsValue {
+    JsValue::from_str(&format!("open_design prepare: {err}"))
 }
 
 pub(crate) fn encode_ir_envelope(
@@ -1369,4 +1369,49 @@ mod tests {
         assert_eq!(decoded.generated.len(), 1);
         assert_eq!(decoded.generated[0].id, GeneratedImageId(7));
     }
+
+    /// Web host contract (#15): draft requirements' AssetId is the only id used
+    /// when inserting image metadata — never re-derived from locator.
+    #[test]
+    fn web_host_static_image_uses_request_asset_id() {
+        use opencat_core::lifecycle::{CompositionDraft, HostInputs, ResourceKind, ResourceLocator};
+        use opencat_core::pipeline::Pipeline;
+        use opencat_core::probe::catalog::ImageMeta;
+        use opencat_core::script::js_context::JsContext;
+        use opencat_core::ir::draw_types::ImageRef;
+
+        let jsonl = r#"{"type":"composition","width":32,"height":32,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
+{"type":"image","id":"pic","parentId":"root","path":"hero.png","className":"w-[16px] h-[16px]"}"#;
+
+        let draft = CompositionDraft::parse(jsonl).expect("parse draft");
+        let req = &draft.requirements().requests()[0];
+        assert_eq!(req.kind, ResourceKind::Image);
+        assert_eq!(req.asset_id.0, "hero.png");
+        assert!(matches!(
+            &req.locator,
+            ResourceLocator::LogicalPath(p) if p == "hero.png"
+        ));
+
+        let id = req.asset_id.clone();
+        let mut inputs = HostInputs::empty().with_font_db(Arc::new(
+            opencat_core::text::empty_font_db(),
+        ));
+        inputs
+            .insert_image(id.clone(), ImageMeta { width: 16, height: 16 })
+            .expect("insert under request id");
+        let prepared = draft.prepare(inputs).expect("prepare");
+        let ctx = <WebJsContext as JsContext>::new().expect("js");
+        let mut pipeline = prepared.open_pipeline(ctx).expect("open via lifecycle");
+        let frame = pipeline.render_frame(0).expect("render");
+        assert!(
+            frame.media.images.iter().any(|img| matches!(
+                img,
+                ImageRef::Static { asset_id } if asset_id == "hero.png"
+            )),
+            "web host media plan must use request AssetId; got {:?}",
+            frame.media.images
+        );
+    }
+
 }

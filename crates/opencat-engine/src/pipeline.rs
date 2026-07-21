@@ -1,10 +1,9 @@
 //! Open compositions on a host-owned resource pipeline.
 //!
-//! The engine is the host: it owns fetch/cache, runs the pure metadata probes,
-//! hydrates subtitles, and builds the font database — then hands a prepared
-//! [`ResourceCatalog`] to core's [`DefaultPipeline::open_with_prepared_catalog`].
-//! Core derives only layout and `RenderFrame` output and never touches the file
-//! system; it no longer carries a loader.
+//! The engine is the host: it owns fetch/cache and probes media metadata, then
+//! feeds metadata into core's explicit lifecycle
+//! (`CompositionDraft` → `HostInputs` → `prepare` → `open_pipeline`). Core never
+//! sees ordinary media bytes and never re-derives AssetIds.
 //!
 //! [`EnginePipelineHost`] bundles the resulting core pipeline together with the
 //! engine resource owner ([`EngineLoader`]) so render/audio code can reach the
@@ -15,12 +14,11 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use opencat_core::ir::RenderFrame;
+use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError};
 use opencat_core::parse::ParsedComposition;
-use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::{BuildOptions, CanvasChildrenMode, build_parsed_document, parse_parts_with_base_dir};
 use opencat_core::pipeline::DefaultPipeline;
-use opencat_core::probe::catalog::ResourceCatalog;
-use opencat_core::probe::prepare::{build_catalog, hydrate_captions};
+use opencat_core::probe::prepare::build_catalog;
 
 use crate::EnginePipeline;
 use crate::fonts::{engine_default_font_db, engine_font_db_with_document_fonts};
@@ -131,51 +129,45 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
     open_parsed_host_owned(parsed, loader, scripts, font_db)
 }
 
-/// Open a [`ParsedComposition`] through the host-owned chain: fetch/cache,
-/// pure-catalog build, caption hydration, then core's
-/// [`DefaultPipeline::open_with_prepared_catalog`].
+/// Open a [`ParsedComposition`] through the explicit lifecycle:
+/// draft → host fetch → metadata HostInputs → prepare → open_pipeline.
 ///
-/// This is the shared host preparation used by both the JSONL and markup open
-/// paths. It must run before core consumes `parsed`, because core moves the
-/// parsed root into the composition closure.
+/// Hosts never re-derive AssetId: every metadata insert uses the id from
+/// [`CompositionDraft::requirements`]. Ordinary image bytes stay on the host;
+/// prepare only consumes [`ImageMeta`] (and peers).
 pub(crate) fn open_parsed_host_owned(
-    mut parsed: ParsedComposition,
+    parsed: ParsedComposition,
     mut loader: EngineLoader,
     scripts: RqJsContext,
     font_db: Arc<fontdb::Database>,
 ) -> Result<EnginePipelineHost> {
-    // 1. Declarative, order-independent resource requests from the static tree.
-    let requests = collect_resource_requests_from_parsed(&parsed);
+    let draft = CompositionDraft::from_parsed(parsed);
+    let requests = draft.requirements().resource_requests().clone();
 
-    // 2. Host fetch/cache: every declared asset is copied into the cache dir and
-    //    registered under its canonical AssetId handle. (Host-owned; core never
-    //    fetches.)
+    // Host fetch/cache under canonical AssetIds from core.
     loader.load_all(&requests)?;
 
-    // 3. Pure catalog build from cached bytes. The map keys are canonical
-    //    AssetId strings; build_catalog runs core's pure image/video/Lottie
-    //    probes over them. Missing/unparseable assets are omitted (probe-failure
-    //    boundary), they are not host errors here.
+    // Probe bytes → metadata (pure). Host keeps the bytes; core sees only meta.
     let bytes = loader.collect_probe_bytes_by_asset_id(&requests);
-    let catalog: ResourceCatalog = build_catalog(&requests, &bytes).catalog;
-
-    // 4. Hydrate captions from cached SRT text. Core's pure hydrate_captions
-    //    parses the SRT and writes entries into caption nodes; existing entries
-    //    are never overwritten and missing text stays empty. Done in place on
-    //    parsed.root before core moves it into the composition closure.
+    let probed = build_catalog(&requests, &bytes).catalog;
     let srt = loader.srt_text_by_subtitle_id(&requests);
-    parsed.root = hydrate_captions(parsed.root, parsed.fps as u32, &srt)?.0;
 
-    // 5. Open core on the host-injected path: prepared catalog + font db, no
-    //    loader. Core only derives layout and RenderFrame output.
-    let pipeline = DefaultPipeline::open_with_prepared_catalog(parsed, catalog, scripts, font_db)?;
+    let mut inputs = HostInputs::empty().with_font_db(font_db);
+    inputs
+        .fill_from_prepared_catalog(draft.requirements(), &probed, &srt)
+        .map_err(prepare_err)?;
 
-    // 6. Register canvas aliases (user-facing id -> cached content handle) on
-    //    the engine loader so `ctx.getImage("hero")` resolves at render time.
+    let prepared = draft.prepare(inputs).map_err(prepare_err)?;
+    let pipeline = prepared.open_pipeline(scripts)?;
+
     let composition = pipeline.composition().clone();
     loader.register_canvas_asset_aliases(&composition);
 
     Ok(EnginePipelineHost { pipeline, loader })
+}
+
+fn prepare_err(err: PrepareError) -> anyhow::Error {
+    anyhow::anyhow!(err)
 }
 
 #[cfg(test)]
@@ -242,6 +234,67 @@ mod tests {
 
         assert_eq!(caption.entries_ref().len(), 1);
         assert_eq!(caption.active_text(0), Some("Hello CLI"));
+
+        std::fs::remove_dir_all(&fixture_dir).ok();
+    }
+
+    #[test]
+    fn static_image_lifecycle_uses_request_asset_id() {
+        use opencat_core::ir::draw_types::ImageRef;
+        use opencat_core::pipeline::Pipeline;
+        use opencat_core::resource::probe::probe_image_dims;
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let fixture_dir =
+            std::path::PathBuf::from(format!("target/opencat-lifecycle-image-{nanos}"));
+        let cache_dir = fixture_dir.join("cache");
+        std::fs::create_dir_all(&cache_dir).expect("cache dir");
+
+        // Minimal 1×1 PNG
+        const PNG_1X1: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x05, 0xFE,
+            0xD4, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        std::fs::write(fixture_dir.join("hero.png"), PNG_1X1).expect("png");
+
+        let jsonl = r#"{"type":"composition","width":64,"height":64,"fps":30,"duration":0.1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"id":"pic","parentId":"root","type":"image","path":"hero.png","className":"w-[32px] h-[32px]"}"#;
+
+        let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache_dir)
+            .expect("loader");
+        let ctx = crate::js_context::RqJsContext::new().expect("js context");
+        let mut host = open(jsonl, loader, ctx).expect("open via lifecycle");
+
+        // Host must key handles by the request AssetId (logical path), not a re-derived id.
+        let handle = host
+            .loader
+            .handle(&opencat_core::AssetId("hero.png".into()));
+        assert!(
+            handle.is_some(),
+            "engine loader must register request AssetId hero.png"
+        );
+
+        let frame = host.pipeline.render_frame(0).expect("render");
+        let has = frame.media.images.iter().any(|img| match img {
+            ImageRef::Static { asset_id } => asset_id == "hero.png",
+            _ => false,
+        });
+        assert!(
+            has,
+            "FrameMediaPlan must use request AssetId; got {:?}",
+            frame.media.images
+        );
+
+        // Sanity: probed dims match the fixture.
+        let dims = probe_image_dims(PNG_1X1).expect("dims");
+        assert_eq!((dims.width, dims.height), (1, 1));
 
         std::fs::remove_dir_all(&fixture_dir).ok();
     }

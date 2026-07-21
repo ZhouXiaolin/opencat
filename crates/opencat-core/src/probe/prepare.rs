@@ -1,6 +1,6 @@
 //! Host-driven resource metadata preparation chain.
 //!
-//! This module is the host-facing entry point for building a [`ResourceCatalog`]
+//! This module is the host-facing entry point for building a [`PreparedResourceCatalog`]
 //! and hydrating a [`ParsedComposition`] **without** core ever touching a file
 //! system, network, cache, or decoder. The split is:
 //!
@@ -31,7 +31,7 @@ use crate::ir::asset_id::{
     asset_id_for_video, asset_id_for_url,
 };
 use crate::parse::primitives::LottieSource;
-use crate::probe::catalog::{ResourceCatalog, ResourceRequests};
+use crate::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
 use crate::probe::probe::{probe_image, probe_video};
 
 use super::catalog::LottieRequest;
@@ -81,7 +81,7 @@ pub enum ProbeOutcome {
 /// failures or decide to abort.
 #[derive(Debug, Default)]
 pub struct PreparedCatalog {
-    pub catalog: ResourceCatalog,
+    pub catalog: PreparedResourceCatalog,
     pub outcomes: HashMap<String, ProbeOutcome>,
 }
 
@@ -91,7 +91,7 @@ impl PreparedCatalog {
     }
 }
 
-/// Build a [`ResourceCatalog`] purely from host-supplied bytes.
+/// Build a [`PreparedResourceCatalog`] purely from host-supplied bytes.
 ///
 /// Iterates the declarative, order-independent [`ResourceRequests`] exactly as
 /// the host received them; for each declared asset it looks up bytes via
@@ -162,7 +162,7 @@ fn record_probed<T>(
     id: &crate::ir::asset_id::AssetId,
     bytes: Option<&[u8]>,
     probe: impl FnOnce(&[u8]) -> anyhow::Result<T>,
-    store: impl FnOnce(&mut ResourceCatalog, &crate::ir::asset_id::AssetId, T),
+    store: impl FnOnce(&mut PreparedResourceCatalog, &crate::ir::asset_id::AssetId, T),
 ) {
     let Some(bytes) = bytes else {
         prepared

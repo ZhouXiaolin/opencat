@@ -11,7 +11,9 @@ use crate::{
     platform::EnginePlatform,
 };
 use opencat_core::frame_ctx::duration_secs_to_frames;
-use crate::consumer::{FrameConsumer, RenderSessionHeader};
+use opencat_core::ir::GeneratedImageId;
+use skia_safe::Image;
+use std::collections::HashMap;
 
 /// Engine-owned state used by layout inspection and runtime services.
 pub struct RenderSession {
@@ -54,24 +56,18 @@ pub struct EncodingConfig {
 
 /// Render one pipeline frame to RGBA.
 ///
-/// - `surface_w/h`: surface + `read_pixels` size (MP4 may pass even-aligned dims)
-/// - `composition_w/h`: `RenderSessionHeader.composition_size` (logical composition size)
-///
-/// Creates a fresh surface per call (acceptable cost for the offline path).
+/// `surface_w/h` is the surface + `read_pixels` size (MP4 may pass even-aligned
+/// dims). Creates a fresh surface per call (acceptable cost for the offline path).
+/// Generated Skia images are cached by [`GeneratedImageId`] across frames.
 fn render_pipeline_frame_to_rgba(
     pipeline: &mut crate::EnginePipeline,
     media_ctx: &mut MediaContext,
     executor: &mut crate::executor::EngineDrawExecutor,
+    generated_cache: &mut HashMap<GeneratedImageId, Image>,
     surface_w: u32,
     surface_h: u32,
-    composition_w: u32,
-    composition_h: u32,
-    fps: u32,
-    frames: u32,
     frame_index: u32,
 ) -> Result<Vec<u8>> {
-    use opencat_core::pipeline::Pipeline;
-
     let render = pipeline.render_frame(frame_index)?;
     let mut frame = render.draw;
     let media_plan = render.media;
@@ -86,19 +82,15 @@ fn render_pipeline_frame_to_rgba(
     let canvas: &mut skia_safe::Canvas =
         unsafe { &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas) };
 
-    let header = RenderSessionHeader {
-        composition_size: (composition_w, composition_h),
-        fps,
-        frames,
-    };
-    let mut consumer = crate::consumer::EngineLoaderFrameConsumer {
+    crate::consumer::execute_render_frame(
+        &mut frame,
+        &media_plan,
         executor,
-        loader: pipeline.loader(),
+        pipeline.loader(),
         media_ctx,
-        generated_images: pipeline.generated_images(),
+        generated_cache,
         canvas,
-    };
-    consumer.consume_frame(&header, &mut frame, &media_plan)?;
+    )?;
 
     let image = surface.image_snapshot();
     let image_info = ImageInfo::new(
@@ -209,6 +201,7 @@ pub fn render_from_jsonl_with_base(
 
     let mut media_ctx = MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
+    let mut generated_cache: HashMap<GeneratedImageId, Image> = HashMap::new();
 
     let audio_track = build_audio_track_from_pipeline(&pipeline)?;
 
@@ -220,12 +213,9 @@ pub fn render_from_jsonl_with_base(
                     &mut pipeline,
                     &mut media_ctx,
                     &mut executor,
+                    &mut generated_cache,
                     info.width,
                     info.height,
-                    info.width,
-                    info.height,
-                    info.fps,
-                    frame_count,
                     i,
                 )?;
                 let img = image::RgbaImage::from_raw(info.width, info.height, rgba)
@@ -255,17 +245,14 @@ pub fn render_from_jsonl_with_base(
                 |_, _| {},
                 |frame_index| {
                     render_pipeline_frame_to_rgba(
-                        &mut pipeline,
-                        &mut media_ctx,
-                        &mut executor,
-                        aligned_info.0,
-                        aligned_info.1,
-                        info.width,
-                        info.height,
-                        info.fps,
-                        frame_count,
-                        frame_index,
-                    )
+                    &mut pipeline,
+                    &mut media_ctx,
+                    &mut executor,
+                    &mut generated_cache,
+                    aligned_info.0,
+                    aligned_info.1,
+                    frame_index,
+                )
                 },
             )?;
         }
@@ -316,18 +303,16 @@ pub fn render_single_frame_from_jsonl_with_base(
     let mut media_ctx = MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
     let mut executor = crate::executor::EngineDrawExecutor::new();
+    let mut generated_cache: HashMap<GeneratedImageId, Image> = HashMap::new();
     let rgba = render_pipeline_frame_to_rgba(
-        &mut pipeline,
-        &mut media_ctx,
-        &mut executor,
-        info.width,
-        info.height,
-        info.width,
-        info.height,
-        info.fps,
-        frame_count,
-        frame_index,
-    )?;
+                    &mut pipeline,
+                    &mut media_ctx,
+                    &mut executor,
+                    &mut generated_cache,
+                    info.width,
+                    info.height,
+                    frame_index,
+                )?;
 
     Ok((rgba, info.width, info.height))
 }
@@ -392,36 +377,35 @@ mod tests {
     use crate::media::MediaContext;
     use crate::{Composition, EnginePipeline};
     use opencat_core::frame_ctx::duration_secs_to_frames;
+    use opencat_core::ir::GeneratedImageId;
     use opencat_core::parse::{ParsedComposition, node::Node};
     use opencat_core::pipeline::Pipeline;
     use opencat_core::resource::fonts::FontManifest;
     use opencat_core::script::js_context::JsContext;
+    use skia_safe::Image;
+    use std::collections::HashMap;
 
     struct TestPipeline {
         pipeline: EnginePipeline,
         media_ctx: MediaContext,
         executor: crate::executor::EngineDrawExecutor,
+        generated_cache: HashMap<GeneratedImageId, Image>,
         width: u32,
         height: u32,
-        fps: u32,
-        frames: u32,
         _fixture_dir: std::path::PathBuf,
     }
 
     impl TestPipeline {
         fn render(&mut self, frame_index: u32) -> anyhow::Result<Vec<u8>> {
             render_pipeline_frame_to_rgba(
-                &mut self.pipeline,
-                &mut self.media_ctx,
-                &mut self.executor,
-                self.width,
-                self.height,
-                self.width,
-                self.height,
-                self.fps,
-                self.frames,
-                frame_index,
-            )
+                    &mut self.pipeline,
+                    &mut self.media_ctx,
+                    &mut self.executor,
+                    &mut self.generated_cache,
+                    self.width,
+                    self.height,
+                    frame_index,
+                )
         }
     }
 
@@ -470,7 +454,7 @@ mod tests {
         width: u32,
         height: u32,
         fps: u32,
-        duration: f64,
+        _duration: f64,
     ) -> TestPipeline {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -504,17 +488,15 @@ mod tests {
             crate::fonts::engine_default_font_db(),
         )
         .expect("pipeline");
-        let frames = duration_secs_to_frames(duration, fps);
         let mut media_ctx = MediaContext::new();
         media_ctx.set_composition_fps(fps);
         TestPipeline {
             pipeline,
             media_ctx,
             executor: crate::executor::EngineDrawExecutor::new(),
+            generated_cache: HashMap::new(),
             width,
             height,
-            fps,
-            frames,
             _fixture_dir: fixture_dir,
         }
     }
@@ -680,12 +662,25 @@ mod tests {
 
         let frame = pipeline.render(0).expect("frame should render");
 
-        // AC#1: the pipeline's generated-image table is populated (RGBA was
-        // captured, not dropped).
-        assert!(
-            !pipeline.pipeline.generated_images().is_empty(),
-            "generated-image table must contain the emoji glyph RGBA"
-        );
+        // AC: RenderFrame media plan carries full generated-image RGBA (id/size/bytes).
+        {
+            let render = pipeline
+                .pipeline
+                .render_frame(0)
+                .expect("render_frame for generated-image plan");
+            assert!(
+                !render.media.generated_images.is_empty(),
+                "FrameMediaPlan must carry the emoji glyph RGBA on RenderFrame"
+            );
+            for g in &render.media.generated_images {
+                assert!(g.width > 0 && g.height > 0, "generated image must have size");
+                assert_eq!(
+                    g.rgba.len(),
+                    g.width as usize * g.height as usize * 4,
+                    "RGBA length must match width*height*4"
+                );
+            }
+        }
 
         // AC#6: the engine resolved the generated image to a Skia image and
         // drew it — emoji produces colorful (saturated) pixels, unlike grayscale
@@ -778,18 +773,16 @@ mod tests {
         let mut media_ctx = MediaContext::new();
         media_ctx.set_composition_fps(info.fps);
         let mut executor = crate::executor::EngineDrawExecutor::new();
+        let mut generated_cache: HashMap<GeneratedImageId, Image> = HashMap::new();
         let frame = render_pipeline_frame_to_rgba(
-            &mut pipeline,
-            &mut media_ctx,
-            &mut executor,
-            info.width,
-            info.height,
-            info.width,
-            info.height,
-            info.fps,
-            frames,
-            100,
-        )
+                    &mut pipeline,
+                    &mut media_ctx,
+                    &mut executor,
+                    &mut generated_cache,
+                    info.width,
+                    info.height,
+                    100,
+                )
         .expect("frame should render");
         let _ = std::fs::remove_dir_all(&fixture_dir);
 

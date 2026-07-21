@@ -46,7 +46,8 @@ pub struct DefaultPipeline<S: JsContext> {
     /// Core-rasterized images (color-emoji bitmap glyphs) for the lifetime of
     /// this pipeline. Stable ids make fresh vs reused pipelines produce
     /// identical tables; RGBA is stored here so it is not dropped at text-render
-    /// time. Hosts read it via [`Self::generated_images`].
+    /// time. Hosts consume the current frame's entries via
+    /// [`crate::ir::FrameMediaPlan::generated_images`], not this field.
     generated_images: GeneratedImageTable,
 }
 
@@ -106,11 +107,13 @@ impl<S: JsContext> DefaultPipeline<S> {
         &self.scripts
     }
 
-    /// Core-rasterized images (color-emoji bitmap glyphs) owned by this
-    /// pipeline. Lifecycle spans the whole pipeline; a fresh pipeline and the
-    /// same pipeline reused across frames produce identical ids. Hosts read
-    /// this to resolve [`crate::ir::ImageRef::Generated`] refs.
-    pub fn generated_images(&self) -> &GeneratedImageTable {
+    /// Internal generated-image table used while building `RenderFrame`.
+    ///
+    /// Hosts must not depend on this accessor: full RGBA for the current frame
+    /// is carried in [`crate::ir::FrameMediaPlan::generated_images`]. Kept
+    /// `pub(crate)` only for core tests that inspect table collision semantics.
+    #[cfg(test)]
+    pub(crate) fn generated_images(&self) -> &GeneratedImageTable {
         &self.generated_images
     }
 }
@@ -493,6 +496,10 @@ mod tests {
             baseline.media.runtime_effects, after_out_of_order.media.runtime_effects,
             "media plan runtime effects must be identical regardless of call history"
         );
+        assert_eq!(
+            baseline.media.generated_images, after_out_of_order.media.generated_images,
+            "media plan generated images (id/size/RGBA) must be identical regardless of call history"
+        );
 
         // (3) Render the target frame again immediately — must still be identical
         //     across every media-plan category, not just the draw ops.
@@ -517,6 +524,69 @@ mod tests {
             baseline.media.runtime_effects, repeated.media.runtime_effects,
             "media plan runtime effects must be identical on repeat render"
         );
+        assert_eq!(
+            baseline.media.generated_images, repeated.media.generated_images,
+            "media plan generated images must be identical on repeat render"
+        );
+    }
+
+    /// #21: FrameMediaPlan carries full generated-image RGBA; fresh pipelines,
+    /// out-of-order reuse, and immediate repeats are field-identical for
+    /// color-emoji glyphs (stable id + size + bytes).
+    #[test]
+    fn render_frame_generated_images_are_complete_and_deterministic() {
+        let xml = r#"<opencat width="96" height="80" fps="30" duration="0.2">
+  <div id="root" class="w-[96px] h-[80px] bg-white">
+    <text id="emoji" class="absolute left-[16px] top-[12px] w-[64px] h-[64px] text-[48px] text-black">😀</text>
+  </div>
+</opencat>"#;
+
+        let mut fresh = open_host_injected(xml);
+        let baseline = fresh.render_frame(0).expect("fresh frame 0");
+        assert!(
+            !baseline.media.generated_images.is_empty(),
+            "color emoji must produce at least one generated image on RenderFrame"
+        );
+        for g in &baseline.media.generated_images {
+            assert!(g.width > 0 && g.height > 0);
+            assert_eq!(
+                g.rgba.len(),
+                g.width as usize * g.height as usize * 4,
+                "RGBA length must match width*height*4 for {:?}",
+                g.id
+            );
+        }
+
+        // Second independent pipeline (fresh) must match field-by-field.
+        let mut other = open_host_injected(xml);
+        let other_frame = other.render_frame(0).expect("other fresh frame 0");
+        assert_eq!(
+            baseline.media.generated_images, other_frame.media.generated_images,
+            "fresh pipelines must produce identical generated-image content"
+        );
+
+        // Out-of-order + repeat on the same pipeline.
+        let _ = fresh.render_frame(1).expect("frame 1");
+        let after = fresh.render_frame(0).expect("frame 0 after out-of-order");
+        assert_eq!(
+            baseline.media.generated_images, after.media.generated_images,
+            "out-of-order reuse must not change generated-image content"
+        );
+        let again = fresh.render_frame(0).expect("frame 0 repeat");
+        assert_eq!(
+            baseline.media.generated_images, again.media.generated_images,
+            "repeat must not change generated-image content"
+        );
+
+        // Dedup: the same glyph id appears at most once in the plan.
+        let mut seen = std::collections::HashSet::new();
+        for g in &baseline.media.generated_images {
+            assert!(
+                seen.insert(g.id),
+                "generated image id {:?} must be unique in plan",
+                g.id
+            );
+        }
     }
 
     /// #16: boundary / out-of-order / repeated frames all yield the same

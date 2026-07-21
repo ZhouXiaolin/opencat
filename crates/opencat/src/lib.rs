@@ -52,8 +52,7 @@ pub use opencat_engine::render::{
     render_from_jsonl, render_single_frame_from_jsonl, render_single_frame_png,
     render_single_frame_png_with_base,
 };
-pub use opencat_engine::consumer::EngineLoaderFrameConsumer;
-pub use opencat_engine::consumer::{FrameConsumer, RenderSessionHeader};
+pub use opencat_engine::consumer::execute_render_frame;
 pub use opencat_engine::executor::EngineDrawExecutor;
 pub use opencat_engine::js_context::RqJsContext;
 pub use opencat_engine::media::{AudioTrack, MediaContext};

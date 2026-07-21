@@ -62,13 +62,6 @@ impl EnginePipelineHost {
         &mut self.loader
     }
 
-    /// Core-rasterized images (color-emoji bitmap glyphs) owned by the pipeline.
-    /// The frame consumer reads this to resolve `ImageRef::Generated` refs into
-    /// Skia images — generated RGBA never round-trips through the engine loader.
-    pub fn generated_images(&self) -> &opencat_core::ir::GeneratedImageTable {
-        self.pipeline.generated_images()
-    }
-
     /// Delegate: composition info (width/height/fps/duration/requests/audio plan).
     pub fn info(&self) -> &opencat_core::ir::CompositionInfo {
         use opencat_core::pipeline::Pipeline;

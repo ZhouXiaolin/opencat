@@ -161,6 +161,14 @@ fn open_parsed_host_owned_with_fonts(
         .fill_from_prepared_catalog(draft.requirements(), &probed, &srt)
         .map_err(prepare_err)?;
 
+    // External scripts: host reads file text against loader base_dir and
+    // injects via HostInputs — core never rewrites the input string (#20).
+    crate::source_io::fill_script_texts_from_disk(
+        &mut inputs,
+        draft.requirements(),
+        Some(loader.base_dir()),
+    )?;
+
     // Document fonts: map face-id bytes (from load_font_manifest) onto the
     // stable font AssetId from requirements. Core merges; host does not.
     for req in draft.requirements().requests() {

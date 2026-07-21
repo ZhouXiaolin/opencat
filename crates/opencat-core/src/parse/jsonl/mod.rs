@@ -14,7 +14,10 @@ use crate::style::NodeStyle;
 
 pub mod tailwind;
 
-use crate::parse::document::{build_tree, build_tree_with_tl, join_scripts, validate_unique_ids};
+use crate::parse::document::{
+    build_tree, build_tree_with_tl, join_scripts, script_driver_from_decls,
+    validate_unique_ids, DeclaredScript,
+};
 
 #[derive(Debug, Deserialize, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -171,9 +174,9 @@ pub fn parse_with_base_dir(
     let mut height = 1080;
     let mut fps = 30;
     let mut duration = 3.0;
-    let mut global_scripts = Vec::new();
+    let mut global_scripts: Vec<DeclaredScript> = Vec::new();
     let mut audio_elements = Vec::new();
-    let mut scripts_by_parent: HashMap<String, Vec<String>> = HashMap::new();
+    let mut scripts_by_parent: HashMap<String, Vec<DeclaredScript>> = HashMap::new();
     let mut elements: Vec<ParsedElement> = Vec::new();
     let mut transitions = Vec::new();
     let mut timeline_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -202,11 +205,11 @@ pub fn parse_with_base_dir(
                 src,
                 path,
             } => {
-                let source = resolve_script_source(src, path, base_dir)?;
+                let decl = resolve_script_declaration(src, path)?;
                 if let Some(parent_id) = parent_id {
-                    scripts_by_parent.entry(parent_id).or_default().push(source);
+                    scripts_by_parent.entry(parent_id).or_default().push(decl);
                 } else {
-                    global_scripts.push(source);
+                    global_scripts.push(decl);
                 }
             }
             JsonLine::Div {
@@ -476,7 +479,7 @@ pub fn parse_with_base_dir(
         .into_iter()
         .map(|audio| resolve_audio_source(audio, &elements_by_id))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let root = if has_explicit_tl {
+    let mut root = if has_explicit_tl {
         let transitions_by_tl: HashMap<String, Vec<&ParsedTransition>> =
             transitions.iter().fold(HashMap::new(), |mut acc, t| {
                 acc.entry(t.parent_id.clone()).or_default().push(t);
@@ -492,6 +495,33 @@ pub fn parse_with_base_dir(
         build_tree(&elements, &scripts_by_parent, fps as u32)?
     };
 
+    if !global_scripts.is_empty() {
+        // Merge with any scripts already attached to root (parentId == root).
+        let mut decls = Vec::new();
+        if let Some(existing) = root.style_ref().script_driver.as_ref() {
+            for frag in &existing.inline_fragments {
+                if !frag.is_empty() {
+                    decls.push(DeclaredScript::Inline(frag.clone()));
+                }
+            }
+            if existing.externals.is_empty()
+                && !existing.source.is_empty()
+                && existing.inline_fragments.is_empty()
+            {
+                decls.push(DeclaredScript::Inline(existing.source.clone()));
+            }
+            for ext in &existing.externals {
+                decls.push(DeclaredScript::External {
+                    locator: ext.locator.clone(),
+                });
+            }
+        }
+        decls.extend(global_scripts.clone());
+        if let Some(driver) = script_driver_from_decls(decls)? {
+            root = root.script_driver(driver);
+        }
+    }
+
     Ok(ParsedComposition {
         font_manifest: Default::default(),
         width,
@@ -499,24 +529,33 @@ pub fn parse_with_base_dir(
         fps,
         duration,
         root,
-        script: join_scripts(global_scripts),
+        script: join_inline_global_scripts(global_scripts),
         audio_sources,
     })
 }
 
-fn resolve_script_source(
+/// Keep external scripts as logical locators. Host supplies text via lifecycle
+/// HostInputs — core never reads script files or rewrites the input string.
+fn resolve_script_declaration(
     src: Option<String>,
     path: Option<String>,
-    _base_dir: Option<&Path>,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<DeclaredScript> {
     match (src, path) {
-        (Some(source), None) => Ok(source),
-        (None, Some(_)) => anyhow::bail!(
-            "script with path: must be parsed via host::source_io::parse_with_base_dir"
-        ),
+        (Some(source), None) => Ok(DeclaredScript::Inline(source)),
+        (None, Some(locator)) => Ok(DeclaredScript::External { locator }),
         (Some(_), Some(_)) => anyhow::bail!("script node must use only one of src/content or path"),
         (None, None) => anyhow::bail!("script node requires either src/content or path"),
     }
+}
+
+fn join_inline_global_scripts(scripts: Vec<DeclaredScript>) -> Option<String> {
+    let mut inlines = Vec::new();
+    for s in scripts {
+        if let DeclaredScript::Inline(t) = s {
+            inlines.push(t);
+        }
+    }
+    join_scripts(inlines)
 }
 
 fn resolve_audio_source(

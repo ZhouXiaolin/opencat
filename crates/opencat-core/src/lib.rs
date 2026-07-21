@@ -31,7 +31,9 @@ pub use self::lifecycle::{
     CompositionDraft, HostInputs, HostRequirements, PrepareError, PreparedComposition,
     ResourceKind as LifecycleResourceKind, ResourceLocator, ResourceRequest,
 };
-pub use self::media::{VideoFrameRequest, VideoFrameTiming};
+pub use self::media::{
+    collect_audio_plan, AudioPlan, AudioSegment, VideoFrameRequest, VideoFrameTiming,
+};
 pub use self::time::{
     DurationMicros, DurationRange, FrameCount, FrameIndex, RationalFrameRate, TimestampMicros,
     duration_secs_to_frames, frames_to_duration_secs, frames_to_timestamp_micros, secs_to_micros,

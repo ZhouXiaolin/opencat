@@ -13,8 +13,9 @@ use opencat_core::parse::primitives::LottieSource;
 use opencat_core::probe::ResourceRequests;
 use opencat_core::probe::{AudioSource, ImageSource, SubtitleSource, VideoSource};
 use opencat_core::resource::asset_id::{
-    AssetId, asset_id_for_audio, asset_id_for_audio_url, asset_id_for_image, asset_id_for_query, asset_id_for_subtitle,
-    asset_id_for_url, asset_id_for_video, asset_id_for_video_url,
+    AssetId, asset_id_for_audio, asset_id_for_audio_url, asset_id_for_image, asset_id_for_lottie,
+    asset_id_for_query, asset_id_for_subtitle, asset_id_for_url, asset_id_for_video,
+    asset_id_for_video_url,
 };
 use opencat_core::resource::fonts::{FontManifest, font_asset_id};
 
@@ -236,9 +237,9 @@ impl EngineLoader {
                 continue;
             }
             // build_catalog looks up Lottie primary JSON by its byte key
-            // (path string for Path, url-derived id for Url), not the bundle id.
+            // (logical path for Path, url-derived id for Url), not the bundle id.
             let key = match &lottie_req.source {
-                LottieSource::Path(p) => p.to_string_lossy().into_owned(),
+                LottieSource::Path(p) => p.clone(),
                 LottieSource::Url(u) => asset_id_for_url(u).0,
                 LottieSource::Unset => continue,
             };
@@ -358,14 +359,74 @@ impl EngineLoader {
                         let _ = self.fetcher.fetch_bytes(&id, u).await?;
                     }
                     LottieSource::Path(p) => {
-                        copy_local_to_cache(p, &base_dir, &cache_dir, &id)?;
+                        // Logical locator — host joins document base.
+                        copy_local_to_cache(std::path::Path::new(p), &base_dir, &cache_dir, &id)?;
                     }
                     LottieSource::Unset => continue,
                 }
                 let cached_path = cache_file_path(&cache_dir, &id);
                 new_handles.push((id.clone(), cached_path.clone()));
-                let bundle_id = AssetId(format!("lottie:{}", lottie_req.element_id));
-                new_handles.push((bundle_id, cached_path));
+                // Also register under the canonical bundle id from core
+                // (`asset_id_for_lottie`) so DrawOp::LottieRect / FrameMediaPlan
+                // can resolve bytes without re-deriving the scheme.
+                let bundle_id = asset_id_for_lottie(&lottie_req.element_id, &lottie_req.source)
+                    .unwrap_or_else(|| AssetId(format!("lottie:{}", lottie_req.element_id)));
+                new_handles.push((bundle_id.clone(), cached_path.clone()));
+
+                // Host-only: scan primary JSON for external deps and cache them
+                // under `{bundle_id}:dep:{basename}` (same shape as web BlobStore).
+                // Core prepare only receives LottieMeta.dependencies, never these bytes.
+                if let Ok(primary) = std::fs::read(&cached_path) {
+                    if let Ok(json) = std::str::from_utf8(&primary) {
+                        if let Ok(deps) =
+                            opencat_core::resource::scan_lottie_dependencies(json)
+                        {
+                            let primary_dir = match &lottie_req.source {
+                                LottieSource::Path(p) => {
+                                    let full = if std::path::Path::new(p).is_relative() {
+                                        base_dir.join(p)
+                                    } else {
+                                        std::path::PathBuf::from(p)
+                                    };
+                                    full.parent().map(|d| d.to_path_buf())
+                                }
+                                _ => None,
+                            };
+                            for file_name in deps {
+                                let dep_id =
+                                    AssetId(format!("{}:dep:{}", bundle_id.0, file_name));
+                                if file_name.starts_with("http://")
+                                    || file_name.starts_with("https://")
+                                {
+                                    let _ =
+                                        self.fetcher.fetch_bytes(&dep_id, &file_name).await?;
+                                    let path = cache_file_path(&cache_dir, &dep_id);
+                                    new_handles.push((dep_id, path));
+                                } else if let Some(dir) = &primary_dir {
+                                    // Try sibling of JSON, then images/ under that dir.
+                                    let candidates = [
+                                        dir.join(&file_name),
+                                        dir.join("images").join(&file_name),
+                                        base_dir.join(&file_name),
+                                        base_dir.join("images").join(&file_name),
+                                    ];
+                                    if let Some(src) =
+                                        candidates.into_iter().find(|c| c.is_file())
+                                    {
+                                        copy_local_to_cache(
+                                            &src,
+                                            &base_dir,
+                                            &cache_dir,
+                                            &dep_id,
+                                        )?;
+                                        let path = cache_file_path(&cache_dir, &dep_id);
+                                        new_handles.push((dep_id, path));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             Ok::<_, anyhow::Error>(())
@@ -403,7 +464,8 @@ fn subtitle_asset_id(s: &SubtitleSource) -> AssetId {
 fn lottie_asset_id(s: &LottieSource) -> AssetId {
     match s {
         LottieSource::Unset => AssetId(String::new()),
-        LottieSource::Path(p) => AssetId(p.to_string_lossy().into_owned()),
+        // Probe byte key is the logical path string (same as Image path ids).
+        LottieSource::Path(p) => AssetId(p.clone()),
         LottieSource::Url(u) => asset_id_for_url(u),
     }
 }

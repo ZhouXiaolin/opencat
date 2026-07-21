@@ -224,7 +224,7 @@ mod tests {
     fn asset_id_for_lottie_is_element_id_based_and_unset_yields_none() {
         assert_eq!(asset_id_for_lottie("hero", &LottieSource::Unset), None);
         assert_eq!(
-            asset_id_for_lottie("hero", &LottieSource::Path("/a.json".into())).map(|i| i.0),
+            asset_id_for_lottie("hero", &LottieSource::Path("a.json".into())).map(|i| i.0),
             Some("lottie:hero".to_string()),
         );
         assert_eq!(

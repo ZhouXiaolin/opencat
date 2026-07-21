@@ -121,7 +121,7 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
                 self.subtitles.insert(alias.clone(), entries);
             }
             CanonicalKind::Lottie => {
-                let meta = self.lotties.get(target).copied().expect("checked above");
+                let meta = self.lotties.get(target).cloned().expect("checked above");
                 self.lotties.insert(alias.clone(), meta);
             }
         }
@@ -153,7 +153,7 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
     }
 
     fn lottie_meta(&self, id: &AssetId) -> Option<LottieMeta> {
-        self.lotties.get(id).copied()
+        self.lotties.get(id).cloned()
     }
 
     fn resolve_alias(&self, alias: &AssetId) -> Option<AssetId> {

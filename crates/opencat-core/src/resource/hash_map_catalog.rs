@@ -19,6 +19,9 @@ pub struct ResourceMeta {
     pub lottie_in_frame: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lottie_out_frame: Option<f32>,
+    /// External Lottie asset basenames when `kind == Lottie`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lottie_dependencies: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,6 +112,7 @@ impl ResourceResolver for HashMapResourceCatalog {
             lottie_fps: None,
             lottie_in_frame: None,
             lottie_out_frame: None,
+            lottie_dependencies: Vec::new(),
         });
         id
     }
@@ -129,6 +133,7 @@ impl ResourceResolver for HashMapResourceCatalog {
             lottie_fps: None,
             lottie_in_frame: None,
             lottie_out_frame: None,
+            lottie_dependencies: Vec::new(),
         });
         id
     }
@@ -143,6 +148,7 @@ impl ResourceResolver for HashMapResourceCatalog {
             lottie_fps: None,
             lottie_in_frame: None,
             lottie_out_frame: None,
+            lottie_dependencies: Vec::new(),
         });
         id
     }
@@ -207,6 +213,7 @@ impl HashMapResourceCatalog {
             lottie_fps: Some(meta.fps),
             lottie_in_frame: Some(meta.in_frame),
             lottie_out_frame: Some(meta.out_frame),
+            lottie_dependencies: meta.dependencies.clone(),
         });
         id
     }
@@ -222,6 +229,7 @@ impl HashMapResourceCatalog {
                 fps: m.lottie_fps.unwrap_or(30.0),
                 in_frame: m.lottie_in_frame.unwrap_or(0.0),
                 out_frame: m.lottie_out_frame.unwrap_or(1.0),
+                dependencies: m.lottie_dependencies.clone(),
             })
         })
     }

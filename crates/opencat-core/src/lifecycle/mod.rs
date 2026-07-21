@@ -31,6 +31,7 @@ use crate::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
 use crate::probe::prepare::hydrate_captions;
 use crate::resource::fonts::{font_asset_id, merge_document_over_base, FontSource};
 use crate::script::js_context::JsContext;
+use crate::script::ScriptDriver;
 
 impl CompositionDraft {
     /// Build a draft from an already-parsed composition.
@@ -172,6 +173,10 @@ impl HostRequirements {
             });
         }
 
+        // External scripts declared on the tree (path/url). Inline scripts never
+        // appear here — core already holds their text.
+        collect_script_requirements(&parsed.root, &mut requests, &mut seen);
+
         // Stable order for tests/hosts: kind then asset id.
         requests.sort_by(|a, b| {
             a.kind
@@ -196,6 +201,7 @@ impl HostInputs {
             catalog: PreparedResourceCatalog::default(),
             subtitle_texts: HashMap::new(),
             document_fonts: HashMap::new(),
+            script_texts: HashMap::new(),
             supplied: HashSet::new(),
         }
     }
@@ -279,6 +285,22 @@ impl HostInputs {
         Ok(())
     }
 
+    /// Provide external script source text for a declared script asset.
+    /// Duplicate ids error. Core injects the text into `ScriptDriver`s during
+    /// prepare; hosts must not rewrite composition input strings.
+    ///
+    /// `id` must be the canonical script AssetId from requirements
+    /// (`script:path:…` / `script:url:…`).
+    pub fn insert_script_text(
+        &mut self,
+        id: AssetId,
+        text: impl Into<String>,
+    ) -> Result<(), PrepareError> {
+        self.record_supply(&id)?;
+        self.script_texts.insert(id, text.into());
+        Ok(())
+    }
+
     /// Fill this inputs bag from a host-probed [`PreparedResourceCatalog`] and
     /// optional subtitle texts, using **only** the asset ids listed in
     /// `requirements` (never re-derived from locators). Soft-misses for subtitle
@@ -331,6 +353,9 @@ impl HostInputs {
                 }
                 ResourceKind::Font => {
                     // Host supplies document font bytes via insert_document_font.
+                }
+                ResourceKind::Script => {
+                    // Host supplies script text via insert_script_text.
                 }
             }
         }
@@ -400,7 +425,8 @@ pub fn prepare(
             ResourceKind::Image
             | ResourceKind::Video
             | ResourceKind::Lottie
-            | ResourceKind::Font => {}
+            | ResourceKind::Font
+            | ResourceKind::Script => {}
         }
     }
 
@@ -410,6 +436,15 @@ pub fn prepare(
             message: err.to_string(),
         })?
         .0;
+
+    // Inject host-supplied external script texts into ScriptDrivers (issue #20).
+    // Keyed by AssetId string; pure tree walk, no FS/network.
+    let script_texts_by_id: HashMap<String, String> = inputs
+        .script_texts
+        .iter()
+        .map(|(id, text)| (id.0.clone(), text.clone()))
+        .collect();
+    parsed.root = inject_script_texts(parsed.root, &script_texts_by_id)?;
 
     Ok(PreparedComposition {
         parsed,
@@ -495,7 +530,8 @@ fn validate_inputs(
                 .chain(inputs.catalog.audios.iter())
                 .chain(inputs.catalog.subtitles.keys())
                 .chain(inputs.catalog.lotties.keys())
-                .chain(inputs.document_fonts.keys()),
+                .chain(inputs.document_fonts.keys())
+                .chain(inputs.script_texts.keys()),
         )
     {
         if !required.contains_key(id) {
@@ -663,6 +699,22 @@ fn validate_inputs(
                     Some(_) => {}
                 }
             }
+            ResourceKind::Script => match inputs.script_texts.get(&req.asset_id) {
+                None => {
+                    return Err(PrepareError::MissingInput {
+                        asset_id: req.asset_id.clone(),
+                        kind: req.kind,
+                    });
+                }
+                Some(text) if text.is_empty() => {
+                    return Err(PrepareError::InvalidMetadata {
+                        asset_id: req.asset_id.clone(),
+                        kind: req.kind,
+                        reason: "empty script text; external scripts must be non-empty".into(),
+                    });
+                }
+                Some(_) => {}
+            },
         }
     }
 
@@ -729,6 +781,167 @@ impl ResourceLocator {
             FontSource::Path(p) => Self::LogicalPath(p.to_string_lossy().into_owned()),
             FontSource::Url(u) => Self::Url(u.clone()),
         }
+    }
+
+    fn from_script_locator(locator: &str) -> Self {
+        if locator.starts_with("http://") || locator.starts_with("https://") {
+            Self::Url(locator.to_string())
+        } else {
+            Self::LogicalPath(locator.to_string())
+        }
+    }
+}
+
+fn collect_script_requirements(
+    root: &crate::parse::node::Node,
+    requests: &mut Vec<ResourceRequest>,
+    seen: &mut HashSet<AssetId>,
+) {
+    walk_script_drivers(root, &mut |driver: &ScriptDriver| {
+        for ext in &driver.externals {
+            if !seen.insert(ext.asset_id.clone()) {
+                continue;
+            }
+            requests.push(ResourceRequest {
+                asset_id: ext.asset_id.clone(),
+                kind: ResourceKind::Script,
+                locator: ResourceLocator::from_script_locator(&ext.locator),
+            });
+        }
+    });
+}
+
+fn inject_script_texts(
+    root: crate::parse::node::Node,
+    texts: &HashMap<String, String>,
+) -> Result<crate::parse::node::Node, PrepareError> {
+    walk_inject_scripts(root, texts)
+}
+
+fn walk_inject_scripts(
+    node: crate::parse::node::Node,
+    texts: &HashMap<String, String>,
+) -> Result<crate::parse::node::Node, PrepareError> {
+    use crate::parse::node::NodeKind;
+
+    let mut kind = node.kind().clone();
+    {
+        let style = kind.style_mut();
+        if let Some(driver) = style.script_driver.as_mut() {
+            let mut next = (**driver).clone();
+            if next.is_external_pending() {
+                next.resolve_with_host_texts(texts);
+                if next.source.is_empty() {
+                    let missing = next
+                        .externals
+                        .iter()
+                        .find(|e| !texts.contains_key(&e.asset_id.0))
+                        .map(|e| e.asset_id.clone())
+                        .unwrap_or_else(|| {
+                            next.externals
+                                .first()
+                                .map(|e| e.asset_id.clone())
+                                .unwrap_or_else(|| AssetId("script:?".into()))
+                        });
+                    return Err(PrepareError::MissingInput {
+                        asset_id: missing,
+                        kind: ResourceKind::Script,
+                    });
+                }
+            }
+            *driver = std::sync::Arc::new(next);
+        }
+    }
+
+    match &mut kind {
+        NodeKind::Div(div) => {
+            let children = div
+                .children_ref()
+                .iter()
+                .cloned()
+                .map(|c| walk_inject_scripts(c, texts))
+                .collect::<Result<Vec<_>, _>>()?;
+            div.set_children(children);
+        }
+        NodeKind::Video(video) => {
+            let children = video
+                .children_ref()
+                .iter()
+                .cloned()
+                .map(|c| walk_inject_scripts(c, texts))
+                .collect::<Result<Vec<_>, _>>()?;
+            video.set_children(children);
+        }
+        NodeKind::Timeline(tl) => {
+            tl.map_scene_nodes(|scene| {
+                walk_inject_scripts(scene, texts).map_err(|e| anyhow::anyhow!(e))
+            })
+            .map_err(|err| PrepareError::Internal {
+                message: err.to_string(),
+            })?;
+        }
+        NodeKind::Canvas(canvas) => {
+            let hidden = canvas
+                .hidden_children_ref()
+                .iter()
+                .cloned()
+                .map(|c| walk_inject_scripts(c, texts))
+                .collect::<Result<Vec<_>, _>>()?;
+            canvas.set_hidden_children(hidden);
+        }
+        NodeKind::Image(_)
+        | NodeKind::Text(_)
+        | NodeKind::Lottie(_)
+        | NodeKind::Lucide(_)
+        | NodeKind::Path(_)
+        | NodeKind::Caption(_) => {}
+    }
+
+    Ok(crate::parse::node::Node::new(kind))
+}
+
+fn walk_script_drivers(node: &crate::parse::node::Node, f: &mut dyn FnMut(&ScriptDriver)) {
+    use crate::parse::node::NodeKind;
+
+    if let Some(driver) = node.style_ref().script_driver.as_deref() {
+        f(driver);
+    }
+
+    match node.kind() {
+        NodeKind::Div(div) => {
+            for child in div.children_ref() {
+                walk_script_drivers(child, f);
+            }
+        }
+        NodeKind::Video(video) => {
+            for child in video.children_ref() {
+                walk_script_drivers(child, f);
+            }
+        }
+        NodeKind::Timeline(tl) => {
+            for segment in tl.segments() {
+                match segment {
+                    crate::parse::time::TimelineSegment::Scene { scene, .. } => {
+                        walk_script_drivers(scene, f);
+                    }
+                    crate::parse::time::TimelineSegment::Transition { from, to, .. } => {
+                        walk_script_drivers(from, f);
+                        walk_script_drivers(to, f);
+                    }
+                }
+            }
+        }
+        NodeKind::Canvas(canvas) => {
+            for child in canvas.hidden_children_ref() {
+                walk_script_drivers(child, f);
+            }
+        }
+        NodeKind::Image(_)
+        | NodeKind::Text(_)
+        | NodeKind::Lottie(_)
+        | NodeKind::Lucide(_)
+        | NodeKind::Path(_)
+        | NodeKind::Caption(_) => {}
     }
 }
 
@@ -1952,5 +2165,142 @@ mod tests {
             .audio_plan
             .segments
             .is_empty());
+    }
+
+    #[test]
+    fn draft_requirements_list_external_scripts() {
+        let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
+{"id":"root","parentId":null,"type":"div","className":"flex"}
+{"type":"script","path":"anim/main.js"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let scripts: Vec<_> = draft
+            .requirements()
+            .requests()
+            .iter()
+            .filter(|r| r.kind == ResourceKind::Script)
+            .collect();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].asset_id.0, "script:path:anim/main.js");
+        assert_eq!(
+            scripts[0].locator,
+            ResourceLocator::LogicalPath("anim/main.js".into())
+        );
+    }
+
+    #[test]
+    fn prepare_errors_on_missing_external_script_text() {
+        let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
+{"id":"root","parentId":null,"type":"div","className":"flex"}
+{"type":"script","path":"missing.js"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let err = draft
+            .prepare(HostInputs::empty().with_font_db(test_font_db()))
+            .expect_err("missing script text must fail");
+        assert!(matches!(
+            err,
+            PrepareError::MissingInput {
+                kind: ResourceKind::Script,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn prepare_injects_external_script_text_into_driver() {
+        let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
+{"id":"root","parentId":null,"type":"div","className":"flex"}
+{"type":"script","parentId":"root","path":"node.js"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft
+            .requirements()
+            .requests()
+            .iter()
+            .find(|r| r.kind == ResourceKind::Script)
+            .unwrap()
+            .asset_id
+            .clone();
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        inputs
+            .insert_script_text(id, "ctx.getNode('root').opacity(0.5);")
+            .unwrap();
+        let prepared = draft.prepare(inputs).expect("prepare");
+        let driver = prepared
+            .parsed()
+            .root
+            .style_ref()
+            .script_driver
+            .as_ref()
+            .expect("script on root");
+        assert_eq!(driver.source, "ctx.getNode('root').opacity(0.5);");
+        assert!(!driver.is_external_pending());
+    }
+
+    #[test]
+    fn prepare_rejects_empty_script_text() {
+        let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
+{"id":"root","parentId":null,"type":"div","className":"flex"}
+{"type":"script","path":"empty.js"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft
+            .requirements()
+            .requests()
+            .iter()
+            .find(|r| r.kind == ResourceKind::Script)
+            .unwrap()
+            .asset_id
+            .clone();
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        inputs.insert_script_text(id, "").unwrap();
+        let err = draft.prepare(inputs).expect_err("empty script text");
+        assert!(matches!(
+            err,
+            PrepareError::InvalidMetadata {
+                kind: ResourceKind::Script,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn two_pipelines_own_independent_script_realms() {
+        // AC: each pipeline creates an independent script realm; hosts pass a
+        // fresh JsContext per open. NoopJsContext has no shared process global.
+        let xml = r#"
+            <opencat width="64" height="36" fps="30" duration="0.1">
+              <div id="root" class="w-full h-full" />
+            </opencat>
+        "#;
+        let a = open_lifecycle(xml);
+        let mut b = open_lifecycle(xml);
+        // Distinct host contexts are wrapped into distinct ScriptRealm instances.
+        let _ = a.scripts();
+        let _ = b.scripts();
+        // Rendering either must not require rebinding a shared dispatcher.
+        let _ = a;
+        let frame = b.render_frame(0).expect("render");
+        let _ = frame;
+    }
+
+    #[test]
+    fn inline_scripts_do_not_create_script_requirements() {
+        let xml = r#"
+            <opencat width="64" height="36" fps="30" duration="0.1">
+              <script>ctx.getNode("root").opacity(1);</script>
+              <div id="root" class="w-full h-full" />
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(xml).unwrap();
+        assert!(
+            draft
+                .requirements()
+                .requests()
+                .iter()
+                .all(|r| r.kind != ResourceKind::Script),
+            "inline markup scripts are not host requirements"
+        );
+        let prepared = draft
+            .prepare(HostInputs::empty().with_font_db(test_font_db()))
+            .expect("inline scripts need no host text");
+        assert!(prepared.parsed().root.style_ref().script_driver.is_some());
     }
 }

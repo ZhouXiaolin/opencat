@@ -475,6 +475,40 @@ async fn open_design_pipeline(
         .fill_from_prepared_catalog(draft.requirements(), &probed, &srt)
         .map_err(prepare_js_err)?;
 
+    // External scripts: host fetches text (path via VFS reader / url via fetch)
+    // and injects via HostInputs — core never rewrites input strings (#20).
+    for req in draft.requirements().requests() {
+        if req.kind != ResourceKind::Script {
+            continue;
+        }
+        let text = match &req.locator {
+            opencat_core::lifecycle::ResourceLocator::LogicalPath(path) => {
+                let bytes = crate::resource::asset_reader::read_path(path)
+                    .await
+                    .map_err(|e| {
+                        JsValue::from_str(&format!("open_design script path `{path}`: {e}"))
+                    })?;
+                String::from_utf8(bytes).map_err(|e| {
+                    JsValue::from_str(&format!("open_design script path `{path}` utf8: {e}"))
+                })?
+            }
+            opencat_core::lifecycle::ResourceLocator::Url(url) => {
+                let bytes = crate::resource::fetch::fetch_bytes(url)
+                    .await
+                    .map_err(|e| {
+                        JsValue::from_str(&format!("open_design script url `{url}`: {e}"))
+                    })?;
+                String::from_utf8(bytes).map_err(|e| {
+                    JsValue::from_str(&format!("open_design script url `{url}` utf8: {e}"))
+                })?
+            }
+            _ => continue,
+        };
+        inputs
+            .insert_script_text(AssetId(req.asset_id.0.clone()), text)
+            .map_err(prepare_js_err)?;
+    }
+
     // Document fonts: face bytes from font_store → stable font AssetId.
     let font_bytes_by_face =
         crate::resource::font_store::get_manifest_bytes(&draft.parsed().font_manifest);

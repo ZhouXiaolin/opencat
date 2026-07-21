@@ -206,7 +206,7 @@ fn record_video(prepared: &mut PreparedCatalog, id: &crate::ir::asset_id::AssetI
 fn lottie_byte_key(req: &LottieRequest) -> String {
     match &req.source {
         LottieSource::Unset => String::new(),
-        LottieSource::Path(p) => p.to_string_lossy().into_owned(),
+        LottieSource::Path(p) => p.clone(),
         LottieSource::Url(u) => asset_id_for_url(u).0,
     }
 }
@@ -494,7 +494,24 @@ mod tests {
         let prepared = build_catalog(&req, &bytes);
         let meta = prepared.catalog.lotties.get(&bundle_id).expect("lottie meta");
         assert_eq!((meta.width, meta.height), (280, 200));
+        assert_eq!(meta.fps, 25.0);
         assert_eq!(prepared.outcomes.get(&bundle_id.0), Some(&ProbeOutcome::Probed));
+    }
+
+    #[test]
+    fn build_catalog_lottie_meta_includes_dependencies_from_json() {
+        let json = r#"{"w":10,"h":10,"fr":30,"ip":0,"op":5,"assets":[{"u":"images/a.png"}]}"#;
+        let mut req = ResourceRequests::default();
+        req.lotties.insert(LottieRequest {
+            element_id: "badge".into(),
+            source: LottieSource::Path("badge.json".into()),
+        });
+        let bundle_id = AssetId("lottie:badge".to_string());
+        let mut bytes = HashMap::<String, Vec<u8>>::new();
+        bytes.insert("badge.json".into(), json.as_bytes().to_vec());
+        let prepared = build_catalog(&req, &bytes);
+        let meta = prepared.catalog.lotties.get(&bundle_id).expect("meta");
+        assert_eq!(meta.dependencies, vec!["a.png".to_string()]);
     }
 
     #[test]

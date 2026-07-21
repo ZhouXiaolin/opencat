@@ -117,17 +117,18 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
         let primary = match &request.source {
             LottieSource::Url(url) => crate::resource::fetch::fetch_bytes(url).await,
             LottieSource::Path(path) => {
-                crate::resource::asset_reader::read_path(&path.to_string_lossy()).await
+                // Logical locator — web host interprets against document base/VFS.
+                crate::resource::asset_reader::read_path(path).await
             }
             LottieSource::Unset => continue,
         }
         .map_err(|e| JsValue::from_str(&format!("preload_assets lottie: {e}")))?;
         let json = std::str::from_utf8(&primary)
             .map_err(|e| JsValue::from_str(&format!("preload_assets lottie utf-8: {e}")))?;
-        let dependencies = opencat_core::resource::scan_lottie_dependencies(json)
-            .map_err(|e| JsValue::from_str(&format!("preload_assets lottie scan: {e}")))?;
+        // Host-only: parse metadata + deps from JSON; bytes stay in BlobStore.
         let meta = opencat_core::resource::parse_lottie_meta(json)
             .map_err(|e| JsValue::from_str(&format!("preload_assets lottie metadata: {e}")))?;
+        let dependencies = meta.dependencies.clone();
         catalog.register_lottie(&bundle_id.0, meta);
         blobs.insert(bundle_id.clone(), std::sync::Arc::from(primary));
 

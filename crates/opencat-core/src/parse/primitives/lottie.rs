@@ -1,12 +1,14 @@
-use std::path::PathBuf;
-
 use crate::media::VideoFrameTiming;
 use crate::style::{NodeStyle, impl_node_style_api};
 
+/// Lottie source locator. Paths are **logical** (document-relative strings), not
+/// host filesystem paths — core never joins a base directory or stores `PathBuf`.
+/// Hosts interpret `Path` against their own document base (FS, VFS, URL).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum LottieSource {
     Unset,
-    Path(PathBuf),
+    /// Logical locator (e.g. `"anim/loader.json"`). Not a resolved filesystem path.
+    Path(String),
     Url(String),
 }
 
@@ -46,8 +48,10 @@ impl Lottie {
         self
     }
 
-    pub fn path(mut self, path: impl AsRef<std::path::Path>) -> Self {
-        self.source = LottieSource::Path(path.as_ref().to_path_buf());
+    /// Set a logical path locator. Accepts any string-like value; does not
+    /// resolve against a filesystem base.
+    pub fn path(mut self, path: impl Into<String>) -> Self {
+        self.source = LottieSource::Path(path.into());
         self
     }
 
@@ -68,5 +72,19 @@ pub fn lottie() -> Lottie {
         source: LottieSource::Unset,
         timing: VideoFrameTiming::default(),
         style: NodeStyle::default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LottieSource, lottie};
+
+    #[test]
+    fn lottie_path_stores_logical_string() {
+        let node = lottie().path("anim/loader.json");
+        assert_eq!(
+            node.source(),
+            &LottieSource::Path("anim/loader.json".to_string())
+        );
     }
 }

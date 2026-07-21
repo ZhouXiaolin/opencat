@@ -2745,6 +2745,7 @@ pub fn render_lottie(
         fps: item.fps,
         in_frame: item.in_frame,
         out_frame: item.out_frame,
+        dependencies: vec![],
     };
     let request = crate::media::VideoFrameRequest {
         composition_time_secs: ctx.frame_ctx.frame as f64 / ctx.frame_ctx.fps.max(1) as f64,

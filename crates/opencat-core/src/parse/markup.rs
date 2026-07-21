@@ -1242,9 +1242,9 @@ fn parse_lottie_source(
         if p.is_empty() {
             anyhow::bail!("<lottie> `path` must not be empty");
         }
-        return Ok(crate::parse::primitives::LottieSource::Path(
-            resolve_local_path(p, base_dir),
-        ));
+        // Logical locator only — host resolves against its document base (#17).
+        let _ = base_dir;
+        return Ok(crate::parse::primitives::LottieSource::Path(p.to_string()));
     }
     if let Some(u) = url {
         if u.is_empty() {

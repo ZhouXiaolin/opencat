@@ -20,6 +20,7 @@ pub mod script;
 pub mod semantic;
 pub mod style;
 pub mod text;
+pub mod time;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
@@ -31,6 +32,11 @@ pub use self::lifecycle::{
     ResourceKind as LifecycleResourceKind, ResourceLocator, ResourceRequest,
 };
 pub use self::media::{VideoFrameRequest, VideoFrameTiming};
+pub use self::time::{
+    DurationMicros, DurationRange, FrameCount, FrameIndex, RationalFrameRate, TimestampMicros,
+    duration_secs_to_frames, frames_to_duration_secs, frames_to_timestamp_micros, secs_to_micros,
+    timestamp_micros_to_frame, timestamp_micros_to_secs,
+};
 pub use self::parse::node::Node;
 pub use self::parse::preflight::{
     collect_resource_requests, collect_resource_requests_from_parsed,

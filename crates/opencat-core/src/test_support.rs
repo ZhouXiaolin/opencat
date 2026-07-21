@@ -120,7 +120,7 @@ impl ResourceResolver for TestCatalog {
                 VideoInfoMeta {
                     width,
                     height,
-                    duration_secs: Some(duration),
+                    duration_micros: crate::time::optional_secs_to_duration_micros(Some(duration)),
                 },
             );
         }

@@ -364,7 +364,7 @@ fn collect_source_metadata(
             let entry = upsert_style_meta(video.style_ref(), "video", out);
             if let Some(entry) = entry {
                 let source_str = match video.source() {
-                    VideoSource::Path(p) => p.to_string_lossy().to_string(),
+                    VideoSource::Path(p) => p.clone(),
                     VideoSource::Url(u) => format!("video:url:{u}"),
                 };
                 entry.media_source = Some(source_str);

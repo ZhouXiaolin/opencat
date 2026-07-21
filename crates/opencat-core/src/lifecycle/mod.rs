@@ -27,7 +27,7 @@ use crate::parse::primitives::LottieSource;
 use crate::parse::preflight::collect_resource_requests_from_parsed;
 use crate::parse::ParsedComposition;
 use crate::pipeline::DefaultPipeline;
-use crate::probe::catalog::{ResourceCatalog, ResourceRequests};
+use crate::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
 use crate::probe::prepare::hydrate_captions;
 use crate::script::js_context::JsContext;
 
@@ -178,7 +178,7 @@ impl HostInputs {
     pub fn empty() -> Self {
         Self {
             font_db: Arc::new(crate::text::empty_font_db()),
-            catalog: ResourceCatalog::default(),
+            catalog: PreparedResourceCatalog::default(),
             subtitle_texts: HashMap::new(),
             supplied: HashSet::new(),
         }
@@ -247,7 +247,60 @@ impl HostInputs {
         Ok(())
     }
 
-    fn record_supply(&mut self, id: &AssetId) -> Result<(), PrepareError> {
+    /// Fill this inputs bag from a host-probed [`PreparedResourceCatalog`] and
+    /// optional subtitle texts, using **only** the asset ids listed in
+    /// `requirements` (never re-derived from locators). Soft-misses for subtitle
+    /// text are allowed; missing image/video/lottie metadata returns
+    /// [`PrepareError::MissingInput`].
+    pub fn fill_from_prepared_catalog(
+        &mut self,
+        requirements: &HostRequirements,
+        probed: &PreparedResourceCatalog,
+        subtitle_texts: &HashMap<String, String>,
+    ) -> Result<(), PrepareError> {
+        for req in requirements.requests() {
+            match req.kind {
+                ResourceKind::Image => {
+                    let Some(meta) = probed.images.get(&req.asset_id).copied() else {
+                        return Err(PrepareError::MissingInput {
+                            asset_id: req.asset_id.clone(),
+                            kind: req.kind,
+                        });
+                    };
+                    self.insert_image(req.asset_id.clone(), meta)?;
+                }
+                ResourceKind::Video => {
+                    let Some(meta) = probed.videos.get(&req.asset_id).copied() else {
+                        return Err(PrepareError::MissingInput {
+                            asset_id: req.asset_id.clone(),
+                            kind: req.kind,
+                        });
+                    };
+                    self.insert_video(req.asset_id.clone(), meta)?;
+                }
+                ResourceKind::Audio => {
+                    self.insert_audio(req.asset_id.clone())?;
+                }
+                ResourceKind::Lottie => {
+                    let Some(meta) = probed.lotties.get(&req.asset_id).copied() else {
+                        return Err(PrepareError::MissingInput {
+                            asset_id: req.asset_id.clone(),
+                            kind: req.kind,
+                        });
+                    };
+                    self.insert_lottie(req.asset_id.clone(), meta)?;
+                }
+                ResourceKind::Subtitle => {
+                    if let Some(text) = subtitle_texts.get(&req.asset_id.0) {
+                        self.insert_subtitle_text(req.asset_id.clone(), text.clone())?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+        fn record_supply(&mut self, id: &AssetId) -> Result<(), PrepareError> {
         if !self.supplied.insert(id.clone()) {
             return Err(PrepareError::DuplicateInput { asset_id: id.clone() });
         }
@@ -256,7 +309,7 @@ impl HostInputs {
 }
 
 impl PreparedComposition {
-    pub fn catalog(&self) -> &ResourceCatalog {
+    pub fn catalog(&self) -> &PreparedResourceCatalog {
         &self.catalog
     }
 
@@ -351,25 +404,68 @@ fn validate_inputs(
         }
     }
 
-    // Missing checks for layout/time-critical kinds. Subtitle text is soft:
-    // missing SRT leaves empty caption entries (same contract as hydrate_captions
-    // / parent #12); hosts are not forced to supply text for declared subtitles.
+    // Missing + layout-critical validation. Subtitle text is soft: missing SRT
+    // leaves empty caption entries (same contract as hydrate_captions / #12).
     for req in requirements.requests() {
-        let missing = match req.kind {
-            ResourceKind::Image => !inputs.catalog.images.contains_key(&req.asset_id),
-            ResourceKind::Video => !inputs.catalog.videos.contains_key(&req.asset_id),
-            ResourceKind::Audio => {
-                !inputs.catalog.audios.contains(&req.asset_id)
-                    && !inputs.supplied.contains(&req.asset_id)
+        match req.kind {
+            ResourceKind::Image => {
+                let Some(meta) = inputs.catalog.images.get(&req.asset_id) else {
+                    // Kind mismatch: present only under another map.
+                    if inputs.catalog.videos.contains_key(&req.asset_id)
+                        || inputs.catalog.audios.contains(&req.asset_id)
+                        || inputs.catalog.lotties.contains_key(&req.asset_id)
+                        || inputs.catalog.subtitles.contains_key(&req.asset_id)
+                    {
+                        return Err(PrepareError::InvalidMetadata {
+                            asset_id: req.asset_id.clone(),
+                            kind: req.kind,
+                            reason: "kind mismatch: image required but metadata is not image"
+                                .into(),
+                        });
+                    }
+                    return Err(PrepareError::MissingInput {
+                        asset_id: req.asset_id.clone(),
+                        kind: req.kind,
+                    });
+                };
+                if meta.width == 0 || meta.height == 0 {
+                    return Err(PrepareError::InvalidMetadata {
+                        asset_id: req.asset_id.clone(),
+                        kind: req.kind,
+                        reason: format!(
+                            "zero dimensions ({}x{}); layout requires positive size",
+                            meta.width, meta.height
+                        ),
+                    });
+                }
             }
-            ResourceKind::Lottie => !inputs.catalog.lotties.contains_key(&req.asset_id),
-            ResourceKind::Subtitle => false,
-        };
-        if missing {
-            return Err(PrepareError::MissingInput {
-                asset_id: req.asset_id.clone(),
-                kind: req.kind,
-            });
+            ResourceKind::Video => {
+                if !inputs.catalog.videos.contains_key(&req.asset_id) {
+                    return Err(PrepareError::MissingInput {
+                        asset_id: req.asset_id.clone(),
+                        kind: req.kind,
+                    });
+                }
+            }
+            ResourceKind::Audio => {
+                if !inputs.catalog.audios.contains(&req.asset_id)
+                    && !inputs.supplied.contains(&req.asset_id)
+                {
+                    return Err(PrepareError::MissingInput {
+                        asset_id: req.asset_id.clone(),
+                        kind: req.kind,
+                    });
+                }
+            }
+            ResourceKind::Lottie => {
+                if !inputs.catalog.lotties.contains_key(&req.asset_id) {
+                    return Err(PrepareError::MissingInput {
+                        asset_id: req.asset_id.clone(),
+                        kind: req.kind,
+                    });
+                }
+            }
+            ResourceKind::Subtitle => {}
         }
     }
 
@@ -385,7 +481,7 @@ impl ResourceLocator {
         use crate::parse::primitives::ImageSource;
         match src {
             ImageSource::Unset => Self::Unset,
-            ImageSource::Path(p) => Self::LogicalPath(p.to_string_lossy().into_owned()),
+            ImageSource::Path(p) => Self::LogicalPath(p.clone()),
             ImageSource::Url(u) => Self::Url(u.clone()),
             ImageSource::Query(q) => Self::Query {
                 query: q.query.clone(),
@@ -634,6 +730,200 @@ mod tests {
     }
 
     #[test]
+    fn prepare_errors_on_zero_size_image_metadata() {
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        inputs
+            .insert_image(
+                id,
+                ImageMeta {
+                    width: 0,
+                    height: 0,
+                },
+            )
+            .unwrap();
+        let err = draft
+            .prepare(inputs)
+            .expect_err("zero-size image must fail prepare");
+        assert!(
+            matches!(
+                err,
+                PrepareError::InvalidMetadata {
+                    kind: ResourceKind::Image,
+                    ..
+                }
+            ),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn prepare_errors_on_image_kind_mismatch() {
+        // Host supplies video metadata under the image asset id via insert_video —
+        // but the id is declared as image. Using insert_video marks the id supplied
+        // without putting it in images map; prepare must fail (missing or invalid).
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        inputs
+            .insert_video(
+                id,
+                crate::probe::catalog::VideoInfoMeta {
+                    width: 8,
+                    height: 8,
+                    duration_ms: None,
+                },
+            )
+            .unwrap();
+        let err = draft.prepare(inputs).expect_err("kind mismatch must fail");
+        assert!(
+            matches!(
+                err,
+                PrepareError::InvalidMetadata {
+                    kind: ResourceKind::Image,
+                    ..
+                }
+            ),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn markup_image_path_stays_logical_even_with_base_dir() {
+        // parse_with_base_dir must not join base into the AST locator.
+        let xml = r#"
+            <opencat width="10" height="10" fps="30" duration="0.1">
+              <div id="root">
+                <image id="pic" path="photos/a.png" class="w-[8px] h-[8px]" />
+              </div>
+            </opencat>
+        "#;
+        let base = std::path::Path::new("/host/doc/root");
+        let parsed = crate::parse::markup::parse_with_base_dir(xml, Some(base)).unwrap();
+        let draft = CompositionDraft::from_parsed(parsed);
+        let req = &draft.requirements().requests()[0];
+        assert_eq!(req.asset_id.0, "photos/a.png");
+        assert!(matches!(
+            &req.locator,
+            ResourceLocator::LogicalPath(p) if p == "photos/a.png"
+        ));
+    }
+
+    #[test]
+    fn render_frame_media_plan_uses_request_asset_id_for_image() {
+        let jsonl = r#"{"type":"composition","width":64,"height":64,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
+{"type":"image","id":"pic","parentId":"root","path":"photos/a.png","className":"w-[32px] h-[32px]"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        assert_eq!(id.0, "photos/a.png");
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        inputs
+            .insert_image(
+                id.clone(),
+                ImageMeta {
+                    width: 32,
+                    height: 32,
+                },
+            )
+            .unwrap();
+        let prepared = draft.prepare(inputs).expect("prepare");
+        // Catalog must expose the same canonical id hosts supplied.
+        assert!(prepared.catalog().images.contains_key(&id));
+        let mut pipeline = prepared
+            .open_pipeline(NoopJsContext::new().unwrap())
+            .expect("open");
+        let frame = pipeline.render_frame(0).expect("render");
+        // FrameMediaPlan should list the image under the request's AssetId.
+        use crate::ir::draw_types::ImageRef;
+        let has = frame.media.images.iter().any(|img| match img {
+            ImageRef::Static { asset_id } => asset_id == &id.0,
+            _ => false,
+        });
+        assert!(
+            has,
+            "media plan images={:?}, expected static {}",
+            frame.media.images,
+            id.0
+        );
+    }
+
+
+    /// Contract both engine and web must satisfy for static images (#15):
+    /// requirements emit opaque AssetId + kind + logical locator; prepare only
+    /// consumes ImageMeta under that id; RenderFrame media plan echoes the same id.
+    #[test]
+    fn host_agnostic_static_image_contract() {
+        let sources = [
+            r#"{"type":"composition","width":32,"height":32,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"image","id":"pic","parentId":"root","path":"assets/hero.png","className":"w-[16px] h-[16px]"}"#,
+            r#"
+            <opencat width="32" height="32" fps="30" duration="0.1">
+              <div id="root" class="w-full h-full">
+                <image id="pic" path="assets/hero.png" class="w-[16px] h-[16px]" />
+              </div>
+            </opencat>
+            "#,
+        ];
+        for input in sources {
+            let draft = CompositionDraft::parse(input).expect("parse");
+            let reqs = draft.requirements().requests();
+            assert_eq!(reqs.len(), 1);
+            assert_eq!(reqs[0].kind, ResourceKind::Image);
+            assert_eq!(reqs[0].asset_id.0, "assets/hero.png");
+            assert!(matches!(
+                &reqs[0].locator,
+                ResourceLocator::LogicalPath(p) if p == "assets/hero.png"
+            ));
+
+            let id = reqs[0].asset_id.clone();
+            let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+            // Host supplies only metadata — never image bytes — under the request id.
+            inputs
+                .insert_image(
+                    id.clone(),
+                    ImageMeta {
+                        width: 16,
+                        height: 16,
+                    },
+                )
+                .unwrap();
+            let prepared = draft.prepare(inputs).expect("prepare metadata-only");
+            assert!(prepared.catalog().images.contains_key(&id));
+            assert_eq!(
+                prepared.catalog().images[&id],
+                ImageMeta {
+                    width: 16,
+                    height: 16
+                }
+            );
+
+            let mut pipeline = prepared
+                .open_pipeline(NoopJsContext::new().unwrap())
+                .expect("open");
+            let frame = pipeline.render_frame(0).expect("render");
+            use crate::ir::draw_types::ImageRef;
+            assert!(
+                frame.media.images.iter().any(|img| matches!(
+                    img,
+                    ImageRef::Static { asset_id } if asset_id == &id.0
+                )),
+                "media plan must echo request AssetId; got {:?}",
+                frame.media.images
+            );
+        }
+    }
+
+
+    #[test]
     fn legacy_open_with_prepared_catalog_still_works() {
         // Expand-contract: old entry remains for existing callers/tests.
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
@@ -641,7 +931,7 @@ mod tests {
         let parsed = crate::parse::jsonl::parse(jsonl).unwrap();
         let pipeline = DefaultPipeline::open_with_prepared_catalog(
             parsed,
-            ResourceCatalog::default(),
+            PreparedResourceCatalog::default(),
             NoopJsContext::new().unwrap(),
             test_font_db(),
         )

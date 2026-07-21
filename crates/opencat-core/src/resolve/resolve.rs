@@ -23,7 +23,7 @@ use crate::{
             ElementTimelineTransition,
         },
     },
-    resource::catalog::{ResourceCatalog, VideoInfoMeta},
+    resource::catalog::{ResourceResolver, VideoInfoMeta},
     script::{ScriptHost, ScriptTargetRegistry, StyleMutations, TextUnitOverrideBatch},
     semantic::fingerprint::compute_element_input_fingerprints,
     style::LengthPercentageAuto,
@@ -51,7 +51,7 @@ struct ResolveContext<'a> {
     script_frame_ctx: &'a ScriptFrameCtx,
     ids: &'a mut ElementIdAllocator,
     inherited_style: &'a InheritedStyle,
-    assets: &'a mut dyn ResourceCatalog,
+    assets: &'a mut dyn ResourceResolver,
 
     script_runtime: &'a mut dyn ScriptHost,
     mutation_stack: &'a mut Vec<StyleMutations>,
@@ -60,7 +60,7 @@ struct ResolveContext<'a> {
 pub fn resolve_ui_tree(
     node: &Node,
     frame_ctx: &FrameCtx,
-    assets: &mut dyn ResourceCatalog,
+    assets: &mut dyn ResourceResolver,
     mutations: Option<&StyleMutations>,
     script_runtime: &mut dyn ScriptHost,
 ) -> Result<ElementNode> {
@@ -79,7 +79,7 @@ pub fn resolve_ui_tree_with_script_cache(
     node: &Node,
     frame_ctx: &FrameCtx,
     script_frame_ctx: &ScriptFrameCtx,
-    assets: &mut dyn ResourceCatalog,
+    assets: &mut dyn ResourceResolver,
     mutations: Option<&StyleMutations>,
     script_runtime: &mut dyn ScriptHost,
 ) -> Result<ElementNode> {
@@ -1017,7 +1017,7 @@ fn apply_canvas_mutation_stack(commands: &mut Vec<DrawOp>, stack: &[StyleMutatio
 /// An alias that is neither registered nor a known canonical asset is an error.
 fn canonicalize_canvas_image_refs(
     commands: &mut [DrawOp],
-    assets: &mut dyn ResourceCatalog,
+    assets: &mut dyn ResourceResolver,
 ) -> Result<()> {
     for op in commands.iter_mut() {
         let image_ref = match op {
@@ -1331,7 +1331,7 @@ mod tests {
         ir::{draw_op::DrawOp, draw_types::ImageRef},
         parse::primitives::{SrtEntry, caption, div, lucide, path, text, video},
         resolve::tree::ElementKind,
-        resource::catalog::ResourceCatalog,
+        resource::catalog::ResourceResolver,
         script::{
             NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
             TextUnitOverrideBatch,
@@ -1343,7 +1343,7 @@ mod tests {
     fn resolve(
         node: &crate::Node,
         frame_ctx: &FrameCtx,
-        assets: &mut dyn crate::resource::catalog::ResourceCatalog,
+        assets: &mut dyn crate::resource::catalog::ResourceResolver,
     ) -> anyhow::Result<super::ElementNode> {
         let mut mock = MockScriptHost::default();
         resolve_ui_tree(node, frame_ctx, assets, None, &mut mock)

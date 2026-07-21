@@ -1,6 +1,6 @@
 use crate::ir::asset_id::{AssetId, asset_id_for_query};
 use crate::parse::primitives::{AudioSource, ImageSource};
-use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
+use crate::resource::catalog::{ResourceResolver, VideoInfoMeta};
 use crate::resource::lottie::LottieMeta;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,7 @@ pub struct HashMapResourceCatalog {
     entries: HashMap<AssetId, ResourceMeta>,
     asset_cache: HashMap<String, AssetId>,
     /// Pipeline-internal alias -> canonical `AssetId` bindings (mirrors
-    /// [`crate::probe::catalog::ResourceCatalog::aliases`]).
+    /// [`crate::probe::catalog::PreparedResourceCatalog::aliases`]).
     aliases: HashMap<AssetId, AssetId>,
 }
 
@@ -79,11 +79,11 @@ impl HashMapResourceCatalog {
     }
 }
 
-impl ResourceCatalog for HashMapResourceCatalog {
+impl ResourceResolver for HashMapResourceCatalog {
     fn resolve_image(&mut self, src: &ImageSource) -> Result<AssetId> {
         let key = match src {
             ImageSource::Unset => "unset".to_string(),
-            ImageSource::Path(p) => p.to_string_lossy().to_string(),
+            ImageSource::Path(p) => p.clone(),
             ImageSource::Url(u) => format!("url:{u}"),
             ImageSource::Query(q) => asset_id_for_query(q).0,
         };
@@ -231,14 +231,14 @@ impl HashMapResourceCatalog {
 mod tests {
     use super::*;
     use crate::parse::primitives::{AudioSource, ImageSource, OpenverseQuery};
-    use crate::resource::catalog::ResourceCatalog;
+    use crate::resource::catalog::ResourceResolver;
     use std::path::PathBuf;
 
     #[test]
     fn from_json_parses_and_resolves() {
         let json = r#"{"/img/a.png":{"width":100,"height":200,"kind":"image"}}"#;
         let mut catalog = HashMapResourceCatalog::from_json(json).unwrap();
-        let src = ImageSource::Path(PathBuf::from("/img/a.png"));
+        let src = ImageSource::Path("/img/a.png".into());
         let id = catalog.resolve_image(&src).unwrap();
         assert_eq!(catalog.dimensions(&id), (100, 200));
     }
@@ -280,7 +280,7 @@ mod tests {
     fn video_info_returns_duration() {
         let json = r#"{"/v/b.mp4":{"width":1920,"height":1080,"kind":"video","durationSecs":5.5}}"#;
         let mut catalog = HashMapResourceCatalog::from_json(json).unwrap();
-        let src = ImageSource::Path(PathBuf::from("/v/b.mp4"));
+        let src = ImageSource::Path("/v/b.mp4".into());
         let id = catalog.resolve_image(&src).unwrap();
         let info = catalog.video_info(&id).unwrap();
         assert_eq!(info.width, 1920);

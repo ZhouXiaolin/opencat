@@ -8,7 +8,7 @@ use opencat_core::probe::ResourceRequests;
 use opencat_core::resource::asset_id::{
     asset_id_for_audio, asset_id_for_image, asset_id_for_query, asset_id_for_video,
 };
-use opencat_core::resource::catalog::ResourceCatalog as _;
+use opencat_core::resource::catalog::ResourceResolver as _;
 use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::resource::{probe_image_dims, probe_video};
 
@@ -31,7 +31,7 @@ pub async fn preload_requests(
         };
         let bytes = match source {
             ImageSource::Url(url) => fetch_url(url).await?,
-            ImageSource::Path(path) => asset_reader::read_path(&path.to_string_lossy()).await?,
+            ImageSource::Path(path) => asset_reader::read_path(path).await?,
             ImageSource::Query(query) => fetch_openverse_image(query).await?,
             ImageSource::Unset => continue,
         };

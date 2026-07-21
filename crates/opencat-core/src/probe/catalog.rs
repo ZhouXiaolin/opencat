@@ -21,8 +21,11 @@ pub struct ResourceRequests {
     pub lotties: HashSet<LottieRequest>,
 }
 
+/// Probe / prepare result: validated resource metadata keyed by canonical
+/// [`AssetId`]. Distinct from the behavioral [`crate::resource::catalog::ResourceResolver`]
+/// trait used during resolve/render.
 #[derive(Default, Clone, Debug)]
-pub struct ResourceCatalog {
+pub struct PreparedResourceCatalog {
     pub images: HashMap<AssetId, ImageMeta>,
     pub videos: HashMap<AssetId, VideoInfoMeta>,
     pub audios: HashSet<AssetId>,
@@ -49,7 +52,7 @@ pub struct VideoInfoMeta {
     pub duration_ms: Option<u64>,
 }
 
-impl crate::resource::catalog::ResourceCatalog for ResourceCatalog {
+impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
     fn resolve_image(&mut self, src: &ImageSource) -> anyhow::Result<AssetId> {
         match crate::ir::asset_id::asset_id_for_image(src) {
             Some(id) => Ok(id),
@@ -173,10 +176,10 @@ enum CanonicalKind {
     Lottie,
 }
 
-impl ResourceCatalog {
+impl PreparedResourceCatalog {
     /// Classify a canonical `AssetId`, or `None` if it is not a declared
     /// asset. Alias keys that were mirrored into a metadata map are not
-    /// canonical; resolve them via [`ResourceCatalog::resolve_alias`] first.
+    /// canonical; resolve them via [`PreparedResourceCatalog::resolve_alias`] first.
     pub fn canonical_kind(&self, id: &AssetId) -> Option<CanonicalKind> {
         if self.images.contains_key(id) {
             Some(CanonicalKind::Image)

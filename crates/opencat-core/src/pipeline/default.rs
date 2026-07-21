@@ -138,12 +138,14 @@ fn build_pipeline_state<S: JsContext>(
         .audio_sources(parsed.audio_sources)
         .build()?;
 
+    let audio_plan = crate::media::collect_audio_plan(&composition);
     let info = CompositionInfo {
         width: composition.width as u32,
         height: composition.height as u32,
         fps: composition.fps,
         duration: composition.duration,
         requests,
+        audio_plan,
     };
 
     let live_host = crate::script::LiveScriptHost::new(scripts)?;

@@ -1,7 +1,6 @@
 //! opencat-engine — 桌面渲染引擎。
 //! 承载 IO / ffmpeg / quickjs / skia / 系统字体 / RenderSession。
 
-pub mod audio_plan;
 pub mod codec;
 pub mod consumer;
 pub mod executor;

@@ -7,6 +7,7 @@ pub mod display;
 pub mod frame_ctx;
 pub mod ir;
 pub mod layout;
+pub mod lifecycle;
 pub mod media;
 pub mod parse;
 pub mod pipeline;
@@ -25,6 +26,10 @@ pub mod test_support;
 
 pub use self::frame_ctx::FrameCtx;
 pub use self::ir::asset_id::AssetId;
+pub use self::lifecycle::{
+    CompositionDraft, HostInputs, HostRequirements, PrepareError, PreparedComposition,
+    ResourceKind as LifecycleResourceKind, ResourceLocator, ResourceRequest,
+};
 pub use self::media::{VideoFrameRequest, VideoFrameTiming};
 pub use self::parse::node::Node;
 pub use self::parse::preflight::{

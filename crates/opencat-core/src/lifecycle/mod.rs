@@ -29,13 +29,14 @@ use crate::parse::ParsedComposition;
 use crate::pipeline::DefaultPipeline;
 use crate::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
 use crate::probe::prepare::hydrate_captions;
+use crate::resource::fonts::{font_asset_id, merge_document_over_base, FontSource};
 use crate::script::js_context::JsContext;
 
 impl CompositionDraft {
     /// Build a draft from an already-parsed composition.
     pub fn from_parsed(parsed: ParsedComposition) -> Self {
         let requests = collect_resource_requests_from_parsed(&parsed);
-        let requirements = HostRequirements::from_requests(&requests);
+        let requirements = HostRequirements::from_parsed(&parsed, &requests);
         Self {
             parsed,
             requirements,
@@ -84,7 +85,7 @@ impl HostRequirements {
         &self.raw
     }
 
-    fn from_requests(raw: &ResourceRequests) -> Self {
+    fn from_parsed(parsed: &ParsedComposition, raw: &ResourceRequests) -> Self {
         let mut requests = Vec::new();
         let mut seen = HashSet::new();
 
@@ -157,6 +158,20 @@ impl HostRequirements {
             });
         }
 
+        // Document fonts: stable identity is font_asset_id(source). Face markup
+        // id is not the resource identity — hosts fetch by locator/asset_id.
+        for face in &parsed.font_manifest.faces {
+            let id = AssetId(font_asset_id(&face.source));
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            requests.push(ResourceRequest {
+                asset_id: id,
+                kind: ResourceKind::Font,
+                locator: ResourceLocator::from_font_source(&face.source),
+            });
+        }
+
         // Stable order for tests/hosts: kind then asset id.
         requests.sort_by(|a, b| {
             a.kind
@@ -180,6 +195,7 @@ impl HostInputs {
             font_db: Arc::new(crate::text::empty_font_db()),
             catalog: PreparedResourceCatalog::default(),
             subtitle_texts: HashMap::new(),
+            document_fonts: HashMap::new(),
             supplied: HashSet::new(),
         }
     }
@@ -247,11 +263,29 @@ impl HostInputs {
         Ok(())
     }
 
+    /// Provide raw document font face bytes for a declared font asset. Duplicate
+    /// ids error. Core merges faces, family index, fallback precedence and
+    /// shaping database during prepare; hosts must not interpret manifest semantics.
+    ///
+    /// `id` must be the canonical font AssetId from requirements
+    /// (`font:path:…` / `font:url:…`).
+    pub fn insert_document_font(
+        &mut self,
+        id: AssetId,
+        bytes: impl Into<Vec<u8>>,
+    ) -> Result<(), PrepareError> {
+        self.record_supply(&id)?;
+        self.document_fonts.insert(id, bytes.into());
+        Ok(())
+    }
+
     /// Fill this inputs bag from a host-probed [`PreparedResourceCatalog`] and
     /// optional subtitle texts, using **only** the asset ids listed in
     /// `requirements` (never re-derived from locators). Soft-misses for subtitle
     /// text are allowed; missing image/video/lottie metadata returns
-    /// [`PrepareError::MissingInput`].
+    /// [`PrepareError::MissingInput`]. Font requirements are skipped here —
+    /// hosts must call [`HostInputs::insert_document_font`] with the raw face
+    /// bytes (fonts are content-level inputs, not probe metadata).
     pub fn fill_from_prepared_catalog(
         &mut self,
         requirements: &HostRequirements,
@@ -295,12 +329,15 @@ impl HostInputs {
                         self.insert_subtitle_text(req.asset_id.clone(), text.clone())?;
                     }
                 }
+                ResourceKind::Font => {
+                    // Host supplies document font bytes via insert_document_font.
+                }
             }
         }
         Ok(())
     }
 
-        fn record_supply(&mut self, id: &AssetId) -> Result<(), PrepareError> {
+    fn record_supply(&mut self, id: &AssetId) -> Result<(), PrepareError> {
         if !self.supplied.insert(id.clone()) {
             return Err(PrepareError::DuplicateInput { asset_id: id.clone() });
         }
@@ -333,8 +370,9 @@ impl PreparedComposition {
     }
 }
 
-/// Pure prepare: validate host inputs against draft requirements, hydrate
-/// captions, and produce a prepared composition ready for pipeline open.
+/// Pure prepare: validate host inputs against draft requirements, merge
+/// document fonts over the host base font database, hydrate captions, and
+/// produce a prepared composition ready for pipeline open.
 pub fn prepare(
     draft: CompositionDraft,
     inputs: HostInputs,
@@ -345,6 +383,8 @@ pub fn prepare(
     } = draft;
 
     validate_inputs(&requirements, &inputs)?;
+
+    let font_db = prepare_font_db(&parsed, &inputs)?;
 
     // Ensure every declared audio/subtitle id is present in the catalog maps
     // even when the host only registered presence (audio) or text (subtitle).
@@ -357,7 +397,10 @@ pub fn prepare(
             ResourceKind::Subtitle => {
                 catalog.subtitles.entry(req.asset_id.clone()).or_default();
             }
-            ResourceKind::Image | ResourceKind::Video | ResourceKind::Lottie => {}
+            ResourceKind::Image
+            | ResourceKind::Video
+            | ResourceKind::Lottie
+            | ResourceKind::Font => {}
         }
     }
 
@@ -371,8 +414,60 @@ pub fn prepare(
     Ok(PreparedComposition {
         parsed,
         catalog,
-        font_db: inputs.font_db,
+        font_db,
     })
+}
+
+/// Merge document font bytes over the host base database. Fail-fast when a
+/// declared face has no bytes or zero-length bytes. Empty manifests leave the
+/// base database unchanged (cloned).
+fn prepare_font_db(
+    parsed: &ParsedComposition,
+    inputs: &HostInputs,
+) -> Result<Arc<fontdb::Database>, PrepareError> {
+    let manifest = &parsed.font_manifest;
+    if manifest.is_empty() {
+        return Ok(inputs.font_db.clone());
+    }
+
+    // Remap asset-id → face-id for load_faces_into_db / merge_document_over_base.
+    let mut bytes_by_face_id: HashMap<String, Vec<u8>> = HashMap::new();
+    for face in &manifest.faces {
+        let asset_id = AssetId(font_asset_id(&face.source));
+        let Some(bytes) = inputs.document_fonts.get(&asset_id) else {
+            return Err(PrepareError::MissingInput {
+                asset_id,
+                kind: ResourceKind::Font,
+            });
+        };
+        if bytes.is_empty() {
+            return Err(PrepareError::InvalidMetadata {
+                asset_id,
+                kind: ResourceKind::Font,
+                reason: "empty font bytes; document font faces must be loadable".into(),
+            });
+        }
+        // Probe loadability without permanently mutating a db.
+        {
+            let mut probe = fontdb::Database::new();
+            let before = probe.faces().count();
+            probe.load_font_data(bytes.clone());
+            if probe.faces().count() <= before {
+                return Err(PrepareError::InvalidMetadata {
+                    asset_id,
+                    kind: ResourceKind::Font,
+                    reason: "font bytes could not be loaded by fontdb".into(),
+                });
+            }
+        }
+        bytes_by_face_id.insert(face.id.clone(), bytes.clone());
+    }
+
+    let (db, _index) = merge_document_over_base(inputs.font_db.as_ref(), manifest, &bytes_by_face_id)
+        .map_err(|err| PrepareError::Internal {
+            message: format!("font merge failed: {err}"),
+        })?;
+    Ok(Arc::new(db))
 }
 
 fn validate_inputs(
@@ -388,15 +483,21 @@ fn validate_inputs(
     // Undeclared: any host-supplied id (insert tracking *or* catalog keys) that
     // is not in draft requirements. DuplicateInput is raised at HostInputs::insert_*
     // so prepare never observes a second insert for the same id.
-    for id in inputs.supplied.iter().chain(inputs.catalog.images.keys()).chain(
-        inputs
-            .catalog
-            .videos
-            .keys()
-            .chain(inputs.catalog.audios.iter())
-            .chain(inputs.catalog.subtitles.keys())
-            .chain(inputs.catalog.lotties.keys()),
-    ) {
+    for id in inputs
+        .supplied
+        .iter()
+        .chain(inputs.catalog.images.keys())
+        .chain(
+            inputs
+                .catalog
+                .videos
+                .keys()
+                .chain(inputs.catalog.audios.iter())
+                .chain(inputs.catalog.subtitles.keys())
+                .chain(inputs.catalog.lotties.keys())
+                .chain(inputs.document_fonts.keys()),
+        )
+    {
         if !required.contains_key(id) {
             return Err(PrepareError::UndeclaredInput {
                 asset_id: id.clone(),
@@ -406,6 +507,7 @@ fn validate_inputs(
 
     // Missing + layout-critical validation. Subtitle text is soft: missing SRT
     // leaves empty caption entries (same contract as hydrate_captions / #12).
+    // Document fonts are hard: missing/empty bytes fail prepare.
     for req in requirements.requests() {
         match req.kind {
             ResourceKind::Image => {
@@ -415,6 +517,7 @@ fn validate_inputs(
                         || inputs.catalog.audios.contains(&req.asset_id)
                         || inputs.catalog.lotties.contains_key(&req.asset_id)
                         || inputs.catalog.subtitles.contains_key(&req.asset_id)
+                        || inputs.document_fonts.contains_key(&req.asset_id)
                     {
                         return Err(PrepareError::InvalidMetadata {
                             asset_id: req.asset_id.clone(),
@@ -445,6 +548,7 @@ fn validate_inputs(
                         || inputs.catalog.audios.contains(&req.asset_id)
                         || inputs.catalog.lotties.contains_key(&req.asset_id)
                         || inputs.catalog.subtitles.contains_key(&req.asset_id)
+                        || inputs.document_fonts.contains_key(&req.asset_id)
                     {
                         return Err(PrepareError::InvalidMetadata {
                             asset_id: req.asset_id.clone(),
@@ -487,6 +591,7 @@ fn validate_inputs(
                         || inputs.catalog.videos.contains_key(&req.asset_id)
                         || inputs.catalog.audios.contains(&req.asset_id)
                         || inputs.catalog.subtitles.contains_key(&req.asset_id)
+                        || inputs.document_fonts.contains_key(&req.asset_id)
                     {
                         return Err(PrepareError::InvalidMetadata {
                             asset_id: req.asset_id.clone(),
@@ -514,7 +619,10 @@ fn validate_inputs(
                     return Err(PrepareError::InvalidMetadata {
                         asset_id: req.asset_id.clone(),
                         kind: req.kind,
-                        reason: format!("invalid fps {}; timing requires positive finite fps", meta.fps),
+                        reason: format!(
+                            "invalid fps {}; timing requires positive finite fps",
+                            meta.fps
+                        ),
                     });
                 }
                 if !meta.in_frame.is_finite() || !meta.out_frame.is_finite() {
@@ -536,6 +644,25 @@ fn validate_inputs(
                 }
             }
             ResourceKind::Subtitle => {}
+            ResourceKind::Font => {
+                match inputs.document_fonts.get(&req.asset_id) {
+                    None => {
+                        return Err(PrepareError::MissingInput {
+                            asset_id: req.asset_id.clone(),
+                            kind: req.kind,
+                        });
+                    }
+                    Some(bytes) if bytes.is_empty() => {
+                        return Err(PrepareError::InvalidMetadata {
+                            asset_id: req.asset_id.clone(),
+                            kind: req.kind,
+                            reason: "empty font bytes; document font faces must be loadable"
+                                .into(),
+                        });
+                    }
+                    Some(_) => {}
+                }
+            }
         }
     }
 
@@ -591,6 +718,16 @@ impl ResourceLocator {
             LottieSource::Unset => Self::Unset,
             LottieSource::Path(p) => Self::LogicalPath(p.clone()),
             LottieSource::Url(u) => Self::Url(u.clone()),
+        }
+    }
+
+    fn from_font_source(src: &FontSource) -> Self {
+        match src {
+            // Markup may still join a host base into Path at parse time for
+            // engine path resolution; the logical locator string is whatever
+            // the manifest source carries (hosts interpret against document base).
+            FontSource::Path(p) => Self::LogicalPath(p.to_string_lossy().into_owned()),
+            FontSource::Url(u) => Self::Url(u.clone()),
         }
     }
 }
@@ -1385,5 +1522,323 @@ mod tests {
         )
         .expect("legacy open");
         assert_eq!(pipeline.info().width, 10);
+    }
+
+    // --- fonts & subtitles (#19) -------------------------------------------------
+
+    #[test]
+    fn draft_requirements_list_document_fonts_with_stable_identity() {
+        let xml = r#"
+            <opencat width="64" height="64" fps="30" duration="0.1">
+              <fonts default="sans">
+                <font id="sans" family="Noto Sans SC" path="fonts/NotoSansSC-Regular.otf" role="sans" />
+              </fonts>
+              <div id="root" class="w-full h-full font-sans">
+                <text id="t" class="text-white" data-text="Hi" />
+              </div>
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(xml).expect("parse");
+        let fonts: Vec<_> = draft
+            .requirements()
+            .requests()
+            .iter()
+            .filter(|r| r.kind == ResourceKind::Font)
+            .collect();
+        assert_eq!(fonts.len(), 1);
+        assert_eq!(
+            fonts[0].asset_id.0,
+            "font:path:fonts/NotoSansSC-Regular.otf"
+        );
+        assert!(matches!(
+            &fonts[0].locator,
+            ResourceLocator::LogicalPath(p) if p == "fonts/NotoSansSC-Regular.otf"
+        ));
+
+        // base_dir must not leak into the stable identity (parity with images).
+        let base = std::path::Path::new("/host/doc/root");
+        let parsed = crate::parse::markup::parse_with_base_dir(xml, Some(base)).unwrap();
+        let draft = CompositionDraft::from_parsed(parsed);
+        let fonts: Vec<_> = draft
+            .requirements()
+            .requests()
+            .iter()
+            .filter(|r| r.kind == ResourceKind::Font)
+            .collect();
+        assert_eq!(
+            fonts[0].asset_id.0,
+            "font:path:fonts/NotoSansSC-Regular.otf"
+        );
+    }
+
+    #[test]
+    fn prepare_errors_on_missing_document_font() {
+        let xml = r#"
+            <opencat width="64" height="64" fps="30" duration="0.1">
+              <fonts default="sans">
+                <font id="sans" family="Noto Sans SC" path="fonts/NotoSansSC-Regular.otf" role="sans" />
+              </fonts>
+              <div id="root" class="w-full h-full" />
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(xml).expect("parse");
+        let err = draft
+            .prepare(HostInputs::empty().with_font_db(test_font_db()))
+            .expect_err("missing document font must fail prepare");
+        assert!(
+            matches!(
+                err,
+                PrepareError::MissingInput {
+                    kind: ResourceKind::Font,
+                    ..
+                }
+            ),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn prepare_errors_on_empty_document_font_bytes() {
+        let xml = r#"
+            <opencat width="64" height="64" fps="30" duration="0.1">
+              <fonts default="sans">
+                <font id="sans" family="Noto Sans SC" path="fonts/NotoSansSC-Regular.otf" role="sans" />
+              </fonts>
+              <div id="root" class="w-full h-full" />
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(xml).expect("parse");
+        let id = draft
+            .requirements()
+            .requests()
+            .iter()
+            .find(|r| r.kind == ResourceKind::Font)
+            .unwrap()
+            .asset_id
+            .clone();
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        inputs.insert_document_font(id, Vec::new()).unwrap();
+        let err = draft
+            .prepare(inputs)
+            .expect_err("empty font bytes must fail");
+        assert!(
+            matches!(
+                err,
+                PrepareError::InvalidMetadata {
+                    kind: ResourceKind::Font,
+                    ..
+                }
+            ),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn prepare_merges_document_font_and_applies_font_sans() {
+        let xml = r#"
+            <opencat width="320" height="180" fps="30" duration="0.1">
+              <fonts default="sans">
+                <font id="sans" family="Noto Sans SC" path="fonts/NotoSansSC-Regular.otf" role="sans" />
+              </fonts>
+              <div id="root" class="w-full h-full">
+                <text id="t" class="font-sans text-white text-[24px]" data-text="你好" />
+              </div>
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(xml).expect("parse");
+        let font_id = draft
+            .requirements()
+            .requests()
+            .iter()
+            .find(|r| r.kind == ResourceKind::Font)
+            .unwrap()
+            .asset_id
+            .clone();
+
+        // Empty base so document face is the sole sans source.
+        let mut inputs = HostInputs::empty().with_font_db(Arc::new(crate::text::empty_font_db()));
+        let face_bytes = include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec();
+        inputs
+            .insert_document_font(font_id, face_bytes)
+            .expect("insert font");
+
+        let prepared = draft.prepare(inputs).expect("prepare with document font");
+        assert_eq!(
+            prepared.font_db().family_name(&fontdb::Family::SansSerif),
+            "Noto Sans SC"
+        );
+        assert!(
+            prepared.font_db().faces().count() >= 1,
+            "document face must load"
+        );
+
+        // font-sans must have resolved to a concrete family at parse/build time.
+        // Walk the prepared tree for the text node style.
+        use crate::parse::node::NodeKind;
+        fn find_text_family(node: &crate::parse::node::Node) -> Option<String> {
+            match node.kind() {
+                NodeKind::Text(t) => t.style_ref().font_family.clone(),
+                NodeKind::Div(d) => d
+                    .children_ref()
+                    .iter()
+                    .find_map(|c| find_text_family(c)),
+                _ => None,
+            }
+        }
+        let family = find_text_family(&prepared.parsed().root);
+        assert_eq!(family.as_deref(), Some("Noto Sans SC"));
+
+        let mut pipeline = prepared
+            .open_pipeline(NoopJsContext::new().unwrap())
+            .expect("open");
+        let frame = pipeline.render_frame(0).expect("render");
+        assert!(!frame.draw.ops.is_empty());
+    }
+
+    #[test]
+    fn prepare_document_font_takes_precedence_over_same_family_base() {
+        let xml = r#"
+            <opencat width="64" height="64" fps="30" duration="0.1">
+              <fonts default="doc">
+                <font id="doc" family="Noto Sans SC" path="fonts/NotoSansSC-Regular.otf" role="sans" />
+              </fonts>
+              <div id="root" class="w-full h-full" />
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(xml).expect("parse");
+        let font_id = draft
+            .requirements()
+            .requests()
+            .iter()
+            .find(|r| r.kind == ResourceKind::Font)
+            .unwrap()
+            .asset_id
+            .clone();
+
+        // Base already has Noto Sans SC (engine-like defaults).
+        let base = test_font_db();
+        let face_bytes = include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec();
+        let mut inputs = HostInputs::empty().with_font_db(base);
+        inputs
+            .insert_document_font(font_id, face_bytes)
+            .expect("insert");
+
+        let prepared = draft.prepare(inputs).expect("prepare");
+        // Document wins: only one Noto Sans SC face (no duplicate base face).
+        let noto_faces = prepared
+            .font_db()
+            .faces()
+            .filter(|face| {
+                face.families
+                    .iter()
+                    .any(|(family, _)| family == "Noto Sans SC")
+            })
+            .count();
+        assert_eq!(noto_faces, 1, "document face must replace same-family base");
+        assert_eq!(
+            prepared.font_db().family_name(&fontdb::Family::SansSerif),
+            "Noto Sans SC"
+        );
+    }
+
+    #[test]
+    fn prepare_font_face_id_resolves_to_family() {
+        let xml = r#"
+            <opencat width="320" height="180" fps="30" duration="0.1">
+              <fonts>
+                <font id="display" family="Noto Sans SC" path="fonts/display.otf" />
+              </fonts>
+              <div id="root" class="w-full h-full">
+                <text id="t" class="font-[display] text-white text-[20px]" data-text="Aa" />
+              </div>
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(xml).expect("parse");
+        let font_id = draft
+            .requirements()
+            .requests()
+            .iter()
+            .find(|r| r.kind == ResourceKind::Font)
+            .unwrap()
+            .asset_id
+            .clone();
+        let mut inputs = HostInputs::empty().with_font_db(Arc::new(crate::text::empty_font_db()));
+        let face_bytes = include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec();
+        inputs
+            .insert_document_font(font_id, face_bytes)
+            .expect("insert font");
+        let prepared = draft.prepare(inputs).expect("prepare");
+
+        use crate::parse::node::NodeKind;
+        fn find_text_family(node: &crate::parse::node::Node) -> Option<String> {
+            match node.kind() {
+                NodeKind::Text(t) => t.style_ref().font_family.clone(),
+                NodeKind::Div(d) => d.children_ref().iter().find_map(|c| find_text_family(c)),
+                _ => None,
+            }
+        }
+        assert_eq!(
+            find_text_family(&prepared.parsed().root).as_deref(),
+            Some("Noto Sans SC")
+        );
+    }
+
+    #[test]
+    fn prepare_hydrates_subtitle_active_text() {
+        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
+{"id":"root","parentId":null,"type":"div","className":"relative w-[320px] h-[180px]"}
+{"id":"subs","parentId":"root","type":"caption","className":"absolute left-[0px] top-[0px] text-white","path":"sub.srt"}"#;
+        let draft = CompositionDraft::parse(jsonl).expect("parse");
+        let sub_id = draft
+            .requirements()
+            .requests()
+            .iter()
+            .find(|r| r.kind == ResourceKind::Subtitle)
+            .expect("subtitle req")
+            .asset_id
+            .clone();
+
+        let srt = "1\n00:00:00,000 --> 00:00:00,500\nHello Core\n";
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        inputs
+            .insert_subtitle_text(sub_id, srt)
+            .expect("insert srt");
+
+        let prepared = draft.prepare(inputs).expect("prepare");
+        use crate::parse::node::NodeKind;
+        use crate::parse::primitives::CaptionNode;
+        fn find_caption<'a>(node: &'a crate::parse::node::Node, id: &str) -> Option<&'a CaptionNode> {
+            match node.kind() {
+                NodeKind::Caption(c) if c.style_ref().id == id => Some(c),
+                NodeKind::Div(d) => d.children_ref().iter().find_map(|c| find_caption(c, id)),
+                _ => None,
+            }
+        }
+        let caption = find_caption(&prepared.parsed().root, "subs").expect("caption");
+        assert_eq!(caption.entries_ref().len(), 1);
+        assert_eq!(caption.active_text(0), Some("Hello Core"));
+        // Past the cue end: no active text.
+        assert_eq!(caption.active_text(30), None);
+    }
+
+    #[test]
+    fn prepare_missing_subtitle_text_keeps_empty_entries() {
+        let jsonl = r#"{"type":"composition","width":64,"height":64,"fps":30,"duration":0.1}
+{"id":"root","parentId":null,"type":"div"}
+{"id":"subs","parentId":"root","type":"caption","path":"missing.srt"}"#;
+        let draft = CompositionDraft::parse(jsonl).expect("parse");
+        // Soft-miss: no insert_subtitle_text.
+        let prepared = draft
+            .prepare(HostInputs::empty().with_font_db(test_font_db()))
+            .expect("missing SRT is not an error");
+        use crate::parse::node::NodeKind;
+        fn find_caption_entries(node: &crate::parse::node::Node) -> Option<usize> {
+            match node.kind() {
+                NodeKind::Caption(c) => Some(c.entries_ref().len()),
+                NodeKind::Div(d) => d.children_ref().iter().find_map(|c| find_caption_entries(c)),
+                _ => None,
+            }
+        }
+        assert_eq!(find_caption_entries(&prepared.parsed().root), Some(0));
     }
 }

@@ -23,7 +23,7 @@ use opencat_core::canvas::paint::{
 use opencat_core::frame_ctx::duration_secs_to_frames;
 use opencat_core::ir::CompositionInfo;
 use opencat_core::ir::RenderFrame;
-use opencat_core::ir::asset_id::asset_id_for_subtitle;
+use opencat_core::ir::asset_id::{asset_id_for_subtitle, AssetId};
 use opencat_core::ir::draw_encoding::EncodedDrawFrame;
 use opencat_core::ir::draw_frame::{DrawFrameScratch, DrawOpFrame};
 use opencat_core::ir::draw_op::DrawOp;
@@ -32,11 +32,12 @@ use opencat_core::ir::draw_types::{
     ShaderType, TableRange,
 };
 use opencat_core::ir::media_plan::FrameMediaPlan;
-use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError};
+use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 use opencat_core::pipeline::Pipeline;
 use opencat_core::pipeline::default::DefaultPipeline;
 use opencat_core::probe::catalog::ResourceRequests;
 use opencat_core::probe::prepare::build_catalog;
+use opencat_core::resource::fonts::font_asset_id;
 use opencat_core::script::js_context::JsContext;
 
 use crate::js_context::WebJsContext;
@@ -433,14 +434,10 @@ async fn open_design_pipeline(
         .await
         .map_err(|e| JsValue::from_str(&format!("open_design preload: {}", js_err(&e))))?;
 
-    // 2. Build the complete font database once (default fonts + document
-    //    fonts). Start from the default fonts (NotoSansSC + NotoColorEmoji)
-    //    like the old `load_default_fonts` did, then merge any document
-    //    fonts declared in the source. `merge_preloaded_fonts` only applies
-    //    document fonts from `<fonts>` manifests (markup); JSONL designs rely
-    //    solely on the defaults, so they must be seeded here.
-    let default_fonts = default_sans_sc.zip(default_color_emoji);
-    let base_db = match default_fonts {
+    // 2. Host base font database only (defaults + extra). Document faces from
+    //    `<fonts>` are content-level inputs to core prepare — web does not merge
+    //    them into the base db (#19).
+    let base_db = match default_sans_sc.zip(default_color_emoji) {
         Some((sans_sc, color_emoji)) => opencat_core::text::font_db_from_bytes(
             &[sans_sc.to_vec(), color_emoji.to_vec()],
             "Noto Sans SC",
@@ -448,14 +445,9 @@ async fn open_design_pipeline(
         None => opencat_core::text::empty_font_db(),
     };
     let base_db = opencat_core::text::extend_font_db(&base_db, extra_fonts);
-    let base_db = {
-        let base = Arc::new(base_db);
-        let merged = crate::source::merge_preloaded_fonts(&base, source, default_fonts)
-            .map_err(|e| JsValue::from_str(&format!("open_design fonts: {e}")))?;
-        (*merged).clone()
-    };
 
-    // 3. Parse → draft. Requirements carry canonical AssetId + logical locator.
+    // 3. Parse → draft. Requirements carry canonical AssetId + logical locator
+    //    (including document fonts as ResourceKind::Font).
     let parsed = crate::source::parse_source(source, &base_db)
         .map_err(|e| JsValue::from_str(&format!("open_design parse: {e}")))?;
     let draft = CompositionDraft::from_parsed(parsed);
@@ -472,7 +464,33 @@ async fn open_design_pipeline(
         .fill_from_prepared_catalog(draft.requirements(), &probed, &srt)
         .map_err(prepare_js_err)?;
 
-    // 6. prepare (sync pure) → open_pipeline. Subtitle hydration happens inside prepare.
+    // Document fonts: face bytes from font_store → stable font AssetId.
+    let font_bytes_by_face =
+        crate::resource::font_store::get_manifest_bytes(&draft.parsed().font_manifest);
+    for req in draft.requirements().requests() {
+        if req.kind != ResourceKind::Font {
+            continue;
+        }
+        let face_id = draft
+            .parsed()
+            .font_manifest
+            .faces
+            .iter()
+            .find(|f| font_asset_id(&f.source) == req.asset_id.0)
+            .map(|f| f.id.as_str());
+        let Some(face_id) = face_id else {
+            continue;
+        };
+        let Some(font_bytes) = font_bytes_by_face.get(face_id) else {
+            continue;
+        };
+        inputs
+            .insert_document_font(AssetId(req.asset_id.0.clone()), font_bytes.clone())
+            .map_err(prepare_js_err)?;
+    }
+
+    // 6. prepare (sync pure) → open_pipeline. Font merge + subtitle hydration
+    //    happen inside prepare.
     let prepared = draft.prepare(inputs).map_err(prepare_js_err)?;
     let ctx = <WebJsContext as JsContext>::new()
         .map_err(|e| JsValue::from_str(&format!("open_design js context: {e}")))?;

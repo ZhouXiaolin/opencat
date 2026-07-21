@@ -14,14 +14,16 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use opencat_core::ir::RenderFrame;
-use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError};
+use opencat_core::ir::asset_id::AssetId;
+use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::{BuildOptions, CanvasChildrenMode, build_parsed_document, parse_parts_with_base_dir};
 use opencat_core::pipeline::DefaultPipeline;
 use opencat_core::probe::prepare::build_catalog;
+use opencat_core::resource::fonts::font_asset_id;
 
 use crate::EnginePipeline;
-use crate::fonts::{engine_default_font_db, engine_font_db_with_document_fonts};
+use crate::fonts::engine_default_font_db;
 use crate::js_context::RqJsContext;
 use crate::resource::loader::EngineLoader;
 
@@ -88,11 +90,10 @@ impl EnginePipelineHost {
 /// Parse a composition and open it on the host-owned resource pipeline.
 ///
 /// The engine completes the full host preparation chain before opening core:
-/// collect declarative [`ResourceRequests`] → fetch/cache bytes (`load_all`) →
-/// run core's pure `build_catalog` over the cached bytes → hydrate captions from
-/// cached SRT → build the font database. Only then does core open via
-/// [`DefaultPipeline::open_with_prepared_catalog`], receiving a prepared catalog
-/// and carrying no loader.
+/// collect declarative [`ResourceRequests`] → fetch/cache media + subtitle +
+/// document font bytes → run core's pure `build_catalog` over media bytes →
+/// hand base font db + document font bytes + SRT text to core prepare. Core
+/// alone merges fonts, hydrates captions, and opens the pipeline.
 pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Result<EnginePipeline> {
     if input.trim().starts_with('{') {
         let base_dir = loader
@@ -106,27 +107,26 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
 
     let base_dir = loader.base_dir();
     let parts = parse_parts_with_base_dir(input, Some(base_dir))?;
-    let bytes = loader.load_font_manifest(&parts.font_manifest)?;
-    loader.register_font_handles(&parts.font_manifest, &bytes)?;
-
-    let mut font_db = engine_default_font_db();
-    let font_index = if parts.font_manifest.is_empty() {
-        None
-    } else {
-        let (db, index) = engine_font_db_with_document_fonts(&parts.font_manifest, &bytes)?;
-        font_db = Arc::new(db);
-        Some(index)
-    };
+    // Host only fetches document font bytes + registers cache handles. Family
+    // index / fallback / fontdb merge happen in core prepare (#19).
+    let font_bytes = loader.load_font_manifest(&parts.font_manifest)?;
+    loader.register_font_handles(&parts.font_manifest, &font_bytes)?;
 
     let parsed = build_parsed_document(
         parts,
         BuildOptions {
             canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree,
         },
-        font_index.as_ref(),
+        None,
     )?;
 
-    open_parsed_host_owned(parsed, loader, scripts, font_db)
+    open_parsed_host_owned_with_fonts(
+        parsed,
+        loader,
+        scripts,
+        engine_default_font_db(),
+        font_bytes,
+    )
 }
 
 /// Open a [`ParsedComposition`] through the explicit lifecycle:
@@ -134,12 +134,23 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
 ///
 /// Hosts never re-derive AssetId: every metadata insert uses the id from
 /// [`CompositionDraft::requirements`]. Ordinary image bytes stay on the host;
-/// prepare only consumes [`ImageMeta`] (and peers).
+/// prepare only consumes [`ImageMeta`] (and peers). Document font bytes are
+/// content-level inputs keyed by the stable font AssetId.
 pub(crate) fn open_parsed_host_owned(
+    parsed: ParsedComposition,
+    loader: EngineLoader,
+    scripts: RqJsContext,
+    font_db: Arc<fontdb::Database>,
+) -> Result<EnginePipelineHost> {
+    open_parsed_host_owned_with_fonts(parsed, loader, scripts, font_db, Default::default())
+}
+
+fn open_parsed_host_owned_with_fonts(
     parsed: ParsedComposition,
     mut loader: EngineLoader,
     scripts: RqJsContext,
     font_db: Arc<fontdb::Database>,
+    font_bytes_by_face_id: std::collections::HashMap<String, Vec<u8>>,
 ) -> Result<EnginePipelineHost> {
     let draft = CompositionDraft::from_parsed(parsed);
     let requests = draft.requirements().resource_requests().clone();
@@ -156,6 +167,31 @@ pub(crate) fn open_parsed_host_owned(
     inputs
         .fill_from_prepared_catalog(draft.requirements(), &probed, &srt)
         .map_err(prepare_err)?;
+
+    // Document fonts: map face-id bytes (from load_font_manifest) onto the
+    // stable font AssetId from requirements. Core merges; host does not.
+    for req in draft.requirements().requests() {
+        if req.kind != ResourceKind::Font {
+            continue;
+        }
+        let face_id = draft
+            .parsed()
+            .font_manifest
+            .faces
+            .iter()
+            .find(|f| font_asset_id(&f.source) == req.asset_id.0)
+            .map(|f| f.id.as_str());
+        let Some(face_id) = face_id else {
+            continue;
+        };
+        let Some(font_bytes) = font_bytes_by_face_id.get(face_id) else {
+            // Missing bytes will fail prepare with MissingInput for this asset.
+            continue;
+        };
+        inputs
+            .insert_document_font(AssetId(req.asset_id.0.clone()), font_bytes.clone())
+            .map_err(prepare_err)?;
+    }
 
     let prepared = draft.prepare(inputs).map_err(prepare_err)?;
     let pipeline = prepared.open_pipeline(scripts)?;
@@ -374,6 +410,51 @@ mod tests {
             matches!(op, DrawOp::LottieRect { bundle_id, .. } if bundle_id == "lottie:loader")
         });
         assert!(has_op, "draw must emit LottieRect; ops={:?}", frame.draw.ops);
+
+        std::fs::remove_dir_all(&fixture_dir).ok();
+    }
+
+    #[test]
+    fn markup_document_font_is_merged_by_core_prepare() {
+        use opencat_core::pipeline::Pipeline;
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let fixture_dir =
+            std::path::PathBuf::from(format!("target/opencat-lifecycle-font-{nanos}"));
+        let cache_dir = fixture_dir.join("cache");
+        std::fs::create_dir_all(&cache_dir).expect("cache dir");
+
+        // Copy a real face into the fixture so the engine loader can read it
+        // under the logical path relative to base_dir.
+        let face_src = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../assets/NotoSansSC-Regular.otf");
+        std::fs::copy(&face_src, fixture_dir.join("doc-sans.otf")).expect("copy font");
+
+        let markup = r#"
+            <opencat width="320" height="180" fps="30" duration="0.1">
+              <fonts default="doc">
+                <font id="doc" family="Noto Sans SC" path="doc-sans.otf" role="sans" />
+              </fonts>
+              <div id="root" class="w-full h-full">
+                <text id="t" class="font-sans text-white text-[24px]" data-text="你好" />
+              </div>
+            </opencat>
+        "#;
+
+        let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache_dir)
+            .expect("loader");
+        let ctx = crate::js_context::RqJsContext::new().expect("js context");
+        let mut host = open(markup, loader, ctx).expect("open with document font via core prepare");
+
+        // font-sans must shape with document face; render must succeed.
+        let frame = host.pipeline.render_frame(0).expect("render");
+        assert!(
+            !frame.draw.ops.is_empty(),
+            "document font path must produce draw ops"
+        );
 
         std::fs::remove_dir_all(&fixture_dir).ok();
     }

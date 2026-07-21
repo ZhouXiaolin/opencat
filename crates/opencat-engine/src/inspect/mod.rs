@@ -408,7 +408,7 @@ fn collect_source_metadata(
             if let Some(entry) = entry {
                 let source_str = match lottie.source() {
                     LottieSource::Unset => "unset".to_string(),
-                    LottieSource::Path(p) => p.to_string_lossy().to_string(),
+                    LottieSource::Path(p) => p.clone(),
                     LottieSource::Url(u) => format!("lottie:url:{u}"),
                 };
                 entry.media_source = Some(source_str);

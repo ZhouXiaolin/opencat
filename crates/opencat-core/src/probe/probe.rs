@@ -28,11 +28,12 @@ pub fn probe_video(bytes: &[u8]) -> Result<VideoInfoMeta> {
         .and_then(entry_u32)
         .ok_or_else(|| anyhow!("video: height tag missing"))?;
     let duration_ms = info.get(TrackInfoTag::DurationMs).and_then(entry_u64);
+    let duration_micros = duration_ms.map(crate::time::ms_to_duration_micros);
 
     Ok(VideoInfoMeta {
         width,
         height,
-        duration_ms,
+        duration_micros,
     })
 }
 

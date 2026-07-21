@@ -506,7 +506,7 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
         let inherited_style = InheritedStyle::for_child(&computed);
 
         let locator = match video.source() {
-            VideoSource::Path(p) => format!("video:path:{}", p.to_string_lossy()),
+            VideoSource::Path(p) => format!("video:path:{p}"),
             VideoSource::Url(u) => asset_id_for_video_url(u).0,
         };
 
@@ -514,13 +514,13 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
         let info = cx.assets.video_info(&asset_id).unwrap_or(VideoInfoMeta {
             width: 0,
             height: 0,
-            duration_secs: None,
+            duration_micros: None,
         });
         let asset_id = cx.assets.register_video_dimensions(
             &locator,
             info.width,
             info.height,
-            info.duration_secs,
+            info.duration_secs(),
         );
 
         let mut children = Vec::new();

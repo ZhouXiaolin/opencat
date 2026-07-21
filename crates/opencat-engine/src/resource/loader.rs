@@ -315,7 +315,7 @@ impl EngineLoader {
                         let _ = self.fetcher.fetch_bytes(&id, u).await?;
                     }
                     VideoSource::Path(p) => {
-                        copy_local_to_cache(p, &base_dir, &cache_dir, &id)?;
+                        copy_local_to_cache(Path::new(p), &base_dir, &cache_dir, &id)?;
                     }
                 }
                 new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
@@ -470,11 +470,14 @@ mod tests {
         std::fs::write(&test_file, b"hello").unwrap();
 
         let mut req = ResourceRequests::default();
-        req.videos.insert(VideoSource::Path(test_file.clone()));
+        // Host resolves the logical locator against its document base; the source
+        // itself stays logical (relative to base_dir).
+        let logical = "test.txt".to_string();
+        req.videos.insert(VideoSource::Path(logical.clone()));
 
         loader.load_all(&req).unwrap();
 
-        let id = AssetId(format!("video:path:{}", test_file.to_string_lossy()));
+        let id = AssetId(format!("video:path:{logical}"));
         let h = loader.handle(&id).unwrap();
         assert!(h.local_path().is_some());
         assert!(h.local_path().unwrap().exists());

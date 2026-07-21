@@ -45,11 +45,20 @@ pub struct ImageMeta {
     pub height: u32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Probe/prepare video metadata. Duration is microsecond-based so engine and
+/// web share one time unit with [`crate::resource::catalog::VideoInfoMeta`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VideoInfoMeta {
     pub width: u32,
     pub height: u32,
-    pub duration_ms: Option<u64>,
+    pub duration_micros: Option<crate::time::DurationMicros>,
+}
+
+impl VideoInfoMeta {
+    pub fn duration_secs(&self) -> Option<f64> {
+        self.duration_micros
+            .map(|d| crate::time::timestamp_micros_to_secs(d.0))
+    }
 }
 
 impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
@@ -83,11 +92,11 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
         duration_secs: Option<f64>,
     ) -> AssetId {
         let id = AssetId(locator.to_owned());
-        let duration_ms = duration_secs.map(|s| (s * 1000.0) as u64);
+        let duration_micros = crate::time::optional_secs_to_duration_micros(duration_secs);
         self.videos.entry(id.clone()).or_insert(VideoInfoMeta {
             width,
             height,
-            duration_ms,
+            duration_micros,
         });
         id
     }
@@ -138,13 +147,10 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
     }
 
     fn video_info(&self, id: &AssetId) -> Option<crate::resource::catalog::VideoInfoMeta> {
-        self.videos.get(id).map(|m| {
-            let duration_secs = m.duration_ms.map(|ms| ms as f64 / 1000.0);
-            crate::resource::catalog::VideoInfoMeta {
-                width: m.width,
-                height: m.height,
-                duration_secs,
-            }
+        self.videos.get(id).map(|m| crate::resource::catalog::VideoInfoMeta {
+            width: m.width,
+            height: m.height,
+            duration_micros: m.duration_micros,
         })
     }
 

@@ -1286,7 +1286,9 @@ fn parse_image_source(
         if p.is_empty() {
             anyhow::bail!("<image> `path` must not be empty");
         }
-        return Ok(ImageSource::Path(resolve_local_path(p, base_dir)));
+        // Logical locator only — host joins document base at fetch time.
+        let _ = base_dir;
+        return Ok(ImageSource::Path(p.to_string()));
     }
     if let Some(u) = url {
         if u.is_empty() {

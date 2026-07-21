@@ -1,5 +1,3 @@
-use std::path::{Path, PathBuf};
-
 use crate::style::{NodeStyle, impl_node_style_api};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -9,10 +7,14 @@ pub struct OpenverseQuery {
     pub aspect_ratio: Option<String>,
 }
 
+/// Image source locator. Paths are **logical** (document-relative strings), not
+/// host filesystem paths — core never joins a base directory or stores `PathBuf`.
+/// Hosts interpret `Path` against their own document base (FS, VFS, URL).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ImageSource {
     Unset,
-    Path(PathBuf),
+    /// Logical locator (e.g. `"photos/a.png"`). Not a resolved filesystem path.
+    Path(String),
     Url(String),
     Query(OpenverseQuery),
 }
@@ -24,8 +26,10 @@ pub struct Image {
 }
 
 impl Image {
-    pub fn path(mut self, path: impl AsRef<Path>) -> Self {
-        self.source = ImageSource::Path(path.as_ref().to_path_buf());
+    /// Set a logical path locator. Accepts any string-like value; does not
+    /// resolve against a filesystem base.
+    pub fn path(mut self, path: impl Into<String>) -> Self {
+        self.source = ImageSource::Path(path.into());
         self
     }
 
@@ -90,5 +94,14 @@ mod tests {
         assert_eq!(query.query, "cats");
         assert_eq!(query.count, 3);
         assert_eq!(query.aspect_ratio.as_deref(), Some("square"));
+    }
+
+    #[test]
+    fn image_path_stores_logical_string() {
+        let image = image().path("photos/a.png");
+        assert_eq!(
+            image.source(),
+            &ImageSource::Path("photos/a.png".to_string())
+        );
     }
 }

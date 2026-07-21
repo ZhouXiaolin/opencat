@@ -42,6 +42,9 @@ pub enum ResourceKind {
     /// Document font face from `<fonts>` / `FontManifest`. Stable identity is
     /// [`crate::resource::fonts::font_asset_id`]; host supplies raw bytes only.
     Font,
+    /// External script file (JSONL `{"type":"script","path":…}`). Host supplies
+    /// raw text via [`HostInputs::insert_script_text`]; core never reads files.
+    Script,
 }
 
 /// Logical resource location. Hosts interpret these against their own document
@@ -59,13 +62,17 @@ pub enum ResourceLocator {
 }
 
 /// Host-supplied inputs for prepare: resource metadata, optional subtitle text,
-/// base font database, and document font bytes. Building inputs is fallible for
-/// duplicates; prepare is fallible for missing/undeclared entries.
+/// base font database, document font bytes, and external script texts. Building
+/// inputs is fallible for duplicates; prepare is fallible for missing/undeclared
+/// entries.
 ///
 /// - `font_db` is the host base database (defaults / system faces). Core never
 ///   fetches fonts; it only merges declared document faces over this base.
 /// - Document font bytes are keyed by the canonical font [`AssetId`] from
 ///   requirements (`font:path:…` / `font:url:…`), not by markup face id.
+/// - External script texts are keyed by the canonical script [`AssetId`]
+///   (`script:path:…` / `script:url:…`). Core injects them into drivers during
+///   prepare and never reads script files itself (issue #20).
 #[derive(Debug, Clone)]
 pub struct HostInputs {
     pub(super) font_db: Arc<fontdb::Database>,
@@ -73,6 +80,8 @@ pub struct HostInputs {
     pub(super) subtitle_texts: HashMap<String, String>,
     /// Declared document font face bytes, keyed by stable font AssetId.
     pub(super) document_fonts: HashMap<AssetId, Vec<u8>>,
+    /// Declared external script source texts, keyed by stable script AssetId.
+    pub(super) script_texts: HashMap<AssetId, String>,
     pub(super) supplied: HashSet<AssetId>,
 }
 
@@ -96,6 +105,8 @@ pub struct PreparedComposition {
 ///   captions), matching `hydrate_captions`.
 /// - Declared document fonts must be supplied as non-empty loadable bytes;
 ///   missing or empty fonts fail prepare (fail-fast).
+/// - Declared external scripts must be supplied as non-empty text; missing
+///   scripts fail prepare (fail-fast).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PrepareError {
     /// A declared requirement has no matching host input.

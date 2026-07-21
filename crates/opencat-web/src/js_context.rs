@@ -1,4 +1,10 @@
 //! 浏览器原生 JS 引擎后端：`JsContext` 的具体实现。
+//!
+//! Isolation note (issue #20): core owns one [`opencat_core::script::ScriptRealm`]
+//! per pipeline and never rebinds dispatchers across runners. The web host holds
+//! a single active pipeline (`WebRenderer`); replacing a design constructs a new
+//! `WebJsContext`. Correctness does not depend on rebinding a shared
+//! `globalThis` between drivers — drivers share one realm via per-driver globals.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -82,16 +88,9 @@ impl JsContext for WebJsContext {
     }
 
     fn rebind_dispatcher(&self) -> anyhow::Result<()> {
-        let handle = self._dispatcher_handle.borrow();
-        if let Some(ref closure) = *handle {
-            let global = js_sys::global();
-            js_sys::Reflect::set(
-                &global,
-                &JsValue::from_str("__opencatCallNative"),
-                closure.as_ref().unchecked_ref(),
-            )
-            .map_err(|e| anyhow::anyhow!("rebind __opencatCallNative: {}", js_err_to_string(&e)))?;
-        }
+        // No-op: ScriptRealm installs one dispatcher for the lifetime of this
+        // context. Multi-driver scheduling no longer relies on rebinding a
+        // shared process global between runners (issue #20).
         Ok(())
     }
 

@@ -20,7 +20,6 @@ use opencat_core::canvas::paint::{
     BlendMode, BlurStyle, ColorFilterSpec, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec,
     PaintStyle, PathEffectSpec, ShaderSpec as PaintShaderSpec, StrokeCap, StrokeJoin, TileMode,
 };
-use opencat_core::frame_ctx::duration_secs_to_frames;
 use opencat_core::ir::CompositionInfo;
 use opencat_core::ir::RenderFrame;
 use opencat_core::ir::asset_id::{asset_id_for_subtitle, AssetId};
@@ -31,7 +30,7 @@ use opencat_core::ir::draw_types::{
     EffectRef, EncodedPath, FillType, ImageRef, PathOp, RuntimeEffectChildRef, ShaderSpec,
     ShaderType, TableRange,
 };
-use opencat_core::ir::media_plan::FrameMediaPlan;
+use opencat_core::ir::media_plan::{FrameGeneratedImage, FrameMediaPlan};
 use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 use opencat_core::pipeline::Pipeline;
 use opencat_core::pipeline::default::DefaultPipeline;
@@ -64,18 +63,13 @@ const SECTION_EFFECTS: u32 = 10;
 const SECTION_SUBTREES: u32 = 11;
 const SECTION_GENERATED_IMAGES: u32 = 12;
 
-/// One core-rasterized glyph published to JS in the generated-image delta.
+/// Host-facing generated-image payload published in the OCIR delta.
 ///
-/// The delta only carries glyphs whose id was not already published in the
-/// current [`WebRenderer::pipeline_epoch`]; JS caches the resulting CanvasKit
-/// image under `(epoch, id)` and reuses it until the epoch bumps.
-#[derive(Clone)]
-pub(crate) struct GeneratedImageRecord {
-    pub id: GeneratedImageId,
-    pub width: u32,
-    pub height: u32,
-    pub rgba: Arc<[u8]>,
-}
+/// Same shape as the core frame contract: stable id + full RGBA. The delta only
+/// carries glyphs whose id was not already published in the current
+/// [`WebRenderer::pipeline_epoch`]; JS caches CanvasKit images under
+/// `(epoch, id)` and reuses them until the epoch bumps.
+pub(crate) type GeneratedImageRecord = FrameGeneratedImage;
 
 #[wasm_bindgen]
 pub struct WebRenderer {
@@ -179,9 +173,6 @@ impl WebRenderer {
         let pipeline = self.pipeline.as_mut().ok_or_else(|| {
             JsValue::from_str("build_frame_ir: no design opened; call open_design first")
         })?;
-        let info = self.info.as_ref().ok_or_else(|| {
-            JsValue::from_str("build_frame_ir: composition info missing; call open_design first")
-        })?;
 
         let render = match self.pending_frame.take() {
             Some((pending_index, render)) if pending_index == frame => render,
@@ -192,45 +183,25 @@ impl WebRenderer {
         let mut draw = render.draw;
         let media_plan = render.media;
 
-        // Build the generated-image delta: every id the core needs visible this
-        // frame that we have not already published in the current epoch. RGBA is
-        // copied from the pipeline's table (populated during `render_frame`);
-        // missing entries are skipped defensively (core always populates the
-        // table before emitting `ImageRef::Generated`).
-        let generated_table = pipeline.generated_images();
+        // Host-side delta: full RGBA already lives on FrameMediaPlan. Only
+        // publish ids not yet sent in this pipeline epoch so JS can cache by
+        // GeneratedImageId without re-creating CanvasKit images.
         let mut generated_delta: Vec<GeneratedImageRecord> = Vec::new();
-        for id in &media_plan.generated_images {
-            if self.published_generated.contains(id) {
+        for entry in &media_plan.generated_images {
+            if self.published_generated.contains(&entry.id) {
                 continue;
             }
-            let Some(entry) = generated_table.get(id) else {
-                continue;
-            };
-            generated_delta.push(GeneratedImageRecord {
-                id: *id,
-                width: entry.width,
-                height: entry.height,
-                rgba: Arc::clone(&entry.rgba),
-            });
-            self.published_generated.insert(*id);
+            generated_delta.push(entry.clone());
+            self.published_generated.insert(entry.id);
         }
 
-        use crate::consumer::FrameConsumer;
-
-        let header = crate::consumer::RenderSessionHeader {
-            composition_size: (info.width, info.height),
-            fps: info.fps,
-            frames: duration_secs_to_frames(info.duration, info.fps),
-        };
-
-        let mut consumer = crate::consumer::WebFrameConsumer {
-            scratch: &mut self.scratch,
-            pipeline_epoch: self.pipeline_epoch,
-            generated_delta: &generated_delta,
-        };
-        consumer
-            .consume_frame(&header, &mut draw, &media_plan)
-            .map_err(JsValue::from)
+        crate::consumer::encode_render_frame_envelope(
+            &mut draw,
+            &mut self.scratch,
+            self.pipeline_epoch,
+            &generated_delta,
+        )
+        .map_err(|e| JsValue::from_str(&e.0))
     }
 
     /// Return the current frame's [`FrameMediaPlan`] as JSON so JS can drive
@@ -239,7 +210,8 @@ impl WebRenderer {
     /// tree walk). Call after [`open_design`].
     ///
     /// Shape: `{ videoFrames: [{assetId, timeMicros}], images: [assetId],
-    /// lottieBundles: [id], generatedImages: [id], runtimeEffects: [...] }`.
+    /// lottieBundles: [id], generatedImages: [{id,width,height}], ... }`.
+    /// Full RGBA for generated images is on the OCIR envelope, not this JSON.
     #[wasm_bindgen]
     pub fn prepare_frame(&mut self, frame: u32) -> Result<String, JsValue> {
         let pipeline = self.pipeline.as_mut().ok_or_else(|| {
@@ -417,10 +389,19 @@ fn media_plan_to_json(plan: &FrameMediaPlan) -> String {
         .iter()
         .map(|id| json!({ "bundleId": id }))
         .collect();
+    // JS prepare_frame only needs ids for cache bookkeeping; full RGBA rides
+    // the OCIR envelope (section 12). Width/height are still useful for
+    // allocation hints without decoding the binary delta.
     let generated_images: Vec<Value> = plan
         .generated_images
         .iter()
-        .map(|id| json!({ "id": id.0 }))
+        .map(|g| {
+            json!({
+                "id": g.id.0,
+                "width": g.width,
+                "height": g.height,
+            })
+        })
         .collect();
     json!({
         "videoFrames": video_frames,

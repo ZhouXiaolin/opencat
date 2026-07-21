@@ -175,7 +175,9 @@ pub fn render_frame_with_state(
             .as_ref()
             .expect("scene snapshot hit requires cached entry");
         let frame = entry.frame.clone();
-        let media_plan = build_media_plan(&frame);
+        // Scene snapshot reuses the DrawOpFrame; generated RGBA is still resolved
+        // from the pipeline table so the host contract stays complete.
+        let media_plan = build_media_plan(&frame, generated_images);
         return Ok((frame, media_plan));
     }
 
@@ -223,7 +225,7 @@ pub fn render_frame_with_state(
     })?;
 
     let frame = builder.finish();
-    let media_plan = build_media_plan(&frame);
+    let media_plan = build_media_plan(&frame, generated_images);
     cache.last_scene_snapshot = Some(SceneSnapshotEntry {
         frame: frame.clone(),
         width: frame_ctx.width,

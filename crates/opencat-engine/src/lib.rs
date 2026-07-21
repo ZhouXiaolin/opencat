@@ -33,7 +33,7 @@ pub use opencat_core::script::ScriptDriver;
 pub use opencat_core::style::ColorToken;
 
 // Re-export engine types used in tests via `crate::` path
-pub use crate::consumer::{FrameConsumer, RenderSessionHeader};
+pub use crate::consumer::execute_render_frame;
 pub use crate::render::RenderSession;
 pub use crate::resource::loader::{EngineAssetHandle, EngineLoader};
 

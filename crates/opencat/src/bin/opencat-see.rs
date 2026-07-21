@@ -14,10 +14,12 @@ mod app {
     use std::sync::Arc;
 
     use opencat::{
-        EngineDrawExecutor, EngineLoader, EngineLoaderFrameConsumer, FrameConsumer, MediaContext,
-        RqJsContext, RenderSessionHeader, build_audio_track_from_pipeline, duration_secs_to_frames,
+        EngineDrawExecutor, EngineLoader, MediaContext, RqJsContext, build_audio_track_from_pipeline,
+        duration_secs_to_frames, execute_render_frame,
     };
-    use opencat_core::pipeline::Pipeline;
+    use opencat_core::ir::GeneratedImageId;
+    use skia_safe::Image;
+    use std::collections::HashMap;
     use opencat_core::script::js_context::JsContext;
     use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle};
     use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source};
@@ -864,12 +866,10 @@ mod app {
         pipeline: &mut opencat::EnginePipeline,
         media_ctx: &mut MediaContext,
         executor: &mut EngineDrawExecutor,
+        generated_cache: &mut HashMap<GeneratedImageId, Image>,
         gpu_target: &mut impl GpuRenderTarget,
         width: i32,
         height: i32,
-        composition_size: (u32, u32),
-        fps: u32,
-        frames: u32,
         frame_index: u32,
     ) -> Result<()> {
         gpu_target.begin_frame(width, height)?;
@@ -877,19 +877,15 @@ mod app {
         let render = pipeline.render_frame(frame_index)?;
         let mut frame = render.draw;
         let media_plan = render.media;
-        let header = RenderSessionHeader {
-            composition_size,
-            fps,
-            frames,
-        };
-        let mut consumer = EngineLoaderFrameConsumer {
+        execute_render_frame(
+            &mut frame,
+            &media_plan,
             executor,
-            loader: pipeline.loader(),
+            pipeline.loader(),
             media_ctx,
-            generated_images: pipeline.generated_images(),
+            generated_cache,
             canvas,
-        };
-        consumer.consume_frame(&header, &mut frame, &media_plan)?;
+        )?;
         gpu_target.end_frame()?;
         gpu_target.present_frame()?;
         Ok(())
@@ -977,6 +973,7 @@ mod app {
         let mut media_ctx = MediaContext::new();
         media_ctx.set_composition_fps(info.fps);
         let mut executor = EngineDrawExecutor::new();
+        let mut generated_cache: HashMap<GeneratedImageId, Image> = HashMap::new();
 
         let audio_track = build_audio_track_from_pipeline(&pipeline)
             .context("failed to premix audio track")?;
@@ -1032,12 +1029,10 @@ mod app {
             &mut pipeline,
             &mut media_ctx,
             &mut executor,
+            &mut generated_cache,
             gpu_target.as_mut(),
             width,
             height,
-            (info.width, info.height),
-            info.fps,
-            total_frames,
             0,
         ) {
             return Err(anyhow!("failed to render warmup frame: {error:#}"));
@@ -1073,17 +1068,15 @@ mod app {
                         .map(|playback| playback.frame_index(total_frames, fps))
                         .unwrap_or(fallback_frame_index);
                     if let Err(error) = render_pipeline_frame_to_gpu_target(
-                        &mut pipeline,
-                        &mut media_ctx,
-                        &mut executor,
-                        gpu_target.as_mut(),
-                        width,
-                        height,
-                        (info.width, info.height),
-                        info.fps,
-                        total_frames,
-                        frame_index,
-                    ) {
+            &mut pipeline,
+            &mut media_ctx,
+            &mut executor,
+            &mut generated_cache,
+            gpu_target.as_mut(),
+            width,
+            height,
+            frame_index,
+        ) {
                         eprintln!("render error: {error:#}");
                         *control_flow = ControlFlow::Exit;
                         return;

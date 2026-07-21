@@ -15,7 +15,7 @@ use crate::{
         time::{FrameState, frame_state_for_root},
     },
     resolve::{
-        path_bounds::{DefaultPathBounds, PathBoundsComputer},
+        path_bounds,
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
             ElementBitmap, ElementCanvas, ElementDiv, ElementDrawSlot, ElementId, ElementKind,
@@ -55,7 +55,6 @@ struct ResolveContext<'a> {
 
     script_runtime: &'a mut dyn ScriptHost,
     mutation_stack: &'a mut Vec<StyleMutations>,
-    path_bounds: &'a dyn PathBoundsComputer,
 }
 
 pub fn resolve_ui_tree(
@@ -73,7 +72,6 @@ pub fn resolve_ui_tree(
         assets,
         mutations,
         script_runtime,
-        &DefaultPathBounds,
     )
 }
 
@@ -84,7 +82,6 @@ pub fn resolve_ui_tree_with_script_cache(
     assets: &mut dyn ResourceCatalog,
     mutations: Option<&StyleMutations>,
     script_runtime: &mut dyn ScriptHost,
-    path_bounds: &dyn PathBoundsComputer,
 ) -> Result<ElementNode> {
     let mut ids = ElementIdAllocator::default();
     let inherited_style = InheritedStyle::default();
@@ -105,7 +102,6 @@ pub fn resolve_ui_tree_with_script_cache(
 
         script_runtime,
         mutation_stack: &mut mutation_stack,
-        path_bounds,
     };
     let mut root = resolve_node_optional(node, &mut cx)?.unwrap_or_else(|| empty_root_div(&mut cx));
     compute_element_input_fingerprints(&mut root);
@@ -183,7 +179,6 @@ fn resolve_timeline(timeline: &TimelineNode, cx: &mut ResolveContext<'_>) -> Res
 
             script_runtime: &mut *cx.script_runtime,
             mutation_stack: &mut *cx.mutation_stack,
-            path_bounds: cx.path_bounds,
         };
         let children = resolve_frame_state_as_children(&frame_state, &mut child_cx)?;
 
@@ -216,7 +211,6 @@ fn resolve_with_script_frame_ctx(
 
         script_runtime: &mut *cx.script_runtime,
         mutation_stack: &mut *cx.mutation_stack,
-        path_bounds: cx.path_bounds,
     };
     resolve_node_optional(node, &mut child_cx)
         .map(|opt| opt.unwrap_or_else(|| empty_root_div(&mut child_cx)))
@@ -325,7 +319,6 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
 
                 script_runtime: &mut *cx.script_runtime,
                 mutation_stack: &mut *cx.mutation_stack,
-                path_bounds: cx.path_bounds,
             };
             if let Some(child) = resolve_node_optional(child, &mut child_cx)? {
                 children.push(child);
@@ -492,7 +485,6 @@ fn resolve_hidden_children(
 
             script_runtime: &mut *cx.script_runtime,
             mutation_stack: &mut *cx.mutation_stack,
-            path_bounds: cx.path_bounds,
         };
         if let Some(child_node) = resolve_node_optional(child, &mut child_cx)? {
             children.push(child_node);
@@ -542,7 +534,6 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
 
                 script_runtime: &mut *cx.script_runtime,
                 mutation_stack: &mut *cx.mutation_stack,
-                path_bounds: cx.path_bounds,
             };
             if let Some(child) = resolve_node_optional(child, &mut child_cx)? {
                 children.push(child);
@@ -676,10 +667,7 @@ fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Resu
 
         let (path_data, view_box) = if let Some(svg_path) = &computed.visual.svg_path {
             let pd = vec![svg_path.clone()];
-            let vb = cx
-                .path_bounds
-                .compute_view_box(&pd)
-                .unwrap_or([0.0, 0.0, 24.0, 24.0]);
+            let vb = path_bounds::compute_view_box(&pd).unwrap_or([0.0, 0.0, 24.0, 24.0]);
             (pd, vb)
         } else {
             let paths = crate::resolve::lucide_icons::lucide_icon_paths(icon)
@@ -722,15 +710,14 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
 
         let (path_data, view_box) = if let Some(svg_path) = &computed.visual.svg_path {
             let pd = vec![svg_path.clone()];
-            let vb = cx.path_bounds.compute_view_box(&pd).unwrap_or_else(|_| {
-                cx.path_bounds
-                    .compute_view_box(&[path.data().to_string()])
-                    .unwrap_or([0.0, 0.0, 100.0, 100.0])
+            let vb = path_bounds::compute_view_box(&pd).unwrap_or_else(|_| {
+                path_bounds::compute_view_box(&[path.data().to_string()])
+                    .unwrap_or(path_bounds::EMPTY_PATH_VIEW_BOX)
             });
             (pd, vb)
         } else {
             let pd = vec![path.data().to_string()];
-            let vb = cx.path_bounds.compute_view_box(&pd)?;
+            let vb = path_bounds::compute_view_box(&pd)?;
             (pd, vb)
         };
 
@@ -1342,7 +1329,7 @@ mod tests {
     use crate::{
         FrameCtx,
         ir::{draw_op::DrawOp, draw_types::ImageRef},
-        parse::primitives::{SrtEntry, caption, div, lucide, text, video},
+        parse::primitives::{SrtEntry, caption, div, lucide, path, text, video},
         resolve::tree::ElementKind,
         resource::catalog::ResourceCatalog,
         script::{
@@ -1587,6 +1574,53 @@ mod tests {
             crate::resolve::lucide_icons::lucide_icon_paths("briefcase").expect("briefcase icon");
         assert_eq!(svg.path_data, expected_paths);
         assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
+    }
+
+    #[test]
+    fn resolve_path_uses_core_computed_view_box() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut assets = TestCatalog::new();
+
+        let root = div().id("root").child(
+            path("M0 0 L10 0 L10 20 L0 20 Z")
+                .id("rect")
+                .size(40.0, 80.0),
+        );
+
+        let resolved = resolve(&root.into(), &frame_ctx, &mut assets).expect("path should resolve");
+        let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
+            panic!("child should resolve to svg path element");
+        };
+        assert_eq!(svg.path_data, vec!["M0 0 L10 0 L10 20 L0 20 Z".to_string()]);
+        assert_eq!(svg.view_box, [0.0, 0.0, 10.0, 20.0]);
+        assert_eq!(svg.intrinsic_size, None);
+    }
+
+    #[test]
+    fn resolve_path_rejects_invalid_svg_data() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut assets = TestCatalog::new();
+
+        let root = div().id("root").child(path("definitely-not-svg").id("bad"));
+
+        let err = resolve(&root.into(), &frame_ctx, &mut assets)
+            .expect_err("invalid path data should fail during resolution");
+        assert!(
+            err.to_string().contains("invalid SVG path"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

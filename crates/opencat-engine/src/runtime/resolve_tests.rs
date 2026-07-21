@@ -3,7 +3,6 @@
 
 #![cfg(test)]
 
-use crate::runtime::path_bounds::SkiaPathBounds;
 use opencat_core::frame_ctx::ScriptFrameCtx;
 use opencat_core::parse::easing::Easing;
 use opencat_core::parse::primitives::{SrtEntry, caption, div, text};
@@ -99,7 +98,6 @@ fn transition_scenes_keep_node_scripts_isolated() {
         &mut assets,
         None,
         &mut script_runtime,
-        &SkiaPathBounds,
     )
     .expect("from scene should resolve");
     let to_resolved = resolve_ui_tree_with_script_cache(
@@ -109,7 +107,6 @@ fn transition_scenes_keep_node_scripts_isolated() {
         &mut assets,
         None,
         &mut script_runtime,
-        &SkiaPathBounds,
     )
     .expect("to scene should resolve");
 
@@ -162,7 +159,6 @@ ctx.getNode("title").opacity(local && duration ? 0.6 : 0.1);"#,
         &mut assets,
         None,
         &mut script_runtime,
-        &SkiaPathBounds,
     )
     .expect("scene should resolve");
 
@@ -303,7 +299,6 @@ fn resolve_caption_uses_scene_local_time_inside_timeline() {
         &mut assets,
         None,
         &mut runtime,
-        &SkiaPathBounds,
     )
     .expect("caption tree should resolve");
 

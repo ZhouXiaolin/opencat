@@ -375,6 +375,8 @@ No `ffmpegDir` or `SKIA_BINARIES_URL` environment variables are needed in a stan
 - [Canvas API](skill/references/canvaskit.md)
 - [Templates](skill/references/templates.md)
 - [Design Principles](skill/references/design-principles.md)
+- [Development Guide](DEVELOPMENT.md) — Tailwind/Taffy layout alignment & engine/web SSIM comparison
+- [开发指南](DEVELOPMENT_ZH.md)
 
 ## Community
 

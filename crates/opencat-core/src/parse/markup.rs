@@ -1125,7 +1125,10 @@ fn parse_font_source(
             if p.is_empty() {
                 anyhow::bail!("<font> path must be non-empty");
             }
-            Ok(FontSource::Path(resolve_local_path(p, base_dir)))
+            // Logical locator only — host joins document base at fetch time
+            // (same contract as image/video AssetId stability).
+            let _ = base_dir;
+            Ok(FontSource::Path(PathBuf::from(p)))
         }
         (None, Some(u)) => {
             if u.is_empty() {

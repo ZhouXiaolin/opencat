@@ -171,6 +171,76 @@ pub fn load_faces_with_fallbacks(
     Ok((db, index))
 }
 
+/// Load document fonts first, then append faces from a host base database whose
+/// families are not already present.
+///
+/// Used by lifecycle `prepare`: hosts supply base defaults (engine Noto, web
+/// Noto/extra); core is the only place that merges document precedence, family
+/// index, and sans-serif selection.
+pub fn merge_document_over_base(
+    base: &fontdb::Database,
+    manifest: &FontManifest,
+    bytes_by_face_id: &HashMap<String, Vec<u8>>,
+) -> Result<(fontdb::Database, FontFamilyIndex)> {
+    if manifest.is_empty() {
+        return Ok((clone_font_db(base), FontFamilyIndex::default()));
+    }
+
+    let (mut db, index) = load_faces_into_db(fontdb::Database::new(), manifest, bytes_by_face_id)?;
+    let mut families = family_names_in_db(&db);
+
+    for face in base.faces() {
+        if face
+            .families
+            .iter()
+            .any(|(family, _)| families.contains(family))
+        {
+            continue;
+        }
+        match &face.source {
+            fontdb::Source::Binary(data) => {
+                db.load_font_data(data.as_ref().as_ref().to_vec());
+            }
+            fontdb::Source::File(path) => {
+                // Best-effort; hosts that care about file-backed faces should
+                // re-load them as binary into the base db they pass in.
+                let _ = db.load_font_file(path);
+            }
+            fontdb::Source::SharedFile(_path, data) => {
+                db.load_font_data(data.as_ref().as_ref().to_vec());
+            }
+        }
+        families = family_names_in_db(&db);
+    }
+
+    Ok((db, index))
+}
+
+/// Shallow clone of a fontdb by reloading every face source into a new database.
+/// Preserves sans-serif family when set.
+pub fn clone_font_db(db: &fontdb::Database) -> fontdb::Database {
+    let mut next = fontdb::Database::new();
+    for face in db.faces() {
+        match &face.source {
+            fontdb::Source::Binary(data) => {
+                next.load_font_data(data.as_ref().as_ref().to_vec());
+            }
+            fontdb::Source::File(path) => {
+                let _ = next.load_font_file(path);
+            }
+            fontdb::Source::SharedFile(_path, data) => {
+                next.load_font_data(data.as_ref().as_ref().to_vec());
+            }
+        }
+    }
+    // Re-apply sans-serif if the source db had a concrete family for it.
+    let sans = db.family_name(&fontdb::Family::SansSerif).to_string();
+    if !sans.is_empty() {
+        next.set_sans_serif_family(sans);
+    }
+    next
+}
+
 fn family_names_in_db(db: &fontdb::Database) -> HashSet<String> {
     db.faces()
         .flat_map(|face| face.families.iter().map(|(family, _)| family.clone()))

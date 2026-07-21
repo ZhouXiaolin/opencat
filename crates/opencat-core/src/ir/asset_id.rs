@@ -47,10 +47,12 @@ fn path_str(p: &Path) -> String {
 }
 
 /// Canonical `AssetId` for an image source, or `None` for `Unset`.
+///
+/// Path variants use the logical locator string as the id (no host base join).
 pub fn asset_id_for_image(src: &ImageSource) -> Option<AssetId> {
     match src {
         ImageSource::Unset => None,
-        ImageSource::Path(p) => Some(AssetId(path_str(p))),
+        ImageSource::Path(p) => Some(AssetId(p.clone())),
         ImageSource::Url(u) => Some(asset_id_for_url(u)),
         ImageSource::Query(q) => Some(asset_id_for_query(q)),
     }
@@ -154,8 +156,8 @@ mod tests {
     fn asset_id_for_image_covers_all_variants() {
         assert_eq!(asset_id_for_image(&ImageSource::Unset), None);
         assert_eq!(
-            asset_id_for_image(&ImageSource::Path("/a/b.png".into())).map(|i| i.0),
-            Some("/a/b.png".to_string()),
+            asset_id_for_image(&ImageSource::Path("photos/a.png".into())).map(|i| i.0),
+            Some("photos/a.png".to_string()),
         );
         assert_eq!(
             asset_id_for_image(&ImageSource::Url("https://e.com/a.png".into())).map(|i| i.0),

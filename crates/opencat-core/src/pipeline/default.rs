@@ -11,7 +11,7 @@ use crate::ir::{CompositionInfo, GeneratedImageTable, RenderFrame};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
 use crate::parse::preflight::collect_resource_requests_from_parsed;
-use crate::probe::catalog::ResourceCatalog;
+use crate::probe::catalog::PreparedResourceCatalog;
 use crate::script::js_context::JsContext;
 
 use super::Pipeline;
@@ -23,7 +23,7 @@ const DEFAULT_ITEM_RANGE_CAP: usize = 128;
 /// The core rendering pipeline.
 ///
 /// This is a pure derivation kernel: it consumes a host-prepared
-/// [`ResourceCatalog`], an injected font database, and the parsed composition,
+/// [`PreparedResourceCatalog`], an injected font database, and the parsed composition,
 /// and emits a deterministic [`RenderFrame`] per frame. It owns no loader,
 /// fetcher, cache, or decoder — the host is responsible for all resource
 /// acquisition. Prefer the explicit lifecycle
@@ -34,7 +34,7 @@ const DEFAULT_ITEM_RANGE_CAP: usize = 128;
 pub struct DefaultPipeline<S: JsContext> {
     composition: Composition,
     info: CompositionInfo,
-    catalog: ResourceCatalog,
+    catalog: PreparedResourceCatalog,
     scripts: crate::script::LiveScriptHost<S>,
     layout_session: LayoutSession,
     display_build_session: DisplayBuildSession,
@@ -52,7 +52,7 @@ pub struct DefaultPipeline<S: JsContext> {
 
 impl<S: JsContext> DefaultPipeline<S> {
     /// Open a pipeline from host-prepared inputs: a parsed composition, a
-    /// [`ResourceCatalog`] the host already built (via the `probe::prepare`
+    /// [`PreparedResourceCatalog`] the host already built (via the `probe::prepare`
     /// chain), the script context, and the font database.
     ///
     /// This is the host-injected main chain (issue #2 / #6 / #11). It does
@@ -61,7 +61,7 @@ impl<S: JsContext> DefaultPipeline<S> {
     /// `RenderFrame` output from these inputs.
     pub fn open_with_prepared_catalog(
         parsed: crate::parse::ParsedComposition,
-        catalog: ResourceCatalog,
+        catalog: PreparedResourceCatalog,
         scripts: S,
         font_db: Arc<fontdb::Database>,
     ) -> Result<Self> {
@@ -98,7 +98,7 @@ impl<S: JsContext> DefaultPipeline<S> {
         &self.composition
     }
 
-    pub fn catalog(&self) -> &ResourceCatalog {
+    pub fn catalog(&self) -> &PreparedResourceCatalog {
         &self.catalog
     }
 
@@ -122,7 +122,7 @@ impl<S: JsContext> DefaultPipeline<S> {
 ///
 /// This owns no fetch/probe/loader logic — it is pure derivation from the
 /// parsed composition. The caller is responsible for producing the
-/// [`ResourceCatalog`]: the host builds it via the `probe::prepare` chain
+/// [`PreparedResourceCatalog`]: the host builds it via the `probe::prepare` chain
 /// before opening the pipeline.
 fn build_pipeline_state<S: JsContext>(
     parsed: crate::parse::ParsedComposition,
@@ -785,12 +785,12 @@ mod tests {
     // These tests exercise `open_with_prepared_catalog` — the host-injected main
     // chain — at the highest render seam (`render_frame -> RenderFrame`). They
     // prove the new path does no fetch/probe/loader work: the host-supplied
-    // `ResourceCatalog` is the single source of metadata.
+    // `PreparedResourceCatalog` is the single source of metadata.
 
     use crate::ir::asset_id::asset_id_for_image;
     use crate::parse::primitives::image;
     use crate::probe::catalog::ImageMeta;
-    use crate::probe::ResourceCatalog as ProbeResourceCatalog;
+    use crate::probe::PreparedResourceCatalog as ProbeResourceCatalog;
     use crate::resource::fonts::FontManifest;
 
     /// Build a minimal `ParsedComposition` from a root node, for tests that

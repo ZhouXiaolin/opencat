@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::ir::asset_id::AssetId;
 use crate::parse::ParsedComposition;
-use crate::probe::catalog::{ResourceCatalog, ResourceRequests};
+use crate::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
 
 /// Unprepared composition: parsed tree plus the declarative host requirements
 /// derived from it. Distinct from [`PreparedComposition`].
@@ -61,7 +61,7 @@ pub enum ResourceLocator {
 #[derive(Debug, Clone)]
 pub struct HostInputs {
     pub(super) font_db: Arc<fontdb::Database>,
-    pub(super) catalog: ResourceCatalog,
+    pub(super) catalog: PreparedResourceCatalog,
     pub(super) subtitle_texts: HashMap<String, String>,
     pub(super) supplied: HashSet<AssetId>,
 }
@@ -71,7 +71,7 @@ pub struct HostInputs {
 #[derive(Debug, Clone)]
 pub struct PreparedComposition {
     pub(super) parsed: ParsedComposition,
-    pub(super) catalog: ResourceCatalog,
+    pub(super) catalog: PreparedResourceCatalog,
     pub(super) font_db: Arc<fontdb::Database>,
 }
 
@@ -95,6 +95,13 @@ pub enum PrepareError {
     DuplicateInput { asset_id: AssetId },
     /// The host supplied an asset id that is not in the draft requirements.
     UndeclaredInput { asset_id: AssetId },
+    /// Host input is present but fails layout/time-critical validation
+    /// (e.g. zero-size image, kind stored under the wrong catalog map).
+    InvalidMetadata {
+        asset_id: AssetId,
+        kind: ResourceKind,
+        reason: String,
+    },
     /// Unexpected internal failure (e.g. caption parse). Rare on the pure path.
     Internal { message: String },
 }
@@ -120,6 +127,17 @@ impl std::fmt::Display for PrepareError {
                 write!(
                     f,
                     "prepare undeclared host input for asset `{}`",
+                    asset_id.0
+                )
+            }
+            Self::InvalidMetadata {
+                asset_id,
+                kind,
+                reason,
+            } => {
+                write!(
+                    f,
+                    "prepare invalid {kind:?} metadata for asset `{}`: {reason}",
                     asset_id.0
                 )
             }

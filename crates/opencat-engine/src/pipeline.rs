@@ -298,4 +298,83 @@ mod tests {
 
         std::fs::remove_dir_all(&fixture_dir).ok();
     }
+
+    #[test]
+    fn lottie_lifecycle_uses_request_bundle_asset_id() {
+        use opencat_core::ir::draw_op::DrawOp;
+        use opencat_core::pipeline::Pipeline;
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let fixture_dir =
+            std::path::PathBuf::from(format!("target/opencat-lifecycle-lottie-{nanos}"));
+        let cache_dir = fixture_dir.join("cache");
+        std::fs::create_dir_all(&cache_dir).expect("cache dir");
+
+        // Minimal Bodymovin root with one external dependency name.
+        let lottie_json = r#"{"w":40,"h":30,"fr":25,"ip":0,"op":10,"assets":[{"u":"images/dep.png","e":"images/"}]}"#;
+        std::fs::write(fixture_dir.join("loader.json"), lottie_json).expect("lottie json");
+
+        let markup = r#"
+            <opencat width="64" height="64" fps="25" duration="0.4">
+              <div id="root" class="w-full h-full">
+                <lottie id="loader" path="loader.json" class="w-[40px] h-[30px]" />
+              </div>
+            </opencat>
+        "#;
+
+        let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache_dir)
+            .expect("loader");
+        let ctx = crate::js_context::RqJsContext::new().expect("js context");
+        let mut host = open(markup, loader, ctx).expect("open via lifecycle");
+
+        // Host registers under logical path key (probe) and canonical bundle id.
+        assert!(
+            host.loader
+                .handle(&opencat_core::AssetId("loader.json".into()))
+                .is_some(),
+            "engine must cache primary JSON under logical locator"
+        );
+        assert!(
+            host.loader
+                .handle(&opencat_core::AssetId("lottie:loader".into()))
+                .is_some(),
+            "engine must also key primary JSON under request bundle AssetId"
+        );
+
+        // Composition still declares the lottie request under raw requests.
+        assert!(
+            host.pipeline
+                .info()
+                .requests
+                .lotties
+                .iter()
+                .any(|r| r.element_id == "loader"),
+            "composition must declare lottie request"
+        );
+
+        let frame = host.pipeline.render_frame(0).expect("render");
+        assert!(
+            frame
+                .media
+                .lottie_bundles
+                .iter()
+                .any(|b| b == "lottie:loader"),
+            "FrameMediaPlan must list bundle id; got {:?}",
+            frame.media.lottie_bundles
+        );
+        assert!(
+            frame.media.images.is_empty(),
+            "Lottie must not be disguised as image; got {:?}",
+            frame.media.images
+        );
+        let has_op = frame.draw.ops.iter().any(|op| {
+            matches!(op, DrawOp::LottieRect { bundle_id, .. } if bundle_id == "lottie:loader")
+        });
+        assert!(has_op, "draw must emit LottieRect; ops={:?}", frame.draw.ops);
+
+        std::fs::remove_dir_all(&fixture_dir).ok();
+    }
 }

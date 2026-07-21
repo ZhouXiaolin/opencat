@@ -35,7 +35,7 @@ pub struct DefaultPipeline<S: JsContext> {
     composition: Composition,
     info: CompositionInfo,
     catalog: PreparedResourceCatalog,
-    scripts: crate::script::LiveScriptHost<S>,
+    scripts: crate::script::ScriptRealm<S>,
     layout_session: LayoutSession,
     display_build_session: DisplayBuildSession,
     composite_history: CompositeHistory,
@@ -102,7 +102,7 @@ impl<S: JsContext> DefaultPipeline<S> {
         &self.catalog
     }
 
-    pub fn scripts(&self) -> &crate::script::LiveScriptHost<S> {
+    pub fn scripts(&self) -> &crate::script::ScriptRealm<S> {
         &self.scripts
     }
 
@@ -128,7 +128,7 @@ fn build_pipeline_state<S: JsContext>(
     parsed: crate::parse::ParsedComposition,
     scripts: S,
     requests: crate::probe::catalog::ResourceRequests,
-) -> Result<(Composition, CompositionInfo, crate::script::LiveScriptHost<S>)> {
+) -> Result<(Composition, CompositionInfo, crate::script::ScriptRealm<S>)> {
     let root_node = parsed.root;
     let composition = Composition::new("pipeline")
         .size(parsed.width, parsed.height)
@@ -148,9 +148,11 @@ fn build_pipeline_state<S: JsContext>(
         audio_plan,
     };
 
-    let live_host = crate::script::LiveScriptHost::new(scripts)?;
+    // One script realm per pipeline: same composition shares JS state; separate
+    // pipelines never share ctx / dispatcher / globals (issue #20).
+    let realm = crate::script::ScriptRealm::new(scripts)?;
 
-    Ok((composition, info, live_host))
+    Ok((composition, info, realm))
 }
 
 impl<S: JsContext> Pipeline for DefaultPipeline<S> {

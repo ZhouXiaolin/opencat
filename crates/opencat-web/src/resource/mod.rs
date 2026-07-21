@@ -6,10 +6,8 @@ pub mod asset_reader;
 pub mod blob_store;
 pub mod fetch;
 pub mod font_store;
-pub mod provider_store;
 pub mod resolver;
 
 pub mod wasm_api;
 
 pub use blob_store::BlobStore;
-pub use resolver::WebAssetResolver;

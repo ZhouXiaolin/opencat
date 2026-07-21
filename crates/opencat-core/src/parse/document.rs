@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 
+use crate::media::VideoFrameTiming;
 use crate::parse::{
     composition::CompositionAudioSource,
     node::Node,
     primitives::{AudioSource, ImageSource, VideoSource},
 };
 use crate::resource::fonts::FontManifest;
-use crate::resource::types::VideoFrameTiming;
 use crate::style::NodeStyle;
 
 mod builder;

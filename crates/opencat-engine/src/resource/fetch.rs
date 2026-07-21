@@ -1,16 +1,13 @@
 //! HTTP helpers + [`EngineFetcher`] 实现：reqwest client、cache 命中、字节下载。
 
-use std::future::Future;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use tokio::runtime::Builder;
 
-use opencat_core::resource::asset_id::AssetId;
-use opencat_core::resource::resolver::UrlFetcher;
-
 use crate::resource::utils::cache_file_path;
+use opencat_core::resource::asset_id::AssetId;
 
 const HTTP_USER_AGENT: &str = "OpenCat/0.1 (+https://github.com/solaren/opencat)";
 
@@ -64,25 +61,21 @@ impl EngineFetcher {
     pub fn cache_dir(&self) -> &std::path::Path {
         &self.cache_dir
     }
-}
 
-impl UrlFetcher for EngineFetcher {
-    fn fetch_bytes(&mut self, id: &AssetId, url: &str) -> impl Future<Output = Result<Vec<u8>>> {
+    pub async fn fetch_bytes(&mut self, id: &AssetId, url: &str) -> Result<Vec<u8>> {
         let path = cache_file_path(&self.cache_dir, id);
         let client = self.client.clone();
         let url = url.to_string();
-        async move {
-            if path.exists() {
-                let bytes = tokio::fs::read(&path)
-                    .await
-                    .with_context(|| format!("failed to read cached asset {}", path.display()))?;
-                return Ok(bytes);
-            }
-            let bytes = download_bytes(&client, &url).await?;
-            tokio::fs::write(&path, &bytes)
+        if path.exists() {
+            let bytes = tokio::fs::read(&path)
                 .await
-                .with_context(|| format!("failed to write cache {}", path.display()))?;
-            Ok(bytes)
+                .with_context(|| format!("failed to read cached asset {}", path.display()))?;
+            return Ok(bytes);
         }
+        let bytes = download_bytes(&client, &url).await?;
+        tokio::fs::write(&path, &bytes)
+            .await
+            .with_context(|| format!("failed to write cache {}", path.display()))?;
+        Ok(bytes)
     }
 }

@@ -1,7 +1,7 @@
 //! Headless Chrome + static server harness for web-vs-engine frame oracles.
 //!
 //! Shared by:
-//! - `web_frame_oracle_tests` (single / multi-frame SSIM regression)
+//! - `inspect::tests::web_frame_oracle` (single / multi-frame SSIM regression)
 //! - `scripts/compare-mp4.sh` via the `opencat-web-compare` binary (sampled frames)
 //!
 //! The browser path always goes through `web/test-oracle.html` + CanvasKit

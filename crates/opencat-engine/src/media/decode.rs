@@ -8,6 +8,10 @@ use std::sync::Arc;
 /// when target sizes drift over an animation.
 const MAX_SCALERS_PER_DECODER: usize = 4;
 
+use crate::media::seek::{
+    DecoderCursor, DecoderLaneSelection, nearest_keyframe_before, seek_threshold_secs,
+    select_decoder_lane,
+};
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg_next::threading::{Config, Type};
@@ -21,10 +25,6 @@ use ffmpeg_next::{
         pixel::Pixel,
         sample::{Sample, Type as SampleType},
     },
-};
-use opencat_core::media::seek::{
-    DecoderCursor, DecoderLaneSelection, nearest_keyframe_before, seek_threshold_secs,
-    select_decoder_lane,
 };
 
 pub struct VideoInfo {

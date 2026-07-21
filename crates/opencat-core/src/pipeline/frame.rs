@@ -16,7 +16,7 @@ use crate::analyze::invalidation::{CompositeHistory, mark_display_tree_apply_cha
 use crate::display::build::DisplayBuildSession;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
 use crate::ir::cache::{RenderCache, SceneSnapshotEntry};
-use crate::ir::{DrawOpFrame, FrameMediaPlan, RenderFrame};
+use crate::ir::{DrawOpFrame, FrameMediaPlan};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
 use crate::render::RenderCtx;
@@ -25,7 +25,6 @@ use crate::render::media_plan::build_media_plan;
 use crate::resolve::path_bounds::DefaultPathBounds;
 use crate::resolve::resolve::resolve_ui_tree_with_script_cache;
 use crate::resource::catalog::ResourceCatalog;
-use crate::runtime::session::RenderSession;
 use crate::script::ScriptHost;
 use crate::text::DefaultFontProvider;
 
@@ -235,41 +234,6 @@ pub fn render_frame_with_state(
         root_fingerprint,
     });
     Ok((frame, media_plan))
-}
-
-pub fn render_frame(
-    composition: &Composition,
-    frame_index: u32,
-    session: &mut RenderSession,
-    script: &mut dyn ScriptHost,
-) -> Result<RenderFrame> {
-    let RenderSession {
-        ref mut layout_session,
-        ref mut display_build_session,
-        ref mut composite_history,
-        ref mut analyze_fingerprint_history,
-        ref font_db,
-        ref mut catalog,
-        cache: ref mut cache_field,
-        last_ordered_scene: ref mut last_ordered,
-        ..
-    } = *session;
-
-    let (draw, media) = render_frame_with_state(
-        composition,
-        frame_index,
-        layout_session,
-        display_build_session,
-        composite_history,
-        analyze_fingerprint_history,
-        font_db,
-        catalog,
-        cache_field,
-        last_ordered,
-        script,
-        &mut session.generated_images,
-    )?;
-    Ok(RenderFrame { draw, media })
 }
 
 /// Decide whether the cached whole-frame DrawOp recording can be reused this

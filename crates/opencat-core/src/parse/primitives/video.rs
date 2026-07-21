@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::style::{NodeStyle, impl_node_style_api};
-use crate::{Node, resource::types::VideoFrameTiming};
+use crate::{Node, media::VideoFrameTiming};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum VideoSource {

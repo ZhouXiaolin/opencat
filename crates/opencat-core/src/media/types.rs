@@ -4,14 +4,6 @@ use crate::resource::catalog::VideoInfoMeta;
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum VideoPreviewQuality {
-    Scrubbing,
-    Realtime,
-    Exact,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct VideoFrameTiming {
     pub timeline_start_secs: f64,
     pub timeline_duration_secs: Option<f64>,
@@ -47,10 +39,6 @@ impl Default for VideoFrameTiming {
 pub struct VideoFrameRequest {
     pub composition_time_secs: f64,
     pub timing: VideoFrameTiming,
-    pub quality: VideoPreviewQuality,
-    /// Caller's desired output size in pixels. Platform media runtimes quantize
-    /// and clamp this against source resolution before decoder/cache lookup.
-    pub target_size: Option<(u32, u32)>,
 }
 
 impl VideoFrameRequest {
@@ -124,8 +112,6 @@ mod tests {
                 playback_rate: 0.5,
                 looping: false,
             },
-            quality: VideoPreviewQuality::Exact,
-            target_size: None,
         };
 
         assert!((request.resolve_time_secs(&info) - 2.5).abs() < 1e-6);
@@ -147,8 +133,6 @@ mod tests {
                 playback_rate: 1.0,
                 looping: true,
             },
-            quality: VideoPreviewQuality::Scrubbing,
-            target_size: None,
         };
 
         assert!((request.resolve_time_secs(&info) - 3.0).abs() < 1e-6);
@@ -170,8 +154,6 @@ mod tests {
                 playback_rate: 1.0,
                 looping: false,
             },
-            quality: VideoPreviewQuality::Exact,
-            target_size: None,
         };
 
         assert!((request.resolve_time_secs(&info) - 5.0).abs() < 1e-6);
@@ -193,8 +175,6 @@ mod tests {
                 playback_rate: 1.0,
                 looping: false,
             },
-            quality: VideoPreviewQuality::Exact,
-            target_size: None,
         };
 
         assert!((request.resolve_time_secs(&info) - 14.5).abs() < 1e-6);
@@ -216,8 +196,6 @@ mod tests {
                 playback_rate: 1.0,
                 looping: true,
             },
-            quality: VideoPreviewQuality::Exact,
-            target_size: None,
         };
 
         assert!((request.resolve_time_secs(&info) - 3.5).abs() < 1e-6);
@@ -234,8 +212,6 @@ mod tests {
                 playback_rate: 1.0,
                 looping: false,
             },
-            quality: VideoPreviewQuality::Exact,
-            target_size: None,
         };
 
         assert!(!request.is_visible());
@@ -257,8 +233,6 @@ mod tests {
                 playback_rate: 1.0,
                 looping: false,
             },
-            quality: VideoPreviewQuality::Exact,
-            target_size: None,
         };
 
         assert_eq!(request.resolved_frame_index(&info, 30), 900);

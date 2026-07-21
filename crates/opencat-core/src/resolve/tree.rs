@@ -1,7 +1,7 @@
 use crate::ir::asset_id::AssetId;
 use crate::ir::draw_op::DrawOp;
+use crate::media::VideoFrameTiming;
 use crate::parse::transition::TransitionKind;
-use crate::resource::types::VideoFrameTiming;
 use crate::script::TextUnitOverrideBatch;
 use crate::semantic::fingerprint::ElementInputFingerprints;
 use crate::style::ComputedTextStyle;

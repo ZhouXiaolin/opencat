@@ -23,7 +23,7 @@
 //! 2. Avoid duplicating patterns already covered by other fixtures
 //! 3. Use realistic viewport dimensions and tolerance values
 
-use super::browser_layout_tests::{FixtureNode, LayoutFixture};
+use super::{FixtureNode, LayoutFixture};
 
 // ---------------------------------------------------------------------------
 // Integration fixture definitions

@@ -4,8 +4,8 @@ use crate::parse::{
     easing::{Easing, SpringConfig, easing_from_name},
     node::Node,
     primitives::{
-        ImageSource, VideoSource, canvas, caption, div, image, lucide, parse_srt, path, text,
-        video, video_url,
+        ImageSource, VideoSource, canvas, caption, div, image, lucide, path, text, video,
+        video_url,
     },
     transition::{
         Transition, clock_wipe, fade, gl_transition, iris, light_leak, slide, timeline, wipe,
@@ -150,7 +150,7 @@ fn index_elements(
 pub fn build_tree_with_options(
     elements: &[ParsedElement],
     scripts_by_parent: &HashMap<String, Vec<String>>,
-    fps: u32,
+    _fps: u32,
     options: BuildOptions,
 ) -> anyhow::Result<Node> {
     let (children_map, roots) = index_elements(elements);
@@ -167,7 +167,6 @@ pub fn build_tree_with_options(
         &children_map,
         scripts_by_parent,
         &HashMap::new(),
-        fps,
         options,
     )
 }
@@ -176,7 +175,7 @@ pub fn build_tree_with_tl_options(
     elements: &[ParsedElement],
     scripts_by_parent: &HashMap<String, Vec<String>>,
     transitions_by_tl: &HashMap<String, Vec<&ParsedTransition>>,
-    fps: u32,
+    _fps: u32,
     options: BuildOptions,
 ) -> anyhow::Result<Node> {
     let (children_map, roots) = index_elements(elements);
@@ -193,7 +192,6 @@ pub fn build_tree_with_tl_options(
         &children_map,
         scripts_by_parent,
         transitions_by_tl,
-        fps,
         options,
     )
 }
@@ -226,7 +224,6 @@ fn build_node_inner(
     children_map: &HashMap<&str, Vec<&ParsedElement>>,
     scripts_by_parent: &HashMap<String, Vec<String>>,
     transitions_by_tl: &HashMap<String, Vec<&ParsedTransition>>,
-    fps: u32,
     options: BuildOptions,
 ) -> anyhow::Result<Node> {
     let mut style = el.style.clone();
@@ -319,7 +316,6 @@ fn build_node_inner(
                     children_map,
                     scripts_by_parent,
                     transitions_by_tl,
-                    fps,
                     options,
                 )?;
                 tl_builder = tl_builder.sequence(duration, node);
@@ -349,7 +345,6 @@ fn build_node_inner(
                         children_map,
                         scripts_by_parent,
                         transitions_by_tl,
-                        fps,
                         options,
                     )?;
                     div_node = div_node.child(child_node);
@@ -385,7 +380,6 @@ fn build_node_inner(
                             children_map,
                             scripts_by_parent,
                             transitions_by_tl,
-                            fps,
                             options,
                         )?;
                         canvas_node = canvas_node.hidden_child(child_node);
@@ -455,7 +449,6 @@ fn build_node_inner(
                         children_map,
                         scripts_by_parent,
                         transitions_by_tl,
-                        fps,
                         options,
                     )?;
                     video_node = video_node.child(child_node);
@@ -464,11 +457,7 @@ fn build_node_inner(
             Ok(Node::new(video_node))
         }
         ParsedElementKind::Caption { path } => {
-            let entries = std::fs::read_to_string(path)
-                .ok()
-                .and_then(|content| parse_srt(&content, fps).ok())
-                .unwrap_or_default();
-            let mut caption_node = caption().path(path).entries(entries);
+            let mut caption_node = caption().path(path);
             caption_node.style = style;
             Ok(Node::new(caption_node))
         }

@@ -323,7 +323,7 @@ pub fn parse_with_base_dir(
                 );
                 let source = match url {
                     Some(u) => VideoSource::Url(u),
-                    None => VideoSource::Path(PathBuf::from(path.unwrap_or_default())),
+                    None => VideoSource::Path(path.unwrap_or_default()),
                 };
                 elements.push(ParsedElement {
                     id,

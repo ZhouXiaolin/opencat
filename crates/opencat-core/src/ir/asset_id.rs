@@ -59,9 +59,12 @@ pub fn asset_id_for_image(src: &ImageSource) -> Option<AssetId> {
 }
 
 /// Canonical `AssetId` for a video source.
+///
+/// Path variants use the logical locator string under a stable `video:path:`
+/// prefix (no host base join).
 pub fn asset_id_for_video(src: &VideoSource) -> AssetId {
     match src {
-        VideoSource::Path(p) => AssetId(format!("video:path:{}", path_str(p))),
+        VideoSource::Path(p) => AssetId(format!("video:path:{p}")),
         VideoSource::Url(u) => asset_id_for_video_url(u),
     }
 }

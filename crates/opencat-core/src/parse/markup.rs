@@ -1345,7 +1345,9 @@ fn parse_video_source(
             if p.is_empty() {
                 anyhow::bail!("<video> `path` must not be empty");
             }
-            Ok(VideoSource::Path(resolve_local_path(p, base_dir)))
+            // Logical locator only — do not join host base_dir into the AST.
+            let _ = base_dir;
+            Ok(VideoSource::Path(p.to_string()))
         }
         (None, Some(u)) => {
             if u.is_empty() {
@@ -1952,7 +1954,7 @@ mod tests {
 
         assert_eq!(
             video.source(),
-            &VideoSource::Path(PathBuf::from("clip.mp4"))
+            &VideoSource::Path("clip.mp4".into())
         );
         assert_eq!(
             video.timing(),

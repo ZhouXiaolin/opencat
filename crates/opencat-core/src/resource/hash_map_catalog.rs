@@ -177,7 +177,7 @@ impl ResourceResolver for HashMapResourceCatalog {
                 Some(VideoInfoMeta {
                     width: m.width,
                     height: m.height,
-                    duration_secs: m.duration_secs,
+                    duration_micros: crate::time::optional_secs_to_duration_micros(m.duration_secs),
                 })
             } else {
                 None
@@ -292,7 +292,7 @@ mod tests {
         let id = catalog.resolve_image(&src).unwrap();
         let info = catalog.video_info(&id).unwrap();
         assert_eq!(info.width, 1920);
-        assert_eq!(info.duration_secs, Some(5.5));
+        assert_eq!(info.duration_secs(), Some(5.5));
     }
 
     #[test]

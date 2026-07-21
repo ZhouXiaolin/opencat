@@ -27,7 +27,7 @@ impl From<crate::probe::catalog::VideoInfoMeta> for VideoProbe {
         Self {
             width: m.width,
             height: m.height,
-            duration_secs: m.duration_ms.map(|ms| ms as f64 / 1000.0),
+            duration_secs: m.duration_secs(),
         }
     }
 }

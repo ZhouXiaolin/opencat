@@ -1,11 +1,13 @@
-use std::path::{Path, PathBuf};
-
 use crate::style::{NodeStyle, impl_node_style_api};
 use crate::{Node, media::VideoFrameTiming};
 
+/// Video source locator. Paths are **logical** (document-relative strings), not
+/// host filesystem paths — core never joins a base directory or stores `PathBuf`.
+/// Hosts interpret `Path` against their own document base (FS, VFS, URL).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum VideoSource {
-    Path(PathBuf),
+    /// Logical locator (e.g. `"clips/a.mp4"`). Not a resolved filesystem path.
+    Path(String),
     Url(String),
 }
 
@@ -64,9 +66,10 @@ impl Video {
     }
 }
 
-pub fn video(path: impl AsRef<Path>) -> Video {
+/// Build a video node from a logical path locator.
+pub fn video(path: impl Into<String>) -> Video {
     Video {
-        source: VideoSource::Path(path.as_ref().to_path_buf()),
+        source: VideoSource::Path(path.into()),
         timing: VideoFrameTiming::default(),
         children: Vec::new(),
         style: NodeStyle::default(),

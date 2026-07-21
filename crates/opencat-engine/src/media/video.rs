@@ -53,7 +53,7 @@ impl From<&VideoInfo> for opencat_core::resource::catalog::VideoInfoMeta {
         Self {
             width: v.width,
             height: v.height,
-            duration_secs: v.duration_secs,
+            duration_micros: opencat_core::time::optional_secs_to_duration_micros(v.duration_secs),
         }
     }
 }

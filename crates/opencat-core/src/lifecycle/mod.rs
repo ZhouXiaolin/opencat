@@ -440,12 +440,36 @@ fn validate_inputs(
                 }
             }
             ResourceKind::Video => {
-                if !inputs.catalog.videos.contains_key(&req.asset_id) {
+                let Some(meta) = inputs.catalog.videos.get(&req.asset_id) else {
+                    if inputs.catalog.images.contains_key(&req.asset_id)
+                        || inputs.catalog.audios.contains(&req.asset_id)
+                        || inputs.catalog.lotties.contains_key(&req.asset_id)
+                        || inputs.catalog.subtitles.contains_key(&req.asset_id)
+                    {
+                        return Err(PrepareError::InvalidMetadata {
+                            asset_id: req.asset_id.clone(),
+                            kind: req.kind,
+                            reason: "kind mismatch: video required but metadata is not video"
+                                .into(),
+                        });
+                    }
                     return Err(PrepareError::MissingInput {
                         asset_id: req.asset_id.clone(),
                         kind: req.kind,
                     });
+                };
+                if meta.width == 0 || meta.height == 0 {
+                    return Err(PrepareError::InvalidMetadata {
+                        asset_id: req.asset_id.clone(),
+                        kind: req.kind,
+                        reason: format!(
+                            "zero dimensions ({}x{}); layout requires positive size",
+                            meta.width, meta.height
+                        ),
+                    });
                 }
+                // duration_micros may be None (unknown length); that is non-critical
+                // and must not fail prepare — hosts still decode via time_micros.
             }
             ResourceKind::Audio => {
                 if !inputs.catalog.audios.contains(&req.asset_id)
@@ -540,7 +564,7 @@ impl ResourceLocator {
     fn from_video(src: &crate::parse::primitives::VideoSource) -> Self {
         use crate::parse::primitives::VideoSource;
         match src {
-            VideoSource::Path(p) => Self::LogicalPath(p.to_string_lossy().into_owned()),
+            VideoSource::Path(p) => Self::LogicalPath(p.clone()),
             VideoSource::Url(u) => Self::Url(u.clone()),
         }
     }
@@ -824,7 +848,7 @@ mod tests {
                 crate::probe::catalog::VideoInfoMeta {
                     width: 8,
                     height: 8,
-                    duration_ms: None,
+                    duration_micros: None,
                 },
             )
             .unwrap();
@@ -901,6 +925,165 @@ mod tests {
         );
     }
 
+
+
+    /// Contract both engine and web must satisfy for video (#16): logical locator,
+    /// host-supplied `VideoInfoMeta` with microsecond duration, prepare fail-fast
+    /// on zero size, and FrameMediaPlan video requests carrying only
+    /// `(canonical AssetId, authoritative time_micros)`.
+    #[test]
+    fn host_agnostic_video_metadata_and_time_contract() {
+        use crate::ir::draw_types::ImageRef;
+        use crate::probe::catalog::VideoInfoMeta;
+        use crate::time::{secs_to_micros, DurationMicros};
+
+        // JSONL path/locator contract (timing attrs are markup-only today).
+        {
+            let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
+{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
+{"type":"video","id":"vid","parentId":"root","path":"clips/hero.mp4","className":"w-[320px] h-[180px]"}"#;
+            let draft = CompositionDraft::parse(jsonl).expect("parse jsonl");
+            let reqs = draft.requirements().requests();
+            assert_eq!(reqs.len(), 1);
+            assert_eq!(reqs[0].kind, ResourceKind::Video);
+            assert_eq!(reqs[0].asset_id.0, "video:path:clips/hero.mp4");
+            assert!(matches!(
+                &reqs[0].locator,
+                ResourceLocator::LogicalPath(p) if p == "clips/hero.mp4"
+            ));
+            let id = reqs[0].asset_id.clone();
+            let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+            inputs
+                .insert_video(
+                    id.clone(),
+                    VideoInfoMeta {
+                        width: 320,
+                        height: 180,
+                        duration_micros: Some(DurationMicros(secs_to_micros(60.0))),
+                    },
+                )
+                .unwrap();
+            let prepared = draft.prepare(inputs).expect("prepare metadata-only");
+            assert!(prepared.catalog().videos.contains_key(&id));
+            assert_eq!(
+                prepared.catalog().videos[&id].duration_micros,
+                Some(DurationMicros(60_000_000))
+            );
+        }
+
+        // Markup: host metadata + authoritative microsecond media request.
+        let xml = r#"
+            <opencat width="320" height="180" fps="30" duration="4">
+              <div id="root" class="w-[320px] h-[180px]">
+                <video id="vid" path="clips/hero.mp4" class="w-[320px] h-[180px]" data-media-start="12" />
+              </div>
+            </opencat>
+            "#;
+        let draft = CompositionDraft::parse(xml).expect("parse markup");
+        let reqs = draft.requirements().requests();
+        assert_eq!(reqs[0].asset_id.0, "video:path:clips/hero.mp4");
+        let id = reqs[0].asset_id.clone();
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        // Host supplies only metadata — never video bytes.
+        inputs
+            .insert_video(
+                id.clone(),
+                VideoInfoMeta {
+                    width: 320,
+                    height: 180,
+                    duration_micros: Some(DurationMicros(secs_to_micros(60.0))),
+                },
+            )
+            .unwrap();
+        let prepared = draft.prepare(inputs).expect("prepare metadata-only");
+        let mut pipeline = prepared
+            .open_pipeline(NoopJsContext::new().unwrap())
+            .expect("open");
+        // Frame 0 → media time 12s → 12_000_000 µs.
+        let frame = pipeline.render_frame(0).expect("render");
+        assert!(
+            frame.media.video_frames.iter().any(|img| matches!(
+                img,
+                ImageRef::VideoFrame { asset_id, time_micros }
+                    if asset_id == &id.0 && *time_micros == 12_000_000
+            )),
+            "media plan must use request AssetId + authoritative micros; got {:?}",
+            frame.media.video_frames
+        );
+        // No guessed source frame index in the contract — only asset_id + time_micros.
+        for vf in &frame.media.video_frames {
+            assert!(matches!(vf, ImageRef::VideoFrame { .. }));
+        }
+    }
+
+    #[test]
+    fn prepare_errors_on_missing_video_metadata() {
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"video","id":"vid","parentId":"root","path":"clip.mp4"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let err = draft
+            .prepare(HostInputs::empty().with_font_db(test_font_db()))
+            .expect_err("missing video must fail prepare");
+        assert!(matches!(
+            err,
+            PrepareError::MissingInput {
+                kind: ResourceKind::Video,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn prepare_errors_on_zero_size_video_metadata() {
+        use crate::probe::catalog::VideoInfoMeta;
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"video","id":"vid","parentId":"root","path":"clip.mp4"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        inputs
+            .insert_video(
+                id,
+                VideoInfoMeta {
+                    width: 0,
+                    height: 0,
+                    duration_micros: None,
+                },
+            )
+            .unwrap();
+        let err = draft
+            .prepare(inputs)
+            .expect_err("zero-size video must fail prepare");
+        assert!(matches!(
+            err,
+            PrepareError::InvalidMetadata {
+                kind: ResourceKind::Video,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn markup_video_path_stays_logical_even_with_base_dir() {
+        let xml = r#"
+            <opencat width="10" height="10" fps="30" duration="0.1">
+              <div id="root">
+                <video id="vid" path="clips/a.mp4" class="w-[8px] h-[8px]" />
+              </div>
+            </opencat>
+        "#;
+        let base = std::path::Path::new("/host/doc/root");
+        let parsed = crate::parse::markup::parse_with_base_dir(xml, Some(base)).unwrap();
+        let draft = CompositionDraft::from_parsed(parsed);
+        let req = &draft.requirements().requests()[0];
+        assert_eq!(req.asset_id.0, "video:path:clips/a.mp4");
+        assert!(matches!(
+            &req.locator,
+            ResourceLocator::LogicalPath(p) if p == "clips/a.mp4"
+        ));
+    }
 
     // --- Lottie lifecycle (#17) ----------------------------------------------------
 

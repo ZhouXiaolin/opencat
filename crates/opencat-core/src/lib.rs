@@ -38,11 +38,10 @@ pub use self::parse::preflight::{
 pub use self::parse::{ParsedComposition, markup, parse};
 pub use self::pipeline::{DefaultPipeline, Pipeline};
 pub use self::probe::{
-    AudioSource, ByteSource, ImageMeta, ImageSource, PreparedCatalog, ProbeOutcome,
-    ResourceCatalog as ProbeResourceCatalog, SubtitleSource, VideoInfoMeta, VideoSource,
-    build_catalog, hydrate_captions,
+    AudioSource, ByteSource, ImageMeta, ImageSource, PreparedCatalog, PreparedResourceCatalog,
+    ProbeOutcome, SubtitleSource, VideoInfoMeta, VideoSource, build_catalog, hydrate_captions,
 };
-pub use self::resource::catalog::ResourceCatalog;
+pub use self::resource::catalog::ResourceResolver;
 pub use self::resource::hash_map_catalog::{HashMapResourceCatalog, ResourceKind, ResourceMeta};
 pub use self::script::{
     PrecomputedScriptHost, ScriptDriver, ScriptDriverId, ScriptHost, ScriptRunner,

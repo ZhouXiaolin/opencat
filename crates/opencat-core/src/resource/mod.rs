@@ -8,7 +8,7 @@ pub mod probe;
 
 pub use crate::ir::asset_id::*;
 pub use crate::probe::bitmap_source::*;
-pub use catalog::ResourceCatalog;
+pub use catalog::ResourceResolver;
 pub use fonts::{
     FontFaceDecl, FontFamilyIndex, FontManifest, FontRole, FontSource, font_asset_id,
     load_faces_into_db, load_faces_with_fallbacks, merge_faces_into_db,

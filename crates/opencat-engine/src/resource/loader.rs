@@ -13,7 +13,7 @@ use opencat_core::parse::primitives::LottieSource;
 use opencat_core::probe::ResourceRequests;
 use opencat_core::probe::{AudioSource, ImageSource, SubtitleSource, VideoSource};
 use opencat_core::resource::asset_id::{
-    AssetId, asset_id_for_audio_url, asset_id_for_image, asset_id_for_query, asset_id_for_subtitle,
+    AssetId, asset_id_for_audio, asset_id_for_audio_url, asset_id_for_image, asset_id_for_query, asset_id_for_subtitle,
     asset_id_for_url, asset_id_for_video, asset_id_for_video_url,
 };
 use opencat_core::resource::fonts::{FontManifest, font_asset_id};
@@ -287,7 +287,7 @@ impl EngineLoader {
                         let _ = self.fetcher.fetch_bytes(&id, u).await?;
                     }
                     ImageSource::Path(p) => {
-                        copy_local_to_cache(p, &base_dir, &cache_dir, &id)?;
+                        copy_local_to_cache(std::path::Path::new(p), &base_dir, &cache_dir, &id)?;
                     }
                     ImageSource::Query(q) => {
                         let search_id = AssetId(format!("openverse:search:{}", q.query));
@@ -384,34 +384,20 @@ impl EngineLoader {
 }
 
 fn image_asset_id(s: &ImageSource) -> AssetId {
-    match s {
-        ImageSource::Url(u) => asset_id_for_url(u),
-        ImageSource::Path(p) => AssetId(p.to_string_lossy().into_owned()),
-        ImageSource::Query(q) => asset_id_for_query(q),
-        ImageSource::Unset => AssetId(String::new()),
-    }
+    // Always use core's canonical rule — never re-derive (#15).
+    asset_id_for_image(s).unwrap_or_else(|| AssetId(String::new()))
 }
 
 fn video_asset_id(s: &VideoSource) -> AssetId {
-    match s {
-        VideoSource::Url(u) => asset_id_for_video_url(u),
-        VideoSource::Path(p) => AssetId(format!("video:path:{}", p.to_string_lossy())),
-    }
+    asset_id_for_video(s)
 }
 
 fn audio_asset_id(s: &AudioSource) -> AssetId {
-    match s {
-        AudioSource::Url(u) => asset_id_for_audio_url(u),
-        AudioSource::Path(p) => AssetId(format!("audio:path:{}", p.to_string_lossy())),
-        AudioSource::Unset => AssetId(String::new()),
-    }
+    asset_id_for_audio(s).unwrap_or_else(|| AssetId(String::new()))
 }
 
 fn subtitle_asset_id(s: &SubtitleSource) -> AssetId {
-    match s {
-        SubtitleSource::Url(u) => AssetId(format!("subtitle:url:{u}")),
-        SubtitleSource::Path(p) => AssetId(format!("subtitle:path:{}", p.to_string_lossy())),
-    }
+    asset_id_for_subtitle(s)
 }
 
 fn lottie_asset_id(s: &LottieSource) -> AssetId {

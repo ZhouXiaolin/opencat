@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::ir::asset_id::AssetId;
 use crate::parse::primitives::{AudioSource, ImageSource};
-use crate::resource::catalog::{ResourceCatalog, VideoInfoMeta};
+use crate::resource::catalog::{ResourceResolver, VideoInfoMeta};
 
 pub fn mock_font_provider() -> impl crate::text::FontProvider {
     crate::text::DefaultFontProvider::from_arc(Arc::new(crate::text::test_default_font_db()))
@@ -56,7 +56,7 @@ impl TestCatalog {
         match source {
             ImageSource::Unset => anyhow::bail!("image source is required"),
             ImageSource::Path(path) => {
-                let id = AssetId(path.to_string_lossy().into_owned());
+                let id = AssetId(path.clone());
                 self.dims.entry(id.clone()).or_insert((0, 0));
                 Ok(id)
             }
@@ -92,7 +92,7 @@ impl Default for TestCatalog {
     }
 }
 
-impl ResourceCatalog for TestCatalog {
+impl ResourceResolver for TestCatalog {
     fn resolve_image(&mut self, src: &ImageSource) -> anyhow::Result<AssetId> {
         self.register_image_source(src)
     }

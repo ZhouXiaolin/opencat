@@ -11,7 +11,7 @@ pub struct VideoInfoMeta {
     pub duration_secs: Option<f64>,
 }
 
-pub trait ResourceCatalog {
+pub trait ResourceResolver {
     fn resolve_image(&mut self, src: &ImageSource) -> Result<AssetId>;
     fn resolve_audio(&mut self, src: &AudioSource) -> Result<AssetId>;
     fn register_dimensions(&mut self, locator: &str, width: u32, height: u32) -> AssetId;
@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn assets_map_implements_resource_catalog_register_dimensions_returns_stable_id() {
-        let mut catalog: Box<dyn ResourceCatalog> = Box::new(TestCatalog::new());
+        let mut catalog: Box<dyn ResourceResolver> = Box::new(TestCatalog::new());
         let id1 = catalog.register_dimensions("/tmp/a.png", 100, 200);
         let id2 = catalog.register_dimensions("/tmp/a.png", 100, 200);
         assert_eq!(id1, id2);
@@ -70,11 +70,11 @@ mod tests {
     #[test]
     fn assets_map_resolve_image_returns_stable_id_for_path() {
         let mut catalog = TestCatalog::new();
-        let src = ImageSource::Path(std::path::PathBuf::from("/tmp/b.png"));
-        let id1 = (&mut catalog as &mut dyn ResourceCatalog)
+        let src = ImageSource::Path("/tmp/b.png".into());
+        let id1 = (&mut catalog as &mut dyn ResourceResolver)
             .resolve_image(&src)
             .unwrap();
-        let id2 = (&mut catalog as &mut dyn ResourceCatalog)
+        let id2 = (&mut catalog as &mut dyn ResourceResolver)
             .resolve_image(&src)
             .unwrap();
         assert_eq!(id1, id2);
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn assets_map_video_info_returns_none_when_not_probed() {
-        let mut catalog: Box<dyn ResourceCatalog> = Box::new(TestCatalog::new());
+        let mut catalog: Box<dyn ResourceResolver> = Box::new(TestCatalog::new());
         let id = catalog.register_dimensions("/tmp/v.mp4", 0, 0);
         assert!(catalog.video_info(&id).is_none());
     }
@@ -91,7 +91,7 @@ mod tests {
     fn alias_rejects_unknown_target() {
         // AC3: an alias must point at a declared asset; unknown target is a
         // render error, not a silent no-op.
-        let mut catalog: Box<dyn ResourceCatalog> = Box::new(TestCatalog::new());
+        let mut catalog: Box<dyn ResourceResolver> = Box::new(TestCatalog::new());
         let unknown = AssetId("does-not-exist".into());
         let alias = AssetId("aka".into());
         let err = catalog.alias(alias, &unknown).unwrap_err();
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn alias_binds_to_canonical_and_resolves() {
-        let mut catalog: Box<dyn ResourceCatalog> = Box::new(TestCatalog::new());
+        let mut catalog: Box<dyn ResourceResolver> = Box::new(TestCatalog::new());
         let canonical = catalog.register_dimensions("/tmp/a.png", 10, 20);
         let alias = AssetId("hero".into());
         catalog.alias(alias.clone(), &canonical).unwrap();
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn is_known_asset_rejects_unknown_id() {
-        let catalog: Box<dyn ResourceCatalog> = Box::new(TestCatalog::new());
+        let catalog: Box<dyn ResourceResolver> = Box::new(TestCatalog::new());
         assert!(!catalog.is_known_asset(&AssetId("nope".into())));
     }
 }

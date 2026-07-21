@@ -1414,4 +1414,78 @@ mod tests {
         );
     }
 
+    /// Web host contract (#17): draft requirements' bundle AssetId is the only id
+    /// used when inserting Lottie metadata — never re-derived; media plan lists
+    /// Lottie bundles distinctly from ordinary images.
+    #[test]
+    fn web_host_lottie_uses_request_bundle_asset_id() {
+        use opencat_core::ir::draw_op::DrawOp;
+        use opencat_core::lifecycle::{CompositionDraft, HostInputs, ResourceKind, ResourceLocator};
+        use opencat_core::pipeline::Pipeline;
+        use opencat_core::resource::lottie::LottieMeta;
+        use opencat_core::script::js_context::JsContext;
+
+        let markup = r#"
+            <opencat width="32" height="32" fps="30" duration="0.1">
+              <div id="root" class="w-full h-full">
+                <lottie id="loader" path="anim/loader.json" class="w-[16px] h-[16px]" />
+              </div>
+            </opencat>
+        "#;
+
+        let draft = CompositionDraft::parse(markup).expect("parse draft");
+        let req = &draft.requirements().requests()[0];
+        assert_eq!(req.kind, ResourceKind::Lottie);
+        assert_eq!(req.asset_id.0, "lottie:loader");
+        assert!(matches!(
+            &req.locator,
+            ResourceLocator::LogicalPath(p) if p == "anim/loader.json"
+        ));
+
+        let id = req.asset_id.clone();
+        let mut inputs = HostInputs::empty().with_font_db(Arc::new(
+            opencat_core::text::empty_font_db(),
+        ));
+        inputs
+            .insert_lottie(
+                id.clone(),
+                LottieMeta {
+                    width: 40,
+                    height: 30,
+                    fps: 25.0,
+                    in_frame: 0.0,
+                    out_frame: 10.0,
+                    dependencies: vec!["dep.png".into()],
+                },
+            )
+            .expect("insert under request id");
+        let prepared = draft.prepare(inputs).expect("prepare");
+        assert_eq!(
+            prepared.catalog().lotties[&id].dependencies,
+            vec!["dep.png".to_string()]
+        );
+        let ctx = <WebJsContext as JsContext>::new().expect("js");
+        let mut pipeline = prepared.open_pipeline(ctx).expect("open via lifecycle");
+        let frame = pipeline.render_frame(0).expect("render");
+        assert!(
+            frame
+                .media
+                .lottie_bundles
+                .iter()
+                .any(|b| b == "lottie:loader"),
+            "web host media plan must list Lottie bundle; got {:?}",
+            frame.media.lottie_bundles
+        );
+        assert!(
+            frame.media.images.is_empty(),
+            "Lottie must not be disguised as image"
+        );
+        assert!(
+            frame.draw.ops.iter().any(|op| {
+                matches!(op, DrawOp::LottieRect { bundle_id, .. } if bundle_id == "lottie:loader")
+            }),
+            "draw must emit LottieRect"
+        );
+    }
+
 }

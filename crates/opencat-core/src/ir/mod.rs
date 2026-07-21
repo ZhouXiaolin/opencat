@@ -14,4 +14,4 @@ pub use draw_frame::{DrawOpFrame, RenderFrame};
 pub use generated_image::{
     GeneratedImageCollision, GeneratedImageEntry, GeneratedImageId, GeneratedImageTable,
 };
-pub use media_plan::FrameMediaPlan;
+pub use media_plan::{FrameGeneratedImage, FrameMediaPlan};

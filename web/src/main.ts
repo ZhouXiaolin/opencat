@@ -17,6 +17,7 @@ import {
   renderEncodedDrawFrame,
   setWasmBaseUrl,
   setWorkerBaseUrl,
+  type AudioPlan,
   type CompositionFile,
   type CompositionInfo,
   type ResourceMeta,
@@ -25,7 +26,7 @@ import {
 } from 'opencat.js';
 import CanvasKitInit from 'canvaskit-wasm/full';
 import type { CanvasKit, Surface } from 'canvaskit-wasm';
-import { audioPlaybackWindow, playbackPosition } from './playback';
+import { activeSegmentsAt, playbackPosition } from './playback';
 
 type CanvasKitGlobal = typeof globalThis & { __canvasKit?: CanvasKit };
 type ExportProgressStage = 'loading' | 'preparing' | 'rendering' | 'encoding' | 'muxing';
@@ -44,6 +45,8 @@ let isExporting = false;
 
 // --- Resource Metadata for WASM build_frame_ir ---
 let resourceMeta: Record<string, ResourceMeta> = {};
+/** Core-derived audio schedule for the opened design (issue #18). */
+let audioPlan: AudioPlan = { segments: [] };
 
 // --- DOM refs ---
 const fileListEl = document.getElementById('file-list')!;
@@ -232,11 +235,17 @@ async function preloadResources(
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<void> {
   resourceMeta = {};
+  audioPlan = { segments: [] };
 
   const renderer = getRendererOrThrow();
   const catalogJson = await openDesign(compositionSource);
   const catalog = JSON.parse(catalogJson) as Record<string, ResourceMeta>;
   resourceMeta = catalog;
+  try {
+    audioPlan = JSON.parse(renderer.audio_plan()) as AudioPlan;
+  } catch {
+    audioPlan = { segments: [] };
+  }
 
   const totalAssets = Object.keys(catalog).length;
   onProgress?.(0, totalAssets);
@@ -444,16 +453,7 @@ function updateFrameInfo() {
 
 // --- Playback ---
 function hasAudioSources(): boolean {
-  for (const [, meta] of Object.entries(resourceMeta)) {
-    if (meta.kind === 'audio') return true;
-  }
-  return false;
-}
-
-function audioResourceIds(): string[] {
-  return Object.entries(resourceMeta)
-    .filter(([, meta]) => meta.kind === 'audio')
-    .map(([id]) => id);
+  return audioPlan.segments.length > 0;
 }
 
 function schedulePreviewAudio(
@@ -461,19 +461,17 @@ function schedulePreviewAudio(
   frame: number,
 ): void {
   if (!currentComposition) return;
+  if (audioPlan.segments.length === 0) return;
 
-  const audioIds = audioResourceIds();
-  if (audioIds.length === 0) return;
+  const totalFrames = compositionFrameCount(currentComposition);
+  const fps = Math.max(1, currentComposition.fps);
+  const compositionTimeSecs = Math.max(0, frame) / fps;
+  const compositionEndSecs = totalFrames / fps;
+  const active = activeSegmentsAt(audioPlan, compositionTimeSecs, compositionEndSecs);
 
-  const { offsetSecs, durationSecs } = audioPlaybackWindow(
-    frame,
-    currentComposition.fps,
-    compositionFrameCount(currentComposition),
-  );
-
-  for (const id of audioIds) {
+  for (const { assetId, window } of active) {
     try {
-      renderer.play_audio_at(id, offsetSecs, durationSecs);
+      renderer.play_audio_at(assetId, window.offsetSecs, window.durationSecs);
     } catch { /* ignore */ }
   }
 }
@@ -638,10 +636,6 @@ async function handleExport() {
     const comp = currentComposition;
     exportInfoEl.textContent = 'Encoding MP4...';
 
-    const audioIds = Object.entries(resourceMeta)
-      .filter(([, meta]) => meta.kind === 'audio')
-      .map(([id]) => id);
-
     const data = await exportMp4(currentCompositionSource, previewCanvas, comp, resourceMeta, (
       current: number,
       total: number,
@@ -651,7 +645,7 @@ async function handleExport() {
       exportProgressFill.style.width = `${pct}%`;
       btnExport.textContent = `⏳ ${current}/${total}`;
       exportInfoEl.textContent = exportStageLabel(stage);
-    }, audioIds);
+    }, audioPlan);
 
     if (data) {
       downloadMp4(data, currentFile.name);

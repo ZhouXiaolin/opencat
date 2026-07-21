@@ -124,15 +124,13 @@ fn render_pipeline_frame_to_rgba(
 /// Premix the whole composition audio track.
 /// Shared by `render_from_jsonl` and `opencat-see`.
 ///
-/// The audio schedule is derived host-side via
-/// [`crate::audio_plan::collect_audio_plan`] (issue #2 / #11): core no longer
-/// carries an audio plan, so the engine reads the composition and resolves
-/// segment timing itself before decoding and mixing.
+/// Segment timing comes from core [`opencat_core::AudioPlan`] on
+/// `CompositionInfo` (issue #18). The engine only decodes and mixes.
 pub fn build_audio_track_from_pipeline(
     pipeline: &crate::EnginePipeline,
 ) -> Result<Option<AudioTrack>> {
     let info = pipeline.info();
-    let plan = crate::audio_plan::collect_audio_plan(pipeline.composition());
+    let plan = &info.audio_plan;
     if plan.segments.is_empty() {
         return Ok(None);
     }
@@ -152,8 +150,10 @@ pub fn build_audio_track_from_pipeline(
             .local_path()
             .ok_or_else(|| anyhow!("audio {:?}: local_path required", seg.asset))?;
         let clip = decode_audio_to_f32_stereo(path, sample_rate)?;
-        let start_sample = ((seg.start_ms as u64 * sample_rate as u64) / 1000) as usize;
-        let end_sample = ((seg.end_ms as u64 * sample_rate as u64) / 1000) as usize;
+        let start_us = seg.start_micros().0;
+        let end_us = seg.end_micros().0;
+        let start_sample = ((start_us * sample_rate as u64) / 1_000_000) as usize;
+        let end_sample = ((end_us * sample_rate as u64) / 1_000_000) as usize;
         let copy_frames = end_sample
             .saturating_sub(start_sample)
             .min(clip.sample_frames());

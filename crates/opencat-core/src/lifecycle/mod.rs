@@ -1841,4 +1841,116 @@ mod tests {
         }
         assert_eq!(find_caption_entries(&prepared.parsed().root), Some(0));
     }
+
+    /// Host-agnostic AudioPlan contract (#18): core derives typed ranges from
+    /// timeline/scene/transition/explicit duration; hosts only consume the plan.
+    /// Missing non-critical audio metadata must not block prepare.
+    #[test]
+    fn host_agnostic_audio_plan_contract() {
+        use crate::time::{DurationMicros, TimestampMicros};
+
+        // Two scenes + transition; scene-a audio, scene-b audio with trim, timeline BGM.
+        // Scene A: 10/30s, transition: 5/30s, scene B: 20/30s → total 35 frames @ 30fps.
+        let jsonl = r#"{"type":"composition","width":100,"height":100,"fps":30,"duration":1.166666666666}
+{"type":"div","id":"root","parentId":null}
+{"type":"tl","id":"main-tl","parentId":"root"}
+{"type":"div","id":"scene-a","parentId":"main-tl","duration":0.333333333333}
+{"type":"transition","parentId":"main-tl","from":"scene-a","to":"scene-b","effect":"fade","duration":0.166666666666,"timing":"linear"}
+{"type":"div","id":"scene-b","parentId":"main-tl","duration":0.666666666666}
+{"type":"audio","id":"bgm","attach":"main-tl","url":"https://example.com/bgm.mp3"}
+{"type":"audio","id":"a","attach":"scene-a","url":"https://example.com/a.mp3"}
+{"type":"audio","id":"b","attach":"scene-b","url":"https://example.com/b.mp3","duration":0.1}"#;
+
+        let draft = CompositionDraft::parse(jsonl).expect("parse");
+        let reqs = draft.requirements().requests();
+        let audio_reqs: Vec<_> = reqs
+            .iter()
+            .filter(|r| r.kind == ResourceKind::Audio)
+            .collect();
+        assert_eq!(audio_reqs.len(), 3, "three audio requirements");
+        for r in &audio_reqs {
+            assert!(r.asset_id.0.starts_with("audio:url:"));
+        }
+
+        // Audio needs only presence registration — no layout metadata (non-critical).
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        for r in &audio_reqs {
+            inputs.insert_audio(r.asset_id.clone()).unwrap();
+        }
+        let prepared = draft.prepare(inputs).expect("prepare without audio probe meta");
+        let pipeline = prepared
+            .open_pipeline(NoopJsContext::new().unwrap())
+            .expect("open");
+        let plan = &pipeline.info().audio_plan;
+        assert_eq!(plan.segments.len(), 3, "plan segments={:?}", plan.segments);
+
+        // Order follows composition audio_sources declaration: bgm, a, b.
+        let bgm = plan
+            .segments
+            .iter()
+            .find(|s| s.asset.0.contains("bgm"))
+            .expect("bgm");
+        let a = plan
+            .segments
+            .iter()
+            .find(|s| s.asset.0.ends_with("/a.mp3"))
+            .expect("a");
+        let b = plan
+            .segments
+            .iter()
+            .find(|s| s.asset.0.ends_with("/b.mp3"))
+            .expect("b");
+
+        // Timeline BGM spans full composition frame count.
+        assert_eq!(bgm.start_micros(), TimestampMicros(0));
+        assert!(
+            bgm.end_micros().0 > 1_000_000,
+            "bgm should span composition duration, end={}",
+            bgm.end_micros().0
+        );
+
+        // Scene-a starts at 0.
+        assert_eq!(a.start_micros(), TimestampMicros(0));
+        assert!(a.end_micros().0 > 300_000 && a.end_micros().0 < 400_000);
+
+        // Scene-b starts after scene-a + transition (~500ms); explicit duration trims to 100ms.
+        assert!(
+            b.start_micros().0 >= 490_000 && b.start_micros().0 <= 510_000,
+            "scene-b start should include transition offset, got {}",
+            b.start_micros().0
+        );
+        assert_eq!(b.duration_micros(), DurationMicros(100_000));
+        assert_eq!(
+            b.end_micros().0,
+            b.start_micros().0 + 100_000,
+            "explicit duration trims segment"
+        );
+    }
+
+    #[test]
+    fn audio_plan_prepare_does_not_require_audio_probe_fields() {
+        // AC: missing non-critical audio metadata must not fail prepare.
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"audio","id":"bgm","attach":"root","url":"https://example.com/bgm.mp3"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft
+            .requirements()
+            .requests()
+            .iter()
+            .find(|r| r.kind == ResourceKind::Audio)
+            .unwrap()
+            .asset_id
+            .clone();
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        inputs.insert_audio(id).unwrap();
+        let prepared = draft.prepare(inputs).expect("audio presence-only ok");
+        assert!(!prepared
+            .open_pipeline(NoopJsContext::new().unwrap())
+            .unwrap()
+            .info()
+            .audio_plan
+            .segments
+            .is_empty());
+    }
 }

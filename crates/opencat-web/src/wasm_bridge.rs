@@ -321,6 +321,19 @@ impl WebRenderer {
         self.audio.current_time()
     }
 
+    /// Core-derived audio schedule for the opened design.
+    ///
+    /// Shape: `{ segments: [{ assetId, startMicros, endMicros, durationMicros }] }`.
+    /// Hosts must use this for preview/export placement instead of treating every
+    /// audio id as a full-composition track (issue #18).
+    #[wasm_bindgen]
+    pub fn audio_plan(&self) -> Result<String, JsValue> {
+        let info = self.info.as_ref().ok_or_else(|| {
+            JsValue::from_str("audio_plan: no design opened; call open_design first")
+        })?;
+        Ok(audio_plan_to_json(&info.audio_plan))
+    }
+
     /// Load default CJK + emoji fonts. Call before [`open_design`]; the bytes
     /// are merged into the pipeline's font database when a design is opened.
     pub fn load_default_fonts(
@@ -355,6 +368,23 @@ fn srt_text_by_subtitle_id(req: &ResourceRequests) -> HashMap<String, String> {
         }
     }
     srt
+}
+
+/// Serialize core [`opencat_core::AudioPlan`] for web preview/export.
+fn audio_plan_to_json(plan: &opencat_core::AudioPlan) -> String {
+    let segments: Vec<Value> = plan
+        .segments
+        .iter()
+        .map(|seg| {
+            json!({
+                "assetId": seg.asset.0,
+                "startMicros": seg.start_micros().0,
+                "endMicros": seg.end_micros().0,
+                "durationMicros": seg.duration_micros().0,
+            })
+        })
+        .collect();
+    json!({ "segments": segments }).to_string()
 }
 
 /// Serialize a [`FrameMediaPlan`] to the JSON shape JS consumes to drive its

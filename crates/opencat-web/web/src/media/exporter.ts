@@ -1,4 +1,10 @@
-import { compositionFrameCount, type CompositionInfo, type ResourceMeta } from '../types';
+import {
+  compositionFrameCount,
+  type AudioPlan,
+  type AudioPlanSegment,
+  type CompositionInfo,
+  type ResourceMeta,
+} from '../types';
 import { createWasmFaacEncoder, getRendererOrThrow } from '../wasm';
 import { injectVideoFramesForRender } from './video-frame-injector';
 import { renderEncodedDrawFrame } from '../draw-ir';
@@ -8,6 +14,23 @@ import {
 } from './faac-audio-encoder';
 import type { IClip } from '@webav/av-cliper';
 import type { CanvasKit, ColorSpace, Surface, WebGLOptions } from 'canvaskit-wasm';
+
+/** Map composition-time slice onto source offset inside one core AudioPlan segment. */
+function segmentExportSlice(
+  segment: AudioPlanSegment,
+  startSecs: number,
+  durationSecs: number,
+): { offsetSecs: number; durationSecs: number } | null {
+  const segStart = segment.startMicros / 1_000_000;
+  const segEnd = segment.endMicros / 1_000_000;
+  const playStart = Math.max(startSecs, segStart);
+  const playEnd = Math.min(startSecs + durationSecs, segEnd);
+  if (playEnd <= playStart) return null;
+  return {
+    offsetSecs: playStart - segStart,
+    durationSecs: playEnd - playStart,
+  };
+}
 
 export type ExportProgressStage =
   | 'loading'
@@ -71,7 +94,7 @@ class ExportClip implements IClip {
   private fps: number;
   private sampleRate: number;
   private onProgress: ProgressCallback;
-  private audioIds: string[];
+  private audioPlan: AudioPlan;
   private surface: Surface | null;
 
   constructor(
@@ -79,7 +102,7 @@ class ExportClip implements IClip {
     jsonlContent: string,
     comp: CompositionInfo,
     onProgress: ProgressCallback,
-    audioIds: string[],
+    audioPlan: AudioPlan,
   ) {
     this.canvas = canvas;
     this.jsonlContent = jsonlContent;
@@ -88,7 +111,7 @@ class ExportClip implements IClip {
     this.fps = comp.fps;
     this.sampleRate = 48000;
     this.onProgress = onProgress;
-    this.audioIds = audioIds;
+    this.audioPlan = audioPlan;
     this.surface = null;
 
     this.meta = {
@@ -158,9 +181,10 @@ class ExportClip implements IClip {
 
   }
 
-  /// Mix audio samples from all audio sources for a time slice.
+  /// Mix audio samples for a composition-time slice using core AudioPlan.
+  /// Each segment maps composition time onto a source offset inside the asset.
   private mixAudioForFrame(startSecs: number, durationSecs: number): Float32Array[] {
-    if (this.audioIds.length === 0) return [];
+    if (this.audioPlan.segments.length === 0) return [];
 
     const renderer = getRendererOrThrow();
     const frameSamples = Math.ceil(durationSecs * this.sampleRate);
@@ -168,19 +192,32 @@ class ExportClip implements IClip {
     const left = new Float32Array(frameSamples);
     const right = new Float32Array(frameSamples);
 
-    for (const audioId of this.audioIds) {
+    for (const seg of this.audioPlan.segments) {
+      const slice = segmentExportSlice(seg, startSecs, durationSecs);
+      if (!slice) continue;
+
+      // Where this segment first overlaps the composition slice, in sample frames.
+      const segStartSecs = seg.startMicros / 1_000_000;
+      const overlapStartSecs = Math.max(startSecs, segStartSecs);
+      const destOffsetSamples = Math.floor(
+        (overlapStartSecs - startSecs) * this.sampleRate,
+      );
+
       const jsonStr = renderer.get_audio_samples(
-        audioId,
-        startSecs,
-        durationSecs,
+        seg.assetId,
+        slice.offsetSecs,
+        slice.durationSecs,
         this.sampleRate,
       );
       try {
         const parsed = JSON.parse(jsonStr);
         if (parsed.samples && parsed.samples.length > 0) {
-          for (let i = 0; i < Math.min(parsed.samples.length / 2, frameSamples); i++) {
-            left[i] += parsed.samples[i * 2] || 0;
-            right[i] += parsed.samples[i * 2 + 1] || 0;
+          const available = Math.floor(parsed.samples.length / 2);
+          for (let i = 0; i < available; i++) {
+            const dst = destOffsetSamples + i;
+            if (dst < 0 || dst >= frameSamples) continue;
+            left[dst] += parsed.samples[i * 2] || 0;
+            right[dst] += parsed.samples[i * 2 + 1] || 0;
           }
         }
       } catch {
@@ -311,7 +348,7 @@ export async function exportMp4(
   comp: CompositionInfo,
   resourceMeta: Record<string, ResourceMeta>,
   onProgress: ProgressCallback,
-  audioIds: string[],
+  audioPlan: AudioPlan = { segments: [] },
 ): Promise<Uint8Array | null> {
   const { width, height, fps } = comp;
   const totalFrames = compositionFrameCount(comp);
@@ -323,10 +360,10 @@ export async function exportMp4(
   onProgress(0, totalFrames, 'preparing');
   await yieldToBrowser();
   const renderCanvas = createExportCanvas(canvas, width, height);
-  const clip = new ExportClip(renderCanvas, jsonlContent, comp, onProgress, audioIds);
+  const clip = new ExportClip(renderCanvas, jsonlContent, comp, onProgress, audioPlan);
   const spr = new OffscreenSprite(clip);
 
-  let hasAudio = audioIds.length > 0;
+  let hasAudio = audioPlan.segments.length > 0;
   let restoreAudioEncoder: (() => void) | null = null;
   if (hasAudio) {
     const aacSupported = await isAacEncodingSupported();

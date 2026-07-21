@@ -39,6 +39,9 @@ pub enum ResourceKind {
     Audio,
     Subtitle,
     Lottie,
+    /// Document font face from `<fonts>` / `FontManifest`. Stable identity is
+    /// [`crate::resource::fonts::font_asset_id`]; host supplies raw bytes only.
+    Font,
 }
 
 /// Logical resource location. Hosts interpret these against their own document
@@ -56,13 +59,20 @@ pub enum ResourceLocator {
 }
 
 /// Host-supplied inputs for prepare: resource metadata, optional subtitle text,
-/// and the base font database. Building inputs is fallible for duplicates;
-/// prepare is fallible for missing/undeclared entries.
+/// base font database, and document font bytes. Building inputs is fallible for
+/// duplicates; prepare is fallible for missing/undeclared entries.
+///
+/// - `font_db` is the host base database (defaults / system faces). Core never
+///   fetches fonts; it only merges declared document faces over this base.
+/// - Document font bytes are keyed by the canonical font [`AssetId`] from
+///   requirements (`font:path:…` / `font:url:…`), not by markup face id.
 #[derive(Debug, Clone)]
 pub struct HostInputs {
     pub(super) font_db: Arc<fontdb::Database>,
     pub(super) catalog: PreparedResourceCatalog,
     pub(super) subtitle_texts: HashMap<String, String>,
+    /// Declared document font face bytes, keyed by stable font AssetId.
+    pub(super) document_fonts: HashMap<AssetId, Vec<u8>>,
     pub(super) supplied: HashSet<AssetId>,
 }
 
@@ -84,6 +94,8 @@ pub struct PreparedComposition {
 ///   second entry for the same id.
 /// - Declared subtitles may omit text; that is not a missing-input error (empty
 ///   captions), matching `hydrate_captions`.
+/// - Declared document fonts must be supplied as non-empty loadable bytes;
+///   missing or empty fonts fail prepare (fail-fast).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PrepareError {
     /// A declared requirement has no matching host input.

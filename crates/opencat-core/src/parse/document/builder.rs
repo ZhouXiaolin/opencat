@@ -48,10 +48,16 @@ pub fn build_parsed_document(
     options: BuildOptions,
     font_index: Option<&FontFamilyIndex>,
 ) -> anyhow::Result<ParsedComposition> {
-    if let Some(index) = font_index {
+    // Core always applies `font-sans` / `font-[id]` from the document manifest.
+    // Callers may still pass a loaded index (e.g. after face load), but a pure
+    // parse path without host font bytes must resolve the same family names.
+    if !parts.font_manifest.is_empty() {
+        let owned = font_index
+            .cloned()
+            .unwrap_or_else(|| parts.font_manifest.build_family_index());
         parts
             .font_manifest
-            .apply_font_refs_to_styles(index, &mut parts.elements);
+            .apply_font_refs_to_styles(&owned, &mut parts.elements);
     }
 
     let audio_sources: Vec<CompositionAudioSource> = parts

@@ -26,8 +26,11 @@ const DEFAULT_ITEM_RANGE_CAP: usize = 128;
 /// [`ResourceCatalog`], an injected font database, and the parsed composition,
 /// and emits a deterministic [`RenderFrame`] per frame. It owns no loader,
 /// fetcher, cache, or decoder — the host is responsible for all resource
-/// acquisition and prepares the catalog before opening the pipeline via
-/// [`DefaultPipeline::open_with_prepared_catalog`] (issue #2 / #11).
+/// acquisition. Prefer the explicit lifecycle
+/// ([`crate::lifecycle::CompositionDraft`] → prepare →
+/// [`crate::lifecycle::PreparedComposition::open_pipeline`]); the host-injected
+/// [`DefaultPipeline::open_with_prepared_catalog`] entry remains for existing
+/// callers (issue #2 / #11 / #14).
 pub struct DefaultPipeline<S: JsContext> {
     composition: Composition,
     info: CompositionInfo,

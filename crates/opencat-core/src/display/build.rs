@@ -1234,6 +1234,7 @@ mod tests {
             );
         };
         assert_eq!(svg.path_data, vec!["M0 0 L 100 0 L 50 100 Z"]);
+        assert_eq!(svg.view_box, [0.0, 0.0, 100.0, 100.0]);
         assert_eq!(svg.paint.stroke_width, Some(2.0));
         assert_eq!(svg.paint.stroke_color, Some(ColorToken::Blue));
         assert_eq!(

@@ -22,7 +22,6 @@ use crate::parse::composition::Composition;
 use crate::render::RenderCtx;
 use crate::render::builder::DrawOpBuilder;
 use crate::render::media_plan::build_media_plan;
-use crate::resolve::path_bounds::DefaultPathBounds;
 use crate::resolve::resolve::resolve_ui_tree_with_script_cache;
 use crate::resource::catalog::ResourceCatalog;
 use crate::script::ScriptHost;
@@ -56,7 +55,6 @@ pub fn render_frame_with_state(
     )
     .entered();
 
-    let path_bounds = DefaultPathBounds;
     let frame_ctx = FrameCtx {
         frame: frame_index,
         fps: composition.fps,
@@ -79,7 +77,6 @@ pub fn render_frame_with_state(
             catalog,
             None,
             script,
-            &path_bounds,
         )
     })?;
     #[cfg(feature = "profile")]

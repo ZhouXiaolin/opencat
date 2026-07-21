@@ -907,7 +907,7 @@ mod tests {
         let scene = crate::canvas()
             .id("canvas")
             .size(2.0, 1.0)
-            .asset_path("hero", &image_path)
+            .asset_path("hero", image_path.to_string_lossy().into_owned())
             .script_source(
                 r#"
                 const CK = ctx.CanvasKit;

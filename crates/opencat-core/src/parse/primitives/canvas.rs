@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use crate::{
     parse::node::Node,
     parse::primitives::{ImageSource, OpenverseQuery},
@@ -28,8 +26,9 @@ impl Canvas {
         self
     }
 
-    pub fn asset_path(self, asset_id: impl Into<String>, path: impl AsRef<Path>) -> Self {
-        self.asset(asset_id, ImageSource::Path(path.as_ref().to_path_buf()))
+    /// Logical path locator for a canvas asset (host resolves against document base).
+    pub fn asset_path(self, asset_id: impl Into<String>, path: impl Into<String>) -> Self {
+        self.asset(asset_id, ImageSource::Path(path.into()))
     }
 
     pub fn asset_url(self, asset_id: impl Into<String>, url: impl Into<String>) -> Self {

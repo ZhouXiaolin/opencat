@@ -571,7 +571,7 @@ fn parse_image_source(
     }
 
     if let Some(path) = path {
-        return Ok(ImageSource::Path(PathBuf::from(path)));
+        return Ok(ImageSource::Path(path));
     }
 
     if let Some(url) = url {

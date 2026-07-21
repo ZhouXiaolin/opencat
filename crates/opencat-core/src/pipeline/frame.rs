@@ -23,7 +23,7 @@ use crate::render::RenderCtx;
 use crate::render::builder::DrawOpBuilder;
 use crate::render::media_plan::build_media_plan;
 use crate::resolve::resolve::resolve_ui_tree_with_script_cache;
-use crate::resource::catalog::ResourceCatalog;
+use crate::resource::catalog::ResourceResolver;
 use crate::script::ScriptHost;
 use crate::text::DefaultFontProvider;
 
@@ -36,7 +36,7 @@ pub fn render_frame_with_state(
     composite_history: &mut CompositeHistory,
     analyze_fingerprint_history: &mut AnalyzeFingerprintHistory,
     font_db: &Arc<fontdb::Database>,
-    catalog: &mut dyn ResourceCatalog,
+    catalog: &mut dyn ResourceResolver,
     cache: &mut RenderCache,
     last_ordered_scene: &mut OrderedSceneProgram,
     script: &mut dyn ScriptHost,

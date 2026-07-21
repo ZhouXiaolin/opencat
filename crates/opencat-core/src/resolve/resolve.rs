@@ -618,6 +618,7 @@ fn resolve_lottie(lottie: &Lottie, cx: &mut ResolveContext<'_>) -> Result<Elemen
                     fps: 30.0,
                     in_frame: 0.0,
                     out_frame: 30.0,
+                    dependencies: vec![],
                 });
 
         Ok(ElementNode {

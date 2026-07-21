@@ -282,7 +282,7 @@ impl HostInputs {
                     self.insert_audio(req.asset_id.clone())?;
                 }
                 ResourceKind::Lottie => {
-                    let Some(meta) = probed.lotties.get(&req.asset_id).copied() else {
+                    let Some(meta) = probed.lotties.get(&req.asset_id).cloned() else {
                         return Err(PrepareError::MissingInput {
                             asset_id: req.asset_id.clone(),
                             kind: req.kind,
@@ -482,10 +482,56 @@ fn validate_inputs(
                 }
             }
             ResourceKind::Lottie => {
-                if !inputs.catalog.lotties.contains_key(&req.asset_id) {
+                let Some(meta) = inputs.catalog.lotties.get(&req.asset_id) else {
+                    if inputs.catalog.images.contains_key(&req.asset_id)
+                        || inputs.catalog.videos.contains_key(&req.asset_id)
+                        || inputs.catalog.audios.contains(&req.asset_id)
+                        || inputs.catalog.subtitles.contains_key(&req.asset_id)
+                    {
+                        return Err(PrepareError::InvalidMetadata {
+                            asset_id: req.asset_id.clone(),
+                            kind: req.kind,
+                            reason: "kind mismatch: lottie required but metadata is not lottie"
+                                .into(),
+                        });
+                    }
                     return Err(PrepareError::MissingInput {
                         asset_id: req.asset_id.clone(),
                         kind: req.kind,
+                    });
+                };
+                if meta.width == 0 || meta.height == 0 {
+                    return Err(PrepareError::InvalidMetadata {
+                        asset_id: req.asset_id.clone(),
+                        kind: req.kind,
+                        reason: format!(
+                            "zero dimensions ({}x{}); layout requires positive size",
+                            meta.width, meta.height
+                        ),
+                    });
+                }
+                if !meta.fps.is_finite() || meta.fps <= 0.0 {
+                    return Err(PrepareError::InvalidMetadata {
+                        asset_id: req.asset_id.clone(),
+                        kind: req.kind,
+                        reason: format!("invalid fps {}; timing requires positive finite fps", meta.fps),
+                    });
+                }
+                if !meta.in_frame.is_finite() || !meta.out_frame.is_finite() {
+                    return Err(PrepareError::InvalidMetadata {
+                        asset_id: req.asset_id.clone(),
+                        kind: req.kind,
+                        reason: "non-finite frame range".into(),
+                    });
+                }
+                if meta.out_frame <= meta.in_frame {
+                    return Err(PrepareError::InvalidMetadata {
+                        asset_id: req.asset_id.clone(),
+                        kind: req.kind,
+                        reason: format!(
+                            "invalid frame range [{}, {}]; out_frame must be greater than in_frame",
+                            meta.in_frame, meta.out_frame
+                        ),
                     });
                 }
             }
@@ -543,7 +589,7 @@ impl ResourceLocator {
     fn from_lottie(src: &LottieSource) -> Self {
         match src {
             LottieSource::Unset => Self::Unset,
-            LottieSource::Path(p) => Self::LogicalPath(p.to_string_lossy().into_owned()),
+            LottieSource::Path(p) => Self::LogicalPath(p.clone()),
             LottieSource::Url(u) => Self::Url(u.clone()),
         }
     }
@@ -880,6 +926,7 @@ mod tests {
     }
 
 
+
     /// Contract both engine and web must satisfy for video (#16): logical locator,
     /// host-supplied `VideoInfoMeta` with microsecond duration, prepare fail-fast
     /// on zero size, and FrameMediaPlan video requests carrying only
@@ -1036,6 +1083,225 @@ mod tests {
             &req.locator,
             ResourceLocator::LogicalPath(p) if p == "clips/a.mp4"
         ));
+    }
+
+    // --- Lottie lifecycle (#17) ----------------------------------------------------
+
+    #[test]
+    fn draft_requirements_list_declared_lottie_with_canonical_id() {
+        // Markup only: JSONL has no lottie line type yet.
+        let markup = r#"
+            <opencat width="10" height="10" fps="30" duration="0.1">
+              <div id="root">
+                <lottie id="loader" path="anim/loader.json" />
+              </div>
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(markup).unwrap();
+        let reqs = draft.requirements().requests();
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].kind, ResourceKind::Lottie);
+        assert_eq!(reqs[0].asset_id.0, "lottie:loader");
+        assert!(matches!(
+            &reqs[0].locator,
+            ResourceLocator::LogicalPath(p) if p == "anim/loader.json"
+        ));
+    }
+
+    #[test]
+    fn prepare_errors_on_missing_lottie_metadata() {
+        let markup = r#"
+            <opencat width="10" height="10" fps="30" duration="0.1">
+              <div id="root">
+                <lottie id="loader" path="anim/loader.json" />
+              </div>
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(markup).unwrap();
+        let err = draft
+            .prepare(HostInputs::empty().with_font_db(test_font_db()))
+            .expect_err("missing lottie must fail prepare");
+        assert!(matches!(
+            err,
+            PrepareError::MissingInput {
+                kind: ResourceKind::Lottie,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn prepare_errors_on_invalid_lottie_layout_or_timing_metadata() {
+        use crate::resource::lottie::LottieMeta;
+        let markup = r#"
+            <opencat width="10" height="10" fps="30" duration="0.1">
+              <div id="root">
+                <lottie id="loader" path="anim/loader.json" />
+              </div>
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(markup).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        inputs
+            .insert_lottie(
+                id.clone(),
+                LottieMeta {
+                    width: 0,
+                    height: 100,
+                    fps: 25.0,
+                    in_frame: 0.0,
+                    out_frame: 10.0,
+                    dependencies: vec![],
+                },
+            )
+            .unwrap();
+        let err = draft
+            .clone()
+            .prepare(inputs)
+            .expect_err("zero width must fail");
+        assert!(matches!(
+            err,
+            PrepareError::InvalidMetadata {
+                kind: ResourceKind::Lottie,
+                ..
+            }
+        ));
+
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        inputs
+            .insert_lottie(
+                id.clone(),
+                LottieMeta {
+                    width: 100,
+                    height: 100,
+                    fps: 0.0,
+                    in_frame: 0.0,
+                    out_frame: 10.0,
+                    dependencies: vec![],
+                },
+            )
+            .unwrap();
+        let err = draft
+            .clone()
+            .prepare(inputs)
+            .expect_err("zero fps must fail");
+        assert!(matches!(
+            err,
+            PrepareError::InvalidMetadata {
+                kind: ResourceKind::Lottie,
+                ..
+            }
+        ));
+
+        let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+        inputs
+            .insert_lottie(
+                id,
+                LottieMeta {
+                    width: 100,
+                    height: 100,
+                    fps: 25.0,
+                    in_frame: 10.0,
+                    out_frame: 10.0,
+                    dependencies: vec![],
+                },
+            )
+            .unwrap();
+        let err = draft.prepare(inputs).expect_err("empty frame range must fail");
+        assert!(matches!(
+            err,
+            PrepareError::InvalidMetadata {
+                kind: ResourceKind::Lottie,
+                ..
+            }
+        ));
+    }
+
+    /// Contract both engine and web must satisfy for Lottie (#17):
+    /// requirements emit canonical bundle AssetId + kind + logical locator;
+    /// prepare only consumes LottieMeta (width/height/fps/frame range/deps);
+    /// RenderFrame emits Lottie DrawOp + deduped lottie_bundles (not as image).
+    #[test]
+    fn host_agnostic_lottie_contract() {
+        use crate::ir::draw_op::DrawOp;
+        use crate::resource::lottie::LottieMeta;
+
+        let sources = [
+            r#"
+            <opencat width="64" height="64" fps="30" duration="0.1">
+              <div id="root" class="w-full h-full">
+                <lottie id="loader" path="anim/loader.json" class="w-[32px] h-[32px]" />
+              </div>
+            </opencat>
+            "#,
+        ];
+        for input in sources {
+            let draft = CompositionDraft::parse(input).expect("parse");
+            let reqs = draft.requirements().requests();
+            assert_eq!(reqs.len(), 1);
+            assert_eq!(reqs[0].kind, ResourceKind::Lottie);
+            assert_eq!(reqs[0].asset_id.0, "lottie:loader");
+            assert!(matches!(
+                &reqs[0].locator,
+                ResourceLocator::LogicalPath(p) if p == "anim/loader.json"
+            ));
+
+            let id = reqs[0].asset_id.clone();
+            let mut inputs = HostInputs::empty().with_font_db(test_font_db());
+            // Host supplies only metadata — never Lottie JSON/bytes — under request id.
+            inputs
+                .insert_lottie(
+                    id.clone(),
+                    LottieMeta {
+                        width: 280,
+                        height: 200,
+                        fps: 25.0,
+                        in_frame: 0.0,
+                        out_frame: 32.0,
+                        dependencies: vec!["image_0.png".into()],
+                    },
+                )
+                .unwrap();
+            let prepared = draft.prepare(inputs).expect("prepare metadata-only");
+            let stored = prepared.catalog().lotties.get(&id).expect("catalog lottie");
+            assert_eq!(stored.width, 280);
+            assert_eq!(stored.height, 200);
+            assert_eq!(stored.fps, 25.0);
+            assert_eq!(stored.dependencies, vec!["image_0.png".to_string()]);
+
+            let mut pipeline = prepared
+                .open_pipeline(NoopJsContext::new().unwrap())
+                .expect("open");
+            let frame = pipeline.render_frame(0).expect("render");
+            assert!(
+                frame.media.lottie_bundles.iter().any(|b| b == &id.0),
+                "media plan must list Lottie bundle under request AssetId; got {:?}",
+                frame.media.lottie_bundles
+            );
+            // Not disguised as a static image.
+            assert!(
+                frame.media.images.is_empty(),
+                "Lottie must not appear as ordinary image; got {:?}",
+                frame.media.images
+            );
+            let lottie_frame = frame.draw.ops.iter().find_map(|op| match op {
+                DrawOp::LottieRect { bundle_id, frame, .. } if bundle_id == &id.0 => Some(*frame),
+                _ => None,
+            });
+            let lottie_frame = lottie_frame.unwrap_or_else(|| {
+                panic!(
+                    "draw ops must include LottieRect for {}; ops={:?}",
+                    id.0, frame.draw.ops
+                )
+            });
+            // frame 0 @ 30fps, meta fps 25, media_start 0 → local frame 0
+            assert!(
+                (lottie_frame - 0.0).abs() < 0.01,
+                "frame mapping for t=0 must be in_frame; got {lottie_frame}"
+            );
+        }
     }
 
     /// Contract both engine and web must satisfy for static images (#15):

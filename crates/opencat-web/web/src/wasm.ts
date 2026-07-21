@@ -35,6 +35,8 @@ export interface WebRendererInstance {
   set_audio_volume(volume: number): void;
   clear_audio_cache(): void;
   audio_context_time(): number;
+  /** Core AudioPlan JSON: `{ segments: [{ assetId, startMicros, endMicros, durationMicros }] }`. */
+  audio_plan(): string;
 }
 
 interface WasmFaacEncoderInstance {
@@ -84,6 +86,16 @@ export async function preloadAssets(compositionSource: string): Promise<string> 
 export async function openDesign(compositionSource: string): Promise<string> {
   if (!renderer) throw new Error('WASM renderer not initialized');
   return await renderer.open_design(compositionSource);
+}
+
+/** Core AudioPlan for the opened design (`{ segments: [...] }`). */
+export function getAudioPlan(): import('./types').AudioPlan {
+  if (!renderer) throw new Error('WASM renderer not initialized');
+  try {
+    return JSON.parse(renderer.audio_plan()) as import('./types').AudioPlan;
+  } catch {
+    return { segments: [] };
+  }
 }
 
 export function getBlobBytes(assetId: string): Uint8Array | undefined {

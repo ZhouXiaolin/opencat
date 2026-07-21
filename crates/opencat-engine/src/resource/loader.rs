@@ -63,12 +63,19 @@ impl EngineLoader {
             return Ok(std::collections::HashMap::new());
         }
         let cache_dir = self.cache_dir.clone();
+        let base_dir = self._base_dir.clone();
         let mut out = std::collections::HashMap::new();
         for face in &manifest.faces {
             let bytes = match &face.source {
                 opencat_core::resource::fonts::FontSource::Path(path) => {
-                    std::fs::read(path).with_context(|| {
-                        format!("read font `{}` from {}", face.id, path.display())
+                    // Manifest path is a logical locator; join document base when relative.
+                    let resolved = if path.is_absolute() {
+                        path.clone()
+                    } else {
+                        base_dir.join(path)
+                    };
+                    std::fs::read(&resolved).with_context(|| {
+                        format!("read font `{}` from {}", face.id, resolved.display())
                     })?
                 }
                 opencat_core::resource::fonts::FontSource::Url(url) => {
@@ -546,7 +553,7 @@ mod tests {
     }
 
     #[test]
-    fn load_font_manifest_reads_parser_resolved_relative_path_once() {
+    fn load_font_manifest_joins_logical_path_against_base_dir() {
         let tmp = tempfile::tempdir_in(".").unwrap();
         let base_dir = tmp.path().join("examples");
         let assets_dir = tmp.path().join("assets");
@@ -554,14 +561,14 @@ mod tests {
         std::fs::create_dir_all(&base_dir).unwrap();
         std::fs::create_dir_all(&assets_dir).unwrap();
 
-        let font_path = base_dir.join("../assets/test.otf");
-        std::fs::write(&font_path, b"font bytes").unwrap();
+        // Logical relative path from document base (examples/) → ../assets/test.otf
+        std::fs::write(assets_dir.join("test.otf"), b"font bytes").unwrap();
         let manifest = FontManifest {
             default_face_id: Some("sans".to_string()),
             faces: vec![FontFaceDecl {
                 id: "sans".to_string(),
                 family: Some("Test Sans".to_string()),
-                source: FontSource::Path(font_path),
+                source: FontSource::Path(std::path::PathBuf::from("../assets/test.otf")),
                 role: None,
             }],
         };

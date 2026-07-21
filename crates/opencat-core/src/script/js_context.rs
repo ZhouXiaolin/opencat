@@ -1,8 +1,12 @@
 //! 端侧 JS 运行环境的最小抽象。
 //!
 //! engine 用 rquickjs 实现；web wasm32 将用 js_sys + wasm-bindgen 实现。
-//! core 的脚本调度流程（reset / set ctx / call run / call flush / snapshot）
-//! 只通过本 trait 操作 JS 环境，不依赖任何具体 JS 引擎类型。
+//! core 的脚本调度（frame context / install / run / flush / mutation snapshot）
+//! 集中在 [`crate::script::ScriptRealm`]，只通过本 trait 操作 JS 环境。
+//!
+//! **Isolation unit is one pipeline = one realm.** Each `JsContext::new()` must
+//! yield a private environment. Correctness must not depend on rebinding a
+//! process-wide `globalThis` when multiple pipelines coexist (issue #20).
 //!
 //! binding 的派发逻辑集中在 [`crate::script::dispatch::dispatch_binding`]；端侧
 //! 只需通过 [`JsContext::install_dispatcher`] 把它桥接到约定的 native 入口
@@ -11,7 +15,7 @@
 use crate::script::recorder::MutationStore;
 
 pub trait JsContext: Sized {
-    /// 构造一个全新的 JS 运行环境实例。
+    /// 构造一个全新的、与其他 pipeline 隔离的 JS 运行环境实例。
     fn new() -> anyhow::Result<Self>;
 
     /// 执行一段 JS 代码。
@@ -32,16 +36,21 @@ pub trait JsContext: Sized {
     /// 2. 取出 `&mut MutationStore`；
     /// 3. 调用 `dispatcher(store, name, &args)`；
     /// 4. 把返回值编码回端侧 JS Value。
+    ///
+    /// Dispatcher must stay bound to **this** context's store for the lifetime
+    /// of the realm; multi-pipeline correctness must not require rebinding a
+    /// shared process global.
     fn install_dispatcher<F>(&self, dispatcher: F) -> anyhow::Result<()>
     where
         F: Fn(&mut MutationStore, &str, &[serde_json::Value]) -> anyhow::Result<serde_json::Value>
             + 'static;
 
-    /// 在 `run_into` 开头调用，确保 `__opencatCallNative` 指向当前 runner 的 store。
-    ///
-    /// Engine 端（rquickjs）每个 Context 隔离，无需操作；Web 端共享全局作用域，
-    /// 必须重新绑定 `globalThis.__opencatCallNative`。
-    fn rebind_dispatcher(&self) -> anyhow::Result<()>;
+    /// Optional no-op for backends that already keep dispatcher private to the
+    /// realm. Kept for expand-phase compatibility; new code should not rely on
+    /// this for multi-pipeline isolation.
+    fn rebind_dispatcher(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
 
     /// 借出内部 MutationStore 让 core 流程读写。
     fn with_store_mut<R>(&self, f: impl FnOnce(&mut MutationStore) -> R) -> R;

@@ -52,8 +52,8 @@ pub use self::probe::{
 pub use self::resource::catalog::ResourceResolver;
 pub use self::resource::hash_map_catalog::{HashMapResourceCatalog, ResourceKind, ResourceMeta};
 pub use self::script::{
-    PrecomputedScriptHost, ScriptDriver, ScriptDriverId, ScriptHost, ScriptRunner,
-    ScriptRuntimeCache,
+    PrecomputedScriptHost, ScriptDriver, ScriptDriverId, ScriptHost, ScriptRealm, ScriptRunner,
+    ScriptRuntimeCache, asset_id_for_script_locator,
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use self::test_support::TestCatalog;

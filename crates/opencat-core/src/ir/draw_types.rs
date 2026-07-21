@@ -49,7 +49,9 @@ pub struct TableRange {
 /// - [`ImageRef::VideoFrame`] — a host-decoded video frame, by canonical id + the
 ///   authoritative `time_micros`.
 /// - [`ImageRef::Generated`] — a core-rasterized image (e.g. color-emoji bitmap
-///   glyph) owned by the pipeline's [`GeneratedImageTable`](super::GeneratedImageTable).
+///   glyph). RGBA for the current frame is in
+///   [`FrameMediaPlan::generated_images`](super::FrameMediaPlan); `id` is the
+///   stable cache key hosts use for platform image reuse.
 ///
 /// A video frame reference carries only the canonical `AssetId` and the
 /// authoritative target `time_micros`. It intentionally does NOT carry a
@@ -65,9 +67,9 @@ pub enum ImageRef {
         asset_id: String,
         time_micros: u64,
     },
-    /// A core-generated image (color emoji). The RGBA lives in the pipeline's
-    /// generated-image table, not in any external asset store; `id` is the
-    /// deterministic glyph cache key. Hosts never re-parse fonts for this.
+    /// A core-generated image (color emoji). Full RGBA for this frame is in
+    /// [`FrameMediaPlan::generated_images`](super::FrameMediaPlan); `id` is
+    /// the deterministic glyph cache key. Hosts never re-parse fonts for this.
     Generated {
         id: super::generated_image::GeneratedImageId,
     },

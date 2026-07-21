@@ -5,7 +5,6 @@ mod replay;
 use opencat_core::ir::cache::CachedDrawRange;
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
-use crate::consumer::RenderSessionHeader;
 use skia_safe::{Canvas, Image, Paint, PathBuilder, RuntimeEffect, skottie::Animation};
 use std::collections::HashMap;
 use std::path::Path;
@@ -79,7 +78,6 @@ pub struct EnginePreparedFrameMedia {
 impl EngineDrawExecutor {
     pub fn execute(
         &mut self,
-        _header: &RenderSessionHeader,
         draw: &DrawOpFrame,
         media: &EnginePreparedFrameMedia,
         target: &mut Canvas,

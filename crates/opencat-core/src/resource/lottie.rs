@@ -40,7 +40,7 @@ pub fn resolve_lottie_frame(
     let info = crate::resource::catalog::VideoInfoMeta {
         width: meta.width,
         height: meta.height,
-        duration_secs: Some(meta.duration_secs()),
+        duration_micros: crate::time::optional_secs_to_duration_micros(Some(meta.duration_secs())),
     };
     let time_secs = request.resolve_time_secs(&info);
     let frame = meta.in_frame + time_secs as f32 * meta.fps;

@@ -44,7 +44,7 @@ pub async fn preload_requests(
         let id = asset_id_for_video(source);
         let bytes = match source {
             VideoSource::Url(url) => fetch_url(url).await?,
-            VideoSource::Path(path) => asset_reader::read_path(&path.to_string_lossy()).await?,
+            VideoSource::Path(path) => asset_reader::read_path(path).await?,
         };
         let probe = probe_video(&bytes)?;
         blobs.insert(id.clone(), Arc::from(bytes));
@@ -52,7 +52,7 @@ pub async fn preload_requests(
             &id.0,
             probe.width,
             probe.height,
-            probe.duration_ms.map(|ms| ms as f64 / 1000.0),
+            probe.duration_secs(),
         );
     }
 

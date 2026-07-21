@@ -517,6 +517,58 @@ mod tests {
         );
     }
 
+    /// #16: boundary / out-of-order / repeated frames all yield the same
+    /// authoritative `time_micros` for a given composition frame index.
+    #[test]
+    fn render_frame_video_time_micros_boundary_and_repeat() {
+        use crate::ir::draw_types::ImageRef;
+
+        let xml = r#"<opencat width="320" height="180" fps="30" duration="5">
+  <div id="root" class="w-[320px] h-[180px]">
+    <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" data-media-start="1.5" />
+  </div>
+</opencat>"#;
+        let mut pipeline = open_host_injected(xml);
+
+        // Frame 0 → 1.5s → 1_500_000 µs
+        let f0 = pipeline.render_frame(0).expect("f0");
+        let ImageRef::VideoFrame {
+            time_micros: t0, ..
+        } = &f0.media.video_frames[0]
+        else {
+            panic!("expected video frame at 0");
+        };
+        assert_eq!(*t0, 1_500_000);
+
+        // Frame 45 (1.5s composition) → media 3.0s
+        let f45 = pipeline.render_frame(45).expect("f45");
+        let ImageRef::VideoFrame {
+            time_micros: t45, ..
+        } = &f45.media.video_frames[0]
+        else {
+            panic!("expected video frame at 45");
+        };
+        assert_eq!(*t45, 3_000_000);
+
+        // Out of order back to 0, then repeat — same micros.
+        let f0_again = pipeline.render_frame(0).expect("f0 again");
+        let ImageRef::VideoFrame {
+            time_micros: t0b, ..
+        } = &f0_again.media.video_frames[0]
+        else {
+            panic!("expected video frame at 0 again");
+        };
+        assert_eq!(*t0b, *t0);
+        let f0_repeat = pipeline.render_frame(0).expect("f0 repeat");
+        let ImageRef::VideoFrame {
+            time_micros: t0c, ..
+        } = &f0_repeat.media.video_frames[0]
+        else {
+            panic!("expected video frame on repeat");
+        };
+        assert_eq!(*t0c, *t0);
+    }
+
     #[cfg(feature = "profile")]
     #[test]
     fn render_frame_emits_profile_events_for_each_frame() {

@@ -1,4 +1,6 @@
 export type {
+  AudioPlan,
+  AudioPlanSegment,
   CompositionFile,
   CompositionInfo,
   ResourceMeta,
@@ -9,6 +11,7 @@ export {
   blobCount,
   clearAssetReader,
   clearBlobs,
+  getAudioPlan,
   getBlobBytes,
   getRenderer,
   getRendererOrThrow,

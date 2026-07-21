@@ -16,6 +16,7 @@ declare module '../pkg/opencat_web.js' {
     set_audio_volume(volume: number): void;
     clear_audio_cache(): void;
     audio_context_time(): number;
+    audio_plan(): string;
   }
 
   export function preload_assets(compositionSource: string): Promise<string>;

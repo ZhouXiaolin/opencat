@@ -10,13 +10,11 @@ pub mod layout;
 pub mod media;
 pub mod parse;
 pub mod pipeline;
-pub mod platform;
 pub mod probe;
 pub mod profile;
 pub mod render;
 pub mod resolve;
 pub mod resource;
-pub mod runtime;
 pub mod script;
 pub mod semantic;
 pub mod style;
@@ -27,14 +25,13 @@ pub mod test_support;
 
 pub use self::frame_ctx::FrameCtx;
 pub use self::ir::asset_id::AssetId;
-pub use self::media::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality};
+pub use self::media::{VideoFrameRequest, VideoFrameTiming};
 pub use self::parse::node::Node;
 pub use self::parse::preflight::{
-    collect_external_manifest, collect_resource_requests, collect_resource_requests_from_parsed,
+    collect_resource_requests, collect_resource_requests_from_parsed,
 };
 pub use self::parse::{ParsedComposition, markup, parse};
 pub use self::pipeline::{DefaultPipeline, Pipeline};
-pub use self::platform::video::{FrameBitmap, VideoFrameProvider};
 pub use self::probe::{
     AudioSource, ByteSource, ImageMeta, ImageSource, PreparedCatalog, ProbeOutcome,
     ResourceCatalog as ProbeResourceCatalog, SubtitleSource, VideoInfoMeta, VideoSource,
@@ -42,7 +39,6 @@ pub use self::probe::{
 };
 pub use self::resource::catalog::ResourceCatalog;
 pub use self::resource::hash_map_catalog::{HashMapResourceCatalog, ResourceKind, ResourceMeta};
-pub use self::runtime::session::RenderSession;
 pub use self::script::{
     PrecomputedScriptHost, ScriptDriver, ScriptDriverId, ScriptHost, ScriptRunner,
     ScriptRuntimeCache,

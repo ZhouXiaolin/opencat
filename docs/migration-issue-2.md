@@ -11,10 +11,9 @@
 > **core 尽可能精简，下载 / 视频解码 / 编码 / 音频调度等执行逻辑交各端；但两端
 > 确实相同的代码仍留在 core。**
 
-这是本次“删什么 / 留什么”的判据。`#11` 的字面验收清单里有些项（audio plan、
-resolver、preload、frame consumer）听起来像“执行 seam”，但落到代码上，部分是
-两端共用的纯派生数据或共用 trait —— 移走只会复制一份。这些保留在 core，理由见
-[§保留项与理由](#保留项与理由)。
+这是本次“删什么 / 留什么”的判据。下载、存储、预加载、解码质量和 seek 策略已经
+由 engine/web 的具体模块直接承担，不再为了共享少量代码而在 core 建 host trait。
+core 只保留资源声明、稳定 ID、纯 metadata probe、时间映射和渲染派生语义。
 
 ## 主链
 
@@ -88,14 +87,21 @@ engine 的 `build_audio_track_from_pipeline` 现在本地 `collect_audio_plan(pi
 
 `RenderCtx.blob_store: Option<&dyn BlobStore>` 及 `render_frame_with_state` /
 `render_frame` 的 `blob_store` 参数在生产路径上恒为 `None` 且从不 `.read()`，已删
-除字段与透传。**`BlobStore` trait 本身保留**（web 的 BlobStore 结构仍 impl 它，
-属两端共用，见下）。
+除字段与透传。core `BlobStore` trait 同样删除；web 保留自己的具体 `BlobStore`。
 
 ### 死代码清理
 
-`resource::protocol::{IndexedResourceProvider, ByteStore}`（仅注释/内部引用，无 host
-使用）已删。`TypefaceRequest` 经核实是 `MapResourceProvider` 字体表的活用 key，
-**保留**。
+以下 core 执行模块及兼容入口已删除：
+
+- `resource::{resolver, preload, blob_store, host_bridge, manifest, materialize, preload_lottie, protocol}`
+- `media::{codec, export, preview, seek}` 与 `platform::{video, frame_consumer}`
+- `runtime::session::RenderSession` 及旧 `pipeline::frame::render_frame` 包装
+
+engine 未被消费的 resource provider 构建链直接删除。web 直接用端侧 `BlobStore` 和
+稳定 `AssetId` 约定提供 CanvasKit Lottie 依赖，不再经过 core provider/manifest。
+
+core 解析不再读取 SRT、检查字体文件是否存在或读取/下载字体。解析只产生路径和 URL
+声明；字幕 hydrate、字体读取和字体数据库装配由 host 完成。
 
 ## Host 职责（打开 pipeline 前必须完成）
 
@@ -112,61 +118,56 @@ engine 的 `build_audio_track_from_pipeline` 现在本地 `collect_audio_plan(pi
 
 ## 保留项与理由
 
-下列项在 `#11` 字面清单中出现过，但经探索确认是 **engine 与 web 两端共用** 的
-抽象或纯派生数据。移走只会复制一份，违反“两端相同代码留 core”原则，故保留：
+core 目前保留的资源/端侧相关 seam 都有稳定语义，或已有两个真实 adapter：
 
 | 符号 | 位置 | 保留理由 |
 |------|------|----------|
-| `ResourceProvider` / `MapResourceProvider` / `ResourceLookup` / `TypefaceRequest` | core `resource/protocol.rs` | 两端 Skottie / CanvasKit Lottie bundle 的统一 `(path,name)→bytes` 协议，两端 hydrate 都用它 |
-| `ExternalResourceManifest` / `build_manifest` / `collect_external_manifest` | core `resource/manifest.rs`、`parse/preflight.rs` | 纯派生元数据，两端都用它 hydrate provider |
-| `materialize` / `host_bridge`（`hydrate_provider_from_bytes` 等） | core `resource/materialize.rs`、`host_bridge.rs` | 依赖上面的 manifest+provider，两端共用 |
-| `AssetResolver` / `UrlFetcher` / `AssetSink` / `*Meta` | core `resource/resolver.rs` | 两端各自实现 trait，但 trait 定义与解析协议共用 |
-| `preload_all` / `preload_lottie` | core `resource/preload.rs`、`preload_lottie.rs` | 纯编排，两端都调用 |
-| `BlobStore` trait（仅 trait，不含已删死字段） | core `resource/blob_store.rs` | web 的 `BlobStore` 结构 impl 它，两端共用 |
-| `VideoPreviewQuality` | core `media/types.rs` | 两端视频解码器共用的质量枚举 |
-| `FrameConsumer` / `RenderSessionHeader`（trait 形状） | 现各 host 本地 | 形状保持一致；core 不再定义，但 trait 契约由两端共同维护 |
+| `ResourceRequests` / `AssetId` | core `probe/catalog.rs`、`ir/asset_id.rs` | 跨端声明和稳定身份，不包含获取、存储或执行策略 |
+| `parse_lottie_meta` / `scan_lottie_dependencies` | core `resource/lottie.rs` | 对已注入 JSON 的纯解析，不读取或下载资源 |
+| `VideoFrameRequest` / `VideoFrameTiming` | core `media/types.rs` | 只表达可见性和 composition time 到 media time 的映射；质量、尺寸、seek、decode 在 host |
+| `JsContext` | core `script/js_context.rs` | engine RQuickJS 与 web 浏览器是两个真实 adapter；core 只承载一致的脚本调度语义 |
+| `DefaultPipeline` 内部帧状态 | core `pipeline/default.rs` | 渲染派生实现细节，不再作为 public `RenderSession` 暴露 |
 
 ## 验证结果
 
-- **opencat-core**：`cargo test -p opencat-core` → **540 passed, 0 failed**。
-- **opencat-engine**：`cargo test -p opencat-engine` → **51 passed, 0 failed**
-  （3 个 `inspect::browser_layout_tests::chromedriver_*` 失败为 **既有环境问题**：
-  需 ChromeDriver + 已构建 JS 模块；在改动前的基线提交 `7ea92d3` 上同样失败，
-  与本次重构无关）。
-- **clippy**（core + engine）：`120` 条 warning，**低于基线的 `131`**（删代码后净
-  减 11 条），未引入新 warning。
-- **opencat-web**（wasm32）：`cargo build -p opencat-web --target wasm32-unknown-unknown`
-  通过。
-- **web Vitest**：`npx vitest run` → **36 passed (9 files)**，与 `#10` 基线一致。
-- **web TypeScript**：`npx tsc --noEmit` 通过。
+- **opencat-core**：`cargo test -p opencat-core` → **522 passed, 0 failed, 1 ignored**。
+- **opencat-engine**：`cargo test -p opencat-engine --lib` → **56 passed, 0 failed,
+  7 ignored**。Tailwind layout parity suite 已独立到 `inspect/tests/tailwind_layout`：
+  由结构化清单固定 Tailwind v4.2.2 的 71 组、505 个候选，CSS 编译依赖由
+  `opencat-engine/testsupport/bun.lock` 管理，不再解析 812 KB 的上游 TypeScript
+  测试源码。Chrome viewport 使用 CDP 精确设置，并与 engine 共用 Noto Sans SC
+  字体契约。
+- **clippy**：`cargo clippy -p opencat-core -p opencat-engine --all-targets` exit 0；
+  仍有既有 warning，本轮不做无关 warning 清理。
+- **desktop / engine / wasm32**：`cargo check -p opencat -p opencat-engine` 与
+  `cargo check -p opencat-web --target wasm32-unknown-unknown` 通过。
+- **web Vitest**：`bun run test` → **36 passed (9 files)**。
+- **web build**：`bun run build`（TypeScript + Vite）通过。
+- **最新 SSIM 回归**：使用 main 的参考视频与当前 worktree 最新渲染逐帧比较，均为
+  `SSIM All = 1.000000`：
+  - `examples/xhs-neo-brutalism.xml`：543 帧，1280x720。
+  - `examples/profile-showcase.jsonl`：414 帧，1280x720；资源来自
+    `/home/solaren/Documents/resources` 的本地 8080 静态服务。
 - **零引用核查**：全仓 grep 确认 `NoopAssetLoader`、`AssetLoader`、`AssetHandle`、
   `IndexedResourceProvider`、core `probe_all`、core `open_parsed`/`open_with_font_db`/
   `open`、`CompositionInfo.audio_plan`、core `frame_consumer`、渲染管线 `blob_store`
   字段 —— 全部归零（engine 内的 `open_parsed_host_owned` 是 engine 自己的 host 链
   函数，与已删的 core `open_parsed` 同名但无关）。
 
-### SSIM 跨提交回归
+### 回归命令
 
-`#11` 验收要求对“实现前固定提交”与当前提交以相同 renderer / 设计 / 字体 / 资源 /
-分辨率 / 帧率抽帧做 SSIM，目标 1.0。
+```bash
+ffmpeg -i /path/to/main/out/xhs-neo-brutalism.mp4 \
+  -i out/xhs-neo-brutalism.mp4 \
+  -lavfi "ssim=stats_file=/tmp/opencat-xhs-ssim.log" -f null -
+```
 
-- 本次重构是纯结构改动：删除 core 执行 seam、移动类型、删除恒为 `None` 的死字段。
-  core 的渲染内核（layout / shaping / Draw IR / FrameMediaPlan 生成）一行未动；
-  engine/web 消费的 `RenderFrame` 契约字段不变。
-- **SSIM = 1.0（逐帧，零回归）**。对照基线 `7ea92d3` 与当前 `311a58b`，ffmpeg SSIM
-  （YUV All）对两个示例均为 `min=1.000000, avg=1.000000, max=1.000000`：
-  - `examples/xhs-neo-brutalism.xml`：543 帧，输出文件字节级相同
-    （md5 `51378d7b52351930b2546006f1197cb6`）。
-  - `examples/profile-showcase.jsonl`：414 帧，输出文件字节级相同
-    （md5 `68bd9da1b25afb4fc484300cda258462`）。
-- 说明：skia 源码构建需联网（`git-sync-deps` / `fetch-gn` 取自 GitHub），本沙箱无
-  网络，改用 `SKIA_BINARIES_URL=file:///tmp/skia-binaries.tar.gz` 缓存的预编译 skia
-  二进制完成 release 构建 + 渲染；在此前提下回归数字有效。
+profile 样本使用同样命令，先在资源目录启动 `python3 -m http.server 8080`，再运行
+`./target/release/opencat examples/profile-showcase.jsonl`。
 
-## 实现提交
+## 实现范围
 
-- 改动分布在 `opencat-core`、`opencat-engine`、`opencat-web`、`opencat` 四个 crate。
-- 新增：`crates/opencat-engine/src/audio_plan.rs`、
-  `crates/opencat-engine/src/resource/path_store.rs`（从 core 平移）。
-- 删除：`crates/opencat-core/src/platform/frame_consumer.rs`、
-  `crates/opencat-core/src/resource/path_store.rs`。
+- 改动分布在 `opencat-core`、`opencat-engine`、`opencat-web` 三个 crate。
+- engine 新增 host-owned `audio_plan`、`media/seek` 和 `resource/path_store`。
+- core 删除资源执行、媒体执行、平台视频与公开 session 模块；web/engine 删除相应
+  pass-through adapter，并直接持有各自的具体实现。

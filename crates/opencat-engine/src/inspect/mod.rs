@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 use opencat_core::{
     frame_ctx::{FrameCtx, ScriptFrameCtx},
     layout::tree::LayoutNode,
-    media::{VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality},
+    media::{VideoFrameRequest, VideoFrameTiming},
     parse::{
         composition::Composition,
         node::{Node, NodeKind},
@@ -94,7 +94,7 @@ fn collect_scene_rects(
     seed_asset_entries_for_inspect(
         scene,
         frame_ctx,
-        &mut session.core.catalog,
+        &mut session.catalog,
         &mut session.platform.asset_paths,
     );
 
@@ -105,14 +105,14 @@ fn collect_scene_rects(
         scene,
         frame_ctx,
         script_frame_ctx,
-        &mut session.core.catalog,
+        &mut session.catalog,
         None,
         &mut session.platform.script,
         &DefaultPathBounds,
     )?;
 
-    let font_db = session.core.font_db.clone();
-    let (layout_tree, _) = session.core.layout_session.compute_layout_with_font_db(
+    let font_db = session.font_db.clone();
+    let (layout_tree, _) = session.layout_session.compute_layout_with_font_db(
         &element_root,
         frame_ctx,
         font_db.as_ref(),
@@ -421,8 +421,6 @@ fn video_timing_visible_at_frame(timing: VideoFrameTiming, frame_ctx: &FrameCtx)
     VideoFrameRequest {
         composition_time_secs: frame_ctx.frame as f64 / frame_ctx.fps.max(1) as f64,
         timing,
-        quality: VideoPreviewQuality::Exact,
-        target_size: None,
     }
     .is_visible()
 }
@@ -463,10 +461,4 @@ fn format_image_source(source: &ImageSource) -> String {
 pub mod browser;
 
 #[cfg(test)]
-mod browser_layout_integration_tests;
-
-#[cfg(test)]
-mod browser_layout_tests;
-
-#[cfg(test)]
-mod web_frame_oracle_tests;
+mod tests;

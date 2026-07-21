@@ -86,8 +86,8 @@ pub fn parse_lottie_meta(json: &str) -> Result<LottieMeta> {
 
 /// Scan a Lottie JSON string for external asset file names.
 ///
-/// Returns basenames suitable for [`super::protocol::ResourceLookup::bundle_dep`]
-/// (e.g. `image_0.png`). Data-URI assets (`p` only) are omitted — they need no fetch.
+/// Returns dependency basenames (e.g. `image_0.png`). Data-URI assets (`p` only)
+/// are omitted because they need no external bytes.
 pub fn scan_lottie_dependencies(json: &str) -> Result<Vec<String>> {
     let root: LottieRoot =
         serde_json::from_str(json).context("parse lottie json for asset scan")?;
@@ -121,15 +121,13 @@ mod tests {
         };
         let request = crate::media::VideoFrameRequest {
             composition_time_secs: 0.4,
-            timing: crate::resource::types::VideoFrameTiming {
+            timing: crate::media::VideoFrameTiming {
                 timeline_start_secs: 0.2,
                 timeline_duration_secs: None,
                 media_start_secs: 0.0,
                 playback_rate: 1.0,
                 looping: false,
             },
-            quality: crate::media::VideoPreviewQuality::Exact,
-            target_size: None,
         };
         // visible: 0.4 >= 0.2, elapsed 0.2s -> frame 5
         let frame = resolve_lottie_frame(&request, &meta).unwrap();
@@ -138,8 +136,6 @@ mod tests {
         let hidden = crate::media::VideoFrameRequest {
             composition_time_secs: 0.1,
             timing: request.timing,
-            quality: request.quality,
-            target_size: None,
         };
         assert!(resolve_lottie_frame(&hidden, &meta).is_none());
     }

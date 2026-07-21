@@ -17,11 +17,6 @@ use opencat_core::resource::asset_id::{
     asset_id_for_url, asset_id_for_video, asset_id_for_video_url,
 };
 use opencat_core::resource::fonts::{FontManifest, font_asset_id};
-use opencat_core::resource::manifest::ExternalResourceManifest;
-use opencat_core::resource::materialize::{ByteSource, hydrate_provider_from_bytes};
-use opencat_core::resource::protocol::MapResourceProvider;
-
-use opencat_core::resource::resolver::UrlFetcher;
 
 use crate::resource::fetch::{EngineFetcher, build_preload_runtime};
 use crate::resource::utils::cache_file_path;
@@ -51,16 +46,6 @@ pub struct EngineLoader {
     fetcher: EngineFetcher,
     runtime: tokio::runtime::Runtime,
     handles: HashMap<AssetId, EngineAssetHandle>,
-    /// Skottie-aligned resource map after preload (for Lottie / unified host access).
-    pub resource_provider: Option<MapResourceProvider>,
-}
-
-struct LoaderByteSource<'a>(&'a EngineLoader);
-
-impl ByteSource for LoaderByteSource<'_> {
-    fn bytes_for(&self, id: &AssetId) -> Option<Vec<u8>> {
-        self.0.handle(id)?.read_bytes().ok().map(|c| c.into_owned())
-    }
 }
 
 impl EngineLoader {
@@ -76,19 +61,14 @@ impl EngineLoader {
         if manifest.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
-        let base_dir = self._base_dir.clone();
         let cache_dir = self.cache_dir.clone();
         let mut out = std::collections::HashMap::new();
         for face in &manifest.faces {
             let bytes = match &face.source {
                 opencat_core::resource::fonts::FontSource::Path(path) => {
-                    let resolved = opencat_core::resource::fonts::resolve_font_source_path(
-                        &path.to_string_lossy(),
-                        Some(&base_dir),
-                    )
-                    .with_context(|| format!("font `{}`", face.id))?;
-                    std::fs::read(&resolved)
-                        .with_context(|| format!("read font {}", resolved.display()))?
+                    std::fs::read(path).with_context(|| {
+                        format!("read font `{}` from {}", face.id, path.display())
+                    })?
                 }
                 opencat_core::resource::fonts::FontSource::Url(url) => {
                     let id = AssetId(font_asset_id(
@@ -116,7 +96,6 @@ impl EngineLoader {
             cache_dir,
             runtime: build_preload_runtime("engine-loader")?,
             handles: HashMap::new(),
-            resource_provider: None,
         })
     }
 
@@ -219,17 +198,6 @@ impl EngineLoader {
                 }
             }
         }
-    }
-
-    /// Build [`MapResourceProvider`] from preloaded handles + [`ExternalResourceManifest`].
-    pub fn build_resource_provider(
-        &mut self,
-        manifest: &ExternalResourceManifest,
-    ) -> MapResourceProvider {
-        let mut provider = MapResourceProvider::new();
-        hydrate_provider_from_bytes(manifest, &mut provider, &LoaderByteSource(self));
-        self.resource_provider = Some(provider.clone());
-        provider
     }
 
     /// Collect the bytes core's pure `probe::prepare::build_catalog` needs, keyed
@@ -502,6 +470,7 @@ fn parse_openverse_response(bytes: &[u8]) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use opencat_core::resource::fonts::{FontFaceDecl, FontSource};
 
     #[test]
     fn load_all_with_local_path_registers_handle() {
@@ -523,5 +492,32 @@ mod tests {
         let h = loader.handle(&id).unwrap();
         assert!(h.local_path().is_some());
         assert!(h.local_path().unwrap().exists());
+    }
+
+    #[test]
+    fn load_font_manifest_reads_parser_resolved_relative_path_once() {
+        let tmp = tempfile::tempdir_in(".").unwrap();
+        let base_dir = tmp.path().join("examples");
+        let assets_dir = tmp.path().join("assets");
+        let cache_dir = tmp.path().join("cache");
+        std::fs::create_dir_all(&base_dir).unwrap();
+        std::fs::create_dir_all(&assets_dir).unwrap();
+
+        let font_path = base_dir.join("../assets/test.otf");
+        std::fs::write(&font_path, b"font bytes").unwrap();
+        let manifest = FontManifest {
+            default_face_id: Some("sans".to_string()),
+            faces: vec![FontFaceDecl {
+                id: "sans".to_string(),
+                family: Some("Test Sans".to_string()),
+                source: FontSource::Path(font_path),
+                role: None,
+            }],
+        };
+        let mut loader = EngineLoader::new(base_dir, cache_dir).unwrap();
+
+        let fonts = loader.load_font_manifest(&manifest).unwrap();
+
+        assert_eq!(fonts.get("sans").map(Vec::as_slice), Some(b"font bytes".as_slice()));
     }
 }

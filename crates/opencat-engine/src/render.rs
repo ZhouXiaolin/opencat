@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use skia_safe::{AlphaType, ColorType, ImageInfo, image::CachingHint, surfaces};
@@ -12,10 +13,11 @@ use crate::{
 use opencat_core::frame_ctx::duration_secs_to_frames;
 use crate::consumer::{FrameConsumer, RenderSessionHeader};
 
-/// Engine render session: backend-agnostic core render state plus engine-owned
-/// runtime services. Core no longer owns a generic platform facade.
+/// Engine-owned state used by layout inspection and runtime services.
 pub struct RenderSession {
-    pub core: opencat_core::runtime::session::RenderSession,
+    pub layout_session: opencat_core::layout::LayoutSession,
+    pub catalog: opencat_core::resource::HashMapResourceCatalog,
+    pub font_db: Arc<fontdb::Database>,
     pub platform: EnginePlatform,
 }
 
@@ -26,9 +28,10 @@ impl RenderSession {
 
     pub fn with_platform(platform: EnginePlatform) -> Self {
         Self {
-            core: opencat_core::runtime::session::RenderSession::with_font_db(
-                crate::fonts::engine_default_font_db(),
-            ),
+            layout_session: opencat_core::layout::LayoutSession::new(),
+            catalog: opencat_core::resource::HashMapResourceCatalog::from_json("{}")
+                .expect("empty catalog must parse"),
+            font_db: crate::fonts::engine_default_font_db(),
             platform,
         }
     }

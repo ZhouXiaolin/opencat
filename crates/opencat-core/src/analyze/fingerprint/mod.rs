@@ -808,7 +808,7 @@ mod tests {
             asset_id: asset_id.clone(),
             width: 10,
             height: 10,
-            video_timing: Some(crate::resource::types::VideoFrameTiming::default()),
+            video_timing: Some(crate::media::VideoFrameTiming::default()),
             paint_epoch: 10,
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
@@ -831,7 +831,7 @@ mod tests {
             asset_id,
             width: 10,
             height: 10,
-            video_timing: Some(crate::resource::types::VideoFrameTiming::default()),
+            video_timing: Some(crate::media::VideoFrameTiming::default()),
             paint_epoch: 11,
             object_fit: ObjectFit::Fill,
             paint: BitmapPaintStyle {
@@ -1031,7 +1031,7 @@ mod tests {
             asset_id,
             width: 10,
             height: 10,
-            video_timing: Some(crate::resource::types::VideoFrameTiming {
+            video_timing: Some(crate::media::VideoFrameTiming {
                 timeline_start_secs: 0.0,
                 timeline_duration_secs: None,
                 media_start_secs: 1.234,

@@ -163,7 +163,7 @@ B. compare-mp4.sh   → 分支 web 0.5s 采样对基线帧全绿
 | `scripts/compare-mp4.sh` | **web 0.5s 采样** vs engine 帧 |
 | `crates/opencat/src/bin/opencat-web-compare.rs` | 采样 CLI |
 | `crates/opencat-engine/src/inspect/browser.rs` | ChromeDriver + 静态服务（唯一浏览器 harness） |
-| `crates/opencat-engine/src/inspect/web_frame_oracle_tests.rs` | 单帧 ignore 测试 |
+| `crates/opencat-engine/src/inspect/tests/web_frame_oracle.rs` | 单帧 / 多帧 ignore 测试 |
 | `web/test-oracle.html` | web 像素页 |
 
 ---

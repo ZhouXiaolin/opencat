@@ -1,9 +1,9 @@
 //! Document-level font declarations (`<fonts>` / `<font>`) and `fontdb` assembly.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use std::collections::HashSet;
 
 /// Where to load a font binary from.
@@ -175,47 +175,6 @@ fn family_names_in_db(db: &fontdb::Database) -> HashSet<String> {
     db.faces()
         .flat_map(|face| face.families.iter().map(|(family, _)| family.clone()))
         .collect()
-}
-
-pub fn resolve_font_source_path(path: &str, base_dir: Option<&Path>) -> Result<PathBuf> {
-    let p = PathBuf::from(path);
-    if p.is_absolute() {
-        return Ok(p);
-    }
-    if let Some(base) = base_dir {
-        let joined = base.join(&p);
-        if joined.exists() {
-            return Ok(joined);
-        }
-    }
-    if p.exists() {
-        return Ok(p);
-    }
-    Err(anyhow!("font path not found: {path}"))
-}
-
-/// Load every face in `manifest` into memory.
-pub fn fetch_manifest_bytes(
-    manifest: &FontManifest,
-    base_dir: Option<&Path>,
-    mut read_path: impl FnMut(&Path) -> Result<Vec<u8>>,
-    mut fetch_url: impl FnMut(&str) -> Result<Vec<u8>>,
-) -> Result<HashMap<String, Vec<u8>>> {
-    let mut out = HashMap::new();
-    for face in &manifest.faces {
-        let bytes = match &face.source {
-            FontSource::Path(path) => {
-                let resolved = resolve_font_source_path(&path.to_string_lossy(), base_dir)
-                    .with_context(|| format!("font `{}`", face.id))?;
-                read_path(&resolved)?
-            }
-            FontSource::Url(url) => {
-                fetch_url(url).with_context(|| format!("font `{}` url `{url}`", face.id))?
-            }
-        };
-        out.insert(face.id.clone(), bytes);
-    }
-    Ok(out)
 }
 
 pub fn font_asset_id(source: &FontSource) -> String {

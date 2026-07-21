@@ -24,7 +24,6 @@ use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 
 use crate::render::RenderSession;
 use crate::resource::AssetPathStore;
-use opencat_core::resolve::path_bounds::DefaultPathBounds;
 
 #[derive(Clone, Debug)]
 pub struct FrameElementRect {
@@ -108,7 +107,6 @@ fn collect_scene_rects(
         &mut session.catalog,
         None,
         &mut session.platform.script,
-        &DefaultPathBounds,
     )?;
 
     let font_db = session.font_db.clone();

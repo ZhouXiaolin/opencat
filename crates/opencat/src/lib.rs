@@ -22,7 +22,6 @@ pub use opencat_engine::inspect;
 pub use opencat_engine::js_context;
 pub use opencat_engine::media;
 pub use opencat_engine::pipeline;
-pub use opencat_engine::platform;
 pub use opencat_engine::render;
 pub use opencat_engine::resource;
 pub use opencat_engine::runtime;
@@ -46,11 +45,9 @@ pub use opencat_core::parse::transition::{
 pub use opencat_core::parse::{document::ParsedComposition, jsonl::parse};
 pub use opencat_core::script::{NodeStyleMutations, ScriptDriver, StyleMutations};
 pub use opencat_engine::inspect::{FrameElementRect, collect_frame_layout_rects};
-pub use opencat_engine::platform::EnginePlatform;
 pub use opencat_engine::render::{
-    EncodingConfig, Mp4Config, OutputFormat, RenderSession, build_audio_track_from_pipeline,
-    render_from_jsonl, render_single_frame_from_jsonl, render_single_frame_png,
-    render_single_frame_png_with_base,
+    EncodingConfig, Mp4Config, OutputFormat, build_audio_track_from_pipeline, render_from_jsonl,
+    render_single_frame_from_jsonl, render_single_frame_png, render_single_frame_png_with_base,
 };
 pub use opencat_engine::consumer::execute_render_frame;
 pub use opencat_engine::executor::EngineDrawExecutor;

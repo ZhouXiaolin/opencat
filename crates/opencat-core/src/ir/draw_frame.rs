@@ -38,7 +38,7 @@ pub struct RenderFrame {
     pub media: FrameMediaPlan,
 }
 
-/// Reusable scratch buffers for binary encoding, owned by RenderSession.
+/// Reusable scratch buffers for binary encoding.
 /// Cleared and reused each frame to avoid allocation.
 #[derive(Default)]
 pub struct DrawFrameScratch {

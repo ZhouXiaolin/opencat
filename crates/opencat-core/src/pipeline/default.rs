@@ -107,6 +107,37 @@ impl<S: JsContext> DefaultPipeline<S> {
         &self.scripts
     }
 
+    /// Inspect layout for a frame using the same resolve/layout sessions as
+    /// [`Pipeline::render_frame`]. Does not re-seed catalogs or open a second
+    /// script realm — host-prepared metadata and pipeline state are authoritative.
+    pub fn inspect_frame(
+        &mut self,
+        frame_index: u32,
+    ) -> Result<Vec<super::inspect::FrameElementRect>> {
+        let evaluation = self.evaluate_frame(frame_index)?;
+        super::inspect::collect_frame_element_rects(
+            &evaluation.source_root,
+            &evaluation.element_root,
+            &evaluation.layout_tree,
+        )
+    }
+
+    /// Shared resolve + layout evaluation used by both render and inspection.
+    /// Crate-private: hosts use [`Self::inspect_frame`] / [`Pipeline::render_frame`].
+    pub(crate) fn evaluate_frame(
+        &mut self,
+        frame_index: u32,
+    ) -> Result<super::frame::FrameEvaluation> {
+        super::frame::evaluate_frame_layout(
+            &self.composition,
+            frame_index,
+            &mut self.layout_session,
+            &self.font_db,
+            &mut self.catalog,
+            &mut self.scripts,
+        )
+    }
+
     /// Internal generated-image table used while building `RenderFrame`.
     ///
     /// Hosts must not depend on this accessor: full RGBA for the current frame
@@ -1096,5 +1127,228 @@ mod tests {
             !frame.draw.ops.is_empty(),
             "text frame should still emit draw ops under the host-injected path"
         );
+    }
+
+    // ---- Real pipeline inspection (issue #23) ------------------------------------
+
+    fn sample_card_tree() -> crate::Node {
+        use crate::parse::primitives::{div, text};
+        div()
+            .id("root")
+            .w_full()
+            .h_full()
+            .child(
+                div()
+                    .id("card")
+                    .w(120.0)
+                    .h(80.0)
+                    .child(text("hi").id("label")),
+            )
+            .into()
+    }
+
+    fn open_inspect_sample() -> DefaultPipeline<NoopJsContext> {
+        let parsed = parsed_from_root(sample_card_tree(), 320, 180, 30, 0.1);
+        let catalog = crate::probe::build_catalog(
+            &collect_resource_requests_from_parsed(&parsed),
+            &HashMap::<String, Vec<u8>>::new(),
+        )
+        .catalog;
+        DefaultPipeline::open_with_prepared_catalog(
+            parsed,
+            catalog,
+            NoopJsContext::new().expect("js"),
+            Arc::new(crate::text::test_default_font_db()),
+        )
+        .expect("open")
+    }
+
+    /// Same pipeline instance: inspect rects equal collect(evaluate_frame),
+    /// and render_frame still succeeds on that instance (shared sessions).
+    #[test]
+    fn inspect_frame_matches_same_instance_evaluate_intermediates() {
+        use crate::pipeline::inspect::collect_frame_element_rects;
+
+        let mut pipeline = open_inspect_sample();
+        let evaluation = pipeline.evaluate_frame(0).expect("evaluate");
+        let from_intermediates = collect_frame_element_rects(
+            &evaluation.source_root,
+            &evaluation.element_root,
+            &evaluation.layout_tree,
+        )
+        .expect("collect");
+
+        // Second evaluate on the same pipeline (layout session reused) must
+        // still produce rects identical to inspect_frame.
+        let inspected = pipeline.inspect_frame(0).expect("inspect");
+        assert_eq!(from_intermediates, inspected);
+
+        let card = inspected.iter().find(|r| r.id == "card").expect("card");
+        assert!((card.width - 120.0).abs() < 0.5);
+        assert!((card.height - 80.0).abs() < 0.5);
+        let mut orders: Vec<_> = inspected.iter().map(|r| r.draw_order).collect();
+        orders.sort_unstable();
+        for (i, order) in orders.iter().enumerate() {
+            assert_eq!(*order as usize, i);
+        }
+
+        let frame = pipeline.render_frame(0).expect("render after inspect");
+        assert!(!frame.draw.ops.is_empty());
+    }
+
+    /// Inspection is deterministic across fresh pipelines with the same host inputs.
+    #[test]
+    fn inspect_frame_is_deterministic_and_matches_layout_sizes() {
+        let mut pipeline = open_inspect_sample();
+        let inspected = pipeline.inspect_frame(0).expect("inspect");
+        let mut pipeline2 = open_inspect_sample();
+        let inspected2 = pipeline2.inspect_frame(0).expect("inspect2");
+        assert_eq!(inspected, inspected2);
+    }
+
+    /// Host-supplied image metadata (not file reads) drives inspect layout sizes.
+    #[test]
+    fn inspect_frame_uses_host_catalog_not_file_seed() {
+        use crate::parse::primitives::{div, image, ImageSource};
+
+        let root: crate::Node = div()
+            .id("root")
+            .w_full()
+            .h_full()
+            .child(
+                image()
+                    .path("missing-on-purpose.png")
+                    .id("hero")
+                    .w(64.0)
+                    .h(32.0),
+            )
+            .into();
+        let parsed = parsed_from_root(root, 200, 100, 30, 0.1);
+        let requests = collect_resource_requests_from_parsed(&parsed);
+        let mut catalog = crate::probe::build_catalog(
+            &requests,
+            &HashMap::<String, Vec<u8>>::new(),
+        )
+        .catalog;
+        if let Some(id) =
+            asset_id_for_image(&ImageSource::Path("missing-on-purpose.png".into()))
+        {
+            catalog
+                .images
+                .insert(id, ImageMeta { width: 64, height: 32 });
+        }
+
+        let mut pipeline = DefaultPipeline::open_with_prepared_catalog(
+            parsed,
+            catalog,
+            NoopJsContext::new().expect("js"),
+            Arc::new(crate::text::test_default_font_db()),
+        )
+        .expect("open");
+
+        let rects = pipeline.inspect_frame(0).expect("inspect with host meta");
+        let hero = rects.iter().find(|r| r.id == "hero").expect("hero");
+        assert!((hero.width - 64.0).abs() < 0.5);
+        assert!((hero.height - 32.0).abs() < 0.5);
+        assert_eq!(hero.kind, "image");
+    }
+
+    /// Script-bearing nodes keep script_source on inspect rects from the same
+    /// pipeline state used for render (no second script realm).
+    #[test]
+    fn inspect_frame_carries_script_source_from_source_tree() {
+        use crate::parse::primitives::div;
+        use crate::script::ScriptDriver;
+
+        let driver = ScriptDriver::from_source("/* noop */").expect("script");
+        let root: crate::Node = div()
+            .id("root")
+            .w_full()
+            .h_full()
+            .script_driver(driver)
+            .child(div().id("box").w(10.0).h(10.0))
+            .into();
+        let parsed = parsed_from_root(root, 64, 64, 30, 0.1);
+        let catalog = crate::probe::build_catalog(
+            &collect_resource_requests_from_parsed(&parsed),
+            &HashMap::<String, Vec<u8>>::new(),
+        )
+        .catalog;
+        let mut pipeline = DefaultPipeline::open_with_prepared_catalog(
+            parsed,
+            catalog,
+            NoopJsContext::new().expect("js"),
+            Arc::new(crate::text::test_default_font_db()),
+        )
+        .expect("open");
+
+        let rects = pipeline.inspect_frame(0).expect("inspect");
+        let root_rect = rects.iter().find(|r| r.id == "root").expect("root");
+        assert_eq!(
+            root_rect.script_source.as_deref(),
+            Some("/* noop */"),
+            "script source must come from pipeline source tree"
+        );
+        let _ = pipeline.render_frame(0).expect("render with script node");
+    }
+
+    /// Timeline fixture: inspect and render share the same prepared pipeline
+    /// (no private catalog seed).
+    #[test]
+    fn inspect_frame_timeline_uses_pipeline_catalog() {
+        use crate::parse::easing::Easing;
+        use crate::parse::primitives::div;
+        use crate::parse::transition::{fade, timeline};
+        use crate::style::ColorToken;
+
+        let root: crate::Node = div()
+            .id("root")
+            .w_full()
+            .h_full()
+            .child(
+                timeline()
+                    .sequence(
+                        0.1,
+                        div()
+                            .id("scene-a")
+                            .w_full()
+                            .h_full()
+                            .bg(ColorToken::Black)
+                            .into(),
+                    )
+                    .transition(fade().timing(Easing::Linear, 0.05))
+                    .sequence(
+                        0.1,
+                        div()
+                            .id("scene-b")
+                            .w_full()
+                            .h_full()
+                            .bg(ColorToken::White)
+                            .into(),
+                    ),
+            )
+            .into();
+        let parsed = parsed_from_root(root, 80, 80, 30, 0.3);
+        let catalog = crate::probe::build_catalog(
+            &collect_resource_requests_from_parsed(&parsed),
+            &HashMap::<String, Vec<u8>>::new(),
+        )
+        .catalog;
+        let mut pipeline = DefaultPipeline::open_with_prepared_catalog(
+            parsed,
+            catalog,
+            NoopJsContext::new().expect("js"),
+            Arc::new(crate::text::test_default_font_db()),
+        )
+        .expect("open");
+
+        let rects = pipeline.inspect_frame(0).expect("inspect frame 0");
+        assert!(
+            rects.iter().any(|r| r.id == "scene-a"),
+            "timeline inspect should surface active scene: {:?}",
+            rects.iter().map(|r| &r.id).collect::<Vec<_>>()
+        );
+        let frame = pipeline.render_frame(0).expect("render timeline");
+        assert!(!frame.draw.ops.is_empty());
     }
 }

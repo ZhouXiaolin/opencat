@@ -129,9 +129,8 @@ impl EngineLoader {
 
     /// Register canvas `asset_id` aliases so `ctx.getImage("hero")` resolves via loader handles.
     ///
-    /// Mirrors the old `EnginePlatform::preflight` alias registration that walked the scene
-    /// tree after preload. The pipeline path loads path/url assets under their content ids;
-    /// canvas nodes additionally refer to them by the user-facing alias.
+    /// Walk the scene after preload and register canvas `asset_id` aliases so
+    /// path/url assets (loaded under content ids) also resolve by user-facing alias.
     pub fn register_canvas_asset_aliases(
         &mut self,
         composition: &opencat_core::parse::composition::Composition,

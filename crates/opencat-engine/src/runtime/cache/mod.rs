@@ -1,5 +1,3 @@
-pub mod video_frames;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CacheCaps {
     pub images: usize,

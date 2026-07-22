@@ -19,23 +19,17 @@ pub mod dispatch;
 pub mod helpers;
 pub mod host;
 pub mod js_context;
-pub mod live_host;
 pub mod mutations;
 pub mod precomputed_host;
 pub mod realm;
 pub mod recorder;
 pub mod runtime;
-pub mod runtime_cache;
-pub mod script_runner;
 pub mod text_units;
 
 pub use host::{ScriptDriverId, ScriptHost, ScriptTargetRegistry, driver_id_from_source};
-pub use live_host::LiveScriptHost;
 pub use mutations::*;
 pub use precomputed_host::PrecomputedScriptHost;
 pub use realm::ScriptRealm;
-pub use runtime_cache::ScriptRuntimeCache;
-pub use script_runner::ScriptRunner;
 
 use crate::ir::asset_id::AssetId;
 use crate::style::{

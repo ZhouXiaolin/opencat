@@ -1,11 +1,10 @@
 //! Explicit composition lifecycle: parse → draft → requirements → host inputs →
 //! prepare → prepared composition → pipeline.
 //!
-//! This is the expand-phase surface for issue #12 / #14. Hosts still own all
+//! Contract-phase surface for issue #12 / #14 / #24. Hosts still own all
 //! fetch/cache/decode work; core only validates host-supplied inputs and opens a
-//! pure derivation pipeline. The legacy
-//! [`crate::pipeline::DefaultPipeline::open_with_prepared_catalog`] entry remains
-//! available for existing callers.
+//! pure derivation pipeline. Production open paths go through
+//! [`PreparedComposition::open_pipeline`] only.
 
 mod types;
 
@@ -1720,22 +1719,6 @@ mod tests {
         }
     }
 
-
-    #[test]
-    fn legacy_open_with_prepared_catalog_still_works() {
-        // Expand-contract: old entry remains for existing callers/tests.
-        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
-{"type":"div","id":"root","parentId":null}"#;
-        let parsed = crate::parse::jsonl::parse(jsonl).unwrap();
-        let pipeline = DefaultPipeline::open_with_prepared_catalog(
-            parsed,
-            PreparedResourceCatalog::default(),
-            NoopJsContext::new().unwrap(),
-            test_font_db(),
-        )
-        .expect("legacy open");
-        assert_eq!(pipeline.info().width, 10);
-    }
 
     // --- fonts & subtitles (#19) -------------------------------------------------
 

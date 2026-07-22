@@ -44,7 +44,7 @@ pub use self::parse::preflight::{
     collect_resource_requests, collect_resource_requests_from_parsed,
 };
 pub use self::parse::{ParsedComposition, markup, parse};
-pub use self::pipeline::{DefaultPipeline, Pipeline};
+pub use self::pipeline::{DefaultPipeline, FrameElementRect, Pipeline};
 pub use self::probe::{
     AudioSource, ByteSource, ImageMeta, ImageSource, PreparedCatalog, PreparedResourceCatalog,
     ProbeOutcome, SubtitleSource, VideoInfoMeta, VideoSource, build_catalog, hydrate_captions,

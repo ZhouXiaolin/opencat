@@ -34,7 +34,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use reqwest::Client;
 use serde_json::{Value, json};
 
-use crate::{Composition, RenderSession};
+use crate::Composition;
 use opencat_core::parse::jsonl::tailwind::parse_class_name;
 use opencat_core::parse::primitives::{div, text};
 
@@ -595,8 +595,7 @@ fn measure_taffy_layout(fixture: &LayoutFixture) -> Result<BTreeMap<String, Brow
         })
         .build()?;
 
-    let mut session = RenderSession::new();
-    let rects = collect_frame_layout_rects(&composition, 0, &mut session)?;
+    let rects = collect_frame_layout_rects(&composition, 0)?;
     Ok(rect_map_from_frame_rects(rects))
 }
 

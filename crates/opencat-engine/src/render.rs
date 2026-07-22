@@ -341,7 +341,8 @@ impl EncodingConfig {
 mod tests {
     use super::render_pipeline_frame_to_rgba;
     use crate::media::MediaContext;
-    use crate::{Composition, EnginePipeline};
+    use opencat_core::parse::composition::Composition;
+    use crate::EnginePipeline;
     use opencat_core::frame_ctx::duration_secs_to_frames;
     use opencat_core::ir::GeneratedImageId;
     use opencat_core::parse::{ParsedComposition, node::Node};
@@ -445,7 +446,7 @@ mod tests {
             .expect("loader");
         let ctx = crate::js_context::RqJsContext::new().expect("js context");
         // Open through the host-owned chain (fetch/cache → build_catalog →
-        // hydrate captions → open_with_prepared_catalog), the same path the
+        // hydrate captions → open_pipeline), the same path the
         // engine uses in production. No open_parsed / loader_mut here.
         let pipeline = crate::pipeline::open_parsed_host_owned(
             parsed,
@@ -1015,7 +1016,9 @@ mod tests {
 
     #[test]
     fn layered_caption_renders_above_timeline_transition() {
-        use crate::{Easing, SrtEntry, caption, fade, text, timeline};
+        use opencat_core::parse::easing::Easing;
+        use opencat_core::parse::primitives::{SrtEntry, caption, text};
+        use opencat_core::parse::transition::{fade, timeline};
 
         let root = crate::div()
             .id("root")
@@ -1065,7 +1068,7 @@ mod tests {
 
     #[test]
     fn layered_single_scene_renders_bottom_scene_before_caption_overlay() {
-        use crate::{SrtEntry, caption};
+        use opencat_core::parse::primitives::{SrtEntry, caption};
 
         let root = crate::div()
             .id("root")
@@ -1104,7 +1107,7 @@ mod tests {
 
     #[test]
     fn layered_root_caption_without_active_entry_does_not_fail_rendering() {
-        use crate::{SrtEntry, caption};
+        use opencat_core::parse::primitives::{SrtEntry, caption};
 
         let root = crate::div()
             .id("root")
@@ -1143,7 +1146,9 @@ mod tests {
 
     #[test]
     fn timeline_caption_sibling_renders_above_transition() {
-        use crate::{Easing, SrtEntry, caption, fade, text, timeline};
+        use opencat_core::parse::easing::Easing;
+        use opencat_core::parse::primitives::{SrtEntry, caption, text};
+        use opencat_core::parse::transition::{fade, timeline};
 
         let root = crate::div()
             .id("root")
@@ -1190,7 +1195,7 @@ mod tests {
         with_wrapper: bool,
         transition: opencat_core::parse::transition::Transition,
     ) -> Node {
-        use crate::timeline;
+        use opencat_core::parse::transition::timeline;
         use opencat_core::style::{LengthPercentageAuto, Position};
 
         let mut tl_kind = Node::from(
@@ -1237,7 +1242,8 @@ mod tests {
 
     #[test]
     fn nested_timeline_transition_renders_real_composite() {
-        use crate::{Easing, fade};
+        use opencat_core::parse::easing::Easing;
+        use opencat_core::parse::transition::fade;
         let root = make_timeline_root_node(true, fade().timing(Easing::Linear, frames_at_30fps(10)));
         let mut pipeline = make_test_pipeline_from_node(root, 80, 80, 30, frames_at_30fps(30));
         let pixels = pipeline.render(15).expect("frame should render");
@@ -1252,7 +1258,8 @@ mod tests {
 
     #[test]
     fn root_timeline_renders_without_root_transition_special_case() {
-        use crate::{Easing, fade};
+        use opencat_core::parse::easing::Easing;
+        use opencat_core::parse::transition::fade;
         let root =
             make_timeline_root_node(false, fade().timing(Easing::Linear, frames_at_30fps(10)));
         let mut pipeline = make_test_pipeline_from_node(root, 80, 80, 30, frames_at_30fps(30));
@@ -1268,7 +1275,7 @@ mod tests {
 
     #[test]
     fn gltransition_runtime_effect_samples_timeline_children() {
-        use crate::Easing;
+        use opencat_core::parse::easing::Easing;
         use opencat_core::parse::transition::gl_transition;
         let root = make_timeline_root_node(
             false,
@@ -1287,7 +1294,7 @@ mod tests {
 
     #[test]
     fn light_leak_runtime_effect_samples_timeline_children() {
-        use crate::Easing;
+        use opencat_core::parse::easing::Easing;
         use opencat_core::parse::transition::light_leak;
         let root =
             make_timeline_root_node(false, light_leak().timing(Easing::Linear, frames_at_30fps(10)));

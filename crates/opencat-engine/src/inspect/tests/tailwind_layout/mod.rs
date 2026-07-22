@@ -34,7 +34,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use reqwest::Client;
 use serde_json::{Value, json};
 
-use crate::Composition;
+use opencat_core::parse::composition::Composition;
 use opencat_core::parse::jsonl::tailwind::parse_class_name;
 use opencat_core::parse::primitives::{div, text};
 

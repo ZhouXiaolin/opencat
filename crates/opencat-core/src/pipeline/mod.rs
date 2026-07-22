@@ -15,9 +15,7 @@ pub use inspect::FrameElementRect;
 /// resource metadata and emits a deterministic [`RenderFrame`] per frame. It
 /// owns no loader, fetcher, or decoder — hosts acquire resources themselves
 /// and open the pipeline via the explicit lifecycle
-/// (`CompositionDraft` → `prepare` → `PreparedComposition::open_pipeline`) or
-/// the retained host-injected entry
-/// [`DefaultPipeline::open_with_prepared_catalog`].
+/// (`CompositionDraft` → `prepare` → `PreparedComposition::open_pipeline`).
 pub trait Pipeline {
     type Scripts: JsContext;
 

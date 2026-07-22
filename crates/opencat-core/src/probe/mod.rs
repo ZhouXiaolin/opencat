@@ -4,7 +4,7 @@ pub mod prepare;
 pub mod probe;
 
 pub use catalog::{
-    ImageMeta, PreparedResourceCatalog, ResourceRequests, VideoInfoMeta, VideoSource,
+    ImageMeta, PreparedResourceCatalog, VideoInfoMeta,
 };
 pub use prepare::{
     hydrate_captions, parse_srt,

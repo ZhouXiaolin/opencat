@@ -10,7 +10,6 @@ use crate::ir::cache::RenderCache;
 use crate::ir::{CompositionInfo, GeneratedImageTable, RenderFrame};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
-use crate::parse::preflight::collect_resource_requests_from_parsed;
 use crate::probe::catalog::PreparedResourceCatalog;
 use crate::script::js_context::JsContext;
 
@@ -59,9 +58,7 @@ impl<S: JsContext> DefaultPipeline<S> {
         scripts: S,
         font_db: Arc<fontdb::Database>,
     ) -> Result<Self> {
-        let requests = collect_resource_requests_from_parsed(&parsed);
-
-        let (composition, info, live_host) = build_pipeline_state(parsed, scripts, requests)?;
+        let (composition, info, live_host) = build_pipeline_state(parsed, scripts)?;
 
         Ok(Self {
             composition,
@@ -143,18 +140,15 @@ impl<S: JsContext> DefaultPipeline<S> {
 }
 
 /// Build the pipeline state shared by every entry: the [`Composition`] (with
-/// the parsed root frozen into its closure), the [`CompositionInfo`] (carrying
-/// the declarative, order-independent [`ResourceRequests`]), and the live
-/// script host.
+/// the parsed root frozen into its closure), the [`CompositionInfo`], and the
+/// live script host.
 ///
 /// This owns no fetch/probe/loader logic — it is pure derivation from the
 /// parsed composition. The caller is responsible for producing the
-/// [`PreparedResourceCatalog`]: the host builds it via the `probe::prepare` chain
-/// before opening the pipeline.
+/// [`PreparedResourceCatalog`]: the host builds it before opening the pipeline.
 fn build_pipeline_state<S: JsContext>(
     parsed: crate::parse::ParsedComposition,
     scripts: S,
-    requests: crate::probe::catalog::ResourceRequests,
 ) -> Result<(Composition, CompositionInfo, crate::script::ScriptRealm<S>)> {
     let root_node = parsed.root;
     let composition = Composition::new("pipeline")
@@ -171,7 +165,6 @@ fn build_pipeline_state<S: JsContext>(
         height: composition.height as u32,
         fps: composition.fps,
         duration: composition.duration,
-        requests,
         audio_plan,
     };
 
@@ -934,6 +927,7 @@ mod tests {
     // (`render_frame -> RenderFrame`) with a host-supplied PreparedResourceCatalog.
 
     use crate::ir::asset_id::asset_id_for_image;
+    use crate::parse::preflight::collect_resource_requests_from_parsed;
     use crate::parse::primitives::image;
     use crate::probe::catalog::ImageMeta;
     use crate::probe::PreparedResourceCatalog as ProbeResourceCatalog;

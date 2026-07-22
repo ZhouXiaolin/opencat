@@ -622,7 +622,7 @@ mod tests {
         resolve::{resolve::resolve_ui_tree, tree::ElementNode},
         style::{ColorToken, ObjectFit},
         test_support::MockScriptHost,
-        test_support::TestCatalog,
+        probe::catalog::PreparedResourceCatalog,
     };
     use crate::{
         display::list::DisplayItem,
@@ -647,7 +647,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let element = div()
             .id("root")
             .child(
@@ -710,7 +710,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let parsed = crate::parse(
             r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"relative w-full h-full"}
@@ -777,7 +777,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let parsed = crate::parse(
             r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
@@ -851,7 +851,7 @@ mod tests {
             height: 40,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let element = div()
             .id("root")
             .rounded(12.0)
@@ -912,7 +912,7 @@ mod tests {
             height: 100,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let parsed = crate::parse(
             r#"{"type":"composition","width":100,"height":100,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
@@ -986,7 +986,7 @@ mod tests {
             height: 100,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let parsed = crate::parse(
             r#"{"type":"composition","width":100,"height":100,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
@@ -1080,7 +1080,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let root = div().id("root").child(
             lucide("play")
                 .id("icon")
@@ -1144,7 +1144,7 @@ mod tests {
             height: 100,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let parsed = parse(
             r#"{"type":"composition","width":100,"height":100,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
@@ -1186,7 +1186,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let root = div().id("root").child(
             crate::parse::primitives::path("M0 0 L 100 0 L 50 100 Z")
                 .id("triangle")
@@ -1254,7 +1254,7 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let parsed = crate::parse::markup::parse(
             r#"<opencat width="320" height="240" fps="30" duration="0.033333333333">
   <canvas id="stage" class="w-[200px] h-[120px]">
@@ -1332,7 +1332,7 @@ mod tests {
             height: 700,
             frames: 180,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let xml = std::fs::read_to_string(format!(
             "{}/../../json/canvas-ripple-card.xml",
             env!("CARGO_MANIFEST_DIR")
@@ -1374,7 +1374,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let root = div().id("root").child(lucide("play").id("icon"));
         let resolved = resolve_ui_tree(
             &root.into(),
@@ -1460,7 +1460,7 @@ mod tests {
     }
 
     fn resolve_root(node: crate::Node) -> ElementNode {
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         resolve_ui_tree(
             &node,
             &small_frame_ctx(),

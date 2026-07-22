@@ -7,9 +7,8 @@ use opencat_core::ir::asset_id::{
     asset_id_for_audio, asset_id_for_image, asset_id_for_query, asset_id_for_video,
 };
 use opencat_core::parse::primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource};
-use opencat_core::probe::ResourceRequests;
-use opencat_core::probe::catalog::PreparedResourceCatalog;
-use opencat_core::resource::catalog::ResourceResolver as _;
+use opencat_core::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
+use opencat_core::probe::ImageMeta;
 
 use crate::resource::asset_reader;
 use crate::resource::blob_store::BlobStore;

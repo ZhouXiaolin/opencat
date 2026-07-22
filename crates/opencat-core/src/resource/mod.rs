@@ -2,7 +2,6 @@ pub mod asset_id;
 pub mod bitmap_source;
 pub mod catalog;
 pub mod fonts;
-pub mod hash_map_catalog;
 pub mod lottie;
 pub mod probe;
 
@@ -14,6 +13,5 @@ pub use fonts::{
     font_asset_id, load_faces_into_db, load_faces_with_fallbacks, merge_document_over_base,
     merge_faces_into_db,
 };
-pub use hash_map_catalog::{HashMapResourceCatalog, ResourceKind, ResourceMeta};
 pub use lottie::{LottieMeta, parse_lottie_meta, resolve_lottie_frame, scan_lottie_dependencies};
 pub use probe::{ImageDims, VideoProbe, probe_image_dims, probe_video};

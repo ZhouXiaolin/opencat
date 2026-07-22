@@ -27,18 +27,19 @@ use crate::fonts::engine_default_font_db;
 use crate::js_context::RqJsContext;
 use crate::resource::loader::EngineLoader;
 
-/// Core pipeline opened by the engine on the host-injected (loader-free) path
-/// via [`DefaultPipeline::open_with_prepared_catalog`].
+/// Core pipeline opened by the engine through the explicit lifecycle
+/// (`CompositionDraft` → `HostInputs` → `prepare` →
+/// [`opencat_core::lifecycle::PreparedComposition::open_pipeline`]).
 type CorePipeline = DefaultPipeline<RqJsContext>;
 
 /// Engine host: owns the core pipeline **and** the engine resource owner.
 ///
 /// Per issue #2 / #7, the core pipeline no longer owns an engine loader. The
 /// engine fetches/caches bytes and prepares metadata itself, then opens core via
-/// [`DefaultPipeline::open_with_prepared_catalog`]. The [`EngineLoader`] lives
-/// here so the frame consumer and audio mixer can read the cached bytes for the
-/// current frame's media plan directly — they never reach through the core
-/// pipeline.
+/// the lifecycle (`PreparedComposition::open_pipeline`). The [`EngineLoader`]
+/// lives here so the frame consumer and audio mixer can read the cached bytes
+/// for the current frame's media plan directly — they never reach through the
+/// core pipeline.
 pub struct EnginePipelineHost {
     /// Core pipeline (pure derivation; no loader access).
     pub pipeline: CorePipeline,

@@ -22,15 +22,10 @@ const DEFAULT_ITEM_RANGE_CAP: usize = 128;
 
 /// The core rendering pipeline.
 ///
-/// This is a pure derivation kernel: it consumes a host-prepared
-/// [`PreparedResourceCatalog`], an injected font database, and the parsed composition,
-/// and emits a deterministic [`RenderFrame`] per frame. It owns no loader,
-/// fetcher, cache, or decoder — the host is responsible for all resource
-/// acquisition. Prefer the explicit lifecycle
-/// ([`crate::lifecycle::CompositionDraft`] → prepare →
-/// [`crate::lifecycle::PreparedComposition::open_pipeline`]); the host-injected
-/// [`DefaultPipeline::open_with_prepared_catalog`] entry remains for existing
-/// callers (issue #2 / #11 / #14).
+/// Pure derivation kernel: host-prepared [`PreparedResourceCatalog`], font db,
+/// and parsed composition in; deterministic [`RenderFrame`] out. No loader,
+/// fetcher, cache, or decoder. Production hosts open via
+/// [`crate::lifecycle::PreparedComposition::open_pipeline`].
 pub struct DefaultPipeline<S: JsContext> {
     composition: Composition,
     info: CompositionInfo,
@@ -52,15 +47,13 @@ pub struct DefaultPipeline<S: JsContext> {
 }
 
 impl<S: JsContext> DefaultPipeline<S> {
-    /// Open a pipeline from host-prepared inputs: a parsed composition, a
-    /// [`PreparedResourceCatalog`] the host already built (via the `probe::prepare`
-    /// chain), the script context, and the font database.
+    /// Open a pipeline from lifecycle-prepared inputs. Crate-private — hosts must
+    /// go through [`crate::lifecycle::PreparedComposition::open_pipeline`].
     ///
-    /// This is the host-injected main chain (issue #2 / #6 / #11). It does
-    /// **no** fetch, cache, decode, or probe work — the catalog's metadata is
-    /// exactly what the host supplies. Core only derives layout and
+    /// Does **no** fetch, cache, decode, or probe work — the catalog's metadata is
+    /// exactly what prepare already validated. Core only derives layout and
     /// `RenderFrame` output from these inputs.
-    pub fn open_with_prepared_catalog(
+    pub(crate) fn open_with_prepared_catalog(
         parsed: crate::parse::ParsedComposition,
         catalog: PreparedResourceCatalog,
         scripts: S,
@@ -258,19 +251,10 @@ mod tests {
         }
     }
 
-    /// Open a pipeline through the host-injected main chain
-    /// (`open_with_prepared_catalog`), mirroring what a real host does:
-    /// parse the source, collect declarative requests, build a catalog via the
-    /// pure `build_catalog` over empty bytes (every asset omitted — these are
-    /// render-seam tests, not asset-decoding tests), then open with the test
-    /// font database.
-    ///
-    /// Behavior tests use this so they exercise the highest render seam
-    /// (`render_frame -> RenderFrame`) on the new main chain rather than the
-    /// deprecated loader shim.
-    fn open_host_injected(
-        input: &str,
-    ) -> DefaultPipeline<NoopJsContext> {
+    /// Test helper: open a media-less pipeline via the crate-private open entry
+    /// (same inputs lifecycle prepare would hand to it). Empty-byte
+    /// `build_catalog` omits all assets — render-seam tests only, not decode.
+    fn open_test_pipeline(input: &str) -> DefaultPipeline<NoopJsContext> {
         let trimmed = input.trim();
         let parsed = if trimmed.starts_with('{') {
             crate::parse::jsonl::parse(input).expect("parse input")
@@ -289,7 +273,7 @@ mod tests {
             NoopJsContext::new().expect("js context"),
             Arc::new(crate::text::test_default_font_db()),
         )
-        .expect("open host-injected pipeline")
+        .expect("open test pipeline")
     }
 
     #[test]
@@ -297,7 +281,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":100,"height":200,"fps":30,"duration":0.033333333333}
 {"type":"div","id":"root","parentId":null}"#;
 
-        let pipeline = open_host_injected(jsonl);
+        let pipeline = open_test_pipeline(jsonl);
 
         assert_eq!(pipeline.info().width, 100);
         assert_eq!(pipeline.info().height, 200);
@@ -311,7 +295,7 @@ mod tests {
 {"type":"div","id":"root","parentId":null}
 {"type":"div","id":"child","parentId":"root","bg":"#ff0000","w":100,"h":50}"##;
 
-        let mut pipeline = open_host_injected(jsonl);
+        let mut pipeline = open_test_pipeline(jsonl);
 
         let frame = pipeline.render_frame(0).expect("render frame 0");
 
@@ -330,7 +314,7 @@ mod tests {
   </div>
 </opencat>"#;
 
-        let mut pipeline = open_host_injected(xml);
+        let mut pipeline = open_test_pipeline(xml);
 
         let frame = pipeline.render_frame(90).expect("render frame 90");
 
@@ -354,7 +338,7 @@ mod tests {
   </tl>
 </opencat>"#;
 
-        let mut pipeline = open_host_injected(xml);
+        let mut pipeline = open_test_pipeline(xml);
 
         let before_frame = pipeline
             .render_frame(25)
@@ -423,7 +407,7 @@ mod tests {
   </div>
 </opencat>"#;
 
-        let mut pipeline = open_host_injected(xml);
+        let mut pipeline = open_test_pipeline(xml);
 
         let before_frame = pipeline.render_frame(0).expect("render frame 0");
         assert!(
@@ -472,8 +456,8 @@ mod tests {
         let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"duration":0.5}
 {"type":"div","id":"root","parentId":null,"bg":"#00ff00","w":100,"h":100}"##;
 
-        let mut p1 = open_host_injected(jsonl);
-        let mut p2 = open_host_injected(jsonl);
+        let mut p1 = open_test_pipeline(jsonl);
+        let mut p2 = open_test_pipeline(jsonl);
 
         for i in 0..5 {
             let r1 = p1.render_frame(i).expect("render p1");
@@ -494,7 +478,7 @@ mod tests {
   </div>
 </opencat>"#;
 
-        let mut pipeline = open_host_injected(xml);
+        let mut pipeline = open_test_pipeline(xml);
 
         let target = 90_u32; // well past data-start, so the video ref is active
 
@@ -574,7 +558,7 @@ mod tests {
   </div>
 </opencat>"#;
 
-        let mut fresh = open_host_injected(xml);
+        let mut fresh = open_test_pipeline(xml);
         let baseline = fresh.render_frame(0).expect("fresh frame 0");
         assert!(
             !baseline.media.generated_images.is_empty(),
@@ -591,7 +575,7 @@ mod tests {
         }
 
         // Second independent pipeline (fresh) must match field-by-field.
-        let mut other = open_host_injected(xml);
+        let mut other = open_test_pipeline(xml);
         let other_frame = other.render_frame(0).expect("other fresh frame 0");
         assert_eq!(
             baseline.media.generated_images, other_frame.media.generated_images,
@@ -633,7 +617,7 @@ mod tests {
     <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" data-media-start="1.5" />
   </div>
 </opencat>"#;
-        let mut pipeline = open_host_injected(xml);
+        let mut pipeline = open_test_pipeline(xml);
 
         // Frame 0 → 1.5s → 1_500_000 µs
         let f0 = pipeline.render_frame(0).expect("f0");
@@ -682,7 +666,7 @@ mod tests {
 
         let config = crate::profile::ProfileConfig { enabled: true };
         let (_, summary) = crate::profile::profile_render(&config, || {
-            let mut pipeline = open_host_injected(jsonl);
+            let mut pipeline = open_test_pipeline(jsonl);
 
             for frame_index in 0..2 {
                 let _ = pipeline.render_frame(frame_index)?;
@@ -720,7 +704,7 @@ mod tests {
 
         let config = crate::profile::ProfileConfig { enabled: true };
         let (_, summary) = crate::profile::profile_render(&config, || {
-            let mut pipeline = open_host_injected(jsonl);
+            let mut pipeline = open_test_pipeline(jsonl);
 
             for frame_index in 0..pipeline.composition().frames {
                 let _ = pipeline.render_frame(frame_index)?;
@@ -835,7 +819,7 @@ mod tests {
             "subtree_snapshot_request_after_analyze_fresh should be > 0 in the showcase scene"
         );
         // `request_after_reused` requires render dispatch to read AnalyzeReuse marks.
-        // In the test environment (host-injected, no assets), the showcase collapses
+        // In the test environment (crate-private open, no assets), the showcase collapses
         // to a near-static scene where scene_snapshot_hit short-circuits most frames,
         // leaving subtree dispatch only on the first few "warm-up" misses where every
         // subtree is fresh. Keep the read so the counter is exercised end-to-end.
@@ -860,7 +844,7 @@ mod tests {
 
         let config = crate::profile::ProfileConfig { enabled: true };
         let (_, summary) = crate::profile::profile_render(&config, || {
-            let mut pipeline = open_host_injected(jsonl);
+            let mut pipeline = open_test_pipeline(jsonl);
 
             for frame_index in 0..2 {
                 let _ = pipeline.render_frame(frame_index)?;
@@ -904,7 +888,7 @@ mod tests {
 
         let config = crate::profile::ProfileConfig { enabled: true };
         let (_, summary) = crate::profile::profile_render(&config, || {
-            let mut pipeline = open_host_injected(jsonl);
+            let mut pipeline = open_test_pipeline(jsonl);
 
             for frame_index in 0..pipeline.composition().frames {
                 let _ = pipeline.render_frame(frame_index)?;
@@ -930,19 +914,18 @@ mod tests {
         let xml = r#"<opencat width="200" height="100" fps="30" duration="0.033333333333">
   <div id="root" />
 </opencat>"#;
-        let pipeline = open_host_injected(xml);
+        let pipeline = open_test_pipeline(xml);
         assert_eq!(pipeline.info().width, 200);
         assert_eq!(pipeline.info().height, 100);
         assert_eq!(pipeline.info().fps, 30);
         assert!((pipeline.info().duration - 1.0 / 30.0).abs() < 1e-9);
     }
 
-    // ---- Host-injected entry point (issue #6) ------------------------------------
+    // ---- Crate-private open entry (lifecycle hands the same inputs) -------------
     //
-    // These tests exercise `open_with_prepared_catalog` — the host-injected main
-    // chain — at the highest render seam (`render_frame -> RenderFrame`). They
-    // prove the new path does no fetch/probe/loader work: the host-supplied
-    // `PreparedResourceCatalog` is the single source of metadata.
+    // Production hosts use PreparedComposition::open_pipeline. These tests drive
+    // the crate-private open helper at the highest render seam
+    // (`render_frame -> RenderFrame`) with a host-supplied PreparedResourceCatalog.
 
     use crate::ir::asset_id::asset_id_for_image;
     use crate::parse::primitives::image;
@@ -965,12 +948,10 @@ mod tests {
         }
     }
 
-    /// AC #1, #2, #4, #5: opening via the host-injected path renders a frame
-    /// with no loader involvement. The host supplies an empty catalog (built
-    /// via the prepare chain with no bytes); `render_frame` must still produce
-    /// draw ops and a media plan.
+    /// AC #1, #2, #4, #5: crate-private open renders a frame with no loader.
+    /// Empty catalog from prepare-over-no-bytes; `render_frame` still produces ops.
     #[test]
-    fn open_with_prepared_catalog_renders_without_a_loader() {
+    fn crate_private_open_renders_without_a_loader() {
         // Host side: parse a tree, collect declarative requests, build a catalog
         // with the pure `build_catalog` over *no* bytes (every asset omitted).
         let root: crate::Node = crate::parse::primitives::div().id("root").into();
@@ -989,12 +970,12 @@ mod tests {
             ctx,
             Arc::new(crate::text::test_default_font_db()),
         )
-        .expect("open host-injected pipeline");
+        .expect("open crate-private pipeline");
 
         let frame = pipeline.render_frame(0).expect("render frame 0");
         assert!(
             !frame.draw.ops.is_empty(),
-            "host-injected pipeline should still produce DrawOps"
+            "crate-private open should still produce DrawOps"
         );
         let _ = frame.media;
     }
@@ -1004,7 +985,7 @@ mod tests {
     /// must see that exact metadata surface from `pipeline.catalog()` — the
     /// pipeline did not re-probe, re-fetch, or invent anything.
     #[test]
-    fn open_with_prepared_catalog_uses_host_supplied_metadata() {
+    fn crate_private_open_uses_host_supplied_metadata() {
         // A composition that declares one image source.
         let img = image().id("hero").path("/tmp/hero.png");
         let root: crate::Node = crate::parse::primitives::div().id("root").child(img).into();
@@ -1027,7 +1008,7 @@ mod tests {
             ctx,
             Arc::new(crate::text::test_default_font_db()),
         )
-        .expect("open host-injected pipeline");
+        .expect("open crate-private pipeline");
 
         let stored = pipeline
             .catalog()
@@ -1037,10 +1018,10 @@ mod tests {
         assert_eq!((stored.width, stored.height), (42, 17));
     }
 
-    /// AC #5: the host-injected path is as order- and repeat-invariant as the
-    /// loader path. Call history must not leak into the per-frame contract.
+    /// AC #5: crate-private open is order- and repeat-invariant.
+    /// Call history must not leak into the per-frame contract.
     #[test]
-    fn open_with_prepared_catalog_is_order_and_repeat_invariant() {
+    fn crate_private_open_is_order_and_repeat_invariant() {
         let root: crate::Node = crate::parse::primitives::div()
             .id("root")
             .w(100.0)
@@ -1095,11 +1076,10 @@ mod tests {
         );
     }
 
-    /// AC #4: the host-injected pipeline carries the font database the host
-    /// built, so core shaping/layout stays usable. Rendering a text frame must
-    /// not panic and must produce at least one draw op.
+    /// AC #4: crate-private open carries the host font database so shaping/
+    /// layout stay usable. Rendering a text frame must not panic.
     #[test]
-    fn open_with_prepared_catalog_carries_font_db() {
+    fn crate_private_open_carries_font_db() {
         let root: crate::Node = crate::parse::primitives::div()
             .id("root")
             .child(crate::parse::primitives::text("Hi").id("label"))
@@ -1125,7 +1105,7 @@ mod tests {
         let frame = pipeline.render_frame(0).expect("render text frame");
         assert!(
             !frame.draw.ops.is_empty(),
-            "text frame should still emit draw ops under the host-injected path"
+            "text frame should still emit draw ops under crate-private open"
         );
     }
 

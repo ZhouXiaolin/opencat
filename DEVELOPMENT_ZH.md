@@ -33,40 +33,89 @@ cargo test generated_layout_fixture_templates_cover_utilities_manifest
 
 ---
 
-## SSIM Engine/Web 像素对比
+## Engine / Web 像素对齐（SSIM frame oracle）
 
-确保 Rust Skia 渲染输出与浏览器 CanvasKit WASM 渲染输出像素一致。
+逐帧对比 **原生 engine（Skia）** 与 **web（WASM + CanvasKit）**，用 SSIM 衡量结构相似度。
 
-### 原理
+### 流程
 
-1. 引擎用 `DefaultPipeline::render_frame` 渲染指定帧 → RGBA
-2. 浏览器通过 ChromeDriver 打开 `web/test-oracle.html`，CanvasKit 解析同源数据 → `readPixels` → RGBA
-3. `compute_ssim_rgba` 将两幅 RGBA 写入临时 PNG，调用 `ffmpeg ssim` 计算结构相似度
-4. 阈值：普通帧 ≥ 0.99，含视频解码的帧 ≥ 0.97
+1. Engine：`DefaultPipeline::render_frame` → RGBA（基准）
+2. Headless Chrome 经 ChromeDriver 打开 `web/test-oracle.html`
+3. Web：`open_design` → `prepareCatalogVideoSources` → 注入视频帧 →
+   `build_frame_ir` → CanvasKit 绘制 → `readPixels` → RGBA
+4. `compute_ssim_rgba` 调用 `ffmpeg ssim`
+5. 阈值：**≥ 0.99**（静态 / 管线帧），**≥ 0.97**（含活跃视频的帧）
 
-### 测试
+失败帧产物：
+
+```text
+target/opencat-web-oracle/<stem>-frame-NNNN/{engine,web,diff}.png
+```
+
+### 前置条件
+
+| 依赖 | 说明 |
+|------|------|
+| Chrome + ChromeDriver | 主版本一致；可自动探测，或设 `CHROME_BIN` / `CHROMEDRIVER_BIN` |
+| FFmpeg | `PATH` 中有 `ffmpeg`（ssim filter） |
+| Node / npm（或 bun） | 构建 web facade |
+| Dev app 依赖 | `cd web && bun install`（或 npm）— oracle 静态服务需要 CanvasKit + `web-demuxer` |
+| **:8080** 媒体服务 | 如 `examples/profile-showcase.jsonl` 会请求 `http://127.0.0.1:8080/mp4/...` |
+
+本地媒体示例：
 
 ```bash
-# 单帧 oracle（指定示例 + 帧号）
-cargo test -p opencat-engine --lib -- --ignored web_frame_oracle
+# 在包含 mp4/ png/ mp3/ 的目录
+python3 -m http.server 8080
+```
 
-# 多帧采样（默认 0–413 帧，步进 10）
-cargo test -p opencat-engine --lib -- --ignored profile_showcase_multi_frame_oracle
+### 构建 web facade（改过 JS/WASM 后必须重编）
 
-# CLI 工具：自定义间隔、阈值
+```bash
+cd crates/opencat-web/web
+npm run build          # wasm-pack + vite + types；会把 web-demuxer.wasm 拷进 dist/
+# 仅 TS 变更时：
+# npm run build:lib && npm run build:types
+```
+
+静态路由映射：
+
+- `/test-oracle.html` → `web/test-oracle.html`
+- `/wasm/*` → `crates/opencat-web/web/dist/*`（含 worker 与 `web-demuxer.wasm`）
+- `/canvaskit/*` → `web/node_modules/canvaskit-wasm/bin/full/*`
+- `/assets/*`、`/fonts/*` → 仓库资源
+
+### 运行测试
+
+Oracle 测试均为 `#[ignore]`（依赖 ChromeDriver + 已构建 facade），必须加 `--ignored`。
+
+```bash
+# 冒烟：profile-showcase 第 0 帧（无视频）
+cargo test chromedriver_profile_showcase_frame_matches_engine \
+  --package opencat-engine --lib -- --ignored --nocapture
+
+# 全量多帧：0–413 步进 10（覆盖 scene2/3 视频）
+cargo test chromedriver_profile_showcase_all_frames_matches_engine \
+  --package opencat-engine --lib -- --ignored --nocapture
+
+# 其它单帧 oracle（按名称过滤）
+cargo test chromedriver_ --package opencat-engine --lib -- --ignored --nocapture
+# 包含：
+#   chromedriver_alipay_finance_homepage_first_frame_matches_engine
+#   chromedriver_caption_frame_matches_engine
+#   chromedriver_custom_fonts_frame_matches_engine
+#   chromedriver_lottie_frame_matches_engine
+#   chromedriver_color_emoji_frame_matches_engine
+```
+
+### CLI：自定义间隔 / 输出目录
+
+```bash
 cargo build --bin opencat-web-compare --release
 ./target/release/opencat-web-compare examples/profile-showcase.jsonl \
   --out-dir out/compare-mp4 \
   --interval-secs 0.5
 ```
-
-位置：`crates/opencat-engine/src/inspect/`
-
-| 文件 | 作用 |
-|------|------|
-| `browser.rs` | ChromeDriver + 静态服务 + `compute_ssim_rgba` |
-| `tests/web_frame_oracle.rs` | 单帧/多帧 oracle 测试 |
-| `tests/tailwind_layout/mod.rs` | Tailwind ↔ Taffy 布局对齐测试 |
 
 ### 环境变量
 
@@ -74,6 +123,22 @@ cargo build --bin opencat-web-compare --release
 |------|------|------|
 | `CHROME_BIN` | Chrome 可执行路径 | 自动探测 |
 | `CHROMEDRIVER_BIN` | chromedriver 路径 | 自动探测 |
-| `CHROMEDRIVER_URL` | 远程 WebDriver 端点 | 无（使用本地） |
-| `MIN_SSIM` | 严格 SSIM 阈值 | 0.99 |
-| `VIDEO_MIN_SSIM` | 视频帧 SSIM 阈值 | 0.97 |
+| `CHROMEDRIVER_URL` | 远程 WebDriver（不启本地） | 未设置 |
+| `MIN_SSIM` | 严格 SSIM（当前代码中为常量 `0.99`） | `0.99` |
+| `VIDEO_MIN_SSIM` | 视频帧 SSIM（当前代码中为常量 `0.97`） | `0.97` |
+
+> 说明：`web_frame_oracle.rs` 内阈值目前是编译期常量；表中 env 为工具链约定/预留。
+
+### 代码位置
+
+| 路径 | 作用 |
+|------|------|
+| `crates/opencat-engine/src/inspect/browser.rs` | ChromeDriver harness、静态服务、SSIM |
+| `crates/opencat-engine/src/inspect/tests/web_frame_oracle.rs` | Oracle 用例 |
+| `web/test-oracle.html` | 浏览器入口：open design、prepare 视频、绘制 IR |
+| `crates/opencat-web/web/src/media/video-frame-injector.ts` | `prepareCatalogVideoSources` + inject |
+| `crates/opencat-web/web/dist/` | 构建产物，挂载在 `/wasm/` |
+
+### Host 视频契约（web）
+
+`open_design` / `openDesign` 之后、调用 `injectVideoFramesForRender` **之前**，host 必须执行 `prepareCatalogVideoSources(catalogJson)`。否则 WebCodecs 收不到源，所有 `ImageRef::VideoFrame` 会画成空白（大视频区域 SSIM 会断崖下跌）。

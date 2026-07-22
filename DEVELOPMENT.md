@@ -33,47 +33,113 @@ Dependencies: ChromeDriver, Chrome, bun dependencies in `crates/opencat-engine/t
 
 ---
 
-## SSIM Engine/Web Pixel Comparison
+## Engine / Web pixel alignment (SSIM frame oracle)
 
-Ensures Rust Skia output matches browser CanvasKit WASM output pixel-for-pixel.
+Compares **native engine (Skia)** vs **web (WASM + CanvasKit)** frame-by-frame with SSIM.
 
-### How it works
+### Pipeline
 
-1. Engine renders a frame via `DefaultPipeline::render_frame` → RGBA
-2. Browser opens `web/test-oracle.html` via ChromeDriver, CanvasKit parses the same source → `readPixels` → RGBA
-3. `compute_ssim_rgba` writes both RGBA buffers to temp PNGs, calls `ffmpeg ssim` for structural similarity
-4. Thresholds: normal frames ≥ 0.99, video-decoded frames ≥ 0.97
+1. Engine: `DefaultPipeline::render_frame` → RGBA (ground truth)
+2. Headless Chrome loads `web/test-oracle.html` via ChromeDriver
+3. Web: `open_design` → `prepareCatalogVideoSources` → inject video frames →
+   `build_frame_ir` → CanvasKit draw → `readPixels` → RGBA
+4. `ffmpeg ssim` via `compute_ssim_rgba`
+5. Thresholds: **≥ 0.99** (pipeline / still frames), **≥ 0.97** (frames with active video)
 
-### Tests
+Failing frames write `engine.png` / `web.png` / `diff.png` under:
+
+```text
+target/opencat-web-oracle/<stem>-frame-NNNN/
+```
+
+### Prerequisites
+
+| Dependency | Notes |
+|------------|--------|
+| Chrome + ChromeDriver | Same major version; auto-detected or set `CHROME_BIN` / `CHROMEDRIVER_BIN` |
+| FFmpeg | `ffmpeg` on `PATH` (SSIM filter) |
+| Node / npm (or bun) | Build the web facade |
+| Dev app deps | `cd web && bun install` (or npm) — CanvasKit + `web-demuxer` for the oracle server |
+| Media server on **:8080** | Compositions such as `examples/profile-showcase.jsonl` load `http://127.0.0.1:8080/mp4/...` |
+
+Serve local media if needed, e.g.:
 
 ```bash
-# Single-frame oracle (specific example + frame number)
-cargo test -p opencat-engine --lib -- --ignored web_frame_oracle
+# from the directory that contains mp4/ png/ mp3/ used by examples
+python3 -m http.server 8080
+# or any static server bound to 127.0.0.1:8080
+```
 
-# Multi-frame sampling (default frames 0–413, step 10)
-cargo test -p opencat-engine --lib -- --ignored profile_showcase_multi_frame_oracle
+### Build the web facade (required before every oracle run that needs a fresh JS/WASM build)
 
-# CLI tool: custom interval, threshold
+```bash
+cd crates/opencat-web/web
+npm run build          # wasm-pack + vite + types; copies web-demuxer.wasm into dist/
+# or only JS after pure TS changes:
+# npm run build:lib && npm run build:types
+```
+
+The oracle static server maps:
+
+- `/test-oracle.html` → `web/test-oracle.html`
+- `/wasm/*` → `crates/opencat-web/web/dist/*` (includes worker + `web-demuxer.wasm`)
+- `/canvaskit/*` → `web/node_modules/canvaskit-wasm/bin/full/*`
+- `/assets/*`, `/fonts/*` → repo assets
+
+### Run tests
+
+All oracle tests are `#[ignore]` (need ChromeDriver + built facade). Always pass `--ignored`.
+
+```bash
+# Smoke: profile-showcase frame 0 (no video)
+cargo test chromedriver_profile_showcase_frame_matches_engine \
+  --package opencat-engine --lib -- --ignored --nocapture
+
+# Full multi-frame sweep: frames 0–413 step 10 (covers video scenes 2 & 3)
+cargo test chromedriver_profile_showcase_all_frames_matches_engine \
+  --package opencat-engine --lib -- --ignored --nocapture
+
+# Other single-frame oracles (filter by name substring)
+cargo test chromedriver_ --package opencat-engine --lib -- --ignored --nocapture
+# includes:
+#   chromedriver_alipay_finance_homepage_first_frame_matches_engine
+#   chromedriver_caption_frame_matches_engine
+#   chromedriver_custom_fonts_frame_matches_engine
+#   chromedriver_lottie_frame_matches_engine
+#   chromedriver_color_emoji_frame_matches_engine
+```
+
+### CLI: custom interval / output dir
+
+```bash
 cargo build --bin opencat-web-compare --release
 ./target/release/opencat-web-compare examples/profile-showcase.jsonl \
   --out-dir out/compare-mp4 \
   --interval-secs 0.5
 ```
 
-Location: `crates/opencat-engine/src/inspect/`
-
-| File | Purpose |
-|------|---------|
-| `browser.rs` | ChromeDriver harness + static server + `compute_ssim_rgba` |
-| `tests/web_frame_oracle.rs` | Single / multi-frame oracle tests |
-| `tests/tailwind_layout/mod.rs` | Tailwind ↔ Taffy layout alignment tests |
-
-### Environment Variables
+### Environment variables
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `CHROME_BIN` | Chrome binary path | Auto-detected |
+| `CHROME_BIN` | Chrome binary | Auto-detected |
 | `CHROMEDRIVER_BIN` | chromedriver path | Auto-detected |
-| `CHROMEDRIVER_URL` | Remote WebDriver endpoint | None (uses local) |
-| `MIN_SSIM` | Strict SSIM threshold | 0.99 |
-| `VIDEO_MIN_SSIM` | Video frame SSIM threshold | 0.97 |
+| `CHROMEDRIVER_URL` | Remote WebDriver (skip local spawn) | unset |
+| `MIN_SSIM` | Strict SSIM (code constant today: `0.99`) | `0.99` |
+| `VIDEO_MIN_SSIM` | Video-active SSIM (code constant today: `0.97`) | `0.97` |
+
+> Note: thresholds in `web_frame_oracle.rs` are currently compile-time constants; env vars in the table are reserved / used by tooling where wired.
+
+### Code map
+
+| Path | Role |
+|------|------|
+| `crates/opencat-engine/src/inspect/browser.rs` | ChromeDriver harness, static server, SSIM |
+| `crates/opencat-engine/src/inspect/tests/web_frame_oracle.rs` | Oracle test cases |
+| `web/test-oracle.html` | Browser entry: open design, prepare video, draw IR |
+| `crates/opencat-web/web/src/media/video-frame-injector.ts` | `prepareCatalogVideoSources` + inject |
+| `crates/opencat-web/web/dist/` | Built facade served at `/wasm/` |
+
+### Host video contract (web)
+
+After `open_design` / `openDesign`, hosts **must** call `prepareCatalogVideoSources(catalogJson)` before `injectVideoFramesForRender`. Otherwise WebCodecs never sees the asset and every `ImageRef::VideoFrame` draws blank (SSIM collapses on large video regions).

@@ -1,49 +1,15 @@
 use std::path::Path;
-use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use skia_safe::{AlphaType, ColorType, ImageInfo, image::CachingHint, surfaces};
 
 pub use crate::media::Mp4Config;
 
-use crate::{
-    media::{AudioTrack, MediaContext, decode_audio_to_f32_stereo, encode_rgba_frames},
-    platform::EnginePlatform,
-};
+use crate::media::{AudioTrack, MediaContext, decode_audio_to_f32_stereo, encode_rgba_frames};
 use opencat_core::frame_ctx::duration_secs_to_frames;
 use opencat_core::ir::GeneratedImageId;
 use skia_safe::Image;
 use std::collections::HashMap;
-
-/// Engine-owned state used by layout inspection and runtime services.
-pub struct RenderSession {
-    pub layout_session: opencat_core::layout::LayoutSession,
-    pub catalog: opencat_core::resource::HashMapResourceCatalog,
-    pub font_db: Arc<fontdb::Database>,
-    pub platform: EnginePlatform,
-}
-
-impl RenderSession {
-    pub fn new() -> Self {
-        Self::with_platform(EnginePlatform::new())
-    }
-
-    pub fn with_platform(platform: EnginePlatform) -> Self {
-        Self {
-            layout_session: opencat_core::layout::LayoutSession::new(),
-            catalog: opencat_core::resource::HashMapResourceCatalog::from_json("{}")
-                .expect("empty catalog must parse"),
-            font_db: crate::fonts::engine_default_font_db(),
-            platform,
-        }
-    }
-}
-
-impl Default for RenderSession {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 pub enum OutputFormat {
     Mp4(Mp4Config),

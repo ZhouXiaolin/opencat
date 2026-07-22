@@ -59,9 +59,8 @@ impl DecodedAudioCache {
     }
 }
 
-/// Retained for EnginePlatform layout; the plan itself is recomputed by core
-/// when the pipeline opens, so this cache only holds an optional copy hosts may
-/// stash. Empty by default.
+/// Optional host-side stash of the composition audio plan. Core recomputes the
+/// plan when the pipeline opens; this cache is only for engine playback helpers.
 #[derive(Default)]
 pub struct AudioIntervalCache {
     pub plan: Option<AudioPlan>,

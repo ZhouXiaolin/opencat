@@ -88,9 +88,10 @@ const SECTION_PATHS = 8;
 const SECTION_CHILDREN = 9;
 const SECTION_EFFECTS = 10;
 const SECTION_SUBTREES = 11;
-// v4 (issue #10): core-rasterized color-emoji RGBA, published as a per-frame
-// delta of glyphs not yet sent under the current pipeline epoch. JS caches the
-// resulting CanvasKit images by (epoch, id).
+// v4: core-rasterized color-emoji RGBA, published as a per-frame delta of
+// glyphs not yet sent under the current pipeline epoch (issue #10). JS caches
+// the resulting CanvasKit images by (epoch, id). The full OCIR envelope schema
+// is owned by core (issue #22); this decoder must match encode_ir_envelope.
 const SECTION_GENERATED_IMAGES = 12;
 
 const OP_SAVE = 0;
@@ -616,6 +617,9 @@ class Payload {
 }
 
 function decodeFrame(bytes: Uint8Array): DecodedFrame {
+  if (bytes.byteLength < 16) {
+    throw new Error(`Truncated OpenCat IR envelope: header needs 16 bytes, got ${bytes.byteLength}`);
+  }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (
     bytes[0] !== 0x4f ||
@@ -629,6 +633,12 @@ function decodeFrame(bytes: Uint8Array): DecodedFrame {
   if (version !== 4) throw new Error(`Unsupported OpenCat IR version ${version}`);
 
   const sectionCount = view.getUint32(8, true);
+  const dirEnd = 16 + sectionCount * 12;
+  if (bytes.byteLength < dirEnd) {
+    throw new Error(
+      `Truncated OpenCat IR envelope: section directory needs ${dirEnd} bytes, got ${bytes.byteLength}`,
+    );
+  }
   // v4 stamps the pipeline epoch immediately after the section count. JS keys
   // its generated-image cache by (epoch, id); when the epoch bumps (a new
   // design replaced the pipeline) the stale glyph images are evicted so the
@@ -644,11 +654,23 @@ function decodeFrame(bytes: Uint8Array): DecodedFrame {
     const id = view.getUint32(base, true);
     const offset = view.getUint32(base + 4, true);
     const len = view.getUint32(base + 8, true);
+    if (offset > bytes.byteLength || len > bytes.byteLength - offset) {
+      throw new Error(
+        `Illegal OpenCat IR section ${id} range: offset=${offset} len=${len} envelope=${bytes.byteLength}`,
+      );
+    }
     sections.set(id, bytes.subarray(offset, offset + len));
   }
 
   const stringsUtf8 = requireSection(sections, SECTION_STRINGS_UTF8);
   const stringRanges = parseRanges(requireSection(sections, SECTION_STRING_RANGES));
+  for (const range of stringRanges) {
+    if (range.start > stringsUtf8.byteLength || range.len > stringsUtf8.byteLength - range.start) {
+      throw new Error(
+        `Illegal OpenCat IR string range: start=${range.start} len=${range.len} utf8=${stringsUtf8.byteLength}`,
+      );
+    }
+  }
   const decoder = new TextDecoder();
   const strings = stringRanges.map((range) => decoder.decode(stringsUtf8.subarray(range.start, range.start + range.len)));
 

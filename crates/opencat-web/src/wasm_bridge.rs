@@ -16,20 +16,11 @@ use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
 use opencat_core::ir::GeneratedImageId;
-use opencat_core::canvas::paint::{
-    BlendMode, BlurStyle, ColorFilterSpec, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec,
-    PaintStyle, PathEffectSpec, ShaderSpec as PaintShaderSpec, StrokeCap, StrokeJoin, TileMode,
-};
 use opencat_core::ir::CompositionInfo;
 use opencat_core::ir::RenderFrame;
 use opencat_core::ir::asset_id::{asset_id_for_subtitle, AssetId};
-use opencat_core::ir::draw_encoding::EncodedDrawFrame;
-use opencat_core::ir::draw_frame::{DrawFrameScratch, DrawOpFrame};
-use opencat_core::ir::draw_op::DrawOp;
-use opencat_core::ir::draw_types::{
-    EffectRef, EncodedPath, FillType, ImageRef, PathOp, RuntimeEffectChildRef, ShaderSpec,
-    ShaderType, TableRange,
-};
+use opencat_core::ir::draw_frame::DrawFrameScratch;
+use opencat_core::ir::draw_types::ImageRef;
 use opencat_core::ir::media_plan::{FrameGeneratedImage, FrameMediaPlan};
 use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 use opencat_core::pipeline::Pipeline;
@@ -41,35 +32,6 @@ use opencat_core::script::js_context::JsContext;
 
 use crate::js_context::WebJsContext;
 use crate::media::WebAudio;
-
-const IR_MAGIC: &[u8; 4] = b"OCIR";
-/// v3 (issue #8): persistent core pipeline, 11 draw-IR sections.
-/// v4 (issue #10): adds `pipeline_epoch: u32` to the header and a
-/// `SECTION_GENERATED_IMAGES` (12) carrying the per-frame generated-image
-/// delta (core-rasterized color-emoji RGBA) keyed by `(epoch, id)` on the JS
-/// side. Section 12 is always present in v4 (possibly `count: 0`).
-const IR_VERSION: u32 = 4;
-
-const SECTION_OPS: u32 = 1;
-const SECTION_F32_POOL: u32 = 2;
-const SECTION_BYTES: u32 = 3;
-const SECTION_BYTE_RANGES: u32 = 4;
-const SECTION_STRINGS_UTF8: u32 = 5;
-const SECTION_STRING_RANGES: u32 = 6;
-const SECTION_PAINTS: u32 = 7;
-const SECTION_PATHS: u32 = 8;
-const SECTION_CHILDREN: u32 = 9;
-const SECTION_EFFECTS: u32 = 10;
-const SECTION_SUBTREES: u32 = 11;
-const SECTION_GENERATED_IMAGES: u32 = 12;
-
-/// Host-facing generated-image payload published in the OCIR delta.
-///
-/// Same shape as the core frame contract: stable id + full RGBA. The delta only
-/// carries glyphs whose id was not already published in the current
-/// [`WebRenderer::pipeline_epoch`]; JS caches CanvasKit images under
-/// `(epoch, id)` and reuses them until the epoch bumps.
-pub(crate) type GeneratedImageRecord = FrameGeneratedImage;
 
 #[wasm_bindgen]
 pub struct WebRenderer {
@@ -186,7 +148,7 @@ impl WebRenderer {
         // Host-side delta: full RGBA already lives on FrameMediaPlan. Only
         // publish ids not yet sent in this pipeline epoch so JS can cache by
         // GeneratedImageId without re-creating CanvasKit images.
-        let mut generated_delta: Vec<GeneratedImageRecord> = Vec::new();
+        let mut generated_delta: Vec<FrameGeneratedImage> = Vec::new();
         for entry in &media_plan.generated_images {
             if self.published_generated.contains(&entry.id) {
                 continue;
@@ -551,712 +513,18 @@ fn prepare_js_err(err: PrepareError) -> JsValue {
     JsValue::from_str(&format!("open_design prepare: {err}"))
 }
 
-pub(crate) fn encode_ir_envelope(
-    draw: &DrawOpFrame,
-    encoded: &EncodedDrawFrame,
-    pipeline_epoch: u32,
-    generated_delta: &[GeneratedImageRecord],
-) -> Result<Vec<u8>, String> {
-    let generated_images_section = encode_generated_images(generated_delta);
-    let sections = [
-        (SECTION_OPS, encoded.ops.clone()),
-        (SECTION_SUBTREES, encoded.subtrees.clone()),
-        (SECTION_F32_POOL, encode_f32_slice(&encoded.f32_pool)),
-        (SECTION_BYTES, draw.bytes.clone()),
-        (SECTION_BYTE_RANGES, encode_ranges(&draw.byte_ranges)),
-        (SECTION_STRINGS_UTF8, encoded.strings_utf8.clone()),
-        (SECTION_STRING_RANGES, encode_ranges(&encoded.string_ranges)),
-        (SECTION_PAINTS, encode_paints(&draw.paints)?),
-        (SECTION_PATHS, encode_paths(&draw.paths)),
-        (
-            SECTION_CHILDREN,
-            encode_children(&draw.children, &draw.strings)?,
-        ),
-        (SECTION_EFFECTS, encode_effects(&draw.effects)),
-        (SECTION_GENERATED_IMAGES, generated_images_section),
-    ];
-
-    // v4 header: magic(4) + version(4) + section_count(4) + epoch(4) +
-    // sections × 12.
-    let header_len = 16 + sections.len() * 12;
-    let mut offsets = Vec::with_capacity(sections.len());
-    let mut cursor = header_len as u32;
-    for (_, bytes) in &sections {
-        cursor = align4(cursor);
-        offsets.push(cursor);
-        cursor = cursor
-            .checked_add(bytes.len() as u32)
-            .ok_or_else(|| "IR envelope too large".to_string())?;
-    }
-
-    let mut out = Vec::with_capacity(cursor as usize);
-    out.extend_from_slice(IR_MAGIC);
-    write_u32(&mut out, IR_VERSION);
-    write_u32(&mut out, sections.len() as u32);
-    write_u32(&mut out, pipeline_epoch);
-    for ((id, bytes), offset) in sections.iter().zip(offsets.iter()) {
-        write_u32(&mut out, *id);
-        write_u32(&mut out, *offset);
-        write_u32(&mut out, bytes.len() as u32);
-    }
-
-    for ((_, bytes), offset) in sections.iter().zip(offsets.iter()) {
-        while out.len() < *offset as usize {
-            out.push(0);
-        }
-        out.extend_from_slice(bytes);
-    }
-
-    Ok(out)
-}
-
-/// Encode the generated-image delta (section 12). Layout: `count: u32` then
-/// `count × { id: u64, width: u32, height: u32, rgba_len: u32, rgba: [u8] }`.
-/// An empty delta (no new glyphs this frame) serializes as a single `0` count.
-fn encode_generated_images(delta: &[GeneratedImageRecord]) -> Vec<u8> {
-    let mut out = Vec::new();
-    write_u32(&mut out, delta.len() as u32);
-    for record in delta {
-        write_u64(&mut out, record.id.0);
-        write_u32(&mut out, record.width);
-        write_u32(&mut out, record.height);
-        write_bytes_with_len(&mut out, &record.rgba);
-    }
-    out
-}
-
-pub(crate) fn intern_image_strings(draw: &mut DrawOpFrame) {
-    fn push_unique(strings: &mut Vec<String>, asset_id: &str) {
-        if !strings.iter().any(|item| item == asset_id) {
-            strings.push(asset_id.to_string());
-        }
-    }
-
-    for op in &draw.ops {
-        intern_image_strings_in_ops(&mut draw.strings, std::slice::from_ref(op));
-    }
-    for subtree in &draw.subtrees {
-        intern_image_strings_in_ops(&mut draw.strings, subtree);
-    }
-    for child in &draw.children {
-        if let RuntimeEffectChildRef::Image(image) = child {
-            intern_image_ref(&mut draw.strings, image);
-        }
-    }
-
-    fn intern_image_strings_in_ops(strings: &mut Vec<String>, ops: &[DrawOp]) {
-        for op in ops {
-            match op {
-                DrawOp::Image { image, .. } | DrawOp::ImageRect { image, .. } => {
-                    intern_image_ref(strings, image);
-                }
-                DrawOp::LottieRect { bundle_id, .. } => push_unique(strings, bundle_id),
-                _ => {}
-            }
-        }
-    }
-
-    fn intern_image_ref(strings: &mut Vec<String>, image: &ImageRef) {
-        match image {
-            ImageRef::Static { asset_id } | ImageRef::VideoFrame { asset_id, .. } => {
-                push_unique(strings, asset_id);
-            }
-            // Generated images are addressed by numeric id, not a string
-            // asset_id, so they contribute nothing to the IR string table.
-            ImageRef::Generated { .. } => {}
-        }
-    }
-}
-
-fn encode_paints(paints: &[PaintSpec]) -> Result<Vec<u8>, String> {
-    let mut out = Vec::new();
-    write_u32(&mut out, paints.len() as u32);
-    for paint in paints {
-        let mut record = Vec::new();
-        encode_paint(&mut record, paint)?;
-        write_u32(&mut out, record.len() as u32);
-        out.extend_from_slice(&record);
-    }
-    Ok(out)
-}
-
-fn encode_paint(out: &mut Vec<u8>, paint: &PaintSpec) -> Result<(), String> {
-    encode_fill(out, &paint.fill);
-    write_u8(out, encode_paint_style(paint.style));
-    write_u8(out, if paint.anti_alias { 1 } else { 0 });
-    write_u8(out, encode_blend_mode(paint.blend_mode));
-    match &paint.stroke {
-        Some(stroke) => {
-            write_u8(out, 1);
-            write_f32(out, stroke.width);
-            write_u8(out, encode_stroke_cap(stroke.cap));
-            write_u8(out, encode_stroke_join(stroke.join));
-            write_f32(out, stroke.miter_limit);
-        }
-        None => write_u8(out, 0),
-    }
-    encode_optional(out, paint.image_filter.as_ref(), encode_image_filter)?;
-    encode_optional(out, paint.color_filter.as_ref(), encode_color_filter)?;
-    encode_optional(out, paint.mask_filter.as_ref(), encode_mask_filter)?;
-    encode_optional(out, paint.path_effect.as_ref(), encode_path_effect)?;
-    Ok(())
-}
-
-fn encode_fill(out: &mut Vec<u8>, fill: &FillSpec) {
-    match fill {
-        FillSpec::Solid(color) => {
-            write_u8(out, 0);
-            write_f32_array(out, color);
-        }
-        FillSpec::Shader(shader) => {
-            write_u8(out, 1);
-            encode_paint_shader(out, shader);
-        }
-    }
-}
-
-fn encode_paint_shader(out: &mut Vec<u8>, shader: &PaintShaderSpec) {
-    match shader {
-        PaintShaderSpec::LinearGradient {
-            from,
-            to,
-            stops,
-            colors,
-            tile_mode,
-            local_matrix,
-        } => {
-            write_u8(out, 0);
-            write_u8(out, encode_tile_mode(*tile_mode));
-            write_f32_array(out, from);
-            write_f32_array(out, to);
-            write_f32_vec(out, stops);
-            write_color_vec(out, colors);
-            encode_optional_matrix(out, local_matrix);
-        }
-        PaintShaderSpec::RadialGradient {
-            center,
-            radius,
-            stops,
-            colors,
-            tile_mode,
-            local_matrix,
-        } => {
-            write_u8(out, 1);
-            write_u8(out, encode_tile_mode(*tile_mode));
-            write_f32_array(out, center);
-            write_f32(out, *radius);
-            write_f32_vec(out, stops);
-            write_color_vec(out, colors);
-            encode_optional_matrix(out, local_matrix);
-        }
-    }
-}
-
-/// Encode an optional 3×3 row-major matrix: presence byte (1 = Some) + 9×f32.
-fn encode_optional_matrix(out: &mut Vec<u8>, matrix: &Option<[f32; 9]>) {
-    match matrix {
-        Some(m) => {
-            write_u8(out, 1);
-            for v in m {
-                write_f32(out, *v);
-            }
-        }
-        None => write_u8(out, 0),
-    }
-}
-
-fn encode_image_filter(out: &mut Vec<u8>, filter: &ImageFilterSpec) -> Result<(), String> {
-    match filter {
-        ImageFilterSpec::Blur {
-            sigma_x,
-            sigma_y,
-            crop_rect,
-        } => {
-            write_u8(out, 0);
-            write_f32(out, *sigma_x);
-            write_f32(out, *sigma_y);
-            match crop_rect {
-                Some(rect) => {
-                    write_u8(out, 1);
-                    write_f32(out, rect.x0 as f32);
-                    write_f32(out, rect.y0 as f32);
-                    write_f32(out, rect.x1 as f32);
-                    write_f32(out, rect.y1 as f32);
-                }
-                None => write_u8(out, 0),
-            }
-        }
-        ImageFilterSpec::DropShadow {
-            dx,
-            dy,
-            sigma_x,
-            sigma_y,
-            color,
-        } => {
-            write_u8(out, 1);
-            write_f32(out, *dx);
-            write_f32(out, *dy);
-            write_f32(out, *sigma_x);
-            write_f32(out, *sigma_y);
-            write_f32_array(out, color);
-        }
-        ImageFilterSpec::ColorFilter(filter) => {
-            write_u8(out, 2);
-            encode_color_filter(out, filter)?;
-        }
-        ImageFilterSpec::Compose(outer, inner) => {
-            write_u8(out, 3);
-            encode_image_filter(out, outer)?;
-            encode_image_filter(out, inner)?;
-        }
-    }
-    Ok(())
-}
-
-fn encode_color_filter(out: &mut Vec<u8>, filter: &ColorFilterSpec) -> Result<(), String> {
-    match filter {
-        ColorFilterSpec::Matrix(matrix) => {
-            write_u8(out, 0);
-            write_f32_array(out, matrix);
-        }
-        ColorFilterSpec::BlendColor { color, mode } => {
-            write_u8(out, 1);
-            write_f32_array(out, color);
-            write_u8(out, encode_blend_mode(*mode));
-        }
-        ColorFilterSpec::LinearToSrgbGamma => write_u8(out, 2),
-        ColorFilterSpec::SrgbToLinearGamma => write_u8(out, 3),
-    }
-    Ok(())
-}
-
-fn encode_mask_filter(out: &mut Vec<u8>, filter: &MaskFilterSpec) -> Result<(), String> {
-    match filter {
-        MaskFilterSpec::Blur {
-            sigma,
-            style,
-            respect_ctm,
-        } => {
-            write_u8(out, 0);
-            write_f32(out, *sigma);
-            write_u8(out, encode_blur_style(*style));
-            write_u8(out, if *respect_ctm { 1 } else { 0 });
-        }
-    }
-    Ok(())
-}
-
-fn encode_path_effect(out: &mut Vec<u8>, effect: &PathEffectSpec) -> Result<(), String> {
-    match effect {
-        PathEffectSpec::Dash { intervals, phase } => {
-            write_u8(out, 0);
-            write_f32_vec(out, intervals);
-            write_f32(out, *phase);
-        }
-    }
-    Ok(())
-}
-
-fn encode_paths(paths: &[EncodedPath]) -> Vec<u8> {
-    let mut out = Vec::new();
-    write_u32(&mut out, paths.len() as u32);
-    for path in paths {
-        let mut record = Vec::new();
-        write_u8(&mut record, encode_fill_type(path.fill_type));
-        write_u32(&mut record, path.ops.len() as u32);
-        for op in &path.ops {
-            encode_path_op(&mut record, op);
-        }
-        write_u32(&mut out, record.len() as u32);
-        out.extend_from_slice(&record);
-    }
-    out
-}
-
-fn encode_path_op(out: &mut Vec<u8>, op: &PathOp) {
-    match op {
-        PathOp::MoveTo { x, y } => {
-            write_u16(out, 0);
-            write_f32(out, *x);
-            write_f32(out, *y);
-        }
-        PathOp::LineTo { x, y } => {
-            write_u16(out, 1);
-            write_f32(out, *x);
-            write_f32(out, *y);
-        }
-        PathOp::QuadTo { cx, cy, x, y } => {
-            write_u16(out, 2);
-            write_f32(out, *cx);
-            write_f32(out, *cy);
-            write_f32(out, *x);
-            write_f32(out, *y);
-        }
-        PathOp::CubicTo {
-            c1x,
-            c1y,
-            c2x,
-            c2y,
-            x,
-            y,
-        } => {
-            write_u16(out, 3);
-            write_f32(out, *c1x);
-            write_f32(out, *c1y);
-            write_f32(out, *c2x);
-            write_f32(out, *c2y);
-            write_f32(out, *x);
-            write_f32(out, *y);
-        }
-        PathOp::Close => write_u16(out, 4),
-        PathOp::AddRect {
-            x,
-            y,
-            width,
-            height,
-        } => {
-            write_u16(out, 5);
-            write_f32(out, *x);
-            write_f32(out, *y);
-            write_f32(out, *width);
-            write_f32(out, *height);
-        }
-        PathOp::AddRRect {
-            x,
-            y,
-            width,
-            height,
-            radius,
-        } => {
-            write_u16(out, 6);
-            write_f32(out, *x);
-            write_f32(out, *y);
-            write_f32(out, *width);
-            write_f32(out, *height);
-            write_f32(out, *radius);
-        }
-        PathOp::AddOval {
-            x,
-            y,
-            width,
-            height,
-        } => {
-            write_u16(out, 7);
-            write_f32(out, *x);
-            write_f32(out, *y);
-            write_f32(out, *width);
-            write_f32(out, *height);
-        }
-        PathOp::AddArc {
-            x,
-            y,
-            width,
-            height,
-            start_angle,
-            sweep_angle,
-        } => {
-            write_u16(out, 8);
-            write_f32(out, *x);
-            write_f32(out, *y);
-            write_f32(out, *width);
-            write_f32(out, *height);
-            write_f32(out, *start_angle);
-            write_f32(out, *sweep_angle);
-        }
-    }
-}
-
-fn encode_children(
-    children: &[RuntimeEffectChildRef],
-    strings: &[String],
-) -> Result<Vec<u8>, String> {
-    let mut out = Vec::new();
-    write_u32(&mut out, children.len() as u32);
-    for child in children {
-        let mut record = Vec::new();
-        match child {
-            RuntimeEffectChildRef::Image(image) => {
-                write_u8(&mut record, 0);
-                encode_image_ref(&mut record, image, strings)?;
-            }
-            RuntimeEffectChildRef::Picture(range) => {
-                write_u8(&mut record, 1);
-                write_u32(&mut record, range.start_op);
-                write_u32(&mut record, range.op_len);
-            }
-            RuntimeEffectChildRef::SubtreePicture(subtree) => {
-                write_u8(&mut record, 3);
-                write_u32(&mut record, subtree.0);
-            }
-            RuntimeEffectChildRef::Shader(shader) => {
-                write_u8(&mut record, 2);
-                encode_ir_shader(&mut record, shader);
-            }
-        }
-        write_u32(&mut out, record.len() as u32);
-        out.extend_from_slice(&record);
-    }
-    Ok(out)
-}
-
-fn encode_image_ref(
-    out: &mut Vec<u8>,
-    image: &ImageRef,
-    strings: &[String],
-) -> Result<(), String> {
-    match image {
-        ImageRef::Static { asset_id } => {
-            write_u8(out, 0);
-            write_u32(out, lookup_string_id(strings, asset_id)?);
-            write_u64(out, 0); // time_micros = 0
-        }
-        ImageRef::VideoFrame {
-            asset_id,
-            time_micros,
-        } => {
-            write_u8(out, 1);
-            write_u32(out, lookup_string_id(strings, asset_id)?);
-            write_u64(out, *time_micros);
-        }
-        // Generated images carry a numeric id, not an interned asset string.
-        // The RGBA is published separately via the generated-image delta
-        // (issue #10); the JS decoder resolves it from (pipeline_epoch, id).
-        // Layout mirrors the core encoder: tag(1) + id_u64(8) + reserved(4).
-        ImageRef::Generated { id } => {
-            write_u8(out, 2);
-            write_u64(out, id.0);
-            write_u32(out, 0); // reserved
-        }
-    }
-    Ok(())
-}
-
-fn encode_ir_shader(out: &mut Vec<u8>, shader: &ShaderSpec) {
-    match &shader.shader_type {
-        ShaderType::LinearGradient { start, end, colors } => {
-            write_u8(out, 0);
-            write_f32(out, start.0);
-            write_f32(out, start.1);
-            write_f32(out, end.0);
-            write_f32(out, end.1);
-            encode_ir_gradient_colors(out, colors);
-        }
-        ShaderType::RadialGradient {
-            center,
-            radius,
-            colors,
-        } => {
-            write_u8(out, 1);
-            write_f32(out, center.0);
-            write_f32(out, center.1);
-            write_f32(out, *radius);
-            encode_ir_gradient_colors(out, colors);
-        }
-    }
-}
-
-fn encode_ir_gradient_colors(out: &mut Vec<u8>, colors: &[(f32, [f32; 4])]) {
-    write_u32(out, colors.len() as u32);
-    for (stop, color) in colors {
-        write_f32(out, *stop);
-        write_f32_array(out, color);
-    }
-}
-
-fn encode_effects(effects: &[EffectRef]) -> Vec<u8> {
-    let mut out = Vec::new();
-    write_u32(&mut out, effects.len() as u32);
-    for effect in effects {
-        write_u64(&mut out, effect.hash);
-        write_bytes_with_len(&mut out, effect.sksl.as_bytes());
-    }
-    out
-}
-
-fn encode_optional<T>(
-    out: &mut Vec<u8>,
-    value: Option<&T>,
-    encode: fn(&mut Vec<u8>, &T) -> Result<(), String>,
-) -> Result<(), String> {
-    match value {
-        Some(value) => {
-            write_u8(out, 1);
-            encode(out, value)?;
-        }
-        None => write_u8(out, 0),
-    }
-    Ok(())
-}
-
-fn lookup_string_id(strings: &[String], s: &str) -> Result<u32, String> {
-    strings
-        .iter()
-        .position(|item| item == s)
-        .map(|idx| idx as u32)
-        .ok_or_else(|| format!("asset_id not interned in IR strings: {s}"))
-}
-
-fn encode_f32_slice(values: &[f32]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(values.len() * 4);
-    for value in values {
-        write_f32(&mut out, *value);
-    }
-    out
-}
-
-fn encode_ranges(ranges: &[TableRange]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(ranges.len() * 8);
-    for range in ranges {
-        write_u32(&mut out, range.start);
-        write_u32(&mut out, range.len);
-    }
-    out
-}
-
-fn write_color_vec(out: &mut Vec<u8>, colors: &[[f32; 4]]) {
-    write_u32(out, colors.len() as u32);
-    for color in colors {
-        write_f32_array(out, color);
-    }
-}
-
-fn write_f32_vec(out: &mut Vec<u8>, values: &[f32]) {
-    write_u32(out, values.len() as u32);
-    for value in values {
-        write_f32(out, *value);
-    }
-}
-
-fn write_f32_array<const N: usize>(out: &mut Vec<u8>, values: &[f32; N]) {
-    for value in values {
-        write_f32(out, *value);
-    }
-}
-
-fn write_bytes_with_len(out: &mut Vec<u8>, bytes: &[u8]) {
-    write_u32(out, bytes.len() as u32);
-    out.extend_from_slice(bytes);
-}
-
-fn write_u8(out: &mut Vec<u8>, value: u8) {
-    out.push(value);
-}
-
-fn write_u16(out: &mut Vec<u8>, value: u16) {
-    out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn write_u32(out: &mut Vec<u8>, value: u32) {
-    out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn write_u64(out: &mut Vec<u8>, value: u64) {
-    out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn write_f32(out: &mut Vec<u8>, value: f32) {
-    out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn align4(value: u32) -> u32 {
-    (value + 3) & !3
-}
-
-fn encode_paint_style(style: PaintStyle) -> u8 {
-    match style {
-        PaintStyle::Fill => 0,
-        PaintStyle::Stroke => 1,
-    }
-}
-
-fn encode_stroke_cap(cap: StrokeCap) -> u8 {
-    match cap {
-        StrokeCap::Butt => 0,
-        StrokeCap::Round => 1,
-        StrokeCap::Square => 2,
-    }
-}
-
-fn encode_stroke_join(join: StrokeJoin) -> u8 {
-    match join {
-        StrokeJoin::Miter => 0,
-        StrokeJoin::Round => 1,
-        StrokeJoin::Bevel => 2,
-    }
-}
-
-fn encode_blend_mode(mode: BlendMode) -> u8 {
-    match mode {
-        BlendMode::Clear => 0,
-        BlendMode::Src => 1,
-        BlendMode::Dst => 2,
-        BlendMode::SrcOver => 3,
-        BlendMode::DstOver => 4,
-        BlendMode::SrcIn => 5,
-        BlendMode::DstIn => 6,
-        BlendMode::SrcOut => 7,
-        BlendMode::DstOut => 8,
-        BlendMode::SrcATop => 9,
-        BlendMode::DstATop => 10,
-        BlendMode::Xor => 11,
-        BlendMode::Plus => 12,
-        BlendMode::Modulate => 13,
-        BlendMode::Screen => 14,
-        BlendMode::Overlay => 15,
-        BlendMode::Darken => 16,
-        BlendMode::Lighten => 17,
-        BlendMode::ColorDodge => 18,
-        BlendMode::ColorBurn => 19,
-        BlendMode::HardLight => 20,
-        BlendMode::SoftLight => 21,
-        BlendMode::Difference => 22,
-        BlendMode::Exclusion => 23,
-        BlendMode::Multiply => 24,
-        BlendMode::Hue => 25,
-        BlendMode::Saturation => 26,
-        BlendMode::Color => 27,
-        BlendMode::Luminosity => 28,
-    }
-}
-
-fn encode_tile_mode(mode: TileMode) -> u8 {
-    match mode {
-        TileMode::Clamp => 0,
-        TileMode::Repeat => 1,
-        TileMode::Mirror => 2,
-        TileMode::Decal => 3,
-    }
-}
-
-fn encode_blur_style(style: BlurStyle) -> u8 {
-    match style {
-        BlurStyle::Normal => 0,
-        BlurStyle::Inner => 1,
-        BlurStyle::Solid => 2,
-        BlurStyle::Outer => 3,
-    }
-}
-
-fn encode_fill_type(fill_type: FillType) -> u8 {
-    match fill_type {
-        FillType::Winding => 0,
-        FillType::EvenOdd => 1,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use opencat_core::ir::draw_encoding::encode_draw_frame;
-    use opencat_core::ir::draw_frame::DrawFrameScratch;
+    use opencat_core::ir::draw_encoding::{encode_ir_envelope, section, IR_VERSION};
+    use opencat_core::ir::draw_frame::{DrawFrameScratch, DrawOpFrame};
+    use std::collections::HashMap;
+    use std::sync::Arc;
 
-    /// Build a no-op draw frame and its binary encoding — enough to exercise
-    /// the envelope layout through the real core `encode_draw_frame` path.
-    fn empty_frames() -> (DrawOpFrame, EncodedDrawFrame) {
+    fn empty_envelope(epoch: u32, delta: &[FrameGeneratedImage]) -> Vec<u8> {
         let draw = DrawOpFrame::default();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&draw, &mut scratch);
-        (draw, encoded)
+        encode_ir_envelope(&draw, &mut scratch, epoch, delta).expect("encode")
     }
 
     fn rgba(value: u8, width: u32, height: u32) -> Arc<[u8]> {
@@ -1267,7 +535,7 @@ mod tests {
     /// generated-image section (12), mirroring the JS decoder.
     struct DecodedEnvelope {
         epoch: u32,
-        generated: Vec<GeneratedImageRecord>,
+        generated: Vec<FrameGeneratedImage>,
     }
 
     fn decode_envelope(bytes: &[u8]) -> DecodedEnvelope {
@@ -1287,7 +555,7 @@ mod tests {
             sections.insert(id, (offset, len));
         }
 
-        let generated = match sections.get(&SECTION_GENERATED_IMAGES) {
+        let generated = match sections.get(&section::GENERATED_IMAGES) {
             Some((offset, len)) => decode_generated_images(&bytes[*offset..*offset + *len]),
             None => Vec::new(),
         };
@@ -1295,7 +563,7 @@ mod tests {
         DecodedEnvelope { epoch, generated }
     }
 
-    fn decode_generated_images(bytes: &[u8]) -> Vec<GeneratedImageRecord> {
+    fn decode_generated_images(bytes: &[u8]) -> Vec<FrameGeneratedImage> {
         let mut cursor = 0;
         let count = u32::from_le_bytes(bytes[cursor..cursor + 4].try_into().unwrap());
         cursor += 4;
@@ -1309,11 +577,9 @@ mod tests {
             cursor += 4;
             let rgba_len = u32::from_le_bytes(bytes[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
-            let rgba = Arc::from(
-                bytes[cursor..cursor + rgba_len].to_vec(),
-            );
+            let rgba = Arc::from(bytes[cursor..cursor + rgba_len].to_vec());
             cursor += rgba_len;
-            out.push(GeneratedImageRecord {
+            out.push(FrameGeneratedImage {
                 id: GeneratedImageId(id),
                 width,
                 height,
@@ -1325,9 +591,7 @@ mod tests {
 
     #[test]
     fn envelope_stamps_pipeline_epoch_in_header() {
-        let (draw, encoded) = empty_frames();
-        let bytes =
-            encode_ir_envelope(&draw, &encoded, 7, &[]).expect("encode empty delta");
+        let bytes = empty_envelope(7, &[]);
         let decoded = decode_envelope(&bytes);
         assert_eq!(decoded.epoch, 7);
         assert!(decoded.generated.is_empty(), "no delta => empty section 12");
@@ -1335,22 +599,21 @@ mod tests {
 
     #[test]
     fn generated_image_delta_round_trips_field_by_field() {
-        let (draw, encoded) = empty_frames();
         let delta = vec![
-            GeneratedImageRecord {
+            FrameGeneratedImage {
                 id: GeneratedImageId(0x0123_4567_89ab_cdef),
                 width: 3,
                 height: 2,
                 rgba: rgba(0xAB, 3, 2),
             },
-            GeneratedImageRecord {
+            FrameGeneratedImage {
                 id: GeneratedImageId(42),
                 width: 1,
                 height: 1,
                 rgba: rgba(0x11, 1, 1),
             },
         ];
-        let bytes = encode_ir_envelope(&draw, &encoded, 3, &delta).expect("encode delta");
+        let bytes = empty_envelope(3, &delta);
         let decoded = decode_envelope(&bytes);
 
         assert_eq!(decoded.epoch, 3);
@@ -1367,18 +630,13 @@ mod tests {
 
     #[test]
     fn empty_delta_serializes_as_zero_count_section() {
-        // Section 12 is always present in v4 — even with no new glyphs it
-        // carries a `count: 0` so the JS decoder can rely on its presence.
-        let (draw, encoded) = empty_frames();
-        let bytes = encode_ir_envelope(&draw, &encoded, 1, &[]).expect("encode");
-
-        // Locate section 12 raw bytes and confirm a single zero u32.
+        let bytes = empty_envelope(1, &[]);
         let section_count = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
         let mut section_12 = None;
         for i in 0..section_count {
             let base = 16 + i * 12;
             let id = u32::from_le_bytes(bytes[base..base + 4].try_into().unwrap());
-            if id == SECTION_GENERATED_IMAGES {
+            if id == section::GENERATED_IMAGES {
                 let offset =
                     u32::from_le_bytes(bytes[base + 4..base + 8].try_into().unwrap()) as usize;
                 let len =
@@ -1391,42 +649,29 @@ mod tests {
         assert_eq!(u32::from_le_bytes(section.try_into().unwrap()), 0);
     }
 
-    /// Delta semantics: a glyph published in frame 0 must not be re-published
-    /// in frame 1. This mirrors the bookkeeping `build_frame_ir` does via the
-    /// `published_generated` set, but tested at the pure encoder level by
-    /// feeding a shrinking delta.
     #[test]
     fn delta_only_carries_newly_published_glyphs() {
-        let (draw, encoded) = empty_frames();
-        let glyph = GeneratedImageRecord {
+        let glyph = FrameGeneratedImage {
             id: GeneratedImageId(99),
             width: 2,
             height: 2,
             rgba: rgba(0x55, 2, 2),
         };
-
-        // Frame 0: glyph 99 is new → published.
-        let frame0 = encode_ir_envelope(&draw, &encoded, 1, &[glyph.clone()]).unwrap();
+        let frame0 = empty_envelope(1, &[glyph.clone()]);
         assert_eq!(decode_envelope(&frame0).generated.len(), 1);
-
-        // Frame 1: glyph 99 already published → delta is empty.
-        let frame1 = encode_ir_envelope(&draw, &encoded, 1, &[]).unwrap();
+        let frame1 = empty_envelope(1, &[]);
         assert!(decode_envelope(&frame1).generated.is_empty());
     }
 
-    /// A new epoch republishes: even though the glyph id is the same, a
-    /// different epoch means JS has discarded its cache, so the encoder must
-    /// be free to (and the decoder must correctly read) a fresh delta.
     #[test]
     fn epoch_change_allows_republish_of_same_glyph() {
-        let (draw, encoded) = empty_frames();
-        let glyph = GeneratedImageRecord {
+        let glyph = FrameGeneratedImage {
             id: GeneratedImageId(7),
             width: 1,
             height: 1,
             rgba: rgba(0xFF, 1, 1),
         };
-        let bytes = encode_ir_envelope(&draw, &encoded, 5, &[glyph]).unwrap();
+        let bytes = empty_envelope(5, &[glyph]);
         let decoded = decode_envelope(&bytes);
         assert_eq!(decoded.epoch, 5);
         assert_eq!(decoded.generated.len(), 1);

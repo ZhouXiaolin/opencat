@@ -14,6 +14,7 @@ use crate::{
         time::TimelineNode,
         time::{FrameState, frame_state_for_root},
     },
+    probe::catalog::PreparedResourceCatalog,
     resolve::{
         path_bounds,
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
@@ -23,7 +24,7 @@ use crate::{
             ElementTimelineTransition,
         },
     },
-    resource::catalog::{ResourceResolver, VideoInfoMeta},
+    resource::catalog::VideoInfoMeta,
     script::{ScriptHost, ScriptTargetRegistry, StyleMutations, TextUnitOverrideBatch},
     semantic::fingerprint::compute_element_input_fingerprints,
     style::LengthPercentageAuto,
@@ -51,7 +52,7 @@ struct ResolveContext<'a> {
     script_frame_ctx: &'a ScriptFrameCtx,
     ids: &'a mut ElementIdAllocator,
     inherited_style: &'a InheritedStyle,
-    assets: &'a mut dyn ResourceResolver,
+    assets: &'a mut PreparedResourceCatalog,
 
     script_runtime: &'a mut dyn ScriptHost,
     mutation_stack: &'a mut Vec<StyleMutations>,
@@ -60,7 +61,7 @@ struct ResolveContext<'a> {
 pub fn resolve_ui_tree(
     node: &Node,
     frame_ctx: &FrameCtx,
-    assets: &mut dyn ResourceResolver,
+    assets: &mut PreparedResourceCatalog,
     mutations: Option<&StyleMutations>,
     script_runtime: &mut dyn ScriptHost,
 ) -> Result<ElementNode> {
@@ -79,7 +80,7 @@ pub fn resolve_ui_tree_with_script_cache(
     node: &Node,
     frame_ctx: &FrameCtx,
     script_frame_ctx: &ScriptFrameCtx,
-    assets: &mut dyn ResourceResolver,
+    assets: &mut PreparedResourceCatalog,
     mutations: Option<&StyleMutations>,
     script_runtime: &mut dyn ScriptHost,
 ) -> Result<ElementNode> {
@@ -1018,7 +1019,7 @@ fn apply_canvas_mutation_stack(commands: &mut Vec<DrawOp>, stack: &[StyleMutatio
 /// An alias that is neither registered nor a known canonical asset is an error.
 fn canonicalize_canvas_image_refs(
     commands: &mut [DrawOp],
-    assets: &mut dyn ResourceResolver,
+    assets: &PreparedResourceCatalog,
 ) -> Result<()> {
     for op in commands.iter_mut() {
         let image_ref = match op {
@@ -1331,20 +1332,19 @@ mod tests {
         FrameCtx,
         ir::{draw_op::DrawOp, draw_types::ImageRef},
         parse::primitives::{SrtEntry, caption, div, lucide, path, text, video},
+        probe::catalog::PreparedResourceCatalog,
         resolve::tree::ElementKind,
-        resource::catalog::ResourceResolver,
         script::{
             NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
             TextUnitOverrideBatch,
         },
         test_support::MockScriptHost,
-        test_support::TestCatalog,
     };
 
     fn resolve(
         node: &crate::Node,
         frame_ctx: &FrameCtx,
-        assets: &mut dyn crate::resource::catalog::ResourceResolver,
+        assets: &mut PreparedResourceCatalog,
     ) -> anyhow::Result<super::ElementNode> {
         let mut mock = MockScriptHost::default();
         resolve_ui_tree(node, frame_ctx, assets, None, &mut mock)
@@ -1359,7 +1359,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let err = resolve(&div().into(), &frame_ctx, &mut assets)
             .expect_err("nodes without ids should fail during resolution");
@@ -1376,7 +1376,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let root = div()
             .id("root")
@@ -1412,7 +1412,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let root = div()
             .id("root")
@@ -1439,7 +1439,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let first = div()
             .id("root")
@@ -1485,7 +1485,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let root = div()
             .id("root")
@@ -1509,7 +1509,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let root = div()
             .id("root")
@@ -1532,7 +1532,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let root = div()
             .id("root")
@@ -1559,7 +1559,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let root = div()
             .id("root")
@@ -1586,7 +1586,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let root = div().id("root").child(
             path("M0 0 L10 0 L10 20 L0 20 Z")
@@ -1612,7 +1612,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let root = div().id("root").child(path("definitely-not-svg").id("bad"));
 
@@ -1694,7 +1694,7 @@ mod tests {
             height: 180,
             frames: 10,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let tree = resolve(&root.into(), &frame_ctx, &mut assets)
             .expect("root caption should resolve from global time");
@@ -1711,7 +1711,7 @@ mod tests {
             height: 180,
             frames: 90,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let entries = vec![SrtEntry {
             index: 1,
@@ -1747,7 +1747,7 @@ mod tests {
 
     #[test]
     fn resolve_video_falls_back_to_zero_dimensions_when_catalog_lacks_video_info() {
-        let mut catalog = TestCatalog::new();
+        let mut catalog = PreparedResourceCatalog::default();
         let v = video("/no/such/video.mp4").id("v");
         let frame_ctx = FrameCtx {
             frame: 0,
@@ -1770,12 +1770,8 @@ mod tests {
     fn canonicalize_canvas_image_refs_resolves_alias_to_canonical() {
         // AC4: a canvas draw-image op carrying a script-facing alias must be
         // rewritten to its canonical AssetId before leaving resolve.
-        let mut catalog = TestCatalog::new();
-        let canonical = catalog.register_dimensions(
-            crate::ir::asset_id::AssetId::new(crate::ir::asset_id::ResourceKind::Image, "/tmp/a.png"),
-            10,
-            10,
-        );
+        let mut catalog = PreparedResourceCatalog::default();
+        let canonical = catalog.register_dimensions("/tmp/a.png", 10, 10);
         let alias_id = crate::ir::asset_id::AssetId::new(crate::ir::asset_id::ResourceKind::Image, "hero");
         catalog.alias(alias_id.clone(), &canonical).unwrap();
 
@@ -1801,12 +1797,8 @@ mod tests {
     #[test]
     fn canonicalize_canvas_image_refs_keeps_canonical_id() {
         // A canonical id that is not an alias is left untouched.
-        let mut catalog = TestCatalog::new();
-        let canonical = catalog.register_dimensions(
-            crate::ir::asset_id::AssetId::new(crate::ir::asset_id::ResourceKind::Image, "/tmp/a.png"),
-            10,
-            10,
-        );
+        let mut catalog = PreparedResourceCatalog::default();
+        let canonical = catalog.register_dimensions("/tmp/a.png", 10, 10);
 
         let mut commands = vec![DrawOp::Image {
             image: ImageRef::Static {
@@ -1831,7 +1823,7 @@ mod tests {
     fn canonicalize_canvas_image_refs_rejects_unknown_alias() {
         // AC3: an alias that is neither registered nor a known canonical asset
         // is a render error.
-        let mut catalog = TestCatalog::new();
+        let mut catalog = PreparedResourceCatalog::default();
 
         let mut commands = vec![DrawOp::Image {
             image: ImageRef::Static {

@@ -15,6 +15,7 @@ use anyhow::Result;
 
 use opencat_core::ir::RenderFrame;
 use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
+use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::{BuildOptions, CanvasChildrenMode, build_parsed_document, parse_parts_with_base_dir};
 use opencat_core::pipeline::DefaultPipeline;
@@ -152,7 +153,7 @@ fn open_parsed_host_owned_with_fonts(
     font_bytes_by_face_id: std::collections::HashMap<String, Vec<u8>>,
 ) -> Result<EnginePipelineHost> {
     let draft = CompositionDraft::from_parsed(parsed);
-    let requests = draft.requirements().resource_requests().clone();
+    let requests = collect_resource_requests_from_parsed(draft.parsed());
 
     // Host fetch/cache under canonical AssetIds from core.
     loader.load_all(&requests)?;
@@ -463,15 +464,16 @@ mod tests {
             "engine must also key primary JSON under request bundle AssetId"
         );
 
-        // Composition still declares the lottie request under raw requests.
+        // Pipeline catalog carries the Lottie bundle metadata.
         assert!(
             host.pipeline
-                .info()
-                .requests
+                .catalog()
                 .lotties
-                .iter()
-                .any(|r| r.element_id == "loader"),
-            "composition must declare lottie request"
+                .contains_key(&opencat_core::AssetId::new(
+                    opencat_core::ir::asset_id::ResourceKind::Lottie,
+                    "lottie:loader",
+                )),
+            "catalog must contain lottie bundle metadata for loader"
         );
 
         let frame = host.pipeline.render_frame(0).expect("render");

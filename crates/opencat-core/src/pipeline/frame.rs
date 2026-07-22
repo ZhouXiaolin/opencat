@@ -23,7 +23,7 @@ use crate::render::RenderCtx;
 use crate::render::builder::DrawOpBuilder;
 use crate::render::media_plan::build_media_plan;
 use crate::resolve::resolve::resolve_ui_tree_with_script_cache;
-use crate::resource::catalog::ResourceResolver;
+use crate::probe::catalog::PreparedResourceCatalog;
 use crate::script::ScriptHost;
 use crate::text::DefaultFontProvider;
 
@@ -52,7 +52,7 @@ pub(crate) fn evaluate_frame_layout(
     frame_index: u32,
     layout_session: &mut LayoutSession,
     font_db: &Arc<fontdb::Database>,
-    catalog: &mut dyn ResourceResolver,
+    catalog: &mut PreparedResourceCatalog,
     script: &mut dyn ScriptHost,
 ) -> Result<FrameEvaluation> {
     #[cfg(feature = "profile")]
@@ -117,7 +117,7 @@ pub fn render_frame_with_state(
     composite_history: &mut CompositeHistory,
     analyze_fingerprint_history: &mut AnalyzeFingerprintHistory,
     font_db: &Arc<fontdb::Database>,
-    catalog: &mut dyn ResourceResolver,
+    catalog: &mut PreparedResourceCatalog,
     cache: &mut RenderCache,
     last_ordered_scene: &mut OrderedSceneProgram,
     script: &mut dyn ScriptHost,

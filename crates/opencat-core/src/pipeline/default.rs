@@ -268,10 +268,7 @@ mod tests {
         )
         .catalog;
         let font_db = crate::text::font_db_from_bytes(
-            &[
-                include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec(),
-                include_bytes!("../../../../assets/NotoColorEmoji.ttf").to_vec(),
-            ],
+            &crate::test_support::test_font_faces(),
             "Noto Sans SC",
         );
         DefaultPipeline::open_with_prepared_catalog(
@@ -285,10 +282,7 @@ mod tests {
 
     fn test_font_db() -> Arc<fontdb::Database> {
         Arc::new(crate::text::font_db_from_bytes(
-            &[
-                include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec(),
-                include_bytes!("../../../../assets/NotoColorEmoji.ttf").to_vec(),
-            ],
+            &crate::test_support::test_font_faces(),
             "Noto Sans SC",
         ))
     }

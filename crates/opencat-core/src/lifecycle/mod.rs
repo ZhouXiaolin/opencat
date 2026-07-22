@@ -1024,17 +1024,10 @@ mod tests {
         }
     }
 
-    fn test_base_font_faces() -> Vec<Vec<u8>> {
-        vec![
-            include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec(),
-            include_bytes!("../../../../assets/NotoColorEmoji.ttf").to_vec(),
-        ]
-    }
-
     fn open_lifecycle(input: &str) -> DefaultPipeline<NoopJsContext> {
         let draft = CompositionDraft::parse(input).expect("parse draft");
         let inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         let prepared = draft.prepare(inputs).expect("prepare");
         prepared
@@ -1111,7 +1104,7 @@ mod tests {
         let draft = CompositionDraft::parse(jsonl).unwrap();
         let err = draft
             .prepare(HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC"))
             .expect_err("missing image must fail prepare");
         assert!(matches!(
@@ -1129,7 +1122,7 @@ mod tests {
 {"type":"div","id":"root","parentId":null}"#;
         let draft = CompositionDraft::parse(jsonl).unwrap();
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_image(
@@ -1177,7 +1170,7 @@ mod tests {
         let draft = CompositionDraft::parse(jsonl).unwrap();
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_image(
@@ -1204,7 +1197,7 @@ mod tests {
         let draft = CompositionDraft::parse(jsonl).unwrap();
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_image(
@@ -1241,7 +1234,7 @@ mod tests {
         let draft = CompositionDraft::parse(jsonl).unwrap();
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_video(
@@ -1296,7 +1289,7 @@ mod tests {
         let id = draft.requirements().requests()[0].asset_id.clone();
         assert_eq!(id.key, "photos/a.png");
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_image(
@@ -1356,7 +1349,7 @@ mod tests {
             ));
             let id = reqs[0].asset_id.clone();
             let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
             inputs
                 .insert_video(
@@ -1389,7 +1382,7 @@ mod tests {
         assert_eq!(reqs[0].asset_id.key, "video:path:clips/hero.mp4");
         let id = reqs[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         // Host supplies only metadata — never video bytes.
         inputs
@@ -1431,7 +1424,7 @@ mod tests {
         let draft = CompositionDraft::parse(jsonl).unwrap();
         let err = draft
             .prepare(HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC"))
             .expect_err("missing video must fail prepare");
         assert!(matches!(
@@ -1452,7 +1445,7 @@ mod tests {
         let draft = CompositionDraft::parse(jsonl).unwrap();
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_video(
@@ -1531,7 +1524,7 @@ mod tests {
         let draft = CompositionDraft::parse(markup).unwrap();
         let err = draft
             .prepare(HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC"))
             .expect_err("missing lottie must fail prepare");
         assert!(matches!(
@@ -1557,7 +1550,7 @@ mod tests {
         let id = draft.requirements().requests()[0].asset_id.clone();
 
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_lottie(
@@ -1585,7 +1578,7 @@ mod tests {
         ));
 
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_lottie(
@@ -1613,7 +1606,7 @@ mod tests {
         ));
 
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_lottie(
@@ -1669,7 +1662,7 @@ mod tests {
 
             let id = reqs[0].asset_id.clone();
             let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
             // Host supplies only metadata — never Lottie JSON/bytes — under request id.
             inputs
@@ -1755,7 +1748,7 @@ mod tests {
 
             let id = reqs[0].asset_id.clone();
             let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
             // Host supplies only metadata — never image bytes — under the request id.
             inputs
@@ -1854,7 +1847,7 @@ mod tests {
         let draft = CompositionDraft::parse(xml).expect("parse");
         let err = draft
             .prepare(HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC"))
             .expect_err("missing document font must fail prepare");
         assert!(
@@ -1889,7 +1882,7 @@ mod tests {
             .asset_id
             .clone();
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs.insert_document_font(id, Vec::new()).unwrap();
         let err = draft
@@ -1992,7 +1985,7 @@ mod tests {
         // Base already has Noto Sans SC (engine-like defaults).
         let face_bytes = include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec();
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_document_font(font_id, face_bytes)
@@ -2075,7 +2068,7 @@ mod tests {
 
         let srt = "1\n00:00:00,000 --> 00:00:00,500\nHello Core\n";
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_subtitle_text(sub_id, srt)
@@ -2114,7 +2107,7 @@ mod tests {
             .clone();
         // Empty text is valid (explicit empty caption entries).
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_subtitle_text(sub_id, "")
@@ -2129,6 +2122,79 @@ mod tests {
             }
         }
         assert_eq!(find_caption_entries(&prepared.parsed().root), Some(0));
+    }
+
+    #[test]
+    fn xml_caption_hydrate_via_lifecycle() {
+        let xml = r#"
+            <opencat width="320" height="180" fps="30" duration="1">
+              <div id="root" class="w-full h-full">
+                <caption id="subs" path="sub.srt" />
+              </div>
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(xml).expect("parse xml");
+        let sub_id = draft
+            .requirements()
+            .requests()
+            .iter()
+            .find(|r| r.kind == ResourceKind::Subtitle)
+            .expect("subtitle req")
+            .asset_id
+            .clone();
+        assert!(
+            sub_id.key.contains("sub.srt"),
+            "subtitle asset id should reference the path: {sub_id:?}"
+        );
+
+        let srt = "1\n00:00:00,000 --> 00:00:00,500\nXML Caption\n";
+        let mut inputs = HostInputs::empty()
+            .with_base_font_faces(crate::test_support::test_font_faces())
+            .with_sans_serif_family("Noto Sans SC");
+        inputs
+            .insert_subtitle_text(sub_id, srt)
+            .expect("insert srt");
+        let prepared = draft.prepare(inputs).expect("prepare");
+        use crate::parse::node::NodeKind;
+        use crate::parse::primitives::CaptionNode;
+        fn find_caption<'a>(node: &'a crate::parse::node::Node, id: &str) -> Option<&'a CaptionNode> {
+            match node.kind() {
+                NodeKind::Caption(c) if c.style_ref().id == id => Some(c),
+                NodeKind::Div(d) => d.children_ref().iter().find_map(|c| find_caption(c, id)),
+                _ => None,
+            }
+        }
+        let caption = find_caption(&prepared.parsed().root, "subs").expect("caption node");
+        assert_eq!(caption.entries_ref().len(), 1);
+        assert_eq!(caption.active_text(0), Some("XML Caption"));
+    }
+
+    #[test]
+    fn xml_caption_missing_text_fails_prepare() {
+        let xml = r#"
+            <opencat width="320" height="180" fps="30" duration="1">
+              <div id="root" class="w-full h-full">
+                <caption id="subs" path="sub.srt" />
+              </div>
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(xml).expect("parse xml");
+        // No subtitle text supplied → MissingInput fail-fast.
+        let err = draft
+            .prepare(HostInputs::empty()
+                .with_base_font_faces(crate::test_support::test_font_faces())
+                .with_sans_serif_family("Noto Sans SC"))
+            .expect_err("missing subtitle text must fail");
+        assert!(
+            matches!(
+                err,
+                PrepareError::MissingInput {
+                    kind: ResourceKind::Subtitle,
+                    ..
+                }
+            ),
+            "got {err:?}"
+        );
     }
 
     /// Host-agnostic AudioPlan contract (#18): core derives typed ranges from
@@ -2163,7 +2229,7 @@ mod tests {
 
         // Audio needs only presence registration — no layout metadata (non-critical).
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         for r in &audio_reqs {
             inputs.insert_audio(r.asset_id.clone()).unwrap();
@@ -2234,7 +2300,7 @@ mod tests {
             .asset_id
             .clone();
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs.insert_audio(id).unwrap();
         let prepared = draft.prepare(inputs).expect("audio presence-only ok");
@@ -2275,7 +2341,7 @@ mod tests {
         let draft = CompositionDraft::parse(jsonl).unwrap();
         let err = draft
             .prepare(HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC"))
             .expect_err("missing script text must fail");
         assert!(matches!(
@@ -2302,7 +2368,7 @@ mod tests {
             .asset_id
             .clone();
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs
             .insert_script_text(id, "ctx.getNode('root').opacity(0.5);")
@@ -2334,7 +2400,7 @@ mod tests {
             .asset_id
             .clone();
         let mut inputs = HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
         inputs.insert_script_text(id, "").unwrap();
         let err = draft.prepare(inputs).expect_err("empty script text");
@@ -2386,7 +2452,7 @@ mod tests {
         );
         let prepared = draft
             .prepare(HostInputs::empty()
-            .with_base_font_faces(test_base_font_faces())
+            .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC"))
             .expect("inline scripts need no host text");
         assert!(prepared.parsed().root.style_ref().script_driver.is_some());

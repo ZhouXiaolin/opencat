@@ -9,7 +9,7 @@ use js_sys::{Function, Uint8Array};
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
-use opencat_core::ir::asset_id::asset_id_for_subtitle;
+use opencat_core::ir::asset_id::{asset_id_for_subtitle, asset_id_for_url};
 use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::primitives::{LottieSource, SubtitleSource};
 use opencat_core::resource::asset_id::AssetId;
@@ -129,7 +129,19 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
             .map_err(|e| JsValue::from_str(&format!("preload_assets lottie metadata: {e}")))?;
         let dependencies = meta.dependencies.clone();
         catalog.lotties.insert(bundle_id.clone(), meta);
-        blobs.insert(bundle_id.clone(), std::sync::Arc::from(primary));
+        let primary_arc = std::sync::Arc::<[u8]>::from(primary);
+        // Bundle id for DrawOp / FrameMediaPlan / Skottie.
+        blobs.insert(bundle_id.clone(), primary_arc.clone());
+        // build_catalog (core probe) reads Lottie primary JSON by the path/url
+        // key, while Skottie / FrameMediaPlan read it by bundle id — the web
+        // BlobStore is one flat map, so insert under both. (Engine keeps these
+        // in separate structures and keys probe bytes by path/url only.)
+        let probe_key = match &request.source {
+            LottieSource::Path(p) => AssetId(p.clone()),
+            LottieSource::Url(u) => asset_id_for_url(u),
+            LottieSource::Unset => continue,
+        };
+        blobs.insert(probe_key, primary_arc);
 
         for file_name in dependencies {
             let resolved = if file_name.starts_with("http://")

@@ -253,7 +253,7 @@ mod tests {
 
     /// Test helper: open a media-less pipeline via the crate-private open entry
     /// (same inputs lifecycle prepare would hand to it). Empty-byte
-    /// `build_catalog` omits all assets — render-seam tests only, not decode.
+    /// Empty-byte catalog omits all assets — render-seam tests only, not decode.
     fn open_test_pipeline(input: &str) -> DefaultPipeline<NoopJsContext> {
         let trimmed = input.trim();
         let parsed = if trimmed.starts_with('{') {
@@ -261,12 +261,7 @@ mod tests {
         } else {
             crate::parse::markup::parse(input).expect("parse input")
         };
-        let requests = collect_resource_requests_from_parsed(&parsed);
-        let catalog = crate::probe::build_catalog(
-            &requests,
-            &HashMap::<String, Vec<u8>>::new(),
-        )
-        .catalog;
+        let catalog = crate::probe::PreparedResourceCatalog::default();
         DefaultPipeline::open_with_prepared_catalog(
             parsed,
             catalog,
@@ -953,20 +948,19 @@ mod tests {
     #[test]
     fn crate_private_open_renders_without_a_loader() {
         // Host side: parse a tree, collect declarative requests, build a catalog
-        // with the pure `build_catalog` over *no* bytes (every asset omitted).
+        // with no bytes (every asset omitted).
         let root: crate::Node = crate::parse::primitives::div().id("root").into();
         let parsed = parsed_from_root(root, 320, 240, 30, 0.1);
 
-        let requests = collect_resource_requests_from_parsed(&parsed);
-        let prepared = crate::probe::build_catalog(&requests, &std::collections::HashMap::<String, Vec<u8>>::new());
+        let prepared = crate::probe::PreparedResourceCatalog::default();
         // Empty composition declares nothing, so the catalog is empty and the
         // pipeline must still open and render.
-        assert!(prepared.catalog.images.is_empty());
+        assert!(prepared.images.is_empty());
 
         let ctx = NoopJsContext::new().expect("js context");
         let mut pipeline = DefaultPipeline::open_with_prepared_catalog(
             parsed,
-            prepared.catalog,
+            prepared,
             ctx,
             Arc::new(crate::text::test_default_font_db()),
         )
@@ -1032,11 +1026,7 @@ mod tests {
         let open_fresh = || -> DefaultPipeline<NoopJsContext> {
             let parsed = parsed_from_root(root.clone(), 100, 100, 10, 0.5);
             let requests = collect_resource_requests_from_parsed(&parsed);
-            let catalog = crate::probe::build_catalog(
-                &requests,
-                &std::collections::HashMap::<String, Vec<u8>>::new(),
-            )
-            .catalog;
+            let catalog = crate::probe::PreparedResourceCatalog::default();
             DefaultPipeline::open_with_prepared_catalog(
                 parsed,
                 catalog,
@@ -1086,12 +1076,7 @@ mod tests {
             .into();
         let parsed = parsed_from_root(root, 200, 80, 30, 0.1);
 
-        let requests = collect_resource_requests_from_parsed(&parsed);
-        let catalog = crate::probe::build_catalog(
-            &requests,
-            &std::collections::HashMap::<String, Vec<u8>>::new(),
-        )
-        .catalog;
+        let catalog = crate::probe::PreparedResourceCatalog::default();
 
         let ctx = NoopJsContext::new().expect("js context");
         let mut pipeline = DefaultPipeline::open_with_prepared_catalog(
@@ -1129,11 +1114,7 @@ mod tests {
 
     fn open_inspect_sample() -> DefaultPipeline<NoopJsContext> {
         let parsed = parsed_from_root(sample_card_tree(), 320, 180, 30, 0.1);
-        let catalog = crate::probe::build_catalog(
-            &collect_resource_requests_from_parsed(&parsed),
-            &HashMap::<String, Vec<u8>>::new(),
-        )
-        .catalog;
+        let catalog = crate::probe::PreparedResourceCatalog::default();
         DefaultPipeline::open_with_prepared_catalog(
             parsed,
             catalog,
@@ -1204,12 +1185,7 @@ mod tests {
             )
             .into();
         let parsed = parsed_from_root(root, 200, 100, 30, 0.1);
-        let requests = collect_resource_requests_from_parsed(&parsed);
-        let mut catalog = crate::probe::build_catalog(
-            &requests,
-            &HashMap::<String, Vec<u8>>::new(),
-        )
-        .catalog;
+        let mut catalog = crate::probe::PreparedResourceCatalog::default();
         if let Some(id) =
             asset_id_for_image(&ImageSource::Path("missing-on-purpose.png".into()))
         {
@@ -1249,11 +1225,7 @@ mod tests {
             .child(div().id("box").w(10.0).h(10.0))
             .into();
         let parsed = parsed_from_root(root, 64, 64, 30, 0.1);
-        let catalog = crate::probe::build_catalog(
-            &collect_resource_requests_from_parsed(&parsed),
-            &HashMap::<String, Vec<u8>>::new(),
-        )
-        .catalog;
+        let catalog = crate::probe::PreparedResourceCatalog::default();
         let mut pipeline = DefaultPipeline::open_with_prepared_catalog(
             parsed,
             catalog,
@@ -1309,11 +1281,7 @@ mod tests {
             )
             .into();
         let parsed = parsed_from_root(root, 80, 80, 30, 0.3);
-        let catalog = crate::probe::build_catalog(
-            &collect_resource_requests_from_parsed(&parsed),
-            &HashMap::<String, Vec<u8>>::new(),
-        )
-        .catalog;
+        let catalog = crate::probe::PreparedResourceCatalog::default();
         let mut pipeline = DefaultPipeline::open_with_prepared_catalog(
             parsed,
             catalog,

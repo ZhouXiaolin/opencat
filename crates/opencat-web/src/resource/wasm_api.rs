@@ -9,6 +9,7 @@ use js_sys::{Function, Uint8Array};
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
+use anyhow::Context;
 use opencat_core::ir::asset_id::{asset_id_for_subtitle, asset_id_for_url, kind_from_canonical_str};
 use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::primitives::{LottieSource, SubtitleSource};
@@ -20,6 +21,8 @@ use crate::resource::blob_store::BlobStore;
 
 thread_local! {
     static BLOB_STORE: RefCell<BlobStore> = RefCell::new(BlobStore::new());
+    /// Prepared resource catalog from the most recent preload_assets call.
+    static CATALOG: RefCell<Option<PreparedResourceCatalog>> = const { RefCell::new(None) };
 }
 
 fn take_blobs() -> BlobStore {
@@ -30,13 +33,9 @@ fn put_blobs(blobs: BlobStore) {
     BLOB_STORE.with(|s| *s.borrow_mut() = blobs);
 }
 
-/// Snapshot the thread-local `BlobStore` into an owned `(asset_id_string ->
-/// bytes)` map, keyed by canonical `AssetId` string. This is the host-side
-/// byte bridge for the host-owned open flow: core's pure
-/// `probe::prepare::build_catalog` consumes it via `ByteSource`. Mirrors the
-/// engine's `collect_probe_bytes_by_asset_id`.
-pub(crate) fn blob_byte_map() -> std::collections::HashMap<String, Vec<u8>> {
-    BLOB_STORE.with(|s| s.borrow().to_byte_map())
+/// Take the catalog built by the most recent [`preload_assets`] call.
+pub(crate) fn take_catalog() -> Option<PreparedResourceCatalog> {
+    CATALOG.with(|s| s.borrow_mut().take())
 }
 
 /// Borrowed bytes for a single canonical asset id from the thread-local
@@ -129,7 +128,7 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
         let json = std::str::from_utf8(&primary)
             .map_err(|e| JsValue::from_str(&format!("preload_assets lottie utf-8: {e}")))?;
         // Host-only: parse metadata + deps from JSON; bytes stay in BlobStore.
-        let meta = opencat_core::resource::parse_lottie_meta(json)
+        let meta = parse_lottie_meta(json)
             .map_err(|e| JsValue::from_str(&format!("preload_assets lottie metadata: {e}")))?;
         let dependencies = meta.dependencies.clone();
         catalog.lotties.insert(bundle_id.clone(), meta);
@@ -170,6 +169,7 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
     }
 
     put_blobs(blobs);
+    CATALOG.with(|s| *s.borrow_mut() = Some(catalog.clone()));
 
     crate::resource::resolver::catalog_to_js_json(&catalog)
         .map_err(|e| JsValue::from_str(&format!("preload_assets: serialize: {e}")))
@@ -246,4 +246,71 @@ pub fn set_asset_reader(reader: Function) {
 #[wasm_bindgen]
 pub fn clear_asset_reader() {
     crate::resource::asset_reader::clear_reader();
+}
+
+/// Host-owned Lottie JSON metadata parser (issue #40).
+fn parse_lottie_meta(json: &str) -> anyhow::Result<opencat_core::resource::lottie::LottieMeta> {
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct LottieAsset {
+        #[serde(default)]
+        p: Option<String>,
+        #[serde(default)]
+        u: Option<String>,
+        #[serde(default)]
+        #[allow(dead_code)]
+        e: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    struct LottieRoot {
+        #[serde(default)]
+        w: Option<f64>,
+        #[serde(default)]
+        h: Option<f64>,
+        #[serde(default)]
+        fr: Option<f64>,
+        #[serde(default)]
+        ip: Option<f64>,
+        #[serde(default)]
+        op: Option<f64>,
+        #[serde(default)]
+        assets: Vec<LottieAsset>,
+    }
+
+    let root: LottieRoot =
+        serde_json::from_str(json).context("parse lottie json for meta")?;
+
+    let dependencies = {
+        let mut names = Vec::new();
+        for asset in &root.assets {
+            let p = asset.p.as_deref().unwrap_or("");
+            if p.starts_with("data:") {
+                continue;
+            }
+            let candidate = if !p.is_empty() {
+                Some(p)
+            } else {
+                asset.u.as_deref().filter(|u| !u.is_empty())
+            };
+            let Some(raw) = candidate else {
+                continue;
+            };
+            let name = raw.rsplit('/').next().unwrap_or(raw).to_string();
+            if !name.is_empty() && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        names
+    };
+
+    Ok(opencat_core::resource::lottie::LottieMeta {
+        width: root.w.unwrap_or(0.0).round().max(0.0) as u32,
+        height: root.h.unwrap_or(0.0).round().max(0.0) as u32,
+        fps: root.fr.unwrap_or(0.0) as f32,
+        in_frame: root.ip.unwrap_or(0.0) as f32,
+        out_frame: root.op.unwrap_or(0.0) as f32,
+        dependencies,
+    })
 }

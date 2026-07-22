@@ -377,7 +377,8 @@ mod tests {
             transition::{fade, slide, timeline},
         },
         resolve::resolve::resolve_ui_tree,
-        test_support::{MockScriptHost, TestCatalog},
+        test_support::MockScriptHost,
+        probe::catalog::PreparedResourceCatalog,
     };
 
     fn frame_ctx() -> FrameCtx {
@@ -391,7 +392,7 @@ mod tests {
     }
 
     fn resolve(node: crate::Node) -> crate::resolve::tree::ElementNode {
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         resolve_ui_tree(
             &node,
             &frame_ctx(),
@@ -403,7 +404,7 @@ mod tests {
     }
 
     fn resolve_at_frame(node: crate::Node, frame: u32) -> crate::resolve::tree::ElementNode {
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         resolve_ui_tree(
             &node,
             &FrameCtx {

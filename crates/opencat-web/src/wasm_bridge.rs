@@ -25,7 +25,7 @@ use opencat_core::ir::media_plan::{FrameGeneratedImage, FrameMediaPlan};
 use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 use opencat_core::pipeline::Pipeline;
 use opencat_core::pipeline::default::DefaultPipeline;
-use opencat_core::probe::catalog::ResourceRequests;
+use opencat_core::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
 use opencat_core::resource::fonts::font_asset_id;
 use opencat_core::script::js_context::JsContext;
 
@@ -421,7 +421,7 @@ async fn open_design_pipeline(
     let parsed = crate::source::parse_source(source, &opencat_core::text::empty_font_db())
         .map_err(|e| JsValue::from_str(&format!("open_design parse: {e}")))?;
     let draft = CompositionDraft::from_parsed(parsed);
-    let requests = draft.requirements().resource_requests().clone();
+    let requests = opencat_core::parse::preflight::collect_resource_requests_from_parsed(draft.parsed());
 
     // 4. Read the catalog built by preload_assets (host-probed metadata).
     //    No re-probing needed — the host already extracted metadata during fetch.
@@ -433,9 +433,36 @@ async fn open_design_pipeline(
     let mut inputs = HostInputs::empty()
         .with_base_font_faces(font_faces)
         .with_sans_serif_family("Noto Sans SC");
-    inputs
-        .fill_from_prepared_catalog(draft.requirements(), &probed, &srt)
-        .map_err(prepare_js_err)?;
+
+    // Copy host-probed metadata into inputs, keyed by requirement AssetId.
+    for req in draft.requirements().requests() {
+        match req.kind {
+            ResourceKind::Image => {
+                if let Some(meta) = probed.images.get(&req.asset_id).copied() {
+                    inputs.insert_image(req.asset_id.clone(), meta).map_err(prepare_js_err)?;
+                }
+            }
+            ResourceKind::Video => {
+                if let Some(meta) = probed.videos.get(&req.asset_id).copied() {
+                    inputs.insert_video(req.asset_id.clone(), meta).map_err(prepare_js_err)?;
+                }
+            }
+            ResourceKind::Audio => {
+                inputs.insert_audio(req.asset_id.clone()).map_err(prepare_js_err)?;
+            }
+            ResourceKind::Lottie => {
+                if let Some(meta) = probed.lotties.get(&req.asset_id).cloned() {
+                    inputs.insert_lottie(req.asset_id.clone(), meta).map_err(prepare_js_err)?;
+                }
+            }
+            ResourceKind::Subtitle => {
+                if let Some(text) = srt.get(&req.asset_id.key) {
+                    inputs.insert_subtitle_text(req.asset_id.clone(), text).map_err(prepare_js_err)?;
+                }
+            }
+            ResourceKind::Font | ResourceKind::Script => {}
+        }
+    }
 
     // External scripts: host fetches text (path via VFS reader / url via fetch)
     // and injects via HostInputs — core never rewrites input strings (#20).
@@ -443,28 +470,28 @@ async fn open_design_pipeline(
         if req.kind != ResourceKind::Script {
             continue;
         }
-        let text = match &req.locator {
-            opencat_core::lifecycle::ResourceLocator::LogicalPath(path) => {
-                let bytes = crate::resource::asset_reader::read_path(path)
-                    .await
-                    .map_err(|e| {
-                        JsValue::from_str(&format!("open_design script path `{path}`: {e}"))
-                    })?;
-                String::from_utf8(bytes).map_err(|e| {
-                    JsValue::from_str(&format!("open_design script path `{path}` utf8: {e}"))
-                })?
-            }
-            opencat_core::lifecycle::ResourceLocator::Url(url) => {
-                let bytes = crate::resource::fetch::fetch_bytes(url)
-                    .await
-                    .map_err(|e| {
-                        JsValue::from_str(&format!("open_design script url `{url}`: {e}"))
-                    })?;
-                String::from_utf8(bytes).map_err(|e| {
-                    JsValue::from_str(&format!("open_design script url `{url}` utf8: {e}"))
-                })?
-            }
-            _ => continue,
+        let key = &req.asset_id.key;
+        let text = if let Some(path) = key.strip_prefix("script:path:") {
+            let bytes = crate::resource::asset_reader::read_path(path)
+                .await
+                .map_err(|e| {
+                    JsValue::from_str(&format!("open_design script path `{path}`: {e}"))
+                })?;
+            String::from_utf8(bytes).map_err(|e| {
+                JsValue::from_str(&format!("open_design script path `{path}` utf8: {e}"))
+            })?
+        } else if key.starts_with("script:url:") {
+            let url = &key["script:url:".len()..];
+            let bytes = crate::resource::fetch::fetch_bytes(url)
+                .await
+                .map_err(|e| {
+                    JsValue::from_str(&format!("open_design script url `{url}`: {e}"))
+                })?;
+            String::from_utf8(bytes).map_err(|e| {
+                JsValue::from_str(&format!("open_design script url `{url}` utf8: {e}"))
+            })?
+        } else {
+            continue;
         };
         inputs
             .insert_script_text(req.asset_id.clone(), text)
@@ -682,7 +709,7 @@ mod tests {
     /// when inserting image metadata — never re-derived from locator.
     #[test]
     fn web_host_static_image_uses_request_asset_id() {
-        use opencat_core::lifecycle::{CompositionDraft, HostInputs, ResourceKind, ResourceLocator};
+        use opencat_core::lifecycle::{CompositionDraft, HostInputs, ResourceKind};
         use opencat_core::pipeline::Pipeline;
         use opencat_core::probe::catalog::ImageMeta;
         use opencat_core::script::js_context::JsContext;
@@ -696,10 +723,6 @@ mod tests {
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.kind, ResourceKind::Image);
         assert_eq!(req.asset_id.key, "hero.png");
-        assert!(matches!(
-            &req.locator,
-            ResourceLocator::LogicalPath(p) if p == "hero.png"
-        ));
 
         let id = req.asset_id.clone();
         let mut inputs = HostInputs::empty();
@@ -726,7 +749,7 @@ mod tests {
     #[test]
     fn web_host_lottie_uses_request_bundle_asset_id() {
         use opencat_core::ir::draw_op::DrawOp;
-        use opencat_core::lifecycle::{CompositionDraft, HostInputs, ResourceKind, ResourceLocator};
+        use opencat_core::lifecycle::{CompositionDraft, HostInputs, ResourceKind};
         use opencat_core::pipeline::Pipeline;
         use opencat_core::resource::lottie::LottieMeta;
         use opencat_core::script::js_context::JsContext;
@@ -743,10 +766,6 @@ mod tests {
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.kind, ResourceKind::Lottie);
         assert_eq!(req.asset_id.key, "lottie:loader");
-        assert!(matches!(
-            &req.locator,
-            ResourceLocator::LogicalPath(p) if p == "anim/loader.json"
-        ));
 
         let id = req.asset_id.clone();
         let mut inputs = HostInputs::empty();

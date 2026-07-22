@@ -396,6 +396,9 @@ cargo run --bin opencat -- --version
 - [Canvas API](skill/references/canvaskit.md)
 - [模板系统](skill/references/templates.md)
 - [设计原则](skill/references/design-principles.md)
+- [开发指南](DEVELOPMENT_ZH.md)
+- [架构文档](ARCHITECTURE_ZH.md)
+- [迁移指南](docs/MIGRATION.md) — 显式 lifecycle、HostInputs、AudioPlan、RenderFrame、OCIR v4
 
 ## Community
 

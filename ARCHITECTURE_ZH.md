@@ -5,6 +5,9 @@
 显式生命周期（issue #12 / #24）。core 是纯推导内核；host 拥有 fetch/cache/decode
 与平台 API。DrawOp 是 **Skia-compatible IR**，由原生 Skia 与 CanvasKit 共用。
 
+从旧 open 路径迁移到 prepare / `open_pipeline`、HostInputs、AudioPlan、RenderFrame、
+OCIR v4：见 [`docs/MIGRATION.md`](docs/MIGRATION.md)。
+
 ```
 输入 (XML / JSONL)
   │

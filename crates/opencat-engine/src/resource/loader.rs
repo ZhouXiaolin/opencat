@@ -13,9 +13,9 @@ use opencat_core::parse::primitives::LottieSource;
 use opencat_core::probe::ResourceRequests;
 use opencat_core::probe::{AudioSource, ImageSource, SubtitleSource, VideoSource};
 use opencat_core::resource::asset_id::{
-    AssetId, asset_id_for_audio, asset_id_for_audio_url, asset_id_for_image, asset_id_for_lottie,
-    asset_id_for_query, asset_id_for_subtitle, asset_id_for_url, asset_id_for_video,
-    asset_id_for_video_url,
+    AssetId, ResourceKind, asset_id_for_audio, asset_id_for_audio_url, asset_id_for_image,
+    asset_id_for_lottie, asset_id_for_query, asset_id_for_subtitle, asset_id_for_url,
+    asset_id_for_video, asset_id_for_video_url,
 };
 use opencat_core::resource::fonts::{FontManifest, font_asset_id};
 
@@ -79,9 +79,10 @@ impl EngineLoader {
                     })?
                 }
                 opencat_core::resource::fonts::FontSource::Url(url) => {
-                    let id = AssetId(font_asset_id(
-                        &opencat_core::resource::fonts::FontSource::Url(url.clone()),
-                    ));
+                    let id = AssetId::new(
+                        ResourceKind::Font,
+                        font_asset_id(&opencat_core::resource::fonts::FontSource::Url(url.clone())),
+                    );
                     let bytes = self
                         .runtime
                         .block_on(self.fetcher.fetch_bytes(&id, url))
@@ -117,7 +118,7 @@ impl EngineLoader {
             let bytes = bytes_by_id
                 .get(&face.id)
                 .with_context(|| format!("font `{}` bytes missing", face.id))?;
-            let id = AssetId(font_asset_id(&face.source));
+            let id = AssetId::new(ResourceKind::Font, font_asset_id(&face.source));
             let path = cache_file_path(&self.cache_dir, &id);
             std::fs::write(&path, bytes)
                 .with_context(|| format!("write font cache {}", path.display()))?;
@@ -151,7 +152,7 @@ impl EngineLoader {
                     for asset in canvas.assets_ref() {
                         if let ImageSource::Path(ref path) = asset.source {
                             let target = image_asset_id(&ImageSource::Path(path.clone()));
-                            let alias = AssetId(asset.asset_id.clone());
+                            let alias = AssetId::new(ResourceKind::Image, asset.asset_id.clone());
                             if let Some(handle) = loader.handles.get(&target).cloned() {
                                 loader.handles.entry(alias).or_insert(handle);
                             }
@@ -228,14 +229,14 @@ impl EngineLoader {
         for src in &req.images {
             if let Some(id) = asset_id_for_image(src) {
                 if let Some(b) = self.handle(&id).and_then(|h| h.read_bytes().ok()) {
-                    bytes.insert(id.0, b.into_owned());
+                    bytes.insert(id.key, b.into_owned());
                 }
             }
         }
         for src in &req.videos {
             let id = asset_id_for_video(src);
             if let Some(b) = self.handle(&id).and_then(|h| h.read_bytes().ok()) {
-                bytes.insert(id.0, b.into_owned());
+                bytes.insert(id.key, b.into_owned());
             }
         }
         for lottie_req in &req.lotties {
@@ -246,10 +247,13 @@ impl EngineLoader {
             // (logical path for Path, url-derived id for Url), not the bundle id.
             let key = match &lottie_req.source {
                 LottieSource::Path(p) => p.clone(),
-                LottieSource::Url(u) => asset_id_for_url(u).0,
+                LottieSource::Url(u) => asset_id_for_url(u).key,
                 LottieSource::Unset => continue,
             };
-            if let Some(b) = self.handle(&AssetId(key.clone())).and_then(|h| h.read_bytes().ok()) {
+            if let Some(b) = self
+                .handle(&AssetId::new(ResourceKind::Image, key.clone()))
+                .and_then(|h| h.read_bytes().ok())
+            {
                 bytes.insert(key, b.into_owned());
             }
         }
@@ -272,7 +276,7 @@ impl EngineLoader {
             let id = asset_id_for_subtitle(src);
             if let Some(bytes) = self.handle(&id).and_then(|h| h.read_bytes().ok()) {
                 if let Ok(text) = std::str::from_utf8(&bytes) {
-                    srt.insert(id.0, text.to_string());
+                    srt.insert(id.key, text.to_string());
                 }
             }
         }
@@ -297,7 +301,8 @@ impl EngineLoader {
                         copy_local_to_cache(std::path::Path::new(p), &base_dir, &cache_dir, &id)?;
                     }
                     ImageSource::Query(q) => {
-                        let search_id = AssetId(format!("openverse:search:{}", q.query));
+                        let search_id =
+                            AssetId::new(ResourceKind::Image, format!("openverse:search:{}", q.query));
                         let search_url = build_openverse_search_url(q);
                         let search_bytes = self
                             .fetcher
@@ -376,7 +381,9 @@ impl EngineLoader {
                 // (`asset_id_for_lottie`) so DrawOp::LottieRect / FrameMediaPlan
                 // can resolve bytes without re-deriving the scheme.
                 let bundle_id = asset_id_for_lottie(&lottie_req.element_id, &lottie_req.source)
-                    .unwrap_or_else(|| AssetId(format!("lottie:{}", lottie_req.element_id)));
+                    .unwrap_or_else(|| {
+                        AssetId::new(ResourceKind::Lottie, format!("lottie:{}", lottie_req.element_id))
+                    });
                 new_handles.push((bundle_id.clone(), cached_path.clone()));
 
                 // Host-only: scan primary JSON for external deps and cache them
@@ -399,8 +406,10 @@ impl EngineLoader {
                                 _ => None,
                             };
                             for file_name in deps {
-                                let dep_id =
-                                    AssetId(format!("{}:dep:{}", bundle_id.0, file_name));
+                                let dep_id = AssetId::new(
+                                    ResourceKind::Lottie,
+                                    format!("{}:dep:{}", bundle_id.key, file_name),
+                                );
                                 if file_name.starts_with("http://")
                                     || file_name.starts_with("https://")
                                 {
@@ -452,7 +461,7 @@ impl EngineLoader {
 
 fn image_asset_id(s: &ImageSource) -> AssetId {
     // Always use core's canonical rule — never re-derive (#15).
-    asset_id_for_image(s).unwrap_or_else(|| AssetId(String::new()))
+    asset_id_for_image(s).unwrap_or_else(|| AssetId::new(ResourceKind::Image, String::new()))
 }
 
 fn video_asset_id(s: &VideoSource) -> AssetId {
@@ -460,18 +469,26 @@ fn video_asset_id(s: &VideoSource) -> AssetId {
 }
 
 fn audio_asset_id(s: &AudioSource) -> AssetId {
-    asset_id_for_audio(s).unwrap_or_else(|| AssetId(String::new()))
+    asset_id_for_audio(s).unwrap_or_else(|| AssetId::new(ResourceKind::Audio, String::new()))
 }
 
 fn subtitle_asset_id(s: &SubtitleSource) -> AssetId {
     asset_id_for_subtitle(s)
 }
 
+/// Lottie probe byte key. Returns `Image` kind intentionally — the probe
+/// phase reads Lottie primary JSON by logical path / URL, which live in the
+/// same string-keyed byte map as image path ids. The typed [`AssetId`] for
+/// Lottie draw ops / FrameMediaPlan is created separately via
+/// [`asset_id_for_lottie`] with `ResourceKind::Lottie` (see `load_all`).
+/// # Rename guard
+/// If this helper's name doesn't communicate "probe byte key, not bundle id",
+/// rename it — keeping the caller correct is more important than the name.
 fn lottie_asset_id(s: &LottieSource) -> AssetId {
     match s {
-        LottieSource::Unset => AssetId(String::new()),
+        LottieSource::Unset => AssetId::new(ResourceKind::Image, String::new()),
         // Probe byte key is the logical path string (same as Image path ids).
-        LottieSource::Path(p) => AssetId(p.clone()),
+        LottieSource::Path(p) => AssetId::new(ResourceKind::Image, p.clone()),
         LottieSource::Url(u) => asset_id_for_url(u),
     }
 }
@@ -545,7 +562,7 @@ mod tests {
 
         loader.load_all(&req).unwrap();
 
-        let id = AssetId(format!("video:path:{logical}"));
+        let id = AssetId::new(ResourceKind::Video, format!("video:path:{logical}"));
         let h = loader.handle(&id).unwrap();
         assert!(h.local_path().is_some());
         assert!(h.local_path().unwrap().exists());

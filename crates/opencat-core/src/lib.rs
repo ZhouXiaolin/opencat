@@ -26,10 +26,10 @@ pub mod time;
 pub mod test_support;
 
 pub use self::frame_ctx::FrameCtx;
-pub use self::ir::asset_id::AssetId;
+pub use self::ir::asset_id::{AssetId, ResourceKind};
 pub use self::lifecycle::{
     CompositionDraft, HostInputs, HostRequirements, PrepareError, PreparedComposition,
-    ResourceKind as LifecycleResourceKind, ResourceLocator, ResourceRequest,
+    ResourceLocator, ResourceRequest,
 };
 pub use self::media::{
     collect_audio_plan, AudioPlan, AudioSegment, VideoFrameRequest, VideoFrameTiming,

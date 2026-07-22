@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ir::asset_id::AssetId;
+use crate::ir::asset_id::{AssetId, ResourceKind};
 use crate::parse::primitives::{AudioSource, ImageSource};
 use crate::resource::catalog::{ResourceResolver, VideoInfoMeta};
 
@@ -56,7 +56,7 @@ impl TestCatalog {
         match source {
             ImageSource::Unset => anyhow::bail!("image source is required"),
             ImageSource::Path(path) => {
-                let id = AssetId(path.clone());
+                let id = AssetId::new(ResourceKind::Image, path.clone());
                 self.dims.entry(id.clone()).or_insert((0, 0));
                 Ok(id)
             }
@@ -77,7 +77,10 @@ impl TestCatalog {
         match source {
             AudioSource::Unset => anyhow::bail!("audio source is required"),
             AudioSource::Path(path) => {
-                let id = AssetId(format!("audio:path:{}", path.to_string_lossy()));
+                let id = AssetId::new(
+                    ResourceKind::Audio,
+                    format!("audio:path:{}", path.to_string_lossy()),
+                );
                 self.dims.entry(id.clone()).or_insert((0, 0));
                 Ok(id)
             }
@@ -102,7 +105,12 @@ impl ResourceResolver for TestCatalog {
     }
 
     fn register_dimensions(&mut self, locator: &str, width: u32, height: u32) -> AssetId {
-        TestCatalog::register_dimensions(self, AssetId(locator.to_string()), width, height)
+        TestCatalog::register_dimensions(
+            self,
+            AssetId::new(ResourceKind::Image, locator.to_string()),
+            width,
+            height,
+        )
     }
 
     fn register_video_dimensions(
@@ -112,7 +120,7 @@ impl ResourceResolver for TestCatalog {
         height: u32,
         duration_secs: Option<f64>,
     ) -> AssetId {
-        let id = AssetId(locator.to_string());
+        let id = AssetId::new(ResourceKind::Video, locator.to_string());
         self.dims.insert(id.clone(), (width, height));
         if let Some(duration) = duration_secs {
             self.video_info.insert(
@@ -128,7 +136,7 @@ impl ResourceResolver for TestCatalog {
     }
 
     fn register_audio(&mut self, locator: &str) -> AssetId {
-        let id = AssetId(locator.to_string());
+        let id = AssetId::new(ResourceKind::Audio, locator.to_string());
         self.dims.entry(id.clone()).or_insert((0, 0));
         id
     }
@@ -146,7 +154,10 @@ impl ResourceResolver for TestCatalog {
     }
 
     fn resolve_lottie(&mut self, element_id: &str) -> anyhow::Result<AssetId> {
-        Ok(AssetId(format!("lottie:{element_id}")))
+        Ok(AssetId::new(
+            ResourceKind::Lottie,
+            format!("lottie:{element_id}"),
+        ))
     }
 
     fn resolve_alias(&self, alias: &AssetId) -> Option<AssetId> {

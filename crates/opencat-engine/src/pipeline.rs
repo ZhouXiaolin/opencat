@@ -9,7 +9,7 @@
 //! engine resource owner ([`EngineLoader`]) so render/audio code can reach the
 //! cached bytes for the current [`FrameMediaPlan`] without going through core.
 
-use std::sync::Arc;
+use std::collections::HashMap;
 
 use anyhow::Result;
 
@@ -21,7 +21,7 @@ use opencat_core::pipeline::DefaultPipeline;
 use opencat_core::resource::fonts::font_asset_id;
 
 use crate::EnginePipeline;
-use crate::fonts::engine_default_font_db;
+use crate::fonts::engine_default_font_faces;
 use crate::js_context::RqJsContext;
 use crate::resource::loader::EngineLoader;
 
@@ -100,7 +100,7 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
             .canonicalize()
             .unwrap_or_else(|_| loader.base_dir().to_path_buf());
         let parsed = crate::source_io::parse_with_base_dir(input, Some(&base_dir))?;
-        let host = open_parsed_host_owned(parsed, loader, scripts, engine_default_font_db())?;
+        let host = open_parsed_host_owned(parsed, loader, scripts, engine_default_font_faces())?;
         return Ok(host);
     }
 
@@ -123,7 +123,7 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
         parsed,
         loader,
         scripts,
-        engine_default_font_db(),
+        engine_default_font_faces(),
         font_bytes,
     )
 }
@@ -139,16 +139,16 @@ pub(crate) fn open_parsed_host_owned(
     parsed: ParsedComposition,
     loader: EngineLoader,
     scripts: RqJsContext,
-    font_db: Arc<fontdb::Database>,
+    font_bytes: Vec<Vec<u8>>,
 ) -> Result<EnginePipelineHost> {
-    open_parsed_host_owned_with_fonts(parsed, loader, scripts, font_db, Default::default())
+    open_parsed_host_owned_with_fonts(parsed, loader, scripts, font_bytes, Default::default())
 }
 
 fn open_parsed_host_owned_with_fonts(
     parsed: ParsedComposition,
     mut loader: EngineLoader,
     scripts: RqJsContext,
-    font_db: Arc<fontdb::Database>,
+    font_bytes: Vec<Vec<u8>>,
     font_bytes_by_face_id: std::collections::HashMap<String, Vec<u8>>,
 ) -> Result<EnginePipelineHost> {
     let draft = CompositionDraft::from_parsed(parsed);
@@ -158,7 +158,9 @@ fn open_parsed_host_owned_with_fonts(
     loader.load_all(&requests)?;
 
     // Host probes bytes directly (issue #40) and inserts metadata into HostInputs.
-    let mut inputs = HostInputs::empty().with_font_db(font_db);
+    let mut inputs = HostInputs::empty()
+        .with_base_font_faces(font_bytes)
+        .with_sans_serif_family("Noto Sans SC");
 
     // Image: read bytes → probe locally → insert metadata.
     for src in &requests.images {

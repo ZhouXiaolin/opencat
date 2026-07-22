@@ -11,10 +11,19 @@ const NOTO_SANS_SC: &[u8] = include_bytes!("../../../assets/NotoSansSC-Regular.o
 const NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../../assets/NotoColorEmoji.ttf");
 const NOTO_SANS_SC_FAMILY: &str = "Noto Sans SC";
 
+/// Default font bytes for native rendering: CJK sans + color emoji fallback.
+pub fn engine_default_font_faces() -> Vec<Vec<u8>> {
+    vec![NOTO_SANS_SC.to_vec(), NOTO_COLOR_EMOJI.to_vec()]
+}
+
 /// Default `fontdb` for native rendering: CJK sans + color emoji fallback.
+///
+/// Internal helper — kept for callers that still pass a pre-built `fontdb`.
+/// New code should use [`engine_default_font_faces`] with
+/// `HostInputs::with_base_font_faces`.
 pub fn engine_default_font_db() -> Arc<fontdb::Database> {
     Arc::new(opencat_core::text::font_db_from_bytes(
-        &[NOTO_SANS_SC.to_vec(), NOTO_COLOR_EMOJI.to_vec()],
+        &engine_default_font_faces(),
         NOTO_SANS_SC_FAMILY,
     ))
 }

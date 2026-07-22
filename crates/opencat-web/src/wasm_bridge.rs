@@ -406,21 +406,19 @@ async fn open_design_pipeline(
         .await
         .map_err(|e| JsValue::from_str(&format!("open_design preload: {}", js_err(&e))))?;
 
-    // 2. Host base font database only (defaults + extra). Document faces from
-    //    `<fonts>` are content-level inputs to core prepare — web does not merge
-    //    them into the base db (#19).
-    let base_db = match default_sans_sc.zip(default_color_emoji) {
-        Some((sans_sc, color_emoji)) => opencat_core::text::font_db_from_bytes(
-            &[sans_sc.to_vec(), color_emoji.to_vec()],
-            "Noto Sans SC",
-        ),
-        None => opencat_core::text::empty_font_db(),
-    };
-    let base_db = opencat_core::text::extend_font_db(&base_db, extra_fonts);
+    // 2. Build base font faces from host-supplied fonts. Host provides raw bytes;
+    //    core constructs the fontdb internally.
+    let mut font_faces: Vec<Vec<u8>> = Vec::new();
+    if let Some(sans_sc) = default_sans_sc {
+        font_faces.push(sans_sc.to_vec());
+    }
+    if let Some(color_emoji) = default_color_emoji {
+        font_faces.push(color_emoji.to_vec());
+    }
+    font_faces.extend(extra_fonts.iter().cloned());
 
-    // 3. Parse → draft. Requirements carry canonical AssetId + logical locator
-    //    (including document fonts as ResourceKind::Font).
-    let parsed = crate::source::parse_source(source, &base_db)
+    // 3. Parse → draft. The font_db arg is unused (kept for signature compat).
+    let parsed = crate::source::parse_source(source, &opencat_core::text::empty_font_db())
         .map_err(|e| JsValue::from_str(&format!("open_design parse: {e}")))?;
     let draft = CompositionDraft::from_parsed(parsed);
     let requests = draft.requirements().resource_requests().clone();
@@ -431,8 +429,10 @@ async fn open_design_pipeline(
         .ok_or_else(|| JsValue::from_str("open_design: no catalog from preload_assets"))?;
     let srt = srt_text_by_subtitle_id(&requests);
 
-    // 5. Build HostInputs from request AssetIds (never re-derive ids).
-    let mut inputs = HostInputs::empty().with_font_db(Arc::new(base_db));
+    // 5. Build HostInputs from raw font faces + family (core builds fontdb).
+    let mut inputs = HostInputs::empty()
+        .with_base_font_faces(font_faces)
+        .with_sans_serif_family("Noto Sans SC");
     inputs
         .fill_from_prepared_catalog(draft.requirements(), &probed, &srt)
         .map_err(prepare_js_err)?;
@@ -702,9 +702,7 @@ mod tests {
         ));
 
         let id = req.asset_id.clone();
-        let mut inputs = HostInputs::empty().with_font_db(Arc::new(
-            opencat_core::text::empty_font_db(),
-        ));
+        let mut inputs = HostInputs::empty();
         inputs
             .insert_image(id.clone(), ImageMeta { width: 16, height: 16 })
             .expect("insert under request id");
@@ -751,9 +749,7 @@ mod tests {
         ));
 
         let id = req.asset_id.clone();
-        let mut inputs = HostInputs::empty().with_font_db(Arc::new(
-            opencat_core::text::empty_font_db(),
-        ));
+        let mut inputs = HostInputs::empty();
         inputs
             .insert_lottie(
                 id.clone(),

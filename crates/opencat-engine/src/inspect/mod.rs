@@ -29,7 +29,9 @@ fn open_inspect_pipeline(
     parsed: ParsedComposition,
 ) -> Result<DefaultPipeline<crate::js_context::RqJsContext>> {
     let draft = CompositionDraft::from_parsed(parsed);
-    let inputs = HostInputs::empty().with_font_db(crate::fonts::engine_default_font_db());
+    let inputs = HostInputs::empty()
+        .with_base_font_faces(crate::fonts::engine_default_font_faces())
+        .with_sans_serif_family("Noto Sans SC");
     let prepared = draft.prepare(inputs).map_err(|e| anyhow::anyhow!("{e}"))?;
     let scripts = crate::js_context::RqJsContext::new()?;
     prepared.open_pipeline(scripts)

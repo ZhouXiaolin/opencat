@@ -11,6 +11,7 @@ pub mod inspect;
 pub mod js_context;
 pub mod media;
 pub mod pipeline;
+pub mod probe;
 pub mod render;
 pub mod resource;
 pub mod runtime;

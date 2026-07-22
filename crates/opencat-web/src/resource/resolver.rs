@@ -3,14 +3,13 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
+use opencat_core::ir::asset_id::{
+    asset_id_for_audio, asset_id_for_image, asset_id_for_query, asset_id_for_video,
+};
 use opencat_core::parse::primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource};
 use opencat_core::probe::ResourceRequests;
 use opencat_core::probe::catalog::PreparedResourceCatalog;
-use opencat_core::resource::asset_id::{
-    asset_id_for_audio, asset_id_for_image, asset_id_for_query, asset_id_for_video,
-};
 use opencat_core::resource::catalog::ResourceResolver as _;
-use opencat_core::resource::{probe_image_dims, probe_video};
 
 use crate::resource::asset_reader;
 use crate::resource::blob_store::BlobStore;
@@ -18,6 +17,55 @@ use crate::resource::fetch::fetch_bytes;
 
 pub async fn fetch_url(url: &str) -> Result<Vec<u8>> {
     fetch_bytes(url).await
+}
+
+/// Probe image dimensions from raw bytes (host-owned, issue #40).
+fn probe_image(bytes: &[u8]) -> Result<opencat_core::probe::ImageMeta> {
+    let dims = imagesize::blob_size(bytes)
+        .context("imagesize: failed to read image dimensions")?;
+    Ok(opencat_core::probe::ImageMeta {
+        width: dims.width as u32,
+        height: dims.height as u32,
+    })
+}
+
+/// Probe video metadata from raw bytes (host-owned, issue #40).
+fn probe_video(bytes: &[u8]) -> Result<opencat_core::probe::VideoInfoMeta> {
+    use nom_exif::{EntryValue, MediaParser, MediaSource, TrackInfoTag};
+
+    let ms = MediaSource::from_memory(bytes.to_vec())
+        .context("nom-exif: failed to wrap bytes as MediaSource")?;
+    let mut parser = MediaParser::new();
+    let info = parser
+        .parse_track(ms)
+        .context("nom-exif: parse_track failed")?;
+
+    let width = info
+        .get(TrackInfoTag::Width)
+        .and_then(|v| match v {
+            EntryValue::U32(n) => Some(*n),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow!("video: width tag missing"))?;
+    let height = info
+        .get(TrackInfoTag::Height)
+        .and_then(|v| match v {
+            EntryValue::U32(n) => Some(*n),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow!("video: height tag missing"))?;
+    let duration_ms = info.get(TrackInfoTag::DurationMs).and_then(|v| match v {
+        EntryValue::U64(n) => Some(*n),
+        _ => None,
+    });
+    let duration_micros =
+        duration_ms.map(opencat_core::time::ms_to_duration_micros);
+
+    Ok(opencat_core::probe::VideoInfoMeta {
+        width,
+        height,
+        duration_micros,
+    })
 }
 
 /// Fetch declared media into `blobs` and register metadata on a
@@ -38,9 +86,9 @@ pub async fn preload_requests(
             ImageSource::Query(query) => fetch_openverse_image(query).await?,
             ImageSource::Unset => continue,
         };
-        let dims = probe_image_dims(&bytes)?;
+        let meta = probe_image(&bytes)?;
         blobs.insert(id.clone(), Arc::from(bytes));
-        catalog.register_dimensions(&id.key, dims.width, dims.height);
+        catalog.register_dimensions(&id.key, meta.width, meta.height);
     }
 
     for source in &requests.videos {
@@ -49,13 +97,13 @@ pub async fn preload_requests(
             VideoSource::Url(url) => fetch_url(url).await?,
             VideoSource::Path(path) => asset_reader::read_path(path).await?,
         };
-        let probe = probe_video(&bytes)?;
+        let meta = probe_video(&bytes)?;
         blobs.insert(id.clone(), Arc::from(bytes));
         catalog.register_video_dimensions(
             &id.key,
-            probe.width,
-            probe.height,
-            probe.duration_secs(),
+            meta.width,
+            meta.height,
+            meta.duration_secs(),
         );
     }
 

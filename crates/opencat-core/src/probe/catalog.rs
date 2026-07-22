@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 pub use crate::ir::asset_id::{AssetId, ResourceKind};
 pub use crate::parse::primitives::VideoSource;
-use crate::parse::primitives::{AudioSource, ImageSource, LottieSource, SrtEntry, SubtitleSource};
+use crate::parse::primitives::{AudioSource, ImageSource, LottieSource, SubtitleSource};
 use crate::resource::lottie::LottieMeta;
 
 /// One `<lottie id="…">` node — bundle id is `lottie:{element_id}`.
@@ -22,8 +22,7 @@ pub struct ResourceRequests {
 }
 
 /// Probe / prepare result: validated resource metadata keyed by canonical
-/// [`AssetId`]. Distinct from the behavioral [`crate::resource::catalog::ResourceResolver`]
-/// trait used during resolve/render.
+/// [`AssetId`]. This is the pure metadata container used during rendering.
 #[derive(Default, Clone, Debug)]
 pub struct PreparedResourceCatalog {
     pub images: HashMap<AssetId, ImageMeta>,
@@ -61,22 +60,29 @@ impl VideoInfoMeta {
     }
 }
 
-impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
-    fn resolve_image(&mut self, src: &ImageSource) -> anyhow::Result<AssetId> {
+// Re-export SrtEntry from parse primitives for catalog consumers.
+pub use crate::parse::primitives::SrtEntry;
+
+impl PreparedResourceCatalog {
+    /// Resolve an image source to its canonical AssetId.
+    pub fn resolve_image(&self, src: &ImageSource) -> anyhow::Result<AssetId> {
         match crate::ir::asset_id::asset_id_for_image(src) {
             Some(id) => Ok(id),
             None => anyhow::bail!("unset image source"),
         }
     }
 
-    fn resolve_audio(&mut self, src: &AudioSource) -> anyhow::Result<AssetId> {
+    /// Resolve an audio source to its canonical AssetId.
+    pub fn resolve_audio(&self, src: &AudioSource) -> anyhow::Result<AssetId> {
         match crate::ir::asset_id::asset_id_for_audio(src) {
             Some(id) => Ok(id),
             None => anyhow::bail!("unset audio source"),
         }
     }
 
-    fn register_dimensions(&mut self, locator: &str, width: u32, height: u32) -> AssetId {
+    /// Register image dimensions under a path-based id. Used by hosts during
+    /// resource probing (before prepare).
+    pub fn register_dimensions(&mut self, locator: &str, width: u32, height: u32) -> AssetId {
         let id = AssetId::new(ResourceKind::Image, locator.to_owned());
         self.images
             .entry(id.clone())
@@ -84,7 +90,9 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
         id
     }
 
-    fn register_video_dimensions(
+    /// Register video metadata under a path-based id. Used by hosts during
+    /// resource probing (before prepare).
+    pub fn register_video_dimensions(
         &mut self,
         locator: &str,
         width: u32,
@@ -101,13 +109,17 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
         id
     }
 
-    fn register_audio(&mut self, locator: &str) -> AssetId {
+    /// Register an audio asset id by locator string. Used by hosts during
+    /// resource probing (before prepare).
+    pub fn register_audio(&mut self, locator: &str) -> AssetId {
         let id = AssetId::new(ResourceKind::Audio, locator.to_owned());
         self.audios.insert(id.clone());
         id
     }
 
-    fn alias(&mut self, alias: AssetId, target: &AssetId) -> anyhow::Result<()> {
+    /// Bind a pipeline-internal alias to a canonical asset. The alias is
+    /// resolved during rendering by [`resolve_alias`].
+    pub fn alias(&mut self, alias: AssetId, target: &AssetId) -> anyhow::Result<()> {
         // An alias must point at a declared, canonical asset. An unknown
         // target is a render error rather than a silent no-op.
         let kind = self
@@ -138,7 +150,8 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
         Ok(())
     }
 
-    fn dimensions(&self, id: &AssetId) -> (u32, u32) {
+    /// Look up image or video pixel dimensions by AssetId.
+    pub fn dimensions(&self, id: &AssetId) -> (u32, u32) {
         self.images
             .get(id)
             .map(|m| (m.width, m.height))
@@ -146,7 +159,8 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
             .unwrap_or((0, 0))
     }
 
-    fn video_info(&self, id: &AssetId) -> Option<crate::resource::catalog::VideoInfoMeta> {
+    /// Look up video metadata by AssetId.
+    pub fn video_info(&self, id: &AssetId) -> Option<crate::resource::catalog::VideoInfoMeta> {
         self.videos.get(id).map(|m| crate::resource::catalog::VideoInfoMeta {
             width: m.width,
             height: m.height,
@@ -154,41 +168,32 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
         })
     }
 
-    fn resolve_lottie(&mut self, element_id: &str) -> anyhow::Result<AssetId> {
+    /// Resolve a Lottie element id to its bundle AssetId.
+    pub fn resolve_lottie(&self, element_id: &str) -> anyhow::Result<AssetId> {
         Ok(AssetId::new(
             ResourceKind::Lottie,
             format!("lottie:{element_id}"),
         ))
     }
 
-    fn lottie_meta(&self, id: &AssetId) -> Option<LottieMeta> {
+    /// Look up Lottie metadata by AssetId.
+    pub fn lottie_meta(&self, id: &AssetId) -> Option<LottieMeta> {
         self.lotties.get(id).cloned()
     }
 
-    fn resolve_alias(&self, alias: &AssetId) -> Option<AssetId> {
+    /// Resolve a pipeline-internal alias to its canonical AssetId.
+    pub fn resolve_alias(&self, alias: &AssetId) -> Option<AssetId> {
         self.aliases.get(alias).cloned()
     }
 
-    fn is_known_asset(&self, id: &AssetId) -> bool {
+    /// Returns true when `id` is a known canonical asset or a registered alias.
+    pub fn is_known_asset(&self, id: &AssetId) -> bool {
         self.canonical_kind(id).is_some() || self.aliases.contains_key(id)
     }
-}
 
-/// Which canonical asset map an `AssetId` belongs to. Used internally to keep
-/// `alias()` and lookups consistent.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CanonicalKind {
-    Image,
-    Video,
-    Audio,
-    Subtitle,
-    Lottie,
-}
-
-impl PreparedResourceCatalog {
     /// Classify a canonical `AssetId`, or `None` if it is not a declared
     /// asset. Alias keys that were mirrored into a metadata map are not
-    /// canonical; resolve them via [`PreparedResourceCatalog::resolve_alias`] first.
+    /// canonical; resolve them via [`resolve_alias`] first.
     pub fn canonical_kind(&self, id: &AssetId) -> Option<CanonicalKind> {
         if self.images.contains_key(id) {
             Some(CanonicalKind::Image)
@@ -204,4 +209,14 @@ impl PreparedResourceCatalog {
             None
         }
     }
+}
+
+/// Which canonical asset map an `AssetId` belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CanonicalKind {
+    Image,
+    Video,
+    Audio,
+    Subtitle,
+    Lottie,
 }

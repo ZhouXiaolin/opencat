@@ -8,15 +8,15 @@ use crate::analyze::compositor::OrderedSceneProgram;
 use crate::canvas::paint::{PaintSpec, PaintStyle, PathEffectSpec, StrokeCap, StrokeJoin};
 use crate::frame_ctx::FrameCtx;
 use crate::ir::GeneratedImageTable;
+use crate::probe::catalog::PreparedResourceCatalog;
 use crate::render::builder::DrawOpBuilder;
-use crate::resource::catalog::ResourceResolver;
 
 /// Rendering context passed to all render functions.
 ///
 /// Carries scene data, frame metadata, and the `DrawOpBuilder`
 /// that all render functions append `DrawOp`s into.
 pub struct RenderCtx<'a> {
-    pub catalog: &'a dyn ResourceResolver,
+    pub catalog: &'a PreparedResourceCatalog,
     pub frame_ctx: &'a FrameCtx,
     pub display_tree: &'a AnnotatedDisplayTree,
     pub ordered_scene: &'a OrderedSceneProgram,

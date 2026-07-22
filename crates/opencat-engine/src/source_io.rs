@@ -43,14 +43,16 @@ pub fn fill_script_texts_from_disk(
         if req.kind != ResourceKind::Script {
             continue;
         }
-        let locator = match &req.locator {
-            opencat_core::lifecycle::ResourceLocator::LogicalPath(p) => p.as_str(),
-            opencat_core::lifecycle::ResourceLocator::Url(u) => {
-                // Local host cannot fetch URLs; leave missing so prepare fails.
-                let _ = u;
-                continue;
-            }
-            _ => continue,
+        // AssetId key is "script:path:..." or "script:url:...".
+        // Strip the prefix to recover the logical locator.
+        let key = &req.asset_id.key;
+        let locator = if let Some(path) = key.strip_prefix("script:path:") {
+            path
+        } else if key.starts_with("script:url:") {
+            // Local host cannot fetch URLs; leave missing so prepare fails.
+            continue;
+        } else {
+            continue;
         };
         let resolved = resolve_script_path(locator, base_dir);
         let text = std::fs::read_to_string(&resolved).with_context(|| {

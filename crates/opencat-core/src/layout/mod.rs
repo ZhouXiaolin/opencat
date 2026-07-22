@@ -933,10 +933,10 @@ mod tests {
         layout::tree::LayoutRect,
         parse::jsonl::tailwind::parse_class_name,
         parse::primitives::{canvas, div, lucide, path, text},
+        probe::catalog::PreparedResourceCatalog,
         resolve::resolve::resolve_ui_tree,
         style::{ColorToken, ComputedTextStyle},
         test_support::MockScriptHost,
-        test_support::TestCatalog,
     };
     use taffy::{AvailableSpace, geometry::Size};
 
@@ -1054,7 +1054,7 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let root = classed_div(
             "root",
             "w-full h-full p-[20px]",
@@ -1104,7 +1104,7 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let root = classed_div(
             "root",
             "w-full h-full p-[20px]",
@@ -1169,7 +1169,7 @@ mod tests {
             height: 720,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let root = classed_div(
             "root",
             "relative w-[1280px] h-[720px]",
@@ -1222,7 +1222,7 @@ mod tests {
             height: 720,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let root = classed_div(
             "root",
             "relative w-[1280px] h-[720px]",
@@ -1276,7 +1276,7 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let root = classed_div(
             "root",
             "w-[200px] h-full",
@@ -1320,7 +1320,7 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let root = classed_div(
             "root",
             "w-[200px] h-full",
@@ -1366,7 +1366,7 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let root = classed_div(
             "root",
             "h-full",
@@ -1402,7 +1402,7 @@ mod tests {
             height: 240,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let div_root = classed_div(
             "root",
             "w-full h-full",
@@ -1492,7 +1492,7 @@ mod tests {
             height: parsed.height,
             frames: crate::frame_ctx::duration_secs_to_frames(parsed.duration, fps),
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let resolved = resolve_ui_tree(
             &parsed.root,
             &frame_ctx,
@@ -1554,7 +1554,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let mut session = LayoutSession::new();
 
         let first = div().id("root").child(text("A").id("label")).into();
@@ -1604,7 +1604,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let mut session = LayoutSession::new();
 
         let root = div()
@@ -1662,7 +1662,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let mut session = LayoutSession::new();
 
         let first = div().id("root").child(text("A").id("label")).into();
@@ -1707,7 +1707,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let mut session = LayoutSession::new();
 
         let first = classed_div(
@@ -1763,7 +1763,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let mut session = LayoutSession::new();
 
         let first = classed_div(
@@ -1837,7 +1837,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let mut session = LayoutSession::new();
 
         let first = classed_div(
@@ -1895,7 +1895,7 @@ mod tests {
             height: 180,
             frames: 1,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
 
         let icon_root = classed_div(
             "root",
@@ -1951,7 +1951,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let mut session = LayoutSession::new();
 
         let first = div()
@@ -2014,7 +2014,7 @@ mod tests {
             height: 180,
             frames: 2,
         };
-        let mut assets = TestCatalog::new();
+        let mut assets = PreparedResourceCatalog::default();
         let mut session = LayoutSession::new();
 
         let first = div()

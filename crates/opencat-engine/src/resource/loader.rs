@@ -15,7 +15,7 @@ use opencat_core::ir::asset_id::{
     asset_id_for_video,
 };
 use opencat_core::parse::primitives::{AudioSource, ImageSource, LottieSource, SubtitleSource, VideoSource};
-use opencat_core::probe::ResourceRequests;
+use opencat_core::probe::catalog::ResourceRequests;
 use opencat_core::resource::fonts::{FontManifest, font_asset_id};
 
 use crate::resource::fetch::{EngineFetcher, build_preload_runtime};

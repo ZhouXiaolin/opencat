@@ -1023,7 +1023,7 @@ mod reuse_tests {
         use crate::ir::asset_id::AssetId;
         use crate::style::ObjectFit;
 
-        let asset_id = AssetId("/tmp/x.png".into());
+        let asset_id = AssetId::new(crate::ir::asset_id::ResourceKind::Image, "/tmp/x.png");
 
         let mut analysis = DisplayAnalysisTable::default();
         analysis.insert(

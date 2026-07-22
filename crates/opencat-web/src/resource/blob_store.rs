@@ -50,7 +50,7 @@ impl BlobStore {
     pub fn to_byte_map(&self) -> std::collections::HashMap<String, Vec<u8>> {
         self.blobs
             .iter()
-            .map(|(id, bytes)| (id.0.clone(), bytes.to_vec()))
+            .map(|(id, bytes)| (id.key.clone(), bytes.to_vec()))
             .collect()
     }
 }

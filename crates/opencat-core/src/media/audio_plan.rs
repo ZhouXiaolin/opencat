@@ -227,12 +227,12 @@ mod tests {
         assert_eq!(plan.segments.len(), 2);
 
         // scene-a: frames 0..10 @ 30fps → 0 .. 333_333 µs
-        assert_eq!(plan.segments[0].asset.0, "audio:url:a.mp3");
+        assert_eq!(plan.segments[0].asset.key, "audio:url:a.mp3");
         assert_eq!(plan.segments[0].start_micros().0, 0);
         assert_eq!(plan.segments[0].end_micros().0, 333_333);
 
         // scene-b starts after 10 + 5 transition frames → 500_000 .. 1_166_667 µs
-        assert_eq!(plan.segments[1].asset.0, "audio:url:b.mp3");
+        assert_eq!(plan.segments[1].asset.key, "audio:url:b.mp3");
         assert_eq!(plan.segments[1].start_micros().0, 500_000);
         assert_eq!(plan.segments[1].end_micros().0, 1_166_667);
     }

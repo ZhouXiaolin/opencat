@@ -295,10 +295,10 @@ fn srt_text_by_subtitle_id(req: &ResourceRequests) -> HashMap<String, String> {
     let mut srt = HashMap::new();
     for src in &req.subtitles {
         let id = asset_id_for_subtitle(src);
-        if let Some(bytes) = crate::resource::wasm_api::blob_bytes_owned(&id.0)
+        if let Some(bytes) = crate::resource::wasm_api::blob_bytes_owned(&id.key)
             && let Ok(text) = std::str::from_utf8(&bytes)
         {
-            srt.insert(id.0, text.to_string());
+            srt.insert(id.key, text.to_string());
         }
     }
     srt
@@ -311,7 +311,7 @@ fn audio_plan_to_json(plan: &opencat_core::AudioPlan) -> String {
         .iter()
         .map(|seg| {
             json!({
-                "assetId": seg.asset.0,
+                "assetId": seg.asset.key,
                 "startMicros": seg.start_micros().0,
                 "endMicros": seg.end_micros().0,
                 "durationMicros": seg.duration_micros().0,
@@ -467,7 +467,7 @@ async fn open_design_pipeline(
             _ => continue,
         };
         inputs
-            .insert_script_text(AssetId(req.asset_id.0.clone()), text)
+            .insert_script_text(req.asset_id.clone(), text)
             .map_err(prepare_js_err)?;
     }
 
@@ -483,7 +483,7 @@ async fn open_design_pipeline(
             .font_manifest
             .faces
             .iter()
-            .find(|f| font_asset_id(&f.source) == req.asset_id.0)
+            .find(|f| font_asset_id(&f.source) == req.asset_id.key)
             .map(|f| f.id.as_str());
         let Some(face_id) = face_id else {
             continue;
@@ -492,7 +492,7 @@ async fn open_design_pipeline(
             continue;
         };
         inputs
-            .insert_document_font(AssetId(req.asset_id.0.clone()), font_bytes.clone())
+            .insert_document_font(req.asset_id.clone(), font_bytes.clone())
             .map_err(prepare_js_err)?;
     }
 
@@ -695,7 +695,7 @@ mod tests {
         let draft = CompositionDraft::parse(jsonl).expect("parse draft");
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.kind, ResourceKind::Image);
-        assert_eq!(req.asset_id.0, "hero.png");
+        assert_eq!(req.asset_id.key, "hero.png");
         assert!(matches!(
             &req.locator,
             ResourceLocator::LogicalPath(p) if p == "hero.png"
@@ -744,7 +744,7 @@ mod tests {
         let draft = CompositionDraft::parse(markup).expect("parse draft");
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.kind, ResourceKind::Lottie);
-        assert_eq!(req.asset_id.0, "lottie:loader");
+        assert_eq!(req.asset_id.key, "lottie:loader");
         assert!(matches!(
             &req.locator,
             ResourceLocator::LogicalPath(p) if p == "anim/loader.json"

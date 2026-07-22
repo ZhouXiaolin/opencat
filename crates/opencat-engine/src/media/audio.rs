@@ -48,7 +48,7 @@ impl DecodedAudioCache {
         if !self.decoded.contains_key(asset) {
             let path = path_store
                 .path(asset)
-                .ok_or_else(|| anyhow!("missing cached audio asset for {}", asset.0))?;
+                .ok_or_else(|| anyhow!("missing cached audio asset for {}", asset.key))?;
             let clip = decode_audio_to_f32_stereo(path, AUDIO_SAMPLE_RATE)?;
             self.decoded.insert(asset.clone(), clip);
         }

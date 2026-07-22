@@ -1,16 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { __generatedImageTestSeam } from '../../crates/opencat-web/web/src/draw-ir';
 
-// Issue #10: the OCIR v4 envelope carries a `pipeline_epoch` in its header and
-// a generated-image delta (section 12) so core-rasterized color-emoji glyphs
-// flow to JS without per-glyph JS→WASM→JS round-trips. These tests build a
-// minimal v4 envelope by hand and exercise the decoder's epoch + delta + cache
-// semantics directly — the behavioral mirror of the Rust encoder tests in
-// `opencat_web/src/wasm_bridge.rs`.
+// Issue #10 / #22: OCIR v4 envelope. Hand-built envelopes exercise decoder
+// error paths and cache semantics; `roundtrip_v4.ocir` is produced by core
+// `encode_ir_envelope` (see write_ts_roundtrip_fixture_bytes) for AC5.
 
-// --- v4 envelope builder ---------------------------------------------------
-
-// Section ids must match draw-ir.ts.
 const SECTION_OPS = 1;
 const SECTION_F32_POOL = 2;
 const SECTION_BYTES = 3;
@@ -32,6 +29,11 @@ function u64(n: bigint): number[] {
   for (let i = 0; i < 8; i++) bytes.push(Number((n >> BigInt(i * 8)) & 0xffn));
   return bytes;
 }
+function f32(n: number): number[] {
+  const buf = new ArrayBuffer(4);
+  new DataView(buf).setFloat32(0, n, true);
+  return [...new Uint8Array(buf)];
+}
 function align4(n: number): number {
   return (n + 3) & ~3;
 }
@@ -51,33 +53,8 @@ function encodeGeneratedDelta(delta: GeneratedRecord[]): number[] {
   return out;
 }
 
-/// Build a v4 OCIR envelope with only the sections the decoder strictly
-/// requires plus a generated-image delta. All other sections are present but
-/// empty so `requireSection` is satisfied.
-function buildV4Envelope(epoch: number, delta: GeneratedRecord[]): Uint8Array {
-  // Each section payload is length-prefixed where the decoder expects it; for
-  // the empty-section cases we still need the decoder's expected count prefix
-  // (u32 0). Subtrees payload is `count(u32)` then count×bytesWithLen.
-  const sections: [number, number[]][] = [
-    [SECTION_OPS, []],
-    [SECTION_SUBTREES, u32(0)],
-    [SECTION_F32_POOL, []],
-    [SECTION_BYTES, []],
-    [SECTION_BYTE_RANGES, []],
-    // One empty string: UTF8 = "" and one range {0,0} so `strings` = [''].
-    [SECTION_STRINGS_UTF8, []],
-    [SECTION_STRING_RANGES, [...u32(0), ...u32(0)]],
-    // paints: count 0.
-    [SECTION_PAINTS, u32(0)],
-    // paths: count 0.
-    [SECTION_PATHS, u32(0)],
-    // children: count 0.
-    [SECTION_CHILDREN, u32(0)],
-    // effects: count 0.
-    [SECTION_EFFECTS, u32(0)],
-    [SECTION_GENERATED_IMAGES, encodeGeneratedDelta(delta)],
-  ];
-
+/** Pack section id → payload into a v4 OCIR envelope. Shared by hand-built tests. */
+function packOcirEnvelope(epoch: number, sections: [number, number[]][]): Uint8Array {
   const headerLen = 16 + sections.length * 12;
   const offsets: number[] = [];
   let cursor = headerLen;
@@ -86,10 +63,9 @@ function buildV4Envelope(epoch: number, delta: GeneratedRecord[]): Uint8Array {
     offsets.push(cursor);
     cursor += payload.length;
   }
-
   const out: number[] = [];
   out.push(0x4f, 0x43, 0x49, 0x52); // "OCIR"
-  out.push(...u32(4)); // version 4
+  out.push(...u32(4));
   out.push(...u32(sections.length));
   out.push(...u32(epoch));
   for (let i = 0; i < sections.length; i++) {
@@ -102,6 +78,30 @@ function buildV4Envelope(epoch: number, delta: GeneratedRecord[]): Uint8Array {
     out.push(...sections[i][1]);
   }
   return new Uint8Array(out);
+}
+
+function emptySections(overrides: Partial<Record<number, number[]>> = {}): [number, number[]][] {
+  const base: [number, number[]][] = [
+    [SECTION_OPS, []],
+    [SECTION_SUBTREES, u32(0)],
+    [SECTION_F32_POOL, []],
+    [SECTION_BYTES, []],
+    [SECTION_BYTE_RANGES, []],
+    [SECTION_STRINGS_UTF8, []],
+    [SECTION_STRING_RANGES, [...u32(0), ...u32(0)]],
+    [SECTION_PAINTS, u32(0)],
+    [SECTION_PATHS, u32(0)],
+    [SECTION_CHILDREN, u32(0)],
+    [SECTION_EFFECTS, u32(0)],
+    [SECTION_GENERATED_IMAGES, encodeGeneratedDelta([])],
+  ];
+  return base.map(([id, payload]) => [id, overrides[id] ?? payload]);
+}
+
+function buildV4Envelope(epoch: number, delta: GeneratedRecord[]): Uint8Array {
+  return packOcirEnvelope(epoch, emptySections({
+    [SECTION_GENERATED_IMAGES]: encodeGeneratedDelta(delta),
+  }));
 }
 
 describe('OCIR v4 generated-image delta decoder (#10)', () => {
@@ -149,32 +149,26 @@ describe('OCIR v4 generated-image delta decoder (#10)', () => {
   });
 
   test('a second frame under the same epoch re-publishes nothing for known ids', () => {
-    // Simulate the Rust delta bookkeeping: frame 0 publishes the glyph; frame 1
-    // (same epoch) carries an empty delta because the id was already sent.
     const glyph = { id: 99n, width: 2, height: 2, rgba: Array(16).fill(0x55) };
     __generatedImageTestSeam.decode(buildV4Envelope(5, [glyph]));
     expect(__generatedImageTestSeam.cacheSize()).toBe(1);
 
     __generatedImageTestSeam.decode(buildV4Envelope(5, []));
-    // Still registered from frame 0 — the empty delta must not clear it.
     expect(__generatedImageTestSeam.cacheSize()).toBe(1);
     expect(__generatedImageTestSeam.rgbaFor(99n)).toBeDefined();
   });
 
   test('a new epoch evicts stale glyphs and accepts a fresh republish', () => {
-    // Epoch 5: glyph 99 published.
     __generatedImageTestSeam.decode(buildV4Envelope(5, [
       { id: 99n, width: 1, height: 1, rgba: [0xff, 0xff, 0xff, 0xff] },
     ]));
     expect(__generatedImageTestSeam.currentEpoch()).toBe(5);
     expect(__generatedImageTestSeam.rgbaFor(99n)).toBeDefined();
 
-    // Epoch 6 (new design): glyph 99's stale entry is gone until re-sent.
     __generatedImageTestSeam.decode(buildV4Envelope(6, []));
     expect(__generatedImageTestSeam.currentEpoch()).toBe(6);
     expect(__generatedImageTestSeam.rgbaFor(99n)).toBeUndefined();
 
-    // Epoch 6 frame 1: glyph 99 republished under the new epoch.
     __generatedImageTestSeam.decode(buildV4Envelope(6, [
       { id: 99n, width: 1, height: 1, rgba: [0xff, 0xff, 0xff, 0xff] },
     ]));
@@ -182,9 +176,6 @@ describe('OCIR v4 generated-image delta decoder (#10)', () => {
   });
 
   test('a new epoch also drops pending RGBA that was never built into an image', () => {
-    // A glyph whose delta arrived but whose CanvasKit Image was never resolved
-    // (e.g. it was offscreen) still has a pending RGBA record. The epoch bump
-    // must drop it too, or the cache leaks across designs.
     __generatedImageTestSeam.decode(buildV4Envelope(1, [
       { id: 7n, width: 1, height: 1, rgba: [0x12, 0x34, 0x56, 0x78] },
     ]));
@@ -195,14 +186,199 @@ describe('OCIR v4 generated-image delta decoder (#10)', () => {
   });
 
   test('rejects a v3 envelope (no epoch header)', () => {
-    // A v3 envelope would place section descriptors at offset 12; the v4
-    // decoder reads the epoch at offset 12, so accepting v3 silently would
-    // misread the first section id as an epoch. The version gate is the guard.
     const v3 = new Uint8Array([
       0x4f, 0x43, 0x49, 0x52,
       ...u32(3),
       ...u32(0),
+      ...u32(0),
     ]);
     expect(() => __generatedImageTestSeam.decode(v3)).toThrow(/version 3/);
+  });
+});
+
+describe('OCIR protocol errors (#22)', () => {
+  beforeEach(() => {
+    __generatedImageTestSeam.reset();
+  });
+
+  test('rejects truncated envelope (no header)', () => {
+    expect(() => __generatedImageTestSeam.decode(new Uint8Array([0x4f, 0x43, 0x49]))).toThrow(
+      /Truncated OpenCat IR envelope/,
+    );
+  });
+
+  test('rejects truncated section directory', () => {
+    const bytes = new Uint8Array([
+      0x4f, 0x43, 0x49, 0x52,
+      ...u32(4),
+      ...u32(1),
+      ...u32(0),
+    ]);
+    expect(() => __generatedImageTestSeam.decode(bytes)).toThrow(/Truncated OpenCat IR envelope/);
+  });
+
+  test('rejects illegal section range past envelope end', () => {
+    const headerLen = 16 + 12;
+    const out: number[] = [];
+    out.push(0x4f, 0x43, 0x49, 0x52);
+    out.push(...u32(4));
+    out.push(...u32(1));
+    out.push(...u32(0));
+    out.push(...u32(1));
+    out.push(...u32(headerLen + 100));
+    out.push(...u32(4));
+    expect(() => __generatedImageTestSeam.decode(new Uint8Array(out))).toThrow(
+      /Illegal OpenCat IR section 1 range/,
+    );
+  });
+
+  test('rejects missing required section', () => {
+    const out: number[] = [];
+    out.push(0x4f, 0x43, 0x49, 0x52);
+    out.push(...u32(4));
+    out.push(...u32(0));
+    out.push(...u32(1));
+    expect(() => __generatedImageTestSeam.decode(new Uint8Array(out))).toThrow(
+      /Missing OpenCat IR section/,
+    );
+  });
+
+  test('rejects illegal string range', () => {
+    const bytes = packOcirEnvelope(0, emptySections({
+      [SECTION_STRINGS_UTF8]: [],
+      [SECTION_STRING_RANGES]: [...u32(0), ...u32(5)],
+    }));
+    expect(() => __generatedImageTestSeam.decode(bytes)).toThrow(
+      /Illegal OpenCat IR string range/,
+    );
+  });
+});
+
+describe('OCIR paint/path section field round-trip (#22)', () => {
+  beforeEach(() => {
+    __generatedImageTestSeam.reset();
+  });
+
+  function encodeSolidPaint(): number[] {
+    const rec: number[] = [];
+    rec.push(0); // solid fill
+    rec.push(...f32(1), ...f32(0), ...f32(0), ...f32(1));
+    rec.push(0); // Fill
+    rec.push(1); // antiAlias
+    rec.push(3); // SrcOver
+    rec.push(0); // no stroke
+    rec.push(0, 0, 0, 0); // no filters
+    return [...u32(1), ...u32(rec.length), ...rec];
+  }
+
+  function encodeSimplePath(): number[] {
+    const rec: number[] = [];
+    rec.push(1); // EvenOdd
+    rec.push(...u32(2));
+    rec.push(...[0, 0]); // MoveTo
+    rec.push(...f32(1), ...f32(2));
+    rec.push(...[4, 0]); // Close
+    return [...u32(1), ...u32(rec.length), ...rec];
+  }
+
+  test('decodes solid paint and path records field-by-field', () => {
+    const bytes = packOcirEnvelope(9, emptySections({
+      [SECTION_PAINTS]: encodeSolidPaint(),
+      [SECTION_PATHS]: encodeSimplePath(),
+    }));
+
+    const frame = __generatedImageTestSeam.decode(bytes) as {
+      paints: Array<{ fill: { type: string; color: number[] }; style: number; antiAlias: boolean; blendMode: number }>;
+      paths: Array<{ fillType: number; ops: Array<{ kind: number; values: number[] }> }>;
+    };
+    expect(frame.paints).toHaveLength(1);
+    expect(frame.paints[0].fill.type).toBe('solid');
+    expect(frame.paints[0].fill.color).toEqual([1, 0, 0, 1]);
+    expect(frame.paints[0].style).toBe(0);
+    expect(frame.paints[0].antiAlias).toBe(true);
+    expect(frame.paints[0].blendMode).toBe(3);
+    expect(frame.paths).toHaveLength(1);
+    expect(frame.paths[0].fillType).toBe(1);
+    expect(frame.paths[0].ops).toEqual([
+      { kind: 0, values: [1, 2] },
+      { kind: 4, values: [] },
+    ]);
+  });
+});
+
+describe('core encoder → TS decoder fixture (#22 AC5)', () => {
+  beforeEach(() => {
+    __generatedImageTestSeam.reset();
+  });
+
+  const fixturePath = join(
+    dirname(fileURLToPath(import.meta.url)),
+    'fixtures/ocir/roundtrip_v4.ocir',
+  );
+
+  test('decodes committed core fixture field-by-field', () => {
+    const bytes = new Uint8Array(readFileSync(fixturePath));
+    // Header
+    expect(String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3])).toBe('OCIR');
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    expect(view.getUint32(4, true)).toBe(4);
+    expect(view.getUint32(12, true)).toBe(42);
+
+    const frame = __generatedImageTestSeam.decode(bytes) as {
+      strings: string[];
+      paints: Array<{
+        fill: { type: string; color: number[] };
+        style: number;
+        antiAlias: boolean;
+        blendMode: number;
+        stroke?: { width: number; cap: number; join: number; miterLimit: number };
+      }>;
+      paths: Array<{ fillType: number; ops: Array<{ kind: number; values: number[] }> }>;
+      effects: Array<{ hash: bigint; sksl: string }>;
+      ops: Uint8Array;
+    };
+
+    expect(__generatedImageTestSeam.currentEpoch()).toBe(42);
+    expect(frame.strings).toContain('hero.png');
+
+    expect(frame.paints).toHaveLength(1);
+    expect(frame.paints[0].fill.type).toBe('solid');
+    expect(frame.paints[0].fill.color[0]).toBeCloseTo(1.0);
+    expect(frame.paints[0].fill.color[1]).toBeCloseTo(0.25);
+    expect(frame.paints[0].fill.color[2]).toBeCloseTo(0.0);
+    expect(frame.paints[0].fill.color[3]).toBeCloseTo(1.0);
+    expect(frame.paints[0].style).toBe(1); // Stroke
+    expect(frame.paints[0].antiAlias).toBe(true);
+    expect(frame.paints[0].blendMode).toBe(3); // SrcOver
+    expect(frame.paints[0].stroke).toEqual({
+      width: 2.5,
+      cap: 1, // Round
+      join: 2, // Bevel
+      miterLimit: 4.0,
+    });
+
+    expect(frame.paths).toHaveLength(1);
+    expect(frame.paths[0].fillType).toBe(1); // EvenOdd
+    expect(frame.paths[0].ops).toEqual([
+      { kind: 0, values: [1, 2] },
+      { kind: 1, values: [3, 4] },
+      { kind: 4, values: [] },
+    ]);
+
+    expect(frame.effects).toHaveLength(1);
+    expect(frame.effects[0].hash).toBe(0xdead_beef_cafen);
+    expect(frame.effects[0].sksl).toBe('half4 main() { return half4(1); }');
+
+    // Generated image delta from core
+    const glyph = __generatedImageTestSeam.rgbaFor(0x1111_2222_3333_4444n);
+    expect(glyph).toBeDefined();
+    expect(glyph!.width).toBe(2);
+    expect(glyph!.height).toBe(1);
+    expect(Array.from(glyph!.rgba)).toEqual([0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80]);
+
+    // Ops stream: Save / Translate / Image / Restore — non-empty
+    expect(frame.ops.byteLength).toBeGreaterThan(0);
+    // First op opcode is Save (0)
+    expect(new DataView(frame.ops.buffer, frame.ops.byteOffset, frame.ops.byteLength).getUint16(0, true)).toBe(0);
   });
 });

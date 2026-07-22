@@ -30,7 +30,7 @@ impl AssetPathStore {
 
     pub fn require_path(&self, id: &AssetId) -> Result<&Path> {
         self.path(id)
-            .ok_or_else(|| anyhow!("asset {} has no registered physical path", id.0))
+            .ok_or_else(|| anyhow!("asset {} has no registered physical path", id.key))
     }
 
     pub fn alias(&mut self, alias: AssetId, target: &AssetId) -> Result<()> {
@@ -40,7 +40,7 @@ impl AssetPathStore {
         let path = self
             .entries
             .get(target)
-            .ok_or_else(|| anyhow!("cannot alias missing asset path {}", target.0))?
+            .ok_or_else(|| anyhow!("cannot alias missing asset path {}", target.key))?
             .clone();
         self.entries.insert(alias, path);
         Ok(())
@@ -55,9 +55,15 @@ mod tests {
     #[test]
     fn insert_then_path_returns_registered_path() {
         let mut store = AssetPathStore::new();
-        store.insert(AssetId("img:a".into()), PathBuf::from("/tmp/a.png"));
+        store.insert(
+            AssetId::new(opencat_core::ir::asset_id::ResourceKind::Image, "img:a"),
+            PathBuf::from("/tmp/a.png"),
+        );
         assert_eq!(
-            store.path(&AssetId("img:a".into())),
+            store.path(&AssetId::new(
+                opencat_core::ir::asset_id::ResourceKind::Image,
+                "img:a"
+            )),
             Some(Path::new("/tmp/a.png"))
         );
     }
@@ -65,19 +71,33 @@ mod tests {
     #[test]
     fn require_path_errors_for_missing_id() {
         let store = AssetPathStore::new();
-        assert!(store.require_path(&AssetId("missing".into())).is_err());
+        assert!(store
+            .require_path(&AssetId::new(
+                opencat_core::ir::asset_id::ResourceKind::Image,
+                "missing"
+            ))
+            .is_err());
     }
 
     #[test]
     fn alias_copies_path_from_target() {
         let mut store = AssetPathStore::new();
-        store.insert(AssetId("orig".into()), "/tmp/o.mp4");
+        store.insert(
+            AssetId::new(opencat_core::ir::asset_id::ResourceKind::Image, "orig"),
+            "/tmp/o.mp4",
+        );
         store
-            .alias(AssetId("aka".into()), &AssetId("orig".into()))
+            .alias(
+                AssetId::new(opencat_core::ir::asset_id::ResourceKind::Image, "aka"),
+                &AssetId::new(opencat_core::ir::asset_id::ResourceKind::Image, "orig"),
+            )
             .unwrap();
         assert_eq!(
             store
-                .path(&AssetId("aka".into()))
+                .path(&AssetId::new(
+                    opencat_core::ir::asset_id::ResourceKind::Image,
+                    "aka"
+                ))
                 .map(Path::to_string_lossy)
                 .as_deref(),
             Some("/tmp/o.mp4")

@@ -2663,7 +2663,7 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
     let style = &item.paint;
     let dst = kurbo_rect(item.bounds);
 
-    let asset_id = item.asset_id.0.clone();
+    let asset_id = item.asset_id.key.clone();
     let image_ref = if let Some(timing) = item.video_timing {
         let info = ctx
             .catalog
@@ -2781,7 +2781,7 @@ pub fn render_lottie(
     };
 
     builder.push(DrawOp::LottieRect {
-        bundle_id: item.bundle_id.0.clone(),
+        bundle_id: item.bundle_id.key.clone(),
         frame: local_frame,
         dst: rect_to_rect4(lottie_dst),
     });

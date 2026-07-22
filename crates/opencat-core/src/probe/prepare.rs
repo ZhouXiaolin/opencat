@@ -57,7 +57,12 @@ impl ByteSource for HashMap<String, Vec<u8>> {
 
 impl ByteSource for HashMap<crate::ir::asset_id::AssetId, Vec<u8>> {
     fn bytes_for(&self, id: &str) -> Option<&[u8]> {
-        self.get(&crate::ir::asset_id::AssetId(id.to_string()))
+        // Legacy probe path: only the canonical wire string is known here, so
+        // recover the kind best-effort (asset_id.rs `kind_from_canonical_str`)
+        // purely to look the typed id up in the map. This is the one place that
+        // round-trips a string id; production lifecycle never reconstructs ids.
+        let kind = crate::ir::asset_id::kind_from_canonical_str(id);
+        self.get(&crate::ir::asset_id::AssetId::new(kind, id))
             .map(Vec::as_slice)
     }
 }
@@ -109,18 +114,18 @@ pub fn build_catalog<S: ByteSource>(requests: &ResourceRequests, sources: &S) ->
 
     for src in &requests.images {
         let Some(id) = asset_id_for_image(src) else { continue };
-        record_image(&mut prepared, &id, sources.bytes_for(&id.0));
+        record_image(&mut prepared, &id, sources.bytes_for(&id.key));
     }
 
     for src in &requests.videos {
         let id = asset_id_for_video(src);
-        record_video(&mut prepared, &id, sources.bytes_for(&id.0));
+        record_video(&mut prepared, &id, sources.bytes_for(&id.key));
     }
 
     for src in &requests.audios {
         if let Some(id) = asset_id_for_audio(src) {
             prepared.catalog.audios.insert(id.clone());
-            prepared.outcomes.insert(id.0, ProbeOutcome::Probed);
+            prepared.outcomes.insert(id.key, ProbeOutcome::Probed);
         }
     }
 
@@ -134,7 +139,7 @@ pub fn build_catalog<S: ByteSource>(requests: &ResourceRequests, sources: &S) ->
             .subtitles
             .entry(id.clone())
             .or_default();
-        prepared.outcomes.insert(id.0, ProbeOutcome::Probed);
+        prepared.outcomes.insert(id.key, ProbeOutcome::Probed);
     }
 
     for req in &requests.lotties {
@@ -167,7 +172,7 @@ fn record_probed<T>(
     let Some(bytes) = bytes else {
         prepared
             .outcomes
-            .insert(id.0.clone(), ProbeOutcome::BytesMissing);
+            .insert(id.key.clone(), ProbeOutcome::BytesMissing);
         return;
     };
     match probe(bytes) {
@@ -175,11 +180,11 @@ fn record_probed<T>(
             store(&mut prepared.catalog, id, meta);
             prepared
                 .outcomes
-                .insert(id.0.clone(), ProbeOutcome::Probed);
+                .insert(id.key.clone(), ProbeOutcome::Probed);
         }
         Err(err) => {
             prepared.outcomes.insert(
-                id.0.clone(),
+                id.key.clone(),
                 ProbeOutcome::ProbeFailed {
                     reason: err.to_string(),
                 },
@@ -207,7 +212,7 @@ fn lottie_byte_key(req: &LottieRequest) -> String {
     match &req.source {
         LottieSource::Unset => String::new(),
         LottieSource::Path(p) => p.clone(),
-        LottieSource::Url(u) => asset_id_for_url(u).0,
+        LottieSource::Url(u) => asset_id_for_url(u).key,
     }
 }
 
@@ -295,7 +300,7 @@ fn walk_hydrate(
                 return Ok(crate::parse::node::Node::new(kind));
             }
             let id = asset_id_for_subtitle(caption.source());
-            if let Some(text) = srt_by_id.get(&id.0) {
+            if let Some(text) = srt_by_id.get(&id.key) {
                 let entries = parse_srt(text, fps)?;
                 caption.set_entries(entries);
                 *hydrated += 1;
@@ -357,7 +362,7 @@ mod tests {
         let id = asset_id_for_image(req.images.iter().next().unwrap()).unwrap();
 
         let mut bytes = HashMap::<String, Vec<u8>>::new();
-        bytes.insert(id.0.clone(), PNG_1X1.to_vec());
+        bytes.insert(id.key.clone(), PNG_1X1.to_vec());
 
         let prepared = build_catalog(&req, &bytes);
 
@@ -367,7 +372,7 @@ mod tests {
             "image metadata should be probed and stored under canonical id"
         );
         assert_eq!(
-            prepared.outcomes.get(&id.0),
+            prepared.outcomes.get(&id.key),
             Some(&ProbeOutcome::Probed),
             "outcome should be recorded as Probed"
         );
@@ -389,7 +394,7 @@ mod tests {
             "missing bytes must not invent metadata"
         );
         assert_eq!(
-            prepared.outcomes.get(&id.0),
+            prepared.outcomes.get(&id.key),
             Some(&ProbeOutcome::BytesMissing)
         );
     }
@@ -402,7 +407,7 @@ mod tests {
         let id = asset_id_for_image(req.images.iter().next().unwrap()).unwrap();
 
         let mut bytes = HashMap::<String, Vec<u8>>::new();
-        bytes.insert(id.0.clone(), b"not a png".to_vec());
+        bytes.insert(id.key.clone(), b"not a png".to_vec());
 
         let prepared = build_catalog(&req, &bytes);
 
@@ -410,7 +415,7 @@ mod tests {
             !prepared.catalog.images.contains_key(&id),
             "unparseable bytes must not invent metadata"
         );
-        match prepared.outcomes.get(&id.0) {
+        match prepared.outcomes.get(&id.key) {
             Some(ProbeOutcome::ProbeFailed { .. }) => {}
             other => panic!("expected ProbeFailed, got {other:?}"),
         }
@@ -429,7 +434,7 @@ mod tests {
         let mut bytes = HashMap::<String, Vec<u8>>::new();
         for src in &req.images {
             let id = asset_id_for_image(src).unwrap();
-            bytes.insert(id.0, PNG_1X1.to_vec());
+            bytes.insert(id.key, PNG_1X1.to_vec());
         }
 
         let a = build_catalog(&req, &bytes);
@@ -453,7 +458,7 @@ mod tests {
 
         let prepared = build_catalog(&req, &HashMap::<String, Vec<u8>>::new());
         assert!(prepared.catalog.audios.contains(&id));
-        assert_eq!(prepared.outcomes.get(&id.0), Some(&ProbeOutcome::Probed));
+        assert_eq!(prepared.outcomes.get(&id.key), Some(&ProbeOutcome::Probed));
     }
 
     #[test]
@@ -483,11 +488,11 @@ mod tests {
             element_id: "hero".into(),
             source: LottieSource::Url("https://e.com/a.json".into()),
         });
-        let bundle_id = AssetId("lottie:hero".to_string());
+        let bundle_id = AssetId::new(crate::ir::asset_id::ResourceKind::Lottie, "lottie:hero");
 
         let mut bytes = HashMap::<String, Vec<u8>>::new();
         bytes.insert(
-            asset_id_for_url("https://e.com/a.json").0,
+            asset_id_for_url("https://e.com/a.json").key,
             json.as_bytes().to_vec(),
         );
 
@@ -495,7 +500,7 @@ mod tests {
         let meta = prepared.catalog.lotties.get(&bundle_id).expect("lottie meta");
         assert_eq!((meta.width, meta.height), (280, 200));
         assert_eq!(meta.fps, 25.0);
-        assert_eq!(prepared.outcomes.get(&bundle_id.0), Some(&ProbeOutcome::Probed));
+        assert_eq!(prepared.outcomes.get(&bundle_id.key), Some(&ProbeOutcome::Probed));
     }
 
     #[test]
@@ -506,7 +511,7 @@ mod tests {
             element_id: "badge".into(),
             source: LottieSource::Path("badge.json".into()),
         });
-        let bundle_id = AssetId("lottie:badge".to_string());
+        let bundle_id = AssetId::new(crate::ir::asset_id::ResourceKind::Lottie, "lottie:badge");
         let mut bytes = HashMap::<String, Vec<u8>>::new();
         bytes.insert("badge.json".into(), json.as_bytes().to_vec());
         let prepared = build_catalog(&req, &bytes);
@@ -521,12 +526,12 @@ mod tests {
             element_id: "hero".into(),
             source: LottieSource::Url("https://e.com/a.json".into()),
         });
-        let bundle_id = AssetId("lottie:hero".to_string());
+        let bundle_id = AssetId::new(crate::ir::asset_id::ResourceKind::Lottie, "lottie:hero");
 
         let prepared = build_catalog(&req, &HashMap::<String, Vec<u8>>::new());
         assert!(!prepared.catalog.lotties.contains_key(&bundle_id));
         assert_eq!(
-            prepared.outcomes.get(&bundle_id.0),
+            prepared.outcomes.get(&bundle_id.key),
             Some(&ProbeOutcome::BytesMissing)
         );
     }
@@ -542,14 +547,14 @@ mod tests {
         let id = asset_id_for_video(req.videos.iter().next().unwrap());
 
         let mut bytes = HashMap::<String, Vec<u8>>::new();
-        bytes.insert(id.0.clone(), b"not a video".to_vec());
+        bytes.insert(id.key.clone(), b"not a video".to_vec());
 
         let prepared = build_catalog(&req, &bytes);
         assert!(
             !prepared.catalog.videos.contains_key(&id),
             "unparseable video bytes must not invent metadata"
         );
-        match prepared.outcomes.get(&id.0) {
+        match prepared.outcomes.get(&id.key) {
             Some(ProbeOutcome::ProbeFailed { .. }) => {}
             other => panic!("expected ProbeFailed, got {other:?}"),
         }
@@ -565,7 +570,7 @@ mod tests {
         let prepared = build_catalog(&req, &HashMap::<String, Vec<u8>>::new());
         assert!(!prepared.catalog.videos.contains_key(&id));
         assert_eq!(
-            prepared.outcomes.get(&id.0),
+            prepared.outcomes.get(&id.key),
             Some(&ProbeOutcome::BytesMissing)
         );
     }
@@ -598,7 +603,7 @@ mod tests {
     #[test]
     fn hydrate_captions_parses_srt_without_fs_access() {
         let root = caption_in_div();
-        let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into())).0;
+        let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into())).key;
         let mut srt = HashMap::new();
         srt.insert(
             id,
@@ -633,7 +638,7 @@ mod tests {
             }]);
         let root: crate::parse::node::Node = div().id("root").child(pre).into();
 
-        let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into())).0;
+        let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into())).key;
         let mut srt = HashMap::new();
         srt.insert(
             id,
@@ -682,7 +687,7 @@ mod tests {
         let vid: crate::parse::node::Node = video("/clip.mp4").id("vid").child(cap).into();
         let root: crate::parse::node::Node = div().id("root").child(vid).into();
 
-        let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into())).0;
+        let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into())).key;
         let mut srt = HashMap::new();
         srt.insert(
             id,

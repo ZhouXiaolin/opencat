@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-pub use crate::ir::asset_id::AssetId;
+pub use crate::ir::asset_id::{AssetId, ResourceKind};
 pub use crate::parse::primitives::VideoSource;
 use crate::parse::primitives::{AudioSource, ImageSource, LottieSource, SrtEntry, SubtitleSource};
 use crate::resource::lottie::LottieMeta;
@@ -77,7 +77,7 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
     }
 
     fn register_dimensions(&mut self, locator: &str, width: u32, height: u32) -> AssetId {
-        let id = AssetId(locator.to_owned());
+        let id = AssetId::new(ResourceKind::Image, locator.to_owned());
         self.images
             .entry(id.clone())
             .or_insert(ImageMeta { width, height });
@@ -91,7 +91,7 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
         height: u32,
         duration_secs: Option<f64>,
     ) -> AssetId {
-        let id = AssetId(locator.to_owned());
+        let id = AssetId::new(ResourceKind::Video, locator.to_owned());
         let duration_micros = crate::time::optional_secs_to_duration_micros(duration_secs);
         self.videos.entry(id.clone()).or_insert(VideoInfoMeta {
             width,
@@ -102,7 +102,7 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
     }
 
     fn register_audio(&mut self, locator: &str) -> AssetId {
-        let id = AssetId(locator.to_owned());
+        let id = AssetId::new(ResourceKind::Audio, locator.to_owned());
         self.audios.insert(id.clone());
         id
     }
@@ -155,7 +155,10 @@ impl crate::resource::catalog::ResourceResolver for PreparedResourceCatalog {
     }
 
     fn resolve_lottie(&mut self, element_id: &str) -> anyhow::Result<AssetId> {
-        Ok(AssetId(format!("lottie:{element_id}")))
+        Ok(AssetId::new(
+            ResourceKind::Lottie,
+            format!("lottie:{element_id}"),
+        ))
     }
 
     fn lottie_meta(&self, id: &AssetId) -> Option<LottieMeta> {

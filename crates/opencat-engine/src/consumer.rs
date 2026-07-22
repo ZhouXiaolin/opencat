@@ -5,7 +5,7 @@ use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
 use opencat_core::ir::media_plan::FrameMediaPlan;
 use opencat_core::ir::GeneratedImageId;
-use opencat_core::resource::asset_id::AssetId;
+use opencat_core::resource::asset_id::{AssetId, ResourceKind};
 use skia_safe::{AlphaType, Canvas, ColorType, Data, Image, ImageInfo, RuntimeEffect, images};
 
 use crate::executor::{DrawError, EngineDrawExecutor, EnginePreparedFrameMedia};
@@ -63,7 +63,7 @@ fn prepare_frame(
     for image_ref in &plan.images {
         match image_ref {
             ImageRef::Static { asset_id } => {
-                let aid = AssetId(asset_id.clone());
+                let aid = AssetId::new(ResourceKind::Image, asset_id.clone());
                 if let Some(path) = loader.handle(&aid).and_then(|h| h.local_path()) {
                     if let Ok(bytes) = std::fs::read(path) {
                         if let Some(sk_image) = Image::from_encoded(Data::new_copy(&bytes)) {
@@ -88,7 +88,7 @@ fn prepare_frame(
                 asset_id,
                 time_micros,
             } => {
-                let aid = AssetId(asset_id.clone());
+                let aid = AssetId::new(ResourceKind::Video, asset_id.clone());
                 let path = loader
                     .handle(&aid)
                     .and_then(|h| h.local_path())
@@ -190,7 +190,7 @@ pub fn execute_render_frame(
 ) -> Result<(), ConsumerError> {
     let prepared = prepare_frame(plan, loader, media_ctx, generated_cache)?;
     executor.ensure_lottie_animations(draw, |bundle_id| {
-        let asset_id = AssetId(bundle_id.to_string());
+        let asset_id = AssetId::new(ResourceKind::Lottie, bundle_id.to_string());
         loader
             .handle(&asset_id)
             .and_then(|h| h.read_bytes().ok())

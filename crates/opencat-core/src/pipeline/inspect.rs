@@ -191,8 +191,8 @@ fn fallback_kind_for_element(element: &ElementNode) -> &'static str {
 
 fn media_source_from_element(element: &ElementNode) -> Option<String> {
     match &element.kind {
-        ElementKind::Bitmap(bitmap) => Some(bitmap.asset_id.0.clone()),
-        ElementKind::Lottie(lottie) => Some(lottie.bundle_id.0.clone()),
+        ElementKind::Bitmap(bitmap) => Some(bitmap.asset_id.key.clone()),
+        ElementKind::Lottie(lottie) => Some(lottie.bundle_id.key.clone()),
         _ => None,
     }
 }

@@ -765,7 +765,7 @@ mod tests {
         let draft = CompositionDraft::parse(markup).expect("parse draft");
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.kind, ResourceKind::Lottie);
-        assert_eq!(req.asset_id.key, "lottie:loader");
+        assert_eq!(req.asset_id.key, "lottie:path:anim/loader.json");
 
         let id = req.asset_id.clone();
         let mut inputs = HostInputs::empty();
@@ -795,7 +795,7 @@ mod tests {
                 .media
                 .lottie_bundles
                 .iter()
-                .any(|b| b == "lottie:loader"),
+                .any(|b| b == "lottie:path:anim/loader.json"),
             "web host media plan must list Lottie bundle; got {:?}",
             frame.media.lottie_bundles
         );
@@ -805,7 +805,7 @@ mod tests {
         );
         assert!(
             frame.draw.ops.iter().any(|op| {
-                matches!(op, DrawOp::LottieRect { bundle_id, .. } if bundle_id == "lottie:loader")
+                matches!(op, DrawOp::LottieRect { bundle_id, .. } if bundle_id == "lottie:path:anim/loader.json")
             }),
             "draw must emit LottieRect"
         );

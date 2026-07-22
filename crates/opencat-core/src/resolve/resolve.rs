@@ -609,7 +609,8 @@ fn resolve_lottie(lottie: &Lottie, cx: &mut ResolveContext<'_>) -> Result<Elemen
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style);
 
-        let bundle_id = cx.assets.resolve_lottie(&style.id)?;
+        // Bundle identity is source-based: same locator → same bundle.
+        let bundle_id = cx.assets.resolve_lottie(lottie.source())?;
         let meta =
             cx.assets
                 .lottie_meta(&bundle_id)

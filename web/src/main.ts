@@ -11,7 +11,7 @@ import {
   initWasm,
   injectVideoFramesForRender,
   openDesign,
-  prepareVideoSource,
+  prepareCatalogVideoSources,
   prefetchVideoFramesForRender,
   registerVideoGlobals,
   renderEncodedDrawFrame,
@@ -254,19 +254,9 @@ async function preloadResources(
   // Prepare web-native media runtimes (video decoder sources, decoded audio).
   // Static image bytes stay in the thread-local BlobStore and are resolved by
   // the Draw IR renderer via getBlobBytes; no per-image injection bridge.
+  await prepareCatalogVideoSources(catalogJson);
   for (const [assetId, meta] of Object.entries(catalog)) {
-    if (meta.kind === 'video') {
-      const raw = getBlobBytes(assetId);
-      if (raw) {
-        try {
-          const videoBuf = new Uint8Array(raw).buffer;
-          await prepareVideoSource(
-            assetId,
-            videoBuf,
-          );
-        } catch { /* ignore */ }
-      }
-    } else if (meta.kind === 'audio') {
+    if (meta.kind === 'audio') {
       const raw = getBlobBytes(assetId);
       if (raw) {
         try {

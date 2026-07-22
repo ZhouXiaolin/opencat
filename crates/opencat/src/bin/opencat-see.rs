@@ -15,7 +15,7 @@ mod app {
 
     use opencat::{
         EngineDrawExecutor, EngineLoader, MediaContext, RqJsContext, build_audio_track_from_pipeline,
-        duration_secs_to_frames, execute_render_frame,
+        duration_secs_to_frames, execute_render_frame, open,
     };
     use opencat_core::ir::GeneratedImageId;
     use skia_safe::Image;
@@ -963,7 +963,7 @@ mod app {
         let loader = EngineLoader::new(base_dir, cache_dir).context("failed to create loader")?;
         let ctx = RqJsContext::new().context("failed to create js context")?;
         let mut pipeline =
-            opencat::pipeline::open(&source_text, loader, ctx).context("failed to open pipeline")?;
+            open(&source_text, loader, ctx).context("failed to open pipeline")?;
         let info = pipeline.info().clone();
         let total_frames = duration_secs_to_frames(info.duration, info.fps).max(1);
         let fps = info.fps.max(1);

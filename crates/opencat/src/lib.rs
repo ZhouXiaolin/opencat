@@ -1,64 +1,15 @@
-// 兼容外部既有用法 `opencat::core::*`：
-pub use opencat_core as core;
+//! App/CLI facade for desktop targets.
+//!
+//! Narrow surface for `opencat` / `opencat-see` binaries. Prefer importing
+//! `opencat_core` / `opencat_engine` modules directly for anything else — no
+//! long-term deprecation re-exports of internal modules.
 
-// 兼容外部既有用法 `opencat::host::*`：
-pub use opencat_engine as host;
-
-// Backward-compatible module re-exports from core
-pub use opencat_core::display;
-pub use opencat_core::frame_ctx;
-pub use opencat_core::layout;
-pub use opencat_core::parse::jsonl;
-pub use opencat_core::parse::markup;
-pub use opencat_core::resolve;
-pub use opencat_core::style;
-pub use opencat_core::text;
-
-// Backward-compatible module re-exports from engine
-pub use opencat_engine::codec;
-pub use opencat_engine::consumer;
-pub use opencat_engine::executor;
-pub use opencat_engine::inspect;
-pub use opencat_engine::js_context;
-pub use opencat_engine::media;
-pub use opencat_engine::pipeline;
-pub use opencat_engine::render;
-pub use opencat_engine::resource;
-pub use opencat_engine::runtime;
-pub use opencat_engine::script;
-pub use opencat_engine::source_io;
-
-// Top-level re-exports
-pub use opencat_core::frame_ctx::FrameCtx;
-pub use opencat_core::parse::composition::{AudioAttachment, Composition, CompositionAudioSource};
-pub use opencat_core::parse::easing::{Easing, SpringConfig, animate_value, easing_from_name};
-pub use opencat_core::parse::node::{Node, NodeKind};
-pub use opencat_core::parse::primitives::{
-    AudioSource, Canvas, CanvasAsset, CaptionNode, Image, ImageSource, OpenverseQuery, Path,
-    SrtEntry, canvas, caption, div, image, lucide, parse_srt, path, text, video,
-};
-pub use opencat_core::parse::transition::{
-    ClockWipeBuilder, FadeBuilder, GlTransition, GlTransitionBuilder, IrisBuilder, SlideBuilder,
-    SlideDirection, Timeline, TransitionKind, WipeBuilder, WipeDirection, clock_wipe, fade,
-    gl_transition, iris, light_leak, slide, timeline, wipe,
-};
-pub use opencat_core::parse::{document::ParsedComposition, jsonl::parse};
-pub use opencat_core::script::{NodeStyleMutations, ScriptDriver, StyleMutations};
-pub use opencat_engine::inspect::{FrameElementRect, collect_frame_layout_rects};
-pub use opencat_engine::render::{
-    EncodingConfig, Mp4Config, OutputFormat, build_audio_track_from_pipeline, render_from_jsonl,
-    render_single_frame_from_jsonl, render_single_frame_png, render_single_frame_png_with_base,
-};
+pub use opencat_core::frame_ctx::duration_secs_to_frames;
 pub use opencat_engine::consumer::execute_render_frame;
 pub use opencat_engine::executor::EngineDrawExecutor;
 pub use opencat_engine::js_context::RqJsContext;
 pub use opencat_engine::media::{AudioTrack, MediaContext};
+pub use opencat_engine::pipeline::open;
+pub use opencat_engine::render::build_audio_track_from_pipeline;
 pub use opencat_engine::resource::loader::EngineLoader;
 pub use opencat_engine::EnginePipeline;
-pub use opencat_core::frame_ctx::duration_secs_to_frames;
-pub use opencat_engine::source_io::{parse_file, parse_with_base_dir};
-
-pub use opencat_engine::resource::media::{
-    VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality,
-};
-pub use opencat_engine::runtime::audio::AudioBuffer;

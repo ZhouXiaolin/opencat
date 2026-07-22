@@ -267,13 +267,30 @@ mod tests {
             &HashMap::<String, Vec<u8>>::new(),
         )
         .catalog;
+        let font_db = crate::text::font_db_from_bytes(
+            &[
+                include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec(),
+                include_bytes!("../../../../assets/NotoColorEmoji.ttf").to_vec(),
+            ],
+            "Noto Sans SC",
+        );
         DefaultPipeline::open_with_prepared_catalog(
             parsed,
             catalog,
             NoopJsContext::new().expect("js context"),
-            Arc::new(crate::text::test_default_font_db()),
+            Arc::new(font_db),
         )
         .expect("open test pipeline")
+    }
+
+    fn test_font_db() -> Arc<fontdb::Database> {
+        Arc::new(crate::text::font_db_from_bytes(
+            &[
+                include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec(),
+                include_bytes!("../../../../assets/NotoColorEmoji.ttf").to_vec(),
+            ],
+            "Noto Sans SC",
+        ))
     }
 
     #[test]
@@ -968,7 +985,7 @@ mod tests {
             parsed,
             prepared.catalog,
             ctx,
-            Arc::new(crate::text::test_default_font_db()),
+            test_font_db(),
         )
         .expect("open crate-private pipeline");
 
@@ -1006,7 +1023,7 @@ mod tests {
             parsed,
             catalog,
             ctx,
-            Arc::new(crate::text::test_default_font_db()),
+            test_font_db(),
         )
         .expect("open crate-private pipeline");
 
@@ -1041,7 +1058,7 @@ mod tests {
                 parsed,
                 catalog,
                 NoopJsContext::new().expect("js context"),
-                Arc::new(crate::text::test_default_font_db()),
+                test_font_db(),
             )
             .expect("open")
         };
@@ -1098,7 +1115,7 @@ mod tests {
             parsed,
             catalog,
             ctx,
-            Arc::new(crate::text::test_default_font_db()),
+            test_font_db(),
         )
         .expect("open");
 
@@ -1138,7 +1155,7 @@ mod tests {
             parsed,
             catalog,
             NoopJsContext::new().expect("js"),
-            Arc::new(crate::text::test_default_font_db()),
+            test_font_db(),
         )
         .expect("open")
     }
@@ -1222,7 +1239,7 @@ mod tests {
             parsed,
             catalog,
             NoopJsContext::new().expect("js"),
-            Arc::new(crate::text::test_default_font_db()),
+            test_font_db(),
         )
         .expect("open");
 
@@ -1258,7 +1275,7 @@ mod tests {
             parsed,
             catalog,
             NoopJsContext::new().expect("js"),
-            Arc::new(crate::text::test_default_font_db()),
+            test_font_db(),
         )
         .expect("open");
 
@@ -1318,7 +1335,7 @@ mod tests {
             parsed,
             catalog,
             NoopJsContext::new().expect("js"),
-            Arc::new(crate::text::test_default_font_db()),
+            test_font_db(),
         )
         .expect("open");
 

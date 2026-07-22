@@ -60,9 +60,15 @@ pub enum ResourceLocator {
 ///   prepare and never reads script files itself (issue #20).
 #[derive(Debug, Clone)]
 pub struct HostInputs {
-    pub(super) font_db: Arc<fontdb::Database>,
+    /// Base/default font face bytes provided by the host. Core constructs
+    /// the font database from these bytes during prepare, not from a
+    /// prebuilt fontdb::Database.
+    pub(super) base_font_faces: Vec<Vec<u8>>,
+    /// Default sans-serif family name for the base font database.
+    /// Defaults to "sans-serif" which fontdb resolves to its own fallback.
+    pub(super) sans_serif_family: String,
     pub(super) catalog: PreparedResourceCatalog,
-    pub(super) subtitle_texts: HashMap<String, String>,
+    pub(super) subtitle_texts: HashMap<AssetId, String>,
     /// Declared document font face bytes, keyed by stable font AssetId.
     pub(super) document_fonts: HashMap<AssetId, Vec<u8>>,
     /// Declared external script source texts, keyed by stable script AssetId.

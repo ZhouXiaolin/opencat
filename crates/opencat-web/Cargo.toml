@@ -14,6 +14,9 @@ faac-rs = { path = "../faac" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# Host-owned resource probing (issue #40)
+imagesize = "0.14"
+nom-exif = "3.4.2"
 url = "2.5"
 once_cell = "1"
 tracing = { version = "0.1", optional = true }

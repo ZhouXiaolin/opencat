@@ -14,12 +14,10 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use opencat_core::ir::RenderFrame;
-use opencat_core::ir::asset_id::AssetId;
 use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::{BuildOptions, CanvasChildrenMode, build_parsed_document, parse_parts_with_base_dir};
 use opencat_core::pipeline::DefaultPipeline;
-use opencat_core::probe::prepare::build_catalog;
 use opencat_core::resource::fonts::font_asset_id;
 
 use crate::EnginePipeline;
@@ -92,10 +90,9 @@ impl EnginePipelineHost {
 /// Parse a composition and open it on the host-owned resource pipeline.
 ///
 /// The engine completes the full host preparation chain before opening core:
-/// collect declarative [`ResourceRequests`] → fetch/cache media + subtitle +
-/// document font bytes → run core's pure `build_catalog` over media bytes →
-/// hand base font db + document font bytes + SRT text to core prepare. Core
-/// alone merges fonts, hydrates captions, and opens the pipeline.
+/// collect declarative [`ResourceRequests`] → fetch/cache media bytes →
+/// probe media metadata locally → hand typed metadata to core prepare.
+/// Core alone merges fonts, hydrates captions, and opens the pipeline.
 pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Result<EnginePipeline> {
     if input.trim().starts_with('{') {
         let base_dir = loader
@@ -160,23 +157,85 @@ fn open_parsed_host_owned_with_fonts(
     // Host fetch/cache under canonical AssetIds from core.
     loader.load_all(&requests)?;
 
-    // Probe bytes → metadata (pure). Host keeps the bytes; core sees only meta.
-    let bytes = loader.collect_probe_bytes_by_asset_id(&requests);
-    let probed = build_catalog(&requests, &bytes).catalog;
-    let srt_raw = loader.srt_text_by_subtitle_id(&requests);
-    // Convert HashMap<String,String> to HashMap<AssetId,String> for the typed
-    // subtitle contract.
-    let srt: HashMap<AssetId, String> = srt_raw
-        .into_iter()
-        .map(|(key, text)| (AssetId::new(ResourceKind::Subtitle, key), text))
-        .collect();
-
+    // Host probes bytes directly (issue #40) and inserts metadata into HostInputs.
     let mut inputs = HostInputs::empty()
         .with_base_font_faces(font_bytes)
         .with_sans_serif_family("Noto Sans SC");
-    inputs
-        .fill_from_prepared_catalog(draft.requirements(), &probed, &srt)
-        .map_err(prepare_err)?;
+
+    // Image: read bytes → probe locally → insert metadata.
+    for src in &requests.images {
+        let Some(id) = opencat_core::ir::asset_id::asset_id_for_image(src) else {
+            continue;
+        };
+        if let Some(handle) = loader.handle(&id) {
+            if let Ok(bytes) = handle.read_bytes() {
+                if let Ok(meta) = crate::probe::probe_image(&bytes) {
+                    inputs.insert_image(id, meta).map_err(prepare_err)?;
+                }
+            }
+        }
+    }
+
+    // Video: read bytes → probe locally → insert metadata.
+    for src in &requests.videos {
+        let id = opencat_core::ir::asset_id::asset_id_for_video(src);
+        if let Some(handle) = loader.handle(&id) {
+            if let Ok(bytes) = handle.read_bytes() {
+                if let Ok(meta) = crate::probe::probe_video(&bytes) {
+                    inputs.insert_video(id, meta).map_err(prepare_err)?;
+                }
+            }
+        }
+    }
+
+    // Lottie: read primary JSON bytes → parse locally → insert metadata.
+    for req in &requests.lotties {
+        use opencat_core::ir::asset_id::asset_id_for_lottie;
+        use opencat_core::parse::primitives::LottieSource;
+        if matches!(req.source, LottieSource::Unset) {
+            continue;
+        }
+        let Some(bundle_id) = asset_id_for_lottie(&req.element_id, &req.source) else {
+            continue;
+        };
+        // Lottie primary JSON is cached under the source key (path or url id).
+        let source_id = match &req.source {
+            LottieSource::Path(p) => {
+                opencat_core::ir::asset_id::AssetId::new(
+                    opencat_core::ir::asset_id::ResourceKind::Image,
+                    p.clone(),
+                )
+            }
+            LottieSource::Url(u) => opencat_core::ir::asset_id::asset_id_for_url(u),
+            LottieSource::Unset => continue,
+        };
+        if let Some(handle) = loader.handle(&source_id) {
+            if let Ok(bytes) = handle.read_bytes() {
+                if let Ok(json) = std::str::from_utf8(&bytes) {
+                    if let Ok(meta) = crate::probe::parse_lottie_meta(json) {
+                        inputs.insert_lottie(bundle_id, meta).map_err(prepare_err)?;
+                    }
+                }
+            }
+        }
+    }
+
+    // Audio: register presence only.
+    for src in &requests.audios {
+        if let Some(id) = opencat_core::ir::asset_id::asset_id_for_audio(src) {
+            inputs.insert_audio(id).map_err(prepare_err)?;
+        }
+    }
+
+    // Subtitle text: read bytes → insert as UTF-8 text.
+    for src in &requests.subtitles {
+        let id = opencat_core::ir::asset_id::asset_id_for_subtitle(src);
+        if let Some(text) = loader.srt_text_for_subtitle_id(&id) {
+            inputs
+                .insert_subtitle_text(id, text)
+                .map_err(prepare_err)?;
+        }
+    }
 
     // External scripts: host reads file text against loader base_dir and
     // injects via HostInputs — core never rewrites the input string (#20).
@@ -296,7 +355,6 @@ mod tests {
     fn static_image_lifecycle_uses_request_asset_id() {
         use opencat_core::ir::draw_types::ImageRef;
         use opencat_core::pipeline::Pipeline;
-        use opencat_core::resource::probe::probe_image_dims;
 
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -348,7 +406,7 @@ mod tests {
         );
 
         // Sanity: probed dims match the fixture.
-        let dims = probe_image_dims(PNG_1X1).expect("dims");
+        let dims = crate::probe::probe_image(PNG_1X1).expect("dims");
         assert_eq!((dims.width, dims.height), (1, 1));
 
         std::fs::remove_dir_all(&fixture_dir).ok();

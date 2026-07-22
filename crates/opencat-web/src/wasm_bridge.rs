@@ -26,7 +26,6 @@ use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, Resour
 use opencat_core::pipeline::Pipeline;
 use opencat_core::pipeline::default::DefaultPipeline;
 use opencat_core::probe::catalog::ResourceRequests;
-use opencat_core::probe::prepare::build_catalog;
 use opencat_core::resource::fonts::font_asset_id;
 use opencat_core::script::js_context::JsContext;
 
@@ -424,9 +423,10 @@ async fn open_design_pipeline(
     let draft = CompositionDraft::from_parsed(parsed);
     let requests = draft.requirements().resource_requests().clone();
 
-    // 4. Pure probes over host-fetched bytes → metadata only.
-    let bytes = crate::resource::wasm_api::blob_byte_map();
-    let probed = build_catalog(&requests, &bytes).catalog;
+    // 4. Read the catalog built by preload_assets (host-probed metadata).
+    //    No re-probing needed — the host already extracted metadata during fetch.
+    let probed = crate::resource::wasm_api::take_catalog()
+        .ok_or_else(|| JsValue::from_str("open_design: no catalog from preload_assets"))?;
     let srt = srt_text_by_subtitle_id(&requests);
 
     // 5. Build HostInputs from raw font faces + family (core builds fontdb).

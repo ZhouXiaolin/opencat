@@ -57,6 +57,7 @@ describe('PNG frame export', () => {
       renderEncodedDrawFrame: vi.fn(),
     }));
     vi.doMock('../../crates/opencat-web/web/src/media/video-frame-injector', () => ({
+      prepareCatalogVideoSources: vi.fn(async () => {}),
       injectVideoFramesForRender: vi.fn(async () => {}),
     }));
 

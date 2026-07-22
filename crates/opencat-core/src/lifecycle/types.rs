@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::ir::asset_id::{AssetId, ResourceKind};
 use crate::parse::ParsedComposition;
-use crate::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
+use crate::probe::catalog::PreparedResourceCatalog;
 
 /// Unprepared composition: parsed tree plus the declarative host requirements
 /// derived from it. Distinct from [`PreparedComposition`].
@@ -16,34 +16,22 @@ pub struct CompositionDraft {
 }
 
 /// Order-independent resource requirements the host must satisfy before prepare.
+///
+/// Every entry carries a namespaced [`AssetId`] that the host uses as the key
+/// when returning metadata. Core never interprets locator strings; hosts derive
+/// fetch strategy from the `AssetId` prefix (path / url / query) themselves.
 #[derive(Debug, Clone)]
 pub struct HostRequirements {
     pub(super) requests: Vec<ResourceRequest>,
-    /// Back-compat surface for the existing probe/loader chain.
-    pub(super) raw: ResourceRequests,
 }
 
 /// One declared resource need, carrying the canonical identity the host must
-/// use when returning metadata. Locators are logical (no host base directory).
+/// use when returning metadata. Core never interprets locator strings — hosts
+/// extract fetch strategy from the namespaced `AssetId` key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceRequest {
     pub asset_id: AssetId,
     pub kind: ResourceKind,
-    pub locator: ResourceLocator,
-}
-
-/// Logical resource location. Hosts interpret these against their own document
-/// base (filesystem, VFS, URL) — core never resolves them to real paths.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ResourceLocator {
-    Unset,
-    LogicalPath(String),
-    Url(String),
-    Query {
-        query: String,
-        count: usize,
-        aspect_ratio: Option<String>,
-    },
 }
 
 /// Host-supplied inputs for prepare: resource metadata, optional subtitle text,

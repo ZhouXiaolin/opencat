@@ -10,7 +10,7 @@ mod types;
 
 pub use types::{
     CompositionDraft, HostInputs, HostRequirements, PrepareError, PreparedComposition,
-    ResourceLocator, ResourceRequest,
+    ResourceRequest,
 };
 
 // `ResourceKind` lives next to `AssetId` in `ir::asset_id` so identity rules
@@ -33,17 +33,17 @@ use crate::parse::primitives::LottieSource;
 use crate::parse::preflight::collect_resource_requests_from_parsed;
 use crate::parse::ParsedComposition;
 use crate::pipeline::DefaultPipeline;
-use crate::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
+use crate::probe::catalog::PreparedResourceCatalog;
 use crate::probe::prepare::hydrate_captions;
-use crate::resource::fonts::{font_asset_id, merge_document_over_base, FontSource};
+use crate::resource::fonts::{font_asset_id, merge_document_over_base};
 use crate::script::js_context::JsContext;
 use crate::script::ScriptDriver;
 
 impl CompositionDraft {
     /// Build a draft from an already-parsed composition.
     pub fn from_parsed(parsed: ParsedComposition) -> Self {
-        let requests = collect_resource_requests_from_parsed(&parsed);
-        let requirements = HostRequirements::from_parsed(&parsed, &requests);
+        let raw = collect_resource_requests_from_parsed(&parsed);
+        let requirements = HostRequirements::from_raw(&parsed, &raw);
         Self {
             parsed,
             requirements,
@@ -86,13 +86,7 @@ impl HostRequirements {
         &self.requests
     }
 
-    /// Underlying declarative collection kept for back-compat with the probe
-    /// chain (`build_catalog`, engine/web loaders).
-    pub fn resource_requests(&self) -> &ResourceRequests {
-        &self.raw
-    }
-
-    fn from_parsed(parsed: &ParsedComposition, raw: &ResourceRequests) -> Self {
+    fn from_raw(parsed: &ParsedComposition, raw: &crate::probe::catalog::ResourceRequests) -> Self {
         let mut requests = Vec::new();
         let mut seen = HashSet::new();
 
@@ -106,7 +100,6 @@ impl HostRequirements {
             requests.push(ResourceRequest {
                 asset_id: id,
                 kind: ResourceKind::Image,
-                locator: ResourceLocator::from_image(src),
             });
         }
 
@@ -118,7 +111,6 @@ impl HostRequirements {
             requests.push(ResourceRequest {
                 asset_id: id,
                 kind: ResourceKind::Video,
-                locator: ResourceLocator::from_video(src),
             });
         }
 
@@ -132,7 +124,6 @@ impl HostRequirements {
             requests.push(ResourceRequest {
                 asset_id: id,
                 kind: ResourceKind::Audio,
-                locator: ResourceLocator::from_audio(src),
             });
         }
 
@@ -144,7 +135,6 @@ impl HostRequirements {
             requests.push(ResourceRequest {
                 asset_id: id,
                 kind: ResourceKind::Subtitle,
-                locator: ResourceLocator::from_subtitle(src),
             });
         }
 
@@ -161,7 +151,6 @@ impl HostRequirements {
             requests.push(ResourceRequest {
                 asset_id: id,
                 kind: ResourceKind::Lottie,
-                locator: ResourceLocator::from_lottie(&req.source),
             });
         }
 
@@ -175,7 +164,6 @@ impl HostRequirements {
             requests.push(ResourceRequest {
                 asset_id: id,
                 kind: ResourceKind::Font,
-                locator: ResourceLocator::from_font_source(&face.source),
             });
         }
 
@@ -190,10 +178,7 @@ impl HostRequirements {
                 .then_with(|| a.asset_id.key.cmp(&b.asset_id.key))
         });
 
-        Self {
-            requests,
-            raw: raw.clone(),
-        }
+        Self { requests }
     }
 }
 
@@ -314,67 +299,6 @@ impl HostInputs {
     ) -> Result<(), PrepareError> {
         self.record_supply(&id)?;
         self.script_texts.insert(id, text.into());
-        Ok(())
-    }
-
-    /// Fill this inputs bag from a host-probed [`PreparedResourceCatalog`] and
-    /// optional subtitle texts, using **only** the asset ids listed in
-    /// `requirements` (never re-derived from locators). Soft-misses for subtitle
-    /// text are allowed; missing image/video/lottie metadata returns
-    /// [`PrepareError::MissingInput`]. Font requirements are skipped here —
-    /// hosts must call [`HostInputs::insert_document_font`] with the raw face
-    /// bytes (fonts are content-level inputs, not probe metadata).
-    pub fn fill_from_prepared_catalog(
-        &mut self,
-        requirements: &HostRequirements,
-        probed: &PreparedResourceCatalog,
-        subtitle_texts: &HashMap<AssetId, String>,
-    ) -> Result<(), PrepareError> {
-        for req in requirements.requests() {
-            match req.kind {
-                ResourceKind::Image => {
-                    let Some(meta) = probed.images.get(&req.asset_id).copied() else {
-                        return Err(PrepareError::MissingInput {
-                            asset_id: req.asset_id.clone(),
-                            kind: req.kind,
-                        });
-                    };
-                    self.insert_image(req.asset_id.clone(), meta)?;
-                }
-                ResourceKind::Video => {
-                    let Some(meta) = probed.videos.get(&req.asset_id).copied() else {
-                        return Err(PrepareError::MissingInput {
-                            asset_id: req.asset_id.clone(),
-                            kind: req.kind,
-                        });
-                    };
-                    self.insert_video(req.asset_id.clone(), meta)?;
-                }
-                ResourceKind::Audio => {
-                    self.insert_audio(req.asset_id.clone())?;
-                }
-                ResourceKind::Lottie => {
-                    let Some(meta) = probed.lotties.get(&req.asset_id).cloned() else {
-                        return Err(PrepareError::MissingInput {
-                            asset_id: req.asset_id.clone(),
-                            kind: req.kind,
-                        });
-                    };
-                    self.insert_lottie(req.asset_id.clone(), meta)?;
-                }
-                ResourceKind::Subtitle => {
-                    if let Some(text) = subtitle_texts.get(&req.asset_id) {
-                        self.insert_subtitle_text(req.asset_id.clone(), text.clone())?;
-                    }
-                }
-                ResourceKind::Font => {
-                    // Host supplies document font bytes via insert_document_font.
-                }
-                ResourceKind::Script => {
-                    // Host supplies script text via insert_script_text.
-                }
-            }
-        }
         Ok(())
     }
 
@@ -755,77 +679,6 @@ fn validate_inputs(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// ResourceLocator helpers (logical locators — no host base-dir resolution)
-// ---------------------------------------------------------------------------
-
-impl ResourceLocator {
-    fn from_image(src: &crate::parse::primitives::ImageSource) -> Self {
-        use crate::parse::primitives::ImageSource;
-        match src {
-            ImageSource::Unset => Self::Unset,
-            ImageSource::Path(p) => Self::LogicalPath(p.clone()),
-            ImageSource::Url(u) => Self::Url(u.clone()),
-            ImageSource::Query(q) => Self::Query {
-                query: q.query.clone(),
-                count: q.count,
-                aspect_ratio: q.aspect_ratio.clone(),
-            },
-        }
-    }
-
-    fn from_video(src: &crate::parse::primitives::VideoSource) -> Self {
-        use crate::parse::primitives::VideoSource;
-        match src {
-            VideoSource::Path(p) => Self::LogicalPath(p.clone()),
-            VideoSource::Url(u) => Self::Url(u.clone()),
-        }
-    }
-
-    fn from_audio(src: &crate::parse::primitives::AudioSource) -> Self {
-        use crate::parse::primitives::AudioSource;
-        match src {
-            AudioSource::Unset => Self::Unset,
-            AudioSource::Path(p) => Self::LogicalPath(p.to_string_lossy().into_owned()),
-            AudioSource::Url(u) => Self::Url(u.clone()),
-        }
-    }
-
-    fn from_subtitle(src: &crate::parse::primitives::SubtitleSource) -> Self {
-        use crate::parse::primitives::SubtitleSource;
-        match src {
-            SubtitleSource::Path(p) => Self::LogicalPath(p.to_string_lossy().into_owned()),
-            SubtitleSource::Url(u) => Self::Url(u.clone()),
-        }
-    }
-
-    fn from_lottie(src: &LottieSource) -> Self {
-        match src {
-            LottieSource::Unset => Self::Unset,
-            LottieSource::Path(p) => Self::LogicalPath(p.clone()),
-            LottieSource::Url(u) => Self::Url(u.clone()),
-        }
-    }
-
-    fn from_font_source(src: &FontSource) -> Self {
-        match src {
-            // Markup may still join a host base into Path at parse time for
-            // engine path resolution; the logical locator string is whatever
-            // the manifest source carries (hosts interpret against document base).
-            FontSource::Path(p) => Self::LogicalPath(p.to_string_lossy().into_owned()),
-            FontSource::Url(u) => Self::Url(u.clone()),
-        }
-    }
-
-    fn from_script_locator(locator: &str) -> Self {
-        if locator.starts_with("http://") || locator.starts_with("https://") {
-            Self::Url(locator.to_string())
-        } else {
-            Self::LogicalPath(locator.to_string())
-        }
-    }
-}
-
 fn collect_script_requirements(
     root: &crate::parse::node::Node,
     requests: &mut Vec<ResourceRequest>,
@@ -839,7 +692,6 @@ fn collect_script_requirements(
             requests.push(ResourceRequest {
                 asset_id: ext.asset_id.clone(),
                 kind: ResourceKind::Script,
-                locator: ResourceLocator::from_script_locator(&ext.locator),
             });
         }
     });
@@ -1090,10 +942,6 @@ mod tests {
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs[0].kind, ResourceKind::Image);
         assert_eq!(reqs[0].asset_id.key, "photos/a.png");
-        assert!(matches!(
-            &reqs[0].locator,
-            ResourceLocator::LogicalPath(p) if p == "photos/a.png"
-        ));
     }
 
     #[test]
@@ -1274,10 +1122,6 @@ mod tests {
         let draft = CompositionDraft::from_parsed(parsed);
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.asset_id.key, "photos/a.png");
-        assert!(matches!(
-            &req.locator,
-            ResourceLocator::LogicalPath(p) if p == "photos/a.png"
-        ));
     }
 
     #[test]
@@ -1343,10 +1187,6 @@ mod tests {
             assert_eq!(reqs.len(), 1);
             assert_eq!(reqs[0].kind, ResourceKind::Video);
             assert_eq!(reqs[0].asset_id.key, "video:path:clips/hero.mp4");
-            assert!(matches!(
-                &reqs[0].locator,
-                ResourceLocator::LogicalPath(p) if p == "clips/hero.mp4"
-            ));
             let id = reqs[0].asset_id.clone();
             let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
@@ -1483,10 +1323,6 @@ mod tests {
         let draft = CompositionDraft::from_parsed(parsed);
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.asset_id.key, "video:path:clips/a.mp4");
-        assert!(matches!(
-            &req.locator,
-            ResourceLocator::LogicalPath(p) if p == "clips/a.mp4"
-        ));
     }
 
     // --- Lottie lifecycle (#17) ----------------------------------------------------
@@ -1506,10 +1342,6 @@ mod tests {
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs[0].kind, ResourceKind::Lottie);
         assert_eq!(reqs[0].asset_id.key, "lottie:loader");
-        assert!(matches!(
-            &reqs[0].locator,
-            ResourceLocator::LogicalPath(p) if p == "anim/loader.json"
-        ));
     }
 
     #[test]
@@ -1655,10 +1487,6 @@ mod tests {
             assert_eq!(reqs.len(), 1);
             assert_eq!(reqs[0].kind, ResourceKind::Lottie);
             assert_eq!(reqs[0].asset_id.key, "lottie:loader");
-            assert!(matches!(
-                &reqs[0].locator,
-                ResourceLocator::LogicalPath(p) if p == "anim/loader.json"
-            ));
 
             let id = reqs[0].asset_id.clone();
             let mut inputs = HostInputs::empty()
@@ -1719,8 +1547,8 @@ mod tests {
     }
 
     /// Contract both engine and web must satisfy for static images (#15):
-    /// requirements emit opaque AssetId + kind + logical locator; prepare only
-    /// consumes ImageMeta under that id; RenderFrame media plan echoes the same id.
+    /// requirements emit opaque AssetId + kind; prepare only consumes
+    /// ImageMeta under that id; RenderFrame media plan echoes the same id.
     #[test]
     fn host_agnostic_static_image_contract() {
         let sources = [
@@ -1741,10 +1569,6 @@ mod tests {
             assert_eq!(reqs.len(), 1);
             assert_eq!(reqs[0].kind, ResourceKind::Image);
             assert_eq!(reqs[0].asset_id.key, "assets/hero.png");
-            assert!(matches!(
-                &reqs[0].locator,
-                ResourceLocator::LogicalPath(p) if p == "assets/hero.png"
-            ));
 
             let id = reqs[0].asset_id.clone();
             let mut inputs = HostInputs::empty()
@@ -1813,10 +1637,6 @@ mod tests {
             fonts[0].asset_id.key,
             "font:path:fonts/NotoSansSC-Regular.otf"
         );
-        assert!(matches!(
-            &fonts[0].locator,
-            ResourceLocator::LogicalPath(p) if p == "fonts/NotoSansSC-Regular.otf"
-        ));
 
         // base_dir must not leak into the stable identity (parity with images).
         let base = std::path::Path::new("/host/doc/root");
@@ -2327,10 +2147,6 @@ mod tests {
             .collect();
         assert_eq!(scripts.len(), 1);
         assert_eq!(scripts[0].asset_id.key, "script:path:anim/main.js");
-        assert_eq!(
-            scripts[0].locator,
-            ResourceLocator::LogicalPath("anim/main.js".into())
-        );
     }
 
     #[test]

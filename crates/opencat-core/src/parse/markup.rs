@@ -1617,8 +1617,9 @@ fn ensure_allowed_attrs(node: roxmltree::Node<'_, '_>, allowed: &[&str]) -> anyh
 mod tests {
     use super::*;
     use crate::parse::node::NodeKind;
+    use crate::probe::catalog::PreparedResourceCatalog;
     use crate::resolve::{resolve::resolve_ui_tree, tree::ElementKind};
-    use crate::test_support::{MockScriptHost, TestCatalog};
+    use crate::test_support::MockScriptHost;
 
     #[test]
     fn extracts_raw_script_with_unescaped_js_and_removes_island() {
@@ -1993,7 +1994,7 @@ mod tests {
             height: parsed.height,
             frames: crate::frame_ctx::duration_secs_to_frames(parsed.duration, parsed.fps as u32),
         };
-        let mut catalog = TestCatalog::new();
+        let mut catalog = PreparedResourceCatalog::default();
         let mut script_host = MockScriptHost::default();
         let resolved = resolve_ui_tree(
             &parsed.root,

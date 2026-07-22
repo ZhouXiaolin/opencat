@@ -29,7 +29,7 @@ pub use self::frame_ctx::FrameCtx;
 pub use self::ir::asset_id::{AssetId, ResourceKind};
 pub use self::lifecycle::{
     CompositionDraft, HostInputs, HostRequirements, PrepareError, PreparedComposition,
-    ResourceLocator, ResourceRequest,
+    ResourceRequest,
 };
 pub use self::media::{
     collect_audio_plan, AudioPlan, AudioSegment, VideoFrameRequest, VideoFrameTiming,
@@ -46,16 +46,13 @@ pub use self::parse::preflight::{
 pub use self::parse::{ParsedComposition, markup, parse};
 pub use self::pipeline::{DefaultPipeline, FrameElementRect, Pipeline};
 pub use self::probe::{
-    AudioSource, ImageMeta, ImageSource, PreparedResourceCatalog, SubtitleSource, VideoInfoMeta,
-    VideoSource, hydrate_captions,
+    AudioSource, ImageMeta, ImageSource, PreparedResourceCatalog, VideoInfoMeta,
+    hydrate_captions,
 };
-pub use self::resource::catalog::ResourceResolver;
 pub use self::script::{
     PrecomputedScriptHost, ScriptDriver, ScriptDriverId, ScriptHost, ScriptRealm,
     asset_id_for_script_locator,
 };
-#[cfg(any(test, feature = "test-support"))]
-pub use self::test_support::TestCatalog;
 pub use self::text::{
     DefaultFontProvider, FontProvider, empty_font_db, extend_font_db, font_db_from_bytes,
 };

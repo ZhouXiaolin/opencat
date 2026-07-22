@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::ir::asset_id::{AssetId, ResourceKind};
 use crate::parse::primitives::{AudioSource, ImageSource};
-use crate::resource::catalog::{ResourceResolver, VideoInfoMeta};
+use crate::resource::catalog::VideoInfoMeta;
 
 pub fn mock_font_provider() -> impl crate::text::FontProvider {
     crate::text::DefaultFontProvider::from_arc(Arc::new(crate::text::test_default_font_db()))
@@ -63,6 +63,14 @@ impl TestCatalog {
         Ok(())
     }
 
+    pub fn is_known_asset(&self, id: &AssetId) -> bool {
+        self.dims.contains_key(id) || self.aliases.contains_key(id)
+    }
+
+    pub fn resolve_alias(&self, alias: &AssetId) -> Option<AssetId> {
+        self.aliases.get(alias).cloned()
+    }
+
     pub fn register_image_source(&mut self, source: &ImageSource) -> anyhow::Result<AssetId> {
         match source {
             ImageSource::Unset => anyhow::bail!("image source is required"),
@@ -98,33 +106,16 @@ impl TestCatalog {
             AudioSource::Url(url) => Ok(crate::ir::asset_id::asset_id_for_audio_url(url)),
         }
     }
-}
 
-impl Default for TestCatalog {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ResourceResolver for TestCatalog {
-    fn resolve_image(&mut self, src: &ImageSource) -> anyhow::Result<AssetId> {
+    pub fn resolve_image(&mut self, src: &ImageSource) -> anyhow::Result<AssetId> {
         self.register_image_source(src)
     }
 
-    fn resolve_audio(&mut self, src: &AudioSource) -> anyhow::Result<AssetId> {
+    pub fn resolve_audio(&mut self, src: &AudioSource) -> anyhow::Result<AssetId> {
         self.register_audio_source(src)
     }
 
-    fn register_dimensions(&mut self, locator: &str, width: u32, height: u32) -> AssetId {
-        TestCatalog::register_dimensions(
-            self,
-            AssetId::new(ResourceKind::Image, locator.to_string()),
-            width,
-            height,
-        )
-    }
-
-    fn register_video_dimensions(
+    pub fn register_video_dimensions(
         &mut self,
         locator: &str,
         width: u32,
@@ -146,37 +137,27 @@ impl ResourceResolver for TestCatalog {
         id
     }
 
-    fn register_audio(&mut self, locator: &str) -> AssetId {
+    pub fn register_audio(&mut self, locator: &str) -> AssetId {
         let id = AssetId::new(ResourceKind::Audio, locator.to_string());
         self.dims.entry(id.clone()).or_insert((0, 0));
         id
     }
 
-    fn alias(&mut self, alias: AssetId, target: &AssetId) -> anyhow::Result<()> {
-        TestCatalog::alias(self, alias, target)
-    }
-
-    fn dimensions(&self, id: &AssetId) -> (u32, u32) {
-        TestCatalog::dimensions(self, id)
-    }
-
-    fn video_info(&self, id: &AssetId) -> Option<VideoInfoMeta> {
+    pub fn video_info(&self, id: &AssetId) -> Option<VideoInfoMeta> {
         self.video_info.get(id).copied()
     }
 
-    fn resolve_lottie(&mut self, element_id: &str) -> anyhow::Result<AssetId> {
+    pub fn resolve_lottie(&mut self, element_id: &str) -> anyhow::Result<AssetId> {
         Ok(AssetId::new(
             ResourceKind::Lottie,
             format!("lottie:{element_id}"),
         ))
     }
+}
 
-    fn resolve_alias(&self, alias: &AssetId) -> Option<AssetId> {
-        self.aliases.get(alias).cloned()
-    }
-
-    fn is_known_asset(&self, id: &AssetId) -> bool {
-        self.dims.contains_key(id) || self.aliases.contains_key(id)
+impl Default for TestCatalog {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

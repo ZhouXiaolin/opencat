@@ -10,8 +10,13 @@ mod types;
 
 pub use types::{
     CompositionDraft, HostInputs, HostRequirements, PrepareError, PreparedComposition,
-    ResourceKind, ResourceLocator, ResourceRequest,
+    ResourceLocator, ResourceRequest,
 };
+
+// `ResourceKind` lives next to `AssetId` in `ir::asset_id` so identity rules
+// have exactly one home (issue #39). Re-exported here as the lifecycle contract
+// path that downstream crates already import (`opencat_core::lifecycle::...`).
+pub use crate::ir::asset_id::ResourceKind;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -22,6 +27,8 @@ use crate::ir::asset_id::{
     asset_id_for_audio, asset_id_for_image, asset_id_for_lottie, asset_id_for_subtitle,
     asset_id_for_video, AssetId,
 };
+// `ResourceKind` is brought into scope by the `pub use` above (single source in
+// `ir::asset_id`); re-listing it here would shadow that and trigger E0252.
 use crate::parse::primitives::LottieSource;
 use crate::parse::preflight::collect_resource_requests_from_parsed;
 use crate::parse::ParsedComposition;
@@ -161,7 +168,7 @@ impl HostRequirements {
         // Document fonts: stable identity is font_asset_id(source). Face markup
         // id is not the resource identity — hosts fetch by locator/asset_id.
         for face in &parsed.font_manifest.faces {
-            let id = AssetId(font_asset_id(&face.source));
+            let id = AssetId::new(ResourceKind::Font, font_asset_id(&face.source));
             if !seen.insert(id.clone()) {
                 continue;
             }
@@ -180,7 +187,7 @@ impl HostRequirements {
         requests.sort_by(|a, b| {
             a.kind
                 .cmp(&b.kind)
-                .then_with(|| a.asset_id.0.cmp(&b.asset_id.0))
+                .then_with(|| a.asset_id.key.cmp(&b.asset_id.key))
         });
 
         Self {
@@ -264,7 +271,7 @@ impl HostInputs {
         self.record_supply(&id)?;
         // Register the canonical id so undeclared checks and catalog presence align.
         self.catalog.subtitles.entry(id.clone()).or_default();
-        self.subtitle_texts.insert(id.0, text.into());
+        self.subtitle_texts.insert(id.key, text.into());
         Ok(())
     }
 
@@ -346,7 +353,7 @@ impl HostInputs {
                     self.insert_lottie(req.asset_id.clone(), meta)?;
                 }
                 ResourceKind::Subtitle => {
-                    if let Some(text) = subtitle_texts.get(&req.asset_id.0) {
+                    if let Some(text) = subtitle_texts.get(&req.asset_id.key) {
                         self.insert_subtitle_text(req.asset_id.clone(), text.clone())?;
                     }
                 }
@@ -441,7 +448,7 @@ pub fn prepare(
     let script_texts_by_id: HashMap<String, String> = inputs
         .script_texts
         .iter()
-        .map(|(id, text)| (id.0.clone(), text.clone()))
+        .map(|(id, text)| (id.key.clone(), text.clone()))
         .collect();
     parsed.root = inject_script_texts(parsed.root, &script_texts_by_id)?;
 
@@ -467,7 +474,7 @@ fn prepare_font_db(
     // Remap asset-id → face-id for load_faces_into_db / merge_document_over_base.
     let mut bytes_by_face_id: HashMap<String, Vec<u8>> = HashMap::new();
     for face in &manifest.faces {
-        let asset_id = AssetId(font_asset_id(&face.source));
+        let asset_id = AssetId::new(ResourceKind::Font, font_asset_id(&face.source));
         let Some(bytes) = inputs.document_fonts.get(&asset_id) else {
             return Err(PrepareError::MissingInput {
                 asset_id,
@@ -834,13 +841,15 @@ fn walk_inject_scripts(
                     let missing = next
                         .externals
                         .iter()
-                        .find(|e| !texts.contains_key(&e.asset_id.0))
+                        .find(|e| !texts.contains_key(&e.asset_id.key))
                         .map(|e| e.asset_id.clone())
                         .unwrap_or_else(|| {
                             next.externals
                                 .first()
                                 .map(|e| e.asset_id.clone())
-                                .unwrap_or_else(|| AssetId("script:?".into()))
+                                .unwrap_or_else(|| {
+                                    AssetId::new(ResourceKind::Script, "script:?")
+                                })
                         });
                     return Err(PrepareError::MissingInput {
                         asset_id: missing,
@@ -1054,7 +1063,7 @@ mod tests {
         let reqs = draft.requirements().requests();
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs[0].kind, ResourceKind::Image);
-        assert_eq!(reqs[0].asset_id.0, "photos/a.png");
+        assert_eq!(reqs[0].asset_id.key, "photos/a.png");
         assert!(matches!(
             &reqs[0].locator,
             ResourceLocator::LogicalPath(p) if p == "photos/a.png"
@@ -1087,7 +1096,7 @@ mod tests {
         let mut inputs = HostInputs::empty().with_font_db(test_font_db());
         inputs
             .insert_image(
-                AssetId("ghost.png".into()),
+                AssetId::new(ResourceKind::Image, "ghost.png"),
                 ImageMeta {
                     width: 1,
                     height: 1,
@@ -1101,7 +1110,7 @@ mod tests {
     #[test]
     fn prepare_errors_on_duplicate_host_input() {
         let mut inputs = HostInputs::empty();
-        let id = AssetId("photos/a.png".into());
+        let id = AssetId::new(ResourceKind::Image, "photos/a.png");
         inputs
             .insert_image(
                 id.clone(),
@@ -1228,7 +1237,7 @@ mod tests {
         let parsed = crate::parse::markup::parse_with_base_dir(xml, Some(base)).unwrap();
         let draft = CompositionDraft::from_parsed(parsed);
         let req = &draft.requirements().requests()[0];
-        assert_eq!(req.asset_id.0, "photos/a.png");
+        assert_eq!(req.asset_id.key, "photos/a.png");
         assert!(matches!(
             &req.locator,
             ResourceLocator::LogicalPath(p) if p == "photos/a.png"
@@ -1242,7 +1251,7 @@ mod tests {
 {"type":"image","id":"pic","parentId":"root","path":"photos/a.png","className":"w-[32px] h-[32px]"}"#;
         let draft = CompositionDraft::parse(jsonl).unwrap();
         let id = draft.requirements().requests()[0].asset_id.clone();
-        assert_eq!(id.0, "photos/a.png");
+        assert_eq!(id.key, "photos/a.png");
         let mut inputs = HostInputs::empty().with_font_db(test_font_db());
         inputs
             .insert_image(
@@ -1263,14 +1272,14 @@ mod tests {
         // FrameMediaPlan should list the image under the request's AssetId.
         use crate::ir::draw_types::ImageRef;
         let has = frame.media.images.iter().any(|img| match img {
-            ImageRef::Static { asset_id } => asset_id == &id.0,
+            ImageRef::Static { asset_id } => asset_id == &id.key,
             _ => false,
         });
         assert!(
             has,
             "media plan images={:?}, expected static {}",
             frame.media.images,
-            id.0
+            id.key
         );
     }
 
@@ -1295,7 +1304,7 @@ mod tests {
             let reqs = draft.requirements().requests();
             assert_eq!(reqs.len(), 1);
             assert_eq!(reqs[0].kind, ResourceKind::Video);
-            assert_eq!(reqs[0].asset_id.0, "video:path:clips/hero.mp4");
+            assert_eq!(reqs[0].asset_id.key, "video:path:clips/hero.mp4");
             assert!(matches!(
                 &reqs[0].locator,
                 ResourceLocator::LogicalPath(p) if p == "clips/hero.mp4"
@@ -1330,7 +1339,7 @@ mod tests {
             "#;
         let draft = CompositionDraft::parse(xml).expect("parse markup");
         let reqs = draft.requirements().requests();
-        assert_eq!(reqs[0].asset_id.0, "video:path:clips/hero.mp4");
+        assert_eq!(reqs[0].asset_id.key, "video:path:clips/hero.mp4");
         let id = reqs[0].asset_id.clone();
         let mut inputs = HostInputs::empty().with_font_db(test_font_db());
         // Host supplies only metadata — never video bytes.
@@ -1354,7 +1363,7 @@ mod tests {
             frame.media.video_frames.iter().any(|img| matches!(
                 img,
                 ImageRef::VideoFrame { asset_id, time_micros }
-                    if asset_id == &id.0 && *time_micros == 12_000_000
+                    if asset_id == &id.key && *time_micros == 12_000_000
             )),
             "media plan must use request AssetId + authoritative micros; got {:?}",
             frame.media.video_frames
@@ -1427,7 +1436,7 @@ mod tests {
         let parsed = crate::parse::markup::parse_with_base_dir(xml, Some(base)).unwrap();
         let draft = CompositionDraft::from_parsed(parsed);
         let req = &draft.requirements().requests()[0];
-        assert_eq!(req.asset_id.0, "video:path:clips/a.mp4");
+        assert_eq!(req.asset_id.key, "video:path:clips/a.mp4");
         assert!(matches!(
             &req.locator,
             ResourceLocator::LogicalPath(p) if p == "clips/a.mp4"
@@ -1450,7 +1459,7 @@ mod tests {
         let reqs = draft.requirements().requests();
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs[0].kind, ResourceKind::Lottie);
-        assert_eq!(reqs[0].asset_id.0, "lottie:loader");
+        assert_eq!(reqs[0].asset_id.key, "lottie:loader");
         assert!(matches!(
             &reqs[0].locator,
             ResourceLocator::LogicalPath(p) if p == "anim/loader.json"
@@ -1591,7 +1600,7 @@ mod tests {
             let reqs = draft.requirements().requests();
             assert_eq!(reqs.len(), 1);
             assert_eq!(reqs[0].kind, ResourceKind::Lottie);
-            assert_eq!(reqs[0].asset_id.0, "lottie:loader");
+            assert_eq!(reqs[0].asset_id.key, "lottie:loader");
             assert!(matches!(
                 &reqs[0].locator,
                 ResourceLocator::LogicalPath(p) if p == "anim/loader.json"
@@ -1625,7 +1634,7 @@ mod tests {
                 .expect("open");
             let frame = pipeline.render_frame(0).expect("render");
             assert!(
-                frame.media.lottie_bundles.iter().any(|b| b == &id.0),
+                frame.media.lottie_bundles.iter().any(|b| b == &id.key),
                 "media plan must list Lottie bundle under request AssetId; got {:?}",
                 frame.media.lottie_bundles
             );
@@ -1636,13 +1645,13 @@ mod tests {
                 frame.media.images
             );
             let lottie_frame = frame.draw.ops.iter().find_map(|op| match op {
-                DrawOp::LottieRect { bundle_id, frame, .. } if bundle_id == &id.0 => Some(*frame),
+                DrawOp::LottieRect { bundle_id, frame, .. } if bundle_id == &id.key => Some(*frame),
                 _ => None,
             });
             let lottie_frame = lottie_frame.unwrap_or_else(|| {
                 panic!(
                     "draw ops must include LottieRect for {}; ops={:?}",
-                    id.0, frame.draw.ops
+                    id.key, frame.draw.ops
                 )
             });
             // frame 0 @ 30fps, meta fps 25, media_start 0 → local frame 0
@@ -1675,7 +1684,7 @@ mod tests {
             let reqs = draft.requirements().requests();
             assert_eq!(reqs.len(), 1);
             assert_eq!(reqs[0].kind, ResourceKind::Image);
-            assert_eq!(reqs[0].asset_id.0, "assets/hero.png");
+            assert_eq!(reqs[0].asset_id.key, "assets/hero.png");
             assert!(matches!(
                 &reqs[0].locator,
                 ResourceLocator::LogicalPath(p) if p == "assets/hero.png"
@@ -1711,7 +1720,7 @@ mod tests {
             assert!(
                 frame.media.images.iter().any(|img| matches!(
                     img,
-                    ImageRef::Static { asset_id } if asset_id == &id.0
+                    ImageRef::Static { asset_id } if asset_id == &id.key
                 )),
                 "media plan must echo request AssetId; got {:?}",
                 frame.media.images
@@ -1743,7 +1752,7 @@ mod tests {
             .collect();
         assert_eq!(fonts.len(), 1);
         assert_eq!(
-            fonts[0].asset_id.0,
+            fonts[0].asset_id.key,
             "font:path:fonts/NotoSansSC-Regular.otf"
         );
         assert!(matches!(
@@ -1762,7 +1771,7 @@ mod tests {
             .filter(|r| r.kind == ResourceKind::Font)
             .collect();
         assert_eq!(
-            fonts[0].asset_id.0,
+            fonts[0].asset_id.key,
             "font:path:fonts/NotoSansSC-Regular.otf"
         );
     }
@@ -2065,7 +2074,7 @@ mod tests {
             .collect();
         assert_eq!(audio_reqs.len(), 3, "three audio requirements");
         for r in &audio_reqs {
-            assert!(r.asset_id.0.starts_with("audio:url:"));
+            assert!(r.asset_id.key.starts_with("audio:url:"));
         }
 
         // Audio needs only presence registration — no layout metadata (non-critical).
@@ -2084,17 +2093,17 @@ mod tests {
         let bgm = plan
             .segments
             .iter()
-            .find(|s| s.asset.0.contains("bgm"))
+            .find(|s| s.asset.key.contains("bgm"))
             .expect("bgm");
         let a = plan
             .segments
             .iter()
-            .find(|s| s.asset.0.ends_with("/a.mp3"))
+            .find(|s| s.asset.key.ends_with("/a.mp3"))
             .expect("a");
         let b = plan
             .segments
             .iter()
-            .find(|s| s.asset.0.ends_with("/b.mp3"))
+            .find(|s| s.asset.key.ends_with("/b.mp3"))
             .expect("b");
 
         // Timeline BGM spans full composition frame count.
@@ -2163,7 +2172,7 @@ mod tests {
             .filter(|r| r.kind == ResourceKind::Script)
             .collect();
         assert_eq!(scripts.len(), 1);
-        assert_eq!(scripts[0].asset_id.0, "script:path:anim/main.js");
+        assert_eq!(scripts[0].asset_id.key, "script:path:anim/main.js");
         assert_eq!(
             scripts[0].locator,
             ResourceLocator::LogicalPath("anim/main.js".into())

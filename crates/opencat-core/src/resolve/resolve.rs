@@ -3,7 +3,7 @@ use anyhow::{Result, ensure};
 use crate::{
     FrameCtx, Node,
     frame_ctx::{ScriptFrameCtx, frames_to_duration_secs},
-    ir::asset_id::{AssetId, asset_id_for_video_url},
+    ir::asset_id::{AssetId, ResourceKind, asset_id_for_video_url},
     ir::draw_types::ImageRef,
     media::VideoFrameTiming,
     parse::{
@@ -435,7 +435,7 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
 
         for asset in canvas.assets_ref() {
             let target = cx.assets.resolve_image(&asset.source)?;
-            cx.assets.alias(AssetId(asset.asset_id.clone()), &target)?;
+            cx.assets.alias(AssetId::new(ResourceKind::Image, asset.asset_id.clone()), &target)?;
         }
 
         let mut commands = Vec::new();
@@ -507,7 +507,7 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
 
         let locator = match video.source() {
             VideoSource::Path(p) => format!("video:path:{p}"),
-            VideoSource::Url(u) => asset_id_for_video_url(u).0,
+            VideoSource::Url(u) => asset_id_for_video_url(u).key,
         };
 
         let asset_id = cx.assets.register_dimensions(&locator, 0, 0);
@@ -1026,9 +1026,9 @@ fn canonicalize_canvas_image_refs(
             _ => continue,
         };
         if let ImageRef::Static { asset_id } = image_ref {
-            let key = AssetId(asset_id.clone());
+            let key = AssetId::new(ResourceKind::Image, asset_id.clone());
             if let Some(canonical) = assets.resolve_alias(&key) {
-                *asset_id = canonical.0;
+                *asset_id = canonical.key;
             } else if !assets.is_known_asset(&key) {
                 anyhow::bail!(
                     "canvas draw-image references unknown asset `{asset_id}`; \
@@ -1771,9 +1771,12 @@ mod tests {
         // AC4: a canvas draw-image op carrying a script-facing alias must be
         // rewritten to its canonical AssetId before leaving resolve.
         let mut catalog = TestCatalog::new();
-        let canonical =
-            catalog.register_dimensions(crate::ir::asset_id::AssetId("/tmp/a.png".into()), 10, 10);
-        let alias_id = crate::ir::asset_id::AssetId("hero".into());
+        let canonical = catalog.register_dimensions(
+            crate::ir::asset_id::AssetId::new(crate::ir::asset_id::ResourceKind::Image, "/tmp/a.png"),
+            10,
+            10,
+        );
+        let alias_id = crate::ir::asset_id::AssetId::new(crate::ir::asset_id::ResourceKind::Image, "hero");
         catalog.alias(alias_id.clone(), &canonical).unwrap();
 
         let mut commands = vec![DrawOp::Image {
@@ -1790,7 +1793,7 @@ mod tests {
             DrawOp::Image {
                 image: ImageRef::Static { asset_id },
                 ..
-            } => assert_eq!(*asset_id, canonical.0),
+            } => assert_eq!(*asset_id, canonical.key),
             other => panic!("unexpected op: {other:?}"),
         }
     }
@@ -1799,12 +1802,15 @@ mod tests {
     fn canonicalize_canvas_image_refs_keeps_canonical_id() {
         // A canonical id that is not an alias is left untouched.
         let mut catalog = TestCatalog::new();
-        let canonical =
-            catalog.register_dimensions(crate::ir::asset_id::AssetId("/tmp/a.png".into()), 10, 10);
+        let canonical = catalog.register_dimensions(
+            crate::ir::asset_id::AssetId::new(crate::ir::asset_id::ResourceKind::Image, "/tmp/a.png"),
+            10,
+            10,
+        );
 
         let mut commands = vec![DrawOp::Image {
             image: ImageRef::Static {
-                asset_id: canonical.0.clone(),
+                asset_id: canonical.key.clone(),
             },
             x: 0.0,
             y: 0.0,
@@ -1816,7 +1822,7 @@ mod tests {
             DrawOp::Image {
                 image: ImageRef::Static { asset_id },
                 ..
-            } => assert_eq!(*asset_id, canonical.0),
+            } => assert_eq!(*asset_id, canonical.key),
             other => panic!("unexpected op: {other:?}"),
         }
     }

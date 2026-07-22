@@ -31,7 +31,7 @@ pub use mutations::*;
 pub use precomputed_host::PrecomputedScriptHost;
 pub use realm::ScriptRealm;
 
-use crate::ir::asset_id::AssetId;
+use crate::ir::asset_id::{AssetId, ResourceKind};
 use crate::style::{
     AlignItems, BoxShadow, BoxShadowStyle, DropShadow, DropShadowStyle, FlexDirection, InsetShadow,
     InsetShadowStyle, JustifyContent, ObjectFit, Position, TextAlign,
@@ -103,7 +103,7 @@ impl ScriptDriver {
         // Stable install key from the ordered asset id list.
         let key_material = externals
             .iter()
-            .map(|e| e.asset_id.0.as_str())
+            .map(|e| e.asset_id.key.as_str())
             .collect::<Vec<_>>()
             .join("\n");
         let _ = key_material;
@@ -124,12 +124,12 @@ impl ScriptDriver {
             let key = self
                 .externals
                 .iter()
-                .map(|e| e.asset_id.0.as_str())
+                .map(|e| e.asset_id.key.as_str())
                 .collect::<Vec<_>>()
                 .join("\0");
             driver_id_from_source(&key)
         } else if let Some(ext) = &self.external {
-            driver_id_from_source(&ext.asset_id.0)
+            driver_id_from_source(&ext.asset_id.key)
         } else {
             driver_id_from_source(&self.source)
         }
@@ -147,7 +147,7 @@ impl ScriptDriver {
         }
         let mut parts = self.inline_fragments.clone();
         for ext in &self.externals {
-            if let Some(t) = texts.get(&ext.asset_id.0) {
+            if let Some(t) = texts.get(&ext.asset_id.key) {
                 parts.push(t.clone());
             } else {
                 // Incomplete — leave source empty so prepare can fail-fast.
@@ -162,9 +162,9 @@ impl ScriptDriver {
 /// Canonical AssetId for a logical script locator (path or url).
 pub fn asset_id_for_script_locator(locator: &str) -> AssetId {
     if locator.starts_with("http://") || locator.starts_with("https://") {
-        AssetId(format!("script:url:{locator}"))
+        AssetId::new(ResourceKind::Script, format!("script:url:{locator}"))
     } else {
-        AssetId(format!("script:path:{locator}"))
+        AssetId::new(ResourceKind::Script, format!("script:path:{locator}"))
     }
 }
 

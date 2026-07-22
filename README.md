@@ -398,6 +398,7 @@ No `ffmpegDir` or `SKIA_BINARIES_URL` environment variables are needed in a stan
 - [开发指南](DEVELOPMENT_ZH.md)
 - [Architecture](ARCHITECTURE.md) — complete rendering pipeline from XML/JSONL to pixels
 - [架构文档](ARCHITECTURE_ZH.md)
+- [Migration Guide](docs/MIGRATION.md) — explicit lifecycle, HostInputs, AudioPlan, RenderFrame, OCIR v4
 
 ## Community
 

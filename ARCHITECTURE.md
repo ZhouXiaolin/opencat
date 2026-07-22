@@ -6,6 +6,9 @@ Explicit lifecycle (issue #12 / #24). Core is a pure derivation kernel; hosts ow
 fetch, cache, decode, and platform APIs. DrawOp is a **Skia-compatible IR** shared
 by the native Skia engine and CanvasKit web backends.
 
+Host migration (old open paths → prepare/`open_pipeline`, HostInputs, AudioPlan,
+RenderFrame, OCIR v4): see [`docs/MIGRATION.md`](docs/MIGRATION.md).
+
 ```
 Input (XML / JSONL)
   │

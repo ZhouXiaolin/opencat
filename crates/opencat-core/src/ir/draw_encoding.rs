@@ -1,31 +1,68 @@
 // ---------------------------------------------------------------------------
-// Binary encoder for DrawOpFrame -> EncodedDrawFrame
+// Versioned DrawOp wire protocol (OCIR envelope).
 //
-// Encodes a typed IR frame into a packed binary format suitable for
-// transfer to Web/TypeScript decoders via wasm-bindgen.
+// Single Skia-compatible binary contract owned by core (issue #22):
 //
-// Layout per op:
+//   header: magic "OCIR" | version u32 | section_count u32 | pipeline_epoch u32
+//   section directory: section_count × { id u32, offset u32, len u32 }
+//   payloads: 4-byte aligned sections for ops, pools, paints, paths, ...
+//
+// Ops layout (section 1):
 //   [opcode: u16 LE] [flags: u16 LE] [payload_len: u32 LE] [payload...]
+//   each op padded to 4-byte alignment.
 //
-// Each op is padded to 4-byte alignment after its payload.
+// WASM transport only copies these bytes to JS — it does not re-encode
+// protocol semantics. TypeScript decodeFrame must match this schema field-for-field.
 // ---------------------------------------------------------------------------
 
 use super::draw_op::*;
 use super::draw_types::*;
+use super::media_plan::FrameGeneratedImage;
+use crate::canvas::paint::{
+    BlendMode, BlurStyle, ColorFilterSpec, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec,
+    PaintStyle, PathEffectSpec, ShaderSpec as PaintShaderSpec, StrokeCap, StrokeJoin, TileMode,
+};
 
 // ---------------------------------------------------------------------------
-// Magic and version constants
+// Magic, version, sections
 // ---------------------------------------------------------------------------
 
-/// Magic bytes for EncodedDrawFrame: "OCDF" (OpenCat Draw Frame).
-const MAGIC: [u8; 4] = *b"OCDF";
+/// Magic bytes for the unified DrawOp wire envelope.
+pub const IR_MAGIC: [u8; 4] = *b"OCIR";
 
-/// Version of the binary encoding format.
-const VERSION: u32 = 2;
+/// Wire protocol version.
+///
+/// v4: pipeline_epoch in the header + SECTION_GENERATED_IMAGES (12) for the
+/// per-frame generated-image delta. Section 12 is always present (count may be 0).
+pub const IR_VERSION: u32 = 4;
 
-// ---------------------------------------------------------------------------
-// Opcode assignments
-// ---------------------------------------------------------------------------
+/// Section identifiers in the OCIR directory.
+pub mod section {
+    pub const OPS: u32 = 1;
+    pub const F32_POOL: u32 = 2;
+    pub const BYTES: u32 = 3;
+    pub const BYTE_RANGES: u32 = 4;
+    pub const STRINGS_UTF8: u32 = 5;
+    pub const STRING_RANGES: u32 = 6;
+    pub const PAINTS: u32 = 7;
+    pub const PATHS: u32 = 8;
+    pub const CHILDREN: u32 = 9;
+    pub const EFFECTS: u32 = 10;
+    pub const SUBTREES: u32 = 11;
+    pub const GENERATED_IMAGES: u32 = 12;
+}
+
+/// Encoding failure (unknown required string id, oversized envelope, …).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EncodeError(pub String);
+
+impl std::fmt::Display for EncodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for EncodeError {}
 
 /// Opcode assignments — each DrawOp variant gets a unique u16.
 /// These MUST match the opcode constants in the TypeScript decoder.
@@ -84,15 +121,17 @@ pub mod opcode {
     pub const PATH_ADD_ARC: u16 = 8;
 }
 
+
 // ---------------------------------------------------------------------------
-// Encoded output types
+// Intermediate section payloads (not a second on-wire envelope)
 // ---------------------------------------------------------------------------
 
-/// Binary-encoded draw frame for web wasm-to-JS transfer.
-/// Fields exposed to JS as typed arrays via wasm-bindgen.
-pub struct EncodedDrawFrame {
-    pub magic: [u8; 4],
-    pub version: u32,
+/// Binary section payloads produced before packing the OCIR envelope.
+///
+/// This is an encoder intermediate — not the dual OCDF protocol deleted in #22.
+/// Tests inspect these fields; hosts only ever receive the packed `Vec<u8>`.
+#[derive(Clone, Debug, Default)]
+pub struct EncodedDrawSections {
     pub ops: Vec<u8>,
     pub subtrees: Vec<u8>,
     pub f32_pool: Vec<f32>,
@@ -100,36 +139,20 @@ pub struct EncodedDrawFrame {
     pub byte_ranges: Vec<TableRange>,
     pub strings_utf8: Vec<u8>,
     pub string_ranges: Vec<TableRange>,
-    pub children: Vec<u8>,
-    pub child_ranges: Vec<TableRange>,
 }
 
-/// Metadata for a cached range in the encoded frame.
-pub struct EncodedDrawRange {
-    pub start_byte: u32,
-    pub byte_len: u32,
-    pub fingerprint: u64,
-    pub bounds: [f32; 4],
-}
-
-// ---------------------------------------------------------------------------
-// Main encode entry point
-// ---------------------------------------------------------------------------
-
-/// Encode a DrawOpFrame into an EncodedDrawFrame, reusing scratch buffers.
-/// The caller owns the returned EncodedDrawFrame. Scratch is cleared on entry
-/// and can be reused across frames to avoid allocations.
-pub fn encode_draw_frame(
+/// Encode DrawOpFrame tables into section payloads, reusing scratch buffers.
+///
+/// Does **not** encode paints/paths/children/effects — those are packed from
+/// the typed frame when building the envelope (see [`encode_ir_envelope`]).
+pub fn encode_draw_sections(
     frame: &super::draw_frame::DrawOpFrame,
     scratch: &mut super::draw_frame::DrawFrameScratch,
-) -> EncodedDrawFrame {
+) -> EncodedDrawSections {
     scratch.clear();
 
-    // Copy frame f32_pool into scratch so F32Range references in SetLineDash/Points
-    // can index into it. The data is preserved in the encoded output.
     scratch.f32_pool.extend_from_slice(&frame.f32_pool);
 
-    // Encode each DrawOp into the encoded_ops buffer
     let encoded_ops = &mut scratch.encoded_ops;
     for op in &frame.ops {
         encode_op(op, encoded_ops, &mut scratch.f32_pool, &frame.strings);
@@ -147,10 +170,7 @@ pub fn encode_draw_frame(
         encoded_subtrees[start..start + 4].copy_from_slice(&byte_len.to_le_bytes());
     }
     let f32_pool_out = std::mem::take(&mut scratch.f32_pool);
-    let bytes_out = std::mem::take(&mut scratch.bytes);
-    let byte_ranges_out = std::mem::take(&mut scratch.byte_ranges);
 
-    // Encode strings: concatenated UTF-8 + range table
     let strings_utf8 = &mut scratch.strings_utf8;
     let string_ranges = &mut scratch.string_ranges;
     for s in &frame.strings {
@@ -163,22 +183,57 @@ pub fn encode_draw_frame(
         });
     }
 
-    // Children are currently encoded as empty (full encoding in later tasks)
-    let children_bytes: Vec<u8> = Vec::new();
-    let child_ranges: Vec<TableRange> = Vec::new();
-
-    EncodedDrawFrame {
-        magic: MAGIC,
-        version: VERSION,
+    EncodedDrawSections {
         ops: std::mem::take(encoded_ops),
         subtrees: std::mem::take(encoded_subtrees),
         f32_pool: f32_pool_out,
-        bytes: bytes_out,
-        byte_ranges: byte_ranges_out,
+        bytes: frame.bytes.clone(),
+        byte_ranges: frame.byte_ranges.clone(),
         strings_utf8: std::mem::take(strings_utf8),
         string_ranges: std::mem::take(string_ranges),
-        children: children_bytes,
-        child_ranges,
+    }
+}
+
+/// Intern asset_id / bundle_id strings referenced by image and Lottie ops so
+/// binary image refs can address them via the string table.
+pub fn intern_image_strings(draw: &mut super::draw_frame::DrawOpFrame) {
+    fn push_unique(strings: &mut Vec<String>, asset_id: &str) {
+        if !strings.iter().any(|item| item == asset_id) {
+            strings.push(asset_id.to_string());
+        }
+    }
+
+    for op in &draw.ops {
+        intern_image_strings_in_ops(&mut draw.strings, std::slice::from_ref(op));
+    }
+    for subtree in &draw.subtrees {
+        intern_image_strings_in_ops(&mut draw.strings, subtree);
+    }
+    for child in &draw.children {
+        if let RuntimeEffectChildRef::Image(image) = child {
+            intern_image_ref(&mut draw.strings, image);
+        }
+    }
+
+    fn intern_image_strings_in_ops(strings: &mut Vec<String>, ops: &[DrawOp]) {
+        for op in ops {
+            match op {
+                DrawOp::Image { image, .. } | DrawOp::ImageRect { image, .. } => {
+                    intern_image_ref(strings, image);
+                }
+                DrawOp::LottieRect { bundle_id, .. } => push_unique(strings, bundle_id),
+                _ => {}
+            }
+        }
+    }
+
+    fn intern_image_ref(strings: &mut Vec<String>, image: &ImageRef) {
+        match image {
+            ImageRef::Static { asset_id } | ImageRef::VideoFrame { asset_id, .. } => {
+                push_unique(strings, asset_id);
+            }
+            ImageRef::Generated { .. } => {}
+        }
     }
 }
 
@@ -290,6 +345,650 @@ fn lookup_string_id(strings: &[String], s: &str) -> u32 {
         .position(|item| item == s)
         .expect("asset_id not found in frame.strings; ensure it is interned via DrawOpBuilder::intern_string")
         as u32
+}
+
+
+// ---------------------------------------------------------------------------
+// OCIR section encoders + envelope packer
+// ---------------------------------------------------------------------------
+
+/// Pack a typed draw frame + generated-image delta into the single OCIR envelope.
+///
+/// Callers that need image/Lottie string ids in the table should run
+/// [`intern_image_strings`] first.
+pub fn encode_ir_envelope(
+    draw: &super::draw_frame::DrawOpFrame,
+    scratch: &mut super::draw_frame::DrawFrameScratch,
+    pipeline_epoch: u32,
+    generated_delta: &[FrameGeneratedImage],
+) -> Result<Vec<u8>, EncodeError> {
+    let sections = encode_draw_sections(draw, scratch);
+    pack_ir_envelope(draw, &sections, pipeline_epoch, generated_delta)
+}
+
+/// Pack pre-encoded op/string sections with paints/paths/… into OCIR bytes.
+pub fn pack_ir_envelope(
+    draw: &super::draw_frame::DrawOpFrame,
+    encoded: &EncodedDrawSections,
+    pipeline_epoch: u32,
+    generated_delta: &[FrameGeneratedImage],
+) -> Result<Vec<u8>, EncodeError> {
+    let generated_images_section = encode_generated_images(generated_delta);
+    let section_payloads = [
+        (section::OPS, encoded.ops.clone()),
+        (section::SUBTREES, encoded.subtrees.clone()),
+        (section::F32_POOL, encode_f32_slice(&encoded.f32_pool)),
+        (section::BYTES, encoded.bytes.clone()),
+        (section::BYTE_RANGES, encode_ranges(&encoded.byte_ranges)),
+        (section::STRINGS_UTF8, encoded.strings_utf8.clone()),
+        (section::STRING_RANGES, encode_ranges(&encoded.string_ranges)),
+        (section::PAINTS, encode_paints(&draw.paints)?),
+        (section::PATHS, encode_paths(&draw.paths)),
+        (
+            section::CHILDREN,
+            encode_children(&draw.children, &draw.strings)?,
+        ),
+        (section::EFFECTS, encode_effects(&draw.effects)),
+        (section::GENERATED_IMAGES, generated_images_section),
+    ];
+
+    let header_len = 16 + section_payloads.len() * 12;
+    let mut offsets = Vec::with_capacity(section_payloads.len());
+    let mut cursor = header_len as u32;
+    for (_, bytes) in &section_payloads {
+        cursor = align4(cursor);
+        offsets.push(cursor);
+        cursor = cursor
+            .checked_add(bytes.len() as u32)
+            .ok_or_else(|| EncodeError("IR envelope too large".into()))?;
+    }
+
+    let mut out = Vec::with_capacity(cursor as usize);
+    out.extend_from_slice(&IR_MAGIC);
+    write_u32(&mut out, IR_VERSION);
+    write_u32(&mut out, section_payloads.len() as u32);
+    write_u32(&mut out, pipeline_epoch);
+    for ((id, bytes), offset) in section_payloads.iter().zip(offsets.iter()) {
+        write_u32(&mut out, *id);
+        write_u32(&mut out, *offset);
+        write_u32(&mut out, bytes.len() as u32);
+    }
+
+    for ((_, bytes), offset) in section_payloads.iter().zip(offsets.iter()) {
+        while out.len() < *offset as usize {
+            out.push(0);
+        }
+        out.extend_from_slice(bytes);
+    }
+
+    Ok(out)
+}
+
+fn encode_generated_images(delta: &[FrameGeneratedImage]) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_u32(&mut out, delta.len() as u32);
+    for record in delta {
+        write_u64(&mut out, record.id.0);
+        write_u32(&mut out, record.width);
+        write_u32(&mut out, record.height);
+        write_bytes_with_len(&mut out, &record.rgba);
+    }
+    out
+}
+
+fn encode_paints(paints: &[PaintSpec]) -> Result<Vec<u8>, EncodeError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, paints.len() as u32);
+    for paint in paints {
+        let mut record = Vec::new();
+        encode_paint(&mut record, paint)?;
+        write_u32(&mut out, record.len() as u32);
+        out.extend_from_slice(&record);
+    }
+    Ok(out)
+}
+
+fn encode_paint(out: &mut Vec<u8>, paint: &PaintSpec) -> Result<(), EncodeError> {
+    encode_fill(out, &paint.fill);
+    write_u8(out, encode_paint_style(paint.style));
+    write_u8(out, if paint.anti_alias { 1 } else { 0 });
+    write_u8(out, encode_blend_mode(paint.blend_mode));
+    match &paint.stroke {
+        Some(stroke) => {
+            write_u8(out, 1);
+            write_f32(out, stroke.width);
+            write_u8(out, encode_stroke_cap(stroke.cap));
+            write_u8(out, encode_stroke_join(stroke.join));
+            write_f32(out, stroke.miter_limit);
+        }
+        None => write_u8(out, 0),
+    }
+    encode_optional(out, paint.image_filter.as_ref(), encode_image_filter)?;
+    encode_optional(out, paint.color_filter.as_ref(), encode_color_filter)?;
+    encode_optional(out, paint.mask_filter.as_ref(), encode_mask_filter)?;
+    encode_optional(out, paint.path_effect.as_ref(), encode_path_effect)?;
+    Ok(())
+}
+
+fn encode_fill(out: &mut Vec<u8>, fill: &FillSpec) {
+    match fill {
+        FillSpec::Solid(color) => {
+            write_u8(out, 0);
+            write_f32_array(out, color);
+        }
+        FillSpec::Shader(shader) => {
+            write_u8(out, 1);
+            encode_paint_shader(out, shader);
+        }
+    }
+}
+
+fn encode_paint_shader(out: &mut Vec<u8>, shader: &PaintShaderSpec) {
+    match shader {
+        PaintShaderSpec::LinearGradient {
+            from,
+            to,
+            stops,
+            colors,
+            tile_mode,
+            local_matrix,
+        } => {
+            write_u8(out, 0);
+            write_u8(out, encode_tile_mode(*tile_mode));
+            write_f32_array(out, from);
+            write_f32_array(out, to);
+            write_f32_vec(out, stops);
+            write_color_vec(out, colors);
+            encode_optional_matrix(out, local_matrix);
+        }
+        PaintShaderSpec::RadialGradient {
+            center,
+            radius,
+            stops,
+            colors,
+            tile_mode,
+            local_matrix,
+        } => {
+            write_u8(out, 1);
+            write_u8(out, encode_tile_mode(*tile_mode));
+            write_f32_array(out, center);
+            write_f32(out, *radius);
+            write_f32_vec(out, stops);
+            write_color_vec(out, colors);
+            encode_optional_matrix(out, local_matrix);
+        }
+    }
+}
+
+fn encode_optional_matrix(out: &mut Vec<u8>, matrix: &Option<[f32; 9]>) {
+    match matrix {
+        Some(m) => {
+            write_u8(out, 1);
+            for v in m {
+                write_f32(out, *v);
+            }
+        }
+        None => write_u8(out, 0),
+    }
+}
+
+fn encode_image_filter(out: &mut Vec<u8>, filter: &ImageFilterSpec) -> Result<(), EncodeError> {
+    match filter {
+        ImageFilterSpec::Blur {
+            sigma_x,
+            sigma_y,
+            crop_rect,
+        } => {
+            write_u8(out, 0);
+            write_f32(out, *sigma_x);
+            write_f32(out, *sigma_y);
+            match crop_rect {
+                Some(rect) => {
+                    write_u8(out, 1);
+                    write_f32(out, rect.x0 as f32);
+                    write_f32(out, rect.y0 as f32);
+                    write_f32(out, rect.x1 as f32);
+                    write_f32(out, rect.y1 as f32);
+                }
+                None => write_u8(out, 0),
+            }
+        }
+        ImageFilterSpec::DropShadow {
+            dx,
+            dy,
+            sigma_x,
+            sigma_y,
+            color,
+        } => {
+            write_u8(out, 1);
+            write_f32(out, *dx);
+            write_f32(out, *dy);
+            write_f32(out, *sigma_x);
+            write_f32(out, *sigma_y);
+            write_f32_array(out, color);
+        }
+        ImageFilterSpec::ColorFilter(filter) => {
+            write_u8(out, 2);
+            encode_color_filter(out, filter)?;
+        }
+        ImageFilterSpec::Compose(outer, inner) => {
+            write_u8(out, 3);
+            encode_image_filter(out, outer)?;
+            encode_image_filter(out, inner)?;
+        }
+    }
+    Ok(())
+}
+
+fn encode_color_filter(out: &mut Vec<u8>, filter: &ColorFilterSpec) -> Result<(), EncodeError> {
+    match filter {
+        ColorFilterSpec::Matrix(matrix) => {
+            write_u8(out, 0);
+            write_f32_array(out, matrix);
+        }
+        ColorFilterSpec::BlendColor { color, mode } => {
+            write_u8(out, 1);
+            write_f32_array(out, color);
+            write_u8(out, encode_blend_mode(*mode));
+        }
+        ColorFilterSpec::LinearToSrgbGamma => write_u8(out, 2),
+        ColorFilterSpec::SrgbToLinearGamma => write_u8(out, 3),
+    }
+    Ok(())
+}
+
+fn encode_mask_filter(out: &mut Vec<u8>, filter: &MaskFilterSpec) -> Result<(), EncodeError> {
+    match filter {
+        MaskFilterSpec::Blur {
+            sigma,
+            style,
+            respect_ctm,
+        } => {
+            write_u8(out, 0);
+            write_f32(out, *sigma);
+            write_u8(out, encode_blur_style(*style));
+            write_u8(out, if *respect_ctm { 1 } else { 0 });
+        }
+    }
+    Ok(())
+}
+
+fn encode_path_effect(out: &mut Vec<u8>, effect: &PathEffectSpec) -> Result<(), EncodeError> {
+    match effect {
+        PathEffectSpec::Dash { intervals, phase } => {
+            write_u8(out, 0);
+            write_f32_vec(out, intervals);
+            write_f32(out, *phase);
+        }
+    }
+    Ok(())
+}
+
+fn encode_paths(paths: &[EncodedPath]) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_u32(&mut out, paths.len() as u32);
+    for path in paths {
+        let mut record = Vec::new();
+        write_u8(&mut record, encode_path_fill_type(path.fill_type));
+        write_u32(&mut record, path.ops.len() as u32);
+        for op in &path.ops {
+            encode_section_path_op(&mut record, op);
+        }
+        write_u32(&mut out, record.len() as u32);
+        out.extend_from_slice(&record);
+    }
+    out
+}
+
+fn encode_section_path_op(out: &mut Vec<u8>, op: &PathOp) {
+    match op {
+        PathOp::MoveTo { x, y } => {
+            write_u16(out, 0);
+            write_f32(out, *x);
+            write_f32(out, *y);
+        }
+        PathOp::LineTo { x, y } => {
+            write_u16(out, 1);
+            write_f32(out, *x);
+            write_f32(out, *y);
+        }
+        PathOp::QuadTo { cx, cy, x, y } => {
+            write_u16(out, 2);
+            write_f32(out, *cx);
+            write_f32(out, *cy);
+            write_f32(out, *x);
+            write_f32(out, *y);
+        }
+        PathOp::CubicTo {
+            c1x,
+            c1y,
+            c2x,
+            c2y,
+            x,
+            y,
+        } => {
+            write_u16(out, 3);
+            write_f32(out, *c1x);
+            write_f32(out, *c1y);
+            write_f32(out, *c2x);
+            write_f32(out, *c2y);
+            write_f32(out, *x);
+            write_f32(out, *y);
+        }
+        PathOp::Close => write_u16(out, 4),
+        PathOp::AddRect {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            write_u16(out, 5);
+            write_f32(out, *x);
+            write_f32(out, *y);
+            write_f32(out, *width);
+            write_f32(out, *height);
+        }
+        PathOp::AddRRect {
+            x,
+            y,
+            width,
+            height,
+            radius,
+        } => {
+            write_u16(out, 6);
+            write_f32(out, *x);
+            write_f32(out, *y);
+            write_f32(out, *width);
+            write_f32(out, *height);
+            write_f32(out, *radius);
+        }
+        PathOp::AddOval {
+            x,
+            y,
+            width,
+            height,
+        } => {
+            write_u16(out, 7);
+            write_f32(out, *x);
+            write_f32(out, *y);
+            write_f32(out, *width);
+            write_f32(out, *height);
+        }
+        PathOp::AddArc {
+            x,
+            y,
+            width,
+            height,
+            start_angle,
+            sweep_angle,
+        } => {
+            write_u16(out, 8);
+            write_f32(out, *x);
+            write_f32(out, *y);
+            write_f32(out, *width);
+            write_f32(out, *height);
+            write_f32(out, *start_angle);
+            write_f32(out, *sweep_angle);
+        }
+    }
+}
+
+fn encode_children(
+    children: &[RuntimeEffectChildRef],
+    strings: &[String],
+) -> Result<Vec<u8>, EncodeError> {
+    let mut out = Vec::new();
+    write_u32(&mut out, children.len() as u32);
+    for child in children {
+        let mut record = Vec::new();
+        match child {
+            RuntimeEffectChildRef::Image(image) => {
+                write_u8(&mut record, 0);
+                encode_image_ref(&mut record, image, strings)?;
+            }
+            RuntimeEffectChildRef::Picture(range) => {
+                write_u8(&mut record, 1);
+                write_u32(&mut record, range.start_op);
+                write_u32(&mut record, range.op_len);
+            }
+            RuntimeEffectChildRef::SubtreePicture(subtree) => {
+                write_u8(&mut record, 3);
+                write_u32(&mut record, subtree.0);
+            }
+            RuntimeEffectChildRef::Shader(shader) => {
+                write_u8(&mut record, 2);
+                encode_ir_shader(&mut record, shader);
+            }
+        }
+        write_u32(&mut out, record.len() as u32);
+        out.extend_from_slice(&record);
+    }
+    Ok(out)
+}
+
+fn encode_image_ref(
+    out: &mut Vec<u8>,
+    image: &ImageRef,
+    strings: &[String],
+) -> Result<(), EncodeError> {
+    match image {
+        ImageRef::Static { asset_id } => {
+            write_u8(out, 0);
+            write_u32(out, lookup_string_id_checked(strings, asset_id)?);
+            write_u64(out, 0);
+        }
+        ImageRef::VideoFrame {
+            asset_id,
+            time_micros,
+        } => {
+            write_u8(out, 1);
+            write_u32(out, lookup_string_id_checked(strings, asset_id)?);
+            write_u64(out, *time_micros);
+        }
+        ImageRef::Generated { id } => {
+            write_u8(out, 2);
+            write_u64(out, id.0);
+            write_u32(out, 0);
+        }
+    }
+    Ok(())
+}
+
+fn encode_ir_shader(out: &mut Vec<u8>, shader: &ShaderSpec) {
+    match &shader.shader_type {
+        ShaderType::LinearGradient { start, end, colors } => {
+            write_u8(out, 0);
+            write_f32(out, start.0);
+            write_f32(out, start.1);
+            write_f32(out, end.0);
+            write_f32(out, end.1);
+            encode_ir_gradient_colors(out, colors);
+        }
+        ShaderType::RadialGradient {
+            center,
+            radius,
+            colors,
+        } => {
+            write_u8(out, 1);
+            write_f32(out, center.0);
+            write_f32(out, center.1);
+            write_f32(out, *radius);
+            encode_ir_gradient_colors(out, colors);
+        }
+    }
+}
+
+fn encode_ir_gradient_colors(out: &mut Vec<u8>, colors: &[(f32, [f32; 4])]) {
+    write_u32(out, colors.len() as u32);
+    for (stop, color) in colors {
+        write_f32(out, *stop);
+        write_f32_array(out, color);
+    }
+}
+
+fn encode_effects(effects: &[EffectRef]) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_u32(&mut out, effects.len() as u32);
+    for effect in effects {
+        write_u64(&mut out, effect.hash);
+        write_bytes_with_len(&mut out, effect.sksl.as_bytes());
+    }
+    out
+}
+
+fn encode_optional<T>(
+    out: &mut Vec<u8>,
+    value: Option<&T>,
+    encode: fn(&mut Vec<u8>, &T) -> Result<(), EncodeError>,
+) -> Result<(), EncodeError> {
+    match value {
+        Some(value) => {
+            write_u8(out, 1);
+            encode(out, value)?;
+        }
+        None => write_u8(out, 0),
+    }
+    Ok(())
+}
+
+fn lookup_string_id_checked(strings: &[String], s: &str) -> Result<u32, EncodeError> {
+    strings
+        .iter()
+        .position(|item| item == s)
+        .map(|idx| idx as u32)
+        .ok_or_else(|| EncodeError(format!("asset_id not interned in IR strings: {s}")))
+}
+
+fn encode_f32_slice(values: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(values.len() * 4);
+    for value in values {
+        write_f32(&mut out, *value);
+    }
+    out
+}
+
+fn encode_ranges(ranges: &[TableRange]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(ranges.len() * 8);
+    for range in ranges {
+        write_u32(&mut out, range.start);
+        write_u32(&mut out, range.len);
+    }
+    out
+}
+
+fn write_color_vec(out: &mut Vec<u8>, colors: &[[f32; 4]]) {
+    write_u32(out, colors.len() as u32);
+    for color in colors {
+        write_f32_array(out, color);
+    }
+}
+
+fn write_f32_vec(out: &mut Vec<u8>, values: &[f32]) {
+    write_u32(out, values.len() as u32);
+    for value in values {
+        write_f32(out, *value);
+    }
+}
+
+fn write_f32_array<const N: usize>(out: &mut Vec<u8>, values: &[f32; N]) {
+    for value in values {
+        write_f32(out, *value);
+    }
+}
+
+fn write_bytes_with_len(out: &mut Vec<u8>, bytes: &[u8]) {
+    write_u32(out, bytes.len() as u32);
+    out.extend_from_slice(bytes);
+}
+
+fn write_u16(out: &mut Vec<u8>, value: u16) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn align4(value: u32) -> u32 {
+    (value + 3) & !3
+}
+
+fn encode_paint_style(style: PaintStyle) -> u8 {
+    match style {
+        PaintStyle::Fill => 0,
+        PaintStyle::Stroke => 1,
+    }
+}
+
+fn encode_stroke_cap(cap: StrokeCap) -> u8 {
+    match cap {
+        StrokeCap::Butt => 0,
+        StrokeCap::Round => 1,
+        StrokeCap::Square => 2,
+    }
+}
+
+fn encode_stroke_join(join: StrokeJoin) -> u8 {
+    match join {
+        StrokeJoin::Miter => 0,
+        StrokeJoin::Round => 1,
+        StrokeJoin::Bevel => 2,
+    }
+}
+
+fn encode_blend_mode(mode: BlendMode) -> u8 {
+    match mode {
+        BlendMode::Clear => 0,
+        BlendMode::Src => 1,
+        BlendMode::Dst => 2,
+        BlendMode::SrcOver => 3,
+        BlendMode::DstOver => 4,
+        BlendMode::SrcIn => 5,
+        BlendMode::DstIn => 6,
+        BlendMode::SrcOut => 7,
+        BlendMode::DstOut => 8,
+        BlendMode::SrcATop => 9,
+        BlendMode::DstATop => 10,
+        BlendMode::Xor => 11,
+        BlendMode::Plus => 12,
+        BlendMode::Modulate => 13,
+        BlendMode::Screen => 14,
+        BlendMode::Overlay => 15,
+        BlendMode::Darken => 16,
+        BlendMode::Lighten => 17,
+        BlendMode::ColorDodge => 18,
+        BlendMode::ColorBurn => 19,
+        BlendMode::HardLight => 20,
+        BlendMode::SoftLight => 21,
+        BlendMode::Difference => 22,
+        BlendMode::Exclusion => 23,
+        BlendMode::Multiply => 24,
+        BlendMode::Hue => 25,
+        BlendMode::Saturation => 26,
+        BlendMode::Color => 27,
+        BlendMode::Luminosity => 28,
+    }
+}
+
+fn encode_tile_mode(mode: TileMode) -> u8 {
+    match mode {
+        TileMode::Clamp => 0,
+        TileMode::Repeat => 1,
+        TileMode::Mirror => 2,
+        TileMode::Decal => 3,
+    }
+}
+
+fn encode_blur_style(style: BlurStyle) -> u8 {
+    match style {
+        BlurStyle::Normal => 0,
+        BlurStyle::Inner => 1,
+        BlurStyle::Solid => 2,
+        BlurStyle::Outer => 3,
+    }
+}
+
+fn encode_path_fill_type(fill_type: FillType) -> u8 {
+    match fill_type {
+        FillType::Winding => 0,
+        FillType::EvenOdd => 1,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -824,10 +1523,13 @@ mod tests {
     use super::*;
     use crate::ir::draw_frame::DrawFrameScratch;
     use crate::ir::draw_frame::DrawOpFrame;
+    use crate::ir::media_plan::FrameGeneratedImage;
     use crate::ir::draw_op::{
         ColorF32, ColorU8, F32Range, LineCap, LineJoin, PointMode, Radii4, Rect4,
     };
-    use crate::ir::draw_types::{ChildRange, DrawOpRange};
+    use crate::ir::draw_types::{
+        ChildRange, DrawOpRange, EffectRef, EncodedPath, FillType, ImageRef, PaintId, PathOp,
+    };
     use crate::render::builder::DrawOpBuilder;
 
     // -----------------------------------------------------------------------
@@ -838,10 +1540,11 @@ mod tests {
     fn encode_empty_frame_produces_valid_header() {
         let frame = DrawOpFrame::default();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
-        assert_eq!(&encoded.magic, b"OCDF");
-        assert_eq!(encoded.version, 2);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
         assert!(encoded.ops.is_empty());
+        let envelope = pack_ir_envelope(&frame, &encoded, 0, &[]).expect("envelope");
+        assert_eq!(&envelope[0..4], b"OCIR");
+        assert_eq!(u32::from_le_bytes(envelope[4..8].try_into().unwrap()), IR_VERSION);
     }
 
     #[test]
@@ -851,19 +1554,21 @@ mod tests {
         builder.push(DrawOp::Restore);
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
         // Each op has a 8-byte header + payload, so ops buffer should be non-empty
         assert!(!encoded.ops.is_empty());
     }
 
     #[test]
-    fn encoded_frame_magic_is_constant() {
+    fn encoded_envelope_magic_is_constant() {
         let frame = DrawOpFrame::default();
         let mut scratch = DrawFrameScratch::default();
-        let a = encode_draw_frame(&frame, &mut scratch);
+        let a = encode_ir_envelope(&frame, &mut scratch, 1, &[]).unwrap();
         scratch.clear();
-        let b = encode_draw_frame(&frame, &mut scratch);
-        assert_eq!(a.magic, b.magic);
+        let b = encode_ir_envelope(&frame, &mut scratch, 1, &[]).unwrap();
+        assert_eq!(&a[0..4], b"OCIR");
+        assert_eq!(&b[0..4], b"OCIR");
+        assert_eq!(a, b);
     }
 
     #[test]
@@ -872,7 +1577,7 @@ mod tests {
         builder.push(DrawOp::Translate { x: 10.0, y: 20.0 });
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
         // Op header: 2(u16 opcode) + 2(u16 flags) + 4(u32 payload_len) = 8 bytes
         // Translate payload: 2 x f32 = 8 bytes
         // Total = 16 bytes (padded to 4-byte alignment)
@@ -1153,7 +1858,7 @@ mod tests {
 
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
 
         // Should have encoded all ops
         assert!(!encoded.ops.is_empty());
@@ -1168,7 +1873,7 @@ mod tests {
         builder.intern_string("world");
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
 
         // Two string ranges should be present
         assert_eq!(encoded.string_ranges.len(), 2);
@@ -1190,7 +1895,7 @@ mod tests {
         builder.push(DrawOp::ClearLineDash);
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
 
         // ClearLineDash: 8 byte header + 0 byte payload = 8 bytes
         assert_eq!(encoded.ops.len(), 8);
@@ -1202,7 +1907,7 @@ mod tests {
         builder.push(DrawOp::SetAntiAlias { enabled: true });
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
 
         // SetAntiAlias: 8 byte header + 1 byte payload, padded to 12 bytes
         assert_eq!(encoded.ops.len(), 12);
@@ -1257,14 +1962,14 @@ mod tests {
         let mut b1 = DrawOpBuilder::default();
         b1.push(DrawOp::Save);
         let f1 = b1.finish();
-        let e1 = encode_draw_frame(&f1, &mut scratch);
+        let e1 = encode_draw_sections(&f1, &mut scratch);
         assert!(!e1.ops.is_empty());
 
         // Second frame: same op, reused scratch
         let mut b2 = DrawOpBuilder::default();
         b2.push(DrawOp::Save);
         let f2 = b2.finish();
-        let e2 = encode_draw_frame(&f2, &mut scratch);
+        let e2 = encode_draw_sections(&f2, &mut scratch);
         assert!(!e2.ops.is_empty());
 
         // Both encodes should produce same ops content
@@ -1279,7 +1984,7 @@ mod tests {
         });
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
 
         // 8 header + 36 payload = 44 bytes
         assert_eq!(encoded.ops.len(), 44);
@@ -1291,7 +1996,7 @@ mod tests {
         builder.push(DrawOp::RestoreToCount { count: 3 });
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
 
         // 8 header + 4 payload = 12 bytes
         assert_eq!(encoded.ops.len(), 12);
@@ -1307,7 +2012,7 @@ mod tests {
         });
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
 
         // 8 header + 25 payload = 33, padded to 36
         assert_eq!(encoded.ops.len(), 36);
@@ -1328,7 +2033,7 @@ mod tests {
         });
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
 
         // 8 header + 25 payload = 33, padded to 36
         assert_eq!(encoded.ops.len(), 36);
@@ -1355,7 +2060,7 @@ mod tests {
         });
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
 
         // 8 header + 50 payload = 58, padded to 60 (4-byte alignment)
         assert_eq!(encoded.ops.len(), 60);
@@ -1378,7 +2083,7 @@ mod tests {
         });
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
 
         // 8 header + 32 payload = 40 bytes (already aligned)
         assert_eq!(encoded.ops.len(), 40);
@@ -1395,7 +2100,7 @@ mod tests {
         });
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
 
         // 8 header + 8 payload = 16 bytes
         assert_eq!(encoded.ops.len(), 16);
@@ -1415,12 +2120,306 @@ mod tests {
         frame.f32_pool = vec![5.0, 3.0, 5.0]; // alternating dash pattern
 
         let mut scratch = DrawFrameScratch::default();
-        let encoded = encode_draw_frame(&frame, &mut scratch);
+        let encoded = encode_draw_sections(&frame, &mut scratch);
 
         // The f32_pool should contain the dash intervals
         assert_eq!(encoded.f32_pool.len(), 3);
         assert_eq!(encoded.f32_pool[0], 5.0);
         assert_eq!(encoded.f32_pool[1], 3.0);
         assert_eq!(encoded.f32_pool[2], 5.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Unified OCIR envelope (issue #22)
+    // -----------------------------------------------------------------------
+
+    fn read_u32(bytes: &[u8], at: usize) -> u32 {
+        u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+    }
+
+    fn section_payload(envelope: &[u8], want_id: u32) -> &[u8] {
+        assert_eq!(&envelope[0..4], b"OCIR");
+        assert_eq!(read_u32(envelope, 4), IR_VERSION);
+        let section_count = read_u32(envelope, 8) as usize;
+        for i in 0..section_count {
+            let base = 16 + i * 12;
+            let id = read_u32(envelope, base);
+            let offset = read_u32(envelope, base + 4) as usize;
+            let len = read_u32(envelope, base + 8) as usize;
+            if id == want_id {
+                return &envelope[offset..offset + len];
+            }
+        }
+        panic!("missing section {want_id}");
+    }
+
+    #[test]
+    fn envelope_stamps_pipeline_epoch_in_header() {
+        let frame = DrawOpFrame::default();
+        let mut scratch = DrawFrameScratch::default();
+        let bytes = encode_ir_envelope(&frame, &mut scratch, 7, &[]).unwrap();
+        assert_eq!(read_u32(&bytes, 12), 7);
+        let generated = section_payload(&bytes, section::GENERATED_IMAGES);
+        assert_eq!(generated, &0u32.to_le_bytes());
+    }
+
+    #[test]
+    fn generated_image_delta_round_trips_field_by_field() {
+        use crate::ir::generated_image::GeneratedImageId;
+        use std::sync::Arc;
+
+        let frame = DrawOpFrame::default();
+        let mut scratch = DrawFrameScratch::default();
+        let delta = vec![
+            FrameGeneratedImage {
+                id: GeneratedImageId(0x0123_4567_89ab_cdef),
+                width: 3,
+                height: 2,
+                rgba: Arc::from(vec![0xAB; 3 * 2 * 4]),
+            },
+            FrameGeneratedImage {
+                id: GeneratedImageId(42),
+                width: 1,
+                height: 1,
+                rgba: Arc::from(vec![0x11; 4]),
+            },
+        ];
+        let bytes = encode_ir_envelope(&frame, &mut scratch, 3, &delta).unwrap();
+        assert_eq!(read_u32(&bytes, 12), 3);
+        let generated = section_payload(&bytes, section::GENERATED_IMAGES);
+        assert_eq!(read_u32(generated, 0), 2);
+        assert_eq!(u64::from_le_bytes(generated[4..12].try_into().unwrap()), 0x0123_4567_89ab_cdef);
+        assert_eq!(read_u32(generated, 12), 3);
+        assert_eq!(read_u32(generated, 16), 2);
+        assert_eq!(read_u32(generated, 20), 24);
+        assert_eq!(&generated[24..48], &[0xAB; 24]);
+    }
+
+    #[test]
+    fn paint_and_path_sections_round_trip_layout() {
+        use crate::canvas::paint::{FillSpec, PaintSpec, PaintStyle, BlendMode};
+
+        let mut frame = DrawOpFrame::default();
+        frame.paints.push(PaintSpec {
+            fill: FillSpec::Solid([1.0, 0.0, 0.0, 1.0]),
+            style: PaintStyle::Fill,
+            stroke: None,
+            anti_alias: true,
+            blend_mode: BlendMode::SrcOver,
+            image_filter: None,
+            color_filter: None,
+            mask_filter: None,
+            path_effect: None,
+        });
+        frame.paths.push(EncodedPath {
+            fill_type: FillType::EvenOdd,
+            ops: vec![PathOp::MoveTo { x: 1.0, y: 2.0 }, PathOp::Close],
+        });
+        let mut scratch = DrawFrameScratch::default();
+        let bytes = encode_ir_envelope(&frame, &mut scratch, 1, &[]).unwrap();
+        let paints = section_payload(&bytes, section::PAINTS);
+        assert_eq!(read_u32(paints, 0), 1);
+        let paths = section_payload(&bytes, section::PATHS);
+        assert_eq!(read_u32(paths, 0), 1);
+    }
+
+    #[test]
+    fn intern_image_strings_makes_image_ops_encodable() {
+        let mut frame = DrawOpFrame::default();
+        // Image ref without interning the asset id into frame.strings would panic
+        // inside encode_op; intern_image_strings is the host/pre-encode step.
+        frame.ops.push(DrawOp::Image {
+            image: ImageRef::Static {
+                asset_id: "missing.png".into(),
+            },
+            x: 0.0,
+            y: 0.0,
+            paint: None,
+        });
+        intern_image_strings(&mut frame);
+        let mut scratch = DrawFrameScratch::default();
+        encode_ir_envelope(&frame, &mut scratch, 0, &[]).expect("encodable after intern");
+    }
+
+    #[test]
+    fn all_required_sections_present_in_empty_envelope() {
+        let frame = DrawOpFrame::default();
+        let mut scratch = DrawFrameScratch::default();
+        let bytes = encode_ir_envelope(&frame, &mut scratch, 0, &[]).unwrap();
+        for id in [
+            section::OPS,
+            section::F32_POOL,
+            section::BYTES,
+            section::BYTE_RANGES,
+            section::STRINGS_UTF8,
+            section::STRING_RANGES,
+            section::PAINTS,
+            section::PATHS,
+            section::CHILDREN,
+            section::EFFECTS,
+            section::SUBTREES,
+            section::GENERATED_IMAGES,
+        ] {
+            let _ = section_payload(&bytes, id);
+        }
+    }
+
+    /// Build the fixed AC5 fixture frame: ops, paint, path, string, image ref,
+    /// effect, and generated-image delta. Used by the Rust snapshot and by the
+    /// committed binary that TypeScript decodes field-for-field.
+    fn roundtrip_fixture_frame() -> (
+        crate::ir::draw_frame::DrawOpFrame,
+        Vec<FrameGeneratedImage>,
+        u32,
+    ) {
+        use crate::canvas::paint::{
+            BlendMode, FillSpec, PaintSpec, PaintStyle, StrokeCap, StrokeJoin, StrokeSpec,
+        };
+        use crate::ir::generated_image::GeneratedImageId;
+        use std::sync::Arc;
+
+        let mut frame = DrawOpFrame::default();
+        frame.ops.push(DrawOp::Save);
+        frame.ops.push(DrawOp::Translate { x: 10.0, y: 20.0 });
+        frame.ops.push(DrawOp::Image {
+            image: ImageRef::Static {
+                asset_id: "hero.png".into(),
+            },
+            x: 1.0,
+            y: 2.0,
+            paint: Some(PaintId(0)),
+        });
+        frame.ops.push(DrawOp::Restore);
+        frame.strings.push("hero.png".into());
+        frame.paints.push(PaintSpec {
+            fill: FillSpec::Solid([1.0, 0.25, 0.0, 1.0]),
+            style: PaintStyle::Stroke,
+            stroke: Some(StrokeSpec {
+                width: 2.5,
+                cap: StrokeCap::Round,
+                join: StrokeJoin::Bevel,
+                miter_limit: 4.0,
+            }),
+            anti_alias: true,
+            blend_mode: BlendMode::SrcOver,
+            image_filter: None,
+            color_filter: None,
+            mask_filter: None,
+            path_effect: None,
+        });
+        frame.paths.push(EncodedPath {
+            fill_type: FillType::EvenOdd,
+            ops: vec![
+                PathOp::MoveTo { x: 1.0, y: 2.0 },
+                PathOp::LineTo { x: 3.0, y: 4.0 },
+                PathOp::Close,
+            ],
+        });
+        frame.effects.push(EffectRef {
+            hash: 0xdead_beef_cafe_u64,
+            sksl: "half4 main() { return half4(1); }".into(),
+        });
+        let delta = vec![FrameGeneratedImage {
+            id: GeneratedImageId(0x1111_2222_3333_4444),
+            width: 2,
+            height: 1,
+            rgba: Arc::from([0x10u8, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80]),
+        }];
+        (frame, delta, 42)
+    }
+
+    #[test]
+    fn paint_path_string_effect_generated_fields_round_trip_in_core() {
+        use crate::canvas::paint::{FillSpec, PaintStyle, StrokeCap, StrokeJoin};
+
+        let (mut frame, delta, epoch) = roundtrip_fixture_frame();
+        intern_image_strings(&mut frame);
+        let mut scratch = DrawFrameScratch::default();
+        let bytes = encode_ir_envelope(&frame, &mut scratch, epoch, &delta).unwrap();
+
+        assert_eq!(&bytes[0..4], b"OCIR");
+        assert_eq!(read_u32(&bytes, 4), IR_VERSION);
+        assert_eq!(read_u32(&bytes, 12), 42);
+
+        // Strings: one range for "hero.png"
+        let strings_utf8 = section_payload(&bytes, section::STRINGS_UTF8);
+        let string_ranges = section_payload(&bytes, section::STRING_RANGES);
+        assert_eq!(string_ranges.len(), 8);
+        let start = read_u32(string_ranges, 0) as usize;
+        let len = read_u32(string_ranges, 4) as usize;
+        assert_eq!(&strings_utf8[start..start + len], b"hero.png");
+
+        // Paints: count 1, solid fill R=1 G=0.25, stroke style
+        let paints = section_payload(&bytes, section::PAINTS);
+        assert_eq!(read_u32(paints, 0), 1);
+        let rec_len = read_u32(paints, 4) as usize;
+        let rec = &paints[8..8 + rec_len];
+        assert_eq!(rec[0], 0); // solid
+        let r = f32::from_le_bytes(rec[1..5].try_into().unwrap());
+        let g = f32::from_le_bytes(rec[5..9].try_into().unwrap());
+        assert!((r - 1.0).abs() < 1e-6);
+        assert!((g - 0.25).abs() < 1e-6);
+        // after 4xf32 color: style=Stroke(1), aa=1, blend=SrcOver(3), has_stroke=1
+        let after_color = 1 + 16;
+        assert_eq!(rec[after_color], 1); // Stroke
+        assert_eq!(rec[after_color + 1], 1); // aa
+        assert_eq!(rec[after_color + 2], 3); // SrcOver
+        assert_eq!(rec[after_color + 3], 1); // has stroke
+
+        // Paths: EvenOdd + 3 ops
+        let paths = section_payload(&bytes, section::PATHS);
+        assert_eq!(read_u32(paths, 0), 1);
+        let path_rec_len = read_u32(paths, 4) as usize;
+        let path_rec = &paths[8..8 + path_rec_len];
+        assert_eq!(path_rec[0], 1); // EvenOdd
+        assert_eq!(read_u32(path_rec, 1), 3);
+
+        // Effects: one sksl string
+        let effects = section_payload(&bytes, section::EFFECTS);
+        assert_eq!(read_u32(effects, 0), 1);
+        let hash = u64::from_le_bytes(effects[4..12].try_into().unwrap());
+        assert_eq!(hash, 0xdead_beef_cafe_u64);
+        let sksl_len = read_u32(effects, 12) as usize;
+        assert_eq!(
+            &effects[16..16 + sksl_len],
+            b"half4 main() { return half4(1); }"
+        );
+
+        // Generated images
+        let generated = section_payload(&bytes, section::GENERATED_IMAGES);
+        assert_eq!(read_u32(generated, 0), 1);
+        assert_eq!(
+            u64::from_le_bytes(generated[4..12].try_into().unwrap()),
+            0x1111_2222_3333_4444
+        );
+        assert_eq!(read_u32(generated, 12), 2);
+        assert_eq!(read_u32(generated, 16), 1);
+        assert_eq!(read_u32(generated, 20), 8);
+        assert_eq!(&generated[24..32], &[0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80]);
+
+        // Ops stream non-empty (Save/Translate/Image/Restore)
+        assert!(!section_payload(&bytes, section::OPS).is_empty());
+        let _ = (FillSpec::Solid([0.0; 4]), PaintStyle::Fill, StrokeCap::Butt, StrokeJoin::Miter);
+    }
+
+    #[test]
+    fn write_ts_roundtrip_fixture_bytes() {
+        // Writes the fixed binary fixture that vitest loads for AC5 core→TS
+        // round-trip. Always rewrites so the committed file stays in lockstep
+        // with encode_ir_envelope; the test also asserts a stable non-empty size.
+        let (mut frame, delta, epoch) = roundtrip_fixture_frame();
+        intern_image_strings(&mut frame);
+        let mut scratch = DrawFrameScratch::default();
+        let bytes = encode_ir_envelope(&frame, &mut scratch, epoch, &delta).unwrap();
+
+        let fixture_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../web/src/fixtures/ocir");
+        std::fs::create_dir_all(&fixture_dir).expect("fixture dir");
+        let path = fixture_dir.join("roundtrip_v4.ocir");
+        std::fs::write(&path, &bytes).expect("write fixture");
+        assert!(bytes.len() > 64, "fixture must be non-trivial");
+        // Sanity: re-read matches.
+        let reread = std::fs::read(&path).unwrap();
+        assert_eq!(reread, bytes);
     }
 }

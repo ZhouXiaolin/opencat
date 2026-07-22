@@ -1,6 +1,5 @@
 pub mod fetch;
 pub mod loader;
-pub mod media;
 pub mod path_store;
 pub mod utils;
 

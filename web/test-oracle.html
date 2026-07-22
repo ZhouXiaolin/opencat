@@ -27,7 +27,7 @@
         getRendererOrThrow,
         initWasm,
         injectVideoFramesForRender,
-        preloadAssets,
+        prepareCatalogVideoSources,
         registerVideoGlobals,
         renderEncodedDrawFrame,
         setAssetReader,
@@ -37,6 +37,13 @@
 
       const canvas = document.getElementById('frame');
 
+      function compositionFrameCount(fps, duration, frames) {
+        if (Number.isFinite(frames) && frames > 0) return Math.floor(frames);
+        const f = Number(fps) || 30;
+        const d = Number(duration) || 0;
+        return Math.max(1, Math.ceil(d * f));
+      }
+
       function parseCompositionInfo(jsonl) {
         const trimmedSource = jsonl.trim();
         if (trimmedSource.startsWith('<')) {
@@ -45,7 +52,12 @@
           const height = Number(root.getAttribute('height'));
           const fps = Number(root.getAttribute('fps'));
           const duration = Number(root.getAttribute('duration'));
-          return { width, height, fps, frames: Math.ceil(duration * fps) };
+          return {
+            width,
+            height,
+            fps,
+            frames: compositionFrameCount(fps, duration, Number(root.getAttribute('frames'))),
+          };
         }
         for (const line of jsonl.split(/\r?\n/)) {
           const trimmed = line.trim();
@@ -56,7 +68,7 @@
               width: item.width,
               height: item.height,
               fps: item.fps,
-              frames: item.frames,
+              frames: compositionFrameCount(item.fps, item.duration, item.frames),
             };
           }
         }
@@ -106,13 +118,20 @@
 
         // Host-owned pipeline (issue #8): open the design once (fetches
         // resources, builds catalog, hydrates captions, opens pipeline),
-        // then render the requested frame.
-        await renderer.open_design(jsonl);
+        // prepare WebCodecs video sources, then render the requested frame.
+        // Without prepareCatalogVideoSources, injectVideoFramesForRender
+        // silently blanks every VideoFrame draw (profile-showcase s2/s3).
+        const catalogJson = await renderer.open_design(jsonl);
+        await prepareCatalogVideoSources(catalogJson);
 
+        // Headless SwiftShader often cannot import VideoFrame textures via
+        // makeImageFromTextureSource. Inject as CPU RGBA so draw-ir can
+        // MakeImage() without a GPU texture path.
         await injectVideoFramesForRender({
           renderer,
           frame,
           quality: 'exact',
+          frameOutput: 'rgba',
         });
 
         const CK = globalThis.__canvasKit;

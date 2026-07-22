@@ -123,6 +123,18 @@ impl StaticRoutes {
             return Some(self.repo.join("web/test-oracle.html"));
         }
 
+        // web-demuxer.wasm is resolved by the video-decode worker as
+        // `new URL('../web-demuxer.wasm', self.location.href)` → `/wasm/web-demuxer.wasm`.
+        // Must be checked BEFORE the generic `/wasm/` dist map — otherwise the
+        // request falls through to `dist/web-demuxer.wasm` (missing) and every
+        // video prepare silently fails (profile-showcase scene 2/3 blank).
+        if request_path == "/wasm/web-demuxer.wasm" {
+            return Some(
+                self.repo
+                    .join("web/node_modules/web-demuxer/dist/wasm-files/web-demuxer.wasm"),
+            );
+        }
+
         // Anything under /wasm/ is served from the built opencat.js facade
         // (crates/opencat-web/web/dist). This covers the facade bundle, its
         // hashed chunks, the wasm-pack glue, the bg wasm, and the worker —
@@ -134,8 +146,8 @@ impl StaticRoutes {
             return Some(self.repo.join("crates/opencat-web/web/dist").join(rest));
         }
 
-        // CanvasKit (the wasm + its JS loader) and web-demuxer wasm come from
-        // the dev app's node_modules (installed via `bun install` in web/).
+        // CanvasKit (the wasm + its JS loader) comes from the dev app's
+        // node_modules (installed via `bun install` in web/).
         if let Some(rest) = request_path.strip_prefix("/canvaskit/") {
             if rest.is_empty() || rest.contains("..") {
                 return None;
@@ -144,12 +156,6 @@ impl StaticRoutes {
                 self.repo
                     .join("web/node_modules/canvaskit-wasm/bin/full")
                     .join(rest),
-            );
-        }
-        if request_path == "/wasm/web-demuxer.wasm" {
-            return Some(
-                self.repo
-                    .join("web/node_modules/web-demuxer/dist/wasm-files/web-demuxer.wasm"),
             );
         }
 

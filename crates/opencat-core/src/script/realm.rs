@@ -1,6 +1,6 @@
 //! One script realm per pipeline.
 //!
-//! Converges the former `LiveScriptHost` / `ScriptRunner` / `ScriptRuntimeCache`
+//! Converges the former per-source runners and caches
 //! split into a single core scheduler:
 //!
 //! - one [`JsContext`] (engine QuickJS isolate or web realm backend)

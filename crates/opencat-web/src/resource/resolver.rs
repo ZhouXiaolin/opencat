@@ -5,11 +5,11 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use opencat_core::parse::primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource};
 use opencat_core::probe::ResourceRequests;
+use opencat_core::probe::catalog::PreparedResourceCatalog;
 use opencat_core::resource::asset_id::{
     asset_id_for_audio, asset_id_for_image, asset_id_for_query, asset_id_for_video,
 };
 use opencat_core::resource::catalog::ResourceResolver as _;
-use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
 use opencat_core::resource::{probe_image_dims, probe_video};
 
 use crate::resource::asset_reader;
@@ -20,10 +20,13 @@ pub async fn fetch_url(url: &str) -> Result<Vec<u8>> {
     fetch_bytes(url).await
 }
 
+/// Fetch declared media into `blobs` and register metadata on a
+/// [`PreparedResourceCatalog`]. Host-only — never handed to core as a second
+/// catalog type.
 pub async fn preload_requests(
     requests: &ResourceRequests,
     blobs: &mut BlobStore,
-    catalog: &mut HashMapResourceCatalog,
+    catalog: &mut PreparedResourceCatalog,
 ) -> Result<()> {
     for source in &requests.images {
         let Some(id) = asset_id_for_image(source) else {
@@ -70,6 +73,56 @@ pub async fn preload_requests(
     }
 
     Ok(())
+}
+
+/// Host-facing catalog JSON for the web app.
+///
+/// Shape (camelCase): `{ assetId: { kind, width?, height?, durationSecs?,
+/// lottieFps?, lottieInFrame?, lottieOutFrame?, lottieDependencies? } }`.
+/// Not a core contract — only a transport shape for JS preview/export helpers.
+pub fn catalog_to_js_json(catalog: &PreparedResourceCatalog) -> Result<String> {
+    use serde_json::{Map, Value, json};
+
+    let mut map = Map::new();
+    for (id, meta) in &catalog.images {
+        map.insert(
+            id.0.clone(),
+            json!({
+                "kind": "image",
+                "width": meta.width,
+                "height": meta.height,
+            }),
+        );
+    }
+    for (id, meta) in &catalog.videos {
+        let mut entry = Map::new();
+        entry.insert("kind".into(), Value::String("video".into()));
+        entry.insert("width".into(), json!(meta.width));
+        entry.insert("height".into(), json!(meta.height));
+        if let Some(secs) = meta.duration_secs() {
+            entry.insert("durationSecs".into(), json!(secs));
+        }
+        map.insert(id.0.clone(), Value::Object(entry));
+    }
+    for id in &catalog.audios {
+        map.insert(id.0.clone(), json!({ "kind": "audio" }));
+    }
+    for (id, meta) in &catalog.lotties {
+        map.insert(
+            id.0.clone(),
+            json!({
+                "kind": "lottie",
+                "width": meta.width,
+                "height": meta.height,
+                "durationSecs": meta.duration_secs(),
+                "lottieFps": meta.fps,
+                "lottieInFrame": meta.in_frame,
+                "lottieOutFrame": meta.out_frame,
+                "lottieDependencies": meta.dependencies,
+            }),
+        );
+    }
+    Ok(serde_json::to_string(&map)?)
 }
 
 async fn fetch_openverse_image(query: &OpenverseQuery) -> Result<Vec<u8>> {

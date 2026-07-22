@@ -15,7 +15,7 @@
   "sideEffects": false,
   "scripts": {
     "build:wasm": "cd .. && wasm-pack build --target web --out-dir web/pkg",
-    "build:lib": "vite build && cp pkg/opencat_web.js pkg/opencat_web_bg.wasm dist/",
+    "build:lib": "vite build && cp pkg/opencat_web.js pkg/opencat_web_bg.wasm dist/ && cp ../../../web/node_modules/web-demuxer/dist/wasm-files/web-demuxer.wasm dist/",
     "build:types": "tsc -p tsconfig.build.json",
     "build": "npm run build:wasm && npm run build:lib && npm run build:types"
   },

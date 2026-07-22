@@ -14,7 +14,7 @@ use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::primitives::{LottieSource, SubtitleSource};
 use opencat_core::resource::asset_id::AssetId;
 use opencat_core::resource::fonts::{FontSource, font_asset_id};
-use opencat_core::resource::hash_map_catalog::HashMapResourceCatalog;
+use opencat_core::probe::catalog::PreparedResourceCatalog;
 
 use crate::resource::blob_store::BlobStore;
 
@@ -93,8 +93,7 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("preload_assets: parse failed: {e}")))?;
     let requests = collect_resource_requests_from_parsed(&parsed);
 
-    let mut catalog = HashMapResourceCatalog::from_json("{}")
-        .map_err(|e| JsValue::from_str(&format!("preload_assets: catalog init: {e}")))?;
+    let mut catalog = PreparedResourceCatalog::default();
 
     crate::resource::resolver::preload_requests(&requests, &mut blobs, &mut catalog)
         .await
@@ -129,7 +128,7 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
         let meta = opencat_core::resource::parse_lottie_meta(json)
             .map_err(|e| JsValue::from_str(&format!("preload_assets lottie metadata: {e}")))?;
         let dependencies = meta.dependencies.clone();
-        catalog.register_lottie(&bundle_id.0, meta);
+        catalog.lotties.insert(bundle_id.clone(), meta);
         blobs.insert(bundle_id.clone(), std::sync::Arc::from(primary));
 
         for file_name in dependencies {
@@ -153,8 +152,7 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
 
     put_blobs(blobs);
 
-    catalog
-        .to_json()
+    crate::resource::resolver::catalog_to_js_json(&catalog)
         .map_err(|e| JsValue::from_str(&format!("preload_assets: serialize: {e}")))
 }
 

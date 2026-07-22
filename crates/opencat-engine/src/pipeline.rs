@@ -20,6 +20,8 @@ use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::{BuildOptions, CanvasChildrenMode, build_parsed_document, parse_parts_with_base_dir};
 use opencat_core::pipeline::DefaultPipeline;
 use opencat_core::resource::fonts::font_asset_id;
+use opencat_core::ir::asset_id::asset_id_for_lottie;
+use opencat_core::parse::primitives::LottieSource;
 
 use crate::EnginePipeline;
 use crate::fonts::engine_default_font_faces;
@@ -191,12 +193,7 @@ fn open_parsed_host_owned_with_fonts(
 
     // Lottie: read primary JSON bytes → parse locally → insert metadata.
     for req in &requests.lotties {
-        use opencat_core::ir::asset_id::asset_id_for_lottie;
-        use opencat_core::parse::primitives::LottieSource;
-        if matches!(req.source, LottieSource::Unset) {
-            continue;
-        }
-        let Some(bundle_id) = asset_id_for_lottie(&req.element_id, &req.source) else {
+        let Some(bundle_id) = asset_id_for_lottie(&req.source) else {
             continue;
         };
         // Lottie primary JSON is cached under the source key (path or url id).
@@ -458,7 +455,7 @@ mod tests {
             host.loader
                 .handle(&opencat_core::AssetId::new(
                     opencat_core::ir::asset_id::ResourceKind::Lottie,
-                    "lottie:loader",
+                    "lottie:path:loader.json",
                 ))
                 .is_some(),
             "engine must also key primary JSON under request bundle AssetId"
@@ -471,7 +468,7 @@ mod tests {
                 .lotties
                 .contains_key(&opencat_core::AssetId::new(
                     opencat_core::ir::asset_id::ResourceKind::Lottie,
-                    "lottie:loader",
+                    "lottie:path:loader.json",
                 )),
             "catalog must contain lottie bundle metadata for loader"
         );
@@ -482,7 +479,7 @@ mod tests {
                 .media
                 .lottie_bundles
                 .iter()
-                .any(|b| b == "lottie:loader"),
+                .any(|b| b == "lottie:path:loader.json"),
             "FrameMediaPlan must list bundle id; got {:?}",
             frame.media.lottie_bundles
         );
@@ -492,7 +489,7 @@ mod tests {
             frame.media.images
         );
         let has_op = frame.draw.ops.iter().any(|op| {
-            matches!(op, DrawOp::LottieRect { bundle_id, .. } if bundle_id == "lottie:loader")
+            matches!(op, DrawOp::LottieRect { bundle_id, .. } if bundle_id == "lottie:path:loader.json")
         });
         assert!(has_op, "draw must emit LottieRect; ops={:?}", frame.draw.ops);
 

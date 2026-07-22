@@ -115,7 +115,10 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
     }
 
     for request in &requests.lotties {
-        let bundle_id = AssetId::new(ResourceKind::Lottie, format!("lottie:{}", request.element_id));
+        use opencat_core::ir::asset_id::asset_id_for_lottie;
+        let Some(bundle_id) = asset_id_for_lottie(&request.source) else {
+            continue;
+        };
         let primary = match &request.source {
             LottieSource::Url(url) => crate::resource::fetch::fetch_bytes(url).await,
             LottieSource::Path(path) => {

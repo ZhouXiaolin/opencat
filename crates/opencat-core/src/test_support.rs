@@ -147,11 +147,9 @@ impl TestCatalog {
         self.video_info.get(id).copied()
     }
 
-    pub fn resolve_lottie(&mut self, element_id: &str) -> anyhow::Result<AssetId> {
-        Ok(AssetId::new(
-            ResourceKind::Lottie,
-            format!("lottie:{element_id}"),
-        ))
+    pub fn resolve_lottie(&mut self, src: &crate::parse::primitives::LottieSource) -> anyhow::Result<AssetId> {
+        crate::ir::asset_id::asset_id_for_lottie(src)
+            .ok_or_else(|| anyhow::anyhow!("unset lottie source"))
     }
 }
 

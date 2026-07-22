@@ -139,7 +139,7 @@ impl HostRequirements {
         }
 
         for req in &raw.lotties {
-            let Some(id) = asset_id_for_lottie(&req.element_id, &req.source) else {
+            let Some(id) = asset_id_for_lottie(&req.source) else {
                 continue;
             };
             if matches!(req.source, LottieSource::Unset) {
@@ -1341,7 +1341,7 @@ mod tests {
         let reqs = draft.requirements().requests();
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs[0].kind, ResourceKind::Lottie);
-        assert_eq!(reqs[0].asset_id.key, "lottie:loader");
+        assert_eq!(reqs[0].asset_id.key, "lottie:path:anim/loader.json");
     }
 
     #[test]
@@ -1486,7 +1486,7 @@ mod tests {
             let reqs = draft.requirements().requests();
             assert_eq!(reqs.len(), 1);
             assert_eq!(reqs[0].kind, ResourceKind::Lottie);
-            assert_eq!(reqs[0].asset_id.key, "lottie:loader");
+            assert_eq!(reqs[0].asset_id.key, "lottie:path:anim/loader.json");
 
             let id = reqs[0].asset_id.clone();
             let mut inputs = HostInputs::empty()

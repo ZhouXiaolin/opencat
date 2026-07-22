@@ -1,5 +1,5 @@
 //! opencat-engine — 桌面渲染引擎。
-//! 承载 IO / ffmpeg / quickjs / skia / 系统字体 / RenderSession。
+//! 承载 IO / ffmpeg / quickjs / skia / 系统字体。
 
 pub mod codec;
 pub mod consumer;
@@ -9,7 +9,6 @@ pub mod inspect;
 pub mod js_context;
 pub mod media;
 pub mod pipeline;
-pub mod platform;
 pub mod render;
 pub mod resource;
 pub mod runtime;
@@ -34,7 +33,6 @@ pub use opencat_core::style::ColorToken;
 
 // Re-export engine types used in tests via `crate::` path
 pub use crate::consumer::execute_render_frame;
-pub use crate::render::RenderSession;
 pub use crate::resource::loader::{EngineAssetHandle, EngineLoader};
 
 // Pipeline integration: the engine host that owns the loader-free core

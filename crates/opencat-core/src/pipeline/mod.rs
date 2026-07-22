@@ -5,7 +5,9 @@ use crate::script::js_context::JsContext;
 
 pub mod default;
 pub mod frame;
+pub mod inspect;
 pub use default::DefaultPipeline;
+pub use inspect::FrameElementRect;
 
 /// Core rendering pipeline contract.
 ///

@@ -332,8 +332,9 @@ mod tests {
     use super::*;
     use crate::layout::tree::{LayoutNode, LayoutOutputFingerprint, LayoutRect, LayoutTree};
     use crate::parse::primitives::{div, text};
+    use crate::probe::catalog::PreparedResourceCatalog;
     use crate::resolve::resolve::resolve_ui_tree;
-    use crate::test_support::{MockScriptHost, TestCatalog};
+    use crate::test_support::MockScriptHost;
     use crate::FrameCtx;
 
     #[test]
@@ -352,7 +353,7 @@ mod tests {
             height: 50,
             frames: 1,
         };
-        let mut catalog = TestCatalog::new();
+        let mut catalog = PreparedResourceCatalog::default();
         let mut scripts = MockScriptHost::default();
         let element_root =
             resolve_ui_tree(&source, &frame_ctx, &mut catalog, None, &mut scripts)

@@ -1,7 +1,8 @@
-import type { WebRendererInstance } from '../wasm';
+import { getBlobBytes, type WebRendererInstance } from '../wasm';
 import {
   getDecodedFrameRgba,
   getDecodedVideoFrame,
+  prepareVideoSource,
   prefetchDecodedVideoFrame,
   type VideoPreviewQuality,
 } from './video-decoder';
@@ -85,6 +86,41 @@ export function clearCachedVideoFrames(assetId?: string): void {
 
 function closeFrameSource(cached: CachedVideoFrameSource): void {
   try { cached.source.close(); } catch { /* ignore already-closed frames */ }
+}
+
+/**
+ * Feed every video asset from an `open_design` catalog into the WebCodecs
+ * worker. Required before {@link injectVideoFramesForRender}: decode APIs
+ * return null when `metaCache` has no entry for the assetId, which silently
+ * blanks every VideoFrame draw op (see profile-showcase web oracle).
+ *
+ * Accepts the catalog JSON string returned by `open_design` / `openDesign`.
+ */
+export async function prepareCatalogVideoSources(
+  catalogJson: string,
+): Promise<void> {
+  let catalog: Record<string, { kind?: string } | undefined> = {};
+  try {
+    catalog = JSON.parse(catalogJson || '{}') as Record<
+      string,
+      { kind?: string } | undefined
+    >;
+  } catch {
+    return;
+  }
+
+  await Promise.all(
+    Object.entries(catalog).map(async ([assetId, meta]) => {
+      if (!meta || meta.kind !== 'video') return;
+      const raw = getBlobBytes(assetId);
+      if (!raw) return;
+      try {
+        await prepareVideoSource(assetId, new Uint8Array(raw).buffer);
+      } catch {
+        // Best-effort — missing/corrupt video should not block still frames.
+      }
+    }),
+  );
 }
 
 export async function injectVideoFramesForRender({

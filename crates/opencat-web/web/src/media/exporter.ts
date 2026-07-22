@@ -6,7 +6,10 @@ import {
   type ResourceMeta,
 } from '../types';
 import { createWasmFaacEncoder, getRendererOrThrow } from '../wasm';
-import { injectVideoFramesForRender } from './video-frame-injector';
+import {
+  injectVideoFramesForRender,
+  prepareCatalogVideoSources,
+} from './video-frame-injector';
 import { renderEncodedDrawFrame } from '../draw-ir';
 import {
   canUseFaacAudioEncoderFallback,
@@ -120,9 +123,11 @@ class ExportClip implements IClip {
       duration: Math.round(comp.duration * 1_000_000),
     };
     // Open the persistent host-owned pipeline (issue #8) before any frame
-    // renders. Fetches resources, builds catalog, opens the pipeline.
+    // renders. Fetches resources, builds catalog, opens the pipeline, then
+    // prepares WebCodecs video sources (required for injectVideoFrames).
     this.ready = getRendererOrThrow()
       .open_design(jsonlContent)
+      .then((catalogJson) => prepareCatalogVideoSources(catalogJson))
       .then(() => this.meta);
   }
 
@@ -439,7 +444,8 @@ export async function exportPngFrame(
   if (!CK) throw new Error('CanvasKit is not initialized');
 
   // Open the persistent host-owned pipeline (issue #8) for this export path.
-  await renderer.open_design(jsonlContent);
+  const catalogJson = await renderer.open_design(jsonlContent);
+  await prepareCatalogVideoSources(catalogJson);
 
   await injectVideoFramesForRender({
     renderer,

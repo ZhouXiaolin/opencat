@@ -29,8 +29,12 @@ export interface CompositionFile {
 }
 
 export interface ResourceMeta {
-  kind: 'image' | 'video' | 'audio' | 'icon';
+  kind: 'image' | 'video' | 'audio' | 'lottie' | 'icon';
   width?: number;
   height?: number;
   durationSecs?: number;
+  lottieFps?: number;
+  lottieInFrame?: number;
+  lottieOutFrame?: number;
+  lottieDependencies?: string[];
 }

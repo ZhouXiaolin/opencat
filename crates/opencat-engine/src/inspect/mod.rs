@@ -6,39 +6,33 @@
 //! fonts, scripts, and layout sessions match render.
 //!
 //! [`collect_frame_layout_rects`] is a **media-less fixture helper** for pure
-//! layout comparisons (Tailwind/Taffy). It opens a one-shot host-injected
-//! pipeline with an empty catalog — not for scripted or media-bearing comps.
+//! layout comparisons (Tailwind/Taffy). It opens a one-shot lifecycle pipeline
+//! with empty host inputs — not for scripted or media-bearing comps.
 
 use anyhow::Result;
 
+use opencat_core::lifecycle::{CompositionDraft, HostInputs};
 use opencat_core::parse::ParsedComposition;
 use opencat_core::pipeline::DefaultPipeline;
 use opencat_core::script::js_context::JsContext;
 
 pub use opencat_core::pipeline::FrameElementRect;
 
-/// Open a host-injected pipeline for pure layout inspection of a
+/// Open a lifecycle pipeline for pure layout inspection of a
 /// [`ParsedComposition`] that needs no media bytes.
 ///
-/// Uses an empty prepared catalog and the engine default font database. For
+/// Uses empty host inputs and the engine default font database. For
 /// compositions with images/video/fonts/scripts, open through the real engine
 /// host path ([`crate::pipeline::open`]) and call
 /// [`crate::pipeline::EnginePipelineHost::inspect_frame`] instead.
 fn open_inspect_pipeline(
     parsed: ParsedComposition,
 ) -> Result<DefaultPipeline<crate::js_context::RqJsContext>> {
-    use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
-    use opencat_core::probe::build_catalog;
-
-    let requests = collect_resource_requests_from_parsed(&parsed);
-    let prepared = build_catalog(&requests, &std::collections::HashMap::<String, Vec<u8>>::new());
+    let draft = CompositionDraft::from_parsed(parsed);
+    let inputs = HostInputs::empty().with_font_db(crate::fonts::engine_default_font_db());
+    let prepared = draft.prepare(inputs).map_err(|e| anyhow::anyhow!("{e}"))?;
     let scripts = crate::js_context::RqJsContext::new()?;
-    DefaultPipeline::open_with_prepared_catalog(
-        parsed,
-        prepared.catalog,
-        scripts,
-        crate::fonts::engine_default_font_db(),
-    )
+    prepared.open_pipeline(scripts)
 }
 
 /// Collect layout rects for a media-less fixture composition.

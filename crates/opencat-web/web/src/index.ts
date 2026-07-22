@@ -52,6 +52,7 @@ export {
   clearCachedVideoFrames,
   getCachedVideoFrameRgba,
   injectVideoFramesForRender,
+  prepareCatalogVideoSources,
   prefetchVideoFramesForRender,
 } from './media/video-frame-injector';
 

@@ -195,7 +195,25 @@ cargo run --bin opencat-see -- path/to/input.xml
 cargo run --example hello_world
 ```
 
-> Web (WASM): `cd crates/opencat-web && npm run build`, requires `Cross-Origin-Isolated` environment.
+> Web (WASM): `cd crates/opencat-web/web && npm run build`, requires `Cross-Origin-Isolated` environment.
+
+### Engine / Web alignment (SSIM)
+
+Pixel-compare native Skia vs WASM CanvasKit with ChromeDriver + SSIM. Full steps: **[Development Guide](DEVELOPMENT.md#engine--web-pixel-alignment-ssim-frame-oracle)**.
+
+```bash
+# 1) media used by examples (profile-showcase loads http://127.0.0.1:8080/...)
+#    serve your mp4/png/mp3 tree on :8080
+
+# 2) build web facade (wasm + JS + web-demuxer.wasm → dist/)
+cd crates/opencat-web/web && npm run build && cd -
+
+# 3) multi-frame oracle (0–413, step 10) — needs Chrome + chromedriver + ffmpeg
+cargo test chromedriver_profile_showcase_all_frames_matches_engine \
+  --package opencat-engine --lib -- --ignored --nocapture
+```
+
+Failures write `target/opencat-web-oracle/<stem>-frame-NNNN/{engine,web,diff}.png`.
 
 <details>
 <summary><strong>Architecture</strong></summary>

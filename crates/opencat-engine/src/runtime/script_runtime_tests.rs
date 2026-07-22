@@ -5,10 +5,38 @@
 use opencat_core::frame_ctx::{FrameCtx, ScriptFrameCtx};
 use opencat_core::script::recorder::{MutationRecorder, MutationStore};
 use opencat_core::script::{
-    ScriptRunner, ScriptTargetRegistry, ScriptTextSource, ScriptTextSourceKind,
+    ScriptDriverId, ScriptHost, ScriptRealm, ScriptTargetRegistry, ScriptTextSource,
+    ScriptTextSourceKind,
 };
 
 use crate::js_context::RqJsContext;
+
+fn open_with_source(source: &str) -> (ScriptRealm<RqJsContext>, ScriptDriverId) {
+    let mut realm = ScriptRealm::<RqJsContext>::open().expect("script realm should open");
+    let driver = realm.install(source).expect("install driver");
+    (realm, driver)
+}
+
+fn run_driver(
+    realm: &mut ScriptRealm<RqJsContext>,
+    driver: ScriptDriverId,
+    frame: u32,
+    current_node_id: Option<&str>,
+) -> MutationStore {
+    let frame_ctx = FrameCtx {
+        frame,
+        fps: 30,
+        width: 320,
+        height: 180,
+        frames: 30,
+    };
+    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+    let mut recorder = MutationStore::default();
+    realm
+        .run_frame(driver, &script_frame_ctx, current_node_id, &mut recorder)
+        .expect("script should run");
+    recorder
+}
 
 #[test]
 fn filter_animation_plugin_writes_node_filter_values_through_value_api() {
@@ -23,27 +51,13 @@ fn filter_animation_plugin_writes_node_filter_values_through_value_api() {
             filter: "contrast(2) brightness(0.25)"
         });
     "#;
-    let mut runner =
-        ScriptRunner::<RqJsContext>::new(source).expect("script runner should initialize");
+    let (mut realm, driver) = open_with_source(source);
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("box".to_string());
     registry.visual_ids.insert("card".to_string());
-    runner.set_target_registry(registry);
+    realm.set_target_registry(registry);
 
-    let frame_ctx = FrameCtx {
-        frame: 10,
-        fps: 30,
-        width: 320,
-        height: 180,
-        frames: 30,
-    };
-    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
-    let mut recorder = MutationStore::default();
-
-    runner
-        .run_into(&script_frame_ctx, None, &mut recorder)
-        .expect("script should run");
-
+    let recorder = run_driver(&mut realm, driver, 10, None);
     let snap = recorder.snapshot_mutations();
     let box_style = snap
         .mutations
@@ -79,36 +93,20 @@ fn scramble_text_plugin_scrambles_then_resolves_to_target_text() {
             ease: "linear"
         });
     "#;
-    let mut runner =
-        ScriptRunner::<RqJsContext>::new(source).expect("script runner should initialize");
+    let (mut realm, driver) = open_with_source(source);
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("title".to_string());
-    runner.set_target_registry(registry);
-
-    let mut sources = std::collections::HashMap::new();
-    sources.insert(
-        "title".to_string(),
+    realm.set_target_registry(registry);
+    realm.register_text_source(
+        "title",
         ScriptTextSource {
             text: "HELLO".to_string(),
             kind: ScriptTextSourceKind::TextNode,
         },
     );
-    runner.set_text_sources(&sources);
 
-    let text_at = |runner: &mut ScriptRunner<RqJsContext>, frame: u32| {
-        let frame_ctx = FrameCtx {
-            frame,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 30,
-        };
-        let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
-        let mut recorder = MutationStore::default();
-        runner
-            .run_into(&script_frame_ctx, None, &mut recorder)
-            .expect("script should run");
-        recorder
+    let text_at = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| {
+        run_driver(realm, driver, frame, None)
             .snapshot_mutations()
             .mutations
             .get("title")
@@ -116,7 +114,7 @@ fn scramble_text_plugin_scrambles_then_resolves_to_target_text() {
             .expect("scrambleText should write text content")
     };
 
-    let mid = text_at(&mut runner, 15);
+    let mid = text_at(&mut realm, 15);
     assert_eq!(mid.len(), "READY".len());
     assert_ne!(mid, "READY");
     assert!(
@@ -124,7 +122,7 @@ fn scramble_text_plugin_scrambles_then_resolves_to_target_text() {
         "mid scramble should only contain revealed target chars or scramble chars, got {mid}"
     );
 
-    assert_eq!(text_at(&mut runner, 30), "READY");
+    assert_eq!(text_at(&mut realm, 30), "READY");
 }
 
 #[test]
@@ -140,27 +138,12 @@ fn scramble_text_plugin_supports_string_shorthand_and_registers_plugin() {
             ease: "linear"
         });
     "#;
-    let mut runner =
-        ScriptRunner::<RqJsContext>::new(source).expect("script runner should initialize");
+    let (mut realm, driver) = open_with_source(source);
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("title".to_string());
-    runner.set_target_registry(registry);
+    realm.set_target_registry(registry);
 
-    let frame_ctx = FrameCtx {
-        frame: 30,
-        fps: 30,
-        width: 320,
-        height: 180,
-        frames: 30,
-    };
-    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
-    let mut recorder = MutationStore::default();
-
-    runner
-        .run_into(&script_frame_ctx, None, &mut recorder)
-        .expect("script should run");
-
-    let snap = recorder.snapshot_mutations();
+    let snap = run_driver(&mut realm, driver, 30, None).snapshot_mutations();
     let text = snap
         .mutations
         .get("title")
@@ -172,8 +155,6 @@ fn scramble_text_plugin_supports_string_shorthand_and_registers_plugin() {
 #[test]
 fn one_realm_shares_js_state_across_drivers() {
     // Same pipeline realm: global/scene/node drivers share JS state.
-    use opencat_core::script::{ScriptHost, ScriptRealm};
-
     let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
     let d1 = realm
         .install("globalThis.__sharedCounter = (globalThis.__sharedCounter || 0) + 1;")
@@ -226,8 +207,6 @@ fn one_realm_shares_js_state_across_drivers() {
 
 #[test]
 fn separate_realms_do_not_share_js_globals() {
-    use opencat_core::script::{ScriptHost, ScriptRealm};
-
     let mut a = ScriptRealm::<RqJsContext>::open().expect("realm a");
     let mut b = ScriptRealm::<RqJsContext>::open().expect("realm b");
 
@@ -258,8 +237,6 @@ fn separate_realms_do_not_share_js_globals() {
 
 #[test]
 fn realm_accepts_out_of_order_and_repeated_frames() {
-    use opencat_core::script::{ScriptHost, ScriptRealm};
-
     let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("box".into());
@@ -300,16 +277,14 @@ fn realm_accepts_out_of_order_and_repeated_frames() {
 }
 
 #[test]
-fn script_runtime_cache_is_one_realm_not_per_driver() {
-    // Historical ScriptRuntimeCache created one runner/context per source hash.
-    // It must now install into a single realm so shared state works.
-    use opencat_core::script::{ScriptHost, ScriptRuntimeCache};
-
-    let mut cache = ScriptRuntimeCache::<RqJsContext>::default();
-    let d1 = cache
+fn realm_installs_multiple_drivers_into_shared_state() {
+    // Contract-phase replacement of the historical ScriptRuntimeCache test:
+    // many drivers must share one realm so pipeline-local JS state works.
+    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let d1 = realm
         .install("globalThis.__cacheShared = 7;")
         .expect("d1");
-    let d2 = cache
+    let d2 = realm
         .install(
             "if (globalThis.__cacheShared !== 7) throw new Error('not shared'); \
              globalThis.__cacheShared = 8;",
@@ -325,10 +300,10 @@ fn script_runtime_cache_is_one_realm_not_per_driver() {
     };
     let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
     let mut rec = MutationStore::default();
-    cache
+    realm
         .run_frame(d1, &script_frame_ctx, None, &mut rec)
         .expect("run d1");
-    cache
+    realm
         .run_frame(d2, &script_frame_ctx, None, &mut rec)
         .expect("run d2 shared");
 }

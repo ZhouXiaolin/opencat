@@ -499,3 +499,103 @@ fn realm_installs_multiple_drivers_into_shared_state() {
         .run_frame(d2, &script_frame_ctx, None, &mut rec)
         .expect("run d2 shared");
 }
+
+/// AC #44-1 (extended): cache-hit and cache-miss driver installation paths
+/// must produce field-identical mutations for the same frame.
+#[test]
+fn install_same_source_twice_cache_hit_miss_field_identical() {
+    let source = "ctx.getNode('box').opacity(0.5);";
+    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("box".into());
+    realm.set_target_registry(registry);
+
+    // First install — cache miss (evaluates JS source)
+    let miss = realm.install(source).expect("install (cache miss)");
+    // Second install with same source — cache hit (installed map prevents re-eval)
+    let hit = realm.install(source).expect("install (cache hit)");
+    assert_eq!(miss, hit, "same source must yield same ScriptDriverId");
+
+    let frame_ctx = FrameCtx {
+        frame: 0,
+        fps: 30,
+        width: 64,
+        height: 36,
+        frames: 1,
+    };
+    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+
+    let run = |realm: &mut ScriptRealm<RqJsContext>, id: ScriptDriverId| {
+        let mut rec = MutationStore::default();
+        realm
+            .run_frame(id, &script_frame_ctx, Some("box"), &mut rec)
+            .expect("run");
+        rec.snapshot_mutations()
+    };
+
+    let snap_miss = run(&mut realm, miss);
+    let snap_hit = run(&mut realm, hit);
+    let op_miss = snap_miss.mutations.get("box").and_then(|m| m.opacity);
+    let op_hit = snap_hit.mutations.get("box").and_then(|m| m.opacity);
+    assert_eq!(
+        op_miss, op_hit,
+        "cache-hit install must produce field-identical output to cache-miss",
+    );
+    assert!(
+        (op_miss.unwrap() - 0.5).abs() < 1e-6,
+        "expected opacity ~0.5, got {:?}",
+        op_miss,
+    );
+}
+
+/// AC #44-1 (extended): two independent realms each installing the same source
+/// (each a cache miss in its own realm) must produce field-identical output
+/// for the same frame. This validates cross-realm determinism — the hash-based
+/// ScriptDriverId is stable across boundaries.
+#[test]
+fn separate_realms_same_source_produce_field_identical_output() {
+    let source = "ctx.getNode('box').opacity(0.5);";
+
+    let mut realm_a = ScriptRealm::<RqJsContext>::open().expect("realm a");
+    let mut realm_b = ScriptRealm::<RqJsContext>::open().expect("realm b");
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("box".into());
+    realm_a.set_target_registry(registry.clone());
+    realm_b.set_target_registry(registry);
+
+    // Both realms install the same source — each is a cache miss in its own realm
+    let id_a = realm_a.install(source).expect("install in realm a");
+    let id_b = realm_b.install(source).expect("install in realm b");
+    assert_eq!(
+        id_a, id_b,
+        "same source must yield same ScriptDriverId across realms"
+    );
+
+    let frame_ctx = FrameCtx {
+        frame: 0,
+        fps: 30,
+        width: 64,
+        height: 36,
+        frames: 1,
+    };
+    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+
+    let run = |realm: &mut ScriptRealm<RqJsContext>, id: ScriptDriverId| {
+        let mut rec = MutationStore::default();
+        realm
+            .run_frame(id, &script_frame_ctx, Some("box"), &mut rec)
+            .expect("run");
+        rec.snapshot_mutations()
+    };
+
+    let snap_a = run(&mut realm_a, id_a);
+    let snap_b = run(&mut realm_b, id_b);
+    let op_a = snap_a.mutations.get("box").and_then(|m| m.opacity);
+    let op_b = snap_b.mutations.get("box").and_then(|m| m.opacity);
+    assert_eq!(op_a, op_b, "separate realms must produce field-identical output");
+    assert!(
+        (op_a.unwrap() - 0.5).abs() < 1e-6,
+        "expected opacity ~0.5, got {:?}",
+        op_a,
+    );
+}

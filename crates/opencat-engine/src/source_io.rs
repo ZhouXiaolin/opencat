@@ -57,7 +57,7 @@ pub fn fill_script_texts_from_disk(
             format!("failed to read script file: {}", resolved.display())
         })?;
         inputs
-            .insert_script_text(AssetId(req.asset_id.0.clone()), text)
+            .insert_script_text(req.asset_id.clone(), text)
             .map_err(|e| anyhow::anyhow!(e))?;
     }
     Ok(())
@@ -122,7 +122,7 @@ mod tests {
             .filter(|r| r.kind == ResourceKind::Script)
             .collect();
         assert_eq!(scripts.len(), 1);
-        assert_eq!(scripts[0].asset_id.0, "script:path:scene.js");
+        assert_eq!(scripts[0].asset_id.key, "script:path:scene.js");
 
         let mut inputs = HostInputs::empty();
         fill_script_texts_from_disk(&mut inputs, draft.requirements(), Some(&fixture_dir))

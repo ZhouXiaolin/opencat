@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::ir::asset_id::AssetId;
+use crate::ir::asset_id::{AssetId, ResourceKind};
 use crate::parse::ParsedComposition;
 use crate::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
 
@@ -30,21 +30,6 @@ pub struct ResourceRequest {
     pub asset_id: AssetId,
     pub kind: ResourceKind,
     pub locator: ResourceLocator,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ResourceKind {
-    Image,
-    Video,
-    Audio,
-    Subtitle,
-    Lottie,
-    /// Document font face from `<fonts>` / `FontManifest`. Stable identity is
-    /// [`crate::resource::fonts::font_asset_id`]; host supplies raw bytes only.
-    Font,
-    /// External script file (JSONL `{"type":"script","path":…}`). Host supplies
-    /// raw text via [`HostInputs::insert_script_text`]; core never reads files.
-    Script,
 }
 
 /// Logical resource location. Hosts interpret these against their own document
@@ -136,21 +121,21 @@ impl std::fmt::Display for PrepareError {
                 write!(
                     f,
                     "prepare missing host input for {kind:?} asset `{}`",
-                    asset_id.0
+                    asset_id.key
                 )
             }
             Self::DuplicateInput { asset_id } => {
                 write!(
                     f,
                     "prepare duplicate host input for asset `{}`",
-                    asset_id.0
+                    asset_id.key
                 )
             }
             Self::UndeclaredInput { asset_id } => {
                 write!(
                     f,
                     "prepare undeclared host input for asset `{}`",
-                    asset_id.0
+                    asset_id.key
                 )
             }
             Self::InvalidMetadata {
@@ -161,7 +146,7 @@ impl std::fmt::Display for PrepareError {
                 write!(
                     f,
                     "prepare invalid {kind:?} metadata for asset `{}`: {reason}",
-                    asset_id.0
+                    asset_id.key
                 )
             }
             Self::Internal { message } => write!(f, "prepare internal error: {message}"),

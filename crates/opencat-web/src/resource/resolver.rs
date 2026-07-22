@@ -40,7 +40,7 @@ pub async fn preload_requests(
         };
         let dims = probe_image_dims(&bytes)?;
         blobs.insert(id.clone(), Arc::from(bytes));
-        catalog.register_dimensions(&id.0, dims.width, dims.height);
+        catalog.register_dimensions(&id.key, dims.width, dims.height);
     }
 
     for source in &requests.videos {
@@ -52,7 +52,7 @@ pub async fn preload_requests(
         let probe = probe_video(&bytes)?;
         blobs.insert(id.clone(), Arc::from(bytes));
         catalog.register_video_dimensions(
-            &id.0,
+            &id.key,
             probe.width,
             probe.height,
             probe.duration_secs(),
@@ -69,7 +69,7 @@ pub async fn preload_requests(
             AudioSource::Unset => continue,
         };
         blobs.insert(id.clone(), Arc::from(bytes));
-        catalog.register_audio(&id.0);
+        catalog.register_audio(&id.key);
     }
 
     Ok(())
@@ -86,7 +86,7 @@ pub fn catalog_to_js_json(catalog: &PreparedResourceCatalog) -> Result<String> {
     let mut map = Map::new();
     for (id, meta) in &catalog.images {
         map.insert(
-            id.0.clone(),
+            id.key.clone(),
             json!({
                 "kind": "image",
                 "width": meta.width,
@@ -102,14 +102,14 @@ pub fn catalog_to_js_json(catalog: &PreparedResourceCatalog) -> Result<String> {
         if let Some(secs) = meta.duration_secs() {
             entry.insert("durationSecs".into(), json!(secs));
         }
-        map.insert(id.0.clone(), Value::Object(entry));
+        map.insert(id.key.clone(), Value::Object(entry));
     }
     for id in &catalog.audios {
-        map.insert(id.0.clone(), json!({ "kind": "audio" }));
+        map.insert(id.key.clone(), json!({ "kind": "audio" }));
     }
     for (id, meta) in &catalog.lotties {
         map.insert(
-            id.0.clone(),
+            id.key.clone(),
             json!({
                 "kind": "lottie",
                 "width": meta.width,

@@ -9,10 +9,10 @@ use js_sys::{Function, Uint8Array};
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
-use opencat_core::ir::asset_id::{asset_id_for_subtitle, asset_id_for_url};
+use opencat_core::ir::asset_id::{asset_id_for_subtitle, asset_id_for_url, kind_from_canonical_str};
 use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::primitives::{LottieSource, SubtitleSource};
-use opencat_core::resource::asset_id::AssetId;
+use opencat_core::resource::asset_id::{AssetId, ResourceKind};
 use opencat_core::resource::fonts::{FontSource, font_asset_id};
 use opencat_core::probe::catalog::PreparedResourceCatalog;
 
@@ -42,9 +42,10 @@ pub(crate) fn blob_byte_map() -> std::collections::HashMap<String, Vec<u8>> {
 /// Borrowed bytes for a single canonical asset id from the thread-local
 /// `BlobStore`, as an owned `Vec` (the thread-local borrow cannot escape).
 pub(crate) fn blob_bytes_owned(id: &str) -> Option<Vec<u8>> {
+    let kind = kind_from_canonical_str(id);
     BLOB_STORE.with(|s| {
         s.borrow()
-            .get(&AssetId(id.to_string()))
+            .get(&AssetId::new(kind, id.to_string()))
             .map(|arc| arc.to_vec())
     })
 }
@@ -78,7 +79,10 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
                     ));
                 }
                 FontSource::Url(url) => {
-                    let id = AssetId(font_asset_id(&FontSource::Url(url.clone())));
+                    let id = AssetId::new(
+                        ResourceKind::Font,
+                        font_asset_id(&FontSource::Url(url.clone())),
+                    );
                     let raw = crate::resource::resolver::fetch_url(url)
                         .await
                         .map_err(|e| JsValue::from_str(&format!("preload_assets font: {e}")))?;
@@ -112,7 +116,7 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
     }
 
     for request in &requests.lotties {
-        let bundle_id = AssetId(format!("lottie:{}", request.element_id));
+        let bundle_id = AssetId::new(ResourceKind::Lottie, format!("lottie:{}", request.element_id));
         let primary = match &request.source {
             LottieSource::Url(url) => crate::resource::fetch::fetch_bytes(url).await,
             LottieSource::Path(path) => {
@@ -137,7 +141,7 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
         // BlobStore is one flat map, so insert under both. (Engine keeps these
         // in separate structures and keys probe bytes by path/url only.)
         let probe_key = match &request.source {
-            LottieSource::Path(p) => AssetId(p.clone()),
+            LottieSource::Path(p) => AssetId::new(ResourceKind::Image, p.clone()),
             LottieSource::Url(u) => asset_id_for_url(u),
             LottieSource::Unset => continue,
         };
@@ -156,7 +160,10 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
                 .await
                 .map_err(|e| JsValue::from_str(&format!("preload_assets lottie asset: {e}")))?;
             blobs.insert(
-                AssetId(format!("{}:dep:{file_name}", bundle_id.0)),
+                AssetId::new(
+                    ResourceKind::Lottie,
+                    format!("{}:dep:{file_name}", bundle_id.key),
+                ),
                 std::sync::Arc::from(bytes),
             );
         }
@@ -170,7 +177,8 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
 
 #[wasm_bindgen]
 pub fn get_blob_bytes(asset_id: &str) -> Option<Uint8Array> {
-    let id = AssetId(asset_id.to_string());
+    let kind = kind_from_canonical_str(asset_id);
+    let id = AssetId::new(kind, asset_id.to_string());
     BLOB_STORE.with(|s| {
         s.borrow()
             .get(&id)
@@ -185,7 +193,7 @@ pub fn get_skottie_bundle_assets(bundle_id: &str) -> JsValue {
     let prefix = format!("{bundle_id}:dep:");
     BLOB_STORE.with(|store| {
         for (id, bytes) in store.borrow().iter() {
-            let Some(name) = id.0.strip_prefix(&prefix) else {
+            let Some(name) = id.key.strip_prefix(&prefix) else {
                 continue;
             };
             let _ = js_sys::Reflect::set(
@@ -202,9 +210,9 @@ pub fn get_skottie_bundle_assets(bundle_id: &str) -> JsValue {
 #[wasm_bindgen]
 pub fn load_resource_bytes(path: &str, name: &str) -> Option<Uint8Array> {
     let id = if path == "opencat" {
-        AssetId(name.to_string())
+        AssetId::new(ResourceKind::Lottie, name.to_string())
     } else {
-        AssetId(format!("{path}:dep:{name}"))
+        AssetId::new(ResourceKind::Lottie, format!("{path}:dep:{name}"))
     };
     BLOB_STORE.with(|store| {
         store

@@ -105,8 +105,8 @@ mod tests {
         // AC3: an alias must point at a declared asset; unknown target is a
         // render error, not a silent no-op.
         let mut catalog: Box<dyn ResourceResolver> = Box::new(TestCatalog::new());
-        let unknown = AssetId("does-not-exist".into());
-        let alias = AssetId("aka".into());
+        let unknown = AssetId::new(crate::ir::asset_id::ResourceKind::Image, "does-not-exist");
+        let alias = AssetId::new(crate::ir::asset_id::ResourceKind::Image, "aka");
         let err = catalog.alias(alias, &unknown).unwrap_err();
         assert!(
             err.to_string().contains("not a declared asset"),
@@ -118,7 +118,7 @@ mod tests {
     fn alias_binds_to_canonical_and_resolves() {
         let mut catalog: Box<dyn ResourceResolver> = Box::new(TestCatalog::new());
         let canonical = catalog.register_dimensions("/tmp/a.png", 10, 20);
-        let alias = AssetId("hero".into());
+        let alias = AssetId::new(crate::ir::asset_id::ResourceKind::Image, "hero");
         catalog.alias(alias.clone(), &canonical).unwrap();
 
         assert_eq!(catalog.resolve_alias(&alias), Some(canonical.clone()));
@@ -129,6 +129,9 @@ mod tests {
     #[test]
     fn is_known_asset_rejects_unknown_id() {
         let catalog: Box<dyn ResourceResolver> = Box::new(TestCatalog::new());
-        assert!(!catalog.is_known_asset(&AssetId("nope".into())));
+        assert!(!catalog.is_known_asset(&AssetId::new(
+            crate::ir::asset_id::ResourceKind::Image,
+            "nope"
+        )));
     }
 }

@@ -189,7 +189,7 @@ fn open_parsed_host_owned_with_fonts(
             .font_manifest
             .faces
             .iter()
-            .find(|f| font_asset_id(&f.source) == req.asset_id.0)
+            .find(|f| font_asset_id(&f.source) == req.asset_id.key)
             .map(|f| f.id.as_str());
         let Some(face_id) = face_id else {
             continue;
@@ -199,7 +199,7 @@ fn open_parsed_host_owned_with_fonts(
             continue;
         };
         inputs
-            .insert_document_font(AssetId(req.asset_id.0.clone()), font_bytes.clone())
+            .insert_document_font(req.asset_id.clone(), font_bytes.clone())
             .map_err(prepare_err)?;
     }
 
@@ -319,9 +319,10 @@ mod tests {
         let mut host = open(jsonl, loader, ctx).expect("open via lifecycle");
 
         // Host must key handles by the request AssetId (logical path), not a re-derived id.
-        let handle = host
-            .loader
-            .handle(&opencat_core::AssetId("hero.png".into()));
+        let handle = host.loader.handle(&opencat_core::AssetId::new(
+            opencat_core::ir::asset_id::ResourceKind::Image,
+            "hero.png",
+        ));
         assert!(
             handle.is_some(),
             "engine loader must register request AssetId hero.png"
@@ -379,13 +380,19 @@ mod tests {
         // Host registers under logical path key (probe) and canonical bundle id.
         assert!(
             host.loader
-                .handle(&opencat_core::AssetId("loader.json".into()))
+                .handle(&opencat_core::AssetId::new(
+                    opencat_core::ir::asset_id::ResourceKind::Image,
+                    "loader.json",
+                ))
                 .is_some(),
             "engine must cache primary JSON under logical locator"
         );
         assert!(
             host.loader
-                .handle(&opencat_core::AssetId("lottie:loader".into()))
+                .handle(&opencat_core::AssetId::new(
+                    opencat_core::ir::asset_id::ResourceKind::Lottie,
+                    "lottie:loader",
+                ))
                 .is_some(),
             "engine must also key primary JSON under request bundle AssetId"
         );

@@ -197,7 +197,25 @@ cargo run --bin opencat-see -- path/to/input.xml
 cargo run --example hello_world
 ```
 
-> Web (WASM)：`cd crates/opencat-web && npm run build`，浏览器需要 `Cross-Origin-Isolated` 环境。
+> Web (WASM)：`cd crates/opencat-web/web && npm run build`，浏览器需要 `Cross-Origin-Isolated` 环境。
+
+### Engine / Web 像素对齐（SSIM）
+
+用 ChromeDriver + SSIM 对比原生 Skia 与 WASM CanvasKit 逐帧输出。完整步骤见 **[开发指南](DEVELOPMENT_ZH.md#engine--web-像素对齐ssim-frame-oracle)**。
+
+```bash
+# 1) examples 依赖的媒体（profile-showcase 会请求 http://127.0.0.1:8080/...）
+#    将 mp4/png/mp3 目录用静态服务挂到 :8080
+
+# 2) 构建 web facade（wasm + JS + web-demuxer.wasm → dist/）
+cd crates/opencat-web/web && npm run build && cd -
+
+# 3) 多帧 oracle（0–413，步进 10）— 需要 Chrome + chromedriver + ffmpeg
+cargo test chromedriver_profile_showcase_all_frames_matches_engine \
+  --package opencat-engine --lib -- --ignored --nocapture
+```
+
+失败帧产物：`target/opencat-web-oracle/<stem>-frame-NNNN/{engine,web,diff}.png`。
 
 <details>
 <summary><strong>Architecture</strong></summary>

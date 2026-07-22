@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
-use crate::ir::asset_id::asset_id_for_subtitle;
+use crate::ir::asset_id::{AssetId, asset_id_for_subtitle};
 
 /// Hydrate caption entries into a [`ParsedComposition`] using host-supplied
 /// SRT text, keyed by canonical subtitle `AssetId`.
@@ -29,7 +29,7 @@ use crate::ir::asset_id::asset_id_for_subtitle;
 pub fn hydrate_captions(
     root: crate::parse::node::Node,
     fps: u32,
-    srt_by_id: &HashMap<String, String>,
+    srt_by_id: &HashMap<AssetId, String>,
 ) -> Result<(crate::parse::node::Node, usize)> {
     let mut hydrated = 0usize;
     let node = walk_hydrate(root, fps, srt_by_id, &mut hydrated)?;
@@ -39,7 +39,7 @@ pub fn hydrate_captions(
 fn walk_child_list(
     children: &[crate::parse::node::Node],
     fps: u32,
-    srt_by_id: &HashMap<String, String>,
+    srt_by_id: &HashMap<AssetId, String>,
     hydrated: &mut usize,
 ) -> Result<Vec<crate::parse::node::Node>> {
     children
@@ -52,7 +52,7 @@ fn walk_child_list(
 fn walk_hydrate(
     node: crate::parse::node::Node,
     fps: u32,
-    srt_by_id: &HashMap<String, String>,
+    srt_by_id: &HashMap<AssetId, String>,
     hydrated: &mut usize,
 ) -> Result<crate::parse::node::Node> {
     use crate::parse::node::NodeKind;
@@ -65,7 +65,7 @@ fn walk_hydrate(
                 return Ok(crate::parse::node::Node::new(kind));
             }
             let id = asset_id_for_subtitle(caption.source());
-            if let Some(text) = srt_by_id.get(&id.key) {
+            if let Some(text) = srt_by_id.get(&id) {
                 let entries = parse_srt(text, fps)?;
                 caption.set_entries(entries);
                 *hydrated += 1;
@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn hydrate_captions_parses_srt_without_fs_access() {
         let root = caption_in_div();
-        let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into())).key;
+        let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into()));
         let mut srt = HashMap::new();
         srt.insert(
             id,
@@ -154,7 +154,7 @@ mod tests {
             }]);
         let root: crate::parse::node::Node = div().id("root").child(pre).into();
 
-        let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into())).key;
+        let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into()));
         let mut srt = HashMap::new();
         srt.insert(
             id,
@@ -202,7 +202,7 @@ mod tests {
         let vid: crate::parse::node::Node = video("/clip.mp4").id("vid").child(cap).into();
         let root: crate::parse::node::Node = div().id("root").child(vid).into();
 
-        let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into())).key;
+        let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into()));
         let mut srt = HashMap::new();
         srt.insert(
             id,

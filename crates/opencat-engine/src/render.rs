@@ -452,7 +452,7 @@ mod tests {
             parsed,
             loader,
             ctx,
-            crate::fonts::engine_default_font_db(),
+            crate::fonts::engine_default_font_faces(),
         )
         .expect("pipeline");
         let mut media_ctx = MediaContext::new();

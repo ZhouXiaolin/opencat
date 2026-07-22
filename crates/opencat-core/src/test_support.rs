@@ -11,6 +11,17 @@ pub fn mock_font_provider() -> impl crate::text::FontProvider {
     crate::text::DefaultFontProvider::from_arc(Arc::new(crate::text::test_default_font_db()))
 }
 
+/// Default font face bytes for testing: CJK sans + color emoji.
+/// Use with [`HostInputs::with_base_font_faces`] and
+/// [`HostInputs::with_sans_serif_family`].
+#[cfg(any(test, feature = "test-support"))]
+pub fn test_font_faces() -> Vec<Vec<u8>> {
+    vec![
+        include_bytes!("../../../assets/NotoSansSC-Regular.otf").to_vec(),
+        include_bytes!("../../../assets/NotoColorEmoji.ttf").to_vec(),
+    ]
+}
+
 pub struct TestCatalog {
     dims: HashMap<AssetId, (u32, u32)>,
     video_info: HashMap<AssetId, VideoInfoMeta>,

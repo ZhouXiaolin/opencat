@@ -5,10 +5,9 @@ pub use crate::parse::primitives::VideoSource;
 use crate::parse::primitives::{AudioSource, ImageSource, LottieSource, SubtitleSource};
 use crate::resource::lottie::LottieMeta;
 
-/// One `<lottie id="…">` node — bundle id is `lottie:{element_id}`.
+/// One unique Lottie source locator — bundle identity is source-based.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LottieRequest {
-    pub element_id: String,
     pub source: LottieSource,
 }
 
@@ -168,12 +167,10 @@ impl PreparedResourceCatalog {
         })
     }
 
-    /// Resolve a Lottie element id to its bundle AssetId.
-    pub fn resolve_lottie(&self, element_id: &str) -> anyhow::Result<AssetId> {
-        Ok(AssetId::new(
-            ResourceKind::Lottie,
-            format!("lottie:{element_id}"),
-        ))
+    /// Resolve a Lottie source locator to its bundle AssetId.
+    pub fn resolve_lottie(&self, src: &LottieSource) -> anyhow::Result<AssetId> {
+        crate::ir::asset_id::asset_id_for_lottie(src)
+            .ok_or_else(|| anyhow::anyhow!("unset lottie source"))
     }
 
     /// Look up Lottie metadata by AssetId.

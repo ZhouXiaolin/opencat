@@ -27,6 +27,87 @@ use crate::resource::catalog::ResourceResolver;
 use crate::script::ScriptHost;
 use crate::text::DefaultFontProvider;
 
+/// Intermediate trees produced by the shared resolve + layout pass that both
+/// [`render_frame_with_state`] and inspection consume. Geometry here is exactly
+/// what the real pipeline uses for the given frame.
+///
+/// Crate-private: hosts consume [`crate::ir::RenderFrame`] and
+/// [`super::DefaultPipeline::inspect_frame`], not this intermediate type.
+pub(crate) struct FrameEvaluation {
+    pub frame_ctx: FrameCtx,
+    /// Composition root node for this frame (source tree before resolve).
+    pub source_root: crate::parse::node::Node,
+    pub element_root: crate::resolve::tree::ElementNode,
+    pub layout_tree: crate::layout::tree::LayoutTree,
+    pub layout_pass: crate::layout::LayoutPassStats,
+}
+
+/// Resolve scripts + layout for one frame using the pipeline's live sessions.
+///
+/// This is the single resolve/layout path shared by render and inspection so
+/// diagnostic rects cannot drift from the trees that produce [`RenderFrame`].
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn evaluate_frame_layout(
+    composition: &Composition,
+    frame_index: u32,
+    layout_session: &mut LayoutSession,
+    font_db: &Arc<fontdb::Database>,
+    catalog: &mut dyn ResourceResolver,
+    script: &mut dyn ScriptHost,
+) -> Result<FrameEvaluation> {
+    #[cfg(feature = "profile")]
+    let _resolve_span = span!(target: "render.scene", Level::TRACE, "resolve_ui_tree").entered();
+    let frame_ctx = FrameCtx {
+        frame: frame_index,
+        fps: composition.fps,
+        width: composition.width,
+        height: composition.height,
+        frames: composition.frames,
+    };
+    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+    let source_root = composition.root_node(&frame_ctx);
+    #[cfg(feature = "profile")]
+    let _script_span = span!(target: "render.pipeline", Level::TRACE, "script").entered();
+    let element_root = crate::text::scope_font_db(font_db, || {
+        resolve_ui_tree_with_script_cache(
+            &source_root,
+            &frame_ctx,
+            &script_frame_ctx,
+            catalog,
+            None,
+            script,
+        )
+    })?;
+    #[cfg(feature = "profile")]
+    drop(_script_span);
+    #[cfg(feature = "profile")]
+    drop(_resolve_span);
+
+    let provider = DefaultFontProvider::from_arc(font_db.clone());
+    let (layout_tree, layout_pass) =
+        layout_session.compute_layout_with_provider(&element_root, &frame_ctx, &provider)?;
+
+    #[cfg(feature = "profile")]
+    {
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "reused_nodes", result = "count", amount = layout_pass.reused_nodes as u64);
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "input_merkle_full_hit_subtrees", result = "count", amount = layout_pass.input_merkle_full_hit_subtrees as u64);
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "input_merkle_full_hit_nodes", result = "count", amount = layout_pass.input_merkle_full_hit_nodes as u64);
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "layout_merkle_skipped_subtrees", result = "count", amount = layout_pass.layout_merkle_skipped_subtrees as u64);
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "layout_merkle_skipped_nodes", result = "count", amount = layout_pass.layout_merkle_skipped_nodes as u64);
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "layout_dirty", result = "count", amount = layout_pass.layout_dirty_nodes as u64);
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "raster_dirty", result = "count", amount = layout_pass.raster_dirty_nodes as u64);
+        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "structure_rebuild", result = "count", amount = layout_pass.structure_rebuild as u64);
+    }
+
+    Ok(FrameEvaluation {
+        frame_ctx,
+        source_root,
+        element_root,
+        layout_tree,
+        layout_pass,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn render_frame_with_state(
     composition: &Composition,
@@ -55,50 +136,18 @@ pub fn render_frame_with_state(
     )
     .entered();
 
-    let frame_ctx = FrameCtx {
-        frame: frame_index,
-        fps: composition.fps,
-        width: composition.width,
-        height: composition.height,
-        frames: composition.frames,
-    };
-    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
-
-    #[cfg(feature = "profile")]
-    let _resolve_span = span!(target: "render.scene", Level::TRACE, "resolve_ui_tree").entered();
-    let root = composition.root_node(&frame_ctx);
-    #[cfg(feature = "profile")]
-    let _script_span = span!(target: "render.pipeline", Level::TRACE, "script").entered();
-    let element_root = crate::text::scope_font_db(font_db, || {
-        resolve_ui_tree_with_script_cache(
-            &root,
-            &frame_ctx,
-            &script_frame_ctx,
-            catalog,
-            None,
-            script,
-        )
-    })?;
-    #[cfg(feature = "profile")]
-    drop(_script_span);
-    #[cfg(feature = "profile")]
-    drop(_resolve_span);
-
-    let provider = DefaultFontProvider::from_arc(font_db.clone());
-    let (layout_tree, layout_pass) =
-        layout_session.compute_layout_with_provider(&element_root, &frame_ctx, &provider)?;
-
-    #[cfg(feature = "profile")]
-    {
-        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "reused_nodes", result = "count", amount = layout_pass.reused_nodes as u64);
-        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "input_merkle_full_hit_subtrees", result = "count", amount = layout_pass.input_merkle_full_hit_subtrees as u64);
-        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "input_merkle_full_hit_nodes", result = "count", amount = layout_pass.input_merkle_full_hit_nodes as u64);
-        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "layout_merkle_skipped_subtrees", result = "count", amount = layout_pass.layout_merkle_skipped_subtrees as u64);
-        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "layout_merkle_skipped_nodes", result = "count", amount = layout_pass.layout_merkle_skipped_nodes as u64);
-        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "layout_dirty", result = "count", amount = layout_pass.layout_dirty_nodes as u64);
-        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "raster_dirty", result = "count", amount = layout_pass.raster_dirty_nodes as u64);
-        event!(target: "render.layout", Level::TRACE, kind = "layout", name = "structure_rebuild", result = "count", amount = layout_pass.structure_rebuild as u64);
-    }
+    let evaluation = evaluate_frame_layout(
+        composition,
+        frame_index,
+        layout_session,
+        font_db,
+        catalog,
+        script,
+    )?;
+    let frame_ctx = evaluation.frame_ctx;
+    let element_root = evaluation.element_root;
+    let layout_tree = evaluation.layout_tree;
+    let layout_pass = evaluation.layout_pass;
 
     #[cfg(feature = "profile")]
     let _display_span = span!(target: "render.scene", Level::TRACE, "build_display_tree").entered();

@@ -78,6 +78,14 @@ impl EnginePipelineHost {
         use opencat_core::pipeline::Pipeline;
         self.pipeline.render_frame(idx)
     }
+
+    /// Layout inspection from the same resolve/layout sessions as render.
+    pub fn inspect_frame(
+        &mut self,
+        idx: u32,
+    ) -> Result<Vec<opencat_core::pipeline::FrameElementRect>> {
+        self.pipeline.inspect_frame(idx)
+    }
 }
 
 /// Parse a composition and open it on the host-owned resource pipeline.

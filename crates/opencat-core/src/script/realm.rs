@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde_json::json;
 
 use crate::frame_ctx::ScriptFrameCtx;
@@ -21,7 +21,7 @@ use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{ANIMATION_RUNTIME, CANVAS_API_RUNTIME, NODE_STYLE_RUNTIME};
 use crate::script::{
-    driver_id_from_source, ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource,
+    ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
 };
 
 /// Pipeline-owned script realm: one JS context, many drivers, shared state.
@@ -210,7 +210,10 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         self.ensure_runtime()?;
         let id = driver_id_from_source(source);
         let fn_name = Self::driver_fn_name(id);
-        let is_new = matches!(self.installed.entry(id.0), std::collections::hash_map::Entry::Vacant(_));
+        let is_new = matches!(
+            self.installed.entry(id.0),
+            std::collections::hash_map::Entry::Vacant(_)
+        );
         if let std::collections::hash_map::Entry::Vacant(e) = self.installed.entry(id.0) {
             // Install once; subsequent installs of the same source are no-ops so
             // realm-local JS state set by prior frames is preserved.
@@ -308,10 +311,7 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
     }
 }
 
-pub fn apply_target_registry<C: JsContext>(
-    ctx: &C,
-    registry: &ScriptTargetRegistry,
-) -> Result<()> {
+pub fn apply_target_registry<C: JsContext>(ctx: &C, registry: &ScriptTargetRegistry) -> Result<()> {
     let visual: serde_json::Map<String, serde_json::Value> = registry
         .visual_ids
         .iter()

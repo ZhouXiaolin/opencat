@@ -117,8 +117,7 @@ impl DurationRange {
 
     /// Exclusive end when a finite duration is set.
     pub fn end(self) -> Option<TimestampMicros> {
-        self.duration
-            .map(|d| self.start.saturating_add(d))
+        self.duration.map(|d| self.start.saturating_add(d))
     }
 
     /// Whether `t` falls inside this range (open-ended when duration is None).
@@ -148,7 +147,8 @@ mod tests {
 
     #[test]
     fn duration_range_contains_half_open() {
-        let range = DurationRange::with_duration(TimestampMicros(1_000_000), DurationMicros(500_000));
+        let range =
+            DurationRange::with_duration(TimestampMicros(1_000_000), DurationMicros(500_000));
         assert!(range.contains(TimestampMicros(1_000_000)));
         assert!(range.contains(TimestampMicros(1_499_999)));
         assert!(!range.contains(TimestampMicros(1_500_000)));

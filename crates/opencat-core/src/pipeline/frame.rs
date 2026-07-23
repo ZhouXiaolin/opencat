@@ -19,11 +19,11 @@ use crate::ir::cache::{RenderCache, SceneSnapshotEntry};
 use crate::ir::{DrawOpFrame, FrameMediaPlan};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
+use crate::probe::catalog::PreparedResourceCatalog;
 use crate::render::RenderCtx;
 use crate::render::builder::DrawOpBuilder;
 use crate::render::media_plan::build_media_plan;
 use crate::resolve::resolve::resolve_ui_tree_with_script_cache;
-use crate::probe::catalog::PreparedResourceCatalog;
 use crate::script::ScriptHost;
 use crate::text::DefaultFontProvider;
 

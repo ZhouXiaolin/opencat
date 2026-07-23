@@ -14,13 +14,13 @@
 //! arithmetic from the composition's frame count and frame rate.
 
 use crate::frame_ctx::FrameCtx;
-use crate::ir::asset_id::{asset_id_for_audio, AssetId};
+use crate::ir::asset_id::{AssetId, asset_id_for_audio};
 use crate::parse::composition::{AudioAttachment, Composition};
 use crate::parse::node::{Node, NodeKind};
 use crate::parse::time::TimelineSegment;
 use crate::time::{
-    duration_secs_to_frames, frames_to_timestamp_micros, secs_to_micros, DurationMicros,
-    DurationRange, FrameIndex, RationalFrameRate, TimestampMicros,
+    DurationMicros, DurationRange, FrameIndex, RationalFrameRate, TimestampMicros,
+    duration_secs_to_frames, frames_to_timestamp_micros, secs_to_micros,
 };
 
 /// Whole-composition audio schedule: one segment per attached source.
@@ -44,9 +44,7 @@ impl AudioSegment {
     }
 
     pub fn end_micros(&self) -> TimestampMicros {
-        self.range
-            .end()
-            .unwrap_or(self.range.start)
+        self.range.end().unwrap_or(self.range.start)
     }
 
     pub fn duration_micros(&self) -> DurationMicros {
@@ -73,11 +71,9 @@ pub fn collect_audio_plan(comp: &Composition) -> AudioPlan {
         };
 
         let range = match &source.attach {
-            AudioAttachment::Timeline => apply_explicit_duration(
-                TimestampMicros::ZERO,
-                source.duration_secs,
-                total_range,
-            ),
+            AudioAttachment::Timeline => {
+                apply_explicit_duration(TimestampMicros::ZERO, source.duration_secs, total_range)
+            }
             AudioAttachment::Scene { scene_id } => match find_scene_timing(comp, scene_id) {
                 Some((start_frame, scene_frames)) => {
                     let start = frames_to_timestamp_micros(FrameIndex(start_frame), rate);
@@ -138,10 +134,7 @@ fn apply_explicit_duration(
             if fallback.start == start {
                 fallback
             } else if let Some(end) = fallback.end() {
-                DurationRange::with_duration(
-                    start,
-                    DurationMicros(end.0.saturating_sub(start.0)),
-                )
+                DurationRange::with_duration(start, DurationMicros(end.0.saturating_sub(start.0)))
             } else {
                 DurationRange::from_start(start)
             }
@@ -204,7 +197,7 @@ mod tests {
     use super::*;
     use crate::parse::composition::CompositionAudioSource;
     use crate::parse::easing::Easing;
-    use crate::parse::primitives::{div, AudioSource};
+    use crate::parse::primitives::{AudioSource, div};
     use crate::parse::transition::{fade, timeline};
     use std::sync::Arc;
 

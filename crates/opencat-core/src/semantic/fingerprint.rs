@@ -376,9 +376,9 @@ mod tests {
             primitives::{canvas, div, image, text},
             transition::{fade, slide, timeline},
         },
+        probe::catalog::PreparedResourceCatalog,
         resolve::resolve::resolve_ui_tree,
         test_support::MockScriptHost,
-        probe::catalog::PreparedResourceCatalog,
     };
 
     fn frame_ctx() -> FrameCtx {

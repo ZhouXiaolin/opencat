@@ -500,7 +500,91 @@ fn realm_installs_multiple_drivers_into_shared_state() {
         .expect("run d2 shared");
 }
 
-/// AC #44-1 (extended): cache-hit and cache-miss driver installation paths
+/// AC #63-1: Math.random is overridden with a frame-seeded deterministic
+/// function. Same frame index must produce the same random sequence.
+#[test]
+fn math_random_is_deterministic_across_frames() {
+    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let driver = realm
+        .install(
+            "var r0 = Math.random();\
+             var r1 = Math.random();\
+             ctx.getNode('box').opacity(r0 + r1);",
+        )
+        .expect("install");
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("box".into());
+    realm.set_target_registry(registry);
+
+    let run = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| -> f32 {
+        let frame_ctx = FrameCtx {
+            frame,
+            fps: 30,
+            width: 64,
+            height: 36,
+            frames: 30,
+        };
+        let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+        let mut rec = MutationStore::default();
+        realm
+            .run_frame(driver, &script_frame_ctx, Some("box"), &mut rec)
+            .expect("run");
+        rec.snapshot_mutations()
+            .mutations
+            .get("box")
+            .and_then(|m| m.opacity)
+            .expect("opacity")
+    };
+
+    let f5_a = run(&mut realm, 5);
+    let f3 = run(&mut realm, 3);
+    let f5_b = run(&mut realm, 5);
+    let f5_c = run(&mut realm, 5);
+
+    assert!((f5_a - f5_b).abs() < 1e-6, "frame 5 repeat must be identical: {f5_a} vs {f5_b}");
+    assert!((f5_b - f5_c).abs() < 1e-6, "frame 5 thrice must be identical: {f5_b} vs {f5_c}");
+    assert!(
+        (f5_a - f3).abs() > 1e-6,
+        "different frame must produce different random: {f5_a} vs {f3}"
+    );
+}
+
+/// AC #63-2: Date.now is stubbed to return 0 so scripts cannot depend on
+/// wall-clock time.
+#[test]
+fn date_now_is_stubbed_to_zero() {
+    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("box".into());
+    realm.set_target_registry(registry);
+
+    let driver = realm
+        .install(
+            "if (Date.now() !== 0) throw new Error('Date.now not stubbed: ' + Date.now());\
+             ctx.getNode('box').opacity(0.5);",
+        )
+        .expect("install");
+
+    let frame_ctx = FrameCtx {
+        frame: 0,
+        fps: 30,
+        width: 64,
+        height: 36,
+        frames: 1,
+    };
+    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+    let mut rec = MutationStore::default();
+    realm
+        .run_frame(driver, &script_frame_ctx, Some("box"), &mut rec)
+        .expect("run_frame with stubbed Date.now must not throw");
+    let opacity = rec
+        .snapshot_mutations()
+        .mutations
+        .get("box")
+        .and_then(|m| m.opacity)
+        .expect("opacity must be written");
+    assert!((opacity - 0.5).abs() < 1e-6, "opacity = {opacity}");
+}
 /// must produce field-identical mutations for the same frame.
 #[test]
 fn install_same_source_twice_cache_hit_miss_field_identical() {

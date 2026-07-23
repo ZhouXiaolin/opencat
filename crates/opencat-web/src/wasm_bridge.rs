@@ -9,7 +9,7 @@
 //! (`CompositionDraft` → `HostInputs` → `prepare` → `open_pipeline`). This
 //! mirrors the engine's `open_parsed_host_owned` path (#7 / #15).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
@@ -45,14 +45,6 @@ pub struct WebRenderer {
     default_sans_sc: Option<Vec<u8>>,
     default_color_emoji: Option<Vec<u8>>,
     extra_fonts: Vec<Vec<u8>>,
-    /// Monotonically bumped on every [`open_design`]. Stamping this into each
-    /// OCIR envelope lets JS key its generated-image cache by `(epoch, id)`
-    /// and evict stale entries when a new design replaces the pipeline.
-    pipeline_epoch: u32,
-    /// Generated-image ids already published to JS in the current epoch. Drives
-    /// the per-frame delta: a glyph's RGBA is emitted only on the first frame
-    /// that references it. Cleared on each epoch bump.
-    published_generated: HashSet<GeneratedImageId>,
 }
 
 #[wasm_bindgen]
@@ -74,11 +66,6 @@ impl WebRenderer {
             default_sans_sc: None,
             default_color_emoji: None,
             extra_fonts: Vec::new(),
-            // epoch starts at 0; the first `open_design` bumps it to 1 so a
-            // freshly-constructed renderer and one that has opened a design
-            // are distinguishable.
-            pipeline_epoch: 0,
-            published_generated: HashSet::new(),
         })
     }
 
@@ -115,20 +102,13 @@ impl WebRenderer {
         self.info = Some(info);
         self.pipeline = Some(pipeline);
         self.pending_frame = None;
-        // Bump the pipeline epoch and drop the set of ids published under the
-        // previous design. JS keys its generated-image cache by `(epoch, id)`
-        // and evicts stale entries when it observes the new epoch in the next
-        // frame's envelope, so the first frame after a reopen republishes
-        // every glyph the new pipeline needs.
-        self.pipeline_epoch = self.pipeline_epoch.wrapping_add(1);
-        self.published_generated.clear();
         Ok(catalog_json)
     }
 
     /// Render `frame` against the opened pipeline and encode its draw ops as a
-    /// binary OCIR envelope, including the generated-image delta for any
-    /// color-emoji glyphs newly referenced this epoch. Call [`open_design`]
-    /// first.
+    /// self-contained OCIR envelope (issue #45). All generated-image RGBA is
+    /// fully encoded every frame — no epoch/delta/history dependency. Call
+    /// [`open_design`] first.
     #[wasm_bindgen]
     pub fn build_frame_ir(&mut self, frame: u32) -> Result<Vec<u8>, JsValue> {
         let pipeline = self.pipeline.as_mut().ok_or_else(|| {
@@ -141,26 +121,13 @@ impl WebRenderer {
                 .render_frame(frame)
                 .map_err(|e| JsValue::from_str(&format!("render_frame: {e}")))?,
         };
-        let mut draw = render.draw;
-        let media_plan = render.media;
-
-        // Host-side delta: full RGBA already lives on FrameMediaPlan. Only
-        // publish ids not yet sent in this pipeline epoch so JS can cache by
-        // GeneratedImageId without re-creating CanvasKit images.
-        let mut generated_delta: Vec<FrameGeneratedImage> = Vec::new();
-        for entry in &media_plan.generated_images {
-            if self.published_generated.contains(&entry.id) {
-                continue;
-            }
-            generated_delta.push(entry.clone());
-            self.published_generated.insert(entry.id);
-        }
 
         crate::consumer::encode_render_frame_envelope(
-            &mut draw,
+            &mut RenderFrame {
+                draw: render.draw,
+                media: render.media,
+            },
             &mut self.scratch,
-            self.pipeline_epoch,
-            &generated_delta,
         )
         .map_err(|e| JsValue::from_str(&e.0))
     }
@@ -545,23 +512,25 @@ mod tests {
     use super::*;
     use opencat_core::ir::draw_encoding::{encode_ir_envelope, section, IR_VERSION};
     use opencat_core::ir::draw_frame::{DrawFrameScratch, DrawOpFrame};
+    use opencat_core::ir::RenderFrame;
+    use opencat_core::ir::media_plan::FrameMediaPlan;
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    fn empty_envelope(epoch: u32, delta: &[FrameGeneratedImage]) -> Vec<u8> {
-        let draw = DrawOpFrame::default();
-        let mut scratch = DrawFrameScratch::default();
-        encode_ir_envelope(&draw, &mut scratch, epoch, delta).expect("encode")
+    fn empty_render_frame() -> RenderFrame {
+        RenderFrame {
+            draw: DrawOpFrame::default(),
+            media: FrameMediaPlan::default(),
+        }
     }
 
     fn rgba(value: u8, width: u32, height: u32) -> Arc<[u8]> {
         Arc::from(vec![value; width as usize * height as usize * 4])
     }
 
-    /// Decode just enough of a v4 envelope to read the header epoch and the
-    /// generated-image section (12), mirroring the JS decoder.
+    /// Decode just enough of a v5 envelope to read the generated-image section (12),
+    /// mirroring the JS decoder. v5 has no pipeline_epoch in the header.
     struct DecodedEnvelope {
-        epoch: u32,
         generated: Vec<FrameGeneratedImage>,
     }
 
@@ -570,11 +539,10 @@ mod tests {
         let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
         assert_eq!(version, IR_VERSION, "version");
         let section_count = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
-        let epoch = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
 
         let mut sections: HashMap<u32, (usize, usize)> = HashMap::new();
         for i in 0..section_count {
-            let base = 16 + i * 12;
+            let base = 12 + i * 12;
             let id = u32::from_le_bytes(bytes[base..base + 4].try_into().unwrap());
             let offset =
                 u32::from_le_bytes(bytes[base + 4..base + 8].try_into().unwrap()) as usize;
@@ -587,7 +555,7 @@ mod tests {
             None => Vec::new(),
         };
 
-        DecodedEnvelope { epoch, generated }
+        DecodedEnvelope { generated }
     }
 
     fn decode_generated_images(bytes: &[u8]) -> Vec<FrameGeneratedImage> {
@@ -617,15 +585,25 @@ mod tests {
     }
 
     #[test]
-    fn envelope_stamps_pipeline_epoch_in_header() {
-        let bytes = empty_envelope(7, &[]);
+    fn envelope_header_has_no_pipeline_epoch() {
+        let frame = empty_render_frame();
+        let mut scratch = DrawFrameScratch::default();
+        let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();
+
+        // v5 header is only 12 bytes — no pipeline_epoch.
+        assert_eq!(&bytes[0..4], b"OCIR");
+        assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), IR_VERSION);
+        let section_count = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
+        assert!(section_count > 0);
+        // Directory starts at offset 12
+        let _first_id = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
+        // Generated section is empty (zero count)
         let decoded = decode_envelope(&bytes);
-        assert_eq!(decoded.epoch, 7);
-        assert!(decoded.generated.is_empty(), "no delta => empty section 12");
+        assert!(decoded.generated.is_empty(), "no images => empty section 12");
     }
 
     #[test]
-    fn generated_image_delta_round_trips_field_by_field() {
+    fn generated_images_fully_encoded_every_frame() {
         let delta = vec![
             FrameGeneratedImage {
                 id: GeneratedImageId(0x0123_4567_89ab_cdef),
@@ -640,10 +618,17 @@ mod tests {
                 rgba: rgba(0x11, 1, 1),
             },
         ];
-        let bytes = empty_envelope(3, &delta);
+        let frame = RenderFrame {
+            draw: DrawOpFrame::default(),
+            media: FrameMediaPlan {
+                generated_images: delta,
+                ..Default::default()
+            },
+        };
+        let mut scratch = DrawFrameScratch::default();
+        let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();
         let decoded = decode_envelope(&bytes);
 
-        assert_eq!(decoded.epoch, 3);
         assert_eq!(decoded.generated.len(), 2);
         assert_eq!(decoded.generated[0].id, GeneratedImageId(0x0123_4567_89ab_cdef));
         assert_eq!(decoded.generated[0].width, 3);
@@ -657,11 +642,13 @@ mod tests {
 
     #[test]
     fn empty_delta_serializes_as_zero_count_section() {
-        let bytes = empty_envelope(1, &[]);
+        let frame = empty_render_frame();
+        let mut scratch = DrawFrameScratch::default();
+        let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();
         let section_count = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
         let mut section_12 = None;
         for i in 0..section_count {
-            let base = 16 + i * 12;
+            let base = 12 + i * 12;
             let id = u32::from_le_bytes(bytes[base..base + 4].try_into().unwrap());
             if id == section::GENERATED_IMAGES {
                 let offset =
@@ -672,37 +659,64 @@ mod tests {
             }
         }
         let section = section_12.expect("section 12 present");
-        assert_eq!(section.len(), 4, "empty delta is exactly one u32 count");
+        assert_eq!(section.len(), 4, "empty generated is exactly one u32 count");
         assert_eq!(u32::from_le_bytes(section.try_into().unwrap()), 0);
     }
 
     #[test]
-    fn delta_only_carries_newly_published_glyphs() {
+    fn same_glyph_encoded_on_every_frame() {
+        // In v5, every frame carries the full generated-image RGBA — there is no
+        // delta or epoch-based suppression. The same glyph is fully encoded
+        // regardless of whether it appeared on a previous frame.
         let glyph = FrameGeneratedImage {
             id: GeneratedImageId(99),
             width: 2,
             height: 2,
             rgba: rgba(0x55, 2, 2),
         };
-        let frame0 = empty_envelope(1, &[glyph.clone()]);
-        assert_eq!(decode_envelope(&frame0).generated.len(), 1);
-        let frame1 = empty_envelope(1, &[]);
-        assert!(decode_envelope(&frame1).generated.is_empty());
+        let frame = RenderFrame {
+            draw: DrawOpFrame::default(),
+            media: FrameMediaPlan {
+                generated_images: vec![glyph.clone()],
+                ..Default::default()
+            },
+        };
+        let mut scratch = DrawFrameScratch::default();
+        let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();
+        assert_eq!(decode_envelope(&bytes).generated.len(), 1);
+
+        scratch.clear();
+        // Second encoding of the same frame still carries the glyph
+        let bytes2 = encode_ir_envelope(&frame, &mut scratch).unwrap();
+        assert_eq!(
+            decode_envelope(&bytes2).generated.len(),
+            1,
+            "same glyph fully encoded every frame"
+        );
     }
 
     #[test]
-    fn epoch_change_allows_republish_of_same_glyph() {
+    fn generated_image_cache_keyed_by_id_only() {
+        // Since there is no epoch, the same id always carries the same RGBA.
+        // Verify by encoding two identical frames: the OCIR is byte-identical.
         let glyph = FrameGeneratedImage {
             id: GeneratedImageId(7),
             width: 1,
             height: 1,
             rgba: rgba(0xFF, 1, 1),
         };
-        let bytes = empty_envelope(5, &[glyph]);
-        let decoded = decode_envelope(&bytes);
-        assert_eq!(decoded.epoch, 5);
-        assert_eq!(decoded.generated.len(), 1);
-        assert_eq!(decoded.generated[0].id, GeneratedImageId(7));
+        let frame = RenderFrame {
+            draw: DrawOpFrame::default(),
+            media: FrameMediaPlan {
+                generated_images: vec![glyph],
+                ..Default::default()
+            },
+        };
+        let mut scratch = DrawFrameScratch::default();
+        let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();
+        scratch.clear();
+        let bytes2 = encode_ir_envelope(&frame, &mut scratch).unwrap();
+        assert_eq!(bytes, bytes2, "same RenderFrame => byte-identical OCIR");
     }
 
     /// Web host contract (#15): draft requirements' AssetId is the only id used

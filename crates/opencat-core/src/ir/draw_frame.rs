@@ -3,7 +3,7 @@ use super::media_plan::FrameMediaPlan;
 
 /// Typed in-memory render frame consumed by platform executors directly.
 /// Contains all side-table data that DrawOp IDs reference.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct DrawOpFrame {
     pub ops: Vec<DrawOp>,
     pub subtrees: Vec<Vec<DrawOp>>,
@@ -32,7 +32,7 @@ pub struct DrawOpFrame {
 /// `RenderFrame` directly and must not reach into pipeline-internal resource
 /// tables for generated images. Hosts implement fetch, decode, cache, seek,
 /// prefetch, and export independently.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RenderFrame {
     pub draw: DrawOpFrame,
     pub media: FrameMediaPlan,

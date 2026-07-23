@@ -6,6 +6,11 @@ import {
 import {
   SECTION,
   OP,
+  IR_MAGIC,
+  IR_VERSION,
+  PATH_OP_SUB,
+  PATH_OP_F32_WIDTHS,
+  BLEND_MODE,
 } from '../../../../web/src/generated/ocir-schema.generated';
 import type {
   BlendMode,
@@ -35,37 +40,6 @@ import type {
   TextureSource,
   TileMode,
 } from 'canvaskit-wasm';
-
-type BlendModeName =
-  | 'Clear'
-  | 'Src'
-  | 'Dst'
-  | 'SrcOver'
-  | 'DstOver'
-  | 'SrcIn'
-  | 'DstIn'
-  | 'SrcOut'
-  | 'DstOut'
-  | 'SrcATop'
-  | 'DstATop'
-  | 'Xor'
-  | 'Plus'
-  | 'Modulate'
-  | 'Screen'
-  | 'Overlay'
-  | 'Darken'
-  | 'Lighten'
-  | 'ColorDodge'
-  | 'ColorBurn'
-  | 'HardLight'
-  | 'SoftLight'
-  | 'Difference'
-  | 'Exclusion'
-  | 'Multiply'
-  | 'Hue'
-  | 'Saturation'
-  | 'Color'
-  | 'Luminosity';
 
 type CanvasKitEnum =
   | BlendMode
@@ -139,6 +113,16 @@ const OP_DRAW_SUBTREE_PICTURE = OP.DRAW_SUBTREE_PICTURE;
 const OP_LOTTIE_RECT = OP.LOTTIE_RECT;
 
 const NO_PAINT = 0xffff_ffff;
+
+// Derive CanvasKit PascalCase blend-mode names from the generated wire enum so
+// mapBlendMode stays drift-proof against additions to the Rust encoder.
+const BLEND_MODE_NAMES: readonly string[] = (() => {
+  const pascal = (s: string): string =>
+    s.split('_').map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('');
+  return Object.entries(BLEND_MODE)
+    .sort(([, a], [, b]) => a - b)
+    .map(([key]) => pascal(key));
+})();
 
 const lottieCache = new Map<string, ManagedSkottieAnimation>();
 
@@ -782,15 +766,15 @@ function decodeFrame(bytes: Uint8Array): DecodedFrame {
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (
-    bytes[0] !== 0x4f ||
-    bytes[1] !== 0x43 ||
-    bytes[2] !== 0x49 ||
-    bytes[3] !== 0x52
+    bytes[0] !== IR_MAGIC[0] ||
+    bytes[1] !== IR_MAGIC[1] ||
+    bytes[2] !== IR_MAGIC[2] ||
+    bytes[3] !== IR_MAGIC[3]
   ) {
     throw new Error('Invalid OpenCat IR magic');
   }
   const version = view.getUint32(4, true);
-  if (version !== 5) throw new Error(`Unsupported OpenCat IR version ${version}`);
+  if (version !== IR_VERSION) throw new Error(`Unsupported OpenCat IR version ${version}`);
 
   // v5+ (issue #45): header is 12 bytes (magic + version + section_count).
   // No pipeline_epoch — OCIR is self-contained. A fresh decoder can
@@ -1039,8 +1023,7 @@ function parsePaths(bytes: Uint8Array): PathSpec[] {
     const ops: PathCommand[] = [];
     for (let j = 0; j < opCount; j++) {
       const kind = r.u16();
-      const widths = [2, 2, 4, 6, 0, 4, 5, 4, 6];
-      ops.push({ kind, values: r.f32Array(widths[kind] ?? 0) });
+      ops.push({ kind, values: r.f32Array(PATH_OP_F32_WIDTHS[kind] ?? 0) });
     }
     out.push({ fillType, ops });
   }
@@ -1266,38 +1249,38 @@ function buildPathById(CK: CanvasKit, frame: DecodedFrame, id: number): Path {
 
 function applyPathPayload(CK: CanvasKit, builder: PathBuilder, payload: Payload): void {
   const kind = payload.u16();
-  const width = [2, 2, 4, 6, 0, 4, 5, 4, 6][kind] ?? 0;
+  const width = PATH_OP_F32_WIDTHS[kind] ?? 0;
   applyPathCommand(CK, builder, { kind, values: payload.f32Array(width) });
 }
 
 function applyPathCommand(CK: CanvasKit, builder: PathBuilder, op: PathCommand): void {
   const v = op.values;
   switch (op.kind) {
-    case 0:
+    case PATH_OP_SUB.MOVE_TO:
       builder.moveTo(v[0], v[1]);
       break;
-    case 1:
+    case PATH_OP_SUB.LINE_TO:
       builder.lineTo(v[0], v[1]);
       break;
-    case 2:
+    case PATH_OP_SUB.QUAD_TO:
       builder.quadTo(v[0], v[1], v[2], v[3]);
       break;
-    case 3:
+    case PATH_OP_SUB.CUBIC_TO:
       builder.cubicTo(v[0], v[1], v[2], v[3], v[4], v[5]);
       break;
-    case 4:
+    case PATH_OP_SUB.CLOSE:
       builder.close();
       break;
-    case 5:
+    case PATH_OP_SUB.ADD_RECT:
       builder.addRect(CK.XYWHRect(v[0], v[1], v[2], v[3]));
       break;
-    case 6:
+    case PATH_OP_SUB.ADD_RRECT:
       builder.addRRect(CK.RRectXY(CK.XYWHRect(v[0], v[1], v[2], v[3]), v[4], v[4]));
       break;
-    case 7:
+    case PATH_OP_SUB.ADD_OVAL:
       builder.addOval(CK.XYWHRect(v[0], v[1], v[2], v[3]));
       break;
-    case 8:
+    case PATH_OP_SUB.ADD_ARC:
       builder.addArc(CK.XYWHRect(v[0], v[1], v[2], v[3]), v[4], v[5]);
       break;
     default:
@@ -1529,8 +1512,7 @@ function mapPaintStyle(CK: CanvasKit, value: number): CanvasKitEnum {
 }
 
 function mapBlendMode(CK: CanvasKit, value: number): CanvasKitEnum {
-  const names: BlendModeName[] = ['Clear', 'Src', 'Dst', 'SrcOver', 'DstOver', 'SrcIn', 'DstIn', 'SrcOut', 'DstOut', 'SrcATop', 'DstATop', 'Xor', 'Plus', 'Modulate', 'Screen', 'Overlay', 'Darken', 'Lighten', 'ColorDodge', 'ColorBurn', 'HardLight', 'SoftLight', 'Difference', 'Exclusion', 'Multiply', 'Hue', 'Saturation', 'Color', 'Luminosity'];
-  return CK.BlendMode[names[value] ?? 'SrcOver'];
+  return CK.BlendMode[BLEND_MODE_NAMES[value] ?? 'SrcOver'] as CanvasKitEnum;
 }
 
 function mapStrokeCap(CK: CanvasKit, value: number): CanvasKitEnum {

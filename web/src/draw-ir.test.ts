@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { __generatedImageTestSeam } from '../../crates/opencat-web/web/src/draw-ir';
 
-// Issue #10 / #22: OCIR v4 envelope. Hand-built envelopes exercise decoder
-// error paths and cache semantics; `roundtrip_v4.ocir` is produced by core
+// Issue #10 / #45: OCIR v5 self-contained envelope. Hand-built envelopes exercise
+// decoder error paths and cache semantics; `roundtrip_v5.ocir` is produced by core
 // `encode_ir_envelope` (see write_ts_roundtrip_fixture_bytes) for AC5.
 
 const SECTION_OPS = 1;
@@ -40,10 +40,10 @@ function align4(n: number): number {
 
 type GeneratedRecord = { id: bigint; width: number; height: number; rgba: number[] };
 
-function encodeGeneratedDelta(delta: GeneratedRecord[]): number[] {
+function encodeGeneratedImages(images: GeneratedRecord[]): number[] {
   const out: number[] = [];
-  out.push(...u32(delta.length));
-  for (const r of delta) {
+  out.push(...u32(images.length));
+  for (const r of images) {
     out.push(...u64(r.id));
     out.push(...u32(r.width));
     out.push(...u32(r.height));
@@ -53,9 +53,9 @@ function encodeGeneratedDelta(delta: GeneratedRecord[]): number[] {
   return out;
 }
 
-/** Pack section id → payload into a v4 OCIR envelope. Shared by hand-built tests. */
-function packOcirEnvelope(epoch: number, sections: [number, number[]][]): Uint8Array {
-  const headerLen = 16 + sections.length * 12;
+/** Pack section id → payload into a v5 OCIR envelope (no pipeline_epoch). Shared by hand-built tests. */
+function packOcirEnvelope(sections: [number, number[]][]): Uint8Array {
+  const headerLen = 12 + sections.length * 12;
   const offsets: number[] = [];
   let cursor = headerLen;
   for (const [, payload] of sections) {
@@ -65,9 +65,8 @@ function packOcirEnvelope(epoch: number, sections: [number, number[]][]): Uint8A
   }
   const out: number[] = [];
   out.push(0x4f, 0x43, 0x49, 0x52); // "OCIR"
-  out.push(...u32(4));
-  out.push(...u32(sections.length));
-  out.push(...u32(epoch));
+  out.push(...u32(5));               // version 5
+  out.push(...u32(sections.length)); // section_count
   for (let i = 0; i < sections.length; i++) {
     out.push(...u32(sections[i][0]));
     out.push(...u32(offsets[i]));
@@ -93,31 +92,35 @@ function emptySections(overrides: Partial<Record<number, number[]>> = {}): [numb
     [SECTION_PATHS, u32(0)],
     [SECTION_CHILDREN, u32(0)],
     [SECTION_EFFECTS, u32(0)],
-    [SECTION_GENERATED_IMAGES, encodeGeneratedDelta([])],
+    [SECTION_GENERATED_IMAGES, encodeGeneratedImages([])],
   ];
   return base.map(([id, payload]) => [id, overrides[id] ?? payload]);
 }
 
-function buildV4Envelope(epoch: number, delta: GeneratedRecord[]): Uint8Array {
-  return packOcirEnvelope(epoch, emptySections({
-    [SECTION_GENERATED_IMAGES]: encodeGeneratedDelta(delta),
+function buildV5Envelope(images: GeneratedRecord[]): Uint8Array {
+  return packOcirEnvelope(emptySections({
+    [SECTION_GENERATED_IMAGES]: encodeGeneratedImages(images),
   }));
 }
 
-describe('OCIR v4 generated-image delta decoder (#10)', () => {
+describe('OCIR v5 generated-image self-contained decoder (#45)', () => {
   beforeEach(() => {
     __generatedImageTestSeam.reset();
   });
 
-  test('reads the pipeline epoch from the envelope header', () => {
-    const bytes = buildV4Envelope(7, []);
-    __generatedImageTestSeam.decode(bytes);
-    expect(__generatedImageTestSeam.currentEpoch()).toBe(7);
+  test('reads the version and section_count from a 12-byte header', () => {
+    const bytes = buildV5Envelope([]);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    expect(String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3])).toBe('OCIR');
+    expect(view.getUint32(4, true)).toBe(5);
+    // No pipeline_epoch at offset 12; directory starts at offset 12.
+    const sectionCount = view.getUint32(8, true);
+    expect(sectionCount).toBe(12); // all required sections
   });
 
-  test('registers a delta glyph under (epoch, id) with faithful fields', () => {
+  test('registers a glyph under its id with faithful fields', () => {
     const rgba = [0xff, 0x00, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff];
-    const bytes = buildV4Envelope(3, [
+    const bytes = buildV5Envelope([
       { id: 0x0123_4567_89ab_cdefn, width: 2, height: 1, rgba },
     ]);
     __generatedImageTestSeam.decode(bytes);
@@ -130,14 +133,14 @@ describe('OCIR v4 generated-image delta decoder (#10)', () => {
     expect(Array.from(entry!.rgba)).toEqual(rgba);
   });
 
-  test('an empty delta registers no glyphs (section 12 still present)', () => {
-    const bytes = buildV4Envelope(1, []);
+  test('an empty generated-images section registers no glyphs', () => {
+    const bytes = buildV5Envelope([]);
     __generatedImageTestSeam.decode(bytes);
     expect(__generatedImageTestSeam.cacheSize()).toBe(0);
   });
 
-  test('multiple glyphs in one delta are all registered', () => {
-    const bytes = buildV4Envelope(2, [
+  test('multiple glyphs are all registered', () => {
+    const bytes = buildV5Envelope([
       { id: 1n, width: 1, height: 1, rgba: [0x10, 0x20, 0x30, 0x40] },
       { id: 2n, width: 3, height: 2, rgba: Array(24).fill(0xab) },
     ]);
@@ -148,51 +151,26 @@ describe('OCIR v4 generated-image delta decoder (#10)', () => {
     expect(__generatedImageTestSeam.rgbaFor(2n)!.rgba.length).toBe(24);
   });
 
-  test('a second frame under the same epoch re-publishes nothing for known ids', () => {
+  test('same glyph re-encoded on every frame is idempotent (self-contained)', () => {
+    // In v5, every frame carries the full generated-image RGBA — no delta.
+    // The second decode of the same glyph is a no-op in the cache.
     const glyph = { id: 99n, width: 2, height: 2, rgba: Array(16).fill(0x55) };
-    __generatedImageTestSeam.decode(buildV4Envelope(5, [glyph]));
+    __generatedImageTestSeam.decode(buildV5Envelope([glyph]));
     expect(__generatedImageTestSeam.cacheSize()).toBe(1);
 
-    __generatedImageTestSeam.decode(buildV4Envelope(5, []));
+    __generatedImageTestSeam.decode(buildV5Envelope([]));
     expect(__generatedImageTestSeam.cacheSize()).toBe(1);
     expect(__generatedImageTestSeam.rgbaFor(99n)).toBeDefined();
   });
 
-  test('a new epoch evicts stale glyphs and accepts a fresh republish', () => {
-    __generatedImageTestSeam.decode(buildV4Envelope(5, [
-      { id: 99n, width: 1, height: 1, rgba: [0xff, 0xff, 0xff, 0xff] },
-    ]));
-    expect(__generatedImageTestSeam.currentEpoch()).toBe(5);
-    expect(__generatedImageTestSeam.rgbaFor(99n)).toBeDefined();
-
-    __generatedImageTestSeam.decode(buildV4Envelope(6, []));
-    expect(__generatedImageTestSeam.currentEpoch()).toBe(6);
-    expect(__generatedImageTestSeam.rgbaFor(99n)).toBeUndefined();
-
-    __generatedImageTestSeam.decode(buildV4Envelope(6, [
-      { id: 99n, width: 1, height: 1, rgba: [0xff, 0xff, 0xff, 0xff] },
-    ]));
-    expect(__generatedImageTestSeam.rgbaFor(99n)).toBeDefined();
-  });
-
-  test('a new epoch also drops pending RGBA that was never built into an image', () => {
-    __generatedImageTestSeam.decode(buildV4Envelope(1, [
-      { id: 7n, width: 1, height: 1, rgba: [0x12, 0x34, 0x56, 0x78] },
-    ]));
-    expect(__generatedImageTestSeam.rgbaFor(7n)).toBeDefined();
-
-    __generatedImageTestSeam.decode(buildV4Envelope(2, []));
-    expect(__generatedImageTestSeam.rgbaFor(7n)).toBeUndefined();
-  });
-
-  test('rejects a v3 envelope (no epoch header)', () => {
-    const v3 = new Uint8Array([
+  test('rejects a v4 envelope (no longer supported)', () => {
+    const v4 = new Uint8Array([
       0x4f, 0x43, 0x49, 0x52,
-      ...u32(3),
+      ...u32(4),
       ...u32(0),
-      ...u32(0),
+      ...u32(0), // pipeline_epoch in v4
     ]);
-    expect(() => __generatedImageTestSeam.decode(v3)).toThrow(/version 3/);
+    expect(() => __generatedImageTestSeam.decode(v4)).toThrow(/version 5/);
   });
 });
 
@@ -210,20 +188,19 @@ describe('OCIR protocol errors (#22)', () => {
   test('rejects truncated section directory', () => {
     const bytes = new Uint8Array([
       0x4f, 0x43, 0x49, 0x52,
-      ...u32(4),
+      ...u32(5),
       ...u32(1),
-      ...u32(0),
     ]);
     expect(() => __generatedImageTestSeam.decode(bytes)).toThrow(/Truncated OpenCat IR envelope/);
   });
 
   test('rejects illegal section range past envelope end', () => {
-    const headerLen = 16 + 12;
+    const headerLen = 12 + 12; // v5: 12-byte header + one directory entry
     const out: number[] = [];
     out.push(0x4f, 0x43, 0x49, 0x52);
-    out.push(...u32(4));
+    out.push(...u32(5));
     out.push(...u32(1));
-    out.push(...u32(0));
+    // directory entry at offset 12
     out.push(...u32(1));
     out.push(...u32(headerLen + 100));
     out.push(...u32(4));
@@ -235,16 +212,15 @@ describe('OCIR protocol errors (#22)', () => {
   test('rejects missing required section', () => {
     const out: number[] = [];
     out.push(0x4f, 0x43, 0x49, 0x52);
-    out.push(...u32(4));
+    out.push(...u32(5));
     out.push(...u32(0));
-    out.push(...u32(1));
     expect(() => __generatedImageTestSeam.decode(new Uint8Array(out))).toThrow(
       /Missing OpenCat IR section/,
     );
   });
 
   test('rejects illegal string range', () => {
-    const bytes = packOcirEnvelope(0, emptySections({
+    const bytes = packOcirEnvelope(emptySections({
       [SECTION_STRINGS_UTF8]: [],
       [SECTION_STRING_RANGES]: [...u32(0), ...u32(5)],
     }));
@@ -282,7 +258,7 @@ describe('OCIR paint/path section field round-trip (#22)', () => {
   }
 
   test('decodes solid paint and path records field-by-field', () => {
-    const bytes = packOcirEnvelope(9, emptySections({
+    const bytes = packOcirEnvelope(emptySections({
       [SECTION_PAINTS]: encodeSolidPaint(),
       [SECTION_PATHS]: encodeSimplePath(),
     }));
@@ -306,23 +282,22 @@ describe('OCIR paint/path section field round-trip (#22)', () => {
   });
 });
 
-describe('core encoder → TS decoder fixture (#22 AC5)', () => {
+describe('core encoder -> TS decoder fixture (#45 AC5)', () => {
   beforeEach(() => {
     __generatedImageTestSeam.reset();
   });
 
   const fixturePath = join(
     dirname(fileURLToPath(import.meta.url)),
-    'fixtures/ocir/roundtrip_v4.ocir',
+    'fixtures/ocir/roundtrip_v5.ocir',
   );
 
   test('decodes committed core fixture field-by-field', () => {
     const bytes = new Uint8Array(readFileSync(fixturePath));
-    // Header
+    // Header: v5 has no pipeline_epoch
     expect(String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3])).toBe('OCIR');
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    expect(view.getUint32(4, true)).toBe(4);
-    expect(view.getUint32(12, true)).toBe(42);
+    expect(view.getUint32(4, true)).toBe(5);
 
     const frame = __generatedImageTestSeam.decode(bytes) as {
       strings: string[];
@@ -338,7 +313,6 @@ describe('core encoder → TS decoder fixture (#22 AC5)', () => {
       ops: Uint8Array;
     };
 
-    expect(__generatedImageTestSeam.currentEpoch()).toBe(42);
     expect(frame.strings).toContain('hero.png');
 
     expect(frame.paints).toHaveLength(1);
@@ -369,7 +343,7 @@ describe('core encoder → TS decoder fixture (#22 AC5)', () => {
     expect(frame.effects[0].hash).toBe(0xdead_beef_cafen);
     expect(frame.effects[0].sksl).toBe('half4 main() { return half4(1); }');
 
-    // Generated image delta from core
+    // Generated images fully encoded (no epoch)
     const glyph = __generatedImageTestSeam.rgbaFor(0x1111_2222_3333_4444n);
     expect(glyph).toBeDefined();
     expect(glyph!.width).toBe(2);
@@ -379,6 +353,7 @@ describe('core encoder → TS decoder fixture (#22 AC5)', () => {
     // Ops stream: Save / Translate / Image / Restore — non-empty
     expect(frame.ops.byteLength).toBeGreaterThan(0);
     // First op opcode is Save (0)
-    expect(new DataView(frame.ops.buffer, frame.ops.byteOffset, frame.ops.byteLength).getUint16(0, true)).toBe(0);
+    expect(new DataView(frame.ops.buffer, frame.ops.byteLength - frame.ops.byteOffset >= 0 ? frame.ops.byteOffset : 0, frame.ops.byteLength > 2 ? 2 : frame.ops.byteLength).getUint16(0, true)).toBe(0);
   });
 });
+

@@ -170,7 +170,7 @@ describe('OCIR v5 generated-image self-contained decoder (#45)', () => {
       ...u32(0),
       ...u32(0), // pipeline_epoch in v4
     ]);
-    expect(() => __generatedImageTestSeam.decode(v4)).toThrow(/version 5/);
+    expect(() => __generatedImageTestSeam.decode(v4)).toThrow(/Unsupported OpenCat IR version/);
   });
 });
 
@@ -352,8 +352,8 @@ describe('core encoder -> TS decoder fixture (#45 AC5)', () => {
 
     // Ops stream: Save / Translate / Image / Restore — non-empty
     expect(frame.ops.byteLength).toBeGreaterThan(0);
-    // First op opcode is Save (0)
-    expect(new DataView(frame.ops.buffer, frame.ops.byteLength - frame.ops.byteOffset >= 0 ? frame.ops.byteOffset : 0, frame.ops.byteLength > 2 ? 2 : frame.ops.byteLength).getUint16(0, true)).toBe(0);
+    // First op opcode is Save (0) — read as u16 LE from the ops section itself
+    expect(new DataView(frame.ops.buffer, frame.ops.byteOffset, 2).getUint16(0, true)).toBe(0);
   });
 });
 

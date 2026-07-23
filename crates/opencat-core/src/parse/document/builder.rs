@@ -18,7 +18,7 @@ use crate::parse::document::{
     CanvasChildrenMode, DeclaredScript, ParsedComposition, ParsedDocumentParts, ParsedElement,
     ParsedElementKind, ParsedTransition,
 };
-use crate::resource::fonts::{FontFamilyIndex, merge_faces_into_db};
+use crate::fonts::{FontFamilyIndex, merge_faces_into_db};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BuildOptions {
@@ -235,7 +235,7 @@ pub fn build_parsed_document(
 /// Build fontdb + family index from manifest bytes merged into `base_db`.
 pub fn build_font_resources(
     base_db: fontdb::Database,
-    manifest: &crate::resource::fonts::FontManifest,
+    manifest: &crate::fonts::FontManifest,
     bytes_by_id: &std::collections::HashMap<String, Vec<u8>>,
 ) -> anyhow::Result<(fontdb::Database, FontFamilyIndex)> {
     merge_faces_into_db(base_db, manifest, bytes_by_id).map_err(|e| anyhow::anyhow!("{e}"))

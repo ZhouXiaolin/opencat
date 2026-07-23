@@ -39,7 +39,7 @@ impl VideoFrameRequest {
         }
     }
 
-    pub fn resolve_time_secs(self, info: &opencat_core::resource::catalog::VideoInfoMeta) -> f64 {
+    pub fn resolve_time_secs(self, info: &opencat_core::probe::catalog::VideoInfoMeta) -> f64 {
         self.timeline_request().resolve_time_secs(info)
     }
 
@@ -48,7 +48,7 @@ impl VideoFrameRequest {
     }
 }
 
-impl From<&VideoInfo> for opencat_core::resource::catalog::VideoInfoMeta {
+impl From<&VideoInfo> for opencat_core::probe::catalog::VideoInfoMeta {
     fn from(v: &VideoInfo) -> Self {
         Self {
             width: v.width,
@@ -137,7 +137,7 @@ impl MediaContext {
         request: VideoFrameRequest,
     ) -> Result<(Arc<Vec<u8>>, u32, u32, bool)> {
         let info = self.video_info(path)?;
-        let meta: opencat_core::resource::catalog::VideoInfoMeta = (&info).into();
+        let meta: opencat_core::probe::catalog::VideoInfoMeta = (&info).into();
         let target_time_secs = request.resolve_time_secs(&meta);
         let scale_target = quantize_target_size(request.target_size, &info);
         let (out_w, out_h) = scale_target.unwrap_or((info.width, info.height));

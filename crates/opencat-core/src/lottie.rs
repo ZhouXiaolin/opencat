@@ -3,7 +3,7 @@
 //! Per issue #40: Lottie JSON parsing has moved to hosts. Core retains only
 //! the metadata struct and the purely-derived `resolve_lottie_frame` mapping.
 
-use crate::resource::catalog::VideoInfoMeta;
+use crate::probe::catalog::VideoInfoMeta;
 
 /// Intrinsic timing/size and external dependency names from a Bodymovin root.
 ///

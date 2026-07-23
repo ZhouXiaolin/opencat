@@ -36,9 +36,14 @@ pub struct ResourceRequest {
 
 /// Host-supplied inputs for prepare: resource metadata, optional subtitle text,
 /// base font database, document font bytes, and external script texts. Building
-/// inputs is fallible for duplicates; prepare is fallible for missing/undeclared
+/// inputs is fallible for duplicates; prepare is fallible for missing/absent/undeclared
 /// entries.
 ///
+/// - Hosts call `insert_*` to supply metadata for a declared requirement, or
+///   [`mark_absent`](HostInputs::mark_absent) to explicitly confirm a resource
+///   is unavailable with a structured reason (issue #62). Core distinguishes
+///   "host has not responded" ([`PrepareError::MissingInput`]) from "host
+///   confirmed gone" ([`PrepareError::AbsentInput`]).
 /// - `font_db` is the host base database (defaults / system faces). Core never
 ///   fetches fonts; it only merges declared document faces over this base.
 /// - Document font bytes are keyed by the canonical font [`AssetId`] from
@@ -62,6 +67,11 @@ pub struct HostInputs {
     /// Declared external script source texts, keyed by stable script AssetId.
     pub(super) script_texts: HashMap<AssetId, String>,
     pub(super) supplied: HashSet<AssetId>,
+    /// Assets the host explicitly confirmed as absent with a structured
+    /// reason string (e.g. "not found", "access denied", "timeout"). Core
+    /// distinguishes this from [`PrepareError::MissingInput`] — a host that
+    /// has not responded at all.
+    pub(super) confirmed_absent: HashMap<AssetId, String>,
 }
 
 /// Prepared composition: validated host metadata applied, captions hydrated,
@@ -76,7 +86,13 @@ pub struct PreparedComposition {
 /// Structured prepare / host-input failures. Hosts map these to their own error
 /// surface.
 ///
-/// - [`MissingInput`] / [`UndeclaredInput`] are raised by [`super::prepare`].
+/// - [`MissingInput`] / [`AbsentInput`] / [`UndeclaredInput`] are raised by
+///   [`super::prepare`].
+/// - `MissingInput` means the host has not supplied a declared requirement.
+/// - `AbsentInput` (issue #62) means the host explicitly confirmed the resource
+///   is unavailable via [`HostInputs::mark_absent`], carrying a structured reason.
+///   This is distinguishable from `MissingInput` — "host hasn't responded yet"
+///   vs "host confirmed gone."
 /// - [`DuplicateInput`] is raised when building [`HostInputs`] via `insert_*`
 ///   (the only public way to supply resource metadata), so prepare never sees a
 ///   second entry for the same id.
@@ -92,6 +108,13 @@ pub enum PrepareError {
     MissingInput {
         asset_id: AssetId,
         kind: ResourceKind,
+    },
+    /// Host explicitly confirmed the resource is absent with a structured reason.
+    /// Distinguishable from [`MissingInput`] (host has not responded at all).
+    AbsentInput {
+        asset_id: AssetId,
+        kind: ResourceKind,
+        reason: String,
     },
     /// The host supplied the same asset id more than once.
     DuplicateInput { asset_id: AssetId },
@@ -115,6 +138,17 @@ impl std::fmt::Display for PrepareError {
                 write!(
                     f,
                     "prepare missing host input for {kind:?} asset `{}`",
+                    asset_id.key
+                )
+            }
+            Self::AbsentInput {
+                asset_id,
+                kind,
+                reason,
+            } => {
+                write!(
+                    f,
+                    "prepare absent host input for {kind:?} asset `{}`: {reason}",
                     asset_id.key
                 )
             }

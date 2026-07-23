@@ -118,7 +118,14 @@ impl GeneratedImageTable {
                 rgba_mismatch: dims_match,
             });
         }
-        self.entries.insert(id, GeneratedImageEntry { width, height, rgba });
+        self.entries.insert(
+            id,
+            GeneratedImageEntry {
+                width,
+                height,
+                rgba,
+            },
+        );
         Ok(())
     }
 }
@@ -186,7 +193,9 @@ mod tests {
         let mut table = GeneratedImageTable::new();
         let id = GeneratedImageId(7);
         table.insert(id, 2, 2, rgba(1, 2, 2)).expect("first insert");
-        table.insert(id, 2, 2, rgba(1, 2, 2)).expect("idempotent reinsert");
+        table
+            .insert(id, 2, 2, rgba(1, 2, 2))
+            .expect("idempotent reinsert");
         assert_eq!(table.len(), 1);
     }
 
@@ -219,7 +228,10 @@ mod tests {
         let collision = err
             .downcast_ref::<GeneratedImageCollision>()
             .expect("collision error type");
-        assert!(!collision.rgba_mismatch, "dimension mismatch is not an rgba mismatch");
+        assert!(
+            !collision.rgba_mismatch,
+            "dimension mismatch is not an rgba mismatch"
+        );
         assert_eq!(collision.existing_width, 2);
         assert_eq!(collision.new_width, 4);
     }
@@ -239,7 +251,9 @@ mod tests {
     #[test]
     fn distinct_ids_coexist() {
         let mut table = GeneratedImageTable::new();
-        table.insert(GeneratedImageId(1), 2, 2, rgba(1, 2, 2)).expect("a");
+        table
+            .insert(GeneratedImageId(1), 2, 2, rgba(1, 2, 2))
+            .expect("a");
         table
             .insert(GeneratedImageId(2), 3, 3, rgba(2, 3, 3))
             .expect("b");

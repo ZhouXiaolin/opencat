@@ -5,7 +5,7 @@
 //! is owned by core via [`VideoFrameRequest::resolve_time_micros`].
 
 use crate::probe::catalog::VideoInfoMeta;
-use crate::time::{secs_to_micros, timestamp_micros_to_secs, DurationMicros, TimestampMicros};
+use crate::time::{DurationMicros, TimestampMicros, secs_to_micros, timestamp_micros_to_secs};
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -247,10 +247,7 @@ mod tests {
             composition_time_secs: 100.0,
             timing: VideoFrameTiming::default(),
         };
-        assert_eq!(
-            request.resolve_time_micros(&info(Some(1.5))).0,
-            1_500_000
-        );
+        assert_eq!(request.resolve_time_micros(&info(Some(1.5))).0, 1_500_000);
     }
 
     #[test]

@@ -852,4 +852,64 @@ mod tests {
         );
     }
 
+    // --- absent contract (#62) --------------------------------------------------
+
+    #[test]
+    fn absent_input_surfaces_as_pipeline_open_error_at_web_level() {
+        use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
+
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
+
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        let mut inputs = HostInputs::empty();
+        inputs.mark_absent(id, "web-level not found").unwrap();
+        let err = draft
+            .prepare(inputs)
+            .expect_err("absent must fail at web level");
+        assert!(
+            matches!(err, PrepareError::AbsentInput { kind: ResourceKind::Image, .. }),
+            "expected AbsentInput for web-level absent, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn absent_input_reason_preserved_through_web_boundary() {
+        use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError};
+
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
+
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        let mut inputs = HostInputs::empty();
+        inputs.mark_absent(id, "web-level reason").unwrap();
+        let err = draft.prepare(inputs).expect_err("absent must fail");
+        match err {
+            PrepareError::AbsentInput { reason, .. } => {
+                assert_eq!(reason, "web-level reason");
+            }
+            other => panic!("expected AbsentInput with reason, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn missing_input_still_distinct_from_absent_at_web_level() {
+        use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
+
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
+
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let inputs = HostInputs::empty();
+        let err = draft.prepare(inputs).expect_err("missing must fail");
+        assert!(
+            matches!(err, PrepareError::MissingInput { kind: ResourceKind::Image, .. }),
+            "unresponsive host must still get MissingInput; got {err:?}"
+        );
+    }
 }

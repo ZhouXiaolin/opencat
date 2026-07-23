@@ -104,16 +104,11 @@ pub use crate::parse::primitives::parse_srt;
 mod tests {
     use super::*;
     use crate::ir::asset_id::AssetId;
-    use crate::parse::primitives::{
-        SrtEntry, SubtitleSource, caption, div, video,
-    };
+    use crate::parse::primitives::{SrtEntry, SubtitleSource, caption, div, video};
     use std::collections::HashMap;
 
     fn caption_in_div() -> crate::parse::node::Node {
-        let cap: crate::parse::node::Node = caption()
-            .id("subs")
-            .path("/tmp/sub.srt")
-            .into();
+        let cap: crate::parse::node::Node = caption().id("subs").path("/tmp/sub.srt").into();
         div().id("root").child(cap).into()
     }
 
@@ -122,10 +117,7 @@ mod tests {
         let root = caption_in_div();
         let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into()));
         let mut srt = HashMap::new();
-        srt.insert(
-            id,
-            "1\n00:00:00,000 --> 00:00:01,000\nHello\n".to_string(),
-        );
+        srt.insert(id, "1\n00:00:00,000 --> 00:00:01,000\nHello\n".to_string());
 
         let (root, count) = hydrate_captions(root, 30, &srt).unwrap();
         assert_eq!(count, 1, "one caption node should be hydrated");
@@ -204,10 +196,7 @@ mod tests {
 
         let id = asset_id_for_subtitle(&SubtitleSource::Path("/tmp/sub.srt".into()));
         let mut srt = HashMap::new();
-        srt.insert(
-            id,
-            "1\n00:00:00,000 --> 00:00:01,000\nHi\n".to_string(),
-        );
+        srt.insert(id, "1\n00:00:00,000 --> 00:00:01,000\nHi\n".to_string());
 
         let (root, count) = hydrate_captions(root, 30, &srt).unwrap();
         assert_eq!(count, 1);
@@ -229,9 +218,7 @@ mod tests {
 
     #[test]
     fn font_database_is_built_from_host_bytes_core_owns_shaping() {
-        use crate::fonts::{
-            FontFaceDecl, FontManifest, FontRole, FontSource, load_faces_into_db,
-        };
+        use crate::fonts::{FontFaceDecl, FontManifest, FontRole, FontSource, load_faces_into_db};
         let bytes = include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec();
         let mut map = HashMap::new();
         map.insert("sans".to_string(), bytes);

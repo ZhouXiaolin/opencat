@@ -34,10 +34,7 @@ pub fn duration_secs_to_frames(duration_secs: f64, fps: u32) -> u32 {
     duration_secs_to_frame_count(duration_secs, RationalFrameRate::integer(fps)).0
 }
 
-pub fn duration_secs_to_frame_count(
-    duration_secs: f64,
-    rate: RationalFrameRate,
-) -> FrameCount {
+pub fn duration_secs_to_frame_count(duration_secs: f64, rate: RationalFrameRate) -> FrameCount {
     if !duration_secs.is_finite() || duration_secs <= 0.0 {
         return FrameCount(0);
     }
@@ -67,10 +64,7 @@ pub fn frames_to_timestamp_micros(frame: FrameIndex, rate: RationalFrameRate) ->
 
 /// Timestamp → nearest frame index at the given rate (for diagnostics only;
 /// host video decode must use [`TimestampMicros`], never a guessed source frame).
-pub fn timestamp_micros_to_frame(
-    time: TimestampMicros,
-    rate: RationalFrameRate,
-) -> FrameIndex {
+pub fn timestamp_micros_to_frame(time: TimestampMicros, rate: RationalFrameRate) -> FrameIndex {
     let secs = timestamp_micros_to_secs(time.0);
     let frame = (secs * rate.as_f64()).round().clamp(0.0, u32::MAX as f64) as u32;
     FrameIndex(frame)

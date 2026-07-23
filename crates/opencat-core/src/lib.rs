@@ -33,12 +33,7 @@ pub use self::lifecycle::{
     ResourceRequest,
 };
 pub use self::media::{
-    collect_audio_plan, AudioPlan, AudioSegment, VideoFrameRequest, VideoFrameTiming,
-};
-pub use self::time::{
-    DurationMicros, DurationRange, FrameCount, FrameIndex, RationalFrameRate, TimestampMicros,
-    duration_secs_to_frames, frames_to_duration_secs, frames_to_timestamp_micros, secs_to_micros,
-    timestamp_micros_to_frame, timestamp_micros_to_secs,
+    AudioPlan, AudioSegment, VideoFrameRequest, VideoFrameTiming, collect_audio_plan,
 };
 pub use self::parse::node::Node;
 pub use self::parse::preflight::{
@@ -47,8 +42,7 @@ pub use self::parse::preflight::{
 pub use self::parse::{ParsedComposition, markup, parse};
 pub use self::pipeline::{DefaultPipeline, FrameElementRect, Pipeline};
 pub use self::probe::{
-    AudioSource, ImageMeta, ImageSource, PreparedResourceCatalog, VideoInfoMeta,
-    hydrate_captions,
+    AudioSource, ImageMeta, ImageSource, PreparedResourceCatalog, VideoInfoMeta, hydrate_captions,
 };
 pub use self::script::{
     PrecomputedScriptHost, ScriptDriver, ScriptDriverId, ScriptHost, ScriptRealm,
@@ -56,4 +50,9 @@ pub use self::script::{
 };
 pub use self::text::{
     DefaultFontProvider, FontProvider, empty_font_db, extend_font_db, font_db_from_bytes,
+};
+pub use self::time::{
+    DurationMicros, DurationRange, FrameCount, FrameIndex, RationalFrameRate, TimestampMicros,
+    duration_secs_to_frames, frames_to_duration_secs, frames_to_timestamp_micros, secs_to_micros,
+    timestamp_micros_to_frame, timestamp_micros_to_secs,
 };

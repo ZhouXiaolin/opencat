@@ -179,13 +179,13 @@ pub(crate) fn extract_raw_script(input: &str) -> anyhow::Result<ExtractedMarkup>
 
 use std::{collections::HashMap, path::PathBuf};
 
+use crate::fonts::{FontFaceDecl, FontManifest, FontRole, FontSource};
 use crate::media::VideoFrameTiming;
 use crate::parse::document::{
     BuildOptions, CanvasChildrenMode, ParsedAudioElement, ParsedComposition, ParsedDocumentParts,
     ParsedElement, ParsedElementKind, ParsedTransition, build_parsed_document,
 };
 use crate::parse::primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource};
-use crate::fonts::{FontFaceDecl, FontManifest, FontRole, FontSource};
 
 pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     parse_with_base_dir(input, None)
@@ -1956,10 +1956,7 @@ mod tests {
             panic!("child should be video");
         };
 
-        assert_eq!(
-            video.source(),
-            &VideoSource::Path("clip.mp4".into())
-        );
+        assert_eq!(video.source(), &VideoSource::Path("clip.mp4".into()));
         assert_eq!(
             video.timing(),
             VideoFrameTiming {

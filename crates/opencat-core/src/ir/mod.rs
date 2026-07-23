@@ -17,9 +17,9 @@ pub use generated_image::{
 };
 pub use media_plan::{FrameGeneratedImage, FrameMediaPlan};
 
+pub use draw_encoding::section as ir_section;
 /// Host-facing wire entry points. Encoder intermediates stay on `draw_encoding`
 /// (crate-visible for tests) and are not re-exported at the `ir` surface.
 pub use draw_encoding::{
-    encode_ir_envelope, intern_image_strings, EncodeError, IR_MAGIC, IR_VERSION,
+    EncodeError, IR_MAGIC, IR_VERSION, encode_ir_envelope, intern_image_strings,
 };
-pub use draw_encoding::section as ir_section;

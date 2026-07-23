@@ -405,9 +405,11 @@ async function renderFrameWithPipeline(
   const CK = (globalThis as CanvasKitGlobal).__canvasKit;
   if (!CK) throw new Error('CanvasKit is not initialized');
 
+  // One-shot ABI: build_frame_ir returns both OCIR and media plan.
+  const { ir, mediaPlan } = renderer.build_frame_ir(frame);
+
   await injectVideoFramesForRender({
-    renderer,
-    frame,
+    mediaPlan,
     quality,
   });
 
@@ -417,7 +419,6 @@ async function renderFrameWithPipeline(
     if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
 
     const ckCanvas = surface.getCanvas();
-    const ir = renderer.build_frame_ir(frame);
     renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
     surface.flush();
     surface.flush();
@@ -471,9 +472,9 @@ function prefetchPreviewVideoFrame(frame: number): void {
 
   try {
     const renderer = getRendererOrThrow();
+    const plan = renderer.get_frame_plan(frame);
     void prefetchVideoFramesForRender({
-      renderer,
-      frame,
+      mediaPlan: plan,
       quality: 'realtime',
     }).catch(() => { /* ignore */ });
   } catch { /* ignore */ }

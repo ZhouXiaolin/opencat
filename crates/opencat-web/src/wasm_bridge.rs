@@ -221,11 +221,12 @@ impl WebRenderer {
         self.audio.current_time()
     }
 
-    /// Core-derived audio schedule for the opened design.
+    /// Core-derived audio schedule for the opened design — **canonical**
+    /// composition-level plan. Hosts must use this for preview/export placement
+    /// instead of treating every audio id as a full-composition track, and must
+    /// not re-traverse the composition tree for segment offsets (issue #47).
     ///
     /// Shape: `{ segments: [{ assetId, startMicros, endMicros, durationMicros }] }`.
-    /// Hosts must use this for preview/export placement instead of treating every
-    /// audio id as a full-composition track (issue #18).
     #[wasm_bindgen]
     pub fn audio_plan(&self) -> Result<String, JsValue> {
         let info = self.info.as_ref().ok_or_else(|| {
@@ -271,6 +272,8 @@ fn srt_text_by_subtitle_id(req: &ResourceRequests) -> HashMap<String, String> {
 }
 
 /// Serialize core [`opencat_core::AudioPlan`] for web preview/export.
+/// Owned by core's [`collect_audio_plan`]; hosts only consume this JSON
+/// and must not re-derive segment offsets (issue #47).
 fn audio_plan_to_json(plan: &opencat_core::AudioPlan) -> String {
     let segments: Vec<Value> = plan
         .segments

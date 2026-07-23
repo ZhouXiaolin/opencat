@@ -99,7 +99,9 @@ impl<C: JsContext> ScriptRealm<C> {
         // depend on wall-clock time. The only time a script should read is
         // ctx.currentTime / ctx.frame, both sourced from FrameCtx.
         self.ctx.eval(
-            "Date.now = function() { return 0; };",
+            "var _Date = Date;\
+             Date = function() { return new _Date(0); };\
+             Date.now = function() { return 0; };",
         )?;
 
         self.ctx.eval(NODE_STYLE_RUNTIME)?;

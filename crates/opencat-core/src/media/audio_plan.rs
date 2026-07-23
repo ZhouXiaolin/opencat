@@ -1,7 +1,17 @@
-//! Composition-level audio schedule derived by core.
+//! **Canonical composition-level audio schedule** derived by core.
 //!
-//! Hosts decode, mix, preview, and export; they must not re-walk the
-//! composition tree to invent timeline / scene / transition offsets.
+//! [`AudioPlan`] is the **sole** canonical audio output at the composition
+//! level. Core derives it purely from the parsed composition tree
+//! (timeline/scene/transition offsets, explicit duration trims) via
+//! [`collect_audio_plan`]. The result lives on
+//! [`CompositionInfo::audio_plan`](crate::ir::CompositionInfo::audio_plan)
+//! for the lifetime of the pipeline.
+//!
+//! **Hosts (Engine / Web) must not re-walk the composition tree** to produce a
+//! second set of audio offsets. They decode, mix, preview, and export using
+//! the canonical `AudioPlan` only. Core reads no bytes, opens no files, and
+//! performs no audio decode — every conversion uses typed microsecond
+//! arithmetic from the composition's frame count and frame rate.
 
 use crate::frame_ctx::FrameCtx;
 use crate::ir::asset_id::{asset_id_for_audio, AssetId};

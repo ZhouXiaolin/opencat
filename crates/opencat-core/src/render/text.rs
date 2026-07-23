@@ -2,9 +2,9 @@ use cosmic_text::Command;
 
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayRect, TextDisplayItem};
+use crate::ir::GeneratedImageId;
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{EncodedPath, FillType, ImageRef, PathOp};
-use crate::ir::GeneratedImageId;
 use crate::script::TextUnitOverride;
 use crate::style::TextAlign;
 use crate::text::{

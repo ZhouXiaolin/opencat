@@ -429,8 +429,7 @@ mod tests {
             "video node paint should be visible at data-start"
         );
 
-        let after_duration_frame =
-            pipeline.render_frame(150).expect("render frame 150");
+        let after_duration_frame = pipeline.render_frame(150).expect("render frame 150");
         assert!(
             !after_duration_frame.media.video_frames.is_empty(),
             "data-duration should not hide the video subtree after it ends"
@@ -461,7 +460,11 @@ mod tests {
         for i in 0..5 {
             let r1 = p1.render_frame(i).expect("render p1");
             let r2 = p2.render_frame(i).expect("render p2");
-            assert_eq!(r1.draw.ops.len(), r2.draw.ops.len(), "frame {i} op count mismatch");
+            assert_eq!(
+                r1.draw.ops.len(),
+                r2.draw.ops.len(),
+                "frame {i} op count mismatch"
+            );
         }
     }
 
@@ -926,16 +929,22 @@ mod tests {
     // the crate-private open helper at the highest render seam
     // (`render_frame -> RenderFrame`) with a host-supplied PreparedResourceCatalog.
 
+    use crate::fonts::FontManifest;
     use crate::ir::asset_id::asset_id_for_image;
     use crate::parse::preflight::collect_resource_requests_from_parsed;
     use crate::parse::primitives::image;
-    use crate::probe::catalog::ImageMeta;
     use crate::probe::PreparedResourceCatalog as ProbeResourceCatalog;
-    use crate::fonts::FontManifest;
+    use crate::probe::catalog::ImageMeta;
 
     /// Build a minimal `ParsedComposition` from a root node, for tests that
     /// drive the pipeline without going through markup/jsonl parsing.
-    fn parsed_from_root(root: crate::Node, width: i32, height: i32, fps: u32, duration: f64) -> crate::parse::ParsedComposition {
+    fn parsed_from_root(
+        root: crate::Node,
+        width: i32,
+        height: i32,
+        fps: u32,
+        duration: f64,
+    ) -> crate::parse::ParsedComposition {
         crate::parse::ParsedComposition {
             width,
             height,
@@ -963,13 +972,9 @@ mod tests {
         assert!(prepared.images.is_empty());
 
         let ctx = NoopJsContext::new().expect("js context");
-        let mut pipeline = DefaultPipeline::open_with_prepared_catalog(
-            parsed,
-            prepared,
-            ctx,
-            test_font_db(),
-        )
-        .expect("open crate-private pipeline");
+        let mut pipeline =
+            DefaultPipeline::open_with_prepared_catalog(parsed, prepared, ctx, test_font_db())
+                .expect("open crate-private pipeline");
 
         let frame = pipeline.render_frame(0).expect("render frame 0");
         assert!(
@@ -998,16 +1003,18 @@ mod tests {
         // Host supplies a catalog with metadata it probed itself. The pipeline
         // must take it as-is rather than running the internal probe path.
         let mut catalog = ProbeResourceCatalog::default();
-        catalog.images.insert(canonical.clone(), ImageMeta { width: 42, height: 17 });
+        catalog.images.insert(
+            canonical.clone(),
+            ImageMeta {
+                width: 42,
+                height: 17,
+            },
+        );
 
         let ctx = NoopJsContext::new().expect("js context");
-        let pipeline = DefaultPipeline::open_with_prepared_catalog(
-            parsed,
-            catalog,
-            ctx,
-            test_font_db(),
-        )
-        .expect("open crate-private pipeline");
+        let pipeline =
+            DefaultPipeline::open_with_prepared_catalog(parsed, catalog, ctx, test_font_db())
+                .expect("open crate-private pipeline");
 
         let stored = pipeline
             .catalog()
@@ -1084,13 +1091,9 @@ mod tests {
         let catalog = crate::probe::PreparedResourceCatalog::default();
 
         let ctx = NoopJsContext::new().expect("js context");
-        let mut pipeline = DefaultPipeline::open_with_prepared_catalog(
-            parsed,
-            catalog,
-            ctx,
-            test_font_db(),
-        )
-        .expect("open");
+        let mut pipeline =
+            DefaultPipeline::open_with_prepared_catalog(parsed, catalog, ctx, test_font_db())
+                .expect("open");
 
         let frame = pipeline.render_frame(0).expect("render text frame");
         assert!(
@@ -1175,7 +1178,7 @@ mod tests {
     /// Host-supplied image metadata (not file reads) drives inspect layout sizes.
     #[test]
     fn inspect_frame_uses_host_catalog_not_file_seed() {
-        use crate::parse::primitives::{div, image, ImageSource};
+        use crate::parse::primitives::{ImageSource, div, image};
 
         let root: crate::Node = div()
             .id("root")
@@ -1191,12 +1194,14 @@ mod tests {
             .into();
         let parsed = parsed_from_root(root, 200, 100, 30, 0.1);
         let mut catalog = crate::probe::PreparedResourceCatalog::default();
-        if let Some(id) =
-            asset_id_for_image(&ImageSource::Path("missing-on-purpose.png".into()))
-        {
-            catalog
-                .images
-                .insert(id, ImageMeta { width: 64, height: 32 });
+        if let Some(id) = asset_id_for_image(&ImageSource::Path("missing-on-purpose.png".into())) {
+            catalog.images.insert(
+                id,
+                ImageMeta {
+                    width: 64,
+                    height: 32,
+                },
+            );
         }
 
         let mut pipeline = DefaultPipeline::open_with_prepared_catalog(

@@ -273,7 +273,8 @@ mod tests {
     fn asset_id_for_image_covers_all_variants() {
         assert_eq!(asset_id_for_image(&ImageSource::Unset), None);
         assert_eq!(
-            asset_id_for_image(&ImageSource::Path("photos/a.png".into())).map(|i| i.as_str().to_owned()),
+            asset_id_for_image(&ImageSource::Path("photos/a.png".into()))
+                .map(|i| i.as_str().to_owned()),
             Some("photos/a.png".to_string()),
         );
         assert_eq!(
@@ -314,7 +315,8 @@ mod tests {
     fn asset_id_for_audio_covers_all_variants() {
         assert_eq!(asset_id_for_audio(&AudioSource::Unset), None);
         assert_eq!(
-            asset_id_for_audio(&AudioSource::Path("/a/m.mp3".into())).map(|i| i.as_str().to_owned()),
+            asset_id_for_audio(&AudioSource::Path("/a/m.mp3".into()))
+                .map(|i| i.as_str().to_owned()),
             Some("audio:path:/a/m.mp3".to_string()),
         );
         assert_eq!(

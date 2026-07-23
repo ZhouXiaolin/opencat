@@ -82,16 +82,6 @@ Before `prepare`, satisfy every `HostRequirements` request:
 | Font | base `font_db` + `insert_document_font(id, bytes)` | Merge faces, family map, shaping db |
 | Script | `insert_script_text(id, source)` for external scripts | Inject into drivers; one realm per pipeline |
 
-Helpers:
-
-```rust
-// Optional pure probe over host-fetched bytes:
-let catalog = opencat_core::build_catalog(&requests, &bytes)?;
-// Fill only ids from requirements:
-inputs.fill_from_prepared_catalog(&requirements, &catalog, &subtitle_texts)?;
-// Document fonts still need insert_document_font separately.
-```
-
 Engine reference: `opencat_engine::pipeline::open` →
 `open_parsed_host_owned_with_fonts`. Web reference: `open_design_pipeline` in
 `crates/opencat-web/src/wasm_bridge.rs`.

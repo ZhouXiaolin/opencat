@@ -106,13 +106,6 @@ Hosts fetch/probe independently, then fill:
 - document font bytes (`insert_document_font`) — core merges into fontdb
 - external script text (`insert_script_text`)
 
-Optional pure helper for hosts that still want core-side header probes:
-
-```rust
-let prepared = build_catalog(&requests, &bytes); // → PreparedResourceCatalog
-// then HostInputs::fill_from_prepared_catalog(...)
-```
-
 ### 2c. Prepare + open
 
 ```rust
@@ -346,8 +339,8 @@ pub fn open_parsed_host_owned(
 ```
 1. `collect_resource_requests_from_parsed()`
 2. **Engine fetches resources** via `EngineLoader` (file system reads with caching)
-3. `build_catalog()` — pure probe
-4. `hydrate_captions()` — pure SRT parse
+3. Host probes metadata from bytes and builds `HostInputs` via `insert_*` methods
+4. `draft.prepare(inputs)` — validates inputs, merges fonts, hydrates captions
 5. `PreparedComposition::open_pipeline()`
 
 ### 7b. Frame Rendering to RGBA
@@ -390,13 +383,13 @@ WebRenderer::open_design(&mut self, source: String) -> Result<String>
 1. `preload_assets(source)` (`crates/opencat-web/src/resource/wasm_api.rs:65`):
    - Downloads all resources (fonts, images, videos, Lottie, subtitles)
    - Stores bytes in thread-local `BlobStore` (keyed by `AssetId`)
-   - Probes metadata via `build_catalog()`
+   - Probes metadata via host-owned probe functions
    - Scans Lottie dependencies recursively
 2. Build font database (default NotoSansSC + NotoColorEmoji + document fonts)
 3. Parse source with font database
 4. `collect_resource_requests_from_parsed()`
-5. `build_catalog()` from `BlobStore` bytes
-6. `hydrate_captions()` from fetched SRT
+5. Build `HostInputs` from host-probed metadata via `insert_*` methods
+6. `draft.prepare(inputs)` — validates inputs, merges fonts, hydrates captions
 7. `PreparedComposition::open_pipeline()`
 
 ### 8b. Frame Rendering → Binary IR
@@ -443,11 +436,11 @@ The `FrameMediaPlan` (returned as JSON by `prepare_frame()`) tells JS which medi
 ### Separation of Concerns
 
 ```
-Core:  ParsedComposition → ResourceRequests → Catalog → Layout → DisplayTree → DrawOpFrame
-Host:  Fetch bytes → Build catalog → Hydrate captions → Font DB → [Pipeline] → Decode → Execute
+Core:  ParsedComposition → ResourceRequests → Layout → DisplayTree → DrawOpFrame
+Host:  Fetch bytes → Probe metadata → Build HostInputs → Font DB → [Pipeline] → Decode → Execute
 ```
 
-Core never does I/O. It declares what resources are needed (`ResourceRequests`), probes metadata from bytes (`build_catalog`), and produces deterministic draw instructions (`DrawOpFrame`). Hosts (engine Skia, web CanvasKit) implement resource fetching, decoding, and pixel pushing independently.
+Core never does I/O. It declares what resources are needed (`ResourceRequests`), validates host-supplied metadata through the explicit lifecycle (`CompositionDraft` → `HostInputs` → `prepare`), and produces deterministic draw instructions (`DrawOpFrame`). Hosts (engine Skia, web CanvasKit) implement resource fetching, probe, and pixel pushing independently.
 
 ### Incremental / Cached Rendering
 
@@ -479,8 +472,8 @@ The `EncodedDrawFrame` format bridges Rust (WASM) and JS/CanvasKit. Instead of J
 | `crates/opencat-core/src/parse/markup/` | XML parser with templates |
 | `crates/opencat-core/src/parse/jsonl/` | JSONL parser |
 | `crates/opencat-core/src/parse/jsonl/tailwind.rs` | Tailwind class → `NodeStyle` |
-| `crates/opencat-core/src/probe/prepare.rs` | `build_catalog()`, `hydrate_captions()` |
-| `crates/opencat-core/src/probe/requests.rs` | `collect_resource_requests_from_parsed()` |
+| `crates/opencat-core/src/probe/prepare.rs` | `hydrate_captions()`, `parse_srt()` |
+| `crates/opencat-core/src/parse/preflight.rs` | `collect_resource_requests_from_parsed()` |
 | `crates/opencat-core/src/resolve/tree.rs` | `resolve_ui_tree()` → `ElementNode` |
 | `crates/opencat-core/src/layout/mod.rs` | `LayoutSession` (Taffy + Merkle cache) |
 | `crates/opencat-core/src/display/build.rs` | `DisplayBuildSession` → `DisplayTree` |

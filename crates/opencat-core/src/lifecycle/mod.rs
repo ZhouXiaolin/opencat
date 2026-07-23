@@ -332,7 +332,10 @@ impl HostInputs {
 }
 
 impl PreparedComposition {
-    pub fn catalog(&self) -> &PreparedResourceCatalog {
+    /// Access the internal catalog. Crate-private — hosts interact with
+    /// resource metadata through the lifecycle API only.
+    #[allow(dead_code)]
+    pub(crate) fn catalog(&self) -> &PreparedResourceCatalog {
         &self.catalog
     }
 

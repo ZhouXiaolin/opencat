@@ -21,7 +21,8 @@ const DEFAULT_ITEM_RANGE_CAP: usize = 128;
 
 /// The core rendering pipeline.
 ///
-/// Pure derivation kernel: host-prepared [`PreparedResourceCatalog`], font db,
+/// Pure derivation kernel: host-supplied resource metadata via
+/// [`HostInputs`](crate::lifecycle::HostInputs), font db,
 /// and parsed composition in; deterministic [`RenderFrame`] out. No loader,
 /// fetcher, cache, or decoder. Production hosts open via
 /// [`crate::lifecycle::PreparedComposition::open_pipeline`].

@@ -110,24 +110,24 @@ describe('opencat.js browser API', () => {
   });
 
   test('build_frame_ir and get_frame_plan each trigger independent compilation', () => {
-    const fn = {
-      buildCount: 0,
-      planCount: 0,
+    let buildCount = 0;
+    let planCount = 0;
+    const fn: Pick<WebRendererInstance, 'build_frame_ir' | 'get_frame_plan'> = {
       build_frame_ir(frame: number) {
-        this.buildCount++;
+        buildCount++;
         return { ir: new Uint8Array([0x4f, 0x43, 0x49, 0x52]), mediaPlan: '{}', frame };
       },
       get_frame_plan(_frame: number) {
-        this.planCount++;
+        planCount++;
         return '{}';
       },
-    } satisfies Pick<WebRendererInstance, 'build_frame_ir' | 'get_frame_plan'>;
+    };
 
     fn.build_frame_ir(0);
     fn.get_frame_plan(0);
     // Each triggers its own pipeline.render_frame call — callers must not assume
     // that get_frame_plan reuses the last build_frame_ir result.
-    expect(fn.buildCount).toBe(1);
-    expect(fn.planCount).toBe(1);
+    expect(buildCount).toBe(1);
+    expect(planCount).toBe(1);
   });
 });

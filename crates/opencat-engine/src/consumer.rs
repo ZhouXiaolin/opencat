@@ -5,7 +5,7 @@ use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
 use opencat_core::ir::media_plan::FrameMediaPlan;
 use opencat_core::ir::GeneratedImageId;
-use opencat_core::resource::asset_id::{AssetId, ResourceKind};
+use opencat_core::ir::asset_id::{AssetId, ResourceKind};
 use skia_safe::{AlphaType, Canvas, ColorType, Data, Image, ImageInfo, RuntimeEffect, images};
 
 use crate::executor::{DrawError, EngineDrawExecutor, EnginePreparedFrameMedia};

@@ -14,7 +14,7 @@ use crate::{
         time::TimelineNode,
         time::{FrameState, frame_state_for_root},
     },
-    probe::catalog::PreparedResourceCatalog,
+    probe::catalog::{PreparedResourceCatalog, VideoInfoMeta},
     resolve::{
         path_bounds,
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
@@ -24,7 +24,6 @@ use crate::{
             ElementTimelineTransition,
         },
     },
-    resource::catalog::VideoInfoMeta,
     script::{ScriptHost, ScriptTargetRegistry, StyleMutations, TextUnitOverrideBatch},
     semantic::fingerprint::compute_element_input_fingerprints,
     style::LengthPercentageAuto,
@@ -614,7 +613,7 @@ fn resolve_lottie(lottie: &Lottie, cx: &mut ResolveContext<'_>) -> Result<Elemen
         let meta =
             cx.assets
                 .lottie_meta(&bundle_id)
-                .unwrap_or(crate::resource::lottie::LottieMeta {
+                .unwrap_or(crate::lottie::LottieMeta {
                     width: 100,
                     height: 100,
                     fps: 30.0,

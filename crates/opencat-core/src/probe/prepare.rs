@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn font_database_is_built_from_host_bytes_core_owns_shaping() {
-        use crate::resource::fonts::{
+        use crate::fonts::{
             FontFaceDecl, FontManifest, FontRole, FontSource, load_faces_into_db,
         };
         let bytes = include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec();

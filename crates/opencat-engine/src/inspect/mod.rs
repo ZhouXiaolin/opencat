@@ -49,7 +49,7 @@ pub fn collect_frame_layout_rects(
     frame_index: u32,
 ) -> Result<Vec<FrameElementRect>> {
     use opencat_core::parse::ParsedComposition;
-    use opencat_core::resource::fonts::FontManifest;
+    use opencat_core::fonts::FontManifest;
 
     let max_frame = composition.frames.max(1).saturating_sub(1);
     let clamped = frame_index.min(max_frame);

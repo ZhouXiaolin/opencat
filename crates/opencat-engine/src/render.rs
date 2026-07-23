@@ -103,7 +103,8 @@ pub fn build_audio_track_from_pipeline(
     let mut mixed_samples = Vec::new();
     let sample_rate: u32 = 48_000;
     let channels: u16 = 2;
-    let total_sample_frames = (info.duration.max(0.0) * sample_rate as f64).ceil() as usize;
+    let frame_count = duration_secs_to_frames(info.duration, info.fps);
+    let total_sample_frames = ((frame_count as u64 * sample_rate as u64) / info.fps as u64) as usize;
     mixed_samples.resize(total_sample_frames * channels as usize, 0.0f32);
 
     for seg in &plan.segments {

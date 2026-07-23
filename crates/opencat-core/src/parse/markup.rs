@@ -185,7 +185,7 @@ use crate::parse::document::{
     ParsedElement, ParsedElementKind, ParsedTransition, build_parsed_document,
 };
 use crate::parse::primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource};
-use crate::resource::fonts::{FontFaceDecl, FontManifest, FontRole, FontSource};
+use crate::fonts::{FontFaceDecl, FontManifest, FontRole, FontSource};
 
 pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
     parse_with_base_dir(input, None)

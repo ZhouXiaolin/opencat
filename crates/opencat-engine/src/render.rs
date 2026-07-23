@@ -347,7 +347,7 @@ mod tests {
     use opencat_core::ir::GeneratedImageId;
     use opencat_core::parse::{ParsedComposition, node::Node};
     use opencat_core::pipeline::Pipeline;
-    use opencat_core::resource::fonts::FontManifest;
+    use opencat_core::fonts::FontManifest;
     use opencat_core::script::js_context::JsContext;
     use skia_safe::Image;
     use std::collections::HashMap;

@@ -6,7 +6,7 @@ use crate::parse::{
     node::Node,
     primitives::{AudioSource, ImageSource, VideoSource},
 };
-use crate::resource::fonts::FontManifest;
+use crate::fonts::FontManifest;
 use crate::style::NodeStyle;
 
 mod builder;

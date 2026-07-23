@@ -27,6 +27,7 @@ export type { AssetReader, AssetReaderResult, WebRendererInstance } from './wasm
 
 export {
   renderEncodedDrawFrame,
+  MediaValidationError,
 } from './draw-ir';
 export type {
   EncodedDrawFrame,
